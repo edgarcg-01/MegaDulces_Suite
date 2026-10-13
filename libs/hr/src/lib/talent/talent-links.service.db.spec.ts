@@ -84,7 +84,7 @@ suite('[RH.2.4] ligas personales contra la base', () => {
         const conSecretoDeSesion = sesion.sign({ t: 'talent_link', cid: id, f: 'cv', tid: TENANT });
         const sinTipo = jwt.sign({ cid: id, f: 'cv', tid: TENANT });
         const vencido = jwt.sign({ t: 'talent_link', cid: id, f: 'cv', tid: TENANT, exp: Math.floor(Date.now() / 1000) - 60 });
-        const otroForm = jwt.sign({ t: 'talent_link', cid: id, f: 'liderazgo', tid: TENANT });
+        const otroForm = jwt.sign({ t: 'talent_link', cid: id, f: 'aptitudes', tid: TENANT }); // un formulario que (todavía) no existe
         r['noAbre'] = [
           await fallo(() => svc.contexto(alterado)), await fallo(() => svc.contexto(conSecretoDeSesion)),
           await fallo(() => svc.contexto(sinTipo)), await fallo(() => svc.contexto(vencido)),
@@ -103,6 +103,56 @@ suite('[RH.2.4] ligas personales contra la base', () => {
         r['papelera'] = [await fallo(() => svc.contexto(token)), await fallo(() => svc.subirCv(token, { files: [{ file_base64: PDF }] })), bucket.size];
         r['crearEnPapelera'] = await fallo(() => svc.crear(id, 'cv'));
 
+        // ── Cuestionario de liderazgo ───────────────────────────────────────────────────────
+        const nuevo = async (o: Record<string, unknown>) => {
+          const [x] = await trx('talent.candidates').insert({ tenant_id: TENANT, full_name: 'Beto Prueba', phone: '3510000000', stage: 'entrevista_rh', ...o }).returning('id');
+          return x.id ?? x;
+        };
+        const ligaDe = async (cid: string) => (await svc.crear(cid, 'liderazgo')).url.split('/empleo/liga/')[1];
+        const contestar = async (tok: string, valor: (n: number) => number) => {
+          let ultimo: unknown = null;
+          for (let n = 1; n <= 12; n++) ultimo = await svc.responderLiderazgo(tok, { num: n, valor: valor(n) });
+          return ultimo as { terminado: boolean; contestadas: number };
+        };
+
+        // Califica (todo 4 = 80%), tiene CV, va en Entrevista Orientación → pasa SOLO a Aptitudes.
+        const bueno = await nuevo({ cv_url: 'https://c/cv.pdf', bot_state: 'completado' });
+        const tb = await ligaDe(bueno);
+        r['lidMensaje'] = /cuestionario de liderazgo/.test((await svc.crear(bueno, 'liderazgo')).mensaje);
+        r['lidMalos'] = [
+          await fallo(() => svc.responderLiderazgo(tb, { num: 13, valor: 3 })),
+          await fallo(() => svc.responderLiderazgo(tb, { num: 1, valor: 6 })),
+          await fallo(() => svc.responderLiderazgo(token, { num: 1, valor: 3 })), // liga de CV (y en papelera)
+        ];
+        await svc.responderLiderazgo(tb, { num: 1, valor: 2 });
+        const ctxLid = await svc.contexto(tb);
+        r['lidRetoma'] = [ctxLid.respuestas?.[1], ctxLid.terminado, 'porcentaje' in (ctxLid as object)];
+        const fin = await contestar(tb, () => 4);
+        const trasLid = await trx('talent.candidates').where({ id: bueno }).first('stage', 'portal_data');
+        const paso = await trx('talent.candidate_stage_transitions').where({ candidate_id: bueno }).first('stage_from', 'stage_to', 'changed_by_name');
+        const notaB = (await trx('talent.candidate_events').where({ candidate_id: bueno }).pluck('note')).find((t: string) => /Contestó el cuestionario/.test(t));
+        r['lidBueno'] = [fin.terminado, trasLid.stage, paso?.stage_from, paso?.stage_to, paso?.changed_by_name,
+          Object.keys((trasLid.portal_data as Record<string, Record<string, number>>)['cuestionarioLiderazgo']).length, /80%.*pasó solo a Aptitudes/.test(notaB ?? '')];
+        // Cerrado: ya no se cambian respuestas.
+        r['lidCerrado'] = [await fallo(() => svc.responderLiderazgo(tb, { num: 1, valor: 1 })), (await svc.contexto(tb)).terminado];
+
+        // No califica (todo 2 = 40%): se queda.
+        const flojo = await nuevo({ cv_url: 'https://c/cv.pdf', bot_state: 'completado' });
+        await contestar(await ligaDe(flojo), () => 2);
+        const notaF = (await trx('talent.candidate_events').where({ candidate_id: flojo }).pluck('note')).find((t: string) => /Contestó el cuestionario/.test(t));
+        r['lidFlojo'] = [(await trx('talent.candidates').where({ id: flojo }).first('stage')).stage, /No llegó al 66%/.test(notaF ?? '')];
+
+        // ⛔ Califica pero SIN CV: no avanza solo (el caso que costó en Mega Talento), y RH ve por qué.
+        const sinCv = await nuevo({ bot_state: 'completado' });
+        await contestar(await ligaDe(sinCv), () => 5);
+        const notaS = (await trx('talent.candidate_events').where({ candidate_id: sinCv }).pluck('note')).find((t: string) => /Contestó el cuestionario/.test(t));
+        r['lidSinCv'] = [(await trx('talent.candidates').where({ id: sinCv }).first('stage')).stage, /no avanza solo: No tiene CV/.test(notaS ?? '')];
+
+        // Ya va más adelante (psicometría): no se le toca aunque califique.
+        const adelante = await nuevo({ cv_url: 'https://c/cv.pdf', stage: 'psicometria' });
+        await contestar(await ligaDe(adelante), () => 5);
+        r['lidAdelante'] = (await trx('talent.candidates').where({ id: adelante }).first('stage')).stage;
+
         throw ROLLBACK;
       });
     } catch (e) { if (e !== ROLLBACK) throw e; } finally { await knex.destroy(); delete process.env['APP_PUBLIC_URL']; }
@@ -119,5 +169,14 @@ suite('[RH.2.4] ligas personales contra la base', () => {
     // En la papelera: 403, y lo subido en el intento fallido NO se queda en el bucket.
     expect(r['papelera']).toEqual(['403', '403', 2]);
     expect(r['crearEnPapelera']).toBe('400');
+    expect(r['lidMensaje']).toBe(true);
+    expect(r['lidMalos']).toEqual(['400', '400', '403']);
+    // Retoma donde se quedó, y el candidato nunca ve su puntaje.
+    expect(r['lidRetoma']).toEqual([2, false, false]);
+    expect(r['lidBueno']).toEqual([true, 'aptitudes', 'entrevista_rh', 'aptitudes', 'sistema (cuestionario de liderazgo)', 12, true]);
+    expect(r['lidCerrado']).toEqual(['409', true]);
+    expect(r['lidFlojo']).toEqual(['entrevista_rh', true]);
+    expect(r['lidSinCv']).toEqual(['entrevista_rh', true]);
+    expect(r['lidAdelante']).toBe('psicometria');
   }, 60_000);
 });

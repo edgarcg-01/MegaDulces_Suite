@@ -3,8 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import type {
-  HrCandidatoEdicion, HrCandidatoFichaDto, HrCasilleroDto, HrDocumentoDto, HrLigaCreadaDto, HrTalentCanal, HrTalentEtapa, HrTalentTipoEvento,
+import {
+  HR_ESTILOS_LIDERAZGO, hrResultadoLiderazgo,
+  type HrCandidatoEdicion, type HrCandidatoFichaDto, type HrCasilleroDto, type HrDocumentoDto, type HrLigaCreadaDto, type HrTalentCanal,
+  type HrTalentEtapa, type HrTalentTipoEvento,
 } from '@megadulces/contracts';
 import { ReclutamientoService } from '../reclutamiento.service';
 import { rhError } from '../rh.service';
@@ -213,7 +215,7 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
                 <p-button label="Copiar" size="small" severity="secondary" [outlined]="true" (onClick)="copiarLiga(l)" />
               </div>
             } @else {
-              <p-button label="Mandar liga para subir su CV" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga()" />
+              <p-button label="Mandar liga para subir su CV" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga('cv')" />
             }
           </div>
         }
@@ -225,6 +227,31 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
               }
             </ul>
           </details>
+        }
+      </section>
+
+      <section class="cf-sec" aria-label="Cuestionario de liderazgo">
+        <h3>Cuestionario de liderazgo</h3>
+        @let l = liderazgo();
+        @if (!l.contestadas) {
+          <p class="cf-nota">No lo ha contestado.</p>
+        } @else if (l.contestadas < l.total) {
+          <p class="cf-nota">Lleva {{ l.contestadas }} de {{ l.total }} preguntas.@if (contestandoAhora()) { <b> Contestando ahora.</b>}</p>
+        } @else {
+          <p><b class="mono">{{ l.porcentaje }}%</b> · {{ l.interpretacion }}</p>
+          <p class="cf-nota">{{ estiloNombre(l.estilo) }} · tarea {{ l.puntajeTarea }}/30 · relaciones {{ l.puntajeRelaciones }}/30
+            @if (l.porcentaje >= 66) { · <span class="pill" data-t="etapa">califica</span> } @else { · no llega al 66% }</p>
+        }
+        @if (gestiona() && !f.deleted_at && l.contestadas < l.total) {
+          @if (ligaLiderazgo(); as ll) {
+            <input class="cf-liga-url" readonly [value]="ll.url" aria-label="Liga del cuestionario" />
+            <div class="cf-fila">
+              @if (ll.whatsapp_url) { <a class="cf-wa" [href]="ll.whatsapp_url" target="_blank" rel="noopener">Mandar por WhatsApp</a> }
+              <p-button label="Copiar" size="small" severity="secondary" [outlined]="true" (onClick)="copiarLiga(ll)" />
+            </div>
+          } @else {
+            <p-button label="Mandar liga del cuestionario" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga('liderazgo')" />
+          }
         }
       </section>
 
@@ -372,6 +399,15 @@ export class RhCandidatoFichaComponent {
   readonly etapaElegida = signal<HrTalentEtapa | null>(null);
   readonly casillero = signal<string | null>(null);
   readonly liga = signal<HrLigaCreadaDto | null>(null);
+  readonly ligaLiderazgo = signal<HrLigaCreadaDto | null>(null);
+  /** El resultado del cuestionario, calculado con el mismo código que usa el servidor para decidir. */
+  readonly liderazgo = computed(() => hrResultadoLiderazgo(
+    (this.ficha().portal_data?.['cuestionarioLiderazgo'] ?? null) as Record<number, number> | null));
+  /** ¿Lo está contestando ahora? (respondió hace menos de 30 s, como en Mega Talento). */
+  readonly contestandoAhora = computed(() => {
+    const t = this.ficha().portal_data?.['ultimaActividadCuestionario'];
+    return typeof t === 'string' && Date.now() - new Date(t).getTime() < 30_000;
+  });
   edicion: HrCandidatoEdicion = {};
   nuevoEvento: { event_type: HrTalentTipoEvento; channel: HrTalentCanal | null; note: string } = { event_type: 'contacto', channel: null, note: '' };
 
@@ -489,11 +525,15 @@ export class RhCandidatoFichaComponent {
     }
   }
 
-  /** `[RH.2.4]` Genera la liga personal para que suba su CV (vence en 7 días). */
-  pedirLiga(): void {
+  estiloNombre(e: keyof typeof HR_ESTILOS_LIDERAZGO): string {
+    return HR_ESTILOS_LIDERAZGO[e].nombre;
+  }
+
+  /** `[RH.2.4]` Genera una liga personal (subir el CV o el cuestionario de liderazgo; vence en 7 días). */
+  pedirLiga(form: 'cv' | 'liderazgo'): void {
     this.ocupado.set(true);
-    this.api.crearLiga(this.ficha().id).subscribe({
-      next: (l) => { this.ocupado.set(false); this.liga.set(l); this.aviso.set(null); },
+    this.api.crearLiga(this.ficha().id, form).subscribe({
+      next: (l) => { this.ocupado.set(false); (form === 'cv' ? this.liga : this.ligaLiderazgo).set(l); this.aviso.set(null); },
       error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo generar la liga.'), mal: true }); },
     });
   }

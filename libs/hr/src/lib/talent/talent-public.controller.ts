@@ -2,7 +2,10 @@ import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '@megadulces/platform-core';
-import type { HrLigaContextoDto, HrLigaCvSubida, HrPostulacionPublica, HrPostulacionResultadoDto, HrVacantePublicaDto } from '@megadulces/contracts';
+import type {
+  HrLiderazgoAvanceDto, HrLiderazgoRespuesta, HrLigaContextoDto, HrLigaCvSubida, HrPostulacionPublica, HrPostulacionResultadoDto,
+  HrVacantePublicaDto,
+} from '@megadulces/contracts';
 import { HrTalentIntakeService } from './talent-intake.service';
 import { HrTalentLinksService } from './talent-links.service';
 
@@ -58,5 +61,15 @@ export class HrTalentPublicController {
   @ApiOperation({ summary: 'Liga personal — subir el CV (un PDF, o dos fotos: frente y reverso).' })
   subirCv(@Param('token') token: string, @Body() b: HrLigaCvSubida): Promise<HrPostulacionResultadoDto> {
     return this.links.subirCv(token, b);
+  }
+
+  /** Una respuesta del cuestionario de liderazgo (se guarda al momento; 12 preguntas). */
+  @Public()
+  @Throttle({ medium: { limit: 20, ttl: 10_000 } })
+  @Post('links/:token/liderazgo')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Liga personal — contestar una pregunta del cuestionario de liderazgo.' })
+  responder(@Param('token') token: string, @Body() b: HrLiderazgoRespuesta): Promise<HrLiderazgoAvanceDto> {
+    return this.links.responderLiderazgo(token, b);
   }
 }

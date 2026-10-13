@@ -394,7 +394,21 @@ que ese formulario necesita (`[RH.2.4]`).
   solicitud larga la arma el bot por chat): el mensaje prometía una página que ya no existía. Aquí se llama por lo
   que es. Pruebas contra la base intentan abrirla alterada, firmada con el secreto de las sesiones, sin el tipo,
   vencida, para otro formulario y con el candidato en la papelera (todas 403), **mutadas a rojo**.
-  **Falta:** las dos evaluaciones (aptitudes, liderazgo) por liga.
+  **🧪 Cuestionario de liderazgo por liga.** Las 12 preguntas, la escala, el cálculo (Grid de Blake y Mouton), el
+  umbral de 66% y los estilos, copiados de Mega Talento a `libs/contracts/src/http/hr-liderazgo.contract.ts`: la página
+  y el servidor usan el mismo código. Cada respuesta se guarda al momento en `portal_data.cuestionarioLiderazgo` (la
+  forma de Mega Talento; RH lo ve «contestando ahora» en la ficha, como allá). Al completar, **el servidor** decide la
+  compuerta 2 → 3: calificó (≥66%), va en Filtro Inicial o Entrevista Orientación, y cumple los mínimos de
+  `requisitos-avance` (CV, registro del bot completo, sin banderas graves del dictamen, puesto abierto) → pasa solo a
+  Aptitudes con su renglón en la bitácora; si no, se queda y la nota dice por qué. ⛔ **En Mega Talento esto lo hacía el
+  NAVEGADOR del candidato, que escribía su propia etapa.** Completo, el cuestionario se cierra (409). El candidato nunca
+  ve su puntaje. La ficha muestra el resultado (%, nivel, estilo, tarea/relaciones). Sin la voz de Azure de Mega
+  Talento. `registrarCambioEtapa` (`talent-etapa.db.ts`) junta el cambio de etapa que usan RH y el avance automático.
+  Pruebas: el cálculo (contratos), los mínimos (puras) y el recorrido contra la base (califica y avanza; no califica;
+  califica sin CV y NO avanza —el caso que costó en Mega Talento—; ya va más adelante; cerrado), **mutadas a rojo**.
+  ⚠️ Al agregarlo se destapó que la prueba de ligas no compilaba (una variable declarada dos veces) y la corrida la
+  omitía sin marcar el conteo de pruebas: se corrigió y ahora se revisa también «Test Files».
+  **Falta:** la evaluación de aptitudes (la llena el jefe que entrevista, con la hoja de competencias por puesto).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
 

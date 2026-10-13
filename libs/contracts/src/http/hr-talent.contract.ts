@@ -295,8 +295,8 @@ export interface HrPostulacionPublica {
 
 // ── Ligas personales (`[RH.2.4]`) ───────────────────────────────────────────────────────────
 
-/** Lo que una liga deja hacer. Hoy sólo subir el CV; las evaluaciones vienen después. */
-export type HrLigaFormulario = 'cv';
+/** Lo que una liga deja hacer: subir el CV, o contestar el cuestionario de liderazgo. */
+export type HrLigaFormulario = 'cv' | 'liderazgo';
 
 /** Lo que recibe RH al generar una liga. */
 export interface HrLigaCreadaDto {
@@ -315,6 +315,23 @@ export interface HrLigaContextoDto {
   puesto: string | null;
   ya_tiene_cv: boolean;
   vence: string | null;
+  /** Cuestionario de liderazgo: lo que ya contestó (para retomar donde se quedó). Nunca el puntaje. */
+  respuestas?: Record<number, number> | null;
+  /** Cuestionario de liderazgo: ya contestó las 12 y quedó cerrado. */
+  terminado?: boolean;
+}
+
+/** Una respuesta del cuestionario de liderazgo. */
+export interface HrLiderazgoRespuesta {
+  num: number;
+  valor: number;
+}
+
+/** Cómo va el cuestionario: sin puntaje (el candidato no ve su resultado). */
+export interface HrLiderazgoAvanceDto {
+  contestadas: number;
+  total: number;
+  terminado: boolean;
 }
 
 /** Subir el CV desde la liga: un PDF, o dos fotos (frente y reverso). */

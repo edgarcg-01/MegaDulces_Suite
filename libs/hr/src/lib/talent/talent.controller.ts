@@ -144,7 +144,7 @@ export class HrTalentController {
 
   @Post('candidates/:id/links')
   @RequirePermissions(Permission.HR_RECRUITMENT_GESTIONAR)
-  @ApiOperation({ summary: 'RH — generar una liga personal (hoy: subir el CV) que vence en 7 días.' })
+  @ApiOperation({ summary: 'RH — generar una liga personal (subir el CV o el cuestionario de liderazgo) que vence en 7 días.' })
   crearLiga(@Param('id') id: string, @Body() b: { form?: string }, @Req() req: { headers?: Record<string, string | undefined> }): Promise<HrLigaCreadaDto> {
     return this.links.crear(id, b?.form ?? 'cv', req?.headers?.['origin']);
   }

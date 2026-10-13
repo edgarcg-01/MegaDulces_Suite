@@ -49,6 +49,31 @@ describe('[RH.2.4] EmpleoLigaComponent', () => {
     expect(c.completo()).toBe(true);
   });
 
+  it('⭐ cuestionario: retoma en la que falta, guarda cada respuesta y al terminar sólo agradece (sin puntaje)', async () => {
+    await abrir((r) => r.flush({ form: 'liderazgo', nombre: 'Ana', puesto: null, ya_tiene_cv: true, vence: null, respuestas: { 1: 3 }, terminado: false }));
+    expect(texto()).toContain('Pregunta 2 de 12');
+    const c = fix.componentInstance;
+    c.responder(2, 4);
+    const req = http.expectOne((r) => r.url.endsWith('/hr/talent/public/links/tok-123/liderazgo'));
+    expect(req.request.body).toEqual({ num: 2, valor: 4 });
+    req.flush({ contestadas: 2, total: 12, terminado: false });
+    fix.detectChanges();
+    expect(texto()).toContain('Pregunta 3 de 12');
+    c.responder(3, 5);
+    http.expectOne((r) => r.url.endsWith('/liderazgo')).flush({ contestadas: 12, total: 12, terminado: true });
+    fix.detectChanges();
+    expect(texto()).toContain('¡Gracias!');
+    expect(texto()).not.toMatch(/\d+%/);
+  });
+
+  it('un cuestionario ya cerrado (409) se muestra como terminado', async () => {
+    await abrir((r) => r.flush({ form: 'liderazgo', nombre: 'Ana', puesto: null, ya_tiene_cv: true, vence: null, respuestas: {}, terminado: false }));
+    fix.componentInstance.responder(1, 3);
+    http.expectOne((r) => r.url.endsWith('/liderazgo')).flush({ message: 'Ya contestaste' }, { status: 409, statusText: 'Conflict' });
+    fix.detectChanges();
+    expect(texto()).toContain('¡Gracias!');
+  });
+
   it('⭐ manda el PDF a la liga y muestra la respuesta', async () => {
     await abrir((r) => r.flush({ form: 'cv', nombre: 'Ana', puesto: null, ya_tiene_cv: false, vence: null }));
     const c = fix.componentInstance;

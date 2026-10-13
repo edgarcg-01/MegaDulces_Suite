@@ -1,7 +1,10 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
-import type { HrLigaContextoDto, HrLigaCvSubida, HrPostulacionResultadoDto } from '@megadulces/contracts';
+import {
+  HR_CUESTIONARIO_LIDERAZGO, HR_NIVELES_LIKERT,
+  type HrLiderazgoAvanceDto, type HrLigaContextoDto, type HrLigaCvSubida, type HrPostulacionResultadoDto,
+} from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MAX_DOCUMENTO_BYTES, leerComoDataUri } from '../reclutamiento-formato';
 
@@ -22,9 +25,13 @@ function errorDe(e: unknown): string {
 }
 
 /**
- * Fase RH · `[RH.2.4]` — la página de una LIGA PERSONAL (`/empleo/liga/:token`). Antes: `/solicitud/:id` de Mega Talento,
- * que abría con el id del candidato. Hoy deja subir el CV —un PDF, o dos fotos (frente y reverso), la regla de Mega
- * Talento—; el servidor vuelve a validar todo.
+ * Fase RH · `[RH.2.4]` — la página de una LIGA PERSONAL (`/empleo/liga/:token`). Antes: `/solicitud/:id` y
+ * `/evaluacion/:id` de Mega Talento, que abrían con el id del candidato. Hace una de dos cosas, según la liga:
+ *   · subir el CV —un PDF, o dos fotos (frente y reverso), la regla de Mega Talento—;
+ *   · el cuestionario de liderazgo —12 preguntas, una a la vez; cada respuesta se guarda al momento (RH puede estar
+ *     viéndolo en la videollamada). El candidato NO ve su puntaje; si califica o no, lo decide el servidor.
+ * Sin la voz de Mega Talento (Azure): queda fuera hasta que RH la pida.
+ * El servidor vuelve a validar todo.
  */
 @Component({
   selector: 'app-empleo-liga',
@@ -40,6 +47,28 @@ function errorDe(e: unknown): string {
         <section class="el-card" role="alert"><h1>No se pudo abrir</h1><p>{{ errorLiga() }}</p></section>
       } @else if (resultado(); as r) {
         <section class="el-card el-ok" role="status" aria-live="polite"><h1>¡Listo!</h1><p>{{ r.mensaje }}</p></section>
+      } @else if (ctx()?.form === 'liderazgo') {
+        @if (terminado()) {
+          <section class="el-card el-ok" role="status" aria-live="polite"><h1>¡Gracias!</h1>
+            <p>Terminaste el cuestionario. Capital Humano de Mega Dulces revisará tus respuestas y te dirá los siguientes pasos.</p></section>
+        } @else if (pregunta(); as q) {
+          <section class="el-card">
+            <h1>Hola{{ ctx()?.nombre ? ' ' + ctx()?.nombre : '' }}</h1>
+            <p class="el-nota">Pregunta {{ paso() + 1 }} de {{ preguntas.length }} · ¿Qué tanto te describe?</p>
+            <div class="el-barra" role="progressbar" [attr.aria-valuenow]="contestadas()" aria-valuemin="0" [attr.aria-valuemax]="preguntas.length">
+              <span [style.width.%]="contestadas() * 100 / preguntas.length"></span>
+            </div>
+            <p class="el-pregunta">{{ q.texto }}</p>
+            <div class="el-likert" role="radiogroup" [attr.aria-label]="'Pregunta ' + q.num">
+              @for (n of niveles; track n.valor) {
+                <button type="button" role="radio" [attr.aria-checked]="respuestas()[q.num] === n.valor" [disabled]="enviando()"
+                        (click)="responder(q.num, n.valor)">{{ n.etiquetaCorta }}</button>
+              }
+            </div>
+            @if (error(); as e) { <p class="el-err" role="alert">{{ e }}</p> }
+            @if (paso() > 0) { <button type="button" class="el-link" (click)="paso.set(paso() - 1)">Pregunta anterior</button> }
+          </section>
+        }
       } @else if (ctx(); as c) {
         <section class="el-card">
           <h1>Hola{{ c.nombre ? ' ' + c.nombre : '' }}</h1>
@@ -90,6 +119,15 @@ function errorDe(e: unknown): string {
     .el-btn:hover:not(:disabled) { background: var(--action-hover); }
     .el-btn:disabled { opacity: .6; cursor: not-allowed; }
     .el-seg button:focus-visible, .el-btn:focus-visible, .el-subir:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .el-barra { height: 6px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }
+    .el-barra span { display: block; height: 100%; background: var(--action); }
+    .el-pregunta { font-size: var(--fs-body); font-weight: 600; line-height: 1.5; }
+    .el-likert { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .el-likert button { min-height: 2.75rem; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: var(--card-bg); color: var(--text-main); font: inherit; text-align: left; cursor: pointer; }
+    .el-likert button[aria-checked='true'] { border-color: var(--action); background: var(--surface-selected-bg); font-weight: 700; }
+    .el-likert button:focus-visible, .el-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .el-link { align-self: flex-start; border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-sm); color: var(--text-muted); text-decoration: underline; cursor: pointer; }
   `],
 })
 export class EmpleoLigaComponent implements OnInit {
@@ -107,6 +145,15 @@ export class EmpleoLigaComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly resultado = signal<HrPostulacionResultadoDto | null>(null);
 
+  // ── Cuestionario de liderazgo ──
+  readonly preguntas = HR_CUESTIONARIO_LIDERAZGO;
+  readonly niveles = HR_NIVELES_LIKERT;
+  readonly respuestas = signal<Record<number, number>>({});
+  readonly paso = signal(0);
+  readonly terminado = signal(false);
+  readonly pregunta = computed(() => this.preguntas[this.paso()] ?? null);
+  readonly contestadas = computed(() => Object.keys(this.respuestas()).length);
+
   /** PDF: uno. Fotos: las dos (regla de Mega Talento). */
   readonly completo = computed(() => {
     const [a, b] = this.archivos();
@@ -120,8 +167,41 @@ export class EmpleoLigaComponent implements OnInit {
   ngOnInit(): void {
     this.token = this.route.snapshot.paramMap.get('token') ?? '';
     this.http.get<HrLigaContextoDto>(`${this.base}/${encodeURIComponent(this.token)}`).subscribe({
-      next: (c) => { this.ctx.set(c); this.cargando.set(false); },
+      next: (c) => {
+        this.ctx.set(c);
+        if (c.form === 'liderazgo') {
+          const r = c.respuestas ?? {};
+          this.respuestas.set(r);
+          this.terminado.set(!!c.terminado);
+          // Retoma en la primera que le falta.
+          const falta = this.preguntas.findIndex((q) => !r[q.num]);
+          this.paso.set(falta < 0 ? this.preguntas.length - 1 : falta);
+        }
+        this.cargando.set(false);
+      },
       error: (e) => { this.errorLiga.set(errorDe(e)); this.cargando.set(false); },
+    });
+  }
+
+  /** Guarda la respuesta al momento y pasa a la siguiente que falte. */
+  responder(num: number, valor: number): void {
+    this.enviando.set(true);
+    this.error.set(null);
+    this.http.post<HrLiderazgoAvanceDto>(`${this.base}/${encodeURIComponent(this.token)}/liderazgo`, { num, valor }).subscribe({
+      next: (a) => {
+        this.enviando.set(false);
+        const r = { ...this.respuestas(), [num]: valor };
+        this.respuestas.set(r);
+        if (a.terminado) { this.terminado.set(true); return; }
+        const sig = this.preguntas.findIndex((q, i) => i > this.paso() && !r[q.num]);
+        const cualquiera = this.preguntas.findIndex((q) => !r[q.num]);
+        this.paso.set(sig >= 0 ? sig : cualquiera >= 0 ? cualquiera : this.paso());
+      },
+      error: (e) => {
+        this.enviando.set(false);
+        if (e instanceof HttpErrorResponse && e.status === 409) { this.terminado.set(true); return; }
+        this.error.set(errorDe(e));
+      },
     });
   }
 

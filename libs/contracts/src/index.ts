@@ -104,6 +104,7 @@ export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
 export * from './http/hr-attendance.contract';
 export * from './http/hr-talent.contract';
+export * from './http/hr-liderazgo.contract';
 // [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
 export * from './http/nuevo-embarque.contract';
 export * from './http/viaticos-guia.contract';

@@ -13,6 +13,7 @@ import {
   DOCUMENTOS_EXPEDIENTE, MAX_DOCUMENTO_BYTES, casilleroDe, entradaNueva, esCasillero, faltantes, llaveDocumento,
   retirar, vigente, type EntradaDocumento,
 } from './logic/expediente';
+import { registrarCambioEtapa } from './talent-etapa.db';
 
 /**
  * Fase RH · `[RH.2.2]` — CANDIDATOS. Traslado de las rutas protegidas de
@@ -258,16 +259,7 @@ export class HrTalentCandidatesService {
       const desde = etapaDe(c.stage_raw);
       if (desde === stage && c.stage_raw === stage) throw new ConflictException('Ya está en esa etapa.');
       const q = this.quien();
-      await trx.raw(`
-        INSERT INTO talent.candidate_stage_transitions
-          (tenant_id, candidate_id, stage_from, stage_to, hours_in_from, changed_by, changed_by_name)
-        SELECT c.tenant_id, c.id, ?, ?,
-               GREATEST(0, EXTRACT(EPOCH FROM (now() - coalesce(
-                 (SELECT max(t.changed_at) FROM talent.candidate_stage_transitions t WHERE t.candidate_id = c.id),
-                 c.created_at))) / 3600),
-               ?, ?
-          FROM talent.candidates c WHERE c.id = ?`, [c.stage_raw ?? ETAPA_INICIAL, stage, q.id, q.nombre, id]);
-      await trx(T).where({ id }).update({ stage, last_activity_at: trx.fn.now(), updated_at: trx.fn.now() });
+      await registrarCambioEtapa(trx, { candidateId: id, desde: c.stage_raw ?? ETAPA_INICIAL, hacia: stage, quienId: q.id, quienNombre: q.nombre });
     });
     return this.ficha(id);
   }

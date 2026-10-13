@@ -71,8 +71,8 @@ export class ReclutamientoService {
     return this.http.post<HrCandidatoFichaDto>(`${this.base}/candidates/${encodeURIComponent(id)}/documents/retire`, { llave, reason });
   }
 
-  /** `[RH.2.4]` Una liga personal para el candidato (hoy: subir su CV), que vence en 7 días. */
-  crearLiga(id: string, form: 'cv' = 'cv'): Observable<HrLigaCreadaDto> {
+  /** `[RH.2.4]` Una liga personal para el candidato (subir su CV o el cuestionario de liderazgo), que vence en 7 días. */
+  crearLiga(id: string, form: 'cv' | 'liderazgo' = 'cv'): Observable<HrLigaCreadaDto> {
     return this.http.post<HrLigaCreadaDto>(`${this.base}/candidates/${encodeURIComponent(id)}/links`, { form });
   }
 
