@@ -2794,6 +2794,103 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(panel).not.toContain('Movimiento del dia');
   });
 
+  /**
+   * ⭐⭐ `[CG.139]` **UN MOVIMIENTO, DOS CAJAS — el selector cambia el DINERO, no las filas.**
+   *
+   * Edgar, tras verlo en pantalla: *"si entró a CAOS no se considera en caja general"*, y después,
+   * corrigiéndome el modelo: *"se asocia a un movimiento de CAOS, pero el dinero que entró a CAOS
+   * y el dinero que entró a caja chica es diferente. Se engloban en movimiento pero se separan en
+   * dinero"*.
+   *
+   * El fixture reproduce el caso real de prod: un cobro de ruta de **$15,542** del que la máquina
+   * se tragó **$15,510 en billetes** y al cajón llegaron **$32 de morralla**, más un depósito que
+   * un vendedor hizo DIRECTO al cajero (100% bóveda, 0 al cajón).
+   */
+  describe('[CG.139] el reparto entre el cajón y la bóveda', () => {
+    const CON_REPARTO = {
+      ...ARQUEO,
+      movimientos_del_dia: [
+        // El que se PARTE. Esto es lo que una bandera por movimiento no puede representar.
+        {
+          id: 'm1', folio: 'CI-1', hora: '10:00', tipo: 'ingreso' as const, monto: 15542,
+          en_boveda: 15510, en_cajon: 32, beneficiario: 'Ruta 006', documento: null,
+          concepto: 'ABONO A CLIENTES', cuenta: '115', estado: 'registrado',
+          origen: 'cobro', quien: 'cajera',
+        },
+        // El que entró DIRECTO a la máquina: nunca tocó el cajón.
+        {
+          id: 'm2', folio: 'CI-2', hora: '11:00', tipo: 'ingreso' as const, monto: 20000,
+          en_boveda: 20000, en_cajon: 0, beneficiario: 'Vendedor (003)', documento: 'CAOS #1590',
+          concepto: 'ABONO A CLIENTES', cuenta: '115', estado: 'registrado',
+          origen: 'caos', quien: 'sistema',
+        },
+        // Un gasto pagado con efectivo del cajón, para que el pie tenga los dos lados.
+        {
+          id: 'm3', folio: 'CG-1', hora: '12:00', tipo: 'gasto' as const, monto: 500,
+          en_boveda: 0, en_cajon: 500, beneficiario: 'Papelería', documento: null,
+          concepto: 'PAPELERIA', cuenta: '607', estado: 'registrado',
+          origen: null, quien: 'cajera',
+        },
+      ],
+    };
+
+    const montar = () => montarJornada({ arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
+
+    it('⭐ en «Caja general» suma SÓLO la morralla del cobro, no sus billetes', () => {
+      montar();
+      expect(comp.dondeEntro()).toBe('cajon');   // arranca en el tema de la pantalla
+      // 32 de morralla + 0 del depósito directo. ⛔ Si sumara los montos enteros daría 35,542:
+      // $35,510 que están dentro de una máquina, publicados como caja general.
+      expect(comp.totalHistorial().ingresos).toBe(32);
+      expect(comp.totalHistorial().gastos).toBe(500);
+      expect(comp.totalHistorial().neto).toBe(-468);
+    });
+
+    it('⭐ en «Se fue a CAOS» suma los billetes, incluido el del cobro que se partió', () => {
+      montar();
+      comp.dondeEntro.set('boveda');
+      expect(comp.totalHistorial().ingresos).toBe(35510);   // 15,510 + 20,000
+      expect(comp.totalHistorial().gastos).toBe(0);
+    });
+
+    it('en «Todo» vuelve el monto entero, y las tres vistas cierran: cajón + bóveda = todo', () => {
+      montar();
+      comp.dondeEntro.set('todo');
+      const todo = comp.totalHistorial().ingresos;
+      expect(todo).toBe(35542);
+      comp.dondeEntro.set('cajon');
+      const cajon = comp.totalHistorial().ingresos;
+      comp.dondeEntro.set('boveda');
+      // ⭐ La conservación, del lado del front: lo que se reparte no se crea ni se pierde.
+      expect(cajon + comp.totalHistorial().ingresos).toBe(todo);
+    });
+
+    it('⛔ [negativa] el selector NO esconde renglones: el cobro sale en las TRES vistas', () => {
+      // Esconderlo en «Caja general» sería tan falso como mostrarlo entero: el cobro ESTÁ en las
+      // dos cajas. Si alguien vuelve a filtrar filas, esta cuenta cambia y la prueba se cae.
+      const fx = montar();
+      for (const v of ['cajon', 'boveda', 'todo'] as const) {
+        comp.dondeEntro.set(v);
+        fx.detectChanges();
+        expect(fx.nativeElement.textContent).toContain('CI-1');
+      }
+    });
+
+    it('⛔ [negativa] sin el reparto del API no dibuja un cero: cae al monto entero', () => {
+      // Un deploy parcial (API vieja, front nuevo) no manda `en_cajon`. Un 0 ahí afirmaría que al
+      // cajón no llegó nada, que es una afirmación — y falsa. Se muestra lo que sí se sabe.
+      montarJornada({
+        arqueoDia: vi.fn(() => of({
+          ...ARQUEO,
+          movimientos_del_dia: [{
+            ...CON_REPARTO.movimientos_del_dia[0], en_boveda: undefined, en_cajon: undefined,
+          }],
+        } as never)),
+      });
+      expect(comp.totalHistorial().ingresos).toBe(15542);
+    });
+  });
+
   it('⛔ [negativa] sin cajero en la sucursal NO pinta ceros: pinta el motivo', () => {
     const fx = montarJornada({
       arqueoDia: vi.fn(() => of({
