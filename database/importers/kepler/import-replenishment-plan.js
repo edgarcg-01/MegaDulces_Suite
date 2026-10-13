@@ -408,6 +408,85 @@ const cte = (hist, tr, lead) => `
             LEFT JOIN commercial.product_aliases al ON al.tenant_id=pd.tenant_id AND al.alias_product_id=pd.product_id AND al.deleted_at IS NULL
             LEFT JOIN rmap rm ON rm.route_wh = pd.warehouse_id
            WHERE pd.tenant_id=$1 AND pd.window_days=30 GROUP BY 1,2),
+  -- [AB.17] FRENO DE FIN DE PICO. La demanda es el promedio de 30 dias, y despues de un pico esa
+  -- ventana lo sigue cargando hasta un mes: el bombon 70012 en La Piedad vendia 2-10 piezas al dia,
+  -- pico de 144 el 2-oct, de vuelta a 2-8 desde el 5-oct, y el motor seguia con 31.6 al dia (pedia
+  -- 46 cajas). La temporalidad no lo corrige: es de RED (0.848) y tiene piso de 0.5.
+  -- CRITERIO DE NEGOCIO (Francisco, 2026-10-12): el freno aplica SOLO despues de un PICO REAL --
+  -- cualquier cosa que altere el ritmo semanal: promocion (Canels 5+1), oferta extraordinaria,
+  -- temporada, una venta grande y unica -- y NUNCA cuando la venta cayo porque la existencia llego a
+  -- 0 o casi 0: eso no es fin de pico, es VENTA NEGADA (fase DN), y frenarlo pediria menos justo
+  -- cuando falta (agua 59108 por empaque, 17085 y 20606 por agotado de origen).
+  -- Se frena cuando, en semanas COMPLETAS hasta ayer y medido en PESOS (inmune a la unidad):
+  --   1. venta REGULAR: vendio en 6 o mas de las 8 semanas previas (semanas 5-12 hacia atras);
+  --   2. hubo PICO: alguna de las ultimas 4 semanas vendio MAS de 2x su nivel normal (nivel
+  --      normal = MEDIANA semanal de las semanas 5-12: no se deja arrastrar por un pico viejo);
+  --   3. el pico INFLO el promedio: la venta de 30 dias quedo 1.5x o mas arriba del normal;
+  --   4. el pico YA PASO: la ultima semana vende menos del 40% de la semana pico;
+  --   5. NO falto mercancia: en 6 o mas de los ultimos 7 dias tuvo existencia para 3 dias de su
+  --      venta normal (foto diaria analytics.stock_snapshots, AB.0b, con cobertura 6+ dias).
+  -- Entonces la demanda baja a lo MAYOR entre la ultima semana y el nivel normal:
+  -- razon = GREATEST(r7, normal) / r30, que reemplaza a la temporalidad si es menor.
+  -- Las rutas se miden con su sucursal madre (rmap), igual que la demanda. Se suelta solo.
+  -- Todo MATERIALIZED: suelto, el planificador lo mezclaba con el plan y pasaba de 60 s.
+  -- Medido en prod 2026-10-12 (prototipo): ~3.4 s, 746 pares frenados, 241 con pico pero sin
+  -- mercancia (no se frenan). SIN ACENTOS GRAVES: va dentro de un template literal.
+  fp_d AS MATERIALIZED (
+    SELECT COALESCE(al.canonical_product_id, sd.product_id) AS product_id,
+           COALESCE(rm.home_wh, sd.warehouse_id) AS warehouse_id,
+           sd.sale_date::date AS f, sum(sd.revenue) AS rev, sum(sd.units) AS u
+      FROM analytics.sales_daily sd
+      LEFT JOIN commercial.product_aliases al ON al.tenant_id=sd.tenant_id AND al.alias_product_id=sd.product_id AND al.deleted_at IS NULL
+      LEFT JOIN rmap rm ON rm.route_wh = sd.warehouse_id
+     WHERE sd.tenant_id=$1 AND sd.sale_date >= CURRENT_DATE - 91 AND sd.sale_date < CURRENT_DATE
+     GROUP BY 1,2,3),
+  fp_wk AS MATERIALIZED (
+    SELECT warehouse_id, product_id, ((CURRENT_DATE - f) - 1) / 7 AS semana, sum(rev) AS rev, sum(u) AS u
+      FROM fp_d GROUP BY 1,2,3),
+  fp_g AS MATERIALIZED (SELECT DISTINCT warehouse_id, product_id FROM fp_wk WHERE semana BETWEEN 0 AND 3),
+  fp_base AS MATERIALIZED (
+    SELECT g.warehouse_id, g.product_id,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(w.rev, 0)) / 7.0 AS b_rev,
+           percentile_cont(0.5) WITHIN GROUP (ORDER BY COALESCE(w.u, 0)) / 7.0 AS b_u,
+           count(*) FILTER (WHERE COALESCE(w.rev, 0) > 0) AS semanas_con_venta
+      FROM fp_g g
+     CROSS JOIN generate_series(5, 12) s(semana)
+      LEFT JOIN fp_wk w ON w.warehouse_id = g.warehouse_id AND w.product_id = g.product_id AND w.semana = s.semana
+     GROUP BY 1,2),
+  fp_rec AS MATERIALIZED (
+    SELECT warehouse_id, product_id,
+           max(rev) FILTER (WHERE semana BETWEEN 0 AND 3) / 7.0 AS p7,
+           COALESCE(sum(rev) FILTER (WHERE semana = 0), 0) / 7.0 AS r7
+      FROM fp_wk GROUP BY 1,2),
+  fp_r30 AS MATERIALIZED (
+    SELECT warehouse_id, product_id, sum(rev) / 30.0 AS r30 FROM fp_d WHERE f >= CURRENT_DATE - 30 GROUP BY 1,2),
+  fp_cob AS MATERIALIZED (
+    SELECT warehouse_id, count(DISTINCT fecha_corte) AS dias
+      FROM analytics.stock_snapshot_coverage
+     WHERE tenant_id=$1 AND fecha_corte >= CURRENT_DATE - 7 AND fecha_corte < CURRENT_DATE
+     GROUP BY 1),
+  fp_cand AS MATERIALIZED (
+    SELECT b.warehouse_id, b.product_id, b.b_rev, b.b_u, r.p7, r.r7, x.r30
+      FROM fp_base b
+      JOIN fp_rec r ON r.warehouse_id = b.warehouse_id AND r.product_id = b.product_id
+      JOIN fp_r30 x ON x.warehouse_id = b.warehouse_id AND x.product_id = b.product_id
+     WHERE b.b_rev > 0 AND b.b_u > 0 AND b.semanas_con_venta >= 6
+       AND r.p7 > 2 * b.b_rev
+       AND x.r30 >= 1.5 * b.b_rev
+       AND r.r7 < 0.4 * r.p7
+       AND x.r30 > GREATEST(r.r7, b.b_rev)),
+  fp_stk AS MATERIALIZED (
+    SELECT s.warehouse_id, s.product_id, count(DISTINCT s.fecha_corte) AS dias
+      FROM analytics.stock_snapshots s
+      JOIN fp_cand c ON c.warehouse_id = s.warehouse_id AND c.product_id = s.product_id
+     WHERE s.tenant_id=$1 AND s.fecha_corte >= CURRENT_DATE - 7 AND s.fecha_corte < CURRENT_DATE
+       AND s.unidades >= 3 * c.b_u
+     GROUP BY 1,2),
+  fpico AS MATERIALIZED (
+    SELECT c.warehouse_id, c.product_id, GREATEST(c.r7, c.b_rev) / c.r30 AS razon
+      FROM fp_cand c
+      JOIN fp_cob cob ON cob.warehouse_id = c.warehouse_id AND cob.dias >= 6
+      JOIN fp_stk k ON k.warehouse_id = c.warehouse_id AND k.product_id = c.product_id AND k.dias >= 6),
   -- ADR-055 — la existencia se DERIVA del ODS, ya no se lee la copia \`commercial.stock\`.
   -- Medido contra el POS en vivo (2026-09-02): la vista acierta 100.0% y la copia 91.0% (15,324
   -- unidades de error), porque el importer de la copia es delta contra un snapshot en disco que se
@@ -548,8 +627,11 @@ const PROJECT = `
                 WHEN e.uxc > 1 AND e.ratio >= 3 AND (e.ratio/e.uxc < 0.5 OR e.ratio/e.uxc > 2) THEN 'revisar'
                 ELSE 'catalog' END AS unit_source,
            e.buy_rate, e.real_cost AS real_buy_cost, e.last_purchase, e.order_days, e.primary_wh,
-           round(se.season_ratio::numeric, 3) AS season_ratio,
-           se.season_src,
+           -- [AB.17] El freno de fin de pico (CTE fpico) reemplaza a la temporalidad cuando es menor.
+           round((CASE WHEN fp.razon IS NOT NULL THEN LEAST(COALESCE(se.season_ratio, 1), fp.razon)
+                       ELSE se.season_ratio END)::numeric, 3) AS season_ratio,
+           CASE WHEN fp.razon IS NOT NULL AND fp.razon < COALESCE(se.season_ratio, 1) THEN 'fin_pico'
+                ELSE se.season_src END AS season_src,
            round(sa.safety_pct_q::numeric, 3) AS safety_pct_q,
            round(COALESCE(sl.lead_d, lg.lead_d)::numeric, 1) AS lead_days,
            -- U.2 — ver el CTE rung. NULL = sin veredicto en contra = se puede valuar.
@@ -567,6 +649,7 @@ const PROJECT = `
       LEFT JOIN tr_eff t   ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
       LEFT JOIN child_dem cd ON cd.hub = b.warehouse_id AND cd.product_id = b.product_id
       LEFT JOIN season se  ON se.product_id = b.product_id
+      LEFT JOIN fpico fp   ON fp.warehouse_id = b.warehouse_id AND fp.product_id = b.product_id
       LEFT JOIN saf sa     ON sa.product_id = b.product_id
       LEFT JOIN lead sl    ON sl.supplier_id = e.supplier_id
       LEFT JOIN lead lg    ON lg.supplier_id IS NULL`;
