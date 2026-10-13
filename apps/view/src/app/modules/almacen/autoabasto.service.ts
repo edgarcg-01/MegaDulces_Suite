@@ -101,6 +101,13 @@ export interface AutoabastoRow {
    */
   avg_daily_units: number | null;
   /**
+   * `[AB.15]` Venta de los últimos 30 días en CAJAS, con la misma cuenta que la columna «V30d»
+   * de /compras/pedido. `null` = el producto no está en el plan de reabasto (no «vendió 0»).
+   */
+  venta_30d?: number | null;
+  /** `[AB.15]` Temporalidad que multiplica la demanda del objetivo; 1 = sin ajuste. */
+  season_ratio?: number | null;
+  /**
    * `[AB.13]` Lugar del producto por venta en $ dentro del almacén (#1 = el que más vende).
    * **`null` = no vendió en el periodo medido.** Es la señal de «sin venta» confiable:
    * `avg_daily_units` llega redondeado a 2 decimales en cajas y una venta chica sale 0.00.

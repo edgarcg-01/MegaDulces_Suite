@@ -46,7 +46,8 @@ import {
  * en_tránsito = 0 hasta RA.5 (feed de OC a recibir).
  */
 
-type TargetBasis = 'min' | 'reorder' | 'max' | 'cadence';
+// `[AB.15]` 'demanda' = el objetivo de /compras/pedido (venta 30 d × temporalidad × cobertura).
+type TargetBasis = 'min' | 'reorder' | 'max' | 'cadence' | 'demanda';
 type Bucket = 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
 
 /** `[RA.PM]` Un veredicto de la autopsia, con su dinero. */
@@ -383,7 +384,13 @@ export interface RequisitionListDto {
 
 export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
-const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence'];
+const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence', 'demanda'];
+/**
+ * `[AB.15]` Días de cobertura de la base 'demanda'. Es el MISMO default que usa `workbook()`
+ * (`coverage_days || 30`), que es lo que ve el comprador en /compras/pedido: decisión de
+ * Francisco (2026-10-12) — el almacenista pide con el mismo horizonte que el comprador.
+ */
+const COBERTURA_DEMANDA_DIAS = 30;
 const BUCKETS: Bucket[] = ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'];
 /** `[AB.14]` Las acciones de la mesa, en el orden en que las resuelve `accionExpr()`. */
 const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] as const;
@@ -659,7 +666,32 @@ export class CommercialReplenishmentService {
     return BASES.includes(v as TargetBasis) ? (v as TargetBasis) : 'max';
   }
   private targetCol(b: TargetBasis): string {
+    if (b === 'demanda') return this.demandTarget();
     return b === 'min' ? 'rp.min_stock' : b === 'reorder' ? 'rp.reorder_point' : 'rp.max_stock';
+  }
+
+  /**
+   * `[AB.15]` El objetivo de /compras/pedido, en la unidad NATIVA del almacén (la de `oh`).
+   *
+   * `workbook()` calcula el pedido en CAJAS por celda como
+   *     venta_diaria × temporalidad × cobertura ÷ (SUF × BF)  −  existencia ÷ DBF
+   * con SUF = suf, BF = bf y DBF = display_bf ?? bf, todos de `analytics.replenishment_plan`.
+   * Acá se devuelve el primer término multiplicado por DBF, para que al restarle `oh` y dividir
+   * entre el factor del almacén salga la MISMA cantidad en cajas que ve el comprador. Se copian
+   * los COALESCE de `workbook()` tal cual: si divergieran, las dos pantallas volverían a decir
+   * cosas distintas del mismo producto, que es justo lo que esta base existe para evitar.
+   *
+   * Lo que `workbook()` aplica y esto NO:
+   *  · el factor de cumplimiento del proveedor (FILLF, RA-DYN.U7): infla la COMPRA porque el
+   *    proveedor surte de menos; es una corrección del comprador, no una necesidad del almacén;
+   *  · retener el renglón cuando el peldaño está contradicho (RUNG_OK): acá la cantidad se sigue
+   *    mostrando y sólo el $ se retiene (`rungMedible()`), como en el resto de la mesa.
+   *
+   * Requiere `rpl` (analytics.replenishment_plan) joineado.
+   */
+  private demandTarget(): string {
+    return `(COALESCE(rpl.daily_pieces, 0) * COALESCE(rpl.season_ratio, 1) * ${COBERTURA_DEMANDA_DIAS}
+             / (COALESCE(rpl.suf, 1) * COALESCE(rpl.bf, 1)) * COALESCE(rpl.display_bf, rpl.bf, 1))`;
   }
   /**
    * RA.12 — los almacenes sobre los que corre la consulta, en uuid.
@@ -689,7 +721,23 @@ export class CommercialReplenishmentService {
   }
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
-  private onHand() { return '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))'; }
+  /**
+   * La existencia disponible, en la unidad nativa del almacén.
+   *
+   * `[AB.15]` Dos fuentes, y la base del objetivo decide cuál:
+   *  · `'stock'` (Compras, default): la copia `commercial.stock` menos lo reservado.
+   *  · `'plan'` (base 'demanda' de Autoabasto): `analytics.replenishment_plan.stock_pz`, que es lo
+   *    que lee `workbook()` en /compras/pedido. Sale de la vista `v_erp_stock_on_hand` (ODS de
+   *    Kepler) y toma el CEDIS 00 sólo desde su corte a Kepler (30-sep-2026). La copia, en cambio,
+   *    se quedó con la foto de Wincaja del CEDIS del 29-sep (196 renglones, medido 2026-10-12): con
+   *    ella el almacenista y el comprador veían existencias distintas del mismo CEDIS.
+   * Con `'plan'` la query tiene que joinear `rpl`.
+   */
+  private onHand(fuente: 'stock' | 'plan' = 'stock') {
+    return fuente === 'plan'
+      ? '(COALESCE(rpl.stock_pz,0))'
+      : '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
+  }
   // Factor de caja POR ALMACÉN, para mostrar cantidades en la unidad más grande (la caja). Los
   // almacenes de Wincaja guardan la existencia en SU unidad de venta (el paquete en multi-pack),
   // no en la unidad base como Kepler → dividir por el resolver canónico (c84) daba cajas ~10× bajas.
@@ -800,8 +848,7 @@ export class CommercialReplenishmentService {
   private monthlyRevenue() {
     return 'ROUND(COALESCE(ih.avg_daily_units,0) * 30 * COALESCE(pr.cost_with_tax,0) * (1 + COALESCE(pr.markup_pct,0)/100.0), 2)';
   }
-  private bucketExpr() {
-    const oh = this.onHand();
+  private bucketExpr(oh: string = this.onHand()) {
     return `CASE
       WHEN ${oh} <= 0 THEN 'agotado'
       WHEN ${oh} <= rp.min_stock THEN 'bajo_minimo'
@@ -847,8 +894,7 @@ export class CommercialReplenishmentService {
    * de la pantalla. Usa los alias del método que la llama (rp, s, rpl y, con cadencia, pr/rc/sup/ih):
    * dentro de la tabla derivada no chocan con los de afuera.
    */
-  private networkSurplus(trx: Knex.Transaction, tenantId: string, target: string, cadence: boolean) {
-    const oh = this.onHand();
+  private networkSurplus(trx: Knex.Transaction, tenantId: string, target: string, cadence: boolean, oh: string = this.onHand()) {
     const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
     const sug = `GREATEST(0, ${target} - ${oh} - ${this.transitDescuento()})`;
     // El objetivo por cadencia lee el canal, el proveedor y la demanda: sólo se pagan esos joins
@@ -914,8 +960,7 @@ export class CommercialReplenishmentService {
    * allá o el conteo revienta con "missing FROM-clause entry". Revienta, no miente -- que es
    * justamente lo que se quiere.
    */
-  private criticalFilters(b: any, q: CriticalStockQuery, tenantId: string, whIds: string[] | null): boolean {
-    const oh = this.onHand();
+  private criticalFilters(b: Knex.QueryBuilder, q: CriticalStockQuery, tenantId: string, whIds: string[] | null, oh: string = this.onHand()): boolean {
     b.where('rp.tenant_id', tenantId)
       .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
 
@@ -934,7 +979,7 @@ export class CommercialReplenishmentService {
     }
     // Filtro por bucket / scope
     if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
-      b.andWhereRaw(`${this.bucketExpr()} = ?`, [q.bucket]);
+      b.andWhereRaw(`${this.bucketExpr(oh)} = ?`, [q.bucket]);
     } else if (q.scope !== 'all' && !ACCIONES_FUERA_DE_CRITICO.includes(q.accion ?? '')) {
       b.andWhereRaw(`${oh} <= rp.reorder_point`); // default: crítico (≤ punto de reorden)
     }
@@ -946,7 +991,9 @@ export class CommercialReplenishmentService {
   async criticalStock(q: CriticalStockQuery, area: string = AREA): Promise<CriticalStockPage> {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
-    const oh = this.onHand();
+    // `[AB.15]` Con la base 'demanda' (Autoabasto) la existencia también es la de Compras.
+    const comoCompras = basis === 'demanda';
+    const oh = this.onHand(comoCompras ? 'plan' : 'stock');
     const it = this.transitDescuento();      // lo que se RESTA (hoy: nada — ver transito.ts)
     const itShow = this.transitMostrado();   // lo que se MUESTRA: el papel, por folio
     const cf = this.cajaFactor(); // divisor por-almacén para MOSTRAR cantidades en cajas (display only)
@@ -1013,14 +1060,14 @@ export class CommercialReplenishmentService {
         .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
           j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
         // RA-PRO.16 — SUPERÁVIT DE RED por producto, y [AB.12] lo que la red le PIDE. Ver networkSurplus().
-        .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence'),
+        .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence', oh),
           (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
         .leftJoin(rankSub, (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'));
 
-      const abcPedido = this.criticalFilters(base, q, tenantId, whIds);
+      const abcPedido = this.criticalFilters(base, q, tenantId, whIds, oh);
 
       // ⭐ [RA-PERF.2] El CONTEO se arma con las relaciones que los filtros TOCAN, y nada más.
       //
@@ -1058,6 +1105,13 @@ export class CommercialReplenishmentService {
       // la cifra no cambia (el candado test-newdb-critical-stock-count.js vigila que no dupliquen).
       const accion = (ACCIONES as readonly string[]).includes(q.accion ?? '') ? q.accion! : null;
       if (accion) base.andWhereRaw(`${this.accionExpr(sug, surH, tin)} = ?`, [accion]);
+      // `[AB.15]` Con la base 'demanda', la vista por defecto lista SÓLO lo que tiene algo que pedir.
+      // El recorte crítico (existencia ≤ reorden) sale de la tabla de reorden, y con el objetivo de
+      // Compras deja pasar renglones con Falta 0: medido en La Piedad (2026-10-12), 1,155 de 2,003,
+      // y 1,142 de ésos sin una venta en 30 días. Siguen a la vista con «Acción = En política».
+      const soloConFalta = !accion && basis === 'demanda' && q.scope !== 'all'
+        && !(q.bucket && BUCKETS.includes(q.bucket as Bucket));
+      if (soloConFalta) base.andWhereRaw(`${sug} > 0`);
 
       const conteo = trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
@@ -1067,12 +1121,17 @@ export class CommercialReplenishmentService {
         conteo.leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'));
       }
-      this.criticalFilters(conteo, q, tenantId, whIds);
-      if (accion) {
+      // `[AB.15]` `rpl` entra ANTES de los filtros cuando lo nombra la existencia (base 'demanda'),
+      // la acción o el recorte por Falta. Una sola vez: dos joins con el mismo alias revientan.
+      if (comoCompras || accion || soloConFalta) {
         conteo
           .leftJoin('analytics.replenishment_plan as rpl', (j) =>
-            j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
-          .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence'),
+            j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'));
+      }
+      this.criticalFilters(conteo, q, tenantId, whIds, oh);
+      if (accion) {
+        conteo
+          .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence', oh),
             (j: Knex.JoinClause) => j.on('sbp.product_id', 'rp.product_id'));
         if (basis === 'cadence') {
           conteo
@@ -1083,6 +1142,9 @@ export class CommercialReplenishmentService {
               j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'));
         }
         conteo.andWhereRaw(`${this.accionExpr(sug, surH, tin)} = ?`, [accion]);
+      } else if (soloConFalta) {
+        // `sug` con la base 'demanda' sólo nombra `rp`, `s` y `rpl` (objetivo y tránsito).
+        conteo.andWhereRaw(`${sug} > 0`);
       }
 
       const totalRow: any = await conteo.count('* as c').first();
@@ -1136,6 +1198,14 @@ export class CommercialReplenishmentService {
           trx.raw('rp.policy_method AS policy_method'),
           trx.raw('rp.lead_time_days AS lead_time_days'),
           trx.raw(`ROUND(ih.avg_daily_units / (${cf}), 2) AS avg_daily_units`),
+          // `[AB.15]` La venta de 30 días en CAJAS, con la MISMA cuenta que la columna «V30d» de
+          // /compras/pedido (`workbook()`: venta_diaria × 30 ÷ (SUF × BF)). NULL = el producto no
+          // está en el plan de reabasto (sin venta ni existencia medidas), que no es «vendió 0».
+          trx.raw(`CASE WHEN rpl.product_id IS NOT NULL
+                        THEN ROUND((COALESCE(rpl.daily_pieces, 0) * 30 / (COALESCE(rpl.suf, 1) * COALESCE(rpl.bf, 1)))::numeric, 1)
+                   END AS venta_30d`),
+          // `[AB.15]` La temporalidad que multiplica la demanda (1 = sin ajuste).
+          trx.raw('ROUND(rpl.season_ratio::numeric, 3) AS season_ratio'),
           // RA-PRO.9 — contexto de canal/ciclo (para columnas y para que el detalle case con Qué Toca)
           trx.raw('rc.via AS replenish_via'),
           trx.raw('rc.cadence_days AS cadence_days'),
@@ -1155,7 +1225,7 @@ export class CommercialReplenishmentService {
 
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
-          trx.raw(`${this.bucketExpr()} AS bucket`),
+          trx.raw(`${this.bucketExpr(oh)} AS bucket`),
           trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) / (${cf}), 1) AS suggested_qty`),
           // U.2 — el $ del sugerido sólo si el costo de compra NO contradice el peldaño de la
           // cantidad. NULL = "no se está midiendo"; el veredicto viaja en la fila para declararlo.
@@ -1190,7 +1260,7 @@ export class CommercialReplenishmentService {
             // inflado justamente por eso) encabeza la lista del comprador con una cifra retenida.
             qb.orderByRaw(`(${this.rungMedible()}) DESC`)
               .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC NULLS LAST`)
-              .orderByRaw(`CASE ${this.bucketExpr()}
+              .orderByRaw(`CASE ${this.bucketExpr(oh)}
                   WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
               .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`);
           }
@@ -1252,7 +1322,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const target = this.targetCol(basis);
-    const oh = this.onHand();
+    // `[AB.15]` Mismo criterio que criticalStock(): con la base 'demanda' la existencia es la de Compras.
+    const oh = this.onHand(basis === 'demanda' ? 'plan' : 'stock');
     const it = this.transitDescuento();
     return this.tk.run(async (trx) => {
       const base = trx('commercial.reorder_policy as rp')
@@ -1273,7 +1344,7 @@ export class CommercialReplenishmentService {
         .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
           j.on('euc.tenant_id', 'rp.tenant_id').andOn('euc.warehouse_id', 'rp.warehouse_id').andOn('euc.product_id', 'rp.product_id'))
         // RA-PRO.16 / [AB.12] — superávit de red y lo que la red le pide. Ver networkSurplus().
-        .leftJoin(this.networkSurplus(trx, tenantId, target, false),
+        .leftJoin(this.networkSurplus(trx, tenantId, target, false, oh),
           (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no contar productos descontinuados en los KPIs
