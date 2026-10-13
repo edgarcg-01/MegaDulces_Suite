@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   classifyByRules, learnConceptFromHistory, pickBest, buildProvenance,
@@ -283,7 +284,7 @@ export class CajaAutofillService {
    * todo — la confusión que ADR-056 prohíbe. El guardado sigue siendo la última compuerta.
    */
   private async cribarPorPlaza(
-    trx: any,
+    trx: Knex.Transaction,
     tenantId: string,
     sucursal: string | undefined,
     niveles: AutofillResult['niveles'],
@@ -305,7 +306,7 @@ export class CajaAutofillService {
         .whereIn(['cuenta', 'concepto'], pares)
         .select('cuenta', 'concepto');
       niveles['catalogo'] = 'consultado';
-      const vivos = new Set<string>(rows.map((r: any) => clavePar(r.cuenta, r.concepto)));
+      const vivos = new Set<string>(rows.map((r: { cuenta: string; concepto: string }) => clavePar(r.cuenta, r.concepto)));
       // La DECISIÓN vive en el motor y se prueba ahí: acá sólo se consulta. Lo que esta función
       // sabe hacer es preguntarle a la base; lo que hay que hacer con la respuesta es lógica.
       return cribarContraCatalogo<ConceptPair>(candidatos, vivos);

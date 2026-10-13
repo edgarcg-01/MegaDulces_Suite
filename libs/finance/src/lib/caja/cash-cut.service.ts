@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { fondoSugerido } from './cash-opening.engine';
 import {
@@ -139,7 +140,7 @@ export class CashCutService {
    * el corte puede DECIR de sí mismo (`cobertura_ingreso`).
    */
   private async movimientosSueltos(
-    trx: any, tenantId: string, sucursal: string, dia: string | null,
+    trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null,
   ): Promise<MovimientoDelCorte[]> {
     const rows = await trx('finance.cash_ledger')
       .where({ tenant_id: tenantId })
@@ -165,7 +166,7 @@ export class CashCutService {
        * simétrico. Se cuentan aparte en `sueltosFuera()` y la pantalla los declara: siguen vivos,
        * esperando el corte de SU jornada.
        */
-      .modify((q: any) => { if (dia) q.where('fecha', dia); })
+      .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
       .whereNull('corte_id').whereNull('deleted_at')
       .select('tipo', 'monto', 'estado', 'origen_tipo')
       /**
@@ -211,13 +212,13 @@ export class CashCutService {
    * jornada que nunca se cerró (hay que cerrarla), lo posterior es captura de un día que todavía
    * no toca — o una fecha mal tecleada, como el movimiento de prod fechado **10-dic-2026**.
    */
-  private async sueltosFuera(trx: any, tenantId: string, sucursal: string, dia: string | null) {
+  private async sueltosFuera(trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null) {
     if (!dia) return null;
     const neto = `sum(CASE WHEN estado = 'cancelado' THEN 0
                            WHEN tipo = 'ingreso' THEN monto ELSE -monto END)`;
     const [r] = await trx('finance.cash_ledger')
       .where({ tenant_id: tenantId })
-      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+      .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
       .whereRaw('fecha <> ?::date', [dia])
       .select(
@@ -522,7 +523,7 @@ export class CashCutService {
       const dia = this.diaDe(c.fecha);
       const base = () => trx('finance.cash_ledger')
         .where({ tenant_id: tenantId, sucursal: c.sucursal })
-        .modify((q: any) => { if (dia) q.where('fecha', dia); })
+        .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
         .whereNull('corte_id').whereNull('deleted_at');
 
       // ⛔ Un movimiento CANCELADO entra al corte (se audita que se canceló) pero CONSERVA su
