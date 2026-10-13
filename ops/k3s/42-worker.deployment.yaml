@@ -40,6 +40,27 @@ spec:
     metadata:
       labels: { app: worker }
     spec:
+      # ⭐ [DEPLOY.1] 600 s PARA QUE UN CRON EN VUELO TERMINE, EN VEZ DE MORIR A LOS 30.
+      #
+      # Acá NO había nada, y el default de Kubernetes es 30 s: SIGTERM, y al llegar a 30 el
+      # kubelet manda SIGKILL. Medido el 2026-10-13 contra `analytics.cron_runs` en prod, de
+      # 90 jobs con latido **27 pasan de 30 s**, 25 de 60 s y 7 de 5 min — o sea que ~30 % de
+      # los jobs, si el despliegue los agarra corriendo, mueren a media transacción.
+      #
+      # 600 cubre **24 de esos 27**. No se pone más porque los 2 que faltan del worker son
+      # `analytics_refresh_price_waterfall` (2 h 47 min) y `analytics_refresh_sellout_budget`
+      # (68 min): cubrirlos dejaría cada despliegue trabado casi 3 horas. Son
+      # `REFRESH MATERIALIZED VIEW`, que revierte limpio — se pierde el trabajo, no el dato —
+      # y su mitigación es no desplegar en su ventana (06:20–07:59 MX).
+      #
+      # ⚠️ Esto SOLO sirve junto con `onApplicationShutdown` de `SchedulerOwnershipService`,
+      # que al recibir la señal detiene el scheduler. Sin eso, una gracia larga es peor que
+      # una corta: un @Cron podría dispararse en el segundo 500 y morir igual en el 600.
+      #
+      # ⚠️ Con `Recreate` el pod nuevo espera a que el viejo se vaya, así que un despliegue que
+      # caiga sobre un job largo tarda lo que tarde el job (tope 600 s). Sin nada corriendo,
+      # sale al instante.
+      terminationGracePeriodSeconds: 600
       # ⛔ [K3S.28] ACÁ HABÍA UN initContainer QUE ESPERABA A REDIS, y se quitó MIDIENDO.
       #
       # Lo puso [K3S.18] para reemplazar al `depends_on: condition: service_healthy` de Compose,
