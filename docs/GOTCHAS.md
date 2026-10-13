@@ -4140,3 +4140,59 @@ ps aux | grep "[p]ython" | head        # en el host de la ingesta y en la máqui
 ```
 
 Cualquier `python` vivo en este proyecto es un hallazgo, no un proceso normal.
+
+---
+
+## 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin un solo error
+
+**2026-10-13, `[CG.129]`/`[CG.130]`.** Una migración ajustó 25 ingresos de caja a su cuenta
+correcta y dejó `kepler_cuenta_nombre` **en `NULL` en los 25**. El ensayo previo —hecho contra
+prod, en una consulta real, antes de aplicar— había dicho **«25 de 25 resuelven nombre»**.
+
+Era cierto. **Con el rol equivocado.**
+
+```
+finance.kepler_accounts   desde la máquina de trabajo ..... 182 filas
+finance.kepler_accounts   desde el pod (`postgres`) .......   0 filas
+```
+
+No es una tabla: es una **vista con `security_invoker = true`** que lee de
+`analytics.ledger_monthly`. El `LEFT JOIN` devolvió `NULL` y la migración terminó en **OK**.
+
+### Por qué es peor que un error
+
+El síntoma fue **el dato correcto con la etiqueta vacía**: la cuenta quedó bien (`115/071`) y el
+nombre en blanco. La pantalla muestra **el nombre, no el código**, así que el movimiento
+corregido se veía sin cuenta — y nadie lo iba a leer como un error *de la corrección*. Un
+`UPDATE` que falla se ve; uno que escribe `NULL` se parece a un dato que nunca existió.
+
+### Es la misma trampa que §14.3 y `[CP.8.44]`, girada
+
+- `[CP.8.39]`: `information_schema.role_table_grants` **filtra por el privilegio de quien lee** y
+  decía «ningún grant» para cuatro tablas. Se mide con `has_table_privilege`.
+- `[CP.8.44]`: los 10 candados del puente leían como `dev_ro`, que sí tenía `USAGE`, mientras
+  producción corría sin él. *Un candado que se conecta con otro rol que el de producción verifica
+  un permiso que nadie ejerce.*
+- **Acá, al revés:** se **ensayó con un rol y se ejecutó con otro**.
+
+⭐ El patrón común no es «permisos»: es **medir con una identidad distinta de la que actúa**.
+
+### Qué hacer
+
+1. **Correr el ensayo desde donde corre la migración** — dentro de `prod-api`, no desde la
+   máquina de trabajo. El rol, el search_path y el RLS viajan con el lugar.
+2. **`node database/scripts/check-fuente-visible-para-el-rol.js --migracion <archivo.js>`**
+   (`[CG.131]`): saca los `schema.objeto` del texto de la migración y dice, para el rol actual,
+   si existe, de qué tipo es, si es vista con `security_invoker`, si tiene RLS forzado y
+   **cuántas filas ve**. Cero filas en una fuente que debería tener datos es el hallazgo.
+3. **Que la migración compruebe su propio efecto.** `[CG.129]` verificaba que la cola quedara en
+   0 —y quedó— pero no que los nombres se hubieran escrito. `[CG.130]` lanza si queda un solo
+   reclasificado sin nombre. *Una migración de datos que no comprueba su efecto es un `UPDATE`
+   con esperanza, y el candado tiene que mirar **todo** lo que el `SET` tocó, no una parte.*
+
+⚠️ **Cero filas no es un veredicto.** Una tabla recién creada también está vacía, y desde fuera no
+se distingue de una invisible por permisos. Por eso `[CG.131]` publica **cuántas ve ese rol** y no
+«bien/mal»: dibujar el veredicto sobre esa ambigüedad sería la misma falta que viene a cerrar.
+
+⚠️ Y `finance.kepler_accounts` **se llama como una tabla y es una vista**. El nombre no dice el
+tipo, y `relkind` sí: antes de apoyar un `JOIN` en algo de `finance.*`, mirar qué es.
