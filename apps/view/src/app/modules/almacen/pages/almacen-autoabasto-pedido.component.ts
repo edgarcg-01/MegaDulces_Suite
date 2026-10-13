@@ -108,8 +108,8 @@ interface Renglon {
         @if (d.puede_ajustar && !d.guardado_disponible) {
           <p class="mp-note mp-warn" role="note">
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-            Puedes mover las cantidades, pero <strong>todavía no se guardan</strong>: a esta base le falta
-            la actualización del pedido. Al recargar vuelves al sugerido.
+            Puedes mover las cantidades, pero <strong>no se guardan</strong>: esta base no permite guardar
+            el pedido (le falta su actualización o la conexión es de sólo lectura). Al recargar vuelves al sugerido.
           </p>
         }
         @if (!d.pedidos_medidos) {
@@ -695,7 +695,8 @@ export class AlmacenAutoabastoPedidoComponent {
             const notas: string[] = [];
             if (c !== l.a_pedir.cantidad) {
               const m = this.motivoDe(l);
-              notas.push(`Ajustado (sugerido ${qty(l.a_pedir.cantidad)})${m ? `: ${MOTIVO_AJUSTE_LABEL[m]}` : ''}`);
+              // Corto a propósito: en el PDF cabe en una línea de la columna Aviso.
+              notas.push(`Ajuste: sug. ${qty(l.a_pedir.cantidad)}${m ? `, ${MOTIVO_AJUSTE_LABEL[m]}` : ''}`);
             }
             if (l.minimo_menor === 'agotado') notas.push('Agotado: se pide aunque sea poco');
             if (l.atorado > 0) notas.push(`Atorado ${qty(l.atorado)} cj`);

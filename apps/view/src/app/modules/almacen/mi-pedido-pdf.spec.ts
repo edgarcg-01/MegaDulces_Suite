@@ -7,6 +7,7 @@ import type { MiPedidoPdfDatos, MiPedidoPdfRenglon } from './mi-pedido-pdf';
  * cantidades equivocadas.
  */
 const tablas: Record<string, unknown>[] = [];
+const porHoja = new Map<number, number>();
 const textos: string[] = [];
 let guardado: string | null = null;
 
@@ -31,7 +32,16 @@ vi.mock('../compras/compras-pdf-comun', async (original) => {
       }
       return {
         jsPDF: Espia as unknown as typeof jsPDF,
-        autoTable: (doc: unknown, o: Record<string, unknown>) => { tablas.push(o); autoTable(doc as never, o); },
+        autoTable: (doc: unknown, o: Record<string, unknown>) => {
+          tablas.push(o);
+          autoTable(doc as never, {
+            ...o,
+            // Cuenta renglones del cuerpo por hoja, para el candado de densidad.
+            didDrawCell: (h: { section: string; column: { index: number }; pageNumber: number }) => {
+              if (h.section === 'body' && h.column.index === 0) porHoja.set(h.pageNumber, (porHoja.get(h.pageNumber) ?? 0) + 1);
+            },
+          });
+        },
       };
     },
   };
@@ -62,7 +72,27 @@ const celdas = (o: Record<string, unknown>) => (o['body'] as unknown[][]).map((f
 const encabezado = (o: Record<string, unknown>) => JSON.stringify(o['head']);
 
 describe('[AB.21] PDF de Mi pedido', () => {
-  beforeEach(() => { tablas.length = 0; textos.length = 0; guardado = null; });
+  beforeEach(() => { tablas.length = 0; textos.length = 0; guardado = null; porHoja.clear(); });
+
+  it('⛔ densidad: al menos 40 renglones por hoja (pedido de Francisco, 2026-10-13)', async () => {
+    const { descargarPdfMiPedido } = await import('./mi-pedido-pdf');
+    // Nombres reales de la pantalla; con letra 8 y relleno 3.5 entraban 30 por hoja.
+    const nombres = ['TOP-TOPS HOTCHILI 40G/10 TOTIS', 'VASO PULPA SABOR MANGO 250 GR / PINPON',
+      'BUBBALO EXTREME MIX 357 GR /70 MONDELEZ', 'LA ROSA CAR CARAMELITUS MENTOLADOS 100P'];
+    const d = base();
+    d.grupos = [{ tipo: 'matriz', origen: '01 · Padre Hidalgo', aviso: null, listas: [{ clase: 'mayor',
+      renglones: Array.from({ length: 120 }, (_, i) => ({
+        ...r(String(10000 + i), (i % 30) + 1, 'CJA', 1234.5,
+          i % 5 === 0 ? 'Ajuste: sug. 12, Espacio en bodega' : i % 7 === 0 ? 'Agotado: se pide aunque sea poco' : ''),
+        nombre: nombres[i % nombres.length],
+      })) }] }];
+    await descargarPdfMiPedido(d);
+    const hojas = [...porHoja.entries()].sort((a, b) => a[0] - b[0]);
+    // Las hojas llenas (todas menos la última) llevan 40 o más; la primera cede espacio al encabezado.
+    hojas.slice(1, -1).forEach(([, n]) => expect(n).toBeGreaterThanOrEqual(40));
+    expect(hojas[0][1]).toBeGreaterThanOrEqual(35);
+    expect(hojas.length).toBeLessThanOrEqual(3);
+  });
 
   it('un origen por hoja: título según el origen y una tabla por lista con renglones', async () => {
     const { descargarPdfMiPedido } = await import('./mi-pedido-pdf');

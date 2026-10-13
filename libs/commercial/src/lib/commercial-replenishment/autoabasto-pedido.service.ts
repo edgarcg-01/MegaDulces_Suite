@@ -325,16 +325,24 @@ export class AutoabastoPedidoService {
 
   // ── [AB.18] Ajustes del almacenista y su huella ─────────────────────────────────────────────
 
-  /** ¿Existe ya la tabla del borrador en esta base? (`[AB.18]` se migra antes que el código.) */
+  /**
+   * ¿Se puede guardar el borrador en esta base? Hacen falta DOS cosas: que la tabla exista
+   * (`[AB.18]` se migra antes que el código) y que la conexión pueda escribir. La segunda se
+   * agregó al probar contra prod con un usuario de sólo lectura (2026-10-13): la tabla existía, la
+   * pantalla creía que podía guardar y cada casilla terminaba en un 500 que parecía una falla.
+   */
   private async borradorDisponible(trx: Knex.Transaction): Promise<boolean> {
-    const r = await trx.raw(`SELECT to_regclass('commercial.autoabasto_pedidos') IS NOT NULL AS ok`);
+    const r = await trx.raw(
+      `SELECT to_regclass('commercial.autoabasto_pedidos') IS NOT NULL
+              AND current_setting('transaction_read_only') = 'off' AS ok`);
     return Boolean(r.rows?.[0]?.ok);
   }
 
-  /** Antes de escribir: sin las tablas, un mensaje que se entiende en vez de un 500. */
+  /** Antes de escribir: sin tablas o en una base de sólo lectura, un mensaje que se entiende en vez de un 500. */
   private async exigeBorrador(trx: Knex.Transaction): Promise<void> {
     if (!(await this.borradorDisponible(trx))) {
-      throw new ServiceUnavailableException('Esta base todavía no tiene el borrador del pedido: falta aplicar su migración.');
+      throw new ServiceUnavailableException(
+        'Esta base no permite guardar el pedido: le falta su migración o la conexión es de sólo lectura.');
     }
   }
 

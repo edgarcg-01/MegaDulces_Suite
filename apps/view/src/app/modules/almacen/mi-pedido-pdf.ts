@@ -138,7 +138,7 @@ function dibujarGrupo(
           colSpan: COLS, styles: { fillColor: [231, 229, 228], textColor: INK, fontStyle: 'bold', fontSize: 8 } }],
         // Orden de captura (Francisco, 2026-10-13): código, cuánto y en qué unidad primero, luego el
         // contexto. Es hoja de transcripción y análisis: «Aviso» reemplaza a la columna en blanco.
-        ['SKU', 'Pedir', 'Unidad', 'Producto', 'Exist. (cj)', 'Venta 30 d (cj)', 'Valor', 'Aviso'],
+        ['SKU', 'Pedir', 'Unidad', 'Producto', 'Exist. (cj)', 'Vta 30 d (cj)', 'Valor', 'Aviso'],
       ],
       body: lista.renglones.map((r) => [
         r.sku,
@@ -154,17 +154,22 @@ function dibujarGrupo(
         val.length ? money(val.reduce((s, r) => s + (r.valor as number), 0)) : 'sin medir', '']],
       showFoot: 'lastPage',
       footStyles: { fillColor: [245, 245, 244], textColor: INK, fontStyle: 'bold' },
-      styles: { ...tablaBase.styles, fontSize: 8, cellPadding: 3.5 },
-      headStyles: { ...tablaBase.headStyles, fontSize: 7.5 },
+      // Interlineado compacto (Francisco, 2026-10-13: 40 renglones por hoja). Medido con 120
+      // renglones de nombres reales: con letra 8 y relleno 3.5 entraban 30 por hoja.
+      margin: { left: M, right: M, top: 30, bottom: 34 },
+      styles: { ...tablaBase.styles, fontSize: 7.5, cellPadding: { top: 1.6, bottom: 1.6, left: 3, right: 3 } },
+      headStyles: { ...tablaBase.headStyles, fontSize: 7, cellPadding: { top: 2, bottom: 2, left: 3, right: 3 } },
       columnStyles: {
-        0: { cellWidth: 42 },
-        1: { halign: 'right', cellWidth: 36, fontStyle: 'bold', fontSize: 9.5 },
-        2: { cellWidth: 36 },
+        // Producto se queda con el ancho sobrante (~190 pt): que los nombres no se partan en dos
+        // líneas es lo que más renglones mete por hoja.
+        0: { cellWidth: 34 },
+        1: { halign: 'right', cellWidth: 30, fontStyle: 'bold', fontSize: 8.5 },
+        2: { cellWidth: 30 },
         3: { cellWidth: 'auto' },
-        4: { halign: 'right', cellWidth: 44 },
-        5: { halign: 'right', cellWidth: 56 },
-        6: { halign: 'right', cellWidth: 56 },
-        7: { cellWidth: 104, fontSize: 7 },
+        4: { halign: 'right', cellWidth: 36 },
+        5: { halign: 'right', cellWidth: 42 },
+        6: { halign: 'right', cellWidth: 50 },
+        7: { cellWidth: 128, fontSize: 6.5 },
       },
       didParseCell: alinearTitulos([1, 4, 5, 6]),
     });

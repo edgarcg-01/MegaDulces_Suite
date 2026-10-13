@@ -390,8 +390,9 @@ export interface AutoabastoPedidoResponse {
   /** `[AB.18]` La persona puede ajustar (tiene AUTOABASTO_SOLICITAR). */
   puede_ajustar: boolean;
   /**
-   * `[AB.18]` Esta base ya tiene las tablas del borrador. `false` = la migración no ha llegado: la
-   * pantalla lo declara arriba en vez de dejar que cada ajuste falle sin explicación.
+   * `[AB.18]` Se puede guardar el borrador: las tablas existen Y la conexión escribe. `false` = falta
+   * la migración o la base es de sólo lectura (p. ej. probar en local contra prod): la pantalla lo
+   * declara arriba en vez de dejar que cada ajuste falle sin explicación.
    */
   guardado_disponible: boolean;
   /** `[AB.19]` Qué posiciones entran al pedido: lo guardado en el borrador, o el default. */
