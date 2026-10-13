@@ -352,6 +352,7 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | **Storefront** | `apps/portal` | todo el portal B2B (se sirve en `/portal/*`) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
 | **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/servicio` · **`/mkt`** · **`/presupuesto`** · **`/desarrolladores`** · **`/diagnostico`** · **`/rh`** | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
 | **Operations** | `apps/view` | **`/captura/:token`** — captura de gasto por link desde el celular, **sin sesión y sin guard** (GX.9) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
+| **Operations** | `apps/view` | **`/empleo`** — bolsa de trabajo pública: quien se postula desde su celular, **sin sesión y sin guard** (`[RH.2.4]`, mismo régimen que `/captura/:token`) | **solo tool**, mobile-first, densidad cómoda | nula | Hanken Grotesk + Geist Mono |
 | **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula, **pero con radios propios** (ver abajo) | Hanken Grotesk + Geist Mono |
 
 > 🔸 **Corregida contra `app.routes.ts` el 2026-10-03 — tenía cinco defectos y el doc conocía tres.**

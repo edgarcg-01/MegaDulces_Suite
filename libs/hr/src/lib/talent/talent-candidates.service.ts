@@ -13,6 +13,7 @@ import {
   DOCUMENTOS_EXPEDIENTE, MAX_DOCUMENTO_BYTES, casilleroDe, entradaNueva, esCasillero, faltantes, llaveDocumento,
   retirar, vigente, type EntradaDocumento,
 } from './logic/expediente';
+import { registrarCambioEtapa } from './talent-etapa.db';
 
 /**
  * Fase RH · `[RH.2.2]` — CANDIDATOS. Traslado de las rutas protegidas de
@@ -258,16 +259,7 @@ export class HrTalentCandidatesService {
       const desde = etapaDe(c.stage_raw);
       if (desde === stage && c.stage_raw === stage) throw new ConflictException('Ya está en esa etapa.');
       const q = this.quien();
-      await trx.raw(`
-        INSERT INTO talent.candidate_stage_transitions
-          (tenant_id, candidate_id, stage_from, stage_to, hours_in_from, changed_by, changed_by_name)
-        SELECT c.tenant_id, c.id, ?, ?,
-               GREATEST(0, EXTRACT(EPOCH FROM (now() - coalesce(
-                 (SELECT max(t.changed_at) FROM talent.candidate_stage_transitions t WHERE t.candidate_id = c.id),
-                 c.created_at))) / 3600),
-               ?, ?
-          FROM talent.candidates c WHERE c.id = ?`, [c.stage_raw ?? ETAPA_INICIAL, stage, q.id, q.nombre, id]);
-      await trx(T).where({ id }).update({ stage, last_activity_at: trx.fn.now(), updated_at: trx.fn.now() });
+      await registrarCambioEtapa(trx, { candidateId: id, desde: c.stage_raw ?? ETAPA_INICIAL, hacia: stage, quienId: q.id, quienNombre: q.nombre });
     });
     return this.ficha(id);
   }
@@ -463,11 +455,16 @@ export class HrTalentCandidatesService {
 
   // ── Revisiones ───────────────────────────────────────────────────────────────────────────
 
-  /** Grupos de registros vivos con el mismo teléfono (lo que hay que fusionar). */
+  /**
+   * Grupos de registros EN PROCESO con el mismo teléfono (lo que hay que fusionar). Un proceso cerrado
+   * (rechazado o contratado) no es un duplicado: desde `[RH.2.4]` la misma persona puede volver a postularse.
+   */
   async duplicados(): Promise<HrDuplicadoGrupoDto[]> {
+    const abiertos = (q: Knex.QueryBuilder, a = '') => q.whereNull(`${a}deleted_at`).whereNotNull(`${a}phone_key`)
+      .where(`${a}is_spam`, false).where((w) => w.whereNull(`${a}stage`).orWhereNotIn(`${a}stage`, ['rechazado', 'contratado']));
     return this.run(async (trx) => {
-      const filas = await trx(`${T} as c`).whereNull('c.deleted_at').whereNotNull('c.phone_key')
-        .whereIn('c.phone_key', trx(T).whereNull('deleted_at').whereNotNull('phone_key').groupBy('phone_key').havingRaw('count(*) > 1').select('phone_key'))
+      const filas = await abiertos(trx(`${T} as c`), 'c.')
+        .whereIn('c.phone_key', abiertos(trx(T)).groupBy('phone_key').havingRaw('count(*) > 1').select('phone_key'))
         .orderBy(['c.phone_key', 'c.created_at']).select(trx.raw(COLS_FILA)) as FilaCruda[];
       const grupos = new Map<string, HrDuplicadoGrupoDto>();
       for (const r of filas) {

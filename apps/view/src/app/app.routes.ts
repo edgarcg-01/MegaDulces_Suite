@@ -69,6 +69,18 @@ export const routes: Routes = [
     path: 'firmar',
     loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
   },
+  // `[RH.2.4]` La bolsa de trabajo: PÚBLICA, desde el celular de quien se postula. Mismo régimen que la captura de
+  // arriba: al tope del árbol, fuera del LayoutComponent y sin guard. La API (`/hr/talent/public`) está exceptuada
+  // en `authInterceptor` y se protege sola (rate limit, campo trampa, reglas de postulación).
+  {
+    path: 'empleo',
+    loadComponent: () => import('./modules/rh/empleo/empleo.component').then(m => m.EmpleoComponent),
+  },
+  // `[RH.2.4]` La liga personal que RH le manda a un candidato (hoy: subir su CV). Se autoriza con el token de la URL.
+  {
+    path: 'empleo/liga/:token',
+    loadComponent: () => import('./modules/rh/empleo/empleo-liga.component').then(m => m.EmpleoLigaComponent),
+  },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
   {

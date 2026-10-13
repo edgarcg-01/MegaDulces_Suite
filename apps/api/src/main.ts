@@ -314,6 +314,10 @@ async function bootstrap() {
   // `[RH.2.2]` Expediente de reclutamiento: un documento (foto de celular o PDF escaneado) hasta 10 MB
   // → ~14 MB en base64. Sólo la ruta de subida.
   app.use('/api/hr/talent/candidates/:id/documents', json({ limit: '16mb' }));
+  // `[RH.2.4]` La postulación pública trae el CV (hasta 10 MB) en base64. Sólo esa ruta.
+  app.use('/api/hr/talent/public/applications', json({ limit: '16mb' }));
+  // `[RH.2.4]` El CV por liga: un PDF o dos fotos de hasta 10 MB → ~27 MB en base64 → 32mb, como la captura de gastos.
+  app.use('/api/hr/talent/public/links', json({ limit: '32mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
   app.use('/api/finance/bank/import', json({ limit: '25mb' }));
   // WhatsApp (F.1): el webhook de Meta necesita el body CRUDO para validar la
