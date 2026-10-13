@@ -1,7 +1,13 @@
-import { BadRequestException, Controller, ForbiddenException, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission, MX_TZ, toMxDateKey } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, MX_TZ, toMxDateKey, isPlatformAdminRole } from '@megadulces/platform-core';
+import type {
+  AutoabastoPedidoResponse, AutoabastoAjusteRequest, AutoabastoAjusteResponse,
+  AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
+  AutoabastoPosicionesRequest, PosicionPedido,
+} from '@megadulces/contracts';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
+import { AutoabastoPedidoService } from './autoabasto-pedido.service';
 
 /**
  * ADR-052 — el boundary va tipado. Y acá el tipo correcto es **el del motor**, derivado, no una
@@ -49,6 +55,24 @@ const BASE_AUTOABASTO = 'demanda';
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Lo que `RolesGuard` deja en `req.user`: permisos y roles FRESCOS de la base, no el JWT. */
+interface ActorAutoabasto {
+  username?: string;
+  role_name?: string;
+  roles_frescos?: string[];
+  permissions?: Record<string, boolean>;
+}
+
+/**
+ * `[AB.18]` ¿Puede ajustar su pedido? El god-mode va por ROL (ADR-054): `superadmin` no trae la
+ * clave en su mapa y entra por rol, igual que en el guard.
+ */
+function puedeAjustar(u?: ActorAutoabasto): boolean {
+  if (!u) return false;
+  const roles = u.roles_frescos ?? (u.role_name ? [u.role_name] : []);
+  return roles.some((r) => isPlatformAdminRole(r)) || u.permissions?.[Permission.AUTOABASTO_SOLICITAR] === true;
+}
+
 /**
  * Fase AB — **Autoabasto**: la mesa de trabajo del almacenista y del encargado de sucursal.
  *
@@ -78,7 +102,10 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 @UseGuards(RolesGuard)
 @Controller('commercial/autoabasto')
 export class AutoabastoController {
-  constructor(private readonly svc: CommercialReplenishmentService) {}
+  constructor(
+    private readonly svc: CommercialReplenishmentService,
+    private readonly pedidos: AutoabastoPedidoService,
+  ) {}
 
   /**
    * La mesa: qué falta, cuánto pedir y para cuándo, con el sugerido ya neto de tránsito.
@@ -135,6 +162,84 @@ export class AutoabastoController {
   @ApiOperation({ summary: 'Catálogos para los filtros de la mesa' })
   filtros(): Promise<AutoabastoFiltros> {
     return this.svc.filters(AREA_AUTOABASTO);
+  }
+
+  /**
+   * `[AB.16]` «Mi pedido»: el pedido de UN almacén, agrupado por a quién se le pide (su matriz o
+   * el proveedor), con lo ya pedido / atorado / negado y la cantidad redondeada a como se captura
+   * en Kepler. Mismo control de alcance que el reporte: el almacén se busca en la lista que la
+   * persona alcanza, no se confía en el query.
+   */
+  @Get('pedido')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: 'Mi pedido: el pedido de un almacén por origen (matriz / proveedor), con ya pedido, atorado, negado y cantidad redondeada' })
+  async pedido(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Req() req?: { user?: ActorAutoabasto },
+  ): Promise<AutoabastoPedidoResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    return this.pedidos.pedido(almacen, AREA_AUTOABASTO, puedeAjustar(req?.user));
+  }
+
+  /**
+   * `[AB.18]` El almacén tiene que estar dentro del alcance de la persona, en el área Almacén. Se
+   * comprueba contra la MISMA lista que alimenta el filtro, nunca se confía en lo que manda el cliente.
+   */
+  private async almacenEnAlcance(warehouse_id?: string): Promise<{ id: string; code: string; name: string }> {
+    if (!warehouse_id || !UUID_RX.test(warehouse_id)) {
+      throw new BadRequestException('El pedido es por almacén: elige uno.');
+    }
+    const { warehouses } = await this.svc.filters(AREA_AUTOABASTO);
+    const almacen = (warehouses as { id: string; code: string; name: string }[]).find((w) => w.id === warehouse_id);
+    if (!almacen) throw new ForbiddenException('Ese almacén no está dentro de tu alcance.');
+    return { id: almacen.id, code: almacen.code, name: almacen.name };
+  }
+
+  /** `[AB.18]` Guarda lo que la persona dejó en un renglón (con motivo si se aleja más de 20%). */
+  @Put('pedido/ajuste')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: 'Mi pedido: ajustar la cantidad de un renglón (− / +), con motivo y huella' })
+  async ajustar(@Body() body: AutoabastoAjusteRequest): Promise<AutoabastoAjusteResponse> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    if (!body?.product_id || !UUID_RX.test(body.product_id)) throw new BadRequestException('Falta el producto.');
+    return this.pedidos.ajustar(almacen.id, body);
+  }
+
+  /** `[AB.18]` Vuelve el renglón al sugerido. */
+  @Post('pedido/restablecer')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: 'Mi pedido: volver un renglón al sugerido' })
+  async restablecer(@Body() body: AutoabastoRestablecerRequest): Promise<AutoabastoAjusteResponse> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    if (!body?.product_id || !UUID_RX.test(body.product_id)) throw new BadRequestException('Falta el producto.');
+    return this.pedidos.restablecer(almacen.id, body);
+  }
+
+  /** `[AB.18]` La persona revisó un grupo y lo acepta como está (huella). */
+  @Post('pedido/aceptar-grupo')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: 'Mi pedido: aceptar un grupo como está' })
+  async aceptarGrupo(@Body() body: AutoabastoAceptarGrupoRequest): Promise<{ ok: true }> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    return this.pedidos.aceptarGrupo(almacen.id, body);
+  }
+
+  /** `[AB.19]` Hasta dónde pide: agotado, bajo mínimo, bajo reorden y/o el resto con venta. */
+  @Put('pedido/posiciones')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: 'Mi pedido: qué posiciones entran al pedido' })
+  async posiciones(@Body() body: AutoabastoPosicionesRequest): Promise<{ posiciones: PosicionPedido[] }> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    return this.pedidos.guardarPosiciones(almacen.id, body);
+  }
+
+  /** `[AB.18]` La persona abrió su pedido (huella). Sólo exige VER. */
+  @Post('pedido/abrir')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: 'Mi pedido: huella de apertura' })
+  async abrir(@Body() body: AutoabastoAbrirRequest): Promise<{ ok: true }> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    return this.pedidos.abrir(almacen.id, body);
   }
 
   /**

@@ -1514,6 +1514,14 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
+        // [AB.16] «Mi pedido» — el pedido de la semana de un almacén, agrupado por a quién se le
+        // pide, con lo ya pedido a la matriz y la cantidad redondeada a como se captura en Kepler.
+        // Misma puerta que la mesa: es la misma audiencia y sólo lee.
+        path: 'autoabasto/pedido',
+        loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto-pedido.component').then(m => m.AlmacenAutoabastoPedidoComponent),
+        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
+      },
+      {
         // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
         // publicados a propósito: ver el doc del componente.
         path: 'analisis-bi',
