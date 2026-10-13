@@ -59,7 +59,16 @@ spec:
           hostnames: ["interno.megadulcessuite.com"]
       containers:
         - name: caddy
-          image: localhost:5000/trade-prod-caddy:__COMMIT__
+          # ⭐ [DEPLOY.2] TAG ESTABLE, NO `__COMMIT__`. Esta imagen no copia NI UN archivo del
+          # repo: es `FROM caddy:2` + el binario que compila su propia etapa builder. Con
+          # `__COMMIT__` cambiaba de tag en cada despliegue → cambiaba la plantilla del Pod → y
+          # este Deployment es `replicas: 1` + `Recreate` porque dos pods no comparten el `:443`
+          # del host. O sea: CADA DESPLIEGUE TIRABA LA PUERTA DE ENTRADA, y mientras se recreaba
+          # no entraba ninguna petición. Medido el 2026-10-13: 11 ReplicaSets, uno por
+          # despliegue, y 2 fallas de conexión en el camino público mientras el nodePort seguía
+          # respondiendo — el corte estaba acá, no en la api.
+          # ⚠️ El tag lo vigila `npm run check:base-tags` (ver 52-pg-prod para el detalle).
+          image: localhost:5000/trade-prod-caddy:base-b7b2d4405aea
           imagePullPolicy: IfNotPresent
           ports:
             - { name: http,  containerPort: 80,  hostPort: 80,  protocol: TCP }

@@ -56,17 +56,40 @@ export class CajaSocketService {
   /** Cuántas pantallas montadas lo usan: la última en irse cierra el socket. */
   private users = 0;
 
-  connect(): void {
+  /**
+   * `[CG.84]` Con qué credencial está abierto el socket. Hace falta porque los dos modos no son
+   * intercambiables: un socket de sesión tiene al usuario adentro y está en la room del tenant;
+   * uno de pase es un invitado atado a un solo código. Reusar uno por el otro daría permisos de
+   * más o de menos, en silencio.
+   */
+  private modo: 'sesion' | 'pase' | null = null;
+
+  /**
+   * @param pase `[CG.84]` El pase del QR. Con pase NO hace falta sesión: es el modo del teléfono
+   * que alguien agarra para firmar un recibo y que no tiene por qué ser un usuario del sistema.
+   */
+  connect(pase?: string | null): void {
     this.users++;
+    const modoPedido: 'sesion' | 'pase' = pase ? 'pase' : 'sesion';
+    // ⚠️ Si ya hay socket pero con la OTRA credencial, no se reusa: se cierra y se abre de nuevo.
+    // Reusarlo dejaría al teléfono hablando con los permisos del cajero, o al cajero con los de
+    // un invitado — y las dos equivocaciones son mudas.
+    if (this.socket && this.modo !== modoPedido) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+      this.connected.set(false);
+    }
     // Idempotente por EXISTENCIA, no por estado: con `?.connected` un segundo connect() durante
     // el handshake ve false, crea OTRO socket y pisa la referencia — el primero queda huérfano,
     // reconectando solo y fuera del alcance de disconnect(). (Mismo defecto ya vivido en Bancos.)
     if (this.socket) { if (!this.socket.connected) this.socket.connect(); return; }
-    const token = this.auth.token();
-    if (!token) return;
+    const token = pase ? null : this.auth.token();
+    if (!pase && !token) return;
+    this.modo = modoPedido;
     this.socket = io(`${this.baseUrl()}/caja`, {
       path: '/reports/socket.io',
-      auth: { token },
+      auth: pase ? { pase } : { token },
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
@@ -110,9 +133,14 @@ export class CajaSocketService {
     });
   }
 
-  /** La PC pide el código. Exige permiso de GESTIONAR del lado del servidor. */
+  /**
+   * La PC pide el código. Exige permiso de GESTIONAR del lado del servidor.
+   *
+   * `[CG.84]` Devuelve además el **pase**, que es lo que va adentro del QR: con él el teléfono
+   * entra sin iniciar sesión y ya con su código puesto.
+   */
   abrirFirma(ctx: ContextoFirma) {
-    return this.pedir<{ ok: boolean; codigo?: string; vida_ms?: number; error?: string }>('firma:abrir', ctx);
+    return this.pedir<{ ok: boolean; codigo?: string; pase?: string; vida_ms?: number; error?: string }>('firma:abrir', ctx);
   }
 
   /** El teléfono teclea el código. Con VER alcanza: aportar evidencia no es escribir el libro. */
@@ -137,6 +165,7 @@ export class CajaSocketService {
     this.socket.removeAllListeners();
     this.socket.disconnect();
     this.socket = null;
+    this.modo = null;   // `[CG.84]` si no se limpia, el próximo connect() cree que sigue el modo viejo
     this.connected.set(false);
   }
 

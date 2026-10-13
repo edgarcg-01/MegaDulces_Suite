@@ -144,3 +144,18 @@ describe('CierreViajeComponent (montado)', () => {
     expect(c.guardandoCarga()).toBe(false);
   });
 });
+
+describe('CierreViajeComponent — nuevo cargador (EMB.32)', () => {
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  it('el cargador dado de alta entra a la lista, queda elegido y avisa que falta guardar', () => {
+    const { f, c, http } = montar();
+    f.detectChanges();
+    http.expectOne((r) => r.url.endsWith('/shipments/s1')).flush(cierre([parada({})]));
+    c.seleccion = ['d7'];
+    c.cargadorCreado({ accion: 'creada', mensaje: 'CARGADOR NUEVO: Se dio de alta.', driver: { id: 'n1', full_name: 'CARGADOR NUEVO', roles: ['cargador'], active: true, status: 'activo' } });
+    expect(c.opcionesCargadores().map((d) => d.id)).toContain('n1');
+    expect(c.seleccion).toEqual(['d7', 'n1']);
+    expect(c.aviso()).toContain('Guardar cargadores');
+  });
+});

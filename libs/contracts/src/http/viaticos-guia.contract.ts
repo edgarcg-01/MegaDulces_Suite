@@ -208,6 +208,8 @@ export interface TarifaDeRuta {
   nombre: string;
   driver: number | null;
   helper: number | null;
+  /** `[EMB.33]` La ruta no paga comisión (traslado local): la guía va en $0, sin error. */
+  sin_comision?: boolean;
 }
 
 export function erroresDeTarifaDeRuta(
@@ -215,6 +217,7 @@ export function erroresDeTarifaDeRuta(
   ayudantes: { helper1: boolean; helper2: boolean },
 ): string[] {
   if (!ruta) return ['El embarque no tiene ruta: sin ruta no se calcula la comisión.'];
+  if (ruta.sin_comision) return [];
   const e: string[] = [];
   if (!((ruta.driver ?? 0) > 0)) e.push(`${ruta.nombre} no tiene tarifa de chofer en ${DONDE_SE_CAPTURA_LA_TARIFA}.`);
   if ((ayudantes.helper1 || ayudantes.helper2) && !((ruta.helper ?? 0) > 0)) {

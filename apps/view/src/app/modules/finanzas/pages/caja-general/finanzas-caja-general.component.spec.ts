@@ -197,7 +197,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     firmaTomada$: Subject<{ codigo: string; por: string | null }>;
     firmaRecibida$: Subject<FirmaRecibida>;
     firmaCortada$: Subject<{ codigo: string }>;
-    abrirFirma: (c: ContextoFirma) => Promise<{ ok: boolean; codigo?: string }>;
+    /** `[CG.84]` `pase` es lo que deja firmar SIN sesión: va dentro del QR. */
+    abrirFirma: (c: ContextoFirma) => Promise<{ ok: boolean; codigo?: string; pase?: string }>;
     tomarFirma: (c: string) => Promise<{ ok: boolean }>;
     enviarFirma: (c: string, p: string, n: string | null) => Promise<{ ok: boolean }>;
     cerrarFirma: () => Promise<{ ok: boolean }>;
@@ -838,8 +839,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(hueco!.querySelector('svg'), 'el hueco quedó vacío: el QR no se pintó').not.toBeNull();
 
     const panel = (fx.nativeElement.querySelector('.cg-firma-codigo') as HTMLElement).textContent ?? '';
-    expect(panel).toContain('ABC234');                      // el código sigue a la vista
-    expect(panel).toContain('/finanzas/caja-general/firma'); // y ahora dice DÓNDE
+    expect(panel).toContain('ABC234');   // el código sigue a la vista
+    // `[CG.84]` La ruta que se dicta pasó a `/firmar`, la PÚBLICA: la vieja colgaba de un padre
+    // con `authGuard`, o sea que el teléfono necesitaba sesión para firmar un recibo.
+    expect(panel).toContain('/firmar');
     expect(panel, 'sigue mandando a una entrada de menú que no existe')
       .not.toMatch(/Caja General\s*[›>]/);
   });
@@ -863,8 +866,57 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
   it('[CG.74] la ruta que se dicta no lleva el esquema: nadie dicta "https://"', () => {
     montar();
-    expect(comp.rutaFirmaCorta()).toContain('/finanzas/caja-general/firma');
+    expect(comp.rutaFirmaCorta()).toContain('/firmar');
     expect(comp.rutaFirmaCorta()).not.toContain('http');
+  });
+
+  it('⭐ [CG.84] el QR lleva el PASE: el teléfono entra sin iniciar sesión', async () => {
+    // Sin el pase el teléfono cae en la ruta pública SIN credencial, el canal lo rechaza, y
+    // volvemos al login que Edgar pidió quitar. Que el pase viaje en el QR ES la garantía.
+    // ⚠️ El doble se pisa DESPUÉS de montar: el `over` de montar() va a `svc`, no al socket.
+    const fx = montar();
+    cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234', pase: 'ey.PASE.firmado' }));
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+    await comp.firmaPedirEnTelefono();
+
+    expect(comp.firmaPase(), 'el pase no se guardó').toBe('ey.PASE.firmado');
+    const url = (comp as unknown as { urlFirmaTelefono(c: string): string }).urlFirmaTelefono('ABC234');
+    expect(url).toContain('/firmar');
+    expect(url).toContain('c=ABC234');               // el código sigue, para dictarlo
+    expect(url).toContain('pase=ey.PASE.firmado');   // y el pase, para no pedir contraseña
+  });
+
+  it('⛔ [CG.84] [negativa] al cerrar el panel, el pase NO se queda vivo', async () => {
+    // Un pase es una llave de 3 minutos. Si sobrevive al panel, el próximo QR sale firmado con
+    // la llave de un movimiento que ya se cerró.
+    const fx = montar();
+    cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234', pase: 'ey.PASE.firmado' }));
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+    await comp.firmaPedirEnTelefono();
+    expect(comp.firmaPase()).toBe('ey.PASE.firmado');
+
+    comp.firmaCerrarRemota();
+    expect(comp.firmaPase(), 'el pase sobrevivió al panel que lo creó').toBeNull();
+  });
+
+  it('⛔ [CG.84] [negativa] si el servidor NO manda pase, el QR sale con el código solo', async () => {
+    // Compatibilidad hacia atrás MEDIDA, no supuesta: con un backend viejo el camino de antes
+    // (teléfono con sesión + código tecleado) tiene que seguir funcionando.
+    const fx = montar();
+    cajaSock.abrirFirma = vi.fn(async () => ({ ok: true, codigo: 'ABC234' }));
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+    await comp.firmaPedirEnTelefono();
+
+    expect(comp.firmaPase()).toBeNull();
+    const url = (comp as unknown as { urlFirmaTelefono(c: string): string }).urlFirmaTelefono('ABC234');
+    expect(url).toContain('c=ABC234');
+    expect(url).not.toContain('pase=');
   });
 
   it('el código del emparejamiento NO sobrevive a la captura anterior', async () => {
@@ -1142,6 +1194,35 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.f().monto).toBe(0);
     expect(comp.montoContado()).toBe(null);
     expect(comp.bloqueos()).toContain('falta_desglose');
+  });
+
+  it('⛔⛔ [CG.111] con documento anclado, el selector EXCLUYENTE de CAOS no se ofrece', () => {
+    // Ese campo llama a `tomarMovimientoCaos`, que hace `cobroElegido.set(null)`. Estaba visible
+    // también con un documento ya elegido, así que usarlo ahí BORRABA el documento en silencio:
+    // se iban fecha, sucursal, beneficiario y la cuenta de la póliza, y `origen_tipo` pasaba de
+    // `pago_proveedor` a `caos`. Medido en prod: 11 de 30 movimientos quedaron con origen `caos`.
+    // Edgar: "a lo mucho enlazarlo con un movimiento de caos" — enlazar, no reemplazar.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    fx.detectChanges();
+
+    expect(comp.cobroElegido()?.origen_ref, 'el documento tiene que estar anclado')
+      .toBe(GASTO_TRABADO.origen_ref);
+    expect(fx.nativeElement.querySelector('#cg-caos'),
+      'el selector que BORRA el documento sigue a la vista').toBeNull();
+  });
+
+  it('⭐ [CG.111] [negativa] SIN documento, el selector de CAOS SÍ se ofrece', () => {
+    // La prueba negativa del candado: si se ocultara siempre, la captura manual desde la caja
+    // fuerte —que es un camino legítimo y el único para un movimiento sin documento— quedaría
+    // sin entrada. Ocultar de más es tan defecto como ocultar de menos.
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+
+    expect(comp.cobroElegido()).toBeNull();
+    expect(fx.nativeElement.querySelector('#cg-caos'),
+      'sin documento el selector de CAOS tiene que estar').not.toBeNull();
   });
 
   it('sin conteo, el importe NO lo hereda del documento: hay que contar', () => {

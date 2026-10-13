@@ -52,6 +52,15 @@
 
 > **Regla dura:** antes de crear o editar cualquier archivo frontend (componente Angular, HTML, SCSS/CSS, token), se lee esta sección + [`tokens.css`](libs/design-tokens/tokens.css). No es opcional.
 > Cada punto enlaza a su detalle binding abajo. Si algo aquí choca con el requerimiento, se expone el conflicto y decide Edgar — no se resuelve en silencio.
+>
+> ⭐ **Desde el 2026-10-13 esto también es una skill: [`/diseno`](.claude/skills/diseno/SKILL.md).** No
+> duplica este archivo —lo enruta—: dice qué **medir** antes de opinar, en qué **orden** revisar y qué
+> **comando** lo prueba. Se carga sola cuando la sesión toca frontend, y **gana sobre las skills
+> genéricas de diseño instaladas en `.claude/skills/`** (`high-end-visual-design`,
+> `design-taste-frontend`, `minimalist-ui`, `brandkit`…), que empujan decoración, sombras pesadas y
+> tipografía expresiva — justo lo que Operations prohíbe. ⚠️ Si editás una regla de acá, revisá si la
+> skill la cita: dos listas con la misma información divergen, y en este repo ya pasó dos veces
+> ([`check-all.js:92`](scripts/check-all.js#L92)).
 
 **1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) = `apps/portal` (editorial, Poppins, comfortable) · [Operations](#mercado--operations--surface-interno) = `apps/view` **y** `apps/vendor` (denso, sin display font, quiet-luxury). Las raíces de ruta de `apps/view` están en la [tabla de Surfaces](#surfaces--dos-modes-del-mismo-sistema) — si la tuya no figura, **agregala ahí antes de seguir**; no inventes régimen. Las reglas cambian por surface, y §O las tensa además por **sector** (fiscal / almacén / mostrador).
 
@@ -83,8 +92,34 @@
 **11. a11y AA piso** (APCA guía en texto chico): `aria-label` en icon-buttons, foco al abrir/retorno al cerrar dialogs, targets ≥44px en touch (`pointer: coarse`). → [§3](#ingeniería-de-ui--contrato-de-implementación-binding).
 
 **12. Verificá.** Build prod `nx build <p> --skip-nx-cache` de lo tocado; probar vivo (endpoint nuevo → o avisar que falta restart); QA con datos reales extremos, **light + dark + móvil** (los tres, siempre).
-> ⚡ **Antes del build corré las tres compuertas de CSS — tardan ~8 s las tres juntas:**
+> ⛔ **Conflicto declarado el 2026-10-13, no resuelto acá:** `CLAUDE.md` prohíbe compilar o levantar
+> nada en local (*"NADA DE COMPILAR NI LEVANTAR EL BACKEND EN LOCAL"*, con su medición: un backend
+> local terminó con 6 conexiones a la base de PRODUCCIÓN). Esta línea manda `nx build`. **Mientras
+> Edgar no firme cuál gana, el build lo hace el CI** (job `Build & typecheck`, que además sella
+> `ci-green`) y lo local se queda en lo que **no es un build**: las compuertas de abajo son scripts de
+> Node, y los diagnósticos del editor leen el servicio de lenguaje sin compilar nada.
+>
+> ⚡ **Antes de empujar corré las compuertas de CSS — tardan ~8 s las tres juntas:**
 > `npm run check:templates` · `npm run check:estilos` · `npm run check:motion`.
+> - ⭐ **Y la que audita LA PANTALLA, no el archivo: `npm run check:pantalla <modulo>`** (`[AUD.1]`,
+>   [`scripts/check-pantalla.js`](scripts/check-pantalla.js)). Las otras cinco miden propiedades del
+>   texto —que el literal cierre, que el color sea un token, que la animación no pase de 350 ms—; ésta
+>   mide si la pantalla cumple el **contrato de producto**: Q.1 answer-first · §2 matriz de estados ·
+>   §9 frescura · O.4 rejilla en `p-table` · D.7 teclado · D.8 búsqueda. Existe porque la revisión que
+>   sólo ocurre cuando alguien se acuerda no es una revisión.
+>   ⛔ **Nadie la corre, y por eso hay que correrla a mano.** Medido el 2026-10-13: `check:pantalla`
+>   está en `package.json` pero **no** en [`scripts/compuertas.js`](scripts/compuertas.js) —el registro
+>   canónico, 31 compuertas, 16 en el push— **ni** en `ci.yml`. O sea que no entra en `npm run check`,
+>   ni en el `pre-push`, ni en CI. Y este documento **no la mencionaba ni una vez** (0 ocurrencias,
+>   contra 8 de `check:estilos`). Un auditor que no está en ninguna lista es un auditor que no existe.
+>
+> 📋 **Las compuertas que hacen cumplir ESTE documento son once, no tres.** El registro canónico es
+> [`scripts/compuertas.js`](scripts/compuertas.js) — no se copia la lista acá, porque ya hubo dos
+> listas de compuertas divergidas en este repo (ver el comentario de [`check-all.js:92`](scripts/check-all.js#L92)).
+> Las que cobran una regla de `DESIGN.md`: `templates` · `templates-types` · `tokens CSS` ·
+> `estilos` · `motion` · `tablas densas` · `teclado` · `búsqueda` · `sin emojis` (iconos, nunca
+> emojis) · `primeng` (API retirada en v22 = falla **muda**) · `reactividad` (`computed()` sobre un
+> campo plano, que no recalcula nunca). Todo junto: `npm run check`.
 > - **`check:estilos`** (~2.6 s): las 4 reglas de `DESIGN.md` que nadie medía — `font-size` fuera de la
 >   escala `--fs-*` (y te **imprime el token equivalente**), hex crudo en un color, breakpoint en px,
 >   y `outline:none` sin un `:focus-visible` hermano. Es un **ratchet**: frena si la deuda crece, no
@@ -130,7 +165,7 @@ el repo, igual que `prefers-contrast` y `prefers-reduced-transparency`.)*
 
 ## Estado de cumplimiento — lo que el doc manda vs. lo que el código hace
 
-> **Última verificación contra el código: 2026-10-12** (filas 1, 5, 8 y el inventario de componentes; el resto sigue fechado 2026-10-03). Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
+> **Última verificación contra el código: 2026-10-13** ([re-auditoría](#re-auditoría-2026-10-13--lo-que-el-documento-no-estaba-mirando): `check:pantalla` sobre las 255 pantallas, `tabular-nums`, `@container`, la fila 1 y las dos compuertas con tope. Las filas 5, 8 y el inventario quedaron fechados 2026-10-12; el resto, 2026-10-03). Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
 >
 > ⭐ **Y desde el 2026-10-03 lleva también su COMANDO.** La auditoría del 2026-10-02 intentó
 > reproducir tres cifras de esta tabla —*171 hex*, *76 `<th>` vacíos*, *55 veces BINDING*— y **no
@@ -238,6 +273,60 @@ los overrides adentro. Es la deuda más grande del sistema y la única que no se
 que tres barridos manuales con `grep` no vieron**, porque en `animation: nombre 0.6s ease` la duración
 no está donde uno la busca. *El instrumento no es sólo para que no vuelva: ve lo que el barrido no ve.*
 
+### Re-auditoría 2026-10-13 — lo que el documento no estaba mirando
+
+> Disparada por el pedido de volver este documento una **skill**: antes de empaquetarlo había que
+> saber si lo que publica sigue siendo cierto. Universo: 2,497 archivos `.ts`/`.html`/`.css` de
+> `apps/` + `libs/`, sin `node_modules`. Los comandos son los de arriba.
+
+⛔ **El hallazgo que ordena a los demás: existe una compuerta que audita la PANTALLA contra este
+documento, y este documento no la nombraba.** `npm run check:pantalla --todas` ([`[AUD.1]`](scripts/check-pantalla.js))
+corrió hoy por primera vez desde acá: **255 pantallas · 247 con falla · 633 fallas.** El 97 % de las
+pantallas de `apps/view` incumple al menos una regla marcada BINDING en este archivo. No es una
+sorpresa de calidad — es una **sorpresa de gobierno**: la regla existía, el instrumento existía, y el
+punto 12 del pre-vuelo mandaba correr otras tres.
+
+| Regla | Pantallas que fallan | Qué significa en la pantalla |
+|---|---|---|
+| **§2 matriz de estados** | **206** | sin `LoadState`, *cargando* / *vacío* / *error de red* se pintan igual: el usuario no sabe si reintentar |
+| **§9 frescura** | **198** | dato volátil sin edad declarada → se lee como "al día". Es el defecto que costó seis días de precios viejos |
+| **Q.1 answer-first** | **152** | la pantalla abre con el grid crudo en vez del veredicto |
+| **O.4 rejilla en `p-table`** | **49** | sin `p-table` no hay `pSelectableRow`: teclado, header fijo y 1ª columna congelada quedan fuera de alcance |
+| **D.8 búsqueda** | **13** | filtra con `.includes()` en vez de los helpers (sin acentos, sensible al orden) |
+| **D.7 teclado** | **11** | rejilla que no se recorre con flechas |
+
+⭐ **La #1 se confirmó de forma independiente, y por casualidad.** Una captura de `/presupuesto`
+tomada el 12-oct mostraba un `<p>` suelto que decía *"Cargando presupuesto de ventas…"*
+([`presupuesto-ventas.component.ts:156`](apps/view/src/app/modules/finanzas/pages/presupuesto/presupuesto-ventas.component.ts#L156)):
+sin skeleton dimensionado y sin distinguir el error del vacío. Una pantalla mirada al azar cayó justo
+en la falla más repetida del repo — que es lo que uno espera cuando la falla cubre 206 de 255.
+
+**Dos cifras publicadas estaban vencidas, las dos hacia el lado bueno:**
+
+| Cifra | Lo que decía el doc | **Medido 2026-10-13** |
+|---|---|---|
+| `tabular-nums` | 577 ✓ (2026-10-12) | **914** |
+| `@container` | **16** en 8 archivos (re-medición 2026-09-14 de §R) | **36** |
+| `font-size` con literal | 3,161 (2026-10-03) | **2,697** (tope 2,702) |
+| hex crudo | 1,449 | **1,428** (tope 1,449) |
+| `@media print` | 7 | **9** |
+
+⚠️ *Que una cifra envejezca hacia el lado bueno tampoco es inofensivo:* una deuda ya pagada pero
+todavía publicada manda a la próxima sesión a arreglar algo que está hecho. Es el mismo defecto que
+una cifra vencida hacia el lado malo, en espejo.
+
+⛔ **Y la primera versión de esta misma tabla ya traía el defecto que denuncia.** Decía que
+`@container` estaba *"en **0**, citado como violación de §Ing.UI 5"*, tomando el número del log de
+ago-2026 — pero [§R ya lo había re-medido en **16** el 2026-09-14](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding),
+en una tabla de este mismo archivo. El salto real es **16 → 36**, no `0 → 36`: **más del doble, pero
+la mitad de espectacular**. *Para citar una cifra vieja no alcanza con que esté escrita: hay que
+buscar si el propio documento ya la corrigió más abajo* — un documento de 1,600 líneas se contradice
+consigo mismo antes que con el código.
+
+**Sin cambio** (y sigue siendo la deuda #1, la única sin instrumento): `@layer` **0** ·
+`!important` **1,058** · `::ng-deep` **481**. En nueve días se movió −7 y +1 — ya no crece como en el
+tramo anterior, pero tampoco baja: sigue esperando la migración, no un ratchet.
+
 ---
 
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
@@ -263,6 +352,7 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | **Storefront** | `apps/portal` | todo el portal B2B (se sirve en `/portal/*`) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
 | **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/servicio` · **`/mkt`** · **`/presupuesto`** · **`/desarrolladores`** · **`/diagnostico`** · **`/rh`** | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
 | **Operations** | `apps/view` | **`/captura/:token`** — captura de gasto por link desde el celular, **sin sesión y sin guard** (GX.9) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
+| **Operations** | `apps/view` | **`/empleo`** — bolsa de trabajo pública: quien se postula desde su celular, **sin sesión y sin guard** (`[RH.2.4]`, mismo régimen que `/captura/:token`) | **solo tool**, mobile-first, densidad cómoda | nula | Hanken Grotesk + Geist Mono |
 | **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula, **pero con radios propios** (ver abajo) | Hanken Grotesk + Geist Mono |
 
 > 🔸 **Corregida contra `app.routes.ts` el 2026-10-03 — tenía cinco defectos y el doc conocía tres.**
@@ -936,6 +1026,8 @@ Toda decisión de layout se justifica por su **mecanismo perceptual**, no citand
 - **Gestalt (proximidad/similitud/continuidad)** = agrupación que baja el parsing visual de *n* elementos a *k* grupos. Un grupo se forma con **espaciado** (escala 4px), no con cajas/bordes por default — el borde es el último recurso, no el primero.
 - **Hick** = recortar decisiones *simultáneas*. En toolbars densas y menús: curaduría + progressive disclosure antes que listar 20 acciones planas (→ `⌘K` cuando hay 20+ destinos, regla ya binding en datos densos §12).
 - **Fitts** = target = f(distancia, tamaño). CTA primario grande y en zona alcanzable; en touch, `≥44px` (ya tokenizado por `pointer: coarse`). **Conflicto densidad↔Fitts:** en Operations `fine` gana la densidad (32–40px); en `coarse` gana Fitts (44px). No se promedia — lo decide el puntero.
+- **Doherty (umbral de respuesta)** = la latencia no es incomodidad, es **pérdida de contexto**: arriba de ~400 ms el usuario suelta el hilo de la tarea y tiene que reconstruirlo en la memoria de trabajo. Por eso el presupuesto de interacción es **criterio de aceptación** y no una tarea de perf posterior (→ [§V](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding): **INP < 200 ms**, la mitad del umbral clásico, y la regla dura de Edgar es que arriba de 500 ms no funciona). Palancas legítimas: optimistic UI, skeleton **dimensionado** (§2), `@defer` en bloques pesados, ceder el hilo en handlers de filtro.
+  > ⛔ **La "deceleración deliberada" NO se usa en esta suite.** La literatura de UX la propone en serio —retardar a propósito un resultado para que el cálculo *se sienta* profundo y gane confianza— y acá es inadmisible: [ADR-056](docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md) dice que lo que no se midió se **declara** y nunca se dibuja. Fabricar la señal de que algo se calculó es publicar un cero inventado, movido al eje del tiempo. En una pantalla de conciliación es peor que en una de marketing: enseña a confiar en la espera en lugar del cuadre.
 - **Carga cognitiva** = la composición elegida debe *reducir esfuerzo mental*; si un layout necesita una leyenda para entenderse, falló. Jerarquía por **contraste de texto y peso**, no por más color.
 - Patrón de lectura **Z** (pantallas de marketing/storefront) vs **F** (tablas/listas densas Operations): el CTA/acción principal cae donde el patrón deposita el ojo, no centrado por estética.
 
@@ -1181,7 +1273,15 @@ Para UI **nueva** (no se reescribe lo que ya funciona con PrimeNG):
 
 11. **Idempotencia visual (anti doble-clic del pánico).** Todo botón que muta DB (POST/PUT/DELETE) se **deshabilita a sí mismo de forma síncrona en el instante del primer clic** (`[loading]`/`[disabled]` **antes** de esperar la promesa de red), no al resolver. Defensa en profundidad con idempotencia de servidor (clave `client_uuid` / UPSERT por folio — ya en route-sale y `commercial.order_sequences`). Crítico en pago, timbrado, confirmación de pedido, liquidación.
 
+12. **Postel (robustez) — liberal al recibir, conservador al emitir.** *(Añadida 2026-10-13. Medida antes de escribirla: **0 menciones** en todo el documento, y practicada en un solo eje —la búsqueda— sin estar declarada.)* La variabilidad de la entrada humana la absorbe el **código**, no el capturista; es Tesler aplicado al teclado.
+    - **Al recibir, se normaliza antes de validar.** Importe con comas, espacios o `$`; fecha tecleada; folio/RFC con espacios o guiones; valor pegado desde Excel con espacio al final. Rechazar `1,250.00` por traer una coma no es rigor: es devolverle al usuario un trabajo que el parser hace en una línea, y multiplicado por una jornada de captura es la diferencia entre la pantalla y el cuaderno.
+    - **En búsqueda ya está resuelto: se consume, no se reescribe.** [`coincideBusqueda`/`filtrarPorBusqueda`](libs/ui-web/src/search/buscar-en-cliente.ts) en cliente y [`applySmartSearch`](libs/platform-core/src/lib/search/smart-search.ts) en servidor — acentos, varias palabras, orden indistinto. ⛔ Nunca `.toLowerCase().includes()` (ya es **D.8**, con compuerta: `npm run check:busqueda`).
+    - **Al emitir, lo contrario: estricto.** Lo que la pantalla manda al backend, el valor que se copia a Kepler/SAT y el folio que se imprime van **sin adornos de presentación** — la segmentación de la ley 2 es CSS, el valor copiable queda limpio. Romper el paste es peor que la estética.
+    - ⛔ **El límite, y es duro: liberal NO es adivinar.** La tolerancia es para la **forma**, jamás para el **significado**. Una fecha `03/04` es ambigua: se pregunta o se declara, no se asume (ADR-056). Normalizar `1,250.00` → `1250.00` es leer lo mismo escrito distinto; elegir mes o día por el usuario es inventarle un dato.
+
 ### Antipatrones (flag en review)
+- Validación con regex rígida que rechaza `1,250.00`, `ABC 123` o un valor pegado con espacio al final y obliga a re-teclear (viola Postel 12).
+- Retardo artificial para que una operación "se sienta" costosa o confiable (viola Doherty y ADR-056).
 - Formulario de captura largo sin `CanDeactivate` (se pierde todo al presionar Atrás).
 - Tabla de dato volátil sin frescura ni refresh local; ticker WS que salta el scroll al insertar.
 - Bulk action con toast único rojo/verde que oculta el resultado real por ítem.

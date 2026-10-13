@@ -1,12 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
-  HrCandidatoEdicion, HrCandidatoEventoDto, HrCasilleroDto, HrDocumentoNuevo, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
+  HrCandidatoEdicion, HrCandidatoEventoDto, HrCasilleroDto, HrDocumentoNuevo, HrLigaCreadaDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
   HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
 } from '@megadulces/contracts';
 import { HrTalentCandidatesService } from './talent-candidates.service';
 import { HrTalentJobsService } from './talent-jobs.service';
+import { HrTalentLinksService } from './talent-links.service';
 
 /**
  * Fase RH · `[RH.2.2]` — la API de reclutamiento para RH (con sesión). Lo público —el formulario
@@ -29,6 +30,7 @@ export class HrTalentController {
   constructor(
     private readonly candidates: HrTalentCandidatesService,
     private readonly jobs: HrTalentJobsService,
+    private readonly links: HrTalentLinksService,
   ) {}
 
   // ── Candidatos: lectura ──────────────────────────────────────────────────────────────────
@@ -138,6 +140,13 @@ export class HrTalentController {
   @ApiOperation({ summary: 'RH — retirar un documento (con motivo). No se borra.' })
   retirarDocumento(@Param('id') id: string, @Body() b: { llave?: string; reason?: string }): Promise<HrCandidatoFichaDto> {
     return this.candidates.retirarDocumento(id, b);
+  }
+
+  @Post('candidates/:id/links')
+  @RequirePermissions(Permission.HR_RECRUITMENT_GESTIONAR)
+  @ApiOperation({ summary: 'RH — generar una liga personal (subir el CV o el cuestionario de liderazgo) que vence en 7 días.' })
+  crearLiga(@Param('id') id: string, @Body() b: { form?: string }, @Req() req: { headers?: Record<string, string | undefined> }): Promise<HrLigaCreadaDto> {
+    return this.links.crear(id, b?.form ?? 'cv', req?.headers?.['origin']);
   }
 
   @Post('candidates/:id/merge')

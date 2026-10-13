@@ -406,13 +406,14 @@ export class LogisticsGuidesService {
   /** La ruta del embarque con su tarifa de comisión. null = el embarque no tiene ruta. */
   private async tarifaDeRuta(trx: Knex.Transaction, routeId: string | null): Promise<TarifaDeRuta | null> {
     if (!routeId) return null;
-    const r = await trx('logistics.routes').where({ id: routeId }).first('id', 'name', 'driver_commission', 'helper_commission');
+    const r = await trx('logistics.routes').where({ id: routeId }).first('id', 'name', 'driver_commission', 'helper_commission', 'sin_comision');
     if (!r) return null;
     return {
       route_id: r.id,
       nombre: r.name,
       driver: r.driver_commission == null ? null : Number(r.driver_commission),
       helper: r.helper_commission == null ? null : Number(r.helper_commission),
+      sin_comision: !!r.sin_comision,
     };
   }
 
