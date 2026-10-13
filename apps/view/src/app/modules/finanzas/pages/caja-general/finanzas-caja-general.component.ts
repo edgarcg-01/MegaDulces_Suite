@@ -576,7 +576,31 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        (el 10%), abajo los dos apartados (el 90%). Lo que scrollea es el contenido de cada
        apartado, nunca la pagina -- con la pagina scrolleando, el arqueo se iba de la vista justo
        mientras se cuenta. */
-    .cg-app { height:100vh; overflow:hidden; display:flex; flex-direction:column;
+    /* ⛔⛔ [CG.113] FALTABA, y es la regla que DESIGN.md llama no negociable: sin
+       ":host { display:block }" el <app-...> es INLINE, no establece bloque, y el alto que su
+       hijo pide no tiene contra que resolverse. Es lo primero que hay que mirar cuando alguien
+       reporta que una pantalla "no llena" o "se arrastra". */
+    :host { display:block; height:100%; min-height:0; }
+
+    /* ⛔⛔ [CG.113] ACA DECIA "height:100vh", Y ESE ERA EL SCROLL QUE EDGAR VE.
+       Medida la cadena del layout:
+
+           <div class="h-[100dvh] overflow-hidden">        la ventana entera
+             <header>  la barra superior de la Suite  </header>
+             <main class="flex-1 min-h-0 overflow-hidden">
+               <section class="overflow-y-auto">          <-- el que scrollea
+                 ESTA PANTALLA
+
+       O sea que el espacio disponible vale "100dvh menos la barra", y pedir 100vh pide una
+       VENTANA ENTERA adentro de el. Sobra siempre exactamente el alto de la barra: scroll
+       permanente por construccion, y el overflow:hidden de aca recorta justo lo de abajo --
+       que es donde vive el arqueo. El sintoma que reporto Edgar ("mucho scroll", "se pierde el
+       foco") no era de maquetacion densa: era esta unidad.
+
+       100% mide el CONTENEDOR, que es lo que [CG.59] queria decir con "la pantalla es la tarea".
+       ⚠️ Y 100% necesita que el ancestro tenga alto: por eso el :host de arriba, que ademas lo
+       declara explicito en vez de confiar en que el layout no cambie. */
+    .cg-app { height:100%; min-height:0; overflow:hidden; display:flex; flex-direction:column;
               padding-top:0; padding-bottom:0; }
     .cg-app > .cg-split { flex:1 1 auto; min-height:0; }
     /* ⛔ [CG.73] El saldo que [CG.71] metio en esta barra APRETABA a sus vecinos: medido en la
@@ -604,7 +628,35 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-jornada-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     /* Abierta, la jornada tiene SU scroll y un techo: no puede empujar la tarea fuera de la
        pantalla, que es exactamente lo que hacia antes de plegarse. */
-    .cg-jornada { flex:none; max-height:52vh; overflow:auto; padding:var(--sp-3) 0; }
+    /* ⛔⛔ [CG.113] DECIA "flex:none; max-height:52vh", y las dos mitades estaban mal.
+     *
+     * (1) 52vh es MAS DE MEDIA PANTALLA para lo que el propio comentario de la plantilla llama
+     *     "el 10%: lo que NO es la tarea". Con la jornada abierta, al arqueo -- que es el
+     *     trabajo -- le quedaba menos de la mitad. Edgar, con la pantalla a la vista:
+     *     "perdida del foco (Arqueo y movs)". Era literal, estaba en el CSS.
+     *
+     * (2) "flex:none" significa NO SE ENCOGE: cuando faltaba espacio, el que cedia era el
+     *     arqueo, nunca este panel. La prioridad declarada estaba invertida en el codigo.
+     *
+     * (3) Y "vh" es la misma unidad equivocada que [CG.113] corrigio en .cg-app: mide la
+     *     VENTANA, no el contenedor, que vale una barra superior menos. 40% mide el padre.
+     *
+     * Con 40% y "flex:0 1 auto", el arqueo conserva 60% SIEMPRE y este panel cede primero. */
+    /* [CG.116] Ya no es un hijo flex del tablero: vive dentro de una ventana, que le pone su
+       propio alto maximo y su propio scroll. Topar el alto ACA ademas del contentStyle daria dos
+       barras de scroll anidadas -- el defecto que [CG.113] vino a quitar, de vuelta. */
+    .cg-jornada { padding:var(--sp-2) 0; }
+    /* El dialogo manda su contenido a un contexto propio, asi que las clases cg-* de adentro se
+       apoyan en los estilos GLOBALES; lo unico que hace falta es que el ancho no se desborde. */
+    :host ::ng-deep .cg-jornada-dlg .p-dialog-content { padding-top:var(--sp-2); }
+
+    /* [CG.115] Lo suelto de otras jornadas. Va en caja propia y en tono de aviso porque no es
+       parte del cuadre: es trabajo pendiente que el cuadre decidio NO tragarse. */
+    .cg-fuera { margin-top:var(--sp-3); padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color);
+                border-left:3px solid var(--warn-fg); border-radius:var(--r-sm,8px);
+                background:var(--overlay-hover); }
+    .cg-fuera-h { display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-sm); }
+    .cg-fuera-h > i { color:var(--warn-fg); }
 
     /* [CG.51] La cabecera del historial plegado. Es un <button> y no un <h2> con (click): lo que
        hace es abrir y cerrar, asi que el teclado lo alcanza solo y anuncia su aria-expanded. */
@@ -731,6 +783,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        de toque, su anillo de foco y su hover. Es exactamente el tipo de regla que PrimeNG-first
        evita tener que acordarse de escribir. */
     .cg-kpi-h { margin-top:var(--sp-5); }
+    .cg-conc-lim-h { margin:var(--sp-3) 0 0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .cg-conc-lim { margin:var(--sp-1) 0 0; padding-left:var(--sp-4); font-size:var(--fs-xs);
       color:var(--text-soft); display:flex; flex-direction:column; gap:var(--sp-1); }
     .cg-conc-wide { max-width:none; }
@@ -845,10 +898,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              esperado y el texto lo DECLARA ("oculto hasta sellar"), nunca lo dibuja en 0. -->
         <span class="fin-saldo cg-saldo" [title]="textoSaldoUI()">{{ textoSaldoUI() }}</span>
 
-        <button type="button" class="cg-jornada-btn" (click)="jornadaAbierta.set(!jornadaAbierta())"
-                [attr.aria-expanded]="jornadaAbierta()">
-          <i class="pi" [class.pi-chevron-down]="!jornadaAbierta()"
-             [class.pi-chevron-up]="jornadaAbierta()" aria-hidden="true"></i>
+        <!-- ⛔⛔ [CG.116] ESTO ERA UN DESPLEGABLE Y EDGAR LO PIDIO TRES VECES: "al hacer que el
+             usuario despliegue y deslice hacia abajo pierde el enfoque... que esto viva en un
+             selector para no tener esa perdida de la pantalla principal, o se abre una pestaña
+             nueva o se despliega una ventana".
+             El defecto no era el alto del panel -- [CG.113] ya lo habia topado al 40% -- es que
+             un desplegable EMPUJA: abrirlo mueve el arqueo y los movimientos de lugar, y el que
+             estaba contando pierde el renglon donde iba. Una ventana no mueve nada: se abre
+             encima, se cierra con Esc y la pantalla de atras queda intacta.
+             Por eso ahora es "aria-haspopup=dialog" y no "aria-expanded": lo que anuncia el
+             lector de pantalla tiene que ser lo que de verdad pasa. -->
+        <button type="button" class="cg-jornada-btn" (click)="jornadaAbierta.set(true)"
+                aria-haspopup="dialog">
+          <i class="pi pi-window-maximize" aria-hidden="true"></i>
           <strong>Tu jornada</strong>
           <span class="cg-jornada-sep" aria-hidden="true"></span>
           <span class="cg-jornada-res">{{ subtituloJornada() }}</span>
@@ -858,8 +920,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
       </header>
 
-      <!-- El 10%: lo que NO es la tarea. Arranca cerrado y scrollea solo. -->
-      @if (jornadaAbierta()) {
+      <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
+           abrirla no mueve ni un pixel del arqueo que hay detras. -->
+      <p-dialog [visible]="jornadaAbierta()" (visibleChange)="jornadaAbierta.set($event)"
+                [modal]="true" [dismissableMask]="true" [draggable]="false" [maximizable]="true"
+                [style]="{ width: 'min(1180px, 96vw)' }" [contentStyle]="{ 'max-height': '78vh' }"
+                styleClass="cg-jornada-dlg" header="Tu jornada">
         <div class="cg-jornada">
           <p class="fin-dim cg-sub-dim">{{ coberturaTexto() }}</p>
 
@@ -952,7 +1018,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <span class="mono">&minus; {{ money(a.caja_general.gastos) }}</span></div>
               <div class="cg-conc-row"><span>Depositos al banco</span>
                 <span class="mono">&minus; {{ money(a.caja_general.depositos) }}</span></div>
-              <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
+              <!-- ⛔ [CG.112] DECIA "Movimiento del dia", igual que el renglon del cajero de la
+                   columna de al lado, con OTRA cifra. Dos rotulos identicos con dos numeros
+                   distintos, a la vista al mismo tiempo: -$6,435.79 aca y $38,550.00 alla.
+                   Edgar: "poco entendible". Cada columna nombra lo SUYO. -->
+              <div class="cg-conc-row cg-conc-tot"><span>Movimiento del libro</span>
                 <span class="mono">{{ money(a.caja_general.neto) }}</span></div>
               <!-- ⭐⭐ [CG.97] "Movimiento del dia" es correcto -el dinero entro y se registro- pero
                    se LEE como "esto hay en la caja", y no lo hay: la maquina se traga los billetes
@@ -995,19 +1065,44 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 {{ a.caja_general.movimientos }} movimiento(s) registrado(s){{ a.caja_general.cancelados ? ', ' + a.caja_general.cancelados + ' cancelado(s)' : '' }}.
               </small>
 
+              <!-- ⭐ [CG.115] LO QUE QUEDO SUELTO DE OTROS DIAS. Antes esto no se declaraba porque
+                   no hacia falta: el corte se lo tragaba todo, y por eso el esperado daba
+                   -$206,008.34 sumando el 25-sep, el 10-dic y la captura de hoy. Ahora el corte
+                   solo barre SU jornada, asi que lo de otros dias tiene que tener donde VERSE --
+                   si no, cambiar el barrido lo habria desaparecido en vez de arreglarlo. -->
+              @if (sueltosFuera(); as sf) {
+                <div class="cg-fuera">
+                  <strong class="cg-fuera-h"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    Fuera de esta jornada</strong>
+                  @if (sf.anteriores.movimientos) {
+                    <div class="cg-conc-row"><span>{{ sf.anteriores.movimientos }} de días anteriores
+                      <small class="fin-dim">(desde {{ sf.desde }}) — su jornada nunca se cerró</small></span>
+                      <span class="mono">{{ money(sf.anteriores.neto) }}</span></div>
+                  }
+                  @if (sf.posteriores.movimientos) {
+                    <div class="cg-conc-row"><span>{{ sf.posteriores.movimientos }} con fecha posterior
+                      <small class="fin-dim">(hasta {{ sf.hasta }}) — o es captura adelantada, o la fecha está mal</small></span>
+                      <span class="mono">{{ money(sf.posteriores.neto) }}</span></div>
+                  }
+                  <small class="fin-dim">No entran a este corte ni a su esperado. Siguen sueltos,
+                    esperando el corte de su propio día.</small>
+                </div>
+              }
+
               <!-- ⛔ CG.19 sigue intacto: el ESPERADO no se compone aca. La suma
                    "fondo + ingresos - egresos - depositos" ES el esperado, y publicarla mientras
                    alguien cuenta a ciegas seria devolverle por la ventana lo que se le oculta.
                    Lo unico que se dice es SI hay corte, que no es secreto. -->
               @if (a.corte_abierto; as c) {
                 <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
-                <!-- [CG.90.1] La puerta de salida del fondo: NO se pregunta al abrir, pero quien
-                     SI sabe con cuanto arranco la caja puede declararlo aca. Sin esto el fondo
-                     quedaria en "sin medir" para siempre y el arqueo nunca podria decir si cuadra. -->
-                @if (c.fondo_inicial == null) {
-                  <p-button label="Declarar con cuánto arrancó la caja" icon="pi pi-pencil" size="small"
-                            severity="secondary" [text]="true" (onClick)="abrirApertura()"></p-button>
-                }
+                <!-- ⛔ [CG.112] ACA HABIA UN SEGUNDO BOTON "Declarar con cuanto arranco la caja",
+                     identico al de 18 lineas mas arriba: misma etiqueta, misma accion, mismo
+                     hecho. Sus dos condiciones (hayEnCajon() nulo / c.fondo_inicial nulo) son la
+                     MISMA ausencia vista desde dos lados, asi que se pintaban los dos juntos.
+                     Edgar, con la pantalla a la vista: "informacion traslapada".
+                     Un boton repetido no es redundancia inofensiva: obliga a decidir cual de los
+                     dos es el bueno antes de poder hacer lo unico que hay que hacer. -->
+
                 <!-- El esperado y la caja chica conciliada SOLO existen cuando el servidor ya los
                      revelo (permiso de cierre). "arqueoFinal()" devuelve null mientras esten
                      ocultos, asi que este bloque no se pinta y no hay nada que tapar. -->
@@ -1056,9 +1151,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <span class="mono">+ {{ money(cj.entra) }}</span></div>
                 <div class="cg-conc-row"><span>Sale <small class="fin-dim">(dispensar + vaciar)</small></span>
                   <span class="mono">&minus; {{ money(cj.sale) }}</span></div>
-                <!-- ⛔ "Movimiento del dia", NUNCA "saldo": CAOS no publica su contenido y el
-                     acumulado del flujo da negativo porque el efectivo anterior al feed no se sabe. -->
-                <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
+                <!-- ⛔ "Movimiento", NUNCA "saldo": CAOS no publica su contenido y el acumulado
+                     del flujo da negativo porque el efectivo anterior al feed no se sabe.
+                     [CG.112] Y dice "de la boveda", no "del dia": el de al lado tambien era "del
+                     dia" con otra cifra. -->
+                <div class="cg-conc-row cg-conc-tot"><span>Movimiento de la bóveda</span>
                   <span class="mono">{{ money(cj.neto) }}</span></div>
                 <small class="fin-dim">
                   {{ cj.movimientos }} movimiento(s) del cajero en la jornada.
@@ -1151,15 +1248,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           @if (a.limites?.length) {
             <!-- PrimeNG-first (checklist 3): el alto de toque y el anillo de foco los pone el
                  componente, no una regla a mano por pantalla. -->
-            <p-button [label]="(limitesAbiertos() ? 'Ocultar' : 'Que NO cubre este cuadre') + ' (' + a.limites!.length + ')'"
-                      [icon]="limitesAbiertos() ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
-                      size="small" severity="secondary" [text]="true"
-                      (onClick)="limitesAbiertos.set(!limitesAbiertos())"></p-button>
-            @if (limitesAbiertos()) {
-              <ul class="cg-conc-lim">
-                @for (m of a.limites!; track m) { <li>{{ m }}</li> }
-              </ul>
-            }
+            <!-- [CG.116] ERA EL TERCER DESPLEGABLE DE LA PANTALLA y es el que aparece en el
+                 pantallazo de Edgar. Ahora que todo esto vive dentro de una ventana, plegarlo no
+                 protege nada: la pantalla de atras no se mueve igual. Lo que si hacia era
+                 esconder DOS renglones de texto detras de un clic, y despues empujar lo de abajo
+                 al abrirlos. Se pinta y ya. -->
+            <p class="cg-conc-lim-h">Que NO cubre este cuadre ({{ a.limites!.length }})</p>
+            <ul class="cg-conc-lim">
+              @for (m of a.limites!; track m) { <li>{{ m }}</li> }
+            </ul>
           }
         } @else {
           <!-- Tercer estado. "Sin medir" no es "el dia estuvo en cero". -->
@@ -1433,7 +1530,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
       </section>
         </div>
-      }
+      </p-dialog>
 
 
       <!-- ⛔ [CG.37] ACA ESTABAN EL TITULO "El libro" Y SU TIRA DE KPIs, y bajaron 340 lineas
@@ -2232,7 +2329,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     }
                   </div>
                   <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
-                         [ngModel]="ventaCredito()" (ngModelChange)="setVentaCredito($event)"
+                         [ngModel]="ventaCreditoVista()" (ngModelChange)="setVentaCredito($event)" placeholder="0.00"
                          aria-label="Monto de la venta a crédito" />
                   <!-- La fórmula sólo cuando hay crédito: con 0 era "documento $144 − crédito $0.00 =
                        $144", o sea un renglón para publicar una resta de cero. -->
@@ -2288,7 +2385,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                         <tr>
                           <th scope="row" class="mono">{{ b.label }}</th>
                           <td>
-                            <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                            <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric" placeholder="0"
                                    [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
                                    (keydown.enter)="moverEnReja($event, 1)"
                                    (keydown.arrowdown)="moverEnReja($event, 1)"
@@ -2319,7 +2416,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                once veces era la informacion repetitiva que el rediseno vino a sacar. -->
                           <th scope="row" class="mono">{{ b.label }}</th>
                           <td>
-                            <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                            <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric" placeholder="0"
                                    [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
                                    (keydown.enter)="moverEnReja($event, 1)"
                                    (keydown.arrowdown)="moverEnReja($event, 1)"
@@ -2343,7 +2440,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <span class="cg-bandeja-sp"></span>
                     <input pInputText id="cg-morralla" type="number" class="cg-pieza cg-morralla-in"
                            min="0" step="0.01" inputmode="decimal"
-                           [ngModel]="f().morralla" (ngModelChange)="setMorralla($event)"
+                           [ngModel]="morrallaVista()" (ngModelChange)="setMorralla($event)" placeholder="0.00"
                            (keydown.enter)="moverEnReja($event, 1)"
                            (keydown.arrowdown)="moverEnReja($event, 1)"
                            (keydown.arrowup)="moverEnReja($event, -1)"
@@ -2426,14 +2523,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                           <th scope="row" class="mono">{{ b.label }}<!--
                             --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
                           <td>
-                            <input pInputText type="number" class="cg-pieza-dev" min="0" step="1" inputmode="numeric"
+                            <input pInputText type="number" class="cg-pieza-dev" min="0" step="1" inputmode="numeric" placeholder="0"
                                    [ngModel]="piezasDevueltasDe(b)" (ngModelChange)="setPiezasDevueltas(b, $event)"
                                    (keydown.enter)="moverEnRejaDev($event, 1)"
                                    (keydown.arrowdown)="moverEnRejaDev($event, 1)"
                                    (keydown.arrowup)="moverEnRejaDev($event, -1)"
                                    [attr.aria-label]="'Piezas devueltas de ' + b.label" />
                           </td>
-                          <td class="mono cg-sub">{{ money(b.valor * piezasDevueltasDe(b)) }}</td>
+                          <td class="mono cg-sub">{{ money(subtotalDevueltasDe(b)) }}</td>
                         </tr>
                       </ng-template>
                       <ng-template #footer>
@@ -2752,7 +2849,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <th scope="row" class="mono">{{ b.label }}<!--
                 --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
               <td>
-                <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric"
+                <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric" placeholder="0"
                        [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
                        (keydown.enter)="moverEnRejaCorte($event, 1)"
                        (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
@@ -2771,7 +2868,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <td>
                 <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
                        inputmode="decimal"
-                       [ngModel]="morrallaCorte()" (ngModelChange)="morrallaCorte.set($event)"
+                       [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
                        (keydown.enter)="moverEnRejaCorte($event, 1)"
                        (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
                        (keydown.arrowup)="moverEnRejaCorte($event, -1)"
@@ -3786,6 +3883,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
   /** Sin saldo no sabemos si hay corte abierto. No es lo mismo que saber que no hay. */
   saldoSinMedir = computed(() => this.saldoResp() === null);
+
+  /**
+   * `[CG.115]` Lo suelto de otras jornadas. El signal se lee **incondicionalmente** (no detrás de
+   * un `&&`): un `computed()` que corta antes de leer su dependencia queda sin dependencias y no
+   * recalcula nunca — es la compuerta `reactividad` del sistema de diseño.
+   */
+  sueltosFuera = computed(() => this.saldoResp()?.sueltos_fuera ?? null);
   // CS.3.7 — El arqueo se valida contra el desglose COMPLETO (cajero + reja), que es lo que va al
   // servidor y lo que cuadra con el monto. Validar sólo la reja (vacía cuando el cajero aportó todo)
   // bloquearía el guardado con 'arqueo_no_cuadra' pese a que el arqueo real sí cuadra.
@@ -4198,9 +4302,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** `[CG.29]` Los límites estructurales arrancan plegados: salen todos los días. */
-  limitesAbiertos = signal(false);
-
   /**
    * ⭐ `[CG.29]` **RENDIR CUENTAS DE LA JORNADA, en un solo gesto.**
    *
@@ -4503,12 +4604,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /** ⚠️ `[CG.38]` Por denominación entera, no por valor — el mismo motivo que en la otra reja. */
-  piezasCorteDe(d: Denominacion): number {
-    return this.conteoCorte().find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  /** `[CG.114]` `null`, no `0`: ver `piezasDe`. Un cero tecleado vuelve `1` en `10`. */
+  piezasCorteDe(d: Denominacion): number | null {
+    return this.conteoCorte().find((x) => x.denom_key === d.key)?.piezas ?? null;
   }
 
   /** Lo que suma ese renglón del corte. Se calcula; no hay dónde teclearlo. */
-  subtotalCorteDe(d: Denominacion): number { return redondea(d.valor * this.piezasCorteDe(d)); }
+  subtotalCorteDe(d: Denominacion): number { return redondea(d.valor * (this.piezasCorteDe(d) ?? 0)); }
 
   setPiezasCorte(d: Denominacion, piezas: number): void {
     const list = this.conteoCorte().filter((x) => x.denom_key !== d.key);
@@ -5456,12 +5558,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * `piezasDe(20)` es ambiguo —hay billete y moneda de $20— y devolvería el renglón equivocado.
    * Pasando el objeto, la llave viaja con el valor y no hay nada que adivinar.
    */
-  piezasDe(d: Denominacion): number {
-    return this.f().denominaciones.find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  /**
+   * ⛔⛔ `[CG.114]` **DEVOLVÍA `0`, Y ESE CERO SE ESCRIBE EN LA CAJA.**
+   *
+   * Edgar: *"otro error típico de pendejos es poner un 0 por default en una caja, si yo pongo 1
+   * se escribe 10"*. Es literal: con un `0` ya tecleado, escribir `1` deja **`10`** — y en una
+   * reja de arqueo eso no es una molestia, es un billete de más por renglón, en el campo del que
+   * sale el monto del movimiento.
+   *
+   * ⭐ Y es el mismo defecto que ADR-056 nombra, movido al formulario: **dibujar un cero donde no
+   * hubo medición**. "No conté este renglón" y "conté y había cero" son hechos distintos, y el
+   * `0` los aplastaba en uno. `null` deja la caja VACÍA con su `placeholder`, que es lo que de
+   * verdad hay: nada contado todavía.
+   *
+   * ⚠️ Del lado de la escritura no cambia nada: `setPiezas` ya hacía `Number(piezas) || 0` y sólo
+   * guarda el renglón cuando es mayor que cero.
+   */
+  piezasDe(d: Denominacion): number | null {
+    return this.f().denominaciones.find((x) => x.denom_key === d.key)?.piezas ?? null;
   }
 
   /** Lo que suma ese renglón. Se CALCULA: no hay dónde teclearlo, y por eso va deshabilitado. */
-  subtotalDe(d: Denominacion): number { return redondea(d.valor * this.piezasDe(d)); }
+  subtotalDe(d: Denominacion): number { return redondea(d.valor * (this.piezasDe(d) ?? 0)); }
 
   setPiezas(d: Denominacion, piezas: number): void {
     const list = this.f().denominaciones.filter((x) => x.denom_key !== d.key);
@@ -5513,9 +5631,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Lo que salió de la caja en este mismo acto. Mismo tipo que lo que entró. */
   devuelto = signal<DenominacionCapturada[]>([]);
 
-  piezasDevueltasDe(d: Denominacion): number {
-    return this.devuelto().find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  /**
+   * ⛔ `[CG.114]` **Las tres cajas de DINERO, con el mismo defecto que las de piezas.**
+   *
+   * El modelo de abajo sigue siendo `number` (lo usa la aritmética del monto y cambiarle el tipo
+   * se propaga a media pantalla). Lo que cambia es lo que se PINTA: cero se muestra como caja
+   * vacía con su `placeholder`, y sólo se escribe lo que alguien tecleó.
+   *
+   * ⚠️ Son getters de VISTA, no el estado. Por eso no hay dos verdades: el valor sigue viviendo
+   * en un solo lugar y esto sólo decide cómo se ve cuando vale cero.
+   */
+  morrallaVista(): number | null { return this.f().morralla || null; }
+  ventaCreditoVista(): number | null { return this.ventaCredito() || null; }
+  morrallaCorteVista(): number | null { return this.morrallaCorte() || null; }
+
+  /** `[CG.114]` `null`, no `0`: ver `piezasDe`. Un cero tecleado vuelve `1` en `10`. */
+  piezasDevueltasDe(d: Denominacion): number | null {
+    return this.devuelto().find((x) => x.denom_key === d.key)?.piezas ?? null;
   }
+
+  /** El subtotal SI es un numero: una reja vacia vale cero pesos. Lo que no puede valer
+   *  cero es la CAJA, que es otra pregunta. */
+  subtotalDevueltasDe(d: Denominacion): number { return redondea(d.valor * (this.piezasDevueltasDe(d) ?? 0)); }
 
   setPiezasDevueltas(d: Denominacion, piezas: number): void {
     const list = this.devuelto().filter((x) => x.denom_key !== d.key);

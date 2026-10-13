@@ -437,5 +437,19 @@ export function textoSaldo(
   }
   if (r.saldo === null || r.saldo === undefined) return 'Saldo: sin medir.';
   const m = r.saldo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
-  return `Saldo en caja: ${m} (corte ${r.corte_abierto?.folio ?? '—'}).`;
+  /**
+   * ⛔⛔ `[CG.112]` **DECÍA "Saldo en caja", Y NO ES UN SALDO.**
+   *
+   * Edgar, con la pantalla delante: *"mi saldo en caja no se entiende"*. Tenía razón y el defecto
+   * era el rótulo, no el número: esta cifra es **`esperado`** —`cash-cut.service` lo dice con
+   * todas sus letras: *"`saldo` también se recorta: es literalmente `t.esperado` con otro
+   * nombre"*— y el panel de la jornada publica ESE MISMO número rotulado *"Esperado en caja
+   * general"*. El mismo valor con dos nombres, en la misma pantalla, a la vez.
+   *
+   * ⭐ Y la diferencia entre las dos palabras es la que vuelve legible un negativo: un **saldo**
+   * es lo que HAY, y leer *"saldo −$125,868.34"* no tiene sentido físico. Un **esperado** es lo
+   * que el libro dice que debería haber, y puede salir negativo cuando el libro arrastra
+   * movimientos viejos sin cerrar — que es exactamente lo que pasa hoy.
+   */
+  return `Esperado en caja: ${m} (corte ${r.corte_abierto?.folio ?? '—'}).`;
 }

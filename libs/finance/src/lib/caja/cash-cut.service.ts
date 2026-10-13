@@ -138,10 +138,34 @@ export class CashCutService {
    * hecho de Kepler y qué parte la tecleó una persona. **No cambia la aritmética**: cambia lo que
    * el corte puede DECIR de sí mismo (`cobertura_ingreso`).
    */
-  private async movimientosSueltos(trx: any, tenantId: string, sucursal: string): Promise<MovimientoDelCorte[]> {
+  private async movimientosSueltos(
+    trx: any, tenantId: string, sucursal: string, dia: string | null,
+  ): Promise<MovimientoDelCorte[]> {
     const rows = await trx('finance.cash_ledger')
       .where({ tenant_id: tenantId })
       .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+      /**
+       * ⛔⛔ `[CG.115]` **ACÁ NO HABÍA NINGÚN FILTRO DE FECHA, y por eso el saldo salía en
+       * −$206,008.34.** Medido en prod el 2026-10-13 sobre el corte `CC-2026-00001`, que es del
+       * **12-oct**:
+       *
+       *     sueltos que barría  ->  32 movimientos, del 25-sep al 10-dic, neto −$156,275.84
+       *     sueltos de SU día   ->  23 movimientos, del 12-oct,           neto  +$53,134.95
+       *
+       * O sea que un corte de un día se tragaba **$130,000 del 25-sep**, los **$86,575.79 que se
+       * capturaron HOY 13-oct** (un día que todavía no cierra) y hasta un movimiento fechado
+       * **10-dic-2026**. El esperado dejaba de ser "cuánto debería haber en el cajón al cerrar
+       * hoy" y pasaba a ser "la suma de todo lo que alguna vez quedó sin cortar": un número que
+       * no se puede ir a contar, porque ese efectivo ni existe ni existió junto.
+       *
+       * ⚠️ Y el signo engañaba doble: el barrido lo volvía **negativo**, y un negativo grande se
+       * lee como "la caja debe dinero" cuando lo que pasaba es que estaba sumando jornadas ajenas.
+       *
+       * ⭐ Los sueltos de otros días **NO se descartan en silencio** — eso sería el defecto
+       * simétrico. Se cuentan aparte en `sueltosFuera()` y la pantalla los declara: siguen vivos,
+       * esperando el corte de SU jornada.
+       */
+      .modify((q: any) => { if (dia) q.where('fecha', dia); })
       .whereNull('corte_id').whereNull('deleted_at')
       .select('tipo', 'monto', 'estado', 'origen_tipo')
       /**
@@ -162,6 +186,52 @@ export class CashCutService {
     return rows.map((r: any) => ({
       ...r, anclado: r.origen_tipo === 'cobro', en_boveda: Number(r.en_boveda ?? 0),
     }));
+  }
+
+  /**
+   * `[CG.115]` **La jornada de un corte, como string `YYYY-MM-DD`.**
+   *
+   * ⚠️ `String(unDate).slice(0,10)` da `"Mon Oct 12"` y `unDate.toISOString()` es lo único que
+   * devuelve el día que se guardó: una columna `date` de pg llega como `Date` a la medianoche
+   * **UTC**, y renderizarla en hora de México la corre un día para atrás. Es el mismo defecto que
+   * `[LC.16]`, y acá decidiría **qué movimientos entran a un corte de dinero**.
+   */
+  private diaDe(fecha: string | Date | null | undefined): string | null {
+    if (fecha == null) return null;
+    return fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha).slice(0, 10);
+  }
+
+  /**
+   * ⭐ `[CG.115]` **Lo que queda suelto FUERA de esta jornada — contado, no escondido.**
+   *
+   * Acotar el barrido sin esto sería cambiar un defecto por otro: los $130,000 del 25-sep
+   * desaparecerían de la pantalla en vez de desaparecer del esperado, y nadie volvería a verlos.
+   *
+   * Se parte en **anteriores** y **posteriores** porque no son el mismo hecho: lo anterior es una
+   * jornada que nunca se cerró (hay que cerrarla), lo posterior es captura de un día que todavía
+   * no toca — o una fecha mal tecleada, como el movimiento de prod fechado **10-dic-2026**.
+   */
+  private async sueltosFuera(trx: any, tenantId: string, sucursal: string, dia: string | null) {
+    if (!dia) return null;
+    const neto = `sum(CASE WHEN estado = 'cancelado' THEN 0
+                           WHEN tipo = 'ingreso' THEN monto ELSE -monto END)`;
+    const [r] = await trx('finance.cash_ledger')
+      .where({ tenant_id: tenantId })
+      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+      .whereNull('corte_id').whereNull('deleted_at')
+      .whereRaw('fecha <> ?::date', [dia])
+      .select(
+        trx.raw(`count(*) FILTER (WHERE fecha < ?::date)::int AS n_antes`, [dia]),
+        trx.raw(`coalesce(${neto} FILTER (WHERE fecha < ?::date), 0)::numeric AS neto_antes`, [dia]),
+        trx.raw(`count(*) FILTER (WHERE fecha > ?::date)::int AS n_despues`, [dia]),
+        trx.raw(`coalesce(${neto} FILTER (WHERE fecha > ?::date), 0)::numeric AS neto_despues`, [dia]),
+        trx.raw(`to_char(min(fecha),'YYYY-MM-DD') AS desde`),
+        trx.raw(`to_char(max(fecha),'YYYY-MM-DD') AS hasta`),
+      );
+    const anteriores = { movimientos: Number(r?.n_antes ?? 0), neto: Number(r?.neto_antes ?? 0) };
+    const posteriores = { movimientos: Number(r?.n_despues ?? 0), neto: Number(r?.neto_despues ?? 0) };
+    if (!anteriores.movimientos && !posteriores.movimientos) return null;
+    return { dia, anteriores, posteriores, desde: r?.desde ?? null, hasta: r?.hasta ?? null };
   }
 
   /**
@@ -350,7 +420,7 @@ export class CashCutService {
         );
       }
 
-      const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal, this.diaDe(c.fecha));
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
@@ -380,7 +450,7 @@ export class CashCutService {
         .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
 
-      const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal, this.diaDe(c.fecha));
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
@@ -439,8 +509,20 @@ export class CashCutService {
       if (!c) throw new NotFoundException('Corte no encontrado');
       if (c.estado !== 'borrador') throw new BadRequestException(TEXTO_NO_CIERRA['no_es_borrador']);
 
+      /**
+       * ⛔⛔ `[CG.115]` **EL `.where('fecha', dia)` ES LA MITAD QUE FALTABA.** `movimientosSueltos`
+       * acota lo que se SUMA; esto acota lo que se ATA. Sin las dos, el invariante de arriba
+       * ("el conjunto atado y el sumado son el mismo por construcción") se rompe al revés: el
+       * corte ataría 32 movimientos y firmaría el total de 23.
+       *
+       * Y atar de más no es sólo un número torcido: un movimiento atado a un corte **ya no está
+       * suelto**, así que los $130,000 del 25-sep quedarían sellados dentro del arqueo del 12-oct
+       * y su propia jornada ya no podría cuadrarse nunca.
+       */
+      const dia = this.diaDe(c.fecha);
       const base = () => trx('finance.cash_ledger')
         .where({ tenant_id: tenantId, sucursal: c.sucursal })
+        .modify((q: any) => { if (dia) q.where('fecha', dia); })
         .whereNull('corte_id').whereNull('deleted_at');
 
       // ⛔ Un movimiento CANCELADO entra al corte (se audita que se canceló) pero CONSERVA su
@@ -635,7 +717,15 @@ export class CashCutService {
     return this.tk.run(async (trx) => {
       const abierto = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
-      const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
+      /**
+       * `[CG.115]` Sin corte abierto, la jornada es **hoy** — el mismo día con el que el panel ya
+       * mide la bóveda tres líneas más abajo. Antes acá no había jornada ninguna y el "saldo de la
+       * caja" que se pinta en la barra era la suma de todo lo que alguna vez quedó sin cortar.
+       */
+      const dia = this.diaDe(abierto?.fecha) ?? (await trx.raw(
+        `SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date,'YYYY-MM-DD') AS d`)).rows[0].d;
+      const movs = await this.movimientosSueltos(trx, tenantId, sucursal, dia);
+      const fuera = await this.sueltosFuera(trx, tenantId, sucursal, dia);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.fecha ?? null);
       const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
       return {
@@ -655,6 +745,14 @@ export class CashCutService {
         saldo_oculto: !revela,
         sin_corte_abierto: !abierto,
         movimientos_sueltos: t.movimientos,
+        // La jornada que se midió, para que "N movimientos sueltos" diga DE QUÉ DÍA habla.
+        dia,
+        /**
+         * ⭐ `[CG.115]` Lo que quedó suelto de OTROS días. `null` cuando no hay nada fuera — y eso
+         * es distinto de cero movimientos en el día: acá `null` significa "no hay pendientes de
+         * otras jornadas", no "no se midió".
+         */
+        sueltos_fuera: fuera,
         totales: proyectarCiego(t, revela),
         // CS.3.11 — el movimiento del cajero (CAOS) en el período del corte, para conciliar la caja
         // chica contra la bóveda. Los montos son hechos del cajero (no gateados); la caja chica
