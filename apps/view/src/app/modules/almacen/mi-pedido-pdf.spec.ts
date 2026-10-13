@@ -81,17 +81,23 @@ describe('[AB.21] PDF de Mi pedido', () => {
     const { descargarPdfMiPedido } = await import('./mi-pedido-pdf');
     await descargarPdfMiPedido(base());
     const mayor = celdas(tablas[0]);
-    expect(mayor[0].slice(0, 4)).toEqual(['70012', 'PRODUCTO 70012', '3', 'CJA']);
+    // Orden de captura: SKU, Pedir, Unidad, Producto (Francisco, 2026-10-13).
+    expect(mayor[0].slice(0, 4)).toEqual(['70012', '3', 'CJA', 'PRODUCTO 70012']);
     expect(mayor[1][6]).toBe('sin medir');
-    expect(mayor.every((f) => f[7] === '')).toBe(true); // columna en blanco para anotar lo surtido
-    expect(celdas(tablas[1])[0][1]).toContain('Agotado: se pide aunque sea poco');
+    // La última columna es el aviso del renglón, no un espacio en blanco; el producto va limpio.
+    const menor = celdas(tablas[1])[0];
+    expect(menor[3]).toBe('PRODUCTO 20021');
+    expect(menor[7]).toBe('Agotado: se pide aunque sea poco');
   });
 
-  it('la columna en blanco y las firmas cambian con el origen', async () => {
+  it('a quién se le pide va tan visible como quién pide; las firmas cambian con el origen', async () => {
     const { descargarPdfMiPedido } = await import('./mi-pedido-pdf');
     await descargarPdfMiPedido(base());
-    expect(encabezado(tablas[0])).toContain('Surtido');
-    expect(encabezado(tablas[2])).toContain('Recibido');
+    expect(encabezado(tablas[0])).toContain('Aviso');
+    expect(encabezado(tablas[0])).not.toContain('Surtido');
+    expect(textos).toContain('PIDE: 02 · La Piedad');
+    expect(textos).toContain('A LA SUCURSAL: 01 · Padre Hidalgo');
+    expect(textos).toContain('AL PROVEEDOR: CUERITOS LUPITA');
     expect(textos.some((t) => t.startsWith('Surtió (sucursal que abastece)'))).toBe(true);
     expect(textos.some((t) => t.startsWith('Autorizó (Compras)'))).toBe(true);
     expect(textos).toContain('El proveedor pide un mínimo de $27,514; este pedido lleva $20,280.');

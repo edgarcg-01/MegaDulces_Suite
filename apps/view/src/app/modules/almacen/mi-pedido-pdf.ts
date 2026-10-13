@@ -5,8 +5,9 @@
  *  · al **proveedor** → «Requisición de compra», lo tramita Compras.
  *
  * Un origen por hoja y, dentro, las listas de surtido de AB.19 en tablas separadas (unidad mayor /
- * unidad menor / una sola unidad): la matriz surte una orden de cajas y otra de piezas. Cada tabla
- * trae una columna en blanco para anotar lo que se surtió o recibió.
+ * unidad menor / una sola unidad): la matriz surte una orden de cajas y otra de piezas. Es hoja de
+ * transcripción y análisis: el orden de columnas sigue la captura (SKU, cantidad, unidad, producto)
+ * y la última columna es el aviso del renglón, no un espacio en blanco para anotar.
  *
  * Lo que se imprime es EXACTAMENTE lo que lleva el pedido en pantalla: las posiciones marcadas, los
  * ajustes del almacenista (guardados o en curso) y el mínimo de $200. Ese cálculo lo hace la
@@ -90,8 +91,9 @@ function dibujarGrupo(
   let y = dibujarEncabezado(doc, logo, {
     titulo: titulo(g.tipo),
     cajaTitulo: `PIDE: ${d.almacen.code} · ${d.almacen.name}`,
+    // A quién se le pide, tan visible como quién pide (pedido de Francisco, 2026-10-13).
+    cajaTitulo2: `${g.tipo === 'matriz' ? 'A LA SUCURSAL' : g.tipo === 'proveedor' ? 'AL PROVEEDOR' : 'ORIGEN'}: ${g.origen}`,
     cajaLineas: [
-      `${g.tipo === 'matriz' ? 'A la sucursal' : g.tipo === 'proveedor' ? 'Al proveedor' : 'Origen'}: ${g.origen}`,
       `Fecha: ${fechaLarga(d.fecha_mx)} · ${d.hora_mx} (hora de México)`,
       `Elaboró: ${d.elaboro || 'sin usuario'}`,
     ],
@@ -134,35 +136,37 @@ function dibujarGrupo(
       head: [
         [{ content: `ORDEN DE ${CLASE_UNIDAD_LABEL[lista.clase].toUpperCase()}  ·  ${AYUDA_LISTA[lista.clase]}  ·  ${lista.renglones.length} renglón(es)`,
           colSpan: COLS, styles: { fillColor: [231, 229, 228], textColor: INK, fontStyle: 'bold', fontSize: 8 } }],
-        ['SKU', 'Producto', 'Pedir', 'Unidad', 'Exist. (cj)', 'Venta 30 d (cj)', 'Valor', g.tipo === 'proveedor' ? 'Recibido' : 'Surtido'],
+        // Orden de captura (Francisco, 2026-10-13): código, cuánto y en qué unidad primero, luego el
+        // contexto. Es hoja de transcripción y análisis: «Aviso» reemplaza a la columna en blanco.
+        ['SKU', 'Pedir', 'Unidad', 'Producto', 'Exist. (cj)', 'Venta 30 d (cj)', 'Valor', 'Aviso'],
       ],
       body: lista.renglones.map((r) => [
         r.sku,
-        r.nota ? `${r.nombre}\n${r.nota}` : r.nombre,
         qty(r.cantidad),
         r.unidad ?? 'sin unidad',
+        r.nombre,
         qty(r.existencia),
         r.venta_30d == null ? '-' : qty(r.venta_30d),
         r.valor == null ? 'sin medir' : money(r.valor),
-        '',
+        r.nota,
       ]),
-      foot: [['', 'Total', lista.clase === 'mayor' ? qty(suma) : '', '', '', '',
+      foot: [['', lista.clase === 'mayor' ? qty(suma) : '', '', 'Total', '', '',
         val.length ? money(val.reduce((s, r) => s + (r.valor as number), 0)) : 'sin medir', '']],
       showFoot: 'lastPage',
       footStyles: { fillColor: [245, 245, 244], textColor: INK, fontStyle: 'bold' },
       styles: { ...tablaBase.styles, fontSize: 8, cellPadding: 3.5 },
       headStyles: { ...tablaBase.headStyles, fontSize: 7.5 },
       columnStyles: {
-        0: { cellWidth: 46 },
-        1: { cellWidth: 'auto' },
-        2: { halign: 'right', cellWidth: 40, fontStyle: 'bold', fontSize: 9.5 },
-        3: { cellWidth: 40 },
-        4: { halign: 'right', cellWidth: 46 },
-        5: { halign: 'right', cellWidth: 64 },
-        6: { halign: 'right', cellWidth: 58 },
-        7: { cellWidth: 52 },
+        0: { cellWidth: 42 },
+        1: { halign: 'right', cellWidth: 36, fontStyle: 'bold', fontSize: 9.5 },
+        2: { cellWidth: 36 },
+        3: { cellWidth: 'auto' },
+        4: { halign: 'right', cellWidth: 44 },
+        5: { halign: 'right', cellWidth: 56 },
+        6: { halign: 'right', cellWidth: 56 },
+        7: { cellWidth: 104, fontSize: 7 },
       },
-      didParseCell: alinearTitulos([2, 4, 5, 6]),
+      didParseCell: alinearTitulos([1, 4, 5, 6]),
     });
     y = lastY(doc, y) + 12;
   }

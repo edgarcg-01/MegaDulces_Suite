@@ -1151,10 +1151,13 @@ mandarlo como requisición de compra al proveedor.
 - Título según el origen: **«Pedido de traspaso entre sucursales»** (matriz) o **«Requisición de
   compra a proveedor»**; caja con quién pide, a quién, fecha/hora del cálculo (del servidor) y quién
   elaboró.
-- **Una tabla por lista de surtido** (orden de unidad mayor / unidad menor / una sola unidad): SKU,
-  producto, **cantidad a capturar en su unidad**, existencia y venta 30 d en cajas, valor y una columna
-  **en blanco** («Surtido» o «Recibido») para anotar a mano. Cada renglón lleva su nota: ajustado (con
-  el sugerido y el motivo), agotado de poco valor, atorado, negado.
+- **Una tabla por lista de surtido** (orden de unidad mayor / unidad menor / una sola unidad), en el
+  **orden de captura** (Francisco, 2026-10-13): SKU · **Pedir** · **Unidad** · Producto · existencia y
+  venta 30 d en cajas · valor · **Aviso**. Es hoja de transcripción y análisis: la columna en blanco
+  «Surtido/Recibido» se retiró por no aportar, y «Aviso» lleva la nota del renglón (ajustado con el
+  sugerido y el motivo, agotado de poco valor, atorado, negado).
+- «A LA SUCURSAL» / «AL PROVEEDOR» va **del mismo tamaño que «PIDE»** en la caja del encabezado
+  (`cajaTitulo2`, opcional en `compras-pdf-comun`; los demás PDF no cambian).
 - Imprime **exactamente** lo que lleva el pedido en pantalla: posiciones marcadas, ajustes guardados o
   en curso y el mínimo de $200. Sin costo → «sin medir», nunca $0. Aviso del mínimo del proveedor.
 - Firmas: matriz → Elaboró / Surtió (sucursal que abastece) / Recibió; proveedor → Elaboró / Autorizó
