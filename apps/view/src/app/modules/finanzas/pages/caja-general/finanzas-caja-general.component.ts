@@ -756,6 +756,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        ⚠️ Ese segundo viaje NO lo ve check:templates, que parsea el .ts y ahi la version escapada
        es legal: lo encontro la corrida de pruebas. Una compuerta verde no es un build verde. */
     .cg-t-vacia::before { content:"–"; color:var(--text-faint); }
+    /* ⭐ [CG.140] Verde lo que entra, rojo lo que sale. Pedido de Edgar con la pantalla a la
+       vista, y va con los tokens semanticos -- NO con un rojo y un verde crudos: estos se
+       desaturan y se voltean solos en oscuro, que es donde esta pantalla se usa.
+       ⚠️ Y va ENCIMA de una marca que no es color, no en su lugar. Dos motivos medidos:
+         · la flota es Windows y en Alto Contraste del SO el navegador FUERZA todos los colores:
+           el verde y el rojo colapsan en el mismo. La regla #5 del pre-vuelo pide exactamente
+           esto -- que ningun estado dependa solo del color;
+         · rojo contra verde es el peor par posible para daltonismo (~8% de los hombres).
+       La marca que sobrevive las dos cosas ya estaba: la COLUMNA en la que cae el numero, y el
+       guion tenue del lado contrario. El color se suma a eso; si se apaga, la tabla se sigue
+       leyendo. */
+    .cg-cargo { color:var(--ok-fg); }
+    .cg-abono { color:var(--bad-fg); }
     
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
@@ -821,11 +834,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-conc-cols[hidden] { display:none; }
     /* [CG.91] El historial del dia: ancho completo, debajo del resumen. */
     .cg-hist { margin-top:var(--sp-4); }
+    /* [CG.139] El selector va sobre la lista y alineado a la derecha, donde ya viven los otros
+       controles de esta pantalla. El p de adentro es el caption, que sigue siendo invisible. */
+    .cg-hist-cap { display:flex; justify-content:flex-end; margin-bottom:var(--sp-2); }
     .cg-hist-canc > td { opacity:.55; text-decoration:line-through; }
     .cg-hist-tag { margin-left:var(--sp-2); font-size:var(--fs-xs); color:var(--text-muted);
                    border:1px solid var(--border); border-radius:var(--radius-sm); padding:0 var(--sp-1); }
-    /* El mismo verde que ya usa el signo del ingreso en la cola (.cg-in), no uno nuevo. */
-    .cg-hist-in { color:var(--ok-fg); }
+    /* [CG.140] Aca vivia .cg-hist-in, el verde que pintaba el signo del ingreso cuando el
+       historial tenia UNA columna de importe. Al partirlo en Cargo/Abono ([CG.139]) se quedo sin
+       un solo usuario, y el color ahora lo ponen .cg-cargo/.cg-abono, que sirven a las tres
+       tablas. Una clase que ya no usa nadie no es inofensiva: la proxima sesion la mantiene. */
     .cg-hist-benef { font-weight:600; }
     /* ⛔ [CG.97.1] El color sigue al SIGNO. Antes era verde fijo, y un negativo en verde es la
        clase de cosa por la que se deja de confiar en un tablero entero. */
@@ -1065,18 +1083,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <tbody>
                   <tr>
                     <th scope="row">Ingresos</th>
-                    <td class="comm-num">{{ money(a.caja_general.ingresos) }}</td>
+                    <td class="comm-num cg-cargo">{{ money(a.caja_general.ingresos) }}</td>
                     <td class="comm-num cg-t-vacia" aria-label="sin abono"></td>
                   </tr>
                   <tr>
                     <th scope="row">Gastos</th>
                     <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
-                    <td class="comm-num">{{ money(a.caja_general.gastos) }}</td>
+                    <td class="comm-num cg-abono">{{ money(a.caja_general.gastos) }}</td>
                   </tr>
                   <tr>
                     <th scope="row">Depositos al banco</th>
                     <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
-                    <td class="comm-num">{{ money(a.caja_general.depositos) }}</td>
+                    <td class="comm-num cg-abono">{{ money(a.caja_general.depositos) }}</td>
                   </tr>
                 </tbody>
                 <tfoot>
@@ -1245,13 +1263,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <tbody>
                     <tr>
                       <th scope="row">Entra <small class="fin-dim">(deposito + dotar)</small></th>
-                      <td class="comm-num">{{ money(cj.entra) }}</td>
+                      <td class="comm-num cg-cargo">{{ money(cj.entra) }}</td>
                       <td class="comm-num cg-t-vacia" aria-label="sin abono"></td>
                     </tr>
                     <tr>
                       <th scope="row">Sale <small class="fin-dim">(dispensar + vaciar)</small></th>
                       <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
-                      <td class="comm-num">{{ money(cj.sale) }}</td>
+                      <td class="comm-num cg-abono">{{ money(cj.sale) }}</td>
                     </tr>
                   </tbody>
                   <tfoot>
@@ -1283,8 +1301,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                lado y cuatro renglones del otro. -->
           @if (a.movimientos_del_dia?.length) {
             <div class="cg-hist">
-              <p class="cg-cap">Movimientos que registraste en esta jornada</p>
-              <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl">
+              <!-- ⭐ [CG.139] DONDE ENTRO EL DINERO. El eje no es el tipo -eso ya lo dicen las dos
+                   columnas Cargo/Abono- sino a que caja entro: hoy el 68% de lo que se publicaba
+                   como ingreso de caja general eran fajos que un vendedor metio al cajero. -->
+              <div class="cg-hist-cap">
+                <p class="cg-cap">Movimientos que registraste en esta jornada</p>
+                <app-segmented [options]="opcionesDondeEntro" [value]="dondeEntro()"
+                               (valueChange)="dondeEntro.set($any($event))"
+                               ariaLabel="Dónde entró el dinero"></app-segmented>
+              </div>
+              <p-table [value]="movimientosVista()" size="small" class="cg-conc-tbl">
                 <ng-template #header>
                   <!-- [CG.91.2] El orden sigue a lo que la persona RECONOCE: la hora, con quien
                        fue y cuanto. El folio interno (CI-2026-00007) y la cuenta son respaldo, no
@@ -1319,11 +1345,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <!-- [CG.139] El lado dice el signo, asi que ni el + / - ni el verde hacen
                          falta ya. La celda del lado contrario lleva el mismo guion tenue que las
                          T de arriba: un blanco se leeria como "no se midio". -->
-                    <td class="comm-num" [class.cg-t-vacia]="m.tipo !== 'ingreso'">
+                    <td class="comm-num cg-cargo" [class.cg-t-vacia]="m.tipo !== 'ingreso'">
                       @if (m.tipo === 'ingreso') { {{ money(m.monto) }} }
                     </td>
-                    <td class="comm-num" [class.cg-t-vacia]="m.tipo === 'ingreso'">
+                    <td class="comm-num cg-abono" [class.cg-t-vacia]="m.tipo === 'ingreso'">
                       @if (m.tipo !== 'ingreso') { {{ money(m.monto) }} }
+                    </td>
+                  </tr>
+                </ng-template>
+                <!-- ⛔ [CG.139] El selector puede dejar la lista en cero -una jornada sin nada que
+                     entrara al cajero, por ejemplo- y una tabla con encabezado y sin renglones se
+                     lee igual que una que no cargo. Se DICE cual de las dos es. -->
+                <ng-template #emptymessage>
+                  <tr>
+                    <td colspan="6" class="fin-dim">
+                      {{ dondeEntro() === 'caos'
+                         ? 'En esta jornada no entró nada directo al cajero.'
+                         : 'En esta jornada no hubo movimientos de caja general.' }}
                     </td>
                   </tr>
                 </ng-template>
@@ -1350,9 +1388,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       @if (totalHistorial().cancelados) {
                         <small class="fin-dim">&nbsp;· {{ totalHistorial().cancelados }} cancelado(s), fuera del total</small>
                       }
+                      <!-- [CG.139] Lo que el selector esconde se DICE. Elegir una vista no puede
+                           parecerse a que esos renglones no existan. -->
+                      @if (ocultosPorVista()) {
+                        <small class="fin-dim">&nbsp;· {{ ocultosPorVista() }} fuera de esta vista</small>
+                      }
                     </td>
-                    <td class="comm-num">{{ money(totalHistorial().ingresos) }}</td>
-                    <td class="comm-num">{{ money(totalHistorial().gastos) }}</td>
+                    <td class="comm-num cg-cargo">{{ money(totalHistorial().ingresos) }}</td>
+                    <td class="comm-num cg-abono">{{ money(totalHistorial().gastos) }}</td>
                   </tr>
                   <tr class="cg-hist-pie">
                     <td colspan="4">Diferencia</td>
@@ -3705,8 +3748,54 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return Number((Number(cg.fondo_inicial) + Number(cg.en_el_cajon)).toFixed(2));
   });
 
-  totalHistorial = computed(() => {
+  /**
+   * ⭐⭐ `[CG.139]` **DÓNDE ENTRÓ EL DINERO: el selector del historial.**
+   *
+   * Edgar: *"necesitamos aquí un selector para ver el movimiento considerando sólo lo que entró a
+   * caja general, lo que entró a CAOS, y todo"*.
+   *
+   * El eje NO es el tipo de movimiento (eso ya lo dicen las dos columnas Cargo/Abono) sino **a
+   * qué caja entró**, que es la distinción que el bloque de arriba acababa de corregir: hoy el
+   * 68% de lo que se publicaba como ingreso de caja general eran fajos que un vendedor metió al
+   * cajero.
+   *
+   * ⛔ El discriminante es `origen === 'caos'` —el movimiento **nació** del feed de la máquina—
+   * y no un enlace: *"si se asocia no quiere decir que lo tocó"*.
+   */
+  readonly opcionesDondeEntro = [
+    { label: 'Caja general', value: 'caja' },
+    { label: 'Entró a CAOS', value: 'caos' },
+    { label: 'Todo', value: '' },
+  ];
+  /**
+   * Arranca en `caja` a propósito: es el tema de la pantalla, y así el pie del historial cuadra
+   * con el cuadro de arriba. Lo que el filtro esconde se DECLARA en el propio pie, para que
+   * elegir una vista no se parezca a que los renglones no existan.
+   */
+  dondeEntro = signal<'caja' | 'caos' | ''>('caja');
+
+  /** Los renglones que el selector deja a la vista. El pie suma ESTO. */
+  movimientosVista = computed(() => {
     const ms = this.arqueo()?.movimientos_del_dia ?? [];
+    const d = this.dondeEntro();
+    if (!d) return ms;
+    return ms.filter((m) => (d === 'caos' ? m.origen === 'caos' : m.origen !== 'caos'));
+  });
+
+  /** Cuántos renglones esconde la vista elegida, contados sobre la lista COMPLETA. */
+  ocultosPorVista = computed(() => {
+    const ms = this.arqueo()?.movimientos_del_dia ?? [];
+    return ms.length - this.movimientosVista().length;
+  });
+
+  totalHistorial = computed(() => {
+    /**
+     * ⚠️ `[CG.139]` Suma **lo que está a la vista**, que es lo que el rótulo promete — ahora
+     * después del selector. Antes sumaba la lista entera, y con el cuadro de arriba ya corregido
+     * el pie habría quedado por encima **todos los días y por construcción**: un control que
+     * siempre grita deja de leerse.
+     */
+    const ms = this.movimientosVista();
     let ingresos = 0; let gastos = 0; let cancelados = 0;
     for (const m of ms) {
       if (m.estado === 'cancelado') { cancelados++; continue; }
