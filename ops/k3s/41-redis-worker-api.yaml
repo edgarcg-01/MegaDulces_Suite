@@ -135,12 +135,35 @@ metadata:
   labels: { app: api, singleton: "false", migracion: migrado }
 spec:
   replicas: 2             # lo que en Compose eran `api` + `api2`, copiados a mano
+  # ⛔⛔ `[CG.102]` **ACÁ NO HABÍA NADA, Y POR ESO UN DESPLIEGUE CORTA TRANSACCIONES.**
+  #
+  # Edgar, 2026-10-13: *"ayer no se permitió cerrar una transacción porque se estaba haciendo un
+  # deploy"* · *"que no haya corte de proceso en deploys"*.
+  #
+  # Sin `strategy` el default es `maxUnavailable: 25%`. Con 2 réplicas eso redondea a 0, así que
+  # ESA parte estaba bien por casualidad — y una corrección que depende de un redondeo deja de
+  # ser cierta el día que alguien ponga `replicas: 3`. Se declara.
+  #
+  # ⭐ El que de verdad faltaba es `preStop`, abajo. Cuando K8s mata un pod, **manda SIGTERM y
+  # saca al pod del balanceador AL MISMO TIEMPO**, y la segunda cosa es asíncrona: durante ese
+  # instante el Service todavía le manda peticiones a un proceso que ya se está apagando. Ahí
+  # mueren las que estaban a mitad, y una de ellas fue el cierre del corte.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0     # nunca bajar de 2 sirviendo: la otra réplica absorbe todo
+      maxSurge: 1
   selector:
     matchLabels: { app: api }
   template:
     metadata:
       labels: { app: api }
     spec:
+      # El proceso tiene hasta 60 s para terminar lo que ya empezó. `main.ts` ya llama a
+      # `enableShutdownHooks()`, así que Nest cierra el servidor y drena; lo que no tenía era
+      # TIEMPO: con el default de 30 s y sin drenaje previo, el apagado empezaba antes de que
+      # el balanceador se enterara.
+      terminationGracePeriodSeconds: 60
       # ⛔ [K3S.18] ESTO REEMPLAZA AL depends_on: condition: service_healthy DE COMPOSE, y se
       # agrego DESPUES de que su ausencia mordiera. Sin el, K8s arranca los pods EN PARALELO:
       # el API gano la carrera, pidio Redis, recibio ECONNREFUSED y el adaptador de socket.io
@@ -159,6 +182,17 @@ spec:
           image: localhost:5000/trade-prod-api:__COMMIT__
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 10000 }]
+          # ⭐ `[CG.102]` LOS DIEZ SEGUNDOS QUE FALTABAN. `preStop` corre ANTES del SIGTERM y lo
+          # retrasa: el pod ya salió de los endpoints del Service, el balanceador deja de
+          # mandarle trabajo nuevo, y recién entonces el proceso se entera de que se apaga.
+          # Sin esta pausa el orden es al revés y las peticiones en vuelo mueren a mitad —
+          # incluida la que estaba cerrando un corte de caja.
+          # ⚠️ Es `sleep`, no una sonda: no hay nada que preguntar, hay que ESPERAR a que una
+          # propagación asíncrona termine. 10 s es holgado para kube-proxy en un solo nodo.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
           envFrom:
             - secretRef: { name: prod-env }
           env:

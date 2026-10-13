@@ -24,7 +24,10 @@ import { prepararFirma, pintarQr, type FirmaCanvas } from '@megadulces/ui-web';
  * DOS lugares —el QR y el texto de respaldo— y escribirla dos veces es la forma barata de que una
  * de las dos quede vieja el día que la ruta cambie.
  */
-const RUTA_FIRMA = '/finanzas/caja-general/firma';
+// ⭐ `[CG.84]` Apunta a la ruta PÚBLICA. La vieja (`/finanzas/caja-general/firma`) sigue viva
+// para un teléfono con sesión, pero el QR y la ruta que se dicta van acá: ésta no exige iniciar
+// sesión ni carga el shell de la Suite en un teléfono que se le presta a quien viene a firmar.
+const RUTA_FIRMA = '/firmar';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 // `[CG.45]` Tres piezas del repertorio compartido que esta pantalla se había construido a mano
@@ -3459,7 +3462,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * mientras alguien prueba en local — o al revés, que es peor.
    */
   private urlFirmaTelefono(codigo: string): string {
-    return `${location.origin}${RUTA_FIRMA}?c=${encodeURIComponent(codigo)}`;
+    // ⭐ `[CG.84]` Con pase, el teléfono entra sin sesión y con su código ya puesto. El `c=` se
+    // manda igual: es el que se dicta en voz alta cuando el teléfono no puede escanear, y es el
+    // que usa un teléfono que SÍ tiene sesión. Los dos caminos siguen vivos.
+    const pase = this.firmaPase();
+    const q = `?c=${encodeURIComponent(codigo)}`
+      + (pase ? `&pase=${encodeURIComponent(pase)}` : '');
+    return `${location.origin}${RUTA_FIRMA}${q}`;
   }
 
   /**
@@ -3571,6 +3580,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return firmaSigueValiendo(m, Number(this.f().monto) || 0);
   });
 
+  /**
+   * ⭐⭐ `[CG.84]` **El pase que va dentro del QR, para que el teléfono NO tenga que loguearse.**
+   *
+   * Edgar: *"el no password para firmar"*. Lo emite el servidor cuando esta PC —ya con sesión y
+   * con permiso de gestionar— pide el código, y vive los mismos 3 minutos. El teléfono lo
+   * presenta en lugar de un usuario y entra como invitado atado a ESE código.
+   *
+   * ⚠️ No se guarda en ningún lado ni se muestra como texto: vive en memoria mientras el panel
+   * está abierto y se borra al cerrarlo. Es una llave, no un dato.
+   */
+  readonly firmaPase = signal<string | null>(null);
+
   async firmaPedirEnTelefono(): Promise<void> {
     this.firmaAviso.set(null);
     this.firmaPidiendo.set(true);
@@ -3588,6 +3609,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         return;
       }
       this.firmaCodigo.set(r.codigo);
+      // `[CG.84]` El pase ANTES de pintar: el QR lo lee de acá. Si el servidor es viejo y no lo
+      // manda, queda `null` y el QR sale con el código solo — el camino de antes, que sigue vivo.
+      this.firmaPase.set(r.pase ?? null);
       this.firmaTelefonoListo.set(false);
       this.pintarQrFirma();   // `[CG.74]` el QR del codigo que acaba de nacer
     } finally {
@@ -3600,6 +3624,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // telefono podria ver el contexto de un pedido que el cajero ya cancelo.
     if (this.firmaCodigo()) void this.caja.cerrarFirma();
     this.firmaCodigo.set(null);
+    this.firmaPase.set(null);   // `[CG.84]` la llave se va con el panel
     this.firmaTelefonoListo.set(false);
     this.firmaAviso.set(null);
     // `[CG.74]` Y se borra el QR: uno vencido en pantalla es peor que ninguno — alguien lo
