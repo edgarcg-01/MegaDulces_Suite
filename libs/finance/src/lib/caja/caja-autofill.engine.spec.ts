@@ -10,8 +10,8 @@
  */
 import {
   normalize, isRulePlayable, shouldSuppressRule, classifyByRules, learnConceptFromHistory,
-  buildFolio, pickBest, buildProvenance, LEARNED_DEFAULTS,
-  type ClassifyRule, type HistoryRow, type Proposal,
+  buildFolio, pickBest, buildProvenance, LEARNED_DEFAULTS, cribarContraCatalogo,
+  type ClassifyRule, type HistoryRow, type Proposal, type ConceptPair,
 } from './caja-autofill.engine';
 
 const rule = (o: Partial<ClassifyRule> & { id: string; priority: number }): ClassifyRule => ({
@@ -234,6 +234,75 @@ describe('pickBest — la cascada del §8.1', () => {
     const r = pickBest();
     expect(r.value).toBeNull();
     expect(r.reason).toBeDefined();
+  });
+});
+
+/**
+ * ⭐⭐ `[CG.118]` **El motor no puede proponer un par que la plaza no tiene.**
+ *
+ * El caso real, con foto de Edgar el 2026-10-13 12:55: la pantalla rechazó el movimiento con
+ * *"El par cuenta/concepto 201/201 no existe en el catálogo de Kepler para la sucursal 01"*
+ * **después de que la persona ya había firmado**. Medido contra prod: la cuenta `201` —el
+ * respaldo que `[CG.110]` declaró— **no existe en 4 de las 9 sucursales** (01, 06, 07, 08).
+ */
+describe('cribarContraCatalogo — [CG.118] la propuesta se valida ANTES, no al guardar', () => {
+  const par = (cuenta: string, concepto: string, source: Proposal['source'], confidence: number) =>
+    ({ value: { kepler_cuenta: cuenta, kepler_concepto: concepto }, source, confidence }) as Proposal<ConceptPair>;
+  const vacio = (reason: Proposal['reason']) =>
+    ({ value: null, source: null, confidence: null, reason }) as Proposal<ConceptPair>;
+
+  it('el par que la plaza NO tiene se vacía con su propio motivo', () => {
+    const r = cribarContraCatalogo<ConceptPair>(
+      [par('201', '201', 'regla', 0.5)],
+      new Set(['511|059', '115|071']),       // el catálogo de la sucursal 01: sin 201
+    );
+    expect(r[0].value).toBeNull();
+    // ⛔ NO 'sin_regla': acá SÍ hubo propuesta y se descartó por algo que se puede ir a mirar.
+    expect(r[0].reason).toBe('no_existe_en_la_plaza');
+  });
+
+  it('⭐ el respaldo inválido deja pasar al nivel de abajo en vez de taparlo', () => {
+    // Es el caso de la foto: la regla de la entidad era buena y el respaldo la ganaba por orden.
+    const cribados = cribarContraCatalogo<ConceptPair>(
+      [par('201', '201', 'regla', 0.5), par('511', '059', 'aprendido', 0.8)],
+      new Set(['511|059']),
+    );
+    const elegido = pickBest<ConceptPair>(...cribados);
+    expect(elegido.value).toEqual({ kepler_cuenta: '511', kepler_concepto: '059' });
+    expect(elegido.source).toBe('aprendido');
+  });
+
+  it('[negativa] el par que SÍ existe pasa intacto, con su fuente y su confianza', () => {
+    const entra = par('201', '201', 'regla', 0.5);
+    const r = cribarContraCatalogo<ConceptPair>([entra], new Set(['201|201']));
+    expect(r[0]).toBe(entra);   // la MISMA referencia: no se reconstruye ni se "normaliza"
+  });
+
+  it('⛔ [negativa] sin catálogo NO se criba — un null no puede vaciar las seis propuestas', () => {
+    // Si el catálogo no se pudo leer, vaciar todo se vería idéntico a "no había nada que
+    // proponer" (ADR-056). El guardado sigue siendo la última compuerta.
+    const entra = par('201', '201', 'regla', 0.5);
+    expect(cribarContraCatalogo<ConceptPair>([entra], null)[0]).toBe(entra);
+  });
+
+  it('⛔ [negativa] un catálogo VACÍO sí criba: vacío y "no se pudo leer" no son lo mismo', () => {
+    const r = cribarContraCatalogo<ConceptPair>([par('201', '201', 'regla', 0.5)], new Set());
+    expect(r[0].reason).toBe('no_existe_en_la_plaza');
+  });
+
+  it('los niveles que ya venían vacíos conservan SU motivo, no se pisan', () => {
+    const r = cribarContraCatalogo<ConceptPair>(
+      [vacio('sin_documento'), par('201', '201', 'regla', 0.5)],
+      new Set(['115|071']),
+    );
+    expect(r[0].reason).toBe('sin_documento');
+    expect(r[1].reason).toBe('no_existe_en_la_plaza');
+  });
+
+  it('⭐ el motivo nuevo gana al elegir qué decirle a quien captura', () => {
+    // De todos los "no pude", éste es el único accionable: la cuenta hay que darla de alta.
+    const r = pickBest<ConceptPair>(vacio('sin_documento'), vacio('no_existe_en_la_plaza'), vacio('empate'));
+    expect(r.reason).toBe('no_existe_en_la_plaza');
   });
 });
 
