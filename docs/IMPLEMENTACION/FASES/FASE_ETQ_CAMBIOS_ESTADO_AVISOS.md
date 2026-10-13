@@ -2,7 +2,7 @@
 
 > **Qué es este documento.** El mapa de punta a punta de lo que se hizo en `/tienda/etiquetas` entre el **2026-10-08 y el 2026-10-12**: qué cambió para quien usa la pantalla, por qué, dónde vive en el código, cómo se probó, cómo se despliega y qué queda abierto. **No reemplaza** a los documentos por fase —los enlaza—: es el que se lee primero.
 >
-> **Estado al 2026-10-12:** #349 y #351 **fusionados en `main`**; #350 **abierto** (CI corriendo tras la fusión de `main` que hizo Edgar). Nada de lo de #350 está aplicado en prod: ver §7.
+> **Estado al 2026-10-13:** los **cuatro PR están fusionados en `main`** (#349 el 10-oct; #350, #351 y #361 el 12-oct). **Prod ya sirve el código** (`/api/health` devuelve `commit: a5223868`, el tip de `main`, medido el 13-oct). **Lo que NO se pudo confirmar desde la máquina de trabajo** (SSH y base de prod cerrados) es si las dos migraciones de #350 están aplicadas: ver la lista de verificación de §7.
 
 Documentos hermanos: [`FASE_ETIQUETAS_ANAQUEL`](FASE_ETIQUETAS_ANAQUEL.md) (la etiquetera en sí: tablas, decode de Kepler, formato de la etiqueta) · [`FASE_ETIQUETAS_CORRECCIONES`](FASE_ETIQUETAS_CORRECCIONES.md) (catálogo de errores de impresión) · [`FASE_ETQ_AVISOS_CAMBIOS_PRECIO`](FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md) (el plan y las decisiones D1–D5 de los avisos).
 
@@ -16,8 +16,8 @@ Documentos hermanos: [`FASE_ETIQUETAS_ANAQUEL`](FASE_ETIQUETAS_ANAQUEL.md) (la e
 | **Se confirma qué precio lleva la etiqueta** (Todos / Pieza / Paquete / Caja) antes de imprimir | Quien reimprime | #349 | ✅ en `main` |
 | **Un clic en un producto lo manda a la etiquetera**, con ese precio elegido | Quien reimprime | #349 | ✅ en `main` |
 | **La etiquetera dice POR QUÉ un producto no tiene precio**: no existe en Kepler / existe pero no en esa tienda / precio 0 | Quien carga códigos | #351 | ✅ en `main` (2026-10-12) |
-| **Aviso en la campana** a cada sucursal cuando hay cambios de precio (07:30 resume ayer, 14:00 lo de hoy); al tocarlo entra a Cambios de precio de su tienda | Encargados y quien usa la etiquetera | #350 | 🔨 abierto, CI corriendo |
-| **Compras puede avisar a una o varias sucursales** con una nota (permiso propio) | Compras | #350 | 🔨 abierto |
+| **Aviso en la campana** a cada sucursal cuando hay cambios de precio (07:30 resume ayer, 14:00 lo de hoy); al tocarlo entra a Cambios de precio de su tienda | Encargados y quien usa la etiquetera | #350 | ✅ en `main` (2026-10-12) · migraciones por confirmar en prod |
+| **Compras puede avisar a una o varias sucursales** con una nota (permiso propio) | Compras | #350 | ✅ en `main` · el permiso necesita su migración y re-login |
 | ~~Descargar la lista en CSV/Excel~~ | — | #350 | ⛔ **retirado el 2026-10-10 por decisión de Edgar** |
 
 ---
@@ -135,9 +135,17 @@ Este PR traía «Descargar CSV». **Edgar pidió quitarlo: no se acepta ningún 
 |---|---|---|
 | #349 (UI de Cambios de precio) | ✅ en `main` → `auto-deploy` | Sin migraciones |
 | #351 (`erp_estado`) | ✅ en `main` → `auto-deploy` | Sin migraciones; sin re-login |
-| **#350** | 🔨 abierto | **Orden:** (1) fusionar a `main`; (2) **migraciones a prod una por una** con `apply-one-migration-prod.js` dentro de `prod-api`, **nunca `migrate:latest`**: `20261009160146` (tabla) y `20261009160147` (reparto); (3) revisar la lista de roles que imprime la segunda; (4) humo: `POST /store/labels/notices/generate {"corte":"manana"}` y leer `analytics.cron_runs` (`price_change_notices`); (5) **re-login** de quien recibe `STORE_LABELS_COMPARTIR` |
+| **#350** | ✅ en `main`; **código en prod** (commit `a5223868` servido) | **Orden que debía seguirse:** (1) fusionar a `main`; (2) **migraciones a prod una por una** con `apply-one-migration-prod.js` dentro de `prod-api`, **nunca `migrate:latest`**: `20261009160146` (tabla) y `20261009160147` (reparto); (3) revisar la lista de roles que imprime la segunda; (4) humo: `POST /store/labels/notices/generate {"corte":"manana"}` y leer `analytics.cron_runs` (`price_change_notices`); (5) **re-login** de quien recibe `STORE_LABELS_COMPARTIR` |
 
-⚠️ La migración de reparto **sólo hace UPDATE**: la compuerta del despliegue la clasifica *NO_MEDIDO* y frena al equipo hasta que alguien la aplique a mano. **Aplicarla antes de fusionar.**
+⚠️ La migración de reparto **sólo hace UPDATE**: la compuerta del despliegue la clasifica *NO_MEDIDO* y frena al equipo hasta que alguien la aplique a mano. **Aplicarla antes de fusionar.** Como prod ya sirve el commit de `main`, la compuerta **no frenó el despliegue**, lo que sugiere que alguien las aplicó; **no es una prueba**, y desde aquí no se pudo leer la base.
+
+### Lista de verificación en prod (quien tenga acceso; cada comando es de **sólo lectura** salvo el último)
+1. **¿Están aplicadas?** `ssh superoot@192.168.0.222 'docker exec prod-api node /app/database/scripts/apply-one-migration-prod.js --list'` → deben figurar `20261009160146` y `20261009160147` como aplicadas. Si falta alguna: aplicarla **una por una** con `apply-one-migration-prod.js <archivo>.js`, nunca `migrate:latest`.
+2. **¿Existe la tabla y tiene RLS?** `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = 'commercial.price_change_notices'::regclass;` → ambas `true`.
+3. **¿Quién recibió el permiso?** `SELECT role_name, permissions->>'STORE_LABELS_COMPARTIR' FROM identity.role_permissions WHERE permissions -> 'STORE_LABELS_COMPARTIR' IS NOT NULL AND deleted_at IS NULL;` → debe haber al menos un rol en `true` (la migración falla si no hay ninguno) y **no** deben ser roles de sucursal.
+4. **¿Corrió el generador?** `SELECT job_key, status, last_finish, note, error FROM analytics.cron_runs WHERE job_key = 'price_change_notices';` → **una sola fila** (la tabla guarda la última corrida de cada trabajo) con `last_finish` de hoy a las 07:30 o a las 14:00 (hora de México) y estado `ok`. **Sin fila = el cron nunca ha corrido** (o la tabla del aviso falta).
+5. **Humo (escribe):** `POST /store/labels/notices/generate {"corte":"manana"}` con un usuario que tenga `STORE_LABELS_COMPARTIR`; es idempotente (repetirlo actualiza conteos, no duplica).
+6. **Re-login** de quien deba ver «Compartir»: el permiso va en el JWT.
 
 ---
 
@@ -145,7 +153,7 @@ Este PR traía «Descargar CSV». **Edgar pidió quitarlo: no se acepta ningún 
 
 | # | Qué | Quién |
 |---|---|---|
-| 1 | **CI de #350** en verde y fusionarlo | Edgar |
+| 1 | ~~CI de #350 y fusión~~ — **hecho** (2026-10-12). Queda **confirmar las migraciones en prod** (lista de verificación de §7) | Quien tenga acceso a prod |
 | 2 | **Fase 0 de los avisos, sin correr:** destinatarios por plaza (¿04 y 08 «sin nadie con tienda asignada»?), volumen real por plaza y día, **a qué hora llega la bitácora al ODS** (si es después de las 07:30, mover el corte) | Quien tenga acceso a prod |
 | 3 | Aplicar las 2 migraciones y hacer el humo (§7) | Quien tenga acceso a prod |
 | 4 | **Validación visual:** columna y botón «Imprimir» de las filas, motivo «sin precio», diálogo de Compartir y campana con avisos | Edgar |
@@ -200,4 +208,5 @@ Llevar los tres PR a verde dejó seis lecciones, ya en el protocolo previo a env
 | 2026-10-10 | Se retira la descarga CSV/Excel | #350 `58ad325ab` |
 | 2026-10-10 | Tipos del `Boundary type gate` y fusión de `main` en #350/#351 | #350, #351 |
 | 2026-10-12 | Protocolo previo a PR: puntos 8–13 | #361 |
-| 2026-10-12 | #351 fusionado; Edgar fusiona `main` en #350 | `1726a2bb8` |
+| 2026-10-12 | #351 y #361 fusionados; Edgar fusiona `main` en #350 y lo fusiona | `1726a2bb8` / #350 |
+| 2026-10-13 | Prod sirve `a5223868` (tip de `main`); migraciones de #350 sin poder confirmarse desde aquí | `/api/health` |
