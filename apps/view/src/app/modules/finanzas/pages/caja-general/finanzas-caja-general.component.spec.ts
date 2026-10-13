@@ -423,6 +423,26 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(ultima.sucursal).toBe('03');
   });
 
+  // `[CG.97]` El eje gemelo del de arriba. El `tipo` iba clavado en 'gasto', así que capturando
+  // un ingreso se ofrecían los pares de los GASTOS de esa persona: chips que llenan una cuenta
+  // del universo equivocado. Es el mismo defecto que la sucursal ya tenía resuelto.
+  it('los frecuentes se piden con el TIPO que se está capturando, no con gasto fijo', () => {
+    montar();
+    comp.onTipo('ingreso');
+    const ultima = svc['frecuentes'].mock.calls.at(-1)?.[0];
+    expect(ultima.tipo).toBe('ingreso');
+  });
+
+  // Prueba negativa de la MISMA guarda: cambiar de tipo tiene que RE-PEDIR. Sin la llamada en
+  // `onTipo` el parámetro sería correcto y los chips en pantalla seguirían siendo los viejos —
+  // el bug se vería igual y este archivo estaría verde.
+  it('cambiar de tipo vuelve a pedir la lista, no se queda con la anterior', () => {
+    montar();
+    const antes = svc['frecuentes'].mock.calls.length;
+    comp.onTipo('deposito');
+    expect(svc['frecuentes'].mock.calls.length).toBeGreaterThan(antes);
+  });
+
   // ── 6 · La procedencia no miente ─────────────────────────────────────────────────────────
 
   it('elegir el concepto a mano deja de decir "propuesto"', () => {
