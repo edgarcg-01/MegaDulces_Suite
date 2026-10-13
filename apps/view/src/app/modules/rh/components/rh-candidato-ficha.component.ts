@@ -4,7 +4,7 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import type {
-  HrCandidatoEdicion, HrCandidatoFichaDto, HrCasilleroDto, HrDocumentoDto, HrTalentCanal, HrTalentEtapa, HrTalentTipoEvento,
+  HrCandidatoEdicion, HrCandidatoFichaDto, HrCasilleroDto, HrDocumentoDto, HrLigaCreadaDto, HrTalentCanal, HrTalentEtapa, HrTalentTipoEvento,
 } from '@megadulces/contracts';
 import { ReclutamientoService } from '../reclutamiento.service';
 import { rhError } from '../rh.service';
@@ -203,6 +203,20 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
             <small class="cf-nota">PDF o imagen, hasta 10 MB.</small>
           </div>
         }
+        @if (gestiona() && !f.deleted_at) {
+          <div class="cf-liga" role="group" aria-label="Liga para que suba su CV">
+            @if (liga(); as l) {
+              <p class="cf-nota">Liga lista (vence {{ fechaMx(l.expires_at) }}). Es personal: sólo sirve para subir el CV de esta persona.</p>
+              <input class="cf-liga-url" readonly [value]="l.url" aria-label="Liga para subir el CV" />
+              <div class="cf-fila">
+                @if (l.whatsapp_url) { <a class="cf-wa" [href]="l.whatsapp_url" target="_blank" rel="noopener">Mandar por WhatsApp</a> }
+                <p-button label="Copiar" size="small" severity="secondary" [outlined]="true" (onClick)="copiarLiga(l)" />
+              </div>
+            } @else {
+              <p-button label="Mandar liga para subir su CV" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga()" />
+            }
+          </div>
+        }
         @if (expediente().retirados.length) {
           <details class="cf-ret"><summary>{{ expediente().retirados.length }} retirado(s)</summary>
             <ul class="cf-lista">
@@ -311,6 +325,10 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
     .cf-archivo input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .cf-archivo:focus-within { outline: 2px solid var(--focus-ring); }
     .cf-ret summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-muted); }
+    .cf-liga { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
+    .cf-liga-url { font-family: var(--font-mono); font-size: var(--fs-xs); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-main); width: 100%; }
+    .cf-wa { color: var(--action); font-weight: 600; }
     .cf-form { display: flex; flex-direction: column; gap: var(--sp-2); }
     .cf-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .cf-evento { flex-direction: row; flex-wrap: wrap; align-items: center; }
@@ -353,6 +371,7 @@ export class RhCandidatoFichaComponent {
   readonly motivo = signal('');
   readonly etapaElegida = signal<HrTalentEtapa | null>(null);
   readonly casillero = signal<string | null>(null);
+  readonly liga = signal<HrLigaCreadaDto | null>(null);
   edicion: HrCandidatoEdicion = {};
   nuevoEvento: { event_type: HrTalentTipoEvento; channel: HrTalentCanal | null; note: string } = { event_type: 'contacto', channel: null, note: '' };
 
@@ -468,6 +487,21 @@ export class RhCandidatoFichaComponent {
       this.ocupado.set(false);
       this.aviso.set({ texto: 'No se pudo leer el archivo.', mal: true });
     }
+  }
+
+  /** `[RH.2.4]` Genera la liga personal para que suba su CV (vence en 7 días). */
+  pedirLiga(): void {
+    this.ocupado.set(true);
+    this.api.crearLiga(this.ficha().id).subscribe({
+      next: (l) => { this.ocupado.set(false); this.liga.set(l); this.aviso.set(null); },
+      error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo generar la liga.'), mal: true }); },
+    });
+  }
+
+  copiarLiga(l: HrLigaCreadaDto): void {
+    const ok = () => this.aviso.set({ texto: 'Mensaje con la liga copiado: pégalo en WhatsApp.', mal: false });
+    const mal = () => this.aviso.set({ texto: 'No se pudo copiar: selecciona la liga y cópiala a mano.', mal: true });
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(l.mensaje).then(ok, mal); else mal();
   }
 
   fusionar(absorbId: string): void {

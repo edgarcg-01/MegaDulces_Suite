@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
-  HrCasilleroDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTalentApartado,
+  HrCasilleroDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrLigaCreadaDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTalentApartado,
   HrTalentEtapa, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -69,6 +69,11 @@ export class ReclutamientoService {
 
   retirarDocumento(id: string, llave: string, reason: string): Observable<HrCandidatoFichaDto> {
     return this.http.post<HrCandidatoFichaDto>(`${this.base}/candidates/${encodeURIComponent(id)}/documents/retire`, { llave, reason });
+  }
+
+  /** `[RH.2.4]` Una liga personal para el candidato (hoy: subir su CV), que vence en 7 días. */
+  crearLiga(id: string, form: 'cv' = 'cv'): Observable<HrLigaCreadaDto> {
+    return this.http.post<HrLigaCreadaDto>(`${this.base}/candidates/${encodeURIComponent(id)}/links`, { form });
   }
 
   duplicados(): Observable<HrDuplicadoGrupoDto[]> {

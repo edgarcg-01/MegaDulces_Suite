@@ -384,7 +384,17 @@ que ese formulario necesita (`[RH.2.4]`).
   por sucursal. ⚠️ **El aviso de privacidad es un BORRADOR**: Mega Talento no tenía texto (su pie decía «Aviso de
   privacidad» sin nada detrás). **No publicar `/empleo` en prod sin el texto oficial.** No incluye: captcha (Mega
   Talento usaba uno; aquí hay campo trampa + límite), CV en dos fotos (frente/reverso) y la vista previa de la foto.
-  **Falta:** las ligas firmadas para la solicitud y las evaluaciones (D6).
+  **🧪 Ligas personales (D6), primera: subir el CV.** Reemplazan `/solicitud/<id>` de Mega Talento (cualquiera con el
+  número leía y editaba el expediente, para siempre). Desde la ficha RH pide la liga («Mandar liga para subir su CV»):
+  JWT con un secreto DERIVADO (`<JWT_SECRET>:talent-link`, así una liga nunca vale como sesión ni una sesión como
+  liga), que abre UNA cosa de UNA persona y vence en 7 días; se relee al candidato en cada uso (en la papelera o en
+  spam, ya no sirve). La página `/empleo/liga/:token` ve sólo el primer nombre, el puesto y si ya mandó CV; acepta un
+  PDF o dos fotos (frente y reverso, regla de Mega Talento). ⚠️ **Hallazgo:** el WhatsApp de Mega Talento decía
+  «completa tu Solicitud de Empleo electrónica, 8 pasos (≈5 min)», pero `/solicitud/:id` sólo pedía el CV (la
+  solicitud larga la arma el bot por chat): el mensaje prometía una página que ya no existía. Aquí se llama por lo
+  que es. Pruebas contra la base intentan abrirla alterada, firmada con el secreto de las sesiones, sin el tipo,
+  vencida, para otro formulario y con el candidato en la papelera (todas 403), **mutadas a rojo**.
+  **Falta:** las dos evaluaciones (aptitudes, liderazgo) por liga.
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
 

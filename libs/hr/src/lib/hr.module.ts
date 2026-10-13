@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { JwtModule } from '@nestjs/jwt';
+import { CloudinaryModule, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
@@ -17,6 +18,7 @@ import { HrTalentCandidatesService } from './talent/talent-candidates.service';
 import { HrTalentJobsService } from './talent/talent-jobs.service';
 import { HrTalentIntakeService } from './talent/talent-intake.service';
 import { HrTalentPublicController } from './talent/talent-public.controller';
+import { HrTalentLinksService } from './talent/talent-links.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -33,13 +35,22 @@ import { HrTalentPublicController } from './talent/talent-public.controller';
  */
 @Module({
   // `CloudinaryModule` exporta `ObjectStorageService`: el bucket PRIVADO de los expedientes de reclutamiento.
-  imports: [CloudinaryModule],
+  // `JwtModule` local para las LIGAS de candidatos, con un secreto DERIVADO: una liga nunca vale como sesión de
+  // usuario ni una sesión como liga, aunque las dos sean JWT (ver `talent-links.service.ts`).
+  imports: [
+    CloudinaryModule,
+    JwtModule.register({
+      secret: `${requireJwtSecret()}:talent-link`,
+      signOptions: { algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
+    }),
+  ],
   controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrTalentController, HrTalentPublicController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
-    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService,
+    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService,
   ],
   exports: [HrAttendanceIngestService, HrAttendanceReportService],
 })

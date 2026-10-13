@@ -1,9 +1,10 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '@megadulces/platform-core';
-import type { HrPostulacionPublica, HrPostulacionResultadoDto, HrVacantePublicaDto } from '@megadulces/contracts';
+import type { HrLigaContextoDto, HrLigaCvSubida, HrPostulacionPublica, HrPostulacionResultadoDto, HrVacantePublicaDto } from '@megadulces/contracts';
 import { HrTalentIntakeService } from './talent-intake.service';
+import { HrTalentLinksService } from './talent-links.service';
 
 /**
  * Fase RH · `[RH.2.4]` — la superficie PÚBLICA de reclutamiento: la bolsa de trabajo, sin cuenta ni sesión.
@@ -17,7 +18,10 @@ import { HrTalentIntakeService } from './talent-intake.service';
 @ApiTags('hr-talent-public')
 @Controller('hr/talent/public')
 export class HrTalentPublicController {
-  constructor(private readonly intake: HrTalentIntakeService) {}
+  constructor(
+    private readonly intake: HrTalentIntakeService,
+    private readonly links: HrTalentLinksService,
+  ) {}
 
   @Public()
   @Throttle({ medium: { limit: 30, ttl: 10_000 } })
@@ -35,5 +39,24 @@ export class HrTalentPublicController {
   @ApiOperation({ summary: 'Bolsa de trabajo — postularse (CV obligatorio). Un proceso a la vez por teléfono.' })
   postular(@Body() b: HrPostulacionPublica): Promise<HrPostulacionResultadoDto> {
     return this.intake.postularWeb(b);
+  }
+
+  /** Lo que la página de la liga necesita mostrar: el primer nombre, el puesto y si ya mandó CV. Nada más. */
+  @Public()
+  @Throttle({ medium: { limit: 20, ttl: 10_000 } })
+  @Get('links/:token')
+  @ApiOperation({ summary: 'Liga personal — qué deja hacer y a quién saluda (sin datos del expediente).' })
+  liga(@Param('token') token: string): Promise<HrLigaContextoDto> {
+    return this.links.contexto(token);
+  }
+
+  /** Subir el CV desde la liga. */
+  @Public()
+  @Throttle({ medium: { limit: 3, ttl: 10_000 }, long: { limit: 10, ttl: 600_000 } })
+  @Post('links/:token/cv')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Liga personal — subir el CV (un PDF, o dos fotos: frente y reverso).' })
+  subirCv(@Param('token') token: string, @Body() b: HrLigaCvSubida): Promise<HrPostulacionResultadoDto> {
+    return this.links.subirCv(token, b);
   }
 }

@@ -76,6 +76,11 @@ export const routes: Routes = [
     path: 'empleo',
     loadComponent: () => import('./modules/rh/empleo/empleo.component').then(m => m.EmpleoComponent),
   },
+  // `[RH.2.4]` La liga personal que RH le manda a un candidato (hoy: subir su CV). Se autoriza con el token de la URL.
+  {
+    path: 'empleo/liga/:token',
+    loadComponent: () => import('./modules/rh/empleo/empleo-liga.component').then(m => m.EmpleoLigaComponent),
+  },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
   {

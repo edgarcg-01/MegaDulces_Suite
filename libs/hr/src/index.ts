@@ -18,4 +18,5 @@ export * from './lib/talent/talent-jobs.service';
 export * from './lib/talent/talent.controller';
 export * from './lib/talent/talent-intake.service';
 export * from './lib/talent/talent-public.controller';
+export * from './lib/talent/talent-links.service';
 export * from './lib/hr.module';

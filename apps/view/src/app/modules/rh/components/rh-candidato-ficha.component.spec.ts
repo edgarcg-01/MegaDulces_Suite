@@ -64,6 +64,8 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
     api = {
       moverEtapa: vi.fn(() => of(ficha({ stage: 'aptitudes', stage_raw: 'aptitudes' }))),
       noRecontratable: vi.fn(() => of(ficha({ no_rehire: true, no_rehire_reason: 'abandonó' }))),
+      crearLiga: vi.fn(() => of({ url: 'https://suite/empleo/liga/tok', expires_at: '2026-10-20T00:00:00Z', mensaje: 'Hola Ana… https://suite/empleo/liga/tok',
+        whatsapp_url: 'https://wa.me/523511234567?text=Hola' })),
       ficha: vi.fn(() => of(f)),
     };
     await TestBed.configureTestingModule({
@@ -89,6 +91,16 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
     expect(nueva).toHaveBeenCalledWith(expect.objectContaining({ stage: 'aptitudes' }));
   });
 
+  it('⭐ «Mandar liga para subir su CV» genera la liga y ofrece WhatsApp', async () => {
+    await render(ficha(), true);
+    boton('Mandar liga para subir su CV')!.click();
+    fix.detectChanges();
+    expect(api['crearLiga']).toHaveBeenCalledWith(ID);
+    const el = fix.nativeElement as HTMLElement;
+    expect((el.querySelector('.cf-liga-url') as HTMLInputElement).value).toBe('https://suite/empleo/liga/tok');
+    expect((el.querySelector('.cf-wa') as HTMLAnchorElement).href).toContain('https://wa.me/523511234567');
+  });
+
   it('el expediente dice qué falta', async () => {
     await render(ficha(), true);
     expect(texto()).toContain('Faltan 1 documento(s) obligatorio(s).');
@@ -111,7 +123,7 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
 
   it('⛔ NEGATIVA — quien sólo ve no tiene con qué cambiar nada', async () => {
     await render(ficha({ mismo_telefono: [{ id: OTRO, full_name: 'Ana', created_at: '2026-10-01T00:00:00Z', no_rehire: false }] }), false);
-    for (const t of ['Corregir', 'No recontratable', 'Spam', 'Papelera', 'Fusionar aquí', 'Registrar', 'Retirar']) expect(boton(t)).toBeUndefined();
+    for (const t of ['Corregir', 'No recontratable', 'Spam', 'Papelera', 'Fusionar aquí', 'Registrar', 'Retirar', 'Mandar liga para subir su CV']) expect(boton(t)).toBeUndefined();
     expect(texto()).not.toContain('Pasar a');
     expect(texto()).toContain('Mismo teléfono'); // pero sí lo ve
   });

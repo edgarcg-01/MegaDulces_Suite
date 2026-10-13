@@ -293,6 +293,35 @@ export interface HrPostulacionPublica {
   website?: string | null;
 }
 
+// ── Ligas personales (`[RH.2.4]`) ───────────────────────────────────────────────────────────
+
+/** Lo que una liga deja hacer. Hoy sólo subir el CV; las evaluaciones vienen después. */
+export type HrLigaFormulario = 'cv';
+
+/** Lo que recibe RH al generar una liga. */
+export interface HrLigaCreadaDto {
+  url: string;
+  expires_at: string;
+  /** El texto sugerido para mandarla. */
+  mensaje: string;
+  /** `wa.me` con el mensaje, si el candidato tiene teléfono. */
+  whatsapp_url: string | null;
+}
+
+/** Lo que ve la página pública de la liga: lo mínimo. Nada del expediente. */
+export interface HrLigaContextoDto {
+  form: HrLigaFormulario;
+  nombre: string | null;
+  puesto: string | null;
+  ya_tiene_cv: boolean;
+  vence: string | null;
+}
+
+/** Subir el CV desde la liga: un PDF, o dos fotos (frente y reverso). */
+export interface HrLigaCvSubida {
+  files: Array<{ file_base64: string; file_name?: string | null }>;
+}
+
 /** La respuesta: nunca dice para qué vacante está la persona ni si está en la lista negra. */
 export interface HrPostulacionResultadoDto {
   resultado: 'recibida' | 'rechazada';
