@@ -26,6 +26,12 @@
 - Las cantidades ya no salen con decimales de caja: `333.7` pasa a `333 cj 14 paq` (caja, paquete de la ficha de Kepler de esa sucursal y pieza). Si un producto no tiene factor de caja, se muestra en su unidad con °. El total del producto va desglosado cuando todas las sucursales usan el mismo empaque; si no, en cajas enteras con `≈`.
 - Corregido de paso: el aviso «celdas valuadas con el catálogo» nunca aparecía (el servidor siempre mandaba 0); hoy son 34.
 - Sin migraciones ni permisos nuevos.
+### Changed — Autoabasto calcula cuánto pedir igual que Compras (AB.15, 2026-10-12)
+- **«Falta» ahora es la venta de los últimos 30 días por la temporalidad, menos la existencia**: el mismo cálculo de /compras/pedido. El almacenista y el comprador ven la misma cantidad (98% de coincidencia medida en La Piedad; la diferencia es el ajuste por cumplimiento del proveedor, que es del comprador).
+- **La existencia también es la de Compras**: el CEDIS se lee de Kepler desde su cambio del 30-sep (antes Autoabasto mostraba la última foto de Wincaja).
+- Nueva columna **Venta 30 d**, y la explicación de *Falta* dice de dónde sale el objetivo.
+- La vista por defecto muestra sólo lo que tiene algo que pedir; lo que no (mayormente productos sin venta en 30 días) sigue en «Acción = En política».
+- El mínimo, el reorden y el máximo siguen decidiendo la posición (agotado, bajo mínimo…) y qué es sobrante.
 ### Fixed — Autoabasto: vuelve el PDF, el aviso de tránsito dice la verdad y el filtro de acción cubre todas las páginas (AB.14, 2026-10-12)
 - **Volvieron el botón «Descargar PDF» y los avisos de «Tu almacén»** en /almacen/autoabasto: un cambio del 8-oct (nombres de sucursal) se había hecho sobre una versión anterior de la pantalla y los borró.
 - **Lo que está en camino ya no se presenta como descontado.** Desde el 9-oct el sugerido no resta las órdenes en camino; la pantalla, el «por qué» de *Falta* y el PDF decían lo contrario. Ahora muestran el aviso real.
