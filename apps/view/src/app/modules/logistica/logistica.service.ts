@@ -5,7 +5,7 @@ import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
-  CierreDeEmbarque, CerrarParadaBody, ParadaCierre,
+  CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -487,6 +487,8 @@ export interface Route {
   helper_commission: number;
   active: boolean;
   notes?: string | null;
+  /** `[EMB.33]` Traslado local: la ruta no paga comisión (la guía va en $0). */
+  sin_comision?: boolean;
 }
 
 export interface KpiSummary {
@@ -936,6 +938,10 @@ export class LogisticaService {
   }
   createDriver(body: Partial<Driver>) {
     return this.http.post<Driver>(`${this.base}/fleet/drivers`, body);
+  }
+  /** `[EMB.32]` Alta rápida de ayudante o cargador desde la guía o el cierre (no duplica). */
+  altaRapidaPersona(body: AltaRapidaBody) {
+    return this.http.post<AltaRapidaResultado>(`${this.base}/fleet/drivers/alta-rapida`, body);
   }
   updateDriver(id: string, body: Partial<Driver>) {
     return this.http.patch<Driver>(`${this.base}/fleet/drivers/${id}`, body);

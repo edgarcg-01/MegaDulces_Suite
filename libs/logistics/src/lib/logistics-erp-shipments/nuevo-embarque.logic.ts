@@ -203,6 +203,8 @@ export interface RutaSuite {
   kepler_code?: string | null;
   driver_commission: number | string | null;
   helper_commission: number | string | null;
+  /** `[EMB.33]` Traslado local: no paga comisión. */
+  sin_comision?: boolean | null;
 }
 
 /** Sin acentos, mayúsculas, sólo letras y números. `«Sahuayo»` y `SAHUAYO` son la misma ruta. */
@@ -235,6 +237,14 @@ export function comisionSugerida(
     const porNombre = porCodigo ? null
       : catalogo.find((c) => nombreNormalizado(c.name) !== '' && nombreNormalizado(c.name) === nombreNormalizado(r.nombre));
     const c = porCodigo ?? porNombre;
+    // [EMB.33] Ruta «sin comisión» (traslado local): emparejada en $0, no cuenta como «sin tarifa».
+    if (c?.sin_comision) {
+      emparejadas.push({
+        clave: r.clave, nombre: r.nombre, route_id: c.id,
+        metodo: porCodigo ? 'kepler_code' : 'nombre', driver: 0, helper: 0, sin_comision: true,
+      });
+      continue;
+    }
     // Emparejada pero con 0/0 tampoco es tarifa: así quedan las rutas que el importador de
     // dimensiones da de alta desde Kepler (medido en local: «SANTAGIO TANGAMNADAPIO» entró con
     // 0/0 y, contada como emparejada, escondía que nadie le ha puesto comisión).
@@ -256,6 +266,7 @@ export function comisionSugerida(
     ruta_usada: elegida ? { clave: elegida.clave, nombre: elegida.nombre, route_id: elegida.route_id } : null,
     emparejadas,
     sin_tarifa: sinTarifa,
+    sin_comision: emparejadas.length > 0 && sinTarifa.length === 0 && emparejadas.every((e) => e.sin_comision),
   };
 }
 

@@ -2176,6 +2176,8 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   **repartidor** del catálogo original, que la tabla de rutas no guarda.
 - [ ] **[EMB.24–EMB.31]** 🧪 **Pago por viaje cerrado** (ADR-091; EMB.24/26/27/29 en código y probados en local 2026-10-12, sin prod; EMB.30–31 pendientes; EMB.25 descartado).
 - [ ] **[EMB.28.1]** 🧪 **Tarifas fijas** (2026-10-12): una tarifa con la que se paga se captura una vez; cambiarla exige `LOGISTICS_TARIFAS_AUTORIZAR` (dirección) y queda en `logistics.tariff_changes`. Incluye el arreglo de editar montos en Logística › Configuración (lo tecleado no se guardaba). Mig `20261012154157` antes del deploy.
+- [ ] **[EMB.32]** 🧪 **Alta rápida de ayudante y cargador** (2026-10-13): desde la guía y desde «Cierre y pago», sólo nombre; no duplica (reutiliza, agrega papel o reactiva al dado de baja). Sin migración ni permisos nuevos.
+- [ ] **[EMB.33]** 🧪 **Rutas sin comisión** (2026-10-13): traslados locales (Santa Ana Pacueco, Santa Ana, La Piedad) completan la guía en $0. Mig `20261013120220` antes del deploy.
   Comisión, viáticos y maniobra de carga se liberan cuando el viaje cierra: traspaso por la recepción
   `U-A-50` en destino (94% medido; ⛔ `TI###` ≠ número de sucursal, usar `pv_suc_ip`), cliente por la
   entrega del chofer en la Suite, carga a ruta al embarcarse. Se paga por **Gastos**, un vale por persona
