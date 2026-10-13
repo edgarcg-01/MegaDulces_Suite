@@ -1734,8 +1734,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
                    el dato -- y por eso el bloque lo dice. -->
               <!-- [CG.94] Los atajos de cuenta no aplican con documento: su cuenta ya salio de la
-                   poliza, y ofrecer un atajo para pisarla es invitar a desalinearla. -->
-              @if (!fichaSolaLectura() && f().tipo === 'gasto' && frecuentes().length) {
+                   poliza, y ofrecer un atajo para pisarla es invitar a desalinearla.
+                   ⭐ [CG.97] Esa regla decia "con documento" y la guarda preguntaba por el TIPO
+                   ('gasto'), que era su proxy: el gasto es el unico que no se deriva de Kepler.
+                   El proxy costaba los otros dos tipos enteros -- un ingreso o un deposito
+                   capturado a mano tampoco tiene poliza y se quedaba sin atajo. Ahora la guarda
+                   dice la regla: se ofrece cuando NO hay documento elegido, sea cual sea el tipo.
+                   El universo de chips lo acota el servidor, que ya filtra por (tipo, sucursal,
+                   persona) -- aca solo se decide si la oferta corresponde. -->
+              @if (!fichaSolaLectura() && !cobroElegido() && frecuentes().length) {
                 <div class="fin-row fin-row-col">
                   <label>Lo que más repetís en {{ f().sucursal | sucursal }}</label>
                   <div class="cg-chips">
@@ -4799,7 +4806,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.f.update((v) => ({ ...v, [campo]: valor }));
   }
 
-  onTipo(v: TipoMovimiento): void { this.setF('tipo', v); this.pedirPropuesta(); }
+  // `[CG.97]` El catálogo de frecuentes es por (tipo, sucursal): cambiar de tipo cambia los
+  // chips, igual que cambiar de plaza. Sin esto quedaban los del tipo anterior, que es el
+  // mismo defecto que `onSucursal` ya tenía resuelto de su lado.
+  onTipo(v: TipoMovimiento): void { this.setF('tipo', v); this.pedirPropuesta(); this.cargarFrecuentes(); }
   onGlosa(v: string): void { this.setF('glosa', v); this.pedirPropuestaDebounced(); }
 
   /**
@@ -5441,7 +5451,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // ⛔ Iba con `sucursalActiva`, clavada en '00', mientras la sucursal que se captura es
     // `f().sucursal`. O sea: capturando un gasto de la 03, los chips de un toque llenaban cuenta,
     // concepto y beneficiario de la 00 — en un catálogo que es POR SUCURSAL.
-    this.svc.frecuentes({ tipo: 'gasto', sucursal: this.f().sucursal, limit: 10 }).subscribe({
+    //
+    // ⭐ `[CG.97]` Y el `tipo` estaba clavado en 'gasto' por el mismo descuido, un eje más tarde:
+    // el movimiento es 'ingreso' | 'gasto' | 'deposito' y el servidor toma el tipo que le manden
+    // (`tipo: q.tipo || 'gasto'`), así que capturando un ingreso se pedían —y se ofrecían— los
+    // pares de los GASTOS de esa persona. Pedir con el tipo en curso es la misma corrección que
+    // ya se hizo con la sucursal: el catálogo se pide con lo que se está capturando, no con una
+    // constante. Se recarga en `onTipo` por la misma razón que en `onSucursal`.
+    this.svc.frecuentes({ tipo: this.f().tipo, sucursal: this.f().sucursal, limit: 10 }).subscribe({
       next: (r) => this.frecuentes.set(r.rows ?? []),
       error: () => this.frecuentes.set([]),
     });
