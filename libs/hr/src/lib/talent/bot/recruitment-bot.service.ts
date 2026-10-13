@@ -7,26 +7,28 @@ import { respuestaPublica, type Decision } from '../logic/postulacion';
 import { MAX_DOCUMENTO_BYTES } from '../logic/expediente';
 import {
   avanzarRegistro, postulacionDesdeRegistro, preguntaPendiente,
-  type DatosRegistro, type Turno, type VacanteBot,
+  type DatosRegistro, type EstadoOrientacion, type Turno, type VacanteBot,
 } from './registro';
 
 /**
  * Fase RH · `[RH.3.2]` — el BOT DE RECLUTAMIENTO de la Suite, detrás de `RECRUITMENT_BOT_PORT`: la conversación de
- * registro por WhatsApp. La lógica es pura (`registro.ts`); aquí sólo se carga y guarda la conversación
- * (`talent.bot_conversations`) y se llama a las MISMAS reglas de postulación que la web:
+ * registro por WhatsApp. La lógica es pura (`registro.ts` + `orientacion.ts`); aquí sólo se carga y guarda la
+ * conversación (`talent.bot_conversations`) y se llama a las MISMAS reglas de postulación que la web:
  *
  *   · Al confirmar sus datos, se revisan las reglas ANTES de pedirle el CV (si ya está en un proceso, se le dice ya).
  *   · Al llegar el CV, `HrTalentIntakeService.postular(…, 'whatsapp')` decide y crea (o rechaza): el CV es obligatorio,
  *     como en Mega Talento. El archivo se valida por FIRMA y se guarda en el bucket privado.
+ *   · `[RH.3.2.2]` Si se le orientó (pidió un puesto que no hay), lo que pidió y lo que se le ofreció viajan a la ficha
+ *     (`portal_data.orientacion`): es el único registro de la demanda que no cubrimos.
  *   · Un candado por teléfono: dos mensajes de la misma persona al mismo tiempo no pisan su conversación.
  *
- * No hace: la interpretación con IA (`[RH.3.2.1]`), la orientación (`[RH.3.2.2]`), armar el CV, las notas de voz
- * (`[RH.3.3]`), ni avisarle a RH por WhatsApp (el candidato aparece en el tablero de Reclutamiento).
+ * No hace: la interpretación con IA (`[RH.3.2.1]`), armar el CV, las notas de voz (`[RH.3.3]`), ni avisarle a RH por
+ * WhatsApp (el candidato aparece en el tablero de Reclutamiento).
  */
 
 const T = 'talent.bot_conversations';
 
-interface Conversacion { state: string; data: DatosRegistro }
+interface Conversacion { state: string; data: DatosRegistro; orientation: EstadoOrientacion | null }
 type Cierre = Partial<Record<'outcome' | 'outcome_reason' | 'candidate_id', string | null>>;
 
 const NO_TEXTO = 'Por ahora sólo puedo leer *mensajes de texto* 🙏 Escríbeme tu respuesta, por favor.';
@@ -64,8 +66,9 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     return this.tk.run(msg.tenantId, async (trx) => {
       const actual = await this.cargar(trx, msg.tenantId, telefono);
       const vacantes = await this.vacantes(trx);
-      const turno: Turno = avanzarRegistro(actual.state, actual.data, msg.text, { vacantes });
+      const turno: Turno = avanzarRegistro(actual.state, actual.data, msg.text, { vacantes }, actual.orientation);
       const cierre: Cierre = turno.reiniciado ? { outcome: null, outcome_reason: null, candidate_id: null } : {};
+      const conv = (state: string): Conversacion => ({ state, data: turno.datos, orientation: turno.orientacion });
 
       if (turno.confirmado) {
         // Las reglas ANTES de pedirle el CV. Si la consulta no puede decidir (vacante despublicada, etc.), se le pide el
@@ -80,12 +83,12 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
           if (!(err instanceof BadRequestException)) throw err;
         }
         if (d && d.accion === 'rechazar') {
-          await this.guardar(trx, msg, { state: 'rechazada', data: turno.datos },
+          await this.guardar(trx, msg, conv('rechazada'),
             { outcome: 'rechazada', outcome_reason: d.motivo, candidate_id: d.candidato_id });
           return [respuestaPublica(d, true)];
         }
       }
-      await this.guardar(trx, msg, { state: turno.estado, data: turno.datos }, cierre);
+      await this.guardar(trx, msg, conv(turno.estado), cierre);
       return turno.respuestas;
     });
   }
@@ -106,6 +109,7 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     const entrada: EntradaPostulacion = {
       phone: telefono, ...postulacionDesdeRegistro(actual.data, vacantes), heard_from: null,
       cv: { adjunto: v.adjunto, file_name: sanitizarNombre(msg.media?.filename ?? null, v.adjunto.contentType) }, license: null,
+      portal_data: actual.orientation ? { orientacion: actual.orientation } : null,
     };
     let d: Decision;
     try {
@@ -119,10 +123,10 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     await this.tk.run(msg.tenantId, async (trx) => {
       await this.cargar(trx, msg.tenantId, telefono); // toma el candado por teléfono
       if (d.accion === 'crear') {
-        await this.guardar(trx, msg, { state: 'postulada', data: actual.data },
+        await this.guardar(trx, msg, { ...actual, state: 'postulada' },
           { outcome: 'postulada', outcome_reason: null, candidate_id: d.candidato_id ?? null });
       } else {
-        await this.guardar(trx, msg, { state: 'rechazada', data: actual.data },
+        await this.guardar(trx, msg, { ...actual, state: 'rechazada' },
           { outcome: 'rechazada', outcome_reason: d.motivo, candidate_id: d.candidato_id });
       }
     });
@@ -132,7 +136,7 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
   /** Lo que no se puede atender (audio, ubicación, un archivo antes de tiempo): se dice y se le recuerda qué tocaba. */
   private async recordar(msg: RecruitmentInbound, telefono: string, aviso: string, ya?: Conversacion): Promise<string[]> {
     const actual = ya ?? await this.tk.run(msg.tenantId, (trx) => this.cargar(trx, msg.tenantId, telefono));
-    return [aviso + preguntaPendiente(actual.state, actual.data)];
+    return [aviso + preguntaPendiente(actual.state, actual.data, actual.orientation)];
   }
 
   // ── Persistencia ────────────────────────────────────────────────────────────────────────
@@ -140,16 +144,20 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
   /** La conversación de ese teléfono (o una nueva), con el candado por teléfono tomado hasta el fin de la transacción. */
   private async cargar(trx: Knex.Transaction, tenantId: string, telefono: string): Promise<Conversacion> {
     await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`talent-bot:${tenantId}:${telefono}`]);
-    const fila = await trx(T).where({ phone_key: telefono }).first('state', 'data');
-    if (!fila) return { state: 'nuevo', data: {} };
-    const data = fila.data && typeof fila.data === 'object' ? (fila.data as DatosRegistro) : {};
-    return { state: String(fila.state), data };
+    const fila = await trx(T).where({ phone_key: telefono }).first('state', 'data', 'orientation');
+    if (!fila) return { state: 'nuevo', data: {}, orientation: null };
+    const objeto = (v: unknown): boolean => !!v && typeof v === 'object' && !Array.isArray(v);
+    return {
+      state: String(fila.state),
+      data: objeto(fila.data) ? (fila.data as DatosRegistro) : {},
+      orientation: objeto(fila.orientation) ? (fila.orientation as EstadoOrientacion) : null,
+    };
   }
 
   private async guardar(trx: Knex.Transaction, msg: RecruitmentInbound, c: Conversacion, extra: Cierre): Promise<void> {
     const cambios = {
-      state: c.state, data: JSON.stringify(c.data), profile_name: msg.profileName ?? null,
-      last_inbound_at: trx.fn.now(), updated_at: trx.fn.now(), ...extra,
+      state: c.state, data: JSON.stringify(c.data), orientation: c.orientation ? JSON.stringify(c.orientation) : null,
+      profile_name: msg.profileName ?? null, last_inbound_at: trx.fn.now(), updated_at: trx.fn.now(), ...extra,
     };
     // Actualizar o insertar, NO `ON CONFLICT … DO UPDATE`: Postgres valida los CHECK sobre la fila propuesta del INSERT
     // antes de resolver el conflicto, y un «hola» de alguien ya postulado (estado final, sin traer su cierre) se caía.
@@ -161,6 +169,6 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
 
   private async vacantes(trx: Knex.Transaction): Promise<VacanteBot[]> {
     return trx('talent.job_postings').where({ is_active: true }).orderBy(['sort_order', 'name'])
-      .select('id', 'name', 'salary_text', 'branch_codes');
+      .select('id', 'name', 'salary_text', 'branch_codes', 'branches_text', 'sort_order');
   }
 }

@@ -99,6 +99,23 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
         r['conv2'] = [conv2.state, conv2.outcome, conv2.outcome_reason, conv2.candidate_id === cand?.id];
         r['unaSola'] = Number((await trx('talent.candidates').where({ phone_key: tel10 }).count('* as n'))[0]['n']);
 
+        // ── [RH.3.2.2] Orientación: pide un puesto que no hay, rechaza lo ofrecido y termina; la ficha guarda lo que pidió ──
+        // (lo que se le ofrezca depende de las vacantes de esta base: se prueba lo que no depende de ellas).
+        const tel2 = `521${String(sello + 7).slice(-10)}`;
+        const tel2k = tel2.slice(-10);
+        const decir2 = async (texto: string) => (await bot.handleMessage(msg({ phone: tel2, text: texto }))).map((x) => x.body).join('\n');
+        await decir2('hola');
+        await decir2('ayudante general');
+        const enOrienta = await trx('talent.bot_conversations').where({ phone_key: tel2k }).first('state', 'orientation', 'data');
+        r['orienta'] = [enOrienta.state, enOrienta.orientation?.pedido, enOrienta.data?.position_interest];
+        r['rechazo'] = await decir2('ninguno');
+        for (const t of ['Luis Prueba Gómez', 'no tengo', 'Zamora', '10 minutos', 'completo', 'Oxxo', '2000', 'LOGA900101AB1',
+          '12345678901', 'ninguno', 'no', 'si']) await decir2(t);
+        await bot.handleMessage(msg({ phone: tel2, type: 'document', media: { id: 'm3', mimeType: 'application/pdf', filename: 'cv.pdf' },
+          descargar: async () => ({ buffer: PDF, mime: 'application/pdf' }) }));
+        const cand2 = await trx('talent.candidates').where({ phone_key: tel2k }).first('position_interest', 'portal_data');
+        r['ficha2'] = [cand2?.position_interest, cand2?.portal_data?.orientacion?.pedido, cand2?.portal_data?.orientacion?.rechazada];
+
         // ── CHECKs ─────────────────────────────────────────────────────────────────────────────
         const C = 'talent.bot_conversations';
         const fila = (o: Record<string, unknown>) => ({ tenant_id: TENANT, phone: `52${String(sello + ++n).slice(-10)}`, ...o });
@@ -110,8 +127,12 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
           await fallo(() => trx(C).insert(fila({ phone: '123' }))),                                      // teléfono corto
           await fallo(() => trx(C).insert(fila({ data: JSON.stringify([1]) }))),                         // data no es objeto
           await fallo(() => trx(C).insert({ tenant_id: TENANT, phone: tel, state: 'nuevo' })),           // mismo teléfono
+          await fallo(() => trx(C).insert(fila({ orientation: JSON.stringify(['x']) }))),                // orientación no es objeto
         ];
-        r['buenos'] = await fallo(() => trx(C).insert(fila({ state: 'editando_city_branch' })));
+        r['buenos'] = [
+          await fallo(() => trx(C).insert(fila({ state: 'editando_city_branch' }))),
+          await fallo(() => trx(C).insert(fila({ state: 'orientando_puesto', orientation: JSON.stringify({ pedido: 'x' }) }))),
+        ];
         throw ROLLBACK;
       });
     } catch (e) { if (e !== ROLLBACK) throw e; } finally { await knex.destroy(); }
@@ -133,7 +154,10 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(String(r['segunda'])).toContain('Ya tienes una postulación para');
     expect(r['conv2']).toEqual(['rechazada', 'rechazada', 'en_proceso_misma_vacante', true]);
     expect(r['unaSola']).toBe(1);
-    expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505']);
-    expect(r['buenos']).toBe('sin error');
+    expect(r['orienta']).toEqual(['orientando_puesto', 'ayudante general', 'ayudante general']);
+    expect(String(r['rechazo'])).toContain('Te dejo registrado para *ayudante general*');
+    expect(r['ficha2']).toEqual(['ayudante general', 'ayudante general', true]);
+    expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
+    expect(r['buenos']).toEqual(['sin error', 'sin error']);
   }, 60_000);
 });

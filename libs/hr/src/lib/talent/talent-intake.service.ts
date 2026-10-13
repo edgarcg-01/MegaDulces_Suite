@@ -52,6 +52,8 @@ export interface EntradaPostulacion {
   desired_salary?: string | null;
   rfc?: string | null;
   nss?: string | null;
+  /** `[RH.3.2.2]` Señales del bot que RH ve en la ficha (p. ej. `orientacion`: qué pidió y qué se le ofreció). Sólo al crear. */
+  portal_data?: Record<string, unknown> | null;
 }
 
 /** Los campos que sólo trae el bot, con su nombre de columna (se guardan al crear y se rellenan si faltan). */
@@ -194,6 +196,7 @@ export class HrTalentIntakeService {
             job_posting_id: nueva.job_posting_id, position_interest: nueva.position_interest, relative_in_company: e.relative_in_company,
             rehire_note: e.rehire_note, source: e.heard_from, origin: canal, stage: 'filtro_inicial',
             ...Object.fromEntries(CAMPOS_BOT.map((k) => [k, e[k] ?? null])),
+            portal_data: JSON.stringify(e.portal_data ?? {}),
             documents: JSON.stringify(docs), last_activity_at: trx.fn.now(),
           }).returning('id');
           cvUsado = !!cvDoc;

@@ -1,13 +1,48 @@
-# Recursos Humanos › Reclutamiento — el registro por WhatsApp (RH.3.2)
+# Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
-## Problema
+## RH.3.2.2 · Orientar a quien pide un puesto que no hay (2026-10-13)
+
+### Problema
+
+Cuando alguien pedía por WhatsApp un puesto que no tenemos abierto, el bot le contestaba «no tenemos esa vacante, te
+registramos para futuras» y le seguía pidiendo diez datos más. En Mega Talento se midió: de 543 candidatos, 43 estaban
+en ese caso, y muchos sí tenían una vacante para ellos (cinco pidieron «RH» con la Jefatura de recursos humanos abierta).
+
+### Solución
+
+- Si no sabemos en qué ciudad quiere trabajar, se le pregunta primero.
+- Se le ofrecen hasta tres vacantes reales de su zona, las más parecidas a lo que pidió («atención al cliente» →
+  Cajero(a)). Si en su ciudad no hay, se le dice dónde sí y se le pregunta si le queda.
+- Puede elegir por nombre o por número, decir que no, o contestar con su ciudad. Si no se le entiende, se le pregunta
+  una vez más y luego sigue el registro: nunca se queda atorado.
+- Lo que pidió queda guardado en su ficha, junto con lo que se le ofreció y lo que contestó.
+
+### Cómo se implementó
+
+- `libs/hr/src/lib/talent/bot/orientacion.ts`: la orientación como lógica pura, portada de Mega Talento con sus textos.
+- `registro.ts` desvía el puesto inexistente a la orientación (estado `orientando_puesto`); la conversación guarda la
+  orientación en `talent.bot_conversations.orientation` y al postularse pasa a `candidates.portal_data.orientacion`.
+- Una sola lista de ciudades y un solo detector de saludos para todo el bot.
+- Pruebas con los 43 casos reales de Mega Talento, el flujo completo y una conversación contra la base, comprobadas
+  rompiendo el código a propósito.
+
+### Por qué así
+
+Ofrecer una vacante que no existe, o una a dos horas de su casa, es peor que no ofrecer nada; por eso las opciones salen
+sólo de las vacantes publicadas y se filtran por ciudad. Una diferencia con Mega Talento: en la Suite una vacante sin
+sucursales aplica en todas (igual que en la página de empleo), así que también se ofrece; portarlo tal cual la habría
+dejado fuera siempre. Guardar lo que pidió le dice a RH qué vacantes vale la pena abrir.
+
+## RH.3.2 · El registro por WhatsApp (2026-10-13)
+
+### Problema
 
 El bot de reclutamiento de Mega Talento (otro sistema, con su propia base) hace el registro de candidatos por WhatsApp.
 Para retirarlo, la Suite necesita hacer lo mismo con las mismas reglas que ya tiene la página de empleo. Además, en Mega
 Talento el primer «hola» creaba al candidato: había candidatos cuyo puesto decía «Hola» y fichas de gente que nunca
 terminó.
 
-## Solución
+### Solución
 
 - El número de reclutamiento conversa con la persona: 12 preguntas en orden (puesto, nombre, correo, ciudad, traslado,
   disponibilidad, empresa anterior, salario, RFC, NSS, familiar en la empresa, si ya trabajó aquí), un resumen que se
@@ -18,7 +53,7 @@ terminó.
   está en un proceso se le dice en ese momento, sin pedirle el CV.
 - El CV es obligatorio, como en Mega Talento. Al llegar, la persona queda como candidata con todo lo que contestó.
 
-## Cómo se implementó
+### Cómo se implementó
 
 - Tabla `talent.bot_conversations` (migración `20261013150116`): una conversación por teléfono, separada del candidato.
 - `libs/hr/src/lib/talent/bot/registro.ts`: la conversación como lógica pura (sin base ni red), portada de Mega Talento
@@ -28,9 +63,9 @@ terminó.
 - Pruebas de la lógica, del matcher (los casos de Mega Talento) y una conversación completa contra la base, todas
   comprobadas rompiendo el código a propósito.
 
-## Por qué así
+### Por qué así
 
 Las reglas de postulación viven en un solo lugar: la web y el bot no pueden decidir distinto. La conversación separada
 del candidato evita fichas basura. Revisar las reglas al confirmar ahorra pedirle un archivo a alguien a quien después
-se le va a decir que no. Lo que todavía no se porta (interpretar con IA, ofrecer vacantes de su ciudad cuando pide un
-puesto que no hay, armarle el CV) queda declarado con su número en el plan de la fase.
+se le va a decir que no. Lo que todavía no se porta (interpretar con IA, armarle el CV) queda declarado con su número en
+el plan de la fase.

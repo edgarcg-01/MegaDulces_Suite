@@ -485,6 +485,24 @@ que ese formulario necesita (`[RH.2.4]`).
   futuras»); armar el CV y las notas de voz (`[RH.3.3]`; mientras, a quien no tiene CV se le dice la verdad); la
   invitación desde la web (estado `invitado`); el aviso a reclutadores por WhatsApp (el candidato aparece en el tablero);
   «¿dónde te enteraste?» (el bot de Mega Talento no lo preguntaba) y la licencia de Chofer (la pide la web).
+- [ ] **[RH.3.2.2]** 🧪 Orientación (2026-10-13). A quien pide un puesto que no hay ya no se le contesta «te registramos
+  para futuras» y se le siguen pidiendo diez datos: se le ORIENTA. Lógica pura en `bot/orientacion.ts`, portada de
+  `orientacion.js` de Mega Talento con sus textos: clasifica lo que puso (saludo → se repregunta · «lo que sea» → el más
+  fácil de colocar · puesto concreto); si no sabemos su ciudad se le pregunta antes de ofrecer; se le ofrecen **máximo 3
+  vacantes reales de su zona** (La Piedad y Santa Ana Pacueco cuentan como una; las vecinas, diciéndole dónde; Morelia
+  nunca de vecina), ordenadas por afinidad con lo que describió («Atención al cliente» → Cajero(a), «RH» → la Jefatura de
+  recursos humanos); entiende la respuesta (por nombre, por número, rechazo, o su ciudad) y **nunca lo deja atorado** (una
+  repregunta y sigue el registro). Lo que pidió se guarda siempre — es el único registro de la demanda que no cubrimos —:
+  vive en `bot_conversations.orientation` y al postularse viaja a `candidates.portal_data.orientacion`. La migración
+  `20261013150116` (sin aplicar en ningún lado todavía) gana esa columna, su CHECK y el estado `orientando_puesto`. El
+  catálogo de ciudades queda en un solo lugar (`registro.ts` tenía una copia) y el detector de saludos también.
+  ⭐ **Diferencia con Mega Talento, a propósito:** allá toda vacante traía sucursales; en la Suite `branch_codes` vacío
+  significa «aplica en todas» (`hrVacanteEnCiudad`), y la orientación portada tal cual **nunca la habría ofrecido** —
+  ahora la ofrece en cualquier ciudad, salvo que su domicilio la ubique. Pruebas: los 9 bloques de `probar-orientacion.js`
+  (los 43 casos reales del 17/08/2026) + el flujo dentro del registro + la conversación contra la base (la ficha guarda lo
+  que pidió y que lo rechazó), **mutadas a rojo** (sin orientar, sin filtro de zona, sin `portal_data`, vacía sin aplicar
+  en todas, rondas sin tope). **No incluye:** la IA (`[RH.3.2.1]`), que en Mega Talento también entra por aquí cuando el
+  mismo mensaje trae puesto y ciudad.
 - [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
   preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2

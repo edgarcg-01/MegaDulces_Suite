@@ -4,7 +4,7 @@
 import {
   avanzarRegistro, ciudadDelCatalogo, comandoInformativo, esSaludoSinPuesto, pareceTecleoAlAzar,
   postulacionDesdeRegistro, validarCorreo, validarNSS, validarRFC, PASOS, NO_APLICA, SIN_CORREO, PIDE_CV,
-  type DatosRegistro, type Turno, type VacanteBot,
+  type ContextoRegistro, type DatosRegistro, type Turno, type VacanteBot,
 } from './registro';
 
 const VACANTES: VacanteBot[] = [
@@ -15,10 +15,10 @@ const VACANTES: VacanteBot[] = [
 ];
 const ctx = { vacantes: VACANTES };
 
-/** Manda los mensajes en orden y devuelve el último turno. */
-function conversar(mensajes: string[], desde: { estado?: string; datos?: DatosRegistro } = {}): Turno {
-  let t: Turno = { estado: desde.estado ?? 'nuevo', datos: desde.datos ?? {}, respuestas: [] };
-  for (const m of mensajes) t = avanzarRegistro(t.estado, t.datos, m, ctx);
+/** Manda los mensajes en orden y devuelve el último turno (con la orientación viajando entre turnos, como la guarda el servicio). */
+function conversar(mensajes: string[], desde: { estado?: string; datos?: DatosRegistro } = {}, c: ContextoRegistro = ctx): Turno {
+  let t: Turno = { estado: desde.estado ?? 'nuevo', datos: desde.datos ?? {}, orientacion: null, respuestas: [] };
+  for (const m of mensajes) t = avanzarRegistro(t.estado, t.datos, m, c, t.orientacion);
   return t;
 }
 
@@ -62,10 +62,12 @@ describe('[RH.3.2] registro por WhatsApp', () => {
     expect(c.respuestas[0]).toContain('en *qué ciudad*');
   });
 
-  it('el puesto se comenta: hay vacante, o «te registramos para futuras» (la orientación es [RH.3.2.2])', () => {
-    expect(conversar(['cajera'], { estado: 'esperando_position_interest' }).respuestas[0]).toContain('Sí tenemos vacante de *Cajero(a)*');
-    expect(conversar(['ingeniero de sistemas'], { estado: 'esperando_position_interest' }).respuestas[0]).toContain('futuras oportunidades');
+  it('el puesto que SÍ existe se comenta y sigue el registro', () => {
+    const t = conversar(['cajera'], { estado: 'esperando_position_interest' });
+    expect([t.estado, t.orientacion]).toEqual(['esperando_full_name', null]);
+    expect(t.respuestas[0]).toContain('Sí tenemos vacante de *Cajero(a)*');
   });
+
 
   it('el correo es suave: «no tengo» guarda «Sin correo» y sigue', () => {
     const t = conversar(['no tengo'], { estado: 'esperando_email', datos: { position_interest: 'cajera', full_name: 'Ana López' } });
@@ -149,6 +151,65 @@ describe('[RH.3.2] registro por WhatsApp', () => {
       'position_interest', 'full_name', 'email', 'city_branch', 'commute_time', 'availability', 'previous_employer',
       'desired_salary', 'rfc', 'nss', 'relative_in_company', 'rehire_note',
     ]);
+  });
+});
+
+describe('[RH.3.2.2] orientación dentro del registro', () => {
+  const AHORA = new Date('2026-10-13T18:00:00Z');
+  const c: ContextoRegistro = { vacantes: VACANTES, ahora: AHORA };
+
+  it('⭐ puesto que no hay y sin ciudad: se guarda lo pedido, se le pregunta la ciudad, se le ofrece lo de su zona, elige y sigue', () => {
+    const t1 = conversar(['ayudante general'], { estado: 'esperando_position_interest' }, c);
+    expect([t1.estado, t1.datos.position_interest, t1.orientacion?.tipo, t1.orientacion?.pedido])
+      .toEqual(['orientando_puesto', 'ayudante general', 'falta_ciudad', 'ayudante general']);
+    expect(t1.respuestas[0]).toMatch(/en qué \*ciudad\*/);
+
+    const t2 = avanzarRegistro(t1.estado, t1.datos, 'soy de La Piedad', c, t1.orientacion);
+    expect([t2.estado, t2.datos.city_branch, t2.orientacion?.tipo]).toEqual(['orientando_puesto', 'soy de La Piedad', 'ofrecer']);
+    // Almacenista está sólo en Morelia: no se le ofrece a alguien de La Piedad.
+    expect(t2.orientacion?.ofrecidas).toEqual(['Cajero(a)', 'Chofer', 'Practicante']);
+    expect(t2.respuestas[0]).not.toMatch(/Morelia/);
+
+    const t3 = avanzarRegistro(t2.estado, t2.datos, 'la 2', c, t2.orientacion);
+    expect([t3.estado, t3.datos.position_interest, t3.orientacion?.aceptada, t3.orientacion?.aceptada_en])
+      .toEqual(['esperando_full_name', 'Chofer', 'Chofer', AHORA.toISOString()]);
+    expect(t3.respuestas[0]).toContain('Te registro para *Chofer*');
+    // La ciudad ya la dio: el registro no se la vuelve a pedir.
+    const t4 = conversar(['Ana López Pérez', 'no tengo'], { estado: t3.estado, datos: t3.datos }, c);
+    expect(t4.estado).toBe('esperando_commute_time');
+  });
+
+  it('rechaza lo ofrecido: se respeta, lo que pidió se queda y sigue el registro', () => {
+    const t1 = conversar(['ingeniero de sistemas'], { estado: 'esperando_position_interest', datos: { city_branch: 'Zamora' } }, c);
+    expect(t1.orientacion?.tipo).toBe('ofrecer');
+    const t2 = avanzarRegistro(t1.estado, t1.datos, 'no gracias', c, t1.orientacion);
+    expect([t2.estado, t2.datos.position_interest, t2.orientacion?.rechazada]).toEqual(['esperando_full_name', 'ingeniero de sistemas', true]);
+    expect(t2.respuestas[0]).toContain('Te dejo registrado para *ingeniero de sistemas*');
+  });
+
+  it('⛔ nunca se queda dando vueltas: una repregunta numerada y a la segunda sigue el registro', () => {
+    const t1 = conversar(['ingeniero de sistemas', 'xq'], { estado: 'esperando_position_interest', datos: { city_branch: 'Zamora' } }, c);
+    expect([t1.estado, t1.orientacion?.rondas]).toEqual(['orientando_puesto', 1]);
+    expect(t1.respuestas[0]).toMatch(/1\. \*Cajero\(a\)\*/);
+    const t2 = avanzarRegistro(t1.estado, t1.datos, 'xq', c, t1.orientacion);
+    expect(t2.estado).toBe('esperando_full_name');
+    expect(t2.respuestas[0]).toMatch(/^Va, sigamos con tu registro/);
+  });
+
+  it('un comando en medio de la orientación recuerda lo que se le ofreció; «reiniciar» la borra', () => {
+    const t1 = conversar(['ingeniero de sistemas', 'vacantes'], { estado: 'esperando_position_interest', datos: { city_branch: 'Zamora' } }, c);
+    expect(t1.estado).toBe('orientando_puesto');
+    expect(t1.respuestas[0]).toContain('¿Cuál de estas te interesa? *Cajero(a)*');
+    const t2 = avanzarRegistro(t1.estado, t1.datos, 'reiniciar', c, t1.orientacion);
+    expect([t2.orientacion, t2.datos]).toEqual([null, {}]);
+  });
+
+  it('sin vacantes publicadas: se le dice, se le registra igual y no se atora', () => {
+    const sin: ContextoRegistro = { vacantes: [], ahora: AHORA };
+    const t1 = conversar(['cajera'], { estado: 'esperando_position_interest' }, sin);
+    expect([t1.estado, t1.orientacion?.tipo]).toEqual(['orientando_puesto', 'nada']);
+    const t2 = avanzarRegistro(t1.estado, t1.datos, 'ok', sin, t1.orientacion);
+    expect(t2.estado).toBe('esperando_full_name');
   });
 });
 

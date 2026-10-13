@@ -1,5 +1,9 @@
 import { HR_SUCURSALES_EMPLEO, hrVacanteEnCiudad } from '@megadulces/contracts';
 import { resolverVacante, vacantesUnicas } from './vacante-match';
+import {
+  ciudadesDelTexto, clasificarPuestoTexto, etiquetaCiudad, interpretarRespuestaOferta, mensajeOrientacion,
+  nombresOfrecidos, orientar, vocabularioDe, type VacanteOrientable,
+} from './orientacion';
 
 /**
  * Fase RH · `[RH.3.2]` — la CONVERSACIÓN DE REGISTRO por WhatsApp, como lógica PURA: recibe el estado, lo contestado y
@@ -16,9 +20,12 @@ import { resolverVacante, vacantesUnicas } from './vacante-match';
  *   · Resumen numerado: «sí» confirma, un número corrige ese dato y regresa al resumen.
  *   · Tras confirmar, el CV es OBLIGATORIO: sin CV no hay postulación (lo recibe el servicio).
  *
+ *   · `[RH.3.2.2]` A quien pide un puesto que no hay, se le ORIENTA (`orientacion.ts`): se le ofrece lo abierto en su
+ *     ciudad (o se le pregunta primero dónde vive), máximo dos rondas y nunca se le deja atorado. Lo que pidió se guarda
+ *     siempre: es el único registro de la demanda que no cubrimos.
+ *
  * Lo que NO trae todavía (declarado en FASE_RH §RH.3): la interpretación con IA de mensajes con varios datos
- * (`[RH.3.2.1]`), la ORIENTACIÓN a quien pide un puesto que no existe (`[RH.3.2.2]`; hoy recibe el mensaje de respaldo
- * de Mega Talento, «te registramos para futuras oportunidades») y armar el CV con la solicitud (`[RH.3.3]`).
+ * (`[RH.3.2.1]`) y armar el CV con la solicitud (`[RH.3.3]`).
  */
 
 // ── Datos ────────────────────────────────────────────────────────────────────────────────
@@ -31,23 +38,40 @@ export type CampoRegistro =
 export type DatosRegistro = Partial<Record<CampoRegistro, string>>;
 
 /** Una vacante tal como la necesita el bot. */
-export interface VacanteBot {
+export interface VacanteBot extends VacanteOrientable {
   id: string;
-  name: string;
-  salary_text: string | null;
-  branch_codes: readonly string[] | null;
 }
 
 export interface ContextoRegistro {
   /** Las vacantes publicadas (`talent.job_postings` activas). */
   vacantes: readonly VacanteBot[];
+  /** El reloj (para fechar la orientación); por omisión, ahora. */
+  ahora?: Date;
 }
 
 export type EstadoTerminal = 'postulada' | 'rechazada';
 
+/**
+ * Lo que se le ofreció cuando pidió un puesto que no hay: para entender su respuesta y para que RH vea la demanda real
+ * (qué pidió, qué se le ofreció, qué aceptó o si lo rechazó).
+ */
+export interface EstadoOrientacion {
+  pedido: string;
+  tipo: string;
+  ofrecidas: string[];
+  rondas: number;
+  en: string;
+  aceptada?: string;
+  aceptada_en?: string;
+  rechazada?: boolean;
+  rechazada_en?: string;
+}
+
 export interface Turno {
   estado: string;
   datos: DatosRegistro;
+  /** La orientación vigente (se conserva entre turnos; `reiniciar` la borra). */
+  orientacion: EstadoOrientacion | null;
   respuestas: string[];
   /** Acaba de confirmar sus datos: el servicio revisa las reglas de postulación ANTES de pedirle el CV. */
   confirmado?: boolean;
@@ -257,45 +281,18 @@ function pideDatoClave(paso: Paso): string {
       + '_Si no sabes dónde estamos, escribe *sucursales* y te las muestro._';
 }
 
-// Puro saludo o cortesía donde iba el puesto (de `orientacion.js` de Mega Talento).
-const CORTESIA = [
-  /^(hola+|holi|buenas?|buen(os)? dias?|buenas (tardes|noches)|que tal|qtal|hey|saludos|disculpe|disculpa)\b/,
-  /^(si|sip|no|ok|okey|oki|va|vale|sale|claro|gracias|de acuerdo|bien|perfecto|correcto|aja|mmm+)$/,
-  /deseo un buen (dia|tarde)/,
-  /espero me (solucionen|apoyen|ayuden|contesten|respondan)/,
-  /(mire|vi|encontre|me llego) (una|la|su) (publicacion|anuncio|oferta|pagina|vacante)/,
-  /(envio|le mando|te mando|aqui esta|este es|le comparto|adjunto) mi (cv|curriculum)/,
-  /(quiero|quisiera|quiera|queria) (formar|ser) parte/,
-  /^(me interesa|me interesaria|estoy interesad[oa])( (la|el|una|un) (vacante|oferta|trabajo|empleo))?$/,
-  /^(vengo|escribo) por (el|la) (anuncio|vacante|publicacion|oferta)/,
-  /^(busco|necesito|quiero) (trabajo|empleo|chamba)$/,
-  /^(tiene|tienen|hay|cual|cuales|donde|cuando|como|info|informacion|mande|bueno|aqui|listo|ya)$/,
-];
-
 /**
- * ¿Es un saludo y no un puesto? Un «hola, busco de cajera» NO lo es: si menciona una vacante publicada, trae contenido.
+ * ¿Es un saludo y no un puesto? Un «hola, busco de cajera» NO lo es: si habla de trabajo, trae contenido. El mismo
+ * clasificador que usa la orientación (una sola lista de cortesías, no dos).
  */
 export function esSaludoSinPuesto(texto: string, vacantes: readonly VacanteBot[]): boolean {
-  const t = normalizarTexto(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!t) return true;
-  if (resolverVacante(texto, vacantes)) return false;
-  return CORTESIA.some((re) => re.test(t));
+  return clasificarPuestoTexto(texto, vocabularioDe(vacantes)) === 'saludo';
 }
 
-// Ciudades del catálogo, con cómo las escribe la GENTE (nombre comercial de la sucursal incluido).
-const ALIAS_CIUDAD: ReadonlyArray<[RegExp, string]> = [
-  [/morelia|madero pte|figaredo|vicente guerrero/, 'Morelia'],
-  [/zamora|canindo|jacona|damaso cardenas|jardines de catedral/, 'Zamora'],
-  [/la piedad|piedad de cabadas|cabadas|pino suarez|mariano jimenez|esquinas/, 'La Piedad'],
-  [/santa ana|sta ana|pacueco|padre hidalgo/, 'Santa Ana Pacueco'],
-  [/yurecuaro/, 'Yurécuaro'],
-];
-
-/** La ciudad del catálogo que nombra el texto, o null si no nombra ninguna (o nombra varias). */
+/** La ciudad del catálogo que nombra el texto, o null si no nombra ninguna (o nombra varias: no se adivina). */
 export function ciudadDelCatalogo(texto: string | null | undefined): string | null {
-  const t = normalizarTexto(texto);
-  const encontradas = [...new Set(ALIAS_CIUDAD.filter(([re]) => re.test(t)).map(([, c]) => c))];
-  return encontradas.length === 1 ? encontradas[0] : null;
+  const encontradas = ciudadesDelTexto(texto);
+  return encontradas.length === 1 ? etiquetaCiudad(encontradas[0]) : null;
 }
 
 // ── Mensajes ─────────────────────────────────────────────────────────────────────────────
@@ -348,11 +345,9 @@ export function construirSucursales(): string {
   return `📍 *Nuestras sucursales:*\n\n${HR_SUCURSALES_EMPLEO.map((s) => `*${s.ciudad}*\n${s.direccion}`).join('\n\n')}`;
 }
 
-function comentarioPuesto(texto: string, vacantes: readonly VacanteBot[]): string {
-  const v = resolverVacante(texto, vacantesUnicas(vacantes));
-  return v
-    ? `¡Buenas noticias! 🎉 Sí tenemos vacante de *${v.name}*. Sigamos con tu registro.`
-    : 'Por ahora no tenemos esa vacante específica, pero *te registramos* para tomarte en cuenta en futuras oportunidades. 😊';
+/** Sólo para el puesto que SÍ existe: el que no existe pasa por la orientación. */
+function comentarioPuesto(nombreVacante: string): string {
+  return `¡Buenas noticias! 🎉 Sí tenemos vacante de *${nombreVacante}*. Sigamos con tu registro.`;
 }
 
 export function construirResumen(datos: DatosRegistro): string {
@@ -423,14 +418,26 @@ function indicePorPrefijo(estado: string, prefijo: string): number {
   return PASOS.findIndex((p) => p.campo === campo);
 }
 
+export const ESTADO_ORIENTA = 'orientando_puesto';
+
+/** Cuántas veces se le repregunta si su respuesta a la oferta no se entiende (a la siguiente, sigue el registro). */
+const MAX_RONDAS_ORIENTACION = 2;
+
 /** Lo que se le recuerda tras contestarle un comando (o un archivo/audio fuera de lugar), para que sepa qué le tocaba. */
-export function preguntaPendiente(estado: string, datos: DatosRegistro): string {
+export function preguntaPendiente(estado: string, datos: DatosRegistro, orientacion: EstadoOrientacion | null = null): string {
   const i = indicePorPrefijo(estado, PREFIJO);
   if (i !== -1) return `\n\n${preguntaDe(PASOS[i], datos)}`;
   const e = indicePorPrefijo(estado, PREFIJO_EDIT);
   if (e !== -1) return `\n\n${preguntaDe(PASOS[e], datos)}`;
   if (estado === 'confirmando') return '\n\nResponde *sí* para confirmar tus datos.';
   if (estado === 'esperando_cv') return `\n\n${RECUERDA_CV}`;
+  // En medio de la orientación: si no se le recuerda, tras pedir «vacantes» no sabe qué le tocaba contestar.
+  if (estado === ESTADO_ORIENTA) {
+    const ofrecidas = orientacion?.ofrecidas ?? [];
+    return ofrecidas.length
+      ? `\n\n¿Cuál de estas te interesa? ${ofrecidas.map((n) => `*${n}*`).join(', ')} — o escribe *ninguno*.`
+      : '\n\nDime en qué *ciudad* te queda mejor trabajar y te digo qué hay cerca de ti.';
+  }
   return '';
 }
 
@@ -438,22 +445,85 @@ export function preguntaPendiente(estado: string, datos: DatosRegistro): string 
 
 /**
  * Un mensaje de texto de la persona → el estado nuevo y qué decirle. `texto` es null para lo que no es texto (el
- * servicio atiende el CV antes de llegar aquí).
+ * servicio atiende el CV antes de llegar aquí). `orientacion`: la que traía la conversación.
  */
-export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo: string | null, ctx: ContextoRegistro): Turno {
+export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo: string | null, ctx: ContextoRegistro,
+  orientacion: EstadoOrientacion | null = null): Turno {
   const texto = (textoCrudo ?? '').trim();
-  const turno = (e: string, d: DatosRegistro, ...respuestas: string[]): Turno => ({ estado: e, datos: d, respuestas });
+  const ahora = (ctx.ahora ?? new Date()).toISOString();
+  const turno = (e: string, d: DatosRegistro, ...respuestas: string[]): Turno => ({ estado: e, datos: d, orientacion, respuestas });
 
   // `reiniciar` funciona en cualquier momento: borra lo contestado y vuelve al primer paso.
   if (texto.toLowerCase() === 'reiniciar') {
-    return { ...turno(PREFIJO + PASOS[0].campo, {}, `🔄 Empezamos de nuevo.\n\n${PASOS[0].pregunta}`), reiniciado: true };
+    return { estado: PREFIJO + PASOS[0].campo, datos: {}, orientacion: null, respuestas: [`🔄 Empezamos de nuevo.\n\n${PASOS[0].pregunta}`], reiniciado: true };
   }
 
   const comando = comandoInformativo(texto);
   if (comando) {
     const info = comando === 'menu' ? construirMenu() : comando === 'vacantes' ? construirVacantes(ctx.vacantes) : construirSucursales();
     if (estado === 'nuevo') return turno(PREFIJO + PASOS[0].campo, datos, `${info}\n\n${SALUDO}\n\n${PASOS[0].pregunta}`);
-    return turno(estado, datos, info + preguntaPendiente(estado, datos));
+    return turno(estado, datos, info + preguntaPendiente(estado, datos, orientacion));
+  }
+
+  /** Sigue el registro donde se quedó (tras la orientación): el primer dato que falte, o el resumen. */
+  const seguirRegistro = (d: DatosRegistro, ori: EstadoOrientacion | null, texto0: string): Turno => {
+    const siguiente = PASOS.find((p) => falta(p, d));
+    return siguiente
+      ? { estado: PREFIJO + siguiente.campo, datos: d, orientacion: ori, respuestas: [`${texto0}\n\n${preguntaDe(siguiente, d)}`] }
+      : { estado: 'confirmando', datos: d, orientacion: ori, respuestas: [`${texto0}\n\n${construirResumen(d)}`] };
+  };
+
+  /**
+   * Le ofrece lo que hay (o le pregunta su ciudad) y deja constancia de qué pidió y qué se le ofreció. Si no hay mensaje
+   * de orientación (era un saludo), vuelve a pedirle el puesto.
+   */
+  const orientarTurno = (d: DatosRegistro, pedido: string, rondas: number): Turno => {
+    const decision = orientar(pedido, d.city_branch, ctx.vacantes);
+    const msg = mensajeOrientacion(decision, pedido);
+    if (!msg) {
+      const { position_interest: _quitado, ...sinPuesto } = d;
+      return { estado: PREFIJO + PASOS[0].campo, datos: sinPuesto, orientacion, respuestas: [PASOS[0].pregunta] };
+    }
+    const ori: EstadoOrientacion = {
+      ...(orientacion ?? {}), pedido: pedido.slice(0, 200), tipo: decision.tipo, ofrecidas: nombresOfrecidos(decision), rondas, en: ahora,
+    };
+    return { estado: ESTADO_ORIENTA, datos: d, orientacion: ori, respuestas: [msg] };
+  };
+
+  // Contestó a la oferta. Cuatro caminos y ninguno lo deja atorado.
+  if (estado === ESTADO_ORIENTA) {
+    const ofrecidas = orientacion?.ofrecidas ?? [];
+    const rondas = orientacion?.rondas ?? 0;
+    const pedido = orientacion?.pedido || datos.position_interest || '';
+    const r = interpretarRespuestaOferta(texto, ofrecidas);
+    // 1. Eligió una de las vacantes: ese es su puesto.
+    if (r.tipo === 'elige') {
+      return seguirRegistro({ ...datos, position_interest: r.nombre },
+        { ...(orientacion as EstadoOrientacion), aceptada: r.nombre, aceptada_en: ahora },
+        `¡Excelente elección! 🎉 Te registro para *${r.nombre}*. Sigamos con tus datos.`);
+    }
+    // 2. Dijo su ciudad: se guarda si aún no la teníamos y se le vuelve a ofrecer (no cuenta como ronda fallida).
+    if (r.tipo === 'ciudad') {
+      const d = lleno(datos.city_branch) ? datos : { ...datos, city_branch: texto.replace(/\s+/g, ' ').slice(0, 300) };
+      return orientarTurno(d, pedido, rondas);
+    }
+    // 3. No le interesa nada: se respeta, su registro vale igual y queda anotado para cuando se abra lo que busca.
+    if (r.tipo === 'rechaza') {
+      return seguirRegistro(datos, { ...(orientacion as EstadoOrientacion), rechazada: true, rechazada_en: ahora },
+        `Sin problema 🙌 Te dejo registrado para *${pedido || 'el puesto que buscas'}* y en cuanto se abra algo así te escribo. `
+        + 'Terminemos tus datos para tenerte listo.');
+    }
+    // 4. No se entendió: una repregunta con la lista numerada, y ya.
+    if (rondas < MAX_RONDAS_ORIENTACION - 1 && ofrecidas.length) {
+      return {
+        estado, datos, orientacion: { ...(orientacion as EstadoOrientacion), rondas: rondas + 1 },
+        respuestas: ['Perdón, no te entendí 🤔 Dime el *número* o el *nombre* del puesto que te interesa:\n\n'
+          + `${ofrecidas.map((n, k) => `${k + 1}. *${n}*`).join('\n')}\n\n`
+          + 'Y si ninguno te late, escribe *ninguno* y seguimos con tu registro de todos modos 🙌'],
+      };
+    }
+    // Se agotaron las rondas: NUNCA se le deja dando vueltas.
+    return seguirRegistro(datos, orientacion, 'Va, sigamos con tu registro y lo vemos más adelante 🙌');
   }
 
   // Nuevo: se saluda y se pide el primer dato. El «hola» NO se guarda como dato.
@@ -472,10 +542,13 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
     const r = procesarRespuesta(paso, texto, datos, ctx);
     if ('error' in r) return turno(estado, datos, r.error);
     const nuevos = { ...datos, [paso.campo]: r.valor };
+    // El puesto que NO existe se desvía a la orientación (lo pedido se guarda: es la demanda que no cubrimos).
+    const vacante = paso.campo === 'position_interest' ? resolverVacante(r.valor, vacantesUnicas(ctx.vacantes)) : null;
+    if (paso.campo === 'position_interest' && !vacante) return orientarTurno(nuevos, r.valor, 0);
     // Lo que falta (en orden): así un dato ya capturado (p. ej. tras corregir) no se vuelve a pedir.
     const siguiente = PASOS.slice(i + 1).find((p) => falta(p, nuevos)) ?? PASOS.find((p) => falta(p, nuevos));
     if (!siguiente) return turno('confirmando', nuevos, construirResumen(nuevos));
-    const extra = paso.campo === 'position_interest' ? `${comentarioPuesto(r.valor, ctx.vacantes)}\n\n` : '';
+    const extra = vacante ? `${comentarioPuesto(vacante.name)}\n\n` : '';
     const aviso = 'omitido' in r && r.omitido ? (paso.avisoOmitido || 'Sin problema, lo dejamos pendiente. ') : '';
     return turno(PREFIJO + siguiente.campo, nuevos, extra + aviso + preguntaDe(siguiente, nuevos));
   }

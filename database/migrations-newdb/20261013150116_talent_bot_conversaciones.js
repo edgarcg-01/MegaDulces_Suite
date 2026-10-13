@@ -11,6 +11,8 @@
  *  · Una fila por teléfono (últimos 10 dígitos, como `candidates.phone_key`): el bot guarda 13, la web 10.
  *  · `state` es el punto del flujo (`esperando_<campo>`, `editando_<campo>`, `confirmando`, `esperando_cv`, …).
  *  · `data` son las respuestas del registro con los nombres de columna de `talent.candidates`.
+ *  · `orientation` (`[RH.3.2.2]`): a quien pidió un puesto que no hay, qué pidió y qué se le ofreció — es el único
+ *    registro de la demanda que no cubrimos; al postularse viaja a `candidates.portal_data.orientacion`.
  *  · `candidate_id` se llena cuando la postulación entra (o con el proceso abierto si se rechazó por duplicada).
  *  · `outcome` dice cómo terminó: `postulada` o `rechazada` (con su `outcome_reason`, el motivo de la regla).
  *
@@ -35,6 +37,7 @@ exports.up = async function up(knex) {
         profile_name     text,                              -- el nombre de su perfil de WhatsApp (no es su nombre legal)
         state            text NOT NULL DEFAULT 'nuevo',
         data             jsonb NOT NULL DEFAULT '{}'::jsonb,
+        orientation      jsonb,                             -- [RH.3.2.2] qué pidió y qué se le ofreció (null si no hubo)
         candidate_id     uuid,
         outcome          text,
         outcome_reason   text,
@@ -46,9 +49,10 @@ exports.up = async function up(knex) {
         FOREIGN KEY (tenant_id, candidate_id) REFERENCES ${S}.candidates (tenant_id, id) ON DELETE SET NULL,
         CONSTRAINT bot_conversations_phone_ck CHECK (phone_key IS NOT NULL AND length(phone_key) = 10),
         CONSTRAINT bot_conversations_state_ck CHECK (
-          state IN ('nuevo', 'confirmando', 'esperando_cv', 'postulada', 'rechazada')
+          state IN ('nuevo', 'orientando_puesto', 'confirmando', 'esperando_cv', 'postulada', 'rechazada')
           OR state ~ '^(esperando|editando)_[a-z_]+$'),
         CONSTRAINT bot_conversations_data_ck CHECK (jsonb_typeof(data) = 'object'),
+        CONSTRAINT bot_conversations_orientation_ck CHECK (orientation IS NULL OR jsonb_typeof(orientation) = 'object'),
         CONSTRAINT bot_conversations_outcome_ck CHECK (
           (outcome IS NULL AND state NOT IN ('postulada', 'rechazada'))
           OR (outcome = 'postulada' AND state = 'postulada' AND candidate_id IS NOT NULL)
