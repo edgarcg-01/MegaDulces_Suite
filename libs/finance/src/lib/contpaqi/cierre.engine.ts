@@ -25,6 +25,31 @@ import {
 /** El prefijo con el que viven estas claves en `analytics.kpi_thresholds`. */
 export const PREFIJO_KPI = 'cierre_contable.';
 
+/**
+ * `[CPA.0.1]` Sufijo del **techo**. El mismo número se lee dos veces: contra el piso (¿falta?) y
+ * contra el techo (¿sobra?). Dos filas en el MISMO registro, con el MISMO clasificador — la de
+ * techo con `lower_is_better`. Cero primitivos nuevos.
+ */
+export const SUFIJO_ALTO = '.alto';
+
+/**
+ * `[CPA.0.1]` Mínimo de meses para que una mediana sea una base de comparación.
+ *
+ * ⛔ Medido contra prod: `2025-02 gastos` y `2025-02 nomina` calculaban su mediana con **UN solo
+ * mes**, y el veredicto salía idéntico a uno apoyado en seis. Es la lección de `[CP.8.20]`:
+ * *pureza perfecta sobre n=1 no es certeza*. Con menos de este mínimo, el engine **se niega a
+ * juzgar** y devuelve `sin_medir` con el motivo — que no es lo mismo que decir que está mal.
+ *
+ * ⚠️ Tres y no dos: con dos meses la mediana es el promedio de ambos, así que un mes raro arrastra
+ * la mitad del patrón. Con tres, la mediana ya es un valor observado y el raro queda de lado.
+ */
+export const MESES_MINIMOS_HISTORIA = 3;
+
+/** El motivo exacto cuando la historia no alcanza. Lo usa el candado; no se duplica. */
+export const motivoHistoriaCorta = (n: number): string =>
+  `La comparación sería contra ${n} mes${n === 1 ? '' : 'es'} previo${n === 1 ? '' : 's'}, `
+  + `y hacen falta ${MESES_MINIMOS_HISTORIA}: no hay patrón contra el cual decir si falta algo.`;
+
 /** Lo que la vista publica por (mes × familia). Los numéricos llegan como texto desde `pg`. */
 export interface FilaCierreCruda {
   anio_mes: string;
@@ -38,6 +63,8 @@ export interface FilaCierreCruda {
   testigo_fuente: string | null;
   cobertura_base: 'testigo' | 'historia';
   mediana_6m: string | number | null;
+  /** `[CPA.0.1]` Sobre cuántos meses descansa esa mediana. 0 cuando la base es `testigo`. */
+  mediana_meses?: string | number | null;
   cobertura: string | number | null;
   periodo_estado: 'cerrado' | 'en_curso';
   data_as_of?: string | null;
@@ -54,12 +81,19 @@ export interface FamiliaCierre {
   testigo_fuente: string | null;
   cobertura_base: 'testigo' | 'historia';
   mediana_6m: number | null;
+  /** `[CPA.0.1]` Sobre cuántos meses descansa la mediana. 0 cuando la base es `testigo`. */
+  mediana_meses: number;
   cobertura: number | null;
   estado: KpiEstado;
   motivo: string | null;
   escala_a: string | null;
   /** El umbral que se aplicó, para que la pantalla explique el color sin adivinarlo. */
   umbral: { target: number; warn_at: number; escalate_at: number } | null;
+  /**
+   * `[CPA.0.1]` `true` cuando el veredicto lo decidió el TECHO (sobra), no el piso (falta).
+   * Sin esto, un mes duplicado y un mes ausente se pintan del mismo color sin decir por qué.
+   */
+  por_exceso: boolean;
 }
 
 export interface MesCierre {
@@ -118,12 +152,34 @@ export function armarCierre(
 
   for (const f of filas) {
     const umbral = umbralPara(reglas, PREFIJO_KPI + f.familia, null, 'mes');
+    const techo = umbralPara(reglas, PREFIJO_KPI + f.familia + SUFIJO_ALTO, null, 'mes');
     const cobertura = num(f.cobertura);
+    const medianaMeses = num(f.mediana_meses) ?? 0;
+
+    /*
+     * ⭐ `[CPA.0.1]` El MISMO número se lee DOS veces y manda el peor:
+     *   · piso  (`higher_is_better`) — ¿falta? Es para lo que el semáforo nació.
+     *   · techo (`lower_is_better`)  — ¿sobra? Un mes posteado dos veces da ~2.0 y, sin esto,
+     *     salía `ok` porque el piso sólo mira hacia abajo.
+     * Las dos filas viven en el mismo registro y las clasifica la misma función: cero primitivos
+     * nuevos (ADR-056). `por_exceso` dice cuál de las dos mandó, para que la pantalla no pinte
+     * igual «falta» que «sobra».
+     */
+    const vPiso = clasificarKpi(cobertura, umbral);
+    const vTecho = techo ? clasificarKpi(cobertura, techo) : null;
+    const mandaTecho = !!vTecho
+      && ORDEN_KPI_ESTADO[vTecho.estado] < ORDEN_KPI_ESTADO[vPiso.estado];
+    const vRango = mandaTecho && vTecho
+      ? { ...vTecho, motivo: `Por ENCIMA de lo esperado (${vTecho.motivo ?? 'fuera de rango'}). Puede ser un mes posteado dos veces.` }
+      : vPiso;
 
     // Regla 1: el mes en curso se DECLARA, no se aprueba ni se reprueba.
+    // Regla 4 `[CPA.0.1]`: una mediana sobre muy pocos meses NO es una base de comparación.
     const veredicto = f.periodo_estado === 'en_curso'
       ? { estado: 'sin_medir' as KpiEstado, motivo: MOTIVO_EN_CURSO, escala_a: null }
-      : clasificarKpi(cobertura, umbral);
+      : (f.cobertura_base === 'historia' && medianaMeses < MESES_MINIMOS_HISTORIA
+        ? { estado: 'sin_medir' as KpiEstado, motivo: motivoHistoriaCorta(medianaMeses), escala_a: null }
+        : vRango);
 
     const fam: FamiliaCierre = {
       familia: f.familia,
@@ -136,6 +192,7 @@ export function armarCierre(
       testigo_fuente: f.testigo_fuente,
       cobertura_base: f.cobertura_base,
       mediana_6m: num(f.mediana_6m),
+      mediana_meses: medianaMeses,
       cobertura,
       estado: veredicto.estado,
       motivo: veredicto.motivo,
@@ -143,6 +200,9 @@ export function armarCierre(
       umbral: umbral
         ? { target: umbral.target, warn_at: umbral.warn_at, escalate_at: umbral.escalate_at }
         : null,
+      // Sólo cuenta si el veredicto SOBREVIVIÓ: si después lo pisó `en_curso` o la historia
+      // corta, el color no lo decidió el techo y marcarlo sería mentir sobre el porqué.
+      por_exceso: mandaTecho && veredicto === vRango,
     };
 
     let mes = porMes.get(f.anio_mes);

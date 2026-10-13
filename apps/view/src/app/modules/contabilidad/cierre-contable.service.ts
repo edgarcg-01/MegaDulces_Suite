@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { Freshness, Coverage } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -44,11 +45,15 @@ export interface FamiliaCierre {
   testigo_fuente: string | null;
   cobertura_base: 'testigo' | 'historia';
   mediana_6m: number | null;
+  /** ⭐ Sobre cuántos meses descansa la mediana. Un veredicto sobre n=1 no es un veredicto. */
+  mediana_meses: number;
   cobertura: number | null;
   estado: EstadoCierre;
   motivo: string | null;
   escala_a: string | null;
   umbral: { target: number; warn_at: number; escalate_at: number } | null;
+  /** ⭐ El color lo decidió el TECHO (sobra), no el piso (falta): posible mes duplicado. */
+  por_exceso: boolean;
 }
 
 export interface MesCierre {
@@ -61,14 +66,15 @@ export interface MesCierre {
 
 export interface CierreResp {
   meses: MesCierre[];
-  freshness: {
-    data_as_of: string | null;
-    status: 'fresh' | 'stale' | 'unknown';
-    stale: boolean;
-    age_human: string | null;
-    inputs: Array<{ key: string; label: string; at: string | null; age_human: string | null; status: string; stale: boolean }>;
-  };
-  coverage: { measured: boolean; pct: number | null; note: string };
+  /**
+   * ⛔ `[CPA.10]` Esto era una copia a mano del contrato, con `status: string` dentro de `inputs`.
+   * Compilaba sola —acá nadie la pasaba a `<app-freshness-pill>`— y reventaba recién al intentarlo
+   * desde la bandeja, donde el input del componente exige la unión. Es exactamente lo que
+   * `[VP.2.1]` subió a `libs/contracts` para que nadie volviera a copiarlo: medido el 2026-10-12,
+   * era **el único** lugar del repo que todavía lo hacía.
+   */
+  freshness: Freshness;
+  coverage: Coverage;
   /** Milisegundos reales de la consulta. Se muestra: un tiempo que molesta y se ve es un problema. */
   query_ms: number;
 }

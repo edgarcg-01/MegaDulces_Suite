@@ -110,7 +110,16 @@ describe('[CP.8.33] bandeja del puente — la clasificación', () => {
 
   it('⭐ `no_aplica` NO cuenta como pendiente', () => {
     expect(contarDeNadie(MOTIVOS)).toBe(148);
-    expect(TOTAL - contarDeNadie(MOTIVOS)).toBe(1326);
+  });
+
+  it('⛔ los pendientes restan TAMBIÉN lo que ya entra al asiento', () => {
+    // Mientras el puente rechazaba todo, `total − no_aplica` daba lo mismo. Desde `[CP.8.35]`
+    // entran 144 y esa cuenta sobredeclara el trabajo que falta — que es justo el número que
+    // alguien mira para estimar cuánto queda.
+    const incluidas = 144;
+    expect(TOTAL - contarDeNadie(MOTIVOS) - incluidas).toBe(1182);
+    // Y las tres cubetas tienen que sumar el universo del mes, sin huecos ni traslapes.
+    expect(1182 + incluidas + contarDeNadie(MOTIVOS)).toBe(TOTAL);
   });
 
   it('los otros cuatro SÍ son trabajo de alguien', () => {

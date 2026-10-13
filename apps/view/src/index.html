@@ -194,5 +194,96 @@
 </head>
 <body>
   <app-root></app-root>
+
+  <!-- `[RES.5]` AUTO-RESCATE DE ARRANQUE.
+
+       ⭐ Por qué existe, medido el 2026-10-12: después de un deploy seguido de una caída del
+          servidor, en varios Android la app dejó de abrir. El diagnóstico se hizo descartando:
+          incógnito SÍ abría · el navegador normal NO · y `?ngsw-bypass=true` TAMPOCO — o sea que
+          **no era el service worker**, era el ALMACENAMIENTO LOCAL del sitio. «Borrar datos de
+          navegación» lo arreglaba, pero eso no se le pide a 100 personas.
+
+       ⭐ Qué hace: si a los 20 s la app NO montó, limpia SU PROPIO estado (caches, service workers,
+          IndexedDB, localStorage) y recarga UNA sola vez. Es «borrar datos del sitio», pero lo hace
+          el teléfono solo y sólo cuando hace falta.
+
+       ⛔ Lo que NO hace, a propósito:
+          · No se ejecuta si la app montó bien — un usuario sano no pierde nada.
+          · No entra en bucle: marca `sessionStorage`; si tras rescatar sigue fallando, NO reintenta
+            y deja ver el error. Un rescate que se repite es una pantalla que parpadea para siempre
+            y esconde la causa.
+
+       ⚠️ Costo declarado: `localStorage.clear()` borra la sesión, así que quien se rescata vuelve a
+          entrar. Es el mismo precio que pagaba borrando datos a mano.
+
+       ⚠️ 20 s y no menos: en 3G lento un arranque legítimo puede pasar de 10 s, y rescatar a alguien
+          que sólo tenía red lenta le borraría la sesión sin motivo.
+
+       ⚠️ Va INLINE a propósito: tiene que correr aunque el bundle no cargue, que es justo el caso
+          que viene a cubrir. Un `<script src>` compartiría la suerte de lo que falla. -->
+  <script>
+  (function () {
+    var MARCA = 'md.rescate.v1';
+    var ESPERA = 20000;
+
+    try { if (sessionStorage.getItem(MARCA)) return; } catch (e) { /* modo privado: seguir */ }
+
+    function monto() {
+      var r = document.querySelector('app-root');
+      return !!(r && r.children && r.children.length > 0);
+    }
+
+    function limpiarYRecargar() {
+      try { sessionStorage.setItem(MARCA, String(Date.now())); } catch (e) {}
+
+      var tareas = [];
+      try {
+        if (window.caches && caches.keys) {
+          tareas.push(caches.keys().then(function (ks) {
+            return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+          }));
+        }
+      } catch (e) {}
+      try {
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          tareas.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+            return Promise.all(rs.map(function (r) { return r.unregister(); }));
+          }));
+        }
+      } catch (e) {}
+      try {
+        if (window.indexedDB && indexedDB.databases) {
+          tareas.push(indexedDB.databases().then(function (ds) {
+            return Promise.all((ds || []).map(function (d) {
+              return new Promise(function (listo) {
+                if (!d || !d.name) return listo();
+                var rq = indexedDB.deleteDatabase(d.name);
+                rq.onsuccess = rq.onerror = rq.onblocked = function () { listo(); };
+              });
+            }));
+          }));
+        }
+      } catch (e) {}
+      try { localStorage.clear(); } catch (e) {}
+
+      var recargado = false;
+      function recargar() {
+        if (recargado) return;
+        recargado = true;
+        location.replace('/?rescate=' + Date.now());
+      }
+      // Cinturón: si una promesa se cuelga (IndexedDB bloqueada por otra pestaña), recargar igual.
+      setTimeout(recargar, 6000);
+      Promise.all(tareas).then(recargar, recargar);
+    }
+
+    function revisar() {
+      setTimeout(function () { if (!monto()) limpiarYRecargar(); }, ESPERA);
+    }
+
+    if (document.readyState === 'complete') revisar();
+    else window.addEventListener('load', revisar);
+  })();
+  </script>
 </body>
 </html>

@@ -19,6 +19,27 @@
  *
  * `confianza`: alta ≥80 · media ≥45 · baja <45. La pantalla muestra el score y los MOTIVOS, para
  * que el humano confirme con criterio, no a ciegas.
+ *
+ * ── CS.3.7 (2026-10-12): DOS FRENOS, porque sumar no alcanza ──────────────────────────────────
+ *
+ * Todo lo de arriba son razones para SUMAR. Un motor que sólo suma siempre encuentra algo, y con
+ * 400 retiros en la ventana siempre hay uno que comparte una palabra. Medido contra prod ese día,
+ * sobre las 207 propuestas vivas: **40.1% estaban a más de 7 días** (con la ventana documentada en
+ * ±7), **sólo el 1.9% tenía el monto exacto**, y **67 de 122** donde ambos lados declaraban su
+ * fecha de negocio **se contradecían** y salían igual. Lo reportó Edgar con un caso concreto: una
+ * nómina de la semana 41 enganchada al retiro cuyo ref dice `nomina 40`.
+ *
+ * Los dos frenos NO inventan umbrales nuevos: usan las señales que este mismo motor ya midió.
+ *
+ *   · **La fecha de negocio que se contradice RESTA** (−40) y descalifica. Era la única señal
+ *     decisiva disponible y el motor sólo la miraba cuando le daba la razón.
+ *   · **Hace falta algo que identifique la INSTANCIA**, no el tipo: fecha de negocio que coincide,
+ *     monto al peso, o registro a ≤3 días. Un ref (`nomina`, `frituras`) o una ruta (`rd 26`) se
+ *     repiten cada semana o cada día: dicen QUÉ clase de movimiento es, nunca CUÁL.
+ *
+ * Efecto medido sobre los mismos datos: 207 → 169 propuestas; las que pasan de 7 días bajan de 83
+ * a 10, y las 10 tienen fecha de negocio coincidente. Lo frenado no se borra: baja a `baja`, con
+ * su motivo, y sigue visible en la búsqueda manual para que una persona lo elija a propósito.
  */
 
 export interface GastoCtx {
@@ -154,6 +175,12 @@ export function puntuarCaos(g: GastoCtx, c: CaosCandidato, aprendido?: Map<strin
   const fg = fechaNegocio(gtxt);
   const fc = fechaNegocio(c.ref);
   if (fg && fc && fg === fc) { score += 40; motivos.push(`fecha ${fg}`); }
+  // CS.3.7 — ...y si AMBOS la declaran y NO coinciden, eso es evidencia EN CONTRA, no indiferencia.
+  // Medido en prod el 2026-10-12: de 122 propuestas donde los dos lados traen fecha de negocio,
+  // **67 se contradecian** -- y salian igual como 'media', porque el motor solo sumaba al coincidir.
+  // La llave que el propio motor declara decisiva (~98% de precision) estaba diciendo QUE NO.
+  const fechaChoca = !!(fg && fc && fg !== fc);
+  if (fechaChoca) { score -= 40; motivos.push(`la fecha no cuadra (${fg} vs ${fc})`); }
 
   // 3) REF ↔ beneficiario/concepto — señal del lado GASTO (proveedor/propósito). Sólo si NO casó por
   //    ruta: una dispensación (`cueritos`, `nomina`) no trae ruta y se ata por el nombre del proveedor.
@@ -166,9 +193,10 @@ export function puntuarCaos(g: GastoCtx, c: CaosCandidato, aprendido?: Map<strin
   // 4) MONTO — el efectivo del cajero es PARTE del movimiento de Kepler: el depósito es SIEMPRE ≤ el
   //    cobro (medido 53/53), y la diferencia es lo retenido/gastos de ruta. Por eso «≤» SUMA (no un
   //    ≈5% que rechazaba diferencias reales de hasta 12%). Exacto es más fuerte; MAYOR es improbable.
+  let montoExacto = false;
   if (g.monto != null && g.monto > 0) {
     const cm = Math.abs(c.monto);
-    if (cm === g.monto) { score += 30; motivos.push('monto exacto'); }
+    if (cm === g.monto) { score += 30; montoExacto = true; motivos.push('monto exacto'); }
     else if (cm <= g.monto) { score += 15; motivos.push('parte del arqueo'); }
     else if (cm <= g.monto * 1.05) { score += 8; motivos.push('monto ≈'); }
     else { score -= 25; motivos.push('monto mayor que el movimiento'); }
@@ -184,7 +212,46 @@ export function puntuarCaos(g: GastoCtx, c: CaosCandidato, aprendido?: Map<strin
   const ap = aprendido?.get(norm(c.ref));
   if (ap && ap.casos > 0) { score += Math.min(15, ap.casos * 5); motivos.push(`ya confirmado (${ap.casos})`); }
 
-  const confianza: PuntajeCaos['confianza'] = score >= 80 ? 'alta' : score >= 45 ? 'media' : 'baja';
+  /**
+   * CS.3.7 — UNA PALABRA NO IDENTIFICA CUAL. Para proponer hace falta una senal que distinga ESTE
+   * movimiento de los otros del mismo tipo.
+   *
+   * Edgar, 2026-10-12: *"en el pago de nomina 41 se enlazo con un egreso de caos de la semana 40"*.
+   * Reproducido contra prod: el gasto `X-D-26 0023009` del 09-oct ($13,651, beneficiario NOMINA) se
+   * llevo el retiro 1497 del 02-oct, cuyo ref dice literalmente **`nomina 40`** -- la semana ANTERIOR.
+   * Score 55 = 'media', por `ref <<nomina>> coincide` (+40) + `parte del arqueo` (+15).
+   *
+   * Las dos piezas que lo hacen inevitable:
+   *
+   *  1. **El ref nombra el TIPO de gasto, no el gasto.** `nomina` se repite CADA SEMANA; igual
+   *     `frituras`, `prod nimar`, `tdc amex`. La lista `STOP` tapa `pago`/`caja`/`efectivo`, que son
+   *     genericas, pero el problema no es que la palabra sea generica: es que sea RECURRENTE.
+   *     Peor: `tokensRef` **tira el unico discriminante que el ref traia** -- el `40` de `nomina 40`
+   *     se descarta por medir menos de 4 caracteres. El dato estaba escrito y nadie lo leyo.
+   *
+   *  2. **`parte del arqueo` (+15) es casi una tautologia**: se dispara con que el retiro sea <= el
+   *     gasto. Medido hoy sobre las 207 propuestas vivas, **solo el 1.9% tiene monto exacto**; el
+   *     resto se apoya en esa comparacion, que un retiro de $500 contra un gasto de $26,136 cumple.
+   *
+   * Entonces: la fecha de registro, que era la unica pista que quedaba, valia como mucho 12 de 55
+   * puntos, y **entre 4 y 15 dias no sumaba ni restaba NADA**. Una nomina a 7 dias caia justo en esa
+   * banda ciega. Medido: **40.1% de las propuestas estaban a mas de 7 dias**, con el motor
+   * documentando una ventana de +/-7.
+   *
+   * ⭐ No se inventa un umbral nuevo: se exige una de las senales que el motor YA midio como
+   * identificadoras -- fecha de negocio que coincide, monto al peso, o registro a <= 3 dias.
+   * La ruta SOLA no basta: `rd 26` sale todos los dias, es tan recurrente como `nomina`.
+   *
+   * ⚠️ No se BORRA el candidato: baja a 'baja'. El panel de busqueda manual lo sigue mostrando con
+   * su motivo, para que una persona pueda elegirlo a proposito. Lo que deja de pasar es que se
+   * enganche SOLO (`capturarDesde` vincula sin preguntar lo que no sea 'baja').
+   */
+  const fechaOk = !!(fg && fc && fg === fc);
+  const identificaInstancia = fechaOk || montoExacto || lag <= 3;
+  if (!identificaInstancia) motivos.push('no identifica cual: solo coincide el concepto');
+
+  const bruto: PuntajeCaos['confianza'] = score >= 80 ? 'alta' : score >= 45 ? 'media' : 'baja';
+  const confianza: PuntajeCaos['confianza'] = (fechaChoca || !identificaInstancia) ? 'baja' : bruto;
   return { score, motivos, confianza };
 }
 

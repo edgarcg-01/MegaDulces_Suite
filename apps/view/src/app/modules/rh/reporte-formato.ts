@@ -33,6 +33,9 @@ export interface CeldaReporte {
   inc: string;
   /** Lo que dice el tooltip: el porqué de la celda. */
   titulo: string;
+  /** `[RH.1.10]` Horas extra GANADAS ese día (bloques de 30 min) y a qué hora debía salir. */
+  extraMin: number;
+  salidaEsperada: string | null;
 }
 
 export interface ColumnaDia { fecha: string; dow: string; dia: number; hoy: boolean; }
@@ -71,6 +74,7 @@ export function tramosDe(comida: string | null | undefined): string[] {
 
 const VACIA: Omit<CeldaReporte, 'tipo' | 'jornada' | 'titulo'> = {
   tramos: [], desMin: null, comMin: null, desExcedido: false, comExcedida: false, tarde: false, salioAntes: false, inc: '',
+  extraMin: 0, salidaEsperada: null,
 };
 
 /** Cómo se dice UN día de una persona en el reporte. */
@@ -120,10 +124,12 @@ export function celdaDe(p: HrPersonaAsistencia, dias: Map<string, HrDiaAsistenci
   if (desExcedido) avisos.push(`desayuno +${d.desayunoExcesoMin} min`);
   if (comExcedida) avisos.push(`comida +${d.comidaExcesoMin} min`);
   if (incTitulo) avisos.push(incTitulo);
+  const extraMin = d.extraMin || 0;
+  if (extraMin) avisos.push(`horas extra +${horasTexto(extraMin)} (debía salir a las ${d.salidaEsperada ?? '—'})`);
   return {
     tipo: 'dia', jornada: `${entrada} - ${d.salida || '0'}`, tramos: tramosDe(d.comida),
     desMin: d.desayunoMin ?? null, comMin: d.comidaMin ?? null, desExcedido, comExcedida, tarde, salioAntes, inc,
-    titulo: avisos.join(' · '),
+    titulo: avisos.join(' · '), extraMin, salidaEsperada: d.salidaEsperada ?? null,
   };
 }
 

@@ -1,7 +1,7 @@
 import type { KpiUmbral } from '@megadulces/contracts';
 import {
   armarCierre, familiasSinUmbral, normalizarUmbrales, mesDe, mesMenos,
-  MOTIVO_EN_CURSO, PREFIJO_KPI, type FilaCierreCruda,
+  MOTIVO_EN_CURSO, PREFIJO_KPI, SUFIJO_ALTO, type FilaCierreCruda,
 } from './cierre.engine';
 
 /**
@@ -208,6 +208,87 @@ describe('[CPA.0] el mes toma el PEOR de sus familias', () => {
     ], reglas);
     expect(meses.map((m) => m.anio_mes)).toEqual(['2026-09', '2026-08']);
     expect(meses[0].familias).toHaveLength(2);
+  });
+});
+
+describe('[CPA.0.1] el TECHO — un mes posteado dos veces deja de verse sano', () => {
+  const TECHO: KpiUmbral = {
+    ...UMBRAL_COMPRAS,
+    kpi_key: PREFIJO_KPI + 'compras' + SUFIJO_ALTO,
+    target: 0.94, warn_at: 1.15, escalate_at: 1.30,
+    direction: 'lower_is_better',
+  };
+
+  it('⛔ NEGATIVA — SIN la fila de techo, una cobertura del DOBLE sale ok (el hueco que había)', () => {
+    const [mes] = armarCierre([fila({ cobertura: '2.0' })], [UMBRAL_COMPRAS]);
+    expect(mes.familias[0].estado).toBe('ok');
+    expect(mes.familias[0].por_exceso).toBe(false);
+  });
+
+  it('⭐ con la fila de techo, ese mismo 2.0 es bad y dice que es por ENCIMA', () => {
+    const [mes] = armarCierre([fila({ cobertura: '2.0' })], [UMBRAL_COMPRAS, TECHO]);
+    expect(mes.familias[0].estado).toBe('bad');
+    expect(mes.familias[0].por_exceso).toBe(true);
+    expect(mes.familias[0].motivo).toMatch(/ENCIMA|dos veces/);
+  });
+
+  it('el techo NO se come lo normal: la cobertura real de agosto sigue verde', () => {
+    const [mes] = armarCierre([fila({ cobertura: '0.7038' })], [UMBRAL_COMPRAS, TECHO]);
+    expect(mes.familias[0].estado).toBe('ok');
+    expect(mes.familias[0].por_exceso).toBe(false);
+  });
+
+  it('y el máximo REAL observado de compras (0.8198) tampoco dispara su techo', () => {
+    const [mes] = armarCierre([fila({ cobertura: '0.8198' })], [UMBRAL_COMPRAS, TECHO]);
+    expect(mes.familias[0].estado).toBe('ok');
+  });
+
+  it('⛔ NEGATIVA — el piso sigue mandando cuando falta: 0 es bad, no "ok por no pasarse"', () => {
+    const [mes] = armarCierre([fila({ cobertura: '0.0000' })], [UMBRAL_COMPRAS, TECHO]);
+    expect(mes.familias[0].estado).toBe('bad');
+    expect(mes.familias[0].por_exceso).toBe(false);
+  });
+
+  it('⛔ NEGATIVA — en un mes EN CURSO el techo no decide nada: no se marca por_exceso', () => {
+    const [mes] = armarCierre(
+      [fila({ cobertura: '2.0', periodo_estado: 'en_curso' })], [UMBRAL_COMPRAS, TECHO]);
+    expect(mes.familias[0].estado).toBe('sin_medir');
+    expect(mes.familias[0].por_exceso).toBe(false);
+  });
+});
+
+describe('[CPA.0.1] la mediana no es base si descansa en muy pocos meses', () => {
+  const hist = (over: Partial<FilaCierreCruda> = {}) =>
+    fila({ familia: 'gastos', cobertura_base: 'historia', testigo: null, testigo_fuente: null,
+      mediana_6m: '4250272.10', senal: '5000000', senal_renglones: '400', cobertura: '1.18', ...over });
+  const U_GASTOS: KpiUmbral = { ...UMBRAL_COMPRAS, kpi_key: PREFIJO_KPI + 'gastos' };
+
+  it('⛔ con 1 mes de historia NO se juzga: sin_medir con el motivo, no ok', () => {
+    const [mes] = armarCierre([hist({ mediana_meses: '1' })], [U_GASTOS]);
+    expect(mes.familias[0].estado).toBe('sin_medir');
+    expect(mes.familias[0].motivo).toMatch(/1 mes previo/);
+    expect(mes.familias[0].mediana_meses).toBe(1);
+  });
+
+  it('con 2 tampoco: la mediana de dos es el promedio y un mes raro arrastra la mitad', () => {
+    expect(armarCierre([hist({ mediana_meses: '2' })], [U_GASTOS])[0].familias[0].estado)
+      .toBe('sin_medir');
+  });
+
+  it('⭐ con 3 ya se juzga, y el mismo número sale ok', () => {
+    const [mes] = armarCierre([hist({ mediana_meses: '3' })], [U_GASTOS]);
+    expect(mes.familias[0].estado).toBe('ok');
+    expect(mes.familias[0].mediana_meses).toBe(3);
+  });
+
+  it('⛔ NEGATIVA — el freno es sólo para `historia`: con testigo, mediana_meses 0 NO frena', () => {
+    const [mes] = armarCierre([fila({ cobertura: '0.9045', mediana_meses: '0' })], [UMBRAL_COMPRAS]);
+    expect(mes.familias[0].estado).toBe('ok');
+  });
+
+  it('⛔ NEGATIVA — historia corta gana sobre un veredicto malo: declara, no reprueba', () => {
+    const [mes] = armarCierre([hist({ mediana_meses: '1', cobertura: '0.0000' })], [U_GASTOS]);
+    expect(mes.familias[0].estado).toBe('sin_medir');
   });
 });
 

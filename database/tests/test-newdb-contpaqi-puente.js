@@ -50,20 +50,59 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
     check((por.poliza_exports || []).includes(c), `poliza_exports.${c}`);
   }
 
-  console.log('\n[2] RLS forzado y aislamiento por tenant — el puente guarda dinero');
+  console.log('\n[2] RLS forzado, política y GRANT — el puente guarda dinero');
+  /**
+   * ⛔ `[CP.8.39]` — Este bloque se puso ROJO el 2026-10-12 y **tenía razón**: `[CP.8.36]` sumó
+   * `supplier_aliases` (batch 878) **sin RLS, sin política y sin grant**, y el conjunto esperado
+   * se había quedado en tres. Lo que falló no fue el candado: fue no volver a correrlo.
+   *
+   * ⚠️ El GRANT se mide con `has_table_privilege`, **nunca** con
+   * `information_schema.role_table_grants`: esa vista **filtra por el privilegio de quien lee** y
+   * desde `dev_ro` devuelve "ningún grant" para las cuatro tablas — un falso positivo cuádruple.
+   * Misma trampa que `information_schema.tables` en `[CP.8.1]` §14.3.
+   */
   const rls = await knex.raw(`
-    SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS forzado
+    SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS forzado,
+           has_table_privilege('app_runtime', 'contpaqi.' || quote_ident(c.relname), 'SELECT') AS ar_select,
+           has_table_privilege('app_runtime', 'contpaqi.' || quote_ident(c.relname), 'INSERT') AS ar_insert
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'contpaqi' AND c.relkind = 'r' ORDER BY 1`);
-  // `[CP.8.20]` sumó `supplier_accounts` (el mapa proveedor→cuenta). Se nombra el conjunto
-  // esperado en vez de contar: un número solo no dice CUÁL falta si algún día falta una.
-  const ESPERADAS = ['account_rules', 'poliza_exports', 'supplier_accounts'];
+  // Se nombra el conjunto esperado en vez de contar: un número solo no dice CUÁL falta.
+  const ESPERADAS = ['account_rules', 'poliza_exports', 'supplier_accounts', 'supplier_aliases'];
   const nombres = rls.rows.map((r) => r.relname).sort();
   check(nombres.join(',') === ESPERADAS.join(','),
-    `las 3 tablas de contpaqi reguladas: ${nombres.join(', ') || '(ninguna)'}`);
-  check(rls.rows.every((r) => r.rls && r.forzado), 'RLS habilitado Y FORZADO en las tres');
+    `las ${ESPERADAS.length} tablas de contpaqi reguladas: ${nombres.join(', ') || '(ninguna)'}`);
+  const sinRls = rls.rows.filter((r) => !r.rls || !r.forzado).map((r) => r.relname);
+  check(sinRls.length === 0,
+    `RLS habilitado Y FORZADO en las ${ESPERADAS.length}${sinRls.length ? ` — sin RLS: ${sinRls.join(', ')}` : ''}`);
   const pol = await knex.raw(`SELECT tablename FROM pg_policies WHERE schemaname='contpaqi'`);
   check(pol.rows.length === ESPERADAS.length, `las ${ESPERADAS.length} tienen política de aislamiento (hay ${pol.rows.length})`);
+  /**
+   * ⭐ El GRANT es lo que rompe FUNCIONALIDAD, no el RLS: sin él la lectura de alias tira
+   * `42501` y el resolvedor degrada al padrón **en silencio**. Una tabla del puente que el rol
+   * de la app no puede leer es una tabla que no existe, con otro nombre.
+   */
+  const sinGrant = rls.rows.filter((r) => !r.ar_select || !r.ar_insert).map((r) => r.relname);
+  check(sinGrant.length === 0,
+    `⭐ app_runtime puede leer y escribir las ${ESPERADAS.length}${sinGrant.length ? ` — sin grant: ${sinGrant.join(', ')}` : ''}`);
+
+  /**
+   * ⛔⛔ `[CP.8.44]` — **Y el USAGE del schema, que es el que de verdad manda.** Un privilegio
+   * de tabla SIN `USAGE` no sirve para nada, y `has_table_privilege` devuelve `true` igual:
+   * Postgres concede el objeto y niega el paso al contenedor. Así vivió el puente desde el día
+   * uno — `app_runtime` nunca tuvo `USAGE` sobre `contpaqi` (tres migraciones se lo dieron sólo
+   * a `dev_ro`) y la consulta del cuadre moría cada 10 min con `permission denied for schema`,
+   * con el latido en `error` y nadie leyéndolo.
+   *
+   * ⚠️ Ningún candado lo veía porque **todos leen como `dev_ro`, que sí lo tiene**. El rol que
+   * falla es el que ninguna prueba usa — por eso se pregunta por él explícitamente.
+   */
+  const usg = await knex.raw(
+    "SELECT has_schema_privilege('app_runtime','contpaqi','USAGE') AS ar,"
+    + " has_schema_privilege('dev_ro','contpaqi','USAGE') AS dev");
+  check(usg.rows[0].ar === true,
+    '⭐⭐ app_runtime tiene USAGE sobre el schema contpaqi (sin esto los grants de tabla son decorativos)');
+  check(usg.rows[0].dev === true, 'dev_ro conserva su USAGE (es el que leen los candados)');
 
   console.log('\n[3] ⭐ La consulta de PENDIENTES del servicio, ejecutada de verdad');
   // Copia exacta de `cuadrarPendientes()`. Si una columna o un `->>` no existe, acá revienta.

@@ -27,6 +27,10 @@ export interface PorqueRow {
   next_due_date: string | null;
   lead_time_days: number | null;
   avg_daily_units: number | null;
+  /** `[AB.15]` Venta de 30 días en cajas (la misma cuenta que «V30d» de Compras). */
+  venta_30d?: number | null;
+  /** `[AB.15]` Temporalidad que multiplica la demanda; 1 = sin ajuste. */
+  season_ratio?: number | null;
 }
 
 /** Cajas con hasta 1 decimal. `—` cuando no es un número, en vez de imprimir `NaN`. */
@@ -140,13 +144,43 @@ export function cuandoPorQue(r: PorqueRow, hoy: Date = new Date()): string {
  * ⚠️ `target_qty` lo agregó AB.3b. Si responde una API anterior llega `undefined`, y `qty()` lo
  * imprimiría como **0**: se leería "el objetivo es cero" en vez de "esta API no lo publica".
  */
-export function cantidadPorQue(r: PorqueRow): string {
+export function cantidadPorQue(r: PorqueRow, politicaTransito?: string | null, base_objetivo?: string | null): string {
   if (r.target_qty == null || !Number.isFinite(Number(r.target_qty))) {
     return `Faltan ${qty(r.suggested_qty)} caja(s) para el objetivo, pero esta versión de la API no publica ` +
       `el objetivo que usó, así que la resta no se puede mostrar.`;
   }
-  const base = `Objetivo ${qty(r.target_qty)} − existencia ${qty(r.on_hand)} − en camino ${qty(r.in_transit)} ` +
-    `= faltan ${qty(r.suggested_qty)} caja(s).`;
+  const resta = restaPorQue(r, politicaTransito);
+  // `[AB.15]` Con la base 'demanda' el objetivo NO es el máximo: es la venta de 30 días por la
+  // temporalidad, igual que en Compras. Se dice de dónde sale, o el almacenista buscaría el
+  // objetivo en la columna Máx y no lo encontraría.
+  return base_objetivo === 'demanda' ? `${objetivoDemandaTexto(r)} ${resta}` : resta;
+}
+
+/**
+ * `[AB.15]` De dónde sale el objetivo con la base 'demanda'. La temporalidad sólo se menciona si
+ * mueve algo (≠ 1); sin venta medida se dice, no se dibuja «venta 0».
+ */
+export function objetivoDemandaTexto(r: Pick<PorqueRow, 'venta_30d' | 'season_ratio'>): string {
+  if (r.venta_30d == null || !Number.isFinite(Number(r.venta_30d))) {
+    return 'Objetivo = venta de 30 días, igual que en Compras, pero este producto no tiene venta medida.';
+  }
+  const s = Number(r.season_ratio ?? 1);
+  const temp = Number.isFinite(s) && Math.abs(s - 1) >= 0.005
+    ? ` × temporalidad ${s.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`
+    : '';
+  return `Objetivo = venta de 30 días (${qty(r.venta_30d)})${temp}, igual que en Compras.`;
+}
+
+function restaPorQue(r: PorqueRow, politicaTransito?: string | null): string {
+  // `[AB.14]` Con la política `ignorar` (transito.ts, RA.TR) el motor NO resta lo que está en
+  // camino. Escribir «− en camino 3» daría una resta que no cuadra y haría creer que ya se
+  // descontó. Sin política (API anterior a AB.14) se conserva la redacción de antes.
+  const ignora = politicaTransito === 'ignorar';
+  const base = ignora
+    ? `Objetivo ${qty(r.target_qty)} − existencia ${qty(r.on_hand)} = faltan ${qty(r.suggested_qty)} caja(s).` +
+      (r.in_transit > 0 ? ` En camino hay ${qty(r.in_transit)} que NO se restan: revísalo antes de pedir.` : '')
+    : `Objetivo ${qty(r.target_qty)} − existencia ${qty(r.on_hand)} − en camino ${qty(r.in_transit)} ` +
+      `= faltan ${qty(r.suggested_qty)} caja(s).`;
   if (r.transfer_in > 0 && r.buy_qty > 0) {
     return `${base} De eso, ${qty(r.transfer_in)} sale del sobrante de la red y ${qty(r.buy_qty)} hay que comprarlo.`;
   }

@@ -55,16 +55,38 @@ export class CashLedgerController {
       || req?.user?.permissions?.[Permission.FINANCE_CAJA_AUTORIZAR] === true;
   }
 
+  /**
+   * `[CG.86]` **`mios=1` — el historial de quien captura.**
+   *
+   * Edgar: *"que el usuario vea qué movimientos ya hizo"*. El libro ya traía la columna de quién
+   * capturó y el buscador ya miraba `created_by_username`, pero **no había filtro**: la persona
+   * tenía que buscarse a sí misma escribiendo su nombre, y un buscador de texto sobre un nombre
+   * no es una identidad — dos «Guillermo» existen en esta base, y un apellido mal tecleado
+   * devuelve el libro de otro.
+   *
+   * ⭐ Por eso filtra por `created_by` (el **id**), que sale del token y no de lo que se teclee.
+   * No es un atajo de búsqueda: es la diferencia entre «lo que hice yo» y «lo que dice mi nombre».
+   *
+   * ⚠️ **No reemplaza al permiso.** Quien tiene `FINANCE_CAJA_VER` sigue viendo el libro completo
+   * cuando no pide `mios`: esto es una VISTA, no un alcance. Convertirlo en alcance escondería a
+   * un cajero los movimientos de otro en el mismo día, y el arqueo del día es de la caja, no de
+   * la persona.
+   */
   @Get()
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
-  @ApiOperation({ summary: 'Libro de caja: movimientos + KPIs del MISMO filtro. from/to, tipo, sucursal, cuenta, search.' })
+  @ApiOperation({ summary: 'Libro de caja: movimientos + KPIs del MISMO filtro. from/to, tipo, sucursal, cuenta, search, mios (sólo lo que capturó quien pregunta).' })
   list(
+    @Req() req: AuthedRequest,
     @Query('from') from?: string, @Query('to') to?: string, @Query('tipo') tipo?: string,
     @Query('sucursal') sucursal?: string, @Query('cuenta') cuenta?: string,
     @Query('search') search?: string, @Query('limit') limit?: string, @Query('offset') offset?: string,
+    @Query('mios') mios?: string,
   ) {
     return this.svc.list({
       from, to, tipo, sucursal, cuenta, search,
+      // Se resuelve ACÁ, no en el servicio: el id sale del token de ESTA petición. Si el servicio
+      // lo recibiera como parámetro libre, `mios` pasaría a ser «los de cualquiera que yo diga».
+      solo_de: mios === '1' || mios === 'true' ? (req?.user?.id ?? null) : null,
       limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined,
     });
   }

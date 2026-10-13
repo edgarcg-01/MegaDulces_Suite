@@ -28,6 +28,9 @@ export * from './http/unit-ladder.contract';
 // `[ETQ-PRES.0]` La misma regla de VU.0, aplicada al PRECIO: una presentación lleva su unidad,
 // su factor, su contenido derivado y su propio peldaño de mayoreo.
 export * from './http/price-presentation.contract';
+// `[ETQ-AVISOS.1]` Cambios de precio: la regla por producto y los avisos. Una sola cuenta para la
+// pantalla y para el generador, o el aviso y la lista discrepan.
+export * from './http/price-change-notice.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
@@ -79,6 +82,7 @@ export * from './http/cortes-sucursales.contract';
 // [ECA.1] Estado de cuenta de acreedores: documento de Kepler con sus pagos casados (kdxe + kdxf).
 export * from './http/creditor-statements.contract';
 export * from './http/warehouse-orders.contract';
+export * from './http/autoabasto-pedido.contract';
 export * from './http/warehouse-locations.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
@@ -89,6 +93,7 @@ export * from './http/presale-load-guide.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
 // la versión anterior le faltaba (y que es el 88 % del egreso).
 export * from './http/budget-expense-plan.contract';
+export * from './http/budget-direccion.contract';
 export * from './http/budget-result.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
@@ -98,10 +103,13 @@ export * from './http/replenishment-signals.contract';
 export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
 export * from './http/hr-attendance.contract';
+export * from './http/hr-talent.contract';
 // [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
 export * from './http/nuevo-embarque.contract';
 export * from './http/viaticos-guia.contract';
 export * from './http/revision-gps.contract';
+// [EMB.24]–[EMB.29] Pago por viaje cerrado: cierre de paradas, cargadores y lo que se libera.
+export * from './http/cierre-viaje.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
 export * from './http/receipt-expediente.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.

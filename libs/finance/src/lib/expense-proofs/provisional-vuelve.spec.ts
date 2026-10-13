@@ -50,20 +50,22 @@ describe('[GX.56] la casilla del aprobador devuelve el vale', () => {
    */
   it('marcado provisional, el vale queda en «aprobada» y NO cierra', () => {
     const cuerpo = metodo(SERVICIO, 'async approve(');
-    expect(cuerpo).toContain('if (prov || soloCotizacion) {');
+    expect(cuerpo).toContain('if (prov) {');
     // Y lo que sigue a esa rama es el estado que devuelve el vale, no el que lo cierra.
-    const i = cuerpo.indexOf('if (prov || soloCotizacion) {');
+    const i = cuerpo.indexOf('if (prov) {');
     expect(cuerpo.slice(i, i + 120)).toContain("nextStatus = 'aprobada'");
   });
 
   /**
-   * ⚠️ La segunda señal se conserva: cubre al aprobador que NO marca la casilla sobre un vale
-   * que sólo trae cotización. Son dos formas de lo mismo y basta con una.
+   * `[GX.82]` ⛔ **Se invirtió por decisión del usuario:** la factura no decide el estado y la
+   * cotización basta. Un vale con sólo cotización y SIN la casilla se cierra al aprobarlo. Si
+   * alguien vuelve a meter el regreso automático, esto se pone rojo.
    */
-  it('un vale que sólo trae cotización vuelve aunque nadie marque la casilla', () => {
+  it('[GX.82] un vale que sólo trae cotización NO vuelve si nadie marca la casilla', () => {
     const cuerpo = metodo(SERVICIO, 'async approve(');
-    expect(cuerpo).toContain("const soloCotizacion = files.some((f) => String(f?.role || '').startsWith('cotizacion'))");
-    expect(cuerpo).toContain("&& !files.some((f) => String(f?.role || '').startsWith('comprobante'))");
+    expect(cuerpo).not.toContain('esSoloCotizacion(');
+    expect(cuerpo).not.toContain('|| soloCotizacion');
+    expect(cuerpo).toContain('provisional: prov,');
   });
 });
 
@@ -91,7 +93,8 @@ describe('[GX.55] el vale provisional puede recibir su comprobante después', ()
    */
   it('`addEvidence` no rebota si el vale debe el comprobante', () => {
     const cuerpo = metodo(SERVICIO, 'async addEvidence(');
-    expect(cuerpo).toContain('if (!requiereEvidencia(base.clasificacion) && base.cur.provisional !== true) {');
+    // `[GX.81]` La regla vive en `debe-comprobante.ts` (provisional, sólo-cotización o clase que la exige).
+    expect(cuerpo).toContain('if (!debeComprobante({ provisional: base.cur.provisional, lleva_evidencia: requiereEvidencia(base.clasificacion), files: prev })) {');
   });
 
   /** ⛔ Y para poder mirarlo, tiene que venir en el SELECT. */

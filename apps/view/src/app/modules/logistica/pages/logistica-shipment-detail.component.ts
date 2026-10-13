@@ -18,13 +18,14 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite, ShipmentReadiness,
-  DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, ShipmentExpense, Vehicle,
+  ShipmentEta, CustomerLite, OrderLite,
+  DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, Vehicle,
 } from '../logistica.service';
 import { KeplerHojaComponent } from '../components/kepler-hoja.component';
 import { KeplerCostoComponent } from '../components/kepler-costo.component';
 import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
 import { RevisionGpsComponent } from '../components/revision-gps.component';
+import { CierreViajeComponent } from '../components/cierre-viaje.component';
 import type { RevisionGps } from '@megadulces/contracts';
 import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
 import {
@@ -43,7 +44,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
-    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent,
+    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent, CierreViajeComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -121,6 +122,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <button
                 type="button"
                 class="shd-mode-tab"
+                [class.active]="tab() === 'cierre'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'cierre'"
+                (click)="setTab('cierre')"
+                >
+                <i class="pi pi-flag-fill" aria-hidden="true"></i>
+                <span>Cierre y pago</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
                 [class.active]="tab() === 'info'"
                 role="radio"
                 [attr.aria-checked]="tab() === 'info'"
@@ -141,59 +153,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <span>Guías</span>
                 <span class="shd-tab-count">{{ guides().length }}</span>
               </button>
-              <button
-                type="button"
-                class="shd-mode-tab"
-                [class.active]="tab() === 'expenses'"
-                role="radio"
-                [attr.aria-checked]="tab() === 'expenses'"
-                (click)="setTab('expenses')"
-                >
-                <i class="pi pi-money-bill" aria-hidden="true"></i>
-                <span>Costos</span>
-              </button>
-              <button
-                type="button"
-                class="shd-mode-tab"
-                [class.active]="tab() === 'cartaporte'"
-                role="radio"
-                [attr.aria-checked]="tab() === 'cartaporte'"
-                (click)="setTab('cartaporte')"
-                >
-                <i class="pi pi-file-check" aria-hidden="true"></i>
-                <span>Carta Porte</span>
-              </button>
             </nav>
           </article>
         </div>
         <!-- ── TAB INFO ── -->
         @if (tab() === 'info') {
-          <!-- Semáforo de preparación del viaje -->
-          @if (readiness(); as rd) {
-            <div class="sheet cols-12">
-              <article class="cell cell-span-12">
-                <div class="rd-head">
-                  <span class="cell-label">Preparación del viaje</span>
-                  <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
-                </div>
-                <div class="rd-progress">
-                  <div class="rd-progress-track">
-                    <div class="rd-progress-fill" [class.ok]="rd.ready" [style.width.%]="readinessPct()"></div>
-                  </div>
-                  <span class="rd-progress-pct">{{ readinessPct() }}%</span>
-                </div>
-                <ul class="rd-list">
-                  @for (c of rd.checks; track c) {
-                    <li [class]="'rd-' + c.status">
-                      <i class="pi" [class.pi-check-circle]="c.status==='ok'" [class.pi-exclamation-triangle]="c.status==='warn'" [class.pi-circle]="c.status==='pending'" aria-hidden="true"></i>
-                      <span class="rd-label">{{ c.label }}</span>
-                      <span class="rd-detail">{{ c.detail }}</span>
-                    </li>
-                  }
-                </ul>
-              </article>
-            </div>
-          }
           <div class="sheet cols-12">
             <article class="cell cell-span-3">
               <span class="cell-label">Tipo</span>
@@ -384,125 +348,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </div>
           }
         }
-        <!-- ── TAB COSTOS ── -->
-        @if (tab() === 'expenses') {
-          <!-- Form de inputs -->
+        <!-- ── TAB CIERRE Y PAGO (EMB.24–27) ── -->
+        @if (tab() === 'cierre') {
           <div class="sheet cols-12">
             <article class="cell cell-span-12">
-              <span class="cell-label">Conceptos de gasto operativo</span>
-              <form [formGroup]="expForm" class="shd-exp-form">
-                <div class="shd-exp-row">
-                  <label><span>Combustible</span><p-inputnumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Casetas</span><p-inputnumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Hospedaje</span><p-inputnumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                </div>
-                <div class="shd-exp-row">
-                  <label><span>Pensiones</span><p-inputnumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Permisos</span><p-inputnumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Talachas</span><p-inputnumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                </div>
-                <div class="shd-exp-row">
-                  <label><span>Ayudantes ext.</span><p-inputnumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Maniobras</span><p-inputnumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Viáticos guía</span><p-inputnumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                </div>
-                <div class="shd-exp-row">
-                  <label><span>Otros</span><p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label class="shd-check-line shd-check-span-2">
-                    <p-checkbox formControlName="apply_config_km" [binary]="true" inputId="apply_km"></p-checkbox>
-                    <span>Aplicar costo km de configuración (recalcula total)</span>
-                  </label>
-                </div>
-                <label class="shd-notes-field">
-                  <span>Notas</span>
-                  <input pInputText formControlName="notes" />
-                </label>
-              </form>
-            </article>
-          </div>
-          <!-- Totales -->
-          @if (expense(); as e) {
-            <div class="sheet cols-12">
-              <article class="cell cell-span-4">
-                <span class="cell-label">Subtotal operativo</span>
-                <span class="cell-value is-medium">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                <span class="cell-sub">suma de conceptos</span>
-              </article>
-              <article class="cell cell-span-4">
-                <span class="cell-label">Costo por km</span>
-                <span class="cell-value is-medium">{{ (e.total_cost - e.operating_subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
-              </article>
-              <article class="cell cell-span-4">
-                <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
-                <span class="cell-label">Total</span>
-                <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              </article>
-            </div>
-          }
-          <!-- Save action -->
-          <div class="shd-info-actions">
-            <button pButton [loading]="savingExp()" (click)="saveExpense()"><span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span><span class="p-button-label">Guardar costos</span></button>
-          </div>
-        }
-        <!-- ── TAB CARTA PORTE ── -->
-        @if (tab() === 'cartaporte') {
-          <!-- Documentos ya timbrados -->
-          @if (cpDocs().length) {
-            <div class="sheet cols-12">
-              <article class="cell cell-span-12 is-flush">
-                <p-table [value]="cpDocs()" styleClass="surf-table surf-table--sticky p-datatable-sm">
-                  <ng-template #header>
-                    <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
-                  </ng-template>
-                  <ng-template #body let-d>
-                    <tr>
-                      <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
-                      <td>{{ d.cfdi_type }}</td>
-                      <td><span class="comm-pill" [class]="cpPillClass(d.status)">{{ d.status }}</span></td>
-                      <td class="comm-muted">{{ d.stamped_at ? (d.stamped_at | date:'short') : '—' }}</td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              </article>
-            </div>
-          }
-          <!-- Validación + acción -->
-          <div class="sheet cols-12">
-            <article class="cell cell-span-12">
-              <div class="shd-cp-head">
-                <div>
-                  <span class="cell-label">Timbrado Carta Porte 3.1</span>
-                  <p class="comm-muted is-small">CFDI de Traslado, un complemento por embarque. Revisá datos faltantes antes de timbrar.</p>
-                </div>
-                <div class="shd-cp-actions">
-                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Revisar datos</span></button>
-                  <button pButton size="small" [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"><span class="p-button-icon p-button-icon-left pi pi-file-check" aria-hidden="true"></span><span class="p-button-label">Timbrar Carta Porte</span></button>
-                </div>
-              </div>
-              <!-- Gaps -->
-              @if (cpChecked() && cpGaps().length) {
-                <div class="shd-cp-gaps">
-                  <div class="shd-cp-gaps-head">
-                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                    Faltan {{ cpGaps().length }} dato{{ cpGaps().length === 1 ? '' : 's' }} para timbrar
-                  </div>
-                  <ul>
-                    @for (g of cpGaps(); track g) {
-                      <li>
-                        <code>{{ g.field }}</code> <span>{{ g.detail }}</span>
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
-              <!-- Listo -->
-              @if (cpChecked() && !cpGaps().length) {
-                <div class="shd-cp-ready">
-                  <i class="pi pi-check-circle" aria-hidden="true"></i>
-                  Datos completos — listo para timbrar.
-                </div>
-              }
+              <app-cierre-viaje [shipmentId]="s.id" [drivers]="drivers()"></app-cierre-viaje>
             </article>
           </div>
         }
@@ -817,72 +667,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .shd-guia-faltan { font-size: var(--fs-xs); color: var(--bad-soft-fg); }
     .shd-guia-faltan .shd-guia-faltan-titulo { font-weight: var(--fw-bold); }
     .shd-guia-faltan ul { margin: .2rem 0 0; padding-left: 1rem; }
-    /* ── Semáforo de preparación ── */
-    .rd-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.6rem; }
-    .rd-pill { font-size:var(--fs-micro); padding:.2rem .55rem; border-radius:6px; background:var(--warn-soft-bg); color:var(--warn-soft-fg); font-weight:var(--fw-bold); }
-    .rd-pill.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
-    /* Barra de % listo (semáforo de preparación) */
-    .rd-progress { display:flex; align-items:center; gap:.625rem; margin-bottom:.75rem; }
-    .rd-progress-track { flex:1; height:6px; border-radius:999px; background:var(--c-surface-2); overflow:hidden; }
-    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width var(--dur-standard,250ms) var(--ease-standard); }
-    .rd-progress-fill.ok { background:var(--ok-fg); }
-    .rd-progress-pct { font-variant-numeric:tabular-nums; font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); min-width:34px; text-align:right; }
-    @media (prefers-reduced-motion: reduce){ .rd-progress-fill { transition:none; } }
-    .rd-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.4rem .9rem; }
-    @media (max-width:45rem){ .rd-list { grid-template-columns:1fr; } }
-    .rd-list li { display:flex; align-items:center; gap:.5rem; font-size:var(--fs-sm); padding:.25rem 0; }
-    .rd-list li i { font-size:1rem; flex:0 0 auto; }
-    .rd-ok i { color:var(--ok-fg); }
-    .rd-warn i { color:var(--warn-fg); }
-    .rd-pending i { color:var(--c-text-3); }
-    .rd-label { font-weight:var(--fw-medium); }
-    .rd-detail { color:var(--c-text-3); font-size:var(--fs-micro); margin-left:auto; text-align:right; }
     .shd-eta-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .5rem; }
     .shd-eta-head p { margin: .25rem 0 0; }
     .shd-eta-seq { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c-surface-2); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); font-size: var(--fs-micro); }
     .shd-eta-time { font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
 
-    /* ── EXP FORM (Costos) ── */
-    .shd-exp-form { display: flex; flex-direction: column; gap: .875rem; }
-    .shd-exp-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: .75rem;
-    }
-    @media (max-width: 45rem) {
-      .shd-exp-row { grid-template-columns: 1fr; }
-    }
-    .shd-exp-form label {
-      display: flex;
-      flex-direction: column;
-      gap: .3rem;
-      font-size: var(--fs-micro);
-      color: var(--c-text-2);
-      font-weight: var(--fw-bold);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
-    .shd-check-line {
-      flex-direction: row !important;
-      align-items: center;
-      gap: .5rem !important;
-      text-transform: none !important;
-      letter-spacing: 0 !important;
-      font-size: var(--fs-sm) !important;
-      color: var(--c-text-1) !important;
-      font-weight: var(--fw-regular) !important;
-    }
-    .shd-check-span-2 { grid-column: span 2; }
-    .shd-notes-field {
-      display: flex;
-      flex-direction: column;
-      gap: .3rem;
-      font-size: var(--fs-micro);
-      color: var(--c-text-2);
-      font-weight: var(--fw-bold);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
 
     /* ── DIALOG: recipients ── */
     .shd-recipients-head {
@@ -901,41 +690,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .shd-add-actions {
       display: flex;
       justify-content: flex-end;
-    }
-
-    /* ── CARTA PORTE ── */
-    .shd-cp-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
-    .shd-cp-head p { margin: .25rem 0 0; }
-    .shd-cp-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
-    .shd-cp-gaps {
-      margin-top: 1rem;
-      border: 1px solid var(--warn-border);
-      background: var(--warn-soft-bg);
-      border-radius: 10px;
-      padding: .875rem 1rem;
-    }
-    .shd-cp-gaps-head {
-      display: flex; align-items: center; gap: .5rem;
-      font-weight: var(--fw-bold); font-size: var(--fs-sm);
-      color: var(--c-text-1); margin-bottom: .5rem;
-    }
-    .shd-cp-gaps ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
-    .shd-cp-gaps li { font-size: var(--fs-sm); color: var(--c-text-2); }
-    .shd-cp-gaps li code {
-      background: var(--c-surface-2); padding: .05rem .35rem; border-radius: 4px;
-      font-size: var(--fs-micro); color: var(--c-text-1); margin-right: .4rem;
-    }
-    .shd-cp-ready {
-      margin-top: 1rem;
-      display: flex; align-items: center; gap: .5rem;
-      font-size: var(--fs-sm); font-weight: var(--fw-medium);
-      color: var(--c-ok);
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -957,7 +711,6 @@ export class LogisticaShipmentDetailComponent {
   /** Gasto de Kepler atribuido a la guía (CGU.4). null = no se pudo medir; no es cero. */
   readonly gastosKepler = signal<number | null>(null);
   readonly motivoGastosKepler = signal<string | null>(null);
-  readonly expense = signal<ShipmentExpense | null>(null);
   readonly drivers = signal<Driver[]>([]);
   readonly choferOptions = computed(() =>
     this.drivers().filter((d) => d.active && d.roles?.includes('chofer')).map((d) => ({ label: d.full_name, value: d.id })),
@@ -970,26 +723,15 @@ export class LogisticaShipmentDetailComponent {
       .map((d) => ({ label: d.full_name, value: d.id }));
   });
 
-  readonly savingExp = signal(false);
   readonly savingGuide = signal(false);
   readonly optimizing = signal(false);
   readonly eta = signal<ShipmentEta | null>(null);
   readonly etaLoading = signal(false);
-  readonly readiness = signal<ShipmentReadiness | null>(null);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
-  readonly tab = signal<'info' | 'guides' | 'expenses' | 'cartaporte'>('info');
+  readonly tab = signal<'info' | 'guides' | 'cierre'>('cierre');
 
-  // ── Carta Porte ──
-  readonly cpDocs = signal<CartaPorteDocument[]>([]);
-  readonly cpGaps = signal<CartaPorteGap[]>([]);
-  readonly cpChecked = signal(false);
-  readonly cpValidating = signal(false);
-  readonly cpStamping = signal(false);
-  readonly cpReady = computed(() => this.cpChecked() && this.cpGaps().length === 0);
-
-  setTab(t: 'info' | 'guides' | 'expenses' | 'cartaporte') {
+  setTab(t: 'info' | 'guides' | 'cierre') {
     this.tab.set(t);
-    if (t === 'cartaporte') this.loadCp();
     if (t === 'guides' && !this.gpsReview() && !this.gpsReviewLoading()) this.loadGpsReview();
   }
 
@@ -1113,13 +855,6 @@ export class LogisticaShipmentDetailComponent {
   readonly customerSuggestions = computed<CustomerLite[]>(() => this.customerRes.value() ?? []);
   readonly customerOrders = signal<OrderLite[]>([]);
 
-  expForm: FormGroup = this.fb.group({
-    fuel: [0], tolls: [0], lodging: [0], parking: [0], permits: [0], repairs: [0],
-    external_helpers: [0], handling: [0], driver_per_diem: [0], other: [0],
-    apply_config_km: [false],
-    notes: [''],
-  });
-
   constructor() {
     this.route.paramMap.subscribe((p) => {
       const id = p.get('id') || '';
@@ -1140,19 +875,6 @@ export class LogisticaShipmentDetailComponent {
     this.api.listGuides(id).subscribe({
       next: (g) => this.guides.set(g || []),
     });
-    this.api.getExpense(id).subscribe({
-      next: (e) => {
-        this.expense.set(e);
-        this.expForm.patchValue({
-          fuel: e.fuel, tolls: e.tolls, lodging: e.lodging, parking: e.parking,
-          permits: e.permits, repairs: e.repairs, external_helpers: e.external_helpers,
-          handling: e.handling, driver_per_diem: e.driver_per_diem, other: e.other,
-          notes: e.notes || '',
-        });
-      },
-      error: () => { /* 404 si no hay expense aún — OK */ },
-    });
-    this.refreshReadiness();
   }
 
   /**
@@ -1186,23 +908,6 @@ export class LogisticaShipmentDetailComponent {
     });
   }
 
-  refreshReadiness() {
-    const id = this.shipmentId();
-    if (!id) return;
-    this.api.shipmentReadiness(id).subscribe({
-      next: (r) => this.readiness.set(r),
-      error: () => { /* silencioso */ },
-    });
-  }
-
-  /** % de checks en estado 'ok' — alimenta la barra del semáforo de preparación. */
-  readonly readinessPct = computed(() => {
-    const r = this.readiness();
-    if (!r || !r.checks.length) return 0;
-    const ok = r.checks.filter((c) => c.status === 'ok').length;
-    return Math.round((ok / r.checks.length) * 100);
-  });
-
   // ── Transiciones de estado (mismo state-machine que la lista) ───────────
   canDepart(): boolean {
     const s = this.shipment()?.status;
@@ -1226,7 +931,6 @@ export class LogisticaShipmentDetailComponent {
     fn.subscribe({
       next: (r) => {
         this.shipment.set(r);
-        this.refreshReadiness();
         this.toast.add({ severity: 'success', summary: `Embarque ${r.folio} actualizado` });
       },
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' }),
@@ -1412,7 +1116,6 @@ export class LogisticaShipmentDetailComponent {
         this.toast.add({ severity:'success', summary: completar ? 'Guía completada' : 'Guía creada' });
         this.gpsReview.set(null);
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
-        this.refreshReadiness();
       },
       error: (err) => {
         this.savingGuide.set(false);
@@ -1433,7 +1136,6 @@ export class LogisticaShipmentDetailComponent {
           detail: r.located ? `${r.located} paradas · ${r.total_km} km${extra}` : 'Captura lat/lng en los clientes destino.',
         });
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
-        this.refreshReadiness();
       },
       error: (err) => {
         this.optimizing.set(false);
@@ -1507,73 +1209,5 @@ export class LogisticaShipmentDetailComponent {
   onOrderSelect(orderId: string | null) {
     const o = this.customerOrders().find((x) => x.id === orderId);
     if (o) this.recipientForm.patchValue({ value: o.total });
-  }
-
-  // ── Carta Porte ─────────────────────────────────────────────────────
-  loadCp() {
-    this.api.listCartaPorteByShipment(this.shipmentId()).subscribe({
-      next: (d) => this.cpDocs.set(d || []),
-      error: () => { /* sin documentos aún — OK */ },
-    });
-  }
-  validateCp() {
-    this.cpValidating.set(true);
-    this.api.validateCartaPorte(this.shipmentId()).subscribe({
-      next: (gaps) => {
-        this.cpGaps.set(gaps || []);
-        this.cpChecked.set(true);
-        this.cpValidating.set(false);
-      },
-      error: (err) => {
-        this.cpValidating.set(false);
-        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se validó' });
-      },
-    });
-  }
-  stampCp() {
-    this.confirm.confirm({
-      header: 'Timbrar Carta Porte',
-      message: 'Se generará un CFDI de Traslado con complemento Carta Porte ante el SAT. ¿Continuar?',
-      icon: 'pi pi-file-check',
-      accept: () => {
-        this.cpStamping.set(true);
-        this.api.stampCartaPorte(this.shipmentId()).subscribe({
-          next: () => {
-            this.cpStamping.set(false);
-            this.toast.add({ severity: 'success', summary: 'Carta Porte timbrada' });
-            this.loadCp();
-          },
-          error: (err) => {
-            this.cpStamping.set(false);
-            const gaps = err?.error?.gaps as CartaPorteGap[] | undefined;
-            if (gaps?.length) { this.cpGaps.set(gaps); this.cpChecked.set(true); }
-            this.toast.add({ severity: 'error', summary: 'No se timbró', detail: err?.error?.message || 'Error PAC' });
-          },
-        });
-      },
-    });
-  }
-  cpPillClass(s: string): string {
-    if (s === 'timbrado') return 'is-ok';
-    if (s === 'error') return 'is-bad';
-    if (s === 'cancelado') return 'is-neutral';
-    return 'is-info';
-  }
-
-  // ── Expenses ────────────────────────────────────────────────────────
-  saveExpense() {
-    this.savingExp.set(true);
-    this.api.upsertExpense(this.shipmentId(), this.expForm.value).subscribe({
-      next: (e) => {
-        this.savingExp.set(false);
-        this.expense.set(e);
-        this.toast.add({ severity:'success', summary:'Costos guardados' });
-        this.refreshReadiness();
-      },
-      error: (err) => {
-        this.savingExp.set(false);
-        this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' });
-      },
-    });
   }
 }

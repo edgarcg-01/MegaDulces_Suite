@@ -44,6 +44,7 @@ if (!DST) { console.error('Falta PROD_DB_URL (o DATABASE_URL_NEW).'); process.ex
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const VISTA = 'analytics.v_contpaqi_cierre_mensual';
+const MV = 'analytics.mv_contpaqi_cierre_mensual';
 /** Gate duro del proyecto para una pantalla. Ver `[CPA.0]` sobre el índice que falta. */
 const GATE_MS = 500;
 
@@ -200,8 +201,23 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
       noMedido('los cinco umbrales de cierre', 'la migración 20261010101128 no está aplicada');
       noMedido('sep-2026 cae del lado "bad" del umbral', 'sin umbral no hay con qué comparar');
     } else {
-      t('las cinco familias tienen umbral registrado', um.rows.length === 5,
-        um.rows.map((r) => r.kpi_key));
+      /*
+       * ⭐ `[CPA.0.1]` Cada familia tiene DOS filas: el piso (¿falta?) y el techo (¿sobra?). La
+       * clave del techo lleva el sufijo `.alto` y su `direction` es `lower_is_better`. Sin
+       * separarlas, este bloque contaba 10 donde esperaba 5 — que fue exactamente cómo se puso
+       * rojo al aplicar el techo.
+       */
+      const pisos = um.rows.filter((r) => !/\.alto$/.test(r.kpi_key));
+      const techos = um.rows.filter((r) => /\.alto$/.test(r.kpi_key));
+      t('las cinco familias tienen umbral de PISO registrado', pisos.length === 5,
+        pisos.map((r) => r.kpi_key));
+      t('⭐ y las cinco tienen TECHO: un mes posteado dos veces ya no se ve sano',
+        techos.length === 5, techos.map((r) => r.kpi_key));
+      t('⛔ los techos van en `lower_is_better` — con la dirección del piso no verían el exceso',
+        techos.every((r) => r.direction === 'lower_is_better'));
+      t('⛔ NEGATIVA — el techo NO es uno solo para todas: cada familia tiene su banda',
+        new Set(techos.map((r) => Number(r.target))).size > 1,
+        techos.map((r) => `${r.kpi_key}=${r.target}`));
       t('⛔ ninguno sin procedencia: un umbral sin `source` es un número que nadie puede discutir',
         um.rows.every((r) => String(r.source || '').trim().length > 20));
       t('todos con `manual_lock`: salieron de una medición humana, el auto-calibrador no los pisa',
@@ -217,7 +233,7 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
         { personas: ocup.rows[0].n });
 
       if (existe) {
-        const uc = Object.fromEntries(um.rows.map((r) => [r.kpi_key, r]));
+        const uc = Object.fromEntries(pisos.map((r) => [r.kpi_key, r]));
         const cob = await knex.raw(`
           SELECT anio_mes, familia, cobertura FROM ${VISTA}
            WHERE tenant_id=? AND anio_mes IN ('2026-07','2026-08','2026-09') AND familia='compras'
@@ -258,28 +274,101 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
       t('⛔ NEGATIVA — un tenant que no existe devuelve CERO filas', Number(falso.rows[0].n) === 0);
     }
 
-    // ── 7. El tiempo, publicado aunque incomode ──────────────────────────────────────────────
-    console.log('\n── 7. Tiempo ──');
+    // ── 7. El tiempo, y ⭐ que el ÍNDICE SE USE (no que exista) ──────────────────────────────
+    console.log('\n── 7. Tiempo, y el plan ──');
+
+    /*
+     * ⛔⛔ Este bloque nace de un defecto propio, medido el 2026-10-10. El índice cubriente
+     * `ix_fiscal_cfdis_mes_rol` estaba aplicado, era `indisvalid` y pesaba 6,320 kB — y el
+     * planificador **nunca lo elegía**: la vista filtraba con un literal `DATE` contra un índice
+     * parcial en `timestamptz`, y esa implicación Postgres no la puede probar.
+     *
+     * ⭐ La lección: un gate sobre un índice que mira el CATÁLOGO pasa en verde mientras el
+     * índice no sirve para nada. Hay que mirar el PLAN.
+     */
+    {
+      const ix = await knex.raw(`
+        SELECT i.indisvalid AS valido FROM pg_index i
+          JOIN pg_class c ON c.oid = i.indexrelid
+         WHERE c.relname = 'ix_fiscal_cfdis_mes_rol'`);
+      if (!ix.rows.length) {
+        noMedido('el plan usa el índice de fiscal.cfdis', 'el índice no existe (migración 20261010101129)');
+      } else {
+        t('el índice de fiscal.cfdis es válido (no quedó INVALID por un CONCURRENTLY cortado)',
+          ix.rows[0].valido === true);
+        const plan = await knex.raw(`
+          EXPLAIN (ANALYZE, COSTS OFF)
+          SELECT tenant_id, to_char(fecha,'YYYY-MM'),
+                 sum(total) FILTER (WHERE rol='recibidas'), sum(total) FILTER (WHERE rol='emitidas')
+            FROM fiscal.cfdis WHERE fecha >= TIMESTAMPTZ '2025-01-01 00:00:00+00' GROUP BY 1,2`);
+        const txt = plan.rows.map((r) => r['QUERY PLAN']).join(' ');
+        t('⭐ el plan del testigo de CFDI USA el índice, no lo ignora (existir no es servir)',
+          /ix_fiscal_cfdis_mes_rol/.test(txt), txt.slice(0, 140));
+        t('…y lo usa como Index Only Scan: no baja al heap de 460 MB',
+          /Index Only Scan/.test(txt));
+      }
+    }
     if (!existe) {
       noMedido('tiempo de la vista', 'la vista no existe todavía');
     } else {
+      /*
+       * ⛔⛔ DOS DEFECTOS PROPIOS, corregidos acá — y los dos hacían que este bloque reportara
+       * un número que nadie vive:
+       *
+       *  1. **Medía un `count(*)`**, no la consulta del servicio. Medido el 2026-10-12: el
+       *     `count(*)` daba 563 ms de mediana y la consulta REAL —`SELECT *` de 13 meses con
+       *     `ORDER BY`— daba **1,078**. Casi el doble. *Medir una consulta parecida es no medir.*
+       *  2. **Se quedaba con `Math.min` de 3 corridas**, o sea con la mejor. Un gate que elige
+       *     su mejor tiro se pone verde con una corrida con suerte: medido, 8 de 10 bajo 500 y
+       *     2 arriba se reportaba como "477 ms, cumple". Ahora manda la **mediana**, y el p90
+       *     se publica al lado.
+       */
       const ms = [];
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 9; i++) {
         const a = Date.now();
-        await knex.raw(`SELECT count(*) FROM ${VISTA} WHERE tenant_id=? AND anio_mes >= ?`,
-          [TENANT, '2025-10']);
+        await knex.raw(
+          `SELECT * FROM ${MV} WHERE tenant_id = ? AND anio_mes BETWEEN ? AND ? `
+          + 'ORDER BY anio_mes DESC, familia ASC',
+          [TENANT, '2025-10', '2026-10']);
         ms.push(Date.now() - a);
       }
-      const mejor = Math.min(...ms);
-      console.log(`     corridas: ${ms.join(' / ')} ms`);
-      t('la vista responde en menos de 3 s (techo duro: arriba de esto la pantalla es inusable)',
+      ms.sort((a, b) => a - b);
+      const mejor = ms[4]; // la MEDIANA, no el mínimo
+      console.log(`     9 corridas de la consulta REAL: mediana ${mejor} ms · p90 ${ms[7]} · max ${ms[8]}`);
+      t('responde en menos de 3 s (techo duro: arriba de esto la pantalla es inusable)',
         mejor < 3000, { ms });
       if (mejor <= GATE_MS) {
-        t(`cumple el gate de ${GATE_MS} ms (${mejor} ms)`, true);
+        t(`⭐ cumple el gate de ${GATE_MS} ms en la consulta REAL del servicio (mediana ${mejor} ms, p90 ${ms[7]})`, true);
+        /*
+         * ⛔ PRUEBA NEGATIVA: la matvista no vale si sirve otra cosa que la vista. Un refresh que
+         * dejó de correr publica un veredicto viejo SIN dar error — el modo de falla que este
+         * carril entero existe para evitar. Se comparan las dos derivaciones, fila por fila.
+         */
+        const dif = await knex.raw(`
+          SELECT count(*)::int AS n FROM (
+            SELECT tenant_id, anio_mes, familia, senal, senal_renglones, cobertura FROM ${MV}
+            EXCEPT
+            SELECT tenant_id, anio_mes, familia, senal, senal_renglones, cobertura FROM ${VISTA}
+          ) d`);
+        t('⛔ NEGATIVA — la matvista coincide con la vista fila por fila (si no, sirve una foto vieja)',
+          Number(dif.rows[0].n) === 0, dif.rows[0]);
       } else {
+        /*
+         * ⚠️ Este motivo YA FUE FALSO UNA VEZ. Decía "falta el índice cubriente de fiscal.cfdis"
+         * y el índice estaba aplicado, válido y en uso: el mensaje culpaba a algo arreglado. Una
+         * causa escrita a mano envejece sin avisar, así que ahora se nombra lo que el desglose
+         * MEDIDO dice (2026-10-10, con el índice ya en uso):
+         *
+         *     testigo CFDI 115 ms · señal 110 · testigo banco 61 · meses 20 · futuras 5
+         *     ──────────────────────────────────────────────────────────────────────────
+         *     suma de las partes ~320 ms · la vista entera 548 ms
+         *
+         * O sea: lo que falta **no es otra fuente, es el ARMADO** (el CROSS JOIN mes × familia,
+         * la base materializada y la mediana). Quien lo persiga, que empiece por ahí.
+         */
         noMedido(`el gate de ${GATE_MS} ms`,
-          `mide ${mejor} ms — falta el índice cubriente de fiscal.cfdis ` +
-          '(migración 20261010101129, se aplica FUERA de horario). Está declarado, no escondido.');
+          `mide ${mejor} ms. El testigo de CFDI ya usa Index Only Scan (115 ms); las partes suman `
+          + '~320 ms y el resto es el ARMADO de la vista, no una fuente lenta. Declarado, no escondido.');
       }
     }
 

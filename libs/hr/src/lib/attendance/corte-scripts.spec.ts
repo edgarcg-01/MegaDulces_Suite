@@ -13,6 +13,7 @@ const RAIZ = path.resolve(__dirname, '../../../../..');
 const MIGS = path.join(RAIZ, 'database/migrations-newdb');
 const prevuelo = require(path.join(RAIZ, 'database/scripts/rh/prevuelo-corte-asistencia.js'));
 const carga = require(path.join(RAIZ, 'database/scripts/rh/carga-unica-mega-talento.js'));
+const personas = require(path.join(RAIZ, 'database/scripts/rh/carga-personas-mega-talento.js'));
 
 describe('[RH.1.8] guiones del corte — copias que no pueden divergir', () => {
   it('la identidad de prod es la MISMA en el aplicador, el pre-vuelo y la carga', () => {
@@ -21,10 +22,14 @@ describe('[RH.1.8] guiones del corte — copias que no pueden divergir', () => {
     expect(m).not.toBeNull();
     expect(prevuelo.PROD_CLUSTER_ID).toBe(m?.[1]);
     expect(carga.PROD_CLUSTER_ID).toBe(m?.[1]);
+    expect(personas.PROD_CLUSTER_ID).toBe(m?.[1]);
   });
 
-  it('la cadena del pre-vuelo = base de CH + las de la carga + el reparto, y cada archivo existe', () => {
-    const esperada = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, '20261008094815_hr_reparto_asistencia'].map((n: string) => `${n}.js`);
+  it('la cadena del pre-vuelo = base de CH + las de la carga + el reparto + la de personas, y cada archivo existe', () => {
+    const esperada = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, '20261008094815_hr_reparto_asistencia', personas.MIGRACION_PERSONAS,
+      '20261012122707_hr_horas_extra_ajustes', personas.MIGRACION_FICHAS]
+      .map((n: string) => `${n}.js`);
+    expect(prevuelo.MIG_REPARTO).toBe('20261008094815_hr_reparto_asistencia.js');
     expect(prevuelo.CADENA).toEqual(esperada);
     for (const f of prevuelo.CADENA) expect(fs.existsSync(path.join(MIGS, f))).toBe(true);
     // Ordenada: knex aplica por nombre, y el pre-vuelo dice «en este orden».

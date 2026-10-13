@@ -17,16 +17,17 @@ const con = (...ps: Permission[]) => (p: Permission) => ps.includes(p);
 const visibles = (tiene: (p: Permission) => boolean) => GASTOS_TABS.filter((t) => pestanaVisible(t, tiene)).map((t) => t.label);
 
 describe('[GX.80] las pestañas de Gastos', () => {
-  it('son las cuatro pantallas, en este orden', () => {
+  it('son las cinco pantallas, en este orden', () => {
     expect(GASTOS_TABS.map((t) => t.route)).toEqual([
       '/finanzas/aprobacion-gastos', '/finanzas/mis-gastos', '/finanzas/expediente', '/finanzas/gastos-historial',
+      '/finanzas/comisiones-logistica',
     ]);
   });
 
   it('quien firma entra a Aprobación y ve las cuatro', () => {
     const firma = con(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_VER);
     expect(primeraPestanaVisible(GASTOS_TABS, firma)?.route).toBe('/finanzas/aprobacion-gastos');
-    expect(visibles(firma)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial']);
+    expect(visibles(firma)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística']);
   });
 
   /** ⭐ Quien sólo captura entra a SUS gastos y no ve barra (una sola pestaña). */
@@ -38,6 +39,13 @@ describe('[GX.80] las pestañas de Gastos', () => {
 
   it('con la llave del historial de todos (sin más), entra al Historial', () => {
     expect(primeraPestanaVisible(GASTOS_TABS, con(Permission.FINANCE_EXPENSES_HISTORIAL_TODOS))?.route).toBe('/finanzas/gastos-historial');
+  });
+
+  /** `[EMB.29]` Logística arma el vale de comisiones sin tener permisos de gastos. */
+  it('quien gestiona embarques entra directo a Comisiones de logística', () => {
+    const logistica = con(Permission.LOGISTICS_SHIPMENTS_GESTIONAR);
+    expect(primeraPestanaVisible(GASTOS_TABS, logistica)?.route).toBe('/finanzas/comisiones-logistica');
+    expect(visibles(logistica)).toEqual(['Comisiones de logística']);
   });
 
   /** ⛔ Sin ningún permiso de gastos, no hay a dónde llevarlo: la entrada no se pinta. */
@@ -64,6 +72,7 @@ describe('[GX.80] las rutas viven en el shell, con su guard', () => {
     expect(s).toMatch(/path: 'expediente',[\s\S]*?canActivate: \[permissionGuard\(Permission\.FINANCE_EXPENSES_COMPROBAR\)\]/);
     expect(s).toMatch(/path: 'mis-gastos',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_VER, Permission\.FINANCE_EXPENSES_CAPTURAR\)\]/);
     expect(s).toMatch(/path: 'gastos-historial',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_VER, Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.FINANCE_EXPENSES_HISTORIAL_TODOS\)\]/);
+    expect(s).toMatch(/path: 'comisiones-logistica',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.LOGISTICS_SHIPMENTS_GESTIONAR\)\]/);
   });
 
   it('las cuatro ya no están fuera del shell (no hay rutas duplicadas)', () => {

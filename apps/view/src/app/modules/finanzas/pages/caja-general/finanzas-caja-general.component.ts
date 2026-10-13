@@ -40,7 +40,7 @@ import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type Autof
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
-import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
+import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, cuerpoReporteDia, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
@@ -484,6 +484,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-trabada .cg-motivo-tag { margin-top:0; margin-left:var(--sp-2); vertical-align:middle; }
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
+    /* [CG.87] El reporte en pantalla. Mono y sin envolver: el cuerpo viene alineado en columnas
+       de ancho fijo desde el mismo armador que el papel; con tipografia proporcional los totales
+       se desalinean y el reporte deja de leerse de un vistazo. El scroll horizontal es
+       PREFERIBLE a romper las columnas. */
+    .cg-reporte { margin:0; max-height:60vh; overflow:auto; font-family:var(--font-mono);
+                  font-size:var(--fs-xs); line-height:1.45; white-space:pre; color:var(--text); }
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
     /* [CG.56] La columna de la MARCA. Ya no hay casilla: la fila es el control y esta celda sólo
        publica el estado. Angosta a proposito -- es una senial, no un boton. */
@@ -732,6 +738,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        display:none que el navegador le da a [hidden], y el bloque se seguiria viendo plegado.
        Es el mismo descuido que hace creer que un toggle no funciona. */
     .cg-conc-cols[hidden] { display:none; }
+    /* [CG.91] El historial del dia: ancho completo, debajo del resumen. */
+    .cg-hist { margin-top:var(--sp-4); }
+    .cg-hist-canc > td { opacity:.55; text-decoration:line-through; }
+    .cg-hist-tag { margin-left:var(--sp-2); font-size:var(--fs-xs); color:var(--text-muted);
+                   border:1px solid var(--border); border-radius:var(--radius-sm); padding:0 var(--sp-1); }
+    /* El mismo verde que ya usa el signo del ingreso en la cola (.cg-in), no uno nuevo. */
+    .cg-hist-in { color:var(--ok-fg); }
+    .cg-hist-benef { font-weight:600; }
+    /* [CG.97] El numero que de verdad se va a contar a mano. */
+    .cg-cajon .mono { color:var(--ok-fg); }
+    /* [CG.91.2] El pie: separado por una linea, no por color -- es un total, no una alerta. */
+    .cg-hist-pie > td { border-top:2px solid var(--border); padding-top:var(--sp-2);
+                        color:var(--text-muted); font-size:var(--fs-sm); }
+    .cg-hist-pie .cg-hist-neto { color:var(--text); font-weight:700; font-size:var(--fs-body); }
     @media (max-width:47.5rem) { .cg-conc-cols { grid-template-columns:1fr; } }
     .cg-conc-col { display:flex; flex-direction:column; gap:var(--sp-1); min-width:0; }
     .cg-conc-sub { font-size:var(--fs-sm); }
@@ -929,6 +949,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <span class="mono">&minus; {{ money(a.caja_general.depositos) }}</span></div>
               <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
                 <span class="mono">{{ money(a.caja_general.neto) }}</span></div>
+              <!-- ⭐⭐ [CG.97] "Movimiento del dia" es correcto -el dinero entro y se registro- pero
+                   se LEE como "esto hay en la caja", y no lo hay: la maquina se traga los billetes
+                   de los cobros de ruta y al cajon llega la morralla. Modelo "cajas separadas",
+                   el mismo que ya declara conciliacionCajero. Sin esto el arqueo sale a contar
+                   decenas de miles que estan dentro del cajero. -->
+              @if (a.caja_general.en_el_cajon != null) {
+                <div class="cg-conc-row"><span class="fin-dim">&nbsp;&nbsp;de eso, a la boveda</span>
+                  <span class="mono fin-dim">{{ money(a.caja_general.a_la_boveda!) }}</span></div>
+                <div class="cg-conc-row cg-conc-tot cg-cajon"><span>Queda en el cajon</span>
+                  <span class="mono">{{ money(a.caja_general.en_el_cajon!) }}</span></div>
+                <small class="fin-dim">Esto es lo que se cuenta a mano. Los billetes que el cajero se
+                  tragó se quedan en la bóveda y los cuenta la máquina.</small>
+              }
               <small class="fin-dim">
                 {{ a.caja_general.movimientos }} movimiento(s) registrado(s){{ a.caja_general.cancelados ? ', ' + a.caja_general.cancelados + ' cancelado(s)' : '' }}.
               </small>
@@ -939,6 +972,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    Lo unico que se dice es SI hay corte, que no es secreto. -->
               @if (a.corte_abierto; as c) {
                 <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
+                <!-- [CG.90.1] La puerta de salida del fondo: NO se pregunta al abrir, pero quien
+                     SI sabe con cuanto arranco la caja puede declararlo aca. Sin esto el fondo
+                     quedaria en "sin medir" para siempre y el arqueo nunca podria decir si cuadra. -->
+                @if (c.fondo_inicial == null) {
+                  <p-button label="Declarar con cuánto arrancó la caja" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true" (onClick)="abrirApertura()"></p-button>
+                }
                 <!-- El esperado y la caja chica conciliada SOLO existen cuando el servidor ya los
                      revelo (permiso de cierre). "arqueoFinal()" devuelve null mientras esten
                      ocultos, asi que este bloque no se pinta y no hay nada que tapar. -->
@@ -999,6 +1039,73 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               }
             </div>
           </div>
+
+          <!-- ⭐ [CG.91] EL HISTORIAL DE LO QUE LLEVO HECHO. Pedido dos veces.
+               La primera: "un historial de movimientos para que el usuario vea que movimientos ya
+               hizo". Se entrego un filtro ("los mios") y un reporte en texto: ninguna es la lista.
+               La segunda, con la pantalla a la vista: "ni siquiera me muestra un historial de lo
+               que llevo hecho, como te lo pedi".
+               Acá estaba el defecto: el cuadro decia "7 movimiento(s) registrado(s)" y ahi
+               terminaba. Un contador no es un historial -- y un total que no se puede revisar
+               contra sus renglones no se puede revisar.
+               Va a lo ANCHO y debajo de las dos columnas a proposito: el cuadro de arriba es el
+               resumen, esto es el cuerpo. De paso empareja el bloque, que tenia una tabla de un
+               lado y cuatro renglones del otro. -->
+          @if (a.movimientos_del_dia?.length) {
+            <div class="cg-hist">
+              <p class="cg-cap">Movimientos que registraste en esta jornada</p>
+              <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl">
+                <ng-template #header>
+                  <!-- [CG.91.2] El orden sigue a lo que la persona RECONOCE: la hora, con quien
+                       fue y cuanto. El folio interno (CI-2026-00007) y la cuenta son respaldo, no
+                       lo que se busca con la vista. -->
+                  <tr>
+                    <th scope="col">Hora</th>
+                    <th scope="col">Contraparte</th>
+                    <th scope="col">De dónde salió</th>
+                    <th scope="col">Cuenta</th>
+                    <th scope="col" class="ta-r">Importe</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <!-- El cancelado NO se esconde: se marca. Esconderlo haria que la lista no
+                       explique su propio contador, que los cuenta aparte. -->
+                  <tr [class.cg-hist-canc]="m.estado === 'cancelado'">
+                    <td class="mono">{{ m.hora }}</td>
+                    <td>
+                      <span class="cg-hist-benef">{{ m.beneficiario || '—' }}</span>
+                      @if (m.estado === 'cancelado') { <span class="cg-hist-tag">cancelado</span> }
+                      <small class="mono fin-dim d-block">{{ m.folio }}</small>
+                    </td>
+                    <!-- Sale del origen_ref, que lo arma el servidor — no de la glosa. -->
+                    <td class="mono fin-dim">{{ m.documento || 'captura a mano' }}</td>
+                    <td class="fin-dim">{{ m.cuenta ? m.cuenta + (m.concepto ? ' · ' + m.concepto : '') : '—' }}</td>
+                    <td class="mono ta-r" [class.cg-hist-in]="m.tipo === 'ingreso'">
+                      {{ m.tipo === 'ingreso' ? '+ ' : '&minus; ' }}{{ money(m.monto) }}
+                    </td>
+                  </tr>
+                </ng-template>
+                <!-- ⭐ [CG.91.2] EL PIE QUE CIERRA. Sin esto la lista no se puede revisar contra
+                     nada: el cuadro de arriba dice "Movimiento del dia" y abajo habia renglones
+                     sueltos que nadie podia sumar con la vista. Aca se suman los MISMOS renglones
+                     que estan a la vista, y el total tiene que dar igual al de arriba. Si no da,
+                     eso YA es informacion -- quiere decir que la lista esta topada o que hay algo
+                     fuera del reloj de la jornada. -->
+                <ng-template #footer>
+                  <tr class="cg-hist-pie">
+                    <td colspan="4">
+                      Entradas <strong class="mono cg-hist-in">+ {{ money(totalHistorial().ingresos) }}</strong>
+                      &nbsp;·&nbsp; Salidas <strong class="mono">&minus; {{ money(totalHistorial().gastos) }}</strong>
+                      @if (totalHistorial().cancelados) {
+                        <small class="fin-dim">&nbsp;· {{ totalHistorial().cancelados }} cancelado(s), fuera del total</small>
+                      }
+                    </td>
+                    <td class="mono ta-r cg-hist-neto">{{ money(totalHistorial().neto) }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+          }
 
           <!-- ⛔ Lo que NO se puede afirmar se PINTA. Un hueco callado se lee como cero, y aca la
                diferencia entre "flujo del dia" y "cuanto hay en el cajero" es justamente esto. -->
@@ -1172,9 +1279,21 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
                placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
-        <!-- CS.3.10 — Reporte diario en la térmica: los movimientos del rango/filtros + totales. -->
-        <p-button label="Reporte del día" icon="pi pi-print" severity="secondary" size="small"
+        <!-- CS.3.10 — Reporte diario: los movimientos del rango/filtros + totales.
+             [CG.87] VER va primero y imprimir queda al lado: hasta hoy el reporte sólo existía
+             en papel, así que para leerlo había que gastar un ticket. Los dos salen del MISMO
+             armador (cuerpoReporteDia), no de dos maquetas que se desalinean. -->
+        <p-button label="Reporte del día" icon="pi pi-file" severity="secondary" size="small"
+                  [loading]="imprimiendoReporte()" (onClick)="verReporteDia()"></p-button>
+        <p-button icon="pi pi-print" severity="secondary" size="small" [text]="true"
+                  title="Imprimir el reporte en la térmica" ariaLabel="Imprimir el reporte del día"
                   [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
+        <!-- [CG.86] «Sólo los míos»: filtra por el id de quien pregunta, no por su nombre. -->
+        <p-button [label]="soloMios() ? 'Viendo: los míos' : 'Todo el libro'"
+                  [icon]="soloMios() ? 'pi pi-user' : 'pi pi-users'"
+                  [severity]="soloMios() ? 'primary' : 'secondary'" size="small" [outlined]="!soloMios()"
+                  title="Alternar entre todo el libro y sólo lo que capturaste vos"
+                  (onClick)="alternarMios()"></p-button>
       </div>
 
       <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
@@ -1392,6 +1511,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
 
             <div class="fin-form">
+              <!-- ⭐⭐ [CG.94] Con documento, estos tres los FIJA el documento: ni se preguntan.
+                   El tipo ya lo dice el chip "Sale de la caja", la fecha esta en el encabezado y la
+                   sucursal es la del folio. Ver fichaSolaLectura. -->
+              @if (!fichaSolaLectura()) {
               <div class="fin-row">
                 <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
                      pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
@@ -1408,6 +1531,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
                           (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
               </div>
+              }
 
               <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
                    ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
@@ -1418,6 +1542,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
                    banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
               @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
+                <!-- ⛔ [CG.94] El selector de documento NO se pinta cuando ya hay uno elegido: seria
+                     ofrecer elegir lo que ya esta elegido, y el encabezado lo muestra con su ✕ para
+                     soltarlo. Era la peor de las siete repeticiones -- un buscador cuyo unico
+                     contenido posible ya estaba arriba, dos centimetros mas alto. -->
+                @if (!fichaSolaLectura()) {
                 <div class="fin-row fin-row-col">
                   <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
                   <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
@@ -1438,9 +1567,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
                          documento era mandar a la persona a buscar el dato al otro extremo. -->
                   } @else {
-                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
+                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elígelo y el importe lo pone el documento.</small>
                   }
                 </div>
+                }
 
                 <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
                      abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
@@ -1466,7 +1596,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
                    El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
                    el dato -- y por eso el bloque lo dice. -->
-              @if (f().tipo === 'gasto' && frecuentes().length) {
+              <!-- [CG.94] Los atajos de cuenta no aplican con documento: su cuenta ya salio de la
+                   poliza, y ofrecer un atajo para pisarla es invitar a desalinearla. -->
+              @if (!fichaSolaLectura() && f().tipo === 'gasto' && frecuentes().length) {
                 <div class="fin-row fin-row-col">
                   <label>Lo que más repetís en {{ f().sucursal | sucursal }}</label>
                   <div class="cg-chips">
@@ -1484,12 +1616,32 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </div>
               }
 
+              <!-- [CG.94] El beneficiario con documento ya es el TITULO de la ficha, arriba. -->
+              @if (!fichaSolaLectura()) {
               <div class="fin-row">
                 <label for="cg-benef">Beneficiario</label>
                 <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
                        (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
               </div>
+              }
 
+              <!-- ⭐ [CG.94] LA CUENTA, EN MODO FICHA: un renglon que la DICE, no un buscador que la
+                   pregunta. La cuenta sale de la poliza del propio documento y es autoritativa; el
+                   buscador la ofrecia editable y con el dropdown abierto, que invita a cambiarla. -->
+              @if (fichaSolaLectura()) {
+                <div class="fin-row fin-row-col cg-ficha-cta">
+                  <span class="fin-dim">Cuenta de Kepler</span>
+                  <strong class="mono">{{ f().kepler_cuenta || '—' }} / {{ f().kepler_concepto || '—' }}</strong>
+                  <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
+                    {{ etiquetaConcepto().texto }}
+                  </small>
+                  <!-- La puerta de salida: Kepler se equivoca, y una captura que no se puede
+                       corregir obliga a cancelar y rehacer. Abre el formulario completo. -->
+                  <p-button label="Corregir" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true"
+                            (onClick)="corrigiendo.set(true)"></p-button>
+                </div>
+              } @else {
               <div class="fin-row fin-row-col">
                 <label for="cg-concepto">Cuenta y concepto de Kepler</label>
                 <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
@@ -1506,13 +1658,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                             severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
                 }
               </div>
+              }
 
+              <!-- [CG.94] La glosa con documento se arma del documento (X-D-26 0023028 · …).
+                   Preguntarla es pedir que alguien reescriba lo que ya quedo escrito. -->
+              @if (!fichaSolaLectura()) {
               <div class="fin-row">
                 <label for="cg-glosa">Qué pasó</label>
                 <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
                        (keydown.enter)="guardar()"
-                       placeholder="Contá qué pasó — esto NO es el concepto contable" />
+                       placeholder="Cuenta qué pasó — esto NO es el concepto contable" />
               </div>
+              }
 
 
               <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
@@ -1520,7 +1677,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
                    cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
                    la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
-              @if (puedeDeclararRegla()) {
+              <!-- ⛔ [CG.94] Con documento NO se ofrece declarar regla, y no es cosmetico: la cuenta
+                   de este movimiento salio de SU poliza, asi que el proximo movimiento de ese mismo
+                   beneficiario tambien la va a traer. Declarar una regla aca es fijar a mano algo que
+                   el ERP ya resuelve por si solo -- y si el beneficiario usa mas de una cuenta, la
+                   regla lo clasifica MAL (es lo que CG.88 frena del lado del servidor). -->
+              @if (!fichaSolaLectura() && puedeDeclararRegla()) {
                 <label class="fin-row cg-declara">
                   <p-checkbox [binary]="true" [ngModel]="declararRegla()"
                               (ngModelChange)="declararRegla.set($event)"></p-checkbox>
@@ -2462,6 +2624,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       </ng-template>
     </p-dialog>
 
+    <!-- [CG.87] El reporte del dia EN PANTALLA. El cuerpo es el MISMO que sale a la termica
+         (cuerpoReporteDia, funcion pura): dos superficies, un solo armador. Va en <pre> con fuente
+         mono porque el texto esta alineado en columnas de ancho fijo -- renderizarlo con tipografia
+         proporcional desalinea los totales y el reporte deja de poder leerse de un vistazo. -->
+    <p-dialog [visible]="reporteAbierto()" (visibleChange)="$event ? null : cerrarConFoco(reporteAbierto)"
+              [modal]="true" [style]="{ width: '34rem', maxWidth: '96vw' }"
+              header="Reporte de movimientos" [draggable]="false">
+      <pre class="cg-reporte">{{ reporteTexto() }}</pre>
+      <ng-template #footer>
+        <p-button label="Imprimir" icon="pi pi-print" severity="secondary"
+                  [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
+        <p-button label="Cerrar" severity="secondary" [text]="true"
+                  (onClick)="cerrarConFoco(reporteAbierto)"></p-button>
+      </ng-template>
+    </p-dialog>
+
     <p-dialog [visible]="aperturaAbierta()" (visibleChange)="$event ? null : cerrarConFoco(aperturaAbierta)"
               [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
               header="Con cuanto arranco la caja" [draggable]="false">
@@ -3106,6 +3284,40 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * ⭐⭐ `[CG.93]` **LO ÚNICO QUE TIENE QUE HACER LA PERSONA ES CONTAR.**
+   *
+   * Edgar: *"lo único que debe hacer el usuario es arquear, no debe seleccionar ningún botón ni
+   * rellenar nada; a lo máximo alinearlo con algún movimiento de CAOS"*.
+   *
+   * El trabajo real es contar billetes contra un documento. Todo lo demás —elegir la fila, elegir
+   * la cuenta, elegir el concepto, buscar el retiro del cajero— es trámite que el sistema puede
+   * resolver, y cada trámite es una oportunidad de equivocarse. Hoy ya resuelve la cuenta y el
+   * concepto (`[CS.3.1b]`/`[CS.3.8]`) y engancha el CAOS (`[CS.3.6]`/`[CS.3.7]`); lo que quedaba
+   * era que alguien tuviera que ELEGIR la fila, una por una, 165 veces.
+   *
+   * Acá la cola se abre sola en el siguiente movimiento resoluble, y al guardar avanza al que
+   * sigue. La persona cuenta, guarda, cuenta, guarda.
+   *
+   * ⛔ **Sólo avanza si NO hay nada abierto.** La lista se recarga sola cada 60 s; si esto corriera
+   * con una captura en curso, le arrancaría el documento de las manos a alguien que está contando
+   * — y el conteo a medias se perdería. Que una pantalla se mueva sola mientras se trabaja en ella
+   * es peor que un clic de más.
+   *
+   * ⛔ **Sólo toma `confirmable`.** Lo que necesita que una persona decida algo (ruta sin declarar,
+   * documento sin contra-cuenta) NO se abre solo: abrirlo sería dejarla frente a un formulario que
+   * no puede cerrar, que es exactamente el trámite que esto viene a sacar. Esas filas se quedan en
+   * la lista, marcadas, para que alguien las resuelva a propósito.
+   *
+   * ⚠️ No captura nada: sólo ELIGE. Guardar sigue exigiendo el conteo del efectivo, que es el acto
+   * que esto protege.
+   */
+  private avanzarAlSiguiente(): void {
+    if (this.capturaAbierta()) return;
+    const siguiente = this.pendientes().find((p) => p.confirmable);
+    if (siguiente) this.capturarDesde(siguiente);
+  }
+
+  /**
    * `[CG.50]` La fila enfocada de las tres tablas de LECTURA con acciones (recurrentes, libro,
    * cortes). `selectionMode="single"` necesita dónde guardar lo elegido, y sin eso `pSelectableRow`
    * no enciende el roving tabindex. No alimenta ninguna decisión: es sólo el cursor del teclado.
@@ -3129,6 +3341,61 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * alguna señal hermana cambiara en el mismo turno. `abrirCorte()` no tenía ninguna.
    */
   capturaAbierta = signal(false);
+
+  /**
+   * ⭐⭐ `[CG.94]` **CUANDO EL MOVIMIENTO VIENE DE UN DOCUMENTO, NADA SE EDITA.**
+   *
+   * Edgar, con la captura abierta: *"nada aquí puede ser editable. te mencioné que ya existe.
+   * ¿por qué preguntar dos veces los movimientos?"*.
+   *
+   * Tenía razón y el screenshot lo prueba solo. El encabezado ya decía
+   * `X-D-26 0023028 · MANIOBRAS Y DESCARGAS · $100.00 · 10/10/26`, y abajo el formulario volvía a
+   * preguntar **lo mismo siete veces**, todo editable:
+   *
+   *     Tipo         Comprobante de gasto      ← lo dice el documento
+   *     Fecha        10/10/2026                ← lo dice el documento
+   *     Sucursal     00 · CEDIS                ← lo dice el documento
+   *     Comprobante  X-D-26 0023028 …          ← ES el documento que ya estaba elegido
+   *     Beneficiario MANIOBRAS Y DESCARGAS     ← lo dice el documento
+   *     Cuenta       201 / 201                 ← lo dice la póliza del documento
+   *     Qué pasó     X-D-26 0023028 · MANIO…   ← armado del documento
+   *
+   * Ninguno de esos campos es una decisión: los siete salen del mismo lugar. Ofrecerlos editables
+   * no es dar flexibilidad — es pedirle a alguien que revise siete veces un dato que el ERP ya
+   * fijó, y abrir siete formas de desalinear la captura respecto del documento contra el que se
+   * supone que cuadra.
+   *
+   * Lo que SÍ queda a la vista es lo único que la persona aporta: **el conteo del efectivo**, y
+   * **la alineación con CAOS**, que es la excepción que el propio Edgar marcó (*"a lo máximo
+   * alinearlo con algún movimiento de CAOS"*).
+   *
+   * ⚠️ No se CIERRA la puerta, se cierra el default: `Corregir` revela el formulario completo,
+   * tal cual era. Kepler se equivoca —de ahí salió `corregirCuentaDoc()`— y una captura que no se
+   * puede corregir obliga a cancelar y rehacer.
+   *
+   * ⚠️ Sin documento (captura a mano) el formulario sigue entero: ahí no hay de dónde sacar nada
+   * y cada campo sí es una decisión.
+   */
+  corrigiendo = signal(false);
+  fichaSolaLectura = computed(() => !!this.cobroElegido() && !this.corrigiendo());
+
+  /**
+   * `[CG.91.2]` El pie del historial: suma LOS RENGLONES QUE ESTÁN A LA VISTA, no los del
+   * servidor. Es a propósito — el total de arriba ya viene del servidor, y si los dos salieran de
+   * la misma fuente el pie no comprobaría nada. Sumando lo visible, una diferencia entre el pie y
+   * el cuadro ES información: la lista está topada, o hay algo fuera del reloj de la jornada.
+   *
+   * ⚠️ Los cancelados quedan fuera del total y se cuentan aparte, igual que arriba.
+   */
+  totalHistorial = computed(() => {
+    const ms = this.arqueo()?.movimientos_del_dia ?? [];
+    let ingresos = 0; let gastos = 0; let cancelados = 0;
+    for (const m of ms) {
+      if (m.estado === 'cancelado') { cancelados++; continue; }
+      if (m.tipo === 'ingreso') ingresos += Number(m.monto); else gastos += Number(m.monto);
+    }
+    return { ingresos, gastos, cancelados, neto: Number((ingresos - gastos).toFixed(2)) };
+  });
   /** `[CG.62]` La ventana de "seguro que queres guardar". Es una PREGUNTA, no el guardado. */
   confirmarGuardar = signal(false);
 
@@ -3873,9 +4140,30 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cerrarJornada(): void {
     if (this.abriendo()) return;
     if (this.corteAbierto()) { this.abrirCierre(); return; }
-    // Sin corte: se pide el fondo y, cuando el servidor confirme, se sigue al conteo.
+    /**
+     * ⭐⭐ `[CG.90.1]` **EL FONDO DEJA DE PREGUNTARSE. NI SIQUIERA EL DIÁLOGO.**
+     *
+     * Edgar, con el diálogo a la vista por segunda vez: *"sigue pidiendo el fondo inicial"*.
+     * Tenía razón: `[CG.90]` enseñó al SERVIDOR a heredarlo del cierre anterior, pero la pantalla
+     * seguía abriendo «Con cuánto arrancó la caja» igual — o sea que el cambio no se notaba.
+     * Arreglar que el servidor sepa algo no sirve si la pantalla pregunta antes.
+     *
+     * Ahora se abre derecho y el servidor decide:
+     *   · hay cierre anterior → hereda su `contado` y marca `cierre_anterior`;
+     *   · no hay → abre con `sin_medir` y el aviso lo DICE («el arqueo no va a poder decir si
+     *     cuadra»), que es un hecho distinto de «arrancó en cero».
+     *
+     * ⛔ Y `undefined`, no `null`: `abrirCorte()` manda `fondoInicial() ?? undefined` porque el
+     * servicio compara contra `undefined`. Dejarlo en `null` haría que el fondo viaje como un
+     * valor y la herencia NO se dispare — el mismo tipo de detalle que hizo que `[CG.90]` no se
+     * viera.
+     *
+     * ⚠️ La puerta queda: `abrirApertura()` sigue existiendo y se alcanza desde el aviso de
+     * «sin fondo medido», para quien SÍ sabe con cuánto arrancó y quiere declararlo.
+     */
     this.cerrarTrasAbrir.set(true);
-    this.abrirApertura();
+    this.fondoInicial.set(null);
+    this.abrirCorte();
   }
 
   /** Marca que la apertura vino de "rendir cuentas": al confirmarla se sigue al conteo. */
@@ -4072,7 +4360,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // faltaba un segundo clic en otro lado.
         if (this.cerrarTrasAbrir()) { this.cerrarTrasAbrir.set(false); this.abrirCierre(); }
       },
-      error: (e) => { this.abriendo.set(false); this.avisarError(e, 'No se pudo abrir el corte'); },
+      /**
+       * ⛔ `[CG.90.1]` **LA INTENCIÓN SE LIMPIA TAMBIÉN CUANDO FALLA.**
+       *
+       * Antes `cerrarTrasAbrir` se ponía al abrir el diálogo y `cancelarApertura()` lo limpiaba.
+       * Al quitar el diálogo (`cerrarJornada` llama derecho a `abrirCorte`), ese camino de
+       * limpieza desapareció: si la apertura fallaba, la intención quedaba colgada en `true` y
+       * **el siguiente corte que alguien abriera por su cuenta saltaba al conteo solo**.
+       *
+       * Lo cazó la prueba negativa que ya existía para el defecto equivalente del diálogo. Un
+       * freno puesto para una puerta sirvió para la otra — por eso se conserva en vez de borrarla
+       * cuando cambia el gesto.
+       */
+      error: (e) => {
+        this.abriendo.set(false);
+        this.cerrarTrasAbrir.set(false);
+        this.avisarError(e, 'No se pudo abrir el corte');
+      },
     });
   }
 
@@ -4169,7 +4473,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargar(): void {
     this.cargando.set(true);
-    this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined })
+    this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined,
+      // [CG.86] El filtro viaja como BANDERA, no como nombre ni como id: el servidor resuelve
+      // quién es "yo" desde el token de la petición. Mandar el id desde acá volvería "los míos"
+      // en "los de cualquiera que yo escriba".
+      mios: this.soloMios() ? '1' : undefined })
       .subscribe({
         next: (r) => {
           this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi);
@@ -4189,7 +4497,44 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * neto), con el mismo criterio que el corte. Es un reporte de lo REALIZADO (el libro), no de la bandeja.
    */
   imprimiendoReporte = signal(false);
+  /** `[CG.87]` El texto del reporte, tal cual lo arma el papel. Vacío = nunca se pidió. */
+  reporteTexto = signal('');
+  reporteAbierto = signal(false);
+  /** `[CG.86]` ¿El libro muestra sólo lo que capturó quien mira? */
+  soloMios = signal(false);
+
+  alternarMios(): void {
+    this.soloMios.set(!this.soloMios());
+    this.cargar();
+  }
+  /**
+   * `[CG.87]` **El reporte del día, EN PANTALLA.** Pedido de Edgar: *"un reporte de movimientos
+   * del día"*. Existía, pero **sólo salía a la térmica** — para leerlo había que imprimirlo.
+   *
+   * ⭐ Comparte el MISMO armador que el papel (`cuerpoReporteDia`, una función pura que devuelve
+   * el texto). Dos superficies, un solo cuerpo: si mañana cambia un total o un renglón, cambian
+   * las dos juntas. Reescribirlo en HTML habría creado una segunda versión que se desalinea en
+   * silencio — y un reporte de dinero que dice algo distinto en papel y en pantalla es peor que
+   * no tenerlo.
+   *
+   * ⚠️ Y pesa más desde `[CG.81]`: al quitar la impresión automática del comprobante, dejar el
+   * reporte sólo en papel empujaba en la dirección contraria.
+   */
+  verReporteDia(): void {
+    this.armarReporte((rep) => {
+      this.reporteTexto.set(cuerpoReporteDia(rep));
+      this.reporteAbierto.set(true);
+    });
+  }
+
   imprimirReporteDia(): void {
+    this.armarReporte((rep) => {
+      if (!imprimirTicketReporte(rep)) this.avisarError(null, 'El navegador no dejó abrir la impresión del reporte');
+    });
+  }
+
+  /** El armado es UNO solo: lo que se ve y lo que se imprime salen de la misma consulta. */
+  private armarReporte(usar: (r: ReporteDia) => void): void {
     this.imprimiendoReporte.set(true);
     this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined, limit: 500 })
       .subscribe({
@@ -4211,7 +4556,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
             generado_por: this.auth.user()?.username ?? null,
             truncado: !!r.has_more,
           };
-          if (!imprimirTicketReporte(rep)) this.avisarError(null, 'El navegador no dejó abrir la impresión del reporte');
+          usar(rep);
         },
         error: (e) => { this.imprimiendoReporte.set(false); this.avisarError(e, 'No se pudo generar el reporte del día'); },
       });
@@ -4222,6 +4567,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.conceptoSel = null;
     this.conceptoManual.set(false);
     this.cuentaFuenteDoc.set(null);
+    // `[CG.94]` Cada captura arranca en modo ficha. Si no se reseteara, corregir UNA dejaría
+    // abierto el formulario para todas las siguientes — y el modo se elige por movimiento.
+    this.corrigiendo.set(false);
     this.declararRegla.set(false);
     this.propuesta.set(null);
     // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
@@ -4671,6 +5019,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     }).subscribe({
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
+        // `[CG.93]` Lo único que tiene que hacer la persona es CONTAR. Ver `avanzarAlSiguiente()`.
+        this.avanzarAlSiguiente();
         // CG — los documentos POR PAGAR (gastos / órdenes de entrada) sólo vienen con búsqueda: sin
         // término la lista llega vacía y la sección no se pinta, que es lo correcto.
         this.pagables.set(r.pagables ?? []);
@@ -5161,9 +5511,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const f = this.f();
     // Se lee ANTES de emitir: el `next` corre despues y para entonces el dialogo ya se cerro.
     const declarar = this.declararRegla() && this.puedeDeclararRegla();
-    // CS.3.8 — el desglose que va al servidor, capturado ACÁ para imprimir el comprobante en el
-    // `next` (después la reja ya se reseteó). Es el arqueo completo (cajero + reja).
-    const densComprobante = this.denominacionesParaGuardar();
+    // ⛔ `[CG.81]` Acá se leía `densComprobante` para imprimir el comprobante en el `next`. Se fue
+    // con la impresión automática: el payload de abajo vuelve a llamar a `denominacionesParaGuardar()`
+    // por su cuenta, así que esta línea quedó sin un solo consumidor.
     this.svc.crear({
       ...f,
       // CS.3.7 — El arqueo que va al servidor es el COMPLETO: el del cajero (en la UI va aparte) +
@@ -5216,12 +5566,57 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
-        // CS.3.8 — el comprobante sale solo a la térmica con lo recién guardado (folio nuestro,
-        // desglose, concepto, recibido, total, firma). Se re-imprime cuando haga falta desde la lista.
-        if (m?.folio) imprimirTicketComprobante(this.comprobanteDe(m, densComprobante));
+        /**
+         * ⛔ `[CG.81]` **ACÁ EL COMPROBANTE SALÍA SOLO A LA TÉRMICA, y se retiró.** Pedido de
+         * Edgar: *"hay que dejar de mandar el imprimible del ticket y sólo almacenarlo como un
+         * historial"*.
+         *
+         * Era `CS.3.8`: al guardar se imprimía con lo recién enviado. El papel sale en CADA
+         * captura, y en un día normal de la caja general son ~84 movimientos (medido en el libro
+         * de Access el 2026-10-09) — o sea 84 tickets que nadie pidió.
+         *
+         * ⭐ Y no se pierde nada, verificado antes de quitarlo: el comprobante se DERIVA del
+         * movimiento, no es un documento aparte. Medido en prod sobre las 5 filas vivas de
+         * `finance.cash_ledger`, **las 5 tienen su desglose guardado** en
+         * `finance.cash_ledger_denominations` (2, 2, 1, 2 y 7 renglones). El botón de la lista
+         * reconstruye el papel pidiendo `svc.detalle(id)`, así que el historial alcanza.
+         *
+         * ⚠️ Por eso NO se guarda el texto renderizado del ticket: sería una copia de algo que ya
+         * está, y una copia que se desalinea en silencio en cuanto cambie el formato. El historial
+         * ES el movimiento con su desglose; el papel es una vista de eso.
+         *
+         * ⛔ **Y lo que este papel imprimía NO era lo mismo que imprime el botón** — los dos
+         * difieren, y en direcciones opuestas. El desglose se guarda en DOS pilas (`flujo`
+         * `recibido` y `devuelto`, `[CG.38]`), y ninguno de los dos caminos la respeta:
+         *
+         *   · éste mandaba sólo `denominacionesParaGuardar()` = la pila `recibido`, sin el vuelto;
+         *   · el botón pide `svc.detalle(id)`, que trae las dos pilas APLANADAS — ni filtra por
+         *     `flujo` ni lo devuelve (`.select('denominacion','piezas')`), y el ticket tampoco
+         *     sabe de `flujo`.
+         *
+         * Medido: hoy **ninguno de los 5 movimientos tiene pila `devuelto`**, así que en la
+         * práctica coinciden. El primero que capture con vuelto va a imprimir un desglose que
+         * suma MÁS que el monto, sin que nada avise. Queda DECLARADO acá, no arreglado de paso:
+         * arreglarlo de verdad es que el ticket muestre las dos pilas, y eso es otro cambio.
+         */
         // La regla va DESPUÉS de que el movimiento se guardó, y en su propia petición: si
         // declararla falla, el registro del efectivo ya está hecho y no se pierde.
         if (declarar) this.declararCuenta(f);
+        /**
+         * ⛔ `[CG.93]` **ACÁ FALTABA `cargarPendientes()`, y se podía capturar DOS VECES lo mismo.**
+         *
+         * Al guardar se recargaba el libro y el saldo, pero NO la cola. La fila recién capturada
+         * seguía en pantalla hasta el refresco de fondo —cada 60 s— y en esa ventana un segundo
+         * clic la volvía a abrir: mismo documento, dos movimientos, dinero contado doble.
+         *
+         * La de-duplicación del servidor es por `origen_ref` y existe (`[CG.85]`), pero recién se
+         * nota al RECARGAR; lo que la pantalla mostraba mientras tanto era trabajo que ya no
+         * estaba. Una lista que no se refresca después de modificarla es una lista que miente.
+         *
+         * ⭐ Y de paso es lo que encadena el flujo: al volver la lista sin lo capturado,
+         * `avanzarAlSiguiente()` abre el que sigue. Contar, guardar, contar, guardar.
+         */
+        this.cargarPendientes();
         this.cargar(); this.cargarSaldo();
       },
       error: (e) => { this.guardando.set(false); this.avisarError(e, 'No se pudo guardar el movimiento'); },

@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { TagModule } from 'primeng/tag';
+import { TableModule } from 'primeng/table';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
@@ -49,7 +51,7 @@ import {
 @Component({
   selector: 'app-comercial-ruta-directa-rentabilidad',
   standalone: true,
-  imports: [PageTabsComponent, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
+  imports: [PageTabsComponent, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rp">
@@ -74,6 +76,10 @@ import {
               }
             </select>
           </div>
+        }
+        @if (data(); as d) {
+          <app-freshness-pill measures="data" [since]="d.procedencia.gasto_calculado_at"
+                              label="Contabilidad" [staleAfterSec]="86400" />
         }
       </header>
 
@@ -111,9 +117,23 @@ import {
             <!-- Caso A de DESIGN_TABLES: las columnas son CAMPOS de un registro, así que en
                  estrecho la fila se apila. Sin dt-scope en el contenedor el CSS es inerte. -->
             <div class="rp-wrap dt-scope">
-              <table class="rp-table dt-stack">
-                <caption class="sr-only">Resultado por ruta en la quincena</caption>
-                <thead>
+              <!--
+                [RD.UI.2] DESIGN O.4 -- era una <table> cruda de 11 columnas. Al pasar a
+                p-table gana encabezado fijo, primera columna congelada (la ruta, que es la
+                que identifica el renglon al desplazarse a lo ancho) y teclado: flechas,
+                Home/End y roving tabindex, que en una <table> cruda no existen. La guarda
+                global installRowNavGuard (main.ts) evita que le robe las teclas a la fila.
+                dt-stack y dt-scope se conservan: son la salida en pantalla angosta y
+                p-table no la trae.
+              -->
+              <p-table [value]="rutasOrdenadas()" dataKey="route_code" size="small"
+                       [rowHover]="true" selectionMode="single" [(selection)]="filaSel"
+                       class="rp-table dt-stack surf-table surf-table--sticky surf-table--frozen-first"
+                       [tableStyle]="{ 'min-width': '72rem' }">
+                <ng-template #caption>
+                  <span class="sr-only">Resultado por ruta en la quincena</span>
+                </ng-template>
+                <ng-template #header>
                   <tr>
                     <th scope="col">Ruta</th>
                     <th scope="col">Chofer</th>
@@ -126,45 +146,43 @@ import {
                     <th scope="col" class="num">Kilómetros</th>
                     <th scope="col" class="num">Venta por km</th>
                   </tr>
-                </thead>
-                <tbody>
-                  @for (r of rutasOrdenadas(); track r.route_code) {
-                    <tr [class.rp-flag]="esDestacada(r)">
-                      <td role="cell" data-label="Ruta" class="mono dt-id">{{ r.route_code }}</td>
-                      <td role="cell" data-label="Chofer">
-                        {{ r.chofer || '—' }}
-                        @if (r.motivo_no_pago) {
-                          <p-tag severity="warn" [value]="motivo(r.motivo_no_pago)" styleClass="rp-tag" />
+                </ng-template>
+                <ng-template #body let-r>
+                  <tr [pSelectableRow]="r" [class.rp-flag]="esDestacada(r)">
+                    <td data-label="Ruta" class="mono dt-id">{{ r.route_code }}</td>
+                    <td data-label="Chofer">
+                      {{ r.chofer || '—' }}
+                      @if (r.motivo_no_pago) {
+                        <p-tag severity="warn" [value]="motivo(r.motivo_no_pago)" styleClass="rp-tag" />
+                      }
+                    </td>
+                    <td data-label="Venta sin IVA" class="num dt-num mono">{{ dinero(r.subtotal) }}</td>
+                    <td data-label="Costo" class="num dt-num mono dim">{{ dinero(r.costo) }}</td>
+                    <td data-label="Utilidad bruta" class="num dt-num mono fuerte">{{ dinero(r.utilidad_bruta) }}</td>
+                    <td data-label="Margen" class="num dt-num mono"
+                        [class.rp-alto]="margenAlto(r)" [class.rp-bajo]="margenBajo(r)">
+                      {{ r.margen_pct !== null ? r.margen_pct + '%' : '—' }}
+                    </td>
+                    <td data-label="Su comisión" class="num dt-num mono dim">{{ dinero(r.comision) }}</td>
+                    <td data-label="Le queda" class="num dt-num mono">{{ dinero(r.despues_de_su_comision) }}</td>
+                    <td data-label="Kilómetros" class="num dt-num mono">
+                      <!-- ⛔ Sin atributo title: en táctil no hay hover, así que lo que
+                           explica la cifra va como texto visible (DESIGN_TABLES). -->
+                      @if (r.cobertura_km === 'sin_gps') {
+                        <span class="rp-nd">sin rastreador</span>
+                      } @else {
+                        {{ entero(r.km) }}
+                        @if (r.cobertura_km === 'parcial') {
+                          <span class="rp-nd">{{ r.dias_medidos }} de {{ r.dias_con_senal }} días</span>
                         }
-                      </td>
-                      <td role="cell" data-label="Venta sin IVA" class="num dt-num mono">{{ dinero(r.subtotal) }}</td>
-                      <td role="cell" data-label="Costo" class="num dt-num mono dim">{{ dinero(r.costo) }}</td>
-                      <td role="cell" data-label="Utilidad bruta" class="num dt-num mono fuerte">{{ dinero(r.utilidad_bruta) }}</td>
-                      <td role="cell" data-label="Margen" class="num dt-num mono"
-                          [class.rp-alto]="margenAlto(r)" [class.rp-bajo]="margenBajo(r)">
-                        {{ r.margen_pct !== null ? r.margen_pct + '%' : '—' }}
-                      </td>
-                      <td role="cell" data-label="Su comisión" class="num dt-num mono dim">{{ dinero(r.comision) }}</td>
-                      <td role="cell" data-label="Le queda" class="num dt-num mono">{{ dinero(r.despues_de_su_comision) }}</td>
-                      <td role="cell" data-label="Kilómetros" class="num dt-num mono">
-                        <!-- ⛔ Sin atributo title: en táctil no hay hover, así que lo que
-                             explica la cifra va como texto visible (DESIGN_TABLES). -->
-                        @if (r.cobertura_km === 'sin_gps') {
-                          <span class="rp-nd">sin rastreador</span>
-                        } @else {
-                          {{ entero(r.km) }}
-                          @if (r.cobertura_km === 'parcial') {
-                            <span class="rp-nd">{{ r.dias_medidos }} de {{ r.dias_con_senal }} días</span>
-                          }
-                        }
-                      </td>
-                      <td role="cell" data-label="Venta por km" class="num dt-num mono" [class.rp-bajo]="kmBajo(r)">
-                        {{ r.venta_por_km !== null ? dinero(r.venta_por_km) : '—' }}
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-                <tfoot>
+                      }
+                    </td>
+                    <td data-label="Venta por km" class="num dt-num mono" [class.rp-bajo]="kmBajo(r)">
+                      {{ r.venta_por_km !== null ? dinero(r.venta_por_km) : '—' }}
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #footer>
                   <tr>
                     <td colspan="2">{{ d.rutas.length }} rutas</td>
                     <td class="num mono">{{ dinero(d.totales.subtotal) }}</td>
@@ -176,8 +194,8 @@ import {
                     <td class="num mono">{{ d.totales.km ? entero(d.totales.km) : '—' }}</td>
                     <td class="num"></td>
                   </tr>
-                </tfoot>
-              </table>
+                </ng-template>
+              </p-table>
             </div>
             <p class="rp-note">
               El margen se calcula sobre la <b>venta sin IVA</b>, que es la base del costo.
@@ -239,9 +257,20 @@ import {
                 más cae: un tablero que esconde la caída no sirve de tablero.
               </p>
               <div class="rp-wrap dt-scope">
-                <table class="rp-table dt-stack">
-                  <caption class="sr-only">Tendencia por ruta a lo largo del año</caption>
-                  <thead>
+                <!--
+                  [RD.UI.2] DESIGN O.4 -- 9 columnas de tendencia por ruta. Pasa a p-table por
+                  lo mismo que la de arriba: encabezado fijo, ruta congelada al desplazarse a
+                  lo ancho, y teclado (flechas, Home/End, roving tabindex) que una <table>
+                  cruda no da. dt-stack se conserva: es la salida en pantalla angosta.
+                -->
+                <p-table [value]="s.rutas" dataKey="route_code" size="small" [rowHover]="true"
+                         selectionMode="single" [(selection)]="filaTend"
+                         class="rp-table dt-stack surf-table surf-table--sticky surf-table--frozen-first"
+                         [tableStyle]="{ 'min-width': '64rem' }">
+                  <ng-template #caption>
+                    <span class="sr-only">Tendencia por ruta a lo largo del año</span>
+                  </ng-template>
+                  <ng-template #header>
                     <tr>
                       <th scope="col">Ruta</th>
                       <th scope="col">Chofer</th>
@@ -253,27 +282,26 @@ import {
                       <th scope="col" class="num">$/km ahora</th>
                       <th scope="col">Venta por km</th>
                     </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of s.rutas; track r.route_code) {
-                      <tr [class.rp-flag]="r.margen.veredicto === 'empeora' || r.venta_por_km.veredicto === 'empeora'">
-                        <td role="cell" data-label="Ruta" class="mono dt-id">{{ r.route_code }}</td>
-                        <td role="cell" data-label="Chofer">{{ r.chofer || '—' }}</td>
-                        <td role="cell" data-label="Quincenas" class="num dt-num mono dim">{{ r.puntos.length }}</td>
-                        <td role="cell" data-label="Margen antes" class="num dt-num mono dim">{{ pct(r.margen.previo) }}</td>
-                        <td role="cell" data-label="Margen ahora" class="num dt-num mono">{{ pct(r.margen.reciente) }}</td>
-                        <td role="cell" data-label="Margen">
-                          <span [class]="claseTend(r.margen)">{{ etiquetaTend(r.margen, 'pp') }}</span>
-                        </td>
-                        <td role="cell" data-label="$/km antes" class="num dt-num mono dim">{{ pesos(r.venta_por_km.previo) }}</td>
-                        <td role="cell" data-label="$/km ahora" class="num dt-num mono">{{ pesos(r.venta_por_km.reciente) }}</td>
-                        <td role="cell" data-label="Venta por km">
-                          <span [class]="claseTend(r.venta_por_km)">{{ etiquetaTend(r.venta_por_km, '') }}</span>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+                  </ng-template>
+                  <ng-template #body let-r>
+                    <tr [pSelectableRow]="r"
+                        [class.rp-flag]="r.margen.veredicto === 'empeora' || r.venta_por_km.veredicto === 'empeora'">
+                      <td data-label="Ruta" class="mono dt-id">{{ r.route_code }}</td>
+                      <td data-label="Chofer">{{ r.chofer || '—' }}</td>
+                      <td data-label="Quincenas" class="num dt-num mono dim">{{ r.puntos.length }}</td>
+                      <td data-label="Margen antes" class="num dt-num mono dim">{{ pct(r.margen.previo) }}</td>
+                      <td data-label="Margen ahora" class="num dt-num mono">{{ pct(r.margen.reciente) }}</td>
+                      <td data-label="Margen">
+                        <span [class]="claseTend(r.margen)">{{ etiquetaTend(r.margen, 'pp') }}</span>
+                      </td>
+                      <td data-label="$/km antes" class="num dt-num mono dim">{{ pesos(r.venta_por_km.previo) }}</td>
+                      <td data-label="$/km ahora" class="num dt-num mono">{{ pesos(r.venta_por_km.reciente) }}</td>
+                      <td data-label="Venta por km">
+                        <span [class]="claseTend(r.venta_por_km)">{{ etiquetaTend(r.venta_por_km, '') }}</span>
+                      </td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               </div>
 
               <section class="rp-gaps" aria-label="Por qué hay rutas sin tendencia">
@@ -435,6 +463,14 @@ export class ComercialRutaDirectaRentabilidadComponent {
 
   readonly cargando = signal(true);
   readonly data = signal<RouteProfit | null>(null);
+  /**
+   * `[RD.UI.2]` D.7 -- PrimeNG entra como DISPOSITIVO DE ENTRADA del teclado, no como dueno
+   * del estado. Esta tabla no abre detalle: la seleccion solo marca donde esta el cursor, y
+   * existe porque `pSelectableRow` la necesita para dar flechas y Home/End.
+   */
+  filaSel: RouteProfitRuta | null = null;
+  /** `[RD.UI.2]` La tendencia es otra tabla y otro universo de filas: su propia seleccion. */
+  filaTend: RouteProfitSerieRuta | null = null;
   readonly periodos = signal<RouteProfitPeriodo[]>([]);
   readonly periodId = signal<string | null>(null);
   readonly tab = signal('rutas');

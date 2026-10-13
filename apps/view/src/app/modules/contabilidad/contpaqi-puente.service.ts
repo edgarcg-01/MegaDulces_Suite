@@ -37,6 +37,14 @@ export class ContpaqiPuenteService {
     return this.http.post<{ alias_normalizado: string; cuenta: string }>(`${this.base}/alias-proveedor`, body);
   }
 
+  /**
+   * `[CP.8.38]` El TXT del mes. ⛔ Generar NO es entregar: el backend no escribe
+   * `poliza_exports`, así que esto no arranca el reloj del cuadre.
+   */
+  archivo(mes: string): Observable<Blob> {
+    return this.http.get(`${this.base}/archivo?mes=${encodeURIComponent(mes)}`, { responseType: 'blob' });
+  }
+
   cuadre(): Observable<CuadreResp> {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }

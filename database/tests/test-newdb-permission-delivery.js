@@ -87,8 +87,10 @@ const SIN_PERSONAS = {
   // el personal de RH sin nadie adentro. Mientras nadie de RH este asignado, las pantallas `/rh/*` no
   // le llegan a nadie de negocio (solo superadmin). La auditoria (`HR_INCIDENTS_AUDITAR`) NO esta
   // aca: va a `contabilidad`, que si tiene gente.
+  // `[RH.2.3]` Reclutamiento: misma vía (mig `20261012174003`), mismo hueco.
   ...Object.fromEntries(['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR',
-    'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR'].map((k) => [k,
+    'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR',
+    'HR_RECRUITMENT_VER', 'HR_RECRUITMENT_GESTIONAR'].map((k) => [k,
     'Fase RH [RH.1.7]: su unica via es `recursos_humanos`, con 0 personas. Falta asignar al personal ' +
     'de RH desde /admin/personas (el puesto Auxiliar de RR-HH cae por defecto en `administracion`, ' +
     'que no es solo RH). Pendiente: David con RH.'])),

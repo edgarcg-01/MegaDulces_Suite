@@ -9,6 +9,50 @@
 ---
 
 ## [Unreleased]
+### Added — «Mi pedido» se ajusta y se guarda en la Suite, sin Excel (AB.18–AB.20, 2026-10-12)
+- El almacenista corrige el sugerido con **− / +**; si se aleja más de 20%, elige el motivo con un clic. Se guarda solo, con «volver» al sugerido y «Aceptar grupo». Cada decisión deja huella (sugerido visto, lo que dejó, motivo, tiempo) para el aprendizaje.
+- **¿Hasta dónde pides?**: casillas Agotado · Bajo mínimo · Bajo reorden (y «Sobre reorden, con venta», apagada). Lo marcado es lo que entra al pedido y se guarda.
+- Cada origen se parte en **unidad mayor**, **unidad menor** y **una sola unidad**, para surtir en órdenes separadas.
+- El **granel con caja o bulto** se pide en la unidad mayor (con la misma regla de media unidad).
+- Lo que se pide en unidad menor y vale **menos de $200 no se pide**, salvo que esté **agotado**.
+- Se retira la descarga en Excel de AB.16. Migración nueva (aplicar antes del código) que también da al almacenista el permiso de preparar su pedido.
+### Fixed — El pedido ya no carga un pico que ya pasó (AB.17, 2026-10-12)
+- Cuando un producto tuvo un pico real (promoción, oferta, temporada o una venta grande: más de 2 veces su venta normal en una semana) y ya regresó a su ritmo, el sistema pide con su venta normal en lugar del promedio de 30 días que todavía arrastra el pico. Aplica a Compras (/compras/pedido) y a Autoabasto.
+- No se frena si la venta bajó por falta de mercancía (existencia para menos de 3 días): eso es venta negada.
+- Ejemplo: bombón La Rosa 70012 en La Piedad — el pedido baja de 46 cajas a unas 3. Hoy son 725 productos-sucursal.
+### Added — «Mi pedido» en Autoabasto: el pedido de la semana por origen, redondeado como se captura en Kepler (AB.16, 2026-10-12)
+- Nueva pestaña **Mi pedido** (Almacén › Abasto): lo que toca pedir agrupado por a quién se le pide (la matriz o el proveedor directo), con subtotal en cajas y en pesos, y aviso cuando no se alcanza el pedido mínimo del proveedor.
+- **Ya descuenta lo pedido a la matriz** en los últimos 7 días; los pedidos abiertos más viejos salen marcados como **atorados** (para reclamarlos o cancelarlos), y lo que la matriz **negó** en 30 días se marca en el renglón.
+- **La cantidad viene redondeada** con la regla acordada: cajas completas si falta media caja o más; si falta menos, en piezas o paquetes; granel en kilos completos.
+- ~~Descarga en Excel~~ — reemplazada por el ajuste dentro de la Suite (AB.18).
+### Changed — Finanzas › Gastos: un vale aprobado con cotización se cierra al aprobarlo (GX.82, 2026-10-12)
+- La cotización basta como evidencia: ya no se queda en «Pendientes de comprobación» esperando factura. Sólo vuelve si el aprobador marca «provisional». Una migración cierra los 93 que estaban atorados.
+### Changed — Compras › Catálogo: los productos se revisan por proveedor (PF.9, 2026-10-12)
+- Barra de proveedores ordenada por venta del mes, con los productos sin proveedor aparte.
+- Por proveedor: venta del mes, para comprar, agotados y líderes; chips por situación; cada producto dice para cuántos días alcanza y qué hacer, con el porqué.
+- «Para cuidar hoy» pasa a una vista aparte. Nuevos endpoints `GET /commercial/products/flow/proveedores[/:id]` (en vivo, guardados un minuto). Sin migración.
+### Fixed — Finanzas › Gastos: los vales aprobados sólo con cotización ya aceptan su factura (GX.81, 2026-10-12)
+- Un vale aprobado con sólo cotización pedía la factura y la Suite la rechazaba («no lleva evidencia»), así que se quedaba en «Pendientes de comprobación» aunque Kepler ya lo hubiera pagado. Ahora se puede subir; los 70 atorados se destraban sin tocar datos.
+### Changed — Existencia: respuesta en milisegundos y cantidades en cajas, paquetes y piezas (EX-PERF.3 + EX.U2, 2026-10-12)
+- `/compras/existencia` y `/almacen/inventory/existencia`: filtrar, buscar, ordenar y paginar pasa de **1.1–2.8 s a 26–83 ms** (medido contra prod). El servidor arma una foto de la existencia cada ~45 s y la pantalla muestra su edad en la píldora «Tabla calculada»; la primera carga tras 5 min sin uso tarda ~2.5 s.
+- Las cantidades ya no salen con decimales de caja: `333.7` pasa a `333 cj 14 paq` (caja, paquete de la ficha de Kepler de esa sucursal y pieza). Si un producto no tiene factor de caja, se muestra en su unidad con °. El total del producto va desglosado cuando todas las sucursales usan el mismo empaque; si no, en cajas enteras con `≈`.
+- Corregido de paso: el aviso «celdas valuadas con el catálogo» nunca aparecía (el servidor siempre mandaba 0); hoy son 34.
+- Sin migraciones ni permisos nuevos.
+### Changed — Autoabasto calcula cuánto pedir igual que Compras (AB.15, 2026-10-12)
+- **«Falta» ahora es la venta de los últimos 30 días por la temporalidad, menos la existencia**: el mismo cálculo de /compras/pedido. El almacenista y el comprador ven la misma cantidad (98% de coincidencia medida en La Piedad; la diferencia es el ajuste por cumplimiento del proveedor, que es del comprador).
+- **La existencia también es la de Compras**: el CEDIS se lee de Kepler desde su cambio del 30-sep (antes Autoabasto mostraba la última foto de Wincaja).
+- Nueva columna **Venta 30 d**, y la explicación de *Falta* dice de dónde sale el objetivo.
+- La vista por defecto muestra sólo lo que tiene algo que pedir; lo que no (mayormente productos sin venta en 30 días) sigue en «Acción = En política».
+- El mínimo, el reorden y el máximo siguen decidiendo la posición (agotado, bajo mínimo…) y qué es sobrante.
+### Fixed — Autoabasto: vuelve el PDF, el aviso de tránsito dice la verdad y el filtro de acción cubre todas las páginas (AB.14, 2026-10-12)
+- **Volvieron el botón «Descargar PDF» y los avisos de «Tu almacén»** en /almacen/autoabasto: un cambio del 8-oct (nombres de sucursal) se había hecho sobre una versión anterior de la pantalla y los borró.
+- **Lo que está en camino ya no se presenta como descontado.** Desde el 9-oct el sugerido no resta las órdenes en camino; la pantalla, el «por qué» de *Falta* y el PDF decían lo contrario. Ahora muestran el aviso real.
+- **El filtro «Acción» lo aplica el servidor**: antes sólo recortaba la página visible y el total era falso. «Sobrante» y «En política» ya aparecen.
+- **La búsqueda también filtra los indicadores de arriba por producto** (antes los filtraba por nombre de proveedor).
+### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
+- **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
+- **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) (**sin exportar a Excel/CSV**, decisión de Edgar del 2026-10-10: el aviso lleva a Cambios de precio, donde se reimprime).
+- Cambios de comportamiento: la campana hace un poll cada 5 min a `GET /store/labels/notices` sólo para quien tiene `STORE_LABELS_VER`. La pantalla de cambios acepta `?plaza=&fecha=` (validados; quien tiene tienda propia no cambia de plaza). **Migraciones aditivas ANTES del código** (`20261009160146` tabla, `20261009160147` reparto del permiso) y los afectados deben **re-loguear**. Nada aplicado a prod todavía. Plan y pendientes en `FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md`.
 ### Added — Preventa: liquidación contra la guía de carga (MCP.7, 2026-10-10)
 - Almacén › Pedidos › **Guías de carga** › **Por liquidar**: al regresar quien entregó, la caja revisa lo entregado y lo declarado (efectivo y transferencias con referencia), cuenta el efectivo por denominación y cierra la vuelta. Si algo no cuadra, la nota es obligatoria. Sale un comprobante en PDF para firmar (sustituye la tira de ingresos), reimprimible.
 - Un pedido que no se entrega en 3 intentos (sale una vez + 2 reintentos) ya no se puede llevar: la mesa lo marca «Devolución y NC en Kepler».
@@ -198,6 +242,32 @@
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
+### Changed — Productos: márgenes al instante y «Para cuidar hoy» ligero (PF.7/PF.8, 2026-10-12)
+- Los márgenes del producto se calculan cada noche y el panel los muestra al instante (antes 1.5 s, hasta 14 s la primera vez); si el cálculo de la noche no está al día, se calculan en el momento y se avisa.
+- «Para cuidar hoy» pesa la mitad (234 KB, 37 KB comprimido): lleva sólo lo que se ve; el análisis completo llega al abrir el producto.
+- Fixed: los líderes y las caducidades de «Para cuidar hoy» salían sin nombre.
+
+### Changed — Productos: «Para cuidar hoy» ya no se espera (PF.6, 2026-10-09)
+- El servidor lo calcula cada minuto en segundo plano y la pantalla lo recibe al instante (23–50 ms medidos en local, antes ~3 s y hasta 6.5 s la primera vez). Dice a qué hora se calculó; si la foto no está al día lo calcula en el momento y lo avisa.
+
+### Added — Productos: lo que no se vende y márgenes (PF.4/PF.5, 2026-10-09)
+- «Para cuidar hoy» queda en dos lados: **Líderes** (todos, en orden de venta, con su venta del mes, lo que piden y su margen) y **No se venden** (con existencia y sin venta en la red en 30 días o más, primero lo de más dinero detenido; filtro por tramo y «Caducan antes de venderse»).
+- Columna «Margen 30 d» en la tabla de Productos y, al abrir un producto, los tres márgenes de Productos nuevos (de lista, real y sobre lo pagado) en total y por sucursal. Sólo con permiso de costo.
+- Fixed: productos con el costo vacío en la ficha de Kepler hacían fallar la consulta de costo.
+
+### Added — Productos: líderes y caducidad (PF.2/PF.3, 2026-10-09)
+- Arriba de la tabla, «Para cuidar hoy»: los líderes (los productos que juntos hacen la mitad de la venta de la red en 90 días) que piden atención, primero lo que más se deja de vender por día, con filtro por motivo (agotado, comprar, mover, se frenó); y los productos con lotes que caducan antes de venderse.
+- Cada líder lleva su marca en la tabla y en el producto; a un líder se le recomienda comprar con 21 días de inventario en vez de 15.
+- En el producto, la sección Caducidad: cada lote con su fecha, lo que hay hoy, lo que alcanza a venderse al ritmo actual, lo que caducaría y a qué sucursal moverlo. Lo caducado según el registro pide confirmarlo en el piso.
+
+### Added — Productos: flujo de venta, estancados y si hace falta comprar (PF.1, 2026-10-09)
+- En la tabla de Productos, la venta del mes contra los mismos días del mes anterior (en vivo) y la situación de compra de cada producto.
+- Al abrir un producto: qué hacer y por qué, en qué afecta, qué mover entre sucursales antes de comprar, la venta día a día de los dos meses, y cada sucursal con su estado (agotado, estancado, se frenó, le sobra), su existencia en cajas y para cuántos días alcanza.
+
+### Fixed — Productos nuevos: sin pantallazo y más rápida (NP.17, 2026-10-09)
+- El detalle ya no se vacía ni se vuelve a pintar cada minuto: conserva lo último mientras llega lo nuevo.
+- La existencia se lee directo de Kepler sin calcular el factor de caja de todo el catálogo: la lista pasa de ~2 s a ~0.15 s en esa consulta y el detalle de ~1.2 s a menos de 10 ms.
 
 ### Added — Productos nuevos: cuándo llegó y cómo se repartió (NP.16, 2026-10-09)
 - «Llegó a la empresa»: la fecha de la primera compra física en Kepler y en qué sucursales entró; avisa si el producto ya había entrado antes por un ajuste o un traspaso.

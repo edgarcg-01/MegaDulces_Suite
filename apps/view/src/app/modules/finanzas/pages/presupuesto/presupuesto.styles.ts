@@ -153,6 +153,28 @@ export const PRESUPUESTO_STYLES = `
       border-radius:var(--radius-sm); border:1px solid var(--warn-border, var(--border));
       background:var(--warn-bg, var(--surface-2)); color:var(--warn-text, var(--text)); }
     .pres-warn .pi { margin-top:.1rem; flex:0 0 auto; }
+    /* [PU.VG.10] La concentracion: la respuesta va ARRIBA de la tabla, no dentro de ella. Es un
+       bloque aparte y no un p-table porque no se ordena ni se pagina: son seis renglones fijos
+       elegidos a proposito, y el septimo es el resumen de todo lo demas. */
+    .pres-conc { margin-top:.7rem; padding:.7rem .8rem; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-2); }
+    .pres-conc-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:.5rem 1rem; }
+    .pres-conc-head h3 { margin:0; font-size:var(--fs-h3); }
+    .pres-conc-head span { font-size:var(--fs-sm); color:var(--text-muted); }
+    .pres-conc-head strong { color:var(--text); }
+    /* Un titular que es una AUSENCIA no se pinta igual que uno que afirma: apagado, no rojo --
+       no haber podido medir no es una falla del negocio. */
+    .pres-conc-ausente { color:var(--text-muted); font-weight:600; }
+    .pres-conc-inv { margin-top:.45rem; }
+    .pres-conc-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); margin-top:.55rem; }
+    .pres-conc-tbl th { text-align:left; font-weight:600; color:var(--text-muted); font-size:var(--fs-micro);
+      text-transform:uppercase; letter-spacing:.02em; padding:.2rem .5rem .3rem 0; border-bottom:1px solid var(--border); }
+    .pres-conc-tbl td { padding:.26rem .5rem .26rem 0; border-bottom:1px solid color-mix(in srgb, var(--border) 45%, transparent); }
+    .pres-conc-tbl .ta-r { text-align:right; padding-right:.9rem; }
+    .pres-conc-tbl th.ta-r { text-align:right; padding-right:.9rem; }
+    .pres-conc-resto td { border-bottom:0; font-style:italic; }
+    /* El bloque de lo que NO se puede contestar lleva un salto de linea, asi que no puede heredar
+       el flex de .pres-hint: en una sola fila el <br> no hace nada y el texto se corta. */
+    .pres-conc-dec { display:block; margin-top:.6rem; line-height:1.5; }
     .pres-crit { color:var(--bad-fg); margin-left:.3rem; }
     .pres-row-critical { background:color-mix(in srgb, var(--bad-fg) 5%, transparent); }
     .pres-empty-block { text-align:center; padding:1.6rem; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:.5rem; }

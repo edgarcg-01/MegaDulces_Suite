@@ -89,7 +89,7 @@ export class CashLedgerService {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/finance/cash-ledger`;
 
-  libro(f: { from?: string; to?: string; tipo?: string; sucursal?: string; cuenta?: string; search?: string; limit?: number; offset?: number }): Observable<LibroResponse> {
+  libro(f: { from?: string; to?: string; tipo?: string; sucursal?: string; cuenta?: string; search?: string; limit?: number; offset?: number ; mios?: '1' }): Observable<LibroResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
     return this.http.get<LibroResponse>(this.base, { params: p });
@@ -643,14 +643,61 @@ export interface ArqueoTipoCajero {
  * publica su contenido, y el flujo acumulado da negativo porque el saldo anterior al arranque del
  * feed no se conoce. Rotularlo «saldo» sería publicar un número que no existe.
  */
+/**
+ * `[CG.91]` Un renglón del historial de la jornada: lo que la persona capturó, no el agregado.
+ * El cuadro de arriba es el resumen; esto es lo que lo forma y lo que permite revisarlo.
+ */
+export interface ArqueoMovimientoDia {
+  id: string;
+  folio: string;
+  /** `HH:MM` en hora de México, del reloj FÍSICO (`created_at`), igual que el resto de la jornada. */
+  hora: string;
+  tipo: 'ingreso' | 'gasto' | 'deposito';
+  monto: number;
+  beneficiario: string | null;
+  /** El documento de Kepler que lo originó (`X-D-26 0023030`), si lo hay. */
+  documento: string | null;
+  concepto: string | null;
+  cuenta: string | null;
+  estado: string;
+  origen: string | null;
+  quien: string | null;
+}
+
 export interface ArqueoDia {
   fecha: string;
   sucursal: string;
+  /**
+   * `[CG.91]` El historial de la jornada. Opcional porque el API puede ir por detrás del front
+   * (deploy parcial): si no viene, la pantalla no pinta la lista en vez de reventar. Ausente NO
+   * es "no hubo movimientos" — eso lo dice `caja_general.movimientos`.
+   */
+  movimientos_del_dia?: ArqueoMovimientoDia[];
   caja_general: {
     movimientos: number; cancelados: number;
     ingresos: number; gastos: number; depositos: number;
     /** ingresos − gastos − depósitos. Sin fondo inicial: eso compone el esperado, que va gateado. */
     neto: number;
+    /**
+     * `[CG.82]` De los movimientos de la jornada, cuántos traen el documento de Kepler fechado
+     * OTRO día. La jornada se arma por el día en que se REGISTRÓ el efectivo — el único reloj en
+     * el que el otro lado del cuadre también está: el `accounting_date` del cajero coincide con el
+     * día físico en 455 de 456 movimientos de 60 días. Este número dice cuánto de la jornada es
+     * papel de antes, y por eso viaja como número y no sólo como frase en `limites`.
+     */
+    fechados_otro_dia: number;
+    /**
+     * `[CG.97]` Lo que de verdad quedó en el cajón, en el modelo de **cajas separadas**: la caja
+     * chica es efectivo suelto y el cajero es la bóveda.
+     *
+     *     en_el_cajon = ingresos − gastos − depósitos + dispensado − depositado
+     *
+     * `null` cuando esta sucursal no tiene cajero o el feed no está. **No es cero**: un cero
+     * afirmaría que no quedó nada en el cajón, que es otra cosa que no poder saberlo.
+     */
+    en_el_cajon?: number | null;
+    /** `[CG.97]` Lo que la jornada le dejó a la bóveda, neto. Positivo = la bóveda creció. */
+    a_la_boveda?: number | null;
   };
   /** `null` cuando la sucursal no tiene cajero o el feed no está. El motivo viaja en `no_medido`. */
   cajero: {
@@ -661,7 +708,15 @@ export interface ArqueoDia {
     tipos_desconocidos: Array<{ type_id: number; etiqueta: string; monto: number }>;
     ultimo_movimiento: string | null;
   } | null;
-  corte_abierto: { id: string; folio: string; fecha: string } | null;
+  /**
+   * `[CG.90.1]` `fondo_inicial` es `number | null` y el `null` SIGNIFICA algo: no se midió, que
+   * no es lo mismo que haber arrancado en cero. De eso cuelga si la pantalla ofrece declararlo.
+   * Opcionales porque el API puede ir por detrás del front en un deploy parcial.
+   */
+  corte_abierto: {
+    id: string; folio: string; fecha: string;
+    fondo_inicial?: number | null; fondo_origen?: string | null;
+  } | null;
   /**
    * `[CG.29]` Lo que ESTA jornada no pudo afirmar y que **alguien puede cambiar hoy**. Se pinta
    * fuerte: es lo que separa «el movimiento registrado» de «un arqueo firmado».

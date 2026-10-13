@@ -173,6 +173,49 @@ const check = (cond, label) => {
     check(bancarias.length === 0,
       '⛔ ninguna cuenta de banco cae fuera de lote — las que caen (CAJA, FACTORAJE) no son bancos');
 
+    console.log('\n[3c] `[CP.8.38]` El archivo del mes: que sea importable, y que NO marque entregado');
+    {
+      const { ContpaqiTxtSinkAdapter } = require(path.resolve(
+        __dirname, '..', '..', 'libs/finance/src/lib/contpaqi/txt-sink.adapter.ts'));
+      const { parsearTxt } = require(path.resolve(
+        __dirname, '..', '..', 'libs/finance/src/lib/purchase-book/poliza-txt.ts'));
+      const conSink = new ContpaqiArmadoService(knex, new ContpaqiTxtSinkAdapter());
+
+      const antes = Number((await knex('contpaqi.poliza_exports').count({ n: '*' }).first()).n);
+      const arch = await conSink.generarArchivoMes('2026-01');
+      const despues = Number((await knex('contpaqi.poliza_exports').count({ n: '*' }).first()).n);
+
+      // ⛔⛔ La aserción que define la fase: generar NO es entregar. Si esto se cae, el cuadre
+      // empieza a medir cuánta gente apretó un botón en vez de cuánto llegó a ContPAQi.
+      check(despues === antes && arch.entregado === false,
+        `⛔⛔ generar NO escribió en poliza_exports (${antes} → ${despues}) ni se declara entregado`);
+
+      check(arch.polizas > 0 && arch.movimientos > 0,
+        `${arch.polizas} pólizas · ${arch.movimientos} movimientos · $${arch.total.toLocaleString('es-MX')}`);
+
+      // El archivo tiene que PARSEAR con el mismo lector que valida el formato real.
+      const polizas = arch.contenido.split(/(?=^P )/m).filter((p) => p.trim());
+      check(polizas.length === arch.polizas,
+        `el archivo trae ${polizas.length} encabezados \`P\`, uno por póliza`);
+      let renglones = 0;
+      let cuadran = 0;
+      for (const p of polizas) {
+        const r = parsearTxt(p);
+        renglones += r.movimientos.length;
+        const cargos = r.movimientos.filter((m) => !m.abono).reduce((a, m) => a + m.importe, 0);
+        const abonos = r.movimientos.filter((m) => m.abono).reduce((a, m) => a + m.importe, 0);
+        if (Math.abs(Math.round((cargos - abonos) * 100)) === 0) cuadran += 1;
+      }
+      check(cuadran === polizas.length,
+        `⭐ las ${polizas.length} pólizas CUADRAN al centavo (cargos = abonos)`);
+      check(renglones > arch.movimientos,
+        `${renglones} renglones para ${arch.movimientos} movimientos: cada uno trae su IVA y el abono al banco`);
+      // ⛔ Toda línea del formato real termina en espacio y usa CRLF. Un archivo con LF se
+      // importa y corre todas las columnas.
+      check(arch.contenido.includes('\r\n') && !/[^\r]\n/.test(arch.contenido),
+        '⛔ el archivo usa CRLF en TODAS las líneas, como el export real de ContPAQi');
+    }
+
     console.log('\n[4] El estado del cuadre se lee SIN escribir, y el vacío se declara');
     const { ContpaqiCuadreService } = require(path.resolve(
       __dirname, '..', '..', 'libs', 'finance', 'src', 'lib', 'contpaqi', 'contpaqi-cuadre.service.ts'));

@@ -46,7 +46,7 @@ export interface FilaExport {
  */
 export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAsistencia[], c: ContextoExport, conSubtotales: boolean): { encabezado: string[]; filas: FilaExport[] } {
   const hayAsig = todas.some((p) => !!p.horarioAsignado);
-  const encabezado = ['Clv', 'Nombre', 'Horario', ...c.columnas.map((x) => `${x.dow} ${x.dia}`), 'Horas', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(hayAsig ? ['vs. horario'] : [])];
+  const encabezado = ['Clv', 'Nombre', 'Horario', ...c.columnas.map((x) => `${x.dow} ${x.dia}`), 'Horas', 'H. extra', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(hayAsig ? ['vs. horario'] : [])];
   const o = { hoy: c.hoy, mideRetardo: c.mideRetardo };
   const filas: FilaExport[] = [];
   for (const g of grupos) {
@@ -56,11 +56,13 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
       const dia = c.columnas.map((col) => {
         const x = celdaDe(p, dias, col.fecha, o);
         const pz = [x.desMin !== null ? `D ${x.desMin}` : '', x.comMin !== null ? `C ${x.comMin}` : ''].filter(Boolean).join(' ');
-        return [x.jornada, x.tramos.join(' '), pz].filter(Boolean).join('\n');
+        // `[RH.1.10]` Las horas extra del día, como en pantalla (Mega Talento 1a28f6e).
+        return [x.jornada, x.tramos.join(' '), pz, x.extraMin ? `+${horasTexto(x.extraMin)} extra` : ''].filter(Boolean).join('\n');
       });
       filas.push({
         tipo: 'persona',
         celdas: [p.codigo, p.nombreCompleto || p.nombre, horarioDe(p).texto, ...dia, horasTexto(p.minutosTrabajados),
+          p.horasExtraGanadasMin ? horasTexto(p.horasExtraGanadasMin) : '',
           c.mideRetardo ? String(p.atrasoBrutoMin || '') : '-', ...(hayAsig ? [firmaHoras(difHorario(p))] : [])],
       });
     }
@@ -69,7 +71,8 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
       const completo = todas.filter((p) => departamentoDe(p) === g.departamento);
       const min = completo.reduce((t, p) => t + p.minutosTrabajados, 0);
       const ret = completo.reduce((t, p) => t + p.atrasoBrutoMin, 0);
-      filas.push({ tipo: 'subtotal', celdas: ['', '', '', ...c.columnas.map(() => ''), horasTexto(min), c.mideRetardo ? String(ret) : '', ...(hayAsig ? [''] : [])] });
+      const extra = completo.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0);
+      filas.push({ tipo: 'subtotal', celdas: ['', '', '', ...c.columnas.map(() => ''), horasTexto(min), extra ? horasTexto(extra) : '', c.mideRetardo ? String(ret) : '', ...(hayAsig ? [''] : [])] });
     }
   }
   return { encabezado, filas };
@@ -142,7 +145,7 @@ export async function exportarPdfPersona(p: HrPersonaAsistencia, c: ContextoExpo
     const d = dias.get(col.fecha);
     const x = celdaDe(p, dias, col.fecha, o);
     const dia = `${col.dow} ${col.dia}`;
-    if (x.tipo !== 'dia' || !d) return [dia, { content: latin1(x.titulo || x.jornada), colSpan: conVs ? 7 : 6, styles: { textColor: MUTED } }];
+    if (x.tipo !== 'dia' || !d) return [dia, { content: latin1(x.titulo || x.jornada), colSpan: conVs ? 8 : 7, styles: { textColor: MUTED } }];
     const pz = pausasDelDia(d);
     return [
       dia,
@@ -150,16 +153,16 @@ export async function exportarPdfPersona(p: HrPersonaAsistencia, c: ContextoExpo
       pz.desayuno ? `${pz.desayuno} (${d.desayunoMin} min)` : '-',
       pz.comida ? `${pz.comida}${d.comidaMin != null ? ` (${d.comidaMin} min)` : ''}` : '-',
       `${d.salida ?? ''}${(d.salidaAntesMin || 0) > 0 ? ` (-${d.salidaAntesMin})` : ''}`,
-      horasTexto(d.netasMin), c.mideRetardo ? String(d.atrasoMin || '') : '-',
+      horasTexto(d.netasMin), d.extraMin ? horasTexto(d.extraMin) : '', c.mideRetardo ? String(d.atrasoMin || '') : '-',
       ...(conVs ? [d.netasMin != null && d.esperadoMin != null ? firmaHoras(d.netasMin - d.esperadoMin) : ''] : []),
     ].map((v) => (typeof v === 'string' ? latin1(v) : v));
   });
   autoTable(doc, {
     startY: y,
     margin: { left: M, right: M },
-    head: [['Día', 'Entrada', 'Desayuno', 'Comida', 'Salida', 'Horas', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(conVs ? ['vs. horario'] : [])]],
+    head: [['Día', 'Entrada', 'Desayuno', 'Comida', 'Salida', 'Horas', 'H. extra', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(conVs ? ['vs. horario'] : [])]],
     body,
-    foot: [['Total', '', '', '', '', horasTexto(p.minutosTrabajados), c.mideRetardo ? String(p.atrasoBrutoMin) : '-', ...(conVs ? [latin1(firmaHoras(difHorario(p)))] : [])]],
+    foot: [['Total', '', '', '', '', horasTexto(p.minutosTrabajados), p.horasExtraGanadasMin ? horasTexto(p.horasExtraGanadasMin) : '', c.mideRetardo ? String(p.atrasoBrutoMin) : '-', ...(conVs ? [latin1(firmaHoras(difHorario(p)))] : [])]],
     styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, textColor: INK, lineColor: RULE, lineWidth: 0.4 },
     headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: 'bold' },
     footStyles: { fillColor: ZEBRA, textColor: INK, fontStyle: 'bold' },

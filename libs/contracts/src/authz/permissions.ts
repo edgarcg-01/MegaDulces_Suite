@@ -73,6 +73,12 @@ export enum Permission {
   STORE_LIVE_VER = 'STORE_LIVE_VER',
   // Módulo: Tienda — etiquetera de anaquel (impresión de etiquetas)
   STORE_LABELS_VER = 'STORE_LABELS_VER',
+  // Módulo: Tienda — etiquetera › Cambios de precio: COMPARTIR la lista (`[ETQ-AVISOS.3]`). Mandar el
+  // aviso a las sucursales y descargar la lista. Es una acción de ESCRITURA que llega a OTRAS
+  // plazas, así que no se cuelga de VER (lo tienen cajeras y encargados de tienda): quien sólo
+  // ve la lista de su tienda no debe poder avisarle a las demás. Se reparte por migración a
+  // quienes hoy ven la etiquetera Y operan Compras — no «de paquete».
+  STORE_LABELS_COMPARTIR = 'STORE_LABELS_COMPARTIR',
   // Módulo: Tienda — arqueo ciego de caja para cajeras (captura + ver). Superficie
   // acotada del arqueo del Supervisor de Movimientos (sin el motor de reconciliación).
   STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
@@ -108,6 +114,12 @@ export enum Permission {
   // Dar de alta y pausar relojes, y mandarles órdenes (renombrar, restaurar a alguien). Fuera de
   // los grupos «de paquete»: una orden se ejecuta en el equipo físico de una plaza.
   HR_DEVICES_GESTIONAR = 'HR_DEVICES_GESTIONAR',
+  // Módulo: RH / Reclutamiento — `[RH.2.2]`, lo que antes vivía en el portal de Mega Talento.
+  // VER lee candidatos y vacantes; GESTIONAR mueve de etapa, registra eventos, marca (no
+  // recontratable, spam), fusiona duplicados, manda a la papelera y publica vacantes. La pantalla es
+  // `[RH.2.3]`: hasta entonces gatean la API y están en `SIN_REPARTIR` del candado de reparto.
+  HR_RECRUITMENT_VER = 'HR_RECRUITMENT_VER',
+  HR_RECRUITMENT_GESTIONAR = 'HR_RECRUITMENT_GESTIONAR',
 
   // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
   // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume
@@ -281,6 +293,10 @@ export enum Permission {
 
   // Módulo: Logística — Configuración financiera (factores, costo km)
   LOGISTICS_CONFIG_GESTIONAR = 'LOGISTICS_CONFIG_GESTIONAR',
+  // [EMB.28.1] Cambiar una tarifa YA FIJADA (comisión por ruta, viático, maniobra de carga):
+  // capturarla la primera vez es de _CONFIG_GESTIONAR; cambiarla, borrarla o desactivarla, de
+  // éste. FUERA de todo MODULE_GROUP (molde TP.6 / RE.30): se reparte por migración.
+  LOGISTICS_TARIFAS_AUTORIZAR = 'LOGISTICS_TARIFAS_AUTORIZAR',
 
   // Módulo: Logística — Carta Porte 3.1 (CFDI Traslado vía PAC)
   LOGISTICS_CARTAPORTE_VER = 'LOGISTICS_CARTAPORTE_VER',

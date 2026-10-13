@@ -6,6 +6,7 @@ import { BudgetCashflowService } from './budget-cashflow.service';
 import { BudgetResultService } from './budget-result.service';
 import { CashCycleService } from './cash-cycle.service';
 import { PendingApprovalsService } from './pending-approvals.service';
+import { PresupuestoDireccionService } from './presupuesto-direccion.service';
 import type { BudgetResult } from '@megadulces/contracts';
 
 /**
@@ -24,6 +25,7 @@ export class BudgetComparisonController {
     private readonly resultSvc: BudgetResultService,
     private readonly cycle: CashCycleService,
     private readonly firmas: PendingApprovalsService,
+    private readonly direccionSvc: PresupuestoDireccionService,
   ) {}
 
   /**
@@ -39,6 +41,24 @@ export class BudgetComparisonController {
   @ApiOperation({ summary: 'Qué espera una firma: ejercicios en pendiente + obligaciones en propuesta, con monto, antigüedad (proxy declarado) y qué se traba si no se firma. Si está vacía, declara POR QUÉ.' })
   firmasPendientes() {
     return this.firmas.bandeja();
+  }
+
+  /**
+   * `[TES.21]` La vista «Dirección»: la PRIMERA de `/presupuesto`. Contesta y manda a las otras
+   * siete, no las reemplaza — por eso no agrega ninguna cifra nueva, re-publica las que ya
+   * existen con su universo pegado a cada bloque.
+   *
+   * `PRESUPUESTOS_VER` y no `_APROBAR`: **ver qué espera una decisión no es decidir.** El freno
+   * de la acción sigue en `approve` y en `authorize`.
+   *
+   * ⚠️ Cada bloque viaja con su `*_error`. Un bloque que desaparece cuando su consulta falla se
+   * lee como «no hay nada», que es la respuesta contraria a «esto no se pudo medir».
+   */
+  @Get('budgets/direccion')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Vista Dirección: estado del motor, los ejercicios sin firmar, las obligaciones en DOS universos (real y prueba, nunca sumadas), el ledger por ejercicio y los huecos declarados. Cada bloque trae su universo y su as_of.' })
+  direccion() {
+    return this.direccionSvc.direccion();
   }
 
   @Get('cashflow')

@@ -18,6 +18,7 @@
  */
 import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma,
+  hayQueFrenar, TOPE_INTENTOS,
   firmaSigueValiendo, VIDA_MS, type SocketEnRoom, type MarcaPc,
 } from './caja-firma-remota.engine';
 import type { ContextoFirma } from '@megadulces/contracts';
@@ -56,6 +57,47 @@ describe('nuevoCodigo y normalizarCodigo · [CG.68]', () => {
   it('lo tecleado llega como venga: minúsculas, espacios, guiones', () => {
     expect(normalizarCodigo(' p7k-3 mq ')).toBe('P7K3MQ');
     expect(normalizarCodigo(null)).toBe('');
+  });
+
+  /**
+   * `[CG.83]` El default SIN inyección tiene que ser el generador criptográfico.
+   *
+   * ⚠️ No se puede "ver" qué función se usó, así que se mide el EFECTO que distingue a las dos:
+   * `Math.random` sembrado no existe en V8, pero sí se puede medir que el default **no es
+   * determinista** y que **no repite** — un generador roto (o uno clavado en una constante, que
+   * es el error de dedo probable al tocar esta función) falla las dos.
+   */
+  it('⭐ [CG.83] sin inyectar, el código NO se repite — el default no es un valor fijo', () => {
+    const n = 500;
+    const vistos = new Set(Array.from({ length: n }, () => nuevoCodigo()));
+    // Con 31^6 combinaciones, 500 sorteos repitiendo alguno tiene probabilidad ~1 en 7 millones.
+    expect(vistos.size, 'el generador por defecto repitió: no está sorteando').toBe(n);
+  });
+
+  it('⛔ [negativa] el azar INYECTADO sigue mandando sobre el default', () => {
+    // Si el default pisara a la inyección, las pruebas de los hermanos dejarían de ser
+    // deterministas y nadie se enteraría hasta que una fallara al azar.
+    expect(nuevoCodigo(() => 0)).toBe('AAAAAA');
+  });
+});
+
+describe('hayQueFrenar · [CG.83] el tope de tanteo', () => {
+  it('deja pasar mientras queden intentos', () => {
+    for (let i = 0; i < TOPE_INTENTOS; i++) {
+      expect(hayQueFrenar(i), `con ${i} fallos no debería frenar`).toBe(false);
+    }
+  });
+
+  it('⛔ frena AL llegar al tope, no después', () => {
+    expect(hayQueFrenar(TOPE_INTENTOS)).toBe(true);
+    expect(hayQueFrenar(TOPE_INTENTOS + 10)).toBe(true);
+  });
+
+  it('un socket nuevo (sin contador) arranca libre', () => {
+    // `undefined` es el caso real: `client.data.intentosFirma` no existe hasta el primer fallo.
+    // Tratarlo como "ya falló" cortaría a todo el mundo en su primer intento.
+    expect(hayQueFrenar(undefined)).toBe(false);
+    expect(hayQueFrenar(0)).toBe(false);
   });
 });
 

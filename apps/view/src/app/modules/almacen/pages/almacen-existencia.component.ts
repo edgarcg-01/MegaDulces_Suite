@@ -22,6 +22,7 @@ import {
   ExistenciaApiService, ExistenciaRow, ExistenciaCell, ExistenciaColumn,
   ExistenciaTotals, ExistenciaFreshness, ExistenciaDetailRow, ExistenciaSupplier,
 } from '../existencia.service';
+import { DesgloseParte, desglosar, desgloseTexto, rotuloUnidad } from '../existencia-desglose';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -158,12 +159,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <div class="ex-unit" role="group" aria-label="Unidad de medida">
           <button type="button" [class.on]="unidad() === 'caja'" (click)="setUnidad('caja')"
                   [attr.aria-pressed]="unidad() === 'caja'"
-                  title="Cantidad en CAJAS. Es una división de la cantidad nativa por el factor del almacén (ADR-055), y la única unidad comparable entre almacenes: los totales sólo existen acá.">
-            Cajas
+                  title="Cantidad en cajas, paquetes y piezas (12 cj 3 paq 5 pz), desglosada con el factor de caja del almacén y el paquete de su ficha de Kepler. Sin decimales de caja.">
+            Cj · paq · pz
           </button>
           <button type="button" [class.on]="unidad() === 'nativa'" (click)="setUnidad('nativa')"
                   [attr.aria-pressed]="unidad() === 'nativa'"
-                  title="Cantidad en la unidad NATIVA de cada almacén (kg, paquetes, piezas…), tal como la guarda su ERP. Sin dividir y sin convertir. ⛔ No se suma entre almacenes: los totales quedan en raya.">
+                  title="Cantidad en la unidad NATIVA de cada almacén (kg, paquetes, piezas…), tal como la guarda su ERP. Sin dividir y sin convertir. No se suma entre almacenes: los totales quedan en raya.">
             Unidad del ERP
           </button>
         </div>
@@ -202,7 +203,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   @if (staleCol(c)) { <i class="pi pi-clock ex-stale" aria-hidden="true"></i> }
                 </th>
               }
-              <th class="ex-r" pSortableColumn="existencia" [title]="totalTitulo()">Total cjs <p-sorticon field="existencia" /></th>
+              <th class="ex-r" pSortableColumn="existencia" [title]="totalTitulo()">Total <p-sorticon field="existencia" /></th>
               <th class="ex-r" pSortableColumn="valor">Valor <p-sorticon field="valor" /></th>
             </tr>
           </ng-template>
@@ -237,8 +238,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                          del total de cada almacén y eso es decisión de negocio), pero cuando su
                          divisor no tiene fuente la celda lo DECLARA con un grado en vez de
                          presentarla como un dato verificado. -->
-                    <td class="ex-r dt-num" role="cell" [attr.data-label]="c.label" [title]="cl.nf ? nfTitle(cl) : ''">
-                      <span [class]="'ex-q ' + bClass(cl.b)">{{ cl.q | number:'1.0-1' }}</span>
+                    <!-- [EX.U2] Ni "333.7": la cantidad se desglosa en cajas, paquetes y piezas,
+                         como se cuenta en el anaquel. El desglose sale de la cantidad NATIVA y de
+                         los mismos divisores con los que el backend calculó la caja. -->
+                    <td class="ex-r dt-num ex-dg" role="cell" [attr.data-label]="c.label" [title]="cajaTitle(c.code, cl)">
+                      <span [class]="'ex-q ' + bClass(cl.b)">
+                        @for (p of partesCelda(r, c.code); track $index) {
+                          <span class="ex-dgp">{{ p.n | number:'1.0-2' }}<span class="ex-u">{{ p.u }}</span></span>
+                        }
+                      </span>
                       @if (cl.nf) { <span class="ex-nf" aria-hidden="true">°</span>
                         <span class="ex-sr">{{ nfTitle(cl) }}</span> }
                     </td>
@@ -249,7 +257,18 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="ex-r ex-none" role="cell" [attr.data-label]="c.label">·</td>
                 }
               }
-              <td class="ex-r ex-strong dt-num" role="cell" data-label="Total cajas" [title]="totalTitulo()">{{ r.total_cajas | number:'1.0-1' }}@if (unidad() === 'nativa') { <span class="ex-u">cjs</span> }</td>
+              <!-- [EX.U2] El total también desglosado — cuando todos los almacenes del producto
+                   comparten la misma escalera (caja y paquete), que es lo normal. Si no la
+                   comparten, sumar piezas de uno con piezas de otro sería mezclar empaques: va en
+                   cajas ENTERAS con un ≈ y el porqué en el tooltip. -->
+              <td class="ex-r ex-strong dt-num ex-dg" role="cell" data-label="Total" [title]="totalTitle(r)">
+                @if (totalRow(r); as tt) {
+                  @if (tt.aprox) { <span class="ex-aprox">≈</span> }
+                  @for (p of tt.partes; track $index) {
+                    <span class="ex-dgp">{{ p.n | number:'1.0-2' }}<span class="ex-u">{{ p.u }}</span></span>
+                  }
+                } @else { — }
+              </td>
               <td class="ex-r ex-val dt-num" role="cell" data-label="Valor" [title]="valorTitle(r)">
                 @if (r.sin_valuar) {
                   <span class="ex-rung">
@@ -271,7 +290,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <td pFrozenColumn class="ex-name">{{ t.skus | number }} productos</td>
                 @for (c of columns(); track c.code) {
                   <td class="ex-r" [title]="whTotTitle(t, c.code)">
-                    {{ whTot(t, c.code)?.cajas | number:'1.0-0' }}
+                    <!-- [EX.U2] Suma de MUCHOS productos: sólo la caja es común entre empaques
+                         distintos, así que aquí va en cajas enteras y rotulado. -->
+                    @if (whTot(t, c.code)?.cajas != null) {
+                      {{ whTot(t, c.code)?.cajas | number:'1.0-0' }}<span class="ex-u">cj</span>
+                    }
                   </td>
                 }
                 <td class="ex-r"></td>
@@ -296,7 +319,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         @if (detail().length) {
           <!-- [UIM.1] Caso de APILADO POR CAMPOS: las 8 columnas son campos de UN almacen, asi que
                apilar es correcto (a diferencia de la matriz de arriba, que pierde un eje).
-               ⚠️ El .dt-scope va acá y NO en el <table>: un elemento no puede ser su propio
+               Ojo: el .dt-scope va acá y NO en el <table>: un elemento no puede ser su propio
                contenedor de consulta, se mediria a si mismo despues de encogerse. -->
           <div class="dt-scope">
           <table class="ex-detail dt-stack">
@@ -390,7 +413,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex-r { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono, ui-monospace), monospace; }
     .ex-sku { width: 6.5rem; font-family: var(--font-mono, ui-monospace), monospace; }
     .ex-name { min-width: 15rem; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ex-wh { min-width: 5.5rem; }
+    .ex-wh { min-width: 7rem; }
+    /* [EX.U2] El desglose cj / paq / pz va en una sola linea: partirlo en dos renglones hace que
+       "3 paq" parezca de otra celda. Cada parte lleva su rotulo pegado y en tono secundario. */
+    .ex-dg { white-space: nowrap; }
+    .ex-dgp + .ex-dgp { margin-left: .4rem; }
+    .ex-aprox { color: var(--text-muted); margin-right: .15rem; }
     .ex-wh i { font-size: .6rem; opacity: .55; margin-left: .15rem; }
     .ex-stale { color: var(--warn-fg, #b45309); opacity: .9 !important; }
     .ex-row { cursor: pointer; }
@@ -654,6 +682,71 @@ export class AlmacenExistenciaComponent implements OnInit {
   // guarda. Cambiar de unidad acá no recalcula: elige cuál de las dos se muestra.
   readonly unidad = signal<'caja' | 'nativa'>('caja');
 
+  // ─────────────── [EX.U2] Cajas, paquetes y piezas — sin decimales de caja ───────────────
+  //
+  // Pedido (2026-10-12): *"no las quiero en decimales, tiene que mostrar cajas, paq y pz, no
+  // 333.7"*. Se calcula UNA vez por página (computed sobre `rows`) y no en cada ciclo de
+  // detección: son ~50 filas × ~9 almacenes.
+  private readonly vista = computed(() => {
+    const m = new Map<string, {
+      celdas: Record<string, DesgloseParte[]>;
+      total: { partes: DesgloseParte[]; aprox: boolean } | null;
+    }>();
+    for (const r of this.rows()) {
+      const celdas: Record<string, DesgloseParte[]> = {};
+      const llaves = new Set<string>();
+      let nat = 0;
+      let esc: ExistenciaCell | null = null;
+      for (const [code, cl] of Object.entries(r.cells || {})) {
+        // Sin `bf` (un backend anterior) no se adivina el divisor: va la cantidad en su unidad.
+        celdas[code] = desglosar(cl.nat, cl.bf ?? 1, cl.pf, cl.natu, cl.pu);
+        if (!cl.rung && (cl.nat ?? 0) > 0) {
+          llaves.add(`${cl.bf ?? 1}|${cl.pf ?? ''}|${rotuloUnidad(cl.natu)}`);
+          nat += cl.nat ?? 0;
+          esc = cl;
+        }
+      }
+      let total: { partes: DesgloseParte[]; aprox: boolean } | null;
+      if (r.total_cajas == null) total = null;
+      else if (!esc) total = { partes: [{ n: 0, u: 'cj' }], aprox: false };
+      else if (llaves.size === 1) total = { partes: desglosar(nat, esc.bf ?? 1, esc.pf, esc.natu, esc.pu), aprox: false };
+      // Escaleras distintas entre almacenes: sumar las piezas sueltas de uno con las de otro
+      // mezclaría empaques. La caja es lo único común → cajas enteras, marcado como aproximado.
+      else total = { partes: [{ n: Math.round(r.total_cajas), u: 'cj' }], aprox: true };
+      m.set(r.product_id, { celdas, total });
+    }
+    return m;
+  });
+
+  partesCelda(r: ExistenciaRow, code: string): DesgloseParte[] {
+    return this.vista().get(r.product_id)?.celdas[code] ?? [];
+  }
+
+  totalRow(r: ExistenciaRow) { return this.vista().get(r.product_id)?.total ?? null; }
+
+  /** Qué cuenta la celda, dicho completo: el desglose, la cantidad base y el empaque usado. */
+  cajaTitle(code: string, cl: ExistenciaCell): string {
+    const base = rotuloUnidad(cl.natu);
+    const partes = desglosar(cl.nat, cl.bf ?? 1, cl.pf, cl.natu, cl.pu);
+    const emp = (cl.bf ?? 1) > 1
+      ? ` · caja de ${(cl.bf ?? 1).toLocaleString('es-MX')} ${base}`
+        + (cl.pf ? `, paquete de ${cl.pf.toLocaleString('es-MX')} ${base}` : '')
+      : ' · sin factor de caja';
+    const nf = cl.nf ? `. ${this.nfTitle(cl)}` : '';
+    return `${desgloseTexto(partes)} en ${code} = ${(cl.nat ?? 0).toLocaleString('es-MX')} ${base}${emp}${nf}`;
+  }
+
+  totalTitle(r: ExistenciaRow): string {
+    const t = this.totalRow(r);
+    const cjs = r.total_cajas == null ? '' : ` (${r.total_cajas.toLocaleString('es-MX')} cajas)`;
+    if (t?.aprox) {
+      return `Los almacenes de este producto no usan el mismo empaque, así que las piezas sueltas no `
+        + `se pueden sumar entre ellos: el total va en cajas enteras${cjs}.`;
+    }
+    return `Suma de los almacenes con unidad verificada${cjs}. Las celdas que no se pudieron convertir `
+      + 'quedan fuera y se declaran en el aviso de arriba.';
+  }
+
   /** Se recuerda por usuario. Si el almacenamiento falla (ventana privada), el default manda. */
   setUnidad(u: 'caja' | 'nativa'): void {
     this.unidad.set(u);
@@ -675,10 +768,10 @@ export class AlmacenExistenciaComponent implements OnInit {
    */
   totalTitulo(): string {
     return this.unidad() === 'nativa'
-      ? 'El total va en CAJAS aunque la matriz se lea en la unidad del ERP: sumar kg con paquetes '
-        + 'y con piezas da un número que no está en ninguna unidad. La caja es la única unidad que '
-        + 'los dos ERPs declaran.'
-      : 'Suma en cajas de las celdas medibles. Las que no se pudieron convertir quedan fuera y se '
+      ? 'El total va en cajas, paquetes y piezas aunque la matriz se lea en la unidad del ERP: '
+        + 'sumar kg con paquetes y con piezas sin la caja da un número que no está en ninguna unidad.'
+      : 'Suma de las celdas medibles en cajas, paquetes y piezas. Si los almacenes usan empaques '
+        + 'distintos va en cajas enteras con ≈. Las que no se pudieron convertir quedan fuera y se '
         + 'declaran en el aviso de arriba.';
   }
 
@@ -686,7 +779,8 @@ export class AlmacenExistenciaComponent implements OnInit {
   natTitle(r: ExistenciaRow, code: string, cl: ExistenciaCell): string {
     const u = this.natU(cl);
     const n = (cl.nat ?? 0).toLocaleString('es-MX');
-    const cajas = cl.q != null ? ` · en cajas serían ${cl.q.toLocaleString('es-MX')}` : '';
+    const cajas = cl.q != null && !cl.rung
+      ? ` · en cajas serían ${desgloseTexto(desglosar(cl.nat, cl.bf ?? 1, cl.pf, cl.natu, cl.pu))}` : '';
     return `${n} ${u} en ${code}, tal como lo guarda su ERP — sin dividir ni convertir${cajas}.`;
   }
 
@@ -805,7 +899,12 @@ export class AlmacenExistenciaComponent implements OnInit {
    * `db-health` (los que hay miden la VENTA de Wincaja, no la existencia), así que hasta que lo
    * tenga se usa un umbral local en vez de inventar uno con cara de oficial.
    */
-  staleFor(f: ExistenciaFreshness): number { return f.rama === 'kepler' ? 900 : 3600 * 8; }
+  staleFor(f: ExistenciaFreshness): number {
+    // [EX-PERF.3] la tabla se calcula sobre una foto que el servidor renueva cada ~45 s y da por
+    // vencida a los 5 min; si la píldora pasa de eso, algo trabó la recarga y se tiene que ver.
+    if (f.rama === 'foto') return 300;
+    return f.rama === 'kepler' ? 900 : 3600 * 8;
+  }
 
   private edad(min: number): string {
     if (min < 90) return `${Math.round(min)} min`;

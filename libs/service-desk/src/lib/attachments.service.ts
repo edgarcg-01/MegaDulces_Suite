@@ -8,12 +8,11 @@
  *  3. Si la transacción falla después, `descartar` borra del bucket lo que ya se subió.
  *
  * `ObjectStorageService.putFile` NO sirve acá: guarda el Content-Type DECLARADO. Se usa `putBuffer` con el
- * tipo que detectó la firma (ver `domain/attachment-signature.ts`).
+ * tipo que detectó la firma (ver `platform-core/storage/attachment-signature.ts`).
  */
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { SdAttachmentInput } from '@megadulces/contracts';
-import { ObjectStorageService } from '@megadulces/platform-core';
-import { sanitizarNombre, validarAdjunto, type AdjuntoValido } from './domain/attachment-signature';
+import { ObjectStorageService, sanitizarNombre, validarAdjunto, type AdjuntoValido } from '@megadulces/platform-core';
 
 export const MAX_ADJUNTOS_POR_ENVIO = 5;
 

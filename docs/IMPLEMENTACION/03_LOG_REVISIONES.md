@@ -4,6 +4,94 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-12 — `[CPA.10]` La bandeja «Mi cierre»: contabilidad no ignoraba la Suite, ignoraba SU módulo
+
+**Qué se pidió.** *"Analizá todo /contabilidad y decime cómo aportarle valor para que contabilidad empiece a usar la Suite y su trabajo se automatice un 90 %; tenemos un puente ContPAQi, pero hoy no le encuentran nada de valor a su módulo."* Después: diseñar las interfaces primero, y luego construirlas.
+
+**⛔⛔ El diagnóstico, medido en prod y no supuesto.** `analytics.ui_usage`, ventana 2026-09-30 → 2026-10-12, rol `contabilidad`: **3,604 hits en 10 días activos · 0 a `/api/fiscal/*` · 0 a `/api/contabilidad/*` · 1,806 (50.1 %) a `/api/finance/expenses/*`**. Tienen los **19 permisos `FISCAL_*` en `true`** y entran a diario. No es acceso, ni permiso, ni capacitación.
+
+> **Contabilidad ya había adoptado la Suite; lo que no adoptó es su propio módulo.** Las 16 pestañas —≈9,000 líneas de front, 12 sub-módulos en `libs/fiscal`— tienen cero tráfico de la gente para la que se construyeron. El módulo que sí usan tiene cuatro cosas que el suyo no: cola personal (`GET /mine`), OCR que teclea por ellos, cierre de tres salidas y empuje. `/contabilidad` es un visor: **6 de 16 servicios son sólo GET**.
+
+⭐ **Eso corrigió el orden del plan que ya existía.** `FASE_CPA` acierta en *qué* automatizar y arranca su Bloque A con el semáforo de cierre — una pantalla de **sólo lectura**, o sea el mismo género del que ya hay 16 ignoradas, y que además le informa a la contadora algo que ella ya sabe. Rinde para nosotros, no para ella. El primer entregable tiene que **quitarle tecleo de las manos**, no agregarle pantalla a los ojos.
+
+**Lo que se construyó.** `[CPA.10]`: vista `analytics.v_contpaqi_captura_mensual` (mig `20261012165455`), `mi-cierre.engine.ts` puro, `MiCierreService` + 2 endpoints, la pantalla `/contabilidad/mi-cierre` como **portada** del proyecto, y su candado contra prod. Sin permiso nuevo (reusa `FISCAL_CONTAB_*`, ya repartido) → **sin re-login**.
+
+**Lo que se aprendió, y cada punto costó encontrarlo:**
+
+1. ⛔⛔ **Un patrón de texto puede perder una familia entera sin que nada falle.** La venta diaria se llama `VTA.4/9/26 Suc. 3 …` — con **punto**. Con `ILIKE 'VTA %'` se van **1,472 renglones/mes a `otros`**, el total cuadra idéntico y la pantalla pinta normal. El candado corre **las dos formas** y exige que difieran; si coincidieran, dejó de probar algo. Al corregirlo, `otros` cae de 1,961 a **44 renglones/mes** y aparece una familia que nadie había nombrado (`TLMKT`, 408/mes). El techo real de automatización es **93.6 %**, no 90.
+
+2. ⛔⛔ **Medir la premisa antes de construir sobre ella mató el diseño que yo mismo había dibujado.** El mockup proponía estrenar la ida con comisiones bancarias y armar `gasto / IVA / banco` por movimiento. Medido: nuestro clasificador ve **$141,343** de comisiones en septiembre y ContPAQi asienta **$380,818** — el **37 %** (en julio, el **6 %**). **No era cobertura de la base** (nuestros movimientos cubren 90–114 % del `1020*` todos los meses): estaban partidas en **tres categorías que son el mismo asiento**, el **IVA llega como movimiento aparte** (hay que *parear*, no derivar), y ContPAQi pone **un abono por movimiento y un cargo resumido por banco**, no una póliza por movimiento.
+
+3. ⭐ **Un mapa que se iba a pedir se derivó de sus propios libros.** El plan daba por bloqueante «media hora del contador» para las cuentas de comisiones. Salen de su propia contabilidad: cargo a `5200650000`, IVA a `1060000000`, banco a su `1020*` (18/20 mapeados, y el **100 %** de las comisiones clasificadas tiene banco mapeado). Lo que falta no es el diccionario: son **2 cuentas de banco**.
+
+4. ⛔ **Un candado puede comparar un sub-reporte contra sí mismo.** Al agregar la pantalla al árbol de authz, el spec `[AU.33]` reportó que **dos pantallas viejas desaparecían** de la lista de afectadas. Causa: `indiceDeClaves` era `Map<string, Ubicacion>` con `ix.set(k, …)` → **gana el último módulo del árbol**, y una clave compartida queda atribuida a una sola pantalla. La UI de roles le decía a quien quita `FISCAL_CONTAB_VER` que cerraba **una** pantalla cuando cierra **tres**. Corregido a uno-a-muchos: las 27 claves del caso real pasan de **19 a 25 pantallas**, y **5 de las 6 nuevas ya existían** — la lista no creció porque se construyera algo, creció porque se dejó de sub-reportar. De paso **refuta un comentario del propio spec** (`FINANCE_FINDINGS_GESTIONAR` sí tiene módulo «Hallazgos»). Y la invariante `suma === 27` sólo se sostenía por el sub-reporte: se reemplazó por *el conjunto de claves repartidas es exactamente LAS_27*.
+
+5. ⚠️ **Dos candidatos de landing con la misma clave dejan muerto al segundo.** El spec de `[SN.4]` lo prohíbe. La bandeja no **agrega** un candidato: **mueve** el destino de `FISCAL_CONTAB_VER`, que antes iba a Contabilidad electrónica.
+
+6. ⭐ **Materializar sin medir el costo es inventarse un problema.** Su hermana `[CPA.0.2]` necesitó matvista (889 → 3 ms). Ésta mide **120–129 ms en tres corridas** contra prod, bajo el gate de 500 → vista simple.
+
+**Candados.** engine **23/23**, mutado a **rojo 2/23** colapsando `verificada` `null` → `true` (la regla ternaria de ADR-056: `null` es *nadie comprobó* y no es `false`) · `test-newdb-mi-cierre.js` **18 ✔ · 0 ✘ · 4 ◻ NO MEDIDO** contra prod · contracts **563/563** · landing-guards **39/39** · finance **1139/1139** · view **3069/3073** (el que falla es de Caja General, verde en aislamiento 187/187 y ajeno a este cambio) · `check:templates` y `check:tokens` verdes.
+
+**El vacío que es el dato.** `contpaqi.poliza_exports` sigue en **0 filas** y `finance.purchase_book_runs` en 3 corridas con **0 entregadas**, dos días después de que `FASE_CPA` lo señalara. Septiembre **sigue** sin póliza de compras (8 renglones contra 607 de julio y 636 de agosto) y octubre tampoco; los CFDI recibidos sin asociar van sep **552/$29.7 M** y oct **373/$19.9 M**, creciendo. **El candado que bloquea los cinco renglones de la ida no es código: es un clic de la contadora sobre un archivo de prueba.**
+
+**Falta:** aplicar la migración a prod · `git push` (sin autorizar) · redeploy · validación visual. **Declarado y no construido:** el armador de comisiones (`[CPA.6]`, ahora con el mapa derivado y la estructura corregida), el side-peek de detalle y la bandeja de CFDI sin asociar — diseñados y aprobados, ninguno escrito.
+
+
+## 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde
+
+**Qué se hizo.** (a) *Cambios de precio* pasó a **un código, una fila**, con confirmación del precio que lleva la etiqueta, y un clic en la fila lleva a imprimirla (#349, ya en `main`). (b) La etiquetera ahora dice **por qué** un producto no tiene precio (#351). (c) Se retiró del aviso la descarga en Excel/CSV por decisión de Edgar (#350).
+
+**Lo que falló en el camino, y qué se aprendió** (cada punto está ya en `ONBOARDING.md` §8.0b, puntos 8–12):
+1. **El `pre-push` NO corre el `Boundary type gate` y el CI sí.** #350 y #351 llegaron a CI con 12 y 4 violaciones (`any`, métodos sin tipo de retorno). Un paso que sólo existe en CI se descubre tarde: hay que correr `node scripts/lint-boundary-gate.js` a mano cuando se toca un controller o service.
+2. **Filtrar las pruebas por nombre dejó pasar un fallo.** Un texto de `etiqueta-hoja.spec.ts` comprobaba la firma de `addBulk` y no lo corrí porque filtré por componente. Se corre **el directorio entero** del módulo tocado.
+3. **Fusionar `main` puede duplicar lógica sin conflicto de git.** `agruparPorCodigo` quedó en dos lugares (la app y `libs/contracts`); git no lo vio porque eran archivos distintos. Tras fusionar, se busca lo que tu PR y lo recién entrado hacen por duplicado.
+4. **Entre PR abiertos también chocan.** #350 y #351 chocan entre sí en `commercial-labels.service.ts` aunque cada uno esté limpio contra `main`; lo escribí al revés en una descripción y lo corregí. Se verifica con `git merge-tree`, no de memoria.
+5. **Una cifra en la descripción tiene que sumar.** Dije «55 pruebas» con un desglose que sumaba 64.
+6. **Una mutación que no se aplicó parece una prueba que pasa.** Los archivos con CRLF hicieron que `str.replace` no cambiara nada; la prueba «sobrevivió» sin probar nada. La mutación debe afirmar que el reemplazo ocurrió.
+
+## 2026-10-09 — `[ETQ-AVISOS.1–3]` Avisar a las sucursales que cambió un precio, y que Compras comparta la lista
+
+**Qué se pidió.** Mandar una notificación a los usuarios de sucursal cuando hay cambios de precio, y darle a
+Compras la opción de compartir la lista. Si no había estructura, un plan por fases. Se decidió: resumen a las
+07:30 y a las 14:00 (D1), avisar a sucursales y descargar la lista (D2), permiso propio (D3), mínimo 1 producto
+(D4), plaza sin usuario con tienda asignada se ve igual y se declara (D5).
+
+> **Enmienda 2026-10-10 (Edgar):** se **retiró «descargar la lista»** de D2. No se acepta ningún Excel (a lo mucho PDF, que no se construyó); lo ideal es que a quien puede usar la etiquetera le llegue el aviso a la campana y, al tocarlo, entre a Cambios de precio de su tienda y reimprima. Se borró `cambios-csv.ts` y el botón del diálogo; una prueba negativa vigila que no reaparezca. La campana y el enlace ya existían.
+
+**Lo que se encontró al investigar.**
+- **Casi toda la estructura ya existía:** la fuente de «qué cambió» (`v_label_price_changes`), el molde de aviso
+  dirigido con memoria (`[VEC.4]`), la campana del header, el cron con latido. Faltaban la tabla de avisos, el
+  generador y «compartir».
+- **El worker no tiene WebSocket (ADR-080) y es donde corre el cron:** por eso la fila ES la entrega y la
+  campana la recoge por poll; el aviso por WebSocket de `label_prices_changed` (TDA.1) no sirve (es por tenant,
+  no por plaza, y arrastra el ruido de los movimientos de un centavo).
+- **`COMPRAS_VER` está en 0 de 37 roles** (documentado en `permissions.ts`): la alternativa «reusar el permiso de
+  Compras» habría dejado el botón sin nadie. Tampoco sirve «cualquier `COMPRAS_*`»: `COMPRAS_ENTRADAS_VALIDAR`
+  la tienen ~25 personas y casi todas son de sucursal.
+- **Simular al usuario encontró lo que el plan no veía** (ver `[ETQ-CAMBIOS.8]`): lo que parecían «tres
+  presentaciones» eran dos, y la unidad `500` aparecía dos veces porque su precio se movió dos veces el mismo
+  día. Por eso la regla de agrupado se sube a `libs/contracts`: si el aviso contara distinto que la pantalla,
+  nadie le creería a ninguno.
+
+**Qué quedó (rama `feat/etq-avisos-precio`, 2 migraciones aditivas):** ver el tracker y
+[`FASE_ETQ_AVISOS_CAMBIOS_PRECIO`](FASES/FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md) §8. 55 pruebas nuevas; probado en
+negativo; lint y compuertas del proyecto sin errores nuevos.
+
+**Lecciones.**
+1. **Un día sin cambios no genera aviso, y lo hace cumplir la tabla** (`CHECK productos >= 1`), no sólo un `if`.
+2. **Sin dato no es cero:** si la bitácora de la plaza no llega al día, se declara; y si NINGUNA plaza tiene dato,
+   el latido es `error` (la ingesta está caída y todo se vería «sin cambios»).
+3. **La prueba negativa debe fallar POR EL CHECK esperado**, no por cualquier error: un rechazo por RLS daría
+   verde sin probar nada.
+4. **Las pruebas atraparon cuatro errores míos** (la protección anti-fórmulas del CSV le ponía apóstrofo a los
+   negativos; un fixture con fecha distinta a la real; el cambio de firma de `addBulk` que rompió una prueba
+   existente de #349 —que no corrí porque su nombre no coincidía con mis filtros—; y el lint de mis stubs).
+5. **Las herramientas de edición convierten `\uFEFF` en el carácter real:** para un BOM se usa
+   `String.fromCharCode(0xfeff)`.
+
+**Falta (declarado, no escondido).** Fase 0 sin correr (no se alcanzó prod). Las migraciones **no se ejecutaron
+contra ninguna base**. Sin validación visual. Aplicar las dos migraciones una por una **antes** del código.
+
 ## 2026-10-09 — `[WMS-REC.22]` Llegadas al andén y el producto sin caducidad
 
 **Qué se pidió.** Un monitoreo de qué camiones llegaron, con qué mercancía y si se les dio caducidad, que

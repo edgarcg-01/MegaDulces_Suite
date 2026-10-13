@@ -1,0 +1,2 @@
+# Cola SQLite y copia del padrón cuando se corre a mano (en el pod van al volumen).
+.datos/

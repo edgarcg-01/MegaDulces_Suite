@@ -118,6 +118,7 @@ import { LogisticsConfigModule } from '@megadulces/logistics';
 import { LogisticsShipmentsModule } from '@megadulces/logistics';
 import { LogisticsErpShipmentsModule } from '@megadulces/logistics';
 import { LogisticsGuidesModule } from '@megadulces/logistics';
+import { LogisticsTripClosureModule } from '@megadulces/logistics';
 import { LogisticsExpensesModule } from '@megadulces/logistics';
 import { LogisticsPayrollModule } from '@megadulces/logistics';
 // RD.4 — gasto de flota de Ruta Directa
@@ -136,7 +137,7 @@ import { LogisticsTrackingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
-import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule, FinanceContpaqiModule } from '@megadulces/finance';
+import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceTripPayModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule, FinanceContpaqiModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
 import { FiscalVaultModule } from '@megadulces/fiscal';
 import { FiscalJobsModule } from '@megadulces/fiscal';
@@ -258,6 +259,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsShipmentsModule,
       LogisticsErpShipmentsModule,
       LogisticsGuidesModule,
+      LogisticsTripClosureModule,
       LogisticsExpensesModule,
       LogisticsPayrollModule,
       LogisticsRouteExpensesModule,
@@ -306,6 +308,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FinanceCancelledDocsModule,
       FinanceCortesSucursalesModule,
       FinanceCreditorStatementsModule,
+      FinanceTripPayModule,
       FinanceFeedNotifyModule,
       FinanceFindingsSinkBindingModule,
       InvoiceIssuerBindingModule,

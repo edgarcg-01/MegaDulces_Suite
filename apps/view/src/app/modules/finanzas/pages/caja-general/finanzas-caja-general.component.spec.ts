@@ -757,6 +757,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   /**
+   * `[CG.81]` **Guardar NO manda el ticket a la térmica.** Pedido de Edgar: *"hay que dejar de
+   * mandar el imprimible del ticket y sólo almacenarlo como un historial"*.
+   *
+   * ⚠️ Se mide el EFECTO, no la ausencia de una llamada: `imprimirComprobante` no se inyecta, se
+   * importa, así que espiarla no probaría nada sobre lo que el navegador hace. Lo que define
+   * "imprimió" es que el módulo crea un `<iframe>` oculto y lo cuelga del documento; eso sí se ve.
+   *
+   * Y la negativa va PEGADA a la positiva: una prueba que sólo exige "no imprime" también pasa si
+   * la impresión se rompió entera — que es justo lo que NO queremos, porque el botón de la lista
+   * es ahora el único camino al papel.
+   */
+  it('⛔ [CG.81] guardar NO imprime el comprobante — pero el botón de la lista SÍ', async () => {
+    const crear = vi.fn(() => of({ id: 'x', folio: 'CG-2026-00009' }));
+    const detalle = vi.fn(() => of({
+      id: 'x', folio: 'CG-2026-00009', tipo: 'gasto', monto: 1500, glosa: 'compra de papeleria',
+      denominaciones: [{ denominacion: 500, piezas: 3 }],
+    }));
+    const fx = montar({ crear, detalle });
+
+    const marcos = () => document.querySelectorAll('iframe[aria-hidden="true"]').length;
+    const antes = marcos();
+
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    fx.detectChanges();
+
+    comp.guardar();
+
+    expect(crear, 'el movimiento tiene que guardarse igual').toHaveBeenCalledTimes(1);
+    expect(marcos() - antes, 'guardar mandó el ticket a la térmica').toBe(0);
+    expect(detalle, 'guardar no debe pedir el detalle para imprimir').not.toHaveBeenCalled();
+
+    // La positiva: el camino al papel sigue existiendo, y es el de la lista.
+    comp.imprimirComprobante({ id: 'x', folio: 'CG-2026-00009', estado: 'registrado' } as never);
+    expect(detalle, 'el botón de la lista tiene que pedir el detalle guardado').toHaveBeenCalledTimes(1);
+    expect(marcos() - antes, 'el botón de la lista ya no imprime nada').toBeGreaterThan(0);
+  });
+
+  /**
    * ⛔ `[CG.74]` La pantalla mandaba a un menú que NO EXISTE.
    *
    * Decía *«Abrí Caja General › Firmar en el teléfono»*. Medido: la ruta está registrada y **nada
@@ -2804,17 +2847,24 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(panel).not.toContain('Abrir corte');
   });
 
-  it('⭐ [el gesto unico] sin corte abierto, rendir cuentas pide el fondo y sigue al conteo', () => {
+  it('⭐ [el gesto unico] sin corte abierto, rendir cuentas NO pide el fondo y cae en el conteo', () => {
     // El arqueo exigia abrir el corte a las 8am para poder cerrarlo a las 7pm. Nadie lo hacia:
     // hay CERO cortes en produccion. Aca el gesto es uno solo, en el momento natural.
+    //
+    // ⭐ `[CG.90.1]` Esta prueba EXIGIA el dialogo ("pide el fondo"), y ahora exige lo contrario.
+    // Edgar: "lo unico que debe hacer el usuario es arquear, no debe rellenar nada" y, dos veces,
+    // "sigue pidiendo el fondo inicial". El fondo de hoy es lo que se conto ayer: lo hereda el
+    // servidor. Preguntarlo era pedir que alguien teclee un numero que el sistema ya tiene.
     montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
     comp.cerrarJornada();
-    expect(comp.aperturaAbierta()).toBe(true);
-    expect(comp.cierreAbierto()).toBe(false);
+    expect(comp.aperturaAbierta()).toBe(false);   // ⛔ NO se pregunta nada
+    expect(svc['abrirCorte']).toHaveBeenCalled(); // se abre solo…
+    expect(comp.cierreAbierto()).toBe(true);      // …y cae DERECHO en el conteo
 
-    comp.abrirCorte();                       // la persona confirma el fondo
-    expect(svc['abrirCorte']).toHaveBeenCalled();
-    expect(comp.cierreAbierto()).toBe(true); // …y cae DERECHO en el conteo
+    // Y viaja `undefined`, que es lo unico que dispara la herencia del servidor: con `null` el
+    // fondo viajaria como un valor y `[CG.90]` no se activaria. Ya paso una vez.
+    const body = (svc['abrirCorte'] as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+    expect(body['fondo_inicial']).toBeUndefined();
   });
 
   // ── `[CG.42]` El arreglo de `[CG.39]` era INALCANZABLE desde la pantalla ────────────────────
@@ -2860,14 +2910,30 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.cierreAbierto()).toBe(true);
   });
 
-  it('⛔ [negativa] cancelar la apertura NO deja la intencion colgada', () => {
+  it('⛔ [negativa] si la apertura FALLA, la intencion NO queda colgada', () => {
     // Sin esto, el siguiente corte que alguien abriera por su cuenta saltaria al conteo solo.
-    montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
-    comp.cerrarJornada();
-    comp.cancelarApertura();
-    expect(comp.aperturaAbierta()).toBe(false);
+    //
+    // ⭐ `[CG.90.1]` Esta prueba vigilaba el mismo riesgo por la puerta del DIALOGO (cancelar la
+    // apertura). Al quitar el dialogo, ese camino de limpieza desaparecio y el agujero se abrio
+    // por el otro lado: `cerrarJornada()` pone la intencion y `abrirCorte()` solo la limpiaba en
+    // el camino de EXITO. Un freno puesto para una puerta sirvio para la otra -- por eso se
+    // reescribe en vez de borrarse cuando cambia el gesto.
+    // La primera llamada falla; la segunda anda. Asi se ejerce el mismo componente en los dos
+    // momentos -- `montar()` dos veces no se puede, TestBed ya quedo instanciado.
+    const abrir = vi.fn()
+      .mockImplementationOnce(() => throwError(() => ({ status: 500, error: {} })))
+      .mockImplementation(() => of({ id: 'c1', folio: 'CC-1' }));
+    montar({
+      saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
+      abrirCorte: abrir,
+    });
+    comp.cerrarJornada();                    // falla al abrir
+    expect(comp.cierreAbierto()).toBe(false);
 
+    // Y la siguiente apertura, hecha a proposito por alguien, NO debe saltar al conteo.
+    comp.abrirApertura();
     comp.abrirCorte();
+    expect(abrir).toHaveBeenCalledTimes(2);
     expect(comp.cierreAbierto()).toBe(false);
   });
 

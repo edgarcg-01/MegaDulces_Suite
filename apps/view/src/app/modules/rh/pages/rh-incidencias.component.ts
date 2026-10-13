@@ -6,16 +6,24 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import type {
-  HrAccionIncidencia, HrCapturaIncidenciaBody, HrCierreDto, HrIncidenciaDto, HrPasoIncidenciaDto, HrSiteDto, HrTipoIncidenciaDto,
+  HrAccionIncidencia, HrCapturaIncidenciaBody, HrCierreDto, HrIncidenciaDto, HrPasoIncidenciaDto, HrSinIdentificarDto, HrSiteDto,
+  HrTipoIncidenciaDto,
 } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RhMarcoComponent } from '../components/rh-marco.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
+import { firmaHoras, horasTexto } from '../reporte-formato';
 import {
-  BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError, sumarDias,
+  BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError,
+  sinIdentificarDe, sumarDias,
 } from '../rh.service';
+
+/** `[RH.1.6b]` Cuántos nombres se listan antes de «y N más». */
+const SIN_ID_VISIBLES = 8;
+/** El mínimo de letras del motivo: el servidor exige lo mismo (`MOTIVO_MINIMO`). */
+const MOTIVO_SIN_ID_MINIMO = 5;
 
 /**
  * Fase RH · `[RH.1.7]` — Incidencias y cierre de semana (`/rh/incidencias`). Antes: `incidencias-bandeja` y los
@@ -37,7 +45,14 @@ const FILTROS: Array<{ value: FiltroEstado; label: string; statuses: string }> =
 interface FormCaptura {
   person_code: string; incident_type: string; date_from: string; date_to: string; note: string;
   horas: string; entrada: string; reason: string; authorized_by_name: string; deliver: boolean;
+  /** `[RH.1.10]` Desayuno o comida distintos: los minutos que RH autorizó ese día. */
+  minutos: string;
 }
+
+/** `[RH.1.10]` Los tipos de UN solo día (no llevan «Hasta»), como `TIPOS_DE_AJUSTE` del servidor. */
+const DE_UN_DIA = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta', 'cambio_descanso']);
+/** Los que piden motivo y quién lo autorizó. */
+const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta']);
 
 @Component({
   selector: 'app-rh-incidencias',
@@ -89,6 +104,25 @@ interface FormCaptura {
         }
       </section>
 
+      @if (sinId(); as lista) {
+        <section class="ri-sinid" role="alert" aria-label="Gente sin identificar en la semana">
+          <p><strong>{{ lista.length }} {{ lista.length === 1 ? 'persona checó' : 'personas checaron' }} esta semana sin estar identificada.</strong>
+            Lo mejor es completarlas (ligar el número a su persona, con nombre completo y departamento) y volver a cerrar.</p>
+          <ul>
+            @for (p of lista.slice(0, visiblesSinId); track p.codigo) {
+              <li><span class="mono">#{{ p.codigo }}</span> {{ p.nombre }} · {{ motivoDe(p) }} · {{ p.checadas }} checadas</li>
+            }
+            @if (lista.length > visiblesSinId) { <li>y {{ lista.length - visiblesSinId }} más</li> }
+          </ul>
+          <div class="ri-sinid-acc">
+            <input pInputText type="text" [ngModel]="motivoSinId()" (ngModelChange)="motivoSinId.set($event)"
+                   placeholder="Si hay que cerrar ya, escribe por qué (queda en el cierre)" aria-label="Por qué se cierra con gente sin identificar" />
+            <p-button label="Cerrar de todos modos" severity="danger" size="small" [disabled]="motivoSinId().trim().length < motivoMinimo" [loading]="ocupado()" (onClick)="cerrarDeTodosModos()" />
+            <p-button label="Cancelar" [text]="true" size="small" (onClick)="sinId.set(null)" />
+          </div>
+        </section>
+      }
+
       @if (aviso(); as a) { <p class="ri-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
       @if (form(); as f) {
@@ -99,15 +133,28 @@ interface FormCaptura {
             <p-select [options]="tipos()" optionLabel="etiqueta" optionValue="tipo" name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
           </label>
           <label>Desde <input pInputText type="date" name="desde" [(ngModel)]="f.date_from" required /></label>
-          @if (f.incident_type !== 'horario_distinto') {
+          @if (!deUnDia(f.incident_type)) {
             <label>Hasta <input pInputText type="date" name="hasta" [(ngModel)]="f.date_to" [min]="f.date_from" /></label>
           }
           @if (f.incident_type === 'horas_extra') {
             <label>Horas extra usadas <input pInputText type="time" name="horas" [(ngModel)]="f.horas" required /></label>
+            <div class="ri-saldo">
+              <p-button label="Ver su saldo" [text]="true" size="small" [disabled]="!f.person_code.trim()" (onClick)="verSaldo(f.person_code)" />
+              @if (saldoUso(); as s) { <span role="status">{{ s }}</span> }
+            </div>
           }
           @if (f.incident_type === 'horario_distinto') {
             <label>Entró a las <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
-            <label class="ri-ancho">Por qué entró en otro horario <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
+          }
+          @if (f.incident_type === 'desayuno_distinto' || f.incident_type === 'comida_distinta') {
+            <label>Minutos de {{ f.incident_type === 'desayuno_distinto' ? 'desayuno' : 'comida' }} autorizados
+              <input pInputText type="number" name="minutos" min="0" max="240" [(ngModel)]="f.minutos" required /></label>
+          }
+          @if (f.incident_type === 'cambio_descanso') {
+            <p class="ri-ancho ri-ayuda">El día elegido es su descanso de esa semana, y su descanso de siempre pasa a ser día de trabajo: si no viene ese día, es falta.</p>
+          }
+          @if (conAutorizacion(f.incident_type)) {
+            <label class="ri-ancho">Por qué ese día fue distinto <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
             <label>Quién lo autorizó <input pInputText name="autorizo" [(ngModel)]="f.authorized_by_name" required /></label>
           }
           <label class="ri-ancho">Nota (folio, motivo) <input pInputText name="nota" [(ngModel)]="f.note" [required]="f.incident_type === 'otros'" /></label>
@@ -212,6 +259,13 @@ interface FormCaptura {
     .ri-cierre { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-sm); }
     .ri-cierre p { margin: 0; color: var(--text-main); }
     .ri-cierre input { min-width: 18rem; }
+    .ri-sinid { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--warn-soft-bg); color: var(--warn-soft-fg); font-size: var(--fs-sm); }
+    .ri-sinid p, .ri-sinid ul { margin: 0; }
+    .ri-sinid ul { padding-left: var(--sp-4); }
+    .ri-sinid-acc { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .ri-sinid-acc input { min-width: 22rem; flex: 1 1 22rem; }
+    .ri-saldo { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--text-muted); }
+    .ri-ayuda { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ri-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ri-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .ri-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
@@ -260,6 +314,7 @@ interface FormCaptura {
     @media (max-width: 40rem) {
       .ri-page { padding: var(--sp-3); }
       .ri-cierre input { min-width: 0; flex: 1 1 100%; }
+      .ri-sinid-acc input { min-width: 0; flex: 1 1 100%; }
       .ri-wrap { max-height: none; }
     }
   `],
@@ -292,6 +347,11 @@ export class RhIncidenciasComponent implements OnInit {
   readonly pendiente = signal<{ accion: HrAccionIncidencia } | null>(null);
   readonly motivo = signal('');
   readonly modoReabrir = signal(false);
+  /** `[RH.1.6b]` La gente sin identificar que frenó el cierre (del 409), y el motivo para cerrar igual. */
+  readonly sinId = signal<HrSinIdentificarDto[] | null>(null);
+  readonly motivoSinId = signal('');
+  readonly visiblesSinId = SIN_ID_VISIBLES;
+  readonly motivoMinimo = MOTIVO_SIN_ID_MINIMO;
 
   readonly puede = {
     capturar: computed(() => this.perms.has(Permission.HR_INCIDENTS_CAPTURAR)),
@@ -332,6 +392,7 @@ export class RhIncidenciasComponent implements OnInit {
   cargar(): void {
     const site = this.sitio();
     if (!site) return;
+    this.sinId.set(null);
     const mi = ++this.seq;
     const statuses = FILTROS.find((f) => f.value === this.filtro())?.statuses;
     this.loading.set(true);
@@ -409,9 +470,10 @@ export class RhIncidenciasComponent implements OnInit {
 
   abrirCaptura(persona = '', desde = ''): void {
     this.aviso.set(null);
+    this.saldoUso.set(null);
     this.form.set({
       person_code: persona, incident_type: 'vacaciones', date_from: desde || hoyEnMexico(), date_to: '',
-      note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false,
+      note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false, minutos: '',
     });
   }
 
@@ -421,14 +483,36 @@ export class RhIncidenciasComponent implements OnInit {
       const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
       return m ? Number(m[1]) * 60 + Number(m[2]) : undefined;
     };
-    const distinto = f.incident_type === 'horario_distinto';
+    const t = f.incident_type;
+    const pausa = t === 'desayuno_distinto' || t === 'comida_distinta';
+    const autoriza = CON_AUTORIZACION.has(t);
+    const minPausa = String(f.minutos ?? '').trim() === '' ? undefined : Math.round(Number(f.minutos));
     return {
-      site_code: site, person_code: f.person_code.trim(), incident_type: f.incident_type, date_from: f.date_from,
-      date_to: distinto ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
-      minutes: f.incident_type === 'horas_extra' ? aMin(f.horas) : distinto ? aMin(f.entrada) : undefined,
-      reason: distinto ? f.reason.trim() : undefined, authorized_by_name: distinto ? f.authorized_by_name.trim() : undefined,
+      site_code: site, person_code: f.person_code.trim(), incident_type: t, date_from: f.date_from,
+      date_to: DE_UN_DIA.has(t) ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
+      minutes: t === 'horas_extra' ? aMin(f.horas) : t === 'horario_distinto' ? aMin(f.entrada) : pausa ? minPausa : undefined,
+      reason: autoriza ? f.reason.trim() : undefined, authorized_by_name: autoriza ? f.authorized_by_name.trim() : undefined,
       deliver: f.deliver || undefined,
     };
+  }
+
+  deUnDia(tipo: string): boolean { return DE_UN_DIA.has(tipo); }
+  conAutorizacion(tipo: string): boolean { return CON_AUTORIZACION.has(tipo); }
+
+  /** `[RH.1.10]` El saldo de horas extra de la persona, para capturar su uso sabiendo cuánto tiene. */
+  readonly saldoUso = signal<string | null>(null);
+  verSaldo(persona: string): void {
+    const site = this.sitio();
+    const cod = persona.trim();
+    if (!site || !cod) return;
+    this.saldoUso.set('Calculando…');
+    this.api.bancoHorasExtra(site, cod).subscribe({
+      next: (b) => {
+        const p = b.personas.find((x) => x.codigo === cod);
+        this.saldoUso.set(p ? `Saldo: ${firmaHoras(p.saldoMin) || '0h 00m'} (ganó ${horasTexto(p.ganadasMin)}, usó ${horasTexto(p.usadasMin)})` : 'Sin horas extra en el banco.');
+      },
+      error: (e) => this.saldoUso.set(rhError(e, 'No se pudo leer el saldo.')),
+    });
   }
 
   guardarCaptura(): void {
@@ -455,8 +539,37 @@ export class RhIncidenciasComponent implements OnInit {
     this.aviso.set(null);
     this.api.cerrarSemana(site, this.jueves()).subscribe({
       next: () => { this.ocupado.set(false); this.aviso.set({ texto: 'Semana cerrada: se guardó la foto para prenómina.', mal: false }); this.cargar(); },
+      error: (e) => {
+        this.ocupado.set(false);
+        // Gente que checó sin estar identificada: se dice quién, y sólo se cierra con motivo.
+        const lista = sinIdentificarDe(e);
+        if (lista) { this.sinId.set(lista); this.motivoSinId.set(''); return; }
+        this.aviso.set({ texto: rhError(e, 'No se pudo cerrar la semana.'), mal: true });
+      },
+    });
+  }
+
+  cerrarDeTodosModos(): void {
+    const site = this.sitio();
+    const lista = this.sinId();
+    const motivo = this.motivoSinId().trim();
+    if (!site || !lista || motivo.length < MOTIVO_SIN_ID_MINIMO) return;
+    this.ocupado.set(true);
+    this.aviso.set(null);
+    this.api.cerrarSemana(site, this.jueves(), { motivo }).subscribe({
+      next: () => {
+        this.ocupado.set(false);
+        this.aviso.set({ texto: `Semana cerrada, con ${lista.length} sin identificar anotados en el cierre.`, mal: false });
+        this.cargar();
+      },
       error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo cerrar la semana.'), mal: true }); },
     });
+  }
+
+  /** Por qué no está identificada, en palabras. */
+  motivoDe(p: HrSinIdentificarDto): string {
+    if (p.sinFicha) return 'sin ficha';
+    return [p.sinNombre ? 'sin nombre completo' : '', p.sinDepartamento ? 'sin departamento' : ''].filter(Boolean).join(', ');
   }
 
   reabrir(c: HrCierreDto): void {

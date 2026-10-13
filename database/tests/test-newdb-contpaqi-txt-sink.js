@@ -169,7 +169,23 @@ const ENTRADA = {
     console.log('  [NO MEDIDO] sin el fixture local — es correcto que falte en CI (datos reales, repo público)');
   } else {
     const lineas = fs.readFileSync(FIX, 'latin1').split(/\r?\n/).filter((l) => l.length);
-    const largoReal = (L) => L.reduce((a, c) => a + c.ancho, 0) + L.length; // +1 por el espacio final
+    /**
+     * ⛔ `[CP.8.39]` — acá vivía una suma a mano: `Σanchos + L.length`, o sea **un separador por
+     * campo**. Esa fórmula es la que ocultó que `LAYOUT_REAL_P` se había quedado con el
+     * `sist_orig` de 2 que `[CP.8.28]` ya había corregido a 3: `174+11` y `175+10` dan **185**
+     * los dos, así que el candado pasaba en verde sobre un layout mal partido.
+     *
+     * ⭐ *Un candado que modela el formato distinto del código verifica su propia copia.* Ahora
+     * mide con `largoLinea()` del emisor, que es quien sabe de `sinSep`.
+     */
+    const largoReal = (L) => largoLinea(L);
+    // ⭐ Prueba de que la distinción NO es teórica: con la suma a mano el encabezado da 186 y el
+    // real es 185. Sobre la copia vieja las dos daban 185 — por eso no se vio. Si algún día
+    // vuelven a coincidir, es que alguien quitó el `sinSep` y hay que mirarlo.
+    const sumaAMano = (L) => L.reduce((a, c) => a + c.ancho, 0) + L.length;
+    check(sumaAMano(LAYOUT_P) !== largoLinea(LAYOUT_P),
+      `⛔ un separador por campo NO reproduce el encabezado (${sumaAMano(LAYOUT_P)} vs ${largoLinea(LAYOUT_P)}): `
+      + 'el `sinSep` de [CP.8.28] es real y medirlo a mano lo borra');
     const Ps = lineas.filter((l) => l.slice(0, 2) === 'P ');
     const Ms = lineas.filter((l) => l.slice(0, 2) === 'M1');
     const ADs = lineas.filter((l) => l.slice(0, 2) === 'AD');

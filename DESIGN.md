@@ -19,7 +19,7 @@
 >    - **Excepción confirmada (decisión Edgar 2026-06-23):** los **accents de color por card** en `MetricCard` y las gráficas (sparkline/bars/gauge/donut) **se conservan** — ahí el color **codifica dato**, no decora (igual que los charts de Linear/Stripe). No atenuar a monocromo. La regla "casi monocromático" aplica a la **estructura/chrome** (tablas, paneles, navegación, formularios), no a la capa de data-viz.
 > 2. **Separadores apenas perceptibles:** borde 1px (`--border-color`/`--c-divider`); profundidad con sombras mínimas (`shadow-sm`) o ring 1px, **nunca** sombras difusas/pesadas. Radios discretos (`md`/`lg`); pill solo para badges.
 > 3. **Densidad Stripe:** `--fs-sm` base, `--fs-xs` para metadatos; jerarquía por **contraste de texto** (`c-text-1` principal / `c-text-2`/`c-text-3` secundario).
-> 4. **Tablas:** padding compacto, números/estados a la derecha, texto a la izquierda, **filas separadas por divisor inferior 1px fino**. ⛔ **NADA de zebra striping** (se ve anticuado) — `surf-table--zebra` quedó **neutralizado (no-op)**. ⚠️ **35 archivos siguen aplicando la clase** (medido 2026-09-14): no rompe nada pero es una intención que el sistema descarta en silencio — al tocar una de esas tablas, quitala. Detalle en [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).
+> 4. **Tablas:** padding compacto, números/estados a la derecha, texto a la izquierda, **filas separadas por divisor inferior 1px fino**. ⛔ **NADA de zebra striping** (se ve anticuado) — `surf-table--zebra` quedó **neutralizado (no-op)**. ✅ **Cerrado: 0 archivos la aplican** (medido 2026-10-12); la clase ya no existe. Detalle en [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).
 
 ---
 
@@ -39,7 +39,7 @@
 | 8 | [Plataforma web moderna §R-§W](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding) | responsividad por capas, `@layer`, overlays nativos, INP | sí |
 | 9 | [Superficies con IA §X](#superficies-con-ia--contrato-de-agentic-ux-binding) | plan · razón · confianza · reversa · escalación | sí |
 | 10 | [Leyes de interacción](#leyes-de-interacción--arquitectura-de-interacciones-resilientes-binding) | Tesler/Miller/Jakob/Von Restorff + estado sucio, lote, doble-clic | sí |
-| 11 | [Layouts por sector §O/§P](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding) | fiscal vs almacén vs mostrador + ayuda contextual | sí |
+| 11 | [Layouts por sector §O/§P](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding) | fiscal vs almacén vs mostrador vs comercial + ayuda contextual | sí |
 | 12 | [Jerarquía del dato §Q](#jerarquía-visual--comprensión-del-dato-interfaces-densas-en-valores--binding) | answer-first en pantallas con muchas cifras | sí |
 | 13 | [PWA](#pwa--app-instalable-binding) | app instalable: SW, manifest, safe-area, offline | sí (`apps/vendor`) |
 | 14 | [Decisiones abiertas](#decisiones-abiertas--listas-para-firmar-2026-10-03) | las 10 preguntas que quedaron de la auditoría, con sus números. **Se firman, no se trabajan** | — |
@@ -130,7 +130,7 @@ el repo, igual que `prefers-contrast` y `prefers-reduced-transparency`.)*
 
 ## Estado de cumplimiento — lo que el doc manda vs. lo que el código hace
 
-> **Última verificación contra el código: 2026-10-03.** Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
+> **Última verificación contra el código: 2026-10-12** (filas 1, 5, 8 y el inventario de componentes; el resto sigue fechado 2026-10-03). Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
 >
 > ⭐ **Y desde el 2026-10-03 lleva también su COMANDO.** La auditoría del 2026-10-02 intentó
 > reproducir tres cifras de esta tabla —*171 hex*, *76 `<th>` vacíos*, *55 veces BINDING*— y **no
@@ -181,17 +181,17 @@ el repo, igual que `prefers-contrast` y `prefers-reduced-transparency`.)*
 
 | # | Regla | 09-14 | **2026-10-03** | Dónde |
 |---|---|---|---|---|
-| 1 | ⛔ §S cascada en capas | `@layer` 0 · `!important` 961 · `::ng-deep` 370 | **`@layer` 0 · `!important` 1,034 (+7.6%) · `::ng-deep` 439 (+18.6%)** | todo el repo |
+| 1 | ⛔ §S cascada en capas | `@layer` 0 · `!important` 961 · `::ng-deep` 370 | **2026-10-12: `@layer` 0 · `!important` 1,065 · `::ng-deep` 480.** En los 9 días desde el 10-03 subió **+31 y +41** — sigue siendo la única deuda sin instrumento, y la única que crece sola. ⚠️ D-1 publica **1,041 / 442** para esta misma métrica con la misma fecha: dos mediciones distintas en el mismo documento | todo el repo |
 | 2 | ✅ §Motion techo 350ms | *"19 por encima"* | **0 en Operations**, en las dos notaciones. ⚠️ Y la cifra vieja estaba **mal medida**: contaba sólo `ms`. Sumando `.5s`/`.7s`/`0.8s` eran 40+, y la compuerta encontró **40 más** que el barrido manual tampoco veía (la duración va **después** del nombre del keyframe). Cerrado con `npm run check:motion` en CI | [`check-motion.js`](scripts/check-motion.js) |
 | 2b | ⚠️ §Motion sólo `transform`/`opacity` | — | **48 `transition` sobre propiedades de layout**, declaradas con tope: la compuerta frena si crecen. Las 48 se revisaron una por una, **cero falsos positivos** | `[DS.1]` |
 | 3 | ✅ §Motion KPI 1/7 | `MetricStrip` `width 900ms` en 64 archivos | **Arreglado.** El bullet anima `transform: scaleX()`; la barra de composición no se pudo (hermanos flex de una fila) y **queda declarada con su razón**, a 250ms. Adopción: **81 archivos** | [`metric-strip.component.ts`](apps/view/src/app/shared/components/metric-strip/metric-strip.component.ts) |
 | 4 | ✅ Anti-slop #1 (morado IA) | `#8b5cf6` vivo en 2 pantallas | **Arreglado** (entre el 09-14 y hoy): `promotions-meta.ts` usa `var(--chart-N)`. El hex sólo sobrevive **dentro del comentario** que explica por qué se fue | [`promotions-meta.ts`](apps/view/src/app/modules/comercial/promotions-meta.ts) |
-| 5 | ⚠️ §R breakpoints en `rem` | 169 px / 26 rem | **205 en px, congelados con tope** por `check:estilos`. Dejan de crecer; bajan cuando alguien los baje | todo el repo |
+| 5 | ✅ §R breakpoints en `rem` — **cerrado** | 169 px / 26 rem | **0 en px, tope 0** (`check:estilos`, 2026-10-12). ⚠️ El *205* de la fila anterior **nunca fue reproducible**: su comando exigía `@media` y el breakpoint en la MISMA línea, y acá se escriben en líneas distintas. ⛔ Y el tope de 0 tiene un punto ciego: la compuerta camina sólo `.css` y `.ts` ([`check-estilos.js:338`](scripts/check-estilos.js#L338)), y el único `.scss` del repo tiene el único `max-width: 768px` que queda | [`offline-status.component.scss:186`](apps/view/src/app/shared/components/offline-status/offline-status.component.scss#L186) |
 | 6 | ⚠️ pre-vuelo 2 "cero hex crudo" + 12b (dark) | *171 decls / 40 archivos* | **1,449 declaraciones, congeladas con tope** por `check:estilos` (medido sobre `apps/`+`libs/`, exentos `tokens.css`, el preset de Aura y `#fff`/`#000`, que 12b permite). ⚠️ **No es comparable con los 171 de antes**: aquella cifra no publicaba su patrón ni su universo. Se deja el número con su comando, **no se finge la serie** | todo el repo |
 | 6a | ⛔ D.0 alineación de tabla | 52 clases propias vs 41 con `.num` | **140 archivos usan `.num`** (otro universo: cuenta archivos, no clases inventadas). Pendiente re-medir el lado de las clases propias con un patrón publicado | todo el repo |
 | 6b | ⚠️ Escala tipográfica (`--fs-*`, ESTRICTA) | 97 tamaños distintos · 38% adopción | **3,161 `font-size` con literal, congelados con tope** por `check:estilos` — que además **imprime la equivalencia** de cada literal con el token más cercano, porque ⭐ **no falta un peldaño: ninguno de los 9 literales top está a más de 0.5px de un token que ya existe.** Era la regla binding con peor cumplimiento del sistema; ahora al menos deja de empeorar | todo el repo |
 | 7 | §Motion adopción de tokens | 27 de 270 = 10% | **47 `var(--dur-*)`** (+74%) — subió por el barrido `[DS.1]`, no solo | todo el repo |
-| 8 | `surf-table--zebra` neutralizada | 35 plantillas | **39 (+4)** | 39 plantillas |
+| 8 | ✅ `surf-table--zebra` — **cerrado** | 35 plantillas | **0** (2026-10-12). La clase ya no existe ni como regla ni en ninguna plantilla; el único acierto de `grep` es el comentario de [`styles.css:2928`](apps/view/src/styles.css#L2928) que explica la remoción — mismo patrón que la fila 4 | `apps/view/src/styles.css` |
 | 9 | Capa atómica (hallazgo #1 de 2026-06-04, sigue ⬜) | 133 selectores de botón | sin re-medir | `apps/portal`, `apps/vendor` |
 | 10 | `motion@^12.38.0` | dep muerta, 0 imports | **sigue**, y la razón es más filosa de lo que decía: **está en `package-lock.json` y el CI corre `npm ci`** — sacarla sólo de `package.json` rompe el `npm ci` **de todos** (`not in sync`). Necesita `npm install` para regenerar el lock, que es una operación deliberada (red, ~60k archivos, puede arrastrar otras versiones), no el borrado de una línea | `package.json` + lock |
 | 11 | ⛔ **`forced-colors` = 0 en todo el repo** *(hallazgo nuevo 2026-10-02)* | — | **Cerrado el 2026-10-03** con [`forced-colors.css`](libs/ui-web/src/forced-colors.css) en las 3 apps. La flota es Windows y este sistema es el que peor se lleva con Alto Contraste: hairline + alpha-overlays + semáforo por fondo = hover/seleccionado/normal **colapsan en lo mismo**, y el anillo de foco hecho con `box-shadow` **desaparece** | `libs/ui-web` |
@@ -309,26 +309,30 @@ La regla 1-línea: Operations es el portal pero sin storefront. Mismo lenguaje, 
 ## Inventario de componentes compartidos
 
 > **Antes de construir una pieza de UI, buscá acá.** Todo vive en [`apps/view/src/app/shared/components/`](apps/view/src/app/shared/components/) (excepto `context-help`, en `shared/context-help/`). Re-estilar a mano lo que ya existe es el antipatrón #1 de Atomic Design y está flagueado en review.
-> **Adopción = archivos que instancian el selector.** Re-medir con: `grep -rl "<app-metric-strip[ >]" apps --include=*.html --include=*.ts | wc -l`. La columna "ago-12" se conserva para ver la dirección.
+> **Adopción = archivos que instancian el selector.** Re-medir con: `grep -rlE "<app-metric-strip([ >]|$)" apps --include=*.html --include=*.ts | wc -l`. La columna "ago-12" se conserva para ver la dirección.
+>
+> ⛔ **El comando anterior estaba MAL y la tabla publicaba su resultado (corregido 2026-10-12).** Decía `grep -rl "<app-X[ >]"`, y ese `[ >]` no matchea cuando los atributos arrancan en el renglón siguiente — que es el estilo de este repo. Difería en **7 de los 14 componentes**: `load-state` 39 vs **46**, `side-peek` 24 vs **27**, `map` 10 vs **12**, `metric-card` 18 vs **19**, `segmented` 41 vs **42**, `customer-360-panel` 1 vs **2**, y **`mini-bars` 0 vs 1**. ⭐ Ese último no es un redondeo: la tabla lo publicaba como *«⛔ sin usos»* y **D-8 propone retirarlo sobre esa cifra**. `MiniBars` **sí se usa** — lo instancia [`MetricCard`](apps/view/src/app/shared/components/metric-card/metric-card.component.ts), que tiene 19 consumidores; retirarlo rompe la micro-viz de todos ellos. *Una cifra que decide un retiro se vuelve a medir antes de retirar nada.*
 > ⚠️ **Este repertorio sirve sólo a `apps/view`.** `apps/portal` y `apps/vendor` tienen **0 componentes compartidos** — ver el hueco declarado en §Ing.UI 5.
 
-| Componente | Selector | Cuándo se usa | ago-12 | **2026-09-14** |
-|---|---|---|---|---|
-| **MetricStrip** | `app-metric-strip` | **Header de KPIs de una pantalla** (ADR-033): sin caja, hairline entre métricas, cifra mono con count-up. Modos `strip · spark · ring · bullet · composition` según la forma del dato | 50 | **64** |
-| **MetricCard** | `app-metric-card` | **Tile rico individual** con su propia micro-viz (gauge/sparkline). Dashboards, no headers de página | 16 | **17** |
-| **PageTabs** | `app-page-tabs` | Barra de tabs de un apartado, con gate por `permission` por tab | 46 | **50** |
-| **TabShell** | `app-tab-shell` | Shell con tabs **ruteadas** (lee `data.tabs` de la ruta padre + `<router-outlet>`) | 0 | **0** ⚠️ nunca se usó |
-| **ContextHelp** | `app-context-help` | Regla P: cajón de ayuda de negocio desde el **diccionario versionado**. Obligatorio donde hay jerga o reglas estrictas | 31 | **38** |
-| **FreshnessPill** | `app-freshness-pill` | §9 datos añejos: "actualizado hace N min", pasa a warn tras `staleAfterSec`. Obligatorio en dato volátil | 15 | **26** |
-| **LoadState** | `app-load-state` | §2 matriz de estados: separa `loading` / `empty` / `error` (mata el bug `error === empty`). Proyecta el contenido real | 12 | **22** |
-| **SidePeek** | `app-side-peek` | §datos densos 8: drawer de detalle 480–560px sin perder la lista | 6 | **17** |
-| **Segmented** | `app-segmented` | Segmented control canónico (radiogroup accesible). Reemplazó 3 implementaciones ad-hoc | 10 | **18** |
-| **Map** / **MapLegend** | `app-map` · `app-map-legend` | Mapa Leaflet tokenizado + su leyenda | 11 / 4 | **11 / 4** |
-| **MiniBars** | `app-mini-bars` | Micro-chart de columnas para cards. SVG/CSS puro, 0 KB de librería | 1 | **0** ⛔ sin usos |
-| **Customer360Panel** | `app-customer-360-panel` | Drill-down compartido de cliente | 2 | **1** |
-| **OfflineStatus** | `app-offline-status` | §PWA 5: estado de red visible en app instalable | 1 | **1** |
+| Componente | Selector | Cuándo se usa | ago-12 | 09-14 | **2026-10-12** |
+|---|---|---|---|---|---|
+| **MetricStrip** | `app-metric-strip` | **Header de KPIs de una pantalla** (ADR-033): sin caja, hairline entre métricas, cifra mono con count-up. Modos `strip · spark · ring · bullet · composition` según la forma del dato | 50 | **64** | **92** |
+| **MetricCard** | `app-metric-card` | **Tile rico individual** con su propia micro-viz (gauge/sparkline). Dashboards, no headers de página | 16 | **17** | **19** |
+| **PageTabs** | `app-page-tabs` | Barra de tabs de un apartado, con gate por `permission` por tab | 46 | **50** | **48** |
+| **TabShell** | `app-tab-shell` | Shell con tabs **ruteadas** (lee `data.tabs` de la ruta padre + `<router-outlet>`) | 0 | **0** ⚠️ nunca se usó | **0** ⚠️ nunca se usó |
+| **ContextHelp** | `app-context-help` | Regla P: cajón de ayuda de negocio desde el **diccionario versionado**. Obligatorio donde hay jerga o reglas estrictas | 31 | **38** | **49** |
+| **FreshnessPill** | `app-freshness-pill` | §9 datos añejos: "actualizado hace N min", pasa a warn tras `staleAfterSec`. Obligatorio en dato volátil | 15 | **26** | **39** |
+| **LoadState** | `app-load-state` | §2 matriz de estados: separa `loading` / `empty` / `error` (mata el bug `error === empty`). Proyecta el contenido real | 12 | **22** | **46** |
+| **SidePeek** | `app-side-peek` | §datos densos 8: drawer de detalle 480–560px sin perder la lista | 6 | **17** | **27** |
+| **Segmented** | `app-segmented` | Segmented control canónico (radiogroup accesible). Reemplazó 3 implementaciones ad-hoc | 10 | **18** | **42** |
+| **Map** / **MapLegend** | `app-map` · `app-map-legend` | Mapa Leaflet tokenizado + su leyenda | 11 / 4 | **11 / 4** | **12 / 4** |
+| **MiniBars** | `app-mini-bars` | Micro-chart de columnas para cards. SVG/CSS puro, 0 KB de librería | 1 | **0** ⛔ sin usos | **1** (vía `MetricCard`) |
+| **Customer360Panel** | `app-customer-360-panel` | Drill-down compartido de cliente | 2 | **1** | **2** |
+| **OfflineStatus** | `app-offline-status` | §PWA 5: estado de red visible en app instalable | 1 | **1** | **1** |
 
-⛔ **Dos componentes compartidos con cero adopción** (`TabShell` nunca arrancó; `MiniBars` la perdió). Un componente en este inventario con 0 usos es peor que no tenerlo: se ofrece como camino canónico y nadie lo ejercita, así que nadie sabe si funciona. Decisión pendiente por cada uno: **adoptarlo o retirarlo** — no dejarlo listado como si estuviera vivo.
+⛔ **UN componente compartido con cero adopción: `TabShell`** (nunca arrancó). Un componente en este inventario con 0 usos es peor que no tenerlo: se ofrece como camino canónico y nadie lo ejercita, así que nadie sabe si funciona. Decisión pendiente: **adoptarlo o retirarlo** — no dejarlo listado como si estuviera vivo.
+
+🔸 **`MiniBars` sale de esta lista (2026-10-12): nunca estuvo en cero.** Lo instancia [`MetricCard`](apps/view/src/app/shared/components/metric-card/metric-card.component.ts), que tiene 19 consumidores — o sea que su micro-viz se ejercita en cada dashboard que use una card con columnas. El `0` lo produjo el comando roto de arriba, no el código. ⭐ **La lección es sobre el método, no sobre el componente:** un componente compartido puede consumirse **desde otro componente compartido**, y una métrica de adopción que sólo cuenta pantallas lo da por muerto. Antes de retirar algo por falta de uso, se busca quién lo importa, no sólo quién lo escribe en un template.
 
 **Huecos conocidos** (no existe componente compartido — hoy se resuelve a mano en cada pantalla): formulario/campo, tabla (se usa `p-table` + clases `surf-table--*` de `styles.css`), empty-state genérico, badge/pill, stepper, search-bar. Extraerlos es backlog abierto.
 > 🔸 **El de `search-bar` sigue abierto como COMPONENTE, pero su lógica ya no** (2026-10-01): el criterio de coincidencia vive en [`coincideBusqueda`/`filtrarPorBusqueda`](libs/ui-web/src/search/buscar-en-cliente.ts) y el salto al primer renglón en [`bajarAlPrimerRenglon`](libs/ui-web/src/keyboard/row-nav.ts). Quien extraiga el componente **los consume**, no los reescribe — si no, la 26ª pantalla vuelve a filtrar con `.includes()` (→ D.8).
@@ -1209,6 +1213,22 @@ Para UI **nueva** (no se reescribe lo que ya funciona con PrimeNG):
 - **Reconciliación (crítica) con §datos densos 7:** esto aplica SOLO a la superficie de captura/POS en vivo. Las **listas transaccionales/auditables** (bandeja de pedidos, facturas, ledger de stock) **siguen paginadas** — auditabilidad manda. No confundir "mostrador" (feed) con "bandeja" (registro).
 - **Excepción confirmada (decisión 0Sistemas, 2026-09-12):** `/tienda/verificador` (`TiendaVerificadorComponent`) NO sigue esta sección — es un clon fiel a propósito del kiosco `verificador.html` retirado en la Fase CV: Sniglet en vez de Hanken Grotesk, paleta cruda propia (`--vf-*`, mismas cifras hex del HTML original) en vez de tokens, fondo con patrón decorativo, tema fijo (siempre claro, ignora el modo oscuro del navegador). Es la única pantalla del repo con esta excepción — no repetir el patrón en otro módulo sin la misma autorización explícita. Lo que sí sigue intacto (no es "look"): foco permanente, procedencia del precio, declarar-en-vez-de-esconder (ADR-056), "no encontrado" ≠ "sin conexión" (§pre-vuelo 6).
 
+**O.4 — Analítica comercial (una operación, muchos ángulos).** Alcance: `/comercial/*`.
+- **Por qué existe esta sección (medido 2026-10-12):** `/comercial/*` era el único proyecto de primer nivel **sin sector asignado** — O.1 cubre fiscal, O.2 almacén, O.3 mostrador. Sin régimen, cada pantalla inventó el suyo: de las 7 de Ruta Directa, **2 usan `p-table` + side-peek y 4 son `<table>` crudo**, en el mismo sub-módulo y sobre la misma operación. Un sector vacío no es neutral: reparte el layout por orden de llegada.
+- **Layout: full-width data grid + side-peek para el detalle.** Es el patrón que `Ventas por ruta` e `Inventario de ruta` ya ejercen; las demás convergen a él. El listado nunca se pierde al abrir un renglón.
+- ⛔ **La REJILLA va en `p-table`, nunca en `<table>` crudo** (pre-vuelo #3). No es estética: **sin `p-table` no hay `pSelectableRow`**, así que el teclado (D.7), el header fijo y la 1ª columna congelada quedan fuera de alcance *por construcción*. Una tabla cruda no es una tabla más simple: es una tabla sin teclado.
+  - 🔸 **Qué cuenta como «la rejilla», medido y no supuesto (2026-10-12).** Esta regla se firmó como absoluta (*«nunca `<table>` crudo»*) y **la primera medición la desmintió**: de las 11 tablas crudas de Ruta Directa, una tiene **1 columna** y otra **3 renglones**. Envolver eso en `p-table` no le da teclado a nadie: le agrega ceremonia a una lista. La línea que sí se sostiene es **la rejilla PRINCIPAL de la pantalla** — la que el usuario vino a recorrer, la que tiene una fila por sujeto del dominio (una ruta, un movimiento, una unidad). Ésa va en `p-table`, sin importar que hoy traiga 14 filas: el teclado y el header fijo son para recorrerla, y la cantidad de filas la decide el dato, no el diseño. Las **tablas de apoyo** —resúmenes por familia, contrastes, diagnósticos de dos columnas— se quedan en `<table>`.
+  - ⚠️ Lo que **no** cambia en las de apoyo: `caption.sr-only`, `scope="col"`, `data-label` para apilar en angosto y `.num` en las cifras. Una tabla chica no es una tabla sin reglas.
+  - ⛔ **Una tabla de 1 columna no es una tabla: es una lista.** Si al medirla queda una sola columna, el arreglo no es `p-table` — es `<ul>`. (Hay una viva en `comercial-comisiones`: las rutas que quedaron fuera de la corrida.)
+- **Teclado (D.7): `pSelectableRow` en la rejilla, salvo que la fila YA sea navegable.** Hay **dos** caminos válidos y conviene no mezclarlos:
+  - **Un disparador por fila** (un botón de detalle en la última columna) → `pSelectableRow`. Gana flechas, `Home`/`End` y **roving tabindex**: la tabla entera pasa a ser UN stop del tabulador en vez de uno por fila.
+  - **Un disparador por CELDA** (cada cifra abre su propio drill) → **botones reales con `aria-label`, y NADA de `pSelectableRow`**. Medido en `comercial-ventas-por-ruta` (2026-10-12): cada celda de mes abre la ruta acotada a ese mes, así que la fila tiene ~14 destinos distintos; `pSelectableRow` le robaría `Enter`/`Space`/flechas a todos ellos — que es exactamente el motivo por el que existe [`installRowNavGuard`](libs/ui-web/src/keyboard/row-nav.ts). Esa pantalla **ya cumple D.7** por la otra vía y no se convierte.
+  - ⛔ La pregunta no es *«¿tiene `pSelectableRow`?»* sino *«¿se puede recorrer y accionar sin mouse?»*. Un grep del primero da un falso negativo en la segunda forma.
+- **Answer-first obligatorio (Q.1):** la pantalla abre con `MetricStrip`, no con el grid. Si lo primero es la tabla, falló.
+- **Frescura prominente (§9):** la venta del día, la carga del camión y el kilometraje del GPS son **dato volátil**. La píldora mide el **dato** (`measures="data"`, timestamp del servidor), nunca el reloj del navegador. Si el backend todavía no publica su `data_as_of`, se agrega ahí — no se rellena con `Date.now()`.
+- **Ayuda contextual (regla P) donde hay jerga derivada:** `comisiona`, `cobertura_km`, `sin fuente`, `por venir`, `quedados`, `tope sugerido`, `vínculo sospechoso`. Son términos que inventó el motor, no el negocio: sin entrada en el diccionario versionado, la pantalla publica una palabra que nadie puede buscar.
+- **Diferencia con O.2:** O.2 optimiza para *operar* (lectura a distancia, offline prominente, totales congelados). O.4 optimiza para *entender* (answer-first, drill a la evidencia, §Q completa). Un almacenista actúa; un analista decide.
+
 ### P. Ayuda contextual (Abouts por módulo)
 
 - Toda pantalla con **reglas de negocio estrictas** (criterio de existencia crítica, umbrales ABC/XYZ y nivel de servicio, estados 1-6 del SAT, reglas de materialidad, safety stock) incluye un componente **`<app-context-help>`**: cajón lateral deslizable (o popover amplio) que documenta la lógica de **ese** módulo, sin sacar al usuario de la pantalla.
@@ -1221,6 +1241,7 @@ Para UI **nueva** (no se reescribe lo que ya funciona con PrimeNG):
 - Existencia/stock volátil sin indicador de frescura ni de offline (viola O.2 + §9).
 - Mostrador/POS con paginación tradicional o sin foco permanente en el input de captura (viola O.3).
 - Aplicar "no paginación" a una bandeja auditable de pedidos/facturas (rompe §datos densos 7).
+- Pantalla de `/comercial/*` construida con `<table>` crudo, o que abre con el grid en vez del veredicto (viola O.4 + Q.1).
 - Texto de ayuda de negocio inventado en el template en vez de consumir el diccionario (viola P).
 
 ---
@@ -1424,9 +1445,12 @@ que es un nombre de **rol**. Por eso 144 `font-size: 1rem` quedaron sin tokeniza
 `h2`/`h3` reales **pero también** `.qty-num`, `.va-input input` y `.kv dd`. **Recomendado:** añadir
 `--fs-md: 1rem` como alias de tamaño y que `--fs-h3` lo referencie. Es aditivo y desbloquea 144.
 
-**D-8 · `TabShell` (0 usos) y `MiniBars` (1).** Siguen listados en el inventario de componentes
-compartidos como caminos canónicos. **Un componente ofrecido y no ejercitado es peor que no
-tenerlo**: nadie sabe si funciona. **Adoptar o retirar** — una por una, no en bloque.
+**D-8 · `TabShell` (0 usos).** Sigue listado en el inventario de componentes compartidos como
+camino canónico. **Un componente ofrecido y no ejercitado es peor que no tenerlo**: nadie sabe si
+funciona. **Adoptar o retirar.**
+⛔ **Corregido 2026-10-12: `MiniBars` sale de esta decisión.** Esta pregunta lo incluía por una
+cifra que midió mal — lo instancia `MetricCard`, con 19 consumidores. Retirarlo habría roto la
+micro-viz de todos ellos. *La decisión era correcta; el insumo no.*
 
 **D-9 · `motion@^12.38.0`, dep muerta con 0 imports.** ⚠️ Está en `package-lock.json` y el CI corre
 `npm ci`: **sacarla sólo de `package.json` rompe el `npm ci` de todos**. Necesita `npm install`

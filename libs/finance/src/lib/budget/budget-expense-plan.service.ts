@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
+import type { ExpenseConcentration, ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 // [PU.VG.7] El ritmo vive en un módulo PURO: se prueba sin Postgres y sin Nest.
 import {
   perfilAcumulado, evaluarRitmo, resumirRitmo, llaveDePartida,
   type PlanRow, type LedgerRow,
 } from './budget-phasing';
+// [PU.VG.11] La concentración es pura y AGNÓSTICA: sirve para gasto, ingreso o un canal. El
+// universo entra por parámetro, así que no se puede publicar un número sin decir de qué es.
+import { concentracion, fraseConcentracion, type FilaConcentrable, type Universo } from './budget-concentration';
 
 /**
  * Fase PVG — Presupuesto de GASTOS auto-propuesto desde los egresos de Kepler (ADR-073).
@@ -251,6 +254,50 @@ export class BudgetExpensePlanService {
         nota_grano: 'El ledger no guarda mes; el perfil se deriva del plan y se compara al lado.',
         resumen: resumirRitmo(filas),
         partidas: filas,
+      };
+    });
+  }
+
+  /**
+   * `[PU.VG.10]` **¿Cuánto del gasto de ESTE ejercicio puede mover Dirección?**
+   *
+   * Medido contra prod el 2026-10-09: en FY2027 una sola partida (SUELDOS Y SALARIOS) es el
+   * **55.50 %**, y hacen falta **cuatro** renglones para mover el 80 % del gasto. Ésa es la
+   * respuesta a *«¿puedo recortar?»*, y hasta hoy no estaba en ninguna superficie: la tabla
+   * mostraba 14 renglones que se ven todos iguales.
+   *
+   * ⛔ El filtro por `budget_id` NO es una comodidad: es la restricción. Agregar los dos ejercicios
+   * da $107,275,909.68 y pone a la partida mayor en **38.72 %** (o en 53.90 % si se suman los dos
+   * renglones de SUELDOS, que son de años distintos) cuando el ejercicio real es 55.4954 %: son
+   * **16.78 pp de deformación** sobre una cifra que no corresponde a ningún año fiscal.
+   */
+  async getConcentracion(budgetId: string): Promise<ExpenseConcentration> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const budget = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();
+      if (!budget) throw new NotFoundException('Presupuesto no encontrado');
+
+      const partidas = await trx('budget.budget_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId, line_type: 'gasto' })
+        .select('id', 'concept', 'account_code', 'original_amount', 'control_level',
+          'responsible', 'expense_class');
+
+      // El gasto del ejercicio es un universo COMPLETO: no es el recorte de nada. Mezclarlo con el
+      // ingreso en un denominador no significaría nada — son dos preguntas, no dos mitades de una.
+      const universo: Universo = {
+        nombre: `el gasto de ${budget.fiscal_year ?? 'el ejercicio'}`,
+        completo: true,
+      };
+      const c = concentracion(partidas as FilaConcentrable[], universo);
+
+      return {
+        ...c,
+        // La frase sale del servidor: si la arma cada cliente, las dos mitades del módulo vuelven
+        // a contar la misma idea con dos gramáticas distintas.
+        frase: fraseConcentracion(c),
+        fiscal_year: budget.fiscal_year ?? null,
+        folio: budget.folio ?? null,
+        fuente: 'budget.budget_lines (line_type = gasto) de UN ejercicio',
       };
     });
   }

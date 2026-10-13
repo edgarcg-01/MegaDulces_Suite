@@ -5,6 +5,7 @@ import type { FichaPadron, FilaDia, HorarioAsignado, IncidenciaVigente } from '.
 import type { ChecadaDetector, HorarioSitio, PersonaDetector } from './logic/detector';
 import { ESTADOS_VIGENTES, type EstadoIncidencia } from './logic/incidencias';
 import { esPromotora } from './logic/tipos';
+import type { FilaChecoEnSemana } from './logic/sin-identificar';
 
 /**
  * Fase RH · `[RH.1.5]` — lo que la lógica de asistencia lee de la base. Una sola puerta para el
@@ -51,6 +52,10 @@ export async function sitioExiste(trx: Knex.Transaction, siteCode: string): Prom
 
 interface FilaPadron {
   code: string;
+  /** `[RH.1.4b]` La ficha de la persona en ESTA plaza (`hr.person_site_profiles`); null si no tiene. */
+  report_section: string | null;
+  is_promoter: boolean | null;
+  site_active: boolean | null;
   device_name: string | null;
   user_id: string | null;
   nombre: string | null;
@@ -78,6 +83,17 @@ interface FilaPadron {
  * `activo`: la persona está `invited`/`active` y no borrada. `suspended` cuenta como baja: sus
  * ausencias se esperan.
  */
+/**
+ * `[RH.1.4b]` El «departamento» que ve la asistencia: la SECCIÓN del reporte de RH de esa ficha (lo que
+ * Mega Talento llama departamento: «SUC.PADRE HIDALGO», «STAFF LA PIEDAD», «PROMOTORAS»…). Sólo si la
+ * ficha no tiene sección se usa el departamento de la Suite, con su nombre y su código.
+ */
+export function departamentoDeFicha(r: { report_section?: string | null; department_name?: string | null; department_code?: string | null }): string | null {
+  const seccion = String(r.report_section || '').trim();
+  if (seccion) return seccion;
+  return [r.department_name, r.department_code].filter(Boolean).join(' · ') || null;
+}
+
 export async function padron(trx: Knex.Transaction, siteCode: string): Promise<{
   fichas: Map<string, FichaPadron>;
   personas: PersonaDetector[];
@@ -95,21 +111,24 @@ export async function padron(trx: Knex.Transaction, siteCode: string): Promise<{
     SELECT enr.code, enr.device_name, enr.user_id,
            u.nombre, u.status, u.deleted_at::text AS deleted_at,
            u.department_code, dep.name AS department_name, pos.name AS position_name,
-           ps.schedule_id
+           ps.schedule_id,
+           psp.report_section, psp.is_promoter, psp.is_active AS site_active
       FROM enr
       LEFT JOIN identity.users u ON u.id = enr.user_id
       LEFT JOIN identity.departments dep ON dep.tenant_id = u.tenant_id AND dep.code = u.department_code AND dep.deleted_at IS NULL
       LEFT JOIN identity.positions pos ON pos.tenant_id = u.tenant_id AND pos.code = u.position_code AND pos.deleted_at IS NULL
-      LEFT JOIN hr.person_schedules ps ON ps.site_code = ? AND ps.person_code = enr.code`, [siteCode, siteCode]);
+      LEFT JOIN hr.person_schedules ps ON ps.site_code = ? AND ps.person_code = enr.code
+      LEFT JOIN hr.person_site_profiles psp ON psp.site_code = ? AND psp.person_code = enr.code`, [siteCode, siteCode, siteCode]);
 
   const fichas = new Map<string, FichaPadron>();
   const personas: PersonaDetector[] = [];
   for (const r of rows) {
     const ligado = !!r.user_id && r.status !== null;   // status nunca es nulo si la persona existe
     if (!ligado) continue;
-    const activo = (r.status === 'invited' || r.status === 'active') && !r.deleted_at;
-    // El departamento con su código y su nombre: `esPromotora` busca "promotor" en el texto.
-    const departamento = [r.department_name, r.department_code].filter(Boolean).join(' · ') || null;
+    // `[RH.1.4b]` Activa = la persona Y su ficha en ESTA plaza: quien se mudó tiene la ficha vieja de baja
+    // y no debe volver a salir con faltas en la plaza que dejó (Mega Talento mide por ficha).
+    const activo = (r.status === 'invited' || r.status === 'active') && !r.deleted_at && r.site_active !== false;
+    const departamento = departamentoDeFicha(r);
     const ficha: FichaPadron = {
       userId: r.user_id,
       registrado: true,
@@ -119,13 +138,14 @@ export async function padron(trx: Knex.Transaction, siteCode: string): Promise<{
       puesto: r.position_name,
       fotoUrl: null,
       activo,
+      es_promotora: r.is_promoter === true,
     };
     fichas.set(r.code, ficha);
     personas.push({
       codigo: r.code,
       nombre: ficha.nombre || r.code,
       horarioId: r.schedule_id,
-      excluida: !activo || esPromotora({ departamento }),
+      excluida: !activo || esPromotora({ es_promotora: ficha.es_promotora, departamento }),
     });
   }
   return { fichas, personas };
@@ -152,24 +172,28 @@ export async function directorio(trx: Knex.Transaction): Promise<FilaDirectorio[
   const { rows } = await trx.raw<{ rows: Array<{
     site_code: string; site_name: string; code: string; device_name: string | null; user_id: string | null;
     nombre: string | null; status: string | null; department_code: string | null; department_name: string | null;
+    report_section: string | null; is_promoter: boolean | null;
   }> }>(`
     SELECT DISTINCT ON (d.site_code, COALESCE(e.person_code, e.device_user_id))
            d.site_code, s.name AS site_name, COALESCE(e.person_code, e.device_user_id) AS code,
-           e.device_name, e.user_id, u.nombre, u.status, u.department_code, dep.name AS department_name
+           e.device_name, e.user_id, u.nombre, u.status, u.department_code, dep.name AS department_name,
+           psp.report_section, psp.is_promoter
       FROM hr.device_enrollments e
       JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
       JOIN hr.attendance_sites s ON s.tenant_id = d.tenant_id AND s.code = d.site_code AND s.is_active
       LEFT JOIN identity.users u ON u.id = e.user_id
       LEFT JOIN identity.departments dep ON dep.tenant_id = u.tenant_id AND dep.code = u.department_code AND dep.deleted_at IS NULL
+      LEFT JOIN hr.person_site_profiles psp ON psp.tenant_id = d.tenant_id AND psp.site_code = d.site_code
+                                           AND psp.person_code = COALESCE(e.person_code, e.device_user_id)
      WHERE e.match_status <> 'ignorado'
      ORDER BY d.site_code, COALESCE(e.person_code, e.device_user_id), (e.user_id IS NULL), e.last_seen_at DESC`);
   return rows.map((r) => {
     const ligado = !!r.user_id && r.status !== null;   // el mismo criterio que `padron`: la persona existe
-    const departamento = ligado ? [r.department_name, r.department_code].filter(Boolean).join(' · ') || null : null;
+    const departamento = ligado ? departamentoDeFicha(r) : null;
     return {
       site_code: r.site_code, site_name: r.site_name, codigo: r.code,
       nombre: (ligado && r.nombre) || r.device_name || r.code,
-      departamento, ligado, promotora: esPromotora({ departamento }),
+      departamento, ligado, promotora: ligado && esPromotora({ es_promotora: r.is_promoter === true, departamento }),
     };
   });
 }
@@ -374,6 +398,48 @@ export async function revisionesAprobadas(trx: Knex.Transaction, siteCode: strin
 }
 
 /** El cierre VIGENTE del sitio que toca el rango, o null. */
+/**
+ * `[RH.1.6b]` Cada código que checó en el sitio entre `desde` y `hasta` (días de pared), con lo que
+ * hace falta para decidir si está identificado (`logic/sin-identificar.ts`). Un código puede estar en
+ * varios relojes del sitio: manda el que está ligado a una persona.
+ */
+export async function checaronEnSemana(trx: Knex.Transaction, siteCode: string, desde: string, hasta: string): Promise<FilaChecoEnSemana[]> {
+  const { rows } = await trx.raw<{ rows: Array<{
+    code: string; checadas: number; user_id: string | null; ignorado: boolean; device_name: string | null;
+    nombre: string | null; department_code: string | null; department_name: string | null;
+    report_section: string | null; is_promoter: boolean | null;
+  }> }>(`
+    WITH act AS (
+      SELECT COALESCE(e.person_code, l.device_user_id) AS code, count(*)::int AS checadas,
+             (array_agg(e.user_id) FILTER (WHERE e.user_id IS NOT NULL))[1] AS user_id,
+             bool_and(COALESCE(e.match_status, 'pendiente') = 'ignorado') AS ignorado,
+             max(e.device_name) AS device_name
+        FROM hr.attendance_logs l
+        JOIN hr.attendance_devices d ON d.tenant_id = l.tenant_id AND d.id = l.device_id AND d.site_code = ?
+        LEFT JOIN hr.device_enrollments e ON e.tenant_id = l.tenant_id AND e.device_id = l.device_id AND e.device_user_id = l.device_user_id
+       WHERE l.punched_local >= ?::date AND l.punched_local < (?::date + 1)
+       GROUP BY 1)
+    SELECT a.code, a.checadas, u.id AS user_id, a.ignorado, a.device_name, u.nombre, u.department_code, dep.name AS department_name,
+           psp.report_section, psp.is_promoter
+      FROM act a
+      LEFT JOIN identity.users u ON u.id = a.user_id AND u.deleted_at IS NULL
+      LEFT JOIN identity.departments dep ON dep.tenant_id = u.tenant_id AND dep.code = u.department_code AND dep.deleted_at IS NULL
+      LEFT JOIN hr.person_site_profiles psp ON psp.site_code = ? AND psp.person_code = a.code`,
+  [siteCode, desde, hasta, siteCode]);
+  return rows.map((r) => ({
+    codigo: r.code,
+    checadas: r.checadas,
+    ligado: !!r.user_id,
+    ignorado: !!r.ignorado,
+    nombre: r.nombre,
+    // `[RH.1.4b]` «Sin departamento» = sin sección de RH en esta plaza (ni departamento de la Suite).
+    departamento: departamentoDeFicha(r),
+    tieneDepartamento: !!(String(r.report_section || '').trim() || r.department_code),
+    esPromotora: r.is_promoter === true,
+    nombreReloj: r.device_name,
+  }));
+}
+
 export async function cierreQueToca(trx: Knex.Transaction, siteCode: string, desde: string, hasta: string): Promise<{
   id: string; period_start: string; period_end: string; closed_by_name: string | null;
 } | null> {

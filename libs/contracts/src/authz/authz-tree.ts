@@ -280,7 +280,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'payroll', label: 'Liquidaciones / nómina', route: '/logistica/payroll', view: [Permission.LOGISTICS_PAYROLL_VER], manage: [Permission.LOGISTICS_PAYROLL_GESTIONAR] },
           { id: 'cartaporte', label: 'Carta Porte', route: '/logistica/shipments', view: [Permission.LOGISTICS_CARTAPORTE_VER], manage: [Permission.LOGISTICS_CARTAPORTE_GESTIONAR] },
           { id: 'transfers', label: 'Traspasos', route: '/logistica/traspasos', view: [Permission.LOGISTICS_TRANSFERS_VER], manage: [] },
-          { id: 'config', label: 'Configuración', route: '/logistica/config', view: [], manage: [Permission.LOGISTICS_CONFIG_GESTIONAR] },
+          { id: 'config', label: 'Configuración', route: '/logistica/config', view: [], manage: [Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR] },
         ],
       },
       {
@@ -290,7 +290,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         route: '/tienda',
         modules: [
           { id: 'store-live', label: 'Tienda en Vivo', route: '/tienda/live', view: [Permission.STORE_LIVE_VER], manage: [] },
-          { id: 'store-labels', label: 'Etiquetas de anaquel', route: '/tienda/etiquetas', view: [Permission.STORE_LABELS_VER], manage: [] },
+          { id: 'store-labels', label: 'Etiquetas de anaquel', route: '/tienda/etiquetas', view: [Permission.STORE_LABELS_VER], manage: [Permission.STORE_LABELS_COMPARTIR] },
           { id: 'store-arqueo', label: 'Arqueo ciego de caja', route: '/tienda/arqueo', view: [Permission.STORE_ARQUEO_VER], manage: [Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_RUTA_CAPTURAR] },
           { id: 'store-caducidades', label: 'Control de Caducidades', route: '/tienda/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'store-analytics', label: 'Análisis de ventas', route: '/tienda/analisis-semanal', view: [Permission.STORE_ANALYTICS_VER], manage: [] },
@@ -385,6 +385,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Crédito de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
+          // [PP.1] Pronto pago. Sólo lectura (pagar se hace en Tesorería, no acá): reusa
+          // FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login.
+          { id: 'pronto-pago', label: 'Pronto pago (descuento por pagar a tiempo)', route: '/finanzas/pronto-pago', view: [Permission.FINANCE_PAYMENTS_VER], manage: [] },
           // [ECA.2] Estado de cuenta de acreedores. Sólo lectura (los pagos se aplican en Kepler):
           // reusa FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login. Va ANTES de
           // `calendario-pagos` a propósito: la "casa" de una clave es el ÚLTIMO módulo que la usa
@@ -489,6 +492,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // `[LC.6.2]` midió que faltaba (un módulo no está entregado hasta que su permiso está
           // REPARTIDO, no sólo declarado en el enum). Sin `manage`: esta pantalla no asienta nada.
           { id: 'cierre-contable', label: 'Cierre contable (qué mes falta)', route: '/contabilidad/cierre', view: [Permission.FISCAL_CONTAB_VER], manage: [] },
+          // `[CPA.10]` La bandeja «Mi cierre»: la portada del proyecto. Mismo permiso que el
+          // semáforo —ya repartido— por la misma razón: la mira quien lleva los libros, y así no
+          // estrena puerta que alguien deba repartir. `manage` sí existe acá: cerrar el lazo
+          // (declarar qué pasó al cargar el archivo) es una escritura, aunque NO vaya a ContPAQi.
+          { id: 'mi-cierre', label: 'Mi cierre (qué le toca a contabilidad)', route: '/contabilidad/mi-cierre', view: [Permission.FISCAL_CONTAB_VER], manage: [Permission.FISCAL_CONTAB_GESTIONAR] },
           { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_IMPUESTOS_VER], manage: [] },
           { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
         ],
@@ -550,6 +558,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'rh-asistencia', label: 'Asistencia', route: '/rh/asistencia', view: [Permission.HR_ATTENDANCE_VER], manage: [Permission.HR_ATTENDANCE_GESTIONAR] },
           { id: 'rh-incidencias', label: 'Incidencias y cierre semanal', route: '/rh/incidencias', view: [Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_AUDITAR], manage: [Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_PERIOD_CLOSE] },
           { id: 'rh-relojes', label: 'Relojes checadores', route: '/rh/relojes', view: [], manage: [Permission.HR_DEVICES_GESTIONAR] },
+          // `[RH.2.3]` Reclutamiento: candidatos, vacantes y revisiones (antes el portal de Mega Talento).
+          { id: 'rh-reclutamiento', label: 'Reclutamiento', route: '/rh/reclutamiento', view: [Permission.HR_RECRUITMENT_VER], manage: [Permission.HR_RECRUITMENT_GESTIONAR] },
         ],
       },
       {

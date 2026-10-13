@@ -204,40 +204,32 @@ export const PERFIL_PUENTE: PerfilLayout = {
 
 /**
  * ⭐ **El layout REAL de ContPAQi**, medido del archivo de exportación y cruzado contra la base.
- * Reemplaza al que veníamos usando. Las diferencias con el anterior están en
- * `RESUELTO_CON_ARCHIVO_REAL`.
+ *
+ * ⛔⛔ **`[CP.8.39]` — esto era una SEGUNDA declaración de los mismos anchos, y ya había
+ * divergido.** Hasta el 2026-10-12 este archivo repetía la lista campo por campo, y cuando
+ * `[CP.8.28]` corrigió el emisor —`sist_orig` de 2 a 3, sin separador después de `concepto`—
+ * **la copia se quedó con la versión vieja**.
+ *
+ * ⭐ Y era invisible: las dos suman **185** (`174 + 11` separadores contra `175 + 10`), así que
+ * el único candado que las miraba comparaba **el total** y pasaba en verde. Es exactamente la
+ * lección que `[CP.8.28]` escribió dos secciones antes — *un total que cuadra no prueba que los
+ * campos estén donde van*— aplicada al archivo que el plan señalaba como «el layout correcto».
+ *
+ * Y es exactamente el síntoma que `[CP.8.5]` predijo al rechazar un segundo serializador:
+ * *«dos verdades sobre el mismo formato, y el síntoma aparece el día que alguien corrija un
+ * ancho»*. Alguien corrigió un ancho.
+ *
+ * **Ahora los anchos viven UNA sola vez**, en `poliza-txt.ts`. Estos nombres se conservan porque
+ * el candado del sink los cita, pero son alias, no una copia.
  *
  * ⚠️ **Cada renglón termina en UN ESPACIO** — verificado en las 232 líneas del archivo. Por eso
- * el largo es `Σanchos + nCampos` (un separador entre cada par **más** el final), y no
- * `Σanchos + (nCampos − 1)` como asumía el emisor viejo.
+ * el largo es `Σanchos + nSeparadores` contando el final, y no `Σanchos + (nCampos − 1)` como
+ * asumía el emisor viejo. ⛔ `nSeparadores` **no** es `nCampos`: los campos con `sinSep` no
+ * llevan uno (hoy, `concepto` del encabezado). Para medir, `largoLinea()` — nunca una suma a mano.
  */
-export const LAYOUT_REAL_P: readonly CampoFijo[] = [
-  { nombre: 'tipo', ancho: 2 },                 // "P "
-  { nombre: 'fecha', ancho: 8, der: true },     // yyyyMMdd
-  { nombre: 'tipo_pol', ancho: 4, der: true },  // 1 Ingreso · 2 Egreso · 3 Diario · 4 Orden
-  { nombre: 'folio', ancho: 9, der: true },
-  { nombre: 'clase', ancho: 1, der: true },     // ⭐ 1, no 4: teníamos razón nosotros
-  { nombre: 'id_diario', ancho: 10 },
-  { nombre: 'concepto', ancho: 100 },
-  { nombre: 'sist_orig', ancho: 2, der: true }, // 11
-  { nombre: 'impresa', ancho: 1, der: true },
-  { nombre: 'ajuste', ancho: 1, der: true },
-  { nombre: 'guid', ancho: 36 },                // ⭐ nadie lo tenía: Polizas.Guid
-];
+export const LAYOUT_REAL_P: readonly CampoFijo[] = LAYOUT_P;
 
-export const LAYOUT_REAL_M: readonly CampoFijo[] = [
-  { nombre: 'tipo', ancho: 2 },                  // ⭐ "M1", no "M "
-  { nombre: 'cuenta', ancho: 30 },
-  { nombre: 'referencia', ancho: 30 },           // ⭐ 30, no 10
-  { nombre: 'tipo_movto', ancho: 1, der: true }, // 0 cargo · 1 abono
-  { nombre: 'importe', ancho: 20 },
-  { nombre: 'id_diario', ancho: 10 },
-  { nombre: 'importe_me', ancho: 20 },
-  { nombre: 'concepto', ancho: 100 },
-  { nombre: 'seg_negocio', ancho: 4 },           // ⭐ 4, no 10
-  { nombre: 'guid', ancho: 36 },                 // ⭐ MovimientosPoliza.Guid
-  { nombre: 'fecha_aplicacion', ancho: 8 },      // ⭐ existe, y va en el M (no en el P)
-];
+export const LAYOUT_REAL_M: readonly CampoFijo[] = LAYOUT_M;
 
 /** `AD ` + UUID(36) + espacio = 40. Asocia el CFDI; cruza a `AsocCFDIs.UUID`. */
 export const LARGO_AD = 40;

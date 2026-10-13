@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
+import type { HrCierreDto } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import * as reader from './attendance-reader';
 import { HrAttendanceReportService } from './attendance-report.service';
@@ -7,6 +8,7 @@ import { HrAttendanceIncidentsService, type FilaIncidencia } from './attendance-
 import { inicioSemana } from './logic/horario-deducido';
 import { hoyMexico, masDias, RE_FECHA } from './logic/fechas';
 import { textoSemanaCerrada } from './logic/incidencias';
+import { MOTIVO_MINIMO, sinIdentificar, textoSinIdentificar } from './logic/sin-identificar';
 
 /**
  * Fase RH · `[RH.1.6]` — CIERRE DE SEMANA PARA PRENÓMINA. Traslado de `mega-talento-90/api/src/
@@ -15,7 +17,8 @@ import { textoSemanaCerrada } from './logic/incidencias';
  * El número de asistencia se RECALCULA cada vez que se pide (llegan marcas tarde, se capturan
  * incidencias días después). Bien para trabajar, mal para pagar: la semana que se mandó a nómina
  * no se podía volver a ver tal cual, y contabilidad no tenía contra qué auditar. Cerrar:
- *   1. exige que no quede nada POR CALIFICAR en la semana;
+ *   1. exige que no quede nada POR CALIFICAR en la semana, y que nadie haya checado SIN IDENTIFICAR
+ *      (`[RH.1.6b]`, Mega Talento 64ae212) — salvo que quien cierra escriba por qué: queda en el resumen;
  *   2. guarda la FOTO: el cálculo completo de esa semana, tal como salió;
  *   3. pasa sus incidencias calificadas a CERRADA (con su renglón de bitácora), y
  *   4. bloquea la semana: capturar, calificar o quitar algo en ella responde 409.
@@ -88,9 +91,11 @@ export class HrAttendanceClosuresService {
   }
 
   /** Cierra la semana que abre el jueves `period_start`. */
-  async cerrar(b: { site_code?: string; period_start?: string }): Promise<unknown> {
+  async cerrar(b: { site_code?: string; period_start?: string; force?: boolean; reason?: string }): Promise<HrCierreDto> {
     const site = String(b.site_code || '').trim();
     const desde = String(b.period_start || '');
+    const forzar = b.force === true;
+    const motivoSinId = String(b.reason || '').trim().slice(0, 500);
     if (!site || !RE_FECHA.test(desde)) throw new BadRequestException('Faltan site_code y period_start (yyyy-MM-dd).');
     if (inicioSemana(desde) !== desde) {
       throw new BadRequestException('La semana de nómina empieza en jueves: elige el jueves que la abre.');
@@ -117,6 +122,16 @@ export class HrAttendanceClosuresService {
           `Hay ${pend} incidencia${pend === 1 ? '' : 's'} por calificar en esta semana. Califícalas o recházalas antes de cerrar.`);
       }
 
+      // Nadie a prenómina sin identificar: se dice quién, y sólo se cierra con un motivo escrito.
+      // Va DESPUÉS de lo pendiente por calificar (eso no se puede saltar ni con motivo).
+      const sinId = sinIdentificar(await reader.checaronEnSemana(trx, site, desde, hasta));
+      if (sinId.length && !forzar) {
+        throw new ConflictException({ statusCode: 409, message: textoSinIdentificar(sinId.length), sinIdentificar: sinId });
+      }
+      if (sinId.length && motivoSinId.length < MOTIVO_MINIMO) {
+        throw new BadRequestException('Escribe por qué se cierra con gente sin identificar: queda guardado en el cierre.');
+      }
+
       const foto = await this.report.calcular(trx, site, desde, hasta);
 
       const ids = deLaSemana.map((r) => r.id);
@@ -134,6 +149,8 @@ export class HrAttendanceClosuresService {
       const summary = {
         personas: r.personas, usables: r.usables, faltas: r.faltas,
         retardoRealMin: r.retardoRealMin, horasTrabajadas: r.horasTrabajadas, incidencias: ids.length,
+        // Si se cerró con gente sin identificar: cuántos, quiénes y por qué.
+        ...(sinId.length ? { sinIdentificar: sinId.length, motivoSinIdentificar: motivoSinId, codigosSinIdentificar: sinId.map((p) => p.codigo) } : {}),
       };
       try {
         const [nuevo] = await trx('hr.attendance_closures').insert({
@@ -141,7 +158,7 @@ export class HrAttendanceClosuresService {
           closed_by: q.id, closed_by_name: q.nombre, summary: JSON.stringify(summary), snapshot: JSON.stringify(foto),
         }).returning('id');
         const id = typeof nuevo === 'object' ? (nuevo as { id: string }).id : nuevo;
-        return trx('hr.attendance_closures').where({ id }).first(this.columnas(trx));
+        return trx('hr.attendance_closures').where({ id }).first(this.columnas(trx)) as Promise<HrCierreDto>;
       } catch (e) {
         if ((e as { code?: string }).code === '23505') throw new ConflictException('Alguien más acaba de cerrar esta semana.');
         throw e;

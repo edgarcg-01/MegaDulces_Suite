@@ -1,15 +1,18 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
+import { TableModule } from 'primeng/table';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
-  CommissionHeadroom, CommissionHeadroomRow,
+  CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -57,7 +60,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent],
   template: `
     <div class="cm-page">
       <app-page-tabs [tabs]="tabsRD" />
@@ -74,6 +77,14 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             @for (y of anios; track y) { <option [value]="y">{{ y }}</option> }
           </select>
         </label>
+        <!-- [AUD.1] Regla P: la jerga de esta pantalla (umbral, markup sobre costo, los siete
+             motivos de no pago, los tres veredictos de costo) vive en el diccionario versionado.
+             Antes vivia en SIETE atributos title, o sea solo para quien tiene mouse. -->
+        <app-context-help topic="comisiones-rd" />
+        @if (run(); as r) {
+          <app-freshness-pill measures="data" [since]="r.data_as_of" label="Venta medida"
+                              [staleAfterSec]="172800" />
+        }
       </header>
 
       @if (destacada(); as d) {
@@ -95,7 +106,15 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                 calculada {{ cuando(d.updated_at) }}
                 @if (d.origen) { <span class="cm-muted">· {{ etiquetaOrigen(d.origen) }}</span> }
               } @else if (d.estado_calculo === 'en_curso') {
-                todavía corre: no se calcula hasta que cierre
+                @if (proyectando()) {
+                  calculando cómo va…
+                } @else if (proyeccionFallo()) {
+                  <span class="cm-neg">no se pudo proyectar</span> · el periodo sigue abierto
+                } @else if (esProyeccion()) {
+                  <strong>proyección</strong> de lo que va corrido · no es una corrida: cambia cada día
+                } @else {
+                  todavía corre
+                }
               } @else {
                 <span class="cm-neg">sin calcular</span>
               }
@@ -105,7 +124,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             <p class="cm-eyebrow">{{ d.status === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
             <p class="cm-answer-monto">{{ money(d.total_neto) }}</p>
             <p class="cm-answer-pie cm-mono">
-              bruto {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
+              tras nomina {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
             </p>
           </div>
           <p-tag [severity]="sev(d)" [value]="etiquetaEstado(d)" />
@@ -169,7 +188,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                          del supervisor) y el monto quedaba invisible. Cae al BRUTO, que si se
                          conoce, y lo dice en el titulo en vez de hacerlos pasar por lo mismo.
                          (sin acentos graves: esto vive dentro de un template literal de JS) -->
-                    <span class="cm-per-monto" [class.cm-bruto]="esBruto(p)" [title]="tipMonto(p)">
+                    <span class="cm-per-monto" [class.cm-tras-nomina]="esTrasNomina(p)" [title]="tipMonto(p)">
                       {{ p.run_id ? money(p.total_neto ?? p.total_a_pagar) : '—' }}
                     </span>
                   </span>
@@ -287,6 +306,15 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               </div>
             }
 
+            @if (esProyeccion()) {
+              <!-- [RD.65] El motor corrio sobre un periodo ABIERTO. La cifra es buena pero no
+                   es definitiva, y la pantalla lo dice ANTES de los numeros, no al pie. -->
+              <p class="cm-proy">
+                <i class="pi pi-hourglass" aria-hidden="true"></i>
+                Proyección del periodo en curso — el motor ya corrió sobre lo que va vendido.
+                Al cerrar la quincena esto se congela en una corrida.
+              </p>
+            }
             <app-metric-strip [items]="kpis(r)" ariaLabel="Totales de la quincena" />
 
             <p class="cm-proc">
@@ -437,7 +465,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                         <td class="cm-mono cm-micro">{{ s.rutas.join(' · ') }}</td>
                         <td class="comm-num">{{ money(s.comision) }}</td>
                         <td class="comm-num">{{ s.bonos ? money(s.bonos) : '—' }}</td>
-                        <td class="comm-num is-strong">{{ money(s.bruto) }}</td>
+                        <td class="comm-num is-strong">{{ money(s.trasNomina) }}</td>
                       </tr>
                     }
                   </tbody>
@@ -470,61 +498,76 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                 para que la ausencia sea una decisión y no un descuido.
               </p>
             } @else {
-              <div class="cm-table-wrap">
-                <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
-                  <thead><tr>
-                    <th>Ruta</th><th>Chofer</th><th class="comm-num">Días</th>
-                    <th class="comm-num">Subtotal</th><th class="comm-num">Venta</th><th class="comm-num">%</th>
-                    <th class="comm-num">Markup</th><th class="comm-num">Comisión</th><th class="comm-num">Bonos</th>
-                    <th class="comm-num">Nómina</th><th class="comm-num">A pagar</th><th>Procedencia</th>
-                  </tr></thead>
-                  <tbody>
-                    @for (l of choferes(); track l.route_code) {
-                      <tr [class.muted]="!!l.motivo_no_pago">
-                        <td class="comm-num">{{ l.route_code }}</td>
-                        <td class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
-                        <td class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
-                          {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
-                        </td>
-                        <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
-                        <td class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
-                        <td class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
-                        <td class="comm-num cm-muted" [title]="tipMarkup(l)">
-                          {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
-                        </td>
-                        <td class="comm-num">{{ money(l.comision) }}</td>
-                        <td class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
-                        <td class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
-                        <td class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
-                        <td class="cm-nota">
-                          @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
-                          @if (l.dias_multifuente) {
-                            <span title="La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas. Medido: no comparten folio.">
-                              <p-tag severity="secondary" value="corte" />
-                            </span>
-                          }
-                          @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
-                            <span [title]="tipCosto(l.costo_veredicto)">
-                              <p-tag [severity]="l.costo_veredicto === 'sin_costo' ? 'warn' : 'secondary'"
-                                     [value]="etiquetaCosto(l.costo_veredicto)" />
-                            </span>
-                          }
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                  <tfoot><tr>
-                    <td colspan="3">{{ pagan() }} de {{ choferes().length }} pagan</td>
-                    <td class="comm-num">{{ money(sumCh('subtotal')) }}</td>
-                    <td class="comm-num">{{ money(sumCh('venta')) }}</td>
-                    <td></td><td></td>
-                    <td class="comm-num">{{ money(sumCh('comision')) }}</td>
-                    <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
-                    <td class="comm-num cm-neg">−{{ money(sumCh('nomina_banco')) }}</td>
-                    <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
-                    <td></td>
-                  </tr></tfoot>
-                </table>
+              <div class="cm-table-wrap dt-scope">
+                <!--
+                  [RD.UI.2] DESIGN O.4 -- la nomina de la quincena: 12 columnas por ruta. Era
+                  una <table> cruda, asi que el sticky y la columna congelada ya los daba el
+                  CSS de surf-table, pero el TECLADO no: sin p-table no hay pSelectableRow, y
+                  esta es justo la tabla que alguien recorre renglon por renglon para verificar
+                  a quien se le paga. Ahora da flechas, Home/End y roving tabindex.
+                  min-width declarado: la compuerta de tablas densas la tenia marcada como la
+                  peor del repo (12 columnas sin decir que hace en un telefono).
+                -->
+                <p-table [value]="choferes()" dataKey="route_code" size="small" [rowHover]="true"
+                         selectionMode="single" [(selection)]="filaSel"
+                         class="dt-stack surf-table surf-table--plain surf-table--sticky surf-table--frozen-first"
+                         [tableStyle]="{ 'min-width': '78rem' }">
+                  <ng-template #header>
+                    <tr>
+                      <th scope="col">Ruta</th><th scope="col">Chofer</th><th scope="col" class="comm-num">Días</th>
+                      <th scope="col" class="comm-num">Subtotal</th><th scope="col" class="comm-num">Venta</th><th scope="col" class="comm-num">%</th>
+                      <th scope="col" class="comm-num">Markup</th><th scope="col" class="comm-num">Comisión</th><th scope="col" class="comm-num">Bonos</th>
+                      <th scope="col" class="comm-num">Nómina</th><th scope="col" class="comm-num">A pagar</th><th scope="col">Procedencia</th>
+                    </tr>
+                  </ng-template>
+                  <ng-template #body let-l>
+                    <tr [pSelectableRow]="l" [class.muted]="!!l.motivo_no_pago">
+                      <td role="cell" data-label="Ruta" class="comm-num">{{ l.route_code }}</td>
+                      <td role="cell" data-label="Chofer" class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
+                      <td role="cell" data-label="Días" class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
+                        {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
+                      </td>
+                      <td role="cell" data-label="Subtotal" class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
+                      <td role="cell" data-label="Venta" class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
+                      <td role="cell" data-label="%" class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
+                      <td role="cell" data-label="Markup" class="comm-num cm-muted" [title]="tipMarkup(l)">
+                        {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
+                      </td>
+                      <td role="cell" data-label="Comisión" class="comm-num">{{ money(l.comision) }}</td>
+                      <td role="cell" data-label="Bonos" class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
+                      <td role="cell" data-label="Nómina" class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
+                      <td role="cell" data-label="A pagar" class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
+                      <td role="cell" data-label="Procedencia" class="cm-nota">
+                        @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
+                        @if (l.dias_multifuente) {
+                          <!-- [AUD.1] El span existia SOLO para colgar un title con la
+                               definicion de «corte». Esa definicion ya vive en el diccionario
+                               (topico comisiones-rd), que si se alcanza sin mouse. -->
+                          <p-tag severity="secondary" value="corte" />
+                        }
+                        @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
+                          <span [title]="tipCosto(l.costo_veredicto)">
+                            <p-tag [severity]="l.costo_veredicto === 'sin_costo' ? 'warn' : 'secondary'"
+                                   [value]="etiquetaCosto(l.costo_veredicto)" />
+                          </span>
+                        }
+                      </td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #footer>
+                    <tr>
+                      <td colspan="3">{{ pagan() }} de {{ choferes().length }} pagan</td>
+                      <td class="comm-num">{{ money(sumCh('subtotal')) }}</td>
+                      <td class="comm-num">{{ money(sumCh('venta')) }}</td>
+                      <td></td><td></td>
+                      <td class="comm-num">{{ money(sumCh('comision')) }}</td>
+                      <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
+                      <td class="comm-num cm-neg">−{{ money(sumCh('nomina_banco')) }}</td>
+                      <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
+                      <td></td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               </div>
             }
           } @else {
@@ -603,7 +646,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
     .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
     /* Marca la cifra que es BRUTO y no neto: el subrayado punteado la distingue sin color. */
-    .cm-per-monto.cm-bruto { text-decoration:underline dotted; text-underline-offset:3px; }
+    .cm-per-monto.cm-tras-nomina { text-decoration:underline dotted; text-underline-offset:3px; }
 
     .cm-per.hoy { border-color:color-mix(in srgb, var(--action) 45%, var(--border-color)); }
     .cm-hoy { margin-left:auto; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
@@ -658,6 +701,11 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-gate.warn { border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent);
       background:color-mix(in srgb, var(--warn-fg) 8%, transparent); color:var(--c-text-2); }
 
+    /* [RD.65] El aviso de proyeccion: franja de atencion, no de error. Usa el token de aviso
+       y nunca un hex -- la cifra de abajo es correcta, solo que no es definitiva. */
+    .cm-proy { margin:0 0 8px; padding:8px 12px; display:flex; align-items:center; gap:8px;
+      border-left:3px solid var(--c-warn); border-radius:var(--r-md,8px);
+      background:var(--card-bg); color:var(--c-text-2); font-size:var(--fs-sm); }
     .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-3);
       font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-warn.bad { border-color:color-mix(in srgb, var(--bad-fg) 45%, transparent);
@@ -697,6 +745,18 @@ export class ComercialComisionesComponent {
   readonly sinCalcular = signal<{ period_id: string; period_no: number; date_to: string }[]>([]);
   readonly sel = signal<CommissionBoardRow | null>(null);
   readonly run = signal<CommissionRunDetail | null>(null);
+  /** `[RD.65]` La proyeccion esta en vuelo: su hueco muestra esqueleto, no un guion. */
+  readonly proyectando = signal(false);
+  /** `[RD.65]` La proyeccion fallo. Se DECLARA en su sitio; el resto de la pantalla sigue viva. */
+  readonly proyeccionFallo = signal(false);
+  /** `[RD.65]` Lo que se ve NO es una corrida: es el motor mirando un periodo que aun corre. */
+  readonly esProyeccion = computed(() => !!this.run() && !this.sel()?.run_id);
+  /**
+   * `[RD.UI.2]` D.7 -- PrimeNG como DISPOSITIVO DE ENTRADA del teclado, no como dueno del
+   * estado: la seleccion marca donde esta el cursor en la nomina. `pSelectableRow` la exige
+   * para dar flechas, Home/End y roving tabindex.
+   */
+  filaSel: CommissionLine | null = null;
   readonly tab = signal<string>('chofer');
   /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
   readonly tabsRD = RUTA_DIRECTA_TABS;
@@ -770,18 +830,21 @@ export class ComercialComisionesComponent {
   readonly supervisores = computed(() => {
     const acc = new Map<string, {
       clave: string; nombre: string; zona: string | null; rutas: string[];
-      comision: number; bonos: number; bruto: number;
+      comision: number; bonos: number; trasNomina: number;
     }>();
     for (const l of this.run()?.lines ?? []) {
       if (l.beneficiario !== 'supervisor' || l.motivo_no_pago) continue;
       const nombre = l.beneficiario_nombre || '—';
       const cur = acc.get(nombre) ?? {
-        clave: nombre, nombre, zona: l.zona ?? null, rutas: [], comision: 0, bonos: 0, bruto: 0,
+        clave: nombre, nombre, zona: l.zona ?? null, rutas: [], comision: 0, bonos: 0, trasNomina: 0,
       };
       cur.rutas.push(l.route_code);
       cur.comision += Number(l.comision) || 0;
       cur.bonos += Number(l.bonos) || 0;
-      cur.bruto += Number(l.a_pagar) || 0;
+      // `[RD.64]` Se llamaba `bruto` y acumula `a_pagar`, que YA trae la nomina restada.
+      // Es la misma confusion que publicaba un BRUTO menor que la COMISION en la tira de
+      // arriba. El nombre ahora dice lo que el numero es.
+      cur.trasNomina += Number(l.a_pagar) || 0;
       acc.set(nombre, cur);
     }
     return [...acc.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -811,13 +874,66 @@ export class ComercialComisionesComponent {
     });
   }
 
+  /**
+   * `[RD.65]` La proyeccion con la forma que la pantalla sabe pintar.
+   *
+   * ⛔ Aqui habia un `d as CommissionRunDetail` y TypeScript lo rechazo con razon: al payload
+   * del preview le faltan `id`, `origen`, `updated_at` y `notes`, y sus lineas no traen `id`.
+   * Un `as` no convierte nada -- AFIRMA, y es el mismo defecto que `[RD.60.3]`, donde un
+   * `{ rn: number }` sobre una fila de `raw()` dejo una pantalla en cero durante meses.
+   *
+   * Los cuatro campos se llenan con lo que de verdad son, no con relleno:
+   *  · `id`: cadena vacia. NO hay corrida -- es justo lo que la distingue, y `esProyeccion()`
+   *    se apoya en `sel().run_id`, no en esto.
+   *  · `origen`: `proyeccion`, que es el origen real de estas cifras.
+   *  · `updated_at`: AHORA, y aqui si es cierto: mide cuando se CALCULO la proyeccion, que
+   *    acaba de ocurrir. No se confunde con la edad del DATO, que viaja en `data_as_of` y
+   *    sale del servidor.
+   *  · el `id` de cada linea: su `route_code`, que es su llave natural en este payload.
+   */
+  private comoCorrida(d: CommissionRunPayload): CommissionRunDetail {
+    return {
+      ...d,
+      id: '',
+      origen: 'proyeccion',
+      updated_at: new Date().toISOString(),
+      notes: null,
+      lines: d.lines.map((l) => ({ ...l, id: l.route_code })),
+    };
+  }
+
+  /**
+   * `[RD.65]` Abre un periodo. Si NO tiene corrida y todavia corre, se pide la PROYECCION.
+   *
+   * ⛔ Antes esta funcion hacia `if (!p.run_id) return;` y se iba: la quincena en curso
+   * quedaba en blanco los 14 dias, y lo unico que la pantalla decia era «todavia corre: no se
+   * calcula hasta que cierre». Cierto, pero inutil -- el usuario pasa media quincena sin saber
+   * como va, y la cifra SI se puede calcular: `POST /commissions/preview` existe desde
+   * `[RD.22]`, corre el mismo motor con `dryRun` y no deja fila. El freno de periodo abierto
+   * lo deja pasar a proposito. Nadie la llamaba.
+   *
+   * ⚠️ Va APARTE y no bloquea: medido contra prod, su consulta mas lenta (`SQL_COSTO_DIA`)
+   * tarda 874 ms, y el tablero entero carga en 33. Pedirla en serie pondria la pantalla al
+   * filo del segundo por una cifra que es secundaria. Se pide sola y llega cuando llega.
+   */
   elegir(p: CommissionBoardRow) {
     this.sel.set(p);
     this.run.set(null);
-    if (!p.run_id) return;
-    this.api.commissionRun(p.run_id).subscribe({
-      next: (d) => this.run.set(d),
-      error: () => this.err.set('No se pudo cargar la corrida.'),
+    this.proyectando.set(false);
+    if (p.run_id) {
+      this.api.commissionRun(p.run_id).subscribe({
+        next: (d) => this.run.set(d),
+        error: () => this.err.set('No se pudo cargar la corrida.'),
+      });
+      return;
+    }
+    if (p.estado_calculo !== 'en_curso') return;
+    this.proyectando.set(true);
+    this.api.commissionPreview(p.period_id).subscribe({
+      next: (d) => { this.run.set(this.comoCorrida(d)); this.proyectando.set(false); },
+      // ⛔ Un fallo de la proyeccion NO es un fallo de la pantalla: el tablero, el contraste y
+      //    el historial siguen sirviendo. Se declara en su sitio, no en el banner de error.
+      error: () => { this.proyectando.set(false); this.proyeccionFallo.set(true); },
     });
   }
 
@@ -972,8 +1088,12 @@ export class ComercialComisionesComponent {
     });
   }
 
-  /** La cifra del rail es el BRUTO (el neto no se pudo calcular), y se marca como tal. */
-  esBruto(p: CommissionBoardRow): boolean { return !!p.run_id && p.total_neto == null && p.total_a_pagar != null; }
+  /**
+   * `[RD.64]` La cifra del rail cae a `total_a_pagar` cuando el neto no se pudo calcular, y se
+   * marca con subrayado punteado. ⛔ Se llamaba `esBruto` y NO es el bruto: `total_a_pagar` ya
+   * trae restada la nomina de cada renglon. El bruto de verdad es comision + bonos.
+   */
+  esTrasNomina(p: CommissionBoardRow): boolean { return !!p.run_id && p.total_neto == null && p.total_a_pagar != null; }
 
   tipMonto(p: CommissionBoardRow): string {
     if (!p.run_id) return '';
@@ -993,13 +1113,47 @@ export class ComercialComisionesComponent {
     return 'manual';
   }
 
+  /**
+   * `[RD.64]` El bruto DE VERDAD: comision + bonos, antes de cualquier resta.
+   *
+   * ⛔ No sale de la corrida: `commission_runs` no guarda el bruto -- guarda `total_comision`
+   * y `total_a_pagar`, que ya trae la nomina restada. Se suma de las lineas, que es donde
+   * viven los bonos. Si la corrida no trae lineas cargadas devuelve la comision sola, que es
+   * el piso defendible, nunca un cero.
+   */
+  brutoReal(r: CommissionRunDetail): number {
+    const lineas = r.lines ?? [];
+    if (!lineas.length) return Number(r.total_comision) || 0;
+    // ⛔ SOLO las que pagan. Una ruta con `motivo_no_pago` tiene comision calculada pero no
+    //    cobra, y sumarla inflaba el bruto. Verificado contra prod: con el filtro puesto,
+    //    bruto - nomina == total_a_pagar AL CENTAVO en las dos corridas pagadas (86,257.26 -
+    //    33,939.84 = 52,317.42). Sin el filtro no cuadraba por 13,939.84, y esa fue la primera
+    //    version de este arreglo -- la aritmetica se comprueba antes de publicarla, que es
+    //    justo lo que el defecto original no hizo.
+    return lineas
+      .filter((l) => !l.motivo_no_pago)
+      .reduce((a, l) => a + (Number(l.comision) || 0) + (Number(l.bonos) || 0), 0);
+  }
+
   kpis(r: CommissionRunDetail): MetricStripItem[] {
     const conDato = r.rutas_con_dato ?? 0;
     const sinDato = r.rutas_sin_dato ?? 0;
     return [
       { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
       { label: 'Comisión', value: Number(r.total_comision), format: 'currency' },
-      { label: 'Bruto', value: Number(r.total_a_pagar), format: 'currency' },
+      // ⛔⛔ `[RD.64]` Esta tira decia **BRUTO** sobre `total_a_pagar`, y `total_a_pagar` NO es el
+      //    bruto: ya trae restada la nomina de cada renglon. Medido sobre una corrida pagada:
+      //    comision 76,057.26 + bonos 10,200.00 = 86,257.26 de bruto REAL, menos 47,879.68 de
+      //    nomina = 52,317.42, que era lo que se publicaba como 'Bruto'. Son ~36 mil pesos de
+      //    diferencia, y en pantalla quedaba un BRUTO MENOR que la COMISION de al lado -- algo
+      //    imposible, que o se lee como un bug o se cree.
+      //    Ahora la tira dice lo que la cifra es y pone la resta a la vista (Q.2: explicar el
+      //    numero, no solo mostrarlo). El bruto real se publica aparte, que es el que cuadra
+      //    con la suma de las columnas Comision y Bonos de la tabla de abajo.
+      { label: 'Bruto', value: this.brutoReal(r), format: 'currency',
+        sub: 'comision + bonos, antes de descontar' },
+      { label: 'Tras nomina', value: Number(r.total_a_pagar), format: 'currency',
+        sub: `menos ${this.money(this.brutoReal(r) - Number(r.total_a_pagar))} de nomina` },
       // ⛔ `Number(null)` es **0**, y asi esta tira publicaba "NETO $0" en rojo sobre una
       // quincena en la que de verdad se pagaron $42,761. Un neto que no se puede calcular se
       // DECLARA; dibujarlo en cero es peor que no mostrarlo, porque parece una cifra.

@@ -1,11 +1,35 @@
 # FASE CP.8 — El puente Suite ↔ ContPAQi
 
-> **Estado:** 🔨 PLAN · CP.8.1–8.3 en código (sin aplicar) · **ADR:** ADR-040 (hereda) ·
+> **Estado (2026-10-12):** 🧪 **el puente ARMA y no entrega** · 10 migraciones en prod (batches
+> 856–880) · 10 candados · ⛔ **nunca se importó un archivo a ContPAQi**, así que
+> `contpaqi.poliza_exports` sigue en **0 filas** · **ADR:** ADR-040 (hereda).
 > **Pedido de Edgar (2026-10-08):** *"quiero que de aquí salga la póliza y se haga
 > automáticamente en ContPAQi y viceversa"* → *"debemos generar una **sincronía o puente** entre
 > las dos"*.
 > **Decode y mediciones que lo sostienen:** [`FASE_CP_CONTPAQI.md`](FASE_CP_CONTPAQI.md) §7 (SDK)
 > y §9 (los tres flujos, el mapa derivado).
+>
+> ## ⛔ Cómo leer este documento
+>
+> Está escrito **en orden cronológico y nunca se reescribe hacia atrás**: §1–§8 son el PLAN del
+> 2026-10-08 y §9 en adelante son lo que se fue midiendo. **Varias afirmaciones de §1–§8 están
+> refutadas por secciones posteriores** y se dejaron en pie a propósito, porque la refutación es
+> parte del valor.
+>
+> ⚠️ Hasta el 2026-10-12 no lo decían, y una auditoría encontró que un lector que entra por el
+> índice lee el plan como si fuera el estado. **Cada afirmación superada lleva ahora su puntero**
+> (`⛔ SUPERADO POR`). Si una sección no lo tiene, es que sigue vigente.
+>
+> | Lo que §1–§8 dicen | Dónde se midió otra cosa |
+> |---|---|
+> | el token se busca en `gl_poliza_lines.concepto` (§1) | **`gl_polizas.concepto`** — §E2 `[CP.8.8]` |
+> | el `AD` va *"después del `P`"* (§9.1) | **al final de la póliza** — §21.1 |
+> | `[CP.8.4]` bloquea todo / el `SEP` sin verificar (§4, §6) | **cerrado** — §23.1 y §25 |
+> | `[CP.8.1]` sin aplicar (§3-E0) · el módulo sin registrar (§13.3) | **prod batch 856** · **registrado** — §14, §28 |
+> | *"~1,400 asociaciones al mes"* (§22.3) | **~263** — §32.1 |
+>
+> **El estado real de cada item vive en [`01_TRACKER_PROGRESO.md`](../01_TRACKER_PROGRESO.md)**,
+> no en las tablas de §3. Esas tablas son el plan como se escribió, no un tablero.
 
 ---
 
@@ -34,6 +58,11 @@ exactamente el estado actual del libro de compras: se entrega un TXT y nadie ver
 
 ⭐⭐ **El puente cierra SIN el SDK.** Medido el 2026-10-08:
 
+- ⛔ **SUPERADO POR `[CP.8.8]` (§E2): el token viaja en `analytics.gl_polizas.concepto`, el del
+  ENCABEZADO.** Lo que sigue describe la tabla equivocada y se conserva porque es de donde salió
+  la idea; el cuadre lee la otra, que además trae `guid`, `cargos`, `abonos` y `folio` en la
+  misma fila. ⚠️ Y el índice de LC.15 **no le sirve al puente**: es parcial con
+  `WHERE length(concepto) = 36`.
 - `analytics.gl_poliza_lines.concepto` **existe**, con índice de expresión sobre
   `upper(concepto)` (migración `20260903140000`, Fase LC.15).
 - El carril `contpaqi` de [`ops/vl/crontab.feeds`](../../../ops/vl/crontab.feeds) corre
@@ -58,7 +87,7 @@ confundirlas, porque el SDK depende de una máquina y una licencia, y el puente 
        └────────┬──────────────────────────────▲───────────────┘
                 │ IDA                          │ CUADRE
        sink ────┤  TXT (hoy, humano importa)   │  busca el token en
-                └► SDK (después, automático)   │  gl_poliza_lines.concepto
+                └► SDK (después, automático)   │  gl_polizas.concepto  (el del P)
                             │                  │
                             ▼                  │
        ┌──────────────── CONTPAQi ─────────────┴───────────────┐
@@ -113,7 +142,7 @@ plazo. `NULL` no es `false`.
 
 | | Qué | Estado |
 |---|---|---|
-| `[CP.8.1]` | `contpaqi.account_rules` + `contpaqi.poliza_exports` (RLS, `tenant_id`, idempotencia por evento) | ✅ migración escrita, **sin aplicar** |
+| `[CP.8.1]` | `contpaqi.account_rules` + `contpaqi.poliza_exports` (RLS, `tenant_id`, idempotencia por evento) | 🚀 **PROD batch 856** (§14) — esta celda decía *"sin aplicar"* |
 | `[CP.8.2]` | `poliza-egreso.ts` — el armador. Puro, sin DI | ✅ |
 | `[CP.8.3]` | Candado: 33 ✓ / 0 ✗, reproduce 3 pólizas REALES, probado por mutación | ✅ en `run-all-tests` |
 
@@ -121,7 +150,7 @@ plazo. `NULL` no es `false`.
 
 | | Qué | Por qué |
 |---|---|---|
-| `[CP.8.4]` ⛔ | **Conseguir un TXT real ya aceptado** y cerrar el `SEP` | **Ruta crítica de TODO.** Cuesta cero código. Mientras no esté, cada póliza que generemos es una apuesta sobre un formato sin verificar |
+| ~~`[CP.8.4]`~~ ✅ | ~~Conseguir un TXT real ya aceptado y cerrar el `SEP`~~ | **CERRADO** — el árbitro apareció (§10), el fabricante confirmó el `SEP` (§23.1) y el esquema se volvió candado (§25). ⛔ Lo que sigue abierto NO es el formato: es **que alguien importe un archivo** |
 | `[CP.8.5]` ✅ | `CONTPAQI_POLIZA_SINK_PORT` + `ContpaqiTxtSinkAdapter` | **EN CÓDIGO 2026-10-08.** Ver nota abajo |
 | `[CP.8.6]` ✅ | **El token de correlación** (`token.ts`) | **EN CÓDIGO 2026-10-09.** `MD:`+12 hex, determinista por evento. Ver nota abajo |
 | `[CP.8.32]` | Bandeja `/finanzas/contpaqi`: armar → revisar → entregar | HITL. El motor arma, la persona entrega (ADR-028 intacto) |
@@ -229,8 +258,8 @@ existe. **Disparador para agregarlo:** que esa consulta pase de 200 ms, o que `g
 
 | | Qué |
 |---|---|
-| `[CP.8.33]` | UI de reglas con su **confianza medida** + aprobación (`derivada` → `aprobada`) |
-| ~~`[CP.8.13]`~~ | ✅ **HECHO como `[CP.8.20]`** — y no por RFC sino por el **UUID del CFDI**: 99.8 % del importe |
+| `[CP.8.43]` | UI de reglas con su **confianza medida** + aprobación (`derivada` → `aprobada`). ⚠️ Era `[CP.8.33]`; ese código quedó tomado por la pantalla de la bandeja (§31) |
+| ~~`[CP.8.13]`~~ | ✅ **HECHO como `[CP.8.20]`** — y no por RFC sino por el **UUID del CFDI**. ⚠️ 99.8 % medido sobre 1,015 cuentas, sin re-medir sobre las 3,050 de hoy (§18) |
 | ~~`[CP.8.14]`~~ | ✅ **HECHO en `[CP.8.2]`**: `iva` es parámetro OBLIGATORIO y el armador se niega a derivarlo |
 | ~~`[CP.8.15]`~~ | ✅ **MEDIDAS Y DECLARADAS** en `[CP.8.22]`/`[CP.8.27]`: no son derivables, y 3 **no pueden tener UNA cuenta** |
 
@@ -261,7 +290,11 @@ cobertura: conversación de negocio, no de código).
 ```
 
 ⭐ **Las tres ramas son independientes entre sí**: el TXT no espera al contador, el contador no
-espera al SDK. Lo único que bloquea a todo es `[CP.8.4]`, y **no cuesta código**.
+espera al SDK.
+
+⛔ **SUPERADO: `[CP.8.4]` está cerrado** (§10, §23, §25) y `[CP.8.16]` se renumeró a `[CP.8.40]`
+(§29). Lo único que bloquea hoy es **el clic de la contadora** — importar UN archivo, §21 — y
+eso tampoco cuesta código, pero no es nuestro.
 
 ---
 
@@ -287,7 +320,7 @@ aplicó". Son pasos, no entrega.
 
 | | Riesgo | Mitigación |
 |---|---|---|
-| ⛔ | **El `SEP` del TXT sigue sin verificar.** Todo E1 descansa en un formato supuesto | `[CP.8.4]`, cuesta cero |
+| ~~⛔~~ ✅ | ~~El `SEP` del TXT sigue sin verificar~~ | **CERRADO**: el esquema del fabricante declara un separador de 1 después de CADA campo, incluido el último (§23.1), y §25 lo volvió candado posición por posición |
 | ⛔ | **El token en el concepto nunca se ejerció** (LC.15 se construyó, nunca se importó un TXT nuestro) | Se vuelve hecho con el primer TXT aceptado |
 | ⚠️ | El contador **edita el concepto** al revisar → el token se pierde | El cuadre cae a `no verificado` con motivo, no a `aplicada` falsa. Y se mide |
 | ⚠️ | Los 100 chars del concepto se comparten con el UUID del CFDI (36) | Token corto. Medir que entren los dos |
@@ -622,6 +655,10 @@ sobra para que una póliza importada aparezca, y no castiga la base con una cons
 sobre 128 mil filas.
 
 ### 13.3 ⛔ Por qué NO está registrado en ningún módulo
+
+⛔ **SUPERADO POR `[CP.8.31]` (§28): hoy SÍ está registrado**, y el motivo de abajo dejó de
+aplicar cuando la migración entró a prod (batch 856). Se conserva porque explica por qué no se
+registró el primer día.
 
 A propósito. Registrarlo agendaría su `@Cron` y, con la migración `[CP.8.1]` **sin aplicar**,
 fallaría cada 10 minutos en producción contra una tabla que no existe. **El wiring va junto con
@@ -1199,6 +1236,14 @@ veredicto pesa **votos**, no sólo pureza, y el CHECK exige `votos >= 3` para `u
 ⭐ **99.8 % del importe queda con cuenta utilizable.** `compra_mercancia` —el renglón más grande
 de egresos— deja de depender del contador.
 
+⚠️ **NO RE-MEDIDO** (auditoría 2026-10-12): ese 99.8 % se calculó sobre el universo de **1,015**
+cuentas `2120*`. `[CP.8.22]` (§19.2) amplió el mapa a **3,050 filas / 421 utilizables** al sumar
+los rubros `5010`/`5020`, y **el porcentaje no se volvió a calcular**. Verificado en prod hoy:
+3,050 filas · 362 `confirmado` + 59 `uuid_solido` = **421 utilizables**, que cuadra con §19.2.
+El importe **no se persiste** en `supplier_accounts`, así que recalcularlo exige volver a cruzar
+contra ContPAQi — *una medición sobre otro universo es otra afirmación*, y hasta que se corra,
+el 99.8 % describe el universo chico, no el actual.
+
 #### Prueba negativa de los CHECK (como `postgres`)
 
 | Caso | Resultado |
@@ -1279,7 +1324,7 @@ con su motivo. *Un asiento que cuadra y le falta una pata es justo lo que el con
 ver declarado, no descubrir revisando.*
 
 ⚠️ El camino para cerrarlo existe y es de otra fase: **`kdxf` de Kepler casa pago→factura de forma
-estructural** (30,073 de 30,033, Fase ECA), y de la factura sale el UUID con su impuesto.
+estructural** (30,073 de 30,073, Fase ECA), y de la factura sale el UUID con su impuesto.
 
 #### Candado `test-newdb-contpaqi-lote.js` — **38 ✓ / 0 ✗**, mutado a rojo tres veces
 
@@ -1972,7 +2017,7 @@ del plan**, que no está construido y no lo referencia nadie.
 | era | ahora | qué es |
 |---|---|---|
 | `[CP.8.7]` | **`[CP.8.32]`** | bandeja de armado: armar → revisar → entregar |
-| `[CP.8.12]` | **`[CP.8.33]`** | UI de reglas con confianza + aprobación |
+| `[CP.8.12]` | ~~`[CP.8.33]`~~ → **`[CP.8.43]`** | UI de reglas con confianza + aprobación. ⛔ **Esta renumeración colisionó a las dos secciones**: §31 usó `[CP.8.33]` para la pantalla de la bandeja y el commit `dab578d62` ya lo fijó en el historial. Manda el historial (misma regla de esta tabla), así que el placeholder se mueve otra vez — y la lección es que renumerar un código ANTES de construirlo no evita la colisión, sólo la mueve |
 | `[CP.8.16]` | **`[CP.8.40]`** | correr el probe del SDK en `192.168.0.208` |
 | `[CP.8.17]` | **`[CP.8.41]`** | el agente C# |
 | `[CP.8.18]` | **`[CP.8.42]`** | `SdkSinkAdapter` + reversa a TXT |
@@ -1981,7 +2026,7 @@ del plan**, que no está construido y no lo referencia nadie.
 
 | | |
 |---|---|
-| `[CP.8.13]` proveedor → subcuenta | ✅ es `[CP.8.20]` — y **no por RFC sino por el UUID del CFDI**: 99.8 % del importe |
+| `[CP.8.13]` proveedor → subcuenta | ✅ es `[CP.8.20]` — y **no por RFC sino por el UUID del CFDI**. ⚠️ El 99.8 % es del universo de 1,015 cuentas; sobre las 3,050 de hoy **sin re-medir** (§18) |
 | `[CP.8.14]` IVA desde `fiscal.cfdis` | ✅ es `[CP.8.2]`: `iva` es parámetro OBLIGATORIO y el armador **se niega a derivarlo** |
 | `[CP.8.15]` categorías que no concentran | ✅ `[CP.8.22]`/`[CP.8.27]`: **no son derivables**, y 3 **no pueden tener UNA cuenta** |
 | `[CP.8.19]` asociación formal de UUID | ⭐⭐ ✅ `[CP.8.29]`, **y sin SDK** |
@@ -2002,7 +2047,7 @@ en la ruta crítica de nada**.
 | **el clic** | contabilidad | desbloquea **3 de los 5** criterios de §5; `poliza_exports` está **vacía: nada se entregó nunca** |
 | `[CP.8.32]` bandeja de armado | código | |
 | `[CP.8.11]` bandeja de divergencias + plazo | código | |
-| `[CP.8.33]` UI de aprobación de reglas | código | tras firmar |
+| `[CP.8.43]` UI de aprobación de reglas | código | tras firmar |
 | los **33 alias** | compras | `por_proveedor` 72.7 % → ~94.5 % |
 | `DISABLE_CRONS` en `deploy/api` | plataforma | ⛔ **no es de esta fase**, pero afecta a todos los crons |
 
@@ -2083,6 +2128,11 @@ inventó un marcador.
 ---
 
 ## §31 `[CP.8.33]` + `[CP.8.34]` — La pantalla de la bandeja, y el universo que la bandeja omitía
+
+> ⚠️ `[CP.8.33]` lo había reservado §29 para *"UI de reglas con confianza + aprobación"* **dos
+> secciones antes**, y esta sección se lo llevó. El commit `dab578d62` ya lo fijó, así que manda
+> el historial y el placeholder se movió a `[CP.8.43]`. ⭐ *Renumerar un código que todavía no
+> existe no evita la colisión: la mueve.* `[CP.8.34]` nunca se había declarado.
 
 🧪 **EN CÓDIGO 2026-10-09.** Sin migraciones ni permisos nuevos (el reparto es el batch 871 de
 §30) → **no hace falta re-login**. Falta `git push` + redeploy api+view + validación visual.
@@ -2177,8 +2227,11 @@ pide en `rem`).
 
 ## §32 `[CP.8.30]` — El renglón `AD` en el libro de compras, **apagado y con número corregido**
 
-🧪 **EN CÓDIGO 2026-10-10.** Migración `20261010093324` **sin aplicar**. Falta `git push` + aplicar
-+ redeploy.
+🚀 **Migración `20261010093324` EN PROD — batch 877** (2026-10-10 15:49), o sea ANTES que la 878
+de §34. ⚠️ Esta línea decía *"sin aplicar"* y siguió diciéndolo dos días; lo encontró la
+auditoría del 2026-10-12 cruzando el doc contra `knex_migrations`. **La bandera `asocia_cfdi`
+está en prod y APAGADA en las 0 corridas** — que es el estado correcto hasta que alguien importe
+el archivo B. Código sin empujar.
 
 ### 32.1 ⛔ Dos cifras que circulaban eran falsas, y la fase se apoyaba en ellas
 
@@ -2235,7 +2288,7 @@ existe para impedir.
 
 | | |
 |---|---|
-| `test-newdb-libro-compras-txt.js` | **38 → 48 ✓** (10 nuevas, 2 de ellas negativas) |
+| `test-newdb-libro-compras-txt.js` | **38 → 49 ✓** (11 nuevas, 2 de ellas negativas) ⚠️ acá decía 48; medido, son 49 |
 | `test-newdb-libro-compras-caratula.js` | **66 ✓** (derivando, antes 64 ✓ / 2 ✗ por caducidad) |
 | esquema 46 · lote 38 · bandeja 28 | sin regresión |
 
@@ -2448,3 +2501,437 @@ pantalla. *Un candado que salta un bloque en silencio se lee igual que uno que l
 
 ⚠️⚠️ **Séptima vez que un acento grave en un comentario de `template`/`styles` rompe el build.** Lo
 agarró `check:templates`.
+
+---
+
+## §36 `[CP.8.38]` — El botón de generar, y la línea que no se cruza
+
+🧪 **EN CÓDIGO 2026-10-10.** Sin migración. Pedido explícito tras preguntar *«¿para qué me serviría
+esta interfaz?»* — la respuesta honesta era que **sin salida no servía para sacar la póliza**.
+
+### 36.1 ⛔⛔ Generar NO es entregar
+
+`GET /finance/contpaqi/archivo` **no escribe `contpaqi.poliza_exports`**, y lo dice en la respuesta
+(`X-Entregado: false`) y en la pantalla.
+
+`entregada` significa *«salió un archivo de acá»* y **arranca el reloj del cuadre**: a los 5 días el
+motor empieza a preguntar por qué no aparece del otro lado. Marcarlo al **descargar** pondría en ese
+estado a archivos que nadie importó nunca, y el cuadre pasaría a medir **cuánta gente apretó un
+botón** en vez de cuánto llegó a ContPAQi. Es el mismo defecto que `[CP.8.32]` evitó al descubrir
+que `cuadrarPendientes()` escribe.
+
+Marcar entregado queda como acción **aparte y explícita**, para cuando la prueba de importación
+confirme que el formato se acepta.
+
+### 36.2 Un solo camino de armado
+
+`simularLotes` y `generarArchivoMes` consumen el **mismo** `construirLotes`. Si fueran dos, el
+archivo podría no decir lo que la bandeja muestra, y eso no se descubre hasta la balanza.
+
+⚠️ Y serializa con el **sink**, que es el único lugar donde el token entra al concepto del
+encabezado — duplicar esa regla sería tener dos reglas.
+
+⛔ **No se usó `armarPeriodo`**, que existía y parecía servir: emite **una póliza por movimiento**
+—el diseño que `[CP.8.21]` reemplazó por lotes— y no pasa por el resolvedor de proveedor. *Un
+método que existe no es un método que sirve.*
+
+### 36.3 Un lote que no serializa tumba el archivo entero
+
+No se sirve «el resto». Una póliza incompleta **cuadra sola** y le falta un día de banco: nadie la
+vería hasta la balanza.
+
+### 36.4 Candado — bandeja **28 → 34 ✓**
+
+Medido sobre enero: **88 pólizas · 144 movimientos · $36,718,975.48 · 232 renglones**.
+
+| aserción | |
+|---|---|
+| ⛔⛔ generar no escribió en `poliza_exports` | 0 → 0, y `entregado: false` |
+| las 88 pólizas **cuadran al centavo** | cargos = abonos, una por una |
+| 88 encabezados `P`, uno por póliza | parseadas con el mismo lector que valida el formato real |
+| 232 renglones para 144 movimientos | cada uno con su IVA y el abono al banco |
+| ⛔ **CRLF en todas las líneas** | un archivo con LF se importa y corre todas las columnas |
+
+Sin regresión: proveedor 30 ✓ · libro-txt 49 ✓ · esquema 46 ✓.
+
+---
+
+## §37 ⛔⛔ `[CP.8.39]` — La tabla de `[CP.8.36]` entró a prod sin RLS **y sin GRANT**, y el candado llevaba dos días gritándolo
+
+🚀 **Migración `20261012083145` EN PROD — batch 888** (2026-10-12 15:02 UTC, 0.1 s). Código sin
+empujar. Salió de auditar esta fase contra el código y contra prod, no de un síntoma reportado.
+
+### 37.1 Lo medido
+
+```
+                   rls  forzado  políticas   app_runtime
+account_rules       t      t         1       SELECT/INSERT/UPDATE/DELETE
+poliza_exports      t      t         1       SELECT/INSERT/UPDATE/DELETE
+supplier_accounts   t      t         1       SELECT/INSERT/UPDATE/DELETE
+supplier_aliases    f      f         0       ⛔ NADA
+```
+
+[`20261010104218`](../../../database/migrations-newdb/20261010104218_contpaqi_supplier_aliases.js)
+crea `tenant_id NOT NULL`, el índice UNIQUE y los dos CHECK — y **ninguna de las dos defensas que
+sus tres hermanas sí tienen**. §34.1 enumera *"lo que la tabla no permite"* y el aislamiento por
+tenant **no aparece**: no se olvidó al implementar, se olvidó al diseñar.
+
+### 37.2 ⭐⭐ El que rompe funcionalidad es el GRANT, no el RLS
+
+El RLS es defensa en profundidad y en este prod está **inerte de todos modos**: la API corre
+mayormente como `postgres`, y un superusuario salta las políticas. Eso es un hueco de plataforma
+con su propio dueño.
+
+⛔ **El `GRANT` es otra cosa.** `[CP.8.37]` puso una pantalla que escribe en esta tabla y
+`ContpaqiArmadoService` la lee en cada armado. Conectando como `app_runtime` —**7 conexiones
+vivas en prod**— la lectura tira `42501 permission denied`… y este `catch` la tragaba:
+
+```ts
+} catch {
+  this.log.warn('contpaqi.supplier_aliases no existe en este destino: …');
+}
+```
+
+**La tabla sí existía.** O sea: el resolvedor degradaba al padrón **sin alias**, `[CP.8.36]` y
+`[CP.8.37]` no servían para nada, y el log afirmaba un motivo falso — que es justo lo que lo
+volvía invisible. Es la misma forma del defecto de `[CP.8.34]` (§31.2): *dos líneas del mismo
+módulo decían cosas distintas del mismo hecho, y la que se leía era la del log.*
+
+El `catch` ahora parte `42P01` (destino sin la migración: degradar es correcto, `warn`) de
+`42501` (la defensa está rota: degrada igual, pero `error` nombrando la migración). **Las dos
+ausencias no son la misma** (ADR-056).
+
+### 37.3 ⚠️ Y una trampa de medición que casi publica un falso positivo cuádruple
+
+El primer sondeo usó `information_schema.role_table_grants` y devolvió **"ningún grant" para las
+CUATRO tablas** — incluidas las tres que sí los tienen. Esa vista **filtra por el privilegio de
+quien lee**, y desde `dev_ro` no se ven los grants de `app_runtime`.
+
+⭐ Lo correcto es `has_table_privilege(rol, tabla, priv)`, que no filtra. Es **exactamente** la
+trampa que esta misma fase ya había pagado en §14.3 con `information_schema.tables` (*"el schema
+se ve inexistente, no prohibido"*). Pagada dos veces, ahora escrita en el candado.
+
+### 37.4 ⛔ El candado tenía razón desde el 2026-10-10 y nadie lo volvió a correr
+
+§28.2 publica `test-newdb-contpaqi-puente.js` en **40 ✓ / 0 ✗**. Corrido el 2026-10-12 contra
+prod: **38 ✓ / 2 ✗**. Su lista `ESPERADAS` se quedó en tres tablas cuando la propia fase sumó la
+cuarta dos secciones después.
+
+⭐ *Lo que falló no fue el candado: fue publicar su número sin volver a correrlo.* Y está
+registrado en `run-all-tests.js`, así que **la suite de regresión llevaba dos días en rojo**.
+
+Ahora vigila **tres** cosas y nombra cuál falla, en vez de contar:
+
+| | |
+|---|---|
+| el conjunto de tablas | `ESPERADAS` con las 4, por nombre |
+| RLS + forzado | lista las que no lo tienen |
+| ⭐ **GRANT a `app_runtime`** | medido con `has_table_privilege`, no con `information_schema` |
+
+**Prueba negativa, corrida ANTES de la migración** (que es cuando vale):
+
+```
+✗ RLS habilitado Y FORZADO en las 4 — sin RLS: supplier_aliases
+✗ las 4 tienen política de aislamiento (hay 3)
+✗ ⭐ app_runtime puede leer y escribir las 4 — sin grant: supplier_aliases
+❌ 38 ✓ / 3 ✗
+```
+
+### 37.5 🚀 Aplicada — batch 888, y el hueco del ledger volvió a aparecer
+
+El primer intento murió con **`migration directory is corrupt`** nombrando
+`20261009160146_etq_avisos_cambios_precio_tabla.js` y `…160147_etq_avisos_reparto_compartir.js`.
+
+⭐ **Los dos archivos existen en `origin/main`** (PR #350, `b8647e2dc`) **y no en el `HEAD` local**,
+que está **6 commits atrás** — y tampoco en la imagen desplegada, que es anterior a ese PR. Se
+extrajeron con `git show origin/main:<ruta>` y se copiaron al pod: **archivos reales, ningún
+marcador vacío** (misma regla que §14.2 y Paso 2 de §18).
+
+**Antes de reintentar se verificó que no hubiera un tercero**, cruzando el ledger contra el
+sistema de archivos del pod: **1,208 migraciones distintas, las 1,208 presentes, faltantes 0.**
+
+⚠️ Dos cosas que salieron del cruce y no son de esta fase:
+
+- **El ledger tiene una fila duplicada**: `20260921200000_budget_sales_plan_method_fallback.js`
+  aparece **dos veces** (1,209 filas / 1,208 nombres). Inofensivo para knex, pero es un artefacto
+  real y nadie lo había visto.
+- ⛔ **El hueco se va a repetir** en cada sesión que migre desde el contenedor hasta que haya
+  `git push` + redeploy: prod aplica desde worktrees que la imagen no conoce.
+
+⚠️ Y un error propio en el camino: el primer diff ledger-vs-pod reportó *"faltan 1,209"* porque
+usó `process.argv[1]`, que en Node es **el script**, no el argumento — estaba leyendo su propio
+fuente. *Una lectura equivocada no falla: publica un número con cara de cierto.* Re-medido antes
+de citarlo.
+
+### 37.6 ⭐ Lo que esto le hizo al layout, de rebote
+
+Auditando se encontró que `LAYOUT_REAL_P` en
+[`layout.params.ts`](../../../libs/finance/src/lib/contpaqi/layout.params.ts) era una **segunda
+declaración de los mismos anchos y ya había divergido**: conservaba `sist_orig: 2` sin `sinSep`,
+o sea el defecto exacto que `[CP.8.28]` corrigió en `LAYOUT_P`.
+
+⛔ **Y era invisible porque los dos suman 185** (`174 + 11` contra `175 + 10`). El único candado
+que los miraba comparaba **el total** con una suma a mano, y pasaba en verde.
+
+Es la predicción de `[CP.8.5]` cumpliéndose al pie — *"dos verdades sobre el mismo formato, y el
+síntoma aparece el día que alguien corrija un ancho"* — sobre el archivo que §10.6 señalaba como
+«el layout correcto». Ahora `LAYOUT_REAL_*` **aliasa** a los de `poliza-txt.ts` (los anchos viven
+una vez) y el candado mide con `largoLinea()`, que sabe de `sinSep`.
+
+⭐ Con la copia vieja las dos fórmulas daban 185; con la real dan **185 vs 186**. Esa diferencia
+quedó como aserción permanente: si vuelven a coincidir, alguien quitó el `sinSep`.
+
+### 37.7 ✅ Verificado en prod, y lo que falta
+
+Identidad del clúster **7688376744939610156** (la misma antes y después):
+
+| | rls | forzado | políticas | `app_runtime` | `dev_ro` |
+|---|:-:|:-:|--:|:-:|:-:|
+| `account_rules` · `poliza_exports` · `supplier_accounts` | t | t | 1 | SELECT+INSERT | SELECT |
+| **`supplier_aliases`** | **t** | **t** | **1** | **SELECT+INSERT** | **SELECT** |
+
+⭐ Y la política se comprobó **por su expresión, no por su existencia**: `USING` y `WITH CHECK`
+dicen los dos `tenant_id = current_tenant_id()`. *Que exista una política no dice que diga lo
+correcto* — y una que no filtre se ve en `pg_policies` igual que una que sí.
+
+**Candado del puente: 38 ✓ / 3 ✗ → `41 ✓ / 0 ✗` · 2 NO MEDIDO.**
+
+| falta | quién |
+|---|---|
+| `git push` + redeploy api | el `catch` partido sólo sirve desplegado; hasta entonces un `42501` futuro volvería a reportarse como *«no existe»* |
+| **el clic de la contadora** | sigue siendo lo único que destraba 3 de los 5 criterios de §5 |
+
+**Candados tras el arreglo:** sink **65 ✓** (era 64, +1 la aserción del `sinSep`) · libro-txt 49 ✓
+· esquema 46 ✓ · lote 38 · armador 33 · cuadre 35 · token 29 · proveedor 30 · bandeja 34.
+
+### 37.8 ⭐ ¿Era un caso aislado o una clase? — medido, y la respuesta es *las dos cosas*
+
+> ⛔ **SUPERADO EN PARTE POR `[CP.8.44]` (§38): esta medición es de la capa equivocada.** Lo de
+> abajo mide privilegios **de tabla** y concluye que el defecto era único. Al día siguiente se
+> midió el **schema**: `app_runtime` nunca tuvo `USAGE` sobre `contpaqi`, o sea que a nivel
+> efectivo faltaban **las cuatro**, no una. *Medir la capa equivocada da un número exacto sobre la
+> pregunta equivocada.* Lo que sigue vale sólo para la capa de tabla.
+
+Antes de dar el arreglo por bueno había que saber si el defecto era único o un patrón. Medido en
+prod sobre las **434 tablas con `tenant_id`** de los 13 esquemas de negocio:
+
+| | |
+|---|--:|
+| ⭐⭐ **sin `GRANT` a `app_runtime`** | **1 de 434** — `contpaqi.supplier_aliases` |
+| sin RLS o sin forzar | 79 de 434 |
+| …de ésas, en `analytics` | **73** |
+| …fuera de `analytics` | **6** |
+
+⭐ **A nivel de TABLA el defecto es único en toda la base.** No hay una segunda tabla donde el
+rol de la app tenga el privilegio negado explícitamente.
+
+⛔ **Pero eso no significaba que el resto estuviera sano**, y la frase original decía justo eso:
+*«es la razón por la que ningún otro módulo tiene este síntoma»*. Falso — las otras tres tablas de
+`contpaqi` estaban igual de inalcanzables, por el schema. Ver §38.
+
+⛔ **Y el hueco de RLS NO son 79 defectos.** 73 de los 79 están en `analytics`, que es derivado y
+filtra por tenant **explícitamente** (la propia Fase C ya lo había declarado: Postgres no soporta
+RLS en vistas materializadas). Contarlos como defectos sería el error simétrico del que esta fase
+viene arreglando: publicar un número grande que mide otra cosa.
+
+Los **6 de afuera**, nombrados para que se puedan decidir en vez de contarse:
+
+| tabla | filas aprox | |
+|---|--:|---|
+| `logistics.vehicle_positions` | 598,619 | ⭐ **decisión declarada** — `CLAUDE.md` dice «sin RLS, patrón `route_location_pings`» |
+| `commercial.portal_telemetry_events` | 10,405 | sin medir |
+| `catalog.top_sellers_live` | 1,000 | derivada; sin medir |
+| `catalog.products_top_sellers` | 550 | derivada; sin medir |
+| `commercial.push_subscriptions` | 3 | sin medir |
+| **`contpaqi.supplier_aliases`** | 0 | ⬅ **la de esta fase, la única con los dos huecos** |
+
+⛔ **Los otros 5 NO se tocan desde acá y se DECLARAN** (ADR-056): al menos uno es una decisión
+tomada a propósito, y arreglar «en bloque» una lista que no se midió una por una es cómo se
+revierte una decisión ajena sin enterarse. Quedan con nombre y con dueño: son de sus fases.
+
+⚠️ Y vale repetir lo de §37.2: en este prod la API corre mayormente como `postgres`, así que
+**el RLS de las 434 está inerte de todos modos**. La política que pone `[CP.8.39]` es para el día
+que eso cambie; lo que arregla hoy es el `GRANT`.
+
+---
+
+## §38 ⛔⛔⛔ `[CP.8.44]` — El rol de la app NUNCA tuvo `USAGE` sobre `contpaqi`. El puente estaba muerto en prod desde el día uno
+
+🚀 **Migración `20261012092454` EN PROD — batch 889** (0.1 s). Apareció buscando *"qué queda del
+plan"* — o sea, no lo reportó nadie: **lo dijo el latido**.
+
+### 38.1 ⭐ Lo delató el mecanismo que esta fase construyó para esto
+
+`analytics.cron_runs`, fila `contpaqi_cuadre`, leída en vivo:
+
+```
+status : error
+error  : select ... from "contpaqi"."poliza_exports" where ...
+         - permission denied for schema contpaqi
+host   : api          last_finish: 2026-10-12 15:20
+```
+
+**Cada 10 minutos**, desde que `[CP.8.31]` registró el módulo. ⭐ *El latido de `[CP.8.10]` hizo
+exactamente lo que se diseñó que hiciera — medir ENTREGA y ponerse rojo — y nadie lo leyó.* La
+fase entera se escribió alrededor de la idea de que un proceso mudo es peor que uno roto; éste
+no estaba mudo, estaba gritando.
+
+### 38.2 La causa: tres migraciones se lo dieron al rol equivocado
+
+| migración | qué hizo |
+|---|---|
+| `20261008155000` `[CP.8.1]` | creó el schema y dio privilegios **de tabla** a `app_runtime`. **Nunca `USAGE` del schema** |
+| `20261009101500` `[CP.8.1b]` | notó que faltaba `dev_ro`, le dio `USAGE` + `SELECT`… **sólo a `dev_ro`** |
+| `20261009122540` `[CP.8.20]` | volvió a dar `USAGE` — **otra vez sólo a `dev_ro`** |
+
+⛔ **Un privilegio de tabla sin `USAGE` del schema no sirve para nada**, y es invisible desde
+donde uno mira: `has_table_privilege('app_runtime','contpaqi.poliza_exports','SELECT')` devuelve
+**`true`**. Postgres concede el privilegio sobre el **objeto** y niega el paso al **contenedor**.
+Hay que preguntar las dos cosas, y nadie pregunta la segunda.
+
+### 38.3 ⚠️ Esto corrige a `[CP.8.39]` §37.8 — mi medición de ayer
+
+Ayer medí *"sin `GRANT` a `app_runtime`: **1 de 434** tablas"* y lo publiqué como *«el defecto es
+único en toda la base»*. **El número es exacto y la conclusión era falsa.**
+
+| capa | qué decía | qué pasaba |
+|---|--:|---|
+| tabla (lo que medí) | faltaba **1** | cierto |
+| **schema** (lo que manda) | — | faltaban **las 4** |
+
+⭐ *Medir la capa equivocada da un número exacto sobre la pregunta equivocada.* Y el error tiene
+la misma forma que todo lo demás de esta auditoría: no falló, **publicó una cifra con cara de
+cierta**. §37.8 queda con su puntero a esta sección.
+
+⚠️ Y `[CP.8.1]` §14.4 publica *"Grants · `app_runtime`: SELECT/INSERT/UPDATE/DELETE"* como
+verificación en prod. Era **verdad de tabla y falsa de efecto**.
+
+### 38.4 ⛔ Por qué NINGÚN candado lo vio, y qué cambia
+
+Los 10 candados de la fase leen la base como `edgar`/`dev_ro` — **que sí tiene `USAGE`**. El rol
+que falla es justo el que ninguna prueba usa.
+
+⭐ *Un candado que se conecta con otro rol que el de producción verifica un permiso que nadie
+ejerce.* El del puente gana dos aserciones que preguntan **por el rol de la app, por nombre**:
+
+```
+✗ ⭐⭐ app_runtime tiene USAGE sobre el schema contpaqi (sin esto los grants de tabla son decorativos)
+✓ dev_ro conserva su USAGE (es el que leen los candados)
+```
+
+**Prueba negativa corrida ANTES de la migración: `42 ✓ / 1 ✗`**, nombrando exactamente el rol y
+el schema. Después de aplicar: **`43 ✓ / 0 ✗`**, y `has_schema_privilege('app_runtime',
+'contpaqi','USAGE')` verificado en vivo en **`true`**. La segunda aserción no es decorativa: si alguien «arregla» esto revocándole a `dev_ro`,
+los otros nueve candados se caen juntos y nadie sabría por qué.
+
+### 38.5 Qué arregla la migración
+
+`GRANT USAGE ON SCHEMA contpaqi TO app_runtime` · los grants de tabla repetidos por si alguna
+entró sin ellos (así entró `supplier_aliases`) · y `ALTER DEFAULT PRIVILEGES`, **para que la
+próxima tabla no dependa de que alguien se acuerde** — que es la causa raíz de `[CP.8.39]` y de
+ésta. El freno de la migración pregunta **las dos capas**.
+
+### 38.6 ✅ El latido se puso verde SOLO, y lo que eso dice y lo que no
+
+Primera corrida después de la migración, sin tocar nada:
+
+```
+status      : ok          last_finish : 2026-10-12 15:40:00
+filas       : 0           duration_ms : 37
+note        : sin eventos pendientes de cuadrar
+error       : (ninguno)
+```
+
+⭐ **Es la primera vez que el camino que recorre la app funciona en producción.** Y la prueba es
+del tipo que vale: nadie lo declaró verde — el proceso corrió solo a las 15:40 y se midió.
+
+⛔ **Pero `ok` acá significa *"la consulta corrió"*, no *"el puente entregó algo"*.** Las 0 filas
+son reales: `poliza_exports` sigue vacía porque nunca se entregó nada. Por eso la nota dice
+**por qué** es cero en vez de reportar un `ok` pelado — es la regla que §13.2 fijó: *cero
+pendientes no es salud, es silencio*. El día que haya entregas y siga en cero, ese mismo verde
+querrá decir otra cosa.
+
+### 38.7 ⛔ Lo que esto significa del estado real de la fase
+
+El puente **nunca funcionó en producción**. Lo que estaba medido y sigue siendo cierto —el
+formato, el armador, el resolvedor, los lotes, el cuadre— se midió **leyendo como `dev_ro`** o
+corriendo lógica pura. Lo que no se había ejercido ni una vez es el camino que recorre la app.
+
+⭐ Es coherente con lo que la fase ya declaraba: `contpaqi.poliza_exports` **en 0 filas** y el
+cuadre en *"NO MEDIDO: el camino de ESCRITURA"*. Sólo que el motivo no era el que estaba escrito
+—*«falta que alguien entregue algo»*— sino que **la app no podía ni leer el schema**.
+
+⚠️ Y deja una pregunta abierta que no se contesta desde acá: **si la bandeja de `[CP.8.32]` se
+abrió alguna vez en prod, tiró 500.** Nadie lo reportó, lo que probablemente significa que nadie
+la abrió todavía.
+
+---
+
+## §39 `[CP.8.45]` — El derivador se vuelve CARRIL. Y la medición que le baja el precio
+
+🧪 **EN CÓDIGO 2026-10-12.** Sin migración. Falta `git push` + `ops/vl/deploy.sh`.
+
+Pedido de Edgar: *"implementémoslo, tratando de tener la menor cantidad de interacción manual"*.
+Antes de escribir una línea se midió **el techo**: cuánto se puede asentar sin que nadie decida.
+
+### 39.1 El techo, medido sobre 8 meses y 15,599 egresos
+
+| | movimientos | % | quién lo destraba |
+|---|--:|--:|---|
+| **arma solo hoy** | **958** | **6.1 %** | nadie — $217.4M, vía `por_proveedor` |
+| `sin_regla` | 5,858 | 37.6 % | el contador. **No derivable** (§19.1, §24.2) |
+| fuera del puente (CAJA CG · FACTORAJE) | 5,281 | 33.9 % | no son bancos |
+| `no_aplica` | 1,202 | 7.7 % | nadie, ya decidido |
+| `sin_centro_costo` | 932 | 6.0 % | negocio |
+| `sin_medir` | 695 | 4.5 % | ⭐ parecía nuestro |
+| `proveedor_sin_cuenta` | 673 | 4.3 % | los 53 alias |
+
+⛔ **No hay una versión de esto que llegue al 90 % automatizando.** El 37.6 % es una firma y el
+33.9 % ni siquiera es banco. Decirlo de otro modo sería vender una cifra que la medición no da.
+
+### 39.2 ⭐ Lo que sí era nuestro: un carril sin agenda
+
+`sin_medir` **creció de 21 en enero a 254 en julio y 231 en agosto**. No era que esas categorías
+no se pudieran clasificar: **el derivador se corrió una vez (feb-2026) y nunca más**, así que toda
+categoría nacida después caía ahí para siempre. *Script + agenda + latido; faltaban los dos
+últimos* — la misma lección que `[VL.17]` dejó escrita para el despliegue.
+
+Entregado: `--apply` en `derivar-reglas-contpaqi.js` · línea en `ops/vl/crontab.feeds` (mensual,
+día 3) · latido `contpaqi_derivador` con umbral en `CRON_JOBS` · candado **21 ✓**, mutado a rojo
+4 veces.
+
+⛔ **Lo que el `--apply` se niega a escribir** es el diseño entero: sólo `tipo_regla` y
+`forma_medida`; **jamás** `cuenta_gasto`, `confianza_pct` ni `estado`. Sólo filas en `sin_medir`
+y sin firmar. Y **sólo si el tipo sobrevive al filtro 1:1** — `[CP.8.27]` midió que `cobranza` y
+`servicios` cambian de tipo al restringir, y *un tipo que depende del agrupamiento no es un tipo*.
+
+⚠️ De paso, dos defectos propios: `--hasta` tenía una **fecha literal por default**
+(`2026-03-01`), o sea que cada corrida futura habría re-derivado los mismos dos meses de siempre
+— *una fecha escrita adentro caduca y no avisa* (`[CDRP.2.1]`). Y el `--apply` se compara con
+`.trim()`, por la quemada de `[VL.4]`.
+
+### 39.3 ⛔⛔ Y acá la medición le baja el precio al carril — corrido en seco, clasifica UNA
+
+La corrida real sobre ene–sep ($624.6M, 11,804 egresos) mueve **1 de las 11** reglas
+(`devolucion_spei → no_aplica`). O sea: **el carril NO resuelve los 695.**
+
+Medido de dónde salen esas 11 categorías en 8 meses:
+
+| categoría | movs | de dónde sale | ¿en el universo del puente? |
+|---|--:|---|---|
+| **`pago_credito`** | **597** | 581 de **bancos reales enlazados** | ⭐ **SÍ — y cero pareos** |
+| `comisiones_venta` | 360 | **353 de CAJA GENERAL** | no: `cash` |
+| `compra_factoraje` | 183 | **183 de FACTORAJE** | no: `factoraje` |
+| `pago_factoraje` | 29 | banco real (BB 4166), $26.6M | sí |
+| `cobranza` · resto | 78 | bancos reales | sí |
+
+⭐ **Los 695 son, esencialmente, `pago_credito`**: 581 movimientos que salen de BBVA 4885/4176,
+BTE 7744… y que **en ocho meses no parean ni una vez** contra los abonos a `102*` de ContPAQi.
+Eso no es una clasificación rancia: es que **esos pagos no aparecen donde el derivador mira**.
+Hipótesis a medir —y no a asumir—: ContPAQi los lleva por su módulo de tesorería (`EG`/`IN`/`DE`,
+decodificados en §25.3) y no como renglón de póliza.
+
+⛔ **Entonces el valor del carril es PREVENTIVO, no correctivo:** impide que la clasificación se
+pudra y que la pila crezca con cada categoría nueva. **No mueve el 6.1 %.** Construirlo estuvo
+bien; venderlo como el arreglo de los 695 habría sido exactamente el tipo de cifra que esta fase
+viene corrigiendo.

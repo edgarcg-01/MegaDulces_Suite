@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -20,6 +21,8 @@ import {
   NewProductsResponse,
   NewProductsService,
 } from './new-products.service';
+import { ProductFlowService } from './product-flow.service';
+import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, MargenesProducto, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -34,6 +37,7 @@ export class CommercialProductsController {
   constructor(
     private readonly service: CommercialProductsService,
     private readonly newProducts: NewProductsService,
+    private readonly flow: ProductFlowService,
   ) {}
 
   @Get()
@@ -199,6 +203,99 @@ export class CommercialProductsController {
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
     return this.newProducts.detail(id, { puedeVerCosto });
+  }
+
+  // `[PF.1]` Flujo de venta de cualquier producto. `flow` va ANTES de `@Get(':id')`; `:id/flow` tiene dos
+  // segmentos y no choca con `:id`.
+  @Get('flow')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.1]` Flujo de venta de los productos de una página (ids separados por coma, hasta 200): '
+      + 'el mes contra los mismos días del anterior en tiempo real, dónde se estancó y si hace falta comprar.',
+  })
+  flowList(
+    @Query('ids') ids?: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<FlujoListaRespuesta> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.list(String(ids ?? '').split(',').map((x) => x.trim()).filter(Boolean), { puedeVerCosto });
+  }
+
+  @Get('flow/cuidar')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.2]`/`[PF.3]` Para cuidar hoy: los líderes (la mitad de la venta de la red) que piden atención '
+      + 'y los productos con lotes que caducan antes de venderse.',
+  })
+  flowCuidar(
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<CuidarRespuesta> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.cuidar({ puedeVerCosto });
+  }
+
+  @Get('flow/proveedores')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.9]` Los proveedores para Compras › Catálogo: productos activos y venta del mes contra los '
+      + 'mismos días del anterior. Los productos sin proveedor van aparte.',
+  })
+  flowProveedores(): Promise<ProveedoresRespuesta> {
+    return this.flow.proveedores();
+  }
+
+  @Get('flow/proveedores/:id')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.9]` Los productos activos de un proveedor (`sin` = sin proveedor) con su flujo, su veredicto '
+      + 'de compra y el porqué en una frase. En vivo, guardado un minuto.',
+  })
+  flowProveedor(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<ProductosProveedorRespuesta> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.productosProveedor(id, { puedeVerCosto });
+  }
+
+  @Get(':id/flow')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.1]` El flujo de venta de UN producto, sucursal por sucursal: comparación con el mes '
+      + 'anterior día a día, estancado/frenado/agotado, existencia en cajas, llegada, reparto y análisis de compra.',
+  })
+  flowDetail(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<FlujoDetalle> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.detail(id, { puedeVerCosto });
+  }
+
+  @Get(':id/flow/margins')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.5]` Los tres márgenes de UN producto (de lista, real y sobre lo pagado), por sucursal, en '
+      + 'los últimos 30 días cerrados. Mismas fuentes que Productos nuevos. Sólo con permiso de costo.',
+  })
+  flowMargins(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<MargenesProducto> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    // Un margen junto a la venta deja despejar el costo: mismo candado que el costo (como [NP.15]).
+    if (!puedeVerCosto) throw new ForbiddenException('Los márgenes requieren permiso de costo');
+    return this.flow.margins(id);
   }
 
   @Put('new-products/:id/classification')

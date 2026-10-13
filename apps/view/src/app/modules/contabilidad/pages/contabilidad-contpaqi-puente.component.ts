@@ -55,7 +55,7 @@ import {
         </div>
         <div class="surf-page-head-actions">
           <p-select [options]="mesOpts" [ngModel]="mes()" (ngModelChange)="setMes($event)"
-                    appendTo="body" styleClass="cpp-sel" [style]="{ minWidth: '10rem' }"
+                    appendTo="body" class="cpp-sel" [style]="{ minWidth: '10rem' }"
                     ariaLabel="Mes"></p-select>
         </div>
       </header>
@@ -106,6 +106,26 @@ import {
 
         <app-metric-strip [items]="kpis()" ariaLabel="Resumen del puente" />
 
+        <!-- [CP.8.38] El archivo. Descargar NO es entregar, y la pantalla lo dice. -->
+        @if (d.resumen.incluidas > 0 && puedeGestionar()) {
+          <div class="cpp-archivo">
+            <div>
+              <strong>{{ d.resumen.con_asiento | number }}</strong> p&oacute;lizas armadas
+              (<span class="mono">{{ d.resumen.incluidas | number }}</span> movimientos).
+              <div class="cpp-archivo-n">
+                Descargar <strong>no</strong> lo marca como entregado: el reloj del cuadre arranca
+                cuando alguien confirme que lo carg&oacute; en ContPAQi, no cuando bajes el archivo.
+              </div>
+            </div>
+            <button type="button" class="cpp-btn-ok" [disabled]="bajando()" (click)="descargar()">
+              {{ bajando() ? 'Generando…' : 'Generar el archivo' }}
+            </button>
+          </div>
+          @if (avisoArchivo(); as a) {
+            <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+          }
+        }
+
         <!-- ── EL RECHAZO CON DUEÑO: esto es la entrega ── -->
         <section class="cpp-sec">
           <div class="cpp-sec-h">
@@ -151,7 +171,8 @@ import {
               </ng-template>
               <ng-template #footer>
                 <tr><td colspan="4" class="cpp-foot">
-                  <span class="mono">{{ pendientes() | number }}</span> son trabajo de alguien &middot;
+                  <span class="mono">{{ pendientes() | number }}</span> esperan a alguien &middot;
+                  <span class="mono">{{ d.resumen.incluidas | number }}</span> ya entran al asiento &middot;
                   <span class="mono">{{ deNadie() | number }}</span> no son trabajo de nadie:
                   ya se midi&oacute; que no generan p&oacute;liza.
                 </td></tr>
@@ -450,6 +471,12 @@ import {
     .cpp-skel { display: grid; gap: .5rem; margin-top: 1.25rem; }
     .cpp-skel-row { height: var(--row-h-md); border-radius: var(--radius-sm); background: var(--surface-200); }
 
+    .cpp-archivo { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+      margin-top: 1rem; padding: .9rem 1rem; border: 1px solid var(--c-divider);
+      border-radius: var(--r-lg); background: var(--c-surface-1); font-size: var(--fs-sm); }
+    .cpp-archivo > div:first-child { flex: 1 1 24rem; min-width: 0; }
+    .cpp-archivo-n { color: var(--c-text-3); font-size: var(--fs-xs); margin-top: .25rem; max-width: 72ch; }
+
     /* [CP.8.37] confirmar el alias */
     .cpp-nota-dura { margin: 0 0 .8rem; padding-left: .8rem; border-left: 2px solid var(--c-warn);
       color: var(--c-text-2); font-size: var(--fs-sm); max-width: 78ch; }
@@ -493,6 +520,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   /** alias → cuenta elegida en la pantalla. ⛔ Nada se preselecciona: elegir es del humano. */
   readonly elegido = signal<Record<string, string>>({});
   readonly guardando = signal<string | null>(null);
+  readonly bajando = signal(false);
+  readonly avisoArchivo = signal<{ texto: string; mal: boolean } | null>(null);
   readonly avisoAlias = signal<{ texto: string; mal: boolean } | null>(null);
   /**
    * Confirmar exige `_GESTIONAR`; mirar el pendiente sólo `_VER`.
@@ -548,7 +577,16 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
   readonly deNadie = computed(() => contarDeNadie(this.data()?.motivos ?? []));
 
-  readonly pendientes = computed(() => (this.data()?.resumen.movimientos ?? 0) - this.deNadie());
+  /**
+   * ⛔ Resta TAMBIÉN las incluidas. Mientras el puente rechazaba todo, `movimientos − no_aplica`
+   * daba lo mismo; desde `[CP.8.35]` entran 144 al asiento y esa cuenta **sobredeclara el trabajo
+   * pendiente**, que es justo el número que alguien mira para estimar cuánto falta.
+   */
+  readonly pendientes = computed(() => {
+    const r = this.data()?.resumen;
+    if (!r) return 0;
+    return Math.max(0, r.movimientos - this.deNadie() - r.incluidas);
+  });
 
   ngOnInit(): void { this.cargar(); }
 
@@ -575,6 +613,41 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     // Igual que el cuadre: si falla, la bandeja sigue sirviendo y la sección no se dibuja.
     this.api.pendientes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (p) => this.porConfirmar.set(p), error: () => this.porConfirmar.set(null) });
+  }
+
+  /**
+   * `[CP.8.38]` Baja el TXT del mes.
+   *
+   * ⚠️ El navegador no puede leer el archivo y decidir: si el backend rechaza, llega un JSON de
+   * error con `Content-Type` distinto. Por eso se pide como `blob` y se mira el tipo antes de
+   * ofrecerlo — guardar un JSON de error con nombre `.txt` y que alguien lo importe a ContPAQi
+   * es un modo de falla real.
+   */
+  descargar(): void {
+    this.bajando.set(true);
+    this.avisoArchivo.set(null);
+    this.api.archivo(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (blob) => {
+        this.bajando.set(false);
+        if (!blob || blob.type.includes('json')) {
+          this.avisoArchivo.set({ texto: 'El servidor no devolvió un archivo de póliza.', mal: true });
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `egresos-banco-${this.mes()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.avisoArchivo.set({
+          texto: `Archivo de ${this.mes()} generado. NO quedó marcado como entregado.`, mal: false,
+        });
+      },
+      error: (e) => {
+        this.bajando.set(false);
+        this.avisoArchivo.set({ texto: e?.error?.message ?? 'No se pudo generar', mal: true });
+      },
+    });
   }
 
   elegir(alias: string, cuenta: string): void {

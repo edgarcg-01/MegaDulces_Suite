@@ -627,6 +627,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
       {
+        // `[PP.1]` Pronto pago: lo que Tesorería todavía puede ganar, y hasta cuándo.
+        // Reusa `FINANCE_PAYMENTS_VER` — la misma familia que Pagos a proveedor; un permiso nuevo
+        // la dejaría invisible hasta que alguien lo repartiera (pasó en `[LC.6.2]`).
+        path: 'pronto-pago',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-pronto-pago.component').then(m => m.FinanzasProntoPagoComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
@@ -699,6 +707,13 @@ export const routes: Routes = [
         path: 'mis-gastos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+      },
+      {
+        // `[EMB.29]` Comisiones y viáticos de logística por corte de 14 días (ADR-091): un vale
+        // por persona con SÓLO viajes cerrados y cargas en Kepler. Mismo par de permisos que la API.
+        path: 'comisiones-logistica',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-comisiones-logistica.component').then(m => m.FinanzasComisionesLogisticaComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
         ],
       },
@@ -836,6 +851,13 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-faltas.component').then(m => m.RhFaltasComponent),
       },
+      // `[RH.1.10]` El banco de horas extra: lo leen quienes ven la asistencia y quienes capturan o califican
+      // incidencias (el mismo `anyOf` que `GET /hr/attendance/overtime`).
+      {
+        path: 'asistencia/horas-extra',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-horas-extra.component').then(m => m.RhHorasExtraComponent),
+      },
       {
         path: 'incidencias',
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE)],
@@ -845,6 +867,23 @@ export const routes: Routes = [
         path: 'relojes',
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-relojes.component').then(m => m.RhRelojesComponent),
+      },
+      // `[RH.2.3]` Reclutamiento (antes el portal de Mega Talento). Las tres pestañas leen con VER o GESTIONAR,
+      // igual que `GET /hr/talent/*`: gestionar implica ver.
+      {
+        path: 'reclutamiento',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-candidatos.component').then(m => m.RhCandidatosComponent),
+      },
+      {
+        path: 'reclutamiento/vacantes',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-vacantes.component').then(m => m.RhVacantesComponent),
+      },
+      {
+        path: 'reclutamiento/revisiones',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-reclutamiento-revisiones.component').then(m => m.RhReclutamientoRevisionesComponent),
       },
     ]
   },
@@ -900,6 +939,14 @@ export const routes: Routes = [
         pathMatch: 'full',
         canActivate: [contabilidadHomeGuard],
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
+      },
+      // `[CPA.10]` La bandeja: la portada del proyecto para quien lleva los libros. Va PRIMERA en
+      // `CONTABILIDAD_LANDING`, así que con `FISCAL_CONTAB_VER` se aterriza acá. El permiso es el
+      // mismo que ya abre el semáforo y la balanza — **ya repartido en prod**, sin re-login.
+      {
+        path: 'mi-cierre',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-mi-cierre.component').then(m => m.ContabilidadMiCierreComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
         path: 'listas-sat',
@@ -1467,6 +1514,14 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
+        // [AB.16] «Mi pedido» — el pedido de la semana de un almacén, agrupado por a quién se le
+        // pide, con lo ya pedido a la matriz y la cantidad redondeada a como se captura en Kepler.
+        // Misma puerta que la mesa: es la misma audiencia y sólo lee.
+        path: 'autoabasto/pedido',
+        loadComponent: () => import('./modules/almacen/pages/almacen-autoabasto-pedido.component').then(m => m.AlmacenAutoabastoPedidoComponent),
+        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
+      },
+      {
         // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
         // publicados a propósito: ver el doc del componente.
         path: 'analisis-bi',
@@ -2031,7 +2086,8 @@ export const routes: Routes = [
       {
         path: 'config',
         loadComponent: () => import('./modules/logistica/pages/logistica-config.component').then(m => m.LogisticaConfigComponent),
-        canActivate: [permissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR)]
+        // [EMB.28.1] También el autorizador de tarifas (dirección), que no siempre configura.
+        canActivate: [anyPermissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)]
       },
     ]
   },

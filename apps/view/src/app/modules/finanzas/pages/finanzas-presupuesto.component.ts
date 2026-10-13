@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -19,13 +19,14 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
-  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement }
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement, ExpenseConcentration }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 // `[PVI.9]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
 // archivos compartidos porque **el shell los sigue necesitando**: el estado y el HTTP no se
 // movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
+import { PresupuestoDireccionComponent } from './presupuesto/presupuesto-direccion.component';
 import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
 import { ejercicioInicial } from './presupuesto/presupuesto-seleccion';
 import { motivoSinResultado, resultadoEjercicio, tipoLabel, type FilaPorTipo } from './presupuesto/presupuesto-resultado';
@@ -163,7 +164,23 @@ interface BandejaFirmas {
   as_of: string;
 }
 
-type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
+type PresView = 'direccion' | 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
+
+/**
+ * `[PU.DIR.1]` La vista a la que se entra sin parámetro, y la única que se omite de la URL.
+ *
+ * ⚠️ **Cambia la pantalla de aterrizaje**: hasta hoy `/presupuesto` abría en Ejercicio. Abre en
+ * Dirección porque esa vista existe para contestar y mandar a donde se trabaja — primera en el
+ * selector pero no de entrada, sería ornamento.
+ *
+ * ⭐ **Lo decidió Edgar, no este carril.** Se preguntó a propósito: cambiar la entrada afecta a
+ * todos los que ya usan el módulo, y con trabajo local sin empujar una autorización de push por
+ * otro motivo se habría llevado puesto un cambio de comportamiento que nadie aprobó. Estuvo
+ * revertido a `'ejercicios'` mientras se preguntaba.
+ *
+ * Una sola constante para que el default no quede escrito en tres lugares que después divergen.
+ */
+const VISTA_DEFAULT: PresView = 'direccion';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Surface Operations (quiet-luxury, answer-first). Tres vistas:
@@ -178,7 +195,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule,
     CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent, SucursalPipe,
-    PresupuestoVentasComponent, RouterLink,
+    PresupuestoVentasComponent, PresupuestoDireccionComponent, RouterLink,
   ],
   providers: [MessageService],
   template: `
@@ -283,6 +300,16 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             </div>
           }
         </div>
+      }
+
+      <!--
+        [PU.DIR.1] DIRECCIÓN — la primera vista: contesta y manda a las otras siete.
+        Carga su propio dato al entrar, no al cargar la pantalla: fuera de esta vista no se
+        consulta. Y NO repite la bandeja de firmas, que ya está pintada arriba por [TES.17];
+        un segundo lugar donde leer el mismo número es como se duplican las cifras acá.
+      -->
+      @if (view() === 'direccion') {
+        <app-presupuesto-direccion (irA)="setView($event)" />
       }
 
       <!-- ══════════ EJERCICIOS (sistema de presupuestos) ══════════ -->
@@ -497,6 +524,20 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               }
             }
 
+            <!-- PU.VG.10 — El mismo 0.0% de Ocupacion que la pestana Gastos ya declara, pero aca
+                 estaba MUDO: medido en prod, las 26 partidas tienen los cuatro estados en cero, o
+                 sea que la columna pinta 0.0% en todas las filas y "Disponible 100%" es una
+                 tautologia (disponible = original - reservado - pagado, los dos en cero). -->
+            @if (ledgerVirgen()) {
+              <p class="pres-hint"><span class="pi pi-info-circle"></span>
+                <strong>El libro de este ejercicio no registra un solo movimiento.</strong>
+                Reservado, comprometido, ejercido y pagado están en <strong class="pres-mono">$0.00</strong> en las
+                <strong>{{ lines().length }}</strong> partidas — por eso <em>Ocupación</em> dice 0.0 % y <em>Disponible</em>
+                dice el total.
+                <span class="pres-muted">No significa que no se haya gastado: significa que el gasto no se registró acá. El consumo real está en la columna «Ritmo» de la pestaña <strong>Gastos</strong>.</span>
+              </p>
+            }
+
             <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
               <ng-template #header>
                 <tr>
@@ -516,7 +557,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td class="ta-r pres-mono">{{ dash(l.committed_amount) }}</td>
                   <td class="ta-r pres-mono">{{ dash(l.exercised_amount) }}</td>
                   <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
-                  <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
+                  <td class="ta-r pres-mono" [title]="ocupacionTitulo(l)">{{ ocupacion(l) }}</td>
                   <td><p-tag [value]="l.status" [severity]="l.status === 'activa' ? 'info' : 'secondary'" styleClass="pres-tag" /></td>
                   <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
@@ -563,6 +604,66 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               }
             </div>
             <app-metric-strip [items]="gastoKpis()" mode="strip" ariaLabel="Resumen de gasto operativo" />
+            <!-- PU.VG.10 — La concentracion va ANTES de la tabla porque es la respuesta, y la tabla
+                 es el detalle: 14 renglones que se ven todos iguales no contestan "puedo recortar".
+                 Va por EJERCICIO; el agregado de los dos no corresponde a ningun ano fiscal. -->
+            @if (concError()) {
+              <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Concentración no medida.</strong> No se pudo leer el peso de cada partida; este bloque no afirma nada.</p>
+            } @else if (conc(); as cc) {
+              <div class="pres-conc">
+                <!-- El titular CONTESTA; antes preguntaba. Y la frase viene del SERVIDOR: si la
+                     arma cada plantilla, las dos mitades del modulo vuelven a contar la misma idea
+                     con dos gramaticas, que es lo que esta entrega cierra. -->
+                <div class="pres-conc-head">
+                  <h3 [class.pres-conc-ausente]="cc.frase.es_ausencia">
+                    @if (cc.frase.es_ausencia) { <span class="pi pi-minus-circle"></span>&nbsp; }
+                    {{ cc.frase.titular }}
+                  </h3>
+                  @if (cc.frase.detalle) { <span>{{ cc.frase.detalle }}</span> }
+                </div>
+                @if (cc.total != null) {
+                  <table class="pres-conc-tbl">
+                    <thead><tr><th>Partida</th><th class="ta-r">Monto</th><th class="ta-r">% del año</th><th class="ta-r">Acumulado</th><th>Responsable</th><th>Freno</th></tr></thead>
+                    <tbody>
+                      @for (f of concTop(); track f.id || f.concepto) {
+                        <tr>
+                          <td>{{ f.concepto }}</td>
+                          <td class="ta-r pres-mono">{{ f.monto == null ? '—' : money(f.monto) }}</td>
+                          <td class="ta-r pres-mono">{{ f.pct == null ? '—' : (f.pct | number:'1.2-2') + '%' }}</td>
+                          <td class="ta-r pres-mono pres-muted">{{ f.acumulado == null ? '—' : (f.acumulado | number:'1.2-2') + '%' }}</td>
+                          <td class="pres-muted">{{ f.responsable || 'sin asignar' }}</td>
+                          <td [class.pres-muted]="f.freno !== 'bloqueo'">{{ frenoLabel(f.freno) }}</td>
+                        </tr>
+                      }
+                      @if (concResto(); as r) {
+                        <tr class="pres-conc-resto">
+                          <td class="pres-muted">y {{ r.n }} partidas más</td>
+                          <td class="ta-r pres-mono pres-muted">{{ r.monto == null ? '—' : money(r.monto) }}</td>
+                          <td class="ta-r pres-mono pres-muted">{{ r.pct == null ? '—' : (r.pct | number:'1.2-2') + '%' }}</td>
+                          <td class="ta-r pres-mono pres-muted">100.00%</td>
+                          <td colspan="2"></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+                <!-- La frase INVERSA: donde NO mirar. Es la mitad que ninguna tabla ordenada por
+                     importe contesta, y la tomamos de la superficie de ingreso de Ventas. -->
+                @if (cc.frase.inversa) {
+                  <p class="pres-hint pres-conc-inv"><span class="pi pi-eye-slash"></span> {{ cc.frase.inversa }}</p>
+                }
+                <p class="pres-hint pres-conc-dec">
+                  <span class="pi pi-exclamation-triangle"></span>
+                  <strong>Lo que esta pantalla todavía no puede contestar.</strong>
+                  Responsable capturado en <strong class="pres-mono">{{ cc.cobertura.con_responsable }} de {{ cc.cobertura.partidas }}</strong> partidas ·
+                  fijo/variable en <strong class="pres-mono">{{ cc.cobertura.con_clase }} de {{ cc.cobertura.partidas }}</strong> ·
+                  freno duro en <strong class="pres-mono">{{ cc.cobertura.con_freno_duro }} de {{ cc.cobertura.partidas }}</strong>
+                  <span class="pres-muted">— las tres columnas existen y están vacías: es captura humana, no un cálculo que falte.</span>
+                  @if (cc.cobertura.sin_monto) { · <strong class="pres-neg">{{ cc.cobertura.sin_monto }}</strong> partidas sin monto legible quedaron <strong>fuera</strong> del total <span class="pres-muted">(no suman cero)</span> }
+                  @if (!cc.umbral_registrado) { <br /><span class="pi pi-ban"></span> <strong>Sin semáforo a propósito:</strong> no hay un solo umbral registrado en el sistema, así que cualquier color sería inventado. <span class="pres-muted">Registrarlos es decisión de Dirección.</span> }
+                </p>
+              </div>
+            }
             <!-- PU.VG.7 — El ledger no guarda mes, asi que Ocupacion es un porcentaje anual y un
                  0 por ciento ahi no distingue "no gastamos" de "no registramos". El perfil se
                  deriva del plan y se declara al lado. No hay umbral de materialidad registrado:
@@ -606,7 +707,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td class="ta-r pres-mono">{{ dash(l.committed_amount) }}</td>
                   <td class="ta-r pres-mono">{{ dash(l.exercised_amount) }}</td>
                   <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
-                  <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
+                  <td class="ta-r pres-mono" [title]="ocupacionTitulo(l)">{{ ocupacion(l) }}</td>
                   <td class="ta-r pres-mono" [title]="ritmoTitulo(l)">{{ ritmoDeberia(l) }}</td>
                   <td [title]="ritmoTitulo(l)">
                     <span [class.pres-neg]="ritmoEsAlerta(l)" [class.pres-muted]="ritmoEsMudo(l)">{{ ritmoEtiqueta(l) }}</span>
@@ -1271,6 +1372,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   /**
    * `[PU.VA]` ⛔ **Los supuestos de ventas llegaban y no se pintaban.** El componente es `OnPush` y
    * `channelsList` / `asVentasGrowth` / `asVentasDefault` son campos **planos, no signals**:
@@ -1291,7 +1394,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private readonly base = `${environment.apiUrl}/finance/budget`;
 
   // ── Sub-navegación ──
-  view = signal<PresView>('ejercicios');
+  view = signal<PresView>(VISTA_DEFAULT);
   // `[TES.16]` Dos grupos, rotulados por la PREGUNTA que contesta cada uno.
   //
   //   «Armar el presupuesto»  → ¿cuánto vamos a vender y a gastar?
@@ -1303,6 +1406,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // carril de Tesorería estaba partido entre los dos grupos y el agrupado no seguía ninguna
   // pregunta: seguía el orden en que se fueron construyendo las pestañas.
   viewOptsArmar = [
+    { label: 'Dirección', value: 'direccion' },
     { label: 'Ejercicio', value: 'ejercicios' },
     { label: 'Ventas', value: 'ventas' },
     { label: 'Gastos', value: 'gasto-op' },
@@ -1318,7 +1422,62 @@ export class FinanzasPresupuestoComponent implements OnInit {
     { label: 'Capacidad de pago', value: 'capacidad' },
     { label: 'Obligaciones', value: 'gastos' },
   ];
+
+  /**
+   * `[PU.DIR.0]` **Las siete vistas eran estado local: no se compartían, no se marcaban y un F5
+   * te devolvía a Ejercicio.** Medido antes de tocar: cero coincidencias de `ActivatedRoute`,
+   * `queryParam` y `router.navigate` en las 2,778 líneas del archivo. Eso contradice a
+   * `DESIGN.md` ("estado de filtros/selección en URL") y, concreto, impide que la vista
+   * «Dirección» enlace a la vista donde se trabaja: un destino que no se puede nombrar no es
+   * un destino.
+   *
+   * ⭐ **La lista NO se escribe a mano: sale de los dos selectores.** Un tercer arreglo con los
+   * mismos siete valores se desincroniza el día que alguien agregue una vista — y el síntoma
+   * sería que la vista nueva funciona con el dedo y NO por enlace, que es justo el defecto que
+   * este commit cierra.
+   *
+   * ⚠️ El parámetro se llama `view`, en inglés, no `vista`: es la convención del repo para
+   * columnas y query params nuevos (el español queda para términos de dominio sin traducción
+   * limpia, como `sucursal` o `mes`), y ya hay tres precedentes de `?view=` para exactamente
+   * este concepto — `compras-descuentos` el más cercano, que sincroniza «vista + filtros».
+   */
+  private readonly VIEWS: PresView[] =
+    [...this.viewOptsArmar, ...this.viewOptsPagos].map((o) => o.value as PresView);
+
+  /**
+   * Refleja la vista en la URL. `replaceUrl` → no ensucia el historial, que es lo que hacen las
+   * otras veinte pantallas del repo.
+   *
+   * ⚠️ **Y eso tiene una consecuencia que conviene decir en voz alta: «atrás» NO recorre las
+   * vistas.** Es deliberado: cambiar de pestaña no es navegar, y con `replaceUrl:false` salir de
+   * la pantalla costaría tantos «atrás» como clics hayas dado. Lo que sí queda cubierto es
+   * enlazar, compartir y F5. Si alguna vez se quiere el recorrido real hace falta además
+   * *reaccionar* a `queryParamMap` (hoy se lee el `snapshot` una vez), porque si no el botón
+   * cambiaría la URL sin cambiar la vista: peor que no tenerlo.
+   *
+   * La vista por default se omite del parámetro — `/presupuesto` limpio es Ejercicio.
+   */
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: this.view() === VISTA_DEFAULT ? null : this.view() },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** Cambio de vista pedido por el usuario: aplica y lo deja escrito en la URL. */
   setView(v: string) {
+    this.applyView(v);
+    this.syncUrl();
+  }
+
+  /**
+   * Aplica la vista y dispara su carga perezosa. Separado de `setView` a propósito: al
+   * rehidratar desde la URL ya tenemos el valor escrito, y volver a navegar durante el
+   * `ngOnInit` es una navegación adentro de otra.
+   */
+  private applyView(v: string) {
     this.view.set(v as PresView);
     // `[VE.3]` El flujo de caja se cargaba sólo apretando «Actualizar». Una cifra que hay que
     // pedir no es un tablero: es un reporte a demanda. Se dispara al entrar a la pestaña, en
@@ -1462,7 +1621,15 @@ export class FinanzasPresupuestoComponent implements OnInit {
   newVisible = false;
   form: { concept?: string; beneficiary?: string; subtype?: string; area?: string; original_amount?: number; original_due_date?: string; is_critical?: boolean; critical_reason?: string } = {};
 
-  ngOnInit(): void { this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); this.loadFirmas(); }
+  ngOnInit(): void {
+    // `[PU.DIR.0]` La vista se rehidrata ANTES de las cargas, no después. Si se leyera después,
+    // `loadBudgets()` ya habría resuelto con la vista por default y el bloque que la selección de
+    // ejercicio dispara por vista (`loadResultado` para flujo) saldría para la vista equivocada:
+    // la pantalla terminaría en el lugar correcto, con el dato del lugar anterior.
+    const v = this.route.snapshot.queryParamMap.get('view');
+    if (v && this.VIEWS.includes(v as PresView)) this.applyView(v);
+    this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); this.loadFirmas();
+  }
 
   // ── [TES.17] Bandeja de firmas ──
   firmas = signal<BandejaFirmas | null>(null);
@@ -1807,6 +1974,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (r) => this.coverage.set(r),
       error: () => this.coverageError.set(true),
     });
+    // [PU.VG.10] La concentración: «¿cuánto de este gasto puedo mover?». Viaja aparte por el mismo
+    // motivo que el ritmo — si falla, el bloque DECLARA que no se midió en vez de desaparecer.
+    this.conc.set(null); this.concError.set(false);
+    this.http.get<ExpenseConcentration>(`${this.base}/budgets/${b.id}/expense-plan/concentracion`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.conc.set(r),
+      error: () => this.concError.set(true),
+    });
   }
 
   // ── [PU.VG.4] Bitácora del ledger ───────────────────────────────────────────
@@ -1882,6 +2056,42 @@ export class FinanzasPresupuestoComponent implements OnInit {
         ? 'Base del año anterior × el supuesto de crecimiento.'
         : 'Capturado a mano.';
   }
+
+  // ── [PU.VG.10] Concentración: qué puede mover Dirección y qué no ─────────────
+  // La pregunta de Dirección frente a un presupuesto es «¿puedo recortar?», y la tabla de arriba
+  // muestra 14 renglones que se ven todos iguales. Medido en prod: en FY2027 SUELDOS Y SALARIOS
+  // solo es el 55.50 %, y hacen falta CUATRO renglones para mover el 80 % del gasto.
+  conc = signal<ExpenseConcentration | null>(null);
+  concError = signal(false);
+
+  /**
+   * El nivel de control, en palabras. `bloqueo` es el ÚNICO que frena de verdad; `advertencia`
+   * avisa y deja pasar, así que rotularlo «control» insinuaría una compuerta que no existe.
+   */
+  frenoLabel(f: string | null | undefined): string {
+    if (f === 'bloqueo') return 'Bloquea';
+    if (f === 'advertencia') return 'Sólo avisa';
+    if (f === 'informativo') return 'Informativo';
+    return f || 'sin freno';
+  }
+
+  /** Las que explican el grueso, para no pedirle a nadie que lea 14 renglones iguales. */
+  concTop = computed(() => (this.conc()?.filas ?? []).slice(0, 6));
+
+  /** El resto, resumido en un renglón: cuántas son y cuánto suman entre todas. */
+  concResto = computed(() => {
+    const filas = this.conc()?.filas ?? [];
+    const resto = filas.slice(6);
+    if (!resto.length) return null;
+    const montos = resto.map((f) => f.monto).filter((m): m is number => m != null);
+    return {
+      n: resto.length,
+      // Si ninguna trae monto no se publica un 0: se declara con el guion de siempre.
+      monto: montos.length ? Math.round(montos.reduce((a, b) => a + b, 0) * 100) / 100 : null,
+      pct: resto[0]?.acumulado != null && filas[5]?.acumulado != null
+        ? Math.round((100 - filas[5].acumulado) * 100) / 100 : null,
+    };
+  });
 
   // ── [PU.VG.7] Ritmo ──────────────────────────────────────────────────────────
   ritmo = signal<ExpenseRhythm | null>(null);
@@ -2710,6 +2920,36 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const used = Number(l.reserved_amount) + Number(l.committed_amount) + Number(l.exercised_amount);
     return `${Math.round((used / v) * 1000) / 10}%`;
   }
+
+  /**
+   * `[PU.VG.10]` **Un 0.0 % de ocupación no distingue «no gastamos» de «no registramos».**
+   *
+   * Medido contra prod el 2026-10-09: las 26 partidas tienen reservado, comprometido, ejercido y
+   * pagado en **$0.00** — el ledger de cinco estados **nunca se operó**. O sea que la columna
+   * publica 0.0 % en todas las filas de las DOS pestañas y se lee como «no hemos gastado», que es
+   * lo contrario de lo que pasa. El número no cambia (es el que es); lo que cambia es que ahora
+   * dice de qué está hecho.
+   */
+  ocupacionTitulo(l: BudgetLine): string {
+    const v = Number(l.vigente_amount);
+    if (!(v > 0)) return 'Sin vigente no hay denominador: la ocupación no se puede calcular.';
+    const used = Number(l.reserved_amount) + Number(l.committed_amount) + Number(l.exercised_amount);
+    return used > 0
+      ? 'Reservado + comprometido + ejercido, sobre el vigente de la partida. Es ANUAL: el ledger no guarda mes.'
+      : 'Cero movimientos en el libro de esta partida: ni reserva, ni compromiso, ni ejercido. '
+        + 'No dice «no gastamos» — dice que el gasto no se registró acá. El consumo real se ve en la columna «Ritmo» de la pestaña Gastos.';
+  }
+
+  /**
+   * ¿El ledger de este ejercicio se operó alguna vez? Si no, «Disponible = 100 %» es una
+   * tautología: `available = original − reservado − pagado` con los dos sustraendos en cero.
+   */
+  ledgerVirgen = computed(() => {
+    const ls = this.lines();
+    if (!ls.length) return false;
+    return ls.every((l) => (Number(l.reserved_amount) || 0) + (Number(l.committed_amount) || 0)
+      + (Number(l.exercised_amount) || 0) + (Number(l.paid_amount) || 0) === 0);
+  });
   tipoLabel(t: string): string {
     return ({ ingreso: 'Ingreso', costo_ventas: 'Costo vta.', gasto: 'Gasto', compra_inventario: 'Compra inv.', inversion: 'Inversión', flujo: 'Flujo' } as Record<string, string>)[t] || t;
   }

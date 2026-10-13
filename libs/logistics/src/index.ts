@@ -11,6 +11,8 @@ export * from './lib/logistics-shipments/logistics-shipments.module';
 export * from './lib/logistics-erp-shipments/logistics-erp-shipments.module';
 export * from './lib/logistics-erp-shipments/erp-shipments.service';
 export * from './lib/logistics-guides/logistics-guides.module';
+// [EMB.24]-[EMB.27] Cierre del viaje: paradas con la remisión firmada y cargadores.
+export * from './lib/logistics-trip-closure/logistics-trip-closure.module';
 export * from './lib/logistics-expenses/logistics-expenses.module';
 export * from './lib/logistics-payroll/logistics-payroll.module';
 export * from './lib/logistics-route-expenses/logistics-route-expenses.module';

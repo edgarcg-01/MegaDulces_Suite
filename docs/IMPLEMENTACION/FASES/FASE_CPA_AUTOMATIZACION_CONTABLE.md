@@ -341,7 +341,65 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 > vista en **~450–500 ms**, o sea **al borde del gate, no cómodamente debajo**. Se vuelve a medir
 > con el índice puesto; si no alcanza, el siguiente candidato es el armado, no el testigo.
 >
-> ⚠️ **Falta:** la migración del índice (`20261010101129`) **fuera de horario** · `git push` +
+> ⛔⛔ **EL ÍNDICE SE APLICÓ Y NO SIRVIÓ — y el defecto es mío.** Verificado el 2026-10-10 con el
+> índice ya en prod (`indisvalid`, 6,320 kB): el testigo CFDI sigue en **436–567 ms** y la vista
+> en **888–1,330 ms**. El plan sigue eligiendo `Seq Scan`, mismos 58,900 buffers.
+>
+> La causa está en la definición que quedó grabada:
+> `WHERE (fecha >= '2024-12-31 18:00:00-06'::timestamp with time zone)`.
+> ⭐ **`fiscal.cfdis.fecha` es `timestamptz`, no `date`**, y yo escribí el predicado parcial con un
+> literal `DATE '2025-01-01'`. Para usar un índice parcial, Postgres tiene que **demostrar** que
+> el filtro de la consulta implica el predicado del índice; comparar `timestamptz` contra `date`
+> depende del `TimeZone` de la sesión, que no es inmutable, así que **no puede demostrarlo** y
+> descarta el índice. No hay error, no hay aviso: simplemente nunca se usa.
+>
+> ⚠️ Y confirma que **el índice no era el único costo**: forzando `enable_seqscan=off` el
+> planificador toma *otro* índice y baja a **316 ms**, no a decenas. O sea que aun arreglado, el
+> gate de 500 ms **no está garantizado** — había que medirlo, no suponerlo (era justo lo que esta
+> ficha declaraba como "al borde, no cómodamente debajo").
+>
+> ### ✅ ARREGLADO 2026-10-10 — y no era el índice, era el literal de la vista
+>
+> Otra sesión ya había corregido el predicado del índice para que **se pudiera crear**
+> (`8edb4f070`: `DATE` → `TIMESTAMPTZ`, porque un índice parcial exige predicado inmutable). Eso
+> resolvió la creación; lo que yo medí es otra cosa: **creado y válido, el planificador seguía sin
+> elegirlo.**
+>
+> La causa estaba **del lado de la consulta**: la vista filtraba `fecha >= DATE '2025-01-01'`
+> contra un índice parcial en `timestamptz`. Postgres tiene que **demostrar** que el filtro
+> implica el predicado, y la conversión `date → timestamptz` depende del GUC `TimeZone` (STABLE,
+> no constante al planear): no lo puede probar y descarta el índice **en silencio**.
+>
+> | Literal en la vista | Plan | Tiempo |
+> |---|---|---:|
+> | `DATE '2025-01-01'` | `Seq Scan`, 58,900 buffers | **538.7 ms** |
+> | `TIMESTAMPTZ '2025-01-01 00:00:00+00'` | **`Index Only Scan`** | **109.5 ms** |
+>
+> 🚀 **Migración `20261010120742` en prod (batch 882)**, un `CREATE OR REPLACE VIEW` de 0.2 s con
+> `security_invoker` y el `GRANT` re-aplicados (ADR-057). Sólo se tocó el testigo de CFDI: el de
+> `bank_movements` sigue con `DATE` **a propósito**, porque `movement_date` **es** `date` y ahí no
+> hay conversión que probar.
+>
+> **La vista pasó de 888–1,330 ms a 548–680 ms.** Desglose medido con el índice ya en uso:
+> testigo CFDI 115 · señal 110 · testigo banco 61 · meses 20 · futuras 5 = **~320 ms de partes,
+> contra 548 de la vista entera**.
+> ⚠️ **Sigue arriba del gate de 500 ms, y se declara.** Lo que falta **no es otra fuente lenta:
+> es el ARMADO** (el `CROSS JOIN` mes × familia, la base materializada y la mediana). Quien lo
+> persiga, que empiece por ahí — está escrito en el candado para que no haya que re-descubrirlo.
+>
+> ⛔⛔ **La lección, que vale más que los 430 ms:** el candado preguntaba si el índice **existía**.
+> Existía, era válido, pesaba 6,320 kB — y no servía para nada. **Un gate sobre un índice tiene
+> que mirar el PLAN, no el catálogo.** Ahora lo hace, y falla si alguien vuelve a romper la
+> implicación. ⚠️ Y el `NO MEDIDO` del gate **ya había envejecido**: culpaba a un índice que
+> faltaba cuando el índice ya estaba en uso. Una causa escrita a mano caduca sin avisar.
+>
+> ~~**El arreglo:** una migración nueva que lo recree **sin predicado parcial**~~
+> (`(tenant_id, fecha) INCLUDE (rol, total)`, ~26 MB estimados sobre 428,626 filas), o con el
+> predicado escrito como `timestamptz`. Y el candado tiene que dejar de preguntar si el índice
+> *existe* y empezar a preguntar si el plan **lo usa** — un índice que nadie elige se ve igual
+> que uno que no está.
+>
+> ⚠️ **Falta:** rehacer el índice (`20261010101129` ya está aplicado, pero inútil) · `git push` +
 > redeploy api+view (hoy prod tiene la vista pero **no el endpoint ni la pantalla**) · validación
 > visual. **Sin permiso nuevo → sin re-login.**
 >
@@ -400,6 +458,76 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 - Hereda la regla de [`VERDAD_ABSOLUTA`](../../VERDAD_ABSOLUTA.md): el hueco se declara con
   **nombre y monto**.
 
+#### `[CPA.0.1]` ⛔ Auditoría adversaria del semáforo: dos formas en que todavía puede mentir ⬜
+
+Medido contra prod el 2026-10-10, preguntándole a la vista **cómo podría engañar**, no si funciona.
+
+**⛔ Hueco 1 — un mes posteado DOS VECES se ve sano.** `direction` es `higher_is_better` en las
+cinco familias, así que `clasificarKpi` sólo mira el piso: **una cobertura de 2.0 sale `ok`**. Si
+la póliza de compras de un mes se asentara duplicada —el riesgo exacto contra el que el Libro de
+Compras tiene cuatro puertas— la cobertura treparía y el tablero diría **verde**.
+*Medido hoy: la máxima cobertura de un mes cerrado es **1.3868** (gastos, 91 celdas), así que
+**hoy no ocurre**. Pero el diseño no lo vería.* ⚠️ Y no se arregla poniendo `lower_is_better`: eso
+rompe la detección de ausencia, que es para lo que existe. Hace falta **declarar lo alto aparte**,
+no invertir el criterio.
+
+**⛔ Hueco 2 — la mediana puede descansar en UN solo mes, y la vista no dice cuántos.** Para
+`gastos` y `nomina` el patrón de comparación es la mediana de los 6 meses previos, pero sólo se
+cuentan los meses con renglones. Medido: `2025-02 gastos` y `2025-02 nomina` la calculan con
+**1 mes**; `2025-03`, con 2. Un veredicto sobre n=1 se publica **idéntico** a uno sobre n=6.
+Es la misma lección de `[CP.8.20]`: *pureza perfecta sobre n=1 no es certeza.*
+
+**✅ Lo que la auditoría sí confirmó que funciona:** `bancos` **no tiene testigo en ningún mes de
+2025** —`finance.bank_movements` arranca en 2026-01— y la vista lo publica como `sin_medir` con
+señal de $120–215 M al lado, **no como cero ni como verde**. El tercer estado de ADR-056 está
+haciendo su trabajo sobre datos reales. Y cero incoherencias entre `senal` y `senal_renglones`.
+
+**El arreglo propuesto** (una migración de vista + engine + pantalla + candado): publicar
+`mediana_meses` y un `cobertura_alta` que marque lo que se despega por arriba, para que un mes
+duplicado y un mes sano **dejen de verse igual**.
+
+#### `[CPA.0.2]` ✅ El gate de 500 ms, cerrado — y el candado medía lo que no era
+
+**⛔ El número que yo venía publicando estaba mal.** Medido el 2026-10-12 sobre 9 corridas: el
+`count(*)` que el candado cronometraba daba **563 ms**, y **la consulta real del servicio**
+—`SELECT *` de 13 meses con `ORDER BY`, que es lo que corre la pantalla— daba **900–1,291 ms,
+mediana 1,078**. Casi el doble. *Medir una consulta parecida es no medir.*
+
+**Y el candado además elegía su mejor tiro:** `Math.min` de 3 corridas. Con 8 de 10 bajo 500 y 2
+arriba, reportaba *"477 ms, cumple"*. Ahora manda la **mediana** y el p90 se publica al lado.
+
+**Dos optimizaciones de SQL probadas y DESCARTADAS** (las dos con paridad verificada, por eso se
+pudieron descartar sin miedo):
+
+| Intento | Resultado |
+|---|---|
+| Filtro de cuentas por **rangos** para que entre `ix_gll_cuenta` | El índice **se usa** (Bitmap Heap Scan) y el tiempo **no cambia**: 123 vs 124 ms |
+| **Reformular la señal** sacando el `LEFT JOIN` de 141,914 líneas contra 231 pólizas futuras | Aislada es más rápida (193 vs 244 ms) ⛔ **y dentro de la vista es PEOR: 643 vs 563**. Al referenciarse dos veces, `fam_de` se materializa |
+
+⭐⭐ *Una optimización medida en aislamiento miente sobre el conjunto.* La segunda daba **110
+filas idénticas, 0 diferencias** — y aun así se tiró.
+
+**La solución es el patrón que el repo ya tenía:** `analytics.mv_contpaqi_cierre_mensual`
+(mig `20261012081551`, **prod batch 885**), que es `SELECT *` de la vista —**la definición sigue
+viviendo en un solo lugar**— más el carril `refresh-cierre-matview.js` **@15 min** con latido de
+entrega y umbral en `CRON_JOBS`.
+
+> **889 ms → 3 ms** en la consulta real. Ejercitado en el pod: refresca 110 filas en **423 ms**,
+> y el latido quedó en `ok · 110 filas`.
+
+⚠️ **Dos frescuras, y las dos se publican:** `data_as_of` (cuándo llegó la última póliza, @1 min)
+y `refrescado_en` (cuándo se recalculó el veredicto, @15 min). Publicar sólo la primera diría
+«al minuto» sobre un cálculo de ayer. `composeFreshness` se queda con el **peor** eslabón.
+
+⚠️ **Postgres NO aplica RLS a una matvista** (`[C.1]`): el `tenant_id` viaja en la llave y el
+servicio **filtra explícito**. Si eso se olvida, un tenant ve los libros de otro.
+
+⛔ **Prueba negativa nueva:** el candado compara matvista contra vista **fila por fila**. Un
+refresh que dejó de correr sirve un veredicto viejo **sin dar un solo error**, y en un semáforo de
+cierre eso se lee como «todo asentado».
+
+**Candado: 29 ✔ · 0 ✘ · 0 ◻ NO MEDIDO.**
+
 ### Bloque B — la dependencia humana (cero código)
 
 #### `[CPA.3]` El clic ⬜ ⛔⛔ RUTA CRÍTICA DE TODO EL BLOQUE C
@@ -419,7 +547,72 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 
 ### Bloque C — la ida, en orden de rendimiento (renglones ÷ dificultad del mapa)
 
-#### `[CPA.5]` Septiembre: el libro de compras que falta ⬜ 🔥 mayor valor inmediato
+#### `[CPA.5]` Septiembre: el libro de compras que falta 🔍 MEDIDO 2026-10-10 — no es lo que yo creía
+
+> ⛔⛔ **El plan decía "usar el módulo tal cual". No se puede: el módulo se niega, y tiene razón.**
+> Reproducidas sus reglas contra prod (sólo lectura), septiembre-2026 da **1,068 CFDIs recibidas
+> tipo I**, de los cuales 86 ya están en póliza y **982 entrarían**. Pero el botón de generar sale
+> apagado por **618 facturas de 117 RFCs que no tienen cuenta de proveedor** en el mapa que LC
+> usa (`finance.gl_supplier_accounts`, 901 RFCs).
+>
+> **Dos hipótesis mías, las dos REFUTADAS midiendo** (por eso se miden):
+>  1. *"`analytics.contpaqi_suppliers` tiene 3,375 RFCs y cubre 110 de los 117"* — cubre los
+>     nombres, **no la cuenta**. Probé que su `codigo` fuera el sufijo contable: **0 de 902
+>     coinciden** (código `666` ↔ sufijo `0005272`). Son numeraciones distintas.
+>  2. *"lo cubre `contpaqi.supplier_accounts` de `[CP.8.20]`"* — cubre **3 de 117**.
+>
+> Derivando por nombre exacto contra las **8,811 cuentas** de ContPAQi: **3 más**. Quedan **114
+> RFCs ($5,093,917) que de verdad NO tienen cuenta `2120` en ContPAQi.**
+>
+> ⭐⭐ **Y al mirar QUIÉNES son, el problema cambia de naturaleza:** IMSS ($1,339,780),
+> INFONAVIT, BBVA, una gasolinera con **181 facturas en el mes**, una arrendadora, traslado de
+> valores. **No son proveedores de mercancía: son GASTO.** No tienen cuenta `2120` porque no les
+> toca una — la contabilidad los asienta por el otro camino, las ~375 pólizas mensuales de
+> `PAGO …` que §3 ya había contado como una familia **aparte**.
+>
+> → **El bloqueo no es un mapa incompleto: es que LC toma TODO CFDI recibido tipo I y espera que
+> cada emisor sea un proveedor de mercancía.** Mezcla las dos familias que `[CPA.0]` separa.
+>
+> **Lo que sí está listo:** las **450 facturas con mapa suman $38,229,166** — el libro de
+> septiembre está **88 % completo por valor**; lo bloqueado son $5.2 M (12 %) en una cola larga.
+>
+> ### ⭐⭐ La lista para la contadora: **9 RFCs, no 117**
+>
+> El diagnóstico se confirmó con un **testigo estructural**, no con una corazonada sobre el
+> nombre: para cada RFC se miró **a qué cuenta ató ContPAQi sus CFDIs** alguna vez
+> (`gl_poliza_lines.cfdi_uuid`). Resultado sobre los 117:
+>
+> | | RFCs | Importe sep |
+> |---|---:|---:|
+> | **GASTO** — ContPAQi los ató a `5xxx`/`21xx`/`147`/`106`/`102`, **nunca** a `501/502/2120` | **108** | **$4,616,189** |
+> | **MERCANCÍA** — ya atados a `501/502/2120` | 2 | $37,332 |
+> | Sin evidencia — ningún CFDI suyo atado jamás | 7 | $569,268 |
+>
+> ⭐ **El 88 % de lo bloqueado es gasto que no le toca estar en el libro de compras.** El ejemplo
+> que lo dice solo: una gasolinera con **181 facturas en septiembre y 2,174 en el año**, cuyos
+> CFDIs ContPAQi ató 1,497 veces a `1020` (bancos) y 499 a `5200` (gastos). Eso no es una compra.
+>
+> **Y de los 9 que quedan, 3 ni siquiera son trabajo de ella:** ya tienen cuenta `2120` en
+> ContPAQi y lo que falta es **agregarlos al mapa de LC** (trabajo nuestro). Los otros 6 son
+> $477,729, y cuatro se ven mercancía nueva — dos de ellos, **$431,245 entre los dos, con una
+> sola factura cada uno**.
+>
+> ⚠️ **El clasificador no puede con los 6 restantes y se declara:** sin un solo CFDI atado no hay
+> testigo, y ahí entran mezclados tanto mercancía nueva como gasto obvio (hay uno de **$51** de
+> publicidad). Esos seis los separa una persona en dos minutos mirando el importe; lo que el
+> candado no puede hacer es **adivinarlo**.
+>
+> ⛔ **La lista con RFCs y nombres NO se commitea** — el repo es público, misma regla que el TXT
+> real de `[CP.8]`. Vive fuera de git y se entrega por el canal que corresponda.
+>
+> **Lo que falta, y de quién es:**
+>  · ⛔ **Decisión (contadora + Edgar):** acotar el universo del libro a compras de mercancía, o
+>    declarar explícitamente qué RFC de gasto entra. Es criterio contable, no código.
+>  · ⚠️ De los 114 hay **unos pocos que sí parecen mercancía nueva** (`DISTRIBUIDORA COLOMBINA DE
+>    MEXICO` $242,785 · `DISTRIBUIDORA DE BASICOS DEL CENTRO` $188,460, una factura cada uno): a
+>    ésos hay que **darles de alta la cuenta en ContPAQi**, y eso sí desbloquea dinero del libro.
+>  · ⛔ **Y ninguna de las dos se puede empezar sin `[CPA.3]`** (el clic): aunque el mes quedara
+>    limpio, nunca se ha importado un TXT nuestro.
 - **Usar el módulo que ya existe** (`POST /finance/purchase-book/:mes/generar` + `/archivo`), no
   construir nada.
 - ⚠️ **El riesgo real es duplicar:** `2120` de sep ya trae $30.3 M de pagos asentados. Las cuatro
@@ -449,6 +642,108 @@ en el banco** (76.8 %, placebo 0.1 %) y el 23.2 % restante se arma con IVA 0 **y
 #### `[CPA.9]` Cobranza + venta diaria por sucursal ⬜ *(depende de `[CPA.4]`)*
 ~6,050 renglones/mes — el más grande y el de mapa más caro (cuenta por sucursal × canal × tasa).
 Va **al final** a propósito: para cuando llegue, los cuatro anteriores ya probaron el camino.
+
+#### `[CPA.10]` La bandeja «Mi cierre» 🔨 EN CÓDIGO 2026-10-12 — *la mitad que faltaba: la adopción*
+
+> ⛔⛔ **El diagnóstico que reencuadra el Bloque A, medido contra PROD el 2026-10-12.** Esta fase
+> midió bien *qué* automatizar y no midió *por qué contabilidad no entra*. `analytics.ui_usage`,
+> ventana 2026-09-30 → 2026-10-12, rol `contabilidad`:
+>
+> | | |
+> |---|---:|
+> | Hits totales, 10 días activos | **3,604** |
+> | Hits a `/api/fiscal/*` | **0** |
+> | Hits a `/api/contabilidad/*` | **0** |
+> | Hits a `/api/finance/expenses/*` (comprobación de gastos) | **1,806** (50.1 %) |
+>
+> Y **no es acceso**: el rol tiene los **19 permisos `FISCAL_*` en `true`** y entran a diario
+> (johana_tafoya hoy 12:59, ernesto_zarate hace 2 d, 4 usuarios activos). Las 16 pestañas del
+> proyecto —≈9,000 líneas de front, 12 sub-módulos en `libs/fiscal`— tienen **cero tráfico de la
+> gente para la que se construyeron**.
+>
+> ⭐ **Contabilidad YA adoptó la Suite; lo que no adoptó es su propio módulo.** El que sí usan
+> tiene cuatro cosas que `/contabilidad` no tiene: cola personal (`GET /mine`), OCR que teclea
+> por ellos, cierre de tres salidas y empuje. `/contabilidad` es un visor: **6 de 16 servicios
+> son sólo GET**.
+>
+> ⛔ **Y eso corrige el orden del `[CPA.0]`**: el semáforo es una pantalla de **sólo lectura**, o
+> sea el mismo género del que ya hay 16 con cero tráfico, y le informa a la contadora algo que
+> ella ya sabe (que septiembre está pendiente; es quien no lo hizo). Rinde para **nosotros**, no
+> para ella. Lo primero tiene que quitarle tecleo de las manos, no agregarle pantalla a los ojos.
+
+**Entregado (sin aplicar a prod):** vista `analytics.v_contpaqi_captura_mensual`
+(mig `20261012165455`) · `mi-cierre.engine.ts` puro + su candado · `MiCierreService` +
+`GET /contabilidad/mi-cierre` y `POST /:eventoTipo/:periodo/resultado` · pantalla
+`/contabilidad/mi-cierre`, **portada del proyecto** (primera pestaña y destino de
+`FISCAL_CONTAB_VER` en `CONTABILIDAD_LANDING`) · candado `test-newdb-mi-cierre.js`.
+
+**Taxonomía propia, y por qué no reusa la de `[CPA.0]`:** el semáforo agrupa por **cuenta**
+(`2120`, `1020`, `401*`) y contesta *¿está asentado?*. La bandeja agrupa por **concepto** y
+contesta *¿qué tecleo y cuánto me armás?*. Son dos preguntas; la bandeja **no re-juzga** si el
+mes está completo — **compone** el veredicto del semáforo para su alerta.
+
+**⛔⛔ Dos patrones que el clasificador obvio pierde, medidos:**
+
+1. **`VTA.` lleva PUNTO, no espacio.** El concepto real es `VTA.4/9/26 Suc. 3 Morelia Madero`.
+   Con `ILIKE 'VTA %'` la venta diaria cae de 2,653 a 1,181 renglones/mes y **los 1,472 restantes
+   se van a `otros`** sin que nada falle: el total cuadra idéntico con las dos formas. El candado
+   corre **ambas** y exige que difieran.
+2. **`TLMKT <sucursal>` es una familia propia** (408 renglones/mes), que §3 tenía enterrada en su
+   `otros` del 4.0 %. Separándola —y a `GASTOS *`— el bucket sin clasificar baja a **44
+   renglones/mes (0.4 %)**.
+
+**El reparto corregido (jul–sep 2026, renglones/mes):** cobranza 3,477 · pago_gasto 2,722 ·
+venta_diaria 2,653 · comisiones 1,532 · nomina 706 · telemarketing 408 · libro 407 · traspasos
+371 · otros 44 · gastos_varios 37 = **12,357/mes**. ⭐ **El techo real es 93.6 %, no 90**, y la
+venta diaria da **7,960 renglones en jul–sep: idéntico al conteo de §3**, que es otra derivación.
+
+**⛔⛔ El decode de comisiones REFUTA el diseño que `[CPA.6]` daba por hecho.** Se midió antes de
+armar nada:
+
+- Nuestro clasificador de banco ve **$141,343** de comisiones en sep; ContPAQi asienta
+  **$380,818** — el **37 %** (y en julio, el **6 %**). **No es cobertura de la base**: nuestros
+  movimientos de banco cubren **90–114 %** del `1020*` de ContPAQi todos los meses.
+- Están partidas en **tres categorías que son el mismo asiento**: `comision_bancaria` $43,246 +
+  `comisiones_venta` **$230,176** (tasa de descuento de TPV, el grueso) + su `iva_acreditable`
+  $2,460 + `gasto_admin` $93,603 = **$369,485 ≈ 97 %** de lo que ContPAQi asienta.
+- ⛔ **El IVA llega como un movimiento APARTE**, no se calcula: el armador tiene que **parear**,
+  no derivar. Mi mockup dibujaba `gasto / IVA / banco` por movimiento y **es falso**.
+- ⭐ **El mapa de cuentas se DERIVA de sus propios libros, sin pedirle nada a la contadora:**
+  cargo a `5200650000 COMISIONES Y SITUACIONES`, IVA a `1060000000 IVA ACREDITABLE`, banco a su
+  `1020*` (**18 de 20** mapeados, y el **100 %** de las comisiones clasificadas tiene su banco
+  mapeado). ⚠️ `5500010000 INTERESES` vive en esas mismas pólizas y **NO es comisión**.
+- ⛔ Y ContPAQi **no arma una póliza por movimiento**: pone **un abono por movimiento** y **un
+  cargo resumido por banco** (59 renglones de cargo contra ~5,500 de abono en 4 meses).
+
+→ **`[CPA.6]` sigue ⬜, con el mapa ya derivado y la estructura corregida.** Lo que falta no es el
+diccionario: son **2 cuentas de banco** sin asignar y conciliar `comisiones_venta`.
+
+**⛔ Y el candado destapó un defecto PREEXISTENTE de `libs/contracts`:** `indiceDeClaves` era
+`Map<string, Ubicacion>` con `ix.set(k, …)` → **gana el último módulo del árbol** y una clave
+compartida queda atribuida a una sola pantalla. La UI de roles le decía a quien quita
+`FISCAL_CONTAB_VER` que cerraba **una** pantalla cuando cierra **tres**. Al agregar la bandeja,
+las dos viejas **desaparecieron** de la lista y el candado `[AU.33]` lo gritó. Corregido a
+uno-a-muchos: las 27 claves del caso real pasan de **19 a 25 pantallas**, y **5 de las 6 nuevas
+ya existían** (`finanzas/egresos`, `estado-cuenta-acreedores`, `hallazgos`, `pagos-comprobantes`,
+`pronto-pago`). ⚠️ Eso **refuta un comentario del propio spec**: `FINANCE_FINDINGS_GESTIONAR`
+**sí** tiene módulo «Hallazgos» propio. La invariante `suma === 27` se reemplazó por la correcta
+—*el conjunto de claves repartidas es exactamente LAS_27*—: la vieja sólo se sostenía porque el
+índice sub-reportaba, o sea **comparaba el sub-reporte contra sí mismo**.
+
+**Medido:** la consulta da **120–129 ms** en tres corridas contra prod (gate 500) → **sin
+matvista**, a diferencia de `[CPA.0.2]`. Candados: engine **23/23** (mutado a **rojo 2/23**
+colapsando `verificada` `null`→`true`) · `test-newdb-mi-cierre.js` **18 ✔ · 0 ✘ · 4 ◻** contra
+prod (3 ◻ esperan la migración; el 4º es que `poliza_exports` sigue en **0 filas**, que es el
+hecho) · contracts **563/563** · landing-guards **39/39** · finance **1139/1139** · view
+**3069/3073** (el que falla es de Caja General, verde en aislamiento 187/187 y ajeno a esto).
+
+**Sin permiso nuevo:** reusa `FISCAL_CONTAB_VER/_GESTIONAR`, verificados `true` en el rol
+`contabilidad` en prod → **sin migración de permisos y sin re-login** (`[LC.6.2]`).
+
+**⬜ Falta:** aplicar la migración a prod · `git push` (sin autorizar) · redeploy · validación
+visual. **No construido, y se declara:** el armador de comisiones (`[CPA.6]`, ahora con el mapa
+derivado), el side-peek de detalle y la bandeja de CFDI sin asociar — las tres diseñadas y
+aprobadas, ninguna escrita.
 
 ### Bloque D — lo que se declara y NO se promete
 

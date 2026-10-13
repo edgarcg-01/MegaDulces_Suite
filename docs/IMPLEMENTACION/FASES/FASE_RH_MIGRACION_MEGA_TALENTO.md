@@ -1,6 +1,6 @@
 # Fase RH — Recursos Humanos: migración de Mega Talento a la Suite
 
-**Estado:** 🔨 PLANEADA 2026-10-06 · sin código · ADR-084 (propuesto) ·
+**Estado:** 🔨 EN CÓDIGO (RH.1 asistencia) · ADR-084 (propuesto) · bitácora y orden de lo que falta en [`FASE_RH_PLAN_DE_TRABAJO`](FASE_RH_PLAN_DE_TRABAJO.md) ·
 absorbe `[CH.0.7]`–`[CH.0.10]` y desbloquea `[ID.16]`.
 
 > **En una frase:** Mega Talento (reclutamiento con bot de WhatsApp + asistencia de 12 relojes
@@ -84,7 +84,7 @@ unifican en `hr.*`, y la Fase RH continúa la Fase CH en lugar de abrir una para
 | Agente de Mega Talento, modo `relojes` (TCP directo) | **El único vivo.** Los 12 relojes con latido de minutos; 9,191 checadas en 14 días. Corre como servicio de Windows en **una laptop** (`LapSistemasA`) |
 | `agente-checador` del repo del bot (julio, empujaba al bot) | Muerto: su última checada es del 2026-08-21 (142,148 filas con `origen` NULL) |
 | Modo `hr` del agente de Mega Talento (leía la base `hr` de `.245`) | Apagado: el agente está configurado en `relojes` |
-| `import-checadores.js` de la Fase CH | No agendado (`[CH.0.9]`), pero existe y se puede correr a mano |
+| `import-checadores.js` de la Fase CH | No agendado (`[CH.0.9]`), pero existía y se podía correr a mano. **Retirado el 2026-10-12** (`[RH.0.3]`) |
 
 Dos lectores al mismo reloj **se pisan la sesión y leen a medias** (el propio agente lo documenta).
 Hoy hay uno solo de hecho; **tiene que quedar uno solo de derecho** (D3): los otros tres se retiran
@@ -273,7 +273,7 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
   fail-closed), padrón, relojes, checadas, comandos. Permisos `HR_ATTENDANCE_*`, `HR_DEVICES_GESTIONAR` y su reparto.
 - [ ] **[RH.1.3]** Agente al monorepo: código del agente de Mega Talento + `verify_mode`; contenedor en el
   namespace `ingesta` de `md`; latido en `cron_runs` + umbral en `CRON_JOBS`; prueba negativa (apagar un reloj y ver el rojo).
-- [ ] **[RH.1.4]** Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4.
+- [ ] **[RH.1.4]** 🧪 Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4. → En código 2026-10-12: guion, mapeos versionados, mig `20261012094356` (bajas sin contraseña, rol `sin_acceso`, departamento `promotoria_marca`); detalle en [`FASE_RH_PLAN_DE_TRABAJO`](FASE_RH_PLAN_DE_TRABAJO.md) §5.
   ⛔ **Es prerrequisito del corte del 7-nov, no «después»** (medido 2026-10-07, ver §5.4): la paridad se midió con
   las personas ligadas; sin ellas no hay faltas de quien no checó, ni planta/promotoras, ni bajas.
 - [ ] **[RH.1.5]** 🧪 Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
@@ -289,10 +289,79 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 
 ### RH.2 — Reclutamiento en la Suite (≈3 semanas, se construye sin cortar)
 
-- [ ] **[RH.2.1]** Schema `talent.*` + bucket privado para documentos.
-- [ ] **[RH.2.2]** API: candidatos, eventos, etapas, vacantes, requisiciones, no recontratables, papelera, permanencia (vista), encuestas.
-- [ ] **[RH.2.3]** Pantallas `/rh/reclutamiento`, `/rh/vacantes`, `/rh/requisiciones`, `/rh/permanencia` (sólo las que pasaron RH.0.5).
+**Alcance recortado a lo que se USA** (medido el 12-oct-2026 en la base de Mega Talento, sólo lectura):
+`candidatos` 1,656 (≈300–700 por mes) · `candidatos_transiciones` 935 · `candidatos_eventos` 123 ·
+`puestos` 7 · **`requisiciones` 0 y `evaluaciones` 0** · `empleados.candidato_id` (permanencia) 0 con
+valor. Las etapas que de verdad se recorren: filtro_inicial → aptitudes (521) → entrevista_rh (392) →
+psicometria (6) → contratado (13, el último el 14-ago). Por eso **requisiciones, evaluaciones,
+permanencia y encuestas salen del alcance**: existen en el código de Mega Talento y nadie las usó;
+si RH las pide, se construyen sobre los datos ya portados (la permanencia se deriva, no se captura).
+
+⛔ **Hueco de seguridad que NO se porta:** en Mega Talento `GET`/`PATCH /candidatos/:id` son públicos y
+la única llave es el UUID — quien tiene la liga lee y edita el expediente completo (teléfono, RFC, NSS,
+documentos). En la Suite el acceso público va con **token firmado y con vencimiento** que sólo abre lo
+que ese formulario necesita (`[RH.2.4]`).
+
+- [ ] **[RH.2.1]** 🧪 Schema `talent.*` (mig `20261012155411`, 2026-10-12): `job_postings` (vacantes),
+  `candidates` (bot + portal en una fila, **mismo id que Mega Talento**; `phone_key` derivado con los
+  últimos 10 dígitos porque el bot guarda 13 y el portal 10 —la misma persona quedaba doble—, sin
+  UNIQUE a propósito: los duplicados históricos se fusionan a mano; lista negra y spam como marcas
+  con motivo obligatorio; papelera = `deleted_at`), `candidate_stage_transitions` y
+  `candidate_events` (de sólo agregar para la app). RLS forzado. Prueba contra la base
+  `libs/hr/src/lib/talent/talent-datos.db.spec.ts` (teléfono, marcas sin motivo, tipos inválidos,
+  bitácoras inmutables, aislamiento por tenant), **mutada a rojo** quitando un CHECK y un candado de
+  la bitácora. El bucket privado para documentos va con `[RH.2.2]` (es configuración de S3, no
+  esquema). ⚠️ Aditiva y sin consumidores: se puede aplicar a prod cuando sea.
+- [ ] **[RH.2.2]** 🧪 API `/api/hr/talent/*` (2026-10-12), traslado de las rutas protegidas de
+  `candidatos.ts` + el KPI de fases y los eventos de `kpi.ts`. Claves nuevas `HR_RECRUITMENT_VER` /
+  `_GESTIONAR` (se reparten con la pantalla, `[RH.2.3]`; mientras, `SIN_REPARTIR`). Endpoints: lista por
+  apartado (postulados = con CV o ya movido por RH, regla `ES_POSTULACION` de Mega Talento · en proceso ·
+  spam · no recontratables · papelera) con conteo por etapa y búsqueda por nombre/puesto/teléfono; ficha
+  con la historia; corregir datos; mover de etapa; eventos; lista negra (motivo obligatorio) y spam;
+  papelera y restaurar; fusión; duplicados por teléfono; alerta de reingresos; tiempo por etapa; vacantes.
+  **Diferencias con Mega Talento, a propósito:** (1) mover de etapa y su renglón de bitácora van en la
+  MISMA transacción (allá el INSERT estuvo 5 días fallando en silencio dentro de un `catch`); (2) la
+  fusión NO mueve la historia: el absorbido queda en la papelera con `merged_into_id` y la ficha junta las
+  dos historias — restaurarlo deshace la fusión; (3) la fusión se niega si uno está en la lista negra y el
+  otro no (la marca la decide una persona); (4) no hay borrado definitivo ni se borran eventos; (5) las
+  etapas viejas se leen en su vigente con el mapa exacto de `etapa.ts` y nunca se escriben.
+  **Migración `20261012172246_talent_fusion_y_motivo_papelera`** (aparte: la de `[RH.2.1]` entró a `main`
+  en #378 en su versión anterior y ya pudo aplicarse): `deletion_reason` + `merged_into_id` con CHECK —
+  la prueba destapó que `merged_into_id` sin papelera pasaba (`NULL = 'fusionado'` no rechaza).
+  ⚠️ Restaurar a un absorbido lo vuelve su propio registro, pero lo que la fusión COPIÓ al que quedó
+  (huecos, documentos) se queda: no se adivina si alguien lo corrigió después (lo encontró la prueba).
+  **Expediente (bucket privado):** subir y retirar documentos por casillero, con el catálogo exacto del
+  bot (12 casilleros, 9 obligatorios) y `documentos_faltantes` en la ficha. Mega Talento subía a
+  Cloudinary SIN firma (toda URL era pública); aquí bucket privado, tipo validado por FIRMA (un HTML
+  disfrazado de PNG rebota), nombre saneado, URL firmada de 10 min en cada lectura (en la base se guarda
+  la llave, nunca la URL), subida fuera de la transacción y borrado del bucket si la transacción falla.
+  Retirar no borra: marca con quién, cuándo y por qué, y deja de contar (también como CV). La validación
+  por firma se SUBIÓ de `libs/service-desk` a `platform-core/storage` (la usan dos dominios; ADR-056),
+  con su prueba y el `vitest.config.ts` que `platform-core` no tenía. Pruebas: reglas puras
+  (`logic/etapas.spec.ts`, `logic/expediente.spec.ts`, CI) y el ciclo completo contra la base
+  (`talent-candidates.service.db.spec.ts`, bucket falso en memoria), **mutadas a rojo** (etapa de origen
+  mal guardada; fusión que pisa datos; no borrar el huérfano; guardar el tipo declarado). ⚠️
+  `eslint.config.js`: `checkDynamicDependenciesExceptions` para `platform-core` — la regla de lib
+  diferida es transitiva (`hr → database → platform-core` por `require()` dentro de funciones) y marcaba
+  como error TODO import nuevo de platform-core en `libs/hr`, incluido uno que ya está en main.
+  **No incluye:** la decisión aprobado/descartado (pasa por el bot: `[RH.3]`); Word como CV (el bot lo
+  acepta; un `.docx` es un ZIP y la firma no lo distingue de cualquier ZIP — se decide con RH.2.4).
+- [ ] **[RH.2.3]** 🧪 Pantallas (2026-10-12), en el mismo PR que la API (#383: las pantallas dependen de ella y
+  no se apilan PRs). `/rh/reclutamiento` con tres pestañas: **Candidatos** (una sola tabla densa con el apartado
+  —postulados, todos en proceso, no recontratables, spam, papelera— y la etapa con su conteo arriba, en lugar de
+  una pantalla por etapa como en Mega Talento; «Atrasado» contra la meta de cada etapa; búsqueda por nombre,
+  puesto o teléfono; apartado, etapa, búsqueda y ficha abierta en la URL; la ficha abre en el panel lateral con
+  etapa, datos, expediente por casillero, registrar contacto/entrevista/nota, historia que junta los dos
+  registros de una fusión, mismo teléfono con «Fusionar aquí», y las acciones), **Vacantes** (alta, edición,
+  publicar/cerrar) y **Revisiones** (quién regresó estando marcado, duplicados por teléfono, tiempo por etapa
+  contra la meta; sin meta no se juzga). Nombres y metas de etapa exactos de Mega Talento (24/48/48/72 h).
+  Nodo `rh-reclutamiento` en el árbol de permisos: quien sólo recluta también entra a Personal. Reparto a
+  `recursos_humanos` (mig `20261012174003`, sólo datos: aplicarla antes de mergear). Pruebas de la vista:
+  formato, cliente, ficha y las tres páginas, **mutadas a rojo** (motivo de la lista negra, quien sólo ve no
+  edita, cambiar de etapa recarga). Validación visual pendiente.
 - [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
+- [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
+  en el corte conjunto con el bot (`[RH.3.5]`).
 
 ### RH.3 — Bot de reclutamiento en `libs/whatsapp` (≈4–5 semanas)
 
@@ -597,6 +666,62 @@ Paso a paso en [`RUNBOOKS/RH_CORTE_ASISTENCIA.md`](../RUNBOOKS/RH_CORTE_ASISTENC
 - Mergear la pila **frena todos los despliegues** hasta aplicar sus migraciones (compuerta 2 de `soltar.sh`): se
   aplican el mismo día del merge. Desplegar el código antes del corte es seguro (agente apagado, ingesta sin llave
   = 401, pantallas vacías).
+
+### 5.5 `[RH.1.6b]` — nadie a prenómina sin identificar (2026-10-12)
+
+Traslado de Mega Talento `64ae212`. `cerrar()` cuenta, de los códigos que checaron en la semana, quién no está
+identificado (`logic/sin-identificar.ts`) y, si hay alguno, responde **409 con la lista**; con `force` + `reason`
+(5 letras o más, igual que allá) cierra y lo deja en el resumen. Va después de «nada por calificar», que no se
+salta ni con motivo.
+
+| Mega Talento | Suite |
+|---|---|
+| El código no tiene ficha en `empleados` | El código no está ligado a una persona (`[RH.1.4]`) |
+| `nombre_completo` vacío | ⚠️ El nombre de la persona tiene **menos de 2 palabras** |
+| `departamento` vacío | La persona no tiene `department_code` |
+| No cuentan: `es_promotora`, departamento «promotor», nombre «Admin» | No cuentan: promotora de marca (`esPromotora`), «Admin», códigos `ignorado` |
+
+⚠️ **La única aproximación:** Mega Talento tenía `nombre_completo` aparte del apodo del reloj; la Suite tiene un
+solo `nombre`. La carga de personas pone el nombre completo cuando existía y el apodo cuando no, así que un apodo
+de una palabra se detecta y uno de dos palabras no. Si RH lo necesita exacto, la salida es que el padrón marque
+«nombre por confirmar» (columna o responsabilidad), no adivinar con más reglas.
+
+**Diferencia a favor:** los ignorados (`padron_depurado`) quedan fuera explícitamente; allá sólo se excluía por el
+nombre «Admin».
+
+**No portado todavía:** el alta desde el portal con el siguiente número libre de la plaza y la conciliación
+promotora/departamento al guardar la ficha — van con la pantalla de personas.
+
+### 5.6 `[RH.1.10]` — lo que Mega Talento cambió después de la paridad (2026-10-12)
+
+Traslado de `ee4ff38` (08-oct) y `1a28f6e` (12-oct). Mismas reglas, mismo orden:
+
+- **Horas extra ganadas** (`logic/asistencia-persona.ts`): lo que se queda después de la salida esperada (su entrada
+  de ese día + su jornada), menos lo que debe (retardo + exceso de desayuno + exceso de comida), en bloques de 30 min,
+  con tope de 6 h. Sólo con horario asignado o deducido FIJO de jornada completa (más de 5 h 20): a un rotativo o a
+  medio tiempo no se le calculan, porque su salida deducida no es la de ese día.
+- **Banco** (`logic/banco-horas-extra.ts`): ganadas − usadas + ajustes, desde el 24-sep-2026 (`HR_OVERTIME_SINCE`). No se
+  guarda: sale del cálculo cada vez. Sólo se escriben los ajustes de RH (`hr.overtime_adjustments`), que se anulan con
+  motivo y nunca se borran.
+- **Desayuno distinto / Comida distinta**: un día, minutos autorizados (0-240), motivo y quién autorizó; el exceso de
+  ese día se mide contra eso.
+- **Cambio de día de descanso**: el día capturado es su descanso y su descanso habitual de ESA semana (jueves a
+  miércoles) pasa a laborable. Por eso las incidencias se leen por **semanas completas** y la lista por persona se
+  recorta al periodo.
+- **Un día con incidencia se mide aunque no haya checado** en el periodo (antes, quien usó horas extra el día completo
+  no aparecía).
+
+**Paridad** contra el código actual de Mega Talento (worktree aparte en `1a28f6e`, base en sólo lectura), 24-sep a
+12-oct: **72 cálculos, 1,467 personas, 5,094 días, 0 diferencias**, nadie de más ni de menos; alertas 3,279 iguales.
+Ejerció 12,300 min ganados y 1,710 usados. Negativa: con las horas extra apagadas, la paridad da 343 diferencias.
+
+**Hallazgo en la propia prueba:** la simulación de `[RH.1.4]` dentro de la paridad trataba como promotora a cualquier
+departamento con «promotor», regla anterior a 3938723; dos personas de La Piedad («PROMOTORIA MEGA DULCES») salían en la
+vista de promotoras de la Suite y en la de planta de Mega Talento. Corregida a la regla vigente (la misma que usa la
+carga de personas).
+
+⚠️ **No medido con datos reales:** desayuno/comida distintos y cambio de descanso tienen **0 casos** capturados en Mega
+Talento todavía; están probados sólo con unitarias (`horas-extra.spec.ts`, con mutación).
 
 ## 6. Cómo se hace cada corte
 

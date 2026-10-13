@@ -1,5 +1,5 @@
 import {
-  chequeoBanco, chequeoFecha, chequeoMonto, chequeoProveedor, coincidenciasPago, coincidenTodas,
+  chequeoBanco, chequeoFecha, chequeoMonto, chequeoProveedor, coincidenciasPago, coincidenTodas, difiereEnUnaLetra,
   diferenciasPago, normalizarProveedor, cuentaEsClave, esBancoBajio, formasDeCuenta,
 } from './coincidencia-pago.contract';
 
@@ -49,6 +49,118 @@ describe('[PC.5] las cuatro comparaciones', () => {
     expect(chequeoProveedor('DULCES LA ROSITA', 'DULCES DE LA ROSA SA')).toBe('difiere');
     expect(chequeoProveedor('ABC', 'ABC COMERCIAL')).toBe('difiere');
     expect(chequeoProveedor('', 'ABC')).toBe('sin_dato');
+  });
+});
+
+/**
+ * `[AT.2]` — Las tres tolerancias nuevas, con los pares **reales de prod** (2026-10-12) que las
+ * motivaron, y los negativos que las acotan.
+ *
+ * El contexto: con `[AT.1]` entregando, la señal `proveedor` quedó como el cuello de botella —
+ * falla en **10 de 14** de los que no se auto-validan, contra 7 del monto y 3 del banco.
+ */
+describe('[AT.2] proveedor: las tres formas en que el MISMO nombre se escribe distinto', () => {
+  it('1· el OCR parte o pega palabras', () => {
+    expect(chequeoProveedor('CEDIS GRUPO AZTEC A', 'CEDIS GRUPO AZTECA')).toBe('ok');
+    expect(chequeoProveedor('CASA AYALA DEL NOROE STE', 'CASA AYALA DEL NOROESTE')).toBe('ok');
+    expect(chequeoProveedor('COMERCIALIZADORA SAN CHEZ PERE', 'COMERCIALIZADORA SANCHEZ PEREZ')).toBe('ok');
+    expect(chequeoProveedor('PACTIV FOOD SERVICE', 'PACTIV FOODSERVICE MEXICO')).toBe('ok');
+  });
+
+  it('2· Kepler perdió la Ñ y dejó un espacio en su lugar', () => {
+    // El padrón del ERP tiene el nombre dañado; el comprobante lo trae entero.
+    expect(chequeoProveedor('BRENDA JACQUELINE AVILA BANUEL', 'BRENDA JACQUELINE AVILA BA UEL')).toBe('ok');
+  });
+
+  it('3· una sola letra: de más, de menos o cambiada de lugar', () => {
+    expect(chequeoProveedor('HERSHEYS MEXICO', 'HERSHEY MEXICO')).toBe('ok');            // una de más
+    expect(chequeoProveedor('BONIFACIO ALJEO AVALOS', 'BONIFACIO ALEJO AVALOS')).toBe('ok'); // transpuesta
+  });
+
+  it('⚠️ la distancia se mide sobre la cadena COMPLETA, no sobre prefijos recortados', () => {
+    // Recortando al largo común, una letra borrada corre todo lo que sigue y cuesta 2 — el mismo
+    // precio que cambiar DOS letras. Con eso no hay umbral que separe a HERSHEY de DON/SAN.
+    expect(chequeoProveedor('HERSHEYS MEXICO', 'HERSHEY MEXICO')).toBe('ok');
+    expect(chequeoProveedor('ROMPOPE DON AGUSTIN', 'ROMPOPE SAN AGUSTIN')).toBe('difiere');
+  });
+});
+
+/**
+ * `[AT.2.2]` La comprobación directa que reemplazó a la matriz de Damerau. No es una distancia
+ * de edición: contesta **sí o no** a «¿difieren en una sola letra?», que es lo único que
+ * `chequeoProveedor` pregunta. La versión con matriz pasó el presupuesto del bundle por 7 bytes.
+ */
+describe('[AT.2.2] difiereEnUnaLetra: las cuatro formas de una sola letra, y nada más', () => {
+  it('iguales', () => {
+    expect(difiereEnUnaLetra('HERSHEYMEXICO', 'HERSHEYMEXICO')).toBe(true);
+  });
+  it('una de más / una de menos', () => {
+    expect(difiereEnUnaLetra('HERSHEYSMEXICO', 'HERSHEYMEXICO')).toBe(true);
+    expect(difiereEnUnaLetra('HERSHEYMEXICO', 'HERSHEYSMEXICO')).toBe(true);
+    expect(difiereEnUnaLetra('AVILABANUEL', 'AVILABAUEL')).toBe(true);   // la Ñ que Kepler perdió
+  });
+  it('una cambiada', () => {
+    expect(difiereEnUnaLetra('PRODUCTOSALVBRO', 'PRODUCTOSALVBRA')).toBe(true);
+  });
+  it('dos vecinas intercambiadas', () => {
+    expect(difiereEnUnaLetra('BONIFACIOALJEOAVALOS', 'BONIFACIOALEJOAVALOS')).toBe(true);
+  });
+  it('⛔ DOS letras cambiadas NO (es el caso DON/SAN, dos empresas)', () => {
+    expect(difiereEnUnaLetra('ROMPOPEDONAGUSTIN', 'ROMPOPESANAGUSTIN')).toBe(false);
+  });
+  it('⛔ dos de más tampoco, ni aunque sean vecinas', () => {
+    expect(difiereEnUnaLetra('ABCDEF', 'ABXYCDEF')).toBe(false);
+    expect(difiereEnUnaLetra('ABCDEF', 'ABCDEFGH')).toBe(false);
+  });
+  it('⛔ dos NO vecinas intercambiadas tampoco', () => {
+    expect(difiereEnUnaLetra('ABCDE', 'EBCDA')).toBe(false);
+  });
+  it('bordes: vacíos y una sola letra', () => {
+    expect(difiereEnUnaLetra('', '')).toBe(true);
+    expect(difiereEnUnaLetra('A', '')).toBe(true);
+    expect(difiereEnUnaLetra('AB', '')).toBe(false);
+  });
+});
+
+describe('[AT.2] ⛔ lo que NO puede pasar — son pagos que se firman sin que nadie los mire', () => {
+  it('⛔⛔ DOS EMPRESAS del padrón real a dos letras de distancia', () => {
+    // El caso que apareció al medir contra los 310 proveedores de prod y que fijó el tope en 1.
+    expect(chequeoProveedor('ROMPOPE DON AGUSTIN', 'ROMPOPE SAN AGUSTIN')).toBe('difiere');
+    expect(chequeoProveedor('ROMPOPE SAN AGUSTIN', 'ROMPOPE DON AGUSTIN')).toBe('difiere');
+  });
+
+  it('⚠️ HUECO DECLARADO, no cerrado: una palabra genérica de 9 letras SÍ pasa', () => {
+    // Medido en el padrón real de 310 proveedores: `ABARROTES` casa con DOS empresas distintas.
+    // Subir el mínimo del prefijo a 10 lo cierra Y ROMPE `QUALAMEX` / `QUALAMEX MEXICO` —8 letras
+    // exactas, 3 comprobantes reales que hoy cuadran bien—. El largo no distingue un sustantivo
+    // del giro de una marca inventada, así que el hueco se DECLARA en vez de cambiarse a ciegas.
+    // Este test existe para que quien lo cierre de verdad vea primero lo que se lleva puesto.
+    expect(chequeoProveedor('ABARROTES', 'ABARROTES VIOLETA')).toBe('ok');
+    expect(chequeoProveedor('QUALAMEX MEXICO', 'QUALAMEX')).toBe('ok');
+  });
+
+  it('⛔ nombres sin relación siguen rechazándose', () => {
+    expect(chequeoProveedor('BOLSAS LOS ALTOS', 'GUILLERMO LOPEZ GUTIERREZ')).toBe('difiere');
+    expect(chequeoProveedor('ZUMBA PIKA', 'PRODUCTORA COMERC PRODUCTOS')).toBe('difiere');
+    expect(chequeoProveedor('SABOR ALEGRIA', 'SALSA MAGA')).toBe('difiere');
+    expect(chequeoProveedor('PASTECH OCCIDENTE', 'GERMAN ENRIQUE MICHEL LOPEZ')).toBe('difiere');
+  });
+
+  it('⛔ "uno contiene al otro" NO se acepta: fue medido y confunde empresas', () => {
+    // La regla intuitiva («el nombre corto aparece dentro del largo») aceptaba 2 pares distintos.
+    expect(chequeoProveedor('DELICIAS', 'DULCES LAS DELICIAS')).toBe('difiere');
+    expect(chequeoProveedor('ANAHUAC', 'COMERCIALIZADORA ANAHUAC MEX')).toBe('difiere');
+    expect(chequeoProveedor('ROSA', 'DISTRIBUIDORA ROSA')).toBe('difiere');
+  });
+
+  it('⛔ un nombre corto no se arregla ignorando espacios', () => {
+    expect(chequeoProveedor('DART', 'DART MEXICO')).toBe('difiere');
+    expect(chequeoProveedor('CANELS', 'CANEL')).toBe('difiere');
+  });
+
+  it('⛔ sin beneficiario legible NO se inventa una coincidencia', () => {
+    expect(chequeoProveedor('', 'NUEVA WAL MART MEXICO')).toBe('sin_dato');
+    expect(chequeoProveedor(null, 'GRUPO ZORRO ABARROTERO')).toBe('sin_dato');
   });
 });
 

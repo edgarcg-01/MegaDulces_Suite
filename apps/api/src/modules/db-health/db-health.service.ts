@@ -945,6 +945,12 @@ const CRON_JOBS: CronCfg[] = [
   // despues. La cadencia va aca tambien, asi que si alguien mueve el @Cron sin tocar esta linea el
   // umbral queda mintiendo.
   { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 07:30 MX', warnH: 30, critH: 54 },
+  // `[AT.1]` Comprobantes de pago: relee el archivo guardado (el servidor produce la lectura) y
+  // deja que `[PC.6]` decida. Corre @20 min, asi que 3 h es ya un carril parado, no un retraso.
+  // ⚠️ Sin esta fila `db-health` cae en el `cfg ? classify : 'ok'` y un carril muerto sale VERDE
+  // -- que es lo que la Fase VP midio en las 3 matvistas del sell-out. El numero esta en DOS
+  // lugares (aca y el @Cron de `pagos-autopilot.service.ts`): si alguien mueve uno, el otro miente.
+  { key: 'pagos_relectura',     label: 'Comprobantes de pago: relectura y auto-validacion', cadence: 'cada 20 min', warnH: 3, critH: 12 },
   // ⛔ `[RD.22]` Aca estaba `rd_commission_runner`, el cron que calculaba la quincena de
   // comisiones a las 08:30. Se RETIRO el 2026-10-07 junto con el cron: una quincena cerrada es
   // un valor estatico que se calcula una vez, no un derivado que haya que refrescar, y dejar su
@@ -1036,6 +1042,13 @@ const CRON_JOBS: CronCfg[] = [
   // Medido el 2026-09-21: la tabla de fotos tenia 0 filas y CERO renglones en `cron_runs`, o sea
   // que llevaba quien sabe cuanto sin tomarse y nadie podia enterarse.
   { key: 'cxc_snapshot',        label: 'Foto diaria de cartera (CxC)',      cadence: 'diario 08:30 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // `[ETQ-AVISOS.1]` Avisos de cambios de precio a las sucursales: DOS cortes al dia (07:30 y
+  // 14:00 MX). El hueco mas largo entre corridas es 17.5 h (14:00 -> 07:30), asi que `warnH: 20`
+  // tolera la cadencia normal y avisa al saltarse una; `critH: 40` es un dia entero sin avisos.
+  // ⛔ Registrarlo es OBLIGATORIO y no cosmetico: sin esta entrada el sensor cae en
+  // `cfg ? classify : 'ok'` -- verde incondicional -- y una encargada seguiria sin enterarse de que
+  // el precio de su anaquel cambio, que es justo lo que este job existe para evitar.
+  { key: 'price_change_notices', label: 'Avisos de cambios de precio',      cadence: '07:30 y 14:00 MX', warnH: 20, critH: 40, maxRunH: 1 },
   // [TES.12] Sin este renglón el sensor del back-test cae en `cfg ? classify : 'ok'` y da verde
   // incondicional — que es justo el defecto que la foto del pronóstico viene a cerrar un nivel
   // más arriba. Un día sin foto deja un hueco en la serie que ya no se puede reconstruir: lo que
@@ -1105,6 +1118,9 @@ const CRON_JOBS: CronCfg[] = [
   // el día. Verificado carril por carril el 2026-09-25: 18 de 19 coincidían, éste no.
   { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal sáb 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
+  // [PF.6] La foto de "Para cuidar hoy" (Productos). Si se para, la pantalla cae al cálculo en vivo (~3 s) y
+  // lo dice; sin este umbral el sensor la daría verde aunque nadie la calcule (OBS.1).
+  { key: 'product_flow_watch',  label: 'Foto de Para cuidar hoy (Productos)', cadence: 'cada 1 min', warnH: 0.1, critH: 0.5, maxRunH: 0.05 },
   // [VL.4b] El carril de PRECIOS. Corría fuera del runner (`C:\KeplerRunner\run-prices.cmd` llamaba a
   // los dos importers directo), así que no latía y no tenía entrada acá — o sea que el carril que
   // publica el precio de venta era el único sin forma de avisar. Es EL carril del incidente que
@@ -1291,7 +1307,20 @@ const CRON_JOBS: CronCfg[] = [
   // lo midió la Fase VP sobre 3 matvistas del sell-out. Y porque este job es justamente el que
   // afirma que una póliza llegó a ContPAQi: si deja de correr, lo entregado vuelve a ser
   // inverificable y nadie se entera. Umbral de job de alta frecuencia, criterio de `twins_pairing`.
+  // ⭐ [CP.8.45] Mensual: las categorias de CB no cambian a diario. warnH/critH holgados a
+  // proposito -- lo que vigila no es que corra puntual, es que NO deje de correr: se corrio una
+  // sola vez (feb-2026) y los rechazos por sin_medir pasaron de 21 a 254 al mes sin que nada
+  // se pusiera rojo.
+  { key: 'contpaqi_derivador',               label: 'Derivador mapa categoría→cuenta (ContPAQi)', cadence: 'mensual (día 3)', warnH: 24 * 40, critH: 24 * 70 },
   { key: 'contpaqi_cuadre',                   label: 'Cuadre del puente ContPAQi',        cadence: 'cada 10 min', warnH: 3, critH: 12 },
+  // [CPA.0.2] `mv_cierre_refresh`: la matvista del semáforo de cierre (/contabilidad/cierre).
+  // Sin este renglón el carril caería en `cfg ? classify : 'ok'` = **verde incondicional**, que es
+  // lo que la Fase VP midió sobre tres matvistas del sell-out. Un carril que nace mudo nace roto.
+  //
+  // ⚠️ Su modo de falla es el peor que puede tener un semáforo: una matvista que dejó de
+  // refrescarse **no da error**, sirve el veredicto viejo — y en un tablero de cierre eso se lee
+  // como "todo asentado". Corre cada 15 min; warn al saltarse ~8 corridas.
+  { key: 'mv_cierre_refresh',                 label: 'Cierre contable — refresca mv_contpaqi_cierre_mensual', cadence: 'cada 15 min', warnH: 2, critH: 6 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_payment_terms',   label: 'Refresh MV condición de pago (SD-PAY, nightly)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
@@ -1323,6 +1352,11 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'analytics_refresh_cost_origin',     label: 'Refresh MV origen del costo (CE.11)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [NP.1] Productos nuevos. Parada, la pestaña sigue contando días sobre cifras de otra noche.
   { key: 'analytics_refresh_new_products',    label: 'Refresh MV productos nuevos (NP.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PP.0] Si esto se para, Tesoreria sigue viendo una fecha limite de pronto pago que ya caduco:
+  // la pantalla no se rompe, envejece. Mismo umbral que sus hermanas nocturnas.
+  { key: 'analytics_refresh_prompt_discount', label: 'Refresh MV ventana de pronto pago (PP.0)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PF.8] Márgenes por producto (30 días cerrados). Si se para, el panel calcula en vivo (1-14 s) y lo dice.
+  { key: 'analytics_refresh_product_margins', label: 'Refresh MV márgenes por producto (PF.8)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
   // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no

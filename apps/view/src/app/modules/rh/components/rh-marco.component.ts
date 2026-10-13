@@ -188,6 +188,10 @@ export class RhMarcoComponent implements OnInit {
     { label: 'Tolerancia', route: '/rh/asistencia/tolerancia', anyOf: VER_ASISTENCIA, badge: this.est.nRebasados() },
     { label: 'Faltas', route: '/rh/asistencia/faltas', anyOf: VER_ASISTENCIA, badge: this.est.nFaltas() },
     {
+      label: 'Horas extra', route: '/rh/asistencia/horas-extra',
+      anyOf: [...VER_ASISTENCIA, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR],
+    },
+    {
       label: 'Incidencias', route: '/rh/incidencias', badge: this.est.pendientes(),
       anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE],
     },

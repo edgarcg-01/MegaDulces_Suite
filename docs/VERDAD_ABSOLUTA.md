@@ -3910,3 +3910,93 @@ ingenua de su propia curva.
 `test-newdb-cashflow-backtest.js` con **dos pruebas negativas** (la semana en curso no aparece ·
 con cobertura parcial `comparable` es `false`). Commits `737394a37`, `5ee247a45`, `40eb6db2d`,
 `6304692a6`.
+
+---
+
+## 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint 0, 2026-10-10)
+
+**Encargo:** Sprint 0 de [`FASE_PU_PLAN_PRESUPUESTO.md`](IMPLEMENTACION/FASES/FASE_PU_PLAN_PRESUPUESTO.md) —
+*«¿quién decide que algo se paga: el calendario, Francisco, o el saldo del banco esa mañana?»* y
+*«¿la obligación nace antes del pago o se registra después?»*. La segunda **no se puede contestar
+desde la base**, y ése es el hallazgo.
+
+### 27.1 ⛔ No es «antes» ni «después»: no hay un solo caso
+
+```
+budget.expense_obligations     312 · pagadas 0 · reservadas 0 · las 312 nacidas el 2026-10-07
+finance.payment_calendar_lots    0
+finance.payment_allocations      0
+finance.payment_allocation_items 0
+```
+
+**Ni un pago pasó jamás por el circuito prospectivo de la Suite.** Ni completo ni parcial. El ledger
+de cinco estados no «documenta tarde» —la hipótesis que había que descartar—: **todavía no documenta
+nada**. Diseñar sus transiciones contra un proceso que nadie describió es el riesgo que el Sprint 0
+existe para frenar, y la evidencia no lo resuelve: lo confirma como bloqueo para personas.
+
+### 27.2 El circuito REAL sí es observable — en otras dos tablas
+
+| Dónde | Qué es | Volumen medido |
+|---|---|---|
+| `analytics.erp_supplier_payments` | lo que Kepler **efectivamente pagó** | **$44,935,572.38/mes** · 2,592 pagos / **$224,677,861.88** en may–sep 2026 |
+| `finance.payment_program` | la bitácora del Excel de Tesorería (Fase PP) | **2,694 pagos / $372,447,210** en 2026 |
+| `budget.*` + `finance.payment_calendar_*` | el circuito que la Suite diseñó | **$0** |
+
+⛔ **Corrección del 2026-10-10, y el defecto es de método, no de redondeo.** La primera versión
+publicó **«~$45M/mes»** derivado de un filtro `pago_date >= current_date - 90` **sin tope superior**.
+Medido: ese filtro devuelve fechas que van del **2026-07-13 al 2026-12-01** — adentro está el pago
+futuro que esta misma sección declara —, así que **el rango y el divisor describían períodos
+distintos**. Es exactamente el defecto que este carril le marcó a Ventas: un número sin su universo.
+
+⭐ Y la corrección tiene una vuelta que vale escribir. Gastos, al auditar, propuso **$41.9M/mes**
+dividiendo los $125.7M entre 3 — pero **eso hereda la misma ventana rota** y además parte dos meses
+por la mitad (julio desde el 13, octubre hasta el 10). Re-medido sobre **meses COMPLETOS**:
+
+```
+may–sep 2026    2,592 pagos    $224,677,861.88    ->    $44,935,572.38 / mes
+```
+
+⇒ **La cifra original estaba cerca y el método estaba mal; la corrección tenía el método bien
+planteado y el número peor.** Las dos se produjeron con una ventana que nadie había acotado. La
+única defendible es la de arriba, y va con sus bordes escritos.
+
+Desglose mensual de lo pagado, para que la cifra tenga ventana y no sea un promedio:
+
+```
+2026-05   434 pagos   $28,359,145
+2026-06   531         $46,714,732
+2026-07   583         $48,034,315
+2026-08   530         $45,176,170
+2026-09   338         $40,113,405
+2026-10    58          $8,617,390   (10 días)
+```
+
+⇒ **La respuesta a «dónde vive el presupuesto de pagos hoy» es: fuera de Presupuestos.** Se decide en
+otro lado, se ejecuta en Kepler y se anota después en una bitácora. El módulo no participa.
+
+### 27.3 ⚠️ Dos defectos de dato encontrados de paso, declarados y no tapados
+
+- **`finance.payment_program` tiene 4 filas fechadas en 2006** ($37,444) y 12 en 2025. Cualquier
+  mínimo o rango que alguien publique sobre esa tabla va a arrancar en **2006-07-13** y describir
+  veinte años que no existen. Es la misma familia que las 17 filas fechadas en `2027-08-06` que
+  `[TES.3]` encontró secuestrando el saldo bancario.
+- **`analytics.erp_supplier_payments` tiene 1 pago fechado en 2026-12** ($4,450), en el futuro.
+- ⛔ `payment_program.created_by` está **NULL en las 2,716 filas**: la bitácora del proceso real
+  tampoco sabe quién la escribió.
+
+### 27.4 Lo que esto corrige de mi propio trabajo
+
+`[TES.17]` publicó *«156 esperan tu firma · $74,809,091.57»*. Medido: **las 312 obligaciones tienen
+`created_by = 'autopilot'`** — las propuso el piloto extrapolando gasto histórico, ninguna la propuso
+una persona. El número estaba bien y **la frase estaba mal**: firmarlas no ratifica una decisión,
+convierte una extrapolación en un compromiso. Corregido en `[TES.19]`, con el origen derivado del
+dato y no escrito a mano.
+
+⚠️ Y corrijo una lectura del carril de Gastos: **`budget.daily_capacity` NO está vacía** —tiene 22
+filas con `created_by = 'superoot'`, o sea puestas por una persona—. El defecto es otro y es mío:
+**35 de los 57 días de la ventana no tienen fila, y el lector las trata como cero**, publicando
+*capacidad no definida* como *cero autorizado* (`[TES.9]`, abierto).
+
+**Medición reproducible:** 9 consultas read-only contra `pg-prod` el 2026-10-10. Verificación cruzada
+pendiente: por regla del plan (§5), **este carril no verifica sus propias cifras** — las verifica
+Gastos.

@@ -234,6 +234,20 @@ export class RouteProfitService {
          WHERE anio = ? AND period_no = ?
          GROUP BY 1 ORDER BY sum(importe) DESC`, [anio, periodNo]);
 
+      // `[RD.UI.1]` DESIGN O.4 -- la pantalla declara hasta DONDE llega el dato, no cuando se
+      // cargo. Las dos cifras salen del SERVIDOR y miden cosas DISTINTAS:
+      //   - `gasto_calculado_at` = max(computed_at) = cuando el importer escribio por ultima vez.
+      //     Si el carril se para, esto deja de avanzar y la pildora lo dice.
+      //   - `ultimo_movimiento`  = max(fecha) DENTRO de la quincena = hasta que dia del periodo
+      //     hay renglones capturados.
+      // No se promedian ni se elige una: la primera mide el FEED y la segunda el PERIODO. Un
+      // periodo cerrado puede tener su ultimo movimiento viejo y el feed al dia, y eso es sano.
+      const { rows: [proc] } = await trx.raw(`
+        SELECT (SELECT max(computed_at) FROM analytics.expense_entries) AS gasto_calculado_at,
+               (SELECT max(ultimo_movimiento) FROM analytics.v_rd_expense_period
+                 WHERE anio = ? AND period_no = ?)                      AS ultimo_movimiento`,
+        [anio, periodNo]);
+
       const truncado = renglones.length > TOPE;
       const huecos: Hueco[] = [{
         clave: 'gasto_no_baja_a_la_ruta',
@@ -256,6 +270,10 @@ export class RouteProfitService {
         total: Number(fam.reduce((a: number, f: { importe: string }) => a + Number(f.importe), 0).toFixed(2)),
         truncado,
         huecos,
+        procedencia: {
+          gasto_calculado_at: proc?.gasto_calculado_at ?? null,
+          ultimo_movimiento: proc?.ultimo_movimiento ? toISO(proc.ultimo_movimiento) : null,
+        },
       };
     });
   }
@@ -307,7 +325,7 @@ export class RouteProfitService {
                  AS vinculo_sospechoso,
                count(*) OVER (PARTITION BY tr.route_number)::int AS aparatos,
                row_number() OVER (PARTITION BY tr.route_number
-                                  ORDER BY tr.es_camara, tr.last_seen_at DESC) AS rn
+                                  ORDER BY tr.es_camara, tr.last_seen_at DESC)::int AS rn
           FROM tr
           LEFT JOIN logistics.vehicles v ON v.id = tr.vehicle_id AND v.deleted_at IS NULL
           LEFT JOIN analytics.v_rd_commission_universe u
@@ -316,6 +334,12 @@ export class RouteProfitService {
 
       // Una fila por ruta: la del aparato principal (no cámara, más reciente).
       const unidades: UnidadFlota[] = rows
+        // ⛔ `[RD.60.3]` `row_number()` devuelve BIGINT, y node-postgres entrega bigint como
+        //    STRING. Sin el `::int` de arriba esto comparaba la cadena "1" contra el número 1, que es false SIEMPRE: la
+        //    pantalla de flota llevaba desde su estreno publicando CERO unidades con 8 vivas.
+        //    El tipo `{ rn: number }` lo afirmaba y el compilador le creyó -- una anotación sobre
+        //    una fila de `raw()` no es una medición, es una promesa de quien la escribió.
+        //    La columna de al lado (`count(*) OVER (...)::int AS aparatos`) sí estaba casteada.
         .filter((r: { rn: number }) => r.rn === 1)
         .map((r: Record<string, unknown>) => {
           // ⛔ Los campos vacíos se ENUMERAN. Un NULL en una ficha no se explica solo, y la
@@ -402,10 +426,28 @@ export class RouteProfitService {
         });
       }
 
+      // `[RD.UI.1]` La frescura de esta pantalla es la del GPS, y se mide con el aparato, no
+      // con el reloj. `ultimo_visto` por unidad ya existia pero viene como fecha (`to_char`),
+      // asi que no sirve para decir «hace N horas»: aca se pide el timestamp real.
+      // ⛔ `aparatos_reportando` NO es decoracion: sin API oficial (ADR-034), cuando la sesion
+      // de MagniTracking expira el poller devuelve [] y termina «bien». Lo que se cae entonces
+      // no es `gps_hasta` de golpe, es este conteo -- es el mismo sintoma que `[VL.4b]` cableo
+      // en el latido de `fleet_gps`, visible aca para quien mira la pantalla y no el tablero.
+      const { rows: [gps] } = await trx.raw(`
+        SELECT max(t.last_seen_at) AS gps_hasta,
+               count(*) FILTER (WHERE t.last_seen_at >= now() - interval '24 hours')::int
+                 AS aparatos_reportando
+          FROM logistics.trackers t
+         WHERE t.route_number IS NOT NULL AND t.deleted_at IS NULL`);
+
       return {
         unidades,
         rutas_sin_gps: sinGps.map((s: { route_code: string }) => s.route_code),
         huecos,
+        procedencia: {
+          gps_hasta: gps?.gps_hasta ?? null,
+          aparatos_reportando: gps?.aparatos_reportando ?? 0,
+        },
       };
     });
   }
@@ -903,6 +945,8 @@ export interface GastoDetalle {
   total: number;
   truncado: boolean;
   huecos: Hueco[];
+  /** `[RD.UI.1]` De donde viene y hasta cuando llega. Timestamps del SERVIDOR, nunca del reloj. */
+  procedencia: { gasto_calculado_at: Date | null; ultimo_movimiento: string | null };
 }
 
 /** `[RD.60]` Una camioneta de RD con lo que de verdad se sabe de ella, y lo que no. */
@@ -933,4 +977,10 @@ export interface FlotaResumen {
   unidades: UnidadFlota[];
   rutas_sin_gps: string[];
   huecos: Hueco[];
+  /**
+   * `[RD.UI.1]` La frescura de esta pantalla es la del GPS: `max(last_seen_at)` de los
+   * aparatos. ⛔ No es `now()` -- si el poller de MagniTracking se queda sin sesion deja de
+   * traer posiciones y la pantalla seguiria pintando la ficha completa, igual de confiada.
+   */
+  procedencia: { gps_hasta: Date | null; aparatos_reportando: number };
 }

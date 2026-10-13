@@ -288,8 +288,32 @@ export class ContpaqiArmadoService {
       alias = await this.db('contpaqi.supplier_aliases')
         .where({ tenant_id: MEGA, active: true })
         .select('alias_normalizado', 'cuenta');
-    } catch {
-      this.log.warn('contpaqi.supplier_aliases no existe en este destino: se resuelve sólo con el padrón');
+    } catch (e) {
+      /**
+       * ⛔ `[CP.8.39]` — **Las dos ausencias NO son la misma** (ADR-056), y este `catch` las
+       * confundía: cualquier error se reportaba como *"no existe en este destino"*.
+       *
+       * Medido en prod: la tabla **sí existía** (batch 878) y lo que faltaba era el `GRANT` a
+       * `app_runtime`, o sea `42501 permission denied`. El resolvedor degradaba al padrón sin
+       * alias —comportamiento razonable para un destino viejo, **defecto** en producción— y el
+       * log afirmaba un motivo falso, que es lo que lo volvía invisible.
+       *
+       *   `42P01` tabla ausente  → destino sin la migración: degradar es correcto.
+       *   `42501` sin permiso    → la defensa está rota: se degrada igual (no se tumba el
+       *                            armado entero) pero se grita `error`, no `warn`.
+       */
+      const code = (e as { code?: string })?.code;
+      if (code === '42P01') {
+        this.log.warn('contpaqi.supplier_aliases no existe en este destino: se resuelve sólo con el padrón');
+      } else if (code === '42501') {
+        this.log.error(
+          '⛔ contpaqi.supplier_aliases existe pero el rol de la app NO puede leerla (42501): '
+          + 'los alias confirmados NO se están aplicando. Falta el GRANT — ver migración [CP.8.39].');
+      } else {
+        this.log.error(
+          `contpaqi.supplier_aliases ilegible (${code ?? 'sin código'}): se resuelve sólo con el padrón. `
+          + `${(e as Error)?.message ?? e}`);
+      }
     }
 
     const out = new Map<string, IndiceProveedores>();
@@ -443,7 +467,82 @@ export class ContpaqiArmadoService {
    *
    * Devuelve un renglón por lote con lo que entraría y los motivos de lo que no. No escribe.
    */
+  /**
+   * `[CP.8.38]` — **El archivo del mes: una póliza por lote, concatenadas.**
+   *
+   * ⛔⛔ **Generar NO es entregar, y por eso esto NO escribe `contpaqi.poliza_exports`.**
+   * `entregada` significa *«salió un archivo de acá»* y arranca el reloj del cuadre: a los 5 días
+   * el motor empieza a preguntar por qué no aparece del otro lado. Marcarlo al **descargar**
+   * pondría en ese estado a archivos que nadie importó nunca, y el cuadre pasaría a medir cuánta
+   * gente apretó un botón en vez de cuánto llegó a ContPAQi.
+   *
+   * ⭐ Sale del **mismo armado** que la pantalla (`construirLotes`): si fueran dos caminos, el
+   * archivo podría no decir lo que la bandeja muestra, y eso no se descubre hasta la balanza.
+   *
+   * ⚠️ Serializa con el **sink**, que es el único lugar donde el token entra al concepto del
+   * encabezado. Duplicar esa regla acá sería tener dos reglas.
+   */
+  async generarArchivoMes(anioMes: string): Promise<{
+    mes: string; contenido: string; polizas: number; movimientos: number; total: number;
+    nombre: string; entregado: false;
+  }> {
+    if (!this.sink) throw new Error('no hay sink de pólizas conectado');
+    const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
+    const conAsiento = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
+    if (!conAsiento.length) {
+      throw new Error(
+        `ningún lote de ${anioMes} produce asiento: no hay archivo que generar. `
+        + `${fuera_de_lote.movimientos} movimientos quedan además fuera de todo lote.`,
+      );
+    }
+
+    const partes: string[] = [];
+    let movimientos = 0;
+    let total = 0;
+    for (const l of conAsiento) {
+      const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
+      const r = await this.sink.entregar({
+        evento_tipo: 'bank_lote', evento_id: clave,
+        tipo_poliza: l.asiento!.tipo_poliza, fecha: l.asiento!.fecha, concepto: l.asiento!.concepto,
+        movimientos: l.asiento!.movimientos, total: l.asiento!.total,
+        token: tokenDe('bank_lote', clave),
+      });
+      if (r.estado !== 'entregada' || !r.archivo) {
+        // ⛔ Un lote que el sink rechaza TUMBA el archivo entero. Servir el resto sería entregar
+        // una póliza incompleta que cuadra sola y a la que le falta un día de banco.
+        throw new Error(`el lote ${clave} no se pudo serializar: ${r.motivo ?? 'sin motivo'}`);
+      }
+      partes.push(r.archivo.contenido);
+      movimientos += l.resumen.incluidas;
+      total = Math.round((total + l.asiento!.total) * 100) / 100;
+    }
+
+    this.log.log(`archivo ${anioMes}: ${conAsiento.length} pólizas · ${movimientos} movimientos `
+      + `· ${total} · NO marcado como entregado`);
+    return {
+      mes: anioMes,
+      contenido: partes.join(''),
+      polizas: conAsiento.length,
+      movimientos,
+      total,
+      nombre: `egresos-banco-${anioMes}.txt`,
+      entregado: false,
+    };
+  }
+
   async simularLotes(anioMes: string): Promise<ResumenMes> {
+    const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
+    return { lotes: lotes.map((l) => l.resumen), fuera_de_lote };
+  }
+
+  /**
+   * El armado de los lotes del mes, con su asiento. ⭐ Lo consumen la pantalla y el archivo:
+   * **un solo camino**, para que lo que se ve y lo que se descarga no puedan diferir.
+   */
+  private async construirLotes(anioMes: string): Promise<{
+    lotes: { resumen: ResumenLote; asiento: ReturnType<typeof armarLoteEgresos>['asiento'] }[];
+    fuera_de_lote: ResumenMes['fuera_de_lote'];
+  }> {
     const egresos = await this.leerEgresos(anioMes);
     const reglas = await this.leerReglas();
     const indices = await this.leerIndicesProveedor(reglas);
@@ -458,7 +557,7 @@ export class ContpaqiArmadoService {
       grupos.get(k)!.push(e);
     }
 
-    const out: ResumenLote[] = [];
+    const out: { resumen: ResumenLote; asiento: ReturnType<typeof armarLoteEgresos>["asiento"] }[] = [];
     for (const [k, filas] of [...grupos.entries()].sort()) {
       const [cuenta_banco, fecha] = k.split('|');
       const entradas = filas.map((e) => {
@@ -493,7 +592,7 @@ export class ContpaqiArmadoService {
       const porMotivo: Record<string, number> = {};
       for (const r of lote.rechazadas) porMotivo[r.motivo] = (porMotivo[r.motivo] ?? 0) + 1;
 
-      out.push({
+      out.push({ asiento: lote.asiento, resumen: {
         cuenta_banco,
         banco_label: [filas[0]?.banco_nombre, filas[0]?.banco_label].filter(Boolean).join(' ').trim() || null,
         fecha,
@@ -503,7 +602,7 @@ export class ContpaqiArmadoService {
         total: lote.asiento?.total ?? 0,
         iva_traspaso: lote.asiento?.iva_traspaso ?? null,
         motivos: porMotivo,
-      });
+      } });
     }
     // ⭐ `[CP.8.34]` Lo que quedó fuera se AGRUPA y se devuelve, no se registra en un `warn`.
     // Un hueco que sólo existe en el log no lo ve quien mira la pantalla, que es justo
@@ -523,7 +622,7 @@ export class ContpaqiArmadoService {
       cuentas,
     };
 
-    const conAsiento = out.filter((l) => l.incluidas > 0).length;
+    const conAsiento = out.filter((l) => l.resumen.incluidas > 0).length;
     this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`
       + ` · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
     return { lotes: out, fuera_de_lote: fuera };

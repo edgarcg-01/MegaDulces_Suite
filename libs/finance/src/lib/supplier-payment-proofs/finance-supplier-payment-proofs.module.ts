@@ -4,6 +4,7 @@ import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOp
 import { SupplierPaymentProofsService } from './supplier-payment-proofs.service';
 import { SupplierPaymentProofsController } from './supplier-payment-proofs.controller';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
+import { PagosAutopilotService } from './pagos-autopilot.service';
 
 /**
  * Fase CC (extensión) — Comprobantes de Pago a Proveedor. Adjunta el comprobante
@@ -24,7 +25,7 @@ import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
     }),
   ],
   controllers: [SupplierPaymentProofsController],
-  providers: [SupplierPaymentProofsService, PagosComprobantesGateway],
+  providers: [SupplierPaymentProofsService, PagosComprobantesGateway, PagosAutopilotService],
   exports: [SupplierPaymentProofsService],
 })
 export class FinanceSupplierPaymentProofsModule {}

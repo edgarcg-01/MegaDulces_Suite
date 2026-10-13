@@ -7,6 +7,9 @@ import { Permission } from '../../core/constants/permissions';
  * materialidad, contabilidad electrónica, impuestos provisionales, e.firma).
  */
 export const CONTABILIDAD_TABS: PageTab[] = [
+  // `[CPA.10]` La bandeja va PRIMERA: es la portada del proyecto. Las que siguen pasan a ser el
+  // detalle al que ella enlaza — ninguna se borra, cambia qué se ve al entrar.
+  { label: 'Mi cierre', route: '/contabilidad/mi-cierre', icon: 'pi pi-inbox', permission: Permission.FISCAL_CONTAB_VER },
   { label: 'Listas SAT', route: '/contabilidad/listas-sat', icon: 'pi pi-shield', permission: Permission.FISCAL_LISTAS_VER },
   { label: 'CFDI', route: '/contabilidad/cfdi', icon: 'pi pi-file', permission: Permission.FISCAL_CFDI_VER },
   { label: 'Facturar', route: '/contabilidad/facturar', icon: 'pi pi-file-edit', permission: Permission.FISCAL_FACTURAR_VER },

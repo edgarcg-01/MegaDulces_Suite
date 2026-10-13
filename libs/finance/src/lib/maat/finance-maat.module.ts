@@ -32,6 +32,10 @@ import { MaatReconTasksController } from './maat-recon-tasks.controller';
 import { ContabilidadContpaqiController } from './contabilidad-contpaqi.controller';
 import { PagosControlService } from '../pagos/pagos-control.service';
 import { PagosControlController } from '../pagos/pagos-control.controller';
+// [PP.1] Pronto pago: va con sus hermanos de Tesoreria, no en un modulo propio. Un modulo nuevo
+// hay que registrarlo en AppModule y es el paso que se olvida -- paso en [CP.8.31].
+import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
+import { ProntoPagoController } from '../pronto-pago/pronto-pago.controller';
 import { FinanceBankModule } from '../bank/finance-bank.module';
 import { FinanceJobsModule } from '../jobs/finance-jobs.module';
 
@@ -45,7 +49,7 @@ import { FinanceJobsModule } from '../jobs/finance-jobs.module';
  */
 @Module({
   imports: [FinanceBankModule, FinanceJobsModule],
-  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController, ContabilidadContpaqiController, PagosControlController],
+  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController, ContabilidadContpaqiController, PagosControlController, ProntoPagoController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatAnomalyService, MaatCoverageService, MaatDataQualityService, MaatEntityService, MaatPolizaService,
@@ -55,6 +59,7 @@ import { FinanceJobsModule } from '../jobs/finance-jobs.module';
     MaatSkepticService, MaatDiscoveryService,
     MaatReconTasksService,
     PagosControlService,
+    ProntoPagoService,
   ],
   exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService, MaatProviderGraphService, MaatFindingsSinkService],
 })

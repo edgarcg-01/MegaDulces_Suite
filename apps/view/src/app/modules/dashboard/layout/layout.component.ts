@@ -123,31 +123,28 @@ interface NavItem {
 }
 
 /**
- * Convierte la barra de pestañas de un sub-módulo en items de sidebar.
+ * ⛔ `[NAV.1]` **Acá vivía `navDeTabs`, que APLANABA la barra de un sub-módulo en N items de
+ * sidebar. Se retiró el 2026-10-12 porque resolvía el problema correcto con la forma
+ * equivocada, y la forma equivocada tenía un costo visible.**
  *
- * ⛔ **Por qué derivar y no copiar.** Medido el 2026-10-09 sobre los 14 archivos `*-tabs.ts`:
- * **81 pantallas vivían SÓLO en una pestaña** y no aparecían en ningún sidebar. No es un
- * descuido puntual: son dos listas escritas a mano que describen lo mismo, así que divergen
- * siempre. Contabilidad y Finanzas estaban al día (15/15 y 18/18) porque alguien las mantuvo;
- * Comercial tenía 4 de 11. El propio archivo ya lo resolvió así para Almacén —*«sus items de
- * acá para que nunca se desincronice de la barra de tabs»*— y ésta es la misma idea generalizada.
+ * Su diagnóstico sigue siendo cierto y hay que conservarlo: medido el 2026-10-09 sobre los 14
+ * archivos `*-tabs.ts`, **81 pantallas vivían SÓLO en una pestaña** y no aparecían en ningún
+ * sidebar — *una pantalla que no está en el sidebar, para quien no conoce la pestaña, no
+ * existe* (`[AU.3]`/`[AU.4]`). Derivar en vez de copiar era lo correcto.
  *
- * ⭐ Es la razón que `[AU.3]`/`[AU.4]` ya habían dejado escrita: *una pantalla que no está en el
- * sidebar, para quien no conoce la pestaña, no existe.*
+ * ⭐ Lo que estaba mal era el DESTINO de la derivación. Proyectar cada pestaña a un renglón
+ * propio puso al padre y a sus hijas como hermanos en la misma lista: «Control de margen»
+ * (`/comercial/precios`) junto a «Motor», «Competencia» y «Experimentos»
+ * (`/comercial/precios/*`), cuatro renglones para un sub-módulo. Medido el 2026-10-12: el
+ * sidebar ofrecía **155 items visibles y 30 de ellos eran hijos de otro que ya estaba ahí**.
  *
- * `PageTab` ya trae `label`, `route`, `icon`, `permission` y `anyOf`, que es exactamente lo que
- * `NavItem` necesita: no hay traducción, hay proyección. `dedupeByRoute` se encarga de las que
- * también estén escritas a mano (p. ej. «Facturación TM» y «Documentos» son la misma ruta).
+ * La forma correcta ya existía en este mismo archivo desde `[GX.80]`: **`NavItem.tabs`** — UNA
+ * entrada que se ve si la persona ve al menos una pestaña, lleva a la primera que puede ver
+ * (`conDestino`) y queda activa en cualquiera de ellas. Alcance idéntico, un renglón.
+ *
+ * ⚠️ Si alguna vez hace falta volver a aplanar, la pregunta previa es *¿esta pantalla es un
+ * sub-módulo o una pestaña de otro?* — y si es pestaña, su entrada es la de su padre.
  */
-function navDeTabs(tabs: PageTab[], iconoPorDefecto = 'pi pi-circle'): NavItem[] {
-  return tabs.map((t) => ({
-    label: t.label,
-    icon: t.icon ?? iconoPorDefecto,
-    route: t.route,
-    ...(t.anyOf ? { anyOf: t.anyOf } : {}),
-    ...(t.permission ? { permission: t.permission } : {}),
-  }));
-}
 
 @Component({
   selector: 'app-layout',
@@ -408,9 +405,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
-    // Las cuatro de MKT (`/mkt/*`) vivían SÓLO en su barra: promociones, promos del ERP,
-    // acuerdos y resultado. Ninguna tenía entrada por sidebar en ningún proyecto.
-    ...navDeTabs(PROMOS_TABS),
+    // [NAV.1] Las cuatro de MKT (`/mkt/*`) en UNA entrada. Ninguna tenía entrada de sidebar en ningún proyecto: vivían sólo en su barra.
+    { label: 'Promociones MKT', icon: 'pi pi-megaphone', route: '/mkt/promotions', tabs: PROMOS_TABS },
   ];
 
   private tradeMkAdminItems: NavItem[] = [
@@ -425,7 +421,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Centro de Control', icon: 'pi pi-compass',   route: '/comercial/command-center', permission: Permission.COMMERCIAL_ORDERS_VER },
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
-        { label: 'Clientes',          icon: 'pi pi-users',      route: '/comercial/customers',      permission: Permission.COMMERCIAL_CUSTOMERS_VER },
+        // [NAV.1] Clientes y Clientes 360 son la misma ficha en dos vistas: una entrada, dos pestañas.
+        { label: 'Clientes', icon: 'pi pi-users', route: '/comercial/customers', tabs: CUSTOMERS_TABS },
         // [TK.2] Va en Ventas y no en Reportes: no es un reporte, es la consulta de UN documento
         // para reimprimírselo al cliente que lo está pidiendo. Al lado de "Documentos"
         // (Reportes) hay solape aparente, pero aquél lista facturas de telemarketing con su
@@ -433,8 +430,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // distintos.
         { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
         { label: 'Razonamiento (Thot)', icon: 'pi pi-lightbulb', route: '/comercial/razonamiento', permission: Permission.COMMERCIAL_THOT_VER },
-        // Clientes 360 sólo existía como pestaña de Clientes.
-        ...navDeTabs(CUSTOMERS_TABS),
       ],
     },
     {
@@ -447,14 +442,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[PR.V2]` Eran DOS renglones que responden la misma pregunta en dos tiempos: el motor
         // dice qué precio conviene mover, y el experimento es lo único que puede convertir esa
         // acción de «efecto no medido» a medida. Ahora es una entrada con selector segmentado.
-        // ⚠️ `anyOf`, no `permission`: `compras`/`finanzas` ven sólo el motor y `telemarketing`
-        //    sólo los experimentos — con un permiso único, alguien perdía la entrada entera.
-        { label: 'Control de margen', icon: 'pi pi-sliders-h',    route: '/comercial/precios',
-          anyOf: [Permission.COMMERCIAL_MARGIN_ENGINE_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
+        // ⛔ `[NAV.1]` El `anyOf` que acá vivía se RETIRÓ, y no por limpieza: con `tabs`,
+        //    `hasPermFor` ignora `permission`/`anyOf` y deriva la visibilidad de las pestañas
+        //    (`tabs.some(pestanaVisible)`). Dejarlo escrito declaraba una compuerta que el
+        //    código ya no consulta. Verificado que el gate NO cambia: Motor y Competencia piden
+        //    MARGIN_ENGINE_VER y Experimentos trae su propio `anyOf` con los dos de
+        //    experimentos — exactamente las tres perms que el item listaba.
+        // `[NAV.1]` UNA entrada para Motor + Competencia + Experimentos. Antes el padre y sus
+        //    tres pestañas eran CUATRO renglones hermanos: `/comercial/precios` y
+        //    `/comercial/precios/*`. ⭐ El padre no era pantalla: `preciosHomeGuard` siempre
+        //    devuelve un `UrlTree`, o sea que ya despachaba a la primera pestaña visible — que
+        //    es lo mismo que hace `conDestino`. El destino no cambia.
+        { label: 'Control de margen', icon: 'pi pi-sliders-h', route: '/comercial/precios', tabs: PRECIOS_TABS },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
-        // Motor, Competencia y Experimentos vivían sólo en la barra de Control de margen.
-        ...navDeTabs(PRECIOS_TABS),
       ],
     },
     {
@@ -478,13 +479,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Ventas generales', icon: 'pi pi-sparkles', route: '/comercial/ventas-generales', permission: Permission.COMMERCIAL_ANALYTICS_VER },
         { label: 'Rentabilidad', icon: 'pi pi-percentage', route: '/comercial/rentabilidad', permission: Permission.COMMERCIAL_PROFITABILITY_VER },
         { label: 'Sucursales Wincaja', icon: 'pi pi-building', route: '/comercial/wincaja', permission: Permission.COMMERCIAL_ANALYTICS_VER },
-        // ⭐ Las once pestañas del sub-módulo, derivadas. Siete no estaban acá —entre ellas las
-        // cinco de Ruta Directa— así que sólo llegaba quien ya conocía la pestaña.
-        // `dedupeByRoute` pliega «Documentos»/«Facturación TM», que son la misma ruta.
-        ...navDeTabs(REPORTES_GENERALES_TABS),
-        { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
-        // La barra de Análisis es del mismo sub-módulo de reportes (Thot, histórico, curaduría).
-        ...navDeTabs(ANALYTICS_TABS),
+        // [NAV.1] Los reportes de venta general en UNA entrada. «Documentos» era un item suelto Y la pestaña «Facturación TM»: la misma pantalla, dos renglones.
+        { label: 'Reportes de venta', icon: 'pi pi-chart-bar', route: '/comercial/sell-out', tabs: REPORTES_GENERALES_TABS },
+        // [NAV.1] La analítica comercial (Thot, en vivo, histórico ERP, curaduría) en UNA entrada.
+        { label: 'Analítica comercial', icon: 'pi pi-chart-line', route: '/comercial/thot-chat', tabs: ANALYTICS_TABS },
       ],
     },
   ];
@@ -631,18 +629,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Análisis y control',
       items: [
-        { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
-        ...navDeTabs(ANALISIS_TABS),
+        // [NAV.1] El análisis de tienda en UNA entrada: su padre era también la pestaña «Tráfico».
+        { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', tabs: ANALISIS_TABS },
         // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
         // la vista por persona son el mismo tema, no dos modulos.
-        { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
-        ...navDeTabs(ARQUEO_TABS),
+        // [NAV.1] Arqueo y Por cajera: una entrada, dos pestañas.
+        { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', tabs: ARQUEO_TABS },
         // `anyOf`: el colaborador de sucursal solo tiene CAPTURAR — con el gate
         // en VER, la pantalla donde trabaja no le aparecía en el menú.
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER,
           anyOf: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
-        { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
-        ...navDeTabs(ETIQUETAS_TABS),
+        // [NAV.1] Etiquetas y Cambios de precio: una entrada, dos pestañas.
+        { label: 'Etiquetas', icon: 'pi pi-tag', route: '/tienda/etiquetas', tabs: ETIQUETAS_TABS },
       ],
     },
   ];
@@ -670,8 +668,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Lo que sale del canal',
       items: [
         { label: 'Cotizaciones', icon: 'pi pi-calculator', route: '/telemarketing/cotizaciones', permission: Permission.COMMERCIAL_QUOTES_VER },
-        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
-        ...navDeTabs(TELEMARKETING_TABS),
+        // [NAV.1] Facturación y Expedientes: una entrada, dos pestañas. Facturación estaba suelta Y era su primera pestaña.
+        { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', tabs: TELEMARKETING_TABS },
       ],
     },
   ];
@@ -723,6 +721,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Pagos',
       items: [
         { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+        // [PP.1] Primero de la sección a propósito: es lo ÚNICO de Pagos que caduca. El resto
+        // sigue ahí mañana; el descuento por pronto pago no.
+        { label: 'Pronto pago', icon: 'pi pi-bolt', route: '/finanzas/pronto-pago', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Calendario de pagos', icon: 'pi pi-calendar', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
@@ -892,9 +893,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[RE.24]` "Revisión de facturas" salió de uso (2026-09-02): validar y rechazar ya
         // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
         // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
-        { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
-        // Listado, capturas duplicadas, sin OC y parámetros sólo estaban en la barra.
-        ...navDeTabs(ENTRADAS_CONTROL_TABS),
+        // [NAV.1] El control de entradas en UNA entrada: su padre era también la pestaña «Cobertura por sucursal».
+        { label: 'Control de entradas', icon: 'pi pi-sitemap', route: '/compras/entradas/control', tabs: ENTRADAS_CONTROL_TABS },
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
@@ -928,9 +928,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Catálogo',
       items: [
         // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
-        { label: 'Catálogo',    icon: 'pi pi-shopping-bag', route: '/compras/catalogo', permission: Permission.COMMERCIAL_PRODUCTS_VER },
-        // Las nueve del sub-modulo de catalogo: costos, precios, codigos, productos nuevos...
-        ...navDeTabs(CATALOGO_TABS),
+        // [NAV.1] El catálogo entero en UNA entrada. Eran DIEZ renglones hermanos: `/compras/catalogo` y sus nueve hijas. ⚠️ Ahora aterriza en «Resumen», que es la primera pestaña, no en «Productos» como antes.
+        { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
         { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
         { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
         { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },

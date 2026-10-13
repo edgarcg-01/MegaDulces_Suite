@@ -37,6 +37,12 @@ export interface ConceptQuery { sucursal?: string; search?: string; limit?: numb
 export interface LedgerQuery {
   from?: string; to?: string; tipo?: string; sucursal?: string;
   cuenta?: string; search?: string; limit?: number; offset?: number;
+  /**
+   * `[CG.86]` El id de quien capturó, para «los míos». Lo resuelve el CONTROLADOR desde el token
+   * de la petición, nunca llega de la query: si fuera un parámetro libre, «los míos» sería «los
+   * de cualquiera que yo diga». `null` = sin filtrar (el libro completo).
+   */
+  solo_de?: string | null;
 }
 
 /**
@@ -398,6 +404,56 @@ export class CashLedgerService {
       await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
 
       const patron = `^${beneficiario.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+
+      /**
+       * ⛔⛔ `[CG.88]` **LA CASILLA PROMETÍA ALGO QUE NO SIEMPRE SE PUEDE CUMPLIR.**
+       *
+       * Edgar: *"cuando agrega el checkbox de que se guarde para siempre con ese concepto no
+       * sirve"*. Y tenía razón, pero el defecto no era que no guardara: **guardaba, y clasificaba
+       * mal**.
+       *
+       * Medido en prod el 2026-10-12. `Maria del Carmen Rdriguez Vera (003)` tiene TRES capturas
+       * vivas con TRES cuentas distintas:
+       *
+       *     CI-2026-00001  ingreso  $16,725.00  →  607-002 / 089
+       *     CG-2026-00005  gasto    $ 2,000.00  →  999 / 999
+       *     CG-2026-00006  gasto    $ 6,303.00  →  201 / 201   ← acá se marcó la casilla
+       *
+       * No es una proveedora: es una **persona de ruta**. Entrega dinero y recibe dinero, y cada
+       * cosa va a su cuenta. Una regla `beneficiario → una cuenta` **no puede ser cierta para
+       * ella**, y la que se creó iba a proponer `201/201` a todos sus gastos siguientes — incluido
+       * el próximo que debiera ser `999`.
+       *
+       * ⭐ El diseño YA lo sabía y está escrito en `resolverCuentas`: *"Sólo se declara regla donde
+       * el beneficiario DETERMINA la cuenta; los multi-cuenta se quedan en manual a propósito"*.
+       * Lo que faltaba era que alguien lo COMPROBARA — la UI ofrecía la casilla con sólo tener
+       * gasto + beneficiario + par completo.
+       *
+       * ⚠️ El freno va en el SERVIDOR y no sólo en la pantalla: la pantalla es un cliente entre
+       * varios, y una regla mal declarada no se nota hasta que ya clasificó mal un mes de gastos.
+       *
+       * ⚠️ Mira el LIBRO (lo que de verdad se contabilizó), no el historial de gastos del ERP: lo
+       * que importa es si NOSOTROS ya mandamos a ese beneficiario a otra cuenta. Y cuenta los
+       * ingresos también, aunque la regla sólo aplique a egresos — que el mismo nombre aparezca
+       * con cuenta de ingreso es justo la señal de que no es un proveedor.
+       */
+      const otras = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, beneficiario })
+        .whereNull('deleted_at')
+        .whereNot('estado', 'cancelado')
+        .whereNotNull('kepler_cuenta')
+        .where((b: any) => b.whereNot('kepler_cuenta', cuenta).orWhereNot('kepler_concepto', concepto))
+        .distinct('kepler_cuenta', 'kepler_concepto', 'tipo');
+      if (otras.length) {
+        const lista = otras
+          .map((o: any) => `${o.kepler_cuenta}/${o.kepler_concepto} (${o.tipo})`)
+          .join(', ');
+        throw new BadRequestException(
+          `«${beneficiario}» ya se contabilizó a ${lista}, así que su cuenta NO la determina el `
+          + 'beneficiario: una regla fija le pondría esa cuenta a todo lo que venga después. '
+          + 'Este movimiento se guarda igual; lo que no entra es la regla.',
+        );
+      }
 
       const ya = await trx('finance.caja_classify_rules')
         .where({ tenant_id: tenantId, match_beneficiario: patron, active: true })
@@ -951,7 +1007,52 @@ export class CashLedgerService {
         if (q.tipo) x = x.where('tipo', q.tipo);
         if (q.caja) x = x.where('clave_banco', q.caja);
         if (q.sucursal) x = x.where('sucursal', q.sucursal);
-        return x;
+        /**
+         * ⛔⛔ `[CG.85]` **LO YA CAPTURADO DESDE LA OTRA FUENTE SEGUÍA EN LA COLA.**
+         *
+         * Edgar: *"los movimientos ya completos no aparezcan más, para evitar confusiones"*.
+         *
+         * La vista ya excluye lo capturado **por su propia identidad** (`origen_ref`), y
+         * `caosCapturables` hace lo mismo del lado del cajero. Lo que ninguna hacía es excluir lo
+         * capturado por **LA OTRA**: son dos fuentes del MISMO efectivo, y el código lo decía con
+         * todas las letras — *"NO se deduplica contra Kepler por fila: la medición dio 0% de llave
+         * común (bulto vs individual)"*.
+         *
+         * ⭐ **Esa premisa se cayó, y con casos reales.** Medido en prod el 2026-10-12: TRES
+         * documentos de Kepler capturados desde CAOS seguían ofreciéndose como pendientes.
+         *
+         *     X-D-26 0023030  $ 2,000.00  ya es CG-2026-00005   (dif 0.00)
+         *     U-A-5  0000075  $21,790.00  ya es CI-2026-00002   (dif 0.00)
+         *     U-A-5  0000076  $16,724.95  ya es CI-2026-00001   (dif 0.05)
+         *
+         * El siguiente que mirara la cola los capturaba de nuevo. Verificado contra prod: la cola
+         * pasa de 2,029 a 2,026 y desaparecen EXACTAMENTE esos tres.
+         *
+         * ⭐ La llave que faltaba **no es el importe**: es lo que la PERSONA declaró al capturar.
+         * Al elegir el documento, la glosa queda `"<doc_tipo> <folio> · <beneficiario>"` — una
+         * declaración humana, no un pareo. Por eso NO hay tolerancia de monto ni ventana de fecha:
+         * casar por importe exigiría control de placebo y **fallaría justo en estos casos** (CAOS
+         * no cuenta monedas: los $0.05 de acá y los $20 del día anterior son diferencias reales).
+         *
+         * ⚠️ Lo que NO hace, a propósito: esconder lo que se PARECE. Si nadie declaró el
+         * documento, la fila sigue visible. Ocultar por semejanza sería peor que mostrar dos veces
+         * — un duplicado se ve y se corrige; un movimiento escondido no.
+         *
+         * ⚠️ Va ACÁ y no en la consulta de la lista para que la compartan las CUATRO: la lista, su
+         * total y los dos conteos de fuera de ventana. Sólo en la lista, el subtítulo contaría
+         * pendientes que la lista ya no muestra — y este archivo ya declara que «un total que no
+         * corresponde a lo filtrado es otra forma de mentir, más difícil de ver».
+         *
+         * ⚠️ Límite abierto: mientras declarar el documento desde CAOS sea opcional, lo que no se
+         * declare vuelve a duplicarse. Eso se cierra haciéndolo obligatorio, y va aparte.
+         */
+        return x.whereNotExists((sub: any) => sub
+          .select(trx.raw('1'))
+          .from('finance.cash_ledger as yac')
+          .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
+             AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
+             AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                                || ' ' || v_caja_movimientos_pendientes.folio || '%'`));
       };
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
@@ -984,6 +1085,7 @@ export class CashLedgerService {
       let qb = filtros(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>=', desde)
         .where('fecha_valor', '<=', hoy);
+
       if (q.to) qb = qb.where('fecha_valor', '<=', q.to);
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
@@ -1533,6 +1635,43 @@ export class CashLedgerService {
           return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: cs[0].concepto,
             kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
         }
+        /**
+         * ⛔⛔ `[CS.3.8]` **EXIGIR UN SOLO CONCEPTO DEJABA LA COLA EN CERO PARA SIEMPRE.**
+         *
+         * Edgar, 2026-10-12, con la pantalla a la vista: *"0 de 6 se confirman de un clic"*, las
+         * seis marcadas `falta elegir concepto`. No era un caso raro: es TODA la cobranza.
+         *
+         * La cuenta ya estaba resuelta y es AUTORITATIVA — sale de la póliza del propio documento
+         * (`115 ABONO A CLIENTES`). Lo único que faltaba era elegir 1 concepto entre 2, y la cuenta
+         * `115` tiene exactamente DOS en las nueve sucursales:
+         *
+         *     071  ABONO A CLIENTES     ← un cobro es un abono
+         *     171  CARGO A CLIENTES.    ← lo contrario
+         *
+         * Con `cs.length === 1` eso no resuelve NUNCA. Y no es ambiguo: medido sobre la póliza
+         * real, **UA0501 / cuenta 115 = 25,393 líneas, 100.00% ABONO, $462,745,461.86**.
+         *
+         * ⭐ Con PLACEBO, que es lo que lo vuelve regla y no corazonada: la MISMA cuenta `115` en
+         * otros doctypes (`UD0501`/`UD1301`/`UD1201`) es **100% CARGO**. El sentido NO es una
+         * propiedad de la cuenta — lo decide la naturaleza del documento.
+         *
+         * ⭐⭐ Y el dato que lo resuelve ya venía en la mano: **el documento NOMBRA su cuenta**
+         * (`contra_cuenta_nombre`), y ese nombre coincide exactamente con el de UNO de los dos
+         * conceptos. Medido sobre los pendientes vivos: 12 pares (6 sucursales × 2 conceptos),
+         * **coincide 1 por sucursal, 6 de 12**. No se inventa el concepto: se lee el que Kepler
+         * ya nombró.
+         *
+         * ⚠️ Se limita sola: si coinciden CERO o DOS, no resuelve y la fila sigue cayendo a la
+         * elección acotada de abajo. Nunca elige «el primero» ni «el más usado» — o hay una sola
+         * coincidencia exacta, o no hay regla.
+         */
+        const sinPunto = (x: unknown) => String(x ?? '').toUpperCase().trim().replace(/\.+$/, '');
+        const nomDoc = sinPunto(cc.contra_cuenta_nombre);
+        const porNombre = nomDoc ? cs.filter((x) => sinPunto(x.concepto_nombre) === nomDoc) : [];
+        if (porNombre.length === 1) {
+          return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: porNombre[0].concepto,
+            kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
+        }
         // La CUENTA es autoritativa (del documento) → se bloquea. El CONCEPTO es una elección
         // acotada a esa cuenta (o manual, si la cuenta no está en el catálogo de conceptos). NO es
         // "faltan datos": el dato de Kepler ya está, sólo se afina el concepto.
@@ -1623,6 +1762,53 @@ export class CashLedgerService {
       const k = `${f.sucursal}|${f.cuenta}`;
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push({ concepto: f.concepto, concepto_nombre: f.concepto_nombre });
+    }
+
+    /**
+     * ⭐⭐ `[CS.3.11]` **EL CATÁLOGO DE ALGUNAS PLAZAS VIENE RECORTADO, Y ESO FRENABA EL 71% DE LO
+     * QUE FALTABA.**
+     *
+     * Edgar: *"debemos casar un 100% las cuentas, concepto y los movimientos de CAOS"*. Medido
+     * sobre los 2,051 pendientes de 45 días, el resolvedor llegaba al **85.2%** y de los 304 que
+     * faltaban, **216 eran UNA sola cuenta: la `201`**, que el documento sí trae pero que no
+     * aparece en el catálogo de conceptos de su plaza.
+     *
+     * La causa no es la cuenta: es el catálogo. `kepler_ods.kdco` llega **incompleto en 01, 06, 07
+     * y 08** —126 a 128 cuentas contra 158 a 168 en las demás—. Las plazas que migraron después
+     * nunca recibieron el catálogo entero, y el resolvedor leía la ausencia como "no se puede
+     * saber" cuando el dato está, en las otras ocho sucursales.
+     *
+     * ⭐ El respaldo exige **UNANIMIDAD POR CÓDIGO**: sólo se usa el concepto de otras plazas
+     * cuando la cuenta tiene **un único código** en todas donde existe. Medido: **97 cuentas lo
+     * cumplen y 69 NO** (tienen de 2 a 6 códigos distintos) — así que copiar entre plazas a ciegas
+     * habría clasificado mal 69 cuentas. Las que no son unánimes se quedan en manual, a propósito.
+     *
+     * ⚠️ La unanimidad se mide por **CÓDIGO, no por nombre**. La `201` tiene **un código (`201`) y
+     * DOS nombres**: la sucursal 03 lo escribe `PASIVO A PROVEDORES`, con un typo. Exigir que el
+     * nombre coincida habría rechazado justo el caso que resuelve los 216 — un error de dedo en una
+     * plaza no cambia qué concepto es.
+     *
+     * ⚠️ Y se declara de dónde salió: el concepto llega con `de_otra_sucursal`, para que la
+     * pantalla pueda decirlo y nadie lo lea como si viniera de la póliza de su propia plaza.
+     */
+    const huerfanos = pares.filter((p) => !m.has(`${p.sucursal}|${p.cuenta}`));
+    if (huerfanos.length) {
+      const cuentas = [...new Set(huerfanos.map((p) => p.cuenta))];
+      const otras = await trx('analytics.v_kepler_conceptos')
+        .where('tenant_id', tenantId)
+        .whereIn('cuenta', cuentas)
+        .groupBy('cuenta')
+        .select('cuenta')
+        .count({ codigos: trx.raw('DISTINCT concepto') })
+        .select(trx.raw('min(concepto) AS concepto'), trx.raw('min(concepto_nombre) AS concepto_nombre'));
+      const unanime = new Map<string, { concepto: string; concepto_nombre: string | null }>();
+      for (const o of otras as any[]) {
+        if (Number(o.codigos) === 1) unanime.set(o.cuenta, { concepto: o.concepto, concepto_nombre: o.concepto_nombre });
+      }
+      for (const p of huerfanos) {
+        const u = unanime.get(p.cuenta);
+        if (u) m.set(`${p.sucursal}|${p.cuenta}`, [{ ...u, de_otra_sucursal: true } as any]);
+      }
     }
     return m;
   }
@@ -1848,6 +2034,11 @@ export class CashLedgerService {
     return this.tk.run(async (trx) => {
       const base = () => {
         let qb = trx('finance.cash_ledger').where('tenant_id', tenantId).whereNull('deleted_at');
+        // `[CG.86]` «Los míos»: por `created_by` (el id del token), NUNCA por el nombre. El
+        // buscador ya miraba `created_by_username`, pero un nombre no es una identidad — en esta
+        // base hay dos «Guillermo», y un apellido mal tecleado devuelve el libro de otra persona.
+        // Va en `base()` para que los KPIs se calculen sobre lo MISMO que la lista.
+        if (q.solo_de) qb = qb.where('created_by', q.solo_de);
         if (q.from) qb = qb.where('fecha', '>=', q.from);
         if (q.to) qb = qb.where('fecha', '<=', q.to);
         if (q.tipo) qb = qb.where('tipo', q.tipo);

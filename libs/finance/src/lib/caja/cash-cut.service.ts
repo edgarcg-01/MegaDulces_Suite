@@ -20,6 +20,37 @@ import {
  *
  * *Un arreglo que vive sólo del lado de la escritura no es un arreglo: es un dato que nadie usa.*
  */
+/**
+ * ⭐⭐ `[CG.98]` **LA CAJA GENERAL ES UNA SOLA, NO UNA POR PLAZA.**
+ *
+ * Edgar, al ver que el cuadre no cerraba: *"resuélvelo entonces"*.
+ *
+ * El arqueo filtraba por `sucursal`, y eso suponía un cajón por plaza. Medido en prod el
+ * 2026-10-12, es falso:
+ *
+ *   · las **10 nóminas de hoy son de CUATRO sucursales** (05, 06, 07, 08) y las cuatro usan la
+ *     caja `0011`;
+ *   · suman **$32,237.00** contra **$32,220.00** dispensados por el cajero de OFICINAS — $17 de
+ *     morralla. Una sola bóveda pagó nóminas de cuatro plazas;
+ *   · y en TODO el libro (27 movimientos, 6 sucursales) **no hay más caja que `0011`**.
+ *
+ * O sea: `cash_ledger.sucursal` es la plaza del DOCUMENTO contable, no dónde estaba el efectivo.
+ * Filtrar por ella partía un cajón físico en seis pedazos y ninguno cuadraba: el efectivo salía
+ * de un pedazo y el gasto se anotaba en otro.
+ *
+ * El cajero vive en OFICINAS (`00`), así que el corte de esa sucursal es el de LA caja y ve todos
+ * los movimientos. Cualquier otra plaza sigue acotada a lo suyo — el día que una tenga su propio
+ * cajón, esto no la va a mezclar con el de oficinas.
+ *
+ * ⚠️ Si algún día aparece una segunda caja en el libro (otra `clave_banco`), esto deja de alcanzar
+ * y hay que acotar por caja de verdad. Hoy no existe: medido, 27 de 27 movimientos son `0011` o
+ * captura manual desde esta misma pantalla.
+ */
+const SUCURSAL_DEL_CAJERO = '00';
+function aplicarAlcanceCaja(qb: any, sucursal: string): any {
+  return sucursal === SUCURSAL_DEL_CAJERO ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
+}
+
 function fondo(c: { fondo_inicial?: number | string | null } | null | undefined): number | null {
   const v = c?.fondo_inicial;
   return v === null || v === undefined ? null : Number(v);
@@ -109,10 +140,28 @@ export class CashCutService {
    */
   private async movimientosSueltos(trx: any, tenantId: string, sucursal: string): Promise<MovimientoDelCorte[]> {
     const rows = await trx('finance.cash_ledger')
-      .where({ tenant_id: tenantId, sucursal })
+      .where({ tenant_id: tenantId })
+      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
-      .select('tipo', 'monto', 'estado', 'origen_tipo');
-    return rows.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      .select('tipo', 'monto', 'estado', 'origen_tipo')
+      /**
+       * `[CG.95]` Cuánto de cada movimiento nunca pasó por el cajón. DOS vías, y hacen falta las
+       * dos — medido: con sólo la segunda se perdían $21,790 de un ingreso cuyo origen entero es
+       * el cajero, y con sólo la primera se perdían los billetes de los cobros de ruta.
+       *
+       *   (a) el movimiento ENTERO es un movimiento del cajero (`origen_tipo='caos'`);
+       *   (b) parte de él se enlazó a un depósito/retiro del cajero (`caos_cash_links`).
+       *
+       * ⚠️ `monto_enlazado` es lo que contó la MÁQUINA (sólo billetes). La morralla queda afuera
+       * y por eso llega al cajón — que es exactamente la distinción que esto viene a hacer.
+       */
+      .select(trx.raw(`CASE WHEN origen_tipo = 'caos' THEN monto ELSE coalesce((
+           SELECT sum(k.monto_enlazado) FROM finance.caos_cash_links k
+            WHERE k.cash_ledger_id = finance.cash_ledger.id AND k.deleted_at IS NULL), 0)
+         END AS en_boveda`));
+    return rows.map((r: any) => ({
+      ...r, anclado: r.origen_tipo === 'cobro', en_boveda: Number(r.en_boveda ?? 0),
+    }));
   }
 
   /**
@@ -176,8 +225,46 @@ export class CashCutService {
        * de "se contó y estaba vacía", y el CHECK de la tabla no deja guardar un monto sin decir
        * de dónde salió.
        */
-      const monto = input.fondo_inicial === undefined ? null : input.fondo_inicial;
-      const origen = monto === null ? 'sin_medir' : (input.fondo_origen ?? 'contado');
+      let monto = input.fondo_inicial === undefined ? null : input.fondo_inicial;
+      let origen = monto === null ? 'sin_medir' : (input.fondo_origen ?? 'contado');
+
+      /**
+       * ⭐ `[CG.90]` **EL FONDO DE HOY ES LO QUE SE CONTÓ AYER. No hace falta preguntarlo.**
+       *
+       * Edgar, 2026-10-12, con el diálogo a la vista: *"aquí ya tenemos fondo inicial, ya no es
+       * necesario que lo pidamos"*. Tiene razón, y el diseño ya lo sabía: el CHECK de esta misma
+       * tabla acepta `fondo_origen = 'cierre_anterior'` desde que se creó — **nadie lo cableó**.
+       * El valor estaba previsto y el camino para llenarlo no existía.
+       *
+       * El efectivo no se evapora de un día para el otro: lo que quedó contado al sellar la
+       * jornada anterior ES con lo que arranca la siguiente. Pedirlo de nuevo es pedirle a una
+       * persona que teclee un número que el sistema ya tiene — y cada vez que se teclea se puede
+       * teclear mal, justo en el campo del que cuelga todo el arqueo.
+       *
+       * ⚠️ Sólo hereda de un corte **CERRADO o AUTORIZADO** y con `contado` real. Un borrador no
+       * sirve: su conteo todavía no pasó por el sello, y heredar de algo sin sellar es propagar
+       * una cifra que nadie confirmó.
+       *
+       * ⚠️ Y sigue sin inventar: si no hay corte anterior —hoy en prod hay **CERO**, medido— el
+       * fondo queda `null` con `fondo_origen='sin_medir'`, que es un hecho distinto de "arrancó en
+       * cero". Ese `?? 0` ya costó una vez un faltante y un sobrante del mismo tamaño todos los
+       * días (ver `[CG.39]` arriba). Acá no se repone.
+       *
+       * ⚠️ Lo explícito gana: si quien abre TECLEA un fondo, se respeta el suyo y se marca
+       * `'contado'`. La herencia sólo llena el hueco.
+       */
+      if (monto === null) {
+        const prev = await trx('finance.cash_ledger_cuts')
+          .where({ tenant_id: tenantId, sucursal: input.sucursal })
+          .whereIn('estado', ['cerrado', 'autorizado'])
+          .whereNotNull('contado')
+          .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
+          .first('folio', 'contado', 'fecha');
+        if (prev && Number(prev.contado) >= 0) {
+          monto = Number(prev.contado);
+          origen = 'cierre_anterior';
+        }
+      }
 
       const folio = await this.nextFolio(trx, tenantId, Number(String(input.fecha).slice(0, 4)));
       const [c] = await trx('finance.cash_ledger_cuts').insert({
@@ -244,8 +331,11 @@ export class CashCutService {
       }
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
+      // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
       const totales = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -271,10 +361,13 @@ export class CashCutService {
       if (!c) throw new NotFoundException('Corte no encontrado');
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
+      // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
       const previos = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
       const totalesPrevios = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
       });
 
@@ -292,7 +385,7 @@ export class CashCutService {
       });
 
       const totales = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -348,9 +441,12 @@ export class CashCutService {
       // esperado venía de Kepler. Es el dato que distingue un corte auditable de uno que sólo
       // repite lo que el capturista tecleó (regla M4).
       const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      // `[CG.96]` Las dos piernas del cajero desde que abrió ESTE corte. Sin esto el esperado
+      // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
 
       const t = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
 
@@ -487,7 +583,7 @@ export class CashCutService {
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
       const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.created_at ?? null);
-      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs });
+      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
       return {
         sucursal,
         corte_abierto: abierto
@@ -556,9 +652,43 @@ export class CashCutService {
         fecha || (await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text d`)).rows[0].d,
       ).slice(0, 10);
 
-      // ── 1. Caja general: lo que NUESTRO libro registró en esa jornada ────────────────────
+      /**
+       * ── 1. Caja general: lo que NUESTRO libro registró en esa jornada ────────────────────
+       *
+       * ⛔⛔ `[CG.82]` **ACÁ SE FILTRABA POR `fecha`, Y `fecha` ES LA DEL DOCUMENTO DE KEPLER,
+       * NO EL DÍA EN QUE SE REGISTRÓ EL EFECTIVO.** Lo encontró Edgar al pedir que se verificara
+       * que el cierre muestra *"los ingresos y egresos que se van registrando"*. No los mostraba.
+       *
+       * La `fecha` de un movimiento nace del documento: la bandeja propone
+       * `fecha: ymd(r.fecha_valor)` (`cash-ledger.service.ts`), y el ERP captura con una **mediana
+       * de 3 días de rezago** — cifra que este mismo archivo ya publicaba en `limites`. O sea que
+       * lo normal es registrar hoy algo fechado hace tres días, y eso caía en una jornada que ya
+       * se cerró.
+       *
+       * Medido en prod el 2026-10-12, sobre las 5 filas vivas de `finance.cash_ledger`:
+       *   · **2 de 5** tienen fecha de documento distinta del día en que se registraron;
+       *   · una está fechada **2026-12-10** y se registró el **2026-09-28** — ese gasto de
+       *     $1,060 aparecía en el cierre de un día de DICIEMBRE y en ninguno antes.
+       *
+       * ⭐ Y lo que vuelve esto inequívoco, no una preferencia: **el otro lado del cuadre ya está
+       * en el reloj físico.** El cajero se agrupa por `caos_cash_movements.accounting_date`, que
+       * en **455 de 456** movimientos de 60 días coincide con el día en que el efectivo se movió.
+       * Un cuadre cuyos dos lados usan relojes distintos no cuadra nada: compara el dinero que
+       * salió hoy del cajero contra los documentos que están fechados hoy, que son otra cosa.
+       *
+       * Un arqueo responde "¿qué se movió en el cajón hoy?". El efectivo sale cuando la persona lo
+       * entrega, no cuando Kepler fecha el papel.
+       *
+       * ⚠️ El rango va con `>=` / `<` sobre `created_at` y NO con un cast a `::date`: envolver la
+       * columna en una expresión la saca de cualquier índice. Es el mismo defecto que en `[LC.9]`
+       * convirtió un `to_char(fecha)` en un seq scan de 167k filas.
+       */
       const [libro] = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal, fecha: dia })
+        .where({ tenant_id: tenantId })
+        // `[CG.98]` La caja general es UNA: en oficinas se ven todas las plazas.
+        .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+        .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereNull('deleted_at')
         .select(
           trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado')::int AS movimientos`),
@@ -566,6 +696,12 @@ export class CashCutService {
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='ingreso'),0)::numeric AS ingresos`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='deposito'),0)::numeric AS depositos`),
+          // `[CG.82]` Cuántos de los de HOY traen el papel fechado otro día. No es un error ni algo
+          // que alguien pueda arreglar hoy: es el rezago del ERP, y se publica para que nadie lea
+          // esta jornada como si fuera un corte contable. Se cuenta, no se esconde.
+          trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado'
+                     AND fecha <> (created_at AT TIME ZONE 'America/Mexico_City')::date)::int
+                   AS fechados_otro_dia`),
         );
       const ingresos = Number(libro?.ingresos ?? 0);
       const gastos = Number(libro?.gastos ?? 0);
@@ -674,13 +810,89 @@ export class CashCutService {
         no_medido.push('Todavía no rendiste cuentas de esta jornada: esto es el movimiento REGISTRADO, no un arqueo firmado contra un conteo físico.');
       }
       limites.push('La cola de Kepler no entra en este cuadre: el ERP tarda una mediana de 3 días en capturar el documento, así que el efectivo de hoy todavía no está allá.');
+      // `[CG.82]` La jornada se arma por el día en que se REGISTRÓ el efectivo, no por la fecha del
+      // documento: es el único reloj en el que el otro lado del cuadre (el cajero) también está.
+      // Se dice sólo cuando hay alguno, para que no sea un aviso permanente que nadie lee.
+      const fueraDeFecha = Number(libro?.fechados_otro_dia ?? 0);
+      if (fueraDeFecha > 0) {
+        limites.push(`Esta jornada es lo REGISTRADO hoy:  de esos movimientos traen el documento de Kepler fechado otro día. El efectivo se movió hoy; el papel es de antes.`);
+      }
       if (cajero && (cajero['tipos_desconocidos'] as unknown[]).length > 0) {
         no_medido.push('El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.');
       }
 
+      /**
+       * ⭐ `[CG.91]` **EL HISTORIAL DE LO QUE LLEVO HECHO. Lo pidió Edgar dos veces.**
+       *
+       * La primera: *"necesito que agreguemos un historial de movimientos para que el usuario vea
+       * qué movimientos ya hizo"*. Lo que se entregó fue un filtro («los míos») y un reporte del
+       * día en texto — **ninguna de las dos es la lista**. La segunda, con la pantalla a la vista:
+       * *"ni siquiera me muestra un historial de lo que llevo hecho, como te lo pedí"*.
+       *
+       * Tenía razón: este bloque decía **"7 movimiento(s) registrado(s)"** y ahí terminaba. Un
+       * contador no es un historial. Quien captura necesita ver QUÉ capturó —para reconocer lo
+       * suyo, para detectar lo que falta y para no capturar dos veces lo mismo—, y el total de
+       * arriba no se puede revisar contra nada si no están los renglones que lo forman.
+       *
+       * ⚠️ Mismo reloj que el resto de la jornada (`created_at` físico, `[CG.82]`), no la fecha del
+       * documento: si una mitad del cuadro se agrupa por un reloj y la lista por otro, los
+       * renglones no suman el total que tienen arriba y el cuadro deja de poder revisarse.
+       *
+       * ⚠️ Los cancelados VAN, marcados. Esconderlos haría que la lista no explique su propio
+       * contador —que los cuenta aparte— y que un error de captura desaparezca de la vista justo
+       * cuando hay que explicarlo.
+       */
+      const movimientosDelDia = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId })
+        // `[CG.98]` Mismo alcance que el cuadro de arriba: si la lista mostrara otro universo que
+        // el total, el pie no sumaría lo que el cuadro dice y nada se podría revisar.
+        .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+        .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        .whereNull('deleted_at')
+        .orderBy('created_at', 'desc')
+        .limit(200)
+        .select(
+          'id', 'folio', 'tipo', 'monto', 'beneficiario', 'glosa', 'estado',
+          'kepler_cuenta', 'kepler_concepto', 'kepler_concepto_nombre',
+          'created_by_username', 'origen_tipo',
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS hora`),
+          /**
+           * ⛔⛔ `[CG.91.2]` **ACÁ SE PARTÍA LA GLOSA, Y LA GLOSA ES TEXTO LIBRE.**
+           *
+           * Era `split_part(glosa, ' · ', 1)`. Edgar lo vio al primer vistazo: la columna
+           * «Documento» decía `X-D-26 0000161` en SEIS filas seguidas, cinco de ellas depósitos
+           * de ruta que no tienen documento de Kepler.
+           *
+           * Y la columna no mentía: el dato está mal en la base. Los 5 ingresos de ruta quedaron
+           * con `glosa = 'X-D-26 0000161 · GUILLERMO LOPEZ GUTIERREZ'` —un gasto ajeno, los cinco
+           * iguales— porque el campo «Qué pasó» era editable y venía arrastrado de la captura
+           * anterior. `[CG.94]` cierra esa puerta; esto arregla lo otro: **derivar un dato duro de
+           * un campo que una persona puede escribir mal es construir sobre arena.**
+           *
+           * El `origen_ref` sí es duro: lo arma el servidor al anclar, y el índice único lo
+           * protege. `07|X-D-26|0000091|0011` → `X-D-26 0000091`; `AST700-19758|1564` → el retiro
+           * del cajero. Si no hay origen, no hay documento — y se dice, no se inventa uno.
+           */
+          trx.raw(`CASE
+                     WHEN origen_tipo = 'caos' THEN 'CAOS #' || split_part(origen_ref, '|', 2)
+                     WHEN origen_ref IS NOT NULL AND split_part(origen_ref, '|', 3) <> ''
+                       THEN split_part(origen_ref, '|', 2) || ' ' || split_part(origen_ref, '|', 3)
+                     ELSE NULL
+                   END AS documento`),
+        );
+
       return {
         fecha: dia,
         sucursal,
+        // `[CG.91]` La lista, no sólo el conteo.
+        movimientos_del_dia: movimientosDelDia.map((m: any) => ({
+          id: m.id, folio: m.folio, hora: m.hora, tipo: m.tipo,
+          monto: Number(m.monto), beneficiario: m.beneficiario,
+          documento: m.documento || null, concepto: m.kepler_concepto_nombre ?? null,
+          cuenta: m.kepler_cuenta ?? null, estado: m.estado,
+          origen: m.origen_tipo ?? null, quien: m.created_by_username ?? null,
+        })),
         caja_general: {
           movimientos: Number(libro?.movimientos ?? 0),
           cancelados: Number(libro?.cancelados ?? 0),
@@ -688,10 +900,47 @@ export class CashCutService {
           // Lo que el día le dejó a la caja chica según el libro. Sin fondo inicial: eso compone el
           // `esperado` del corte y vive gateado en `saldo()` (CG.19, arqueo ciego).
           neto: Number((ingresos - gastos - depositos).toFixed(2)),
+          // `[CG.82]` De los de hoy, cuántos traen el papel fechado otro día (el rezago del ERP).
+          // Viaja como NÚMERO y no sólo como frase: la frase se lee una vez, el número se compara.
+          fechados_otro_dia: fueraDeFecha,
+          /**
+           * ⭐⭐ `[CG.97]` **CUÁNTO DE ESTE MOVIMIENTO QUEDÓ DE VERDAD EN EL CAJÓN.**
+           *
+           * Edgar, mirando este mismo bloque: *"ponemos que a caja general entró 103 mil, pero eso
+           * no ingresó; ingresó sólo monedas y lo de CAOS se queda en CAOS"*.
+           *
+           * `neto` es correcto como MOVIMIENTO DEL DÍA —el dinero entró y se registró— pero se
+           * lee como «esto hay en la caja», y no lo hay: de los $111,845 de hoy, la máquina se
+           * tragó $111,750 en billetes. Al cajón llegaron $95 de morralla.
+           *
+           * El modelo es el que ya declara `conciliacionCajero`: **cajas separadas**. Un depósito
+           * al cajero saca efectivo del cajón; una dispensación lo mete. Las dos piernas las mide
+           * la MÁQUINA, que es el testigo duro — no hace falta enlazar nada.
+           *
+           *     en_el_cajon = ingresos − gastos − depósitos + dispensado − depositado
+           *
+           * ⚠️ `null` cuando no hay cajero (cualquier sucursal que no sea OFICINAS, o el feed
+           * caído). Ahí no se puede repartir, y un cero diría «nada quedó en el cajón», que es
+           * una afirmación distinta de «no se puede saber».
+           */
+          en_el_cajon: cajero
+            ? Number((ingresos - gastos - depositos
+              + Number(cajero['dispensado'] ?? 0) - Number(cajero['depositado'] ?? 0)).toFixed(2))
+            : null,
+          /** `[CG.97]` Lo que de la jornada se fue a la bóveda, neto. Positivo = la bóveda creció. */
+          a_la_boveda: cajero
+            ? Number((Number(cajero['depositado'] ?? 0) - Number(cajero['dispensado'] ?? 0)).toFixed(2))
+            : null,
         },
         cajero,
         corte_abierto: corte
-          ? { id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10) }
+          ? {
+            id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10),
+            // `[CG.90.1]` Si el fondo se midió o no. La pantalla ofrece declararlo SOLO cuando
+            // falta; sin este campo el botón saldría siempre, incluso con el fondo ya puesto.
+            // ⚠️ `fondo()` devuelve `null` cuando no se midió — NO `0`, que sería "arrancó vacía".
+            fondo_inicial: fondo(corte), fondo_origen: corte.fondo_origen ?? null,
+          }
           : null,
         no_medido,
         limites,

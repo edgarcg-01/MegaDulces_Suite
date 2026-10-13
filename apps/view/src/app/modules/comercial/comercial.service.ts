@@ -4749,6 +4749,8 @@ export interface ObjetivoFila {
 export interface ObjetivoResultado {
   anio: number; mes: number;
   desde: string | null; hasta: string | null; cerrado: boolean;
+  /** `[RD.UI.1]` Hasta donde llega la FUENTE. `hasta` es el borde del mes, no la edad del dato. */
+  fuente_hasta: string | null;
   config: ObjetivoConfig;
   filas: ObjetivoFila[];
   huecos: string[];
@@ -4782,6 +4784,8 @@ export interface RouteProfitGasto {
   total: number;
   truncado: boolean;
   huecos: RouteProfitHueco[];
+  /** `[RD.UI.1]` Hasta donde llega el dato. Timestamps del servidor -- nunca el reloj del navegador. */
+  procedencia: { gasto_calculado_at: string | null; ultimo_movimiento: string | null };
 }
 
 export interface RouteProfitUnidad {
@@ -4805,4 +4809,6 @@ export interface RouteProfitFlota {
   unidades: RouteProfitUnidad[];
   rutas_sin_gps: string[];
   huecos: RouteProfitHueco[];
+  /** `[RD.UI.1]` Frescura del GPS: hasta cuando reporto el ultimo aparato, y cuantos siguen vivos. */
+  procedencia: { gps_hasta: string | null; aparatos_reportando: number };
 }

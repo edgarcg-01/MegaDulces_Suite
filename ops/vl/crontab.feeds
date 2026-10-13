@@ -30,6 +30,13 @@
 # Va cada minuto y no mas seguido a proposito: esa es la frescura real del ODS que lo alimenta.
 * * * * *   /app/ops/vl/run-feed.sh caja-mv   "node /app/database/importers/kepler/refresh-caja-matview.js --apply"
 
+# [CPA.0.2] El semaforo de cierre contable (/contabilidad/cierre). La consulta real del servicio
+# medía 889 ms contra la vista y mide 3 contra la matvista -- 296x, y el gate del proyecto son 500.
+# ⚠️ Cada 15 min y NO cada minuto, a proposito: sus fuentes son polizas mensuales y movimientos de
+# banco, y el veredicto cambia como mucho un par de veces al dia. Refrescar cada minuto seria pagar
+# el calculo 1,440 veces para publicar lo mismo -- el defecto que [CPU.3] midio en el carril de caja.
+*/15 * * * * /app/ops/vl/run-feed.sh cierre-mv "node /app/database/importers/contpaqi/refresh-cierre-matview.js --apply"
+
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
 # [CS.1 -> CG.80] CAOS (caja fuerte de efectivo, 192.168.0.110) -> analytics.caos_cash_movements.
@@ -133,6 +140,32 @@
 # y con `flock` propio (la etiqueta es distinta). Watermark y latido por separado, o cada
 # corrida pisaria el avance de la otra.
 1-56/5 * * * * /app/ops/vl/run-feed.sh contpaqi-cfdis-emit "node /app/database/importers/contpaqi/import-contpaqi-cfdis.js --rol emitidas --apply"
+
+# ── `[CP.8.45]` EL DERIVADOR DEL MAPA categoría(CB) → cuenta(ContPAQi) ────────────────────────
+#
+# ⛔ Por qué está acá y no corriendo a mano: se corrió UNA vez (feb-2026) y nunca más. Medido el
+#    2026-10-12 sobre 8 meses de egresos, los rechazos del puente por `sin_medir` pasaron de
+#    **21 en enero a 254 en julio y 231 en agosto** — cada categoría de CB que nació después de
+#    aquella ventana cae en `sin_medir` y se queda ahí. No es que no se pueda clasificar: nadie
+#    volvió a correrlo. *Un carril es script + agenda + latido.*
+#
+# ⭐ Escribe SÓLO la clasificación (`tipo_regla`), que [CP.8.18] midió que no hay que preguntarle
+#    al contador. Jamás toca `cuenta_gasto` ni `estado`: ésa es su firma, y una cuenta equivocada
+#    CUADRA IGUAL — no se ve hasta la balanza.
+#
+# ⚠️ Mensual y no diario a propósito: las categorías de CB no cambian a diario, y la ventana
+#    necesita meses cerrados para que el pareo tenga muestra. Día 3 para que el mes anterior ya
+#    esté posteado del lado de ContPAQi.
+#
+# ⚠️ Lee el SQL Server de ContPAQi (.35) → necesita `CONTPAQI_SQL_PASSWORD` en el entorno del
+#    contenedor, igual que los dos carriles de CFDIs de abajo.
+#
+#    Umbral en `CRON_JOBS`: `contpaqi_derivador` (warn 40 d · crit 70 d). Sin umbral `db-health`
+#    da verde incondicional y el latido es decoración.
+#
+#    Para ver qué haría sin escribir: el mismo comando SIN `--apply` (imprime y no toca nada).
+20 4 3 * * /app/ops/vl/run-feed.sh contpaqi-derivador "node /app/database/scripts/derivar-reglas-contpaqi.js --apply"
+
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
 15 * * * *  /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"

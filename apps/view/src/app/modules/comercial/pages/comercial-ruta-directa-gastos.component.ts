@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { TableModule } from 'primeng/table';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
   ComercialService, RouteProfitGasto, RouteProfitGastoRenglon, RouteProfitPeriodo,
@@ -31,7 +33,7 @@ import {
 @Component({
   selector: 'app-comercial-ruta-directa-gastos',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, LoadStateComponent, SegmentedComponent],
+  imports: [PageTabsComponent, FormsModule, LoadStateComponent, SegmentedComponent, FreshnessPillComponent, TableModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="gf">
@@ -55,6 +57,10 @@ import {
               }
             </select>
           </div>
+        }
+        @if (data(); as d) {
+          <app-freshness-pill measures="data" [since]="d.procedencia.gasto_calculado_at"
+                              label="Contabilidad" [staleAfterSec]="86400" />
         }
       </header>
 
@@ -96,9 +102,26 @@ import {
                          ariaLabel="Cómo se ordena" />
 
           <div class="gf-wrap dt-scope">
-            <table class="gf-table dt-stack">
-              <caption class="sr-only">Movimientos de gasto de la quincena</caption>
-              <thead>
+            <!--
+              [RD.UI.2] DESIGN O.4 -- era una <table> cruda. No es cambio de estetica: sin
+              p-table no hay pSelectableRow, y sin pSelectableRow esta tabla de hasta 400
+              renglones solo se recorre con la rueda. Ahora da flechas, Home/End y roving
+              tabindex (la tabla entera es UN stop del tabulador). La guarda global
+              installRowNavGuard, ya instalada en main.ts, impide que le robe las teclas a
+              los campos de la fila.
+              dt-stack se conserva: es la salida en pantalla angosta, y p-table no la trae.
+              min-width declarado = lo que la compuerta de tablas densas exige para saber
+              que hace en un telefono.
+            -->
+            <p-table [value]="visibles()" dataKey="id" size="small" [rowHover]="true"
+                     selectionMode="single" [(selection)]="filaSel"
+                     [scrollable]="true" scrollHeight="52vh"
+                     class="gf-table dt-stack surf-table surf-table--sticky"
+                     [tableStyle]="{ 'min-width': '60rem' }">
+              <ng-template #caption>
+                <span class="sr-only">Movimientos de gasto de la quincena</span>
+              </ng-template>
+              <ng-template #header>
                 <tr>
                   <th scope="col">Fecha</th>
                   <th scope="col">Plaza</th>
@@ -107,33 +130,31 @@ import {
                   <th scope="col">Documento</th>
                   <th scope="col" class="num">Importe</th>
                 </tr>
-              </thead>
-              <tbody>
-                @for (r of visibles(); track r.id) {
-                  <tr>
-                    <td role="cell" data-label="Fecha" class="mono dt-id">{{ dia(r.fecha) }}</td>
-                    <td role="cell" data-label="Plaza">
-                      {{ r.plaza || r.dpto_norm }}
-                      @if (!r.plaza) { <span class="gf-nd">sin rutas</span> }
-                    </td>
-                    <td role="cell" data-label="Concepto">
-                      {{ r.concepto_norm || '—' }}
-                      <span class="gf-fam">{{ etiquetaFamilia(r.familia) }}</span>
-                    </td>
-                    <td role="cell" data-label="Qué dice el comentario">
-                      @if (r.comentario) { {{ r.comentario }} }
-                      @else { <span class="gf-nd">sin comentario</span> }
-                    </td>
-                    <td role="cell" data-label="Documento" class="mono dim">
-                      {{ r.doc_tipo || '—' }} {{ r.doc_folio || '' }}
-                    </td>
-                    <td role="cell" data-label="Importe" class="num dt-num mono fuerte">
-                      {{ dinero(r.importe) }}
-                    </td>
-                  </tr>
-                }
-              </tbody>
-              <tfoot>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr [pSelectableRow]="r">
+                  <td data-label="Fecha" class="mono dt-id">{{ dia(r.fecha) }}</td>
+                  <td data-label="Plaza">
+                    {{ r.plaza || r.dpto_norm }}
+                    @if (!r.plaza) { <span class="gf-nd">sin rutas</span> }
+                  </td>
+                  <td data-label="Concepto">
+                    {{ r.concepto_norm || '—' }}
+                    <span class="gf-fam">{{ etiquetaFamilia(r.familia) }}</span>
+                  </td>
+                  <td data-label="Qué dice el comentario">
+                    @if (r.comentario) { {{ r.comentario }} }
+                    @else { <span class="gf-nd">sin comentario</span> }
+                  </td>
+                  <td data-label="Documento" class="mono dim">
+                    {{ r.doc_tipo || '—' }} {{ r.doc_folio || '' }}
+                  </td>
+                  <td data-label="Importe" class="num dt-num mono fuerte">
+                    {{ dinero(r.importe) }}
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #footer>
                 <tr>
                   <td colspan="5">
                     {{ visibles().length }} renglones a la vista
@@ -141,8 +162,8 @@ import {
                   </td>
                   <td class="num mono fuerte">{{ dinero(sumaVisible()) }}</td>
                 </tr>
-              </tfoot>
-            </table>
+              </ng-template>
+            </p-table>
           </div>
           <p class="gf-mini">
             ⛔ El total de arriba (<b>{{ dinero(d.total) }}</b>) es el de la <b>quincena entera</b>;
@@ -218,6 +239,12 @@ export class ComercialRutaDirectaGastosComponent {
 
   readonly cargando = signal(true);
   readonly data = signal<RouteProfitGasto | null>(null);
+  /**
+   * `[RD.UI.2]` D.7 -- PrimeNG entra como DISPOSITIVO DE ENTRADA del teclado, no como dueno
+   * del estado: esta pantalla no tiene detalle que abrir, asi que la seleccion solo marca la
+   * fila donde esta el cursor. Existe porque `pSelectableRow` la necesita para dar flechas.
+   */
+  filaSel: RouteProfitGastoRenglon | null = null;
   readonly periodos = signal<RouteProfitPeriodo[]>([]);
   readonly anio = signal(new Date().getFullYear());
   readonly periodNo = signal(1);
