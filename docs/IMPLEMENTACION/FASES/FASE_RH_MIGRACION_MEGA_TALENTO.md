@@ -372,8 +372,19 @@ que ese formulario necesita (`[RH.2.4]`).
   robots, límite de 2 envíos/10 s y 5/10 min por conexión, candado por teléfono contra envíos simultáneos.
   Duplicados (Revisiones) deja de contar procesos cerrados. **🧪 Backend** (`/api/hr/talent/public/jobs` y
   `/applications`; pruebas puras y contra la base, mutadas a rojo). ⚠️ El candado por teléfono con dos envíos
-  REALMENTE simultáneos no se probó (pide dos conexiones fuera de la transacción de prueba). **Falta:** la página
-  `/empleo` (formulario) y las ligas firmadas para la solicitud y las evaluaciones (D6).
+  REALMENTE simultáneos no se probó (pide dos conexiones fuera de la transacción de prueba).
+  **Reglas del formulario de Mega Talento (`candidate-form.ts`), traídas tal cual:** la ciudad es una del catálogo de
+  sucursales de Mega Talento (los 8 ids que ya guardan sus vacantes, sin los centros internos —corporativo, CEDIS,
+  bodegas—), la vacante tiene que aplicar en esa ciudad (sin sucursales = todas), «¿dónde te enteraste?» obligatorio
+  con la misma lista, y Chofer y Logística piden licencia de manejo. `source` = dónde se enteró (el `fuente` de Mega
+  Talento) y `origin` = por dónde entró (web/WhatsApp): eran dos preguntas y la segunda no sustituye a la primera.
+  **🧪 Página `/empleo`** (pública, sin guard, régimen de `/captura/:token`, agregada a la tabla de surfaces de
+  DESIGN.md): vacantes con ciudad y sueldo, «Postularme», formulario con el puesto filtrado por ciudad, CV y licencia
+  como foto o PDF, campo trampa oculto, y la respuesta del servidor tal cual. Vacantes (interna) gana las casillas
+  por sucursal. ⚠️ **El aviso de privacidad es un BORRADOR**: Mega Talento no tenía texto (su pie decía «Aviso de
+  privacidad» sin nada detrás). **No publicar `/empleo` en prod sin el texto oficial.** No incluye: captcha (Mega
+  Talento usaba uno; aquí hay campo trampa + límite), CV en dos fotos (frente/reverso) y la vista previa de la foto.
+  **Falta:** las ligas firmadas para la solicitud y las evaluaciones (D6).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
 

@@ -144,7 +144,8 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
             <dt>Correo</dt><dd>{{ f.email || '—' }}</dd>
             <dt>Plaza</dt><dd>{{ f.city_branch || '—' }}</dd>
             <dt>Puesto que busca</dt><dd>{{ f.position_interest || '—' }}</dd>
-            <dt>Llegó por</dt><dd>{{ f.source || '—' }}</dd>
+            <dt>Se enteró por</dt><dd>{{ f.source || '—' }}</dd>
+            <dt>Entró por</dt><dd>{{ f.origin === 'web' ? 'La página web' : f.origin === 'whatsapp' ? 'WhatsApp' : (f.origin || '—') }}</dd>
             <dt>Alta</dt><dd>{{ fechaHoraMx(f.created_at) }}</dd>
             <dt>Tiempo de traslado</dt><dd>{{ f.commute_time || '—' }}</dd>
             <dt>Disponibilidad</dt><dd>{{ f.availability || '—' }}</dd>
