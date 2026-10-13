@@ -52,11 +52,14 @@ suite('[RH.2.4] bolsa de trabajo contra la base', () => {
         const [cajera] = await trx('talent.job_postings').insert({ tenant_id: TENANT, name: `Cajera ${sello}`, extra: JSON.stringify({ interno: 1 }) }).returning('id');
         const [almacen] = await trx('talent.job_postings').insert({ tenant_id: TENANT, name: `Almacenista ${sello}` }).returning('id');
         const [cerrada] = await trx('talent.job_postings').insert({ tenant_id: TENANT, name: `Vieja ${sello}`, is_active: false }).returning('id');
+        // Sólo en Morelia, y una de Chofer (pide licencia).
+        const [morelia] = await trx('talent.job_postings').insert({ tenant_id: TENANT, name: `Sólo Morelia ${sello}`, branch_codes: ['morelia-figaredo'] }).returning('id');
+        const [chofer] = await trx('talent.job_postings').insert({ tenant_id: TENANT, name: 'Chofer' }).returning('id');
         const PDF = `data:application/pdf;base64,${Buffer.from('%PDF-1.7\n' + ' '.repeat(40)).toString('base64')}`;
         const tel = `44${String(sello).slice(-8)}`;
         const base = (o: Record<string, unknown> = {}) => ({
           full_name: 'Ana Prueba López', phone: tel, city_branch: 'Zamora', job_posting_id: cajera.id ?? cajera,
-          cv_base64: PDF, cv_file_name: 'cv.pdf', privacy_accepted: true, ...o,
+          heard_from: 'Facebook / Redes Sociales', cv_base64: PDF, cv_file_name: 'cv.pdf', privacy_accepted: true, ...o,
         });
         const cuantos = async () => Number((await trx(C).where({ phone_key: tel }).count('* as n'))[0]['n']);
 
@@ -74,6 +77,11 @@ suite('[RH.2.4] bolsa de trabajo contra la base', () => {
           await fallo(() => svc.postularWeb(base({ cv_base64: '' }) as never)),
           await fallo(() => svc.postularWeb(base({ cv_base64: `data:image/png;base64,${Buffer.from('<html>x</html>').toString('base64')}` }) as never)),
           await fallo(() => svc.postularWeb(base({ job_posting_id: cerrada.id ?? cerrada }) as never)),
+          await fallo(() => svc.postularWeb(base({ city_branch: 'Guadalajara' }) as never)),            // fuera del catálogo
+          await fallo(() => svc.postularWeb(base({ heard_from: '' }) as never)),                          // ¿dónde te enteraste?
+          await fallo(() => svc.postularWeb(base({ heard_from: 'TikTok' }) as never)),                    // fuera de la lista
+          await fallo(() => svc.postularWeb(base({ job_posting_id: morelia.id ?? morelia }) as never)),   // no está en Zamora
+          await fallo(() => svc.postularWeb(base({ job_posting_id: chofer.id ?? chofer }) as never)),     // Chofer sin licencia
         ];
         r['bucketTrasMalos'] = bucket.size;
 
@@ -83,7 +91,7 @@ suite('[RH.2.4] bolsa de trabajo contra la base', () => {
         // ── Primera postulación ─────────────────────────────────────────────────────────────
         const uno = await svc.postularWeb(base() as never);
         const c = await trx(C).where({ phone_key: tel }).first();
-        r['primera'] = [uno.resultado, c.stage, c.source, c.position_interest === `Cajera ${sello}`, (c.documents as unknown[]).length, bucket.size];
+        r['primera'] = [uno.resultado, c.stage, c.source, c.origin, c.position_interest === `Cajera ${sello}`, (c.documents as unknown[]).length, bucket.size];
 
         // ── ⭐ La misma vacante otra vez (con +52 y espacios): se bota, sin decir para qué vacante ──
         const dos = await svc.postularWeb(base({ phone: `+52 1 ${tel}` }) as never);
@@ -126,15 +134,22 @@ suite('[RH.2.4] bolsa de trabajo contra la base', () => {
         const avisoRh = await trx('talent.candidate_events').where({ candidate_id: nuevaNegra.id }).pluck('note');
         r['listaNegra'] = [negra.resultado, /negra|recontrat/i.test(negra.mensaje), avisoRh.some((t: string) => /NO RECONTRATABLE/.test(t))];
 
+        // ── Chofer con licencia: entra con los dos documentos ───────────────────────────────
+        const tel4 = `22${String(sello).slice(-8)}`;
+        const ch = await svc.postularWeb(base({ phone: tel4, job_posting_id: chofer.id ?? chofer, license_base64: PDF, license_file_name: 'licencia.pdf' }) as never);
+        const cch = await trx(C).where({ phone_key: tel4 }).first('documents');
+        r['chofer'] = [ch.resultado, (cch.documents as Array<{ slot: string }>).map((d) => d.slot).sort()];
+
         throw ROLLBACK;
       });
     } catch (e) { if (e !== ROLLBACK) throw e; } finally { await knex.destroy(); }
 
     expect(r['publicas']).toEqual([true, false, false, false]);
-    expect(r['malos']).toEqual(Array(7).fill('400'));
+    expect(r['malos']).toEqual(Array(12).fill('400'));
     expect(r['bucketTrasMalos']).toBe(0);
     expect(r['robot']).toEqual(['recibida', 0, 0]);
-    expect(r['primera']).toEqual(['recibida', 'filtro_inicial', 'portal', true, 1, 1]);
+    // `source` = dónde se enteró (el «fuente» de Mega Talento); `origin` = por dónde entró.
+    expect(r['primera']).toEqual(['recibida', 'filtro_inicial', 'Facebook / Redes Sociales', 'web', true, 1, 1]);
     // Rechazada, el mensaje NO nombra la vacante, no se creó a nadie y el CV repetido se borró del bucket.
     expect(r['duplicado']).toEqual(['rechazada', false, 1, 1]);
     expect(r['notaIntento']).toBe(true);
@@ -144,5 +159,6 @@ suite('[RH.2.4] bolsa de trabajo contra la base', () => {
     expect(r['otraTrasCerrar']).toEqual(['recibida', 2]);
     expect(r['tras90']).toBe('recibida');
     expect(r['listaNegra']).toEqual(['recibida', false, true]);
+    expect(r['chofer']).toEqual(['recibida', ['cv', 'licencia']]);
   }, 60_000);
 });

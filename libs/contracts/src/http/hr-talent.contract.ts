@@ -212,6 +212,50 @@ export type HrVacanteEdicion = Partial<Omit<HrVacanteDto, 'id' | 'created_at' | 
 
 // ── Bolsa de trabajo pública (`[RH.2.4]`) ───────────────────────────────────────────────────
 
+/**
+ * Las sucursales donde se contrata, con su ciudad. Copia de `SUCURSALES` de Mega Talento
+ * (`src/app/core/models/sucursales.model.ts`): los `id` son los que ya guardan sus vacantes en `branch_codes`, así
+ * que NO se cambian. Los centros internos (corporativo, CEDIS, bodegas) no van: Mega Talento los excluye a propósito
+ * del portal de candidatos.
+ */
+export const HR_SUCURSALES_EMPLEO = [
+  { id: 'morelia-vicente-guerrero', ciudad: 'Morelia', direccion: 'Av Francisco I. Madero Pte 3600, Vicente Guerrero, 58189 Morelia, Mich.' },
+  { id: 'morelia-figaredo', ciudad: 'Morelia', direccion: 'Soledad Gutiérrez de Figaredo 510, 58218 Morelia, Mich.' },
+  { id: 'zamora-canindo', ciudad: 'Zamora', direccion: 'Block P Bodega 6, Canindo, 59757 Zamora de Hidalgo, Mich.' },
+  { id: 'zamora-catedral', ciudad: 'Zamora', direccion: 'C. Dámaso Cárdenas 7, Jardines de Catedral, 59670 Zamora de Hidalgo, Mich.' },
+  { id: 'santa-ana-pacueco', ciudad: 'Santa Ana Pacueco', direccion: 'Av Padre Hidalgo 322, Sta Ana Pacueco, 36910 Santa Ana Pacueco, Gto.' },
+  { id: 'la-piedad-abastos', ciudad: 'La Piedad', direccion: 'Abastos, Av. Mariano Jiménez 1582, Peña, 59389 La Piedad de Cabadas, Mich.' },
+  { id: 'la-piedad-centro', ciudad: 'La Piedad', direccion: 'Pino Suárez 259, Centro, 59300 La Piedad de Cabadas, Mich.' },
+  { id: 'yurecuaro-centro', ciudad: 'Yurécuaro', direccion: 'Sr. Cura Don Miguel Hidalgo 22, Centro, 59250 Yurécuaro, Mich.' },
+] as const;
+
+/** Las ciudades, en el orden del catálogo, sin repetir. */
+export const HR_CIUDADES_EMPLEO: readonly string[] = [...new Set(HR_SUCURSALES_EMPLEO.map((s) => s.ciudad))];
+
+/** «¿Dónde te enteraste de la vacante?» — la misma lista de Mega Talento (es el dato de qué canal trae gente). */
+export const HR_FUENTES_EMPLEO = [
+  'Facebook / Redes Sociales',
+  'Lona o cartel en sucursal',
+  'Recomendación de un amigo/familiar',
+  'Feria de empleo',
+  'Otro',
+] as const;
+
+/**
+ * ¿La vacante aplica en esa ciudad? Una vacante sin sucursales asignadas aplica en todas (regla de Mega Talento:
+ * así no se esconden las viejas mientras se reconfiguran).
+ */
+export function hrVacanteEnCiudad(branchCodes: readonly string[] | null | undefined, ciudad: string): boolean {
+  if (!branchCodes || !branchCodes.length) return true;
+  return branchCodes.some((id) => HR_SUCURSALES_EMPLEO.some((s) => s.id === id && s.ciudad === ciudad));
+}
+
+/** ¿El puesto pide licencia de manejo? Regla de Mega Talento: Chofer y Logística. */
+export function hrPideLicencia(nombreVacante: string | null | undefined): boolean {
+  const n = String(nombreVacante ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  return n === 'chofer' || n === 'logistica';
+}
+
 /** Una vacante tal como se publica (sin nada interno). */
 export interface HrVacantePublicaDto {
   id: string;
@@ -237,8 +281,13 @@ export interface HrPostulacionPublica {
   position_interest?: string | null;
   relative_in_company?: string | null;
   rehire_note?: string | null;
+  /** ¿Dónde se enteró de la vacante? Uno de `HR_FUENTES_EMPLEO`. */
+  heard_from: string;
   cv_base64: string;
   cv_file_name?: string | null;
+  /** Obligatoria si el puesto es Chofer o Logística (`hrPideLicencia`). */
+  license_base64?: string | null;
+  license_file_name?: string | null;
   privacy_accepted: boolean;
   /** Campo trampa: una persona no lo ve. Si llega lleno, es un robot. */
   website?: string | null;
