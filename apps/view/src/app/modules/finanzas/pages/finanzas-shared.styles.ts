@@ -156,4 +156,21 @@ export const FINANZAS_SHARED_STYLES = `
   .tw-xls:disabled { opacity: .6; cursor: default; }
   .tw-xls:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   .tw-xls-head { margin-left: var(--sp-2); vertical-align: middle; }
+
+  /* ── Vocabulario fin-*: el que usa MÁS DE UNA pantalla ───────────────────
+     Vive acá y no en el bloque local de un componente porque con
+     ViewEncapsulation los estilos de uno no alcanzan al otro. Medido: caos
+     usaba estas tres sin definición a su alcance y su barra de filtros se
+     pintaba sin layout (gap sobre un display:block no hace nada), mientras
+     caja-general las tenía locales y se veía bien. Una clase que usan dos
+     componentes pertenece a esta constante; las propias de una pantalla
+     siguen en su bloque. */
+  .fin-dim { color: var(--text-muted); font-size: var(--fs-xs); }
+  .fin-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .fin-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+  .fin-row > label { min-width: 6.5rem; font-size: var(--fs-sm); color: var(--text-muted); }
+  /* Apila cuando el campo necesita su propia explicación debajo, en vez de
+     meterla en la misma línea. */
+  .fin-row-col { flex-direction: column; align-items: stretch; gap: var(--sp-1); }
+  .fin-row-col > label { min-width: 0; }
 `;

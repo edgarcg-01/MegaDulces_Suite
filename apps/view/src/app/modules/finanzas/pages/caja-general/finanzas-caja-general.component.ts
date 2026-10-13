@@ -169,7 +169,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .fin-filters input, .fin-filters p-select { min-width:11rem; }
 
     .fin-h2 { font-size:var(--fs-h3); font-weight:700; margin:var(--sp-6) 0 var(--sp-2); }
-    .fin-dim { color:var(--text-muted); font-size:var(--fs-xs); }
+    /* .fin-dim, .fin-form y la familia .fin-row se mudaron a FINANZAS_SHARED_STYLES: las usa
+       también caos, y ahí no llegaban. Ver el porqué en esa constante. */
     .fin-empty { text-align:center; color:var(--text-muted); padding:var(--sp-5) 0; }
     /* ⚠️ Acá decía "var(--danger-fg, #b42318)" y --danger-fg NO EXISTE en tokens.css: ganaba
        siempre el hex de fallback, que es un rojo de tema claro. O sea que en modo oscuro un
@@ -177,9 +178,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .fin-neg { color:var(--bad-fg); }
     .d-block { display:block; }
 
-    /* Formulario de captura. fin-row-col apila cuando el campo necesita su propia explicación
-       debajo (el selector de cobro de Kepler), en vez de meterla en la misma línea. */
-    .fin-form { display:flex; flex-direction:column; gap:var(--sp-3); }
     /* ⛔⛔ [CG.60] ACA VIVIAN ".cg-grid" Y ".cg-col", las dos columnas del formulario de captura
        (CS.3.7: el QUE a la izquierda, el CUANTO a la derecha). Se retiran enteras porque esas dos
        columnas SON AHORA LOS DOS APARTADOS: el QUE es el apartado 1 y el CUANTO el apartado 2.
@@ -206,10 +204,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       .cg-ficha { position:static; }
       .cg-detail-vacio { display:none; }
     }
-    .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
-    .fin-row > label { min-width:6.5rem; font-size:var(--fs-sm); color:var(--text-muted); }
-    .fin-row-col { flex-direction:column; align-items:stretch; gap:var(--sp-1); }
-    .fin-row-col > label { min-width:0; }
     .w-full { width:100%; }
 
     .fin-hint-ok   { color:var(--ok-fg); font-size:var(--fs-xs); }
