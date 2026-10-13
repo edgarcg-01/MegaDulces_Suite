@@ -739,7 +739,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-t thead th:last-child,
     .cg-t tbody td:last-child,
     .cg-t tfoot td:last-child { border-left:1px solid var(--border-color); }
-    .cg-t tbody th, .cg-t tfoot th { font-weight:400; text-align:left; }
+    .cg-t tbody th { font-weight:400; text-align:left; }
+    /* ⛔ El pie es UNA fila y hay que tratarlo como tal. La base pinta fondo, borde y peso en
+       .surf-table--plain > tfoot > tr > td -- o sea SOLO en la celda de la cifra. Como el rotulo
+       del saldo es un th (lo correcto: es el encabezado de su fila), quedaba fuera de esa regla:
+       la etiqueta sobre el fondo normal y el numero sobre un bloque oscuro al lado. Edgar lo vio
+       en pantalla antes que yo. El th repite el mismo trato para que el total se lea como un
+       total y no como una barra pegada a un texto suelto. */
+    .cg-t > tfoot > tr > th { padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color);
+                              background:var(--surface-2); font-weight:600; text-align:left; }
     /* ⛔ El guion va como CARACTER, no como codigo CSS. Intentarlo con el codigo falla DOS veces
        y por dos motores distintos: primero JS lo lee como secuencia octal dentro del template
        literal (lo atrapo check:templates); y al escapar la barra para sortear eso, Angular
@@ -748,7 +756,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        ⚠️ Ese segundo viaje NO lo ve check:templates, que parsea el .ts y ahi la version escapada
        es legal: lo encontro la corrida de pruebas. Una compuerta verde no es un build verde. */
     .cg-t-vacia::before { content:"–"; color:var(--text-faint); }
-    .cg-t-saldo th, .cg-t-saldo td { border-top:1px solid var(--border-color); font-weight:600; }
+    
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
@@ -1045,7 +1053,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    columna de al lado, tenia el MISMO rotulo con otra cifra. Cada columna nombra
                    lo suyo.
                    (Sin acentos graves aca adentro: template literal.) -->
-              <table class="surf-table surf-table--plain cg-t">
+              <table class="surf-table surf-table--plain is-dense cg-t">
                 <caption class="sr-only">Caja general: lo que entro y lo que salio en la jornada</caption>
                 <thead>
                   <tr>
@@ -1072,7 +1080,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   </tr>
                 </tbody>
                 <tfoot>
-                  <tr class="cg-t-saldo">
+                  <tr>
                     <th scope="row">Movimiento del libro</th>
                     <td class="comm-num" colspan="2">{{ money(a.caja_general.neto) }}</td>
                   </tr>
@@ -1225,7 +1233,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                      la forma no autoriza a afirmar lo que el dato no dice.
                      [CG.112] Y dice "de la boveda", no "del dia": el de al lado tambien era "del
                      dia" con otra cifra. -->
-                <table class="surf-table surf-table--plain cg-t">
+                <table class="surf-table surf-table--plain is-dense cg-t">
                   <caption class="sr-only">Cajero: lo que entro y lo que salio de la boveda</caption>
                   <thead>
                     <tr>
@@ -1247,7 +1255,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     </tr>
                   </tbody>
                   <tfoot>
-                    <tr class="cg-t-saldo">
+                    <tr>
                       <th scope="row">Movimiento de la bóveda</th>
                       <td class="comm-num" colspan="2">{{ money(cj.neto) }}</td>
                     </tr>
