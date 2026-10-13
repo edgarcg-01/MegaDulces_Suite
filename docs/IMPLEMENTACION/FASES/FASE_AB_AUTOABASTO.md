@@ -955,16 +955,31 @@ traspasos ✓ · tooltip de *Falta* sin «− en camino» ✓. Visto de paso: el
 **Red de abasto, configurada como la describe el negocio** (`replenishment_channel`): 02, 03 y 04 se
 surten de la 01; la 05 de la 06; la 07 de la 08; 01, 06 y 08 del 00. Matrices: **00, 01, 06, 08**.
 
-**⛔ El mín/reorden/máx dinámico SEMANAL del PM no está corriendo.** El contrato
-(`FASE_RA_PEDIDO_PERSPECTIVA` Etapa 5) era que el PM escribiera en `reorder_policy` con
-`source='dynamic'`, con historia semanal y latido. Medido: **0 filas `dynamic`** (34,510 `computed` +
-1,483 `kepler`), ninguna tabla de historia y ningún código que escriba `'dynamic'` en `origin/main`. Lo que
-corre es `import-computed-reorder.js` en el nocturno (03:00, venta de **90 días**, ciclo 14 d). Recalcula
-cada noche, no cada semana, y tiene dos huecos:
-- **No toca las políticas `kepler`** (02: 341 · 03: 766 · 04: 204 · 05: 174), fijas desde julio/agosto.
-- **No retira las políticas de productos que dejaron de vender**: sólo recalcula los que tienen venta, y
-  los demás conservan su máximo viejo y siguen pidiendo mercancía (02: 558 · 03: 722 · 04: 407 · 05: 441
-  renglones sin venta en 90 días que piden).
+**El mín/máx dinámico vigente es el motor de `/compras/pedido`, y SÍ está corriendo — pero Autoabasto
+no lo usa.** (Corregido el mismo 2026-10-12: primero se buscó como `reorder_policy.source='dynamic'`,
+que es el contrato de `FASE_RA_PEDIDO_PERSPECTIVA` Etapa 5, y ahí hay 0 filas; Francisco señaló que el
+dinámico es el de `/compras/pedido`.) `workbook()` NO lee `reorder_policy` para decidir: calcula el
+objetivo al vuelo como **venta limpia de 30 días** (`analytics.product_demand`, ventana anclada por
+almacén) **× temporalidad** (`replenishment_plan.season_ratio` = índice de los próximos 30 d ÷ últimos
+30 d) **× días de cobertura** (30 por default), con demanda dependiente en las matrices. El fact se
+recalcula cada noche (`fact_replenishment_plan_nightly`, ok 2026-10-12 03:36 MX) y durante el día al
+cambiar la existencia (`fact_replenishment_plan_stock`, ok). Es diario, no semanal.
+
+**Autoabasto usa otro número**: `reorder_policy.max_stock` de `import-computed-reorder.js` (venta de
+**90 días**, colchón por nivel de servicio, ciclo de 14 d). Comparado contra el objetivo de
+`/compras/pedido` (aproximado: cobertura 30 d, sin factor de surtido), por sucursal:
+
+| | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| mediana máx Autoabasto ÷ objetivo Pedido | 1.52 | 1.12 | 0.97 | 1.25 | 1.24 | 1.43 | 0.99 | 1.29 |
+| % que difieren más de 25% | 79.5 | 69.1 | 70.4 | 69.2 | 73.5 | 76.5 | 70.2 | 72.8 |
+| Autoabasto pide y Pedido no (sin venta 30 d) | 1,383 | 1,515 | 1,564 | 1,056 | 1,261 | 905 | 406 | 301 |
+
+O sea: **el almacenista y el comprador ven objetivos distintos para el mismo producto**, lo que la propia
+mesa promete evitar («dos audiencias, un solo número»). Además `reorder_policy` arrastra dos huecos:
+no recalcula las 1,485 políticas `kepler` de 02–05 (fijas desde julio/agosto) ni retira las de productos
+que dejaron de vender. **Siguiente paso:** que Autoabasto tome el objetivo del motor de `/compras/pedido`
+(venta 30 d × temporalidad), que es justo lo que pide el negocio.
 
 **⛔ El CEDIS 00 no tiene existencia desde el 29-sep**: 196 renglones en `commercial.stock` contra 5,046
 en `kepler_ods.kdil`. `import-branch-stock-live.js` lo excluye porque «viene de Wincaja», y Wincaja dejó
