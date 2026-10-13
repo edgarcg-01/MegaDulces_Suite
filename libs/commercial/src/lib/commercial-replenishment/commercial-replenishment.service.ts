@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService, ScopeService } from '@megadulc
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
-  validarSeguimiento,
+  validarSeguimiento, coberturaAutoabastoSql,
 } from '@megadulces/contracts';
 import { Knex } from 'knex';
 import { randomUUID } from 'node:crypto';
@@ -385,12 +385,8 @@ export interface RequisitionListDto {
 export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
 const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence', 'demanda'];
-/**
- * `[AB.15]` Días de cobertura de la base 'demanda'. Es el MISMO default que usa `workbook()`
- * (`coverage_days || 30`), que es lo que ve el comprador en /compras/pedido: decisión de
- * Francisco (2026-10-12) — el almacenista pide con el mismo horizonte que el comprador.
- */
-const COBERTURA_DEMANDA_DIAS = 30;
+// `[AB.15]` → `[AB.22]` Los días de cobertura de la base 'demanda' ya no son 30 fijos: vienen por
+// almacén de `coberturaAutoabastoSql()` en `libs/contracts` (decisión de Francisco, 2026-10-13).
 const BUCKETS: Bucket[] = ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'];
 /** `[AB.14]` Las acciones de la mesa, en el orden en que las resuelve `accionExpr()`. */
 const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] as const;
@@ -690,7 +686,10 @@ export class CommercialReplenishmentService {
    * Requiere `rpl` (analytics.replenishment_plan) joineado.
    */
   private demandTarget(): string {
-    return `(COALESCE(rpl.daily_pieces, 0) * COALESCE(rpl.season_ratio, 1) * ${COBERTURA_DEMANDA_DIAS}
+    // `[AB.22]` La cobertura es por almacén (sucursales 21 d, rutas 2.5 d, el resto 30 d): sale del
+    // mismo mapa del contrato que lee la pantalla. Requiere `w` (commercial.warehouses) joineado,
+    // como lo tienen las tres consultas que piden la base 'demanda'.
+    return `(COALESCE(rpl.daily_pieces, 0) * COALESCE(rpl.season_ratio, 1) * ${coberturaAutoabastoSql('w.code')}
              / (COALESCE(rpl.suf, 1) * COALESCE(rpl.bf, 1)) * COALESCE(rpl.display_bf, rpl.bf, 1))`;
   }
   /**

@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Autoabasto pide para 21 días en sucursales y 2.5 en rutas (AB.22, 2026-10-13)
+- La cobertura del pedido deja de ser 30 días para todos: 21 días en La Piedad Abastos, 8 Esquinas, Yurécuaro, Zamora Centro y Morelia Madero; 2.5 días en las rutas; 30 días en CEDIS y matrices (igual que Compras).
+- Ejemplo medido: Morelia Madero baja de 9,673 a 6,103 cajas sugeridas. Las rutas todavía no reciben sugerido porque su plan no trae venta ni existencia.
 ### Added — PDF de «Mi pedido» para capturar en Kepler (AB.21, 2026-10-13)
 - Botón **PDF** en cada origen y **«PDF de todo el pedido»**: «Pedido de traspaso» para la sucursal que surte o «Requisición de compra» para el proveedor, con una tabla por unidad mayor, unidad menor y una sola unidad, la cantidad en la unidad de captura y una columna en blanco para anotar lo surtido o recibido.
 - Imprime exactamente lo que lleva el pedido en pantalla (casillas, ajustes y mínimo de $200). Sin migración ni permisos.

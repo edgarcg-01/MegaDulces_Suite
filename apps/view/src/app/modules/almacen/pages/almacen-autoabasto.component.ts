@@ -97,9 +97,9 @@ const BUCKET_LABEL: Record<string, string> = {
         <div>
           <h1 class="ab-title">Autoabasto</h1>
           <p class="ab-sub">
-            Qué falta, cuánto pedir y a quién. Cuánto pedir se calcula igual que en Compras: venta
-            de 30 días por temporalidad, menos la existencia. Lo que se puede cubrir con sobrante de
-            otra sucursal se separa de lo que hay que comprar.
+            Qué falta, cuánto pedir y a quién. Cuánto pedir: venta diaria por temporalidad por los días
+            de cobertura del almacén (30 en CEDIS y matrices, 21 en sucursales, 2.5 en rutas), menos la
+            existencia. Lo que se puede cubrir con sobrante de otra sucursal se separa de lo que hay que comprar.
           </p>
         </div>
         <div class="ab-actions">
