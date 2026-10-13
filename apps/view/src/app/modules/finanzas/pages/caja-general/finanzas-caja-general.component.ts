@@ -746,6 +746,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* El mismo verde que ya usa el signo del ingreso en la cola (.cg-in), no uno nuevo. */
     .cg-hist-in { color:var(--ok-fg); }
     .cg-hist-benef { font-weight:600; }
+    /* [CG.97] El numero que de verdad se va a contar a mano. */
+    .cg-cajon .mono { color:var(--ok-fg); }
     /* [CG.91.2] El pie: separado por una linea, no por color -- es un total, no una alerta. */
     .cg-hist-pie > td { border-top:2px solid var(--border); padding-top:var(--sp-2);
                         color:var(--text-muted); font-size:var(--fs-sm); }
@@ -947,6 +949,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <span class="mono">&minus; {{ money(a.caja_general.depositos) }}</span></div>
               <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
                 <span class="mono">{{ money(a.caja_general.neto) }}</span></div>
+              <!-- ⭐⭐ [CG.97] "Movimiento del dia" es correcto -el dinero entro y se registro- pero
+                   se LEE como "esto hay en la caja", y no lo hay: la maquina se traga los billetes
+                   de los cobros de ruta y al cajon llega la morralla. Modelo "cajas separadas",
+                   el mismo que ya declara conciliacionCajero. Sin esto el arqueo sale a contar
+                   decenas de miles que estan dentro del cajero. -->
+              @if (a.caja_general.en_el_cajon != null) {
+                <div class="cg-conc-row"><span class="fin-dim">&nbsp;&nbsp;de eso, a la boveda</span>
+                  <span class="mono fin-dim">{{ money(a.caja_general.a_la_boveda!) }}</span></div>
+                <div class="cg-conc-row cg-conc-tot cg-cajon"><span>Queda en el cajon</span>
+                  <span class="mono">{{ money(a.caja_general.en_el_cajon!) }}</span></div>
+                <small class="fin-dim">Esto es lo que se cuenta a mano. Los billetes que el cajero se
+                  tragó se quedan en la bóveda y los cuenta la máquina.</small>
+              }
               <small class="fin-dim">
                 {{ a.caja_general.movimientos }} movimiento(s) registrado(s){{ a.caja_general.cancelados ? ', ' + a.caja_general.cancelados + ' cancelado(s)' : '' }}.
               </small>
@@ -957,6 +972,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    Lo unico que se dice es SI hay corte, que no es secreto. -->
               @if (a.corte_abierto; as c) {
                 <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
+                <!-- [CG.90.1] La puerta de salida del fondo: NO se pregunta al abrir, pero quien
+                     SI sabe con cuanto arranco la caja puede declararlo aca. Sin esto el fondo
+                     quedaria en "sin medir" para siempre y el arqueo nunca podria decir si cuadra. -->
+                @if (c.fondo_inicial == null) {
+                  <p-button label="Declarar con cuánto arrancó la caja" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true" (onClick)="abrirApertura()"></p-button>
+                }
                 <!-- El esperado y la caja chica conciliada SOLO existen cuando el servidor ya los
                      revelo (permiso de cierre). "arqueoFinal()" devuelve null mientras esten
                      ocultos, asi que este bloque no se pinta y no hay nada que tapar. -->
@@ -4118,9 +4140,30 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cerrarJornada(): void {
     if (this.abriendo()) return;
     if (this.corteAbierto()) { this.abrirCierre(); return; }
-    // Sin corte: se pide el fondo y, cuando el servidor confirme, se sigue al conteo.
+    /**
+     * ⭐⭐ `[CG.90.1]` **EL FONDO DEJA DE PREGUNTARSE. NI SIQUIERA EL DIÁLOGO.**
+     *
+     * Edgar, con el diálogo a la vista por segunda vez: *"sigue pidiendo el fondo inicial"*.
+     * Tenía razón: `[CG.90]` enseñó al SERVIDOR a heredarlo del cierre anterior, pero la pantalla
+     * seguía abriendo «Con cuánto arrancó la caja» igual — o sea que el cambio no se notaba.
+     * Arreglar que el servidor sepa algo no sirve si la pantalla pregunta antes.
+     *
+     * Ahora se abre derecho y el servidor decide:
+     *   · hay cierre anterior → hereda su `contado` y marca `cierre_anterior`;
+     *   · no hay → abre con `sin_medir` y el aviso lo DICE («el arqueo no va a poder decir si
+     *     cuadra»), que es un hecho distinto de «arrancó en cero».
+     *
+     * ⛔ Y `undefined`, no `null`: `abrirCorte()` manda `fondoInicial() ?? undefined` porque el
+     * servicio compara contra `undefined`. Dejarlo en `null` haría que el fondo viaje como un
+     * valor y la herencia NO se dispare — el mismo tipo de detalle que hizo que `[CG.90]` no se
+     * viera.
+     *
+     * ⚠️ La puerta queda: `abrirApertura()` sigue existiendo y se alcanza desde el aviso de
+     * «sin fondo medido», para quien SÍ sabe con cuánto arrancó y quiere declararlo.
+     */
     this.cerrarTrasAbrir.set(true);
-    this.abrirApertura();
+    this.fondoInicial.set(null);
+    this.abrirCorte();
   }
 
   /** Marca que la apertura vino de "rendir cuentas": al confirmarla se sigue al conteo. */
@@ -4317,7 +4360,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // faltaba un segundo clic en otro lado.
         if (this.cerrarTrasAbrir()) { this.cerrarTrasAbrir.set(false); this.abrirCierre(); }
       },
-      error: (e) => { this.abriendo.set(false); this.avisarError(e, 'No se pudo abrir el corte'); },
+      /**
+       * ⛔ `[CG.90.1]` **LA INTENCIÓN SE LIMPIA TAMBIÉN CUANDO FALLA.**
+       *
+       * Antes `cerrarTrasAbrir` se ponía al abrir el diálogo y `cancelarApertura()` lo limpiaba.
+       * Al quitar el diálogo (`cerrarJornada` llama derecho a `abrirCorte`), ese camino de
+       * limpieza desapareció: si la apertura fallaba, la intención quedaba colgada en `true` y
+       * **el siguiente corte que alguien abriera por su cuenta saltaba al conteo solo**.
+       *
+       * Lo cazó la prueba negativa que ya existía para el defecto equivalente del diálogo. Un
+       * freno puesto para una puerta sirvió para la otra — por eso se conserva en vez de borrarla
+       * cuando cambia el gesto.
+       */
+      error: (e) => {
+        this.abriendo.set(false);
+        this.cerrarTrasAbrir.set(false);
+        this.avisarError(e, 'No se pudo abrir el corte');
+      },
     });
   }
 

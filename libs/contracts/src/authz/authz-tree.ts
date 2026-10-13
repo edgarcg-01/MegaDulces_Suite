@@ -492,6 +492,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // `[LC.6.2]` midió que faltaba (un módulo no está entregado hasta que su permiso está
           // REPARTIDO, no sólo declarado en el enum). Sin `manage`: esta pantalla no asienta nada.
           { id: 'cierre-contable', label: 'Cierre contable (qué mes falta)', route: '/contabilidad/cierre', view: [Permission.FISCAL_CONTAB_VER], manage: [] },
+          // `[CPA.10]` La bandeja «Mi cierre»: la portada del proyecto. Mismo permiso que el
+          // semáforo —ya repartido— por la misma razón: la mira quien lleva los libros, y así no
+          // estrena puerta que alguien deba repartir. `manage` sí existe acá: cerrar el lazo
+          // (declarar qué pasó al cargar el archivo) es una escritura, aunque NO vaya a ContPAQi.
+          { id: 'mi-cierre', label: 'Mi cierre (qué le toca a contabilidad)', route: '/contabilidad/mi-cierre', view: [Permission.FISCAL_CONTAB_VER], manage: [Permission.FISCAL_CONTAB_GESTIONAR] },
           { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_IMPUESTOS_VER], manage: [] },
           { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
         ],

@@ -1,7 +1,7 @@
 import {
   fechaCorta, diasHasta, diasDeCobertura,
   origenTexto, origenCls, origenPorQue,
-  cuandoTexto, cuandoPorQue, cantidadPorQue, PorqueRow,
+  cuandoTexto, cuandoPorQue, cantidadPorQue, objetivoDemandaTexto, PorqueRow,
 } from './porques.util';
 
 /** Renglón sano: compra al proveedor, con calendario y venta medida. */
@@ -162,5 +162,48 @@ describe('cantidad — "por qué esa cantidad"', () => {
     const t = cantidadPorQue({ ...base, target_qty: Number.NaN });
     expect(t).toContain('no publica el objetivo que usó');
     expect(t).not.toContain('NaN');
+  });
+
+  // [AB.14] Con la política vigente (transito.ts = 'ignorar') el motor NO resta lo que viene en
+  // camino. Si el texto lo restara, la cuenta no cuadraría y haría creer que ya se descontó.
+  it('[AB.14] con política ignorar, la resta NO incluye lo que está en camino', () => {
+    const t = cantidadPorQue({ ...base, suggested_qty: 28 }, 'ignorar');
+    expect(t).toContain('Objetivo 40 − existencia 12 = faltan 28 caja(s).');
+    expect(t).not.toContain('− en camino');
+    expect(t).toContain('En camino hay 3 que NO se restan');
+  });
+
+  it('[AB.14] con política ignorar y nada en camino, no menciona el tránsito', () => {
+    const t = cantidadPorQue({ ...base, in_transit: 0, suggested_qty: 28 }, 'ignorar');
+    expect(t).toBe('Objetivo 40 − existencia 12 = faltan 28 caja(s).');
+  });
+
+  // [AB.15] Con la base 'demanda' el objetivo es la venta de 30 días (× temporalidad), igual que
+  // en Compras. Si no se dice, el almacenista lo busca en la columna Máx y no cuadra.
+  it('[AB.15] con base demanda, dice que el objetivo es la venta de 30 días', () => {
+    const t = cantidadPorQue({ ...base, venta_30d: 40, season_ratio: 1, suggested_qty: 28 }, 'ignorar', 'demanda');
+    expect(t).toBe('Objetivo = venta de 30 días (40), igual que en Compras. ' +
+      'Objetivo 40 − existencia 12 = faltan 28 caja(s). En camino hay 3 que NO se restan: revísalo antes de pedir.');
+  });
+
+  it('[AB.15] la temporalidad se menciona sólo si mueve el objetivo', () => {
+    expect(objetivoDemandaTexto({ venta_30d: 40, season_ratio: 1.25 }))
+      .toBe('Objetivo = venta de 30 días (40) × temporalidad 1.25, igual que en Compras.');
+    expect(objetivoDemandaTexto({ venta_30d: 40, season_ratio: 1.001 })).not.toContain('temporalidad');
+  });
+
+  it('[AB.15] ⛔ sin venta medida no dibuja «venta 0»', () => {
+    const t = objetivoDemandaTexto({ venta_30d: null, season_ratio: null });
+    expect(t).toContain('no tiene venta medida');
+    expect(t).not.toContain('(0)');
+  });
+
+  it('[AB.15] con otra base no agrega la explicación de demanda', () => {
+    expect(cantidadPorQue({ ...base, venta_30d: 40 }, 'ignorar', 'max')).not.toContain('venta de 30 días');
+  });
+
+  it('[AB.14] con una política que sí resta, conserva la resta completa', () => {
+    expect(cantidadPorQue(base, 'crudo')).toBe(
+      'Objetivo 40 − existencia 12 − en camino 3 = faltan 25 caja(s).');
   });
 });

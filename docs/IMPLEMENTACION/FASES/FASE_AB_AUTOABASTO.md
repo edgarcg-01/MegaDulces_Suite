@@ -917,4 +917,180 @@ Prerrequisito de §15.1 resuelto. `transfer_in` deja de ser el sobrante de red e
 
 ### 15.5 🧪 [AB.13] El reporte PDF y el alcance por almacén — EN CÓDIGO 2026-10-07
 
+⚠️ **El frontend de AB.13 se perdió el 8-oct** (`fcf85959c`, `[SUC.1]`, hecho sobre una copia anterior a #314) y se restauró en `[AB.14]`.
+
 `GET /commercial/autoabasto/reporte` + botón «Descargar PDF». Sello de fecha y hora del **servidor** (hora de México) y usuario; un solo almacén por reporte; sólo lo que falta, agrupado por origen; «sin venta medida» aparte. El alcance de la mesa se resuelve en el área **Almacén** (ZN.8), y la mig `20261007200100` da `AUTOABASTO_VER` al almacenista + la regla `warehouse · almacen · own`. Simulado como almacenista con el código real (ver log 2026-10-07). **Abierto:** 5 de 6 almacenistas sin almacén en su ficha; el reporte de Padre Hidalgo son 96 páginas — la regla de redondeo (§15.2) y limpiar códigos `* DESC…`/servicios de las políticas lo achican.
+
+### 15.6 🧪 [AB.14] Arreglos menores tras la revisión del módulo — EN CÓDIGO 2026-10-12
+
+Revisión del módulo con Francisco (2026-10-12). Cuatro arreglos, sin migración ni permisos:
+
+1. **Se restaura el frontend de AB.13.** `fcf85959c` (`[SUC.1]`, 8-oct) se hizo sobre una copia de la
+   pantalla anterior a #314 y borró el botón «Descargar PDF», los avisos de alcance y la fijación del
+   almacén único. El endpoint `/reporte` seguía vivo y nadie lo llamaba. Se conservan los nombres de
+   sucursal que SUC.1 sí quería poner.
+2. **El tránsito.** Desde `[RA.TR]` (9-oct, `transito.ts`) la política es `ignorar`: el sugerido NO resta
+   lo que está en camino. El subtítulo, el «por qué» de *Falta* y las notas del PDF decían lo contrario.
+   `criticalStock()` publica ahora `politica_transito` + `aviso_transito` y los tres textos la siguen.
+3. **Filtro «Acción» en el servidor.** Se recortaba la página cargada (total ≤ 50). Una sola expresión
+   (`accionExpr()`) pinta la columna y filtra. `sobrante` y `ok` quedan fuera del recorte crítico por
+   defecto (existencia ≤ reorden), que los volvía imposibles de encontrar. Con el filtro puesto el
+   conteo suma sólo `rpl` + el reparto `sbp` (y el canal con base por cadencia), no el ranking ni
+   las tablas de decorado. Medido en prod (un almacén, página de 50): contar sobre la consulta
+   completa llevaba la página de 3.0–4.8 s a **6.4–9.8 s**; con el conteo ligero, **3.3–5.3 s**, y
+   los totales salen idénticos en los dos (01: 376 traspaso / 1,576 sobrante · 02: 321 / 1,399 ·
+   red: 10,973 sobrante = KPI «Sobrestock»). ⚠️ La página sin filtro **ya tardaba 3–5 s** antes de
+   este cambio; es deuda aparte del listado (13 relaciones + ranking).
+
+**Validación en pantalla (2026-10-12, API local contra prod en solo lectura):** aviso de tránsito ✓ ·
+alcance «20 almacenes» ✓ · nombres de sucursal ✓ · La Piedad + Traspaso → 321 renglones en varias
+páginas ✓ · PDF habilitado con un almacén, generado en 6 s con la nota «NO se descuenta» y sólo
+traspasos ✓ · tooltip de *Falta* sin «− en camino» ✓. Visto de paso: el tooltip muestra
+«0.3 − 0.1 = 0.3» por el redondeo a un decimal en cajas (preexistente; lo resuelve §15.2).
+4. **El resumen busca por producto** (`product_search`). En `summary()` `search` sigue siendo por
+   proveedor, que es como lo usa Compras.
+
+### 15.7 Revisión de la lógica de negocio — medido en prod (solo lectura) 2026-10-12
+
+**Red de abasto, configurada como la describe el negocio** (`replenishment_channel`): 02, 03 y 04 se
+surten de la 01; la 05 de la 06; la 07 de la 08; 01, 06 y 08 del 00. Matrices: **00, 01, 06, 08**.
+
+**El mín/máx dinámico vigente es el motor de `/compras/pedido`, y SÍ está corriendo — pero Autoabasto
+no lo usa.** (Corregido el mismo 2026-10-12: primero se buscó como `reorder_policy.source='dynamic'`,
+que es el contrato de `FASE_RA_PEDIDO_PERSPECTIVA` Etapa 5, y ahí hay 0 filas; Francisco señaló que el
+dinámico es el de `/compras/pedido`.) `workbook()` NO lee `reorder_policy` para decidir: calcula el
+objetivo al vuelo como **venta limpia de 30 días** (`analytics.product_demand`, ventana anclada por
+almacén) **× temporalidad** (`replenishment_plan.season_ratio` = índice de los próximos 30 d ÷ últimos
+30 d) **× días de cobertura** (30 por default), con demanda dependiente en las matrices. El fact se
+recalcula cada noche (`fact_replenishment_plan_nightly`, ok 2026-10-12 03:36 MX) y durante el día al
+cambiar la existencia (`fact_replenishment_plan_stock`, ok). Es diario, no semanal.
+
+**Autoabasto usa otro número**: `reorder_policy.max_stock` de `import-computed-reorder.js` (venta de
+**90 días**, colchón por nivel de servicio, ciclo de 14 d). Comparado contra el objetivo de
+`/compras/pedido` (aproximado: cobertura 30 d, sin factor de surtido), por sucursal:
+
+| | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| mediana máx Autoabasto ÷ objetivo Pedido | 1.52 | 1.12 | 0.97 | 1.25 | 1.24 | 1.43 | 0.99 | 1.29 |
+| % que difieren más de 25% | 79.5 | 69.1 | 70.4 | 69.2 | 73.5 | 76.5 | 70.2 | 72.8 |
+| Autoabasto pide y Pedido no (sin venta 30 d) | 1,383 | 1,515 | 1,564 | 1,056 | 1,261 | 905 | 406 | 301 |
+
+O sea: **el almacenista y el comprador ven objetivos distintos para el mismo producto**, lo que la propia
+mesa promete evitar («dos audiencias, un solo número»). Además `reorder_policy` arrastra dos huecos:
+no recalcula las 1,485 políticas `kepler` de 02–05 (fijas desde julio/agosto) ni retira las de productos
+que dejaron de vender. **Siguiente paso:** que Autoabasto tome el objetivo del motor de `/compras/pedido`
+(venta 30 d × temporalidad), que es justo lo que pide el negocio.
+
+**⛔ El CEDIS 00 no tiene existencia desde el 29-sep**: 196 renglones en `commercial.stock` contra 5,046
+en `kepler_ods.kdil`. `import-branch-stock-live.js` lo excluye porque «viene de Wincaja», y Wincaja dejó
+de alimentarlo con el corte del 30-sep. Sale agotado en 5,754 de 5,930 productos y no aporta a la
+nivelación. Coordinar con la sesión de `IC.CEDIS`.
+
+**Parámetros:** fuera del 00, sólo el 9.5% de los productos está entre reorden y máximo; 36% arriba del
+máximo y 33% agotado.
+
+**Decisiones de Francisco (2026-10-12)**, para la vista de matrices (Nivelación):
+- **Cuánto cede la matriz:** lo que pasa del **máximo** se propone siempre; lo que está entre **reorden y
+  máximo** sólo si hay una sucursal **agotada**. (Afina la decisión #7.)
+- **Alcance en dos capas:** capa 1 = la matriz con **sus** sucursales; capa 2 = **toda la red**.
+- **Mín/reorden/máx:** lo define el módulo del PM; acá sólo se verifica que esté vigente (ver arriba).
+
+**Siguiente:** vista «Mi pedido» para sucursales que no surten a otras (por origen, venta 30d, negados
+de la Fase DN, ya pedido, cubiertos, redondeo §15.2) → Nivelación de matrices → guardar el pedido
+semanal (AB.7/AB.8) → aprendizaje.
+
+### 15.8 🧪 [AB.15] «Cuánto pedir» igual que /compras/pedido — EN CÓDIGO 2026-10-12
+
+**Decisión de Francisco (2026-10-12):** Falta se calcula igual que la cantidad a pedir de Compras;
+cobertura de **30 días fijos**; el mín/reorden/máx dinámico sigue decidiendo el semáforo y el sobrante.
+
+- **Base nueva `'demanda'` en el motor** (`demandTarget()`): `daily_pieces × season_ratio × 30 ÷
+  (SUF × BF) × DBF`, con los COALESCE de `workbook()` copiados tal cual, en la unidad nativa del
+  almacén. Es el default de los tres endpoints de Autoabasto; Compras sigue en `'max'`.
+- **Lo que `workbook()` aplica y esto no:** el factor de cumplimiento del proveedor (FILLF) —es una
+  corrección del comprador— y retener el renglón cuando el peldaño está contradicho (acá se retiene
+  sólo el $, como en el resto de la mesa).
+- **La existencia también es la de Compras** (`onHand('plan')` = `replenishment_plan.stock_pz`, que
+  deriva de `v_erp_stock_on_hand`). El CEDIS cambió de base el 30-sep (Wincaja → Kepler) y la vista lo
+  toma de Kepler sólo desde ese corte; la copia `commercial.stock` que leía Autoabasto se quedó con la
+  foto de Wincaja del 29-sep (196 renglones). Cruce contra `workbook()`: **CEDIS 208/208 y La Piedad
+  2,777/2,777 iguales** (ej. bombón 70014: CEDIS 80, La Piedad 9). Compras (`/compras/existencia`) no
+  cambia: su base sigue leyendo la copia.
+- ⚠️ **Lo que el CEDIS tiene mal es de Kepler, no de la Suite** (compuerta `check-cedis-cutover.js`,
+  2026-10-12): 10 productos en negativo desde el corte (−20,722 u; el agua 59108 en −13,410: recibió
+  11,070 y sacó 24,480 sin inventario inicial), 71 productos de Wincaja que no entraron bien ($568,567,
+  6.9%) y 7 donde la carga se sumó a un saldo previo. Se corrige en Kepler (IC.CEDIS / operación).
+- **Columna «Venta 30 d»** (misma cuenta que «V30d» de Compras) y el «por qué» de *Falta* dice que el
+  objetivo es la venta de 30 días × temporalidad. Nota equivalente en el PDF.
+- **Vista por defecto = sólo lo que tiene algo que pedir.** Con el objetivo de Compras, el recorte
+  crítico (existencia ≤ reorden, de la tabla de reorden) dejaba pasar renglones con Falta 0: en La
+  Piedad 1,155 de 2,003, 1,142 de ellos sin venta en 30 días. Siguen visibles con «En política».
+
+**Cruce contra `workbook()` (prod, solo lectura, La Piedad, 1,163 productos en las dos pantallas):**
+venta 30 d igual en **1,163/1,163**; existencia igual en 1,158; Falta = pedido de Compras sin el
+factor de cumplimiento en **1,142 (98.2%)**. Las diferencias: existencia en vivo contra la foto del
+fact, y renglones que Compras deja en blanco por peldaño contradicho.
+
+**Tiempos** (página de 50): vista por defecto 4.0–4.8 s por almacén, red 6.4 s; «En política» hasta
+7.2 s (sin el recorte crítico recorre todas las políticas del almacén).
+
+**Pendiente de esta línea:** los días de cobertura de «Entrega» siguen usando la venta diaria de 90
+días (`inventory_health`), no la de 30; y el máximo de la tabla de reorden puede quedar corto contra
+la demanda (ej. Japonés granel 20 kg en Morelia Abastos: máx 125 cajas, objetivo 175.4).
+### 15.10 🧪 [AB.17] Freno de fin de pico en el motor común — EN CÓDIGO 2026-10-12
+
+**Disparador (Francisco, 2026-10-12):** el bombón La Rosa 70012 en La Piedad salía primero en «Mi
+pedido» con 46 cajas. Es producto de pico de temporada: vendía 2–10 piezas al día, subió del 19-sep al
+4-oct (43, 81, 105, **144**, 87…) y desde el 5-oct volvió a 2–8. El año pasado igual: sep-2025 1,221
+piezas en La Piedad, oct 206. **El historial sí lo sabe; falló la ponderación**, por tres razones:
+1. la demanda es el promedio de 30 días (13-sep → 12-oct) y sigue cargando el pico: 31.6 al día;
+2. la temporalidad es de RED: en la red septiembre sube ~40%, en La Piedad 10×; mezclado da 0.848;
+3. la temporalidad tiene piso de 0.5: aun bien calculada no podría bajar más de la mitad.
+
+**Medido:** 222 productos-sucursal (unos 251 pares con la regla final) estaban así, ~$250 mil de pedido
+de más a costo (01: 69 · 06: 49 · 08: 45 · 02: 15 …).
+
+**Decisión de Francisco:** corregirlo en el **motor común** (`import-replenishment-plan.js`), así lo
+ven igual Compras y Autoabasto; la temporalidad por sucursal y sin piso queda para después, con prueba
+contra el historial (RA-PRO.41 está backtesteada).
+
+**Criterio de negocio (Francisco, 2026-10-12), sobre una primera versión que frenaba cualquier caída:**
+el freno aplica **sólo después de un pico real** —cualquier cosa que altere el ritmo semanal: una
+promoción (Canels 20021 con 5+1, no más de dos veces al año), una oferta extraordinaria, la temporada,
+una venta grande y única— y **nunca cuando la venta cayó porque la existencia llegó a 0 o casi 0**: eso
+no es fin de pico, es **venta negada** (fase DN), y frenarlo pediría menos justo cuando falta (agua 59108
+por suministro de empaque, 17085 y 20606 por agotado de origen). Umbrales decididos por él: pico de más
+de 2×, «ya pasó» por debajo del 40% del pico, y «casi 0» = existencia para menos de 3 días.
+
+**La regla** (CTEs `fp_d` … `fpico`, todos MATERIALIZED), en **pesos** (inmune a la unidad del almacén)
+y semanas completas hasta ayer:
+1. **venta regular:** vendió en 6 o más de las 8 semanas previas (semanas 5–12 hacia atrás) — deja fuera
+   lo que se compra salteado (rollos Altos);
+2. **hubo pico:** alguna de las últimas 4 semanas vendió **más de 2×** su nivel normal (nivel normal =
+   **mediana** semanal de las semanas 5–12: no se deja arrastrar por un pico viejo);
+3. **el pico infló el promedio:** la venta de 30 días quedó 1.5× o más arriba del normal;
+4. **el pico ya pasó:** la última semana vende menos del **40% de la semana pico** (contra el pico y no
+   contra el normal: después del pico el bombón en La Piedad todavía vende el doble de lo normal);
+5. **no faltó mercancía:** en 6 o más de los últimos 7 días tuvo existencia para **3 días de su venta
+   normal** según `analytics.stock_snapshots` (AB.0b), con la foto cubriendo el almacén 6+ días.
+
+Entonces la demanda baja a **lo mayor entre la última semana y el nivel normal**:
+`razón = GREATEST(r7, normal) / r30`, `season_ratio = LEAST(season_ratio, razón)`, `season_src = 'fin_pico'`.
+La venta de 30 días que se muestra no cambia; sólo baja el objetivo. Las rutas se miden con su sucursal
+madre (`rmap`). Se suelta solo.
+
+**Verificación:** el SQL completo del motor pasa `EXPLAIN` contra prod en solo lectura, y la lista se sacó
+con el SQL del propio motor (copia que sólo lee): **725 pares frenados** (pedido de esos productos $718
+mil → $162 mil), **276 con pico pero sin mercancía** (no se frenan: entrada para venta negada), ~3.7 s.
+Casos: bombón 70012 — La Piedad 45.6 → 3.2 cajas, Padre Hidalgo 81.9 → 0, 8 Esquinas 67.3 → 35.4 (aún
+vende 30% del pico); Canels 20021 en Canindo 32.8 → 6.5; agua 59108 no se frena (en la 01 no hubo pico,
+en la 06 mercancía suficiente sólo 2 de 7 días). ⚠️ El 17085 en La Piedad **sí** se frena (pico 2.4× y
+ahí sí tuvo mercancía: mínimo 107 u contra 9/día); su agotado de origen afecta a otras sucursales.
+Listas en `C:\DEV\entregables\freno-fin-de-pico-final-2026-10-12.xlsx` (fuera del repo).
+
+**Cuándo surte efecto:** en la siguiente corrida del plan (carril `stock`, varias veces por hora, o el
+nocturno) **después de actualizar la imagen de los feeds en `md`**: el motor corre en los contenedores
+de ingesta, no en la API.
+
+**Abierto:** temporalidad por sucursal y sin piso de 0.5 (el ANTES del pico: pedir más cuando se acerca
+septiembre), con prueba contra el historial.

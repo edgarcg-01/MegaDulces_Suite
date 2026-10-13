@@ -20,6 +20,37 @@ import {
  *
  * *Un arreglo que vive sólo del lado de la escritura no es un arreglo: es un dato que nadie usa.*
  */
+/**
+ * ⭐⭐ `[CG.98]` **LA CAJA GENERAL ES UNA SOLA, NO UNA POR PLAZA.**
+ *
+ * Edgar, al ver que el cuadre no cerraba: *"resuélvelo entonces"*.
+ *
+ * El arqueo filtraba por `sucursal`, y eso suponía un cajón por plaza. Medido en prod el
+ * 2026-10-12, es falso:
+ *
+ *   · las **10 nóminas de hoy son de CUATRO sucursales** (05, 06, 07, 08) y las cuatro usan la
+ *     caja `0011`;
+ *   · suman **$32,237.00** contra **$32,220.00** dispensados por el cajero de OFICINAS — $17 de
+ *     morralla. Una sola bóveda pagó nóminas de cuatro plazas;
+ *   · y en TODO el libro (27 movimientos, 6 sucursales) **no hay más caja que `0011`**.
+ *
+ * O sea: `cash_ledger.sucursal` es la plaza del DOCUMENTO contable, no dónde estaba el efectivo.
+ * Filtrar por ella partía un cajón físico en seis pedazos y ninguno cuadraba: el efectivo salía
+ * de un pedazo y el gasto se anotaba en otro.
+ *
+ * El cajero vive en OFICINAS (`00`), así que el corte de esa sucursal es el de LA caja y ve todos
+ * los movimientos. Cualquier otra plaza sigue acotada a lo suyo — el día que una tenga su propio
+ * cajón, esto no la va a mezclar con el de oficinas.
+ *
+ * ⚠️ Si algún día aparece una segunda caja en el libro (otra `clave_banco`), esto deja de alcanzar
+ * y hay que acotar por caja de verdad. Hoy no existe: medido, 27 de 27 movimientos son `0011` o
+ * captura manual desde esta misma pantalla.
+ */
+const SUCURSAL_DEL_CAJERO = '00';
+function aplicarAlcanceCaja(qb: any, sucursal: string): any {
+  return sucursal === SUCURSAL_DEL_CAJERO ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
+}
+
 function fondo(c: { fondo_inicial?: number | string | null } | null | undefined): number | null {
   const v = c?.fondo_inicial;
   return v === null || v === undefined ? null : Number(v);
@@ -109,10 +140,28 @@ export class CashCutService {
    */
   private async movimientosSueltos(trx: any, tenantId: string, sucursal: string): Promise<MovimientoDelCorte[]> {
     const rows = await trx('finance.cash_ledger')
-      .where({ tenant_id: tenantId, sucursal })
+      .where({ tenant_id: tenantId })
+      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
-      .select('tipo', 'monto', 'estado', 'origen_tipo');
-    return rows.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      .select('tipo', 'monto', 'estado', 'origen_tipo')
+      /**
+       * `[CG.95]` Cuánto de cada movimiento nunca pasó por el cajón. DOS vías, y hacen falta las
+       * dos — medido: con sólo la segunda se perdían $21,790 de un ingreso cuyo origen entero es
+       * el cajero, y con sólo la primera se perdían los billetes de los cobros de ruta.
+       *
+       *   (a) el movimiento ENTERO es un movimiento del cajero (`origen_tipo='caos'`);
+       *   (b) parte de él se enlazó a un depósito/retiro del cajero (`caos_cash_links`).
+       *
+       * ⚠️ `monto_enlazado` es lo que contó la MÁQUINA (sólo billetes). La morralla queda afuera
+       * y por eso llega al cajón — que es exactamente la distinción que esto viene a hacer.
+       */
+      .select(trx.raw(`CASE WHEN origen_tipo = 'caos' THEN monto ELSE coalesce((
+           SELECT sum(k.monto_enlazado) FROM finance.caos_cash_links k
+            WHERE k.cash_ledger_id = finance.cash_ledger.id AND k.deleted_at IS NULL), 0)
+         END AS en_boveda`));
+    return rows.map((r: any) => ({
+      ...r, anclado: r.origen_tipo === 'cobro', en_boveda: Number(r.en_boveda ?? 0),
+    }));
   }
 
   /**
@@ -282,8 +331,11 @@ export class CashCutService {
       }
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
+      // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
       const totales = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -309,10 +361,13 @@ export class CashCutService {
       if (!c) throw new NotFoundException('Corte no encontrado');
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
+      // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
       const previos = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
       const totalesPrevios = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
       });
 
@@ -330,7 +385,7 @@ export class CashCutService {
       });
 
       const totales = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -386,9 +441,12 @@ export class CashCutService {
       // esperado venía de Kepler. Es el dato que distingue un corte auditable de uno que sólo
       // repite lo que el capturista tecleó (regla M4).
       const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      // `[CG.96]` Las dos piernas del cajero desde que abrió ESTE corte. Sin esto el esperado
+      // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
 
       const t = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
 
@@ -525,7 +583,7 @@ export class CashCutService {
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
       const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.created_at ?? null);
-      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs });
+      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
       return {
         sucursal,
         corte_abierto: abierto
@@ -626,7 +684,9 @@ export class CashCutService {
        * convirtió un `to_char(fecha)` en un seq scan de 167k filas.
        */
       const [libro] = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal })
+        .where({ tenant_id: tenantId })
+        // `[CG.98]` La caja general es UNA: en oficinas se ven todas las plazas.
+        .where((b: any) => aplicarAlcanceCaja(b, sucursal))
         .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereNull('deleted_at')
@@ -783,7 +843,10 @@ export class CashCutService {
        * cuando hay que explicarlo.
        */
       const movimientosDelDia = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal })
+        .where({ tenant_id: tenantId })
+        // `[CG.98]` Mismo alcance que el cuadro de arriba: si la lista mostrara otro universo que
+        // el total, el pie no sumaría lo que el cuadro dice y nada se podría revisar.
+        .where((b: any) => aplicarAlcanceCaja(b, sucursal))
         .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereNull('deleted_at')
@@ -840,10 +903,44 @@ export class CashCutService {
           // `[CG.82]` De los de hoy, cuántos traen el papel fechado otro día (el rezago del ERP).
           // Viaja como NÚMERO y no sólo como frase: la frase se lee una vez, el número se compara.
           fechados_otro_dia: fueraDeFecha,
+          /**
+           * ⭐⭐ `[CG.97]` **CUÁNTO DE ESTE MOVIMIENTO QUEDÓ DE VERDAD EN EL CAJÓN.**
+           *
+           * Edgar, mirando este mismo bloque: *"ponemos que a caja general entró 103 mil, pero eso
+           * no ingresó; ingresó sólo monedas y lo de CAOS se queda en CAOS"*.
+           *
+           * `neto` es correcto como MOVIMIENTO DEL DÍA —el dinero entró y se registró— pero se
+           * lee como «esto hay en la caja», y no lo hay: de los $111,845 de hoy, la máquina se
+           * tragó $111,750 en billetes. Al cajón llegaron $95 de morralla.
+           *
+           * El modelo es el que ya declara `conciliacionCajero`: **cajas separadas**. Un depósito
+           * al cajero saca efectivo del cajón; una dispensación lo mete. Las dos piernas las mide
+           * la MÁQUINA, que es el testigo duro — no hace falta enlazar nada.
+           *
+           *     en_el_cajon = ingresos − gastos − depósitos + dispensado − depositado
+           *
+           * ⚠️ `null` cuando no hay cajero (cualquier sucursal que no sea OFICINAS, o el feed
+           * caído). Ahí no se puede repartir, y un cero diría «nada quedó en el cajón», que es
+           * una afirmación distinta de «no se puede saber».
+           */
+          en_el_cajon: cajero
+            ? Number((ingresos - gastos - depositos
+              + Number(cajero['dispensado'] ?? 0) - Number(cajero['depositado'] ?? 0)).toFixed(2))
+            : null,
+          /** `[CG.97]` Lo que de la jornada se fue a la bóveda, neto. Positivo = la bóveda creció. */
+          a_la_boveda: cajero
+            ? Number((Number(cajero['depositado'] ?? 0) - Number(cajero['dispensado'] ?? 0)).toFixed(2))
+            : null,
         },
         cajero,
         corte_abierto: corte
-          ? { id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10) }
+          ? {
+            id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10),
+            // `[CG.90.1]` Si el fondo se midió o no. La pantalla ofrece declararlo SOLO cuando
+            // falta; sin este campo el botón saldría siempre, incluso con el fondo ya puesto.
+            // ⚠️ `fondo()` devuelve `null` cuando no se midió — NO `0`, que sería "arrancó vacía".
+            fondo_inicial: fondo(corte), fondo_origen: corte.fondo_origen ?? null,
+          }
           : null,
         no_medido,
         limites,

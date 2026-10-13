@@ -128,6 +128,42 @@ export class CommercialCommissionsController {
     return this.service.board(anio ? Number(anio) : new Date().getFullYear());
   }
 
+
+  /**
+   * `[RD.66]` Todas las versiones del tabulador, con sus escalones y el piso editable.
+   * Lectura: la ve quien ve comisiones, porque explica CON QUÉ se calculó lo que está mirando.
+   */
+  @Get('scales')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'Las versiones del tabulador, con sus escalones y desde cuándo rige cada una',
+    description: 'Incluye `piso_editable`: la última fecha ya pagada o aprobada. Una escala nueva '
+      + 'tiene que empezar DESPUÉS de esa fecha, porque lo pagado no se recalcula.',
+  })
+  scales() {
+    return this.service.listScales();
+  }
+
+  /**
+   * `[RD.66]` Estrena una versión. ⛔ GESTIONAR, no VER: esto cambia cuánto cobra cada chofer.
+   */
+  @Post('scales')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Crea una VERSIÓN NUEVA del tabulador; nunca pisa la vigente',
+    description: 'Body: `{ valid_from, tiers[], nombre?, share_supervisor_pct? }`. Cierra la '
+      + 'anterior con `valid_to = valid_from`. **Rechaza** una fecha que alcance a un periodo ya '
+      + 'pagado o aprobado, escalones con hueco o traslape, y un último escalón con techo.',
+  })
+  createScale(
+    @Body() body: {
+      valid_from: string; nombre?: string; share_supervisor_pct?: number;
+      tiers: { min_amount: number; max_amount: number | null; pct: number }[];
+    },
+  ) {
+    return this.service.createScaleVersion(body);
+  }
+
   @Get('universe')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
   @ApiOperation({

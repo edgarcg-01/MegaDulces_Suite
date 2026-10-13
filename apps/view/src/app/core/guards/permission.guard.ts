@@ -355,6 +355,14 @@ export const carteraEntryGuard: CanActivateFn = (_route, state) => {
 
 /** `[SN.4]` Landing de `/contabilidad`. Antes: `redirectTo: 'listas-sat'` fijo (exige FISCAL_LISTAS_VER). */
 export const CONTABILIDAD_LANDING: LandingCandidate[] = withTreeCandidates('contabilidad', [
+  // `[CPA.10]` PRIMERO la bandeja. Medido 2026-10-12: el rol `contabilidad` hizo 3,604 llamadas
+  // en 10 días y CERO a `/api/fiscal/*` — aterrizaban en «Listas SAT», que es un visor fiscal y
+  // no su trabajo. `FISCAL_CONTAB_VER` ya lo tienen, así que esto NO agrega puerta a nadie: sólo
+  // cambia dónde cae quien YA podía entrar. Quien no lo tenga sigue cayendo donde caía.
+  // ⚠️ Es la MISMA clave que antes mandaba a `/contabilidad/contabilidad`, movida — no una
+  // entrada nueva: dos candidatos con la misma clave dejan al segundo muerto, y el candado de
+  // `[SN.4]` lo prohíbe.
+  { perm: Permission.FISCAL_CONTAB_VER, url: '/contabilidad/mi-cierre' },
   { perm: Permission.FISCAL_LISTAS_VER, url: '/contabilidad/listas-sat' },
   { perm: Permission.FISCAL_CFDI_VER, url: '/contabilidad/cfdi' },
   { perm: Permission.FISCAL_PURCHASE_BOOK_VER, url: '/contabilidad/movimientos-no-asociados' },
@@ -362,7 +370,6 @@ export const CONTABILIDAD_LANDING: LandingCandidate[] = withTreeCandidates('cont
   { perm: Permission.FISCAL_CONCILIACION_VER, url: '/contabilidad/conciliacion' },
   { perm: Permission.FISCAL_DIOT_VER, url: '/contabilidad/diot' },
   { perm: Permission.FISCAL_DESCARGA_VER, url: '/contabilidad/descarga' },
-  { perm: Permission.FISCAL_CONTAB_VER, url: '/contabilidad/contabilidad' },
   { perm: Permission.FISCAL_CREDENCIALES_GESTIONAR, url: '/contabilidad/credenciales' },
 ]);
 export const contabilidadHomeGuard: CanActivateFn = landingRedirectGuard(CONTABILIDAD_LANDING, '/contabilidad/listas-sat');

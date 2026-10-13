@@ -940,6 +940,14 @@ export const routes: Routes = [
         canActivate: [contabilidadHomeGuard],
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
       },
+      // `[CPA.10]` La bandeja: la portada del proyecto para quien lleva los libros. Va PRIMERA en
+      // `CONTABILIDAD_LANDING`, así que con `FISCAL_CONTAB_VER` se aterriza acá. El permiso es el
+      // mismo que ya abre el semáforo y la balanza — **ya repartido en prod**, sin re-login.
+      {
+        path: 'mi-cierre',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-mi-cierre.component').then(m => m.ContabilidadMiCierreComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
       {
         path: 'listas-sat',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),

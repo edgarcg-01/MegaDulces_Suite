@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — El pedido ya no carga un pico que ya pasó (AB.17, 2026-10-12)
+- Cuando un producto tuvo un pico real (promoción, oferta, temporada o una venta grande: más de 2 veces su venta normal en una semana) y ya regresó a su ritmo, el sistema pide con su venta normal en lugar del promedio de 30 días que todavía arrastra el pico. Aplica a Compras (/compras/pedido) y a Autoabasto.
+- No se frena si la venta bajó por falta de mercancía (existencia para menos de 3 días): eso es venta negada.
+- Ejemplo: bombón La Rosa 70012 en La Piedad — el pedido baja de 46 cajas a unas 3. Hoy son 725 productos-sucursal.
 ### Changed — Finanzas › Gastos: un vale aprobado con cotización se cierra al aprobarlo (GX.82, 2026-10-12)
 - La cotización basta como evidencia: ya no se queda en «Pendientes de comprobación» esperando factura. Sólo vuelve si el aprobador marca «provisional». Una migración cierra los 93 que estaban atorados.
 ### Changed — Compras › Catálogo: los productos se revisan por proveedor (PF.9, 2026-10-12)
@@ -22,6 +26,17 @@
 - Las cantidades ya no salen con decimales de caja: `333.7` pasa a `333 cj 14 paq` (caja, paquete de la ficha de Kepler de esa sucursal y pieza). Si un producto no tiene factor de caja, se muestra en su unidad con °. El total del producto va desglosado cuando todas las sucursales usan el mismo empaque; si no, en cajas enteras con `≈`.
 - Corregido de paso: el aviso «celdas valuadas con el catálogo» nunca aparecía (el servidor siempre mandaba 0); hoy son 34.
 - Sin migraciones ni permisos nuevos.
+### Changed — Autoabasto calcula cuánto pedir igual que Compras (AB.15, 2026-10-12)
+- **«Falta» ahora es la venta de los últimos 30 días por la temporalidad, menos la existencia**: el mismo cálculo de /compras/pedido. El almacenista y el comprador ven la misma cantidad (98% de coincidencia medida en La Piedad; la diferencia es el ajuste por cumplimiento del proveedor, que es del comprador).
+- **La existencia también es la de Compras**: el CEDIS se lee de Kepler desde su cambio del 30-sep (antes Autoabasto mostraba la última foto de Wincaja).
+- Nueva columna **Venta 30 d**, y la explicación de *Falta* dice de dónde sale el objetivo.
+- La vista por defecto muestra sólo lo que tiene algo que pedir; lo que no (mayormente productos sin venta en 30 días) sigue en «Acción = En política».
+- El mínimo, el reorden y el máximo siguen decidiendo la posición (agotado, bajo mínimo…) y qué es sobrante.
+### Fixed — Autoabasto: vuelve el PDF, el aviso de tránsito dice la verdad y el filtro de acción cubre todas las páginas (AB.14, 2026-10-12)
+- **Volvieron el botón «Descargar PDF» y los avisos de «Tu almacén»** en /almacen/autoabasto: un cambio del 8-oct (nombres de sucursal) se había hecho sobre una versión anterior de la pantalla y los borró.
+- **Lo que está en camino ya no se presenta como descontado.** Desde el 9-oct el sugerido no resta las órdenes en camino; la pantalla, el «por qué» de *Falta* y el PDF decían lo contrario. Ahora muestran el aviso real.
+- **El filtro «Acción» lo aplica el servidor**: antes sólo recortaba la página visible y el total era falso. «Sobrante» y «En política» ya aparecen.
+- **La búsqueda también filtra los indicadores de arriba por producto** (antes los filtraba por nombre de proveedor).
 ### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
 - **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
 - **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) (**sin exportar a Excel/CSV**, decisión de Edgar del 2026-10-10: el aviso lleva a Cambios de precio, donde se reimprime).

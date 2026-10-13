@@ -38,6 +38,15 @@ interface AutoabastoReporte {
  */
 const AREA_AUTOABASTO = 'almacen';
 
+/**
+ * `[AB.15]` Cuánto pedir se calcula IGUAL que en /compras/pedido: venta de 30 días × temporalidad
+ * × 30 días de cobertura − existencia (base 'demanda' del motor). Decisión de Francisco,
+ * 2026-10-12: el almacenista y el comprador tienen que ver la misma cantidad. El mín / reorden /
+ * máx dinámicos siguen decidiendo el semáforo y qué es sobrante. Compras no cambia: su default
+ * sigue siendo 'max'.
+ */
+const BASE_AUTOABASTO = 'demanda';
+
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -87,6 +96,7 @@ export class AutoabastoController {
     @Query('category_id') category_id?: string,
     @Query('abc') abc?: string,
     @Query('bucket') bucket?: string,
+    @Query('accion') accion?: string,
     @Query('search') search?: string,
     @Query('target_basis') target_basis?: string,
     @Query('sort_by') sort_by?: string,
@@ -95,8 +105,8 @@ export class AutoabastoController {
     @Query('pageSize') pageSize?: string,
   ): Promise<AutoabastoMesa> {
     return this.svc.criticalStock({
-      warehouse_id, warehouse_ids, supplier_id, category_id, abc, bucket, search,
-      target_basis, sort_by, sort_dir,
+      warehouse_id, warehouse_ids, supplier_id, category_id, abc, bucket, accion, search,
+      target_basis: target_basis || BASE_AUTOABASTO, sort_by, sort_dir,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     }, AREA_AUTOABASTO);
@@ -114,7 +124,9 @@ export class AutoabastoController {
     @Query('search') search?: string,
     @Query('target_basis') target_basis?: string,
   ): Promise<AutoabastoResumen> {
-    return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, category_id, search, target_basis }, AREA_AUTOABASTO);
+    // `[AB.14]` En esta mesa el buscador es de PRODUCTO: el resumen cuenta lo mismo que la tabla
+    // lista. (En summary() `search` filtra por proveedor, que es como lo usa Compras.)
+    return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, category_id, product_search: search, target_basis: target_basis || BASE_AUTOABASTO }, AREA_AUTOABASTO);
   }
 
   /** Los almacenes (ya recortados al alcance de la persona) y proveedores para filtrar la mesa. */
@@ -139,6 +151,7 @@ export class AutoabastoController {
     @Query('warehouse_id') warehouse_id?: string,
     @Query('supplier_id') supplier_id?: string,
     @Query('bucket') bucket?: string,
+    @Query('accion') accion?: string,
     @Query('search') search?: string,
     @Query('sort_by') sort_by?: string,
     @Query('sort_dir') sort_dir?: string,
@@ -152,12 +165,11 @@ export class AutoabastoController {
     if (!almacen) throw new ForbiddenException('Ese almacén no está dentro de tu alcance.');
 
     const ahora = new Date();
-    const q = { warehouse_id, supplier_id, bucket, search, sort_by, sort_dir };
+    const q = { warehouse_id, supplier_id, bucket, accion, search, sort_by, sort_dir, target_basis: BASE_AUTOABASTO };
     const [mesa, resumen] = await Promise.all([
       this.svc.criticalStock({ ...q, export: true }, AREA_AUTOABASTO),
-      // Sin `search` a propósito: en summary() el texto filtra por NOMBRE DE PROVEEDOR, no por
-      // producto (defecto abierto de la revisión de AB). El resumen del papel es del almacén.
-      this.svc.summary({ warehouse_id, supplier_id }, AREA_AUTOABASTO),
+      // `[AB.14]` El resumen del papel sigue el mismo buscador de producto que la mesa.
+      this.svc.summary({ warehouse_id, supplier_id, product_search: search, target_basis: BASE_AUTOABASTO }, AREA_AUTOABASTO),
     ]);
     return {
       almacen: { id: almacen.id, code: almacen.code, name: almacen.name },
