@@ -687,9 +687,13 @@ export class CommercialReplenishmentService {
    */
   private demandTarget(): string {
     // `[AB.22]` La cobertura es por almacén (sucursales 21 d, rutas 2.5 d, el resto 30 d): sale del
-    // mismo mapa del contrato que lee la pantalla. Requiere `w` (commercial.warehouses) joineado,
-    // como lo tienen las tres consultas que piden la base 'demanda'.
-    return `(COALESCE(rpl.daily_pieces, 0) * COALESCE(rpl.season_ratio, 1) * ${coberturaAutoabastoSql('w.code')}
+    // mismo mapa del contrato que lee la pantalla. El código se busca desde el propio renglón del
+    // plan (`rpl`) y NO desde un alias `w`: el conteo ligero y el sobrante de la red (`sbp`) usan el
+    // objetivo sin unir `commercial.warehouses`, y con `w.code` las cuatro pantallas daban 500
+    // (visto en local 2026-10-13). La búsqueda es por llave primaria.
+    const codigo = `(SELECT aw.code FROM commercial.warehouses aw
+                      WHERE aw.tenant_id = rpl.tenant_id AND aw.id = rpl.warehouse_id)`;
+    return `(COALESCE(rpl.daily_pieces, 0) * COALESCE(rpl.season_ratio, 1) * ${coberturaAutoabastoSql(codigo)}
              / (COALESCE(rpl.suf, 1) * COALESCE(rpl.bf, 1)) * COALESCE(rpl.display_bf, rpl.bf, 1))`;
   }
   /**
