@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService, normalizeMxPhone } from '@megadulces/platform-core';
+import { RECRUITMENT_BOT_PORT, type RecruitmentBotPort, type RecruitmentReply } from '@megadulces/contracts';
 import { BANK_CAPTURE_PORT } from '@megadulces/contracts';
 import type { BankCapturePort, BankCaptureSender } from '@megadulces/contracts';
 import { WHATSAPP_PORT } from '../ports/whatsapp.port';
@@ -38,12 +39,23 @@ interface InJobPayload {
   wa_message_id: string;
   /** CBW — si viene, el mensaje se procesa como captura bancaria, no comercial. */
   bank?: BankInJob;
+  /** `[RH.3.1]` si viene, el mensaje llegó al número de RECLUTAMIENTO y va al bot de reclutamiento. */
+  recruitment?: {
+    phone_number_id: string | null;
+    type: InboundMessage['type'];
+    profile_name: string | null;
+    media: { id: string; mime_type: string; filename: string | null } | null;
+  };
 }
 
 /** Payload de un job de SALIDA (una respuesta a enviar por el puerto). */
 interface OutJobPayload {
   to: string;
   thread_id: string | null;
+  /** `[RH.3.1]` desde qué número sale (el que recibió la conversación); null = el configurado. */
+  from?: string | null;
+  /** `[RH.3.1]` de qué flujo es (para registrarlo en el libro aunque no haya hilo de comercio). */
+  flow?: 'commerce' | 'recruitment';
   kind: 'text' | 'interactive' | 'image' | 'template';
   body: string;
   interactive?: InteractiveMessage;
@@ -83,8 +95,8 @@ export class WhatsAppIngestService implements OnModuleInit {
   private readonly tenantId =
     process.env.WHATSAPP_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
-  /** Cache phone_number_id → tenant_id (tabla global, cambia rara vez). */
-  private readonly tenantByPhoneId = new Map<string, string>();
+  /** Cache phone_number_id → { tenant, flujo } (tabla global, cambia rara vez). */
+  private readonly routeByPhoneId = new Map<string, { tenantId: string; flow: 'commerce' | 'recruitment' }>();
 
   constructor(
     @Inject(WHATSAPP_PORT) private readonly port: WhatsAppPort,
@@ -97,6 +109,8 @@ export class WhatsAppIngestService implements OnModuleInit {
     // CBW (ADR-042): captura bancaria por WhatsApp. @Optional — solo hay binding
     // con ENABLE_MULTITENANT=true; sin él, todo sigue por el camino comercial.
     @Optional() @Inject(BANK_CAPTURE_PORT) private readonly bankCapture?: BankCapturePort,
+    // `[RH.3.1]` el bot de reclutamiento (libs/hr) detrás de un puerto: el número de RH no pasa por comercio.
+    @Optional() @Inject(RECRUITMENT_BOT_PORT) private readonly recruitmentBot?: RecruitmentBotPort,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -129,21 +143,40 @@ export class WhatsAppIngestService implements OnModuleInit {
   private async acceptMessages(messages: InboundMessage[]): Promise<number> {
     let accepted = 0;
     for (const msg of messages) {
-      // CBW: imagen/documento también son enrutables (posible captura bancaria).
+      const { tenantId, flow } = await this.resolveRoute(msg);
+      // CBW: imagen/documento también son enrutables (posible captura bancaria). `[RH.3.1]` El número de reclutamiento
+      // además recibe notas de voz (Mega Talento las transcribe) — el bot decide qué hacer con cada tipo.
       const routable =
         msg.type === 'text' || msg.type === 'interactive' || msg.type === 'location' ||
-        msg.type === 'image' || msg.type === 'document';
+        msg.type === 'image' || msg.type === 'document' || (flow === 'recruitment' && msg.type === 'audio');
       if (!routable) {
         this.logger.debug(`Mensaje ${msg.type} ignorado (no enrutable).`);
         continue;
       }
-      const tenantId = await this.resolveTenantId(msg);
       // FIQ.0: teléfono canónico (52XXXXXXXXXX) para hilo/lookup/outbound. Un solo
       // formato en todo el pipeline → el cliente recurrente matchea y no se duplica.
       const phone = normalizeMxPhone(msg.from) || msg.from;
       await this.tenantCtx.run({ tenantId }, async () => {
         if (await this.threads.isDuplicateInbound(msg)) {
           this.logger.debug(`Duplicado ${msg.wa_message_id} — ignorado.`);
+          return;
+        }
+        // `[RH.3.1]` El número de RECLUTAMIENTO va al bot de reclutamiento, ANTES de la captura bancaria y del comercio:
+        // ese número no vende ni recibe depósitos. Se registra en el mismo libro, con su flujo y sin hilo de comercio.
+        if (flow === 'recruitment') {
+          await this.threads.logFlowMessage('recruitment', 'in', {
+            phone, phone_number_id: msg.phone_number_id ?? null, wa_message_id: msg.wa_message_id,
+            type: msg.type, body: msg.text, payload: msg.raw,
+          });
+          const payload: InJobPayload = {
+            thread_id: null, phone, wa_id: msg.wa_id, text: msg.text ?? null, wa_message_id: msg.wa_message_id,
+            recruitment: {
+              phone_number_id: msg.phone_number_id ?? null, type: msg.type, profile_name: msg.profile_name ?? null,
+              media: msg.media ? { id: msg.media.id, mime_type: msg.media.mime_type, filename: msg.media.filename ?? null } : null,
+            },
+          };
+          await this.queue.enqueue({ dir: 'in', tenant_id: tenantId, payload }, `in:${tenantId}:${msg.wa_message_id}`);
+          accepted++;
           return;
         }
         // CBW (ADR-042): ¿es una captura bancaria de un remitente autorizado?
@@ -221,21 +254,29 @@ export class WhatsAppIngestService implements OnModuleInit {
    * `whatsapp.phone_number_tenant_map` (tabla global sin RLS). Cachea el mapeo.
    * Fallback al tenant default (piloto single-tenant) si no hay id o no matchea.
    */
-  private async resolveTenantId(msg: InboundMessage): Promise<string> {
+  /**
+   * `[RH.3.1]` Además del tenant, el FLUJO del número (`phone_number_tenant_map.flow`): el número de reclutamiento va al
+   * bot de RH. Sin id o sin fila → tenant default y comercio (lo de siempre). Si la consulta falla, comercio: nunca se
+   * manda a reclutamiento un mensaje que no se sabe de dónde vino.
+   */
+  private async resolveRoute(msg: InboundMessage): Promise<{ tenantId: string; flow: 'commerce' | 'recruitment' }> {
     const pnid = msg.phone_number_id;
-    if (!pnid) return this.tenantId;
-    const cached = this.tenantByPhoneId.get(pnid);
+    if (!pnid) return { tenantId: this.tenantId, flow: 'commerce' };
+    const cached = this.routeByPhoneId.get(pnid);
     if (cached) return cached;
     try {
       const row = await this.knex('whatsapp.phone_number_tenant_map')
         .where({ phone_number_id: pnid })
-        .first('tenant_id');
-      const tid = (row?.tenant_id as string) || this.tenantId;
-      this.tenantByPhoneId.set(pnid, tid);
-      return tid;
+        .first('tenant_id', 'flow');
+      const route = {
+        tenantId: (row?.tenant_id as string) || this.tenantId,
+        flow: row?.flow === 'recruitment' ? 'recruitment' as const : 'commerce' as const,
+      };
+      this.routeByPhoneId.set(pnid, route);
+      return route;
     } catch (e: any) {
-      this.logger.warn(`resolveTenantId map falló (${e?.message}) — uso tenant default.`);
-      return this.tenantId;
+      this.logger.warn(`resolveRoute map falló (${e?.message}) — uso tenant default y comercio.`);
+      return { tenantId: this.tenantId, flow: 'commerce' };
     }
   }
 
@@ -250,6 +291,11 @@ export class WhatsAppIngestService implements OnModuleInit {
     const tenantId = job.tenant_id || this.tenantId;
     const p = job.payload as InJobPayload;
     await this.tenantCtx.run({ tenantId }, async () => {
+      // `[RH.3.1]` rama de reclutamiento — el bot de RH decide; la respuesta sale desde el mismo número.
+      if (p.recruitment) {
+        await this.handleRecruitmentJob(tenantId, p);
+        return;
+      }
       // CBW (ADR-042): rama bancaria — descarga la media + OCR + staging, o confirma.
       if (p.bank) {
         await this.handleBankJob(tenantId, p);
@@ -328,16 +374,52 @@ export class WhatsAppIngestService implements OnModuleInit {
     });
   }
 
+  /**
+   * `[RH.3.1]` Un mensaje del número de reclutamiento: lo procesa el bot de RH (por el puerto) y cada respuesta se encola
+   * para salir DESDE EL MISMO NÚMERO. Sin binding (sin ENABLE_MULTITENANT) no se contesta: el mensaje queda registrado y
+   * se avisa en el log — mejor callar que contestar con el bot de comercio en el número de RH.
+   */
+  private async handleRecruitmentJob(tenantId: string, p: InJobPayload): Promise<void> {
+    const r = p.recruitment;
+    if (!r) return;
+    if (!this.recruitmentBot) {
+      this.logger.warn(`Mensaje al número de reclutamiento sin bot de reclutamiento (sin binding) — registrado, sin respuesta.`);
+      return;
+    }
+    const media = r.media;
+    const replies: RecruitmentReply[] = await this.recruitmentBot.handleMessage({
+      phone: p.phone, phoneNumberId: r.phone_number_id, waMessageId: p.wa_message_id, type: r.type, text: p.text,
+      profileName: r.profile_name,
+      media: media ? { id: media.id, mimeType: media.mime_type, filename: media.filename } : null,
+      descargar: media ? () => this.port.downloadMedia(media.id) : null,
+    });
+    for (const reply of replies) {
+      await this.enqueueOut(tenantId, reply.kind === 'interactive'
+        ? { to: p.phone, thread_id: null, from: r.phone_number_id, flow: 'recruitment', kind: 'interactive', body: reply.body,
+          interactive: { body: reply.body, buttons: reply.buttons, ...(reply.header ? { header: reply.header } : {}) } }
+        : { to: p.phone, thread_id: null, from: r.phone_number_id, flow: 'recruitment', kind: 'text', body: reply.body });
+    }
+  }
+
   /** Worker de SALIDA. Envía por el puerto (Meta/simulador) y registra 'out'. */
   private async onOutboundJob(job: WhatsAppJob): Promise<void> {
     const tenantId = job.tenant_id || this.tenantId;
     const p = job.payload as OutJobPayload;
     await this.tenantCtx.run({ tenantId }, async () => {
       let res;
-      if (p.kind === 'interactive' && p.interactive) res = await this.port.sendInteractive(p.to, p.interactive);
-      else if (p.kind === 'image' && p.image) res = await this.port.sendImage(p.to, p.image);
-      else if (p.kind === 'template' && p.template) res = await this.port.sendTemplate(p.to, p.template);
-      else res = await this.port.sendText(p.to, p.body);
+      const opts = { from: p.from ?? null };
+      if (p.kind === 'interactive' && p.interactive) res = await this.port.sendInteractive(p.to, p.interactive, opts);
+      else if (p.kind === 'image' && p.image) res = await this.port.sendImage(p.to, p.image, opts);
+      else if (p.kind === 'template' && p.template) res = await this.port.sendTemplate(p.to, p.template, opts);
+      else res = await this.port.sendText(p.to, p.body, opts);
+      // `[RH.3.1]` reclutamiento: al libro, con su flujo, aunque no haya hilo de comercio.
+      if (p.flow === 'recruitment') {
+        await this.threads.logFlowMessage('recruitment', 'out', {
+          phone: p.to, phone_number_id: p.from ?? null, wa_message_id: res.message_id, type: p.kind, body: p.body,
+          payload: p.interactive ?? p.template ?? null,
+        });
+        return;
+      }
       // CBW: las respuestas bancarias no tienen thread → no se registran en messages.
       if (p.thread_id) {
         await this.threads.logMessage(p.thread_id, 'out', {

@@ -414,13 +414,59 @@ que ese formulario necesita (`[RH.2.4]`).
 
 ### RH.3 — Bot de reclutamiento en `libs/whatsapp` (≈4–5 semanas)
 
-- [ ] **[RH.3.1]** El webhook de la Suite enruta por `phone_number_id`: el número de RH va al orquestador de reclutamiento
-  (hoy enruta comercio y captura bancaria). Plantillas aprobadas del número de RH migran con él.
-- [ ] **[RH.3.2]** Conversación (máquina de estados), solicitud de ~130 preguntas, CV en PDF, clasificación de documentos.
-- [ ] **[RH.3.3]** Dictamen, aprobación por WhatsApp, avance de fases, MIDOT (modo manual), destacados y riesgo como `@Cron` con latido.
-- [ ] **[RH.3.4]** Se retira Firestore (legado) y el panel HTML del bot (lo reemplazan las pantallas de RH.2).
-- [ ] **[RH.3.5]** **Corte de reclutamiento** (RH.2 + RH.3 juntos, §6): carga única de candidatos, mensajes y documentos;
-  el webhook de Meta apunta a la Suite.
+**Medido el 13-oct-2026** (inventario del repo `BOT-RH` y de `libs/whatsapp`, sólo lectura):
+
+- **El bot de Mega Talento son ~14,000 líneas de lógica** (sin el checador): `server.js` 3,500 · `conversacion.js` 1,783 ·
+  `dictamen.js` 1,365 · `solicitud.js` 1,170 (175 preguntas) · `ia.js` 710 · `orientacion.js` 661 · `midot.js` 596 ·
+  `cv-pdf.js` 591 · `aprobacion.js` 481 · `cierre.js` 458 · `avance.js` 454 · destacados/riesgo/reactivar ~650. Se porta por
+  capas, no de un golpe.
+- **La Suite NO enruta por número**: `phone_number_id` sólo resuelve el tenant (`whatsapp.phone_number_tenant_map`); elegir
+  el flujo es un if/else fijo (captura bancaria → comercio). **Se envía desde UN solo número** (`WHATSAPP_PHONE_NUMBER_ID`).
+- **`whatsapp.messages` exige un hilo de COMERCIO** (`thread_id NOT NULL`): los mensajes de reclutamiento no caben sin
+  cambiarla (choca con «un solo libro de WhatsApp» de §2).
+- `conversacion.js` dice ser pura y **no lo es**: lee/escribe Postgres y llama a Claude. El candidato **nace con el primer
+  «hola»** (por eso Mega Talento tenía 99 filas sin CV que RH tuvo que esconder, `ES_POSTULACION`).
+- Sin la firma `WHATSAPP_APP_SECRET`, el bot de Mega Talento **acepta cualquier POST**; la Suite falla cerrado en producción.
+- Ventana de 24 h: Mega Talento la mide (`dentroDe24h`: último mensaje entrante); la Suite **no la rastrea** (sólo documenta).
+
+**Decisiones (recomendadas el 13-oct, sobre lo medido):**
+
+1. **Un solo libro de WhatsApp**: `whatsapp.messages` acepta mensajes SIN hilo de comercio, marcados con su `flow`
+   (`commerce` · `recruitment` · `bank_capture`) y su `phone_number_id`. Se descarta una tabla aparte para RH.
+2. **Ruteo por número**: cada `phone_number_id` declara su flujo (columna nueva en `phone_number_tenant_map`); el número de RH
+   va al orquestador de reclutamiento. El envío sale **desde el número que recibió** (hoy, uno fijo).
+3. **La conversación no es el candidato**: el estado del chat vive en `talent.bot_conversations`; el candidato se crea con
+   `HrTalentIntakeService.postular(…, 'whatsapp')` al terminar el registro — así pasa por **las mismas reglas que la web**
+   (un proceso a la vez, 90 días, lista negra) y no hay filas basura.
+4. **Lo que NO se porta**: la sincronización con Firestore (la Suite es el portal), el panel HTML y `/api/decidir` (los
+   reemplazan `/rh/reclutamiento` y los botones de WhatsApp), el checador (es `[RH.1]`), el vigilante de GitHub Actions.
+5. **Los cron** (avance, reactivar CV, destacados, riesgo, cierre/MIDOT, resumen diario) pasan a `@Cron` en el worker,
+   **con latido** registrado en `CRON_JOBS` (sin umbral, `db-health` da verde incondicional).
+
+- [ ] **[RH.3.1]** 🧪 Infraestructura (2026-10-13). Mig `20261013144148_whatsapp_flujo_por_numero`:
+  `phone_number_tenant_map.flow` ('commerce' | 'recruitment', default comercio: el número de ventas sigue igual);
+  `whatsapp.messages` acepta mensajes sin hilo de comercio con `flow`, `phone` y `phone_number_id` (CHECK: comercio sigue
+  exigiendo su hilo; fuera de comercio, sin teléfono no) + índice para la ventana de 24 h. La ingesta resuelve tenant **y
+  flujo** por número (si la consulta falla: comercio — nunca a reclutamiento sin saber de dónde vino) y desvía el número de
+  reclutamiento **antes** de la captura bancaria y del comercio; acepta notas de voz sólo en ese número. `WhatsAppPort`
+  envía **desde un número** (`SendOptions.from`; sin él, el configurado — todos los números de la misma cuenta comparten
+  token). Puerto `RECRUITMENT_BOT_PORT` (contracts) ligado en el composition root a `HrRecruitmentBotService` (libs/hr):
+  hoy un esqueleto que saluda; sin binding se registra y NO se contesta (mejor callar que contestar con el bot de comercio).
+  `ConversationThreadService.logFlowMessage` / `ultimoEntrante` / `dentroDe24h` (ventana medida desde el último ENTRANTE,
+  como Mega Talento; sin mensajes = fuera). Pruebas: ruteo con la ingesta real y el simulador (`whatsapp-ingest.ruteo.spec.ts`,
+  primer spec de `libs/whatsapp`, que gana su `vitest.config.ts`) y la migración contra la base, **mutadas a rojo** (la
+  respuesta sin «from»; quitar el CHECK de comercio). ⚠️ El código funciona sin la migración (el mapa sin `flow` cae a
+  comercio). No cambia: el número de ventas, la captura bancaria (sus respuestas siguen sin registrarse).
+- [ ] **[RH.3.2]** Registro por chat: los 12 pasos, validaciones (`CAMPOS_CLAVE`, `esDatoClaro`, RFC/NSS, practicantes),
+  extracción con Claude, orientación de puesto, edición y confirmación; al terminar → `postular(…, 'whatsapp')`.
+- [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
+  preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
+- [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
+  (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
+- [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.
+- [ ] **[RH.3.6]** **Corte de reclutamiento** (RH.2 + RH.3 juntos, §6): carga única verificada de candidatos, conversaciones,
+  mensajes y documentos (los archivos del volumen de Railway); plantillas aprobadas del número de RH; el webhook de Meta del
+  número de RH apunta a la Suite. Se retiran Firestore y el panel HTML del bot.
 
 ### RH.4 — Retiro (≈1 semana)
 

@@ -158,6 +158,7 @@ import { WhatsAppModule } from '@megadulces/whatsapp';
 // F.2 — binding del Port conversacional → catálogo commercial (DI inversion).
 import { CommerceConversationBindingModule } from './composition/commerce-conversation.binding.module';
 import { BankCaptureBindingModule } from './composition/bank-capture.binding.module';
+import { RecruitmentBotBindingModule } from './composition/recruitment-bot.binding.module';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
 import { MailerBindingModule } from './composition/mailer.binding.module';
@@ -333,6 +334,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommerceConversationBindingModule,
       // CBW (ADR-042): binding de captura bancaria por WhatsApp (BANK_CAPTURE_PORT).
       BankCaptureBindingModule,
+      // [RH.3.1] binding del bot de reclutamiento (RECRUITMENT_BOT_PORT): el número de RH va a libs/hr.
+      RecruitmentBotBindingModule,
       WhatsAppModule,
     ]
   : [];

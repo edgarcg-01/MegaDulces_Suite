@@ -19,6 +19,7 @@ import { HrTalentJobsService } from './talent/talent-jobs.service';
 import { HrTalentIntakeService } from './talent/talent-intake.service';
 import { HrTalentPublicController } from './talent/talent-public.controller';
 import { HrTalentLinksService } from './talent/talent-links.service';
+import { HrRecruitmentBotService } from './talent/bot/recruitment-bot.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -50,8 +51,9 @@ import { HrTalentLinksService } from './talent/talent-links.service';
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
-    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService,
+    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService,
   ],
-  exports: [HrAttendanceIngestService, HrAttendanceReportService],
+  // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
+  exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],
 })
 export class HrModule {}

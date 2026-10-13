@@ -6,6 +6,7 @@ import {
   ImageMessage,
   InboundMessage,
   InteractiveMessage,
+  SendOptions,
   SendResult,
   TemplateMessage,
   WhatsAppPort,
@@ -40,8 +41,12 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
   private readonly graphVersion = process.env.WHATSAPP_GRAPH_VERSION || 'v21.0';
   private readonly timeoutMs = 15_000;
 
-  private get baseUrl(): string {
-    return `https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}/messages`;
+  /**
+   * `[RH.3.1]` URL de envío desde un número. Sin `from`, el configurado. Todos los números de la misma cuenta de negocio
+   * comparten el token (`WHATSAPP_ACCESS_TOKEN`); un número de otra cuenta necesitaría su propio token (no aplica hoy).
+   */
+  private urlDesde(from?: string | null): string {
+    return `https://graph.facebook.com/${this.graphVersion}/${from || this.phoneNumberId}/messages`;
   }
 
   /**
@@ -57,18 +62,18 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return normalizeMxPhone(to) || (to || '').replace(/\D/g, '');
   }
 
-  private ready(): boolean {
-    if (!this.phoneNumberId || !this.accessToken) {
+  private ready(from?: string | null): boolean {
+    if (!(from || this.phoneNumberId) || !this.accessToken) {
       this.logger.warn('WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN ausentes — envío no-op.');
       return false;
     }
     return true;
   }
 
-  private async post(payload: Record<string, unknown>): Promise<SendResult> {
-    if (!this.ready()) return { message_id: null };
+  private async post(payload: Record<string, unknown>, from?: string | null): Promise<SendResult> {
+    if (!this.ready(from)) return { message_id: null };
     try {
-      const res = await axios.post(this.baseUrl, payload, {
+      const res = await axios.post(this.urlDesde(from), payload, {
         headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
         timeout: this.timeoutMs,
       });
@@ -81,17 +86,17 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     }
   }
 
-  async sendText(to: string, body: string): Promise<SendResult> {
+  async sendText(to: string, body: string, opts?: SendOptions): Promise<SendResult> {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: this.normalizeTo(to),
       type: 'text',
       text: { preview_url: false, body },
-    });
+    }, opts?.from);
   }
 
-  async sendInteractive(to: string, msg: InteractiveMessage): Promise<SendResult> {
+  async sendInteractive(to: string, msg: InteractiveMessage, opts?: SendOptions): Promise<SendResult> {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -109,20 +114,20 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
           })),
         },
       },
-    });
+    }, opts?.from);
   }
 
-  async sendImage(to: string, msg: ImageMessage): Promise<SendResult> {
+  async sendImage(to: string, msg: ImageMessage, opts?: SendOptions): Promise<SendResult> {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: this.normalizeTo(to),
       type: 'image',
       image: { link: msg.link, ...(msg.caption ? { caption: msg.caption } : {}) },
-    });
+    }, opts?.from);
   }
 
-  async sendTemplate(to: string, msg: TemplateMessage): Promise<SendResult> {
+  async sendTemplate(to: string, msg: TemplateMessage, opts?: SendOptions): Promise<SendResult> {
     const components: any[] = [];
     if (msg.imageLink) {
       components.push({
@@ -146,7 +151,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
         language: { code: msg.language },
         ...(components.length ? { components } : {}),
       },
-    });
+    }, opts?.from);
   }
 
   verifyWebhook(mode: string | undefined, token: string | undefined, challenge: string | undefined): string | null {
