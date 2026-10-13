@@ -6,7 +6,7 @@ import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma, VIDA_MS,
   type ContextoFirma, type FalloVinculo, type MarcaPc, type SocketEnRoom,
-  hayQueFrenar, TOPE_INTENTOS,
+  hayQueFrenar, TOPE_INTENTOS, CLAVE_PASE, esPaseDeFirma,
 } from './caja-firma-remota.engine';
 import { revisarFirma } from './caja-firma.engine';
 
@@ -60,6 +60,13 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private readonly jwtService: JwtService) {}
 
   async handleConnection(client: Socket): Promise<void> {
+    // ⭐⭐ `[CG.84]` **EL TELÉFONO QUE VIENE A FIRMAR NO INICIA SESIÓN.** Si trae un pase, entra
+    // por acá y nunca se le pide un JWT de usuario. Va PRIMERO a propósito: un teléfono con los
+    // dos (el del cajero, logueado, escaneando su propio QR) entra igual como invitado, que es
+    // el modo más restringido de los dos — nunca al revés.
+    const pase = this.extractPase(client);
+    if (pase) { this.conectarInvitado(client, pase); return; }
+
     const token = this.extractToken(client);
     if (!token) { client.emit('auth_error', { reason: 'missing_token' }); client.disconnect(true); return; }
     let payload: any;
@@ -124,7 +131,7 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   abrirFirma(
     @ConnectedSocket() client: Socket,
     @MessageBody() ctx: ContextoFirma,
-  ): { ok: boolean; codigo?: string; vida_ms?: number; error?: string } {
+  ): { ok: boolean; codigo?: string; pase?: string; vida_ms?: number; error?: string } {
     const tenantId = client.data?.tenantId as string | undefined;
     if (!tenantId) return { ok: false, error: 'sin_tenant' };
     if (!client.data?.puedeGestionar) return { ok: false, error: 'sin_permiso' };
@@ -147,7 +154,15 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const marca: MarcaPc = { codigo, ctx: limpio, creado: Date.now() };
     client.data = { ...client.data, firma: marca };
     client.join(roomDeFirma(tenantId, codigo));
-    return { ok: true, codigo, vida_ms: VIDA_MS };
+
+    // ⭐ `[CG.84]` El PASE que va dentro del QR: lo emite el servidor para ESTA PC, que ya probó
+    // sesión y permiso de GESTIONAR acá arriba. Vive lo mismo que el código — un pase que durara
+    // más sería una llave viva para una room que ya se cerró.
+    const pase = this.jwtService.sign(
+      { k: CLAVE_PASE, t: tenantId, c: codigo },
+      { expiresIn: Math.floor(VIDA_MS / 1000) },
+    );
+    return { ok: true, codigo, pase, vida_ms: VIDA_MS };
   }
 
   /**
@@ -189,6 +204,16 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const cod = normalizarCodigo(body?.codigo);
+
+    // ⛔ `[CG.84]` Un invitado SÓLO puede reclamar el código de su propio pase. Sin esta línea,
+    // un pase válido alcanzaría para reclamar cualquier firma abierta del tenant — y entonces el
+    // pase no cerraría el agujero del login, lo abriría más grande.
+    // ⚠️ Responde `no_es_suyo`, que es exactamente lo que es, y NO gasta un intento: no está
+    // tanteando un código, está usando el suyo mal.
+    if (client.data?.invitado && cod !== client.data?.paseCodigo) {
+      return { ok: false, error: 'no_es_suyo' };
+    }
+
     const room = roomDeFirma(tenantId, cod);
     const r = decidirTomar(await this.fotoDeRoom(room), cod, tenantId, Date.now());
     if (!r.ok || !r.v) {
@@ -291,6 +316,52 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** Cuántos sockets escuchan ese tenant. Sirve para no hacer trabajo que nadie mira. */
   oyentes(tenantId: string): number {
     return this.tenantSockets.get(tenantId)?.size ?? 0;
+  }
+
+  /** `[CG.84]` El pase viaja igual que el token: en el handshake o en la query del QR. */
+  private extractPase(client: Socket): string | null {
+    const a = client.handshake?.auth?.['pase'];
+    if (typeof a === 'string' && a.length > 10) return a;
+    const q = client.handshake?.query?.['pase'];
+    if (typeof q === 'string' && q.length > 10) return q;
+    return null;
+  }
+
+  /**
+   * `[CG.84]` Entra el teléfono que viene a firmar, SIN sesión.
+   *
+   * ⛔ Las tres cosas que lo hacen un invitado y no un usuario, y ninguna es decorativa:
+   *
+   *   1. **No entra a `tenant:${t}`.** Esa room recibe cada cambio de cada caja de la empresa.
+   *      Un teléfono prestado que escuche ahí es una fuga, no una comodidad.
+   *   2. **`puedeGestionar: false`**, así que `firma:abrir` le responde `sin_permiso`: un
+   *      invitado no puede fabricarse códigos nuevos.
+   *   3. **Queda atado al código de SU pase** (`paseCodigo`), que `tomarFirma` verifica. Sin eso
+   *      un pase válido serviría para reclamar CUALQUIER firma abierta del tenant — que es
+   *      exactamente el agujero que el pase viene a cerrar, no a abrir.
+   *
+   * ⚠️ `esPaseDeFirma` no es redundante con `verify()`. `verify()` prueba que la firma es nuestra
+   * y que no venció; lo que NO prueba es que el payload sea un pase. Sin esta comprobación, un
+   * **token de sesión perfectamente válido** entraría por acá como invitado.
+   */
+  private conectarInvitado(client: Socket, pase: string): void {
+    let p: unknown;
+    try { p = this.jwtService.verify(pase); }
+    catch (e: any) {
+      this.logger.warn(`Reject ${client.id}: pase de firma inválido o vencido (${e.message})`);
+      client.emit('auth_error', { reason: 'pase_vencido' }); client.disconnect(true); return;
+    }
+    if (!esPaseDeFirma(p)) {
+      this.logger.warn(`Reject ${client.id}: el token presentado como pase no es un ${CLAVE_PASE}`);
+      client.emit('auth_error', { reason: 'pase_invalido' }); client.disconnect(true); return;
+    }
+    const codigo = normalizarCodigo(p.c);
+    client.data = {
+      tenantId: p.t, username: null, puedeGestionar: false,
+      invitado: true, paseCodigo: codigo,
+    };
+    // Se le DEVUELVE el código: el teléfono no tiene que teclear nada, ya viene en el pase.
+    client.emit('connected', { tenant_id: p.t, invitado: true, codigo });
   }
 
   private extractToken(client: Socket): string | null {

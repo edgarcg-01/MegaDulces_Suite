@@ -359,7 +359,56 @@ que ese formulario necesita (`[RH.2.4]`).
   `recursos_humanos` (mig `20261012174003`, sólo datos: aplicarla antes de mergear). Pruebas de la vista:
   formato, cliente, ficha y las tres páginas, **mutadas a rojo** (motivo de la lista negra, quien sólo ve no
   edita, cambiar de etapa recarga). Validación visual pendiente.
-- [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
+- [ ] **[RH.2.4]** 🔨 Bolsa de trabajo pública. **Decisión de David (13-oct-2026): se conservan las DOS entradas
+  —web y WhatsApp— con reglas en las dos.** Se evaluó dejar sólo el bot (una sola puerta: sin duplicados por
+  tecleo, sin spam anónimo, sin subidas sin identificar) y se descartó para no cambiarle el hábito a quien se
+  postula por la web. Reglas (`logic/postulacion.ts`, iguales para web y bot):
+  (1) **una persona, un proceso a la vez**: si ya está en proceso —misma vacante u otra— se rechaza, y lo que
+  traiga y a su proceso le falte (CV, correo) se le agrega; (2) **la misma vacante, cerrada (rechazado o
+  contratado), se acepta pasados 90 días**, antes se rechaza; (3) la persona se reconoce por el teléfono
+  (10 dígitos); (4) **lista negra: se recibe, no se le avisa, RH la ve**. ⛔ Lo que se contesta por la web
+  **no nombra la vacante ni la lista negra** (cualquiera teclea el teléfono de otro); por WhatsApp sí la vacante.
+  Web: CV obligatorio por firma, ciudad y puesto obligatorios, aviso de privacidad aceptado, campo trampa contra
+  robots, límite de 2 envíos/10 s y 5/10 min por conexión, candado por teléfono contra envíos simultáneos.
+  Duplicados (Revisiones) deja de contar procesos cerrados. **🧪 Backend** (`/api/hr/talent/public/jobs` y
+  `/applications`; pruebas puras y contra la base, mutadas a rojo). ⚠️ El candado por teléfono con dos envíos
+  REALMENTE simultáneos no se probó (pide dos conexiones fuera de la transacción de prueba).
+  **Reglas del formulario de Mega Talento (`candidate-form.ts`), traídas tal cual:** la ciudad es una del catálogo de
+  sucursales de Mega Talento (los 8 ids que ya guardan sus vacantes, sin los centros internos —corporativo, CEDIS,
+  bodegas—), la vacante tiene que aplicar en esa ciudad (sin sucursales = todas), «¿dónde te enteraste?» obligatorio
+  con la misma lista, y Chofer y Logística piden licencia de manejo. `source` = dónde se enteró (el `fuente` de Mega
+  Talento) y `origin` = por dónde entró (web/WhatsApp): eran dos preguntas y la segunda no sustituye a la primera.
+  **🧪 Página `/empleo`** (pública, sin guard, régimen de `/captura/:token`, agregada a la tabla de surfaces de
+  DESIGN.md): vacantes con ciudad y sueldo, «Postularme», formulario con el puesto filtrado por ciudad, CV y licencia
+  como foto o PDF, campo trampa oculto, y la respuesta del servidor tal cual. Vacantes (interna) gana las casillas
+  por sucursal. ⚠️ **El aviso de privacidad es un BORRADOR**: Mega Talento no tenía texto (su pie decía «Aviso de
+  privacidad» sin nada detrás). **No publicar `/empleo` en prod sin el texto oficial.** No incluye: captcha (Mega
+  Talento usaba uno; aquí hay campo trampa + límite), CV en dos fotos (frente/reverso) y la vista previa de la foto.
+  **🧪 Ligas personales (D6), primera: subir el CV.** Reemplazan `/solicitud/<id>` de Mega Talento (cualquiera con el
+  número leía y editaba el expediente, para siempre). Desde la ficha RH pide la liga («Mandar liga para subir su CV»):
+  JWT con un secreto DERIVADO (`<JWT_SECRET>:talent-link`, así una liga nunca vale como sesión ni una sesión como
+  liga), que abre UNA cosa de UNA persona y vence en 7 días; se relee al candidato en cada uso (en la papelera o en
+  spam, ya no sirve). La página `/empleo/liga/:token` ve sólo el primer nombre, el puesto y si ya mandó CV; acepta un
+  PDF o dos fotos (frente y reverso, regla de Mega Talento). ⚠️ **Hallazgo:** el WhatsApp de Mega Talento decía
+  «completa tu Solicitud de Empleo electrónica, 8 pasos (≈5 min)», pero `/solicitud/:id` sólo pedía el CV (la
+  solicitud larga la arma el bot por chat): el mensaje prometía una página que ya no existía. Aquí se llama por lo
+  que es. Pruebas contra la base intentan abrirla alterada, firmada con el secreto de las sesiones, sin el tipo,
+  vencida, para otro formulario y con el candidato en la papelera (todas 403), **mutadas a rojo**.
+  **🧪 Cuestionario de liderazgo por liga.** Las 12 preguntas, la escala, el cálculo (Grid de Blake y Mouton), el
+  umbral de 66% y los estilos, copiados de Mega Talento a `libs/contracts/src/http/hr-liderazgo.contract.ts`: la página
+  y el servidor usan el mismo código. Cada respuesta se guarda al momento en `portal_data.cuestionarioLiderazgo` (la
+  forma de Mega Talento; RH lo ve «contestando ahora» en la ficha, como allá). Al completar, **el servidor** decide la
+  compuerta 2 → 3: calificó (≥66%), va en Filtro Inicial o Entrevista Orientación, y cumple los mínimos de
+  `requisitos-avance` (CV, registro del bot completo, sin banderas graves del dictamen, puesto abierto) → pasa solo a
+  Aptitudes con su renglón en la bitácora; si no, se queda y la nota dice por qué. ⛔ **En Mega Talento esto lo hacía el
+  NAVEGADOR del candidato, que escribía su propia etapa.** Completo, el cuestionario se cierra (409). El candidato nunca
+  ve su puntaje. La ficha muestra el resultado (%, nivel, estilo, tarea/relaciones). Sin la voz de Azure de Mega
+  Talento. `registrarCambioEtapa` (`talent-etapa.db.ts`) junta el cambio de etapa que usan RH y el avance automático.
+  Pruebas: el cálculo (contratos), los mínimos (puras) y el recorrido contra la base (califica y avanza; no califica;
+  califica sin CV y NO avanza —el caso que costó en Mega Talento—; ya va más adelante; cerrado), **mutadas a rojo**.
+  ⚠️ Al agregarlo se destapó que la prueba de ligas no compilaba (una variable declarada dos veces) y la corrida la
+  omitía sin marcar el conteo de pruebas: se corrigió y ahora se revisa también «Test Files».
+  **Falta:** la evaluación de aptitudes (la llena el jefe que entrevista, con la hoja de competencias por puesto).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
 

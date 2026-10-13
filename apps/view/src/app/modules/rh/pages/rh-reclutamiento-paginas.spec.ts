@@ -88,6 +88,8 @@ describe('[RH.2.3] Vacantes', () => {
   it('⛔ NEGATIVA — un campo vacío viaja como null, nunca como texto en blanco', () => {
     const f = { ...formDe(null), name: '  Cajera  ', salary_text: '   ', area: 'Tienda' };
     expect(cuerpoDe(f)).toEqual(expect.objectContaining({ name: 'Cajera', salary_text: null, area: 'Tienda', is_active: true, sort_order: 999 }));
+    // Las sucursales viajan como lista (de ahí sale la ciudad en la bolsa de trabajo).
+    expect(cuerpoDe({ ...f, branch_codes: ['zamora-canindo'] }).branch_codes).toEqual(['zamora-canindo']);
   });
 
   it('quien sólo ve no tiene «Nueva vacante»; quien gestiona sí', async () => {

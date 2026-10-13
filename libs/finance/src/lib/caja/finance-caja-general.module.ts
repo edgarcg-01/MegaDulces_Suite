@@ -7,6 +7,8 @@ import { CajaAutofillService } from './caja-autofill.service';
 import { CashCutService } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
+import { CajaControlService } from './caja-control.service';
+import { CajaControlController } from './caja-control.controller';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -22,12 +24,12 @@ import { CajaRealtimeModule } from './caja-realtime.module';
 @Module({
   // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
   imports: [CajaRealtimeModule],
-  controllers: [CajaGeneralController, CashLedgerController],
+  controllers: [CajaGeneralController, CashLedgerController, CajaControlController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y
   // no en el controller porque corre por `@Cron`, sin request — con su propia advertencia de RLS.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService],
+    CajaFechaFuturaScannerService, CajaControlService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService],
+    CajaFechaFuturaScannerService, CajaControlService],
 })
 export class FinanceCajaGeneralModule {}

@@ -53,6 +53,8 @@ export interface RouteDto {
   destination?: string;
   notes?: string;
   active?: boolean;
+  /** `[EMB.33]` Traslado local: no paga comisión. */
+  sin_comision?: boolean;
 }
 export interface Borrado { deleted: true; id: string }
 /** `[EMB.28.1]` Un movimiento de `logistics.tariff_changes`. */
@@ -235,6 +237,7 @@ export class LogisticsConfigService {
           destination: dto.destination || null,
           notes: dto.notes || null,
           active: true,
+          sin_comision: !!dto.sin_comision,
         })
         .returning('*');
       if (rutaFijada(row)) {
@@ -254,7 +257,7 @@ export class LogisticsConfigService {
       const cambios = cambiosDeRuta(existing, dto);
       if (fijada && cambios.length && !actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(existing.name));
       const patch: Record<string, unknown> = { updated_at: trx.fn.now() };
-      for (const k of ['name','driver_commission','helper_commission','estimated_km','origin','destination','notes','active'] as const) {
+      for (const k of ['name','driver_commission','helper_commission','estimated_km','origin','destination','notes','active','sin_comision'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
       const [row] = await trx('logistics.routes').where({ id }).update(patch).returning('*');

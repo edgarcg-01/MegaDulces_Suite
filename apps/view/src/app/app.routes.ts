@@ -49,6 +49,38 @@ export const routes: Routes = [
     path: 'captura/:token',
     loadComponent: () => import('./modules/finanzas/pages/captura-gasto-link.component').then(m => m.CapturaGastoLinkComponent),
   },
+  // ⭐⭐ `[CG.84]` **FIRMAR SIN INICIAR SESIÓN.** Edgar, 2026-10-13: *"el no password para
+  // firmar"*.
+  //
+  // La misma pantalla vivía SÓLO en `/finanzas/caja-general/firma`, que cuelga de un padre con
+  // `authGuard` y `LayoutComponent`. O sea que el teléfono tenía que (1) tener sesión, que dura
+  // 12 h y se vence, y (2) cargarse el shell entero —sidebar y navegación de toda la Suite— en
+  // un teléfono que se le pasa a quien viene a firmar un recibo. Las dos cosas estaban mal.
+  //
+  // Mismo molde que `captura/:token` de arriba: al tope del árbol, fuera del layout y sin guard.
+  // ⛔ Y "sin guard" NO es "sin autorización": el QR trae un **pase** firmado por el servidor que
+  // vive 3 minutos, es de un solo uso y queda atado a UN código (`[CG.84]` en
+  // `caja-firma-remota.engine.ts`). La puerta no se quitó: se cambió por una llave que la caja
+  // entrega en el momento, en vez de pedir que la persona sea empleada de finanzas.
+  //
+  // ⚠️ La ruta vieja se CONSERVA: un teléfono con sesión sigue entrando por ahí y tecleando el
+  // código, que es el respaldo cuando no se puede escanear.
+  {
+    path: 'firmar',
+    loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
+  },
+  // `[RH.2.4]` La bolsa de trabajo: PÚBLICA, desde el celular de quien se postula. Mismo régimen que la captura de
+  // arriba: al tope del árbol, fuera del LayoutComponent y sin guard. La API (`/hr/talent/public`) está exceptuada
+  // en `authInterceptor` y se protege sola (rate limit, campo trampa, reglas de postulación).
+  {
+    path: 'empleo',
+    loadComponent: () => import('./modules/rh/empleo/empleo.component').then(m => m.EmpleoComponent),
+  },
+  // `[RH.2.4]` La liga personal que RH le manda a un candidato (hoy: subir su CV). Se autoriza con el token de la URL.
+  {
+    path: 'empleo/liga/:token',
+    loadComponent: () => import('./modules/rh/empleo/empleo-liga.component').then(m => m.EmpleoLigaComponent),
+  },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
   {
@@ -581,6 +613,14 @@ export const routes: Routes = [
         path: 'caja-general',
         loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-general.component').then(m => m.FinanzasCajaGeneralComponent),
         canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
+      },
+      {
+        // `[CG.105]` El corte diario y el expediente del día, derivados del Access `Control`
+        // (30,199 arqueos desde 2013). Es la pantalla que se revisa cada mañana para ver si el
+        // corte coincide con lo que hay en la caja. Sólo lectura: se captura en Control.
+        path: 'caja-general/expediente',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-expediente.component').then(m => m.FinanzasCajaExpedienteComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
       },
       {
         // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la

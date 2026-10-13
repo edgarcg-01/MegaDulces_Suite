@@ -19,7 +19,7 @@
 import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma,
   hayQueFrenar, TOPE_INTENTOS,
-  firmaSigueValiendo, VIDA_MS, type SocketEnRoom, type MarcaPc,
+  firmaSigueValiendo, VIDA_MS, type SocketEnRoom, type MarcaPc, CLAVE_PASE, esPaseDeFirma,
 } from './caja-firma-remota.engine';
 import type { ContextoFirma } from '@megadulces/contracts';
 
@@ -245,5 +245,55 @@ describe('firmaSigueValiendo · [CG.68]', () => {
     expect(firmaSigueValiendo(NaN, 1900)).toBe(false);
     expect(firmaSigueValiendo(1900, Number('x'))).toBe(false);
     expect(firmaSigueValiendo(Infinity, Infinity)).toBe(false);
+  });
+});
+
+describe('esPaseDeFirma · [CG.84] el pase que reemplaza al login', () => {
+  const bueno = { k: CLAVE_PASE, t: '00000000-0000-0000-0000-00000000d01c', c: 'A2B3C4' };
+
+  it('un pase bien formado pasa', () => {
+    expect(esPaseDeFirma(bueno)).toBe(true);
+    // El codigo se normaliza antes de medirlo: minusculas y guiones entran igual.
+    expect(esPaseDeFirma({ ...bueno, c: 'a2b-3c4' })).toBe(true);
+  });
+
+  it('⛔⛔ [negativa] un TOKEN DE SESION valido NO sirve como pase', () => {
+    // Esta es LA prueba de la fase. `jwtService.verify()` prueba que la firma es nuestra y que no
+    // vencio -- lo que NO prueba es que el payload sea un pase. Sin esta comprobacion, cualquier
+    // JWT de sesion valido entraria como invitado a una room de firma, que es exactamente el
+    // agujero que el pase viene a cerrar.
+    const sesion = {
+      sub: 'u1', username: 'edgar', tenant_id: '00000000-0000-0000-0000-00000000d01c',
+      role_name: 'superadmin', permissions: { FINANCE_CAJA_GESTIONAR: true },
+    };
+    expect(esPaseDeFirma(sesion)).toBe(false);
+  });
+
+  it('⛔ [negativa] sin la marca, o con otra marca, NO es pase', () => {
+    expect(esPaseDeFirma({ t: bueno.t, c: bueno.c })).toBe(false);
+    expect(esPaseDeFirma({ ...bueno, k: 'otra-cosa' })).toBe(false);
+    expect(esPaseDeFirma({ ...bueno, k: '' })).toBe(false);
+  });
+
+  it('⛔ [negativa] sin tenant no hay room que calcular', () => {
+    expect(esPaseDeFirma({ ...bueno, t: '' })).toBe(false);
+    expect(esPaseDeFirma({ ...bueno, t: undefined })).toBe(false);
+    expect(esPaseDeFirma({ ...bueno, t: 123 })).toBe(false);
+  });
+
+  it('⛔ [negativa] el codigo tiene que ser un codigo de verdad', () => {
+    // Largo distinto = no es uno de los nuestros. Un pase con el codigo vacio entraria a la room
+    // `firma:<tenant>:` -- una room que podria compartir con otro pase igual de roto.
+    expect(esPaseDeFirma({ ...bueno, c: '' })).toBe(false);
+    expect(esPaseDeFirma({ ...bueno, c: 'A2B3C' })).toBe(false);      // 5
+    expect(esPaseDeFirma({ ...bueno, c: 'A2B3C4D' })).toBe(false);    // 7
+    expect(esPaseDeFirma({ ...bueno, c: '------' })).toBe(false);     // normaliza a vacio
+  });
+
+  it('⛔ [negativa] nada que no sea un objeto', () => {
+    expect(esPaseDeFirma(null)).toBe(false);
+    expect(esPaseDeFirma(undefined)).toBe(false);
+    expect(esPaseDeFirma('A2B3C4')).toBe(false);
+    expect(esPaseDeFirma(42)).toBe(false);
   });
 });

@@ -400,6 +400,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
           { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR] },
+          // `[CG.105]` El corte diario y el expediente del día, derivados del Access `Control`
+          // (30,199 arqueos desde 2013-09-13). Es lo que se revisa cada mañana para ver si el
+          // corte coincide con lo que hay físicamente. ⛔ `manage` VACÍO a propósito: se captura
+          // en Control y corregirlo se corrige allá — una pantalla que edita el espejo fabrica
+          // una segunda verdad (mismo criterio que ADR-040 con ContPAQi).
+          { id: 'caja-expediente', label: 'Corte diario de Caja General', route: '/finanzas/caja-general/expediente', view: [Permission.FINANCE_CAJA_VER], manage: [] },
           // [CS.2] Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.
           { id: 'caja-fuerte', label: 'Caja Fuerte (CAOS)', route: '/finanzas/caos', view: [Permission.FINANCE_CAOS_VER], manage: [] },
           // `[SM.9]` Llegó de `/almacen/cuadre`: el Supervisor de Movimientos (ADR-029)
