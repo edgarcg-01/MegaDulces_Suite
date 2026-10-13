@@ -4,7 +4,7 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import {
-  HR_ESTILOS_LIDERAZGO, hrResultadoLiderazgo,
+  HR_ESTILOS_LIDERAZGO, hrResultadoLiderazgo, type HrAptitudesEvalGuardada,
   type HrCandidatoEdicion, type HrCandidatoFichaDto, type HrCasilleroDto, type HrDocumentoDto, type HrLigaCreadaDto, type HrTalentCanal,
   type HrTalentEtapa, type HrTalentTipoEvento,
 } from '@megadulces/contracts';
@@ -255,6 +255,30 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
         }
       </section>
 
+      <section class="cf-sec" aria-label="Evaluación de aptitudes">
+        <h3>Evaluación de aptitudes</h3>
+        @if (aptitudes(); as a) {
+          <p><b class="mono">{{ a.puntaje }}/{{ a.max }}</b> · {{ a.pct }}% · {{ a.banda }}
+            @if (a.aprobado) { · <span class="pill" data-t="etapa">aprobado</span> }</p>
+          <p class="cf-nota">Evaluó {{ a.evaluador }}@if (a.cargoEvaluador) { ({{ a.cargoEvaluador }})}@if (a.tiempo) { · {{ a.tiempo }}} · {{ fechaHoraMx(a.completadaEn) }}</p>
+          @if (a.observaciones) { <p class="cf-nota">{{ a.observaciones }}</p> }
+        } @else {
+          <p class="cf-nota">El jefe que lo entrevista todavía no la llena.</p>
+        }
+        @if (gestiona() && !f.deleted_at) {
+          @if (ligaAptitudes(); as la) {
+            <p class="cf-nota">Mándasela al jefe que hará la entrevista (no al candidato).</p>
+            <input class="cf-liga-url" readonly [value]="la.url" aria-label="Liga de la evaluación de aptitudes" />
+            <div class="cf-fila">
+              @if (la.whatsapp_url) { <a class="cf-wa" [href]="la.whatsapp_url" target="_blank" rel="noopener">Mandar por WhatsApp</a> }
+              <p-button label="Copiar" size="small" severity="secondary" [outlined]="true" (onClick)="copiarLiga(la)" />
+            </div>
+          } @else {
+            <p-button label="Liga para el jefe que entrevista" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga('aptitudes')" />
+          }
+        }
+      </section>
+
       @if (gestiona() && !f.deleted_at) {
         <section class="cf-sec" aria-label="Registrar">
           <h3>Registrar</h3>
@@ -400,6 +424,12 @@ export class RhCandidatoFichaComponent {
   readonly casillero = signal<string | null>(null);
   readonly liga = signal<HrLigaCreadaDto | null>(null);
   readonly ligaLiderazgo = signal<HrLigaCreadaDto | null>(null);
+  readonly ligaAptitudes = signal<HrLigaCreadaDto | null>(null);
+  /** La evaluación del jefe, como quedó guardada (`aptitude_eval`). */
+  readonly aptitudes = computed(() => {
+    const a = this.ficha().aptitude_eval as Partial<HrAptitudesEvalGuardada> | null;
+    return a && typeof a.pct === 'number' ? (a as HrAptitudesEvalGuardada) : null;
+  });
   /** El resultado del cuestionario, calculado con el mismo código que usa el servidor para decidir. */
   readonly liderazgo = computed(() => hrResultadoLiderazgo(
     (this.ficha().portal_data?.['cuestionarioLiderazgo'] ?? null) as Record<number, number> | null));
@@ -530,10 +560,14 @@ export class RhCandidatoFichaComponent {
   }
 
   /** `[RH.2.4]` Genera una liga personal (subir el CV o el cuestionario de liderazgo; vence en 7 días). */
-  pedirLiga(form: 'cv' | 'liderazgo'): void {
+  pedirLiga(form: 'cv' | 'liderazgo' | 'aptitudes'): void {
     this.ocupado.set(true);
     this.api.crearLiga(this.ficha().id, form).subscribe({
-      next: (l) => { this.ocupado.set(false); (form === 'cv' ? this.liga : this.ligaLiderazgo).set(l); this.aviso.set(null); },
+      next: (l) => {
+        this.ocupado.set(false);
+        (form === 'cv' ? this.liga : form === 'liderazgo' ? this.ligaLiderazgo : this.ligaAptitudes).set(l);
+        this.aviso.set(null);
+      },
       error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo generar la liga.'), mal: true }); },
     });
   }

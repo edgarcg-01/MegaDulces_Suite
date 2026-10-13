@@ -408,7 +408,21 @@ que ese formulario necesita (`[RH.2.4]`).
   califica sin CV y NO avanza —el caso que costó en Mega Talento—; ya va más adelante; cerrado), **mutadas a rojo**.
   ⚠️ Al agregarlo se destapó que la prueba de ligas no compilaba (una variable declarada dos veces) y la corrida la
   omitía sin marcar el conteo de pruebas: se corrigió y ahora se revisa también «Test Files».
-  **Falta:** la evaluación de aptitudes (la llena el jefe que entrevista, con la hoja de competencias por puesto).
+  **🧪 Evaluación de aptitudes por liga (la abre el JEFE que entrevista, no el candidato).** Formato STAR de Mega Talento
+  en `libs/contracts/src/http/hr-aptitudes.contract.ts` (5/8/10 puntos, bandas por porcentaje: 90 / 76.7 / 60). El
+  catálogo de hojas por puesto (11 hojas, generado del Excel de RH) se copió SIN CAMBIOS a
+  `libs/hr/.../data/competencias-puesto.ts` y vive **sólo en el servidor** (~2,000 líneas: no entra al bundle de la app,
+  que ya está apretado). Al generar la liga se CONGELA en el candidato la hoja de su vacante (`competencies_sheet`) o, si
+  no, la que empata con el nombre del puesto (`portal_data.competenciasConfig`, la clave de Mega Talento): el jefe
+  evalúa lo que RH definió aunque el puesto cambie. Sin hoja no hay liga. El WhatsApp de esta liga **no va al teléfono
+  del candidato** (`wa.me` sin número). El jefe ve el puntaje en vivo y puede corregir. Al guardar, el servidor decide la
+  compuerta 3 → 4: «aprobado» (≥ Recomendable) → Psicométricas, sólo hacia adelante. ⚠️ **Cambio declarado:** además
+  exige los mínimos del expediente (CV, registro, sin banderas graves). Mega Talento NO los revisaba aquí, pero es el
+  principio que él mismo escribió para el cuestionario («al sistema se le prohíbe avanzar solo si no cumple»). En Mega
+  Talento esto también lo hacía el navegador. Queda en `aptitude_rubric` / `aptitude_eval` (columnas del esquema) y una
+  nota tipo «entrevista» en la historia. No incluye: el aviso al bot para que notifique a RH por WhatsApp (va con `[RH.3]`).
+  Pruebas: STAR (contratos), el catálogo (empate «Cajero(a)» ≈ «CAJERA»), y contra la base (se congela la hoja, aprobado
+  avanza, corregir a la baja no regresa, aprobado sin CV no avanza, sin hoja no hay liga), **mutadas a rojo**.
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
 
