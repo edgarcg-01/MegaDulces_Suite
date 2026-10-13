@@ -60,6 +60,7 @@ export type { Presentacion } from './order/qty-units';
  */
 export { installRowNavGuard, bajarAlPrimerRenglon, volverAlBuscador } from './keyboard/row-nav';
 export { installRadioGroupNav } from './keyboard/radio-group-nav';
+export { installToolbarNav } from './keyboard/toolbar-nav';
 
 /**
  * `[KBD.2]` Búsqueda tokenizada en el CLIENTE, con la misma semántica que `applySmartSearch` del

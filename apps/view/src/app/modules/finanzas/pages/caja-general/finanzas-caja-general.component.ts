@@ -1744,8 +1744,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    persona) -- aca solo se decide si la oferta corresponde. -->
               @if (!fichaSolaLectura() && !cobroElegido() && frecuentes().length) {
                 <div class="fin-row fin-row-col">
-                  <label>Lo que más repetís en {{ f().sucursal | sucursal }}</label>
-                  <div class="cg-chips">
+                  <label id="cg-frec-lbl">Lo que más repetís en {{ f().sucursal | sucursal }}</label>
+                  <!-- ⭐ [CG.98] role="toolbar" + roving tabindex (installToolbarNav, global en
+                       main.ts). Son ACCIONES, no una elección: por eso toolbar y no radiogroup
+                       -- un lector de pantalla anunciaría "no seleccionado" sobre un botón que
+                       llena un formulario, y la flecha NO activa (activar al mover pisaría la
+                       captura una vez por tecla).
+                       Lo que arregla: con diez chips, el tabulador paraba diez veces antes del
+                       siguiente campo (D.4a). Ahora se entra con UN tabulador y se recorre con
+                       flechas, que es lo que vuelve usable un atajo pensado para no usar el
+                       mouse en una pantalla de captura (§O.3 keyboard-first). -->
+                  <div class="cg-chips" role="toolbar" aria-labelledby="cg-frec-lbl">
                     @for (fr of frecuentes(); track fr.rango) {
                       <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
                            propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
@@ -1756,7 +1765,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                 [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
                     }
                   </div>
-                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
+                  <!-- [CG.62] El atajo, ESCRITO. D.5: "un atajo que nadie sabe que existe no
+                       existe" -- y la navegación por flechas llevaba varios commits funcionando
+                       en la reja sin que nada la anunciara. Las teclas van en <kbd>. -->
+                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.
+                    <span class="cg-ap-atajo">Se recorren con <kbd>←</kbd><kbd>→</kbd> y se usan con <kbd>Enter</kbd>.</span>
+                  </small>
                 </div>
               }
 

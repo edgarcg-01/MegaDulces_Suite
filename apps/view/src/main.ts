@@ -1,5 +1,5 @@
 import { bootstrapApplication } from '@angular/platform-browser';
-import { installNumberWheelGuard, installRadioGroupNav, installRowNavGuard } from '@megadulces/ui-web';
+import { installNumberWheelGuard, installRadioGroupNav, installRowNavGuard, installToolbarNav } from '@megadulces/ui-web';
 import { appConfig } from './app/app.config';
 import { AppComponent } from './app/app.component';
 
@@ -21,6 +21,13 @@ installRowNavGuard(document);
 // misma razon que los dos de arriba: una directiva se olvida y el que la olvida no rompe
 // nada -- simplemente vuelve a quedar sin teclado. Deja en paz a los que ya se administran.
 installRadioGroupNav(document);
+
+// `[CG.98]` Teclado de las BARRAS DE ACCIONES (role="toolbar"): un tabulador para entrar,
+// flechas para recorrer. Es el hermano del de arriba con la diferencia que lo justifica:
+// mover NO activa. En un radiogroup la seleccion sigue al foco; en una barra de acciones eso
+// dispararia la accion en cada flecha -- los chips de Caja General llenan cuenta, concepto,
+// glosa y beneficiario, y recorrerlos pisaria la captura una vez por tecla.
+installToolbarNav(document);
 
 // One-time migration: si quedó registrado el SW custom legacy (`sw-offline.js`)
 // de un deploy previo, lo desregistramos y borramos sus caches. ngsw toma
