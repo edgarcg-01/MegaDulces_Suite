@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo de caja: la confirmación del corte desglosa cada denominación (SM.44, 2026-10-13)
+- `/tienda/arqueo`: el diálogo «¿Confirmas el corte?» lista cada billete y moneda contados con sus piezas e importe, el total por familia, el efectivo contado, los medios de pago con su total y el total del turno. Las denominaciones en cero no se listan.
+
 ### Fixed — Compras › Catálogo › Reportes: la hoja salía de la impresora como una captura de pantalla (CAT.7, 2026-10-13)
 - El reporte de precios por proveedor imprimía la **migaja de la app**, el aviso flotante «Hay una versión nueva · Actualizar» encima de la tabla y los encabezados del navegador (fecha, URL, «1/1»). No faltaba una regla: el `@media print` vivía en los estilos del componente, que Angular encapsula, así que no podía esconder nada de afuera. Ahora la hoja se clona a un documento aparte y se imprime ése.
 - **El documento se rehízo**: membrete y pie **repetidos en cada hoja** (es lo que además da margen arriba y abajo), carátula con el nombre del proveedor y una ficha de cuatro casillas (plaza, fecha de cálculo, renglones, cuántos salen sin precio), y el proveedor dentro del encabezado de la tabla para que la hoja 2 siga diciendo de quién es.
