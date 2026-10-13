@@ -86,6 +86,29 @@ export interface CerrarCorteInput { conteo?: ConteoDenominacion[]; morralla?: nu
 interface Usuario { id?: string; username?: string }
 
 /**
+ * `[CG.128]` Una fila de la cola de reclasificación: el movimiento, lo que TIENE y lo que la
+ * póliza de Kepler dice que debería tener, con su respaldo.
+ */
+export interface PorReclasificar {
+  cash_ledger_id: string;
+  folio: string;
+  fecha: string | Date;
+  tipo: string;
+  monto: string | number;
+  sucursal: string;
+  beneficiario: string | null;
+  glosa: string | null;
+  de_cuenta: string | null;
+  de_concepto: string | null;
+  a_cuenta: string;
+  a_concepto: string;
+  cuenta_nombre: string | null;
+  concepto_nombre: string | null;
+  /** Cuántos renglones de póliza sostienen la propuesta. */
+  respaldo: number | null;
+}
+
+/**
  * `[CG.26]` Los tipos de movimiento del cajero (CAOS / AST700), **medidos**, no supuestos.
  *
  * Al 2026-09-29 el feed trae SEIS y la conciliación miraba DOS:
@@ -1172,6 +1195,117 @@ export class CashCutService {
   }
 
   /** Cancela un movimiento. No se borra: se marca, con motivo y autor. */
+  /**
+   * `[CG.128]` **A quién contradice el árbitro.** No corrige: lista.
+   *
+   * ⚠️ Sólo movimientos **sin sellar**. Los que ya entraron a un corte quedan fuera a propósito:
+   * no se pueden reclasificar, así que ofrecerlos sería ofrecer un botón que va a fallar.
+   */
+  async porReclasificar(): Promise<{ filas: PorReclasificar[]; total: number; monto: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const filas = await trx('analytics.v_caja_por_reclasificar')
+        .where({ tenant_id: tenantId })
+        .orderBy([{ column: 'fecha', order: 'asc' }, { column: 'folio', order: 'asc' }])
+        .limit(500)
+        .select('*');
+      return {
+        filas,
+        total: filas.length,
+        monto: filas.reduce((a: number, f: { monto: string | number }) => a + Number(f.monto || 0), 0),
+      };
+    });
+  }
+
+  /**
+   * ⭐⭐ `[CG.128]` **Corregir la cuenta de un movimiento, con rastro.**
+   *
+   * Edgar: *"necesitamos corregir esos ingresos y no dejar que vuelva a pasar"*. La segunda mitad
+   * la cierra `[CG.127]` (el autollenado del ingreso ya propone la cuenta del árbitro); ésta es la
+   * primera: **hasta hoy no existía ninguna forma de corregir un movimiento guardado.** Se podía
+   * editar una REGLA y se podía CANCELAR el movimiento, pero cambiarle la cuenta no — por eso los
+   * 25 ingresos seguían mal.
+   *
+   * ⛔ **Lo sellado NO se toca.** Un corte firmado describe un hecho; reescribirlo por detrás
+   * dejaría un cuadre que alguien firmó describiendo otra cosa. Mismo criterio que
+   * `cancelarMovimiento`, y mismo molde de bloqueo: se toma el MOVIMIENTO, nunca el corte —
+   * `cerrar()` toma el corte primero y tomarlo acá sería el orden inverso (deadlock).
+   *
+   * ⭐ La cuenta nueva **no la elige quien corrige**: la dice el árbitro
+   * (`analytics.v_caja_contracuenta_cobro`, la póliza del propio Kepler). Dejar escribirla a mano
+   * sería repetir el problema que esto viene a cerrar, con un clic menos.
+   */
+  async reclasificar(id: string, motivo: string, user: Usuario): Promise<Record<string, unknown>> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const m0 = String(motivo ?? '').trim();
+    if (m0.length < 12) {
+      throw new BadRequestException(
+        'Explicá por qué se reclasifica, con al menos 12 caracteres. Una corrección sin razón '
+        + 'escrita es indistinguible de un ajuste para que cuadre.');
+    }
+    return this.tk.run(async (trx) => {
+      const m = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, id }).forUpdate().first();
+      if (!m) throw new NotFoundException('Movimiento no encontrado');
+      if (m.estado === 'cancelado') {
+        throw new BadRequestException('Este movimiento está cancelado: no hay nada que reclasificar.');
+      }
+      if (m.corte_id) {
+        throw new BadRequestException(
+          'Este movimiento ya entró a un corte: no se reclasifica sin mover un cuadre que alguien '
+          + 'firmó. Registrá un movimiento que lo corrija.');
+      }
+
+      const a = await trx('analytics.v_caja_contracuenta_cobro')
+        .where({ tenant_id: tenantId, sucursal: m.sucursal })
+        .first('cuenta', 'concepto', 'renglones');
+      if (!a?.cuenta || !a?.concepto) {
+        // ⛔ Sin árbitro no se inventa una cuenta: se declara y no se toca nada.
+        throw new BadRequestException(
+          `No hay cuenta derivada de la póliza para la sucursal ${m.sucursal}: no se reclasifica a ciegas.`);
+      }
+      if (String(m.kepler_cuenta) === String(a.cuenta) && String(m.kepler_concepto) === String(a.concepto)) {
+        throw new BadRequestException('Este movimiento ya tiene la cuenta que dice la póliza.');
+      }
+
+      // El nombre del par NUEVO sale del catálogo vivo, igual que en `create()`: sin esto el
+      // snapshot quedaría con el nombre de la cuenta VIEJA y la pantalla mentiría.
+      const nombres = await this.resolverNombres(trx, tenantId, m.sucursal, a.cuenta, a.concepto);
+
+      // ⭐ La bitácora va ANTES del UPDATE: si el UPDATE falla, la trx revierte las dos; si fuera
+      // al revés, un fallo entre medio dejaría el cambio hecho y sin explicación.
+      await trx('finance.cash_ledger_reclasificaciones').insert({
+        tenant_id: tenantId, cash_ledger_id: id,
+        de_cuenta: m.kepler_cuenta ?? null, de_concepto: m.kepler_concepto ?? null,
+        a_cuenta: String(a.cuenta), a_concepto: String(a.concepto),
+        origen: 'arbitro', respaldo: Number(a.renglones ?? 0) || null,
+        motivo: m0, corte_id: m.corte_id ?? null,
+        hecho_por: u.id, hecho_por_username: u.username ?? null,
+      });
+
+      const [out] = await trx('finance.cash_ledger').where({ id }).update({
+        kepler_cuenta: String(a.cuenta), kepler_concepto: String(a.concepto),
+        kepler_cuenta_nombre: nombres.cuenta_nombre, kepler_concepto_nombre: nombres.concepto_nombre,
+        updated_by: u.id, updated_at: trx.fn.now(),
+      }).returning('*');
+      return out;
+    });
+  }
+
+  /** Los nombres del par, del catálogo vivo. `null` si el catálogo no los tiene: nunca inventados. */
+  private async resolverNombres(trx: Knex.Transaction, tenantId: string, sucursal: string, cuenta: string, concepto: string) {
+    const k = await trx('analytics.v_kepler_conceptos')
+      .where({ tenant_id: tenantId, sucursal, cuenta, concepto })
+      .first('concepto_nombre');
+    const acc = await trx('finance.kepler_accounts')
+      .where({ tenant_id: tenantId, cuenta }).first('cuenta_nombre');
+    return {
+      concepto_nombre: (k?.concepto_nombre ?? null) as string | null,
+      cuenta_nombre: (acc?.cuenta_nombre ?? null) as string | null,
+    };
+  }
+
   async cancelarMovimiento(id: string, motivo: string, user: Usuario) {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
