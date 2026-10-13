@@ -834,7 +834,7 @@ const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 }
  * (por cadencia del job). Un job en `error` = critical inmediato. Un job del registro que aún no
  * reportó = 'unknown' (no alarma hasta que se cablee). El heartbeat lo escribe cron-heartbeat.js.
  */
-interface CronCfg {
+export interface CronCfg {
   key: string; label: string; cadence: string; warnH: number; critH: number;
   // NOTA (2026-09-23): un carril retirado se saca de esta lista — así lo hizo `[NORM.3]` con las
   // seis llaves zombi. NO hay un `retiredOn` acá a propósito: `SourceCfg` sí lo tiene porque una
@@ -852,9 +852,18 @@ interface CronCfg {
    * cerró es la firma exacta del cuelgue de feeds on-prem (node huérfano) y tiene que verse
    * como tal.
    *
-   * Sin definir → conducta anterior (nunca crítico por duración). Se pone SOLO en jobs por
-   * lote con duración conocida; los loops continuos (`--watch` bajo PM2) viven en 'running'
-   * por diseño y marcarlos sería ruido.
+   * Sin definir → conducta anterior (nunca crítico por duración).
+   *
+   * ⭐ `[CG.119]` **Acá decía que los loops continuos no lo llevan «porque viven en running por
+   * diseño», y eso es cierto a medias.** Un loop que **late mientras espera** reescribe su
+   * `last_start` en cada latido, así que `now − last_start` nunca crece mientras respira: para
+   * ésos `maxRunH` no sólo no es ruido, es **la única forma de notar que murieron**. Medido:
+   * `mv_caja_push` late cada 60 s y llevaba **99.5 h en `running`** —muerto desde hacía cuatro
+   * días— saliendo en **amarillo**, porque sin `maxRunH` la rama cae en el `warn` de `critH`.
+   *
+   * La distinción correcta no es lote-vs-loop, es **si late o no**:
+   *   · late mientras espera → `maxRunH` = unos cuantos latidos perdidos (⇒ muerte);
+   *   · no late → dejarlo sin `maxRunH`, o el tope marcaría un proceso sano.
    */
   maxRunH?: number;
 }
@@ -924,7 +933,7 @@ export function veredictoRetirada(
   return { status: 'unknown', note: `retirada el ${s.retiredOn} · ${s.retiredWhy ?? 'sin motivo escrito'}` };
 }
 
-const CRON_JOBS: CronCfg[] = [
+export const CRON_JOBS: CronCfg[] = [
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
   // Sync al-minuto (Fase SYNC): on-prem empuja deltas por feeds-ingest (ingress gratis).
   // ⚠️ [DH.2] Decía "cada 2 min" y no corre así desde que `[VL.4]` lo mudó al carril `stock`
@@ -1234,7 +1243,29 @@ const CRON_JOBS: CronCfg[] = [
   // ⚠️ Umbral HOLGADO, y no es descuido: el carril late cada minuto aunque no refresque, y si se
   // cae **el cron de cada minuto sigue cubriendo** — se pierde velocidad, no datos. Un rojo acá
   // NO es una bandeja vieja, y por eso warn a 1 h y no a 15 min.
-  { key: 'mv_caja_push',        label: 'Caja — refresco oído por NOTIFY', cadence: 'por evento', warnH: 1, critH: 4 },
+  /**
+   * ⛔⛔ `[CG.119]` **LE FALTABA `maxRunH`, y por eso un carril MUERTO salía en AMARILLO.**
+   *
+   * Medido en prod el 2026-10-13: esta llave llevaba **99.5 horas en `running`** desde el
+   * 2026-10-09 16:33, en el pod `ods-reconcile-67df444dbd-mn2jn`, con el `last_finish`
+   * **anterior** al `last_start` — la firma de un proceso que murió entre `hb.begin()` y
+   * `hb.end()`. Sin `maxRunH` la rama de arriba cae en `runH >= critH` y eso da **`warn`**, no
+   * `critical`. Cuatro días de amarillo sobre algo que no existe.
+   *
+   * ⭐ Y el umbral correcto NO es una duración de lote: este carril es un **oyente** que vive en
+   * `running` por diseño. Lo que sí se puede juzgar es que **late cada 60 s** (el `setInterval`
+   * de `refresh-caja-matview.js`), y cada latido reescribe `last_start`. O sea que con el proceso
+   * vivo `now − last_start` nunca pasa de un minuto, y en cuanto muere crece sin tope.
+   *
+   * `maxRunH: 0.25` = 15 minutos: quince latidos perdidos. Holgado para un reinicio de pod, y
+   * **imposible de alcanzar** mientras el oyente respire. *A un proceso de larga vida no se le
+   * pregunta cuánto lleva corriendo, se le pregunta cuándo latió por última vez.*
+   *
+   * ⚠️ El `warnH: 1` / `critH: 4` se conservan: miden otra cosa (el rezago cuando el carril SÍ
+   * cierra sus ciclos) y siguen siendo holgados a propósito — si esto se cae, el cron de cada
+   * minuto sigue cubriendo y se pierde velocidad, no datos.
+   */
+  { key: 'mv_caja_push',        label: 'Caja — refresco oído por NOTIFY', cadence: 'por evento', warnH: 1, critH: 4, maxRunH: 0.25 },
   // [CS.1] Feed de CAOS (caja fuerte) → analytics.caos_cash_movements. Corre cada 2 min on-prem.
   // Sin esta entrada el latido caería en `cfg ? classify : 'ok'` = verde incondicional. La caja
   // mueve ~8/día; el rezago se tolera holgado (warn a ~2 h) porque un hueco no es urgente como el
