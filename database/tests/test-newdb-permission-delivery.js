@@ -65,13 +65,6 @@ const SIN_REPARTIR = {
     '"quien cuenta/reconcilia NO es quien investiga". A quien le toca investigar es decision de ' +
     'negocio y NO se deriva del estado vivo -- repartirlo a ojo destruiria el control que el ' +
     'modulo existe para implementar. Pendiente: Edgar.',
-  // `[RH.2.2]` Reclutamiento: la API existe, la pantalla es `[RH.2.3]`. Se reparten con ella.
-  HR_RECRUITMENT_VER:
-    'Fase RH [RH.2.2]: gatea la API de reclutamiento; la pantalla es [RH.2.3] y se reparte con ella ' +
-    '(a `recursos_humanos`, como la asistencia). Pendiente: David.',
-  HR_RECRUITMENT_GESTIONAR:
-    'Fase RH [RH.2.2]: gatea la API de reclutamiento; la pantalla es [RH.2.3] y se reparte con ella ' +
-    '(a `recursos_humanos`, como la asistencia). Pendiente: David.',
   // `[RH.1.7]` Las claves de asistencia salieron de esta lista: con las pantallas `/rh/*` las reparte
   // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
   // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.
@@ -94,8 +87,10 @@ const SIN_PERSONAS = {
   // el personal de RH sin nadie adentro. Mientras nadie de RH este asignado, las pantallas `/rh/*` no
   // le llegan a nadie de negocio (solo superadmin). La auditoria (`HR_INCIDENTS_AUDITAR`) NO esta
   // aca: va a `contabilidad`, que si tiene gente.
+  // `[RH.2.3]` Reclutamiento: misma vía (mig `20261012174003`), mismo hueco.
   ...Object.fromEntries(['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR',
-    'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR'].map((k) => [k,
+    'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR',
+    'HR_RECRUITMENT_VER', 'HR_RECRUITMENT_GESTIONAR'].map((k) => [k,
     'Fase RH [RH.1.7]: su unica via es `recursos_humanos`, con 0 personas. Falta asignar al personal ' +
     'de RH desde /admin/personas (el puesto Auxiliar de RR-HH cae por defecto en `administracion`, ' +
     'que no es solo RH). Pendiente: David con RH.'])),

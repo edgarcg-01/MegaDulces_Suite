@@ -346,7 +346,19 @@ que ese formulario necesita (`[RH.2.4]`).
   como error TODO import nuevo de platform-core en `libs/hr`, incluido uno que ya está en main.
   **No incluye:** la decisión aprobado/descartado (pasa por el bot: `[RH.3]`); Word como CV (el bot lo
   acepta; un `.docx` es un ZIP y la firma no lo distingue de cualquier ZIP — se decide con RH.2.4).
-- [ ] **[RH.2.3]** Pantallas `/rh/reclutamiento` y `/rh/vacantes`.
+- [ ] **[RH.2.3]** 🧪 Pantallas (2026-10-12), en el mismo PR que la API (#383: las pantallas dependen de ella y
+  no se apilan PRs). `/rh/reclutamiento` con tres pestañas: **Candidatos** (una sola tabla densa con el apartado
+  —postulados, todos en proceso, no recontratables, spam, papelera— y la etapa con su conteo arriba, en lugar de
+  una pantalla por etapa como en Mega Talento; «Atrasado» contra la meta de cada etapa; búsqueda por nombre,
+  puesto o teléfono; apartado, etapa, búsqueda y ficha abierta en la URL; la ficha abre en el panel lateral con
+  etapa, datos, expediente por casillero, registrar contacto/entrevista/nota, historia que junta los dos
+  registros de una fusión, mismo teléfono con «Fusionar aquí», y las acciones), **Vacantes** (alta, edición,
+  publicar/cerrar) y **Revisiones** (quién regresó estando marcado, duplicados por teléfono, tiempo por etapa
+  contra la meta; sin meta no se juzga). Nombres y metas de etapa exactos de Mega Talento (24/48/48/72 h).
+  Nodo `rh-reclutamiento` en el árbol de permisos: quien sólo recluta también entra a Personal. Reparto a
+  `recursos_humanos` (mig `20261012174003`, sólo datos: aplicarla antes de mergear). Pruebas de la vista:
+  formato, cliente, ficha y las tres páginas, **mutadas a rojo** (motivo de la lista negra, quien sólo ve no
+  edita, cambiar de etapa recarga). Validación visual pendiente.
 - [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
