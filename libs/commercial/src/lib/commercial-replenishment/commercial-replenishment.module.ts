@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ObjectStorageService } from '@megadulces/platform-core';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 import { AutoabastoController } from './autoabasto.controller';
+import { AutoabastoPedidoService } from './autoabasto-pedido.service';
 import { CommercialReplenishmentController } from './commercial-replenishment.controller';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { CommercialPurchaseOrdersService } from './commercial-purchase-orders.service';
@@ -22,7 +23,7 @@ import { PurchaseFlowController } from './purchase-flow.controller';
  */
 @Module({
   controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController],
-  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService],
+  providers: [CommercialReplenishmentService, AutoabastoPedidoService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
 export class CommercialReplenishmentModule {}

@@ -9,10 +9,22 @@
 ---
 
 ## [Unreleased]
+### Added — «Mi pedido» se ajusta y se guarda en la Suite, sin Excel (AB.18–AB.20, 2026-10-12)
+- El almacenista corrige el sugerido con **− / +**; si se aleja más de 20%, elige el motivo con un clic. Se guarda solo, con «volver» al sugerido y «Aceptar grupo». Cada decisión deja huella (sugerido visto, lo que dejó, motivo, tiempo) para el aprendizaje.
+- **¿Hasta dónde pides?**: casillas Agotado · Bajo mínimo · Bajo reorden (y «Sobre reorden, con venta», apagada). Lo marcado es lo que entra al pedido y se guarda.
+- Cada origen se parte en **unidad mayor**, **unidad menor** y **una sola unidad**, para surtir en órdenes separadas.
+- El **granel con caja o bulto** se pide en la unidad mayor (con la misma regla de media unidad).
+- Lo que se pide en unidad menor y vale **menos de $200 no se pide**, salvo que esté **agotado**.
+- Se retira la descarga en Excel de AB.16. Migración nueva (aplicar antes del código) que también da al almacenista el permiso de preparar su pedido.
 ### Fixed — El pedido ya no carga un pico que ya pasó (AB.17, 2026-10-12)
 - Cuando un producto tuvo un pico real (promoción, oferta, temporada o una venta grande: más de 2 veces su venta normal en una semana) y ya regresó a su ritmo, el sistema pide con su venta normal en lugar del promedio de 30 días que todavía arrastra el pico. Aplica a Compras (/compras/pedido) y a Autoabasto.
 - No se frena si la venta bajó por falta de mercancía (existencia para menos de 3 días): eso es venta negada.
 - Ejemplo: bombón La Rosa 70012 en La Piedad — el pedido baja de 46 cajas a unas 3. Hoy son 725 productos-sucursal.
+### Added — «Mi pedido» en Autoabasto: el pedido de la semana por origen, redondeado como se captura en Kepler (AB.16, 2026-10-12)
+- Nueva pestaña **Mi pedido** (Almacén › Abasto): lo que toca pedir agrupado por a quién se le pide (la matriz o el proveedor directo), con subtotal en cajas y en pesos, y aviso cuando no se alcanza el pedido mínimo del proveedor.
+- **Ya descuenta lo pedido a la matriz** en los últimos 7 días; los pedidos abiertos más viejos salen marcados como **atorados** (para reclamarlos o cancelarlos), y lo que la matriz **negó** en 30 días se marca en el renglón.
+- **La cantidad viene redondeada** con la regla acordada: cajas completas si falta media caja o más; si falta menos, en piezas o paquetes; granel en kilos completos.
+- ~~Descarga en Excel~~ — reemplazada por el ajuste dentro de la Suite (AB.18).
 ### Changed — Finanzas › Gastos: un vale aprobado con cotización se cierra al aprobarlo (GX.82, 2026-10-12)
 - La cotización basta como evidencia: ya no se queda en «Pendientes de comprobación» esperando factura. Sólo vuelve si el aprobador marca «provisional». Una migración cierra los 93 que estaban atorados.
 ### Changed — Compras › Catálogo: los productos se revisan por proveedor (PF.9, 2026-10-12)
