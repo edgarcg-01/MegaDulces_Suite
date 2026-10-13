@@ -272,7 +272,30 @@ async function publicarTabla(src, dst, m) {
     const post = await huella(dst, m);
     const cuadra = v.faltan.length === 0 && (declarados > 0 || !DO_DELETE || v.sobran.length === 0);
     if (!cuadra) {
+      // ⭐ `[ODS.PUB.1]` **LAS LLAVES, NO SÓLO EL CONTEO.** Medido el 2026-10-13: `kdii` llevaba
+      // **43 pasadas de 43 sin cuadrar, siempre exactamente 1 fila** — o sea una fila que NO
+      // converge: se escribe, se re-verifica, y sigue distinta cada ~10 min desde hace días.
+      //
+      // Diagnosticarla era imposible con lo que se imprimía. El conteo no dice CUÁL es, y el
+      // latido reporta `87033/87033` (los conteos, que cuadran) cuando lo que falla es el
+      // CONTENIDO. Buscarla a mano es recorrer 87,033 filas.
+      //
+      // Y la llave ya estaba acá: `v.faltan` es el arreglo de llaves y se tiraba entero salvo su
+      // `.length`. *Un diagnóstico que el código ya calculó y descarta cuesta lo mismo que no
+      // tenerlo.*
+      //
+      // ⚠️ Se imprimen hasta 5 y se declara cuántas quedan: volcar miles de llaves en un carril
+      // que corre cada 10 min llena el log y esconde justo lo que se vino a ver.
+      //
+      // ⛔ Sospecha principal, por si la llave sola no alcanza: el diff compara `md5(fila::text)`,
+      // que es la REPRESENTACIÓN en texto, no el valor. `numeric` conserva la escala (1.50 ≠ 1.5),
+      // `float8` depende de `extra_float_digits` y `timestamptz` se renderiza según la zona
+      // horaria de la SESIÓN. Una fila puede valer lo mismo de los dos lados y hashear distinto
+      // para siempre.
+      const muestra = (ks) => (ks.length ? ` [${ks.slice(0, 5).join(', ')}${ks.length > 5 ? `, +${ks.length - 5} más` : ''}]` : '');
       console.log(`    ⚠ ${m.table}: tras publicar siguen ${v.faltan.length} filas distintas y ${v.sobran.length} sobrantes.`);
+      if (v.faltan.length) console.log(`       distintas${muestra(v.faltan)}`);
+      if (v.sobran.length) console.log(`       sobrantes${muestra(v.sobran)}`);
     }
     return { estado: 'publicada', nSrc: hSrc.n, nDst: post.n, aplicadas, borradas, declarados, cuadra };
   } finally {
