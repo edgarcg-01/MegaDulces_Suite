@@ -909,19 +909,43 @@ export class CashCutService {
        * columna en una expresión la saca de cualquier índice. Es el mismo defecto que en `[LC.9]`
        * convirtió un `to_char(fecha)` en un seq scan de 167k filas.
        */
-      const [libro] = await trx('finance.cash_ledger')
+      // `[CG.139]` Lee del reparto, no de la tabla: ahí vive `en_boveda`, y es la MISMA expresión
+      // que usa `movimientosSueltos()`. La vista ya excluye lo borrado (por eso se va el
+      // `whereNull('deleted_at')`, que sobre la vista sería una columna inexistente).
+      const [libro] = await trx('analytics.v_caja_reparto_movimiento')
         .where({ tenant_id: tenantId })
         // `[CG.98]` La caja general es UNA: en oficinas se ven todas las plazas.
         .where((b: any) => aplicarAlcanceCaja(b, sucursal))
         .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
-        .whereNull('deleted_at')
         .select(
           trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado')::int AS movimientos`),
           trx.raw(`count(*) FILTER (WHERE estado = 'cancelado')::int AS cancelados`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='ingreso'),0)::numeric AS ingresos`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='deposito'),0)::numeric AS depositos`),
+          /**
+           * ⭐⭐ `[CG.139]` **LO QUE SE FUE A LA MÁQUINA, QUE NO ES CAJA GENERAL.**
+           *
+           * Edgar: *"se asocia a un movimiento de CAOS, pero el dinero que entró a CAOS y el
+           * dinero que entró a caja chica es diferente. Se engloban en movimiento pero se separan
+           * en dinero"*.
+           *
+           * Por eso se suma `en_boveda` y **no** se cuentan movimientos enteros: un cobro de ruta
+           * es UN movimiento y DOS destinos. Medido en prod: los tres cobros de hoy suman $49,457
+           * y de ahí **$49,400 se los tragó la máquina y $57 quedaron en el cajón** — la máquina
+           * no maneja monedas, todos sus montos son múltiplos de 20.
+           *
+           * El reparto sale de `analytics.v_caja_reparto_movimiento` (`[CG.139]`), que es la
+           * única definición: antes el `CASE` estaba escrito a mano en `movimientosSueltos()` y
+           * cualquier consulta nueva lo reescribía — así es como aparecen dos cifras distintas
+           * del mismo hecho.
+           */
+          trx.raw(`coalesce(sum(en_boveda) FILTER (WHERE estado <> 'cancelado' AND tipo='ingreso'),0)::numeric AS ingresos_en_boveda`),
+          trx.raw(`coalesce(sum(en_boveda) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos_en_boveda`),
+          // Cuántos movimientos se partieron de verdad entre las dos cajas. Se publica para que
+          // «se separan en dinero» sea algo que la pantalla pueda decir, no una regla implícita.
+          trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado' AND en_boveda > 0)::int AS tocaron_boveda`),
           // `[CG.82]` Cuántos de los de HOY traen el papel fechado otro día. No es un error ni algo
           // que alguien pueda arreglar hoy: es el rezago del ERP, y se publica para que nadie lea
           // esta jornada como si fuera un corte contable. Se cuenta, no se esconde.
@@ -932,6 +956,43 @@ export class CashCutService {
       const ingresos = Number(libro?.ingresos ?? 0);
       const gastos = Number(libro?.gastos ?? 0);
       const depositos = Number(libro?.depositos ?? 0);
+      const ingresosEnBoveda = Number(libro?.ingresos_en_boveda ?? 0);
+      const gastosEnBoveda = Number(libro?.gastos_en_boveda ?? 0);
+
+      /**
+       * ⭐⭐ `[CG.139]` **UN MOVIMIENTO, DOS CAJAS: el dinero se separa aunque el movimiento sea
+       * uno solo.**
+       *
+       * Edgar: *"si entró a CAOS no se considera en caja general"*, y después, corrigiéndome el
+       * modelo: *"se asocia a un movimiento de CAOS, pero el dinero que entró a CAOS y el dinero
+       * que entró a caja chica es diferente. Se engloban en movimiento pero se separan en
+       * dinero"*.
+       *
+       * Medido en prod el 2026-10-13, sucursal `00`:
+       *
+       *     de los $290,525 publicados como ingreso de caja general,
+       *     $203,662 se los quedó la máquina   ·   $86,863 llegaron al cajón
+       *
+       * Y el reparto no es por movimiento sino por peso: los depósitos que un vendedor hizo en el
+       * cajero van 100% a la bóveda, pero un cobro de ruta se **parte** — medido sobre los tres
+       * del 10 al 12 de octubre, $49,400 de billetes adentro de la máquina y **$57 de morralla**
+       * en el cajón, porque el aparato no acepta monedas (todos sus montos son múltiplos de 20).
+       *
+       * ⛔ Por eso NO sirve una columna que diga «este movimiento es de tal caja», que fue mi
+       * primer intento: clasificarlo entero se come los $57 o publica los $49,400. El reparto se
+       * mide en dinero, y vive en `analytics.v_caja_reparto_movimiento`.
+       *
+       * ⚠️ **Se descuenta de los DOS lados, siempre.** Lo que la máquina recibió sale junto con el
+       * ingreso y lo que dispensó junto con el gasto. Quitar una pierna sin la otra fabrica un
+       * faltante del tamaño exacto de lo que se quitó — el error simétrico que `[CG.95]` ya pagó.
+       *
+       * ⭐ **El esperado y el saldo no se mueven un centavo**: ya excluían la bóveda desde
+       * `[CG.96]`, por la vía de las dos piernas de la máquina, que no dependen de que alguien
+       * enlace. Lo que cambia es que el cuadro deja de **afirmar** un movimiento que no ocurrió
+       * en caja general.
+       */
+      const ingresosCajon = Number((ingresos - ingresosEnBoveda).toFixed(2));
+      const gastosCajon = Number((gastos - gastosEnBoveda).toFixed(2));
 
       // ── 2. El cajero (CAOS): la jornada COMPLETA, con los seis tipos ─────────────────────
       // ⚠️ CAOS no tiene columna de sucursal: es un único dispositivo, en oficinas. Para cualquier
@@ -1082,6 +1143,14 @@ export class CashCutService {
           'id', 'folio', 'tipo', 'monto', 'beneficiario', 'glosa', 'estado',
           'kepler_cuenta', 'kepler_concepto', 'kepler_concepto_nombre',
           'created_by_username', 'origen_tipo',
+          /**
+           * ⭐ `[CG.139]` El reparto de ESTE renglón entre las dos cajas. Hace falta por renglón
+           * —y no sólo en el total— porque el selector de la lista cambia **qué dinero** se
+           * muestra, no qué filas: un cobro de ruta sale en las tres vistas, con la cifra que le
+           * toca a cada caja. Sale de la misma vista que el total, así que no pueden discrepar.
+           */
+          trx.raw(`(SELECT r.en_boveda FROM analytics.v_caja_reparto_movimiento r
+                     WHERE r.cash_ledger_id = finance.cash_ledger.id) AS en_boveda`),
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS hora`),
           /**
            * ⛔⛔ `[CG.91.2]` **ACÁ SE PARTÍA LA GLOSA, Y LA GLOSA ES TEXTO LIBRE.**
@@ -1115,6 +1184,10 @@ export class CashCutService {
         movimientos_del_dia: movimientosDelDia.map((m: any) => ({
           id: m.id, folio: m.folio, hora: m.hora, tipo: m.tipo,
           monto: Number(m.monto), beneficiario: m.beneficiario,
+          // `[CG.139]` Las dos mitades del mismo renglón. `en_cajon` se deriva acá y no se trae
+          // aparte: una resta que viaja dos veces es una resta que puede llegar distinta.
+          en_boveda: Number(m.en_boveda ?? 0),
+          en_cajon: Number((Number(m.monto) - Number(m.en_boveda ?? 0)).toFixed(2)),
           documento: m.documento || null, concepto: m.kepler_concepto_nombre ?? null,
           cuenta: m.kepler_cuenta ?? null, estado: m.estado,
           origen: m.origen_tipo ?? null, quien: m.created_by_username ?? null,
@@ -1122,10 +1195,12 @@ export class CashCutService {
         caja_general: {
           movimientos: Number(libro?.movimientos ?? 0),
           cancelados: Number(libro?.cancelados ?? 0),
-          ingresos, gastos, depositos,
+          // `[CG.139]` Sólo la parte de cada movimiento que pasó por el CAJÓN. Lo que se quedó la
+          // máquina viaja aparte, en `se_fue_a_boveda`, y no suma acá.
+          ingresos: ingresosCajon, gastos: gastosCajon, depositos,
           // Lo que el día le dejó a la caja chica según el libro. Sin fondo inicial: eso compone el
           // `esperado` del corte y vive gateado en `saldo()` (CG.19, arqueo ciego).
-          neto: Number((ingresos - gastos - depositos).toFixed(2)),
+          neto: Number((ingresosCajon - gastosCajon - depositos).toFixed(2)),
           // `[CG.82]` De los de hoy, cuántos traen el papel fechado otro día (el rezago del ERP).
           // Viaja como NÚMERO y no sólo como frase: la frase se lee una vez, el número se compara.
           fechados_otro_dia: fueraDeFecha,
@@ -1150,8 +1225,9 @@ export class CashCutService {
            * una afirmación distinta de «no se puede saber».
            */
           en_el_cajon: cajero
-            ? Number((ingresos - gastos - depositos
-              + Number(cajero['dispensado'] ?? 0) - Number(cajero['depositado'] ?? 0)).toFixed(2))
+            ? Number((ingresosCajon - gastosCajon - depositos
+              + (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)
+              - (Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)).toFixed(2))
             : null,
           /**
            * ⭐ `[CG.99]` **CON QUÉ ARRANCÓ EL CAJÓN, para que el movimiento se vuelva un SALDO.**
@@ -1173,10 +1249,31 @@ export class CashCutService {
            * corte, así que es `null` de verdad: la pantalla lo dice y ofrece declararlo una vez.
            */
           fondo_inicial: corte ? fondo(corte) : (await this.sugerirFondoInterno(trx, tenantId, sucursal)),
-          /** `[CG.97]` Lo que de la jornada se fue a la bóveda, neto. Positivo = la bóveda creció. */
+          /**
+           * `[CG.97]` Lo que de la jornada se fue a la bóveda, neto. Positivo = la bóveda creció.
+           *
+           * ⭐ `[CG.139]` **Sólo el efectivo que CRUZÓ el cajón.** Antes era `depositado −
+           * dispensado` a secas, o sea el movimiento entero de la máquina — y ahí adentro estaban
+           * los $186,402 que un vendedor le entregó directo, que nunca pasaron por el cajón. Un
+           * renglón que dice «de eso, a la bóveda» tiene que hablar de *eso*: del movimiento del
+           * libro de arriba. Las dos piernas se descuentan de su propio lado.
+           */
           a_la_boveda: cajero
-            ? Number((Number(cajero['depositado'] ?? 0) - Number(cajero['dispensado'] ?? 0)).toFixed(2))
+            ? Number(((Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)
+              - (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)).toFixed(2))
             : null,
+
+          /**
+           * `[CG.139]` La parte de la jornada que se quedó la máquina, y por eso **no está** en
+           * `ingresos` ni en `gastos`. Se publica para que lo excluido sea un número y no un hueco.
+           *
+           * ⚠️ `movimientos` cuenta cuántos **tocaron** la bóveda, no cuántos «son de CAOS»: un
+           * cobro de ruta toca las dos cajas y se cuenta acá igual, con su parte.
+           */
+          se_fue_a_boveda: {
+            ingresos: ingresosEnBoveda, gastos: gastosEnBoveda,
+            movimientos: Number(libro?.tocaron_boveda ?? 0),
+          },
         },
         cajero,
         corte_abierto: corte

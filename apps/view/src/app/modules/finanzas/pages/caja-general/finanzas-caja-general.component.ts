@@ -38,7 +38,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type RecurrentesResponse,
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
   type RecurrenteSinRegla } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
@@ -1301,16 +1301,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                lado y cuatro renglones del otro. -->
           @if (a.movimientos_del_dia?.length) {
             <div class="cg-hist">
-              <!-- ⭐ [CG.139] DONDE ENTRO EL DINERO. El eje no es el tipo -eso ya lo dicen las dos
-                   columnas Cargo/Abono- sino a que caja entro: hoy el 68% de lo que se publicaba
-                   como ingreso de caja general eran fajos que un vendedor metio al cajero. -->
+              <!-- ⭐ [CG.139] A QUE CAJA FUE EL DINERO. El eje no es el tipo -eso ya lo dicen las
+                   dos columnas Cargo/Abono- sino en que caja quedo: de un cobro de ruta la maquina
+                   se traga los billetes y al cajon llega la morralla. Por eso el selector cambia
+                   el IMPORTE de cada renglon y no esconde renglones: un cobro sale en las tres
+                   vistas, con la cifra que le toca a cada caja. -->
               <div class="cg-hist-cap">
                 <p class="cg-cap">Movimientos que registraste en esta jornada</p>
                 <app-segmented [options]="opcionesDondeEntro" [value]="dondeEntro()"
                                (valueChange)="dondeEntro.set($any($event))"
-                               ariaLabel="Dónde entró el dinero"></app-segmented>
+                               ariaLabel="A qué caja fue el dinero"></app-segmented>
               </div>
-              <p-table [value]="movimientosVista()" size="small" class="cg-conc-tbl">
+              <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl">
                 <ng-template #header>
                   <!-- [CG.91.2] El orden sigue a lo que la persona RECONOCE: la hora, con quien
                        fue y cuanto. El folio interno (CI-2026-00007) y la cuenta son respaldo, no
@@ -1346,22 +1348,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          falta ya. La celda del lado contrario lleva el mismo guion tenue que las
                          T de arriba: un blanco se leeria como "no se midio". -->
                     <td class="comm-num cg-cargo" [class.cg-t-vacia]="m.tipo !== 'ingreso'">
-                      @if (m.tipo === 'ingreso') { {{ money(m.monto) }} }
+                      @if (m.tipo === 'ingreso') { {{ money(montoDe(m)) }} }
                     </td>
                     <td class="comm-num cg-abono" [class.cg-t-vacia]="m.tipo === 'ingreso'">
-                      @if (m.tipo !== 'ingreso') { {{ money(m.monto) }} }
-                    </td>
-                  </tr>
-                </ng-template>
-                <!-- ⛔ [CG.139] El selector puede dejar la lista en cero -una jornada sin nada que
-                     entrara al cajero, por ejemplo- y una tabla con encabezado y sin renglones se
-                     lee igual que una que no cargo. Se DICE cual de las dos es. -->
-                <ng-template #emptymessage>
-                  <tr>
-                    <td colspan="6" class="fin-dim">
-                      {{ dondeEntro() === 'caos'
-                         ? 'En esta jornada no entró nada directo al cajero.'
-                         : 'En esta jornada no hubo movimientos de caja general.' }}
+                      @if (m.tipo !== 'ingreso') { {{ money(montoDe(m)) }} }
                     </td>
                   </tr>
                 </ng-template>
@@ -1388,10 +1378,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       @if (totalHistorial().cancelados) {
                         <small class="fin-dim">&nbsp;· {{ totalHistorial().cancelados }} cancelado(s), fuera del total</small>
                       }
-                      <!-- [CG.139] Lo que el selector esconde se DICE. Elegir una vista no puede
-                           parecerse a que esos renglones no existan. -->
-                      @if (ocultosPorVista()) {
-                        <small class="fin-dim">&nbsp;· {{ ocultosPorVista() }} fuera de esta vista</small>
+                      <!-- [CG.139] Que estos importes son UNA PARTE del movimiento se DICE, o el
+                           pie se leeria como el total del dia con cifras mas chicas. -->
+                      @if (dondeEntro() !== 'todo') {
+                        <small class="fin-dim">&nbsp;· sólo la parte que
+                          {{ dondeEntro() === 'boveda' ? 'se llevó la máquina' : 'quedó en el cajón' }}</small>
                       }
                     </td>
                     <td class="comm-num cg-cargo">{{ money(totalHistorial().ingresos) }}</td>
@@ -3763,45 +3754,52 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * y no un enlace: *"si se asocia no quiere decir que lo tocó"*.
    */
   readonly opcionesDondeEntro = [
-    { label: 'Caja general', value: 'caja' },
-    { label: 'Entró a CAOS', value: 'caos' },
-    { label: 'Todo', value: '' },
+    { label: 'Caja general', value: 'cajon' },
+    { label: 'Se fue a CAOS', value: 'boveda' },
+    { label: 'Todo', value: 'todo' },
   ];
   /**
-   * Arranca en `caja` a propósito: es el tema de la pantalla, y así el pie del historial cuadra
-   * con el cuadro de arriba. Lo que el filtro esconde se DECLARA en el propio pie, para que
-   * elegir una vista no se parezca a que los renglones no existan.
+   * Arranca en `cajon` a propósito: es el tema de la pantalla, y así el pie del historial cuadra
+   * contra el cuadro de arriba, que ahora también publica sólo la parte del cajón.
    */
-  dondeEntro = signal<'caja' | 'caos' | ''>('caja');
+  dondeEntro = signal<'cajon' | 'boveda' | 'todo'>('cajon');
 
-  /** Los renglones que el selector deja a la vista. El pie suma ESTO. */
-  movimientosVista = computed(() => {
-    const ms = this.arqueo()?.movimientos_del_dia ?? [];
+  /**
+   * ⭐⭐ `[CG.139]` **El selector cambia el DINERO, no las filas.**
+   *
+   * Edgar: *"se engloban en movimiento pero se separan en dinero"*. Un cobro de ruta es UN
+   * movimiento con dos destinos —$49,400 de billetes a la máquina y $57 de morralla al cajón—,
+   * así que esconderlo en la vista «Caja general» sería tan falso como mostrarlo por su monto
+   * entero. Sale en las tres vistas, con la cifra que le toca a cada una.
+   *
+   * ⚠️ Si el API no manda el reparto (deploy parcial), cae al `monto` entero en vez de dibujar un
+   * cero: un cero afirmaría que a esa caja no llegó nada.
+   */
+  montoDe = (m: ArqueoMovimientoDia): number => {
     const d = this.dondeEntro();
-    if (!d) return ms;
-    return ms.filter((m) => (d === 'caos' ? m.origen === 'caos' : m.origen !== 'caos'));
-  });
-
-  /** Cuántos renglones esconde la vista elegida, contados sobre la lista COMPLETA. */
-  ocultosPorVista = computed(() => {
-    const ms = this.arqueo()?.movimientos_del_dia ?? [];
-    return ms.length - this.movimientosVista().length;
-  });
+    if (d === 'todo') return Number(m.monto);
+    if (d === 'boveda') return Number(m.en_boveda ?? 0);
+    return m.en_cajon == null ? Number(m.monto) : Number(m.en_cajon);
+  };
 
   totalHistorial = computed(() => {
     /**
-     * ⚠️ `[CG.139]` Suma **lo que está a la vista**, que es lo que el rótulo promete — ahora
-     * después del selector. Antes sumaba la lista entera, y con el cuadro de arriba ya corregido
-     * el pie habría quedado por encima **todos los días y por construcción**: un control que
-     * siempre grita deja de leerse.
+     * ⚠️ `[CG.139]` Suma el MISMO dinero que la lista muestra, o sea el del selector. Si sumara
+     * siempre el monto entero, el pie quedaría por encima del cuadro de arriba —que publica la
+     * parte del cajón— **todos los días y por construcción**, y un control que siempre grita
+     * deja de leerse.
      */
-    const ms = this.movimientosVista();
+    const ms = this.arqueo()?.movimientos_del_dia ?? [];
     let ingresos = 0; let gastos = 0; let cancelados = 0;
     for (const m of ms) {
       if (m.estado === 'cancelado') { cancelados++; continue; }
-      if (m.tipo === 'ingreso') ingresos += Number(m.monto); else gastos += Number(m.monto);
+      const v = this.montoDe(m);
+      if (m.tipo === 'ingreso') ingresos += v; else gastos += v;
     }
-    return { ingresos, gastos, cancelados, neto: Number((ingresos - gastos).toFixed(2)) };
+    return {
+      ingresos: Number(ingresos.toFixed(2)), gastos: Number(gastos.toFixed(2)), cancelados,
+      neto: Number((ingresos - gastos).toFixed(2)),
+    };
   });
   /** `[CG.62]` La ventana de "seguro que queres guardar". Es una PREGUNTA, no el guardado. */
   confirmarGuardar = signal(false);

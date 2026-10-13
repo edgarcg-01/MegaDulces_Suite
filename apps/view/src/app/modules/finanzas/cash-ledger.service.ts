@@ -676,6 +676,16 @@ export interface ArqueoMovimientoDia {
   hora: string;
   tipo: 'ingreso' | 'gasto' | 'deposito';
   monto: number;
+  /**
+   * ⭐⭐ `[CG.139]` **El mismo movimiento, repartido en dos cajas.** De un cobro de ruta la máquina
+   * se queda los billetes y al cajón llega la morralla: medido sobre los tres cobros del 10 al 12
+   * de octubre, $49,400 contra $57. Por eso el renglón trae las dos mitades y no una bandera —
+   * `monto = en_boveda + en_cajon`, y la migración `[CG.139]` lo comprueba fila por fila.
+   *
+   * Opcional: un API por detrás del front no las manda, y ahí la pantalla muestra el `monto`.
+   */
+  en_boveda?: number;
+  en_cajon?: number;
   beneficiario: string | null;
   /** El documento de Kepler que lo originó (`X-D-26 0023030`), si lo hay. */
   documento: string | null;
@@ -720,6 +730,18 @@ export interface ArqueoDia {
     en_el_cajon?: number | null;
     /** `[CG.97]` Lo que la jornada le dejó a la bóveda, neto. Positivo = la bóveda creció. */
     a_la_boveda?: number | null;
+    /**
+     * ⭐⭐ `[CG.139]` **La parte de la jornada que se quedó la máquina, y por eso ya no está en
+     * `ingresos` ni en `gastos`.**
+     *
+     * Medido en prod el 2026-10-13: de $290,525 publicados como ingreso de caja general,
+     * $203,662 estaban dentro del cajero y sólo $86,863 llegaron al cajón. Y el reparto es por
+     * peso, no por movimiento — un cobro de ruta entra como UNO y se parte: los billetes a la
+     * bóveda, la morralla al cajón.
+     *
+     * ⚠️ `movimientos` cuenta los que **tocaron** la bóveda, no los que «son de CAOS».
+     */
+    se_fue_a_boveda?: { ingresos: number; gastos: number; movimientos: number };
     /**
      * `[CG.99]` Con qué arrancó el cajón: el corte abierto, o el `contado` del último corte
      * sellado. **`null` = no se midió**, y es distinto de cero — sin esto `en_el_cajon` es sólo
