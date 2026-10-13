@@ -171,6 +171,26 @@ export class CashCutService {
    * Sin corte anterior devuelve `monto: null` y `origen: 'sin_medir'` — nunca un cero. Un cero
    * afirma *"la caja arrancó vacía"*, que con fondo para dar cambio es imposible.
    */
+  /**
+   * `[CG.99]` El `contado` del último corte SELLADO de esa caja, o `null` si no hay ninguno.
+   *
+   * Es la mitad de `sugerirFondo()` que el panel del día necesita: sólo el número, sin el
+   * desglose por denominación. Se separa para no repetir la consulta ni obligar a `arqueoDia` a
+   * abrir otra transacción — vive en la misma `trx` que ya tiene.
+   *
+   * ⚠️ Sólo `cerrado` o `autorizado`. Heredar de un borrador sería propagar un conteo que nadie
+   * selló.
+   */
+  private async sugerirFondoInterno(trx: any, tenantId: string, sucursal: string): Promise<number | null> {
+    const previo = await trx('finance.cash_ledger_cuts')
+      .where({ tenant_id: tenantId, sucursal })
+      .whereIn('estado', ['cerrado', 'autorizado'])
+      .whereNotNull('contado')
+      .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
+      .first('contado');
+    return previo ? Number(previo.contado) : null;
+  }
+
   async sugerirFondo(sucursal: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -927,6 +947,26 @@ export class CashCutService {
             ? Number((ingresos - gastos - depositos
               + Number(cajero['dispensado'] ?? 0) - Number(cajero['depositado'] ?? 0)).toFixed(2))
             : null,
+          /**
+           * ⭐ `[CG.99]` **CON QUÉ ARRANCÓ EL CAJÓN, para que el movimiento se vuelva un SALDO.**
+           *
+           * Edgar: *"entonces para eso mostremos su saldo inicial, o hay que considerarlo"*.
+           * Tenía razón: `en_el_cajon` solo es un MOVIMIENTO y puede salir negativo de forma
+           * legítima —un gasto de hoy pagado con efectivo que el cajero dispensó anteayer sale del
+           * cajón hoy y entró hace dos días—. Publicado a secas se lee como «hay −$4,925», que es
+           * imposible y asusta.
+           *
+           * Con el fondo, la resta se vuelve una suma que se puede ir a contar:
+           *
+           *     hay en el cajón = fondo inicial + lo que el día le dejó
+           *
+           * Sale del corte abierto si lo hay; si no, del último corte SELLADO (la misma fuente que
+           * `sugerirFondo`, que ya existía y nadie consumía desde acá).
+           *
+           * ⚠️ `null` = **no se midió**, y es un hecho distinto de cero. Hoy en prod no hay ningún
+           * corte, así que es `null` de verdad: la pantalla lo dice y ofrece declararlo una vez.
+           */
+          fondo_inicial: corte ? fondo(corte) : (await this.sugerirFondoInterno(trx, tenantId, sucursal)),
           /** `[CG.97]` Lo que de la jornada se fue a la bóveda, neto. Positivo = la bóveda creció. */
           a_la_boveda: cajero
             ? Number((Number(cajero['depositado'] ?? 0) - Number(cajero['dispensado'] ?? 0)).toFixed(2))

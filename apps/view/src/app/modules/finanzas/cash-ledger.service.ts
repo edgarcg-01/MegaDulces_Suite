@@ -698,6 +698,12 @@ export interface ArqueoDia {
     en_el_cajon?: number | null;
     /** `[CG.97]` Lo que la jornada le dejó a la bóveda, neto. Positivo = la bóveda creció. */
     a_la_boveda?: number | null;
+    /**
+     * `[CG.99]` Con qué arrancó el cajón: el corte abierto, o el `contado` del último corte
+     * sellado. **`null` = no se midió**, y es distinto de cero — sin esto `en_el_cajon` es sólo
+     * un movimiento y no se puede publicar como saldo.
+     */
+    fondo_inicial?: number | null;
   };
   /** `null` cuando la sucursal no tiene cajero o el feed no está. El motivo viaja en `no_medido`. */
   cajero: {
