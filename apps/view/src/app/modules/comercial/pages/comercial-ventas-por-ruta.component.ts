@@ -393,10 +393,18 @@ const MES: Record<string, string> = {
               <p class="rr-note">Unidad tal como la declara la fuente (Wincaja: catálogo del artículo · Kepler: renglón del documento). "—" = SKU sin unidad en el catálogo de esa fuente.</p>
             }
             @case ('dias') {
+              <!-- [CG.58.7] La venta del día y lo que ESE día se depositó en la caja fuerte, en el
+                   mismo renglón: eso es conciliar. El día del depósito es el que DECLARA su texto,
+                   no el día en que se hizo (la ruta vuelve al otro día). -->
               <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template #header><tr>
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
-                  <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"><span class="sr-only">Proporción</span></th></tr>
+                  <th scope="col" class="comm-num">Venta</th>
+                  @if (!esRutaVecinal()) {
+                    <th scope="col" class="comm-num">Depositado</th>
+                    <th scope="col">Entrada a Caja General</th>
+                  }
+                  <th scope="col" class="rr-barcol"><span class="sr-only">Proporción</span></th></tr>
                 </ng-template>
                 <ng-template #body let-x>
                   <tr class="rr-row" (click)="drillDay(x.date)" [title]="'Ver tickets del ' + x.date">
@@ -406,10 +414,50 @@ const MES: Record<string, string> = {
                     </td>
                     <td class="comm-num">{{ x.tickets | number }}</td>
                     <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    @if (!esRutaVecinal()) {
+                      <td class="comm-num">
+                        @if (depDelDia(x.date); as d) { {{ d.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                        @else { <span class="comm-muted">—</span> }
+                      </td>
+                      <td>
+                        @if (depDelDia(x.date); as d) {
+                          @for (f of d.folios; track f.folio) {
+                            <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
+                               [queryParams]="{ q: f.folio, from: f.fecha, to: f.fecha }"
+                               [attr.aria-label]="'Abrir ' + f.folio + ' en Caja General'">{{ f.folio }}</a>
+                          }
+                          @if (d.sin_capturar) {
+                            <span class="comm-muted">{{ d.sin_capturar }} sin capturar</span>
+                          }
+                        } @else { <span class="comm-muted">—</span> }
+                      </td>
+                    }
                     <td class="rr-barcol"><span class="rr-bar" [style.width.%]="barPct(x.revenue)"></span></td>
                   </tr>
                 </ng-template>
               </p-table>
+              @if (!esRutaVecinal()) {
+                @if (depCargando()) {
+                  <p class="rr-note">Buscando los depósitos de esta ruta…</p>
+                } @else if (depError()) {
+                  <p class="rr-note rr-dep-bad-txt">{{ depError() }}</p>
+                } @else {
+                  <p class="rr-note">
+                    «Depositado» es lo que entró a la caja fuerte declarando <strong>este día</strong>
+                    en el texto del depósito.
+                    @if (depSinDia().n) {
+                      Esta ruta tiene además
+                      <strong>{{ depSinDia().n }}</strong> depósitos por
+                      <strong>{{ depSinDia().monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>
+                      cuyo texto <strong>declara la ruta pero no el día</strong>: no se pueden poner en
+                      ningún renglón, y se ven completos en la pestaña Depósito.
+                    }
+                    ⛔ Venta y depósito <strong>no son el mismo universo</strong> —la venta incluye
+                    crédito y otros medios de pago, el depósito es sólo efectivo—, así que acá
+                    <strong>no se resta</strong> una de otra: se muestran lado a lado.
+                  </p>
+                }
+              }
             }
             @case ('clientes') {
               <p-table [value]="detail()!.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
@@ -654,6 +702,7 @@ const MES: Record<string, string> = {
     .rr-dep-nota .pi { margin-top:2px; color:var(--text-faint); }
     .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
     .rr-dep-warn .pi { color: var(--warn-fg); }
+    .rr-dep-bad-txt { color: var(--bad-fg); }
     .rr-dep-bad { border-color: color-mix(in srgb, var(--bad-fg) 38%, var(--border-color)); }
     .rr-dep-bad .pi { color: var(--bad-fg); }
     .rr-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
@@ -941,6 +990,35 @@ export class ComercialVentasPorRutaComponent {
     return rep.filas.find((f) => f.ruta === String(Number(row.route_no))) ?? null;
   });
 
+  /**
+   * `[CG.58.7]` Los depósitos de esta ruta indexados por el día que DECLARA su texto, para
+   * ponerlos al lado de la venta de ese día en «Por día». ⛔ No se indexa por `occurred_at`: el
+   * depósito se hace cuando la ruta vuelve, que normalmente es otro día — cruzarlo por la fecha
+   * del depósito pondría el dinero en el renglón equivocado.
+   */
+  readonly depPorDia = computed(() => {
+    const m = new Map<string, { monto: number; folios: { folio: string; fecha: string | null }[]; sin_capturar: number }>();
+    for (const d of this.depDepositos()) {
+      if (!d.fecha_venta) continue;
+      if (!m.has(d.fecha_venta)) m.set(d.fecha_venta, { monto: 0, folios: [], sin_capturar: 0 });
+      const e = m.get(d.fecha_venta) as { monto: number; folios: { folio: string; fecha: string | null }[]; sin_capturar: number };
+      e.monto += d.monto_caos;
+      if (d.cg_folio) e.folios.push({ folio: d.cg_folio, fecha: d.cg_fecha }); else e.sin_capturar += 1;
+    }
+    return m;
+  });
+
+  /**
+   * Lo que NO se puede poner en ningún renglón: declara la ruta pero no el día. Se DECLARA al pie
+   * en vez de repartirlo — un depósito no es un día, y repartirlo inventaría la fecha.
+   */
+  readonly depSinDia = computed(() => {
+    const sin = this.depDepositos().filter((d) => !d.fecha_venta);
+    return { n: sin.length, monto: sin.reduce((a, d) => a + d.monto_caos, 0) };
+  });
+
+  depDelDia(dia: string) { return this.depPorDia().get(dia) ?? null; }
+
   readonly depDepositos = computed(() => {
     const rep = this.depReporte();
     const f = this.depFila();
@@ -1059,7 +1137,9 @@ export class ComercialVentasPorRutaComponent {
     this.tab.set(t);
     // `[CG.58.7]` Se pide al abrir la pestaña y no al abrir la ruta: son 749 depósitos en toda la
     // historia, pero no hay motivo para pagarlos cuando nadie los va a mirar.
-    if (t === 'deposito' && !this.esRutaVecinal() && !this.depReporte() && !this.depCargando()) {
+    // También en «Por día»: ahí es donde se concilia —la venta del día contra lo que ese día se
+    // depositó— y si no se pide, las dos columnas nuevas salen vacías y se leen como «no depositó».
+    if ((t === 'deposito' || t === 'dias') && !this.esRutaVecinal() && !this.depReporte() && !this.depCargando()) {
       this.cargarDeposito();
     }
   }
