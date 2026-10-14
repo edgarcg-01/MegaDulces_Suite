@@ -144,22 +144,6 @@ export interface SetLocationResult {
   longitude?: number;
 }
 
-/** Sugerencia de Thot (motor de inteligencia) para take-order. */
-export interface ThotSuggestion {
-  product_id: string;
-  product_name: string;
-  price: number;
-  tax_rate: number;
-  min_qty: number;
-  rotation_tier: string | null;
-  margin_pct: number | null;
-  aff_lift: number;
-  zona_index: number;
-  score: number;
-  reason: 'affinity' | 'zona' | 'rotacion' | 'margen' | 'demanda';
-  reason_label: string;
-}
-
 /** TC-V — chat del vendedor. */
 export interface VendorThotToolTrace { name: string; input: any; result: any; }
 export interface VendorThotChatResult {
@@ -180,17 +164,6 @@ export interface FrequentProduct {
   total_qty: number;
   avg_qty: number;
   last_ordered_at: string;
-}
-
-/** VQ-voz: producto sugerido por la IA a partir del dictado/texto libre. */
-export interface AiSuggestion {
-  product_id: string;
-  product_name: string;
-  brand_name: string | null;
-  qty: number;
-  unit_price: number;
-  min_qty: number;
-  reason: string;
 }
 
 /** Cliente due-for-reorder según el motor de inteligencia (Fase M). */
@@ -643,20 +616,6 @@ export class VendorService {
     return this.http.get<NbaDue[]>(`${this.base}/intelligence/nba`);
   }
 
-  /**
-   * Thot — qué ofrecerle a este cliente (producto-first: rotación·margen·afinidad·zona).
-   * Si pasás `cartProductIds`, las sugerencias se vuelven cart-aware ("completá la canasta").
-   * Best-effort: si el motor/feature store no está, el caller cae a su lista local.
-   */
-  thotSuggest(customerId: string, cartProductIds: string[] = [], limit = 40): Observable<ThotSuggestion[]> {
-    let p = new HttpParams().set('limit', String(limit));
-    if (cartProductIds.length) p = p.set('cart', cartProductIds.join(','));
-    return this.http.get<ThotSuggestion[]>(
-      `${this.base}/intelligence/thot/suggest/${customerId}`,
-      { params: p },
-    );
-  }
-
   /** TC-V — Copiloto conversacional del vendedor (scoped a su cartera, stock PH). */
   thotChat(history: { role: 'user' | 'assistant'; content: string }[], message: string): Observable<VendorThotChatResult> {
     return this.http.post<VendorThotChatResult>(`${this.base}/intelligence/vendor/thot/chat`, { history, message });
@@ -667,26 +626,11 @@ export class VendorService {
 
   /**
    * VQ: productos habituales del cliente (order pad). Best-effort: si el endpoint
-   * no está (api sin desplegar), el caller cae a [] y muestra solo sugeridos.
+   * no está (api sin desplegar), el caller cae a [] y muestra solo el catálogo.
    */
   frequentProducts(customerId: string, days = 120, limit = 50): Observable<FrequentProduct[]> {
     const p = new HttpParams().set('days', String(days)).set('limit', String(limit));
     return this.http.get<FrequentProduct[]>(`${this.base}/orders/frequent/${customerId}`, { params: p });
-  }
-
-  /**
-   * VQ-voz: convierte texto libre / dictado ("5 cajas de paleta payaso, 3 de
-   * bubaloo") en productos + cantidades del catálogo del cliente (Claude Haiku,
-   * con fallback heurístico server-side). customerId = el cliente visitado.
-   */
-  aiOrderSuggest(
-    message: string,
-    customerId: string,
-  ): Observable<{ assistant_message: string; suggestions: AiSuggestion[] }> {
-    return this.http.post<{ assistant_message: string; suggestions: AiSuggestion[] }>(
-      `${this.base}/ai-order/suggest`,
-      { message, customer_id: customerId },
-    );
   }
 
   /** VQ: reemplaza TODAS las líneas del draft en 1 request (order pad bulk). */
@@ -698,15 +642,6 @@ export class VendorService {
       `${this.base}/orders/${orderId}/lines`,
       { lines },
     );
-  }
-
-  /** Registra una señal del feedback loop (Fase M, best-effort en el caller). */
-  recordSignal(customerId: string, signalType: string, channel = 'vendor'): Observable<{ id: string }> {
-    return this.http.post<{ id: string }>(`${this.base}/intelligence/signals`, {
-      customer_id: customerId,
-      signal_type: signalType,
-      channel,
-    });
   }
 
   /** Autoventa: entrega inmediata en un paso (draft/pending/confirmed → fulfilled). */

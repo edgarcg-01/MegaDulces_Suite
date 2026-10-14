@@ -65,16 +65,6 @@ interface DiagProbe {
             severity="secondary"
             size="small"
             text
-            routerLink="assistant"
-            routerLinkActive="header-active"
-            aria-label="Thot"
-          ><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span></a>
-          <a
-            pButton
-
-            severity="secondary"
-            size="small"
-            text
             routerLink="notifications"
             routerLinkActive="header-active"
             aria-label="Notificaciones"
