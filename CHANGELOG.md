@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Removed — La app del vendedor sin IA: menos peticiones al abrir un cliente y Mi ruta (VTK.8, 2026-10-14)
+- **Tomar pedido** ya no pide sugerencias a Thot (salía al abrir el cliente y otra vez tras cada ráfaga de +/−), ni tiene dictado por voz ni el «por qué ofrecerlo». Quedan «Lo que suele pedir» y «Catálogo · más vendidos»; la canasta sugerida se queda porque es una cuenta local sobre el historial, no IA.
+- **Mi ruta** ya no espera la consulta de «para reordenar» (`/intelligence/nba`) para pintar la lista, ni manda una señal al abrir la hoja de un cliente.
+- Se quitó el ícono «Thot» del encabezado. Pedido de David tras la prueba con la vendedora vecinal de La Piedad Abastos: la app tiene que ser veloz.
 ### Added — El conciliador de la caja fuerte existía, estaba desplegado y nadie lo llamaba (CG.58.2 / CG.58.3, 2026-10-14)
 - `finance.caos_ingreso_atribucion` tenía **cero filas**, y la causa no era que `[CG.58]` estuviera mal ni sin desplegar: `POST /finance/caos/ingresos/conciliar` está en la imagen que corre desde el 7-oct, con su motor probado y el candado de base que impide reusar un cobro. **Lo que faltaba era quien lo llamara: ni botón, ni cron, ni enganche al arqueo.** Mismo patrón que la Fase IC — no faltaba módulo, faltaba que se usara.
 - Panel nuevo **«¿De qué cobros es este efectivo?»** en `/finanzas/caos`, con los tres montos separados (ADR-056): «sin respaldo» (un depósito que ningún cobro explica) y «sin depositar» (cobro que no entró al equipo) no son lo mismo y los arregla gente distinta. **Botón, no cron**: lo que escribe a demanda lo dispara quien va a mirar el resultado — un cron habría atribuido $18.36M sin que nadie hubiera visto nunca el reparto.
