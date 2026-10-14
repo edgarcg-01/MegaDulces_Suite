@@ -4,7 +4,7 @@ import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
   validarSeguimiento, coberturaAutoabastoSql,
-  KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort,
+  KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort, type KeplerLineaResuelta,
 } from '@megadulces/contracts';
 
 /**
@@ -451,6 +451,36 @@ export interface ReplenishmentFilters {
   suppliers: Record<string, unknown>[];
   brands: Record<string, unknown>[];
   categories: Record<string, unknown>[];
+}
+
+/**
+ * `[KR.4]` Lo que `pushToKepler` lee para armar el documento. Los `string | null` no son
+ * pereza: `kepler_code` y `origen_kepler_code` salen de un LEFT JOIN y pueden faltar — por eso
+ * hay dos `throw` que lo comprueban antes de usarlos.
+ */
+interface CabeceraPushKepler {
+  id: string;
+  folio: string;
+  estado: string;
+  source_type: string | null;
+  total_cost: string | number | null;
+  kepler_sucursal: string | null;
+  kepler_folio: string | null;
+  wcode: string | null;
+  kepler_code: string | null;
+  prov_code: string | null;
+  prov_name: string | null;
+  origen_kepler_code: string | null;
+}
+
+/** `[KR.6]` El renglón tal como sale de la consulta: `numeric` de pg llega como string. */
+interface LineaPushKepler {
+  sku: string;
+  nombre: string;
+  final_qty: string | number;
+  unit_cost: string | number | null;
+  line_cost: string | number | null;
+  box_factor: string | number | null;
 }
 
 @Injectable()
@@ -4144,7 +4174,10 @@ export class CommercialReplenishmentService {
    * `null` y la aprobación pasa: castigar la ausencia de medición es dibujar un veredicto que
    * nadie emitió (ADR-056).
    */
-  async approve(id: string, empujar = true) {
+  async approve(
+    id: string,
+    empujar = true,
+  ): Promise<{ id: string; estado: string; kepler: { estado: string; folio?: string; motivo?: string } }> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     const vig = await this.tk.run(async (trx) => (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null);
@@ -4311,7 +4344,15 @@ export class CommercialReplenishmentService {
    * Sumarlos no destruye información porque el desglose ya estaba perdido. **Si algún día la
    * línea registra su destino, este default pasa a destruir dato y hay que invertirlo.**
    */
-  async pushToKepler(id: string, opts?: { consolidar?: boolean }) {
+  async pushToKepler(
+    id: string,
+    opts?: { consolidar?: boolean },
+  ): Promise<{
+    ya_estaba: boolean;
+    kepler?: { sucursal: string | null; folio: string | null; renglones?: number };
+    lineas?: KeplerLineaResuelta[];
+    consolidado?: boolean;
+  }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
@@ -4320,7 +4361,7 @@ export class CommercialReplenishmentService {
 
     // 1. Leer. La transacción se cierra ANTES de hablarle al ERP.
     const datos = await this.tk.run(async (trx) => {
-      const cab: any = await trx('commercial.purchase_requisitions as r')
+      const cab = (await trx('commercial.purchase_requisitions as r')
         .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
         .where({ 'r.tenant_id': tenantId, 'r.id': id })
@@ -4330,17 +4371,17 @@ export class CommercialReplenishmentService {
           'w.code as wcode', 'w.kepler_code', 'sup.code as prov_code', 'sup.name as prov_name',
           // `[KR.10]` El ORIGEN del traspaso: ahí se crea el pedido, y el destino va de `TI###`.
           'sw.kepler_code as origen_kepler_code')
-        .first();
+        .first()) as CabeceraPushKepler | undefined;
       if (!cab) throw new NotFoundException('Requisición no encontrada');
       // `[KR.6]` El factor de caja viaja con la línea: es el TESTIGO contra el que el adapter
       // contrasta el `c58` de Kepler antes de convertir. `null` cuando la Suite tampoco sabe —
       // y entonces el adapter rechaza, porque dos ignorancias no hacen una certeza.
-      const lineas: any[] = await trx('commercial.purchase_requisition_lines as l')
+      const lineas = (await trx('commercial.purchase_requisition_lines as l')
         .join('catalog.products as p', (j) => j.on('p.tenant_id', 'l.tenant_id').andOn('p.id', 'l.product_id'))
         .leftJoin('analytics.v_product_box_factor as bf', (j) => j.on('bf.tenant_id', 'l.tenant_id').andOn('bf.product_id', 'l.product_id'))
         .where({ 'l.tenant_id': tenantId, 'l.requisition_id': id }).andWhere('l.final_qty', '>', 0)
         .select('p.sku', 'p.nombre', 'l.final_qty', 'l.unit_cost', 'l.line_cost', 'bf.box_factor')
-        .orderBy('p.sku');
+        .orderBy('p.sku')) as LineaPushKepler[];
       return { cab, lineas };
     });
     const { cab } = datos;
@@ -4362,7 +4403,7 @@ export class CommercialReplenishmentService {
     // 4. Armar los renglones. `final_qty` ya viene en CAJAS y Kepler las acepta: sin conversión.
     let lineas = datos.lineas;
     if (consolidar) {
-      const porSku = new Map<string, any>();
+      const porSku = new Map<string, LineaPushKepler>();
       for (const l of lineas) {
         const v = porSku.get(l.sku);
         if (v) { v.final_qty = Number(v.final_qty) + Number(l.final_qty); v.line_cost = Number(v.line_cost) + Number(l.line_cost); }
@@ -4375,7 +4416,7 @@ export class CommercialReplenishmentService {
       requisition_id: cab.id, folio_suite: cab.folio, tipo,
       // El documento se crea DONDE SALE la mercancía: en la compra, el almacén que recibe del
       // proveedor; en el traspaso, la sucursal origen — y el destino viaja como `TI###`.
-      sucursal: tipo === 'traspaso' ? cab.origen_kepler_code : cab.kepler_code,
+      sucursal: tipo === 'traspaso' ? cab.origen_kepler_code! : cab.kepler_code,
       destino_sucursal: tipo === 'traspaso' ? cab.kepler_code : undefined,
       proveedor_code: cab.prov_code ?? undefined, proveedor_nombre: cab.prov_name ?? undefined,
       fecha: todayMx(), total: Number(cab.total_cost) || 0,
