@@ -241,7 +241,48 @@ export class CashLedgerService {
       const ingreso = anclaje
         .filter((r: any) => r.tipo === 'ingreso')
         .map((r: any) => ({ ...r, ingresos: r.movimientos }));
-      return { catalogo, mapa, anclaje, ingreso };
+
+      /**
+       * ⛔⛔ `[CG.141]` **Las fuentes del AUTOLLENADO, que este endpoint no declaraba.**
+       *
+       * Este método existe para que *«0 conceptos por carril caído no se vea igual que no hay
+       * conceptos»*, y miraba el catálogo, el mapa HITL y el anclaje — **no las dos fuentes de
+       * las que el autollenado propone la cuenta**. El instrumento que habría cazado el defecto
+       * no vigilaba el lugar donde ocurrió.
+       *
+       * Y ocurrió: `analytics.mv_caja_autofill_entidad` llegó a producción **poblada y con cero
+       * filas** (la migración que la creó no fijó `app.tenant_id`, y su fuente filtra por
+       * `current_tenant_id()`: 0 filas sin tenant contra 13,302 con tenant). Con las dos fuentes
+       * vacías, `porEntidad()` devuelve `sin_historia` para TODA entidad — o sea que el backend
+       * culpa al dato de un defecto de construcción.
+       *
+       * ⭐ Por eso viaja la **frescura** y no sólo el conteo: un cero con latido de hace un mes y
+       * un cero con latido de hace una hora son dos cosas distintas, y sólo una es un problema
+       * del dato. `latido` en `null` significa que el carril **nunca** escribió — que es su
+       * propio estado, no un cero (ADR-056).
+       */
+      const [decl] = await trx('finance.caja_autofill_declarada')
+        .where('tenant_id', tenantId).count({ n: '*' });
+      const [deriv] = await trx('analytics.mv_caja_autofill_entidad')
+        .where('tenant_id', tenantId).count({ n: '*' });
+      const latido = await trx('analytics.cron_runs')
+        .where({ tenant_id: tenantId, job_key: 'caja_autofill_entidad' })
+        .first('status', 'last_finish', 'rows_affected', 'error');
+
+      const autofill = {
+        declarada: Number(decl?.n ?? 0),
+        derivada: Number(deriv?.n ?? 0),
+        latido: latido
+          ? {
+            status: latido.status,
+            as_of: latido.last_finish,
+            filas: Number(latido.rows_affected ?? 0),
+            error: latido.error ?? null,
+          }
+          : null,
+      };
+
+      return { catalogo, mapa, anclaje, ingreso, autofill };
     });
   }
 
