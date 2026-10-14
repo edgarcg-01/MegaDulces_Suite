@@ -1060,7 +1060,10 @@ export class CashLedgerService {
    * ⚠️ Envuelve y no reemplaza: el `create` de arriba se deja intacto para que lo que ya lo
    * llama no cambie de comportamiento, y el controller pasa a usar éste.
    */
-  async createTraducido(input: CreateMovementInput, user: { id?: string; username?: string }) {
+  async createTraducido(
+    input: CreateMovementInput,
+    user: { id?: string; username?: string },
+  ): ReturnType<CashLedgerService['create']> {
     try {
       return await this.create(input, user);
     } catch (e) {
