@@ -1583,9 +1583,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <i class="pi" [class.pi-chevron-right]="!historialAbierto()"
              [class.pi-chevron-down]="historialAbierto()" aria-hidden="true"></i>
           <span class="cg-historial-t">Historial</span>
+          <!-- ⛔⛔ [CG.181] ACÁ SE PUBLICABA UN CERO QUE ERA UN FALLO. Medido en producción el
+               2026-10-14: la pantalla imprimía "0 corte(s)" mientras el endpoint devolvía 1
+               (CC-2026-00001). La petición se había repetido y la segunda volvió 429; el
+               manejador de error vacía la lista, así que el conteo salía en cero — con la misma
+               cara que un periodo sin cortes.
+               El error YA se guardaba en errLibro/errCortes y esta línea no lo miraba: el
+               app-load-state de más abajo lo declara, pero este resumen se lee ANTES y gana.
+               Es el defecto que esta pantalla persigue desde [CG.99]: un cero afirmando algo que
+               nadie midió. Ahora cada mitad dice lo suyo y por separado -- un fallo del libro no
+               puede tapar un conteo de cortes que sí se midió. -->
           <small class="fin-dim">
             del {{ dmy(from) }} al {{ dmy(to) }} ·
-            {{ rows().length }} movimiento(s) en el libro · {{ cortes().length }} corte(s)
+            @if (errLibro()) { <span class="fin-hint-warn">el libro no se pudo leer</span> }
+            @else { {{ rows().length }} movimiento(s) en el libro }
+            ·
+            @if (errCortes()) { <span class="fin-hint-warn">los cortes no se pudieron leer</span> }
+            @else { {{ cortes().length }} corte(s) }
           </small>
         </button>
 
@@ -4801,8 +4815,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /** Desde/Hasta del libro. Van juntos acá para no asignar campos desde la plantilla. */
-  setDesde(d: Date | null): void { const k = this.claveDe(d); if (k) { this.from = k; this.cargar(); } }
-  setHasta(d: Date | null): void { const k = this.claveDe(d); if (k) { this.to = k; this.cargar(); } }
+  // `[CG.181]` El RANGO es el insumo de las dos listas, así que mover una fecha recarga las dos.
+  // Antes los cortes colgaban del `next` de `cargar()`: se repetían en el arranque (429) y no se
+  // recargaban nunca si el libro fallaba.
+  setDesde(d: Date | null): void { const k = this.claveDe(d); if (k) { this.from = k; this.cargar(); this.cargarCortes(); } }
+  setHasta(d: Date | null): void { const k = this.claveDe(d); if (k) { this.to = k; this.cargar(); this.cargarCortes(); } }
 
   setArqueoFecha(v: string): void {
     if (!v) return;
@@ -5021,7 +5038,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (r) => {
           this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi);
-          this.errLibro.set(null); this.cargando.set(false); this.cargarCortes();
+          this.errLibro.set(null); this.cargando.set(false);
+          // ⛔ [CG.181] ACÁ COLGABA `cargarCortes()` y era la MITAD del 429 de producción: al
+          // entrar, `ngOnInit` pedía los cortes y `cargar()` los volvía a pedir con los MISMOS
+          // parámetros al resolverse. Dos peticiones idénticas, la segunda rebotada por el
+          // throttler — y como el error vacía la lista, el conteo salía en cero.
+          // Los cortes se listan por el mismo RANGO que el libro, así que ahora cuelgan de lo
+          // que de verdad los cambia (`setDesde`/`setHasta`) y no del éxito del libro. De paso
+          // dejan de recargarse al cambiar el tipo, la búsqueda o "los míos", que no los tocan.
+          // ⚠️ Y se rompe un acoplamiento falso: con el libro caído los cortes no se recargaban
+          // nunca, aunque su endpoint estuviera sano.
         },
         // `kpiRaw` a null NO es "todo en cero": la tira de KPIs ahora publica "sin medir".
         error: (e) => {
@@ -5818,7 +5844,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // constante. Se recarga en `onTipo` por la misma razón que en `onSucursal`.
     this.svc.frecuentes({ tipo: this.f().tipo, sucursal: this.f().sucursal, limit: 10 }).subscribe({
       next: (r) => this.frecuentes.set(r.rows ?? []),
-      error: () => this.frecuentes.set([]),
+      // ⛔ [CG.181] ACÁ SE VACIABA LA LISTA, y un 429 se veía igual que "esta persona no repite
+      // nada". Medido en producción: esta petición sale dos veces al cargar y la segunda rebota.
+      // Los chips son un ATAJO, no una cifra, así que no hace falta un aviso: lo que no se puede
+      // es BORRAR lo que ya se había medido. Si la recarga falla, se conserva lo anterior — una
+      // lista vieja es más veraz que una vacía inventada. (Mismo criterio que el cero de arriba.)
+      error: () => { /* se conserva lo último que sí se midió */ },
     });
   }
 
