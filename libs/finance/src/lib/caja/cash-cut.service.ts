@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { denomKeyDeValor } from '@megadulces/contracts';
@@ -136,6 +136,9 @@ const TIPOS_CONOCIDOS = Object.values(CAOS);
 
 @Injectable()
 export class CashCutService {
+  /** `[CG.158]` Lo que no se puede leer se registra con su motivo real, no se devuelve en silencio. */
+  private readonly logger = new Logger(CashCutService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -239,12 +242,34 @@ export class CashCutService {
    */
   private async sueltosFuera(trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null) {
     if (!dia) return null;
-    const neto = `sum(CASE WHEN estado = 'cancelado' THEN 0
-                           WHEN tipo = 'ingreso' THEN monto ELSE -monto END)`;
+    /**
+     * ⛔⛔ `[CG.157]` **EL CONTEO Y EL NETO MEDÍAN UNIVERSOS DISTINTOS.**
+     *
+     * El neto llevaba `CASE WHEN estado = 'cancelado' THEN 0` y el `count(*) FILTER (...)` **no
+     * filtraba `estado`**. Así que un movimiento cancelado inflaba el conteo y no aportaba un peso
+     * al neto: la pantalla decía «39 movimientos sueltos» sobre un dinero de 37.
+     *
+     * Lo encontró una auditoría de otra sesión creando dos movimientos de prueba y cancelándolos:
+     * **el contador subió de 37 a 39 sin que el dinero se moviera.** Verificado por mi lado contra
+     * prod el 2026-10-14: `71` contra `70` anteriores a hoy — la diferencia es el gasto de \$20
+     * `CG-2026-00003`, una prueba E2E cancelada el 8-oct que lleva seis días contándose como
+     * pendiente de cortar.
+     *
+     * ⭐ El filtro va en el **`WHERE`**, no en cada agregado, y por eso se retira el `CASE`: con el
+     * `CASE` había **dos** definiciones de «qué cuenta» en la misma consulta, y `desde`/`hasta`
+     * seguían una tercera —incluían cancelados— así que la ventana de fechas podía arrancar en un
+     * movimiento que no existe. Una sola condición, un solo universo.
+     *
+     * ⚠️ Y el criterio correcto es excluirlos: esto responde *«¿qué quedó sin cortar?»*, y un
+     * movimiento cancelado no espera corte. Es el mismo criterio que `calcularCorte()` ya aplica
+     * —descarta los cancelados y los reporta aparte— así que acá se alinea en vez de inventar otro.
+     */
+    const neto = `sum(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END)`;
     const [r] = await trx('finance.cash_ledger')
       .where({ tenant_id: tenantId })
       .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
+      .whereNot('estado', 'cancelado')
       .whereRaw('fecha <> ?::date', [dia])
       .select(
         trx.raw(`count(*) FILTER (WHERE fecha < ?::date)::int AS n_antes`, [dia]),
@@ -298,21 +323,51 @@ export class CashCutService {
    * acá sería «la caja arrancó vacía», que es un hecho distinto y falso.
    */
   private async fondoDeControl(trx: Knex.Transaction, tenantId: string) {
-    const existe = await trx.raw(`SELECT to_regclass('caja_general_ods.arqueo_movimientos') AS t`);
-    if (!existe.rows?.[0]?.t) return null;
+    /**
+     * ⛔⛔ `[CG.158]` **`to_regclass` da FALSO VERDE y la línea de abajo explota con un 500.**
+     *
+     * Medido en prod el 2026-10-14: `app_runtime` —el rol con el que corre la API, 5 conexiones
+     * vivas— **no tiene `USAGE` sobre el schema `caja_general_ods`**, aunque sí tenga el `SELECT`
+     * de la tabla. `to_regclass()` consulta el CATÁLOGO y no necesita `USAGE`, así que la guarda
+     * pasa; el `SELECT` siguiente muere con `42501 permission denied for schema`. Resultado:
+     * `GET /cortes/fondo-sugerido` → **500 reproducible**.
+     *
+     * La reparación de fondo es el `GRANT` (migración `20261014100953`). Esto es la defensa, y
+     * tiene UNA regla: ⛔ **el motivo que se publica tiene que ser el verdadero.** Devolver `null`
+     * a secas haría que la pantalla dijera *«no hay arqueo de custodia»* cuando lo que pasa es que
+     * no se puede mirar — el defecto de `[CP.8.39]`, donde un `catch` reportó «la tabla no existe»
+     * sobre un `42501` y degradó en silencio con una razón falsa durante días.
+     */
     const num = (c: string) => `coalesce(nullif(btrim(${c}::text),'')::numeric, 0)`;
-    const [r] = await trx('caja_general_ods.arqueo_movimientos')
-      .whereRaw('NOT cancelado')
-      .whereRaw(`${num('dolares')} <> 0`)
-      .orderBy([{ column: 'movimientofecha', order: 'desc' }, { column: 'movimientohora', order: 'desc' }])
-      .limit(1)
-      .select(
-        'folio',
-        trx.raw(`to_char(movimientofecha,'YYYY-MM-DD') AS fecha`),
-        trx.raw(`${num('totalefectivo')} AS efectivo`),
-        trx.raw(`${num('totalbilletes')} AS billetes`),
-        trx.raw(`${num('totalmonedas')} AS monedas`),
-      );
+    let r: Record<string, unknown> | undefined;
+    try {
+      [r] = await trx('caja_general_ods.arqueo_movimientos')
+        .whereRaw('NOT cancelado')
+        .whereRaw(`${num('dolares')} <> 0`)
+        .orderBy([{ column: 'movimientofecha', order: 'desc' }, { column: 'movimientohora', order: 'desc' }])
+        .limit(1)
+        .select(
+          'folio',
+          trx.raw(`to_char(movimientofecha,'YYYY-MM-DD') AS fecha`),
+          trx.raw(`${num('totalefectivo')} AS efectivo`),
+          trx.raw(`${num('totalbilletes')} AS billetes`),
+          trx.raw(`${num('totalmonedas')} AS monedas`),
+        );
+    } catch (e) {
+      const code = (e as { code?: string })?.code;
+      // `42501` = sin permiso · `42P01` = no existe. Son dos cosas distintas y las dos se
+      // registran con su nombre: la primera la arregla Sistemas con un GRANT, la segunda significa
+      // que este destino no tiene el espejo de Control.
+      if (code === '42501' || code === '42P01') {
+        this.logger.warn(
+          code === '42501'
+            ? 'No se puede leer el espejo de Control (sin USAGE sobre caja_general_ods): el fondo sugerido queda sin medir, NO en cero.'
+            : 'El espejo de Control no existe en este destino: el fondo sugerido queda sin medir.',
+        );
+        return null;
+      }
+      throw e;
+    }
     if (!r) return null;
     void tenantId; // el espejo de Control no está particionado por tenant: es una sola caja.
     return {
@@ -521,7 +576,7 @@ export class CashCutService {
    * puede defender después. El `cut_cerrado_completo_chk` sólo los exige al cerrar, así que
    * escribirlos en borrador es compatible — verificado contra los 8 CHECK de la tabla en prod.
    */
-  private async sellarConteo(trx: any, tenantId: string, id: string, t: TotalesCorte, input: CerrarCorteInput) {
+  private async sellarConteo(trx: Knex.Transaction, tenantId: string, id: string, t: TotalesCorte, input: CerrarCorteInput) {
     await trx('finance.cash_ledger_cuts').where({ id }).update({
       contado: t.contado,
       morralla: input.morralla ?? 0,
@@ -715,9 +770,44 @@ export class CashCutService {
       // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
 
+      /**
+       * ⭐⭐ `[CG.159]` **CERRAR USA EL CONTEO YA SELLADO. No se vuelve a pedir lo que ya está
+       * escrito y no se puede cambiar.**
+       *
+       * `cerrar()` exigía el conteo otra vez en el cuerpo. Con `[CG.156]` eso dejaba a
+       * `CC-2026-00001` —el único corte que existió en la vida del módulo— en un callejón: su
+       * conteo está sellado en la base (6 renglones, \$3,653.50) pero la pantalla ya no lo tiene en
+       * memoria después de recargar, así que mandaba el cuerpo vacío y el corte cerraba con
+       * `contado = 0`, declarando un faltante de todo el efectivo contado.
+       *
+       * ⛔ **Esto NO afloja nada**, y la razón es la que hace al conteo ciego: una vez sellado, el
+       * conteo **no se puede cambiar sin `recontar()`**, que exige motivo y conserva el primero.
+       * O sea que el conteo guardado es el único válido. Reusarlo no abre una puerta — cerrarse a
+       * él obligaba a re-teclear lo que ya es inmutable, con el riesgo de teclearlo distinto.
+       *
+       * ⚠️ El cuerpo manda cuando trae algo: quien cuenta y cierra en un solo paso sigue
+       * funcionando igual. El respaldo entra **sólo** si el cuerpo viene vacío y la base tiene un
+       * conteo sellado — y si no hay ninguno de los dos, `calcularCorte()` devuelve `sin_contar` y
+       * el gate frena, que es lo correcto.
+       */
+      let conteo = input.conteo;
+      let morralla = input.morralla;
+      const vieneVacio = !(conteo ?? []).some((d) => Number(d?.piezas) > 0);
+      if (vieneVacio && Number(c.contado ?? 0) > 0) {
+        const sellado = await trx('finance.cash_ledger_cut_denominations')
+          .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' })
+          .select('denom_key', 'denominacion', 'piezas');
+        conteo = sellado.map((d: any) => ({
+          denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: Number(d.piezas),
+        }));
+        // La morralla sellada vive en la columna del corte, no en el desglose.
+        morralla = Number(c.morralla ?? 0);
+        this.logger.log(`cierre del corte ${id}: se reusa el conteo ya sellado (${conteo.length} renglones).`);
+      }
+
       const t = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo: input.conteo, morralla: input.morralla ?? 0,
+        conteo, morralla: morralla ?? 0,
       });
 
       const gate = puedeCerrar(c, u.id, t);
@@ -734,7 +824,12 @@ export class CashCutService {
       // `[CG.155]` Por la única puerta. Acá vivía la tercera copia de esta escritura —sin
       // `denom_key`, sin `momento` y con el borrado SIN acotar— y es la que tiró producción el
       // 2026-10-14 con un 500 en `/cerrar`, un día después de arreglar la copia de `contar`.
-      await this.guardarDenominaciones(trx, tenantId, id, 'cierre', input.conteo);
+      //
+      // ⚠️ `conteo`, NO `input.conteo`: con el respaldo de `[CG.159]` el cuerpo puede venir vacío,
+      // y entonces esto REESCRIBIRÍA el desglose sellado con nada — borrando en silencio el conteo
+      // que acaba de usarse para calcular el cierre. Es la misma clase de borrado sin acotar que
+      // `[CG.155]` cerró; reaparece por otra puerta en cuanto el origen del conteo deja de ser uno.
+      await this.guardarDenominaciones(trx, tenantId, id, 'cierre', conteo);
 
       return { ...cerrado, totales: t };
     });
