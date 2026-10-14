@@ -982,6 +982,65 @@ sucursal (`SUC MORELIA MADERO PISO`, `SUCURSAL 8 ESQUINAS PISO`) contra la **rut
 3. **El importe de un reparto no es ningún documento.** $24,418.16 no aparece en `kdm1` — está
    registrado **39 veces**. Buscar el total y concluir «no se registró» es el error.
 
+### 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14)
+
+**`c1` no es sólo la plaza.** Los valores compuestos (`01-001`…`01-006`) son **rutas**, confirmado
+por Edgar y verificado contra el padrón de vendedores:
+
+    01-001 → RD Urbano Olivares Victorino     01-004 → RD García Hurtado Víctor Hugo
+    01-002 → RD Fuentes Montes Enrique        01-005 → RD Martínez Patlán Mariano
+    01-003 → RD Hurtado Orozco Joaquín        01-006 → RD TORRES JORGE ANTONIO
+
+⇒ El filtro canónico **`btrim(c1) = sucursal`** (§3.z, Fase PO) los descarta a todos. Medido en
+prod, 90 días:
+
+| tabla | filas | pasa | **RUTA descartada** | réplica real |
+|---|---|---|---|---|
+| **`kdm1`** documentos | 302,492 | 295,260 | **7,229** | **3** |
+| `kdm5` aplicaciones | 68,543 | 67,408 | 0 | 1,135 |
+| `kdxe` cuentas por pagar | 52,535 | 51,797 | 0 | 738 |
+
+⭐ **En `kdm1` descarta 2,410 rutas por cada réplica real.** En `kdm5` y `kdxe` hace exactamente lo
+que se diseñó. **No es una política global: es UNA TABLA.**
+
+Lo que se pierde en `kdm1`, 90 días — **$5,869,974.50**:
+
+    U-D-10  Ticket Contado Caja 2   7,127   $4,385,771.68
+    U-D-23  Corte de Caja POS          61   $1,049,130.53
+    U-A-50  Recepción Traspaso Suc     30     $316,478.71
+    U-A-5   Cobro PUE                   6     $117,972.97
+
+⚠️⚠️ **Y no es que crezca: SE EXTIENDE A NUEVOS TIPOS DE DOCUMENTO.** Las rutas son las mismas
+**seis** desde agosto; lo que cambia es la mezcla:
+
+    mes    filas   monto          ticket prom.   rutas    U-D-23   U-A-5
+    jun       59   $  169,873        $2,879        2        —        —
+    ago    1,280   $  890,231        $  695        6        —        —
+    sep    4,036   $2,629,148        $  651        6        0        0
+    oct    1,913   $2,350,596        $1,229        6       61        6     ← medio mes
+
+El promedio saltó de $651 a $1,229 **por mezcla, no por rutas más grandes**: entraron cortes a
+$17,199 cada uno. ⇒ Arrancó sólo con tickets y desde octubre las rutas emiten también **su corte y
+su cobro** con código compuesto — justamente los dos documentos que cierran el circuito
+venta → corte → cobro.
+
+**Los objetos afectados** (leen `kdm1`): `analytics.kepler_bank_movements` · `mv_new_products` ·
+**`mv_product_margins_30d`** (publica MARGEN) · `v_erp_sales_line_units` · `expense_documents` ·
+`mv_caja_autofill_entidad`. **No afectados** (leen `kdm5`/`kdxe`, donde el filtro acierta): las 11
+vistas de compras y pagos.
+
+⛔⛔ **NO RELAJAR EL FILTRO EN BLOQUE, y la prueba es de la misma tarde.** En
+`analytics.kepler_bank_movements`, cambiarlo a `split_part(c1,'-',1) = sucursal` **DUPLICA $118k**:
+salen **52,548 filas para 52,542 llaves únicas**, porque esos documentos entran también por la otra
+pierna de la vista. En los tickets **no duplica nada** (cero réplica real).
+
+⇒ **Se mide por VISTA, no por tabla**, y cada una necesita su propio control de duplicados **antes**
+de tocarle el filtro. Dos vistas sobre `kdm1` pueden necesitar decisiones opuestas.
+
+⚠️ **Dos cabos con nombre:** el código `RD027` vende **$209,325.35 en 30 días** y **no existe en
+`kduv`** (0 filas) — se declara sin resolver, nunca se cae al nombre genérico de otra plaza. Y hay
+**645 tickets / $310,060 sin vendedor** (`c12` vacío), concentrados en `01-005`.
+
 ---
 
 ### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
