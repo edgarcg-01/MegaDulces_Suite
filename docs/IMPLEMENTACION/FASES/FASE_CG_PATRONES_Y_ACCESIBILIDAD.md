@@ -190,6 +190,17 @@ Los recurrentes vuelven cada **2.4 a 6.9 días**. El coeficiente de variación d
 **El ingreso es una sola cosa.** Mucho más simple que el egreso — pero sólo 2 plazas lo declaran
 así: es el `0 de 16` de Morelia (§3.1) visto desde el otro lado.
 
+⛔ **Precisión que esta sección decía mal: `U-A-5` NO es la venta, es el COBRO que la salda.**
+Decodificado el 2026-10-14 contra `kdmm` y `kdm5` (detalle en
+[`ERP_KEPLER.md` §3.z.1](../../ERP_KEPLER.md)): `U-A-5-1` = «Cobro PUE», y el **98 % del dinero
+salda `U-D-13-1` Factura Crédito No Fiscal** (24,988 aplicaciones / $469.9 M). La venta es el
+`U-D-13`; el cobro llega después, cuando el repartidor vuelve con el dinero.
+
+⚠️ **El error de método fue leer la glosa como si fuera el tipo de documento**: `c24` dice
+*«VENTA RV CANDY SALGADO 25-09-2026»* porque la persona describe **qué está cobrando**, no qué
+capturó. La cifra no cambia —99.7 % de la cobranza de ruta entra en efectivo— pero lo que nombra sí:
+es **la cobranza de la venta de ruta**, no la venta.
+
 ---
 
 ## 7. La regla del efectivo, medida
