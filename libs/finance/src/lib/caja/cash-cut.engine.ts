@@ -467,3 +467,65 @@ export function buildFolioCorte(year: number, seq: number): string {
   if (!Number.isInteger(seq) || seq < 1) throw new Error(`consecutivo inválido: ${seq}`);
   return `CC-${year}-${String(seq).padStart(5, '0')}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// `[CG.155]` El desglose por denominación: los renglones, en función PURA
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface FilaDenominacion {
+  tenant_id: string;
+  cut_id: string;
+  momento: 'apertura' | 'cierre';
+  denom_key: string;
+  denominacion: number;
+  piezas: number;
+}
+
+/** Una denominación que no está en el catálogo: no se inventa su llave, se nombra y se para. */
+export class DenominacionFueraDeCatalogo extends Error {
+  constructor(public readonly denominacion: number) {
+    super(`Denominación ${denominacion} no está en el catálogo: no se puede registrar el conteo.`);
+  }
+}
+
+/**
+ * ⛔⛔ `[CG.155]` **Los renglones que se escriben, armados una sola vez.**
+ *
+ * Producción cayó dos veces en dos días por la misma causa: `finance.cash_ledger_cut_denominations`
+ * tenía **TRES** caminos de escritura (`abrir`, `sellarConteo`, `cerrar`) y la migración que agregó
+ * `denom_key NOT NULL` actualizó uno. El 13-oct reventó `contar`; se arregló ese camino y el 14-oct
+ * reventó `cerrar` con el error idéntico. **Mientras haya tres implementaciones de la misma
+ * escritura, arreglar una no es arreglar el defecto** — por eso los renglones se arman acá, en una
+ * función sin base de datos, que sí puede tener candado.
+ *
+ * Dos reglas que la base exige:
+ *
+ * 1. `denom_key` es parte de la PK `(tenant_id, cut_id, momento, denom_key)` porque `denominacion`
+ *    sola NO identifica: el billete de 20 y la moneda de 20 valen lo mismo y son **dos** renglones
+ *    (lo fuerza `cut_denom_par_chk`). Si quien cuenta manda la llave se respeta; si no, se deriva
+ *    del catálogo, que ante un 20 sin llave asume billete — y eso se declara, no se esconde.
+ * 2. Las piezas en cero **no se guardan** (`cut_denom_piezas_chk`): una denominación que no se
+ *    contó no es una fila con cero, es una fila que no existe.
+ */
+export function filasDenominacion(
+  tenantId: string,
+  cutId: string,
+  momento: 'apertura' | 'cierre',
+  conteo: ConteoDenominacion[] | null | undefined,
+  llaveDe: (valor: number) => string | null,
+): FilaDenominacion[] {
+  return (conteo ?? [])
+    .filter((d) => Number(d.piezas) > 0)
+    .map((d) => {
+      const key = d.denom_key ?? llaveDe(Number(d.denominacion));
+      if (!key) throw new DenominacionFueraDeCatalogo(Number(d.denominacion));
+      return {
+        tenant_id: tenantId,
+        cut_id: cutId,
+        momento,
+        denom_key: key,
+        denominacion: Number(d.denominacion),
+        piezas: Number(d.piezas),
+      };
+    });
+}
