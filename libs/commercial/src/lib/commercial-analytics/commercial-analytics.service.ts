@@ -8374,7 +8374,20 @@ export class CommercialAnalyticsService {
     const from = fromArg && dRx.test(fromArg) ? fromArg : defFrom;
     if (from > to) throw new BadRequestException('from no puede ser mayor que to');
     const tenantId = this.tenantCtx.requireTenantId();
-    const num = (v: any) => (v == null ? null : Number(v));
+    /**
+     * ⚠️ `null` se conserva como `null`: un `Number(null)` da **0**, y acá un cero significaría
+     * «la caja contó cero» donde lo cierto es «nadie la cerró» (ADR-056).
+     */
+    const num = (v: string | number | null): number | null => (v == null ? null : Number(v));
+
+    /** Lo que devuelve la vista. Los `numeric` de Postgres llegan como **string** por el driver. */
+    type FilaCruda = {
+      warehouse_code: string; warehouse_name: string; caja: string | number; date: string;
+      rutas: string | null; vecinal: string | number; tickets: string | number;
+      arqueo_venta: string | null; otros_en_la_caja: string | null; vecinal_pct: string | null;
+      efectivo_esperado: string | null; efectivo_contado: string | null; efectivo_diff: string | null;
+      veredicto: VecinalVeredicto;
+    };
 
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
@@ -8398,7 +8411,7 @@ export class CommercialAnalyticsService {
           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date`,
         [tenantId, from, to]);
 
-      const filas: VecinalConciliacionFila[] = rows.map((r: any) => ({
+      const filas: VecinalConciliacionFila[] = (rows as FilaCruda[]).map((r) => ({
         warehouse_code: r.warehouse_code,
         warehouse_name: r.warehouse_name,
         caja: Number(r.caja),
