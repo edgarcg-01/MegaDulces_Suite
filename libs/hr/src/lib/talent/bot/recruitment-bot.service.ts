@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, sanitizarNombre, validarAdjunto } from '@megadulces/platform-core';
 import type { RecruitmentBotPort, RecruitmentInbound, RecruitmentReply } from '@megadulces/contracts';
@@ -6,9 +6,10 @@ import { HrTalentIntakeService, type EntradaPostulacion } from '../talent-intake
 import { respuestaPublica, type Decision } from '../logic/postulacion';
 import { MAX_DOCUMENTO_BYTES } from '../logic/expediente';
 import {
-  avanzarRegistro, postulacionDesdeRegistro, preguntaPendiente,
+  avanzarRegistro, faltantesParaIA, postulacionDesdeRegistro, preguntaPendiente,
   type DatosRegistro, type EstadoOrientacion, type Turno, type VacanteBot,
 } from './registro';
+import { HrRecruitmentInterpreterService } from './interprete-registro.service';
 
 /**
  * Fase RH · `[RH.3.2]` — el BOT DE RECLUTAMIENTO de la Suite, detrás de `RECRUITMENT_BOT_PORT`: la conversación de
@@ -22,8 +23,11 @@ import {
  *     (`portal_data.orientacion`): es el único registro de la demanda que no cubrimos.
  *   · Un candado por teléfono: dos mensajes de la misma persona al mismo tiempo no pisan su conversación.
  *
- * No hace: la interpretación con IA (`[RH.3.2.1]`), armar el CV, las notas de voz (`[RH.3.3]`), ni avisarle a RH por
- * WhatsApp (el candidato aparece en el tablero de Reclutamiento).
+ *   · `[RH.3.2.1]` Si el mensaje puede traer varios datos, consulta a la IA (`HrRecruitmentInterpreterService`) fuera
+ *     de la transacción y le pasa la propuesta a la lógica pura, que la valida.
+ *
+ * No hace: armar el CV, las notas de voz (`[RH.3.3]`), ni avisarle a RH por WhatsApp (el candidato aparece en el
+ * tablero de Reclutamiento).
  */
 
 const T = 'talent.bot_conversations';
@@ -44,6 +48,8 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly intake: HrTalentIntakeService,
+    /** `[RH.3.2.1]` Opcional: sin él (o sin `ANTHROPIC_API_KEY`), el registro sigue el camino determinista. */
+    @Optional() private readonly interprete?: HrRecruitmentInterpreterService,
   ) {}
 
   async handleMessage(msg: RecruitmentInbound): Promise<RecruitmentReply[]> {
@@ -63,10 +69,18 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
   // ── Texto: un paso de la conversación ───────────────────────────────────────────────────
 
   private async texto(msg: RecruitmentInbound, telefono: string): Promise<string[]> {
+    // `[RH.3.2.1]` La IA se consulta FUERA de la transacción: tarda hasta 8 s y no se debe sostener una conexión ni el
+    // candado por teléfono mientras tanto. Al guardar, su propuesta sólo se usa si la conversación sigue donde estaba.
+    const previa = await this.tk.run(msg.tenantId, async (trx) => ({ conv: await this.leer(trx, telefono), vacantes: await this.vacantes(trx) }));
+    const faltantes = faltantesParaIA(previa.conv.state, previa.conv.data, msg.text);
+    const interpretacion = faltantes && this.interprete ? await this.interprete.interpretar(msg.text ?? '', faltantes, previa.vacantes) : null;
+
     return this.tk.run(msg.tenantId, async (trx) => {
       const actual = await this.cargar(trx, msg.tenantId, telefono);
       const vacantes = await this.vacantes(trx);
-      const turno: Turno = avanzarRegistro(actual.state, actual.data, msg.text, { vacantes }, actual.orientation);
+      const mismoPunto = actual.state === previa.conv.state && JSON.stringify(actual.data) === JSON.stringify(previa.conv.data);
+      const turno: Turno = avanzarRegistro(actual.state, actual.data, msg.text,
+        { vacantes, interpretacion: mismoPunto ? interpretacion : null }, actual.orientation);
       const cierre: Cierre = turno.reiniciado ? { outcome: null, outcome_reason: null, candidate_id: null } : {};
       const conv = (state: string): Conversacion => ({ state, data: turno.datos, orientation: turno.orientacion });
 
@@ -144,6 +158,11 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
   /** La conversación de ese teléfono (o una nueva), con el candado por teléfono tomado hasta el fin de la transacción. */
   private async cargar(trx: Knex.Transaction, tenantId: string, telefono: string): Promise<Conversacion> {
     await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`talent-bot:${tenantId}:${telefono}`]);
+    return this.leer(trx, telefono);
+  }
+
+  /** La conversación sin tomar el candado (para decidir si consultar a la IA). */
+  private async leer(trx: Knex.Transaction, telefono: string): Promise<Conversacion> {
     const fila = await trx(T).where({ phone_key: telefono }).first('state', 'data', 'orientation');
     if (!fila) return { state: 'nuevo', data: {}, orientation: null };
     const objeto = (v: unknown): boolean => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -169,6 +188,6 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
 
   private async vacantes(trx: Knex.Transaction): Promise<VacanteBot[]> {
     return trx('talent.job_postings').where({ is_active: true }).orderBy(['sort_order', 'name'])
-      .select('id', 'name', 'salary_text', 'branch_codes', 'branches_text', 'sort_order');
+      .select('id', 'name', 'salary_text', 'branch_codes', 'branches_text', 'sort_order', 'schedule_text', 'requirements');
   }
 }

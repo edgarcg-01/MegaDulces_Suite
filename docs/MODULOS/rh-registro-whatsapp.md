@@ -1,5 +1,38 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.2.1 · Entender mensajes con varios datos y contestar dudas (2026-10-13)
+
+### Problema
+
+El registro preguntaba un dato a la vez y tomaba cada mensaje como la respuesta a esa pregunta. Pero la gente escribe
+«hola, soy Ana de Canindo y busco de cajera» en el primer mensaje, o pregunta «¿cuánto pagan?» a media captura. Sin
+entenderlo, el bot le volvía a pedir uno por uno datos que ya había dado, o tomaba la pregunta como si fuera su nombre.
+
+### Solución
+
+- Del mensaje se sacan los datos que la persona menciona, y se guardan los que estén bien. Luego se le pide sólo lo que
+  falta.
+- Si pregunta algo, se le contesta primero, con datos reales de las vacantes publicadas (sueldo, horario, requisitos) y
+  de las sucursales. Si el dato no está, se le dice que Capital Humano se lo confirma. Nunca se le promete la plaza.
+- Si la IA no está disponible, el registro funciona igual que antes, pregunta por pregunta.
+
+### Cómo se implementó
+
+- `libs/hr/src/lib/talent/bot/interprete-registro.service.ts`: consulta a Claude (Haiku) con el cliente compartido de
+  la Suite, pidiendo sólo los campos que faltan. Si falla o tarda más de 8 segundos, no responde nada y se sigue sin IA.
+- `registro.ts` decide cuándo consultar y revisa cada dato propuesto con los mismos validadores de la captura a mano
+  (RFC, NSS, correo, puesto y ciudad claros). Lo que no pasa no se guarda.
+- El servicio consulta a la IA sin tener la base ocupada mientras espera, y descarta la propuesta si la conversación
+  cambió entretanto.
+- Pruebas de la lógica, del intérprete y dos casos contra la base, comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+La IA sirve para entender cómo escribe la gente, pero no decide: cada dato pasa por las mismas reglas que si se hubiera
+tecleado a mano, así que un RFC inventado o un «hola» como puesto no entran. Lo que la IA le contesta a una persona sólo
+puede salir de datos reales, porque inventar un sueldo o prometer una plaza es peor que no contestar. El mensaje del
+candidato viaja a Anthropic, como ya pasaba en Mega Talento.
+
 ## RH.3.2.2 · Orientar a quien pide un puesto que no hay (2026-10-13)
 
 ### Problema

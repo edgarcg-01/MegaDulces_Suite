@@ -2,7 +2,8 @@
  * `[RH.3.2]` La conversación de registro, sin base ni red: cada regla de Mega Talento que ya costó algo.
  */
 import {
-  avanzarRegistro, ciudadDelCatalogo, comandoInformativo, esSaludoSinPuesto, pareceTecleoAlAzar,
+  avanzarRegistro, ciudadDelCatalogo, comandoInformativo, esSaludoSinPuesto, faltantesParaIA, pareceTecleoAlAzar,
+  type InterpretacionRegistro,
   postulacionDesdeRegistro, validarCorreo, validarNSS, validarRFC, PASOS, NO_APLICA, SIN_CORREO, PIDE_CV,
   type ContextoRegistro, type DatosRegistro, type Turno, type VacanteBot,
 } from './registro';
@@ -210,6 +211,70 @@ describe('[RH.3.2.2] orientación dentro del registro', () => {
     expect([t1.estado, t1.orientacion?.tipo]).toEqual(['orientando_puesto', 'nada']);
     const t2 = avanzarRegistro(t1.estado, t1.datos, 'ok', sin, t1.orientacion);
     expect(t2.estado).toBe('esperando_full_name');
+  });
+});
+
+describe('[RH.3.2.1] la IA propone, el registro valida', () => {
+  const con = (datos: InterpretacionRegistro['datos'], respuesta_pregunta: string | null = null): ContextoRegistro =>
+    ({ vacantes: VACANTES, interpretacion: { datos, respuesta_pregunta } });
+
+  it('⭐ el primer mensaje con varios datos: saludo + lo que trajo + el siguiente que falte', () => {
+    const t = avanzarRegistro('nuevo', {}, 'hola soy Ana López de Zamora, busco de cajera',
+      con({ full_name: 'Ana López', city_branch: 'Zamora', position_interest: 'cajera' }));
+    expect(t.datos).toEqual({ full_name: 'Ana López', city_branch: 'Zamora', position_interest: 'cajera' });
+    expect(t.estado).toBe('esperando_email');
+    expect(t.respuestas[0]).toMatch(/^¡Hola! 👋 Bienvenido/);
+    expect(t.respuestas[0]).toContain('Sí tenemos vacante de *Cajero(a)*');
+  });
+
+  it('⛔ lo que la IA propone pasa por los validadores: RFC mal formado se le dice y NO se guarda; ciudad vaga y saludo-puesto se descartan', () => {
+    const t = avanzarRegistro('esperando_rfc', { position_interest: 'cajera' }, 'mi rfc es ABC123 y vivo donde sea',
+      con({ rfc: 'ABC123', city_branch: 'donde sea' }));
+    expect(t.datos.rfc).toBeUndefined();
+    expect(t.datos.city_branch).toBeUndefined();
+    expect(t.respuestas[0]).toContain('no parece válido');
+    const s = avanzarRegistro('nuevo', {}, 'hola buenas tardes', con({ position_interest: 'Hola' }));
+    expect(s.datos.position_interest).toBeUndefined();
+    expect(s.estado).toBe('esperando_position_interest');
+  });
+
+  it('el NSS y el correo que trae la IA se normalizan igual que a mano', () => {
+    const t = avanzarRegistro('esperando_nss', { position_interest: 'cajera' }, 'nss 123-456-789-01 correo ANA arroba gmail.com',
+      con({ nss: '123-456-789-01', email: 'ANA arroba gmail.com' }));
+    expect([t.datos.nss, t.datos.email]).toEqual(['12345678901', 'ana@gmail.com']);
+  });
+
+  it('una duda se contesta primero (acotada) y luego se pide lo que falta', () => {
+    const larga = 'Sí, el horario es de 8 a 5. '.repeat(60);
+    const t = avanzarRegistro('esperando_full_name', { position_interest: 'cajera' }, '¿qué horario tienen?', con({}, larga));
+    expect(t.estado).toBe('esperando_full_name');
+    const [duda] = t.respuestas[0].split('\n\n');
+    expect(duda.length).toBeLessThanOrEqual(600);
+    expect(t.respuestas[0]).toContain('¿Cuál es tu *nombre completo*?');
+  });
+
+  it('un puesto que no hay, propuesto por la IA, va a la orientación con lo anterior de prefijo', () => {
+    const t = avanzarRegistro('nuevo', {}, 'soy Luis de Zamora, busco algo de ingeniero',
+      con({ full_name: 'Luis Pérez', city_branch: 'Zamora', position_interest: 'ingeniero' }));
+    expect([t.estado, t.datos.position_interest, t.orientacion?.tipo]).toEqual(['orientando_puesto', 'ingeniero', 'ofrecer']);
+    expect(t.respuestas[0]).toMatch(/^¡Hola! 👋 Bienvenido/);
+  });
+
+  it('una propuesta vacía no cambia nada: sigue el camino determinista', () => {
+    const t = avanzarRegistro('esperando_full_name', { position_interest: 'cajera' }, 'Ana López Pérez', con({}));
+    expect([t.estado, t.datos.full_name]).toEqual(['esperando_email', 'Ana López Pérez']);
+  });
+
+  it('⛔ cuándo NO se consulta a la IA', () => {
+    expect(faltantesParaIA('nuevo', {}, 'hola')).toHaveLength(12);
+    expect(faltantesParaIA('esperando_email', { position_interest: 'cajera', full_name: 'Ana' }, 'ana@x.com')).not.toContain('full_name');
+    expect(faltantesParaIA('esperando_email', {}, 'reiniciar')).toBeNull();
+    expect(faltantesParaIA('esperando_email', {}, 'vacantes')).toBeNull();
+    expect(faltantesParaIA('esperando_email', {}, 'no tengo')).toBeNull();          // correo opcional: se salta
+    expect(faltantesParaIA('esperando_rfc', { position_interest: 'cajera' }, 'te lo paso después')).toBeNull(); // respuesta firme
+    for (const e of ['confirmando', 'esperando_cv', 'orientando_puesto', 'editando_rfc', 'postulada']) {
+      expect([e, faltantesParaIA(e, {}, 'algo')]).toEqual([e, null]);
+    }
   });
 });
 

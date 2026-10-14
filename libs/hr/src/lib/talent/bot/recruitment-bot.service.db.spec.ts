@@ -116,6 +116,30 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
         const cand2 = await trx('talent.candidates').where({ phone_key: tel2k }).first('position_interest', 'portal_data');
         r['ficha2'] = [cand2?.position_interest, cand2?.portal_data?.orientacion?.pedido, cand2?.portal_data?.orientacion?.rechazada];
 
+        // ── [RH.3.2.1] IA: el primer mensaje trae varios datos y se guardan los tres (con un intérprete falso) ──────────
+        const tel3 = `521${String(sello + 11).slice(-10)}`;
+        const tel3k = tel3.slice(-10);
+        const conIA = new HrRecruitmentBotService(tk as never, intake, {
+          interpretar: async () => ({ datos: { full_name: 'Rosa Prueba Díaz', city_branch: 'Canindo', position_interest: nombreVacante }, respuesta_pregunta: null }),
+        } as never);
+        r['ia'] = (await conIA.handleMessage(msg({ phone: tel3, text: `hola soy Rosa de Canindo, busco ${nombreVacante}` }))).map((x) => x.body).join('\n');
+        const c3 = await trx('talent.bot_conversations').where({ phone_key: tel3k }).first('state', 'data');
+        r['iaConv'] = [c3.state, c3.data.full_name, c3.data.city_branch, c3.data.position_interest === nombreVacante];
+
+        // La propuesta se DESCARTA si la conversación cambió mientras se esperaba a la IA (otro mensaje la movió).
+        const tel4 = `521${String(sello + 13).slice(-10)}`;
+        const tel4k = tel4.slice(-10);
+        await bot.handleMessage(msg({ phone: tel4, text: 'hola' })); // queda esperando el puesto
+        const carrera = new HrRecruitmentBotService(tk as never, intake, {
+          interpretar: async () => {
+            await trx('talent.bot_conversations').where({ phone_key: tel4k }).update({ state: 'esperando_full_name', data: JSON.stringify({ position_interest: nombreVacante }) });
+            return { datos: { full_name: 'NO DEBE ENTRAR', position_interest: 'otra cosa' }, respuesta_pregunta: null };
+          },
+        } as never);
+        await carrera.handleMessage(msg({ phone: tel4, text: 'Marta Prueba Ruiz' }));
+        const c4 = await trx('talent.bot_conversations').where({ phone_key: tel4k }).first('state', 'data');
+        r['carrera'] = [c4.state, c4.data.full_name, c4.data.position_interest === nombreVacante];
+
         // ── CHECKs ─────────────────────────────────────────────────────────────────────────────
         const C = 'talent.bot_conversations';
         const fila = (o: Record<string, unknown>) => ({ tenant_id: TENANT, phone: `52${String(sello + ++n).slice(-10)}`, ...o });
@@ -157,6 +181,10 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(r['orienta']).toEqual(['orientando_puesto', 'ayudante general', 'ayudante general']);
     expect(String(r['rechazo'])).toContain('Te dejo registrado para *ayudante general*');
     expect(r['ficha2']).toEqual(['ayudante general', 'ayudante general', true]);
+    expect(r['iaConv']).toEqual(['esperando_email', 'Rosa Prueba Díaz', 'Canindo', true]);
+    expect(String(r['ia'])).toMatch(/^¡Hola! 👋 Bienvenido/);
+    // La IA no aplicó (la conversación cambió): «Marta…» entró por el camino determinista como respuesta al nombre.
+    expect(r['carrera']).toEqual(['esperando_email', 'Marta Prueba Ruiz', true]);
     expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
     expect(r['buenos']).toEqual(['sin error', 'sin error']);
   }, 60_000);

@@ -40,6 +40,9 @@ export type DatosRegistro = Partial<Record<CampoRegistro, string>>;
 /** Una vacante tal como la necesita el bot. */
 export interface VacanteBot extends VacanteOrientable {
   id: string;
+  /** Para contestar dudas con datos reales (`[RH.3.2.1]`). */
+  schedule_text?: string | null;
+  requirements?: string | null;
 }
 
 export interface ContextoRegistro {
@@ -47,6 +50,18 @@ export interface ContextoRegistro {
   vacantes: readonly VacanteBot[];
   /** El reloj (para fechar la orientación); por omisión, ahora. */
   ahora?: Date;
+  /**
+   * `[RH.3.2.1]` Lo que la IA propuso para ESTE mensaje (el servicio la consulta antes, sólo si `faltantesParaIA` lo
+   * pide). Es una propuesta: cada dato pasa por los mismos validadores que la captura a mano. Sin ella, o si no trajo
+   * nada, sigue el camino determinista.
+   */
+  interpretacion?: InterpretacionRegistro | null;
+}
+
+/** Lo que la IA sacó de un mensaje: los datos que menciona explícitamente y, si preguntó algo, la respuesta. */
+export interface InterpretacionRegistro {
+  datos: Partial<Record<CampoRegistro, string | null>>;
+  respuesta_pregunta: string | null;
 }
 
 export type EstadoTerminal = 'postulada' | 'rechazada';
@@ -423,6 +438,29 @@ export const ESTADO_ORIENTA = 'orientando_puesto';
 /** Cuántas veces se le repregunta si su respuesta a la oferta no se entiende (a la siguiente, sigue el registro). */
 const MAX_RONDAS_ORIENTACION = 2;
 
+/** Tope de la respuesta de la IA a una duda: es texto que le llega a una persona, se acota. */
+const MAX_RESPUESTA_IA = 600;
+
+/**
+ * `[RH.3.2.1]` ¿Hay que consultar a la IA para este mensaje, y por cuáles campos? Devuelve los que faltan, o null si NO
+ * se consulta. Las mismas reglas que Mega Talento:
+ *   · Sólo en el primer mensaje (`nuevo`) o capturando un dato. En la orientación, el resumen, las correcciones y el CV
+ *     manda el camino determinista.
+ *   · Nunca para un comando ni para `reiniciar`.
+ *   · Nunca si quiere omitir/diferir un dato que puede omitirse: al obligatorio se le contesta firme y el opcional se
+ *     salta (la IA lo leía como duda y lo volvía a pedir en un bucle).
+ */
+export function faltantesParaIA(estado: string, datos: DatosRegistro, textoCrudo: string | null): CampoRegistro[] | null {
+  const texto = (textoCrudo ?? '').trim();
+  if (!texto || texto.toLowerCase() === 'reiniciar' || comandoInformativo(texto)) return null;
+  if (estado === 'nuevo') return PASOS.map((p) => p.campo);
+  const i = indicePorPrefijo(estado, PREFIJO);
+  if (i === -1) return null;
+  if (puedeOmitirse(PASOS[i]) && quiereOmitir(texto)) return null;
+  const faltan = PASOS.filter((p) => falta(p, datos)).map((p) => p.campo);
+  return faltan.length ? faltan : null;
+}
+
 /** Lo que se le recuerda tras contestarle un comando (o un archivo/audio fuera de lugar), para que sepa qué le tocaba. */
 export function preguntaPendiente(estado: string, datos: DatosRegistro, orientacion: EstadoOrientacion | null = null): string {
   const i = indicePorPrefijo(estado, PREFIJO);
@@ -477,18 +515,57 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
    * Le ofrece lo que hay (o le pregunta su ciudad) y deja constancia de qué pidió y qué se le ofreció. Si no hay mensaje
    * de orientación (era un saludo), vuelve a pedirle el puesto.
    */
-  const orientarTurno = (d: DatosRegistro, pedido: string, rondas: number): Turno => {
+  const orientarTurno = (d: DatosRegistro, pedido: string, rondas: number, prefijo = ''): Turno => {
     const decision = orientar(pedido, d.city_branch, ctx.vacantes);
     const msg = mensajeOrientacion(decision, pedido);
     if (!msg) {
-      const { position_interest: _quitado, ...sinPuesto } = d;
-      return { estado: PREFIJO + PASOS[0].campo, datos: sinPuesto, orientacion, respuestas: [PASOS[0].pregunta] };
+      const sinPuesto = { ...d };
+      delete sinPuesto.position_interest;
+      return { estado: PREFIJO + PASOS[0].campo, datos: sinPuesto, orientacion, respuestas: [prefijo + PASOS[0].pregunta] };
     }
     const ori: EstadoOrientacion = {
       ...(orientacion ?? {}), pedido: pedido.slice(0, 200), tipo: decision.tipo, ofrecidas: nombresOfrecidos(decision), rondas, en: ahora,
     };
-    return { estado: ESTADO_ORIENTA, datos: d, orientacion: ori, respuestas: [msg] };
+    return { estado: ESTADO_ORIENTA, datos: d, orientacion: ori, respuestas: [prefijo + msg] };
   };
+
+  /**
+   * `[RH.3.2.1]` Aplica lo que la IA propuso (el `manejarConIA` de Mega Talento): primero contesta su duda, luego guarda
+   * SÓLO los datos que pasan los validadores, y pide el siguiente que falte (o el resumen). Un RFC/NSS/correo mal formado
+   * se le dice y no se guarda; un puesto o ciudad vagos, o un saludo como puesto, se descartan en silencio y se vuelven a
+   * pedir. El puesto que no existe va a la orientación, con todo lo anterior de prefijo.
+   */
+  const aplicarIA = (interp: InterpretacionRegistro, prefijo: string | null): Turno => {
+    const partes: string[] = prefijo ? [prefijo] : [];
+    const duda = String(interp.respuesta_pregunta ?? '').trim();
+    if (duda) partes.push(duda.slice(0, MAX_RESPUESTA_IA));
+    const nuevos: DatosRegistro = { ...datos };
+    let puestoNuevo: string | null = null;
+    for (const p of PASOS) {
+      const val = String(interp.datos?.[p.campo] ?? '').trim();
+      if (!val) continue;
+      if (CAMPOS_CLAVE.includes(p.campo) && !esDatoClaro(val)) continue;
+      if (p.campo === 'position_interest' && esSaludoSinPuesto(val, ctx.vacantes)) continue;
+      if (p.validar) {
+        const r = p.validar(val);
+        if (!r.ok) { partes.push(r.error); continue; }
+        nuevos[p.campo] = r.valor;
+      } else {
+        nuevos[p.campo] = val.replace(/\s+/g, ' ').slice(0, 300);
+      }
+      if (p.campo === 'position_interest') puestoNuevo = nuevos[p.campo] ?? null;
+    }
+    if (puestoNuevo) {
+      const vacante = resolverVacante(puestoNuevo, vacantesUnicas(ctx.vacantes));
+      if (!vacante) return orientarTurno(nuevos, puestoNuevo, 0, partes.length ? `${partes.join('\n\n')}\n\n` : '');
+      partes.push(comentarioPuesto(vacante.name));
+    }
+    const siguiente = PASOS.find((p) => falta(p, nuevos));
+    if (!siguiente) return turno('confirmando', nuevos, [...partes, construirResumen(nuevos)].join('\n\n'));
+    return turno(PREFIJO + siguiente.campo, nuevos, [...partes, preguntaDe(siguiente, nuevos)].join('\n\n'));
+  };
+  const iaUtil = (interp: InterpretacionRegistro | null | undefined): interp is InterpretacionRegistro =>
+    !!interp && (Object.values(interp.datos ?? {}).some((v) => lleno(v)) || lleno(interp.respuesta_pregunta));
 
   // Contestó a la oferta. Cuatro caminos y ninguno lo deja atorado.
   if (estado === ESTADO_ORIENTA) {
@@ -526,8 +603,12 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
     return seguirRegistro(datos, orientacion, 'Va, sigamos con tu registro y lo vemos más adelante 🙌');
   }
 
-  // Nuevo: se saluda y se pide el primer dato. El «hola» NO se guarda como dato.
-  if (estado === 'nuevo') return turno(PREFIJO + PASOS[0].campo, datos, `${SALUDO}\n\n${PASOS[0].pregunta}`);
+  // Nuevo: se saluda y se pide el primer dato. El «hola» NO se guarda como dato. Si el primer mensaje ya traía datos
+  // («hola, soy Juan de Zamora») o una duda, se aprovecha con el saludo de prefijo.
+  if (estado === 'nuevo') {
+    if (iaUtil(ctx.interpretacion)) return aplicarIA(ctx.interpretacion, SALUDO);
+    return turno(PREFIJO + PASOS[0].campo, datos, `${SALUDO}\n\n${PASOS[0].pregunta}`);
+  }
 
   // Capturando un dato.
   const i = indicePorPrefijo(estado, PREFIJO);
@@ -539,6 +620,8 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
       return turno(estado, datos, `Te entiendo 🙂, pero el *${paso.etiqueta}* sí lo necesitamos para completar tu `
         + 'registro y poder avanzar con tu proceso. En cuanto lo tengas a la mano, escríbelo aquí y seguimos.');
     }
+    // La IA, si el servicio la consultó y trajo algo (varios datos a la vez, o una duda).
+    if (iaUtil(ctx.interpretacion)) return aplicarIA(ctx.interpretacion, null);
     const r = procesarRespuesta(paso, texto, datos, ctx);
     if ('error' in r) return turno(estado, datos, r.error);
     const nuevos = { ...datos, [paso.campo]: r.valor };

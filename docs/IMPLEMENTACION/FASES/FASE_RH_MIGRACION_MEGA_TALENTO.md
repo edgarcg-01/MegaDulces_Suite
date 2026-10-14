@@ -501,8 +501,25 @@ que ese formulario necesita (`[RH.2.4]`).
   ahora la ofrece en cualquier ciudad, salvo que su domicilio la ubique. Pruebas: los 9 bloques de `probar-orientacion.js`
   (los 43 casos reales del 17/08/2026) + el flujo dentro del registro + la conversación contra la base (la ficha guarda lo
   que pidió y que lo rechazó), **mutadas a rojo** (sin orientar, sin filtro de zona, sin `portal_data`, vacía sin aplicar
-  en todas, rondas sin tope). **No incluye:** la IA (`[RH.3.2.1]`), que en Mega Talento también entra por aquí cuando el
-  mismo mensaje trae puesto y ciudad.
+  en todas, rondas sin tope). La IA (`[RH.3.2.1]`) también entra por aquí cuando el mismo mensaje trae un puesto que no
+  hay.
+- [ ] **[RH.3.2.1]** 🧪 La IA del registro (2026-10-13). Portada de `interpretarMensaje` de Mega Talento: de UN mensaje
+  saca los datos que la persona menciona («soy Ana, de Canindo, busco de cajera») y, si preguntó algo, la respuesta.
+  **La IA propone, el registro valida** (ADR-016): `faltantesParaIA` (pura) decide si se consulta —sólo en el primer
+  mensaje o capturando un dato; nunca para comandos, `reiniciar` ni al omitir/diferir un dato— y `aplicarIA` pasa cada
+  dato por los MISMOS validadores que la captura a mano (RFC/NSS/correo mal formados se le dicen y no se guardan; puesto
+  o ciudad vagos y un saludo como puesto se descartan; un puesto que no hay va a la orientación). El intérprete
+  (`HrRecruitmentInterpreterService`) usa el cliente compartido `AnthropicService` con salida forzada por herramienta,
+  pide **sólo los campos que faltan** y descarta cualquier otro aunque venga; modelo Haiku 4.5 (`HR_BOT_LLM_MODEL`),
+  tope de **8 s**. **Degrada limpio**: sin `ANTHROPIC_API_KEY`, con error o tiempo agotado devuelve `null` y el registro
+  sigue igual que antes. Se consulta **fuera de la transacción** (no sostiene conexión ni candado) y su propuesta se
+  **descarta si la conversación cambió** mientras se esperaba. ⚠️ **Lo que la IA le dice a una persona:** la respuesta a
+  una duda («¿cuánto pagan?») sale del modelo; se le dan SÓLO datos reales (vacantes publicadas con sueldo, horario y
+  requisitos; sucursales; dónde sacar RFC/NSS), la instrucción de decir que Capital Humano lo confirma si el dato no está
+  y de no prometer la plaza, y se acota a 600 caracteres. ⚠️ **Privacidad:** el mensaje del candidato (que puede traer su
+  RFC o NSS) viaja a Anthropic, igual que en Mega Talento. Pruebas: la lógica, el intérprete con cliente falso y dos
+  casos contra la base (varios datos en el primer mensaje; propuesta descartada por carrera), **mutadas a rojo** (sin
+  validar, campos de más, ignorar la carrera, IA al omitir, duda sin tope).
 - [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
   preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
