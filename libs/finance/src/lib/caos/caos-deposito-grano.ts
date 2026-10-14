@@ -75,6 +75,21 @@ const PLAZAS: ReadonlyArray<readonly [RegExp, string]> = [
 const RX_VECINAL = /\br\.?\s?v\b|\brv\d|ruta\s*vecinal/i;
 
 /**
+ * [CG.58.7] — ¿El deposito es de la VECINAL? Misma expresion que usa atribuirDeposito, expuesta
+ * aparte porque quien consume la atribucion necesita separar DOS ausencias que el grano
+ * sin_declarar mete en la misma bolsa (ADR-056):
+ *
+ *   · vecinal      — el texto SI declara de quien es; es otro circuito y se arquea en SU caja.
+ *   · sin declarar — el texto no dice nada, y el dinero queda sin dueno.
+ *
+ * ⛔ El consumidor NO debe deducirlo leyendo motivo: esa cadena es prosa para la pantalla y
+ * cambiarla romperia en silencio a quien la compare. El predicado es el contrato.
+ */
+export function esVecinal(ref: string | null | undefined): boolean {
+  return RX_VECINAL.test(String(ref ?? '').trim());
+}
+
+/**
  * @param ref       el texto que tecleó quien depositó (`caos_cash_movements.ref`)
  * @param capturado el día del depósito, para inferir el año de un `dd/mm` sin año
  */

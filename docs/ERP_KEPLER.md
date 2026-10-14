@@ -903,6 +903,55 @@ que ya trae `flujo` entrada/salida/traspaso, `signo`, anti-réplica y exclusión
 
 ---
 
+### 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14)
+
+`kdmm` dice **`U-A-5-1` = «Cobro PUE»** (pago en una sola exhibición). Su hermano fiscal es
+**`U-A-7-1` «Cobro CFDI»**, y el PUE es **8× más grande**: 6,111 documentos / **$118.5 M** contra
+1,138 / $16.0 M en 90 días.
+
+**Dónde cae en la taxonomía.** En `kdm1`, `c2 = 'U'` es el universo de clientes y `c3` da la
+dirección: **`D` = cargo** (sube la deuda del cliente: una venta) · **`A` = abono** (la baja). Todo
+el grupo `U-A` son abonos — `U-A-7` Cobro CFDI · `U-A-20` Devolución · `U-A-21` Nota de crédito ·
+`U-A-35` Nota de crédito · `U-A-40` Anticipo · `U-A-50` Recepción de traspaso.
+
+**⭐ Lo que de verdad lo define: contra qué cargo se aplica** (`kdm5`, donde `(c3,c4)` es el abono y
+`(c8,c9,c10)` el cargo que salda):
+
+| cargo que salda | qué es | aplicaciones | monto |
+|---|---|---|---|
+| **`U-D-13-1`** | **Factura Crédito No Fiscal** | **24,988** | **$469,893,930.95** |
+| `U-D-23-1` | Corte de Caja POS | 576 | $7,924,726.20 |
+| `U-D-12-1` | Factura Contado No Fiscal | 899 | $4,718,541.21 |
+| `U-D-41-1` | Embarque Telemarketing | 125 | $62,547.28 |
+| `U-D-5-1` | Factura TK Contado | 52 | $31,585.71 |
+| `U-D-60-1` | Documento por Cobrar | 1 | $1,000.00 |
+
+**El 98 % del dinero salda factura de crédito no fiscal** ⇒ en esta empresa, `U-A-5` es **el cobro de
+la venta a crédito de ruta**.
+
+⛔⛔ **NO leer la glosa como si fuera el tipo de documento.** `c24` dice cosas como
+*«VENTA RV CANDY SALGADO 25-09-2026»* o *«DEPOSITO EFECTIVO CAJA GENERAL M.M. 08/10/2026»* porque la
+persona describe **qué está cobrando** o **dónde lo depositó**, no qué documento capturó. Leerlo al
+revés hace decir *«el ingreso de Caja General es la venta de ruta»* cuando lo correcto es **«es la
+COBRANZA de la venta de ruta»** — la venta es el `U-D-13`, y el `U-A-5` llega después, cuando el
+repartidor vuelve con el dinero. *Ya costó una afirmación publicada; ver `FASE_CG_PATRONES_Y_ACCESIBILIDAD`.*
+
+**⚠️ `U-A-5` NO es un documento de caja.** Por dónde entra el dinero, 90 días:
+
+    banco .... 4,971 docs · $98,415,092.33 · 83.0 %
+    caja ..... 1,108 docs · $19,780,334.47 · 16.7 %
+    puente ...    32 docs ·    $342,298.63 ·  0.3 %
+
+Sólo su porción en efectivo pasa por Caja General. ⭐ Pero **acotado a la cobranza de RUTA el
+efectivo es el 99.7 %** (975 de 987 docs, $17.26 M) — o sea *«ruta ⇒ efectivo»* es regla confiable y
+*«cobranza ⇒ efectivo»* no lo es.
+
+⛔ **El método de pago (`c31`) NO distingue efectivo de banco**: vale `Tra` en el **100 %** de los
+`X-D-26` de caja **y** de banco. Lo que declara el efectivo es la **cuenta de tesorería** `c45`
+(ver §3.z): elegir `0011 CAJA GENERAL / EFECTIVO` **es** declararlo.
+
+---
+
 ### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
 
 La sucursal **01 Padre Hidalgo** empezó a capturar prospectos y cotizaciones en el módulo CRM de

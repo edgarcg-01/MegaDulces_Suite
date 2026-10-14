@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, inject, signal, ViewChild } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
@@ -3243,6 +3244,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // `encuestarVisible` se llama desde `ngOnInit`, que NO es contexto de inyección: si no se le
   // pasan `destroyRef` y `zone`, su `inject()` interno revienta. Por eso se toman acá.
   private zone = inject(NgZone);
+  /** [CG.58.7] Para que una liga externa pueda abrir la pantalla YA puesta en un folio. */
+  private rutaActiva = inject(ActivatedRoute);
   private host: ElementRef<HTMLElement> = inject(ElementRef);
 
   // ── Teclado ─────────────────────────────────────────────────────────────────────────────────
@@ -4536,6 +4539,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    /**
+     * [CG.58.7] Una liga que manda a la pantalla y te deja buscando a mano no es una liga.
+     * /comercial/ventas-por-ruta enlaza cada deposito de la caja fuerte con SU entrada aca, y
+     * para eso manda el folio en ?q= con su dia en ?from=/?to= -- el rango por omision es el mes
+     * en curso, asi que sin acotarlo un folio de hace dos meses no estaria en la lista.
+     *
+     * Se lee del snapshot y ANTES de cargar(): asignarlo despues dispararia dos consultas y la
+     * primera traeria el rango equivocado.
+     */
+    const qp = this.rutaActiva.snapshot.queryParamMap;
+    const qFolio = qp.get('q');
+    const qFrom = qp.get('from');
+    const qTo = qp.get('to');
+    if (qFolio) this.search = qFolio;
+    if (qFrom) this.from = qFrom;
+    if (qTo) this.to = qTo;
+
     this.cargarCobertura();
     this.cargar();
     this.cargarSaldo();
