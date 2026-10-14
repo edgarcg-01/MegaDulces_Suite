@@ -44,6 +44,22 @@ import { RoutePromoComponent } from './comercial-route-promo.component';
 
 type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'deposito';
 
+/**
+ * `[VEC.12.2]` Un día de la ruta contra el dinero que se contó.
+ *
+ * `deposito` y `diff` son `number | null` a propósito: `null` = **no se puede atribuir a esta
+ * ruta**, y entonces `motivo` dice por qué. Un 0 ahí significaría «no depositó», que es otra cosa.
+ */
+type ArqDia = {
+  date: string;
+  venta_ruta: number;
+  deposito: number | null;
+  diff: number | null;
+  atribuible: boolean;
+  motivo: string | null;
+  veredicto: VecinalVeredicto;
+};
+
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
 type ViewRow = SalesByRouteRow & { _revenue: number; _units: number; _tickets: number; _share: number };
 
@@ -628,39 +644,58 @@ const MES: Record<string, string> = {
                                 emptyHint="El arqueo lo cierra la sucursal al terminar el turno. Si el período es reciente, puede que todavía no lo suban."
                                 (retry)="recargarArqueo()">
                   @if (arqFilas().length) {
+                    <!-- [VEC.12.2] Vendio vs deposito, por DIA. Fuera la columna "Caja": es
+                         plomeria, y la pregunta es si el dinero llego.
+                         ⛔ El cuadre por ruta NO siempre se puede: cash_cuts no tiene ruta (grano
+                         sucursal/caja/turno, verificado), asi que solo cierra cuando la caja fue
+                         de ESTA ruta sola y 100% vecinal. Medido: 129 de 735 dia-ruta (17.6%).
+                         Donde no, se dice POR QUE en vez de dibujar una Δ que es de otro. -->
                     <p class="rr-dep-sub">
-                      Las cajas donde se timbró esta ruta, y lo que se contó en ellas.
+                      <strong>{{ arqCuadrables() }}</strong> de {{ arqDias().length }} día(s) se
+                      pueden cuadrar contra el depósito.
+                      @if (arqCuadrables() < arqDias().length) {
+                        En el resto la caja la compartió con otra ruta o con el mostrador, y el
+                        dinero contado no es sólo de esta ruta — se dice en cada renglón.
+                      }
                     </p>
-                    <p-table [value]="arqFilas()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
+                    <p-table [value]="arqDias()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
                       <ng-template #header>
                         <tr>
                           <th scope="col">Día</th>
-                          <th scope="col">Caja</th>
-                          <th scope="col">Rutas en esa caja</th>
-                          <th scope="col" class="comm-num">Venta vecinal</th>
-                          <th scope="col" class="comm-num">% de la caja</th>
-                          <th scope="col" class="comm-num">Efectivo</th>
-                          <th scope="col">Estado</th>
+                          <th scope="col" class="comm-num">Venta de la ruta</th>
+                          <th scope="col" class="comm-num">Depósito</th>
+                          <th scope="col" class="comm-num">Δ</th>
+                          <th scope="col">Cuadre</th>
                         </tr>
                       </ng-template>
-                      <ng-template #body let-f>
+                      <ng-template #body let-d>
                         <tr>
-                          <td class="rr-mono">{{ f.date }}</td>
-                          <td class="rr-mono">{{ f.caja }}</td>
-                          <td class="rr-mono rr-tenue">{{ f.rutas.join(' · ') }}</td>
-                          <td class="comm-num rr-mono">{{ f.vecinal | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <td class="rr-mono">{{ d.date }}</td>
+                          <td class="comm-num rr-mono rr-strong">{{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                           <td class="comm-num rr-mono">
-                            @if (f.vecinal_pct === null) { <span class="rr-tenue">—</span> }
-                            @else { {{ f.vecinal_pct }}% }
+                            <!-- ⛔ Nunca 0 por ausencia: sin atribucion no hay cifra que publicar. -->
+                            @if (d.deposito === null) { <span class="rr-tenue">—</span> }
+                            @else { {{ d.deposito | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                           </td>
-                          <td class="comm-num rr-mono">
-                            @if (f.efectivo_diff === null) { <span class="rr-tenue">—</span> }
-                            @else { {{ f.efectivo_diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          <td class="comm-num rr-mono"
+                              [class.rr-bad]="d.diff !== null && d.diff > 1"
+                              [class.rr-warn]="d.diff !== null && d.diff < -1">
+                            @if (d.diff === null) { <span class="rr-tenue">—</span> }
+                            @else { {{ d.diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                           </td>
-                          <td>{{ etiquetaArqueo(f.veredicto) }}</td>
+                          <td [class.rr-tenue]="!d.atribuible">
+                            @if (d.atribuible) { {{ etiquetaArqueo(d.veredicto) }} }
+                            @else { {{ d.motivo }} }
+                          </td>
                         </tr>
                       </ng-template>
                     </p-table>
+                    <p class="rr-dep-sub rr-tenue">
+                      «Depósito» es el efectivo que se <strong>contó en el arqueo</strong> de la
+                      caja donde se timbró la ruta — Kepler no registra el depósito por ruta
+                      (<span class="rr-mono">cash_cuts</span> va por sucursal, caja y turno). Δ
+                      positiva = falta efectivo; negativa = sobra.
+                    </p>
                   }
                 </app-load-state>
               } @else {
@@ -751,7 +786,10 @@ const MES: Record<string, string> = {
     .rr-dep-nota .pi { margin-top:2px; color:var(--text-faint); }
     /* [VEC.12] El arqueo de la vecinal: su circuito del dinero, en su propia ruta. */
     .rr-dep-sub { margin:0 0 var(--sp-2); font-size:var(--fs-micro); color:var(--text-muted); }
+    .rr-dep-sub:last-child { margin:var(--sp-2) 0 0; }
     .rr-tenue { color:var(--text-faint); }
+    .rr-bad { color:var(--bad-fg); }
+    .rr-warn { color:var(--warn-fg); }
     .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
     .rr-dep-warn .pi { color: var(--warn-fg); }
     .rr-dep-bad-txt { color: var(--bad-fg); }
@@ -1051,12 +1089,81 @@ export class ComercialVentasPorRutaComponent {
    */
   readonly arqFilas = computed<VecinalConciliacionFila[]>(() => {
     const d = this.arqData();
-    const row = this.peekRow();
-    if (!d || !row) return [];
-    const code = String(row.route_no ?? '').trim().toUpperCase();
+    if (!d) return [];
+    const code = this.rutaAbierta();
     if (!code) return [];
     return d.filas.filter((f) => f.rutas.some((r) => r.trim().toUpperCase() === code));
   });
+
+  /** El código de la ruta abierta, normalizado — la llave de todo lo de `[VEC.12]`. */
+  private rutaAbierta(): string {
+    return String(this.peekRow()?.route_no ?? '').trim().toUpperCase();
+  }
+
+  /** Las OTRAS rutas que usaron esa caja ese día. Vacío = la caja fue sólo de esta ruta. */
+  otrasRutas(f: VecinalConciliacionFila): string[] {
+    const mia = this.rutaAbierta();
+    return f.rutas.map((r) => r.trim().toUpperCase()).filter((r) => r && r !== mia);
+  }
+
+  /**
+   * `[VEC.12.2]` **Vendió contra depositó, por DÍA.** Se agrega sobre las cajas del día porque la
+   * caja es plomería: la pregunta del detalle de una ruta es si el dinero llegó.
+   *
+   * ⛔ **El cuadre por ruta no siempre existe, y eso NO se disimula.** `analytics.cash_cuts` no
+   * tiene columna de ruta —su grano es (sucursal, caja, turno), verificado— así que el efectivo
+   * contado sólo es de esta ruta cuando **todas** sus cajas del día fueron suyas solas y 100%
+   * vecinales. Medido el 2026-10-14 sobre 180 días: **129 de 735 día-ruta (17.6%)**; en PH
+   * `1V001`, 2 de 94. Donde no se puede, `deposito` y `diff` llegan `null` **con el motivo**, que
+   * es muy distinto de un cero (ADR-056).
+   *
+   * ⚠️ Una ruta puede timbrar en más de una caja el mismo día (38 de 696 medido), por eso se
+   * suma sobre las cajas y basta que UNA no sea atribuible para que el día no lo sea.
+   */
+  readonly arqDias = computed<ArqDia[]>(() => {
+    const porDia = new Map<string, VecinalConciliacionFila[]>();
+    for (const f of this.arqFilas()) {
+      const g = porDia.get(f.date);
+      if (g) g.push(f); else porDia.set(f.date, [f]);
+    }
+    const out: ArqDia[] = [];
+    for (const [date, fs] of porDia) {
+      let venta = 0, contado = 0, diff = 0, atribuible = true;
+      let motivo: string | null = null;
+      // El veredicto del día es el del primer renglón que NO cuadra; si todos cuadran, 'cuadra'.
+      let veredicto: VecinalVeredicto = 'cuadra';
+      for (const f of fs) {
+        venta += f.vecinal_ruta ?? 0;
+        const otras = this.otrasRutas(f);
+        if (otras.length) {
+          atribuible = false;
+          motivo ??= `comparte caja con ${otras.join(' · ')}`;
+        } else if (f.vecinal_pct !== null && f.vecinal_pct < 100) {
+          atribuible = false;
+          motivo ??= `la caja mezcla mostrador (${f.vecinal_pct}% vecinal)`;
+        } else if (f.efectivo_contado === null) {
+          atribuible = false;
+          motivo ??= this.etiquetaArqueo(f.veredicto).toLowerCase();
+        }
+        contado += f.efectivo_contado ?? 0;
+        diff += f.efectivo_diff ?? 0;
+        if (f.veredicto !== 'cuadra') veredicto = f.veredicto;
+      }
+      out.push({
+        date,
+        venta_ruta: Math.round(venta * 100) / 100,
+        deposito: atribuible ? Math.round(contado * 100) / 100 : null,
+        diff: atribuible ? Math.round(diff * 100) / 100 : null,
+        atribuible,
+        motivo,
+        veredicto,
+      });
+    }
+    return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+  });
+
+  /** Cuántos días se pueden cuadrar de verdad. Va arriba de la tabla, no al pie: cambia cómo se lee. */
+  readonly arqCuadrables = computed(() => this.arqDias().filter((d) => d.atribuible).length);
 
   /** La fila del reporte que corresponde a ESTA ruta. Null = ningún depósito la declara. */
   readonly depFila = computed(() => {
@@ -1245,7 +1352,9 @@ export class ComercialVentasPorRutaComponent {
     const hasta = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
     this.arqCargando.set(true);
     this.arqError.set(null);
-    this.svc.vecinalConciliacion(desde, hasta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    // `[VEC.12.1]` La ruta viaja al servidor: sin ella la fila sólo trae el total de la CAJA, y
+    // mostrarlo en el detalle de una ruta es lo que hacía mentir a esta pestaña.
+    this.svc.vecinalConciliacion(desde, hasta, this.rutaAbierta()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.arqData.set(r); this.arqCargando.set(false); },
       error: () => {
         this.arqError.set('No se pudo leer el arqueo de las cajas.');

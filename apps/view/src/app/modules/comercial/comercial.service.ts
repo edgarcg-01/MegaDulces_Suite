@@ -2109,11 +2109,17 @@ export class ComercialService {
     return this.http.get<RouteClosureReconciliation>(`${this.base}/analytics/sales-by-route/closure-reconciliation`, { params });
   }
 
-  /** `[VEC.10]` — La venta vecinal contra el dinero que se contó en SU caja (arqueo). */
-  vecinalConciliacion(from?: string, to?: string) {
+  /**
+   * `[VEC.10]` — La venta vecinal contra el dinero que se contó en SU caja (arqueo).
+   *
+   * `[VEC.12.1]` Con `route`, cada fila trae además `vecinal_ruta`: lo que ESA ruta vendió en esa
+   * caja ese día. Sin `route` llega `null`, que es lo correcto para el panel global.
+   */
+  vecinalConciliacion(from?: string, to?: string, route?: string) {
     let params = new HttpParams();
     if (from) params = params.set('from', from);
     if (to) params = params.set('to', to);
+    if (route) params = params.set('route', route);
     return this.http.get<VecinalConciliacion>(`${this.base}/analytics/sales-by-route/vecinal-reconciliation`, { params });
   }
 
@@ -3247,8 +3253,14 @@ export interface VecinalConciliacionFila {
   caja: number;
   date: string;
   rutas: string[];
+  /** ⛔ Lo vecinal de TODA la caja, sumando las rutas que la comparten. NO es de una ruta. */
   vecinal: number;
   tickets: number;
+  /**
+   * `[VEC.12.1]` Lo que vendió la ruta por la que se preguntó, en esta caja y este día.
+   * `null` = no se pidió por ruta. Nunca 0 por ausencia: un 0 diría «no vendió».
+   */
+  vecinal_ruta: number | null;
   /** NULL = no hay arqueo. Nunca 0: la ausencia no se dibuja como cero. */
   arqueo_venta: number | null;
   otros_en_la_caja: number | null;

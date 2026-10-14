@@ -183,6 +183,51 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
     t(`el panel (45 días) responde en ${ms} ms (gate ${GATE_MS} ms)`, ms <= GATE_MS,
       `${ms} ms: por encima del gate deja de poder ser vista`);
 
+    // ── 8b. `[VEC.12.1]` La venta de LA RUTA no es la de su caja ───────────────────────────
+    //
+    // El detalle de una ruta mostraba `vecinal` —el total de la caja— bajo una columna que el
+    // lector leía como suya. Medido el 2026-10-14 sobre abril→octubre: de 735 día-caja-ruta,
+    // **310 (42%) comparten caja** y ahí el total infla 5.05× de media, 85.6× en el peor caso.
+    // En PH el 14-oct la pantalla decía $18,694 donde `1V001` había vendido $6,662.41.
+    const comparte = (await db.raw(
+      `WITH r AS (
+         SELECT warehouse_code wh, caja, business_date d, route_no, sum(total) ruta
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 180
+          GROUP BY 1,2,3,4),
+       c AS (SELECT wh, caja, d, count(*) rutas, sum(ruta) caja_total FROM r GROUP BY 1,2,3)
+       SELECT count(*)::int AS filas,
+              count(*) FILTER (WHERE c.rutas > 1)::int AS compartidas,
+              round(max(c.caja_total / NULLIF(r.ruta,0)), 2) AS peor_factor
+         FROM r JOIN c ON c.wh = r.wh AND c.caja = r.caja AND c.d = r.d`, [T])).rows[0];
+
+    if (!Number(comparte.compartidas)) {
+      noMedido('la venta de la ruta no es la de su caja',
+        'en este período ninguna caja la comparten dos rutas: no hay con qué distinguir');
+    } else {
+      // ⛔ Prueba NEGATIVA: si `vecinal` sirviera como venta de la ruta, el factor sería 1.00 en
+      // todas. Se exige que NO lo sea — o sea, que las dos cifras sean realmente distintas.
+      t(`la caja NO sirve de proxy de la ruta: ${comparte.compartidas} de ${comparte.filas} día-caja `
+        + `comparten caja, factor hasta ${comparte.peor_factor}×`,
+        Number(comparte.peor_factor) > 1.01,
+        'ninguna caja compartida infla: la columna por ruta no estaría corrigiendo nada');
+    }
+
+    // Y la invariante que el endpoint tiene que cumplir: lo de la ruta nunca excede lo de la caja.
+    const excede = (await db.raw(
+      `WITH r AS (
+         SELECT warehouse_code wh, caja::integer caja, business_date d, sum(total) ruta
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 180
+          GROUP BY 1,2,3,route_no)
+       SELECT count(*)::int AS mal
+         FROM r JOIN analytics.v_vecinal_conciliacion c
+           ON c.tenant_id = ? AND c.warehouse_code = r.wh AND c.caja = r.caja
+          AND c.business_date = r.d
+        WHERE r.ruta > c.vecinal + 0.01`, [T, T])).rows[0];
+    t('la venta de una ruta nunca excede lo vecinal de su caja', Number(excede.mal) === 0,
+      `${excede.mal} filas donde la parte es mayor que el todo: el join de caja está mal`);
+
     // ── 9. `[VEC.11]` El puente Kepler ↔ Suite CIERRA ──────────────────────────────────────
     //
     // El panel publica una resta: lo que muestra esta pantalla, más el prorrateo del descuento,
