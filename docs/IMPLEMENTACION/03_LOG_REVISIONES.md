@@ -4,6 +4,25 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-14 — `[PRV.2]` y `[MS.DICTADO]`: el consentimiento del aviso de privacidad y el dictado por voz de la Mesa de Servicio
+
+**Qué se hizo.** `[PRV.2]` (#389, mergeado con CI verde): una cola puede exigir el aviso de privacidad; la casilla bloquea el envío y el servidor lo repite; la evidencia no se reescribe. `[MS.DICTADO]`: botón «Dictar» en «Cuéntanos qué pasa» → audio → texto con el Groq Whisper que ya usaban Caducidades y RH (`POST /service-desk/transcribe`, 20/min); el texto se agrega para revisarlo. El audio no se guarda.
+
+**La decisión que no estaba en el pedido.** El dictado **no se ofrece en áreas confidenciales**: el audio sale a un proveedor externo y lo que se cuenta en RH no debe viajar a un tercero sin que legal lo apruebe. Lo impone el servidor (403; sin área, fail-closed), no sólo la pantalla; y se probó apagando la regla (2 pruebas del servidor y 2 de la pantalla se ponen en rojo). Queda como pregunta para legal en `FASE_MSH_PRIVACIDAD_Y_RETENCION` §9.
+
+**Lo que se aprendió, y cada punto costó:**
+
+1. ⛔ **`open(ruta,'wb').write(f(x))` vacía el archivo ANTES de evaluar `f`.** Un script mío dejó el plan legal en 0 bytes cuando una ancla no existía; el índice de git lo salvó. Calcular primero, escribir después, y `git diff --stat` al terminar (protocolo, punto 14).
+2. ⚠️ **Una entrada de CHANGELOG pegada a la entrada vecina queda en una sección vieja.** Las de PRV.2 y MS.DICTADO se habían archivado bajo «Mesa de Servicio, capa 3 (2026-10-02)», no bajo `[Unreleased]`: nadie las habría encontrado leyendo «qué cambió esta semana». Se reubicaron.
+3. ⭐ **Probar un componente que usa el micrófono sin micrófono:** el entorno del navegador (`getUserMedia`, `MediaRecorder`) entra por una interfaz pequeña y se sustituye; así el grabador (10 pruebas) y el componente (9, seis negativas) corren en jsdom. Quedan 3 copias más de grabación en el front sin esa costura (deuda declarada).
+4. ℹ️ **Contar pruebas contra `main` actual:** tras fusionar, `service-desk` marcó 264 y no 283 — no se perdió nada: `main` había retirado un spec ajeno (`attachment-signature`, 19 pruebas). Un conteo de la descripción sin esa explicación parece una pérdida.
+
+**Pendiente.** `GROQ_API_KEY` en prod · probarlo con micrófono real · decisión de legal sobre Groq y RH · migrar las otras 3 grabaciones a `shared/voz`.
+
+**Observaciones de PM:** ninguna registrada: #389 se mergeó sin comentarios ni reseñas. Los puntos 14–15 del protocolo salen de lo que costó este ciclo, y así se declaran.
+
+---
+
 ## 2026-10-12 — `[CPA.10]` La bandeja «Mi cierre»: contabilidad no ignoraba la Suite, ignoraba SU módulo
 
 **Qué se pidió.** *"Analizá todo /contabilidad y decime cómo aportarle valor para que contabilidad empiece a usar la Suite y su trabajo se automatice un 90 %; tenemos un puente ContPAQi, pero hoy no le encuentran nada de valor a su módulo."* Después: diseñar las interfaces primero, y luego construirlas.

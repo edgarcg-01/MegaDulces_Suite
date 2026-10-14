@@ -262,7 +262,7 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 ### 8.0b Antes de pedir revisión — el protocolo previo al PR
 
-> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) y lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
+> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13) y el ciclo de PRV.2/MS.DICTADO (2026-10-14, puntos 14–15). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
 
 **1. El PR apunta a `main`. Siempre. No se apilan PR sobre ramas de feature.**
 - **Por qué:** el CI sólo corre con `pull_request: branches: [main]`. Un PR apuntado a otra rama **nunca se compila**: #305 llegó con 411 líneas que ningún compilador había visto. Y **re-apuntar la base no dispara el CI** (GitHub corre con `opened`/`synchronize`; cambiar la base no es ninguno): lo dispara un *push*.
@@ -307,6 +307,12 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 **12. Cada cifra y cada afirmación de la descripción se verifica contra el diff.** «55 pruebas nuevas» con un desglose que sumaba 64; «0 commits de atraso» después de que `main` avanzó; «ya compila» sin haber compilado. Tras el último push, **relee la descripción** buscando lo que cambió: conteos, atraso contra `main`, y toda función que se haya quitado (una descripción que sigue prometiendo una descarga que ya no existe es una afirmación falsa).
 
 **13. Una mutación que no se aplicó parece una prueba que pasa.** Con archivos CRLF, `str.replace` de Python puede no cambiar nada y la prueba «sobrevive» sin haber probado. La mutación **afirma que el reemplazo ocurrió** (`assert a in s`) antes de correr la prueba, y se restaura el archivo y se vuelve a correr en verde.
+
+**14. Un script que edita archivos calcula el contenido nuevo ANTES de abrir el archivo para escribir — y después se mira `git diff --stat`.** Un script de documentación mío hacía `open(ruta,'wb').write(f(contenido))`: el `open` en modo escritura **vacía el archivo antes de evaluar `f`**, así que cuando `f` falló (un ancla que no existía) el plan legal quedó en **0 bytes** en el árbol de trabajo; sólo se salvó porque estaba en el índice. Lee, calcula, y **recién entonces** escribe (`const out = fn(texto); writeFileSync(ruta, out)`); si una ancla no aparece **exactamente una vez**, el script se detiene sin tocar nada. Y tras cualquier edición por script, `git diff --stat`: un archivo que perdió todas sus líneas se ve ahí al instante. (De paso: en este repo no se invoca Python, hay `node`.)
+
+**15. Si la función manda contenido de personas a un proveedor externo, la regla de quién queda fuera va en el SERVIDOR.** El dictado de la Mesa de Servicio manda audio a Groq: lo que alguien cuenta en RH (una queja, un acoso) no debe viajar a un tercero sin que legal lo apruebe. La pantalla esconde el botón, pero **la pantalla es un cliente entre varios**: el servidor rechaza (403) y también sin área (400/404, *fail-closed*). Se prueba **apagando la regla y mostrando el rojo**, y el PR dice **qué sale, a quién y qué se excluye**. Si el proveedor no está configurado en un entorno, la función lo dice y la alternativa (escribir) sigue sirviendo.
+
+> **Sobre «observaciones de PM»:** los puntos 14–15 salen de lo que costó este ciclo, **no** de comentarios de revisión: #389 se mergeó con CI verde y sin comentarios de nadie. Cuando el PM o Edgar comenten un PR, su feedback entra aquí con su origen, no se reconstruye de memoria.
 
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
