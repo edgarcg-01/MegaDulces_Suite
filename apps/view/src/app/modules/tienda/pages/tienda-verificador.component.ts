@@ -217,6 +217,9 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                         @let pm = partes(t.precio_con_iva);
                         <div class="vf-may-row" [class.is-realza]="t.realza" [class.is-foco]="x.destacado">
                           <div class="vf-may-cond">Llevando <strong class="vf-may-n">{{ t.desde }}</strong> o más {{ t.palabra }}</div>
+                          @if (t.equivale_a) {
+                            <div class="vf-may-eq">Equivale a {{ t.equivale_a }}</div>
+                          }
                           <div class="vf-may-precio">
                             <span class="vf-may-monto"><span class="vf-peso">$</span>{{ pm.entero }}@if (pm.centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ pm.centavos }}</span>}</span>
                             <span class="vf-may-cu">{{ t.unidad_monto }}</span>
@@ -506,6 +509,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700;
       font-size: clamp(2.4rem, 6vw, 4.5rem); color: var(--text-main); }
     .vf-may-cu { font-size: var(--fs-body); color: var(--text-muted); }
+    /* Un umbral por bloque: el segundo escalón es otro bloque (otra condición de compra) y se
+       separa con una línea, no se mezcla con el primero. */
+    .vf-may-row + .vf-may-row, .vf-may-ahorro ~ .vf-may-row {
+      width: 100%; border-top: 1px solid var(--border-color); padding-top: .6rem; margin-top: .2rem; }
+    .vf-may-eq { font-size: var(--fs-body); font-weight: 600; color: var(--text-muted); }
     .vf-may-row:not(.is-realza) .vf-may-monto, .vf-may-row:not(.is-foco) .vf-may-monto {
       font-weight: 600; color: var(--text-muted); font-size: clamp(1.4rem, 3vw, 2.2rem); }
     .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; font-size: var(--fs-body); }

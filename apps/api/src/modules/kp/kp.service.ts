@@ -188,6 +188,8 @@ export class KpService {
       base: number;
       aplica_a: 'base' | 'paquete';
       unidad_monto: string;
+      /** `[VAC.H3]` Cuántas unidades BASE trae cada unidad del escalón (sólo el de paquete). */
+      en_base?: { factor: number; palabra: string };
     }): MayoreoTier | null => {
       const p = o.precio != null ? Number(o.precio) : NaN;
       const n = o.desde != null ? Number(o.desde) : NaN;
@@ -210,6 +212,10 @@ export class KpService {
         realza: desc >= MAYOREO_MIN_DESC,
         aplica_a: o.aplica_a,
         unidad_monto: o.unidad_monto,
+        equivale_a:
+          o.en_base && Number.isFinite(o.en_base.factor) && o.en_base.factor > 1
+            ? `${redondea(nn * o.en_base.factor)} ${o.en_base.palabra}`
+            : null,
       };
     };
 
@@ -265,6 +271,9 @@ export class KpService {
         base: paqueteReal ? packPrice : precioBase,
         aplica_a: paqueteReal ? 'paquete' : 'base',
         unidad_monto: paqueteReal ? 'por paquete' : 'c/u',
+        // Sólo cuando el escalón ES de paquete: ahí el umbral cuenta paquetes y el de la pieza
+        // cuenta piezas; la equivalencia es lo que los vuelve comparables.
+        en_base: paqueteReal ? { factor: packSize, palabra: palabraBase } : undefined,
       }),
     ].filter((x): x is MayoreoTier => x !== null);
 

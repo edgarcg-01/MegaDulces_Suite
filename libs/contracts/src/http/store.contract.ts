@@ -106,6 +106,14 @@ export interface MayoreoTier {
   aplica_a: 'base' | 'paquete';
   /** `[TDA.7]` Cómo se rotula `precio_con_iva`: `c/u` o `por paquete`. Nunca se asume. */
   unidad_monto: string;
+  /**
+   * `[VAC.H3]` El mínimo del escalón expresado en la unidad BASE, ya con su palabra (`"144 piezas"`).
+   * Sólo viene cuando el escalón es de PAQUETE: dos escalones con mínimos en unidades distintas
+   * (3 piezas / 12 paquetes) se leían como si fueran comparables, y son 48 veces de distancia.
+   * Opcional y `null`/ausente = no se pudo derivar (o ya está en base): la pantalla no inventa la
+   * equivalencia. Los respaldos bajados antes de `VAC.H3` no lo traen y se leen como siempre.
+   */
+  equivale_a?: string | null;
 }
 
 /**
@@ -129,6 +137,8 @@ export interface MayoreoTierCompacto {
   a?: 0 | 1;
   /** `[TDA.7]` `unidad_monto`. Ausente en respaldos previos a TDA.7. */
   um?: string;
+  /** `[VAC.H3]` `equivale_a`. Ausente en respaldos previos a VAC.H3 y en escalones de base. */
+  eq?: string;
 }
 
 /**
@@ -147,6 +157,7 @@ export function compactarTier(t: MayoreoTier): MayoreoTierCompacto {
     r: t.realza ? 1 : 0,
     a: t.aplica_a === 'paquete' ? 1 : 0,
     um: t.unidad_monto,
+    ...(t.equivale_a ? { eq: t.equivale_a } : {}),
   };
 }
 
@@ -172,5 +183,6 @@ export function expandirTier(t: MayoreoTierCompacto): MayoreoTier {
     realza: t.r === 1,
     aplica_a: t.a === 1 ? 'paquete' : 'base',
     unidad_monto: t.um || 'c/u',
+    equivale_a: t.eq || null,
   };
 }

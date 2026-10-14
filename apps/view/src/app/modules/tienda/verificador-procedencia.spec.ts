@@ -307,6 +307,17 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/class="vf-may-total"/);
   });
 
+  // [VAC.H3] El mínimo del escalón de paquete en la unidad base se calcula UNA vez, en el servidor.
+  it('la equivalencia en piezas del escalón de paquete la calcula el servidor, una vez', () => {
+    expect(SVC).toMatch(/equivale_a:/);
+    expect(SVC).toMatch(/en_base: paqueteReal/);
+    const CONTRATO = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'contracts', 'src', 'http', 'store.contract.ts'), 'utf8');
+    expect(CONTRATO).toMatch(/equivale_a\?: string \| null/);
+    expect(PAGE).toMatch(/t\.equivale_a/);
+    // La pantalla pinta lo que llega: no multiplica nada.
+    expect(PAGE).not.toMatch(/t\.desde\s*\*/);
+  });
+
   // [VAC.U11/U12] Sin piel propia (decisión 0Sistemas, 2026-10-14). Hasta hoy este bloque
   // vigilaba que el mayoreo reusara la paleta cruda `--vf-*` de la excepción de DESIGN.md §O.3;
   // esa excepción se retiró. Ahora se vigila lo contrario: que los estilos de la pantalla NO

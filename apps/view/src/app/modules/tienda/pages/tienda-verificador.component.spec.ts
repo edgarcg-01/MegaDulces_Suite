@@ -8,7 +8,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { EstadoSnapshot, ResultadoBusqueda, VerificadorService } from '../verificador.service';
 import { TiendaVerificadorComponent } from './tienda-verificador.component';
 import { StoreSocketService } from '../store-socket.service';
-import type { LabelPricesChanged } from '@megadulces/contracts';
+import { compactarTier, expandirTier, type LabelPricesChanged } from '@megadulces/contracts';
 // `[TDA.7]` El mock de IntersectionObserver vive en el setup (jsdom no lo trae) y expone el
 // interrogador: poder AFIRMAR que nadie intersectó es lo que hace válida la prueba del $0.00.
 import { nadieIntersecto } from '../../../../test-setup';
@@ -68,6 +68,8 @@ const TIER_PAQUETE = {
   etiqueta: 'paquete', desde: 3, palabra: 'paquetes',
   precio_con_iva: 65.11, ahorro_por_unidad: 5.01, ahorro_en_el_minimo: 15.03,
   descuento_pct: 7.1, realza: true, aplica_a: 'paquete' as const, unidad_monto: 'por paquete',
+  // `[VAC.H3]` 3 paquetes de 8 = 24 piezas.
+  equivale_a: '24 piezas',
 };
 const CON_MAYOREO = {
   codigo: '70001',
@@ -347,6 +349,48 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     // El primero del DOM es el destacado: el orden lo decide la unidad leída, no el backend.
     const filas = fix.nativeElement.querySelectorAll('.vf-may-row');
     expect(filas[0].classList.contains('is-foco')).toBe(true);
+  });
+
+  /**
+   * `[VAC.H3]` Cada umbral es su propio bloque y el de paquete trae su equivalencia en piezas:
+   * "3 paquetes" y "10 piezas" no se pueden comparar a ojo.
+   */
+  it('el escalón de paquete dice a cuántas piezas equivale; el de pieza no', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: CON_MAYOREO, unidadEscaneada: 'PZA',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    const filas = fix.nativeElement.querySelectorAll('.vf-may-row') as NodeListOf<HTMLElement>;
+    expect(filas.length).toBe(2);
+    expect(filas[0].querySelector('.vf-may-eq')).toBeNull();                       // pieza: ya está en piezas
+    expect(filas[1].querySelector('.vf-may-eq')?.textContent).toContain('24 piezas'); // paquete
+  });
+
+  /** Un respaldo bajado antes de VAC.H3 no trae la equivalencia: no se inventa. */
+  it('sin equivale_a (respaldo viejo) no se pinta ninguna equivalencia', () => {
+    const sinEq = { ...CON_MAYOREO, mayoreo: [TIER_BASE, { ...TIER_PAQUETE, equivale_a: null }] };
+    svc.proximo = {
+      estado: 'encontrado', origen: 'respaldo', snapshotAl: null,
+      producto: sinEq, unidadEscaneada: 'PZA',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vf-may-eq')).toBeNull();
+  });
+
+  /** La codificación del cable conserva la equivalencia, y un respaldo viejo se lee sin ella. */
+  it('equivale_a sobrevive al snapshot compacto y su ausencia se lee como null', () => {
+    const ida = expandirTier(compactarTier(TIER_PAQUETE));
+    expect(ida.equivale_a).toBe('24 piezas');
+    const base = expandirTier(compactarTier(TIER_BASE));
+    expect(base.equivale_a).toBeNull();
+    // Respaldo anterior a VAC.H3: sin la clave `eq`.
+    const viejo = compactarTier(TIER_PAQUETE) as Record<string, unknown>;
+    delete viejo['eq'];
+    expect(expandirTier(viejo as never).equivale_a).toBeNull();
   });
 
   /** La pastilla del ahorro no se duplica: una sola, la del escalón que aplica. */
