@@ -80,9 +80,25 @@ también: `384.05 + 16,530.83 + 24,418.16 = 41,333.04`.
 | $16,530.**83** | ⚠️ `U-A-5` folio 57 por **$16,530.38** — Δ $0.45 |
 | $24,418.16 | ⛔ **no existe**, buscado en todo `kdm1`, 1–20 oct, todas las sucursales, ±$20 |
 
-Residual del corte sin documento: **$24,418.61**. Y el depósito ($36,440) no cuadra contra la venta
-no fiscal ($40,948.99): faltan **$4,508.99** — monedas que CAOS no recibe, más lo que no se depositó.
-Eso necesita respuesta de la operación, no de un reporte.
+Residual del corte sin documento: **$24,418.61**.
+
+⛔ **Y acá hay que ser preciso, porque la primera versión de este documento dijo «faltan».** El
+depósito ($36,440) no cuadra contra la venta no fiscal ($40,948.99) por **$4,508.99**, pero
+**un depósito NUNCA puede igualar a una venta**: CAOS no recibe monedas. Lo señaló
+`trade-marketing-e136` y se midió el tamaño con una fuente que ninguna de las dos sesiones estaba
+usando — **el arqueo del POS, que sí separa billetes de monedas**:
+
+| `analytics.cash_cuts`, desde 2026-09-01 | |
+|---|---|
+| arqueo_billetes | $10,205,798.09 |
+| arqueo_monedas | $806,511.66 |
+| **monedas = % del efectivo contado** | **7.32 %** |
+
+El caso es 11.0 % sobre la venta. ⇒ **~$2,989 (7.3 %) son morralla al ritmo medido; ~$1,520 no
+tienen explicación.** La redacción correcta no es «faltan $4,508.99» ni «no falta nada».
+
+⚠️ `finance.cash_ledger.morralla` **no sirve** para esto todavía: 72 movimientos, 0.04 %, con un
+único outlier de 33.96 %.
 
 ### 3.1 ⭐ El hallazgo de fondo: Morelia captura distinto
 
@@ -376,6 +392,11 @@ export interface CajaCobertura {
 4. ⛔ **No montar Elasticsearch** (§8.3).
 5. ⛔ **No poner el hueco de pesos en el bloque del arqueo.** Ahí vive *esperado vs contado*; los
    $4,508.99 son *vendido vs depositado*. Dos pares bajo un rótulo ya costó una vez (`[CG.112]`).
+6. ⛔ **No casar depósito contra cobro por monto + fecha.** Medido por `trade-marketing-e136` sobre
+   los **551 depósitos que SÍ declaran fecha**, escondiendo la respuesta y buscando por importe con
+   tolerancia de $200: **195 aciertos · 28 ERRORES · 297 sin candidato**. Un pareo que se equivoca
+   en 28 de 223 sobre dinero es inaceptable, y los 297 dicen que además no cubre. Es el control de
+   placebo que convierte «es imposible por construcción» (§4.1) en una cifra.
 
 ---
 
@@ -398,9 +419,9 @@ export interface CajaCobertura {
 |---|---|---|
 | El cobro de $24,418.61 del corte 07/4/29 nunca se capturó | $24,418.61 | operación |
 | Δ entre el papel y Kepler en el folio 57 | $0.45 | operación |
-| Vendido vs depositado en el depósito CAOS 1595 | **$4,508.99** | operación |
-| `finance.caos_ingreso_atribucion` nunca calculó | 749 depósitos / **$18.36 M** | backend |
-| Morelia registra el cobro como bulto, no por ruta | 16 de 16 cobros | operación |
+| Vendido vs depositado (CAOS 1595), **neto de morralla** | **~$1,520** | operación |
+| El depósito de caja fuerte casi nunca se captura | **18 de 749 (2.4 %)** | adopción |
+| Morelia no declara ruta **por ningún lado**: ni el cobro ni el texto del depósito | 16 de 16 cobros | operación |
 | El `.mdb` de Caja General no se escribe desde el 10-oct | la fuente del carril | decisión |
 | `ods_publish_tienda` lleva 11 días en `error` | ajeno a esta fase | sistemas |
 | 24 filas de `catalog.suppliers` son conceptos | catálogo compartido | datos |
