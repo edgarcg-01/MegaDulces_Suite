@@ -2,7 +2,12 @@
  * `[RH.3.3.3]` El HTML del CV: lo que escribió el candidato se ESCAPA (es texto libre de WhatsApp), sin experiencia se
  * escribe un «Objetivo», el estado civil no se imprime, y la foto sólo entra si es una imagen.
  */
-import { htmlCv } from './cv-html';
+// `cv-html` usa `esc` del barril de platform-core, que exige JWT_SECRET al cargarse (como en las demás pruebas del bot).
+let htmlCv: typeof import('./cv-html').htmlCv;
+beforeAll(async () => {
+  process.env['JWT_SECRET'] ??= 'prueba-cv';
+  ({ htmlCv } = await import('./cv-html'));
+});
 
 const base = {
   nombres: 'Ana', apellido_paterno: 'López', apellido_materno: 'Pérez', puesto_solicitado: 'Cajera', email: 'ana@gmail.com',

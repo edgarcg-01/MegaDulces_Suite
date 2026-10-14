@@ -3,7 +3,12 @@
  * no una liga nuestra, que Meta tendría que poder descargar—. Si la subida falla, se lanza (la cola reintenta).
  */
 import axios from 'axios';
-import { MetaCloudWhatsAppAdapter } from './meta-cloud.adapter';
+// El adaptador importa el barril de platform-core, que exige JWT_SECRET al cargarse.
+let MetaCloudWhatsAppAdapter: typeof import('./meta-cloud.adapter').MetaCloudWhatsAppAdapter;
+beforeAll(async () => {
+  process.env['JWT_SECRET'] ??= 'prueba-meta';
+  ({ MetaCloudWhatsAppAdapter } = await import('./meta-cloud.adapter'));
+});
 
 vi.mock('axios', () => ({ default: { post: vi.fn(), get: vi.fn() } }));
 const post = axios.post as unknown as ReturnType<typeof vi.fn>;
