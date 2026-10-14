@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -35,9 +35,11 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 import { VecinalReconComponent } from './comercial-vecinal-recon.component';
 import { RutaCajaCaosComponent } from './comercial-ruta-caja-caos.component';
+import { CaosService, RutaCajaReporte } from '../../finanzas/caos.service';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
 
-type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets';
+type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'deposito';
 
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
 type ViewRow = SalesByRouteRow & { _revenue: number; _units: number; _tickets: number; _share: number };
@@ -56,7 +58,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
+    RouterLink, LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -338,6 +340,7 @@ const MES: Record<string, string> = {
             <button type="button" role="radio" [class.on]="tab()==='dias'" [attr.aria-checked]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
             <button type="button" role="radio" [class.on]="tab()==='clientes'" [attr.aria-checked]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
             <button type="button" role="radio" [class.on]="tab()==='tickets'" [attr.aria-checked]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
+            <button type="button" role="radio" [class.on]="tab()==='deposito'" [attr.aria-checked]="tab()==='deposito'" (click)="setTab('deposito')">Depósito</button>
           </div>
 
           @switch (tab()) {
@@ -548,6 +551,91 @@ const MES: Record<string, string> = {
                 </p-table>
               }
             }
+            @case ('deposito') {
+              <!-- [CG.58.7] El dinero de ESTA ruta: su deposito en la caja fuerte (CAOS) y la
+                   entrada que ese deposito genero en Caja General. El vinculo es estructural
+                   (la entrada guarda de que deposito salio), por eso el folio es un enlace. -->
+              @if (esRutaVecinal()) {
+                <p class="rr-dep-nota">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  <span>
+                    <strong>Esta ruta no deposita en la caja fuerte.</strong> La vecinal cobra en una
+                    caja registradora de la sucursal, así que su dinero se cuenta en el
+                    <strong>arqueo de esa caja</strong>, no en CAOS ni en Caja General. El cuadre de
+                    la vecinal vive en el panel «Vecinal: la venta contra el dinero contado», arriba
+                    en esta misma pantalla.
+                  </span>
+                </p>
+              } @else {
+                <!-- La matriz de estados la lleva app-load-state: cargando, vacio y error de red
+                     NO se pintan igual, y el error ofrece reintentar. -->
+                <app-load-state [loading]="depCargando()" [error]="depError()"
+                                [isEmpty]="!depCargando() && !depError() && !depDepositos().length"
+                                [skeletonRows]="6" emptyIcon="pi-wallet"
+                                emptyTitle="Ningún depósito de la caja fuerte declara esta ruta"
+                                emptyHint="El texto del depósito es lo que la atribuye. Lo que no declara ruta queda sin dueño y se ve en el panel de arriba."
+                                (retry)="recargarDeposito()">
+                  <div class="rr-dep-kpis">
+                    <div><span>Depósitos</span><b>{{ depFila()?.depositos ?? 0 }}</b></div>
+                    <div><span>Depositado</span><b>{{ (depFila()?.monto_caos ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                    <div><span>En Caja General</span><b>{{ depFila()?.en_caja_general ? ((depFila()!.monto_caja_general) | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</b></div>
+                    <div><span>Sin capturar</span><b>{{ (depFila()?.monto_pendiente ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                  </div>
+
+                  @if (depFila()?.motivo_sucursal) {
+                    <p class="rr-dep-nota rr-dep-warn">
+                      <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      <span>{{ depFila()!.motivo_sucursal }}</span>
+                    </p>
+                  }
+
+                  <p-table [value]="depDepositos()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
+                    <ng-template #header><tr>
+                      <th scope="col">Depósito</th>
+                      <th scope="col">Cuándo</th>
+                      <th scope="col">Texto que tecleó</th>
+                      <th scope="col">Día de venta</th>
+                      <th scope="col" class="comm-num">Depositado</th>
+                      <th scope="col">Entrada a Caja General</th>
+                      <th scope="col" class="comm-num">Δ</th></tr>
+                    </ng-template>
+                    <ng-template #body let-d>
+                      <tr>
+                        <td class="rr-mono">#{{ d.external_id }}</td>
+                        <td class="rr-mono">{{ d.occurred_at.slice(0, 16).replace('T', ' ') }}</td>
+                        <td class="rr-mono comm-muted">{{ d.ref || '(sin referencia)' }}</td>
+                        <td class="rr-mono">
+                          @if (d.fecha_venta) { {{ d.fecha_venta }} }
+                          @else { <span class="comm-muted" [title]="d.motivo">no lo declara</span> }
+                        </td>
+                        <td class="comm-num rr-strong">{{ d.monto_caos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td>
+                          @if (d.cg_folio) {
+                            <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
+                               [queryParams]="{ q: d.cg_folio, from: d.cg_fecha, to: d.cg_fecha }"
+                               [title]="'Abrir ' + d.cg_folio + ' en Caja General'">
+                              {{ d.cg_folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
+                            </a>
+                          } @else {
+                            <span class="comm-muted">sin capturar todavía</span>
+                          }
+                        </td>
+                        <td class="comm-num comm-muted">
+                          @if (d.delta === null) { — }
+                          @else { {{ d.delta | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                        </td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                  <p class="rr-note">
+                    De qué ruta es cada depósito lo dice el texto que tecleó quien depositó. Lo que no
+                    declara ruta no se reparte: se queda sin dueño y se ve en el panel de arriba. La
+                    <strong>Δ</strong> es cuánto más dice la entrada que el depósito y nunca es
+                    negativa en lo medido; su causa no está medida.
+                  </p>
+                </app-load-state>
+              }
+            }
           }
         }
       </app-side-peek>
@@ -555,6 +643,19 @@ const MES: Record<string, string> = {
   `,
   styles: [`
     :host { display:block; }
+    /* [CG.58.7] El deposito de la ruta en la caja fuerte */
+    .rr-dep-kpis { display:flex; gap:var(--sp-4); flex-wrap:wrap; margin:0 0 var(--sp-3); }
+    .rr-dep-kpis > div { display:flex; flex-direction:column; gap:2px; }
+    .rr-dep-kpis span { font-size:var(--fs-micro); color:var(--text-faint); }
+    .rr-dep-kpis b { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); color:var(--text-main); }
+    .rr-dep-nota { display:flex; gap:var(--sp-2); align-items:flex-start; margin:0 0 var(--sp-3);
+      padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md);
+      font-size:var(--fs-sm); color:var(--text-muted); line-height:1.5; }
+    .rr-dep-nota .pi { margin-top:2px; color:var(--text-faint); }
+    .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
+    .rr-dep-warn .pi { color: var(--warn-fg); }
+    .rr-dep-bad { border-color: color-mix(in srgb, var(--bad-fg) 38%, var(--border-color)); }
+    .rr-dep-bad .pi { color: var(--bad-fg); }
     .rr-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .rr-field { display:flex; flex-direction:column; gap:.3rem; }
     .rr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -658,6 +759,8 @@ export class ComercialVentasPorRutaComponent {
   private readonly destroyRef = inject(DestroyRef);
   /** `[JZ.1]` Para aterrizar filtrado desde un enlace. Ver `leerFiltrosDeLaUrl()`. */
   private readonly ruta = inject(ActivatedRoute);
+  /** `[CG.58.7]` El dinero de la ruta: su depósito en la caja fuerte y la entrada que generó. */
+  private readonly caos = inject(CaosService);
 
   routeOpts = signal<SalesByRouteOption[]>([]);
   productOpts = signal<{ value: string; label: string }[]>([]);
@@ -809,6 +912,42 @@ export class ComercialVentasPorRutaComponent {
   tab = signal<DetailTab>('productos');
   private dailyMax = 1;
 
+  // ── `[CG.58.7]` El depósito de la ruta en la caja fuerte, y su entrada a Caja General ──────
+  //
+  // La fila que se está mirando se guarda entera: para resolver el depósito hacen falta el
+  // `route_no` (lo que el texto del depósito declara) y el `route_code` (para saber si es
+  // vecinal, que es otro circuito y NO deposita en CAOS).
+  peekRow = signal<SalesByRouteRow | null>(null);
+  depReporte = signal<RutaCajaReporte | null>(null);
+  depCargando = signal(false);
+  depError = signal<string | null>(null);
+
+  /**
+   * ⛔ La vecinal no deposita en la caja fuerte: cobra en una caja registradora y su dinero se
+   * cuenta en el arqueo de esa caja. Mezclarla acá le cobraría a un camión la venta de un
+   * vendedor que no lo maneja — mismo criterio que el clasificador del backend.
+   */
+  readonly esRutaVecinal = computed(() => {
+    const r = this.peekRow();
+    if (!r) return false;
+    return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '');
+  });
+
+  /** La fila del reporte que corresponde a ESTA ruta. Null = ningún depósito la declara. */
+  readonly depFila = computed(() => {
+    const rep = this.depReporte();
+    const row = this.peekRow();
+    if (!rep || !row) return null;
+    return rep.filas.find((f) => f.ruta === String(Number(row.route_no))) ?? null;
+  });
+
+  readonly depDepositos = computed(() => {
+    const rep = this.depReporte();
+    const f = this.depFila();
+    if (!rep || !f) return [];
+    return rep.depositos.filter((d) => d.clave === f.clave);
+  });
+
   // RR2 — Tickets (paginado server-side) + drill al ticket
   readonly tkLimit = 50;
   readonly docTypeOpts = [{ label: 'Ticket', value: 'ticket' }, { label: 'Factura', value: 'factura' }];
@@ -916,7 +1055,37 @@ export class ComercialVentasPorRutaComponent {
 
   /** La carga de tickets la dispara el (onLazyLoad) de la tabla al montarse — no acá,
    *  o se pediría dos veces la misma página. */
-  setTab(t: DetailTab) { this.tab.set(t); }
+  setTab(t: DetailTab) {
+    this.tab.set(t);
+    // `[CG.58.7]` Se pide al abrir la pestaña y no al abrir la ruta: son 749 depósitos en toda la
+    // historia, pero no hay motivo para pagarlos cuando nadie los va a mirar.
+    if (t === 'deposito' && !this.esRutaVecinal() && !this.depReporte() && !this.depCargando()) {
+      this.cargarDeposito();
+    }
+  }
+
+  /**
+   * `[CG.58.7]` Los depósitos del AÑO que la pantalla está mirando. No se acota al mes del drill
+   * a propósito: un depósito no es un día —el texto declara ruta y día en el 54.5% de los casos y
+   * sólo la ruta en el resto—, así que recortarlo al mes escondería los que no fechan.
+   */
+  /** Reintento desde `app-load-state`: tira lo que haya y vuelve a pedir. */
+  recargarDeposito() { this.depReporte.set(null); this.cargarDeposito(); }
+
+  private cargarDeposito() {
+    const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const desde = `${this.year}-01-01`;
+    const hasta = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
+    this.depCargando.set(true);
+    this.depError.set(null);
+    this.caos.rutaCaja(desde, hasta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.depReporte.set(r); this.depCargando.set(false); },
+      error: () => {
+        this.depError.set('No se pudieron leer los depósitos de la caja fuerte.');
+        this.depCargando.set(false);
+      },
+    });
+  }
 
   private ticketParams(): SalesByRouteTicketsParams {
     const b = this.dayBounds() ?? this.detailBounds();
@@ -1096,6 +1265,11 @@ export class ComercialVentasPorRutaComponent {
   openRoute(row: SalesByRouteRow, month?: string) {
     this.tab.set('productos');
     this.detail.set(null);
+    // `[CG.58.7]` La fila entera, para resolver el depósito de ESTA ruta. El reporte se tira: si
+    // no, la ruta nueva mostraría los depósitos de la anterior mientras carga.
+    this.peekRow.set(row);
+    this.depReporte.set(null);
+    this.depError.set(null);
     this.detailLoading.set(true);
     this.peekOpen.set(true);
     // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.
