@@ -596,3 +596,49 @@ personas que firman — mientras siga así, cualquier bandeja les muestra su pro
 migración ya le da visibilidad a `jefe_finanzas`; **darle `PRESUPUESTOS_GESTIONAR` es la decisión que
 falta**, y se toma desde `/admin/roles`. (Declarado en el log de la migración: `jesus_carrillo`
 recibe la responsabilidad pero su rol `finanzas_operativo` no tiene ni `PRESUPUESTOS_VER`.)
+
+## PU.13 — Ingresos · estimado por día (2026-10-14) 🧪
+
+**Pedido:** el estimado de ingresos del resto de octubre a diciembre de 2026, en una tabla dentro de
+Presupuestos, con el formato de la hoja de Finanzas (fila por semana, por día **bancos | caja general**).
+
+**Dónde:** `/presupuesto/ingresos` (página propia, botón «Ingresos» en la barra de `/presupuesto`).
+Endpoint `GET finance/budget/income-forecast` con `PRESUPUESTOS_VER` (sin permiso nuevo).
+
+**Qué se guarda y qué no:** el estimado es un plan (dato propio) y vive en `budget.income_forecasts`
+(versión, una vigente) + `budget.income_forecast_days` (día × canal). Lo real **no se copia**: el
+servidor suma la cobranza de `finance.bank_movements` en el momento y la pone al lado; después del
+último día cargado de cada canal va en `null` («sin cargar»), nunca en cero.
+
+**Método de la primera versión** (detalle en `parametros` y en la pantalla):
+
+| Paso | Regla | Bancos | Caja general |
+|---|---|---:|---:|
+| Octubre | lo ya entrado ÷ la parte del mes que en jul–sep-2026 había entrado a esa fecha | $49.1 M | $6.1 M |
+| Noviembre | octubre × forma 2025 (nov/oct) | ×0.888 → $43.6 M | ×0.804 → $4.9 M |
+| Diciembre | octubre × forma 2025 (dic/oct) | ×1.395 → $68.5 M | ×1.534 → $9.4 M |
+| Por día | patrón de cada día de la semana (últimos 90 d); inhábiles bancarios como domingo | | |
+
+La forma de 2025 sale de los libros `10 OCTUBRE / 11 NOVIEMBRE / 12 DICIEMBRE 2025.xlsx`, leídos con
+las reglas de `finance.bank_classify_rules` (cuadran contra su CONCENTRADO al 0.02 / 0.5 / 0.9 %).
+Sólo la **forma**, no el nivel: en 2026 entra al banco menos por cada peso vendido.
+
+⚠️ **Hallazgo abierto:** bancos ÷ venta pasó de 1.12 (oct-25) a 1.00 (ene-26) y 0.87 (jul–sep-26)
+mientras la venta creció ~16 %. La carga 2026 está completa, así que la diferencia entra por otro
+camino; coincide con el paso de las sucursales a Kepler. Lo tiene que explicar Tesorería.
+
+**Diferido:** subir una versión nueva desde la pantalla (hoy sólo por migración).
+
+## PU.14 — El Calendario de Pagos estima su capacidad con el ingreso (2026-10-14) 🧪
+
+**Decisión de Francisco:** la capacidad de pago de cada día se estima, por default, con el estimado de
+ingresos de PU.13 (que sale del histórico oct–dic 2025); si hay que ajustarla, se hace **a mano el día
+anterior, antes de que el día pase a Pagos**.
+
+| Pieza | Qué hace |
+|---|---|
+| Propuesta (`capacity/propose`) | Default `ingreso_estimado`: capacidad del día hábil = ingreso del día (real si ya entró, si no estimado) + lo que entró en fin de semana y feriados anteriores. `basis=cartera` = la propuesta anterior (cobranza esperada). Sin estimado para el rango → cartera, y lo dice (`respaldo_de`). |
+| Candado | Un día cuyo lote ya está `released` / `executing` / `closed` no se toca: ajuste manual → 409; confirmar lo salta y lo devuelve en `omitidos`. Antes se podía cambiar. |
+| Pantalla | Propuesta con ingreso del día, arrastre, origen y «Ya en Pagos»; ajuste manual que arranca en mañana y muestra el estimado del día. |
+
+La lectura del ingreso es **la misma** que usa `/presupuesto/ingresos` (`income-forecast.sql.ts`).
