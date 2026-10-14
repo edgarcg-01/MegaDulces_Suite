@@ -4,6 +4,7 @@ import {
   DENOM_KEYS,
   MONEDAS_MXN,
   denomDe,
+  denomKeyDeValor,
   totalDenominaciones,
   valorDe,
 } from './denominations';
@@ -117,5 +118,36 @@ describe('el catalogo es coherente', () => {
     const una = Object.fromEntries(DENOM_KEYS.map((k) => [k, 1]));
     const esperado = DENOMINACIONES_MXN.reduce((s, d) => s + d.valor, 0);
     expect(totalDenominaciones(una).total).toBe(Math.round(esperado * 100) / 100);
+  });
+});
+
+describe('[CG.152] denomKeyDeValor — la llave canonica de un valor suelto', () => {
+  it('devuelve la llave pelada de cada billete', () => {
+    for (const d of BILLETES_MXN) expect(denomKeyDeValor(d.valor)).toBe(d.key);
+  });
+
+  it('ante $20 elige el BILLETE, que es la convencion del catalogo', () => {
+    // Las dos valen 20. El billete conserva la llave pelada; la moneda lleva sufijo.
+    expect(denomKeyDeValor(20)).toBe('20');
+    expect(denomKeyDeValor(20)).not.toBe('20m');
+  });
+
+  it('las monedas que NO colisionan devuelven su propia llave', () => {
+    expect(denomKeyDeValor(0.5)).toBe('0.5');
+    expect(denomKeyDeValor(2)).toBe('2');
+  });
+
+  it('⛔ no inventa una llave para un valor que no existe: devuelve null', () => {
+    // Es la prueba negativa: si esto devolviera algo, el servicio guardaria un renglon que
+    // despues nadie puede leer, y el CHECK de la base lo rechazaria con otro error.
+    expect(denomKeyDeValor(37)).toBeNull();
+    expect(denomKeyDeValor(0)).toBeNull();
+    expect(denomKeyDeValor(NaN)).toBeNull();
+    expect(denomKeyDeValor('no es un numero')).toBeNull();
+  });
+
+  it('acepta el valor como texto, que es como llega de la base', () => {
+    expect(denomKeyDeValor('100')).toBe('100');
+    expect(denomKeyDeValor('0.50')).toBe('0.5');
   });
 });

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { denomKeyDeValor } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
@@ -455,11 +456,45 @@ export class CashCutService {
     await trx('finance.cash_ledger_cuts').where({ id }).update({
       contado: t.contado, morralla: input.morralla ?? 0, updated_at: trx.fn.now(),
     });
-    await trx('finance.cash_ledger_cut_denominations').where({ tenant_id: tenantId, cut_id: id }).del();
+    /**
+     * ⛔⛔ `[CG.152]` **DOS DEFECTOS DEL MISMO CAMBIO, y el segundo sólo se ve al arreglar el
+     * primero.** La migración `20261006123000` agregó `denom_key` (NOT NULL, y parte de la PK
+     * junto con `momento`) y actualizó el camino de APERTURA — este, el del conteo, quedó igual.
+     *
+     * 1. **El insert no mandaba `denom_key`** → `23502` en cada conteo. Medido en prod el
+     *    2026-10-14: `POST /cortes/:id/contar` devolvía 500 y la tabla está **en cero filas**,
+     *    o sea que el arqueo nunca pudo cerrarse desde que la columna existe.
+     *
+     * 2. ⚠️ **El `del()` no filtraba por `momento`**, así que borraba también el desglose de
+     *    APERTURA. Hoy no se perdió nada porque el insert fallaba y la transacción se revertía
+     *    entera — pero arreglar sólo el insert habría convertido un error visible en **pérdida
+     *    silenciosa** del desglose con el que arrancó la caja. Por eso van juntos.
+     *
+     * ⚠️ `denominacion` sola NO identifica: el billete de $20 y la moneda de $20 valen lo mismo
+     * y son dos renglones distintos (lo fuerza `cut_denom_par_chk` en la base). Si quien cuenta
+     * manda la llave, se respeta; si no, se deriva del catálogo compartido, que ante un $20 sin
+     * llave **asume billete y lo declara**. El total contado no cambia —las dos valen 20—; lo
+     * que se pierde es el desglose por familia.
+     */
+    await trx('finance.cash_ledger_cut_denominations')
+      .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' }).del();
     const piezas = (input.conteo ?? []).filter((d) => Number(d.piezas) > 0);
     if (piezas.length) {
-      await trx('finance.cash_ledger_cut_denominations').insert(
-        piezas.map((d) => ({ tenant_id: tenantId, cut_id: id, denominacion: d.denominacion, piezas: d.piezas })));
+      const filas = piezas.map((d) => {
+        const key = d.denom_key ?? denomKeyDeValor(d.denominacion);
+        if (!key) {
+          // No se inventa una llave: una denominación fuera del catálogo es dinero que no se
+          // puede contar, y fallar acá es mejor que guardar un renglón que nadie podrá leer.
+          throw new BadRequestException(
+            `Denominación ${d.denominacion} no está en el catálogo: no se puede registrar el conteo.`,
+          );
+        }
+        return {
+          tenant_id: tenantId, cut_id: id, momento: 'cierre',
+          denom_key: key, denominacion: d.denominacion, piezas: d.piezas,
+        };
+      });
+      await trx('finance.cash_ledger_cut_denominations').insert(filas);
     }
   }
 
