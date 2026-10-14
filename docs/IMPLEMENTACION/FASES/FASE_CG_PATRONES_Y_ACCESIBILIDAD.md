@@ -297,6 +297,62 @@ pregunta nunca.**
 
 ---
 
+## 9bis. Los cuatro defectos que el reparto atajó — 2026-10-14, antes de publicarse
+
+El contrato se escribió entre tres sesiones (`15` servidor · `27` pantalla · datos). **Ninguna de las
+tres habría encontrado sola los cuatro defectos**, y los cuatro son del mismo molde.
+
+| # | defecto | lo encontró | cómo |
+|---|---|---|---|
+| 1 | El denominador contaba lo **ya capturado** (sin el `whereNotExists`) → la cobertura salía **peor** de lo que es | `15`, al implementar | 549 → **508** movs · Δ $256,417 |
+| 2 | **El denominador se perseguía la cola**: se filtraba por una ventana derivada del numerador | `27`, razonando; medido por datos | publicaba **8.2 %** donde lo real es **0.6 %** — **15×**, y siempre hacia el lado que tranquiliza |
+| 3 | El **libro vacío** producía `ventana: { from: '', to: '' }`, que el esquema rechaza | datos, cruzando contra prod | alcanzable con `tipo='deposito'` (**0 filas en todo el libro**, y el selector lo ofrece) |
+| 4 | `periodo_contado` **fuera del contrato** y con otro vocabulario (`desde/hasta` vs `from/to`) | `27`, leyendo el emisor | `z.object` descarta claves desconocidas **en silencio**: el campo desaparecería sin error |
+
+⭐ **El #2 merece nombre porque vuelve solo: _un denominador que se persigue la cola_.** Se encoge
+hasta el tramo donde el numerador vive, así que **tiende a 100 % por construcción** y falla
+**siempre** hacia el lado que tranquiliza — el peor sesgo posible para un número que existe para
+inquietar.
+
+### 9ter. ⭐⭐ La lección de método: el espejo no es sólo de los datos
+
+ADR-059 dice *«un árbitro que nunca contradice es un espejo»*, y el repo lo tiene escrito **para los
+datos**. El 2026-10-14 el mismo error apareció **cuatro veces en una tarde, en cuatro capas
+distintas**:
+
+| capa | el espejo |
+|---|---|
+| **dato** | usar `catalog.suppliers` para separar «proveedor» de «concepto» — el padrón **contiene 24 conceptos**. 80.6 % de falso acierto (§11.2) |
+| **medición** | medir una consulta *parecida* a la que corre el servicio, en vez de la que corre (defecto #1) |
+| **prueba** | un candado cuyo valor esperado sale de la misma consulta que la implementación: *si los dos caminos son el mismo código, sólo se verifica que el código es igual a sí mismo* |
+| **mecanismo** | mirar el `crontab` para saber si el despliegue corre, cuando el mecanismo vigente es otro (§14) |
+
+⇒ **La regla vale para datos, mediciones, pruebas y mecanismos.** En los cuatro casos se le pidió a
+algo que confirmara justamente lo que no podía contradecir.
+
+### 9quater. Cómo se candadeó, y qué NO está candadeado
+
+Cinco propiedades, **no cifras** — una aserción sobre «7.6 % → 0.5 %» envejece con los datos y
+además pasaría igual si alguien deriva la ventana de otro modo que hoy dé lo mismo:
+
+    1. las dos piernas sobre la MISMA ventana, y es la PEDIDA     SQL — verificado, NO en jest
+    2. sin from/to, denominador == cola sin filtro de fecha       SQL — verificado, NO en jest
+    3. ventana pedida más ancha que los datos → publica la PEDIDA  ✅ jest, mutada a rojo
+    4. ventana vacía (0/0) PASA y el pct devuelve null             ✅ jest, mutada a rojo
+    5. ventana de UN día (from == to) PASA                         ✅ jest, mutada a rojo
+
+⚠️ **Las dos primeras están medidas, no candadeadas**, y se declara: una medición vive en una sesión
+y se pierde; un archivo lo encuentra la próxima persona. Su lugar es
+`database/tests/test-newdb-caja-cobertura.js` —donde ya viven **siete** smokes de caja, uno contra
+prod— aun sabiendo que esa suite **no corre en CI** (deuda **VP.5**).
+
+⭐ Las pruebas **4 y 5 protegen el caso NORMAL contra un endurecimiento bienintencionado**
+(`nonnegative`→`positive`, `<=`→`<`), no el caso raro. Y la **3** ataca el caso **lleno**: el que no
+revienta y por eso nadie mira. *Los que explotan se arreglan tarde o temprano; los que mienten en
+silencio viven años.*
+
+---
+
 ## 9. El contrato `CajaCobertura` — acordado con `27` el 2026-10-14
 
 Negociado y **firmado por las dos sesiones** (datos y frontend). Vive en `libs/contracts`.
