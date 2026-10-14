@@ -4257,3 +4257,72 @@ publica **$3,402.45** sobre 23 movimientos de su jornada.
    `btrim(numeric)` no existe: todo va por `nullif(btrim(x::text),'')::numeric`.
 
 **Medición reproducible:** 14 consultas read-only contra `pg-prod` el 2026-10-13.
+
+---
+
+## 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-14)
+
+**`kepler_ods.kdm1.c1` lleva sucursal + RUTA.** Los valores compuestos (`01-001`…`01-006`) son rutas
+con su repartidor, confirmado por Edgar. El filtro canónico `btrim(c1) = sucursal` —correcto para
+atajar la réplica cruzada entre plazas— **los descarta a todos**.
+
+| tabla | filas | pasa | **RUTA descartada** | réplica real |
+|---|---|---|---|---|
+| **`kdm1`** | 302,492 | 295,260 | **7,229** | **3** |
+| `kdm5` | 68,543 | 67,408 | 0 | 1,135 |
+| `kdxe` | 52,535 | 51,797 | 0 | 738 |
+
+⭐ **En `kdm1` descarta 2,410 rutas por cada réplica real.** En `kdm5` y `kdxe` acierta. **No es una
+política global: es UNA TABLA.** Lo perdido en 90 días: **$5,869,974.50** — `U-D-10` $4,385,771.68 ·
+`U-D-23` $1,049,130.53 · `U-A-50` $316,478.71 · `U-A-5` $117,972.97.
+
+### Lo que cambia es la MEZCLA, no la magnitud
+
+    mes    filas   monto         ticket prom.   rutas   U-D-23   U-A-5
+    jun       59   $  169,873       $2,879        2       —        —
+    ago    1,280   $  890,231       $  695        6       —        —
+    sep    4,036   $2,629,148       $  651        6       0        0
+    oct    1,913   $2,350,596       $1,229        6      61        6    ← medio mes
+
+⛔ **Leer ese salto de $651 a $1,229 como «rutas de ticket más grande» es un error, y lo cometimos.**
+El ticket de ruta está **plano**: `U-D-10` septiembre **$611.59** contra octubre **$613.16**, y las
+rutas son las mismas **seis**. El salto lo producen enteros los `U-D-23` a **$17,198.86** y los
+`U-A-5` a **$19,662.16**, los dos apareciendo en octubre **desde cero**.
+
+⇒ Es **comparar un promedio entre dos meses cuya composición no es la misma** — la misma familia que
+«declarar el universo, no sólo el número».
+
+### ⚠️ La alarma NO es el monto: es la LISTA DE DOCTYPES
+
+**El agujero no crece: se mueve hacia donde estamos mirando.** Arrancó sólo con tickets; desde
+octubre las rutas emiten también **su corte y su cobro** con código compuesto — justamente
+`U-D-23` y `U-A-5`, **los dos documentos que cierran el circuito venta → corte → cobro**, o sea el
+rastro que la Fase CG fue a buscar. El filtro empezó a tragárselos el mismo mes.
+
+⇒ **La señal de que esto se extendió otra vez es un DOCTYPE NUEVO en la lista de `c1` compuesto, no
+un número más grande.** Vigilar el monto no alcanza: cada tipo que se suma es otra vista del ODS
+perdiendo filas en silencio, sin que nada avise.
+
+### Los objetos, y la regla para tocarlos
+
+**Afectados** (leen `kdm1`): `analytics.kepler_bank_movements` · `mv_new_products` ·
+**`mv_product_margins_30d`** (publica MARGEN) · `v_erp_sales_line_units` · `expense_documents` ·
+`mv_caja_autofill_entidad`. **No afectados**: las 11 vistas de compras y pagos (`kdm5`/`kdxe`).
+
+⛔⛔ **NO relajar el filtro en bloque.** En `kepler_bank_movements`, cambiarlo a
+`split_part(c1,'-',1) = sucursal` **DUPLICA $118k**: **52,548 filas para 52,542 llaves únicas**,
+porque esos documentos entran también por la otra pierna de la vista. En los tickets **no duplica
+nada**. ⇒ **Se mide por VISTA, no por tabla**, con su propio control de duplicados **antes** de
+tocar el filtro: dos vistas sobre `kdm1` pueden necesitar decisiones opuestas.
+
+### Dos cabos con nombre
+
+- **`RD027`** vende **$209,325.35 en 30 días** y **no existe en `kduv`** (0 filas). Se declara sin
+  resolver; **nunca** se cae al nombre genérico de otra plaza — `kduv` está replicado por plaza
+  (400 filas / 83 códigos) y el mismo código significa cosas distintas: `20001` es
+  `SUC MORELIA MADERO PISO` en 00–07 y `VENTA PISO MORELIA ABASTOS` en 08.
+- **645 tickets / $310,060 sin vendedor** (`c12` vacío), concentrados en `01-005`.
+
+**Medición reproducible:** consultas read-only contra `pg-prod` el 2026-10-14, reproducidas
+independientemente por una segunda sesión. Decode del campo en
+[`ERP_KEPLER.md` §3.z.3](ERP_KEPLER.md).

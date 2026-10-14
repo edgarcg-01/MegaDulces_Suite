@@ -112,8 +112,37 @@ Cobros de efectivo a CAJA GENERAL, octubre:
 | **08 Morelia Abastos** | 3 | **0** | **3** |
 
 Padre Hidalgo registra *«VENTA RV CANDY SALGADO 25-09-2026»* — ruta y día. Morelia registra
-*«DEPOSITO EFECTIVO CAJA GENERAL M.M. 08/10/2026»* — un bulto. **Por eso Candy y Rafa son
-rastreables y Joscah y Guillermo no.** No es el sistema: es la práctica de captura de esa plaza.
+*«DEPOSITO EFECTIVO CAJA GENERAL M.M. 08/10/2026»* — un bulto.
+
+### 3.2 ⛔⛔ CORREGIDO 2026-10-14: no es la captura, es la DERIVACIÓN
+
+Este documento afirmaba que *«en esa plaza no existe el dato de ruta por ningún lado»* y que había
+que pedirle a Morelia que capturara distinto. **Es falso, y lo desmiente el propio caso.**
+
+El reparto del papel —Joscah $16,914.88 · Guillermo $24,418.16— **está en Kepler**, en el campo
+`c12` de cada ticket `U-D-10`, resuelto contra el catálogo `kepler_ods.kduv`:
+
+    2V003   39 tickets  CON0001167 → CON0001217   $24,418.16   GUILLERMO HERNANDEZ
+    2V001   12 tickets  CON0001174 → CON0001195   $16,914.88   JOSEPH AGUSTIN GUERERRO
+                                                   ───────────
+                                                   $41,333.04   = el corte, al centavo
+
+**Cobertura medida, 30 días, las 8 plazas: 94,827 tickets, 99.5 % con vendedor** (98.5 % la peor,
+100 % cuatro de ellas), **43 códigos activos y los 43 resuelven a nombre**. Y no sólo el ticket de
+mostrador: `U-D-6` 100 % · `U-D-12` 99.6 % · `U-D-5` 90.4 %.
+
+⇒ **El dato existe desde el origen y se pierde AL AGREGAR**: el cobro junta por depósito y ahí se
+borra quién vendió. No es un problema de captura de la plaza — **es de derivación, y lo arreglamos
+nosotros.**
+
+⚠️ **Tres trampas que costaron un intento cada una:**
+1. **`c81` (caja) está VACÍO**; el campo vivo es **`c80` = apertura**. Filtrar por `c81` devuelve 0
+   filas y la conclusión natural —«el ticket no trae vendedor»— es falsa.
+2. **`analytics.cash_cuts.folio` es la APERTURA, no el folio del documento.** El corte de este caso
+   es el `U-D-23` folio `0000024`; la «29» es su apertura. Ligar `cash_cuts` ⋈ `kdm1` por folio
+   **no empata**.
+3. **El importe de un reparto no es ningún documento.** Buscar $24,418.16 en `kdm1` no devuelve
+   nada, y leer eso como «no se registró» es el error: está registrado **39 veces**.
 
 ---
 
