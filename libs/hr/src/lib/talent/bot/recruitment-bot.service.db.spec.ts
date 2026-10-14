@@ -160,6 +160,26 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
         r['sinVoz'] = (await bot.handleMessage(nota())).map((x) => x.body).join('\n');
         r['vozPedido'] = [pedidos[0]?.opts['filename'], pedidos[0]?.opts['temperature'], String(pedidos[0]?.opts['prompt']).includes('anaquelista')];
 
+        // ── [RH.3.3.2] Validar el CV: un comprobante no entra (ni crea candidato); el CV después, sí, con su veredicto ──
+        const tel6 = `521${String(sello + 19).slice(-10)}`;
+        const tel6k = tel6.slice(-10);
+        await trx('talent.bot_conversations').insert({
+          tenant_id: TENANT, phone: tel6, state: 'esperando_cv',
+          data: JSON.stringify({ position_interest: nombreVacante, full_name: 'Sofía Prueba Luna', email: 'Sin correo', city_branch: 'Zamora',
+            commute_time: '5 min', availability: 'completo', previous_employer: 'Oxxo', desired_salary: '2000', rfc: 'LOGA900101AB1',
+            nss: '12345678901', relative_in_company: 'ninguno', rehire_note: 'no' }),
+        });
+        let veredicto: Record<string, unknown> = { valido: false, tipo: 'comprobante', motivo: 'es un recibo de CFE', revisar: false };
+        const conValidador = new HrRecruitmentBotService(tk as never, intake, undefined, undefined, { validar: async () => veredicto } as never);
+        const cvDoc = () => msg({ phone: tel6, type: 'document', media: { id: 'c6', mimeType: 'application/pdf', filename: 'cv.pdf' },
+          descargar: async () => ({ buffer: PDF, mime: 'application/pdf' }) });
+        r['cvRechazo'] = (await conValidador.handleMessage(cvDoc())).map((x) => x.body).join('\n');
+        r['cvRechazoSinCandidato'] = Number((await trx('talent.candidates').where({ phone_key: tel6k }).count('* as n'))[0]['n']);
+        r['cvRechazoEstado'] = (await trx('talent.bot_conversations').where({ phone_key: tel6k }).first('state')).state;
+        veredicto = { valido: true, tipo: 'cv', motivo: 'un CV de una hoja', revisar: false };
+        await conValidador.handleMessage(cvDoc());
+        r['cvAceptado'] = (await trx('talent.candidates').where({ phone_key: tel6k }).first('portal_data'))?.portal_data?.validacion_cv;
+
         // ── CHECKs ─────────────────────────────────────────────────────────────────────────────
         const C = 'talent.bot_conversations';
         const fila = (o: Record<string, unknown>) => ({ tenant_id: TENANT, phone: `52${String(sello + ++n).slice(-10)}`, ...o });
@@ -211,6 +231,9 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(r['alucinaEstado']).toBe('esperando_full_name');
     expect(String(r['sinVoz'])).toContain('no puedo escucharla');
     expect(r['vozPedido']).toEqual(['nota.ogg', 0, true]);
+    expect(String(r['cvRechazo'])).toContain('parece un comprobante');
+    expect([r['cvRechazoSinCandidato'], r['cvRechazoEstado']]).toEqual([0, 'esperando_cv']);
+    expect(r['cvAceptado']).toEqual({ tipo: 'cv', motivo: 'un CV de una hoja', revisar: false });
     expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
     expect(r['buenos']).toEqual(['sin error', 'sin error']);
   }, 60_000);

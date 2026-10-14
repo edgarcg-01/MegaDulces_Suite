@@ -207,6 +207,7 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[RH.3.2.2]** 🧪 Orientación: a quien pide un puesto que no hay se le ofrecen hasta 3 vacantes reales de su zona (o se le pregunta su ciudad primero), por afinidad con lo que describió; nunca se atora; lo que pidió viaja a `portal_data.orientacion`. Vacante sin sucursales = aplica en todas (regla de la Suite). `bot_conversations.orientation` en la mig `20261013150116`.
 - [ ] **[RH.3.3]** 🔨 CV, expediente y voz, en cuatro partes: notas de voz · validar el CV · armar el CV (solicitud + PDF) · documentos a sus casilleros.
 - [ ] **[RH.3.3.1]** 🧪 Notas de voz: se transcriben con el `SpeechToTextService` compartido y entran como si las hubiera escrito, siempre con eco de lo entendido; alucinaciones de Whisper = «no te entendí». El servicio gana nombre de archivo (antes todo era `audio.webm`), pista y temperatura, aditivos.
+- [ ] **[RH.3.3.2]** 🧪 Validar el CV con visión: sólo pasa CV u hoja de solicitud; lo demás no entra ni crea candidato; lo ilegible pide otra foto; si no se pudo revisar, se acepta marcado (`portal_data.validacion_cv`). Word no se acepta (sólo PDF e imagen, como la web).
 - [ ] **[RH.4]** ⬜ Retiro de Railway y del servicio de Windows; rotación de la contraseña de la base compartida.
 
 ### Fase VEC — Flujo del vendedor vecinal: pedido → aviso a la sucursal → pedido global · 2026-10-06

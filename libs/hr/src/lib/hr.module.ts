@@ -21,6 +21,7 @@ import { HrTalentPublicController } from './talent/talent-public.controller';
 import { HrTalentLinksService } from './talent/talent-links.service';
 import { HrRecruitmentBotService } from './talent/bot/recruitment-bot.service';
 import { HrRecruitmentInterpreterService } from './talent/bot/interprete-registro.service';
+import { HrCvValidatorService } from './talent/bot/validar-cv.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -58,6 +59,8 @@ import { HrRecruitmentInterpreterService } from './talent/bot/interprete-registr
     AnthropicService, HrRecruitmentInterpreterService,
     // `[RH.3.3.1]` las notas de voz del registro (Groq Whisper compartido). Sin `GROQ_API_KEY` se le pide que escriba.
     SpeechToTextService,
+    // `[RH.3.3.2]` revisa con visión que el CV lo sea (sin clave, acepta y marca para revisión).
+    HrCvValidatorService,
   ],
   // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
   exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],

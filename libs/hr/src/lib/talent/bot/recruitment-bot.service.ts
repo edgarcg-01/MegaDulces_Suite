@@ -11,6 +11,8 @@ import {
 } from './registro';
 import { HrRecruitmentInterpreterService } from './interprete-registro.service';
 import { PISTA_VOZ, conEco, esAlucinacion, mensajeFallaVoz, motivoDe, nombreAudio } from './voz';
+import { HrCvValidatorService } from './validar-cv.service';
+import { mensajeCvRechazado, sinRevisar, type ValidacionCv } from './validar-cv';
 
 /**
  * Fase RH · `[RH.3.2]` — el BOT DE RECLUTAMIENTO de la Suite, detrás de `RECRUITMENT_BOT_PORT`: la conversación de
@@ -29,6 +31,8 @@ import { PISTA_VOZ, conEco, esAlucinacion, mensajeFallaVoz, motivoDe, nombreAudi
  *
  *   · `[RH.3.3.1]` Una nota de voz se transcribe (`SpeechToTextService`) y entra como si la hubiera escrito, con el eco
  *     de lo que se entendió.
+ *   · `[RH.3.3.2]` El CV se revisa con visión (`HrCvValidatorService`): lo que claramente no es CV no entra; lo que
+ *     pasó con duda, o no se pudo revisar, entra marcado (`portal_data.validacion_cv.revisar`).
  *
  * No hace: armar el CV (`[RH.3.3.3]`), ni avisarle a RH por WhatsApp (el candidato aparece en el tablero de
  * Reclutamiento).
@@ -56,6 +60,8 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     @Optional() private readonly interprete?: HrRecruitmentInterpreterService,
     /** `[RH.3.3.1]` Opcional: sin él (o sin `GROQ_API_KEY`), a una nota de voz se le pide que lo escriba. */
     @Optional() private readonly voz?: SpeechToTextService,
+    /** `[RH.3.3.2]` Opcional: sin él, el CV se acepta como antes y queda marcado para revisión. */
+    @Optional() private readonly validadorCv?: HrCvValidatorService,
   ) {}
 
   async handleMessage(msg: RecruitmentInbound): Promise<RecruitmentReply[]> {
@@ -143,10 +149,20 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     const v = validarAdjunto(`data:${bajado.mime};base64,${Buffer.from(bajado.buffer).toString('base64')}`, MAX_DOCUMENTO_BYTES);
     if (!v.ok) return [`No pude usar ese archivo: ${v.detalle}. Mándame tu CV en *PDF* o como *foto*, por favor.`];
 
+    // `[RH.3.3.2]` ¿Es un CV? Lo que claramente no lo es no entra (ni completa la postulación); sin validador, o si no
+    // se pudo revisar, se acepta y queda marcado para que RH lo mire.
+    const revision: ValidacionCv = this.validadorCv
+      ? await this.validadorCv.validar(v.adjunto.buffer, v.adjunto.contentType)
+      : sinRevisar('sin validador');
+    if (!revision.valido) return [mensajeCvRechazado(revision)];
+
     const entrada: EntradaPostulacion = {
       phone: telefono, ...postulacionDesdeRegistro(actual.data, vacantes), heard_from: null,
       cv: { adjunto: v.adjunto, file_name: sanitizarNombre(msg.media?.filename ?? null, v.adjunto.contentType) }, license: null,
-      portal_data: actual.orientation ? { orientacion: actual.orientation } : null,
+      portal_data: {
+        ...(actual.orientation ? { orientacion: actual.orientation } : {}),
+        validacion_cv: { tipo: revision.tipo, motivo: revision.motivo, revisar: revision.revisar },
+      },
     };
     let d: Decision;
     try {

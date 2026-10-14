@@ -535,6 +535,17 @@ que ese formulario necesita (`[RH.2.4]`).
   (candado propio). Sin `GROQ_API_KEY`, a la nota se le pide que lo escriba. Pruebas mutadas a rojo (sin filtro de
   alucinación, sin eco, sin nombre de archivo, temperatura 0 perdida). **No incluye:** guardar la transcripción en el
   historial de WhatsApp (el libro registra el audio entrante sin texto; RH no la ve todavía).
+- [ ] **[RH.3.3.2]** 🧪 Validar el CV con visión (2026-10-14). Portado de `validarCV`: antes de completar la postulación
+  se revisa si el archivo ES un CV (`HrCvValidatorService`, Haiku con visión sobre `AnthropicService`; regla pura en
+  `validar-cv.ts`). Pasa SÓLO el CV o la **hoja de solicitud de empleo** llenada; lo demás no entra ni crea candidato,
+  y se le dice qué parece («parece un comprobante — es un recibo de CFE») y qué sirve. A lo ILEGIBLE no se le acusa de
+  mandar lo incorrecto: se le piden tips para otra foto. La asimetría de Mega Talento se conserva: **si no se pudo
+  revisar (sin clave, error, HEIC), se ACEPTA y se marca** para que RH lo mire — un filtro que no puede evaluar no se
+  vuelve un muro; un PDF que el proveedor rechaza por páginas sí es la respuesta («un CV no tiene 100 páginas»). El
+  veredicto queda en `portal_data.validacion_cv` (`tipo`, `motivo`, `revisar`). Pruebas mutadas a rojo (no rechazar,
+  fallar cerrado, no detectar el PDF enorme). **Diferencias declaradas:** el CV en Word no se acepta (la Suite valida
+  por firma sólo PDF e imágenes, igual que la web; Mega Talento lo aceptaba sin revisar); y lo rechazado no se archiva
+  en su casillero (allá una INE mandada por error quedaba en el expediente) — eso va con `[RH.3.3.4]`.
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
   (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
 - [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.

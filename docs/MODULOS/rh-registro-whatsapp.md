@@ -1,5 +1,33 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.3.2 · Revisar que el CV sea un CV (2026-10-14)
+
+### Problema
+
+Cuando el bot pedía el CV, cualquier archivo que llegara se tomaba como CV. En Mega Talento eso dejó expedientes con
+recibos de luz, credenciales y fotos en lugar del currículum, y la postulación se daba por completa.
+
+### Solución
+
+- Antes de completar la postulación, se revisa el archivo con visión. Sólo pasa un CV o una hoja de solicitud de empleo
+  llenada (aunque sea a mano).
+- Si es otra cosa, se le dice qué parece («un comprobante — es un recibo de CFE») y qué sirve. Si no se alcanza a leer,
+  se le piden consejos para otra foto, sin decirle que mandó lo incorrecto.
+- Si la revisión no se puede hacer (la IA está caída, por ejemplo), el CV se acepta y queda marcado para que RH lo vea.
+
+### Cómo se implementó
+
+- `validar-cv.ts` tiene la regla y los mensajes; `validar-cv.service.ts` le pregunta a Claude (Haiku, con visión) qué
+  es el archivo.
+- El resultado queda en la ficha del candidato (`portal_data.validacion_cv`), con la marca de «revisar» cuando hubo duda.
+- Pruebas comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+Rechazar un CV de verdad le cierra la puerta a alguien que ya contestó doce preguntas; por eso, cuando no se puede
+revisar, se acepta y se avisa a RH en lugar de rechazar. Lo ilegible no se acepta porque tampoco lo podría leer RH. En
+la Suite el CV en Word no se acepta (sólo PDF o foto, igual que en la página de empleo).
+
 ## RH.3.3.1 · Notas de voz (2026-10-14)
 
 ### Problema
