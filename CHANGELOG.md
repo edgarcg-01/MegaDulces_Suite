@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Removed — La app del vendedor sin IA: menos peticiones al abrir un cliente y Mi ruta (VTK.8, 2026-10-14)
+- **Tomar pedido** ya no pide sugerencias a Thot (salía al abrir el cliente y otra vez tras cada ráfaga de +/−), ni tiene dictado por voz ni el «por qué ofrecerlo». Quedan «Lo que suele pedir» y «Catálogo · más vendidos»; la canasta sugerida se queda porque es una cuenta local sobre el historial, no IA.
+- **Mi ruta** ya no espera la consulta de «para reordenar» (`/intelligence/nba`) para pintar la lista, ni manda una señal al abrir la hoja de un cliente.
+- Se quitó el ícono «Thot» del encabezado. Pedido de David tras la prueba con la vendedora vecinal de La Piedad Abastos: la app tiene que ser veloz.
 ### Added — El surtidor recibe en vivo los pedidos de preventa de su sucursal, y la vendedora ve su avance (MCP.3 / MCP.8, 2026-10-14)
 - Bandeja nueva **«Preventa por surtir»** (`/almacen/surtir-preventa`): los pedidos de preventa de la sucursal en **Hoy / Mañana / Próximos**, que llegan solos (se refresca cada 20 s y el aviso en vivo la adelanta). Tocar el aviso de la campana **abre el pedido**.
 - **«Empezar a surtir»** registra quién y a qué hora; al terminar, el surtidor confirma «hubo todo» o manda el reporte. **Lo que no hubo se quita del pedido y el total se recalcula** (decisión de David), en la misma transacción.
