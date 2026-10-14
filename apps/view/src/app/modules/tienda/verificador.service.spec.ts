@@ -125,6 +125,30 @@ describe('VerificadorService · en vivo primero, respaldo después, y se dice cu
     expect(r!.origen).toBe('live');
   });
 
+  /**
+   * `[VAC.L3]` Un 503 del servidor (el ODS falló) NO es "no encontrado": cae al respaldo.
+   *
+   * Antes el backend contestaba un fallo de base como `200 { ok:false, error: <mensaje> }` y esta
+   * misma capa lo leía como "el catálogo contestó que no está": pantalla de PRODUCTO NO
+   * ENCONTRADO sin mirar el respaldo, que sí tenía el precio. Ahora el backend lanza un 5xx con
+   * `codigo_error: 'error_interno'` y el servidor roto se trata como el servidor roto.
+   */
+  it('un 503 del servidor cae al respaldo y NO se confunde con "no encontrado"', async () => {
+    await sembrarRespaldo();
+
+    let r: ResultadoBusqueda | undefined;
+    svc.buscar('17083', '03').subscribe((x) => (r = x));
+    http.expectOne((rq) => rq.url.endsWith('/kp/precio'))
+      .flush({ ok: false, codigo_error: 'error_interno' }, { status: 503, statusText: 'Service Unavailable' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(r!.estado).toBe('encontrado');
+    if (r!.estado !== 'encontrado') return;
+    expect(r!.origen).toBe('respaldo');
+    expect(r!.producto.unidades[0].precio_con_iva).toBe(18.5);
+  });
+
   it('sin red y sin respaldo descargado dice "sin datos", no "no existe"', async () => {
     let r: ResultadoBusqueda | undefined;
     svc.buscar('17083', '03').subscribe((x) => (r = x));

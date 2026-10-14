@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { pgRaw } from './pg-raw.util';
@@ -594,10 +594,28 @@ export class KpService {
         plaza_pedida_sin_dato: plazaPedidaSinDato,
         origen_precio: origen,
       };
-    } catch (e: any) {
-      this.logger.error('getPrecio error: ' + e.message);
-      return { ok: false, error: e.message };
+    } catch (e: unknown) {
+      throw this.falloInterno('getPrecio', e);
     }
+  }
+
+  /**
+   * `[VAC.L3]` Un fallo de la base NO es "no encontrado" ni se le cuenta al cliente.
+   *
+   * Hasta acá el `catch` devolvía `200 { ok: false, error: e.message }`, y eso rompía dos cosas:
+   *  · **Fuga**: estos endpoints son `@Public()`, así que el mensaje de Postgres (nombres de
+   *    relación, host, sintaxis) salía hacia un kiosco anónimo.
+   *  · **Mentira**: el frontend lee `ok: false` como "el catálogo contestó que no está" y pinta
+   *    PRODUCTO NO ENCONTRADO — sin consultar el respaldo local, que sí tiene el precio. Un error
+   *    del servidor no puede leerse como un vacío (pre-vuelo 6: error ≠ empty).
+   *
+   * Ahora el detalle va sólo al log del servidor y el cliente recibe un 503 con un código estable.
+   * Un 5xx es lo que el frontend ya trata como "el servidor falló": cae al respaldo y lo declara.
+   * "No encontrado" sigue siendo `200 { ok: false }`: ESA sí es una respuesta.
+   */
+  private falloInterno(donde: string, e: unknown): ServiceUnavailableException {
+    this.logger.error(`${donde} falló`, e instanceof Error ? e.stack : String(e));
+    return new ServiceUnavailableException({ ok: false, codigo_error: 'error_interno' });
   }
 
   /**
@@ -680,9 +698,10 @@ export class KpService {
         generado: new Date().toISOString(),
         productos: items,
       };
-    } catch (e: any) {
-      this.logger.error('getPreciosTodos error: ' + e.message);
-      return { total: 0, generado: new Date().toISOString(), error: e.message, productos: [] };
+    } catch (e: unknown) {
+      // Antes: 200 con `productos: []` y el mensaje de Postgres, que el kiosco leía como "el
+      // catálogo llegó vacío". Ver `falloInterno`.
+      throw this.falloInterno('getPreciosTodos', e);
     }
   }
 
