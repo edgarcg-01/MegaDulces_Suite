@@ -2722,3 +2722,27 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Rechazado:** encender `/logistica/payroll` (duplica el flujo de Gastos que ya se usa y paga $0 hoy); usar la factura como prueba de entrega (sale antes del viaje); esperar al cobro (llega tarde y sólo en la mitad); cruzar `TI###` por número de sucursal (da 5% en vez de 94%: la equivalencia vive en `pv_suc_ip`).
 
 **Fuera:** apoyos fijos sin viaje y el tratamiento fiscal (gasto contra nómina), a confirmar con Contabilidad. Plan en [`FASE_EMB_PAGO_POR_VIAJE`](FASES/FASE_EMB_PAGO_POR_VIAJE.md).
+
+---
+
+## ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya tiene y sin convertir
+
+**Fecha:** 2026-10-13 · **Estado:** ⏳ propuesto · **Fase:** KR · **Supersede en parte:** ADR-016 · **Hereda:** ADR-056 · ADR-040 · ADR-055 · ADR-057
+
+**Contexto.** La requisición de compra se captura **dos veces**: en la Suite (`/compras/pedido` → `/compras/requisiciones`) y a mano otra vez en Kepler. ADR-016 lo prohibía arreglar — [`FASE_RA` §226](FASES/FASE_RA_REABASTECIMIENTO.md): *"HITL sobre requisición propia, nunca write a Kepler"* — y [`FASE_RA_BENCHMARK` §85](FASES/FASE_RA_BENCHMARK_ENTERPRISE.md) ya había previsto el caso: *"fuera de scope **hasta decisión explícita**"*. Ésta es esa decisión, tomada por Edgar el 2026-10-13. **Esto NO abre la puerta a escribir a Kepler en general:** autoriza UN documento, `X-A-30`, desde UN lugar.
+
+**Decisión (usuario; propuesta y medición de Claude).**
+
+1. **Se clona un documento que el ERP ya aceptó, no se construye la fila.** Las 200 columnas de `md.kdm1` son `NOT NULL` (y las 70 de `md.kdm2`): construir exigiría inventar valores para doscientas columnas que nadie decodificó. Se copia una requisición real y se pisan **sólo** los campos de negocio.
+2. **El folio se deriva con `MAX+1` y no hay contador que tocar.** `md.kdfolio` sólo lleva prefijos del punto de venta (`PD-`, `PD26-`) y no tiene fila para `XA3001-`. La llave primaria `(c1..c6)` hace que una carrera por el mismo folio **rebote sola y sin daño**; por eso tampoco se toma `LOCK TABLE`, que bloquearía todas las capturas de un ERP en uso activo.
+3. **⭐⭐ La cantidad se escribe en `CJA`, tal como la tiene la Suite, SIN convertir** (enmendado el 2026-10-14; la primera redacción mandaba resolver la unidad del ERP y contrastarla). Tres mediciones lo decidieron: **Kepler no convierte entre documentos** —de las 22 requisiciones históricas en `CJA`, las 22 llegaron a entrada de inventario con razón **1.0000** y unidad preservada—; el contraste comparaba **universos distintos** (`kdm2.c58` es el empaque *de esa compra*, `kdii.c84` la caja *del producto*); y el factor para convertir **no se pudo fijar en tres intentos**. **La fidelidad a la convención del ERP no vale una multiplicación que no se puede verificar.**
+4. **Lo que se pierde se DECLARA:** en el documento la unidad dirá `CJA` mientras la ficha dice `PAQ` (508 de 714 SKUs), `PZA` (154) o `KG` (39). Es **visible**, y la cantidad significa exactamente lo que la persona capturó — al revés que una conversión mal hecha, que se ve perfecta en pantalla.
+5. **La idempotencia la hace quien llama, no el sink.** Un sink entrega lo que le dan: el 2026-10-13, antes de que existiera un botón, la misma requisición salió **cuatro veces** y dejó cuatro documentos vivos — en una ronda, **$175,608.84 pedidos a un proveedor real para una necesidad de $87,804.42**. `purchase_requisitions.kepler_folio` + índice único parcial (mig `20261013140000`) es el candado.
+6. **El empuje cuelga de APROBAR y no puede voltear la aprobación.** Al aprobar y no al armar, porque un borrador rechazable no se puede borrar de Kepler. Y nunca lanza: la aprobación ya está commiteada, y un ERP caído no puede frenar las compras. **El lote no empuja**: 200 escrituras en una petición HTTP darían timeout sin dejar saber cuáles salieron.
+7. **Tres candados independientes para encenderlo**, y el de la base manda: `GRANT INSERT` sobre `md.kdm1`/`kdm2`, `KEPLER_PUSH_URL`, y el binding del puerto. Estar ligado **no** es estar encendido.
+
+**⛔ Lo que NO autoriza: el traspaso.** Es el **73 % del volumen** (360 requisiciones, $11.8M) y **Kepler no tiene documento que lo reciba**: `N-A-6`/`N-D-6` están declarados en `kdmm` y con **cero documentos en las nueve sucursales**. Lo que la Suite llama *requisición de traspaso* es una solicitud, y Kepler registra el movimiento (género `U`), no la solicitud. Se **declara en pantalla**, no se simula.
+
+**Rechazado:** imponer `c11='CJA'` (escribe un documento que el ERP acepta y que significa otra cosa que los otros 17,786); escribir sólo las líneas resueltas (deja un pedido incompleto **que parece completo**); caer a una unidad por defecto (es el error de 50×); **borrar la regla de ADR-016** en vez de superseder-la — un ADR borrado se lleva el *porqué*, y quien encuentre el adapter dentro de seis meses lo leería como permiso general.
+
+**Abierto:** por qué Kepler se niega a dar de baja un documento escrito así (dos hipótesis medidas y refutadas: las columnas de etapa están en cero en los 17,810 renglones, y el puntero al padre está vacío en las 3,110 requisiciones). ⭐ **Criterio de aceptación: un documento que no se puede cancelar es peor que uno que no se puede crear.** Plan en [`FASE_KR`](FASES/FASE_KR_REQUISICION_A_KEPLER.md).

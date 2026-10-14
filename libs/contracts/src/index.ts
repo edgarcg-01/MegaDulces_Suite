@@ -10,6 +10,7 @@ export * from './ports/finance-notifier.port';
 export * from './ports/recon-notifier.port';
 export * from './ports/contpaqi-poliza-sink.port';
 export * from './ports/finance-findings-sink.port';
+export * from './ports/kepler-requisition-sink.port';
 export * from './ports/invoice-issuer.port';
 export * from './ports/commerce-conversation.port';
 export * from './ports/bank-capture.port';
