@@ -2092,6 +2092,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </label>
               }
 
+              <!--
+                [CG.160] El motivo de "sin documento". El servidor lo exige desde [CG.124] y la
+                pantalla no lo tenia: quien captura cobranza de ruta chocaba con un 400 que le
+                explicaba que hacer y no le daba donde. Aparece SOLO cuando no hay documento ni
+                movimiento del cajero elegido, que es cuando el servidor lo pide.
+              -->
+              @if (!cobroElegido() && !caosElegido()) {
+                <label class="fin-field cg-sin-doc">
+                  <span class="fin-label">Por qué este movimiento no tiene documento</span>
+                  <textarea
+                    rows="2"
+                    class="fin-input"
+                    [ngModel]="sinDocumentoMotivo()"
+                    (ngModelChange)="sinDocumentoMotivo.set($event)"
+                    [ngModelOptions]="{ standalone: true }"
+                    placeholder="Ej: cobranza de la ruta 501 que nadie registró en Kepler"
+                    maxlength="300"></textarea>
+                  <small class="fin-dim">
+                    No está enlazado a Kepler ni al cajero, así que hay que decir por qué.
+                    Un movimiento sin origen y sin motivo no se puede auditar después.
+                  </small>
+                </label>
+              }
+
               @if (bloqueos().length) {
                 <ul class="fin-blocks">
                   @for (b of bloqueos(); track b) { <li>{{ textoBloqueo(b) }}</li> }
@@ -3409,6 +3433,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * de crédito (`cliente_credito`), pero SIEMPRE queda editable (decisión del usuario).
    */
   ventaCredito = signal<number>(0);
+  /**
+   * ⛔⛔ `[CG.160]` **Por qué este movimiento no tiene documento.** El servidor lo exige desde
+   * `[CG.124]` y la pantalla no tenía dónde escribirlo: quien captura cobranza de ruta sin
+   * documento en Kepler chocaba con un 400 que le explicaba qué hacer y no le daba cómo.
+   */
+  sinDocumentoMotivo = signal<string>('');
   /** ¿El cliente del cobro anclado es de crédito? (para mostrar el campo y el aviso del auto-relleno). */
   clienteCredito = signal<boolean>(false);
   /* ⛔ `[CG.48]` Acá vivía `contadoBandeja`: el total tecleado en la columna "Contado" de la
@@ -4267,6 +4297,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
       // habilitar. Lo encontró la prueba del envío, no la lectura del código.
       devuelto: this.devuelto(),
+      // `[CG.160]` Las dos mitades de la conciliación, para que el botón se apague con su motivo
+      // en vez de que la persona choque contra el 400 del servidor. ⚠️ `origen_ref` se arma IGUAL
+      // que en `guardar()`: si acá se leyera distinto, el botón diría una cosa y el envío otra.
+      origen_ref: this.caosElegido()?.origen_ref ?? this.cobroElegido()?.origen_ref ?? null,
+      sin_documento_motivo: this.sinDocumentoMotivo(),
     },
     todayMx(),
   ));
@@ -5146,6 +5181,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
     this.ventaCredito.set(0);
     this.clienteCredito.set(false);
+    // ⛔ `[CG.160]` Y el motivo de «sin documento» MENOS que ninguno: heredado de la captura
+    // anterior, explicaría un movimiento que no es el suyo — y como el servidor sólo mira que
+    // tenga 12 caracteres, pasaría sin que nadie lo note. Es la peor forma de fallar acá: no un
+    // error, una explicación equivocada guardada como si fuera cierta.
+    this.sinDocumentoMotivo.set('');
     // ⛔ [CG.38] Y el cambio devuelto TAMPOCO. Sin esta línea, la captura siguiente arranca con
     // el cambio de la anterior ya restado del monto: dinero que se va de un movimiento al que
     // no pertenece, y encima en silencio porque el bloque nace plegado.
@@ -6163,6 +6203,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // documento: el monto sale del arqueo precargado, no se relee de Kepler.
       origen_tipo: caos ? 'caos' : (cobro ? (cobro.origen_tipo || (cobro.tipo === 'ingreso' ? 'cobro' : 'pago_proveedor')) : null),
       origen_ref: caos ? caos.origen_ref : (cobro ? cobro.origen_ref : null),
+      // `[CG.160]` Por qué no hay documento. Va SIEMPRE que no haya origen; con origen el servidor
+      // lo ignora (`conciliacion()` corta en `enlazado` antes de mirarlo).
+      sin_documento_motivo: (!caos && !cobro) ? (this.sinDocumentoMotivo().trim() || undefined) : undefined,
       // ⭐ Lo CONTADO, en su campo propio. Sin esto el servidor relee el importe del documento y
       // descarta el conteo: la diferencia llegaba al hallazgo pero NO al libro, o sea que la caja
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya

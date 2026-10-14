@@ -9,7 +9,7 @@
 import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
-  puedeAutorizarUI, puedeCerrarUI, textoSaldo,
+  puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
   type FormularioCaja, type CorteVista,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -21,7 +21,12 @@ const formOk = (o: Partial<FormularioCaja> = {}): FormularioCaja => ({
   tipo: 'gasto', fecha: '2026-09-18', sucursal: '00',
   kepler_cuenta: '601-001', kepler_concepto: '001',
   glosa: 'Compra de papeleria', monto: 100,
-  denominaciones: [{ denominacion: 100, piezas: 1 }], ...o,
+  denominaciones: [{ denominacion: 100, piezas: 1 }],
+  // `[CG.160]` El camino feliz es un movimiento ENLAZADO: así lo arma la pantalla al elegir de la
+  // bandeja, y así lo exige el servidor desde `[CG.124]`. Sin esto el `formOk` describiría un
+  // formulario que el servidor rechaza con 400, que es justo lo que esta regla vino a adelantar.
+  origen_ref: '00|X-D-26|0023047|0011',
+  ...o,
 });
 
 describe('BILLETES_CAJA — los cinco que la caja cuenta, salidos del catálogo compartido', () => {
@@ -397,5 +402,51 @@ describe('textoSaldo — null NO es cero', () => {
     const t = textoSaldo({ saldo: null, saldo_oculto: true, sin_corte_abierto: true });
     expect(t).toContain('sin corte abierto');
     expect(t).not.toContain('oculto');
+  });
+});
+
+/**
+ * ⛔⛔ `[CG.160]` **El servidor exigía un campo que la pantalla no tenía.**
+ *
+ * `[CG.124]` puso la regla en el servidor: un movimiento sin `origen_ref` tiene que decir por qué,
+ * en al menos 12 caracteres. El campo nunca llegó a la pantalla — `grep` de `sin_documento_motivo`
+ * en todo `apps/view` daba **cero**. Quien capturaba cobranza de ruta recibía un 400 que le
+ * explicaba perfectamente qué hacer **y no tenía dónde hacerlo**.
+ *
+ * Medido en prod: 71 movimientos vivos, 6 sin origen, **CERO con motivo**. Los únicos dos que
+ * alguna vez lo trajeron los mandó una auditoría por POST a mano.
+ */
+describe('[CG.160] sin documento, hay que decir por qué', () => {
+  const sinOrigen = (o: Partial<FormularioCaja> = {}) => formOk({ origen_ref: null, ...o });
+
+  it('⛔ sin origen y sin motivo: la pantalla frena, no el 400 del servidor', () => {
+    expect(motivosDeBloqueo(sinOrigen())).toContain('falta_motivo_sin_documento');
+  });
+
+  it('un motivo corto no alcanza — 12 caracteres es el mismo mínimo que el servidor', () => {
+    expect(motivosDeBloqueo(sinOrigen({ sin_documento_motivo: 'ruta 501' })))
+      .toContain('falta_motivo_sin_documento');
+    expect(motivosDeBloqueo(sinOrigen({ sin_documento_motivo: 'a'.repeat(MOTIVO_SIN_DOC_MIN - 1) })))
+      .toContain('falta_motivo_sin_documento');
+    expect(motivosDeBloqueo(sinOrigen({ sin_documento_motivo: 'a'.repeat(MOTIVO_SIN_DOC_MIN) })))
+      .not.toContain('falta_motivo_sin_documento');
+  });
+
+  it('los espacios no cuentan como razón', () => {
+    expect(motivosDeBloqueo(sinOrigen({ sin_documento_motivo: '            ' })))
+      .toContain('falta_motivo_sin_documento');
+  });
+
+  it('⛔ PRUEBA NEGATIVA: con origen NO estorba — es el caso normal', () => {
+    // Si esta regla se disparara con el movimiento enlazado, bloquearía TODA la captura desde la
+    // bandeja, que es el camino por el que entran 65 de los 71 movimientos vivos de prod.
+    expect(motivosDeBloqueo(formOk())).toEqual([]);
+    expect(motivosDeBloqueo(formOk({ origen_ref: '07|U-A-5|0000038|0011' })))
+      .not.toContain('falta_motivo_sin_documento');
+  });
+
+  it('el texto dice QUÉ hacer, y nombra el mínimo que el servidor va a exigir', () => {
+    expect(TEXTO_BLOQUEO.falta_motivo_sin_documento).toContain(String(MOTIVO_SIN_DOC_MIN));
+    expect(TEXTO_BLOQUEO.falta_motivo_sin_documento.toLowerCase()).toContain('kepler');
   });
 });
