@@ -236,6 +236,39 @@ describe('etiquetaProcedencia — un campo propuesto NUNCA se pinta como un hech
     expect(etiquetaProcedencia(null).tono).toBe('vacio');
     expect(etiquetaProcedencia(undefined).tono).toBe('vacio');
   });
+
+  // ⭐⭐ `[CG.180]` «No hay historia de este proveedor» es una afirmación sobre EL PROVEEDOR.
+  // Con la copia del historial vacía, el hecho verdadero es sobre NOSOTROS: no hay con qué
+  // proponer. Medido por la sesión de backend: la copia llegó a prod con cero filas, así que el
+  // motor contestaba `sin_historia` para TODA entidad y la frase era falsa en el 100 % de los
+  // casos — 25 reclasificaciones sobre 70 movimientos.
+  describe('[CG.180] con la fuente vacía, `sin_historia` deja de culpar al proveedor', () => {
+    const sinHistoria = { value: null, source: null, confidence: null, reason: 'sin_historia' };
+
+    it('con la copia vacía, nombra a la copia y no al beneficiario', () => {
+      const e = etiquetaProcedencia(sinHistoria, true);
+      expect(e.tono).toBe('vacio');
+      expect(e.texto).toContain('copia del historial está vacía');
+      expect(e.texto).not.toContain('no hay historia de este proveedor');
+    });
+
+    it('[control] sin la bandera, el texto de siempre no cambia', () => {
+      expect(etiquetaProcedencia(sinHistoria).texto).toContain('no hay historia de este proveedor');
+      expect(etiquetaProcedencia(sinHistoria, false).texto).toContain('no hay historia de este proveedor');
+    });
+
+    it('[negativa] la bandera NO pisa los otros motivos: ésos sí hablan del proveedor', () => {
+      const empate = { value: null, source: null, confidence: null, reason: 'empate' };
+      expect(etiquetaProcedencia(empate, true).texto).toContain('repartidos');
+      expect(etiquetaProcedencia(empate, true).texto).not.toContain('copia del historial');
+    });
+
+    it('[negativa] con una propuesta REAL la bandera no cambia nada: hay con qué proponer', () => {
+      const prop = { value: { a: 1 }, source: 'aprendido', confidence: 0.9, support: 12, supportRatio: 0.9 };
+      expect(etiquetaProcedencia(prop, true).tono).toBe('propuesto');
+      expect(etiquetaProcedencia(prop, true).texto).toContain('12 antecedentes');
+    });
+  });
 });
 
 describe('textoCobertura — "0 conceptos" no puede leerse igual que "sin medir"', () => {
