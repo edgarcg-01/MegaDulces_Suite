@@ -1,8 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
+import { VERIFICADOR_SNAPSHOT_FORMATO } from '@megadulces/contracts';
 import { OfflineDatabaseService } from '../../core/services/offline-database.service';
-import { ResultadoBusqueda, VerificadorService } from './verificador.service';
+import { ResultadoBusqueda, VerificadorService, causaRespaldo, clasificarFallo, esFormatoAnterior } from './verificador.service';
 
 /**
  * `[CV.24]` — El contrato del verificador de mostrador, que es el que decide si la clienta
@@ -26,6 +27,7 @@ import { ResultadoBusqueda, VerificadorService } from './verificador.service';
 
 /** Snapshot mínimo con la forma que serializa `KpService.getPreciosTodos`. */
 const SNAPSHOT = {
+  v: VERIFICADOR_SNAPSHOT_FORMATO,
   total: 2,
   sucursal: '03',
   generado: '2026-09-08T12:00:00.000Z',
@@ -147,6 +149,147 @@ describe('VerificadorService · en vivo primero, respaldo después, y se dice cu
     if (r!.estado !== 'encontrado') return;
     expect(r!.origen).toBe('respaldo');
     expect(r!.producto.unidades[0].precio_con_iva).toBe(18.5);
+  });
+
+  /**
+   * `[VAC.L10]` La causa de la caída viaja con el resultado: "sin red", "lento", "el servidor falló" y
+   * "rechazó la consulta" son cuatro cosas distintas y mandan a la persona a lugares distintos.
+   */
+  describe('motivo del respaldo [VAC.L10]', () => {
+    const tras = async (fallo: (r: { error: (e: unknown, o?: object) => void; flush: (b: unknown, o?: object) => void }) => void) => {
+      await sembrarRespaldo();
+      let r: ResultadoBusqueda | undefined;
+      svc.buscar('17083', '03').subscribe((x) => (r = x));
+      fallo(http.expectOne((rq) => rq.url.endsWith('/kp/precio')) as never);
+      await Promise.resolve();
+      await Promise.resolve();
+      return r!;
+    };
+
+    it('un corte de red se declara sin_red', async () => {
+      const r = await tras((q) => q.error(new ProgressEvent('offline')));
+      expect(r.estado).toBe('encontrado');
+      if (r.estado === 'encontrado') expect(r.motivoRespaldo).toBe('sin_red');
+    });
+
+    it('un 503 se declara servidor: la red estaba bien y falló el servidor', async () => {
+      const r = await tras((q) => q.flush({ ok: false, codigo_error: 'error_interno' }, { status: 503, statusText: 'x' }));
+      if (r.estado === 'encontrado') expect(r.motivoRespaldo).toBe('servidor');
+      else throw new Error('debió encontrar en el respaldo');
+    });
+
+    it('un 400 se declara peticion', async () => {
+      const r = await tras((q) => q.flush({ message: 'Payload invalido' }, { status: 400, statusText: 'x' }));
+      if (r.estado === 'encontrado') expect(r.motivoRespaldo).toBe('peticion');
+      else throw new Error('debió encontrar en el respaldo');
+    });
+
+    it('sin respaldo, la causa también viaja en "sin datos"', async () => {
+      let r: ResultadoBusqueda | undefined;
+      svc.buscar('17083', '03').subscribe((x) => (r = x));
+      http.expectOne((rq) => rq.url.endsWith('/kp/precio'))
+        .flush({}, { status: 500, statusText: 'x' });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(r).toEqual({ estado: 'sin_datos', codigo: '17083', motivoRespaldo: 'servidor' });
+    });
+
+    it('el tiempo de espera agotado se declara lento', async () => {
+      vi.useFakeTimers();
+      try {
+        await sembrarRespaldo();
+        let r: ResultadoBusqueda | undefined;
+        svc.buscar('17083', '03').subscribe((x) => (r = x));
+        http.expectOne((rq) => rq.url.endsWith('/kp/precio'));   // nunca se contesta
+        await vi.advanceTimersByTimeAsync(2600);
+        await Promise.resolve();
+        expect(r?.estado).toBe('encontrado');
+        if (r?.estado === 'encontrado') expect(r.motivoRespaldo).toBe('lento');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('clasificarFallo: cada forma de fallar cae en su causa', () => {
+      const http = (status: number) => new HttpErrorResponse({ status });
+      expect(clasificarFallo(http(0))).toBe('sin_red');
+      expect(clasificarFallo(http(500))).toBe('servidor');
+      expect(clasificarFallo(http(503))).toBe('servidor');
+      expect(clasificarFallo(http(400))).toBe('peticion');
+      expect(clasificarFallo(http(404))).toBe('peticion');
+      expect(clasificarFallo(Object.assign(new Error('x'), { name: 'TimeoutError' }))).toBe('lento');
+      // Lo que no se puede ubicar: el servidor (la respuesta se rompió), no la red.
+      expect(clasificarFallo(new Error('algo raro'))).toBe('servidor');
+    });
+
+    it('sin_red reproduce EXACTO el texto que la pantalla ya tenía; las demás lo cambian', () => {
+      expect(causaRespaldo()).toMatchObject({
+        prefijo: 'Sin conexión', vuelve: 'vuelva la red', titulo: 'SIN CONEXIÓN AL SERVIDOR', ayuda: 'Verifica la red.',
+      });
+      expect(causaRespaldo('sin_red')).toEqual(causaRespaldo(undefined));
+      // Una falla del servidor NO manda a revisar la red.
+      expect(causaRespaldo('servidor').ayuda).not.toMatch(/red\./);
+      expect(causaRespaldo('servidor').prefijo).not.toMatch(/conexión/i);
+    });
+  });
+
+  /**
+   * `[VAC.L11]` El snapshot declara la versión de su formato. Uno anterior se DICE y se refresca
+   * en cuanto hay red, en vez de esperar las 12 h y degradar en silencio.
+   */
+  describe('formato del snapshot [VAC.L11]', () => {
+    const { v: _v, ...VIEJO } = SNAPSHOT;
+    const reciente = () => new Date().toISOString();
+
+    it('esFormatoAnterior: sin v es formato 1; con la versión vigente no lo es', () => {
+      expect(esFormatoAnterior(VIEJO as never)).toBe(true);
+      expect(esFormatoAnterior({ v: 1 })).toBe(true);
+      expect(esFormatoAnterior({ v: VERIFICADOR_SNAPSHOT_FORMATO })).toBe(false);
+      expect(esFormatoAnterior(null)).toBe(true);   // sin snapshot no hay nada que dar por vigente
+    });
+
+    it('un respaldo sin v se declara de formato anterior al cargarse', async () => {
+      await offline.guardarSnapshotPrecios('03', VIEJO, VIEJO.generado);
+      svc.buscar('17083', '03').subscribe();
+      http.expectOne((rq) => rq.url.endsWith('/kp/precio')).error(new ProgressEvent('offline'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(svc.snapshot()?.formatoAnterior).toBe(true);
+    });
+
+    it('un respaldo de formato vigente NO se declara anterior', async () => {
+      await sembrarRespaldo();
+      svc.buscar('17083', '03').subscribe();
+      http.expectOne((rq) => rq.url.endsWith('/kp/precio')).error(new ProgressEvent('offline'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(svc.snapshot()?.formatoAnterior).toBe(false);
+    });
+
+    it('⛔ un respaldo RECIENTE pero de formato anterior se re-descarga ya, sin esperar el TTL', async () => {
+      await offline.guardarSnapshotPrecios('03', VIEJO, VIEJO.generado);
+      offline.guardado.get('03')!.ultima_sincronizacion = reciente();   // hace segundos: no vencido
+
+      let r: unknown;
+      svc.asegurarSnapshot('03').subscribe((x) => (r = x));
+      await Promise.resolve();
+      await Promise.resolve();
+      const req = http.expectOne((rq) => rq.url.endsWith('/kp/precios-todos'));
+      req.flush(SNAPSHOT);
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((ok) => setTimeout(ok, 0));
+      expect((r as { formatoAnterior?: boolean }).formatoAnterior).toBe(false);
+    });
+
+    it('un respaldo reciente y de formato vigente NO se vuelve a bajar', async () => {
+      await sembrarRespaldo();
+      offline.guardado.get('03')!.ultima_sincronizacion = reciente();
+      svc.asegurarSnapshot('03').subscribe();
+      await Promise.resolve();
+      await Promise.resolve();
+      http.expectNone((rq) => rq.url.endsWith('/kp/precios-todos'));
+    });
   });
 
   it('sin red y sin respaldo descargado dice "sin datos", no "no existe"', async () => {

@@ -1,5 +1,5 @@
 import { Logger, ServiceUnavailableException } from '@nestjs/common';
-import { expandirTier, compactarTier } from '@megadulces/contracts';
+import { expandirTier, compactarTier, VERIFICADOR_SNAPSHOT_FORMATO } from '@megadulces/contracts';
 import { KpService } from './kp.service';
 
 /**
@@ -351,6 +351,13 @@ describe('[VAC.L7] KpService.getPreciosTodos', () => {
     expect(it0.b).toEqual(['7501000000001', '7501000000012']);
     expect(it0.bu).toEqual(['PZA', 'PAQ']);
     expect(it0.u.map((x: any) => x.u)).toEqual(['PZA', 'PAQ']);
+  });
+
+  it('[VAC.L11] el snapshot declara la versión de su formato', async () => {
+    const { svc } = servicio({ kdii: [kdii()], etiqueta: [] });
+    const r: any = await svc.getPreciosTodos('03');
+    expect(r.v).toBe(VERIFICADOR_SNAPSHOT_FORMATO);
+    expect(VERIFICADOR_SNAPSHOT_FORMATO).toBeGreaterThanOrEqual(2);
   });
 
   it('el mayoreo del snapshot es el MISMO tier que el modo en línea y sobrevive a la codificación', async () => {

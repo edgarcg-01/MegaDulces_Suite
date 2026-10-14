@@ -6,7 +6,7 @@ import { pgRaw } from './pg-raw.util';
 // backend que los emite y la pantalla que los consume, en vivo y en el respaldo offline.
 import {
   type MayoreoTier, type UnidadPrecioVerificador, type VerificadorPrecioResponse,
-  type VerificadorSnapshot, type VerificadorSnapshotItem, compactarTier,
+  type VerificadorSnapshot, type VerificadorSnapshotItem, VERIFICADOR_SNAPSHOT_FORMATO, compactarTier,
 } from '@megadulces/contracts';
 
 /** Una unidad de venta con su precio, para el verificador. `[VAC.L1]` Una sola definición: el contrato. */
@@ -692,6 +692,7 @@ export class KpService {
 
       this.logger.log(`getPreciosTodos: ${items.length} productos${suc ? ' (sucursal ' + suc + ')' : ' (TODAS, precio no determinista)'}`);
       return {
+        v: VERIFICADOR_SNAPSHOT_FORMATO,
         total: items.length,
         sucursal: suc,
         generado: new Date().toISOString(),

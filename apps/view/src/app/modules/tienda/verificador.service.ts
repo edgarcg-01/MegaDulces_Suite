@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject, signal } from '@angular/core';
 import { Observable, from, of, switchMap } from 'rxjs';
 import { catchError, map, timeout } from 'rxjs/operators';
@@ -8,7 +8,8 @@ import { OfflineDatabaseService } from '../../core/services/offline-database.ser
 // los emite y esta pantalla los consume —en vivo y desde el respaldo— con UNA definición.
 import {
   type MayoreoTier, type SucursalVerificador as SucursalContrato, type UnidadPrecioVerificador,
-  type VerificadorPrecioResponse, type VerificadorSnapshot, type VerificadorSnapshotItem, expandirTier,
+  type VerificadorPrecioResponse, type VerificadorSnapshot, type VerificadorSnapshotItem,
+  VERIFICADOR_SNAPSHOT_FORMATO, expandirTier,
 } from '@megadulces/contracts';
 
 /** Se reexporta para que la pantalla lo importe de acá, junto al servicio que lo entrega. */
@@ -61,7 +62,24 @@ export type OrigenPrecio = 'live' | 'respaldo';
  * Todos opcionales: el camino del respaldo (snapshot en IndexedDB) no los trae, y ausencia se lee
  * como "no aplica", nunca como "todo bien".
  */
+/**
+ * `[VAC.L10]` POR QUÉ se cayó al respaldo. Antes el servicio no lo distinguía y la pantalla decía
+ * "Sin conexión" aunque la red estuviera bien y quien fallara fuera el servidor — mandando a la
+ * persona a revisar un cable que no tenía nada.
+ *
+ *  · `sin_red`   — no se pudo hablar con el servidor (status 0 / sin conexión).
+ *  · `lento`     — el servidor no contestó en el tiempo de espera (2.5 s).
+ *  · `servidor`  — contestó con un error 5xx (o una respuesta ilegible): falló DEL LADO del servidor.
+ *  · `peticion`  — contestó 4xx: rechazó la consulta tal como se la mandó la pantalla.
+ *
+ * Ausente = no hubo caída (resultado en vivo) o no se sabe; se lee como `sin_red`, que es el texto
+ * que la pantalla ya tenía.
+ */
+export type MotivoRespaldo = 'sin_red' | 'lento' | 'servidor' | 'peticion';
+
 export interface ProcedenciaPrecio {
+  /** `[VAC.L10]` Sólo cuando el origen es el respaldo: por qué se cayó a él. */
+  motivoRespaldo?: MotivoRespaldo;
   /**
    * `[TDA.3]` La UNIDAD del código que se escaneó (`PZA`/`PAQ`/`CJA`/`KG`…), o `null` si el código
    * no dice de qué unidad es (el SKU mismo, o un código interno de Kepler).
@@ -96,8 +114,8 @@ export interface ProcedenciaPrecio {
 
 export type ResultadoBusqueda =
   | ({ estado: 'encontrado'; origen: OrigenPrecio; producto: ProductoPrecio; snapshotAl: string | null } & ProcedenciaPrecio)
-  | { estado: 'no_encontrado'; origen: OrigenPrecio; codigo: string; snapshotAl: string | null }
-  | { estado: 'sin_datos'; codigo: string };
+  | { estado: 'no_encontrado'; origen: OrigenPrecio; codigo: string; snapshotAl: string | null; motivoRespaldo?: MotivoRespaldo }
+  | { estado: 'sin_datos'; codigo: string; motivoRespaldo?: MotivoRespaldo };
 
 /** Sucursal vigente + frescura del ODS de esa plaza (`datos_al` lo calcula el backend). */
 export type SucursalVerificador = SucursalContrato;
@@ -113,6 +131,66 @@ export interface EstadoSnapshot {
   total: number;
   generado: string;
   descargadoAl: string;
+  /**
+   * `[VAC.L11]` El respaldo es de un formato anterior al que sabe leer esta pantalla: puede faltar
+   * la unidad escaneada o el mayoreo. Se DECLARA en vez de interpretar campos ausentes.
+   */
+  formatoAnterior?: boolean;
+}
+
+/** `[VAC.L11]` ¿Este snapshot es de un formato anterior al vigente? Sin `v` = formato 1. */
+export function esFormatoAnterior(payload: Partial<VerificadorSnapshot> | null | undefined): boolean {
+  return (payload?.v ?? 1) < VERIFICADOR_SNAPSHOT_FORMATO;
+}
+
+/**
+ * `[VAC.L10]` Clasifica POR QUÉ falló la consulta en vivo. Pura y exportada para poder probarla.
+ *
+ * Un fallo que no se puede ubicar se lee como `servidor` (lo que se rompió fue la respuesta), salvo
+ * que el navegador diga que no hay red.
+ */
+export function clasificarFallo(e: unknown): MotivoRespaldo {
+  if ((e as { name?: string } | null)?.name === 'TimeoutError') return 'lento';
+  if (e instanceof HttpErrorResponse) {
+    if (e.status === 0) return 'sin_red';
+    if (e.status >= 500) return 'servidor';
+    if (e.status >= 400) return 'peticion';
+  }
+  return typeof navigator !== 'undefined' && navigator.onLine === false ? 'sin_red' : 'servidor';
+}
+
+/**
+ * `[VAC.L10]` Cómo se DICE cada causa. Una sola tabla para que los tres lugares donde la pantalla
+ * habla del respaldo (precio, "no encontrado" y "sin datos") no se contradigan. `sin_red` reproduce
+ * EXACTAMENTE el texto que ya existía.
+ */
+export function causaRespaldo(motivo?: MotivoRespaldo): { prefijo: string; vuelve: string; titulo: string; ayuda: string } {
+  switch (motivo) {
+    case 'lento':
+      return {
+        prefijo: 'El servidor tardó demasiado', vuelve: 'el servidor responda',
+        titulo: 'EL SERVIDOR TARDÓ DEMASIADO',
+        ayuda: 'La red responde pero el servidor está lento. Intenta de nuevo.',
+      };
+    case 'servidor':
+      return {
+        prefijo: 'El servidor falló', vuelve: 'el servidor responda',
+        titulo: 'EL SERVIDOR FALLÓ',
+        ayuda: 'No es la red de esta tienda: es un fallo del servidor. Avisa a Sistemas si se repite.',
+      };
+    case 'peticion':
+      return {
+        prefijo: 'El servidor rechazó la consulta', vuelve: 'se resuelva',
+        titulo: 'EL SERVIDOR RECHAZÓ LA CONSULTA',
+        ayuda: 'Escanea de nuevo; si se repite, avisa a Sistemas.',
+      };
+    default:
+      return {
+        prefijo: 'Sin conexión', vuelve: 'vuelva la red',
+        titulo: 'SIN CONEXIÓN AL SERVIDOR',
+        ayuda: 'Verifica la red.',
+      };
+  }
 }
 
 /** Cuánto se espera al ODS antes de caer al respaldo. En mostrador, 2.5s ya es una eternidad. */
@@ -222,22 +300,23 @@ export class VerificadorService {
           unidadBase: r.unidad_base ?? null,
         };
       }),
-      // Sin red / timeout / 5xx → respaldo. Si tampoco hay respaldo, se dice.
-      catchError(() => from(this.buscarEnRespaldo(q, sucursal))),
+      // Sin red / timeout / 5xx / 4xx → respaldo, y se dice POR QUÉ (`[VAC.L10]`). Si tampoco hay
+      // respaldo, se dice también.
+      catchError((e: unknown) => from(this.buscarEnRespaldo(q, sucursal, clasificarFallo(e)))),
     );
   }
 
   /** Resuelve un código contra el snapshot local de esa sucursal. */
-  private async buscarEnRespaldo(codigo: string, sucursal: string | null): Promise<ResultadoBusqueda> {
+  private async buscarEnRespaldo(codigo: string, sucursal: string | null, motivoRespaldo: MotivoRespaldo): Promise<ResultadoBusqueda> {
     const suc = sucursal;
-    if (!suc) return { estado: 'sin_datos', codigo };
+    if (!suc) return { estado: 'sin_datos', codigo, motivoRespaldo };
 
     const cargado = await this.cargarIndice(suc);
-    if (!cargado) return { estado: 'sin_datos', codigo };
+    if (!cargado) return { estado: 'sin_datos', codigo, motivoRespaldo };
 
     const snapAl = this.snapshot()?.generado ?? null;
     const item = this.indice.get(codigo) ?? this.indice.get(codigo.replace(/^0+/, '')) ?? this.indice.get(codigo.padStart(5, '0'));
-    if (!item) return { estado: 'no_encontrado', origen: 'respaldo', codigo, snapshotAl: snapAl };
+    if (!item) return { estado: 'no_encontrado', origen: 'respaldo', codigo, snapshotAl: snapAl, motivoRespaldo };
 
     const unidades = (item.u || []).map((x) => ({ u: x.u, precio_con_iva: x.p, precio_sin_iva: x.s, factor: 1 }));
     // `[TDA.3]` La unidad del código escaneado, del segundo índice del snapshot. Se busca con las
@@ -253,6 +332,7 @@ export class VerificadorService {
       estado: 'encontrado',
       origen: 'respaldo',
       snapshotAl: snapAl,
+      motivoRespaldo,
       producto: {
         codigo: item.c,
         nombre: item.n,
@@ -290,12 +370,16 @@ export class VerificadorService {
             total: payload.total ?? payload.productos?.length ?? 0,
             generado: payload.generado,
             descargadoAl: guardado.ultima_sincronizacion,
+            formatoAnterior: esFormatoAnterior(payload),
           };
           this.snapshot.set(estado);
           const edad = Date.now() - Date.parse(guardado.ultima_sincronizacion);
           const vencido = !Number.isFinite(edad) || edad > SNAPSHOT_TTL_MS;
-          if (!vencido || !navigator.onLine) return of(estado);
-          // Vencido: se intenta refrescar, pero el viejo sirve igual si la bajada falla.
+          // `[VAC.L11]` Un respaldo de formato anterior NO espera a las 12 h: en cuanto hay red se
+          // re-descarga, porque le faltan campos que la pantalla ya sabe mostrar.
+          if (!(vencido || estado.formatoAnterior) || !navigator.onLine) return of(estado);
+          // Vencido (o de formato anterior): se intenta refrescar, pero el viejo sirve igual si la
+          // bajada falla.
           return this.descargarSnapshot(sucursal).pipe(catchError(() => of(estado)));
         }
         if (!navigator.onLine) return of(null);
@@ -316,6 +400,7 @@ export class VerificadorService {
               total: payload.total ?? payload.productos.length,
               generado: payload.generado,
               descargadoAl: new Date().toISOString(),
+              formatoAnterior: esFormatoAnterior(payload),
             };
             this.snapshot.set(estado);
             this.armarIndice(sucursal, payload);
@@ -398,6 +483,7 @@ export class VerificadorService {
       total: payload.total ?? payload.productos.length,
       generado: payload.generado,
       descargadoAl: guardado.ultima_sincronizacion,
+      formatoAnterior: esFormatoAnterior(payload),
     });
     this.armarIndice(sucursal, payload);
     return true;

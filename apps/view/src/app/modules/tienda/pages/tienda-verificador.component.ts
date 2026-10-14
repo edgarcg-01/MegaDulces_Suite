@@ -16,7 +16,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { CountUpDirective } from '../../../shared/directives/count-up.directive';
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
-import { EstadoSnapshot, OrigenPrecio, ProductoPrecio, ResultadoBusqueda, SucursalVerificador, VerificadorService } from '../verificador.service';
+import { EstadoSnapshot, MotivoRespaldo, OrigenPrecio, ProductoPrecio, ResultadoBusqueda, SucursalVerificador, VerificadorService, causaRespaldo } from '../verificador.service';
 
 /**
  * El precio en dos partes: entero (grande) y centavos (chicos, arriba). Pura, para que el precio
@@ -309,8 +309,8 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
           @case ('sin_datos') {
             <!-- Fallo de red SIN respaldo con qué contestar: el estado grave de verdad. -->
             <div class="vf-err is-bad">
-              SIN CONEXIÓN AL SERVIDOR
-              <small>Verifica la red. Código: {{ ultimoCodigo() }} — sin respaldo local descargado.</small>
+              {{ causaSinDatos().titulo }}
+              <small>{{ causaSinDatos().ayuda }} Código: {{ ultimoCodigo() }} — sin respaldo local descargado.</small>
               <p-button type="button" label="Descargar respaldo" icon="pi pi-download"
                         styleClass="p-button-sm" [disabled]="descargando() || !sucursal()"
                         (click)="descargarRespaldo()"></p-button>
@@ -327,6 +327,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
         <span class="vf-version">
           @if (snapshot(); as s) {
             Respaldo: {{ s.total }} productos ({{ s.descargadoAl | date:'dd/MM HH:mm' }})
+            @if (s.formatoAnterior) { · <strong>formato anterior</strong>: puede faltar mayoreo; actualiza cuando haya red }
           } @else {
             Sin respaldo local
           }
@@ -644,6 +645,10 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   readonly sucursales = signal<SucursalVerificador[]>([]);
   readonly kiosco = signal(false);
   readonly buscando = signal(false);
+  /** `[VAC.L10]` Por qué se está mostrando el respaldo (o por qué no hubo con qué contestar). */
+  readonly motivoRespaldo = signal<MotivoRespaldo | null>(null);
+  /** Titular y ayuda de la pantalla "sin datos", según la causa real. */
+  readonly causaSinDatos = computed(() => causaRespaldo(this.motivoRespaldo() ?? undefined));
   /** `[VAC.U4]` El logo no cargó: se muestra el nombre en texto (antes lo hacía un onerror inline). */
   readonly logoFalla = signal(false);
   private readonly confirmacion = inject(ConfirmationService);
@@ -1007,9 +1012,11 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
       // DESPUÉS, si de verdad se movió la cifra.
       this.precioCambio.set(false);
       this.precioAnterior.set(null);
+      this.motivoRespaldo.set(r.origen === 'respaldo' ? (r.motivoRespaldo ?? null) : null);
       if (r.origen === 'respaldo') {
+        // `[VAC.L10]` Se dice la causa REAL: "Sin conexión" sólo cuando de verdad no hay red.
         this.banner.set({
-          texto: 'Sin conexión: se está mostrando el precio de respaldo.',
+          texto: `${causaRespaldo(r.motivoRespaldo).prefijo}: se está mostrando el precio de respaldo.`,
           detalle: 'Es el catálogo descargado en esta máquina; puede haber cambiado. Confirma en caja antes de cobrar.',
           tono: 'warn',
         });
@@ -1023,16 +1030,18 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
 
     this.producto.set(null);
     this.estado.set(r.estado);
+    this.motivoRespaldo.set(r.motivoRespaldo ?? null);
     if (r.estado === 'no_encontrado') {
       this.origen.set(r.origen);
       this.snapshotAl.set(r.snapshotAl);
       this.banner.set(r.origen === 'respaldo'
-        ? { texto: 'Sin conexión: se buscó en el respaldo local.', detalle: 'Un producto dado de alta hoy puede no estar en el respaldo.', tono: 'warn' }
+        ? { texto: `${causaRespaldo(r.motivoRespaldo).prefijo}: se buscó en el respaldo local.`, detalle: 'Un producto dado de alta hoy puede no estar en el respaldo.', tono: 'warn' }
         : null);
     } else {
+      const c = causaRespaldo(r.motivoRespaldo);
       this.banner.set({
-        texto: 'Sin conexión y sin respaldo con qué contestar.',
-        detalle: 'Descarga el respaldo cuando vuelva la red.',
+        texto: `${c.prefijo} y sin respaldo con qué contestar.`,
+        detalle: `Descarga el respaldo cuando ${c.vuelve}.`,
         tono: 'bad',
       });
     }

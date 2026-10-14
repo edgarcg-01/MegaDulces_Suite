@@ -261,8 +261,27 @@ export interface VerificadorSnapshotItem {
   g?: string;
 }
 
+/**
+ * `[VAC.L11]` Versión del FORMATO del snapshot que sirve `/kp/precios-todos`.
+ *
+ * El snapshot se guarda en el navegador del kiosco y vive 12 h, así que convive con backends más
+ * nuevos. Hasta hoy un formato viejo se leía "con lo que tuviera" y la ausencia de un campo
+ * degradaba en silencio (sin unidad escaneada, sin mayoreo). Ahora el snapshot DECLARA su versión:
+ * el kiosco sabe que su respaldo es de un formato anterior, lo dice en pantalla y se re-descarga
+ * en cuanto hay red en vez de esperar al vencimiento.
+ *
+ *  · 1 (o sin `v`) = anterior a esta marca: sin garantías sobre `bu`, `m` ni `g`.
+ *  · 2 = lleva la unidad de cada código (`bu`), el mayoreo compacto con su equivalencia (`m`/`eq`)
+ *        y el gramaje (`g`).
+ *
+ * Se sube al CAMBIAR la forma del snapshot, no en cada release.
+ */
+export const VERIFICADOR_SNAPSHOT_FORMATO = 2;
+
 /** `GET /kp/precios-todos`. */
 export interface VerificadorSnapshot {
+  /** Versión del formato (`VERIFICADOR_SNAPSHOT_FORMATO`). Ausente en respaldos anteriores a VAC.L11. */
+  v: number;
   total: number;
   sucursal: string | null;
   generado: string;

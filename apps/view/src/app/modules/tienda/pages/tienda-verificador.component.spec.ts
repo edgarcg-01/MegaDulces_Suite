@@ -436,6 +436,38 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(el.querySelector('.vf-card')).toBeTruthy();
   });
 
+  /** `[VAC.L10]` El aviso dice la causa REAL de la caída al respaldo. */
+  it('un respaldo por falla del servidor NO dice "Sin conexión"', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'respaldo', snapshotAl: '2026-09-08T12:00:00.000Z',
+      producto: CON_MAYOREO, motivoRespaldo: 'servidor',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    const banner = (fix.nativeElement as HTMLElement).querySelector('.vf-banner')?.textContent ?? '';
+    expect(banner).toContain('El servidor falló');
+    expect(banner).not.toContain('Sin conexión');
+  });
+
+  it('sin respaldo y con falla del servidor la pantalla lo dice y no manda a revisar la red', () => {
+    svc.proximo = { estado: 'sin_datos', codigo: '70001', motivoRespaldo: 'servidor' } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    const err = (fix.nativeElement as HTMLElement).querySelector('.vf-err')?.textContent ?? '';
+    expect(err).toContain('EL SERVIDOR FALLÓ');
+    expect(err).not.toContain('Verifica la red');
+  });
+
+  it('el pie declara un respaldo de formato anterior', () => {
+    svc.snapshot.set({
+      sucursal: '03', total: 9479, generado: '2026-09-08T12:00:00.000Z',
+      descargadoAl: '2026-09-08T12:05:00.000Z', formatoAnterior: true,
+    });
+    fix.componentInstance.snapshot.set(svc.snapshot());
+    fix.detectChanges();
+    expect((fix.nativeElement as HTMLElement).querySelector('.vf-version')?.textContent).toContain('formato anterior');
+  });
+
   /** La pastilla del ahorro no se duplica: una sola, la del escalón que aplica. */
   it('sólo el escalón en foco lleva la pastilla del ahorro', () => {
     conMovimientoReducido();
