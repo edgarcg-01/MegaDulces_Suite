@@ -7,7 +7,7 @@ import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
   type FinanceFindingsSinkPort, type Freshness,
   ventanaDeCobertura,
-  type CajaCobertura, type CajaCoberturaFiltro,
+  type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
 } from '@megadulces/contracts';
 
 /**
@@ -2479,7 +2479,11 @@ export class CashLedgerService {
          *
          * `null` en las dos puntas cuando no se contó nada.
          */
-        periodo_contado: { desde: periodo?.desde ?? null, hasta: periodo?.hasta ?? null },
+        // ⚠️ `from`/`to`, NO `desde`/`hasta`: `CLAUDE.md` §Convenciones fija English snake_case para
+        // los campos de DTO, y un rango de fechas no es un término de dominio sin traducción. Dos
+        // vocabularios para lo mismo a diez líneas de distancia —y justo entre los dos campos que
+        // esta fase existe para no mezclar— es cómo el próximo lector adivina cuál describe qué.
+        periodo_contado: { from: periodo?.desde ?? null, to: periodo?.hasta ?? null } satisfies CajaPeriodoContado,
       };
     });
   }

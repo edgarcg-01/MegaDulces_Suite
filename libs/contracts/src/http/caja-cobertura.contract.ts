@@ -240,6 +240,37 @@ export type CajaCobertura = z.infer<typeof CajaCobertura>;
  * lo que impide que una pantalla publique una y la otra la otra sin decir cuál.
  */
 /**
+ * ⚠️ `[CG.183]` **En qué tramo cayeron DE VERDAD los movimientos contados.** Informativo, y va
+ * **aparte de `ventana`** a propósito: *describir no es acotar*.
+ *
+ * ⛔ Está en el contrato y no suelto en la respuesta por dos razones medidas:
+ *
+ * 1. `z.object` **descarta las claves desconocidas en silencio** (no es `strict` por default), así
+ *    que un campo que el servidor manda y ningún esquema describe **desaparece sin un error** el
+ *    día que alguien parsee la respuesta. Un campo que se pierde callado es peor que uno que rompe.
+ * 2. Es el defecto de VP.2.1 al revés: allá el front inventaba un tipo que el servidor ya tenía;
+ *    acá el servidor mandaría un campo que el front tiene que redeclarar a mano.
+ *
+ * ⭐ Y merece el mismo rigor que `ventana` **aunque sea informativo, porque es el campo que hizo
+ * caer la primera versión**: lo que se publicaba como ventana era justamente esto. Separarlo fue
+ * correcto; dejarlo fuera del contrato obligaría al próximo que lea la respuesta a adivinar cuál de
+ * los dos describe las cifras — que es el estado del que esta fase salió.
+ *
+ * ⚠️ `from`/`to` y **no `desde`/`hasta`**: `CLAUDE.md` §Convenciones fija *English snake_case* para
+ * los campos de DTO, y un rango de fechas no es un término de dominio sin traducción limpia. Dos
+ * vocabularios para el mismo concepto a diez líneas de distancia, y justo entre los dos campos que
+ * esta fase existe para no mezclar.
+ */
+export const CajaPeriodoContado = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD').nullable(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD').nullable(),
+}).refine((v) => (v.from === null) === (v.to === null), {
+  message: 'el periodo contado va completo o va nulo, nunca a medias',
+  path: ['to'],
+});
+export type CajaPeriodoContado = z.infer<typeof CajaPeriodoContado>;
+
+/**
  * ⛔⛔ **LA VENTANA ES LO QUE SE PREGUNTÓ, NO LO QUE CONTESTÓ.**
  *
  * Existe como función —y no como dos `??` en el servicio— porque el defecto que cierra es
