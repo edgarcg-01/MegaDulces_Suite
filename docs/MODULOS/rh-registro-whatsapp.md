@@ -1,5 +1,96 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.3.3 · El bot le arma el CV a quien no tiene (2026-10-14)
+
+### Problema
+
+El CV es obligatorio para postularse, y mucha gente que sirve para el puesto no tiene uno ni sabe hacerlo. Se quedaban
+ahí: el bot les pedía el CV y no volvían.
+
+### Solución
+
+- Al pedir el CV se le dan dos opciones: mandar el suyo, o escribir «ayúdame» para que el bot se lo arme.
+- El bot le hace las preguntas de la solicitud de empleo que RH ya usa en papel (datos personales, documentos, escuela,
+  empleos, referencias…), con las respuestas que ya dio en el registro puestas para que conteste «sí». Puede pausar,
+  seguir y regresar a corregir.
+- Al final le manda su CV en PDF, con su foto. Si le gusta, contesta «sí» y queda postulado con ese CV y su solicitud;
+  si algo está mal, dice qué dato y se lo vuelve a preguntar.
+- Las preguntas de salud, estatura y peso, familia, dinero y sindicato sólo se hacen si la persona da su consentimiento
+  expreso. Hoy están apagadas hasta que RH apruebe el texto del consentimiento.
+
+### Cómo se implementó
+
+- `solicitud.ts` (las preguntas y sus reglas), `armado.ts` (la conversación) y `cv-html.ts` (el diseño del CV), todo sin
+  base ni red; el servicio del bot guarda la foto y el PDF en el bucket y arma el PDF con el mismo generador que usan los
+  documentos de Finanzas, que ahora vive en un lugar común.
+- WhatsApp aprendió a mandar documentos (sube el archivo a Meta y lo manda); al historial de mensajes no se copia el
+  archivo, sólo su nombre.
+- Migración nueva para guardar la solicitud mientras se arma. Pruebas con una solicitud real completa y una conversación
+  de punta a punta contra la base, comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+Armarle el CV es la diferencia entre perder a un buen candidato y tenerlo postulado. La declaración del CV se arma con
+sus propias palabras y no la escribe una IA, para que no se lea inventada. Los datos sensibles piden por ley
+consentimiento expreso; preguntarlos sin él, o guardarlos después de que la persona dice que no, sería un riesgo para la
+empresa, por eso se borran y por eso el bloque espera el texto oficial.
+
+## RH.3.3.2 · Revisar que el CV sea un CV (2026-10-14)
+
+### Problema
+
+Cuando el bot pedía el CV, cualquier archivo que llegara se tomaba como CV. En Mega Talento eso dejó expedientes con
+recibos de luz, credenciales y fotos en lugar del currículum, y la postulación se daba por completa.
+
+### Solución
+
+- Antes de completar la postulación, se revisa el archivo con visión. Sólo pasa un CV o una hoja de solicitud de empleo
+  llenada (aunque sea a mano).
+- Si es otra cosa, se le dice qué parece («un comprobante — es un recibo de CFE») y qué sirve. Si no se alcanza a leer,
+  se le piden consejos para otra foto, sin decirle que mandó lo incorrecto.
+- Si la revisión no se puede hacer (la IA está caída, por ejemplo), el CV se acepta y queda marcado para que RH lo vea.
+
+### Cómo se implementó
+
+- `validar-cv.ts` tiene la regla y los mensajes; `validar-cv.service.ts` le pregunta a Claude (Haiku, con visión) qué
+  es el archivo.
+- El resultado queda en la ficha del candidato (`portal_data.validacion_cv`), con la marca de «revisar» cuando hubo duda.
+- Pruebas comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+Rechazar un CV de verdad le cierra la puerta a alguien que ya contestó doce preguntas; por eso, cuando no se puede
+revisar, se acepta y se avisa a RH en lugar de rechazar. Lo ilegible no se acepta porque tampoco lo podría leer RH. En
+la Suite el CV en Word no se acepta (sólo PDF o foto, igual que en la página de empleo).
+
+## RH.3.3.1 · Notas de voz (2026-10-14)
+
+### Problema
+
+Mucha gente contesta por audio: es más rápido y hay quien escribe con dificultad. El bot no entendía las notas de voz,
+así que la persona se quedaba atorada en la misma pregunta.
+
+### Solución
+
+- La nota de voz se convierte en texto y cuenta como si la persona lo hubiera escrito: sirve para contestar, para los
+  comandos y para corregir.
+- Siempre se le repite lo que se entendió («🎤 Escuché: …»), para que lo corrija si quedó mal.
+- Si el audio no se entiende, se le pide que lo repita más cerca, más corto o por escrito, según el caso.
+
+### Cómo se implementó
+
+- Se usa el servicio de transcripción que la Suite ya tenía (Groq Whisper), con tres opciones nuevas que no cambian lo
+  que ya hacía: el nombre del archivo (para que reconozca el formato de WhatsApp), una lista de palabras de la casa
+  («anaquelista», «CURP») y temperatura 0.
+- `libs/hr/src/lib/talent/bot/voz.ts` descarta las frases que Whisper inventa cuando hay silencio («Gracias por ver el
+  video») y arma el eco y los mensajes de falla.
+- Pruebas comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+Una transcripción equivocada que se guarda sin avisar deja un dato falso en el registro; repetirla le da a la persona la
+oportunidad de corregirla. Y es mejor pedirle que repita que guardar una frase que nunca dijo.
+
 ## RH.3.2.1 · Entender mensajes con varios datos y contestar dudas (2026-10-13)
 
 ### Problema

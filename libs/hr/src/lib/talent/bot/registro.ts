@@ -92,6 +92,8 @@ export interface Turno {
   confirmado?: boolean;
   /** Pidió empezar de nuevo: el servicio limpia el resultado anterior. */
   reiniciado?: boolean;
+  /** `[RH.3.3.3]` Dijo que no tiene CV: el servicio arranca el armado (la solicitud por chat). */
+  iniciarArmado?: boolean;
 }
 
 // ── Utilidades de texto ──────────────────────────────────────────────────────────────────
@@ -316,17 +318,28 @@ export const SALUDO = '¡Hola! 👋 Bienvenido(a) al reclutamiento de *MegaDulce
   + 'Te haré unas preguntas para registrar tu solicitud.\n'
   + '💡 En cualquier momento puedes escribir *vacantes*, *sucursales* o *ayuda*.';
 
+/**
+ * `[RH.3.3.3]` La oferta del CV en un solo lugar: las DOS opciones. En Mega Talento el primer mensaje del CV decía
+ * «arma uno sencillo y mándalo»: justo a quien no sabe hacerlo se le pedía que lo hiciera solo.
+ */
+export const OFERTA_CV = 'Elige la opción que te acomode 👇\n\n'
+  + '1️⃣ *Ya tengo CV* → mándamelo por aquí (*PDF* o *foto*) y con eso quedas listo(a).\n\n'
+  + '2️⃣ *No tengo CV o no sé cómo hacerlo* → escribe *ayúdame* (o contesta *2*) y *yo te lo armo*: te hago las preguntas '
+  + 'de la solicitud y te entrego tu currículum con diseño y con tu foto. Contestas a tu ritmo — escribe *pausa* cuando '
+  + 'quieras parar y *seguir* para continuar.';
+
 export const PIDE_CV = '¡Gracias! Ya tengo tus datos. 🙌\n\n'
-  + 'Para *completar tu postulación* falta un último paso: tu *currículum (CV)* 📄\n\n'
-  + 'Mándamelo por aquí en *PDF* o *foto* y con eso quedas listo(a).\n\n'
+  + `Para *completar tu postulación* falta un último paso: tu *currículum (CV)* 📄\n\n${OFERTA_CV}\n\n`
   + '_Sin tu CV tu postulación no queda registrada, así que no lo dejes pasar._';
 
-const RECUERDA_CV = 'Sólo me falta tu *currículum (CV)* 📄 Mándamelo por aquí en *PDF* o *foto*.\n\n'
-  + '_Si quieres corregir tus datos antes, escribe *reiniciar*._';
+const RECUERDA_CV = `Para *completar tu postulación* me falta tu *currículum (CV)* 📄\n\n${OFERTA_CV}`;
 
-// `[RH.3.3]` traerá «yo te lo armo» (la solicitud de empleo por aquí). Mientras, se dice la verdad.
-const SIN_CV_TODAVIA = 'Entiendo 🙏 Por ahora necesito tu CV en *PDF* o como *foto* (aunque sea sencillo, '
-  + 'con tus datos y tus trabajos anteriores). Tus datos ya quedaron guardados: cuando lo tengas, mándamelo por aquí.';
+/** ¿Pide que le armemos el CV? El «2» porque la oferta trae dos opciones numeradas y mucha gente contesta el número. */
+export function pideAyudaConCV(texto: string): boolean {
+  const t = normalizarTexto(texto).trim();
+  if (/^(2|dos|la dos|opcion 2|la 2)\b\.?$/.test(t)) return true;
+  return /(ayuda|ayudame|ayudeme|hazme|hazlo|armalo|armame|no tengo|no cuento|no se hacer|no se como|nunca he hecho|no tengo curriculum|no tengo cv|no lo tengo|como lo hago|no puedo)/.test(t);
+}
 
 export const EN_REVISION = '¡Gracias! Tu postulación está *completa* y en este momento el equipo de '
   + 'Capital Humano la está *revisando* 👀\n\n'
@@ -496,7 +509,8 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
     return { estado: PREFIJO + PASOS[0].campo, datos: {}, orientacion: null, respuestas: [`🔄 Empezamos de nuevo.\n\n${PASOS[0].pregunta}`], reiniciado: true };
   }
 
-  const comando = comandoInformativo(texto);
+  // Esperando el CV, «ayuda» es pedir que le armemos el CV, no el menú.
+  const comando = estado === 'esperando_cv' && pideAyudaConCV(texto) ? null : comandoInformativo(texto);
   if (comando) {
     const info = comando === 'menu' ? construirMenu() : comando === 'vacantes' ? construirVacantes(ctx.vacantes) : construirSucursales();
     if (estado === 'nuevo') return turno(PREFIJO + PASOS[0].campo, datos, `${info}\n\n${SALUDO}\n\n${PASOS[0].pregunta}`);
@@ -663,10 +677,13 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
   }
 
   if (estado === 'esperando_cv') {
-    const t = normalizarTexto(texto);
-    const noTiene = /^(2|dos)$/.test(t)
-      || /(ayuda|ayudame|hazme|armalo|no tengo|no cuento|no se hacer|no se como|nunca he hecho|no lo tengo|como lo hago|no puedo)/.test(t);
-    return turno(estado, datos, noTiene ? SIN_CV_TODAVIA : RECUERDA_CV);
+    // «ayúdame» o «2»: el servicio arranca el armado (la solicitud por chat) y le contesta la primera pregunta.
+    if (pideAyudaConCV(texto)) return { ...turno(estado, datos), iniciarArmado: true };
+    // «1»: va a mandar el suyo; se le confirma en corto en vez de repetirle las dos opciones.
+    if (/^1\b|^(uno|la uno|opci[oó]n 1|ya tengo|s[ií] tengo)\b/i.test(texto)) {
+      return turno(estado, datos, '¡Va! Mándame tu *currículum* por aquí como *PDF* o *foto* 📄\n\n_Si al final no lo encuentras, escribe *ayúdame* y te lo armo yo._');
+    }
+    return turno(estado, datos, RECUERDA_CV);
   }
 
   if (estado === 'postulada') return turno(estado, datos, EN_REVISION);

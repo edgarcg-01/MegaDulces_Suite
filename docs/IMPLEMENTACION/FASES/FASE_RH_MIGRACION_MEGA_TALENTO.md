@@ -534,8 +534,59 @@ que ese formulario necesita (`[RH.2.4]`).
   RFC o NSS) viaja a Anthropic, igual que en Mega Talento. Pruebas: la lógica, el intérprete con cliente falso y dos
   casos contra la base (varios datos en el primer mensaje; propuesta descartada por carrera), **mutadas a rojo** (sin
   validar, campos de más, ignorar la carrera, IA al omitir, duda sin tope).
-- [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
-  preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
+- [ ] **[RH.3.3]** 🔨 CV, expediente y voz. Medido el 14-oct en Mega Talento: `solicitud.js` 1,170 líneas, `cv-pdf.js`
+  591, `cv-entrega.js` 247, `transcribir.js` 168. Se parte en cuatro, del más chico y seguro al más grande:
+  `[RH.3.3.1]` notas de voz · `[RH.3.3.2]` validar el CV con visión · `[RH.3.3.3]` armar el CV (la solicitud por chat
+  y el PDF) · `[RH.3.3.4]` documentos del expediente a sus casilleros.
+- [ ] **[RH.3.3.1]** 🧪 Notas de voz (2026-10-14). Portado de `transcribir.js`: la nota se transcribe con el servicio
+  COMPARTIDO `SpeechToTextService` (Groq Whisper, ya existía para el dictado de caducidades) y el texto entra al registro
+  **como si lo hubiera escrito** (comandos, IA, validaciones y orientación incluidos). **Siempre se le repite lo que se
+  entendió** («🎤 _Escuché:_ …») — una transcripción equivocada guardada en silencio deja un dato falso sin que se
+  entere. Las alucinaciones de Whisper con silencio («Gracias por ver el video.») cuentan como «no te entendí», y cada
+  falla le pide algo distinto (más corta, más cerca, escríbelo). El servicio compartido gana tres opciones **aditivas**:
+  nombre de archivo (Groq deduce el formato por la extensión y **antes nombraba todo `audio.webm`**: una nota de
+  WhatsApp es ogg/opus), pista de vocabulario y temperatura 0; sin opciones manda exactamente lo mismo que antes
+  (candado propio). Sin `GROQ_API_KEY`, a la nota se le pide que lo escriba. Pruebas mutadas a rojo (sin filtro de
+  alucinación, sin eco, sin nombre de archivo, temperatura 0 perdida). **No incluye:** guardar la transcripción en el
+  historial de WhatsApp (el libro registra el audio entrante sin texto; RH no la ve todavía).
+- [ ] **[RH.3.3.2]** 🧪 Validar el CV con visión (2026-10-14). Portado de `validarCV`: antes de completar la postulación
+  se revisa si el archivo ES un CV (`HrCvValidatorService`, Haiku con visión sobre `AnthropicService`; regla pura en
+  `validar-cv.ts`). Pasa SÓLO el CV o la **hoja de solicitud de empleo** llenada; lo demás no entra ni crea candidato,
+  y se le dice qué parece («parece un comprobante — es un recibo de CFE») y qué sirve. A lo ILEGIBLE no se le acusa de
+  mandar lo incorrecto: se le piden tips para otra foto. La asimetría de Mega Talento se conserva: **si no se pudo
+  revisar (sin clave, error, HEIC), se ACEPTA y se marca** para que RH lo mire — un filtro que no puede evaluar no se
+  vuelve un muro; un PDF que el proveedor rechaza por páginas sí es la respuesta («un CV no tiene 100 páginas»). El
+  veredicto queda en `portal_data.validacion_cv` (`tipo`, `motivo`, `revisar`). Pruebas mutadas a rojo (no rechazar,
+  fallar cerrado, no detectar el PDF enorme). **Diferencias declaradas:** el CV en Word no se acepta (la Suite valida
+  por firma sólo PDF e imágenes, igual que la web; Mega Talento lo aceptaba sin revisar); y lo rechazado no se archiva
+  en su casillero (allá una INE mandada por error quedaba en el expediente) — eso va con `[RH.3.3.4]`.
+- [ ] **[RH.3.3.3]** 🧪 Armar el CV (2026-10-14). A quien no tiene CV, el bot se lo ARMA. Al pedir el CV se le ofrecen
+  las DOS opciones (`OFERTA_CV`: mandar el suyo, o «ayúdame»/«2» y el bot se lo arma; en Mega Talento el primer mensaje
+  le pedía armarlo solo). **La solicitud** (`bot/solicitud.ts`) es el catálogo de la hoja TPASA 2002 que usa RH, portado
+  con sus validadores (fecha, CURP, estatura, «--» rechazado, tecleo al azar, «no lo recuerdo» como salida), sus bloques
+  repetidos (4 empleos, 3 referencias, 5 escuelas: se pregunta si los hay), las sugerencias del registro («contesta
+  *sí*»), el avance por BLOQUES (no promete un total que cambia) y la foto al final. **La conversación**
+  (`bot/armado.ts`): pausa/seguir, atrás, la foto (validada por firma, al bucket), al terminar el CV en PDF que se le
+  MANDA por WhatsApp para revisar, «sí» lo postula con ese PDF y «corregir» borra el dato nombrado y lo vuelve a
+  preguntar (el PDF viejo deja de valer). **El CV** (`bot/cv-html.ts`): HTML → PDF con el Chromium compartido; la
+  declaración personal se arma con SUS palabras (no un modelo), sin experiencia lleva un «Objetivo», todo lo del
+  candidato se escapa. Al aceptar, el candidato se crea con el PDF como CV (`portal_data.validacion_cv.tipo =
+  armado_por_bot`) y la solicitud en `candidates.application`. **⛔ Lo sensible, con consentimiento expreso (decisión
+  de David, 14-oct):** salud, estatura y peso, familia, economía y sindicato son datos sensibles (LFPDPPP arts. 3 y 9);
+  esas preguntas sólo existen si hay texto de consentimiento VIGENTE y la persona dijo «sí» (queda la versión y la
+  fecha); si dice que no o se retracta, lo ya contestado se BORRA. **El texto es un BORRADOR y está APAGADO**
+  (`HR_CONSENTIMIENTO_SENSIBLES=vigente` lo prende): mientras RH/legal no lo aprueben, la hoja se hace sin lo sensible.
+  El estado civil ya no se imprime en el CV; el embarazo sigue apagado (LFT 133 XIV). **Infra nueva:** (1) WhatsApp
+  manda DOCUMENTOS (`WhatsAppPort.sendDocument`: se sube el archivo a Meta y se manda por su id; simulador y cola de
+  salida; al libro de mensajes va el nombre y el tipo, NO el archivo); (2) el Chromium de PDFs sube de `libs/finance`
+  a `libs/platform-core` (su propio comentario lo pedía al segundo dominio; Finanzas lo reexporta sin cambiar a sus
+  consumidores; `puppeteer` se carga al primer PDF). Mig `20261014083512` (`bot_conversations.application` + estados
+  del armado; aditiva). Pruebas: el recorrido completo de la solicitud real escaneada (90–130 preguntas, sin repetir),
+  sin consentimiento, la más corta, el avance, el armado, el HTML, el documento en WhatsApp y en Meta, y la
+  conversación completa contra la base («ayúdame» → solicitud → foto → PDF → «sí» → candidata con CV y solicitud);
+  **mutadas a rojo** (no purgar, sin filtro de sensibles, sin escapar, el archivo al libro, sin solicitud). **No
+  incluye:** leer datos de la FOTO de un documento (INE, CURP); avisos versionados con titulares que no son usuarios
+  (deuda declarada: PRV.2 liga la aceptación a un usuario).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
   (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
 - [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.

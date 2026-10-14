@@ -32,7 +32,9 @@ export interface RecruitmentInbound {
 /** Lo que el bot quiere contestar (la ingesta lo manda desde el mismo número y lo registra). */
 export type RecruitmentReply =
   | { kind: 'text'; body: string }
-  | { kind: 'interactive'; body: string; buttons: Array<{ id: string; title: string }>; header?: string | null };
+  | { kind: 'interactive'; body: string; buttons: Array<{ id: string; title: string }>; header?: string | null }
+  /** `[RH.3.3.3]` Un documento (el CV que el bot le armó): el archivo en base64, su tipo, nombre y un texto opcional. */
+  | { kind: 'document'; base64: string; mime: string; filename: string; caption?: string | null };
 
 export interface RecruitmentBotPort {
   /** Procesa un mensaje del número de reclutamiento y devuelve 0..n respuestas, en orden. Scope CLS ya establecido. */

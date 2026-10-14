@@ -135,9 +135,12 @@ describe('[RH.3.2] registro por WhatsApp', () => {
     expect([t.estado, t.datos, t.reiniciado]).toEqual(['esperando_position_interest', {}, true]);
   });
 
-  it('esperando el CV: «no tengo» recibe una respuesta honesta (armarlo es [RH.3.3]); lo demás, un recordatorio', () => {
-    expect(conversar(['no tengo cv'], { estado: 'esperando_cv' }).respuestas[0]).toContain('Tus datos ya quedaron guardados');
-    expect(conversar(['qué sigue?'], { estado: 'esperando_cv' }).respuestas[0]).toContain('Sólo me falta tu *currículum');
+  it('[RH.3.3.3] esperando el CV: «no tengo», «ayúdame», «ayuda» o «2» piden el armado; «1» lo va a mandar; lo demás recuerda las dos opciones', () => {
+    for (const t of ['no tengo cv', 'ayúdame', 'ayuda', '2']) expect([t, conversar([t], { estado: 'esperando_cv' }).iniciarArmado]).toEqual([t, true]);
+    expect(conversar(['1'], { estado: 'esperando_cv' }).respuestas[0]).toContain('Mándame tu *currículum*');
+    const otro = conversar(['qué sigue?'], { estado: 'esperando_cv' });
+    expect([otro.iniciarArmado, otro.respuestas[0].includes('yo te lo armo')]).toEqual([undefined, true]);
+    expect(PIDE_CV).toContain('*ayúdame*');
   });
 
   it('validadores', () => {
