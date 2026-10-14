@@ -81,12 +81,18 @@ export class FinanceBankController {
   @ApiQuery({ name: 'sync', required: false, description: 'true = corre inline y devuelve el resultado (CLI/smokes).' })
   @ApiOperation({ summary: 'Corre el matching por-transacción (retiros banco ↔ pagos Kepler 102). Async: 202 + job_id, resultado por WS `finance_job`.' })
   match(
-    @Body() body: { period?: string; sync?: boolean },
+    @Body() body: { period?: string; sync?: boolean; dry_run?: boolean },
     @Query('sync') sync: string,
+    @Query('dry_run') dryRunQ: string,
     @Req() req: AuthedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
     const period = body?.period;
+    // [CB.50] En seco: corre el motor completo y NO escribe. Devuelve `diff` (antes/después +
+    // los que perderían su pareo, nominales). Siempre inline: un antes/después que se contesta
+    // con 202 y llega por WS no sirve para decidir si el cambio entra.
+    const dryRun = dryRunQ === 'true' || body?.dry_run === true;
+    if (dryRun) return this.svc.runMatch(period, { dryRun: true });
     if (wantsInline(sync, body?.sync)) return this.svc.runMatch(period);
     const label = 'Conciliación ' + (period || 'periodo actual');
     return this.delegate(res, 'bank-match', label, req?.user?.full_name || req?.user?.username, () => this.svc.runMatch(period));
