@@ -17,7 +17,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo } from '@megadulces/contracts';
-import { prepararFirma, pintarQr, type FirmaCanvas } from '@megadulces/ui-web';
+import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
  * `[CG.74]` La página que abre el teléfono para firmar. Vive acá como constante porque la dicen
@@ -6023,14 +6023,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   buscarCortes(e: AutoCompleteCompleteEvent): void {
     if (this.cortesEstado() === 'inicial') { this.cargarCortesPos(); return; }
-    const q = (e.query || '').trim().toLowerCase();
     const base = this.ordenarCortes(this.cortesPos());
     // Busca por caja, folio, plaza Y CÓDIGO. Sin el código, quien lee «03» en el papel no lo
     // encuentra, que es la mitad del problema que la lista viene a resolver.
-    const hit = q
-      ? base.filter((c) => `${c.referencia} ${c.documento} ${c.sucursal_nombre} ${c.sucursal} ${c.fecha}`
-        .toLowerCase().includes(q))
-      : base;
+    // ⭐ Tokenizado con el helper compartido, no `includes()`: así «pina» encuentra «PIÑA», el
+    // orden de las palabras deja de importar, y «03 caja» ya no exige que estén pegadas.
+    const hit = filtrarPorBusqueda(base, e.query, (c) =>
+      [c.referencia, c.documento, c.sucursal_nombre, c.sucursal, c.fecha].map((v) => (v == null ? '' : String(v))));
     this.cortesOpciones.set(hit.map((c) => ({ ...c, label: this.corteLabel(c) })));
   }
 
