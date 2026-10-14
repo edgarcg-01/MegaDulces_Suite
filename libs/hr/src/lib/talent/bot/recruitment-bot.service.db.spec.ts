@@ -140,6 +140,26 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
         const c4 = await trx('talent.bot_conversations').where({ phone_key: tel4k }).first('state', 'data');
         r['carrera'] = [c4.state, c4.data.full_name, c4.data.position_interest === nombreVacante];
 
+        // ── [RH.3.3.1] Notas de voz: la transcripción entra como texto, con eco; una alucinación no toca nada ──────────
+        const tel5 = `521${String(sello + 17).slice(-10)}`;
+        const tel5k = tel5.slice(-10);
+        let siguiente = nombreVacante;
+        const pedidos: Array<{ mime: string; opts: Record<string, unknown> }> = [];
+        const conVoz = new HrRecruitmentBotService(tk as never, intake, undefined, {
+          hasApiKey: true,
+          transcribe: async (_b64: string, mime: string, opts: Record<string, unknown>) => { pedidos.push({ mime, opts }); return { text: siguiente }; },
+        } as never);
+        const nota = () => msg({ phone: tel5, type: 'audio', media: { id: 'a1', mimeType: 'audio/ogg; codecs=opus', filename: null },
+          descargar: async () => ({ buffer: Buffer.from('OggS-nota'), mime: 'audio/ogg; codecs=opus' }) });
+        await bot.handleMessage(msg({ phone: tel5, text: 'hola' }));
+        r['voz'] = (await conVoz.handleMessage(nota())).map((x) => x.body).join('\n');
+        r['vozEstado'] = (await trx('talent.bot_conversations').where({ phone_key: tel5k }).first('state')).state;
+        siguiente = 'Gracias por ver el video.';
+        r['alucina'] = (await conVoz.handleMessage(nota())).map((x) => x.body).join('\n');
+        r['alucinaEstado'] = (await trx('talent.bot_conversations').where({ phone_key: tel5k }).first('state')).state;
+        r['sinVoz'] = (await bot.handleMessage(nota())).map((x) => x.body).join('\n');
+        r['vozPedido'] = [pedidos[0]?.opts['filename'], pedidos[0]?.opts['temperature'], String(pedidos[0]?.opts['prompt']).includes('anaquelista')];
+
         // ── CHECKs ─────────────────────────────────────────────────────────────────────────────
         const C = 'talent.bot_conversations';
         const fila = (o: Record<string, unknown>) => ({ tenant_id: TENANT, phone: `52${String(sello + ++n).slice(-10)}`, ...o });
@@ -185,6 +205,12 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(String(r['ia'])).toMatch(/^¡Hola! 👋 Bienvenido/);
     // La IA no aplicó (la conversación cambió): «Marta…» entró por el camino determinista como respuesta al nombre.
     expect(r['carrera']).toEqual(['esperando_email', 'Marta Prueba Ruiz', true]);
+    expect(String(r['voz'])).toMatch(/^🎤 _Escuché:_ "Cajero RH32 \d+"\n\n¡Buenas noticias!/);
+    expect(r['vozEstado']).toBe('esperando_full_name');
+    expect(String(r['alucina'])).toContain('no alcancé a distinguir');
+    expect(r['alucinaEstado']).toBe('esperando_full_name');
+    expect(String(r['sinVoz'])).toContain('no puedo escucharla');
+    expect(r['vozPedido']).toEqual(['nota.ogg', 0, true]);
     expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
     expect(r['buenos']).toEqual(['sin error', 'sin error']);
   }, 60_000);

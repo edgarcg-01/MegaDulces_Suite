@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { AnthropicService, CloudinaryModule, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
+import { AnthropicService, CloudinaryModule, SpeechToTextService, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
@@ -56,6 +56,8 @@ import { HrRecruitmentInterpreterService } from './talent/bot/interprete-registr
     // `[RH.3.2.1]` la IA del registro por WhatsApp, sobre el cliente compartido de Anthropic (infra leaf: cada módulo
     // que lo usa lo pone en sus providers). Sin `ANTHROPIC_API_KEY` no consulta nada y el registro sigue igual.
     AnthropicService, HrRecruitmentInterpreterService,
+    // `[RH.3.3.1]` las notas de voz del registro (Groq Whisper compartido). Sin `GROQ_API_KEY` se le pide que escriba.
+    SpeechToTextService,
   ],
   // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
   exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],

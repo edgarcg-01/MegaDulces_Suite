@@ -520,8 +520,21 @@ que ese formulario necesita (`[RH.2.4]`).
   RFC o NSS) viaja a Anthropic, igual que en Mega Talento. Pruebas: la lógica, el intérprete con cliente falso y dos
   casos contra la base (varios datos en el primer mensaje; propuesta descartada por carrera), **mutadas a rojo** (sin
   validar, campos de más, ignorar la carrera, IA al omitir, duda sin tope).
-- [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
-  preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
+- [ ] **[RH.3.3]** 🔨 CV, expediente y voz. Medido el 14-oct en Mega Talento: `solicitud.js` 1,170 líneas, `cv-pdf.js`
+  591, `cv-entrega.js` 247, `transcribir.js` 168. Se parte en cuatro, del más chico y seguro al más grande:
+  `[RH.3.3.1]` notas de voz · `[RH.3.3.2]` validar el CV con visión · `[RH.3.3.3]` armar el CV (la solicitud por chat
+  y el PDF) · `[RH.3.3.4]` documentos del expediente a sus casilleros.
+- [ ] **[RH.3.3.1]** 🧪 Notas de voz (2026-10-14). Portado de `transcribir.js`: la nota se transcribe con el servicio
+  COMPARTIDO `SpeechToTextService` (Groq Whisper, ya existía para el dictado de caducidades) y el texto entra al registro
+  **como si lo hubiera escrito** (comandos, IA, validaciones y orientación incluidos). **Siempre se le repite lo que se
+  entendió** («🎤 _Escuché:_ …») — una transcripción equivocada guardada en silencio deja un dato falso sin que se
+  entere. Las alucinaciones de Whisper con silencio («Gracias por ver el video.») cuentan como «no te entendí», y cada
+  falla le pide algo distinto (más corta, más cerca, escríbelo). El servicio compartido gana tres opciones **aditivas**:
+  nombre de archivo (Groq deduce el formato por la extensión y **antes nombraba todo `audio.webm`**: una nota de
+  WhatsApp es ogg/opus), pista de vocabulario y temperatura 0; sin opciones manda exactamente lo mismo que antes
+  (candado propio). Sin `GROQ_API_KEY`, a la nota se le pide que lo escriba. Pruebas mutadas a rojo (sin filtro de
+  alucinación, sin eco, sin nombre de archivo, temperatura 0 perdida). **No incluye:** guardar la transcripción en el
+  historial de WhatsApp (el libro registra el audio entrante sin texto; RH no la ve todavía).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
   (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
 - [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.

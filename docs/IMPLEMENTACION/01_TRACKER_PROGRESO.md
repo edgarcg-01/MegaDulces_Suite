@@ -205,6 +205,8 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[RH.3.2]** 🧪 Registro por WhatsApp: los 12 pasos de Mega Talento con sus reglas (lógica pura `bot/registro.ts`), la conversación en `talent.bot_conversations` (mig `20261013150116`, no es el candidato), las reglas de postulación al confirmar (antes de pedir el CV) y la postulación al llegar el CV.
 - [ ] **[RH.3.2.1]** 🧪 IA del registro: de un mensaje saca varios datos y contesta dudas con datos reales; la IA propone y el registro valida con los mismos validadores; sin clave o con error, sigue determinista; se consulta fuera de la transacción y se descarta si la conversación cambió.
 - [ ] **[RH.3.2.2]** 🧪 Orientación: a quien pide un puesto que no hay se le ofrecen hasta 3 vacantes reales de su zona (o se le pregunta su ciudad primero), por afinidad con lo que describió; nunca se atora; lo que pidió viaja a `portal_data.orientacion`. Vacante sin sucursales = aplica en todas (regla de la Suite). `bot_conversations.orientation` en la mig `20261013150116`.
+- [ ] **[RH.3.3]** 🔨 CV, expediente y voz, en cuatro partes: notas de voz · validar el CV · armar el CV (solicitud + PDF) · documentos a sus casilleros.
+- [ ] **[RH.3.3.1]** 🧪 Notas de voz: se transcriben con el `SpeechToTextService` compartido y entran como si las hubiera escrito, siempre con eco de lo entendido; alucinaciones de Whisper = «no te entendí». El servicio gana nombre de archivo (antes todo era `audio.webm`), pista y temperatura, aditivos.
 - [ ] **[RH.4]** ⬜ Retiro de Railway y del servicio de Windows; rotación de la contraseña de la base compartida.
 
 ### Fase VEC — Flujo del vendedor vecinal: pedido → aviso a la sucursal → pedido global · 2026-10-06

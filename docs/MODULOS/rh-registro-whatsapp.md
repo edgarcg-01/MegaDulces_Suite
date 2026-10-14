@@ -1,5 +1,33 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.3.1 · Notas de voz (2026-10-14)
+
+### Problema
+
+Mucha gente contesta por audio: es más rápido y hay quien escribe con dificultad. El bot no entendía las notas de voz,
+así que la persona se quedaba atorada en la misma pregunta.
+
+### Solución
+
+- La nota de voz se convierte en texto y cuenta como si la persona lo hubiera escrito: sirve para contestar, para los
+  comandos y para corregir.
+- Siempre se le repite lo que se entendió («🎤 Escuché: …»), para que lo corrija si quedó mal.
+- Si el audio no se entiende, se le pide que lo repita más cerca, más corto o por escrito, según el caso.
+
+### Cómo se implementó
+
+- Se usa el servicio de transcripción que la Suite ya tenía (Groq Whisper), con tres opciones nuevas que no cambian lo
+  que ya hacía: el nombre del archivo (para que reconozca el formato de WhatsApp), una lista de palabras de la casa
+  («anaquelista», «CURP») y temperatura 0.
+- `libs/hr/src/lib/talent/bot/voz.ts` descarta las frases que Whisper inventa cuando hay silencio («Gracias por ver el
+  video») y arma el eco y los mensajes de falla.
+- Pruebas comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+Una transcripción equivocada que se guarda sin avisar deja un dato falso en el registro; repetirla le da a la persona la
+oportunidad de corregirla. Y es mejor pedirle que repita que guardar una frase que nunca dijo.
+
 ## RH.3.2.1 · Entender mensajes con varios datos y contestar dudas (2026-10-13)
 
 ### Problema

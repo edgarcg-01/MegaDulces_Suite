@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, sanitizarNombre, validarAdjunto } from '@megadulces/platform-core';
+import { SpeechToTextService, TenantKnexService, sanitizarNombre, validarAdjunto } from '@megadulces/platform-core';
 import type { RecruitmentBotPort, RecruitmentInbound, RecruitmentReply } from '@megadulces/contracts';
 import { HrTalentIntakeService, type EntradaPostulacion } from '../talent-intake.service';
 import { respuestaPublica, type Decision } from '../logic/postulacion';
@@ -10,6 +10,7 @@ import {
   type DatosRegistro, type EstadoOrientacion, type Turno, type VacanteBot,
 } from './registro';
 import { HrRecruitmentInterpreterService } from './interprete-registro.service';
+import { PISTA_VOZ, conEco, esAlucinacion, mensajeFallaVoz, motivoDe, nombreAudio } from './voz';
 
 /**
  * Fase RH · `[RH.3.2]` — el BOT DE RECLUTAMIENTO de la Suite, detrás de `RECRUITMENT_BOT_PORT`: la conversación de
@@ -26,8 +27,11 @@ import { HrRecruitmentInterpreterService } from './interprete-registro.service';
  *   · `[RH.3.2.1]` Si el mensaje puede traer varios datos, consulta a la IA (`HrRecruitmentInterpreterService`) fuera
  *     de la transacción y le pasa la propuesta a la lógica pura, que la valida.
  *
- * No hace: armar el CV, las notas de voz (`[RH.3.3]`), ni avisarle a RH por WhatsApp (el candidato aparece en el
- * tablero de Reclutamiento).
+ *   · `[RH.3.3.1]` Una nota de voz se transcribe (`SpeechToTextService`) y entra como si la hubiera escrito, con el eco
+ *     de lo que se entendió.
+ *
+ * No hace: armar el CV (`[RH.3.3.3]`), ni avisarle a RH por WhatsApp (el candidato aparece en el tablero de
+ * Reclutamiento).
  */
 
 const T = 'talent.bot_conversations';
@@ -50,6 +54,8 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     private readonly intake: HrTalentIntakeService,
     /** `[RH.3.2.1]` Opcional: sin él (o sin `ANTHROPIC_API_KEY`), el registro sigue el camino determinista. */
     @Optional() private readonly interprete?: HrRecruitmentInterpreterService,
+    /** `[RH.3.3.1]` Opcional: sin él (o sin `GROQ_API_KEY`), a una nota de voz se le pide que lo escriba. */
+    @Optional() private readonly voz?: SpeechToTextService,
   ) {}
 
   async handleMessage(msg: RecruitmentInbound): Promise<RecruitmentReply[]> {
@@ -62,8 +68,25 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
       ? await this.archivo(msg, telefono)
       : msg.type === 'text' || msg.type === 'interactive'
         ? await this.texto(msg, telefono)
-        : await this.recordar(msg, telefono, NO_TEXTO);
+        : msg.type === 'audio'
+          ? await this.audio(msg, telefono)
+          : await this.recordar(msg, telefono, NO_TEXTO);
     return textos.map((body) => ({ kind: 'text' as const, body }));
+  }
+
+  // ── `[RH.3.3.1]` Nota de voz: se transcribe y entra como si la hubiera escrito ──────────
+
+  private async audio(msg: RecruitmentInbound, telefono: string): Promise<string[]> {
+    if (!this.voz?.hasApiKey) return [mensajeFallaVoz('sin_llave')];
+    const bajado = msg.descargar ? await msg.descargar() : null;
+    if (!bajado || !bajado.buffer.byteLength) return [mensajeFallaVoz('sin_audio')];
+    const r = await this.voz.transcribe(Buffer.from(bajado.buffer).toString('base64'), bajado.mime, {
+      filename: nombreAudio(bajado.mime), prompt: PISTA_VOZ, temperature: 0,
+    });
+    if (r.error) return [mensajeFallaVoz(motivoDe(r.error))];
+    if (esAlucinacion(r.text)) return [mensajeFallaVoz('vacio')];
+    // Siempre se le repite lo que se entendió: si quedó mal, lo ve y lo corrige.
+    return conEco(r.text, await this.texto({ ...msg, type: 'text', text: r.text }, telefono));
   }
 
   // ── Texto: un paso de la conversación ───────────────────────────────────────────────────
