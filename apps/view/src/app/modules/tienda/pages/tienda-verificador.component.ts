@@ -121,10 +121,12 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 
       <!-- La barra ES el disparador de la cámara: ya tenía el icono y el texto, un botón
            redondo aparte al lado del input era el mismo gesto duplicado dos veces. -->
-      <button type="button" class="vf-scanbar" [disabled]="!sucursal()"
-              aria-label="Escanear con la cámara del celular" (click)="abrirCamara()">
-        <i class="pi pi-camera" aria-hidden="true"></i> Escanea tu Producto
-      </button>
+      @if (!kiosco()) {
+        <button type="button" class="vf-scanbar" [disabled]="!sucursal()"
+                aria-label="Escanear con la cámara del celular" (click)="abrirCamara()">
+          <i class="pi pi-camera" aria-hidden="true"></i> Escanea tu Producto
+        </button>
+      }
 
       <!-- Captura: lo único con foco. Input nativo (mismo criterio que antes: un componente de
            PrimeNG metería su propio borde y rompería el look de la píldora). -->
@@ -158,14 +160,16 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                    "pop" sobre el MISMO nodo del DOM (ver comentario histórico más abajo). -->
               <div #card class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
                    [class.is-pase-b]="pase() % 2 === 1">
-                <div class="vf-card-top">
-                  <span class="vf-cod">{{ p.codigo }}</span>
-                  @if (origen() === 'respaldo') {
-                    <span class="vf-tag is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Precio de respaldo</span>
-                  } @else {
-                    <span class="vf-tag is-ok"><i class="pi pi-bolt" aria-hidden="true"></i> Precio en línea</span>
-                  }
-                </div>
+                @if (!kiosco()) {
+                  <div class="vf-card-top">
+                    <span class="vf-cod">{{ p.codigo }}</span>
+                    @if (origen() === 'respaldo') {
+                      <span class="vf-tag is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Precio de respaldo</span>
+                    } @else {
+                      <span class="vf-tag is-ok"><i class="pi pi-bolt" aria-hidden="true"></i> Precio en línea</span>
+                    }
+                  </div>
+                }
                 <div class="vf-nombre">
                   {{ p.nombre || 'Sin nombre en el catálogo' }}
                   <!-- [TDA.4] El gramaje califica al nombre, no es un dato aparte. -->
@@ -178,7 +182,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   lee despues del numero llega tarde. role=status para que el lector de pantalla
                   lo anuncie sin robar el foco de la captura (O.3: el foco no se mueve nunca).
                 -->
-                @if (precioCambio()) {
+                @if (precioCambio() && !kiosco()) {
                   <p class="vf-cambio" role="status">
                     <i class="pi pi-refresh" aria-hidden="true"></i>
                     <span>
@@ -191,40 +195,44 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   </p>
                 }
 
-                <div class="vf-unidad-lbl">POR {{ unidadLabel(unidadPrincipal()) | uppercase }}</div>
-                <div class="vf-precio"><span class="vf-peso">$</span>{{ precioPartes().entero }}@if (precioPartes().centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ precioPartes().centavos }}</span>}</div>
-
-                <!-- [TDA.3] Sólo cuando hay más de una unidad con precio: medido, el 93.6% de
-                     los SKUs tiene una sola, así que un aviso incondicional se aprendería a
-                     ignorar en 9 de cada 10 escaneos. -->
-                @if (vaAclararUnidad()) {
-                  <p class="vf-u-aclara">El código que escaneaste es de <strong>{{ unidadLabel(unidadEscaneada() || '') }}</strong>: este es su precio.</p>
-                }
-
-                <!-- [TDA.4/7] El mayoreo, con foco en la unidad ESCANEADA (backend ya
-                     descartó los tiers sin condición conocida — la pantalla pinta, no decide). -->
-                @if (mayoreo().length) {
-                  <div class="vf-mayoreo">
-                    @for (x of mayoreoConFoco(); track x.t.etiqueta) {
-                      @let t = x.t;
-                      @let pm = partes(t.precio_con_iva);
-                      <div class="vf-may-row" [class.is-realza]="t.realza" [class.is-foco]="x.destacado">
-                        <div class="vf-may-cond">Llevando <strong class="vf-may-n">{{ t.desde }}</strong> o más {{ t.palabra }}</div>
-                        <div class="vf-may-precio">
-                          <span class="vf-may-monto"><span class="vf-peso">$</span>{{ pm.entero }}@if (pm.centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ pm.centavos }}</span>}</span>
-                          <span class="vf-may-cu">{{ t.unidad_monto }}</span>
-                        </div>
-                      </div>
-                      @if (t.realza && x.destacado) {
-                        <p class="vf-may-ahorro">
-                          Te ahorras
-                          <strong [appCountUp]="t.ahorro_en_el_minimo" [appCountUpLive]="true" countUpFormat="money2"></strong>
-                          <span class="vf-may-pct">({{ t.descuento_pct }}% menos c/u)</span>
-                        </p>
-                      }
-                    }
+                <div class="vf-cuerpo" [class.con-mayoreo]="mayoreo().length > 0">
+                  <div class="vf-col-precio">
+                  <div class="vf-unidad-lbl">POR {{ unidadLabel(unidadPrincipal()) | uppercase }}</div>
+                  <div class="vf-precio"><span class="vf-peso">$</span>{{ precioPartes().entero }}@if (precioPartes().centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ precioPartes().centavos }}</span>}</div>
+  
+                  <!-- [TDA.3] Sólo cuando hay más de una unidad con precio: medido, el 93.6% de
+                       los SKUs tiene una sola, así que un aviso incondicional se aprendería a
+                       ignorar en 9 de cada 10 escaneos. -->
+                  @if (vaAclararUnidad()) {
+                    <p class="vf-u-aclara">El código que escaneaste es de <strong>{{ unidadLabel(unidadEscaneada() || '') }}</strong>: este es su precio.</p>
+                  }
                   </div>
-                }
+                  <!-- [TDA.4/7] El mayoreo, con foco en la unidad ESCANEADA (backend ya
+                       descartó los tiers sin condición conocida — la pantalla pinta, no decide). -->
+                  @if (mayoreo().length) {
+                    <div class="vf-mayoreo">
+                      <div class="vf-may-titulo"><i class="pi pi-tags" aria-hidden="true"></i> Precio por mayoreo</div>
+                      @for (x of mayoreoConFoco(); track x.t.etiqueta) {
+                        @let t = x.t;
+                        @let pm = partes(t.precio_con_iva);
+                        <div class="vf-may-row" [class.is-realza]="t.realza" [class.is-foco]="x.destacado">
+                          <div class="vf-may-cond">Llevando <strong class="vf-may-n">{{ t.desde }}</strong> o más {{ t.palabra }}</div>
+                          <div class="vf-may-precio">
+                            <span class="vf-may-monto"><span class="vf-peso">$</span>{{ pm.entero }}@if (pm.centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ pm.centavos }}</span>}</span>
+                            <span class="vf-may-cu">{{ t.unidad_monto }}</span>
+                          </div>
+                        </div>
+                        @if (t.realza && x.destacado) {
+                          <p class="vf-may-ahorro">
+                            Te ahorras
+                            <strong [appCountUp]="t.ahorro_en_el_minimo" [appCountUpLive]="true" countUpFormat="money2"></strong>
+                            <span class="vf-may-pct">({{ t.descuento_pct }}% menos c/u)</span>
+                          </p>
+                        }
+                      }
+                    </div>
+                  }
+                </div>
 
                 <!-- [TDA.3] Las OTRAS unidades, como píldoras (mismo tratamiento visual que
                      .u-item del HTML original). El factor se refiere a la unidad BASE. -->
@@ -355,6 +363,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-logo-txt { position: relative; z-index: 1; margin: 22px 0 4px; font-size: var(--fs-h1);
       font-weight: 800; letter-spacing: 1px; text-align: center; line-height: 1; }
     .vf-logo-txt .vf-m { color: var(--action); } .vf-logo-txt .vf-d { color: var(--text-main); }
+    /* En kiosco la altura es del precio: logo mas bajo y menos aire entre captura y resultado. */
+    .vf-page.is-kiosco .vf-logo { max-height: 64px; margin: 8px auto 0; }
+    .vf-page.is-kiosco .vf-result { margin-top: 8px; }
+    /* Todo lo que mide 100% y lleva borde o relleno: el ancho incluye el marco, o se sale. */
+    .vf-card, .vf-mayoreo, .vf-err, .vf-otras, .vf-cuerpo { box-sizing: border-box; }
 
     /* ── Captura: barra, input, hint ────────────────────────────────────────────────── */
     /* La camara del celular vive EN la barra: ya decia Escanea tu Producto con icono de
@@ -367,7 +380,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-scanbar:disabled { opacity: .55; cursor: default; }
     .vf-scanbar:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .vf-input-row { position: relative; z-index: 1; margin-top: 10px;
-      width: min(560px, 92vw); display: flex; align-items: center; gap: .5rem; }
+      width: min(760px, 100%); display: flex; align-items: center; gap: .5rem; }
     .vf-input { flex: 1; min-width: 0; text-align: center; font-size: var(--fs-h1); font-weight: 500;
       font-family: var(--font-mono); font-variant-numeric: tabular-nums; padding: 14px;
       border-radius: var(--r-lg); border: 2px solid var(--border-color);
@@ -395,10 +408,14 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     /* ── Tarjeta de resultado ───────────────────────────────────────────────────────────
        Elevacion por borde de 1px, sin sombra (DESIGN datos densos: borde o sombra, nunca
        las dos). El respaldo se distingue por el borde, y ademas dice Precio de respaldo. */
-    .vf-result { position: relative; z-index: 1; flex: 1; display: flex;
+    /* Ancho fluido: la tarjeta ocupa todo lo que da la pantalla (con tope) y el contenido se
+       reacomoda por el ancho del CONTENEDOR, no de la ventana. Asi vale igual en un monitor de
+       mostrador, en una ventana angosta junto al menu y en el celular. */
+    .vf-result { position: relative; z-index: 1; flex: 1; display: flex; container: vf / inline-size;
       align-items: center; justify-content: center; width: 100%; margin-top: 18px; }
-    .vf-card { width: min(740px, 92vw); min-height: 260px; background: var(--card-bg); color: var(--text-main);
-      border: 1px solid var(--border-color); border-radius: var(--r-xl); padding: 24px 28px;
+    .vf-card { width: 100%; max-width: 1600px; min-height: 260px; background: var(--card-bg); color: var(--text-main);
+      border: 1px solid var(--border-color); border-radius: var(--r-xl);
+      padding: clamp(1rem, 2.5vw, 2rem) clamp(1rem, 3vw, 2.5rem);
       text-align: center; display: flex; flex-direction: column; align-items: center; gap: .35rem;
       --vf-pop: vfPopA; animation: var(--vf-pop) .18s ease both; }
     .vf-card.is-pase-b { --vf-pop: vfPopB; }
@@ -435,7 +452,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
        (maximo 2.5 veces el minimo). Geist Mono con tabular-nums: es el dato, no el titulo. El
        color es el del texto: la jerarquia la da el tamano y el contraste, no un verde. */
     .vf-precio { font-family: var(--font-mono);
-      font-size: clamp(3.2rem, 11vw, 6.5rem); font-weight: 700; color: var(--text-main);
+      font-size: clamp(3.2rem, 10vw, 7.5rem); font-weight: 700; color: var(--text-main);
       line-height: 1; margin: 2px 0; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
     /* El signo y los centavos van chicos y pegados arriba (como en la etiqueta del anaquel):
        el cliente lee la parte en pesos y los centavos no parecen otro numero. El punto viaja
@@ -452,27 +469,44 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-u-aclara { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 46ch; }
     .vf-u-aclara strong { color: var(--text-main); font-weight: 700; }
 
-    /* Mayoreo (TDA.4/7): condicion grande arriba, precio segundo, ahorro en pastilla. */
-    .vf-mayoreo { margin-top: 14px; padding: 12px 16px 10px; border-radius: var(--r-lg);
-      border: 1px solid var(--border-color); background: var(--surface-ground); display: flex;
-      flex-direction: column; align-items: center; gap: .4rem; width: 100%; }
+    /* Cuerpo: precio y mayoreo. En angosto se apilan; con ancho (contenedor de 56rem o mas) van
+       lado a lado y el mayoreo comparte el protagonismo con el precio. */
+    .vf-cuerpo { width: 100%; display: flex; flex-direction: column; align-items: center; gap: .75rem; }
+    .vf-col-precio { display: flex; flex-direction: column; align-items: center; gap: .35rem; min-width: 0; }
+    @container vf (min-width: 56rem) {
+      .vf-cuerpo.con-mayoreo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+        align-items: center; gap: clamp(1.5rem, 3vw, 3rem); }
+      .vf-cuerpo.con-mayoreo .vf-mayoreo { margin-top: 0; }
+    }
+
+    /* Mayoreo (TDA.4/7): es EL argumento de venta (el 94 % del catalogo lo tiene), asi que va
+       enmarcado y con el color de accion: la persona que lleva una pieza tiene que ver, sin
+       buscarlo, cuanto ahorra llevando mas. La condicion es lo primero que se lee, el precio lo
+       segundo y el ahorro en pastilla. */
+    .vf-mayoreo { margin-top: 14px; padding: clamp(.75rem, 2vw, 1.5rem); border-radius: var(--r-xl);
+      border: 2px solid var(--action);
+      background: color-mix(in srgb, var(--action) 7%, var(--card-bg));
+      display: flex; flex-direction: column; align-items: center; gap: .6rem; width: 100%; }
+    .vf-may-titulo { display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .9rem;
+      border-radius: var(--r-pill); background: var(--action); color: var(--action-ink);
+      font-size: var(--fs-body); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
     .vf-may-row { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
-    .vf-may-cond { font-size: var(--fs-body); font-weight: 700; text-transform: uppercase;
-      letter-spacing: .04em; color: var(--text-muted); }
-    .vf-may-n { color: var(--text-main); font-weight: 800; font-size: var(--fs-lg); }
+    .vf-may-cond { font-size: var(--fs-lg); font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em; color: var(--text-main); }
+    .vf-may-n { color: var(--text-main); font-weight: 800; font-size: var(--fs-h1); }
     .vf-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .3rem; }
     .vf-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700;
-      font-size: clamp(1.6rem, 4vw, 2.4rem); color: var(--text-main); }
-    .vf-may-cu { font-size: var(--fs-sm); color: var(--text-muted); }
+      font-size: clamp(2.4rem, 6vw, 4.5rem); color: var(--text-main); }
+    .vf-may-cu { font-size: var(--fs-body); color: var(--text-muted); }
     .vf-may-row:not(.is-realza) .vf-may-monto, .vf-may-row:not(.is-foco) .vf-may-monto {
-      font-weight: 600; color: var(--text-muted); font-size: clamp(1.2rem, 2.6vw, 1.6rem); }
-    .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; }
-    .vf-may-ahorro { margin: 0; display: inline-flex; align-items: center; gap: .35rem;
-      padding: .3rem .75rem; border-radius: var(--r-pill); background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
-      font-size: var(--fs-sm); color: var(--ok-soft-fg); }
+      font-weight: 600; color: var(--text-muted); font-size: clamp(1.4rem, 3vw, 2.2rem); }
+    .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; font-size: var(--fs-body); }
+    .vf-may-ahorro { margin: 0; display: inline-flex; align-items: center; gap: .45rem;
+      padding: .45rem 1.1rem; border-radius: var(--r-pill); background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
+      font-size: var(--fs-lg); font-weight: 600; color: var(--ok-soft-fg); }
     .vf-may-ahorro strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-weight: 700; font-size: var(--fs-body); color: var(--ok-soft-fg); }
-    .vf-may-pct { opacity: .8; }
+      font-weight: 700; font-size: var(--fs-h2); color: var(--ok-soft-fg); }
+    .vf-may-pct { opacity: .8; font-size: var(--fs-body); }
 
     /* Otras unidades: pildoras con el precio en Geist Mono. */
     .vf-otras { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px;
@@ -490,7 +524,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 
     /* Error / no-encontrado: la severidad se distingue (no existe = aviso; sin conexion =
        grave) por borde, texto y copia, no solo por color. */
-    .vf-err { width: min(740px, 92vw); min-height: 200px; background: var(--card-bg);
+    .vf-err { width: 100%; max-width: 1100px; min-height: 200px; background: var(--card-bg);
       border: 1px solid var(--warn-border); border-radius: var(--r-xl); padding: 40px 24px; text-align: center;
       font-size: var(--fs-h1); font-weight: 800; color: var(--warn-soft-fg);
       display: flex; flex-direction: column; align-items: center; gap: 10px;

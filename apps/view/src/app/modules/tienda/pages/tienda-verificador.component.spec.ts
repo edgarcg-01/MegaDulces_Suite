@@ -425,6 +425,62 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(aviso!.textContent).toContain('62.99');
   });
 
+  // ── Modo kiosco: sin información interna (decisión 0Sistemas, 2026-10-14) ─────────────────
+  // El kiosco lo mira el CLIENTE. La cámara del celular, el código interno con su rótulo de
+  // procedencia y el aviso de "acaba de cambiar" son de quien opera la caja: ocupaban el espacio
+  // que necesita el precio. Fuera del kiosco siguen donde estaban. Lo que NO se esconde: el
+  // banner de "sin conexión / precio de respaldo", que es el que declara la procedencia.
+  it('en kiosco se ocultan la cámara, el código interno y el aviso de cambio; el precio sigue', () => {
+    fix.componentInstance.kiosco.set(true);
+    const evento = conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next(evento);
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-scanbar')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-card-top')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeNull();
+    // El precio nuevo SÍ está: ocultar el aviso no es dejar la cifra vieja.
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('71.50');
+  });
+
+  it('fuera de kiosco la cámara, el código interno y el aviso de cambio siguen a la vista', () => {
+    fix.componentInstance.kiosco.set(false);
+    const evento = conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next(evento);
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-scanbar')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-card-top')?.textContent).toContain('17083');
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeTruthy();
+  });
+
+  it('en kiosco el precio de respaldo se sigue declarando (banner), aunque no haya rótulo en la tarjeta', () => {
+    fix.componentInstance.kiosco.set(true);
+    svc.proximo = { estado: 'encontrado', origen: 'respaldo', snapshotAl: '2026-10-14T06:12:00.000Z', producto: PRODUCTO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-card-top')).toBeNull();
+    const banner = fix.nativeElement.querySelector('.vf-banner.is-warn') as HTMLElement | null;
+    expect(banner?.textContent).toContain('respaldo');
+  });
+
+  it('el mayoreo va enmarcado con su título y el cuerpo se parte en dos columnas sólo cuando lo hay', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vf-cuerpo.con-mayoreo')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-mayoreo .vf-may-titulo')?.textContent).toContain('Precio por mayoreo');
+
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vf-cuerpo.con-mayoreo')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-mayoreo')).toBeNull();
+  });
+
   it('un aviso de OTRO producto no toca la pantalla', () => {
     conProductoEnPantalla();
     yElPrecioAhoraEs(PRODUCTO, 71.5); // si reconsultara, la cifra se movería
