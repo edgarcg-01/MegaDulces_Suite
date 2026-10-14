@@ -155,6 +155,34 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(fix.nativeElement.querySelector('input.vf-input')).toBeTruthy();
   });
 
+  it('el entero va grande y los centavos chicos aparte: el punto no se lee como otro numero', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    const hero = fix.nativeElement.querySelector('.vf-precio');
+    // El texto completo sigue siendo la cifra de siempre (lector de pantalla y copiar/pegar)...
+    expect(hero?.textContent?.replace(/\s/g, '')).toBe('$62.99');
+    // ...pero dibujada en dos partes: los centavos y su punto viajan en su propio nodo.
+    expect(hero?.querySelector('.vf-cent')?.textContent).toBe('.99');
+  });
+
+  it('precioPartes acarrea bien el redondeo, agrupa miles y no inventa centavos sin precio', () => {
+    const c = fix.componentInstance;
+    const partes = (v: number | null) => {
+      svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: {
+        ...PRODUCTO, unidades: v == null ? [] : [{ ...PRODUCTO.unidades[0], precio_con_iva: v }],
+      } };
+      c.consultar('17083');
+      fix.detectChanges();
+      return c.precioPartes();
+    };
+    expect(partes(85.995)).toEqual({ entero: '86', centavos: '00' });     // acarreo: no "85" y "100"
+    expect(partes(1234.5)).toEqual({ entero: '1,234', centavos: '50' });  // miles agrupados, centavos a 2 dígitos
+    expect(partes(7)).toEqual({ entero: '7', centavos: '00' });
+    expect(partes(null)).toEqual({ entero: '—', centavos: '' });          // sin dato: ni 0 ni centavos dibujados
+  });
+
   it('un precio en línea se pinta en grande y se rotula como en línea', () => {
     svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
     fix.componentInstance.consultar('17083');

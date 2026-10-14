@@ -176,7 +176,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                 }
 
                 <div class="vf-unidad-lbl">POR {{ unidadLabel(unidadPrincipal()) | uppercase }}</div>
-                <div class="vf-precio"><span class="vf-peso">$</span>{{ moneySinSigno(precioPrincipal()) }}</div>
+                <div class="vf-precio"><span class="vf-peso">$</span>{{ precioPartes().entero }}@if (precioPartes().centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ precioPartes().centavos }}</span>}</div>
 
                 <!-- [TDA.3] Sólo cuando hay más de una unidad con precio: medido, el 93.6% de
                      los SKUs tiene una sola, así que un aviso incondicional se aprendería a
@@ -419,7 +419,13 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-precio { font-family: var(--font-mono);
       font-size: clamp(3.2rem, 11vw, 6.5rem); font-weight: 700; color: var(--text-main);
       line-height: 1; margin: 2px 0; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
-    .vf-peso { font-size: .5em; vertical-align: baseline; margin-right: .06em; }
+    /* El signo y los centavos van chicos y pegados arriba (como en la etiqueta del anaquel):
+       el cliente lee la parte en pesos y los centavos no parecen otro numero. El punto viaja
+       con los centavos y encogido hacia los digitos: en monoespaciada ocupa una celda entera. */
+    .vf-peso, .vf-cent { font-size: .45em; vertical-align: top; line-height: 1.15; }
+    .vf-peso { margin-right: .08em; }
+    .vf-cent { margin-left: .02em; }
+    .vf-punto { margin-right: -.22em; }
 
     .vf-u-aclara { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 46ch; }
     .vf-u-aclara strong { color: var(--text-main); font-weight: 700; }
@@ -1148,12 +1154,27 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** El precio hero separa el "$" en un span chico (`.vf-peso`, calcado del HTML original):
-   * este helper da el número sin el signo para que el template lo envuelva aparte. */
-  moneySinSigno(v: number | null | undefined): string {
-    if (v == null) return '—';
-    return (Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
+  /**
+   * El precio hero en dos partes: el entero va GRANDE y los centavos chicos y arriba, como en la
+   * etiqueta del anaquel (decisión 0Sistemas, 2026-10-14).
+   *
+   * Con la cifra entera en monoespaciada el punto ocupaba una celda completa y "85.49" se leía
+   * como "85 . 49", o sea dos números. Con los centavos chicos queda clara la parte que se cobra
+   * en pesos y la que son centavos. El texto completo sigue siendo "$85.49" (un lector de pantalla
+   * y los specs lo leen igual); sólo cambia cómo se dibuja.
+   *
+   * Se parte sobre el total en CENTAVOS enteros y no sobre `toFixed`: así 85.995 -> 86.00 acarrea
+   * bien al entero en vez de quedar "85" y "100".
+   */
+  readonly precioPartes = computed((): { entero: string; centavos: string } => {
+    const v = this.precioPrincipal();
+    if (v == null) return { entero: '—', centavos: '' };
+    const total = Math.round(Math.abs(Number(v) || 0) * 100);
+    return {
+      entero: Math.floor(total / 100).toLocaleString('es-MX'),
+      centavos: String(total % 100).padStart(2, '0'),
+    };
+  });
 
   /** Mismo mapeo de `unidadLabel()` del HTML original. */
   unidadLabel(u: string): string {

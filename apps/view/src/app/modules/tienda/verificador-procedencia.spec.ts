@@ -408,10 +408,11 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).not.toMatch(enHero);
     expect(PAGE).not.toMatch(enMayoreo);
     // Los dos precios siguen siendo interpolación directa: visibles en el primer fotograma.
-    // [CV.25-look] El hero separa el "$" en `.vf-peso` (calcado del HTML original) y usa
-    // `moneySinSigno()` en vez de `money()` para eso — sigue siendo interpolación directa,
-    // no una directiva de conteo.
-    expect(PAGE).toMatch(/class="vf-precio"><span class="vf-peso">\$<\/span>\{\{ moneySinSigno\(precioPrincipal\(\)\) \}\}/);
+    // [VAC.U12] El hero separa el "$" (`.vf-peso`) y los centavos (`.vf-cent`) del entero grande,
+    // y las dos partes salen de `precioPartes()` — sigue siendo interpolación directa, no una
+    // directiva de conteo.
+    expect(PAGE).toMatch(/class="vf-precio"><span class="vf-peso">\$<\/span>\{\{ precioPartes\(\)\.entero \}\}/);
+    expect(PAGE).toMatch(/<span class="vf-cent">.*\{\{ precioPartes\(\)\.centavos \}\}<\/span>/);
     expect(PAGE).toMatch(/class="vf-may-monto">\{\{ money\(t\.precio_con_iva\) \}\}/);
   });
 
