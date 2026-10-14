@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Cambios de precio: la pantalla sube y se aprovecha el ancho (ETQ-CAMBIOS.10, 2026-10-14)
+- **El selector de día (Día · Ayer · Actualizar · Compartir) pasa a la fila de las pestañas**, a la derecha de la píldora que dejaba media barra vacía; antes ocupaba una fila propia. **Las cuatro tarjetas (Para reimprimir · Subieron · Bajaron · Sin precio) pasan a una sola línea**, con la instrucción de uso al lado, y se quitó el título repetido (la pestaña activa ya dice dónde estás; queda para lectores de pantalla). La tabla sube unos 170 px. **No se quitó ningún número ni ningún texto**; suben + bajan + sin precio siguen sumando el total.
+- **Para eso `app-metric-strip` gana `density="compact"`** (cada métrica en una línea: cifra, etiqueta y nota). Es **aditivo**: el default no cambia ninguna de las otras pantallas que lo usan. Sin migraciones ni permisos → sin re-login. **Sin validación visual todavía** (no se levanta la app en local).
 ### Added — El conciliador de la caja fuerte existía, estaba desplegado y nadie lo llamaba (CG.58.2 / CG.58.3, 2026-10-14)
 - `finance.caos_ingreso_atribucion` tenía **cero filas**, y la causa no era que `[CG.58]` estuviera mal ni sin desplegar: `POST /finance/caos/ingresos/conciliar` está en la imagen que corre desde el 7-oct, con su motor probado y el candado de base que impide reusar un cobro. **Lo que faltaba era quien lo llamara: ni botón, ni cron, ni enganche al arqueo.** Mismo patrón que la Fase IC — no faltaba módulo, faltaba que se usara.
 - Panel nuevo **«¿De qué cobros es este efectivo?»** en `/finanzas/caos`, con los tres montos separados (ADR-056): «sin respaldo» (un depósito que ningún cobro explica) y «sin depositar» (cobro que no entró al equipo) no son lo mismo y los arregla gente distinta. **Botón, no cron**: lo que escribe a demanda lo dispara quien va a mirar el resultado — un cron habría atribuido $18.36M sin que nadie hubiera visto nunca el reparto.
