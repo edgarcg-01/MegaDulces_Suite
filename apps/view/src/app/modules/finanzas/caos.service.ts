@@ -70,6 +70,51 @@ export class CaosService {
     for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
     return this.http.get<CaosConciliacion>(`${this.base}/conciliacion`, { params: p });
   }
+
+  /** `[CG.58]` Cuánto del efectivo de la caja fuerte está atado a cobros de Kepler. Sólo lee. */
+  ingresosEstado(f: { from?: string; to?: string } = {}): Observable<CaosIngresosEstado> {
+    const p: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
+    return this.http.get<CaosIngresosEstado>(`${this.base}/ingresos/estado`, { params: p });
+  }
+
+  /**
+   * `[CG.58]` Reparte y **GUARDA** la atribución. Idempotente: descuenta lo ya atribuido, así que
+   * correrlo dos veces no duplica tramos.
+   */
+  conciliarIngresos(f: { from?: string; to?: string } = {}): Observable<CaosReparto> {
+    const p: Record<string, string> = {};
+    for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
+    return this.http.post<CaosReparto>(`${this.base}/ingresos/conciliar`, {}, { params: p });
+  }
+}
+
+/**
+ * `[CG.58]` Los TRES cubos van separados a propósito (ADR-056): «sin respaldo» (un depósito que
+ * ningún cobro anterior explica) y «sin depositar» (cobro que todavía no entró al equipo) son
+ * cosas distintas y las arregla gente distinta. Sumarlos borraría esa diferencia.
+ */
+export interface CaosIngresosEstado {
+  desde: string;
+  depositos: number;
+  monto_depositado: number;
+  conciliados: number;
+  monto_conciliado: number;
+  pendientes: number;
+  monto_pendiente: number;
+  /** Efectivo cobrado que todavía no entró al equipo. */
+  monto_sin_depositar: number;
+}
+
+export interface CaosReparto {
+  depositos: number;
+  cubiertos: number;
+  sin_respaldo: number;
+  monto_depositado: number;
+  monto_respaldado: number;
+  monto_faltante: number;
+  monto_sin_depositar: number;
+  escritos: number;
 }
 
 export interface CaosCuadreDia { dia: string; caos_dep: number; kepler_ing: number; caos_dis: number; kepler_egr: number }
