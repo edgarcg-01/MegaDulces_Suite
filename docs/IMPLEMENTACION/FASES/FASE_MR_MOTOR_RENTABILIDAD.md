@@ -282,6 +282,43 @@ bloquear el margen, pero **sigue bloqueando la valuación de inventario**.
 
 ---
 
+## 8.2 El margen contra el costo estándar (MR.9, 2026-10-13)
+
+**Pedido:** «una verdad sobre la rentabilidad de cada producto: el costo estándar contra el precio de venta».
+
+**El costo, por tipo de venta:**
+
+| Venta | Costo | Por qué |
+|---|---|---|
+| Mostrador (`U-D-10`/`U-D-12`) y rutas | `kdm2.c62 × c56`: el estándar que Kepler **congela** en el renglón | Ya lo resuelve el árbitro `mv_erp_margin_daily` ([MR.8.2]) |
+| Mayoreo (`U-D-8`) | `kdii.c77 × c58 × c56`: el estándar de la **ficha de hoy**, misma sucursal | `c62` viene vacío en ~99 % (límite de la fuente) |
+
+La venta va **sin IVA/IEPS** (por renglón, `c17`/`c18`). El margen es `1 − costo / venta neta`.
+
+**Por qué la ficha sirve para el mayoreo** (prod, renglones que traen los dos costos): la diferencia en
+pesos contra el costo congelado es +0.10 % (0–30 d), +0.01 % (30–60 d) y −0.45 % (60–90 d). Más atrás no
+hay testigo: el mayoreo anterior a junio-2026 no trae ni un `c62`, así que se publica con
+`metodo_costo = 'ficha_actual'` y no se presenta como el costo del ticket.
+
+**Objetos:** `analytics.mv_erp_margin_ficha_daily` + `analytics.v_margin_standard_daily` (mig
+`20261013234951`), candado `test-newdb-margin-standard.js`.
+
+**Resultado, 12-sep → 12-oct-2026 (Kepler, sin Wincaja):**
+
+| | Venta neta | Margen contra estándar |
+|---|---:|---:|
+| Mostrador | $33,187,998 | **15.03 %** |
+| Mayoreo | $10,937,509 | **10.07 %** |
+| **Total** | **$44,125,507** | **13.80 %** |
+| Lo que publica la pantalla hoy (`venta/(1+markup)`) sobre las mismas ventas | | 10.78 % |
+
+⚠️ **El costo estándar no es lo pagado.** La Fase CE midió el mismo día 16.46 % contra estándar y 12.12 %
+contra lo pagado: el estándar es el que **fija el precio**, y cuando se queda atrás del costo de reposición
+el margen se ve mejor de lo que es. La pantalla tiene que poner esa alerta al lado
+(`v_kepler_standard_cost.veredicto = 'estandar_bajo'`).
+
+---
+
 ## 9. Riesgos
 
 | Riesgo | Mitigación |
