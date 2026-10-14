@@ -304,14 +304,38 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/Te ahorras/);
   });
 
-  // [CV.25-look] Excepción confirmada a DESIGN.md §O.3 (decisión 0Sistemas, 2026-09-12): esta
-  // pantalla clona el look de verificador.html y NO usa --action/--ok-* — usa su propia paleta
-  // cruda (--vf-naranja/--vf-verde), declarada UNA vez en :host con las mismas cifras hex del
-  // HTML original. Lo que se vigila ahora no es "cero hex" (ya no aplica acá), sino que el resto
-  // del bloque REUSE esa única fuente en vez de repetir un hex distinto a mano.
-  it('el color del mayoreo reusa la paleta declarada del componente (--vf-naranja/--vf-verde)', () => {
-    expect(PAGE).toMatch(/\.vf-may-n \{[\s\S]*?var\(--vf-naranja\)/);
-    expect(PAGE).toMatch(/\.vf-may-ahorro strong\s*\{[\s\S]*?var\(--vf-verde\)/);
+  // [VAC.U11/U12] Sin piel propia (decisión 0Sistemas, 2026-10-14). Hasta hoy este bloque
+  // vigilaba que el mayoreo reusara la paleta cruda `--vf-*` de la excepción de DESIGN.md §O.3;
+  // esa excepción se retiró. Ahora se vigila lo contrario: que los estilos de la pantalla NO
+  // traigan colores crudos, tipografía propia ni fondo propio, y por lo tanto sigan el tema
+  // claro/oscuro de la Suite como cualquier otra pantalla.
+  const ESTILOS = PAGE.slice(PAGE.indexOf('styles: [`'), PAGE.lastIndexOf('`],'));
+
+  it('los estilos no traen la paleta --vf-* ni colores hex crudos: siguen el tema', () => {
+    expect(ESTILOS.length).toBeGreaterThan(1000); // el recorte encontró el bloque de verdad
+    expect(ESTILOS).not.toMatch(/--vf-(naranja|verde|amarillo|oscuro|rojo|gris)/);
+    // #fff / #000 se permiten (DESIGN 12b: correctos en los dos temas, p. ej. texto sobre el velo
+    // negro de la cámara). Cualquier otro hex fijaría un color que no flipea en oscuro.
+    const hex = (ESTILOS.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).filter((h) => !/^#(fff|ffffff|000|000000)$/i.test(h));
+    expect(hex).toEqual([]);
+  });
+
+  it('la tipografía es la del estándar: Hanken (texto) y Geist Mono (cifras), sin Sniglet ni Impact', () => {
+    expect(ESTILOS).not.toMatch(/Sniglet|Impact|Comic Sans/);
+    expect(ESTILOS).toMatch(/:host \{[^}]*font-family:\s*var\(--font-body\)/);
+    expect(ESTILOS).toMatch(/\.vf-precio \{[^}]*font-family:\s*var\(--font-mono\)/);
+    expect(ESTILOS).toMatch(/\.vf-precio \{[^}]*font-variant-numeric:\s*tabular-nums/);
+    // Toda familia declarada sale de un token: ninguna lista de fuentes escrita a mano.
+    expect(ESTILOS.match(/font-family:(?!\s*var\(--font-)[^;]+;/g) ?? []).toEqual([]);
+  });
+
+  it('sin fondo propio: ni patrón, ni degradado, y la tarjeta y el kiosco usan superficies del tema', () => {
+    expect(PAGE).not.toMatch(/vfDulces|class="vf-bg"|class="vf-top"/);
+    expect(ESTILOS).not.toMatch(/linear-gradient/);
+    expect(ESTILOS).toMatch(/\.vf-card \{[^}]*background:\s*var\(--card-bg\)/);
+    // En kiosco la pantalla sale del flujo (position: fixed) y ya no hereda el fondo del layout:
+    // sin superficie propia quedaría transparente sobre la app.
+    expect(ESTILOS).toMatch(/\.vf-page\.is-kiosco \{[^}]*background:\s*var\(--surface-ground\)/);
   });
 
   // Movimiento (tokens.css BINDING): sólo transform+opacity, con TOKEN de duración, y nunca sobre

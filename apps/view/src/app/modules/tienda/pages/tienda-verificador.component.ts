@@ -44,18 +44,16 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
  * 2026-09-14): en un mostrador público cualquiera que pasa lee qué escaneó el cliente
  * anterior y a qué precio — piso de tienda lo señaló y se declaró correcto retirarlo.
  *
- * ── Excepción confirmada a DESIGN.md §O.3 (decisión 0Sistemas, 2026-09-12) ──────────────
- * Esta pantalla NO usa los tokens de Operations (Hanken Grotesk/Geist Mono, zinc, sunset).
- * Es un clon fiel del look del `verificador.html` que corría como kiosco autocontenido antes
- * de la Fase CV: tipografía Sniglet, paleta cruda (`--vf-*` abajo, con las MISMAS cifras hex
- * del HTML original), fondo cálido con patrón de dulces, precio gigante en verde. Es la única
- * pantalla del repo con esta excepción — no repetir el patrón en otro módulo sin la misma
- * autorización explícita. El tema fijo (siempre claro) es a propósito: un kiosco físico de
- * mostrador no cambia de tema con el modo oscuro del navegador de quien lo dejó configurado.
- * Lo que SÍ sigue intacto (no es "look", es correctud): procedencia del precio (TDA.2),
- * unidad escaneada (TDA.3), mayoreo con foco (TDA.4/7), declarar en vez de ocultar (ADR-056),
- * "no encontrado" != "sin conexión" (DESIGN pre-vuelo 6) — todo esto se conserva, solo cambia
- * la piel.
+ * ── Piel: la del estándar, sin excepción (`[VAC.U11/U12]`, decisión 0Sistemas, 2026-10-14) ──
+ * Desde el 2026-09-12 esta pantalla era la ÚNICA del repo con piel propia (clon del
+ * `verificador.html` retirado: Sniglet, paleta cruda, fondo claro fijo con patrón de dulces).
+ * Esa excepción se retiró: ahora usa la tipografía de Operations (Hanken Grotesk para texto,
+ * Geist Mono para cifras y códigos), los tokens de color de la Suite y **sigue el tema
+ * claro/oscuro**, igual que el resto. Sin fondo propio, sin patrón y sin franja decorativa.
+ * Lo que no era piel sigue intacto: procedencia del precio (TDA.2), unidad escaneada (TDA.3),
+ * mayoreo con foco (TDA.4/7), declarar en vez de ocultar (ADR-056), "no encontrado" != "sin
+ * conexión" (DESIGN pre-vuelo 6). Queda pendiente, del plan `FASE_VAC`: descomponer el
+ * componente, matriz de estados y a11y (`VAC.U1-U10`).
  */
 @Component({
   selector: 'app-tienda-verificador',
@@ -64,36 +62,6 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="vf-page" [class.is-kiosco]="kiosco()">
-      <!-- Patrón de dulces del verificador.html original, calcado 1:1 (mismas formas/coords). -->
-      <svg class="vf-bg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <defs>
-          <pattern id="vfDulces" width="240" height="240" patternUnits="userSpaceOnUse" patternTransform="rotate(8)">
-            <g fill="none" stroke-width="3">
-              <circle cx="46" cy="46" r="22" stroke="#E8680A"/>
-              <path d="M46 46 m-13 0 a13 13 0 1 1 13 13" stroke="#F5C500"/>
-              <line x1="46" y1="68" x2="46" y2="104" stroke="#E8680A"/>
-            </g>
-            <g fill="none" stroke="#ec4899" stroke-width="3" transform="translate(160,64) rotate(18)">
-              <ellipse cx="0" cy="0" rx="20" ry="13"/>
-              <path d="M-20 0 L-38 -11 L-38 11 Z"/>
-              <path d="M20 0 L38 -11 L38 11 Z"/>
-            </g>
-            <path d="M52 150 Q52 118 70 118 Q88 118 88 150 Z" fill="none" stroke="#0ea5e9" stroke-width="3"/>
-            <g fill="none" stroke="#16a34a" stroke-width="3" transform="translate(178,168)">
-              <circle cx="0" cy="0" r="14"/>
-              <path d="M-14 0 L14 0 M0 -14 L0 14"/>
-            </g>
-            <g fill="none" stroke="#F5C500" stroke-width="3" transform="translate(120,205) rotate(-12)">
-              <ellipse cx="0" cy="0" rx="12" ry="8"/>
-              <path d="M-12 0 L-24 -7 L-24 7 Z"/>
-              <path d="M12 0 L24 -7 L24 7 Z"/>
-            </g>
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#vfDulces)"/>
-      </svg>
-      <div class="vf-top"></div>
-
       <!-- Franja de control: lo que el kiosco de 2026 NO tenía y sí necesita (multi-sucursal,
            frescura declarada, ayuda) — funcional, no decoración, así que se queda, sólo con la
            piel nueva. Chica y arriba a la derecha para no competir con el logo/escáner. -->
@@ -108,7 +76,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
         @if (!sucursalFija()) {
           <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value"
                     [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
-                    placeholder="Sucursal" styleClass="vf-sel" appendTo="body"
+                    placeholder="Sucursal" appendTo="body"
                     aria-label="Sucursal del verificador"></p-select>
         } @else {
           <span class="vf-suc">{{ sucursalNombre() }}</span>
@@ -282,7 +250,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                    capturar; para el kiosco público sin cuenta, no se pinta. -->
               @if (puedeReportarFaltante()) {
                 <p-button type="button" label="El cliente lo pidió" icon="pi pi-flag"
-                          styleClass="p-button-sm vf-btn-respaldo"
+                          styleClass="p-button-sm"
                           (click)="reportarFaltante()"></p-button>
               }
             </div>
@@ -293,7 +261,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
               SIN CONEXIÓN AL SERVIDOR
               <small>Verifica la red. Código: {{ ultimoCodigo() }} — sin respaldo local descargado.</small>
               <p-button type="button" label="Descargar respaldo" icon="pi pi-download"
-                        styleClass="p-button-sm vf-btn-respaldo" [disabled]="descargando() || !sucursal()"
+                        styleClass="p-button-sm" [disabled]="descargando() || !sucursal()"
                         (click)="descargarRespaldo()"></p-button>
             </div>
           }
@@ -313,7 +281,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
             · Sin respaldo local
           }
           <p-button type="button" label="Actualizar respaldo" icon="pi pi-download"
-                    styleClass="p-button-sm p-button-text vf-btn-respaldo" [disabled]="descargando() || !sucursal()"
+                    styleClass="p-button-sm p-button-text" [disabled]="descargando() || !sucursal()"
                     (click)="descargarRespaldo()"></p-button>
         </span>
       </footer>
@@ -321,218 +289,197 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
   `,
   styles: [`
     /* ═══════════════════════════════════════════════════════════════════════════════════
-       CLON FIEL de verificador.html (kiosco retirado en Fase CV) — ver el comentario de
-       "Excepción confirmada" arriba de la clase. Paleta CRUDA a propósito (son las mismas
-       cifras hex del HTML original, no tokens): --vf-amarillo/--vf-naranja/--vf-oscuro/
-       --vf-verde. Tema fijo (siempre claro), Sniglet como tipografía única del componente.
+       [VAC.U11/U12] Esta pantalla ya no lleva piel propia: tipografia del estandar (Hanken
+       Grotesk para texto, Geist Mono para cifras y codigos) y colores por tokens que siguen
+       el tema claro/oscuro de la Suite. Se retiraron la paleta cruda, el fondo claro fijo, el
+       patron de dulces y la franja decorativa (decision 0Sistemas, 2026-10-14). Las clases
+       conservan su nombre: cambia el valor, no la estructura.
        ═══════════════════════════════════════════════════════════════════════════════════ */
-    :host {
-      --vf-amarillo: #F5C500; --vf-naranja: #E8680A; --vf-oscuro: #151515; --vf-verde: #16a34a;
-      --vf-rojo: #b91c1c; --vf-gris: #94a3b8;
-      display: block; font-family: 'Sniglet', 'Comic Sans MS', 'Segoe UI', Roboto, Arial, sans-serif;
-      color: var(--vf-oscuro);
-    }
+    :host { display: block; font-family: var(--font-body); color: var(--text-main); }
 
-    /* overflow-x: hidden (nunca "hidden" a secas): el fondo de dulces es inset:0 y no
-       necesita recorte, pero un "hidden" en las dos direcciones ATRAPABA de verdad la
-       tarjeta cuando el mayoreo la hacía más alta que la ventana — sin barra de scroll y
-       sin mouse/touch en un kiosco real, esa parte quedaba invisible para siempre, no sólo
-       recortada. Medido en vivo (terminal 40/Oficina): "LLEVANDO 3 O MÁS PAQUETES" cortado
-       exacto en el borde inferior de la ventana. overflow-y: visible dentro del flujo
-       normal deja que crezca el contenedor (o la app por fuera) en vez de esconder nada;
-       el modo kiosco de abajo SÍ necesita su propio scroll porque ahí no hay contenedor
-       exterior (position: fixed lo saca del flujo del documento). */
-    .vf-page { position: relative; overflow-x: hidden; border-radius: var(--r-lg, 16px);
+    /* overflow-x: hidden (nunca hidden a secas): atrapaba de verdad la tarjeta cuando el
+       mayoreo la hacia mas alta que la ventana. En un kiosco sin mouse esa parte quedaba
+       invisible para siempre. El modo kiosco de abajo SI necesita su propio scroll porque
+       position: fixed lo saca del flujo del documento. */
+    .vf-page { position: relative; overflow-x: hidden;
       display: flex; flex-direction: column; align-items: center; gap: .5rem;
-      padding: 0 1.25rem 1.25rem; min-height: 640px;
-      background: linear-gradient(160deg, #fffdf7 0%, #fdf3e2 100%); }
-    /* Modo kiosco: se come el chrome de la app — el mostrador real es un monitor dedicado,
-       no una ventana con sidebar al lado. */
+      padding: 0 1.25rem 1.25rem; min-height: 640px; }
+    /* Modo kiosco: se come el chrome de la app. Necesita fondo propio: al salir del flujo ya
+       no hereda el del layout. */
     .vf-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow-y: auto;
-      border-radius: 0; padding-bottom: 2rem; }
+      padding-bottom: 2rem; background: var(--surface-ground); }
 
-    .vf-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
-      opacity: .10; pointer-events: none; }
-    .vf-top { position: sticky; top: 0; left: -1.25rem; width: calc(100% + 2.5rem); height: 8px;
-      background: linear-gradient(90deg, var(--vf-naranja), var(--vf-amarillo)); z-index: 1; }
-
-    /* Franja de control funcional (sucursal/frescura/kiosco/ayuda) — NO existía en el HTML
-       original (era un kiosco de una sola sucursal); se queda por necesidad operativa real,
-       chica y discreta arriba a la derecha para no competirle al logo/escáner. */
+    /* Franja de control funcional (sucursal, frescura, kiosco, ayuda): chica y arriba a la
+       derecha para no competirle al logo ni al escaner. */
     .vf-ctrl { position: relative; z-index: 2; align-self: stretch; display: flex;
       align-items: center; justify-content: flex-end; gap: .5rem; flex-wrap: wrap;
-      padding-top: .6rem; font-size: var(--fs-xs); color: #64748b; }
+      padding-top: .6rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .vf-fresh-nd { display: inline-flex; align-items: center; gap: .25rem; cursor: help; }
-    .vf-suc { font-weight: 700; color: var(--vf-oscuro); }
+    .vf-suc { font-weight: 700; color: var(--text-main); }
     .vf-icon-btn { min-width: 32px; min-height: 32px; display: inline-flex; align-items: center;
-      justify-content: center; background: #fff; color: #555; border: 1px solid #e5e7eb;
-      border-radius: 8px; cursor: pointer; font: inherit; }
-    .vf-icon-btn:hover { color: var(--vf-naranja); border-color: var(--vf-naranja); }
+      justify-content: center; background: var(--card-bg); color: var(--text-muted);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); cursor: pointer; font: inherit; }
+    .vf-icon-btn:hover { color: var(--action); border-color: var(--action); }
+    .vf-icon-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     .vf-banner { position: relative; z-index: 2; align-self: stretch; display: flex;
       align-items: flex-start; gap: .5rem; padding: .5rem .75rem; margin-top: .35rem;
-      border-radius: 10px; font-size: var(--fs-sm); border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
-    .vf-banner.is-ok { border-color: #86efac; background: #f0fdf4; color: #166534; }
-    .vf-banner.is-warn { border-color: #fdba74; background: #fff7ed; color: #9a3412; }
-    .vf-banner.is-bad { border-color: #fca5a5; background: #fef2f2; color: var(--vf-rojo); }
+      border-radius: var(--r-md); font-size: var(--fs-sm);
+      border: 1px solid var(--info-border); background: var(--info-soft-bg); color: var(--info-soft-fg); }
+    .vf-banner.is-ok { border-color: var(--ok-border); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .vf-banner.is-warn { border-color: var(--warn-border); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .vf-banner.is-bad { border-color: var(--bad-border); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .vf-banner > div { display: flex; flex-direction: column; gap: .1rem; }
-    .vf-banner span { opacity: .85; font-size: 11.5px; }
+    .vf-banner span { opacity: .85; font-size: var(--fs-xs); }
 
     .vf-logo { position: relative; z-index: 1; display: block; margin: 18px auto 4px;
       max-height: 96px; max-width: 70vw; object-fit: contain; }
-    .vf-logo-txt { position: relative; z-index: 1; margin: 22px 0 4px; font-size: 30px;
+    .vf-logo-txt { position: relative; z-index: 1; margin: 22px 0 4px; font-size: var(--fs-h1);
       font-weight: 800; letter-spacing: 1px; text-align: center; line-height: 1; }
-    .vf-logo-txt .vf-m { color: var(--vf-naranja); } .vf-logo-txt .vf-d { color: var(--vf-oscuro); }
+    .vf-logo-txt .vf-m { color: var(--action); } .vf-logo-txt .vf-d { color: var(--text-main); }
 
-    /* ── Captura: idéntica jerarquía al HTML — barra, input, hint ─────────────────────── */
-    /* Cámara del celular: NO existía en el HTML (dependía de una pistola física USB/BT); es la
-       tercera vía que se agregó en esta sesión, con el mismo cableado @zxing/browser que ya
-       usan ScanFieldComponent/ProductScanFieldComponent. Vive EN esta barra (antes era un botón
-       redondo aparte, junto al input): la barra ya decía "Escanea tu Producto" con un ícono de
-       cámara — un segundo botón con el mismo ícono al lado era el mismo gesto duplicado. */
-    .vf-scanbar { position: relative; z-index: 1; background: var(--vf-naranja); color: #fff;
-      font: inherit; font-size: 15px; font-weight: 400; letter-spacing: 1px; padding: 8px 24px;
-      border: none; border-radius: 8px; margin-top: 6px; display: flex; align-items: center;
-      gap: .4rem; cursor: pointer; }
-    .vf-scanbar:hover:not(:disabled) { filter: brightness(1.06); }
+    /* ── Captura: barra, input, hint ────────────────────────────────────────────────── */
+    /* La camara del celular vive EN la barra: ya decia Escanea tu Producto con icono de
+       camara, un segundo boton redondo al lado era el mismo gesto duplicado. */
+    .vf-scanbar { position: relative; z-index: 1; background: var(--action); color: var(--action-ink);
+      font: inherit; font-size: var(--fs-h3); font-weight: 600; letter-spacing: .5px; padding: 8px 24px;
+      min-height: 44px; border: none; border-radius: var(--r-md); margin-top: 6px; display: flex;
+      align-items: center; gap: .4rem; cursor: pointer; }
+    .vf-scanbar:hover:not(:disabled) { background: var(--action-hover); }
     .vf-scanbar:disabled { opacity: .55; cursor: default; }
-    .vf-scanbar:focus-visible { outline: 2px solid var(--vf-oscuro); outline-offset: 2px; }
+    .vf-scanbar:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .vf-input-row { position: relative; z-index: 1; margin-top: 10px;
       width: min(560px, 92vw); display: flex; align-items: center; gap: .5rem; }
-    .vf-input { flex: 1; min-width: 0; text-align: center; font-size: 26px; font-weight: 400;
-      font-family: inherit; padding: 14px; border-radius: 14px; border: 3px solid var(--vf-naranja);
-      background: #fff; color: var(--vf-oscuro); letter-spacing: 2px; outline: none;
-      box-shadow: 0 4px 16px rgba(0,0,0,.06); }
-      .vf-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-    .vf-input::placeholder { color: #c0c0c0; font-size: 16px; letter-spacing: 1px; }
-    .vf-input:disabled { color: #b0b0b0; }
-    .vf-busy { color: var(--vf-naranja); font-size: 1.3rem; }
-    .vf-hint { position: relative; z-index: 1; margin-top: 8px; color: #888; font-size: var(--fs-sm); }
+    .vf-input { flex: 1; min-width: 0; text-align: center; font-size: var(--fs-h1); font-weight: 500;
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums; padding: 14px;
+      border-radius: var(--r-lg); border: 2px solid var(--border-color);
+      background: var(--card-bg); color: var(--text-main); letter-spacing: 2px; outline: none; }
+    .vf-input:focus-visible { border-color: var(--action); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .vf-input::placeholder { color: var(--text-faint); font-family: var(--font-body);
+      font-size: var(--fs-h3); letter-spacing: 1px; }
+    .vf-input:disabled { color: var(--text-disabled); }
+    .vf-busy { color: var(--action); font-size: 1.3rem; }
+    .vf-hint { position: relative; z-index: 1; margin-top: 8px; color: var(--text-muted); font-size: var(--fs-sm); }
 
+    /* El scrim de la camara es negro en los dos temas: es un velo sobre la pantalla, no una
+       superficie de la app. */
     .vf-cam-ov { position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: .75rem;
-      background: rgba(21,21,21,.92); padding: 1rem; }
-    .vf-cam-tip { margin: 0; color: #fff; font-size: .85rem; }
+      background: rgba(0, 0, 0, .9); padding: 1rem; }
+    .vf-cam-tip { margin: 0; color: #fff; font-size: var(--fs-sm); }
     .vf-cam-vid { width: min(100%, 520px); aspect-ratio: 4 / 3; object-fit: cover;
-      background: #333; border-radius: 14px; }
-    .vf-cam-x { min-height: 48px; min-width: 160px; padding: 0 1.25rem; background: #fff;
-      color: var(--vf-oscuro); border: none; border-radius: 10px; font: inherit;
+      background: rgb(0, 0, 0); border-radius: var(--r-lg); }
+    .vf-cam-x { min-height: 48px; min-width: 160px; padding: 0 1.25rem; background: var(--card-bg);
+      color: var(--text-main); border: 1px solid var(--border-color); border-radius: var(--r-md); font: inherit;
       font-weight: 700; cursor: pointer; }
+    .vf-cam-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-    /* ── Tarjeta de resultado ──────────────────────────────────────────────────────────
-       min-height/width y sombra calcados del HTML (740px/300px, sombra 0 20px 60px). Los
-       otros datos (mayoreo, procedencia) que el HTML original nunca tuvo se agregaron
-       después (TDA.2-7) y se conservan íntegros — sólo cambia la piel. */
+    /* ── Tarjeta de resultado ───────────────────────────────────────────────────────────
+       Elevacion por borde de 1px, sin sombra (DESIGN datos densos: borde o sombra, nunca
+       las dos). El respaldo se distingue por el borde, y ademas dice Precio de respaldo. */
     .vf-result { position: relative; z-index: 1; flex: 1; display: flex;
       align-items: center; justify-content: center; width: 100%; margin-top: 18px; }
-    .vf-card { width: min(740px, 92vw); min-height: 260px; background: #fff; color: var(--vf-oscuro);
-      border-radius: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.5); padding: 24px 28px;
+    .vf-card { width: min(740px, 92vw); min-height: 260px; background: var(--card-bg); color: var(--text-main);
+      border: 1px solid var(--border-color); border-radius: var(--r-xl); padding: 24px 28px;
       text-align: center; display: flex; flex-direction: column; align-items: center; gap: .35rem;
       --vf-pop: vfPopA; animation: var(--vf-pop) .18s ease both; }
     .vf-card.is-pase-b { --vf-pop: vfPopB; }
-    .vf-card.is-respaldo { box-shadow: 0 20px 60px rgba(232,104,10,.35); }
+    .vf-card.is-respaldo { border-color: var(--warn); }
     @keyframes vfPopA { from { transform: scale(.96); opacity: .4; } to { transform: scale(1); opacity: 1; } }
     @keyframes vfPopB { from { transform: scale(.96); opacity: .4; } to { transform: scale(1); opacity: 1; } }
 
-    /* [TDA.8] La advertencia de precio cambiado, re-pintada con la paleta cruda del clon
-       (antes usaba los --warn-* y --r-md de tokens). ⚠️ Ese "--warn-*" llevaba una barra pegada
-       y la secuencia CERRABA ESTE COMENTARIO acá mismo: todo lo que sigue se parseaba como CSS y
-       terminaba absorbido en el selector de .vf-cambio, que así no matcheaba nada — la caja de
-       aviso salía SIN ESTILO en producción y el build sólo lo decía como warning. Nunca solo el
-       color: icono + texto (DESIGN.md
-       5, aunque este bloque ya no vive bajo DESIGN.md por la excepción de §O.3 declarada
-       arriba, el principio de fondo se conserva). El párrafo NO se centra: es texto para
-       leer, no una cifra — el bloque sí va centrado (margin auto). */
+    /* [TDA.8] Advertencia de precio cambiado. Nunca solo el color: icono mas texto. El parrafo
+       NO se centra: es texto para leer, no una cifra. Ojo: un cierre de comentario escrito
+       dentro de otro comentario CSS hace desaparecer la regla del bundle sin romper el build. */
     .vf-cambio { margin: 6px auto 0; width: fit-content; max-width: 60ch;
       display: flex; align-items: flex-start; gap: .5rem; text-align: left;
-      padding: .4rem .75rem; border-radius: 10px;
-      background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
+      padding: .4rem .75rem; border-radius: var(--r-md);
+      background: var(--warn-soft-bg); border: 1px solid var(--warn-border); color: var(--warn-soft-fg);
       font-size: var(--fs-sm); text-wrap: pretty; }
-    .vf-cambio > i { color: var(--vf-naranja); font-size: .95em; flex: none; margin-top: .15em; }
-    .vf-cambio strong { color: var(--vf-naranja); }
+    .vf-cambio > i { font-size: .95em; flex: none; margin-top: .15em; }
+    .vf-cambio strong { font-weight: 700; }
 
     .vf-card-top { display: flex; align-items: center; justify-content: center; gap: .6rem; }
-    .vf-cod { font-family: monospace; font-size: var(--fs-body); color: #888; letter-spacing: 1px; }
-    .vf-tag { display: inline-flex; align-items: center; gap: .3rem; font-size: 11.5px;
-      font-weight: 700; padding: .2rem .55rem; border-radius: 999px; text-transform: uppercase;
+    .vf-cod { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-body); color: var(--text-muted); letter-spacing: 1px; }
+    .vf-tag { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs);
+      font-weight: 700; padding: .2rem .55rem; border-radius: var(--r-pill); text-transform: uppercase;
       letter-spacing: .04em; }
-    .vf-tag.is-ok { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
-    .vf-tag.is-warn { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
+    .vf-tag.is-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border: 1px solid var(--ok-border); }
+    .vf-tag.is-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); border: 1px solid var(--warn-border); }
 
-    .vf-nombre { font-size: 26px; font-weight: 400; color: var(--vf-oscuro); margin: 4px 0 12px;
-      line-height: 1.15; }
-    .vf-gramaje { font-size: .55em; font-weight: 500; color: #94a3b8; margin-left: .5rem; }
-    .vf-unidad-lbl { font-size: 16px; color: var(--vf-naranja); font-weight: 400;
+    .vf-nombre { font-size: var(--fs-h1); font-weight: 600; color: var(--text-main); margin: 4px 0 12px;
+      line-height: 1.15; text-wrap: balance; }
+    .vf-gramaje { font-size: var(--fs-body); font-weight: 500; color: var(--text-muted); margin-left: .5rem; }
+    .vf-unidad-lbl { font-size: var(--fs-h3); color: var(--text-muted); font-weight: 600;
       text-transform: uppercase; letter-spacing: 1px; }
-    /* La cifra: 104px como el original, pero con clamp para no reventar en el kiosco chico —
-       el HTML era de un solo tamaño de monitor conocido; esta pantalla corre en varios. Impact
-       (o su análogo del SO) es la fuente condensada del original; Sniglet no la reemplaza acá
-       porque a ese tamaño se ve demasiado redonda para una cifra de mostrador. */
-    .vf-precio { font-family: Impact, 'Arial Narrow Bold', 'Haettenschweiler', sans-serif;
-      font-size: clamp(3.2rem, 11vw, 6.5rem); font-weight: 400; color: var(--vf-verde);
-      line-height: 1; margin: 2px 0; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+    /* La cifra: tamano de lectura a distancia, con clamp para no reventar en el kiosco chico
+       (maximo 2.5 veces el minimo). Geist Mono con tabular-nums: es el dato, no el titulo. El
+       color es el del texto: la jerarquia la da el tamano y el contraste, no un verde. */
+    .vf-precio { font-family: var(--font-mono);
+      font-size: clamp(3.2rem, 11vw, 6.5rem); font-weight: 700; color: var(--text-main);
+      line-height: 1; margin: 2px 0; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
     .vf-peso { font-size: .5em; vertical-align: baseline; margin-right: .06em; }
 
-    .vf-u-aclara { margin: 2px 0 0; font-size: var(--fs-sm); color: #64748b; max-width: 46ch; }
-    .vf-u-aclara strong { color: var(--vf-oscuro); font-weight: 700; }
+    .vf-u-aclara { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 46ch; }
+    .vf-u-aclara strong { color: var(--text-main); font-weight: 700; }
 
-    /* Mayoreo (TDA.4/7): no existía en el HTML original — paleta nueva, misma jerarquía
-       ya probada (condición grande arriba, precio segundo, ahorro en pastilla verde). */
-    .vf-mayoreo { margin-top: 14px; padding: 12px 16px 10px; border-radius: 14px;
-      border: 2px solid var(--vf-amarillo); background: #fffdf5; display: flex;
+    /* Mayoreo (TDA.4/7): condicion grande arriba, precio segundo, ahorro en pastilla. */
+    .vf-mayoreo { margin-top: 14px; padding: 12px 16px 10px; border-radius: var(--r-lg);
+      border: 1px solid var(--border-color); background: var(--surface-ground); display: flex;
       flex-direction: column; align-items: center; gap: .4rem; width: 100%; }
     .vf-may-row { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
     .vf-may-cond { font-size: var(--fs-body); font-weight: 700; text-transform: uppercase;
-      letter-spacing: .04em; color: #57534e; }
-    .vf-may-n { color: var(--vf-naranja); font-weight: 800; font-size: 1.4em; }
+      letter-spacing: .04em; color: var(--text-muted); }
+    .vf-may-n { color: var(--text-main); font-weight: 800; font-size: var(--fs-lg); }
     .vf-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .3rem; }
-    .vf-may-monto { font-family: monospace; font-weight: 800;
-      font-size: clamp(1.6rem, 4vw, 2.4rem); color: var(--vf-oscuro); }
-    .vf-may-cu { font-size: var(--fs-sm); color: #78716c; }
+    .vf-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700;
+      font-size: clamp(1.6rem, 4vw, 2.4rem); color: var(--text-main); }
+    .vf-may-cu { font-size: var(--fs-sm); color: var(--text-muted); }
     .vf-may-row:not(.is-realza) .vf-may-monto, .vf-may-row:not(.is-foco) .vf-may-monto {
-      font-weight: 600; color: #a8a29e; font-size: clamp(1.2rem, 2.6vw, 1.6rem); }
+      font-weight: 600; color: var(--text-muted); font-size: clamp(1.2rem, 2.6vw, 1.6rem); }
     .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; }
     .vf-may-ahorro { margin: 0; display: inline-flex; align-items: center; gap: .35rem;
-      padding: .3rem .75rem; border-radius: 999px; background: #f0fdf4; border: 1px solid #86efac;
-      font-size: 13.5px; color: #166534; }
-    .vf-may-ahorro strong { font-family: monospace; font-weight: 800; font-size: 1.1em; color: var(--vf-verde); }
+      padding: .3rem .75rem; border-radius: var(--r-pill); background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
+      font-size: var(--fs-sm); color: var(--ok-soft-fg); }
+    .vf-may-ahorro strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-weight: 700; font-size: var(--fs-body); color: var(--ok-soft-fg); }
     .vf-may-pct { opacity: .8; }
 
-    /* Otras unidades: píldoras calcadas de .u-item/.u-precio del HTML original. */
+    /* Otras unidades: pildoras con el precio en Geist Mono. */
     .vf-otras { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px;
-      margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5e7eb; width: 100%; }
-    .vf-u-item { font-size: var(--fs-lg); color: #334155; background: #f1f5f9; border-radius: 10px;
+      margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color); width: 100%; }
+    .vf-u-item { font-size: var(--fs-lg); color: var(--text-main); background: var(--surface-ground);
+      border: 1px solid var(--border-color); border-radius: var(--r-md);
       padding: 6px 14px; display: flex; align-items: baseline; gap: 5px; }
-    .vf-u-item b { color: var(--vf-naranja); text-transform: uppercase; font-size: var(--fs-sm);
-      font-weight: 400; letter-spacing: .5px; }
-    .vf-u-precio { font-family: monospace; font-size: 22px; color: var(--vf-verde); letter-spacing: .4px; }
-    .vf-u-f { font-size: var(--fs-micro); color: #94a3b8; }
+    .vf-u-item b { color: var(--text-muted); text-transform: uppercase; font-size: var(--fs-sm);
+      font-weight: 600; letter-spacing: .5px; }
+    .vf-u-precio { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-size: var(--fs-h2); font-weight: 600; color: var(--text-main); }
+    .vf-u-f { font-size: var(--fs-micro); color: var(--text-muted); }
 
-    .vf-nota { margin: 10px auto 0; font-size: 11.5px; color: #94a3b8; max-width: 60ch; }
+    .vf-nota { margin: 10px auto 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 60ch; }
 
-    /* Error / no-encontrado: copy calcado del HTML ("DISCULPE LAS MOLESTIAS"), con la
-       distinción de severidad que DESIGN pre-vuelo 6 exige entre "no existe" (más suave) y
-       "sin conexión" (grave) — el HTML original no distinguía, esta pantalla sí debe. */
-    .vf-err { width: min(740px, 92vw); min-height: 200px; background: #fff; border-radius: 22px;
-      box-shadow: 0 20px 60px rgba(0,0,0,.35); padding: 40px 24px; text-align: center;
-      font-size: 30px; font-weight: 800; color: var(--vf-naranja);
+    /* Error / no-encontrado: la severidad se distingue (no existe = aviso; sin conexion =
+       grave) por borde, texto y copia, no solo por color. */
+    .vf-err { width: min(740px, 92vw); min-height: 200px; background: var(--card-bg);
+      border: 1px solid var(--warn-border); border-radius: var(--r-xl); padding: 40px 24px; text-align: center;
+      font-size: var(--fs-h1); font-weight: 800; color: var(--warn-soft-fg);
       display: flex; flex-direction: column; align-items: center; gap: 10px;
       animation: vfPopA .18s ease both; }
-    .vf-err.is-bad { color: var(--vf-rojo); box-shadow: 0 20px 60px rgba(185,28,28,.3); }
-    .vf-err small { font-size: 16px; color: #888; font-weight: 500; }
-    ::ng-deep .vf-btn-respaldo .p-button { background: var(--vf-verde); border-color: var(--vf-verde); color: #fff; }
-    ::ng-deep .vf-btn-respaldo .p-button:hover { filter: brightness(1.08); }
+    .vf-err.is-bad { border-color: var(--bad-border); color: var(--bad-soft-fg); }
+    .vf-err small { font-size: var(--fs-h3); color: var(--text-muted); font-weight: 500; }
 
     .vf-foot { position: relative; z-index: 1; align-self: stretch; margin-top: 12px;
-      padding-top: 10px; border-top: 1px solid rgba(0,0,0,.06); display: flex;
-      flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: #94a3b8; }
-    .vf-counter b { color: var(--vf-naranja); font-weight: 700; }
+      padding-top: 10px; border-top: 1px solid var(--border-color); display: flex;
+      flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+    .vf-counter b { color: var(--text-main); font-weight: 700; font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums; }
     .vf-counter-reset { background: none; border: none; cursor: pointer; opacity: .55;
       padding: 0 4px; font: inherit; color: inherit; }
-    .vf-mono { font-family: monospace; }
-    .vf-version { display: inline-flex; align-items: center; gap: .4rem; color: #b0b8c4; }
-
-    ::ng-deep .vf-sel .p-select { border-radius: 8px; }
+    .vf-counter-reset:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .vf-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .vf-version { display: inline-flex; align-items: center; gap: .4rem; color: var(--text-muted); }
 
     @media (prefers-reduced-motion: reduce) {
       .vf-card, .vf-err { animation: none; }
