@@ -125,21 +125,81 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               </p-table>
               </div>
 
-              <!-- Lo que lleva código de ruta vecinal y NO es venta de la caja. Se declara, no se suma. -->
-              <p class="vr-nosuma">
-                <i class="pi pi-info-circle" aria-hidden="true"></i>
-                <span>
-                  En el mismo período hay
-                  <strong>{{ money(d.no_suma.refactura) }}</strong> de re-factura
-                  (<span class="vr-mono">U-D-12</span>, {{ d.no_suma.refactura_docs }} documentos) y
-                  <strong>{{ money(d.no_suma.telemarketing) }}</strong> de telemarketing
-                  (<span class="vr-mono">U-D-8</span>, {{ d.no_suma.telemarketing_docs }} documentos)
-                  con código de ruta vecinal. <strong>Ninguno de los dos suma</strong>: la re-factura
-                  re-emite el mismo ticket y el arqueo la ignora; el telemarketing es venta por otro
-                  canal que no pasa por esta caja. El sell-out sí los cuenta, y por eso publica una
-                  cifra más alta.
-                </span>
-              </p>
+              <!-- [VEC.11] El puente Kepler <-> Suite. Antes esto era prosa: decia que el sell-out
+                   "publica una cifra mas alta" sin decir CUAL. Una conciliacion nombra los dos
+                   numeros y enseña la resta que los une; si no cierra, el residuo se declara. -->
+              <section class="vr-puente">
+                <h4 class="vr-puente-h">
+                  Por qué el sell-out publica otra cifra
+                  <span class="vr-puente-sub">esta pantalla → el sell-out, peso por peso</span>
+                </h4>
+                <table class="vr-puente-t">
+                  <caption class="sr-only">Conciliación entre la venta vecinal de esta pantalla y la que publica el sell-out</caption>
+                  <tbody>
+                    <tr>
+                      <th scope="row">Lo que publica esta pantalla</th>
+                      <td class="vr-mono vr-tenue">{{ d.puente.pagina_docs }} tickets <span class="vr-mono">U-D-10</span></td>
+                      <td class="comm-num vr-mono vr-strong">{{ money(d.puente.pagina) }}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Prorrateo del descuento por renglón</th>
+                      <td class="vr-tenue">el total del ticket contra la suma de sus líneas</td>
+                      <td class="comm-num vr-mono">{{ signo(d.puente.prorrateo) }}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Telemarketing con código de ruta vecinal</th>
+                      <td class="vr-tenue">
+                        <span class="vr-mono">U-D-8</span>, {{ d.puente.telemarketing_docs }} documentos —
+                        <strong>venta real</strong>, de otro canal: no pasa por esta caja
+                      </td>
+                      <td class="comm-num vr-mono">{{ signo(d.puente.telemarketing) }}</td>
+                    </tr>
+                    <tr class="vr-puente-espejo">
+                      <th scope="row">Re-factura del mismo ticket</th>
+                      <td class="vr-tenue">
+                        <span class="vr-mono">U-D-12</span>, {{ d.puente.espejo_docs }} documentos —
+                        <strong>no es venta</strong>: el arqueo la ignora
+                      </td>
+                      <td class="comm-num vr-mono">{{ signo(d.puente.espejo) }}</td>
+                    </tr>
+                    @if (d.puente.por_refrescar !== 0) {
+                      <tr>
+                        <th scope="row">Todavía no refrescado en el sell-out</th>
+                        <td class="vr-tenue">
+                          <!-- No es descuadre: la matvista del sell-out es nocturna y la venta de
+                               hoy ya esta en la vista viva. Sin separarlo se leeria como error. -->
+                          el sell-out llega al {{ d.puente.sellout_hasta ?? '—' }}; esta pantalla va en vivo
+                        </td>
+                        <td class="comm-num vr-mono">{{ signo(-d.puente.por_refrescar) }}</td>
+                      </tr>
+                    }
+                    <tr class="vr-puente-tot">
+                      <th scope="row">Lo que publica el sell-out</th>
+                      <td class="vr-tenue">medido en su propia tabla, no deducido de ésta</td>
+                      <td class="comm-num vr-mono vr-strong">{{ money(d.puente.sellout) }}</td>
+                    </tr>
+                    <tr [class.vr-puente-resid]="!cierra()">
+                      <th scope="row">Lo que no cierra</th>
+                      <td class="vr-tenue">
+                        @if (cierra()) { la resta cuadra al peso }
+                        @else { se declara con su nombre; no se reparte entre los renglones de arriba }
+                      </td>
+                      <td class="comm-num vr-mono">{{ money(d.puente.residuo) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                @if (d.puente.espejo > 0) {
+                  <p class="vr-nosuma">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    <span>
+                      La re-factura es <strong>{{ pctEspejo() }}%</strong> de lo que esta pantalla
+                      publica. Hasta que el sell-out deje de contarla, el mismo hecho vive con dos
+                      cifras en la Suite: acá manda la de esta pantalla, que es la que el arqueo de
+                      la caja confirma.
+                    </span>
+                  </p>
+                }
+              </section>
             }
           </app-load-state>
         </div>
@@ -181,6 +241,32 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .vr-nosuma { display: flex; gap: var(--sp-2); align-items: flex-start; margin: var(--sp-3) 0 0;
       font-size: var(--fs-micro); color: var(--text-muted); line-height: 1.5; }
     .vr-nosuma .pi { margin-top: 2px; color: var(--text-faint); }
+
+    /* [VEC.11] El puente Kepler <-> Suite. Tabla, no prosa: una conciliacion se lee en columna
+       de numeros alineada, porque lo que el ojo hace con ella es sumar hacia abajo. */
+    .vr-puente { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+    .vr-puente-h { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+      margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-main); }
+    .vr-puente-sub { font-size: var(--fs-micro); font-weight: var(--fw-normal); color: var(--text-faint); }
+    .vr-puente-t { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .vr-puente-t th, .vr-puente-t td { padding: var(--sp-1) var(--sp-2); text-align: left;
+      border-bottom: 1px solid var(--border-color); vertical-align: baseline; }
+    .vr-puente-t th { font-weight: var(--fw-normal); color: var(--text-main); white-space: nowrap; }
+    .vr-puente-t td:last-child { text-align: right; white-space: nowrap; }
+    .vr-puente-t .vr-tenue { font-size: var(--fs-micro); line-height: 1.4; }
+    .vr-strong { font-weight: var(--fw-bold); }
+    /* El espejo es el renglon que explica la contradiccion: se marca, no se esconde. */
+    .vr-puente-espejo th, .vr-puente-espejo td { color: var(--warn-fg); }
+    .vr-puente-espejo .vr-tenue { color: color-mix(in srgb, var(--warn-fg) 72%, var(--text-muted)); }
+    .vr-puente-tot th, .vr-puente-tot td { border-top: 2px solid var(--border-color); padding-top: var(--sp-2); }
+    .vr-puente-resid th, .vr-puente-resid td { color: var(--bad-fg); }
+
+    @media (max-width: 40rem) {
+      .vr-puente-t, .vr-puente-t tbody, .vr-puente-t tr, .vr-puente-t th, .vr-puente-t td { display: block; }
+      .vr-puente-t tr { padding: var(--sp-2) 0; border-bottom: 1px solid var(--border-color); }
+      .vr-puente-t th, .vr-puente-t td { border: 0; padding: 0; white-space: normal; }
+      .vr-puente-t td:last-child { text-align: left; font-size: var(--fs-md); }
+    }
   `],
 })
 export class VecinalReconComponent {
@@ -305,4 +391,28 @@ export class VecinalReconComponent {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 })
       .format(Number(n));
   }
+
+  /**
+   * `[VEC.11]` En un puente el signo ES la información: un sumando sin `+` se lee como otro total.
+   * El cero se escribe `$0` sin signo — no suma ni resta, y un `+$0` invita a buscarle sentido.
+   */
+  signo(n: number): string {
+    const v = Number(n) || 0;
+    if (Math.round(v) === 0) return this.money(0);
+    return (v > 0 ? '+' : '−') + this.money(Math.abs(v));
+  }
+
+  /**
+   * ⛔ El umbral es **$1**, no `=== 0`: los sumandos se redondean al peso para mostrarse, así que
+   * exigir el centavo marcaría en rojo un puente que cuadra. Medido contra prod el 2026-10-14:
+   * agosto $0.05 · septiembre $0.37 · 45 días $0.48 · julio $327.84 — el único que NO cierra.
+   */
+  readonly cierra = computed(() => Math.abs(this.data()?.puente.residuo ?? 0) <= 1);
+
+  /** Cuánto infla la re-factura sobre lo que esta pantalla publica. 0 si no hay base que dividir. */
+  readonly pctEspejo = computed(() => {
+    const p = this.data()?.puente;
+    if (!p || !p.pagina) return 0;
+    return Math.round((p.espejo / p.pagina) * 1000) / 10;
+  });
 }

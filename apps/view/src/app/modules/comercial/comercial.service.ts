@@ -3268,6 +3268,32 @@ export interface VecinalNoSuma {
   telemarketing_docs: number;
 }
 
+/**
+ * `[VEC.11]` El puente Kepler ↔ Suite: la aritmética que une lo que publica esta pantalla con lo
+ * que publica el sell-out. Todos los sumandos salen de la vista de LÍNEAS y `sellout` se MIDE en
+ * la matvista — mezclar granos fue lo que impidió que cerrara en la primera versión.
+ */
+export interface VecinalPuente {
+  /** Lo que publica esta pantalla: `U-D-10` al grano de documento. */
+  pagina: number;
+  pagina_docs: number;
+  /** Δ cabecera ↔ línea del mismo `U-D-10` (el descuento se prorratea por renglón). */
+  prorrateo: number;
+  /** `U-D-8`: venta REAL de otro canal, que no pasa por la caja de la vecinal. */
+  telemarketing: number;
+  telemarketing_docs: number;
+  /** `U-D-12`: re-emite el mismo ticket. NO es venta. */
+  espejo: number;
+  espejo_docs: number;
+  kepler_total: number;
+  /** Lo que la matvista nocturna todavía no tiene. No es descuadre. */
+  por_refrescar: number;
+  sellout: number;
+  sellout_hasta: string | null;
+  /** Lo que no cierra. Se declara; nunca se absorbe en otro renglón. */
+  residuo: number;
+}
+
 export interface VecinalConciliacion {
   period: { from: string; to: string };
   summary: {
@@ -3283,6 +3309,7 @@ export interface VecinalConciliacion {
     arqueo_hasta: string | null;
   };
   no_suma: VecinalNoSuma;
+  puente: VecinalPuente;
   filas: VecinalConciliacionFila[];
 }
 
