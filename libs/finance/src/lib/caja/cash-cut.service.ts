@@ -7,8 +7,8 @@ import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
   proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
-  filasDenominacion, DenominacionFueraDeCatalogo,
-  type ConteoDenominacion, type MovimientoDelCorte,
+  filasDenominacion, DenominacionFueraDeCatalogo, veredictoDe,
+  type ConteoDenominacion, type MovimientoDelCorte, type TotalesCorte,
 } from './cash-cut.engine';
 
 /**
@@ -503,10 +503,34 @@ export class CashCutService {
     await trx('finance.cash_ledger_cut_denominations').insert(filas);
   }
 
-  /** Guarda el conteo (denominaciones + morralla + total) sobre el corte, dentro de la trx. */
-  private async sellarConteo(trx: any, tenantId: string, id: string, t: { contado: number }, input: CerrarCorteInput) {
+  /**
+   * ⭐⭐ `[CG.156]` **Sellar el conteo es guardar el VEREDICTO, no sólo lo contado.**
+   *
+   * Acá se escribía únicamente `contado` y `morralla`. La revelación —`esperado`, `diferencia`,
+   * el veredicto— se calculaba en memoria y viajaba **sólo** en la respuesta de `POST /contar`.
+   * Ningún `GET` la devolvía. Medido en prod sobre `CC-2026-00001`, el único corte que existió en
+   * la vida del módulo: `contado = 3,653.50`, **`esperado` y `diferencia` en NULL**.
+   *
+   * ⛔ La consecuencia no era cosmética: al recargar, la pantalla no tenía cómo saber que el corte
+   * ya estaba contado y volvía a ofrecer «Guardar conteo», que el servidor rechaza con *«este
+   * corte ya tiene un conteo sellado»*. **El corte quedaba sin poder cerrarse, ni recontarse, ni
+   * volver a verse.** La ceguera del primer conteo es deliberada; esta amnesia no.
+   *
+   * ⚠️ Se guardan también los tres totales (`total_ingresos/gastos/depositos`): son las piernas
+   * con las que se armó el `esperado`, y sin ellas un `esperado` guardado es un número que nadie
+   * puede defender después. El `cut_cerrado_completo_chk` sólo los exige al cerrar, así que
+   * escribirlos en borrador es compatible — verificado contra los 8 CHECK de la tabla en prod.
+   */
+  private async sellarConteo(trx: any, tenantId: string, id: string, t: TotalesCorte, input: CerrarCorteInput) {
     await trx('finance.cash_ledger_cuts').where({ id }).update({
-      contado: t.contado, morralla: input.morralla ?? 0, updated_at: trx.fn.now(),
+      contado: t.contado,
+      morralla: input.morralla ?? 0,
+      total_ingresos: t.ingresos,
+      total_gastos: t.gastos,
+      total_depositos: t.depositos,
+      esperado: t.esperado,
+      diferencia: t.diferencia,
+      updated_at: trx.fn.now(),
     });
     /**
      * ⛔⛔ `[CG.152]` **DOS DEFECTOS DEL MISMO CAMBIO, y el segundo sólo se ve al arreglar el
@@ -528,26 +552,9 @@ export class CashCutService {
      * llave **asume billete y lo declara**. El total contado no cambia —las dos valen 20—; lo
      * que se pierde es el desglose por familia.
      */
-    await trx('finance.cash_ledger_cut_denominations')
-      .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' }).del();
-    const piezas = (input.conteo ?? []).filter((d) => Number(d.piezas) > 0);
-    if (piezas.length) {
-      const filas = piezas.map((d) => {
-        const key = d.denom_key ?? denomKeyDeValor(d.denominacion);
-        if (!key) {
-          // No se inventa una llave: una denominación fuera del catálogo es dinero que no se
-          // puede contar, y fallar acá es mejor que guardar un renglón que nadie podrá leer.
-          throw new BadRequestException(
-            `Denominación ${d.denominacion} no está en el catálogo: no se puede registrar el conteo.`,
-          );
-        }
-        return {
-          tenant_id: tenantId, cut_id: id, momento: 'cierre',
-          denom_key: key, denominacion: d.denominacion, piezas: d.piezas,
-        };
-      });
-      await trx('finance.cash_ledger_cut_denominations').insert(filas);
-    }
+    // `[CG.155]` Por la única puerta. Acá vivía la TERCERA copia de esta escritura; dejarla habría
+    // repetido el defecto que tiró producción dos días seguidos.
+    await this.guardarDenominaciones(trx, tenantId, id, 'cierre', input.conteo);
   }
 
   /**
@@ -871,6 +878,45 @@ export class CashCutService {
     };
   }
 
+  /**
+   * ⭐⭐ `[CG.156]` **Lo que ya se selló se puede volver a leer. Lo que no, sigue ciego.**
+   *
+   * El servidor nunca publicaba que un corte YA tenía conteo: `saldo()` mandaba `ya_reconto`
+   * —que responde *«¿ya recontó?»*, no *«¿ya contó?»*— y `contado` no viajaba en ningún endpoint.
+   * Así que al recargar, la pantalla sólo podía ofrecer «Guardar conteo», que el servidor rechaza.
+   *
+   * ⛔ **Esto NO afloja el conteo ciego.** La distinción es exacta y es toda la lógica de acá:
+   *
+   *   · corte **sin** sellar → `null`. No hay nada que leer, y el `esperado` sigue oculto detrás
+   *     del candado `revela` de `saldo()`. Ver la diferencia mientras se teclea convierte el
+   *     arqueo en una transcripción del esperado — lo que `[CG.19]` revirtió a propósito.
+   *   · corte **ya** sellado → el veredicto completo. El conteo está escrito y no se puede
+   *     retocar en silencio: cambiarlo exige `recontar()`, que pide motivo y deja rastro. Negarlo
+   *     acá no protege nada, sólo esconde una revelación que **ya ocurrió**.
+   *
+   * ⚠️ `esperado` y `diferencia` pueden venir en `null` aunque haya `contado`: son los cortes
+   * sellados ANTES de `[CG.156]`, cuando el veredicto no se guardaba. Se declara con
+   * `veredicto: 'sin_medir'` en vez de recalcularlos — recalcular hoy daría el juicio de HOY sobre
+   * un conteo de ayer, que es otra cosa y nadie podría distinguirla.
+   */
+  private conteoSellado(c: { contado?: unknown; esperado?: unknown; diferencia?: unknown; fondo_inicial?: unknown; conteo_previo?: unknown } | null | undefined) {
+    if (!c) return null;
+    const contado = c.contado == null ? null : Number(c.contado);
+    if (contado == null || contado <= 0) return null;
+    const esperado = c.esperado == null ? null : Number(c.esperado);
+    const diferencia = c.diferencia == null ? null : Number(c.diferencia);
+    return {
+      contado,
+      esperado,
+      diferencia,
+      // Un corte sellado antes de que el veredicto se guardara: se DECLARA, no se recalcula.
+      veredicto: esperado == null || diferencia == null
+        ? ('sin_medir' as const)
+        : veredictoDe({ huboConteo: true, fondoSinMedir: c.fondo_inicial == null, diferencia }),
+      ya_reconto: c.conteo_previo != null,
+    };
+  }
+
   async saldo(sucursal: string, revela = false) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -895,6 +941,11 @@ export class CashCutService {
             // Que ya se recontó NO es secreto: no revela el esperado y la pantalla necesita
             // saberlo para apagar el botón antes de que el usuario lo intente.
             ya_reconto: abierto.conteo_previo != null,
+            /**
+             * `[CG.156]` ⭐ El conteo YA sellado, para que recargar no borre la revelación.
+             * `null` mientras nadie contó — y ahí el `esperado` sigue oculto por `revela`.
+             */
+            conteo_sellado: this.conteoSellado(abierto),
           }
           : null,
         // Sin corte abierto el "saldo" no tiene punto de partida: se declara, no se dibuja en 0.
@@ -1132,7 +1183,10 @@ export class CashCutService {
 
       const corte = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' })
-        .first('id', 'folio', 'fecha');
+        // `[CG.156]` Las cuatro de abajo son nuevas: sin ellas `conteoSellado()` devuelve `null`
+        // SIEMPRE y en silencio — un `SELECT` recortado no falla, miente.
+        .first('id', 'folio', 'fecha', 'fondo_inicial', 'fondo_origen',
+               'contado', 'esperado', 'diferencia', 'conteo_previo');
 
       // ── 3. Lo que NO se puede afirmar, dicho con nombre (ADR-056) ────────────────────────
       //
@@ -1402,6 +1456,11 @@ export class CashCutService {
             // falta; sin este campo el botón saldría siempre, incluso con el fondo ya puesto.
             // ⚠️ `fondo()` devuelve `null` cuando no se midió — NO `0`, que sería "arrancó vacía".
             fondo_inicial: fondo(corte), fondo_origen: corte.fondo_origen ?? null,
+            /**
+             * `[CG.156]` ⭐ El conteo YA sellado. Sin esto, el cierre de jornada no podía decir si
+             * el corte del día estaba contado — y la pantalla volvía a ofrecer sellarlo.
+             */
+            conteo_sellado: this.conteoSellado(corte),
           }
           : null,
         no_medido,
