@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, composeFreshness, evalInput } from '@megadulces/platform-core';
+import type { Freshness } from '@megadulces/contracts';
 import { atribuirDeposito, esVecinal, type GranoDeposito } from './caos-deposito-grano';
 
 /**
@@ -125,6 +126,11 @@ export interface CaosPorRuta {
   };
   /** Última sincronización del espejo de CAOS. Null = no medida, NO «al día». */
   datos_al: string | null;
+  /**
+   * [VP.2.3] La misma marca, con veredicto canónico (ADR-056): el feed de CAOS es continuo (~1 s) y Salud BD lo da
+   * por crítico a la hora (`caos_movimientos`), así que más de 1 h sin sincronizar es `stale`; sin marca, `unknown`.
+   */
+  freshness: Freshness;
   generated_at: string;
 }
 
@@ -381,6 +387,9 @@ export class CaosRutaCajaService {
           monto_sin_declarar: mudo.m,
         },
         datos_al: frescura?.datos_al ?? null,
+        freshness: composeFreshness([
+          evalInput('caos_movimientos', 'CAOS — movimientos de caja fuerte', frescura?.datos_al ?? null, 1),
+        ]),
         generated_at: new Date().toISOString(),
       };
     });

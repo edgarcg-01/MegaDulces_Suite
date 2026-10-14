@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { Freshness } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /** CS.2 — Cliente del reporte de CAOS (`/finance/caos`). */
@@ -202,5 +203,7 @@ export interface RutaCajaReporte {
     sin_declarar: number; monto_sin_declarar: number;
   };
   datos_al: string | null;
+  /** [VP.2.3] Frescura canónica del espejo de CAOS (la manda el servidor; ver `CaosPorRuta`). */
+  freshness: Freshness;
   generated_at: string;
 }
