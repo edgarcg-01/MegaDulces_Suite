@@ -11,6 +11,7 @@ import {
   type RouteCountSheet,
   type RouteCountSheetRow,
   type RouteDayBreakdown,
+  type VecinalConciliacion,
 } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
@@ -1387,7 +1388,7 @@ export class CommercialAnalyticsController {
       + 'sin sumarlos, U-D-12 (re-factura: el arqueo la ignora) y U-D-8 (telemarketing). '
       + 'Params: from, to (YYYY-MM-DD; por omisión los últimos 45 días).',
   })
-  vecinalConciliacion(@Query('from') from?: string, @Query('to') to?: string) {
+  vecinalConciliacion(@Query('from') from?: string, @Query('to') to?: string): Promise<VecinalConciliacion> {
     return this.service.vecinalConciliacion(from?.trim() || undefined, to?.trim() || undefined);
   }
 
