@@ -797,7 +797,7 @@ export class CashCutService {
         const sellado = await trx('finance.cash_ledger_cut_denominations')
           .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' })
           .select('denom_key', 'denominacion', 'piezas');
-        conteo = sellado.map((d: any) => ({
+        conteo = sellado.map((d: { denom_key: string; denominacion: string | number; piezas: string | number }) => ({
           denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: Number(d.piezas),
         }));
         // La morralla sellada vive en la columna del corte, no en el desglose.

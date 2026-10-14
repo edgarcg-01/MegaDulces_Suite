@@ -536,7 +536,10 @@ export class CommercialReplenishmentController {
   @Post('requisitions/:id/push-kepler')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
   @ApiOperation({ summary: 'KR.4 — escribe la requisición en Kepler como documento X-A-30. Idempotente por kepler_folio. Body opcional: { consolidar } (default true: suma los renglones del mismo SKU, porque la línea no guarda su almacén destino).' })
-  pushToKepler(@Param('id') id: string, @Body() dto?: { consolidar?: boolean }) {
+  pushToKepler(
+    @Param('id') id: string,
+    @Body() dto?: { consolidar?: boolean },
+  ): ReturnType<CommercialReplenishmentService['pushToKepler']> {
     return this.svc.pushToKepler(id, { consolidar: dto?.consolidar });
   }
 
