@@ -521,6 +521,50 @@ mismo cliente y con fecha posterior al ticket.
 así que permanece en la lista de la mesa como «Devuelto con NC»; el marcador de factura cancelada se
 supone `c43='C'` (no medido); los tickets con más de una factura hija suman todas sus notas.
 
+### 6.8 MCP.3 + MCP.8 — surtido al llegar, pedido por pedido, y avance para la vendedora (🧪 en código, 2026-10-14)
+
+**Pedido de David (2026-10-14):** el surtidor de cada sucursal recibe en vivo los pedidos de preventa
+de SU sucursal, separados por día; al tocar el aviso del pedido de hoy se le abre para surtirlo;
+confirma si hubo todo o manda un reporte con lo que sí hubo a la vendedora. La vendedora monitorea
+sus pedidos: si ya los tomó el surtidor, y cuál se cobró en Kepler.
+
+**Decisiones de David:** (1) lo que no hubo **se quita del pedido y el total se recalcula**; (2) el
+pedido registra **quién lo surtió y la hora en que tocó «Empezar a surtir»**.
+
+**Qué se construyó:**
+- **Bandeja del surtidor** `/almacen/surtir-preventa` (permiso `COMMERCIAL_PICKING_VER`; empezar y
+  cerrar `COMMERCIAL_PICKING_GESTIONAR`, que es lo que trae el rol `surtidor`). Pestañas Hoy /
+  Mañana / Próximos; lo vencido va en Hoy con sus días de atraso; dentro del día, por llegada (D5).
+  Se refresca sola (20 s mientras se ve) y el aviso en vivo `order_to_pick` la adelanta. El aviso de
+  la campana lleva `data.route` con `?pedido=`, así que tocarlo abre el pedido.
+- **Surtido por pedido** en `commercial.presale_picks` (mig `20261014095517`): quién empezó y a qué
+  hora, quién cerró, `outcome` completo / con faltantes y el reporte congelado (lo que se quitó, lo
+  que se ajustó, total antes y después). Un pedido se surte una vez (UNIQUE); sólo quien empezó lo
+  cierra; el CHECK de cierre lleva prueba negativa en la migración.
+- **Lo que no hubo se quita**: `CommercialOrdersService.recortarTrasSurtido` borra los renglones en
+  cero y recorta los parciales **en la misma transacción** del cierre, re-tarifica con el motor (el
+  precio de Kepler depende de la cantidad) y suelta `erp_gross_total` si el motor no puede. Sólo para
+  preventa confirmada (no aparta inventario). Si no hubo NADA, no se cierra: se pide cancelarlo.
+- **Coexistencia con las olas**: el pool de la consola excluye lo que ya se surte por pedido, y la
+  Mesa muestra *En surtido* al empezar y *En caja* al cerrar (`etapaDe` con `pick`).
+- **Aviso en vivo**: además de `identity.users.warehouse_id`, ahora alcanza a quien tiene la clave
+  de la sucursal en `warehouse_code` (la que usa el alcance y la que tienen llena los surtidores).
+- **«Mis pedidos»** en `apps/vendor` (`/vendor/mis-pedidos`, con globito de reportes sin ver): la
+  línea de tiempo por pedido y el reporte. Avisos a la vendedora en vivo (`presale_pick`) y por push.
+
+**Cobrado en Kepler — se detecta, no se liga.** D2/D6 dicen que la liga pedido↔documento la hace
+quien tiene la mercancía en la mano, no un algoritmo. Para que la vendedora vea «cobrado» sin romper
+eso, la pantalla **detecta** el cobro y lo muestra como *por confirmar*: un solo ticket del cliente,
+del día en que se terminó de surtir o después, sin liga a otro pedido y con todos los productos que
+quedaron. Si dos tickets cumplen (el cliente compró dos veces), no se adivina. La detección consulta
+el ODS por pedido, así que se limita a los 12 más recientes con surtido cerrado.
+
+**Declarado / fuera de alcance:**
+- El motor de GP («Tomar siguiente») sigue armando sólo Kepler: la preventa se surte por este camino.
+- No hay checado de la preventa (la etapa *En caja* sale del cierre del surtido, no de un checado).
+- La pantalla de la vendedora no escucha el socket: se refresca por sondeo y por el push.
+- Aplicar la migración en prod **antes** de desplegar (el código lee la tabla).
+
 ## 7. Fuera de alcance
 
 - **Embudo de altas de clientes** (D7): módulo propio, fase aparte. Esta fase sólo **bloquea** el

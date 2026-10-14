@@ -1474,6 +1474,16 @@ export const routes: Routes = [
       },
       {
         /**
+         * `[MCP.3]` **Pedidos de preventa por surtir** de la sucursal, por día (Hoy / Mañana /
+         * Próximos), y su surtido pedido por pedido. Foco, como Surtir. Ver es `COMMERCIAL_PICKING_VER`;
+         * empezar y cerrar exige `GESTIONAR` en el servidor. El aviso de la campana trae `?pedido=`.
+         */
+        path: 'surtir-preventa',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtir-preventa.component').then(m => m.AlmacenSurtirPreventaComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
+      },
+      {
+        /**
          * `[GP.4]` **Checar** desde el celular o handheld — pantalla de FOCO, igual que Surtir: sin
          * barra de tabs para no invitar a irse a mitad del pedido. Clave propia
          * `ALMACEN_CHECADO_GESTIONAR` (rol `checador` + `almacenista`).

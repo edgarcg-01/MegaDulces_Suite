@@ -480,6 +480,8 @@ export class PresaleControlService {
               (SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines,
               (SELECT wo.stage FROM commercial.wave_orders wo
                 WHERE wo.order_id = o.id ORDER BY wo.added_at DESC LIMIT 1) AS wave_stage,
+              (SELECT CASE WHEN pp.finished_at IS NULL THEN 'surtiendo' ELSE 'terminado' END
+                 FROM commercial.presale_picks pp WHERE pp.order_id = o.id) AS pick_state,
               d.sucursal AS link_sucursal, d.folio_digital AS link_folio, d.link_source,
               d.linked_at, lu.nombre AS linked_by_name,
               lg.id AS guide_id, lg.folio AS guide_folio, lg.status AS guide_status, lg.rider_name AS guide_rider_name,
@@ -622,6 +624,7 @@ export class PresaleControlService {
       const hechos = {
         status: f['status'] as string,
         wave_stage: (f['wave_stage'] as string) ?? null,
+        pick: (f['pick_state'] as 'surtiendo' | 'terminado' | null) ?? null,
         ligado,
         customer_erp_code: claveCliente(f['erp_customer_code'] as string),
         en_guia_impresa: f['guide_status'] === 'impresa',

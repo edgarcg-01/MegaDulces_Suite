@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — El surtidor recibe en vivo los pedidos de preventa de su sucursal, y la vendedora ve su avance (MCP.3 / MCP.8, 2026-10-14)
+- Bandeja nueva **«Preventa por surtir»** (`/almacen/surtir-preventa`): los pedidos de preventa de la sucursal en **Hoy / Mañana / Próximos**, que llegan solos (se refresca cada 20 s y el aviso en vivo la adelanta). Tocar el aviso de la campana **abre el pedido**.
+- **«Empezar a surtir»** registra quién y a qué hora; al terminar, el surtidor confirma «hubo todo» o manda el reporte. **Lo que no hubo se quita del pedido y el total se recalcula** (decisión de David), en la misma transacción.
+- **«Mis pedidos»** en la app de la vendedora: agendado → lo tomó el surtidor (nombre y hora) → surtido → cobrado en Kepler → entregado, con el reporte de faltantes y el total nuevo. El cobro se **detecta** por coincidencia y se muestra «por confirmar»: la liga la sigue confirmando quien entrega (D2/D6).
+- Tabla nueva `commercial.presale_picks` (mig `20261014095517`, aplicar antes del despliegue). El aviso en vivo a la sucursal ahora también llega por la clave de sucursal de la ficha.
 ### Added — El conciliador de la caja fuerte existía, estaba desplegado y nadie lo llamaba (CG.58.2 / CG.58.3, 2026-10-14)
 - `finance.caos_ingreso_atribucion` tenía **cero filas**, y la causa no era que `[CG.58]` estuviera mal ni sin desplegar: `POST /finance/caos/ingresos/conciliar` está en la imagen que corre desde el 7-oct, con su motor probado y el candado de base que impide reusar un cobro. **Lo que faltaba era quien lo llamara: ni botón, ni cron, ni enganche al arqueo.** Mismo patrón que la Fase IC — no faltaba módulo, faltaba que se usara.
 - Panel nuevo **«¿De qué cobros es este efectivo?»** en `/finanzas/caos`, con los tres montos separados (ADR-056): «sin respaldo» (un depósito que ningún cobro explica) y «sin depositar» (cobro que no entró al equipo) no son lo mismo y los arregla gente distinta. **Botón, no cron**: lo que escribe a demanda lo dispara quien va a mirar el resultado — un cron habría atribuido $18.36M sin que nadie hubiera visto nunca el reparto.
