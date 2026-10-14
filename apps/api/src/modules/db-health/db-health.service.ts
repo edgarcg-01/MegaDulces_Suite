@@ -1075,6 +1075,8 @@ export const CRON_JOBS: CronCfg[] = [
   // `cfg ? classify : 'ok'` y un cron parado se vería verde — que es justo el modo de falla que
   // este job existe para no repetir.
   { key: 'caja_fecha_futura',   label: 'Caja: movimientos fechados adelante', cadence: 'diario 07:15 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
+  { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   // ── [NORM.3] EL CARRIL QUE ERA MUDO ─────────────────────────────────────────────────────────

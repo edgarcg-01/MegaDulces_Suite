@@ -7,6 +7,7 @@ import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { ExpenseCaptureLinksService } from './expense-capture-links.service';
 import { ExpenseCaptureLinksController } from './expense-capture-links.controller';
 import { ExpenseCapturePublicController } from './expense-capture-public.controller';
+import { CierreKeplerService } from './cierre-kepler.service';
 
 /**
  * GX.7 — Comprobación de gasto (captura del comprobante fiscal en plataforma,
@@ -24,7 +25,8 @@ import { ExpenseCapturePublicController } from './expense-capture-public.control
     }),
   ],
   controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController],
-  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService],
+  // `[GX.85]` CierreKeplerService: cierra el vale cuando Kepler lo aplica (F).
+  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService],
   exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}
