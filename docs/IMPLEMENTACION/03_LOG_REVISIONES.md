@@ -48,7 +48,7 @@
 2. **El shell se comió el texto de la documentación.** Un `node -e "..."` con acentos graves ejecutó `app-metric-strip` y `density="compact"` como comandos y dejó el CHANGELOG diciendo «Para eso  gana ». Los scripts de edición van a un archivo (y no se invoca Python).
 3. **Un CSS que no se vio se declara.** La regla de sesión prohíbe levantar la app, así que esto llega **sin validación visual**; lo más probable de ajustar es el margen entre filas y cómo bajan los controles en pantalla angosta.
 
-**Verificación.** `modules/tienda` + `shared/components` verdes (305 y 31); 8 pruebas nuevas; dos mutaciones atrapadas (la página deja de pedir `compact`; el componente ignora la densidad); `check:pantalla` igual que `main` (0 fallas nuevas); pre-push de 17 gates.
+**Verificación.** `modules/tienda` + `shared/components` verdes (305 y 31); 6 pruebas nuevas; dos mutaciones atrapadas (la página deja de pedir `compact`; el componente ignora la densidad); `check:pantalla` igual que `main` (0 fallas nuevas); pre-push de 17 gates.
 
 ## 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde
 
