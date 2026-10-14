@@ -544,6 +544,19 @@ export class AnalyticsRefreshService {
        */
       ['analytics.mv_erp_margin_daily', 'analytics_refresh_erp_margin', 'Refresh MV árbitro de costo (nightly)', []],
       /**
+       * `[MR.9.1]` La otra mitad del margen contra el costo estándar: el MAYOREO (`U-D-8`), donde
+       * `c62` viene vacío, costeado con la ficha (`kdii.c77`). Va JUSTO DESPUÉS del árbitro porque
+       * `v_margin_standard_daily` suma las dos y tienen que cubrir el mismo corte (refrescadas lejos
+       * una de otra, la venta de mayoreo de la tarde quedaría en una y no en la otra).
+       *
+       * ⭐ `deps` lleva al árbitro aunque lea del ODS: si el árbitro falló, la vista combinada ya
+       * mezcla piernas, y refrescar sólo ésta lo empeora (ordenar no es depender, ADR-056).
+       * Medido: 3.8 s a 400 d. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_erp_margin_ficha`) o una
+       * MV parada se ve VERDE (OBS.1).
+       */
+      ['analytics.mv_erp_margin_ficha_daily', 'analytics_refresh_erp_margin_ficha',
+        'Refresh MV costo estándar de mayoreo (nightly)', ['analytics.mv_erp_margin_daily']],
+      /**
        * ⛔ `[PR.S2.1]` La cascada agregada al grano (sucursal, sku). **Se materializó el
        * 2026-09-30 y quedó fuera de este array** — el mismo defecto que el comentario de arriba
        * documenta para `mv_erp_margin_daily`, repetido por mí tres párrafos después de leerlo.
