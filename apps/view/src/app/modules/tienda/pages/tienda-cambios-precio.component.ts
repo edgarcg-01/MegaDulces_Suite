@@ -71,16 +71,28 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .cpr-screen{ padding:1rem 1.25rem 2rem; display:flex; flex-direction:column; gap:.9rem; }
-    .cpr-head h1{ font-size:var(--fs-lg); font-weight:var(--fw-bold); margin:0; letter-spacing:-.01em; }
     .cpr-head p{ margin:.2rem 0 0; color:var(--fg-2); font-size:var(--fs-xs); max-width:60ch; }
 
     .cpr-bar{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
     .cpr-bar .spacer{ flex:1 1 auto; }
-    .cpr-bar label{ font-size:var(--fs-xs); color:var(--fg-2); }
-    .cpr-bar input[type=date]{ padding:.3rem .5rem; border:1px solid var(--border-color);
+    .cpr-bar label, .cpr-ctl label{ font-size:var(--fs-xs); color:var(--fg-2); }
+    .cpr-bar input[type=date], .cpr-ctl input[type=date]{ padding:.3rem .5rem; border:1px solid var(--border-color);
       border-radius:var(--radius-sm); background:var(--card-bg); color:var(--fg-1);
       font-size:var(--fs-sm); font-variant-numeric:tabular-nums; min-height:var(--row-h-sm); }
-    .cpr-bar input[type=date]:focus-visible{ outline:2px solid var(--focus-ring); outline-offset:1px; }
+    .cpr-bar input[type=date]:focus-visible, .cpr-ctl input[type=date]:focus-visible{ outline:2px solid var(--focus-ring); outline-offset:1px; }
+
+    /* [ETQ-CAMBIOS.10] Fila superior: la píldora de pestañas y, a su derecha, los controles del día
+       (antes una fila aparte). La píldora conserva su ancho útil y los controles bajan solos a una
+       segunda línea cuando no caben. El margen negativo recupera parte del margen inferior que la
+       píldora de pestañas trae de fábrica y que no se puede tocar desde aquí. */
+    .cpr-top{ display:flex; align-items:flex-start; gap:var(--sp-3); flex-wrap:wrap; margin-bottom:-.5rem; }
+    .cpr-top app-page-tabs{ flex:1 1 18rem; min-width:0; }
+    .cpr-ctl{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; min-height:44px; padding:0 var(--sp-3);
+      background:var(--surface-ground); border:1px solid var(--border-color); border-radius:var(--r-pill); }
+
+    /* Resumen del día (cifras) a la izquierda y la instrucción de uso a la derecha, en una sola línea. */
+    .cpr-resumen{ display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2) var(--sp-4); flex-wrap:wrap; }
+    .cpr-ayuda{ margin:0 0 0 auto; font-size:var(--fs-xs); color:var(--text-muted); max-width:60ch; }
 
     /* [ETQ-CAMBIOS.6] El selector de plaza para quien no tiene tienda propia. Sólo tokens que
        este archivo ya usa: la lección de [ETQ-CAMBIOS.5] fue que un token inexistente no "se ve
@@ -193,12 +205,23 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
   `],
   template: `
     <div class="cpr-screen">
-      <app-page-tabs [tabs]="tabs" />
-
-      <div class="cpr-head">
-        <h1>Cambios de precio</h1>
-        <p>Lo que el ERP movió ese día en tu tienda. Haz clic en un producto para imprimir su etiqueta, o marca varios y mándalos juntos.</p>
+      <!-- [ETQ-CAMBIOS.10] Pestañas y controles del día en UNA fila. Antes eran dos filas más (el selector
+           de día y, arriba, un título con su bajada) y la píldora de pestañas dejaba media barra vacía. -->
+      <div class="cpr-top">
+        <app-page-tabs [tabs]="tabs" />
+        @if (sucursal()) {
+          <div class="cpr-ctl" role="group" aria-label="Día y acciones">
+            <label for="cpr-fecha">Día</label>
+            <input id="cpr-fecha" type="date" [ngModel]="fecha()" (ngModelChange)="verDia($event)" [max]="hoy" />
+            <p-button label="Ayer" size="small" [text]="true" (onClick)="verDia(ayer)" />
+            <!-- [ETQ-AVISOS.3] Compartir: sólo existe para quien tiene STORE_LABELS_COMPARTIR (Compras). -->
+            <app-cambios-compartir [plaza]="sucursal()" [fecha]="fecha()" />
+            <p-button label="Actualizar" icon="pi pi-refresh" size="small" [text]="true" (onClick)="datos.reload()" />
+          </div>
+        }
       </div>
+      <!-- El título lo dice la pestaña activa; el encabezado se queda para quien lee con lector de pantalla. -->
+      <h1 class="cpr-sr">Cambios de precio</h1>
 
       <!-- [ETQ-CAMBIOS.6] Sin tienda propia ya no es un callejón: se elige una. La bitácora sigue
            siendo por plaza —no se mezcla nada—, lo que cambia es que ahora hay de dónde elegir.
@@ -246,21 +269,17 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
             <span class="cpr-plaza-activa">Viendo <b>{{ nombrePlaza() }}</b></span>
           </div>
         }
-        <div class="cpr-bar">
-          <label for="cpr-fecha">Día</label>
-          <input id="cpr-fecha" type="date" [ngModel]="fecha()" (ngModelChange)="verDia($event)" [max]="hoy" />
-          <p-button label="Ayer" size="small" [text]="true" (onClick)="verDia(ayer)" />
-          <span class="spacer"></span>
-          <!-- [ETQ-AVISOS.3] Compartir: sólo existe para quien tiene STORE_LABELS_COMPARTIR (Compras). -->
-          <app-cambios-compartir [plaza]="sucursal()" [fecha]="fecha()" />
-          <p-button label="Actualizar" icon="pi pi-refresh" size="small" [text]="true" (onClick)="datos.reload()" />
-        </div>
-
         <!-- Q.1 answer-first: el veredicto del día ANTES del grid. Sin esto la pantalla abría en
-             una tabla de cientos de filas, que es el antipatrón textual de esa seccion. -->
-        @if (!datos.isLoading() && items().length) {
-          <app-metric-strip [items]="resumen()" mode="strip" ariaLabel="Resumen del día" />
-        }
+             una tabla de cientos de filas, que es el antipatrón textual de esa seccion.
+             [ETQ-CAMBIOS.10] Eran cuatro tarjetas de ~100 px de alto para cuatro números; ahora son los
+             MISMOS cuatro números en una línea (misma fuente: resumen()), con la instrucción de uso al
+             lado. Ninguno se quitó: suben + bajan + sin precio siguen sumando el total. -->
+        <div class="cpr-resumen">
+          @if (!datos.isLoading() && items().length) {
+            <app-metric-strip [items]="resumen()" mode="strip" density="compact" ariaLabel="Resumen del día" />
+          }
+          <p class="cpr-ayuda">Lo que el ERP movió ese día en tu tienda. Haz clic en un producto para imprimir su etiqueta, o marca varios y mándalos juntos.</p>
+        </div>
 
         <!-- [OBS.6] La frescura la manda el servicio y esta pantalla la TIRABA. Es la misma
              etiquetera que imprimió seis días de precios viejos, uno 54% bajo costo. -->
