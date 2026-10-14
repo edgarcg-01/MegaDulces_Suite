@@ -2,6 +2,7 @@ import {
   CajaCobertura,
   cajaCoberturaPct,
   ventanaDeCobertura,
+  CajaPeriodoContado,
   type CajaCoberturaEstado,
 } from './caja-cobertura.contract';
 
@@ -233,5 +234,32 @@ describe('[CG.183] cajaCoberturaPct — los dos ejes dan números distintos, y p
     expect(cajaCoberturaPct({
       ...base, estado: 'medida', por_confirmar: { movimientos: 0, monto: 0 }, motivo: null,
     }, 'movimientos')).toBe(100);
+  });
+});
+
+/**
+ * ⚠️ `[CG.183]` `periodo_contado` merece el mismo rigor que `ventana` **aunque sea informativo**:
+ * es el campo que hizo caer la primera versión — lo que se publicaba como ventana era justamente
+ * esto. Y vive en el contrato porque `z.object` **descarta las claves desconocidas en silencio**:
+ * un campo que ningún esquema describe desaparece sin un error el día que alguien parsee.
+ */
+describe('[CG.183] CajaPeriodoContado — describir no es acotar, pero se describe bien', () => {
+  it('acepta un periodo real y el vacío', () => {
+    expect(CajaPeriodoContado.safeParse({ from: '2026-09-25', to: '2026-12-10' }).success).toBe(true);
+    expect(CajaPeriodoContado.safeParse({ from: null, to: null }).success).toBe(true);
+  });
+
+  it('⛔ usa `from`/`to`, no `desde`/`hasta` — dos vocabularios en el mismo payload', () => {
+    // `CLAUDE.md` §Convenciones: English snake_case para campos de DTO. Un rango de fechas no es un
+    // término de dominio sin traducción limpia, y `ventana` ya usa `from`/`to` diez líneas arriba.
+    expect(CajaPeriodoContado.safeParse({ desde: '2026-09-25', hasta: '2026-12-10' }).success).toBe(false);
+  });
+
+  it('⛔ media punta se rechaza, igual que en la ventana', () => {
+    expect(CajaPeriodoContado.safeParse({ from: '2026-09-25', to: null }).success).toBe(false);
+  });
+
+  it('⛔ y la forma de la fecha también se verifica acá', () => {
+    expect(CajaPeriodoContado.safeParse({ from: 'Wed Jan 28', to: '2026-12-10' }).success).toBe(false);
   });
 });
