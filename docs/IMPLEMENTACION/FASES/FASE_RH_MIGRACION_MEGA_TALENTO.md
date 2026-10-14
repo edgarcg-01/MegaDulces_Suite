@@ -546,6 +546,33 @@ que ese formulario necesita (`[RH.2.4]`).
   fallar cerrado, no detectar el PDF enorme). **Diferencias declaradas:** el CV en Word no se acepta (la Suite valida
   por firma sólo PDF e imágenes, igual que la web; Mega Talento lo aceptaba sin revisar); y lo rechazado no se archiva
   en su casillero (allá una INE mandada por error quedaba en el expediente) — eso va con `[RH.3.3.4]`.
+- [ ] **[RH.3.3.3]** 🧪 Armar el CV (2026-10-14). A quien no tiene CV, el bot se lo ARMA. Al pedir el CV se le ofrecen
+  las DOS opciones (`OFERTA_CV`: mandar el suyo, o «ayúdame»/«2» y el bot se lo arma; en Mega Talento el primer mensaje
+  le pedía armarlo solo). **La solicitud** (`bot/solicitud.ts`) es el catálogo de la hoja TPASA 2002 que usa RH, portado
+  con sus validadores (fecha, CURP, estatura, «--» rechazado, tecleo al azar, «no lo recuerdo» como salida), sus bloques
+  repetidos (4 empleos, 3 referencias, 5 escuelas: se pregunta si los hay), las sugerencias del registro («contesta
+  *sí*»), el avance por BLOQUES (no promete un total que cambia) y la foto al final. **La conversación**
+  (`bot/armado.ts`): pausa/seguir, atrás, la foto (validada por firma, al bucket), al terminar el CV en PDF que se le
+  MANDA por WhatsApp para revisar, «sí» lo postula con ese PDF y «corregir» borra el dato nombrado y lo vuelve a
+  preguntar (el PDF viejo deja de valer). **El CV** (`bot/cv-html.ts`): HTML → PDF con el Chromium compartido; la
+  declaración personal se arma con SUS palabras (no un modelo), sin experiencia lleva un «Objetivo», todo lo del
+  candidato se escapa. Al aceptar, el candidato se crea con el PDF como CV (`portal_data.validacion_cv.tipo =
+  armado_por_bot`) y la solicitud en `candidates.application`. **⛔ Lo sensible, con consentimiento expreso (decisión
+  de David, 14-oct):** salud, estatura y peso, familia, economía y sindicato son datos sensibles (LFPDPPP arts. 3 y 9);
+  esas preguntas sólo existen si hay texto de consentimiento VIGENTE y la persona dijo «sí» (queda la versión y la
+  fecha); si dice que no o se retracta, lo ya contestado se BORRA. **El texto es un BORRADOR y está APAGADO**
+  (`HR_CONSENTIMIENTO_SENSIBLES=vigente` lo prende): mientras RH/legal no lo aprueben, la hoja se hace sin lo sensible.
+  El estado civil ya no se imprime en el CV; el embarazo sigue apagado (LFT 133 XIV). **Infra nueva:** (1) WhatsApp
+  manda DOCUMENTOS (`WhatsAppPort.sendDocument`: se sube el archivo a Meta y se manda por su id; simulador y cola de
+  salida; al libro de mensajes va el nombre y el tipo, NO el archivo); (2) el Chromium de PDFs sube de `libs/finance`
+  a `libs/platform-core` (su propio comentario lo pedía al segundo dominio; Finanzas lo reexporta sin cambiar a sus
+  consumidores; `puppeteer` se carga al primer PDF). Mig `20261014083512` (`bot_conversations.application` + estados
+  del armado; aditiva). Pruebas: el recorrido completo de la solicitud real escaneada (90–130 preguntas, sin repetir),
+  sin consentimiento, la más corta, el avance, el armado, el HTML, el documento en WhatsApp y en Meta, y la
+  conversación completa contra la base («ayúdame» → solicitud → foto → PDF → «sí» → candidata con CV y solicitud);
+  **mutadas a rojo** (no purgar, sin filtro de sensibles, sin escapar, el archivo al libro, sin solicitud). **No
+  incluye:** leer datos de la FOTO de un documento (INE, CURP); avisos versionados con titulares que no son usuarios
+  (deuda declarada: PRV.2 liga la aceptación a un usuario).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
   (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
 - [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.

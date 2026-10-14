@@ -6,6 +6,7 @@ import { BANK_CAPTURE_PORT } from '@megadulces/contracts';
 import type { BankCapturePort, BankCaptureSender } from '@megadulces/contracts';
 import { WHATSAPP_PORT } from '../ports/whatsapp.port';
 import type {
+  DocumentMessage,
   ImageMessage,
   InboundMessage,
   InteractiveMessage,
@@ -56,11 +57,13 @@ interface OutJobPayload {
   from?: string | null;
   /** `[RH.3.1]` de qué flujo es (para registrarlo en el libro aunque no haya hilo de comercio). */
   flow?: 'commerce' | 'recruitment';
-  kind: 'text' | 'interactive' | 'image' | 'template';
+  kind: 'text' | 'interactive' | 'image' | 'template' | 'document';
   body: string;
   interactive?: InteractiveMessage;
   image?: ImageMessage;
   template?: TemplateMessage;
+  /** `[RH.3.3.3]` el documento a enviar (el archivo viaja en el job; al libro sólo va su nombre y tipo). */
+  document?: DocumentMessage;
 }
 
 /**
@@ -394,10 +397,14 @@ export class WhatsAppIngestService implements OnModuleInit {
       descargar: media ? () => this.port.downloadMedia(media.id) : null,
     });
     for (const reply of replies) {
+      const base = { to: p.phone, thread_id: null, from: r.phone_number_id, flow: 'recruitment' as const };
       await this.enqueueOut(tenantId, reply.kind === 'interactive'
-        ? { to: p.phone, thread_id: null, from: r.phone_number_id, flow: 'recruitment', kind: 'interactive', body: reply.body,
+        ? { ...base, kind: 'interactive', body: reply.body,
           interactive: { body: reply.body, buttons: reply.buttons, ...(reply.header ? { header: reply.header } : {}) } }
-        : { to: p.phone, thread_id: null, from: r.phone_number_id, flow: 'recruitment', kind: 'text', body: reply.body });
+        : reply.kind === 'document'
+          ? { ...base, kind: 'document', body: reply.caption ?? `[${reply.filename}]`,
+            document: { base64: reply.base64, mime: reply.mime, filename: reply.filename, ...(reply.caption ? { caption: reply.caption } : {}) } }
+          : { ...base, kind: 'text', body: reply.body });
     }
   }
 
@@ -411,12 +418,14 @@ export class WhatsAppIngestService implements OnModuleInit {
       if (p.kind === 'interactive' && p.interactive) res = await this.port.sendInteractive(p.to, p.interactive, opts);
       else if (p.kind === 'image' && p.image) res = await this.port.sendImage(p.to, p.image, opts);
       else if (p.kind === 'template' && p.template) res = await this.port.sendTemplate(p.to, p.template, opts);
+      else if (p.kind === 'document' && p.document) res = await this.port.sendDocument(p.to, p.document, opts);
       else res = await this.port.sendText(p.to, p.body, opts);
-      // `[RH.3.1]` reclutamiento: al libro, con su flujo, aunque no haya hilo de comercio.
+      // `[RH.3.1]` reclutamiento: al libro, con su flujo, aunque no haya hilo de comercio. Del documento sólo el nombre y
+      // el tipo: el archivo (con datos personales) no se copia al libro de mensajes.
       if (p.flow === 'recruitment') {
         await this.threads.logFlowMessage('recruitment', 'out', {
           phone: p.to, phone_number_id: p.from ?? null, wa_message_id: res.message_id, type: p.kind, body: p.body,
-          payload: p.interactive ?? p.template ?? null,
+          payload: p.interactive ?? p.template ?? (p.document ? { filename: p.document.filename, mime: p.document.mime } : null),
         });
         return;
       }

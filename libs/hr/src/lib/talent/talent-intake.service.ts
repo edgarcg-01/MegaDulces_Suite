@@ -54,6 +54,8 @@ export interface EntradaPostulacion {
   nss?: string | null;
   /** `[RH.3.2.2]` Señales del bot que RH ve en la ficha (p. ej. `orientacion`: qué pidió y qué se le ofreció). Sólo al crear. */
   portal_data?: Record<string, unknown> | null;
+  /** `[RH.3.3.3]` La solicitud de empleo armada por chat (`candidates.application`). Al crear, o si a su proceso le falta. */
+  application?: Record<string, unknown> | null;
 }
 
 /** Los campos que sólo trae el bot, con su nombre de columna (se guardan al crear y se rellenan si faltan). */
@@ -197,6 +199,7 @@ export class HrTalentIntakeService {
             rehire_note: e.rehire_note, source: e.heard_from, origin: canal, stage: 'filtro_inicial',
             ...Object.fromEntries(CAMPOS_BOT.map((k) => [k, e[k] ?? null])),
             portal_data: JSON.stringify(e.portal_data ?? {}),
+            application: e.application ? JSON.stringify(e.application) : null,
             documents: JSON.stringify(docs), last_activity_at: trx.fn.now(),
           }).returning('id');
           cvUsado = !!cvDoc;
@@ -269,6 +272,7 @@ export class HrTalentIntakeService {
       if (vacio(c[k]) && e[k]) { cambios[k] = e[k]; rellenados.push(k); }
     }
     if (vacio(c.source) && e.heard_from) { cambios['source'] = e.heard_from; rellenados.push('dónde se enteró'); }
+    if (!c.application && e.application) { cambios['application'] = JSON.stringify(e.application); rellenados.push('solicitud de empleo'); }
     const docs = Array.isArray(c.documents) ? (c.documents as EntradaDocumento[]) : [];
     const tiene = (slot: string) => docs.some((d) => vigente(d) && casilleroDe(d) === slot);
     const nuevos: EntradaDocumento[] = [];

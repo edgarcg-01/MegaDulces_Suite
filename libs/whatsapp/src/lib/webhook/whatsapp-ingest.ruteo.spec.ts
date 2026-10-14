@@ -39,11 +39,11 @@ describe('[RH.3.1] ruteo de la ingesta por número', () => {
       process: async (dir: string, h: (j: unknown) => Promise<void>) => { handlers[dir] = h; },
       enqueue: async (job: { dir: string }) => { await handlers[job.dir](job); },
     };
-    const libro: Array<{ flow: string; direction: string; phone: string; phone_number_id: string | null; body: unknown }> = [];
+    const libro: Array<{ flow: string; direction: string; phone: string; phone_number_id: string | null; body: unknown; payload?: unknown }> = [];
     const threads = {
       isDuplicateInbound: async () => false,
-      logFlowMessage: async (flow: string, direction: string, m: { phone: string; phone_number_id?: string | null; body?: unknown }) => {
-        libro.push({ flow, direction, phone: m.phone, phone_number_id: m.phone_number_id ?? null, body: m.body }); return true;
+      logFlowMessage: async (flow: string, direction: string, m: { phone: string; phone_number_id?: string | null; body?: unknown; payload?: unknown }) => {
+        libro.push({ flow, direction, phone: m.phone, phone_number_id: m.phone_number_id ?? null, body: m.body, payload: m.payload }); return true;
       },
       getOrCreate: async () => ({ id: 'hilo-1' }),
       logMessage: async (_t: string, direction: string, m: { body?: unknown }) => { libro.push({ flow: 'commerce', direction, phone: '', phone_number_id: null, body: m.body }); return true; },
@@ -102,6 +102,23 @@ describe('[RH.3.1] ruteo de la ingesta por número', () => {
     await svc.ingestSimulator({ from: '5213511234567', phone_number_id: NUM_RH, type: 'document',
       media_data_uri: `data:application/pdf;base64,${Buffer.from('%PDF-cv').toString('base64')}` });
     expect(bytes).toBe('%PDF-cv');
+  });
+
+  it('[RH.3.3.3] un DOCUMENTO del bot sale desde el número de RH; al libro va su nombre y tipo, NO el archivo', async () => {
+    const pdf = Buffer.from('%PDF-1.4 cv').toString('base64');
+    const bot: RecruitmentBotPort = { handleMessage: async () => [
+      { kind: 'document', base64: pdf, mime: 'application/pdf', filename: 'CV Ana.pdf', caption: 'Tu currículum' },
+      { kind: 'text', body: '¿Cómo lo ves?' },
+    ] };
+    const { svc, port, libro } = montar({ bot });
+    await svc.onModuleInit();
+    await svc.ingestSimulator({ from: '5213511234567', text: 'sí', phone_number_id: NUM_RH });
+    expect(port.outbox.map((o) => [o.kind, o.from, o.document?.filename, o.document?.bytes.toString()])).toEqual([
+      ['document', NUM_RH, 'CV Ana.pdf', '%PDF-1.4 cv'], ['text', NUM_RH, undefined, undefined],
+    ]);
+    const salida = libro.filter((l) => l.direction === 'out');
+    expect(salida[0].payload).toEqual({ filename: 'CV Ana.pdf', mime: 'application/pdf' });
+    expect(JSON.stringify(libro)).not.toContain(pdf);
   });
 
   it('sin bot de reclutamiento (sin binding): se registra y NO se contesta con el bot de comercio', async () => {

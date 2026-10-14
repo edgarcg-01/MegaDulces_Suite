@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  DocumentMessage,
   ImageMessage,
   InboundMessage,
   InteractiveMessage,
@@ -12,9 +13,11 @@ import {
 /** Mensaje saliente capturado por el simulador (para inspección en dev/tests). */
 export interface SimOutbound {
   to: string;
-  kind: 'text' | 'interactive' | 'image' | 'template';
+  kind: 'text' | 'interactive' | 'image' | 'template' | 'document';
   body: string;
   buttons?: { id: string; title: string }[];
+  /** `[RH.3.3.3]` El documento enviado. */
+  document?: { filename: string; mime: string; bytes: Buffer };
   /** `[RH.3.1]` Desde qué número salió (null = el configurado). */
   from?: string | null;
   at: string; // ISO
@@ -88,6 +91,19 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
       to,
       kind: 'image',
       body: `[imagen ${msg.link}]${msg.caption ? ' ' + msg.caption : ''}`,
+      from: opts?.from ?? null,
+      at: new Date().toISOString(),
+    });
+  }
+
+  /** `[RH.3.3.3]` Documento: se guarda el nombre, el tipo y el tamaño (y los bytes, para que una prueba los revise). */
+  async sendDocument(to: string, msg: DocumentMessage, opts?: SendOptions): Promise<SendResult> {
+    const bytes = Buffer.from(msg.base64, 'base64');
+    return this.push({
+      to,
+      kind: 'document',
+      body: `[documento ${msg.filename} · ${msg.mime} · ${bytes.length} bytes]${msg.caption ? ' ' + msg.caption : ''}`,
+      document: { filename: msg.filename, mime: msg.mime, bytes },
       from: opts?.from ?? null,
       at: new Date().toISOString(),
     });

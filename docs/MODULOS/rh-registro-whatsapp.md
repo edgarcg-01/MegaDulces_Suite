@@ -1,5 +1,40 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.3.3 · El bot le arma el CV a quien no tiene (2026-10-14)
+
+### Problema
+
+El CV es obligatorio para postularse, y mucha gente que sirve para el puesto no tiene uno ni sabe hacerlo. Se quedaban
+ahí: el bot les pedía el CV y no volvían.
+
+### Solución
+
+- Al pedir el CV se le dan dos opciones: mandar el suyo, o escribir «ayúdame» para que el bot se lo arme.
+- El bot le hace las preguntas de la solicitud de empleo que RH ya usa en papel (datos personales, documentos, escuela,
+  empleos, referencias…), con las respuestas que ya dio en el registro puestas para que conteste «sí». Puede pausar,
+  seguir y regresar a corregir.
+- Al final le manda su CV en PDF, con su foto. Si le gusta, contesta «sí» y queda postulado con ese CV y su solicitud;
+  si algo está mal, dice qué dato y se lo vuelve a preguntar.
+- Las preguntas de salud, estatura y peso, familia, dinero y sindicato sólo se hacen si la persona da su consentimiento
+  expreso. Hoy están apagadas hasta que RH apruebe el texto del consentimiento.
+
+### Cómo se implementó
+
+- `solicitud.ts` (las preguntas y sus reglas), `armado.ts` (la conversación) y `cv-html.ts` (el diseño del CV), todo sin
+  base ni red; el servicio del bot guarda la foto y el PDF en el bucket y arma el PDF con el mismo generador que usan los
+  documentos de Finanzas, que ahora vive en un lugar común.
+- WhatsApp aprendió a mandar documentos (sube el archivo a Meta y lo manda); al historial de mensajes no se copia el
+  archivo, sólo su nombre.
+- Migración nueva para guardar la solicitud mientras se arma. Pruebas con una solicitud real completa y una conversación
+  de punta a punta contra la base, comprobadas rompiendo el código a propósito.
+
+### Por qué así
+
+Armarle el CV es la diferencia entre perder a un buen candidato y tenerlo postulado. La declaración del CV se arma con
+sus propias palabras y no la escribe una IA, para que no se lea inventada. Los datos sensibles piden por ley
+consentimiento expreso; preguntarlos sin él, o guardarlos después de que la persona dice que no, sería un riesgo para la
+empresa, por eso se borran y por eso el bloque espera el texto oficial.
+
 ## RH.3.3.2 · Revisar que el CV sea un CV (2026-10-14)
 
 ### Problema

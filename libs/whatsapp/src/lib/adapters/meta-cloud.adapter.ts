@@ -3,6 +3,7 @@ import axios from 'axios';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { normalizeMxPhone } from '@megadulces/platform-core';
 import {
+  DocumentMessage,
   ImageMessage,
   InboundMessage,
   InteractiveMessage,
@@ -114,6 +115,39 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
           })),
         },
       },
+    }, opts?.from);
+  }
+
+  /**
+   * `[RH.3.3.3]` Documento: 1) se sube el archivo a `POST /{phone_number_id}/media` (multipart) → `id`; 2) se manda el
+   * mensaje `type: document` con ese id. Así no depende de que una URL nuestra sea pública para Meta. Si la subida
+   * falla, lanza (como `post`): la cola decide reintentos.
+   */
+  async sendDocument(to: string, msg: DocumentMessage, opts?: SendOptions): Promise<SendResult> {
+    if (!this.ready(opts?.from)) return { message_id: null };
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', msg.mime);
+    form.append('file', new Blob([Buffer.from(msg.base64, 'base64')], { type: msg.mime }), msg.filename);
+    let mediaId: string;
+    try {
+      const subida = await axios.post(`https://graph.facebook.com/${this.graphVersion}/${opts?.from || this.phoneNumberId}/media`, form, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        timeout: this.timeoutMs,
+      });
+      mediaId = String(subida.data?.id ?? '');
+      if (!mediaId) throw new Error('Meta no devolvió el id del documento subido');
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: unknown }; message?: string };
+      this.logger.error(`Meta upload de documento falló: ${err.response?.status} ${JSON.stringify(err.response?.data ?? err.message)}`);
+      throw e;
+    }
+    return this.post({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: this.normalizeTo(to),
+      type: 'document',
+      document: { id: mediaId, filename: msg.filename, ...(msg.caption ? { caption: msg.caption } : {}) },
     }, opts?.from);
   }
 
