@@ -96,6 +96,25 @@ describe('[CG.183] ⛔ PRUEBAS NEGATIVAS: así es como se degrada a dos valores'
     }).success).toBe(false);
   });
 
+  it('⛔ una ventana con forma inválida se rechaza — «Wed Jan 28» ya viajó por acá', () => {
+    // `pg` devuelve `date` como objeto y `String(f).slice(0,10)` produjo exactamente eso en este
+    // módulo: viajaba al front, volvía como `?from=` y Postgres tiraba 22007.
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: 'Wed Jan 28', to: '2026-10-14' } }).success).toBe(false);
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: '2026-10-01', to: '' } }).success).toBe(false);
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: '2026-1-1', to: '2026-10-14' } }).success).toBe(false);
+  });
+
+  it('⛔ una ventana INVERTIDA se rechaza: tiene forma perfecta y devuelve cero filas', () => {
+    // Es el caso que se lee como «no se capturó nada» en vez de «la ventana estaba al revés».
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: '2026-10-14', to: '2026-10-01' } }).success).toBe(false);
+  });
+
+  it('⛔ un `monto` NEGATIVO se rechaza: la base lo prohíbe en los dos lados', () => {
+    // `cash_ledger_monto_chk: monto > 0` y la vista de la cola filtra `importe > 0`. Medido: 0
+    // negativos en 75 filas del libro y en 13,330 de la cola.
+    expect(CajaCobertura.safeParse({ ...medida, capturado: { movimientos: 1, monto: -5 } }).success).toBe(false);
+  });
+
   it('⛔ el monto como STRING se rechaza — es lo que Postgres manda hoy', () => {
     // El repo no fija `setTypeParser`, así que `::numeric` llega como string y la pantalla
     // sobrevive sólo porque `money()` hace `Number(v || 0)`. Acá el contrato lo corta.
@@ -117,6 +136,23 @@ describe('[CG.183] cajaCoberturaPct — los dos ejes dan números distintos, y p
     const sinMedir = { ...base, estado: 'sin_medir' as const, por_confirmar: null, motivo: { tipo: 'fallo' as const, texto: 'x' } };
     expect(cajaCoberturaPct(sinMedir, 'movimientos')).toBeNull();
     expect(cajaCoberturaPct(sinMedir, 'monto')).toBeNull();
+  });
+
+  it('⭐ la ventana VACÍA es válida y es lo primero que ve quien abre un día nuevo', () => {
+    // Guardia contra «arreglar» el cero con `positive()`: el CHECK de la base es sobre la FILA
+    // (`monto > 0`), y este contrato describe el AGREGADO. Cero capturado no es un dato inválido:
+    // es una ventana sin movimientos. Si alguien endurece el esquema, esta prueba se pone roja.
+    const vacia = { ...base, estado: 'medida' as const, motivo: null,
+      capturado: { movimientos: 0, monto: 0 },
+      por_confirmar: { movimientos: 33, monto: 12500.5 } };
+    expect(CajaCobertura.safeParse(vacia).success).toBe(true);
+    expect(cajaCoberturaPct(vacia, 'movimientos')).toBe(0);
+  });
+
+  it('⭐ la ventana de UN SOLO DÍA es legítima: `from === to` pasa', () => {
+    // Medido: `from = to = 2026-10-08` da 1 capturado contra 33 por confirmar. Es el camino de
+    // quien revisa el día de un corte concreto desde la liga con `?from=`/`?to=`.
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: '2026-10-08', to: '2026-10-08' } }).success).toBe(true);
   });
 
   it('un denominador en cero devuelve `null`, no una división por cero', () => {

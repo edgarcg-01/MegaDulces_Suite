@@ -80,8 +80,18 @@ export const CajaCoberturaLado = z.object({
    * Postgres llega al JSON como **string** y hoy sobrevive sólo porque `money()` hace
    * `Number(v || 0)` en la pantalla. El servidor convierte en el `map`; acá el tipo lo exige.
    * ⛔ Y en SQL va `::numeric`, nunca `::float8`: esto es dinero.
+   *
+   * ⭐ `nonnegative()` y **NO `positive()`**, y la distinción es de GRANO: el `CHECK` de la base es
+   * sobre la FILA (`cash_ledger_monto_chk: monto > 0`, y la vista de la cola filtra `importe > 0`;
+   * medido: 0 negativos en 75 filas del libro y en 13,330 de la cola, mínimos \$1.00 y \$0.17).
+   * Este contrato describe el **agregado**, y `{ movimientos: 0, monto: 0 }` es un estado
+   * perfectamente válido: **la ventana sin nada capturado**, que es lo primero que ve quien abre un
+   * día nuevo. Con `positive()` el contrato rechazaría justo ese caso.
+   *
+   * ⛔ Y se descarta conservar el signo «por si acaso»: modelaría un estado que la base PROHÍBE.
+   * Una rama para algo que no puede ocurrir es deuda, no defensa.
    */
-  monto: z.number(),
+  monto: z.number().nonnegative(),
 });
 export type CajaCoberturaLado = z.infer<typeof CajaCoberturaLado>;
 
@@ -129,8 +139,33 @@ export type CajaCoberturaMotivo = z.infer<typeof CajaCoberturaMotivo>;
  */
 export const CajaCobertura = z.object({
   estado: CajaCoberturaEstado,
-  /** ⛔ Sale del `from`/`to` que recibió la petición, **nunca** de una ventana fija. Ver arriba. */
-  ventana: z.object({ from: z.string(), to: z.string() }),
+  /**
+   * ⛔ Sale del `from`/`to` que recibió la petición, **nunca** de una ventana fija. Ver arriba.
+   *
+   * ⭐ Con FORMA, no `z.string()` pelado — porque hay **tres maneras de romper una ventana y las
+   * tres terminan en cero filas**, que es lo que las vuelve indistinguibles entre sí y de «no hubo
+   * movimientos»:
+   *
+   *   · forma inválida  → el `regex`. ⚠️ No es hipotético en este dominio: `pg` devuelve `date`
+   *     como **objeto**, y `String(f).slice(0,10)` ya produjo **`"Wed Jan 28"`** acá (por eso
+   *     existe el helper `ymd()`); viajaba al front, volvía como `?from=` y Postgres tiraba
+   *     `22007`. El `regex` ataja exactamente ese viaje.
+   *   · orden invertido → el `superRefine` de abajo. Una ventana al revés tiene **forma perfecta**
+   *     y devuelve cero filas: se lee como «no se capturó nada».
+   *   · ausencia        → el campo es obligatorio. Opcional, el día que el servidor no la mande el
+   *     front compila igual y publica dos cifras sin decir de qué periodo son.
+   */
+  ventana: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD'),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD'),
+  }).refine((v) => v.from <= v.to, {
+    // ⚠️ `<=` y NO `<`: la ventana de UN SOLO DÍA es legítima y está medida (`from = to =
+    // 2026-10-08` da 1 capturado contra 33 por confirmar). Es el camino de quien revisa el día de
+    // un corte concreto desde la liga con `?from=`/`?to=`. Un `<` estricto lo rompería el día que
+    // se use en serio — el mismo error de grado que `positive()` sobre un agregado que puede ser 0.
+    message: 'la ventana está invertida: `from` es posterior a `to`',
+    path: ['from'],
+  }),
   capturado: CajaCoberturaLado,
   /** `null` salvo que el estado sea `medida`. Ver por qué no es `0`, arriba. */
   por_confirmar: CajaCoberturaLado.nullable(),
