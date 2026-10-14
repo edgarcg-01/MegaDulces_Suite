@@ -120,7 +120,10 @@ export class CashflowForecastSnapshotService {
       //
       // ⭐ La causa, una vez legible: `semana` llegaba como «Mon Oct 19» y Postgres rechazaba el
       // `date`. Arreglado en el origen (`deuda-prevista.ts`).
-      motivo = e instanceof Error ? e.message.slice(-400) : String(e);
+      // ⚠️ `[CG.143.4]` Las DOS ramas recortan por el final. La de `String(e)` quedaba entera: un
+      // rechazo del driver de pg o un `throw` de un string no son `Error`, y por ahí volvía a
+      // entrar el mismo defecto que este recorte cierra.
+      motivo = (e instanceof Error ? e.message : String(e)).slice(-400);
       this.logger.error(`foto del pronóstico NO tomada: ${motivo}`);
     }
 
