@@ -52,6 +52,8 @@ export class CaosIngresoReconService {
     monto_pendiente: number;
     /** Efectivo cobrado que todavía no entró al equipo. Medido 2026-10-07: $18.8 M. */
     monto_sin_depositar: number;
+    /** `[CG.58.5]` Cuándo corrió solo por última vez. `null` = nunca; se declara, no se asume. */
+    latido: { cuando: string; status: string; nota: string | null; error: string | null } | null;
   }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const desde = q.from || '2026-05-27';   // el primer depósito que existe
@@ -94,6 +96,23 @@ export class CaosIngresoReconService {
       const conciliados = Number(conc?.n ?? 0);
       const monto_depositado = Number(dep?.monto ?? 0);
       const monto_conciliado = Number(conc?.monto ?? 0);
+      /**
+       * `[CG.58.5]` El LATIDO del carril que ahora hace esto solo. Viaja con el estado y no en un
+       * endpoint aparte a propósito: la pregunta *«¿esto está al día?»* no se puede responder con
+       * las cifras sin saber **cuándo se calcularon**, y separarlas deja que la pantalla publique
+       * un número viejo con toda confianza.
+       *
+       * ⚠️ `null` cuando no hay ninguna corrida — se declara, no se dibuja como «al día».
+       */
+      type LatidoCrudo = { cuando: string | null; status: string | null; note: string | null; error: string | null };
+      const lat: LatidoCrudo | undefined = await trx('analytics.cron_runs')
+        .where({ tenant_id: tenantId, job_key: 'caos_ingreso_conciliar' })
+        .select(
+          trx.raw(`to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS cuando`),
+          'status', 'note', 'error',
+        )
+        .first();
+
       return {
         desde,
         depositos,
@@ -103,6 +122,9 @@ export class CaosIngresoReconService {
         pendientes: depositos - conciliados,
         monto_pendiente: Number((monto_depositado - monto_conciliado).toFixed(2)),
         monto_sin_depositar: Number(libre?.monto ?? 0),
+        latido: lat?.cuando
+          ? { cuando: lat.cuando, status: lat.status ?? 'unknown', nota: lat.note, error: lat.error }
+          : null,
       };
     });
   }
