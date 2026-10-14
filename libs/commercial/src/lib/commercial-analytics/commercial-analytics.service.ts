@@ -852,8 +852,22 @@ export interface VecinalConciliacionFila {
   caja: number;
   date: string;
   rutas: string[];
+  /** ⛔ Lo vecinal de TODA la caja, sumando las rutas que la comparten. NO es de una ruta. */
   vecinal: number;
   tickets: number;
+  /**
+   * `[VEC.12.1]` La venta de **la ruta por la que se preguntó**, en esta caja y este día.
+   *
+   * `null` cuando la consulta no nombró una ruta (el panel global no la pide). Nunca 0 por
+   * ausencia: un cero acá significaría que esa ruta no vendió, y eso es otra cosa (ADR-056).
+   *
+   * ⛔ **Existe porque sin ella la pantalla mentía.** El detalle de una ruta mostraba `vecinal`
+   * —el total de la caja— bajo una columna que el lector leía como suya. Medido el 2026-10-14
+   * sobre abril→octubre: de 735 día-caja-ruta, **310 (42%) comparten caja con otra ruta** y ahí
+   * el total infla **5.05× en promedio, 85.6× en el peor caso**; con tres rutas, 37.6× y 170×.
+   * En PH el 14-oct la pantalla decía $18,694 donde `1V001` había vendido **$6,662.41**.
+   */
+  vecinal_ruta: number | null;
   /** NULL cuando no hay arqueo. Nunca 0: la ausencia no se dibuja como cero (ADR-056). */
   arqueo_venta: number | null;
   otros_en_la_caja: number | null;
@@ -8415,7 +8429,7 @@ export class CommercialAnalyticsService {
    * sell-out sí los suma y por eso publica la vecinal de septiembre en $3,150,428.68 contra
    * $1,943,014.72 — **+62 %**; `[VEC.8]` es el runbook que lo corrige y necesita ventana.
    */
-  async vecinalConciliacion(fromArg?: string, toArg?: string): Promise<VecinalConciliacion> {
+  async vecinalConciliacion(fromArg?: string, toArg?: string, routeArg?: string): Promise<VecinalConciliacion> {
     const dRx = /^\d{4}-\d{2}-\d{2}$/;
     // Misma forma que `routeClosureReconciliation`, a propósito: dos expresiones distintas para
     // "hoy en México" en el mismo archivo divergen el día que alguien toque una.
@@ -8437,21 +8451,46 @@ export class CommercialAnalyticsService {
       rutas: string | null; vecinal: string | number; tickets: string | number;
       arqueo_venta: string | null; otros_en_la_caja: string | null; vecinal_pct: string | null;
       efectivo_esperado: string | null; efectivo_contado: string | null; efectivo_diff: string | null;
-      veredicto: VecinalVeredicto;
+      veredicto: VecinalVeredicto; vecinal_ruta: string | null;
     };
+
+    /**
+     * `[VEC.12.1]` La ruta por la que se pregunta, normalizada. Sin ella la columna no se calcula
+     * y llega `null` — que es lo correcto para el panel global, donde no hay UNA ruta.
+     *
+     * ⚠️ Se valida la FORMA (`1V001`), no contra el catálogo: un código inexistente devuelve cero
+     * filas, que se lee bien; lo que no se puede permitir es que entre texto libre a la consulta.
+     */
+    const route = /^[0-9]V[0-9]{1,4}$/i.test(String(routeArg ?? '').trim())
+      ? String(routeArg).trim().toUpperCase()
+      : null;
 
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
         `SELECT c.warehouse_code, COALESCE(w.name, c.warehouse_code) AS warehouse_name,
                 c.caja, to_char(c.business_date,'YYYY-MM-DD') AS date,
                 c.rutas, c.vecinal, c.tickets, c.arqueo_venta, c.otros_en_la_caja, c.vecinal_pct,
-                c.efectivo_esperado, c.efectivo_contado, c.efectivo_diff, c.veredicto
+                c.efectivo_esperado, c.efectivo_contado, c.efectivo_diff, c.veredicto,
+                r.ruta AS vecinal_ruta
            FROM analytics.v_vecinal_conciliacion c
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = c.tenant_id AND w.code = c.warehouse_code AND w.deleted_at IS NULL
+           LEFT JOIN LATERAL (
+             -- ⛔ Se une por (sucursal, CAJA, día): una ruta puede timbrar en más de una caja el
+             --    mismo día (medido: 38 de 696) y repartir su total diario entre cajas sería
+             --    inventarlo. Acá cada caja trae lo que ESA caja vio de esta ruta.
+             SELECT sum(d.total) AS ruta
+               FROM analytics.v_kepler_vecinal_sales_docs d
+              WHERE ?::text IS NOT NULL
+                AND d.tenant_id = c.tenant_id
+                AND d.warehouse_code = c.warehouse_code
+                AND d.caja::integer = c.caja
+                AND d.business_date = c.business_date
+                AND upper(d.route_no) = ?::text
+           ) r ON true
           WHERE c.tenant_id = ?::uuid AND c.business_date >= ?::date AND c.business_date <= ?::date
           ORDER BY c.business_date DESC, c.warehouse_code, c.caja`,
-        [tenantId, from, to]);
+        [route, route, tenantId, from, to]);
 
       // Lo que NO suma va en su propio grano (sucursal, día): la re-factura se emite en OTRA caja
       // que el ticket que copia, así que al grano de caja no se puede juntar con lo que refleja.
@@ -8504,6 +8543,8 @@ export class CommercialAnalyticsService {
         rutas: String(r.rutas || '').split(',').filter(Boolean),
         vecinal: Number(r.vecinal) || 0,
         tickets: Number(r.tickets) || 0,
+        // ⚠️ `num()`, no `Number()`: sin ruta pedida esto es `null` y un 0 diría «no vendió».
+        vecinal_ruta: num(r.vecinal_ruta),
         arqueo_venta: num(r.arqueo_venta),
         otros_en_la_caja: num(r.otros_en_la_caja),
         vecinal_pct: num(r.vecinal_pct),
