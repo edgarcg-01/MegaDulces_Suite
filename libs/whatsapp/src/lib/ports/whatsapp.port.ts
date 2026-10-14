@@ -82,6 +82,14 @@ export interface SendResult {
 }
 
 /**
+ * `[RH.3.1]` Opciones de envío. `from` = el `phone_number_id` desde el que sale el mensaje (el número que recibió la
+ * conversación). Sin `from`, sale del número configurado (`WHATSAPP_PHONE_NUMBER_ID`), como antes.
+ */
+export interface SendOptions {
+  from?: string | null;
+}
+
+/**
  * Contrato del canal. Enviar es idempotente por parte del proveedor; el dedup
  * de ENTRADA lo hace la capa de webhook con `wa_message_id`.
  */
@@ -90,16 +98,16 @@ export interface WhatsAppPort {
   readonly provider: 'meta' | 'simulator';
 
   /** Envía texto plano al número dado (E.164 sin '+'). */
-  sendText(to: string, body: string): Promise<SendResult>;
+  sendText(to: string, body: string, opts?: SendOptions): Promise<SendResult>;
 
   /** Envía un mensaje con botones de respuesta rápida. */
-  sendInteractive(to: string, msg: InteractiveMessage): Promise<SendResult>;
+  sendInteractive(to: string, msg: InteractiveMessage, opts?: SendOptions): Promise<SendResult>;
 
   /** Envía una imagen (URL pública) con caption opcional. Solo dentro de la ventana 24h. */
-  sendImage(to: string, msg: ImageMessage): Promise<SendResult>;
+  sendImage(to: string, msg: ImageMessage, opts?: SendOptions): Promise<SendResult>;
 
   /** Envía una plantilla aprobada (promos fuera de la ventana 24h). */
-  sendTemplate(to: string, msg: TemplateMessage): Promise<SendResult>;
+  sendTemplate(to: string, msg: TemplateMessage, opts?: SendOptions): Promise<SendResult>;
 
   /**
    * Verificación del webhook (handshake GET de Meta). Devuelve el `challenge`
