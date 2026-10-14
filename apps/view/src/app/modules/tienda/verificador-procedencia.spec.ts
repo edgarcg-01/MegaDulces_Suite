@@ -413,7 +413,12 @@ describe('verificador · el mayoreo', () => {
     // directiva de conteo.
     expect(PAGE).toMatch(/class="vf-precio"><span class="vf-peso">\$<\/span>\{\{ precioPartes\(\)\.entero \}\}/);
     expect(PAGE).toMatch(/<span class="vf-cent">.*\{\{ precioPartes\(\)\.centavos \}\}<\/span>/);
-    expect(PAGE).toMatch(/class="vf-may-monto">\{\{ money\(t\.precio_con_iva\) \}\}/);
+    // El mayoreo y las otras unidades parten su precio igual que el principal (entero grande,
+    // centavos chicos): una sola funcion, `partesPrecio`, para los tres.
+    expect(PAGE).toMatch(/class="vf-may-monto"><span class="vf-peso">\$<\/span>\{\{ pm\.entero \}\}/);
+    expect(PAGE).toMatch(/class="vf-u-precio"><span class="vf-peso">\$<\/span>\{\{ pu\.entero \}\}/);
+    expect(PAGE).toMatch(/@let pm = partes\(t\.precio_con_iva\)/);
+    expect(PAGE).toMatch(/@let pu = partes\(u\.precio_con_iva\)/);
   });
 
   /**

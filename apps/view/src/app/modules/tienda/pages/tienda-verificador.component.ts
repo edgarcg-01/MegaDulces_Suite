@@ -17,6 +17,22 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
 import { EstadoSnapshot, OrigenPrecio, ProductoPrecio, ResultadoBusqueda, SucursalVerificador, VerificadorService } from '../verificador.service';
 
+/**
+ * El precio en dos partes: entero (grande) y centavos (chicos, arriba). Pura, para que el precio
+ * principal, el mayoreo y las otras unidades se partan IGUAL.
+ *
+ * Se parte sobre el total en CENTAVOS enteros y no sobre toFixed: asi 85.995 -> 86.00 acarrea bien
+ * al entero en vez de quedar 85 y 100. Sin precio no se dibujan centavos (ni un cero inventado).
+ */
+export function partesPrecio(v: number | null | undefined): { entero: string; centavos: string } {
+  if (v == null) return { entero: '—', centavos: '' };
+  const total = Math.round(Math.abs(Number(v) || 0) * 100);
+  return {
+    entero: Math.floor(total / 100).toLocaleString('es-MX'),
+    centavos: String(total % 100).padStart(2, '0'),
+  };
+}
+
 type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 'bad' } | null;
 
 /**
@@ -168,7 +184,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                     <span>
                       Este precio <strong>acaba de cambiar</strong> en el ERP.
                       @if (precioAnterior() != null) {
-                        Antes decía <span class="vf-mono">{{ money(precioAnterior()) }}</span>.
+                        Antes decía <span class="vf-num">{{ money(precioAnterior()) }}</span>.
                       }
                       Confirma en caja antes de cobrar.
                     </span>
@@ -191,10 +207,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   <div class="vf-mayoreo">
                     @for (x of mayoreoConFoco(); track x.t.etiqueta) {
                       @let t = x.t;
+                      @let pm = partes(t.precio_con_iva);
                       <div class="vf-may-row" [class.is-realza]="t.realza" [class.is-foco]="x.destacado">
                         <div class="vf-may-cond">Llevando <strong class="vf-may-n">{{ t.desde }}</strong> o más {{ t.palabra }}</div>
                         <div class="vf-may-precio">
-                          <span class="vf-may-monto">{{ money(t.precio_con_iva) }}</span>
+                          <span class="vf-may-monto"><span class="vf-peso">$</span>{{ pm.entero }}@if (pm.centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ pm.centavos }}</span>}</span>
                           <span class="vf-may-cu">{{ t.unidad_monto }}</span>
                         </div>
                       </div>
@@ -214,9 +231,10 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                 @if (otrasUnidades().length) {
                   <div class="vf-otras">
                     @for (u of otrasUnidades(); track u.u) {
+                      @let pu = partes(u.precio_con_iva);
                       <span class="vf-u-item">
                         <b>{{ unidadLabel(u.u) }}</b>
-                        <span class="vf-u-precio">{{ money(u.precio_con_iva) }}</span>
+                        <span class="vf-u-precio"><span class="vf-peso">$</span>{{ pu.entero }}@if (pu.centavos) {<span class="vf-cent"><span class="vf-punto">.</span>{{ pu.centavos }}</span>}</span>
                         @if (u.factor > 1 && unidadBase()) { <span class="vf-u-f">({{ u.factor }} {{ unidadBase() }})</span> }
                       </span>
                     }
@@ -422,8 +440,12 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     /* El signo y los centavos van chicos y pegados arriba (como en la etiqueta del anaquel):
        el cliente lee la parte en pesos y los centavos no parecen otro numero. El punto viaja
        con los centavos y encogido hacia los digitos: en monoespaciada ocupa una celda entera. */
-    .vf-peso, .vf-cent { font-size: .45em; vertical-align: top; line-height: 1.15; }
+    .vf-peso, .vf-cent { font-size: var(--vf-escala-cent); vertical-align: top; line-height: 1.15; }
     .vf-peso { margin-right: .08em; }
+    /* Escala del signo y los centavos respecto de la cifra: en la grande .45em; en el mayoreo y
+       las otras unidades la cifra base es chica y .45em quedaria en ~9px, asi que ahi .6em. */
+    .vf-precio { --vf-escala-cent: .45em; }
+    .vf-may-monto, .vf-u-precio { --vf-escala-cent: .6em; }
     .vf-cent { margin-left: .02em; }
     .vf-punto { margin-right: -.22em; }
 
@@ -484,7 +506,8 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-counter-reset { background: none; border: none; cursor: pointer; opacity: .55;
       padding: 0 4px; font: inherit; color: inherit; }
     .vf-counter-reset:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .vf-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    /* Cifra dentro de una frase: proporcional, para que el punto no abra un hueco. */
+    .vf-num { font-variant-numeric: tabular-nums; font-weight: 700; }
     .vf-version { display: inline-flex; align-items: center; gap: .4rem; color: var(--text-muted); }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1166,15 +1189,12 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
    * Se parte sobre el total en CENTAVOS enteros y no sobre `toFixed`: así 85.995 -> 86.00 acarrea
    * bien al entero en vez de quedar "85" y "100".
    */
-  readonly precioPartes = computed((): { entero: string; centavos: string } => {
-    const v = this.precioPrincipal();
-    if (v == null) return { entero: '—', centavos: '' };
-    const total = Math.round(Math.abs(Number(v) || 0) * 100);
-    return {
-      entero: Math.floor(total / 100).toLocaleString('es-MX'),
-      centavos: String(total % 100).padStart(2, '0'),
-    };
-  });
+  readonly precioPartes = computed(() => partesPrecio(this.precioPrincipal()));
+
+  /** Para el template: mayoreo y otras unidades parten su precio igual que el principal. */
+  partes(v: number | null | undefined): { entero: string; centavos: string } {
+    return partesPrecio(v);
+  }
 
   /** Mismo mapeo de `unidadLabel()` del HTML original. */
   unidadLabel(u: string): string {

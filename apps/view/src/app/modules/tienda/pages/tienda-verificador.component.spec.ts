@@ -167,6 +167,23 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(hero?.querySelector('.vf-cent')?.textContent).toBe('.99');
   });
 
+  it('el mayoreo y las otras unidades parten su precio igual: entero grande, centavos chicos', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    const montos: HTMLElement[] = Array.from(fix.nativeElement.querySelectorAll('.vf-may-monto'));
+    const unidades: HTMLElement[] = Array.from(fix.nativeElement.querySelectorAll('.vf-u-precio'));
+    expect(montos.length).toBeGreaterThan(0);
+    expect(unidades.length).toBeGreaterThan(0);
+    for (const el of [...montos, ...unidades]) {
+      // Cada cifra sigue leyendose completa ($1,159.91)...
+      expect(el.textContent?.replace(/\s/g, '')).toMatch(/^\$\d{1,3}(,\d{3})*\.\d{2}$/);
+      // ...pero con los centavos y su punto en su propio nodo chico, no en la cifra grande.
+      expect(el.querySelector('.vf-cent')?.textContent).toMatch(/^\.\d{2}$/);
+    }
+  });
+
   it('precioPartes acarrea bien el redondeo, agrupa miles y no inventa centavos sin precio', () => {
     const c = fix.componentInstance;
     const partes = (v: number | null) => {
