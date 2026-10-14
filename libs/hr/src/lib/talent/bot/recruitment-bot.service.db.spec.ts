@@ -10,11 +10,12 @@
 import path from 'path';
 import knexLib, { Knex } from 'knex';
 import type { RecruitmentInbound } from '@megadulces/contracts';
+import { siguiente as siguientePregunta } from './solicitud';
 
 const URL = process.env['HR_DB_TEST_URL'];
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const ROLLBACK = new Error('rollback-intencional');
-const MIGS = ['20261012155411_talent_reclutamiento_datos', '20261012172246_talent_fusion_y_motivo_papelera', '20261013150116_talent_bot_conversaciones']
+const MIGS = ['20261012155411_talent_reclutamiento_datos', '20261012172246_talent_fusion_y_motivo_papelera', '20261013150116_talent_bot_conversaciones', '20261014083512_talent_bot_solicitud']
   .map((n) => require(path.resolve(__dirname, '../../../../../../database/migrations-newdb', `${n}.js`)));
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;
@@ -29,7 +30,7 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     try {
       await knex.transaction(async (trx) => {
         for (const m of MIGS) { await m.up(trx); }
-        await MIGS[2].up(trx); // idempotente
+        await MIGS[2].up(trx); await MIGS[3].up(trx); // idempotentes
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
         let n = 0;
         const fallo = async (fn: () => Promise<unknown>): Promise<string> => {
@@ -41,9 +42,13 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
           }
         };
         const bucket = new Map<string, Buffer>();
+        const tipos = new Map<string, string>();
         const storage = {
-          putBuffer: async (buf: Buffer, _ct: string, carpeta: string, nombre: string) => { const key = `${carpeta}/${bucket.size + 1}-${nombre}`; bucket.set(key, buf); return { key }; },
+          putBuffer: async (buf: Buffer, ct: string, carpeta: string, nombre: string) => {
+            const key = `${carpeta}/${bucket.size + 1}-${nombre}`; bucket.set(key, buf); tipos.set(key, ct); return { key };
+          },
           remove: async (key: string) => { bucket.delete(key); },
+          getDataUri: async (key: string) => (bucket.has(key) ? `data:${tipos.get(key)};base64,${(bucket.get(key) as Buffer).toString('base64')}` : null),
         };
         const tk = { run: async (t: string, cb: (x: Knex.Transaction) => Promise<unknown>) => { await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [t]); return cb(trx); } };
         const intake = new HrTalentIntakeService(tk as never, storage as never);
@@ -140,6 +145,87 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
         const c4 = await trx('talent.bot_conversations').where({ phone_key: tel4k }).first('state', 'data');
         r['carrera'] = [c4.state, c4.data.full_name, c4.data.position_interest === nombreVacante];
 
+        // ── [RH.3.3.1] Notas de voz: la transcripción entra como texto, con eco; una alucinación no toca nada ──────────
+        const tel5 = `521${String(sello + 17).slice(-10)}`;
+        const tel5k = tel5.slice(-10);
+        let siguiente = nombreVacante;
+        const pedidos: Array<{ mime: string; opts: Record<string, unknown> }> = [];
+        const conVoz = new HrRecruitmentBotService(tk as never, intake, undefined, {
+          hasApiKey: true,
+          transcribe: async (_b64: string, mime: string, opts: Record<string, unknown>) => { pedidos.push({ mime, opts }); return { text: siguiente }; },
+        } as never);
+        const nota = () => msg({ phone: tel5, type: 'audio', media: { id: 'a1', mimeType: 'audio/ogg; codecs=opus', filename: null },
+          descargar: async () => ({ buffer: Buffer.from('OggS-nota'), mime: 'audio/ogg; codecs=opus' }) });
+        await bot.handleMessage(msg({ phone: tel5, text: 'hola' }));
+        r['voz'] = (await conVoz.handleMessage(nota())).map((x) => x.body).join('\n');
+        r['vozEstado'] = (await trx('talent.bot_conversations').where({ phone_key: tel5k }).first('state')).state;
+        siguiente = 'Gracias por ver el video.';
+        r['alucina'] = (await conVoz.handleMessage(nota())).map((x) => x.body).join('\n');
+        r['alucinaEstado'] = (await trx('talent.bot_conversations').where({ phone_key: tel5k }).first('state')).state;
+        r['sinVoz'] = (await bot.handleMessage(nota())).map((x) => x.body).join('\n');
+        r['vozPedido'] = [pedidos[0]?.opts['filename'], pedidos[0]?.opts['temperature'], String(pedidos[0]?.opts['prompt']).includes('anaquelista')];
+
+        // ── [RH.3.3.2] Validar el CV: un comprobante no entra (ni crea candidato); el CV después, sí, con su veredicto ──
+        const tel6 = `521${String(sello + 19).slice(-10)}`;
+        const tel6k = tel6.slice(-10);
+        await trx('talent.bot_conversations').insert({
+          tenant_id: TENANT, phone: tel6, state: 'esperando_cv',
+          data: JSON.stringify({ position_interest: nombreVacante, full_name: 'Sofía Prueba Luna', email: 'Sin correo', city_branch: 'Zamora',
+            commute_time: '5 min', availability: 'completo', previous_employer: 'Oxxo', desired_salary: '2000', rfc: 'LOGA900101AB1',
+            nss: '12345678901', relative_in_company: 'ninguno', rehire_note: 'no' }),
+        });
+        let veredicto: Record<string, unknown> = { valido: false, tipo: 'comprobante', motivo: 'es un recibo de CFE', revisar: false };
+        const conValidador = new HrRecruitmentBotService(tk as never, intake, undefined, undefined, { validar: async () => veredicto } as never);
+        const cvDoc = () => msg({ phone: tel6, type: 'document', media: { id: 'c6', mimeType: 'application/pdf', filename: 'cv.pdf' },
+          descargar: async () => ({ buffer: PDF, mime: 'application/pdf' }) });
+        r['cvRechazo'] = (await conValidador.handleMessage(cvDoc())).map((x) => x.body).join('\n');
+        r['cvRechazoSinCandidato'] = Number((await trx('talent.candidates').where({ phone_key: tel6k }).count('* as n'))[0]['n']);
+        r['cvRechazoEstado'] = (await trx('talent.bot_conversations').where({ phone_key: tel6k }).first('state')).state;
+        veredicto = { valido: true, tipo: 'cv', motivo: 'un CV de una hoja', revisar: false };
+        await conValidador.handleMessage(cvDoc());
+        r['cvAceptado'] = (await trx('talent.candidates').where({ phone_key: tel6k }).first('portal_data'))?.portal_data?.validacion_cv;
+
+        // ── [RH.3.3.3] Armar el CV: «ayúdame» → toda la solicitud → foto → PDF → «sí» → candidata con CV y solicitud ──────
+        const tel7 = `521${String(sello + 23).slice(-10)}`;
+        const tel7k = tel7.slice(-10);
+        const registro7 = { position_interest: nombreVacante, full_name: 'Rosa María Prueba Luna', email: 'Sin correo', city_branch: 'Zamora',
+          commute_time: '5 min', availability: 'completo', previous_employer: 'Ninguna', desired_salary: '8000', rfc: 'LOGA900101AB1',
+          nss: '12345678901', relative_in_company: 'ninguno', rehire_note: 'no' };
+        await trx('talent.bot_conversations').insert({ tenant_id: TENANT, phone: tel7, state: 'esperando_cv', data: JSON.stringify(registro7) });
+        const armador = new HrRecruitmentBotService(tk as never, intake, undefined, undefined, undefined, storage as never);
+        let htmlRecibido = '';
+        armador.pdf = async (html: string) => { htmlRecibido = html; return Buffer.from('%PDF-1.4 cv armado'); };
+        const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
+        const RESP7: Record<string, string> = {
+          puesto_solicitado: 'sí', sueldo_deseado: '8000', apellido_paterno: 'sí', apellido_materno: 'sí', nombres: 'sí', email: 'no tengo',
+          domicilio: 'Calle Uno 12', colonia: 'Centro', codigo_postal: '59600', telefono_casa: 'sí', sexo: '2', lugar_nacimiento: 'Zamora, Michoacán',
+          fecha_nacimiento: '02/11/2000', edad: 'sí', nacionalidad: 'sí', rfc: 'sí', nss: 'sí', curp: 'no tengo', credencial_elector: 'no tengo',
+          cartilla_militar: 'no tengo', pasaporte: 'no tengo', afore: 'no sé', idiomas: 'Español', idiomas_nivel: 'sí', pasatiempo: 'Leer libros',
+          meta_vida: 'Crecer en la empresa', como_supo: 'Facebook', puede_viajar: 'Sí puedo', cambiar_residencia: 'No por familia', fecha_presentarse: 'Inmediata',
+        };
+        const responder7 = (k: string, opciones: readonly string[] | undefined): string =>
+          RESP7[k] ?? (opciones ? (opciones.includes('No') ? 'no' : '1') : 'no tengo');
+        r['armado0'] = (await armador.handleMessage(msg({ phone: tel7, text: 'ayúdame' }))).map((x) => x.kind === 'text' ? x.body : x.kind).join('\n');
+        let salida7: Awaited<ReturnType<typeof armador.handleMessage>> = [];
+        for (let i = 0; i < 200; i++) {
+          const fila = await trx('talent.bot_conversations').where({ phone_key: tel7k }).first('state', 'application');
+          if (fila.state !== 'armando_solicitud') break;
+          const p = siguientePregunta(fila.application.respuestas, { registro: registro7, telefono: tel7k, consentimiento: null });
+          if (!p) break;
+          salida7 = p.tipo === 'foto'
+            ? await armador.handleMessage(msg({ phone: tel7, type: 'image', media: { id: 'f7', mimeType: 'image/png', filename: null },
+              descargar: async () => ({ buffer: PNG, mime: 'image/png' }) }))
+            : await armador.handleMessage(msg({ phone: tel7, text: responder7(p.k, p.opciones) }));
+        }
+        const fin7 = await trx('talent.bot_conversations').where({ phone_key: tel7k }).first('state', 'application');
+        r['armadoFin'] = [fin7.state, !!fin7.application.cv_key, !!fin7.application.foto_key, salida7.map((x) => x.kind)];
+        r['armadoDoc'] = salida7.find((x) => x.kind === 'document');
+        r['armadoHtml'] = [htmlRecibido.includes('Rosa María Prueba Luna'), htmlRecibido.includes('data:image/png;base64,')];
+        r['armadoSube'] = (await armador.handleMessage(msg({ phone: tel7, text: 'sí, está bien' }))).map((x) => x.kind === 'text' ? x.body : x.kind).join('\n');
+        const cand7 = await trx('talent.candidates').where({ phone_key: tel7k }).first('application', 'portal_data', 'documents', 'full_name');
+        r['armadoCand'] = cand7 && [cand7.full_name, cand7.portal_data?.validacion_cv?.tipo, Object.keys(cand7.application?.respuestas ?? {}).length > 40,
+          (cand7.documents as Array<{ slot: string }>).map((d) => d.slot)];
+
         // ── CHECKs ─────────────────────────────────────────────────────────────────────────────
         const C = 'talent.bot_conversations';
         const fila = (o: Record<string, unknown>) => ({ tenant_id: TENANT, phone: `52${String(sello + ++n).slice(-10)}`, ...o });
@@ -185,6 +271,21 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(String(r['ia'])).toMatch(/^¡Hola! 👋 Bienvenido/);
     // La IA no aplicó (la conversación cambió): «Marta…» entró por el camino determinista como respuesta al nombre.
     expect(r['carrera']).toEqual(['esperando_email', 'Marta Prueba Ruiz', true]);
+    expect(String(r['voz'])).toMatch(/^🎤 _Escuché:_ "Cajero RH32 \d+"\n\n¡Buenas noticias!/);
+    expect(r['vozEstado']).toBe('esperando_full_name');
+    expect(String(r['alucina'])).toContain('no alcancé a distinguir');
+    expect(r['alucinaEstado']).toBe('esperando_full_name');
+    expect(String(r['sinVoz'])).toContain('no puedo escucharla');
+    expect(r['vozPedido']).toEqual(['nota.ogg', 0, true]);
+    expect(String(r['cvRechazo'])).toContain('parece un comprobante');
+    expect([r['cvRechazoSinCandidato'], r['cvRechazoEstado']]).toEqual([0, 'esperando_cv']);
+    expect(r['cvAceptado']).toEqual({ tipo: 'cv', motivo: 'un CV de una hoja', revisar: false });
+    expect(String(r['armado0'])).toContain('yo te lo armo');
+    expect(r['armadoFin']).toEqual(['revisando_cv', true, true, ['text', 'document', 'text']]);
+    expect(r['armadoDoc']).toMatchObject({ kind: 'document', mime: 'application/pdf', base64: Buffer.from('%PDF-1.4 cv armado').toString('base64') });
+    expect(r['armadoHtml']).toEqual([true, true]);
+    expect(String(r['armadoSube'])).toContain('Subí tu *currículum*');
+    expect(r['armadoCand']).toEqual(['Rosa María Prueba Luna', 'armado_por_bot', true, ['cv']]);
     expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
     expect(r['buenos']).toEqual(['sin error', 'sin error']);
   }, 60_000);

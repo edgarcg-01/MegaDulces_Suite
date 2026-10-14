@@ -61,6 +61,8 @@ export * from './lib/decorators/skip-tenant-tx.decorator';
 // ── ai ──
 export * from './lib/ai/anthropic.service';
 export * from './lib/ai/speech-to-text.service';
+// [RH.3.3.3] El Chromium compartido para PDFs (subió desde libs/finance/shared; puppeteer se carga al primer PDF).
+export * from './lib/pdf/chromium-pdf';
 export * from './lib/ai/embeddings.service';
 export * from './lib/ai/llm-extractor.service';
 export * from './lib/ai/ocr-readings.service';

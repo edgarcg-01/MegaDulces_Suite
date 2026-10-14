@@ -65,6 +65,20 @@ export interface ImageMessage {
 }
 
 /**
+ * `[RH.3.3.3]` Documento saliente (p. ej. el CV que el bot le armó al candidato). Va el ARCHIVO, no una liga: Meta lo
+ * recibe subido (`POST /{phone_number_id}/media`) y se manda por su id, así no depende de que una URL nuestra sea
+ * pública. Sólo dentro de la ventana de 24 h.
+ */
+export interface DocumentMessage {
+  /** El archivo en base64 (sin el prefijo `data:`). */
+  base64: string;
+  mime: string;
+  /** El nombre con que lo ve la persona. */
+  filename: string;
+  caption?: string;
+}
+
+/**
  * Mensaje de PLANTILLA (F.7) — obligatorio para promos iniciadas por el negocio
  * fuera de la ventana de 24h. La plantilla debe estar aprobada en Meta.
  * `imageLink` llena el header de imagen; `bodyParams` los {{1}},{{2}}… del body.
@@ -108,6 +122,9 @@ export interface WhatsAppPort {
 
   /** Envía una plantilla aprobada (promos fuera de la ventana 24h). */
   sendTemplate(to: string, msg: TemplateMessage, opts?: SendOptions): Promise<SendResult>;
+
+  /** `[RH.3.3.3]` Envía un documento (se sube el archivo y se manda por su id). Sólo dentro de la ventana 24h. */
+  sendDocument(to: string, msg: DocumentMessage, opts?: SendOptions): Promise<SendResult>;
 
   /**
    * Verificación del webhook (handshake GET de Meta). Devuelve el `challenge`

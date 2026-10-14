@@ -32,6 +32,17 @@ export interface TranscribeResult {
   error?: 'no_key' | 'too_big' | 'stt_failed' | 'stt_error';
 }
 
+export interface TranscribeOptions {
+  language?: string;
+  timeoutMs?: number;
+  /** Nombre del archivo: Groq deduce el formato por su extensión (`nota.ogg` para WhatsApp). Por omisión `audio.webm`. */
+  filename?: string;
+  /** Vocabulario de la casa: Whisper acierta mucho más con el empujón («anaquelista», «CURP»). */
+  prompt?: string;
+  /** 0 para que no «invente» con audio sucio. Por omisión, la del proveedor. */
+  temperature?: number;
+}
+
 @Injectable()
 export class SpeechToTextService {
   private readonly logger = new Logger(SpeechToTextService.name);
@@ -44,7 +55,7 @@ export class SpeechToTextService {
    * @param audioBase64 audio crudo en base64 (sin el prefijo `data:`).
    * @param mime tipo que reportó `MediaRecorder` (webm/mp4/ogg según navegador).
    */
-  async transcribe(audioBase64: string, mime = 'audio/webm', opts: { language?: string; timeoutMs?: number } = {}): Promise<TranscribeResult> {
+  async transcribe(audioBase64: string, mime = 'audio/webm', opts: TranscribeOptions = {}): Promise<TranscribeResult> {
     const b64 = String(audioBase64 || '');
     if (!b64) return { text: '' };
     const key = process.env.GROQ_API_KEY || '';
@@ -54,10 +65,13 @@ export class SpeechToTextService {
     if (buf.byteLength > MAX_BYTES) return { text: '', error: 'too_big' };
 
     const form = new FormData();
-    form.append('file', new Blob([buf], { type: mime }), 'audio.webm');
+    // Groq reconoce el formato por la EXTENSIÓN del nombre: una nota de voz de WhatsApp (ogg/opus) no es `.webm`.
+    form.append('file', new Blob([buf], { type: mime }), opts.filename || 'audio.webm');
     form.append('model', process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo');
     form.append('language', opts.language || 'es');
     form.append('response_format', 'json');
+    if (opts.prompt) form.append('prompt', opts.prompt);
+    if (opts.temperature !== undefined) form.append('temperature', String(opts.temperature));
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
