@@ -414,13 +414,120 @@ que ese formulario necesita (`[RH.2.4]`).
 
 ### RH.3 — Bot de reclutamiento en `libs/whatsapp` (≈4–5 semanas)
 
-- [ ] **[RH.3.1]** El webhook de la Suite enruta por `phone_number_id`: el número de RH va al orquestador de reclutamiento
-  (hoy enruta comercio y captura bancaria). Plantillas aprobadas del número de RH migran con él.
-- [ ] **[RH.3.2]** Conversación (máquina de estados), solicitud de ~130 preguntas, CV en PDF, clasificación de documentos.
-- [ ] **[RH.3.3]** Dictamen, aprobación por WhatsApp, avance de fases, MIDOT (modo manual), destacados y riesgo como `@Cron` con latido.
-- [ ] **[RH.3.4]** Se retira Firestore (legado) y el panel HTML del bot (lo reemplazan las pantallas de RH.2).
-- [ ] **[RH.3.5]** **Corte de reclutamiento** (RH.2 + RH.3 juntos, §6): carga única de candidatos, mensajes y documentos;
-  el webhook de Meta apunta a la Suite.
+**Medido el 13-oct-2026** (inventario del repo `BOT-RH` y de `libs/whatsapp`, sólo lectura):
+
+- **El bot de Mega Talento son ~14,000 líneas de lógica** (sin el checador): `server.js` 3,500 · `conversacion.js` 1,783 ·
+  `dictamen.js` 1,365 · `solicitud.js` 1,170 (175 preguntas) · `ia.js` 710 · `orientacion.js` 661 · `midot.js` 596 ·
+  `cv-pdf.js` 591 · `aprobacion.js` 481 · `cierre.js` 458 · `avance.js` 454 · destacados/riesgo/reactivar ~650. Se porta por
+  capas, no de un golpe.
+- **La Suite NO enruta por número**: `phone_number_id` sólo resuelve el tenant (`whatsapp.phone_number_tenant_map`); elegir
+  el flujo es un if/else fijo (captura bancaria → comercio). **Se envía desde UN solo número** (`WHATSAPP_PHONE_NUMBER_ID`).
+- **`whatsapp.messages` exige un hilo de COMERCIO** (`thread_id NOT NULL`): los mensajes de reclutamiento no caben sin
+  cambiarla (choca con «un solo libro de WhatsApp» de §2).
+- `conversacion.js` dice ser pura y **no lo es**: lee/escribe Postgres y llama a Claude. El candidato **nace con el primer
+  «hola»** (por eso Mega Talento tenía 99 filas sin CV que RH tuvo que esconder, `ES_POSTULACION`).
+- Sin la firma `WHATSAPP_APP_SECRET`, el bot de Mega Talento **acepta cualquier POST**; la Suite falla cerrado en producción.
+- Ventana de 24 h: Mega Talento la mide (`dentroDe24h`: último mensaje entrante); la Suite **no la rastrea** (sólo documenta).
+
+**Decisiones (recomendadas el 13-oct, sobre lo medido):**
+
+1. **Un solo libro de WhatsApp**: `whatsapp.messages` acepta mensajes SIN hilo de comercio, marcados con su `flow`
+   (`commerce` · `recruitment` · `bank_capture`) y su `phone_number_id`. Se descarta una tabla aparte para RH.
+2. **Ruteo por número**: cada `phone_number_id` declara su flujo (columna nueva en `phone_number_tenant_map`); el número de RH
+   va al orquestador de reclutamiento. El envío sale **desde el número que recibió** (hoy, uno fijo).
+3. **La conversación no es el candidato**: el estado del chat vive en `talent.bot_conversations`; el candidato se crea con
+   `HrTalentIntakeService.postular(…, 'whatsapp')` al terminar el registro — así pasa por **las mismas reglas que la web**
+   (un proceso a la vez, 90 días, lista negra) y no hay filas basura.
+4. **Lo que NO se porta**: la sincronización con Firestore (la Suite es el portal), el panel HTML y `/api/decidir` (los
+   reemplazan `/rh/reclutamiento` y los botones de WhatsApp), el checador (es `[RH.1]`), el vigilante de GitHub Actions.
+5. **Los cron** (avance, reactivar CV, destacados, riesgo, cierre/MIDOT, resumen diario) pasan a `@Cron` en el worker,
+   **con latido** registrado en `CRON_JOBS` (sin umbral, `db-health` da verde incondicional).
+
+- [ ] **[RH.3.1]** 🧪 Infraestructura (2026-10-13). Mig `20261013144148_whatsapp_flujo_por_numero`:
+  `phone_number_tenant_map.flow` ('commerce' | 'recruitment', default comercio: el número de ventas sigue igual);
+  `whatsapp.messages` acepta mensajes sin hilo de comercio con `flow`, `phone` y `phone_number_id` (CHECK: comercio sigue
+  exigiendo su hilo; fuera de comercio, sin teléfono no) + índice para la ventana de 24 h. La ingesta resuelve tenant **y
+  flujo** por número (si la consulta falla: comercio — nunca a reclutamiento sin saber de dónde vino) y desvía el número de
+  reclutamiento **antes** de la captura bancaria y del comercio; acepta notas de voz sólo en ese número. `WhatsAppPort`
+  envía **desde un número** (`SendOptions.from`; sin él, el configurado — todos los números de la misma cuenta comparten
+  token). Puerto `RECRUITMENT_BOT_PORT` (contracts) ligado en el composition root a `HrRecruitmentBotService` (libs/hr):
+  hoy un esqueleto que saluda; sin binding se registra y NO se contesta (mejor callar que contestar con el bot de comercio).
+  `ConversationThreadService.logFlowMessage` / `ultimoEntrante` / `dentroDe24h` (ventana medida desde el último ENTRANTE,
+  como Mega Talento; sin mensajes = fuera). Pruebas: ruteo con la ingesta real y el simulador (`whatsapp-ingest.ruteo.spec.ts`,
+  primer spec de `libs/whatsapp`, que gana su `vitest.config.ts`) y la migración contra la base, **mutadas a rojo** (la
+  respuesta sin «from»; quitar el CHECK de comercio). ⚠️ El código funciona sin la migración (el mapa sin `flow` cae a
+  comercio). No cambia: el número de ventas, la captura bancaria (sus respuestas siguen sin registrarse).
+- [ ] **[RH.3.2]** 🧪 Registro por chat (2026-10-13). Mig `20261013150116_talent_bot_conversaciones`: la conversación
+  vive en `talent.bot_conversations` (una por teléfono, últimos 10 dígitos), **no** en `talent.candidates` — en Mega
+  Talento el primer «hola» creaba al candidato, y por eso hay puestos que dicen «Hola» y fichas de gente que nunca
+  terminó. CHECKs: estado conocido, cierre coherente (`postulada` exige candidato; `rechazada`, motivo), `data` objeto.
+  Lógica PURA en `libs/hr/.../talent/bot/registro.ts` (portada con sus textos): los 12 pasos en orden; puesto y ciudad
+  CLAVE («cualquiera»/«donde sea» no cuentan y no se confirma sin ellos); un saludo donde iba el puesto no se guarda;
+  correo suave («Sin correo»); RFC/NSS suaves sólo para practicante («No aplica»); «no sé» en RFC/NSS da el enlace
+  oficial; tecleo al azar rechazado; comandos sólo si el mensaje ES el comando; resumen numerado (número = corregir ese
+  dato); `reiniciar` en cualquier momento. `vacante-match.ts` = el matcher de Mega Talento con sus casos (las DOS
+  listas). El servicio `HrRecruitmentBotService` guarda la conversación con candado por teléfono y usa las MISMAS reglas
+  que la web: al **confirmar** consulta `HrTalentIntakeService.revisarPostulacion` (nuevo, sin escribir) y si ya está en
+  un proceso se le dice ahí, **antes** de pedirle el CV; al llegar el **CV** (validado por firma) llama a
+  `postular(…, 'whatsapp', tenant)`, que ahora devuelve el id al crear y guarda también traslado, disponibilidad,
+  empresa anterior, salario, RFC y NSS (y los rellena si faltan en un proceso abierto). La ciudad se lleva al catálogo
+  por como la escribe la gente («Canindo» → Zamora); la vacante se liga sólo si aplica en esa ciudad (si no, queda como
+  texto: `postular` la habría rechazado con un error incomprensible). `RecruitmentInbound` gana `tenantId` (el del
+  número que recibió). Pruebas: 19 de la lógica + 43 del matcher + la conversación completa contra la base
+  (`recruitment-bot.service.db.spec.ts`), todas **mutadas a rojo** (saludo como puesto, vacante fuera de su ciudad,
+  confirmar sin clave, centinelas como dato, quitar el aviso temprano, no guardar los campos del bot). ⭐ La prueba
+  contra la base encontró un bug: `INSERT … ON CONFLICT DO UPDATE` valida los CHECK sobre la fila propuesta antes de
+  resolver el conflicto, así que el «hola» de alguien ya postulado se caía → actualizar-o-insertar bajo el candado.
+  **Cambios de comportamiento declarados:** «no sé» en RFC/NSS de un puesto normal ahora da el enlace (en Mega Talento,
+  sin IA, recibía la respuesta firme); las sucursales salen del catálogo de la Suite (`HR_SUCURSALES_EMPLEO`, sin
+  teléfonos). **No incluye** (siguen en RH.3): `[RH.3.2.1]` interpretar con IA mensajes con varios datos; `[RH.3.2.2]`
+  la orientación a quien pide un puesto que no existe (hoy recibe el respaldo de Mega Talento, «te registramos para
+  futuras»); armar el CV y las notas de voz (`[RH.3.3]`; mientras, a quien no tiene CV se le dice la verdad); la
+  invitación desde la web (estado `invitado`); el aviso a reclutadores por WhatsApp (el candidato aparece en el tablero);
+  «¿dónde te enteraste?» (el bot de Mega Talento no lo preguntaba) y la licencia de Chofer (la pide la web).
+- [ ] **[RH.3.2.2]** 🧪 Orientación (2026-10-13). A quien pide un puesto que no hay ya no se le contesta «te registramos
+  para futuras» y se le siguen pidiendo diez datos: se le ORIENTA. Lógica pura en `bot/orientacion.ts`, portada de
+  `orientacion.js` de Mega Talento con sus textos: clasifica lo que puso (saludo → se repregunta · «lo que sea» → el más
+  fácil de colocar · puesto concreto); si no sabemos su ciudad se le pregunta antes de ofrecer; se le ofrecen **máximo 3
+  vacantes reales de su zona** (La Piedad y Santa Ana Pacueco cuentan como una; las vecinas, diciéndole dónde; Morelia
+  nunca de vecina), ordenadas por afinidad con lo que describió («Atención al cliente» → Cajero(a), «RH» → la Jefatura de
+  recursos humanos); entiende la respuesta (por nombre, por número, rechazo, o su ciudad) y **nunca lo deja atorado** (una
+  repregunta y sigue el registro). Lo que pidió se guarda siempre — es el único registro de la demanda que no cubrimos —:
+  vive en `bot_conversations.orientation` y al postularse viaja a `candidates.portal_data.orientacion`. La migración
+  `20261013150116` (sin aplicar en ningún lado todavía) gana esa columna, su CHECK y el estado `orientando_puesto`. El
+  catálogo de ciudades queda en un solo lugar (`registro.ts` tenía una copia) y el detector de saludos también.
+  ⭐ **Diferencia con Mega Talento, a propósito:** allá toda vacante traía sucursales; en la Suite `branch_codes` vacío
+  significa «aplica en todas» (`hrVacanteEnCiudad`), y la orientación portada tal cual **nunca la habría ofrecido** —
+  ahora la ofrece en cualquier ciudad, salvo que su domicilio la ubique. Pruebas: los 9 bloques de `probar-orientacion.js`
+  (los 43 casos reales del 17/08/2026) + el flujo dentro del registro + la conversación contra la base (la ficha guarda lo
+  que pidió y que lo rechazó), **mutadas a rojo** (sin orientar, sin filtro de zona, sin `portal_data`, vacía sin aplicar
+  en todas, rondas sin tope). La IA (`[RH.3.2.1]`) también entra por aquí cuando el mismo mensaje trae un puesto que no
+  hay.
+- [ ] **[RH.3.2.1]** 🧪 La IA del registro (2026-10-13). Portada de `interpretarMensaje` de Mega Talento: de UN mensaje
+  saca los datos que la persona menciona («soy Ana, de Canindo, busco de cajera») y, si preguntó algo, la respuesta.
+  **La IA propone, el registro valida** (ADR-016): `faltantesParaIA` (pura) decide si se consulta —sólo en el primer
+  mensaje o capturando un dato; nunca para comandos, `reiniciar` ni al omitir/diferir un dato— y `aplicarIA` pasa cada
+  dato por los MISMOS validadores que la captura a mano (RFC/NSS/correo mal formados se le dicen y no se guardan; puesto
+  o ciudad vagos y un saludo como puesto se descartan; un puesto que no hay va a la orientación). El intérprete
+  (`HrRecruitmentInterpreterService`) usa el cliente compartido `AnthropicService` con salida forzada por herramienta,
+  pide **sólo los campos que faltan** y descarta cualquier otro aunque venga; modelo Haiku 4.5 (`HR_BOT_LLM_MODEL`),
+  tope de **8 s**. **Degrada limpio**: sin `ANTHROPIC_API_KEY`, con error o tiempo agotado devuelve `null` y el registro
+  sigue igual que antes. Se consulta **fuera de la transacción** (no sostiene conexión ni candado) y su propuesta se
+  **descarta si la conversación cambió** mientras se esperaba. ⚠️ **Lo que la IA le dice a una persona:** la respuesta a
+  una duda («¿cuánto pagan?») sale del modelo; se le dan SÓLO datos reales (vacantes publicadas con sueldo, horario y
+  requisitos; sucursales; dónde sacar RFC/NSS), la instrucción de decir que Capital Humano lo confirma si el dato no está
+  y de no prometer la plaza, y se acota a 600 caracteres. ⚠️ **Privacidad:** el mensaje del candidato (que puede traer su
+  RFC o NSS) viaja a Anthropic, igual que en Mega Talento. Pruebas: la lógica, el intérprete con cliente falso y dos
+  casos contra la base (varios datos en el primer mensaje; propuesta descartada por carrera), **mutadas a rojo** (sin
+  validar, campos de más, ignorar la carrera, IA al omitir, duda sin tope).
+- [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
+  preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
+- [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
+  (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
+- [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.
+- [ ] **[RH.3.6]** **Corte de reclutamiento** (RH.2 + RH.3 juntos, §6): carga única verificada de candidatos, conversaciones,
+  mensajes y documentos (los archivos del volumen de Railway); plantillas aprobadas del número de RH; el webhook de Meta del
+  número de RH apunta a la Suite. Se retiran Firestore y el panel HTML del bot.
 
 ### RH.4 — Retiro (≈1 semana)
 
