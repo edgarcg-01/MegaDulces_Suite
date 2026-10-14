@@ -38,6 +38,8 @@ import {
   factorDe,
   rotuloCrudo,
   subirEscalon,
+  contenidoCaja,
+  type ContenidoCaja,
   // `[COT.1b]` Se mudó a `libs/ui-web` (con su spec) para que la pantalla de cotizaciones
   // pueda usar la MISMA aritmética: una app Nx no importa de otra app. Acá no cambia nada
   // de comportamiento — es la misma función, en una casa donde dos apps la alcanzan.
@@ -228,7 +230,7 @@ const foldText = (s: string | null | undefined): string =>
                 </div>
               }
               @for (p of displayed(); track trackProduct($index, p)) {
-                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p, box: true }"></ng-container>
               }
             </div>
           } @else {
@@ -270,7 +272,7 @@ const foldText = (s: string | null | undefined): string =>
             }
           }
           <!-- Fila de producto (reusada en búsqueda / habituales / catálogo) -->
-          <ng-template #prodRow let-p>
+          <ng-template #prodRow let-p let-box="box">
             <!-- [VTK.6] Fila compacta: sin el ícono de caja (le gana ancho al nombre) y las
                  unidades en el mismo renglón que el precio. -->
             <div class="prod" [class.in]="cartQty(p.product_id) > 0">
@@ -298,6 +300,17 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="rot"><i class="pi pi-bolt"></i> Alta rotación</span>
                   }
                 </div>
+                <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
+                @if (box && boxContentById().get(p.product_id); as bc) {
+                  <div class="box-c">
+                    <i class="pi pi-box" aria-hidden="true"></i>
+                    <span>1 {{ bc.caja }} trae
+                      @for (pt of bc.partes; track pt.unit; let last = $last) {
+                        <b>{{ pt.qty }}</b>&nbsp;{{ pt.unit }}@if (!last) {<span class="sep"> · </span>}
+                      }
+                    </span>
+                  </div>
+                }
                 <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
                 @if (mayoreoHint(p); as mh) {
                   <div class="may-hint" [class.reached]="mh.reached">
@@ -565,6 +578,10 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may-hint b { color: var(--action); font-weight: 800; }
       .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
       .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
+      /* [VTK.9] Contenido de la caja en los resultados de búsqueda. */
+      .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
+      .prod .box-c i { font-size: 0.7rem; }
+      .prod .box-c b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
       .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
@@ -1063,6 +1080,30 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     // Sin búsqueda la plantilla no usa esta lista (pinta Habituales + Catálogo).
     return [] as PriceRow[];
   });
+
+  /**
+   * `[VTK.9]` Cuánto trae la caja de cada resultado de búsqueda (pedido de ruta, 2026-10-14: el
+   * cliente pregunta «¿cuántas trae?» y la respuesta sólo vivía en el factor del selector).
+   * Sólo sobre los resultados (≤ SEARCH_CAP), no sobre el catálogo entero: se recalcula al teclear.
+   */
+  readonly boxContentById = computed(() => {
+    const m = new Map<string, ContenidoCaja>();
+    for (const p of this.displayed()) {
+      const c = contenidoCaja(this.unitsOf(p), this.cajaDeclarada(p));
+      if (c) m.set(p.product_id, c);
+    }
+    return m;
+  });
+
+  /**
+   * La caja que declara la escalera de Kepler de la sucursal (peldaño `box`: CJA, BTO o CUB).
+   * `null` = vino la escalera y no declara caja; `undefined` = no vino (se reconoce por rótulo).
+   */
+  private cajaDeclarada(p: PriceRow): { unit: string; factor: number } | null | undefined {
+    if (!p.rungs?.length) return undefined;
+    const b = p.rungs.find((r) => r.rung === 'box');
+    return b ? { unit: b.unit, factor: b.factor } : null;
+  }
 
   readonly cartUnitsTotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.quantity), 0));
   readonly cartSubtotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.line_subtotal), 0));
