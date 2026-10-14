@@ -2,8 +2,9 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
 import {
-  HR_CUESTIONARIO_LIDERAZGO, HR_NIVELES_LIKERT,
-  type HrLiderazgoAvanceDto, type HrLigaContextoDto, type HrLigaCvSubida, type HrPostulacionResultadoDto,
+  HR_CUESTIONARIO_LIDERAZGO, HR_NIVELES_LIKERT, HR_NIVELES_STAR, hrPuntajeStar,
+  type HrAptitudesEvaluacion, type HrCompetenciaStar, type HrLiderazgoAvanceDto, type HrLigaContextoDto, type HrLigaCvSubida,
+  type HrNivelStar, type HrPostulacionResultadoDto,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MAX_DOCUMENTO_BYTES, leerComoDataUri } from '../reclutamiento-formato';
@@ -29,7 +30,9 @@ function errorDe(e: unknown): string {
  * `/evaluacion/:id` de Mega Talento, que abrían con el id del candidato. Hace una de dos cosas, según la liga:
  *   · subir el CV —un PDF, o dos fotos (frente y reverso), la regla de Mega Talento—;
  *   · el cuestionario de liderazgo —12 preguntas, una a la vez; cada respuesta se guarda al momento (RH puede estar
- *     viéndolo en la videollamada). El candidato NO ve su puntaje; si califica o no, lo decide el servidor.
+ *     viéndolo en la videollamada). El candidato NO ve su puntaje; si califica o no, lo decide el servidor;
+ *   · la evaluación de aptitudes —la abre el JEFE que entrevista (antes `/evaluar-aptitudes/:id`): cada competencia de
+ *     la hoja del puesto con su pregunta STAR y las 3 anclas; él sí ve el puntaje mientras califica (como allá).
  * Sin la voz de Mega Talento (Azure): queda fuera hasta que RH la pida.
  * El servidor vuelve a validar todo.
  */
@@ -47,6 +50,36 @@ function errorDe(e: unknown): string {
         <section class="el-card" role="alert"><h1>No se pudo abrir</h1><p>{{ errorLiga() }}</p></section>
       } @else if (resultado(); as r) {
         <section class="el-card el-ok" role="status" aria-live="polite"><h1>¡Listo!</h1><p>{{ r.mensaje }}</p></section>
+      } @else if (ctx()?.form === 'aptitudes') {
+        <section class="el-card">
+          <h1>Evaluación de aptitudes</h1>
+          <p><b>{{ ctx()?.candidato_nombre || 'Candidato' }}</b>@if (ctx()?.puesto) { · {{ ctx()?.puesto }}}</p>
+          <p class="el-nota">Califica cada competencia después de la entrevista. Puedes corregir y volver a guardar.</p>
+          <label class="el-campo">Tu nombre * <input [value]="evaluador()" (input)="evaluador.set(valor($event))" maxlength="150" autocomplete="name" /></label>
+          <label class="el-campo">Tu puesto <input [value]="cargo()" (input)="cargo.set(valor($event))" maxlength="150" /></label>
+          <label class="el-campo">Duración de la entrevista <input [value]="tiempo()" (input)="tiempo.set(valor($event))" maxlength="50" placeholder="Ej. 40 min" /></label>
+        </section>
+        @for (c of competencias(); track c.key; let i = $index) {
+          <section class="el-card el-comp" [attr.aria-label]="c.parametro">
+            <p class="el-nota">{{ i + 1 }} de {{ competencias().length }} · {{ c.categoria }}</p>
+            <h2>{{ c.parametro }}</h2>
+            <p class="el-star">{{ c.preguntaStar }}</p>
+            <div class="el-likert" role="radiogroup" [attr.aria-label]="c.parametro">
+              @for (n of nivelesStar; track n.id) {
+                <button type="button" role="radio" [attr.aria-checked]="rubrica()[c.key] === n.id" (click)="calificar(c.key, n.id)">
+                  <b>{{ n.label }} · {{ n.puntos }}</b><small>{{ ancla(c, n.id) }}</small>
+                </button>
+              }
+            </div>
+          </section>
+        }
+        <section class="el-card el-total" aria-live="polite">
+          <p><b class="mono">{{ calc().puntaje }}/{{ calc().max }}</b> · {{ calc().pct }}% · {{ calc().banda }}
+            @if (!calc().completa) { <span class="el-nota"> — faltan {{ calc().total - calc().calificadas }}</span> }</p>
+          <label class="el-campo">Observaciones <textarea rows="3" [value]="observaciones()" (input)="observaciones.set(valor($event))" maxlength="2000"></textarea></label>
+          @if (error(); as e) { <p class="el-err" role="alert">{{ e }}</p> }
+          <button type="button" class="el-btn" [disabled]="!puedeGuardarApt() || enviando()" (click)="guardarAptitudes()">{{ enviando() ? 'Guardando…' : 'Guardar evaluación' }}</button>
+        </section>
       } @else if (ctx()?.form === 'liderazgo') {
         @if (terminado()) {
           <section class="el-card el-ok" role="status" aria-live="polite"><h1>¡Gracias!</h1>
@@ -127,6 +160,16 @@ function errorDe(e: unknown): string {
       background: var(--card-bg); color: var(--text-main); font: inherit; text-align: left; cursor: pointer; }
     .el-likert button[aria-checked='true'] { border-color: var(--action); background: var(--surface-selected-bg); font-weight: 700; }
     .el-likert button:focus-visible, .el-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .el-campo { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); font-weight: 600; }
+    .el-campo input, .el-campo textarea { font: inherit; font-weight: 400; padding: var(--sp-2) var(--sp-3); min-height: 2.75rem; border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-main); }
+    .el-campo input:focus-visible, .el-campo textarea:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .el-comp h2 { margin: 0; font-size: var(--fs-h3); }
+    .el-star { color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.5; }
+    .el-comp .el-likert button { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .el-comp .el-likert small { color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.4; }
+    .el-total { position: sticky; bottom: 0; }
+    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .el-link { align-self: flex-start; border: 0; background: none; padding: 0; font: inherit; font-size: var(--fs-sm); color: var(--text-muted); text-decoration: underline; cursor: pointer; }
   `],
 })
@@ -154,6 +197,20 @@ export class EmpleoLigaComponent implements OnInit {
   readonly pregunta = computed(() => this.preguntas[this.paso()] ?? null);
   readonly contestadas = computed(() => Object.keys(this.respuestas()).length);
 
+  // ── Evaluación de aptitudes (la llena el jefe) ──
+  readonly nivelesStar = HR_NIVELES_STAR;
+  readonly competencias = signal<HrCompetenciaStar[]>([]);
+  readonly rubrica = signal<Record<string, HrNivelStar>>({});
+  readonly evaluador = signal('');
+  readonly cargo = signal('');
+  readonly tiempo = signal('');
+  readonly observaciones = signal('');
+  readonly calc = computed(() => hrPuntajeStar(this.rubrica(), this.competencias()));
+  readonly puedeGuardarApt = computed(() => {
+    const listo = this.calc().completa;
+    return listo && this.evaluador().trim().length >= 3;
+  });
+
   /** PDF: uno. Fotos: las dos (regla de Mega Talento). */
   readonly completo = computed(() => {
     const [a, b] = this.archivos();
@@ -169,6 +226,14 @@ export class EmpleoLigaComponent implements OnInit {
     this.http.get<HrLigaContextoDto>(`${this.base}/${encodeURIComponent(this.token)}`).subscribe({
       next: (c) => {
         this.ctx.set(c);
+        if (c.form === 'aptitudes') {
+          this.competencias.set(c.competencias ?? []);
+          this.rubrica.set({ ...(c.rubrica ?? {}) });
+          if (c.evaluacion) {
+            this.evaluador.set(c.evaluacion.evaluador); this.cargo.set(c.evaluacion.cargoEvaluador);
+            this.tiempo.set(c.evaluacion.tiempo); this.observaciones.set(c.evaluacion.observaciones);
+          }
+        }
         if (c.form === 'liderazgo') {
           const r = c.respuestas ?? {};
           this.respuestas.set(r);
@@ -180,6 +245,36 @@ export class EmpleoLigaComponent implements OnInit {
         this.cargando.set(false);
       },
       error: (e) => { this.errorLiga.set(errorDe(e)); this.cargando.set(false); },
+    });
+  }
+
+  valor(ev: Event): string {
+    return (ev.target as HTMLInputElement | HTMLTextAreaElement).value;
+  }
+
+  /** El ancla (descripción) de un nivel para una competencia. */
+  ancla(c: HrCompetenciaStar, n: HrNivelStar): string {
+    return c.anclas?.[n] ?? '';
+  }
+
+  /** Marcar un nivel; volver a tocar el mismo lo quita (como en Mega Talento). */
+  calificar(key: string, n: HrNivelStar): void {
+    const r = { ...this.rubrica() };
+    if (r[key] === n) delete r[key]; else r[key] = n;
+    this.rubrica.set(r);
+  }
+
+  guardarAptitudes(): void {
+    if (!this.puedeGuardarApt()) return;
+    this.enviando.set(true);
+    this.error.set(null);
+    const cuerpo: HrAptitudesEvaluacion = {
+      rubrica: this.rubrica(), evaluador: this.evaluador(), cargo_evaluador: this.cargo() || null,
+      tiempo: this.tiempo() || null, observaciones: this.observaciones() || null,
+    };
+    this.http.post<HrPostulacionResultadoDto>(`${this.base}/${encodeURIComponent(this.token)}/aptitudes`, cuerpo).subscribe({
+      next: (r) => { this.enviando.set(false); this.resultado.set(r); },
+      error: (e) => { this.enviando.set(false); this.error.set(errorDe(e)); },
     });
   }
 

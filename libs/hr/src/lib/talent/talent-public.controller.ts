@@ -3,7 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '@megadulces/platform-core';
 import type {
-  HrLiderazgoAvanceDto, HrLiderazgoRespuesta, HrLigaContextoDto, HrLigaCvSubida, HrPostulacionPublica, HrPostulacionResultadoDto,
+  HrAptitudesEvaluacion, HrLiderazgoAvanceDto, HrLiderazgoRespuesta, HrLigaContextoDto, HrLigaCvSubida, HrPostulacionPublica, HrPostulacionResultadoDto,
   HrVacantePublicaDto,
 } from '@megadulces/contracts';
 import { HrTalentIntakeService } from './talent-intake.service';
@@ -71,5 +71,15 @@ export class HrTalentPublicController {
   @ApiOperation({ summary: 'Liga personal — contestar una pregunta del cuestionario de liderazgo.' })
   responder(@Param('token') token: string, @Body() b: HrLiderazgoRespuesta): Promise<HrLiderazgoAvanceDto> {
     return this.links.responderLiderazgo(token, b);
+  }
+
+  /** La evaluación de aptitudes del jefe que entrevista (se puede corregir). */
+  @Public()
+  @Throttle({ medium: { limit: 5, ttl: 10_000 } })
+  @Post('links/:token/aptitudes')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Liga personal — guardar la evaluación de aptitudes (formato STAR).' })
+  aptitudes(@Param('token') token: string, @Body() b: HrAptitudesEvaluacion): Promise<HrPostulacionResultadoDto> {
+    return this.links.evaluarAptitudes(token, b);
   }
 }

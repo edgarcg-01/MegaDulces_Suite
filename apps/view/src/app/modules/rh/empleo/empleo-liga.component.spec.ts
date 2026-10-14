@@ -74,6 +74,33 @@ describe('[RH.2.4] EmpleoLigaComponent', () => {
     expect(texto()).toContain('¡Gracias!');
   });
 
+  it('⭐ aptitudes (el jefe): califica con el puntaje en vivo y no guarda sin nombre ni incompleta', async () => {
+    const comp = (key: string) => ({ key, categoria: 'Resultados', parametro: `Comp ${key}`, preguntaStar: '¿Cuéntame…?',
+      anclas: { inferior: 'poco', cumple: 'ok', supera: 'mucho' } });
+    await abrir((r) => r.flush({ form: 'aptitudes', nombre: 'Carla', puesto: 'Vendedor de ruta', ya_tiene_cv: true, vence: null,
+      candidato_nombre: 'Carla Prueba Ruiz', competencias: [comp('a'), comp('b')], rubrica: null, evaluacion: null }));
+    expect(texto()).toContain('Carla Prueba Ruiz');
+    expect(texto()).toContain('Comp a');
+    expect(texto()).toContain('mucho'); // el ancla del nivel
+    const c = fix.componentInstance;
+    c.calificar('a', 'supera');
+    expect(c.calc()).toMatchObject({ puntaje: 10, max: 20, completa: false });
+    expect(c.puedeGuardarApt()).toBe(false);
+    c.calificar('b', 'cumple');
+    expect(c.puedeGuardarApt()).toBe(false); // falta su nombre
+    c.evaluador.set('Jefe Prueba');
+    expect(c.puedeGuardarApt()).toBe(true);
+    c.calificar('b', 'cumple'); // tocar el mismo nivel lo quita
+    expect(c.calc().completa).toBe(false);
+    c.calificar('b', 'cumple');
+    c.guardarAptitudes();
+    const req = http.expectOne((r) => r.url.endsWith('/hr/talent/public/links/tok-123/aptitudes'));
+    expect(req.request.body).toMatchObject({ rubrica: { a: 'supera', b: 'cumple' }, evaluador: 'Jefe Prueba' });
+    req.flush({ resultado: 'recibida', mensaje: 'Gracias. La evaluación quedó guardada.' });
+    fix.detectChanges();
+    expect(texto()).toContain('La evaluación quedó guardada.');
+  });
+
   it('⭐ manda el PDF a la liga y muestra la respuesta', async () => {
     await abrir((r) => r.flush({ form: 'cv', nombre: 'Ana', puesto: null, ya_tiene_cv: false, vence: null }));
     const c = fix.componentInstance;

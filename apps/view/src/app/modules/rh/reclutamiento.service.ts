@@ -72,7 +72,7 @@ export class ReclutamientoService {
   }
 
   /** `[RH.2.4]` Una liga personal para el candidato (subir su CV o el cuestionario de liderazgo), que vence en 7 días. */
-  crearLiga(id: string, form: 'cv' | 'liderazgo' = 'cv'): Observable<HrLigaCreadaDto> {
+  crearLiga(id: string, form: 'cv' | 'liderazgo' | 'aptitudes' = 'cv'): Observable<HrLigaCreadaDto> {
     return this.http.post<HrLigaCreadaDto>(`${this.base}/candidates/${encodeURIComponent(id)}/links`, { form });
   }
 
