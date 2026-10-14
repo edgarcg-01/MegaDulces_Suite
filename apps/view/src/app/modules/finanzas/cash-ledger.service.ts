@@ -412,6 +412,35 @@ export interface TotalesCorte {
 }
 
 /**
+ * ⭐ `[CG.160]` El conteo ya sellado de un corte abierto, tal como lo manda `saldo()`.
+ *
+ * ⚠️ `esperado` y `diferencia` pueden venir en `null` **con `contado` presente**: son los cortes
+ * que se sellaron antes de `[CG.156]`, cuando el veredicto no se guardaba. Ahí `veredicto` vale
+ * `'sin_medir'` y la pantalla tiene que DECIRLO — `money(null)` dibuja `$0.00`, que sobre un
+ * esperado ausente afirma que cuadra.
+ */
+export interface ConteoSellado {
+  contado: number;
+  esperado: number | null;
+  diferencia: number | null;
+  veredicto: VeredictoCorte;
+  ya_reconto: boolean;
+}
+
+/**
+ * `[CG.160]` Lo que la pantalla PINTA de la revelación: el subconjunto común entre el veredicto
+ * recién sellado (`TotalesCorte`) y el que ya estaba sellado en la base (`ConteoSellado`). Existe
+ * para que el diálogo no tenga que saber de cuál de los dos vino — las dos formas encajan acá.
+ */
+export interface RevelacionVista {
+  contado: number;
+  esperado?: number | null;
+  diferencia?: number | null;
+  veredicto?: VeredictoCorte;
+  oculto?: boolean;
+}
+
+/**
  * Un movimiento de caja que Kepler ya registró y el libro todavía no aplicó. Los DOS signos.
  *
  * `origen_ref` es su identidad: **`sucursal|doc_tipo|folio|clave_banco`**. El `doc_tipo` no es
@@ -617,7 +646,18 @@ export interface SaldoResponse {
   // y ese `null` SIGNIFICA «no se midió» — es justo la distinción que `[CG.39]`/`[CG.90.1]` pelearon
   // por conservar contra un cero que diría «arrancó vacía». Este mismo archivo ya lo declara bien
   // 228 líneas más abajo (`ArqueoDia`); acá mentía, y los consumidores ya guardan el null en runtime.
-  corte_abierto: { id: string; folio: string; fondo_inicial: number | null; ya_reconto: boolean } | null;
+  corte_abierto: {
+    id: string; folio: string; fondo_inicial: number | null; ya_reconto: boolean;
+    /**
+     * ⭐ `[CG.160]` **El conteo que YA está sellado en la base.** Lo publica `saldo()` desde
+     * `[CG.156]` y acá no estaba declarado, así que la pantalla no podía leerlo: al recargar,
+     * `abrirCierre()` arrancaba sin revelación y sólo ofrecía «Guardar conteo», que el servidor
+     * rechaza con *«este corte ya tiene un conteo sellado»*. Callejón sin salida.
+     *
+     * `null` mientras nadie contó — y ahí el esperado sigue oculto por el arqueo ciego.
+     */
+    conteo_sellado?: ConteoSellado | null;
+  } | null;
   saldo: number | null;
   /** `saldo` es el esperado con otro nombre: cuando está oculto se declara, no se confunde con 0. */
   saldo_oculto: boolean;

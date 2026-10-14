@@ -818,7 +818,17 @@ export class CashCutService {
         closed_by: u.id, closed_by_username: u.username ?? null, closed_at: trx.fn.now(),
         total_ingresos: t.ingresos, total_gastos: t.gastos, total_depositos: t.depositos,
         esperado: t.esperado, contado: t.contado, diferencia: t.diferencia,
-        morralla: input.morralla ?? 0, nota: input.nota ?? c.nota, updated_at: trx.fn.now(),
+        /**
+         * ⛔ `[CG.160]` **`morralla`, NO `input.morralla ?? 0`.** Con el respaldo de `[CG.159]` el
+         * cuerpo puede venir vacío, y entonces esto PISABA con `0` la morralla sellada — mientras
+         * `calcularCorte()` acababa de usar la verdadera. El corte quedaba firmado con un
+         * `contado` que incluye la morralla y una columna `morralla` que dice que no hubo: dos
+         * campos del mismo hecho contradiciéndose, y la contradicción no la ve ningún CHECK.
+         *
+         * Es el mismo defecto que el `guardarDenominaciones` de doce líneas abajo ya tenía
+         * anotado, esperando en la columna de al lado.
+         */
+        morralla: morralla ?? 0, nota: input.nota ?? c.nota, updated_at: trx.fn.now(),
       }).returning('*');
 
       // `[CG.155]` Por la única puerta. Acá vivía la tercera copia de esta escritura —sin

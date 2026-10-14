@@ -40,7 +40,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
-  type RecurrenteSinRegla, type CorteRow } from '../../cash-ledger.service';
+  type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -64,6 +64,9 @@ const ETIQUETA_VEREDICTO: Record<string, string> = {
   // `[CG.42]` NO dice "no cuadra": dice que la pregunta no tiene respuesta. Sin esta entrada el
   // tag imprimía la clave cruda `sin_base`, porque el mapa cae a `?? v`.
   sin_base: 'Sin fondo medido',
+  // `[CG.160]` Sin esta entrada el tag imprimía la clave cruda `sin_medir` — el mapa cae a `?? v`.
+  // Y NO dice "no cuadra": el efectivo se contó, lo que falta es el esperado con que compararlo.
+  sin_medir: 'Conteo sellado, sin veredicto guardado',
 };
 
 /**
@@ -3129,7 +3132,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <!-- CG.19 Capa 1b: el arqueo es CIEGO. Acá se pintaba "Esperado / Diferencia" mientras la
              persona tecleaba, o sea que contaba hasta que la diferencia diera cero. Ahora sólo se
              ve lo que ella misma sumó; el resultado aparece al SELLAR. -->
-        @if (revelado(); as r) {
+        @if (revelacion(); as r) {
           <!-- ⛔ ACÁ SE PUBLICABA $0.00 SOBRE UN DATO REDACTADO. "esperado", "diferencia" y
                "veredicto" son OPCIONALES a propósito: el servidor los recorta para quien no
                autoriza y avisa con "oculto: true". "oculto" no se leía nunca y money(undefined)
@@ -3138,6 +3141,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           @if (r.oculto) {
             <p class="fin-dim">Contado: <strong>{{ money(r.contado) }}</strong></p>
             <p-message severity="info" class="cg-full">El esperado y la diferencia no se te muestran: el arqueo es ciego y el resultado lo ve quien autoriza. Tu conteo quedó sellado.</p-message>
+          } @else if (r.esperado == null || r.diferencia == null) {
+            <!-- CG.160 - ACA TAMBIEN SE DIBUJABA $0.00 SOBRE UN DATO AUSENTE. Un conteo
+                 sellado antes de CG.156 trae "contado" real con "esperado"/"diferencia" en
+                 NULL, y money(null) devuelve "$0.00": la pantalla iba a AFIRMAR que cuadra
+                 justo en el corte donde nadie calculo con que comparar. Es el mismo error que
+                 r.oculto arriba, por otra puerta - y es exactamente el caso de CC-2026-00001. -->
+            <p class="fin-dim">Contado: <strong>{{ money(r.contado) }}</strong> ·
+              Esperado: <strong>sin medir</strong></p>
+            <p-tag [value]="etiquetaVeredicto(r.veredicto)" severity="secondary"></p-tag>
+            <p-message severity="warn" class="cg-full">Tu conteo está sellado, pero el esperado de ese momento no quedó guardado: se puede cerrar, y el cierre va a calcularlo y registrar la diferencia.</p-message>
           } @else {
             <p class="fin-dim">Esperado: <strong>{{ money(r.esperado) }}</strong> ·
               Contado: <strong>{{ money(r.contado) }}</strong> ·
@@ -3202,7 +3215,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </tr>
           </ng-template>
         </p-table>
-        @if (revelado() && revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
+        @if (revelacion() && revelacion()!.veredicto !== 'cuadra' && puedeRecontar()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>
             <input pInputText id="cg-motivo" [ngModel]="motivoReconteo()" (ngModelChange)="motivoReconteo.set($event)"
@@ -3214,14 +3227,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(cierreAbierto)"></p-button>
-        @if (!revelado()) {
+        @if (!revelacion()) {
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
           <p-button label="Guardar conteo" icon="pi pi-lock" size="small"
                     [loading]="sellando()"
                     [disabled]="sumaConteo() <= 0 || sellando()" (onClick)="sellarConteo()"></p-button>
         } @else {
-          @if (revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
+          @if (revelacion()!.veredicto !== 'cuadra' && puedeRecontar()) {
             <p-button label="Recontar" icon="pi pi-replay" size="small" severity="secondary"
                       [loading]="sellando()"
                       [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sellando()" (onClick)="recontar()"></p-button>
@@ -4180,6 +4193,30 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * ocultar, y el servidor ya no lo manda a quien no autoriza.
    */
   revelado = signal<TotalesCorte | null>(null);
+  /**
+   * ⭐⭐ `[CG.160]` **El conteo que ya estaba sellado ANTES de abrir el diálogo.**
+   *
+   * `revelado` sólo se llena cuando se sella en esta sesión, y `abrirCierre()` lo pone en `null`.
+   * O sea que recargar la pestaña borraba la revelación de un conteo que en la base es
+   * INMUTABLE: el diálogo volvía a ofrecer «Guardar conteo», el servidor contestaba *«este corte
+   * ya tiene un conteo sellado»*, y «Cerrar corte» no se pintaba nunca. Sin salida.
+   *
+   * ⛔ **Esto NO afloja el arqueo ciego, y la distinción es exacta.** Sin sellar vale `null` y el
+   * esperado sigue oculto; ya sellado, la revelación **ya ocurrió** y el conteo no se puede
+   * retocar sin `recontar()`, que pide motivo y conserva el primero. Esconderla acá no protege
+   * nada: sólo obliga a re-teclear lo que ya es inmutable, con el riesgo de teclearlo distinto.
+   *
+   * ⚠️ Medido en producción el 2026-10-14: `CC-2026-00001` —el único corte que existió— llevaba
+   * **tres jornadas** sin poder cerrarse por esto, y como `ux_cash_cut_abierto` deja un solo
+   * borrador por sucursal, tampoco se podía abrir el del día siguiente. Un corte trabado tranca
+   * todos los que vienen detrás.
+   */
+  selladoPrevio = signal<ConteoSellado | null>(null);
+  /**
+   * `[CG.160]` Lo sellado en esta sesión manda; si no, lo que ya estaba sellado en la base. Las
+   * dos formas encajan en `RevelacionVista`, así que el diálogo no tiene que saber de cuál vino.
+   */
+  revelacion = computed<RevelacionVista | null>(() => this.revelado() ?? this.selladoPrevio());
   puedeRecontar = signal(false);
   sellando = signal(false);
   motivoReconteo = signal('');
@@ -4303,7 +4340,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   });
   /** No se cierra sin haber SELLADO el conteo: sin revelación no hay nada firmado que cerrar. */
   gateCierre = computed(() => {
-    const r = this.revelado();
+    // `[CG.160]` `revelacion()`, no `revelado()`: un conteo sellado en una sesión anterior es
+    // tan firme como el de ésta — más, porque ya no se puede retocar sin dejar rastro.
+    const r = this.revelacion();
     if (!r) return { ok: false, texto: 'Guardá el conteo primero: el resultado se revela al sellarlo.' };
     return puedeCerrarUI(this.corteVista(), r.veredicto ?? 'sin_contar');
   });
@@ -4546,15 +4585,22 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      * en curso, asi que sin acotarlo un folio de hace dos meses no estaria en la lista.
      *
      * Se lee del snapshot y ANTES de cargar(): asignarlo despues dispararia dos consultas y la
-     * primera traeria el rango equivocado.
+     * primera traeria el rango equivocado. Y va antes de cargarCortes(), que desde [CG.181] cuelga
+     * de ngOnInit y no de cargar(), para que la lista de cortes tome la misma ventana.
+     *
+     * ⚠️ La fecha se VALIDA antes de asignarse. Con basura (?from=ayer) el datepicker deja el
+     * control vacio y la tabla sale sin filas: la pantalla se leeria como "no hubo movimientos"
+     * cuando lo cierto es que la liga venia mal. Una ausencia se declara, no se dibuja -- asi que
+     * una fecha que no es fecha se ignora y manda el rango por omision.
      */
+    const RX_FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
     const qp = this.rutaActiva.snapshot.queryParamMap;
     const qFolio = qp.get('q');
     const qFrom = qp.get('from');
     const qTo = qp.get('to');
     if (qFolio) this.search = qFolio;
-    if (qFrom) this.from = qFrom;
-    if (qTo) this.to = qTo;
+    if (qFrom && RX_FECHA_ISO.test(qFrom)) this.from = qFrom;
+    if (qTo && RX_FECHA_ISO.test(qTo)) this.to = qTo;
 
     this.cargarCobertura();
     this.cargar();
@@ -5028,6 +5074,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   abrirCierre(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
     this.revelado.set(null); this.motivoReconteo.set('');
+    /**
+     * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
+     * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
+     *
+     * ⚠️ `?? null` y no `|| null`: un corte sin sellar manda `conteo_sellado: null` y uno servido
+     * por un API viejo no manda el campo — las dos ausencias terminan en `null`, que acá es el
+     * mismo hecho ("no hay nada sellado que leer") y por eso se pueden barrer juntas.
+     */
+    this.selladoPrevio.set(this.saldoResp()?.corte_abierto?.conteo_sellado ?? null);
+    // Recontar es de UNA vez: si ya se recontó, el botón no se ofrece.
+    this.puedeRecontar.set(this.selladoPrevio() ? !this.selladoPrevio()!.ya_reconto : false);
     this.abrirConFoco(this.cierreAbierto);
   }
 
