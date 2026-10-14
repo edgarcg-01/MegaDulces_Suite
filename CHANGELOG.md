@@ -9,6 +9,18 @@
 ---
 
 ## [Unreleased]
+### Fixed — Caja General: el autollenado por entidad nunca propuso nada, y culpaba al dato (CG.143, 2026-10-13)
+- `analytics.mv_caja_autofill_entidad` llegó a producción **poblada y con cero filas**: la migración que la creó lee una vista filtrada por `current_tenant_id()` y nunca fijó el tenant en la sesión. Misma sesión y mismo instante: **sin tenant 0 filas, con tenant 13,302**.
+- Con la otra fuente también vacía, el nivel «entidad» devolvía `sin_historia` para **toda** entidad — o sea que la pantalla decía «Kepler no tiene historia para este beneficiario» sobre una copia que nació vacía. Consistente con lo medido: **25 reclasificaciones sobre 70 movimientos (36%)**.
+- Se repuebla con el tenant puesto, dentro de una transacción: si la copia quedara vacía **se revierte y sobrevive la anterior**. Ensayado contra prod con el rol que ejecuta y `ROLLBACK`: 13,302 pendientes → **285 entidades en 1,553 ms** (210 unánimes, 16 dominantes, 10 de catálogo, 49 dispersas que por diseño no proponen). Son **236 entidades que hoy no autollenan y van a autollenar**.
+- **Nadie refrescaba esa copia**: cero `REFRESH` en el repo, cero `job_key`, cero umbral. Carril nuevo `CajaAutofillRefreshService` (cada hora), con latido de entrega y su renglón en `CRON_JOBS` — sin él, `db-health` lo pintaba verde incondicional.
+- `GET /finance/cash-ledger/cobertura` declara las dos fuentes con su frescura (`Freshness` canónico de `libs/contracts`): el endpoint existe para que «0 por carril caído» no se vea igual que «no hay», y era el único lugar que no miraba donde el defecto ocurrió.
+- ⚠️ Los commits dicen `[CG.141]` y `[CG.141.1/141.2]`: el número chocó con la sesión de frontend, que usó el mismo. Acá queda como **CG.143**; backend toma CG.150–179 de ahora en adelante.
+### Fixed — La semana de la deuda salía «Mon Oct 19»: el pronóstico de flujo moría y la curva publicaba pagos en cero (CG.144, 2026-10-13)
+- `deuda-prevista.ts` devolvía su bucket semanal como `::date`, que el driver entrega como **objeto `Date`** (este repo no fija `setTypeParser`), y el `String(b).slice(0, 10)` del consumidor daba `"Mon Oct 19"` — en inglés y sin año. Arreglado en el origen con `to_char`.
+- Costaba dos cosas distintas: (1) `cashflow_forecast_snapshot` fallaba **todos los días** y `finance.cashflow_forecast` estaba **vacía** — la foto diaria del pronóstico no se tomó nunca; (2) en la curva de flujo, `pagMap` se llenaba con `"Mon Oct 19"` y se consultaba con `"2026-10-19"`, así que **`pagos` caía a cero todas las semanas**, el neto era la cobranza entera y la alerta de insuficiencia no podía sonar.
+- ⚠️ Lo que lo volvía invisible: `Date.parse('Mon Oct 19')` **no da `NaN`**, da **2001**-10-19. Medido contra prod, mismas filas: `::date` → 0 de 5 semanas empatan y `horizonte_dias` −9,133; `to_char` → 5 de 5 y −2.
+- Y por qué nadie sabía la causa: el latido guardaba el error con `slice(0, 400)`, y knex antepone el SQL y deja el motivo **al final** — en prod el campo eran 400 caracteres de `insert into …` cortados a media lista de parámetros. Ahora se corta por el final.
 ### Changed — Autoabasto pide para 21 días en sucursales y 2.5 en rutas (AB.22, 2026-10-13)
 - La cobertura del pedido deja de ser 30 días para todos: 21 días en La Piedad Abastos, 8 Esquinas, Yurécuaro, Zamora Centro y Morelia Madero; 2.5 días en las rutas; 30 días en CEDIS y matrices (igual que Compras).
 - Ejemplo medido: Morelia Madero baja de 9,673 a 6,103 cajas sugeridas. Las rutas todavía no reciben sugerido porque su plan no trae venta ni existencia.
