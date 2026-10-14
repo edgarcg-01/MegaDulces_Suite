@@ -6,6 +6,7 @@ import {
 import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
   type FinanceFindingsSinkPort, type Freshness,
+  ventanaDeCobertura,
   type CajaCobertura, type CajaCoberturaFiltro,
 } from '@megadulces/contracts';
 
@@ -2230,10 +2231,37 @@ export class CashLedgerService {
      * se publica el periodo **que de verdad se contó** (el mínimo y el máximo de lo que entró al
      * KPI), no un mes inventado. Un mes inventado sería una cuarta respuesta plausible.
      */
-    const ventana = {
-      from: q.from ?? periodoReal.from ?? '',
-      to: q.to ?? periodoReal.to ?? '',
-    };
+    /**
+     * ⛔⛔ **LA VENTANA ES PROPIEDAD DE LO QUE SE PREGUNTÓ, NO DE LO QUE CONTESTÓ.**
+     *
+     * Acá se derivaba del `min(fecha)`/`max(fecha)` de lo capturado, y era un defecto grave que
+     * fallaba **hacia el lado tranquilizador**. Medido en prod el 2026-10-14, sin `from`/`to`:
+     *
+     *     numerador (sin filtro de fecha)      75 movimientos, del 2026-09-25 al 2026-12-10
+     *     denominador RECORTADO a esa ventana     835
+     *     denominador real, sin recortar       13,235
+     *
+     *     cobertura publicada  8.2 %      cobertura real  0.6 %      ← 15× mejor
+     *
+     * El numerador no llevaba filtro de fecha —cubría todo el libro— pero el denominador sí se
+     * acotaba a la ventana derivada, o sea **al tramo donde el numerador casualmente vive**. El
+     * denominador se encoge hasta alcanzar al numerador y el porcentaje se ve quince veces mejor,
+     * sin que nada se rompa: `8.2 %` es perfectamente plausible.
+     *
+     * ⚠️ Y muerde también el caso lleno: si alguien pide 01→31 y el libro sólo tiene del 05 al 12,
+     * se publicaría «ventana 05→12» sobre cifras calculadas en 31 días.
+     *
+     * ⭐ Por eso la ventana es **lo que vino en la petición**, y se conoce siempre — haya filas o
+     * no. ⛔ `null` significa **«sin límite»**, NO «no se sabe»: son dos ausencias distintas y
+     * confundirlas es exactamente lo que separa `no_corresponde` de `sin_medir` un campo más
+     * abajo. Lo que no se pudo determinar va en `estado: 'sin_medir'`, nunca en un `null` de acá.
+     *
+     * ⚠️ `periodoReal` se conserva y se publica aparte (`periodo_contado`): decir en qué tramo
+     * cayeron de verdad los movimientos es útil, pero **no es la ventana** y no puede acotar el
+     * denominador.
+     */
+    const ventana = ventanaDeCobertura(q);
+    void periodoReal; // se publica aparte, en `list()`: describe, no acota.
 
     // Orden fijo y TODOS los activos: nombrar sólo el primero manda a quitar uno y volver a chocar
     // con el siguiente.
@@ -2441,7 +2469,18 @@ export class CashLedgerService {
         { from: periodo?.desde ?? null, to: periodo?.hasta ?? null },
       );
 
-      return { rows, kpi, limit, offset, has_more: rows.length === limit, cobertura };
+      return {
+        rows, kpi, limit, offset, has_more: rows.length === limit, cobertura,
+        /**
+         * ⚠️ `[CG.183]` En qué tramo cayeron DE VERDAD los movimientos contados. Es informativo y
+         * va **aparte de `cobertura.ventana`** a propósito: describir no es acotar. Derivarlo y
+         * usarlo como ventana es el defecto que inflaba la cobertura 15× — el denominador se
+         * encogía hasta alcanzar al numerador.
+         *
+         * `null` en las dos puntas cuando no se contó nada.
+         */
+        periodo_contado: { desde: periodo?.desde ?? null, hasta: periodo?.hasta ?? null },
+      };
     });
   }
 
