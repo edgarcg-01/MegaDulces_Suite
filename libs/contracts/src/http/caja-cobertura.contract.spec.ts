@@ -1,0 +1,134 @@
+import {
+  CajaCobertura,
+  cajaCoberturaPct,
+  type CajaCoberturaEstado,
+} from './caja-cobertura.contract';
+
+/**
+ * ⭐⭐ `[CG.183]` **El contrato de la cobertura, probado en sus TRES estados.**
+ *
+ * Un contrato no se verifica leyéndolo. Y éste tiene un modo de falla concreto y ya visto: **se
+ * degrada a dos valores sin que nadie lo note**, porque el estado que nunca se ejercita es el del
+ * fallo. Es `[CG.181]` —el 429 publicado como «0 corte(s)»— en este mismo módulo y el mismo día.
+ *
+ * Medido contra prod el 2026-10-14 (ventana 01→14-oct): capturado 70 movs / \$774,890.89 contra 549
+ * movs / \$3,827,485.38 por confirmar = **11.3 % de los movimientos y 16.8 % del dinero**.
+ */
+const frescuraOk = {
+  data_as_of: '2026-10-14T16:00:00.000Z',
+  status: 'fresh' as const,
+  stale: false,
+  age_human: 'hace menos de una hora',
+  inputs: [{
+    key: 'ods_live_hot', label: 'Carril del ODS',
+    at: '2026-10-14T16:00:00.000Z', age_human: 'hace menos de una hora',
+    status: 'fresh' as const, stale: false,
+  }],
+};
+
+const base = {
+  ventana: { from: '2026-10-01', to: '2026-10-14' },
+  capturado: { movimientos: 70, monto: 774890.89 },
+  frescura: frescuraOk,
+};
+
+const medida = { ...base, estado: 'medida' as const, por_confirmar: { movimientos: 549, monto: 3827485.38 }, motivo: null };
+
+describe('[CG.183] CajaCobertura — los tres estados', () => {
+  it('`medida` lleva denominador y NO lleva motivo', () => {
+    expect(CajaCobertura.safeParse(medida).success).toBe(true);
+  });
+
+  it('`no_corresponde` nombra TODOS los filtros activos, en orden fijo', () => {
+    const r = CajaCobertura.safeParse({
+      ...base, estado: 'no_corresponde', por_confirmar: null,
+      motivo: { tipo: 'filtro', filtros: ['cuenta', 'search', 'mios'], texto: 'Con estos filtros no hay con qué comparar.' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('`sin_medir` lleva un motivo de fallo', () => {
+    expect(CajaCobertura.safeParse({
+      ...base, estado: 'sin_medir', por_confirmar: null,
+      motivo: { tipo: 'fallo', texto: 'No se pudo leer la cola por confirmar.' },
+    }).success).toBe(true);
+  });
+});
+
+describe('[CG.183] ⛔ PRUEBAS NEGATIVAS: así es como se degrada a dos valores', () => {
+  it('un `sin_medir` CON denominador se rechaza — es la degradación exacta', () => {
+    // Si esto pasara, la pantalla dividiría igual y publicaría un porcentaje sobre un cálculo que
+    // falló. El número se vería perfectamente normal.
+    expect(CajaCobertura.safeParse({
+      ...medida, estado: 'sin_medir',
+      motivo: { tipo: 'fallo', texto: 'falló' },
+    }).success).toBe(false);
+  });
+
+  it('un estado que no es `medida` SIN motivo se rechaza', () => {
+    for (const estado of ['no_corresponde', 'sin_medir'] as CajaCoberturaEstado[]) {
+      expect(CajaCobertura.safeParse({ ...base, estado, por_confirmar: null, motivo: null }).success)
+        .toBe(false);
+    }
+  });
+
+  it('los motivos no se pueden cruzar: `no_corresponde` con motivo de fallo se rechaza', () => {
+    // Cruzarlos manda a la persona equivocada a arreglar el problema: `no_corresponde` lo resuelve
+    // quien mira quitando un filtro, `sin_medir` lo resuelve Sistemas.
+    expect(CajaCobertura.safeParse({
+      ...base, estado: 'no_corresponde', por_confirmar: null,
+      motivo: { tipo: 'fallo', texto: 'x' },
+    }).success).toBe(false);
+    expect(CajaCobertura.safeParse({
+      ...base, estado: 'sin_medir', por_confirmar: null,
+      motivo: { tipo: 'filtro', filtros: ['cuenta'], texto: 'x' },
+    }).success).toBe(false);
+  });
+
+  it('`medida` CON motivo se rechaza: no hay nada que explicar', () => {
+    expect(CajaCobertura.safeParse({ ...medida, motivo: { tipo: 'fallo', texto: 'x' } }).success).toBe(false);
+  });
+
+  it('`filtro` con la lista vacía se rechaza: un motivo que no nombra nada no es un motivo', () => {
+    expect(CajaCobertura.safeParse({
+      ...base, estado: 'no_corresponde', por_confirmar: null,
+      motivo: { tipo: 'filtro', filtros: [], texto: 'x' },
+    }).success).toBe(false);
+  });
+
+  it('⛔ el monto como STRING se rechaza — es lo que Postgres manda hoy', () => {
+    // El repo no fija `setTypeParser`, así que `::numeric` llega como string y la pantalla
+    // sobrevive sólo porque `money()` hace `Number(v || 0)`. Acá el contrato lo corta.
+    expect(CajaCobertura.safeParse({
+      ...medida, capturado: { movimientos: 70, monto: '774890.89' },
+    }).success).toBe(false);
+  });
+});
+
+describe('[CG.183] cajaCoberturaPct — los dos ejes dan números distintos, y por eso sale de un solo lugar', () => {
+  it('reproduce lo medido en prod: 11.3 % de movimientos y 16.8 % del dinero', () => {
+    expect(cajaCoberturaPct(medida, 'movimientos')).toBe(11.3);
+    expect(cajaCoberturaPct(medida, 'monto')).toBe(16.8);
+  });
+
+  it('⛔ sin cobertura devuelve `null`, NUNCA 0', () => {
+    // Un 0 se lee como «no se capturó nada», que es un hecho; `null` se lee como «no se sabe», que
+    // es lo que pasa. Es la distinción que ADR-056 existe para sostener.
+    const sinMedir = { ...base, estado: 'sin_medir' as const, por_confirmar: null, motivo: { tipo: 'fallo' as const, texto: 'x' } };
+    expect(cajaCoberturaPct(sinMedir, 'movimientos')).toBeNull();
+    expect(cajaCoberturaPct(sinMedir, 'monto')).toBeNull();
+  });
+
+  it('un denominador en cero devuelve `null`, no una división por cero', () => {
+    expect(cajaCoberturaPct({
+      ...base, estado: 'medida', por_confirmar: { movimientos: 0, monto: 0 },
+      capturado: { movimientos: 0, monto: 0 }, motivo: null,
+    }, 'movimientos')).toBeNull();
+  });
+
+  it('cobertura total da 100, no `null`: medido y completo es un resultado', () => {
+    expect(cajaCoberturaPct({
+      ...base, estado: 'medida', por_confirmar: { movimientos: 0, monto: 0 }, motivo: null,
+    }, 'movimientos')).toBe(100);
+  });
+});
