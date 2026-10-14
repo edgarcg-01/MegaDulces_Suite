@@ -1023,8 +1023,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
                       [text]="true" (onClick)="cargarSaldo()"></p-button>
           } @else {
-            <p-button [label]="corteAbierto() ? 'Rendir cuentas del dia' : 'Cerrar jornada y rendir cuentas'"
-                      icon="pi pi-lock" size="small" [disabled]="abriendo()"
+            <p-button [label]="corteAbierto() ? 'Rendir cuentas del día' : 'Cerrar jornada y rendir cuentas'"
+                      icon="pi pi-lock" size="small"
+                      [loading]="abriendo()" [disabled]="abriendo()"
                       (onClick)="cerrarJornada()"></p-button>
           }
         </div>
@@ -1687,7 +1688,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               @if (c.estado === 'cerrado') {
                 @if (gateAutorizar(c).ok) {
                   <p-button label="Autorizar" size="small" severity="secondary"
-                            [disabled]="autorizando()" (onClick)="autorizar(c)"></p-button>
+                            [loading]="autorizando()" [disabled]="autorizando()"
+                            (onClick)="autorizar(c)"></p-button>
                 } @else {
                   <!-- El porqué NO puede vivir en un [title] de un botón deshabilitado: ahí no lo
                        alcanza el teclado, ni el lector de pantalla, ni un dedo. Se dice. -->
@@ -2148,6 +2150,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
                     icon="pi pi-check" size="small"
                     [severity]="marcadas().length ? undefined : 'secondary'"
+                    [loading]="confirmando()"
                     [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
         </div>
 
@@ -2832,6 +2835,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <div class="cg-firma-elegir">
                     <p-button label="Firmar en el teléfono" icon="pi pi-mobile" size="small"
                               severity="secondary" [outlined]="true"
+                              [loading]="firmaPidiendo()"
                               [disabled]="firmaPidiendo() || !socketVivo()"
                               (onClick)="firmaPedirEnTelefono()"></p-button>
                     <span class="fin-dim">o firmá acá abajo</span>
@@ -2871,7 +2875,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <!-- ⚠️ La flecha hacia arriba vuelve a la ultima pieza contada: la cadena del
                    arqueo se recorre en los DOS sentidos, o quien baja de mas queda atrapado en el
                    boton y tiene que volver con el mouse. -->
+              <!-- ⛔⛔ [AUD] Va con loading, no sólo con disabled. La pantalla ya tenía la
+                   convención escrita 400 lineas mas arriba -"[loading] pone el spinner Y desactiva el boton,
+                   que es lo que evita la segunda busqueda"- y la aplicaba en las CUATRO acciones
+                   que LEEN (el reporte, la impresion, buscar retiros) y en NINGUNA de las ocho que
+                   ESCRIBEN. Un boton que se apaga sin decir por que se lee igual que un boton
+                   roto, y el gesto siguiente es volver a tocarlo: justo sobre el unico boton de
+                   esta pantalla que mueve dinero. -->
               <p-button label="Guardar" icon="pi pi-check" size="small" styleClass="cg-guardar"
+                        [loading]="guardando()"
                         [disabled]="bloqueos().length > 0 || guardando()"
                         (keydown.arrowup)="moverEnReja($event, -1)" aria-keyshortcuts="ArrowUp"
                         (onClick)="pedirConfirmacion()"></p-button>
@@ -2961,7 +2973,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <p-button label="Volver al conteo" severity="secondary" size="small"
                   (onClick)="cerrarConFoco(confirmarGuardar)"></p-button>
         <p-button label="Sí, guardar" icon="pi pi-check" size="small"
-                  [disabled]="guardando()" (onClick)="guardar()"></p-button>
+                  [loading]="guardando()" [disabled]="guardando()" (onClick)="guardar()"></p-button>
       </ng-template>
     </p-dialog>
 
@@ -2999,7 +3011,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
         <!-- Sin bandera de ocupado, el doble clic abría DOS cortes. -->
         <p-button label="Abrir" icon="pi pi-check" size="small"
-                  [disabled]="abriendo()" (onClick)="abrirCorte()"></p-button>
+                  [loading]="abriendo()" [disabled]="abriendo()" (onClick)="abrirCorte()"></p-button>
       </ng-template>
     </p-dialog>
 
@@ -3099,13 +3111,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
           <p-button label="Guardar conteo" icon="pi pi-lock" size="small"
+                    [loading]="sellando()"
                     [disabled]="sumaConteo() <= 0 || sellando()" (onClick)="sellarConteo()"></p-button>
         } @else {
           @if (revelado()!.veredicto !== 'cuadra' && puedeRecontar()) {
             <p-button label="Recontar" icon="pi pi-replay" size="small" severity="secondary"
+                      [loading]="sellando()"
                       [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sellando()" (onClick)="recontar()"></p-button>
           }
           <p-button label="Cerrar corte" icon="pi pi-check" size="small"
+                    [loading]="cerrando()"
                     [disabled]="!gateCierre().ok || cerrando()" (onClick)="cerrarCorte()"></p-button>
         }
       </ng-template>
