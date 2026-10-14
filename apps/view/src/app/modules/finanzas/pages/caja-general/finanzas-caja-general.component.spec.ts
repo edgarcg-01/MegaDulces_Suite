@@ -194,6 +194,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   let cajaSock: {
     connect: () => void; disconnect: () => void; change$: Subject<CajaEvent>;
     connected: () => boolean;
+    /**
+     * [AUD] El doble lleva TAMBIEN el estado del canal. Esta pantalla todavia no lo lee -- usa
+     * `socketVivo()`, que sale de `connected` -- pero el servicio ya lo publica, y un doble al
+     * que le falta una pieza del contrato miente sobre el contrato (lo dice el comentario de
+     * arriba, y se cumple aunque hoy no se note).
+     */
+    estado: () => 'sin_iniciar' | 'conectando' | 'vivo' | 'caido';
     firmaTomada$: Subject<{ codigo: string; por: string | null }>;
     firmaRecibida$: Subject<FirmaRecibida>;
     firmaCortada$: Subject<{ codigo: string }>;
@@ -207,6 +214,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   function montar(over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}) {
     cajaSock = {
       connect: vi.fn(), disconnect: vi.fn(), change$: new Subject<CajaEvent>(), connected: () => false,
+      // Coherente con `connected: () => false`: en jsdom el canal nunca abre, y el estado que le
+      // corresponde a eso es `caido`, no un `conectando` eterno.
+      estado: () => 'caido' as const,
       firmaTomada$: new Subject(), firmaRecibida$: new Subject(), firmaCortada$: new Subject(),
       abrirFirma: vi.fn(async () => ({ ok: true, codigo: 'ABC234' })),
       tomarFirma: vi.fn(async () => ({ ok: true })),
@@ -3748,6 +3758,104 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       const fuente = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
       const css = (fuente.ɵcmp?.styles ?? []).join('\n');
       expect(css).toMatch(/\.cg-trabada[^{]*\.cg-motivo-tag[^{]*\{[^}]*opacity\s*:\s*1/);
+    });
+  });
+
+  // ⭐⭐ `[CG.180]` LA FUENTE DEL AUTOLLENADO: tres estados, y sólo uno es un problema del dato.
+  //
+  // La sesión de backend midió que `analytics.mv_caja_autofill_entidad` llegó a producción
+  // poblada y con CERO filas. Con la copia vacía el motor contesta `sin_historia` para toda
+  // entidad, así que esta pantalla le afirmaba al capturista «Kepler no tiene historia de este
+  // beneficiario» — una afirmación sobre el proveedor cuando el hecho era sobre nosotros.
+  describe('[CG.180] la fuente del autollenado se DECLARA', () => {
+    const LATIDO = {
+      data_as_of: '2026-10-13T12:00:00-06:00', status: 'fresh' as const, stale: false,
+      age_human: 'hace 20 min', inputs: [],
+    };
+    const conAutofill = (declarada: number, derivada: number, latido: typeof LATIDO | null = LATIDO) =>
+      vi.fn(() => of({ ...COBERTURA, autofill: { declarada, derivada, latido } }));
+
+    it('con la copia VACÍA lo dice, y lo dice como aviso', () => {
+      const fx = montarJornada({ cobertura: conAutofill(0, 0) });
+      expect(comp.autofillFuenteVacia()).toBe(true);
+      expect(fx.nativeElement.textContent).toContain('copia del historial está vacía');
+    });
+
+    it('[control] con la copia POBLADA no hay aviso: el mismo campo, otro valor', () => {
+      const fx = montarJornada({ cobertura: conAutofill(12, 285) });
+      expect(comp.autofillFuenteVacia()).toBe(false);
+      expect(fx.nativeElement.textContent).not.toContain('copia del historial está vacía');
+      expect(fx.nativeElement.textContent).toContain('285');
+    });
+
+    it('⛔ el campo AUSENTE no se lee como copia vacía: son dos ausencias distintas', () => {
+      // La API desplegada todavía no manda `autofill`. «No sé» no puede pintarse igual que
+      // «la copia está vacía», que es la falla que esta tanda vino a arreglar.
+      const fx = montarJornada();                // COBERTURA pelada, sin el campo
+      expect(comp.autofill()).toBeUndefined();
+      expect(comp.autofillFuenteVacia(), 'undefined NO es vacía').toBe(false);
+      expect(fx.nativeElement.textContent).toContain('Autollenado: sin medir');
+      expect(fx.nativeElement.textContent).not.toContain('copia del historial está vacía');
+    });
+
+    it('«el carril nunca corrió» es su propio estado, no un refresco viejo', () => {
+      const fx = montarJornada({ cobertura: conAutofill(0, 285, null) });
+      expect(fx.nativeElement.textContent).toContain('nunca corrió');
+    });
+
+    it('la frase de la captura deja de culpar al beneficiario cuando la copia está vacía', () => {
+      montar({
+        cobertura: conAutofill(0, 0),
+        autofill: vi.fn(() => of({
+          concepto: { value: null, source: null, confidence: null, reason: 'sin_historia' },
+          provenance: null,
+        })),
+      });
+      comp.abrirCaptura();
+      comp.pedirPropuesta();
+      expect(comp.etiquetaConcepto().texto).toContain('copia del historial');
+      expect(comp.etiquetaConcepto().texto).not.toContain('no hay historia de este proveedor');
+    });
+
+    it('[control] con la copia poblada, esa misma frase sigue siendo la de siempre', () => {
+      montar({
+        cobertura: conAutofill(12, 285),
+        autofill: vi.fn(() => of({
+          concepto: { value: null, source: null, confidence: null, reason: 'sin_historia' },
+          provenance: null,
+        })),
+      });
+      comp.abrirCaptura();
+      comp.pedirPropuesta();
+      expect(comp.etiquetaConcepto().texto).toContain('no hay historia de este proveedor');
+    });
+  });
+
+  // `[CG.180]` Las dos mitades del cajón: una guarda, o ninguna.
+  describe('[CG.180] el cajón viaja acoplado', () => {
+    const conCajon = (cg: Record<string, unknown>) =>
+      vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, ...cg } }));
+
+    it('toma el objeto acoplado cuando el servidor lo manda', () => {
+      montar({ arqueoDia: conCajon({ cajon: { en_el_cajon: 120.5, a_la_boveda: 900 } }) });
+      expect(comp.cajon()).toEqual({ en_el_cajon: 120.5, a_la_boveda: 900 });
+    });
+
+    it('con la API vieja lo arma de los dos planos', () => {
+      montar({ arqueoDia: conCajon({ en_el_cajon: 120.5, a_la_boveda: 900 }) });
+      expect(comp.cajon()).toEqual({ en_el_cajon: 120.5, a_la_boveda: 900 });
+    });
+
+    it('⛔ [negativa] con UNA sola mitad devuelve null — medio cajón no se publica', () => {
+      // Es el caso que dibujaba $0.00: `money(null)` da «$0.00» y un cero afirma que no quedó
+      // nada en el cajón, que es otra cosa que no poder saberlo.
+      montar({ arqueoDia: conCajon({ en_el_cajon: 120.5, a_la_boveda: null }) });
+      expect(comp.cajon()).toBeNull();
+    });
+
+    it('el servidor diciendo `cajon: null` (sin cajero) manda sobre los planos', () => {
+      montar({ arqueoDia: conCajon({ cajon: null, en_el_cajon: 120.5, a_la_boveda: 900 }) });
+      expect(comp.cajon()).toBeNull();
     });
   });
 });

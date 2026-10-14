@@ -837,6 +837,65 @@ export interface RouteClosureReconciliation {
   incidencias: RouteClosureIncidencia[];
 }
 
+// ── `[VEC.10]` — La vecinal contra el dinero que se contó en SU caja ──
+/**
+ * ⛔ El grano es la CAJA, no la ruta: una caja mezcla rutas y mostrador, así que el descuadre
+ * no se puede atribuir a una ruta. `vecinal_pct = 100` es el único caso en que sí es de ella.
+ */
+export type VecinalVeredicto =
+  | 'cuadra' | 'faltante' | 'sobrante' | 'contado_en_cero'
+  | 'vecinal_excede_arqueo' | 'sin_arqueo' | 'arqueo_abierto' | 'dia_en_curso';
+
+export interface VecinalConciliacionFila {
+  warehouse_code: string;
+  warehouse_name: string;
+  caja: number;
+  date: string;
+  rutas: string[];
+  vecinal: number;
+  tickets: number;
+  /** NULL cuando no hay arqueo. Nunca 0: la ausencia no se dibuja como cero (ADR-056). */
+  arqueo_venta: number | null;
+  otros_en_la_caja: number | null;
+  vecinal_pct: number | null;
+  efectivo_esperado: number | null;
+  efectivo_contado: number | null;
+  efectivo_diff: number | null;
+  veredicto: VecinalVeredicto;
+}
+
+/** Lo que lleva código de ruta vecinal y NO es venta de la caja. Se declara, NO se suma. */
+export interface VecinalNoSuma {
+  refactura: number;
+  refactura_docs: number;
+  telemarketing: number;
+  telemarketing_docs: number;
+}
+
+export interface VecinalConciliacion {
+  period: { from: string; to: string };
+  summary: {
+    dia_caja: number;
+    vecinal_total: number;
+    arqueo_total: number;
+    /** Cobertura = día-caja con arqueo / día-caja. Medido 2026-10-13: 99.8 %. */
+    con_arqueo: number;
+    cobertura_pct: number;
+    por_veredicto: Record<string, number>;
+    /** Neto del efectivo: >0 falta, <0 sobra. Excluye `contado_en_cero`, que no es dinero. */
+    efectivo_diff: number;
+    /**
+     * ⭐ DOS frescuras, no una: la venta sale del ODS en vivo y el arqueo lo cierra la sucursal
+     * horas después. Publicar una sola haría pasar por medido un día cuyo dinero nadie contó
+     * todavía — que es justo la confusión `poblado ≠ fresco` de ADR-056.
+     */
+    venta_hasta: string | null;
+    arqueo_hasta: string | null;
+  };
+  no_suma: VecinalNoSuma;
+  filas: VecinalConciliacionFila[];
+}
+
 // ── Fase T — Traspasos / movimientos que NO son venta ──
 export type TransferKind = 'salida_cedis' | 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
 
@@ -8284,6 +8343,127 @@ export class CommercialAnalyticsService {
       incidencias.sort((a, b) => (b.date.localeCompare(a.date)) || (Math.abs(b.diff) - Math.abs(a.diff)));
 
       return { period: { from, to }, summary, incidencias: incidencias.slice(0, 500) };
+    });
+  }
+
+  /**
+   * ⭐⭐ `[VEC.10]` — **La venta vecinal contra el dinero que se contó en SU caja.**
+   *
+   * El hecho que esto cierra: `U-D-10` se llama *"Ticket Contado Caja N"*, o sea que la vecinal
+   * se timbra en una **caja registradora de la sucursal** y su dinero se cuenta en el **arqueo de
+   * esa caja** (`analytics.cash_cuts`). Buscarla en Caja General —que es donde la busqué primero—
+   * da cero, y ese cero se lee igual que *"falta ligarlo"*. No falta: **no va por ahí**.
+   *
+   * Cobertura medida contra prod el 2026-10-13: **568 de 569 día-caja con arqueo = 99.8 %**.
+   *
+   * ⛔ **El grano es la CAJA, nunca la ruta.** `05` caja 2 cobra `1V002`, `2V001` y `3V001`; `02`
+   * caja 4 mezcla `1V003` con mostrador. Publicar "faltante de la ruta X" sería inventar una
+   * atribución que el arqueo no permite — por eso viaja `vecinal_pct`.
+   *
+   * ⛔ `refactura` (`U-D-12`) y `telemarketing` (`U-D-8`) se **declaran y no se suman**. El
+   * sell-out sí los suma y por eso publica la vecinal de septiembre en $3,150,428.68 contra
+   * $1,943,014.72 — **+62 %**; `[VEC.8]` es el runbook que lo corrige y necesita ventana.
+   */
+  async vecinalConciliacion(fromArg?: string, toArg?: string): Promise<VecinalConciliacion> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    // Misma forma que `routeClosureReconciliation`, a propósito: dos expresiones distintas para
+    // "hoy en México" en el mismo archivo divergen el día que alguien toque una.
+    const today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const to = toArg && dRx.test(toArg) ? toArg : today;
+    const defFrom = new Date(new Date(`${to}T00:00:00Z`).getTime() - 45 * 86400000).toISOString().slice(0, 10);
+    const from = fromArg && dRx.test(fromArg) ? fromArg : defFrom;
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    /**
+     * ⚠️ `null` se conserva como `null`: un `Number(null)` da **0**, y acá un cero significaría
+     * «la caja contó cero» donde lo cierto es «nadie la cerró» (ADR-056).
+     */
+    const num = (v: string | number | null): number | null => (v == null ? null : Number(v));
+
+    /** Lo que devuelve la vista. Los `numeric` de Postgres llegan como **string** por el driver. */
+    type FilaCruda = {
+      warehouse_code: string; warehouse_name: string; caja: string | number; date: string;
+      rutas: string | null; vecinal: string | number; tickets: string | number;
+      arqueo_venta: string | null; otros_en_la_caja: string | null; vecinal_pct: string | null;
+      efectivo_esperado: string | null; efectivo_contado: string | null; efectivo_diff: string | null;
+      veredicto: VecinalVeredicto;
+    };
+
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT c.warehouse_code, COALESCE(w.name, c.warehouse_code) AS warehouse_name,
+                c.caja, to_char(c.business_date,'YYYY-MM-DD') AS date,
+                c.rutas, c.vecinal, c.tickets, c.arqueo_venta, c.otros_en_la_caja, c.vecinal_pct,
+                c.efectivo_esperado, c.efectivo_contado, c.efectivo_diff, c.veredicto
+           FROM analytics.v_vecinal_conciliacion c
+           LEFT JOIN commercial.warehouses w
+             ON w.tenant_id = c.tenant_id AND w.code = c.warehouse_code AND w.deleted_at IS NULL
+          WHERE c.tenant_id = ?::uuid AND c.business_date >= ?::date AND c.business_date <= ?::date
+          ORDER BY c.business_date DESC, c.warehouse_code, c.caja`,
+        [tenantId, from, to]);
+
+      // Lo que NO suma va en su propio grano (sucursal, día): la re-factura se emite en OTRA caja
+      // que el ticket que copia, así que al grano de caja no se puede juntar con lo que refleja.
+      const { rows: [ns] } = await trx.raw(
+        `SELECT COALESCE(sum(refactura),0) AS refactura, COALESCE(sum(refactura_docs),0) AS refactura_docs,
+                COALESCE(sum(telemarketing),0) AS telemarketing, COALESCE(sum(telemarketing_docs),0) AS telemarketing_docs
+           FROM analytics.v_vecinal_no_suma
+          WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date`,
+        [tenantId, from, to]);
+
+      const filas: VecinalConciliacionFila[] = (rows as FilaCruda[]).map((r) => ({
+        warehouse_code: r.warehouse_code,
+        warehouse_name: r.warehouse_name,
+        caja: Number(r.caja),
+        date: r.date,
+        rutas: String(r.rutas || '').split(',').filter(Boolean),
+        vecinal: Number(r.vecinal) || 0,
+        tickets: Number(r.tickets) || 0,
+        arqueo_venta: num(r.arqueo_venta),
+        otros_en_la_caja: num(r.otros_en_la_caja),
+        vecinal_pct: num(r.vecinal_pct),
+        efectivo_esperado: num(r.efectivo_esperado),
+        efectivo_contado: num(r.efectivo_contado),
+        efectivo_diff: num(r.efectivo_diff),
+        veredicto: r.veredicto,
+      }));
+
+      const por_veredicto: Record<string, number> = {};
+      let vecinal_total = 0, arqueo_total = 0, con_arqueo = 0, efectivo_diff = 0;
+      let venta_hasta: string | null = null, arqueo_hasta: string | null = null;
+      for (const f of filas) {
+        if (!venta_hasta || f.date > venta_hasta) venta_hasta = f.date;
+        if (f.arqueo_venta != null && (!arqueo_hasta || f.date > arqueo_hasta)) arqueo_hasta = f.date;
+        por_veredicto[f.veredicto] = (por_veredicto[f.veredicto] ?? 0) + 1;
+        vecinal_total += f.vecinal;
+        if (f.arqueo_venta != null) { arqueo_total += f.arqueo_venta; con_arqueo++; }
+        // ⛔ `contado_en_cero` NO entra al neto: sumarlo publicaría como "faltante" un turno que
+        //    nadie contó. Medido, eso solo valía $43,248.56 de los $49,748.27 del período.
+        if (f.veredicto !== 'contado_en_cero' && f.efectivo_diff != null) efectivo_diff += f.efectivo_diff;
+      }
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+
+      return {
+        period: { from, to },
+        summary: {
+          dia_caja: filas.length,
+          vecinal_total: r2(vecinal_total),
+          arqueo_total: r2(arqueo_total),
+          con_arqueo,
+          cobertura_pct: filas.length ? Math.round((con_arqueo / filas.length) * 1000) / 10 : 0,
+          por_veredicto,
+          efectivo_diff: r2(efectivo_diff),
+          venta_hasta,
+          arqueo_hasta,
+        },
+        no_suma: {
+          refactura: r2(Number(ns?.refactura) || 0),
+          refactura_docs: Number(ns?.refactura_docs) || 0,
+          telemarketing: r2(Number(ns?.telemarketing) || 0),
+          telemarketing_docs: Number(ns?.telemarketing_docs) || 0,
+        },
+        filas,
+      };
     });
   }
 

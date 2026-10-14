@@ -286,8 +286,27 @@ const TEXTO_MOTIVO: Record<string, string> = {
  * autorrelleno se acepta sin mirarlo y cambiamos movimientos sin concepto por movimientos
  * mal clasificados (ADR-070 §8.5).
  */
-export function etiquetaProcedencia(p: PropuestaVista | null | undefined): EtiquetaProcedencia {
+/**
+ * `[CG.180]` **`fuenteVacia` cambia lo que significa un `sin_historia`, y por eso entra acá.**
+ *
+ * «No hay historia de este proveedor» es una afirmación sobre el proveedor. Cuando la copia del
+ * historial está vacía, la afirmación verdadera es sobre NOSOTROS: no hay con qué proponer. Son
+ * dos hechos distintos y hasta hoy se decían con la misma frase — medido por la sesión de
+ * backend, la copia llegó a prod con cero filas y el nivel «entidad» devolvía `sin_historia`
+ * para TODA entidad, así que la frase era falsa en el 100 % de los casos.
+ *
+ * ⚠️ Sólo pisa a `sin_historia`. Los otros motivos (`empate`, `soporte_insuficiente`…) SÍ hablan
+ * del proveedor y siguen siendo ciertos aunque la copia esté vacía — de hecho no pueden ocurrir
+ * con la copia vacía, y si ocurren es que la propuesta vino de otro nivel.
+ */
+export function etiquetaProcedencia(
+  p: PropuestaVista | null | undefined,
+  fuenteVacia = false,
+): EtiquetaProcedencia {
   if (!p || p.value === null || p.value === undefined) {
+    if (fuenteVacia && p?.reason === 'sin_historia') {
+      return { tono: 'vacio', texto: 'Sin propuesta: la copia del historial está vacía, así que no hay con qué proponer. No es que este beneficiario no tenga historia — lo revisa Sistemas.' };
+    }
     const motivo = p?.reason ? TEXTO_MOTIVO[p.reason] : undefined;
     // Un vacío sin motivo conocido se declara como tal; NO se inventa una explicación.
     return { tono: 'vacio', texto: motivo ?? 'Sin propuesta: capturalo a mano.' };
