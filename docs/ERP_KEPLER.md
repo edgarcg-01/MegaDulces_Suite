@@ -950,6 +950,38 @@ efectivo es el 99.7 %** (975 de 987 docs, $17.26 M) — o sea *«ruta ⇒ efecti
 `X-D-26` de caja **y** de banco. Lo que declara el efectivo es la **cuenta de tesorería** `c45`
 (ver §3.z): elegir `0011 CAJA GENERAL / EFECTIVO` **es** declararlo.
 
+### 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14)
+
+El cobro agrega por depósito y ahí se borra quién vendió — pero **el dato nace en el ticket y casi
+nunca falta**:
+
+    kdm1.c12  (en los U-D-10 «Ticket Contado Caja 2»)  →  kepler_ods.kduv.c2 → c3   (400 filas)
+
+**Cobertura medida, 30 días, las 8 plazas: 94,827 tickets · 99.5 % con vendedor** — peor caso 98.5 %
+(suc 08), cuatro plazas al 100 %. **43 códigos activos y los 43 resuelven a nombre.** Tampoco es sólo
+el ticket de mostrador: `U-D-6` factura global **100 %** · `U-D-12` no fiscal **99.6 %** · `U-D-5`
+factura TK **90.4 %**.
+
+⭐ `kduv` **distingue las dos naturalezas**, que es lo que sirve para agrupar: el **piso** de la
+sucursal (`SUC MORELIA MADERO PISO`, `SUCURSAL 8 ESQUINAS PISO`) contra la **ruta o la persona**
+(`RUTA VECINAL PH 01`, `GUILLERMO HERNANDEZ`, `GLORIA CALDERON`).
+
+**El caso que lo decodificó**, un corte repartido a lápiz entre dos personas:
+
+    2V003   39 tickets  CON0001167 → CON0001217   $24,418.16   GUILLERMO HERNANDEZ
+    2V001   12 tickets  CON0001174 → CON0001195   $16,914.88   JOSEPH AGUSTIN GUERERRO
+                                                   ───────────
+                                                   $41,333.04   = el corte U-D-23, al centavo
+
+⚠️ **Tres trampas, cada una costó un intento:**
+1. **`c81` (caja) está VACÍO en el ticket**; el campo vivo es **`c80` = APERTURA**. Filtrar por `c81`
+   devuelve 0 filas, y leer eso como «el ticket no trae vendedor» es falso.
+2. **`analytics.cash_cuts.folio` es la APERTURA, no el folio del documento.** El corte de arriba es
+   el `U-D-23` folio **`0000024`**, cajero `C04`; la «29» es su apertura. ⛔ Ligar `cash_cuts` ⋈
+   `kdm1` por folio **no empata**.
+3. **El importe de un reparto no es ningún documento.** $24,418.16 no aparece en `kdm1` — está
+   registrado **39 veces**. Buscar el total y concluir «no se registró» es el error.
+
 ---
 
 ### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
