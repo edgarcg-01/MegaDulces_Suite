@@ -4,6 +4,7 @@ import * as ExcelJS from 'exceljs';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
+import { buildClaimIndex, claimVerdict } from './recon-claim-key';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -1492,7 +1493,11 @@ export class FinanceBankService {
       // Descarta filas inválidas (sin tenant/movimiento) — nunca deben llegar al insert:
       // una fila sin tenant_id genera "default values" → viola RLS.
       if (!r || !r.tenant_id || !r.bank_movement_id) continue;
-      const k = `${r.bank_movement_id}|${r.kepler_doc_tipo ?? ''}|${r.kepler_doc_folio ?? ''}`;
+      // [CB.50] La sucursal entra a la llave: dos documentos de plazas distintas que comparten
+      // `doc_tipo`+`folio` son documentos DISTINTOS y no deben fundirse en una fila sumando sus
+      // importes. Exige que el índice único viejo de 4 columnas ya no exista (mig 20261014120000);
+      // el de 5 que dejó `[CC.13]` es el que respalda esto.
+      const k = `${r.bank_movement_id}|${r.kepler_doc_tipo ?? ''}|${r.kepler_doc_folio ?? ''}|${r.kepler_sucursal ?? ''}`;
       const prev = m.get(k);
       if (prev) { prev.kepler_amount = Number(prev.kepler_amount || 0) + Number(r.kepler_amount || 0); }
       else m.set(k, { ...r });
@@ -1510,7 +1515,10 @@ export class FinanceBankService {
    * lumped: menos candidatos por banco → exacto confiable, y ahora TAMBIÉN casa depósitos/cobranza
    * (pase agrupado 1 depósito = N cobros). Escribe finance.bank_recon_matches + recon_status.
    */
-  async runMatchTreasury(period?: string) {
+  async runMatchTreasury(period?: string, opts?: { dryRun?: boolean }) {
+    // [CB.50] `dryRun` corre el motor entero y NO escribe: devuelve `diff` con el antes/después
+    // y la lista nominal de los que perderían su pareo.
+    const dryRun = !!opts?.dryRun;
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     const cents = (x: number) => Math.round((Number(x) || 0) * 100);
@@ -1561,6 +1569,13 @@ export class FinanceBankService {
         .map((b: any) => ({ id: b.id, date: b.movement_date, concept: b.concept, label: b.account_label,
           dir: n(b.amount_out) > 0 ? 'out' : 'in', amount: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in) }));
 
+      // [CB.50] Qué tenía casado la corrida anterior. Se lee ANTES de los pases porque el pase 7
+      // lo necesita (no dejar peor a nadie) y el `diff` del antes/después también.
+      const antesIds = new Set<string>(await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.deleted_at').where('bm.recon_status', 'matched')
+        .pluck('bm.id') as any[]);
+
       // CB.48 — La fecha REAL del pago, cuando el complemento de pago SAT la tiene.
       //
       // `kdm1.c9` (fecha valor) es el día en que se TECLEÓ el cobro, no el día en que entró el
@@ -1608,14 +1623,41 @@ export class FinanceBankService {
       // borrado de matches previos es por `bank_movement_id` del periodo. Sin esto, un doc
       // de Kepler ya casado por la corrida de otro mes se volvería a casar acá y el mismo
       // dinero contaría dos veces. Quien corre primero se lo queda; se declara en el result.
+      //
+      // [CB.50] ⛔ **La llave era `(doc_tipo, folio)` y eso NO identifica un documento.**
+      // Venía del motor viejo (`runMatch` sobre `analytics.bank_postings`), donde el 102 es un
+      // ledger CONCENTRADOR y el folio sí es único. Acá la bolsa es tesorería (`kdm1`), donde el
+      // folio **reinicia por sucursal y por año**: `X-D-26|0000119` es la comisión de $126.68 de
+      // la sucursal 08 en septiembre **y** un pago de $2,070.00 de Caja General en enero. Casado
+      // el de enero, el de septiembre llegaba marcado `used` y no tenía oportunidad de casar.
+      //
+      // Medido en prod (2026-10-14): **1,336 documentos de jul-sep** entraban bloqueados; de
+      // ésos **331 ($4,919,101) son falsos demostrables** — basta la clave de banco para
+      // distinguirlos. Es la misma familia de trampa que `[CC.13]` ya había diagnosticado para
+      // el cruce banco↔cobro: *el folio no identifica un documento por sí solo*.
+      //
+      // ⚠️ Esa migración agregó `kepler_sucursal` + su índice único de 5 columnas dando por
+      // hecho que «sí se escribe». **No se escribe**: medido, 0 de 20,926 filas la tienen. La
+      // llave larga era un no-op. Acá se empieza a escribir (ver `emit`), así que la llave se
+      // va poniendo exacta sola a medida que cada periodo se re-concilia.
       const claimedRows = await trx('finance.bank_recon_matches as m')
         .join('finance.bank_movements as bm', 'bm.id', 'm.bank_movement_id')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('m.tenant_id', tenantId).andWhereNot('st.period', period)
-        .distinct('m.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio');
-      const claimed = new Set((claimedRows as any[]).map((r) => `${r.dt}|${r.folio}`));
-      let yaCasadosOtroPeriodo = 0;
-      for (const p of kepAll) if (claimed.has(`${p.doc_tipo}|${p.folio}`)) { p.used = true; yaCasadosOtroPeriodo++; }
+        .distinct('m.kepler_sucursal as suc', 'm.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio',
+          'm.kepler_cuenta as cuenta');
+      // Llave exacta (sucursal conocida) y llave parcial (filas históricas sin sucursal). La
+      // parcial se CONSERVA a propósito: tirarla abriría el doble-cobro que el candado existe
+      // para cerrar. Lo que sí se hace es DECLARAR cuánto bloquea (ADR-056), para que el residuo
+      // tenga nombre y monto en vez de desaparecer.
+      const claims = buildClaimIndex(claimedRows as any[]);
+      let yaCasadosOtroPeriodo = 0, bloqueadosPorLlaveParcial = 0, montoLlaveParcial = 0;
+      for (const p of kepAll) {
+        const via = claimVerdict(claims, p);
+        if (!via) continue;
+        p.used = true; yaCasadosOtroPeriodo++;
+        if (via === 'parcial') { bloqueadosPorLlaveParcial++; montoLlaveParcial += p.importe; }
+      }
 
       // Los 4 pases originales ven SÓLO el mes (comportamiento idéntico al previo: cero
       // regresión sobre lo que ya casaba). Los pases cruzados de abajo usan el pool ancho.
@@ -1643,7 +1685,12 @@ export class FinanceBankService {
       const matches: any[] = []; const matchedSet = new Set<string>();
       const emit = (mv: any, p: any, conf: number, by: string) => {
         p.used = true; matchedSet.add(mv.id);
-        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: p.doc_tipo, kepler_doc_folio: p.folio,
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id,
+          // [CB.50] La sucursal es parte de la IDENTIDAD del documento, no un adorno: sin ella
+          // `(doc_tipo, folio)` colisiona entre plazas y entre años. La columna y su índice
+          // único existen desde `[CC.13]`; lo que faltaba era escribirla.
+          kepler_sucursal: p.sucursal ?? null,
+          kepler_doc_tipo: p.doc_tipo, kepler_doc_folio: p.folio,
           kepler_cuenta: p.clave, kepler_amount: p.importe, match_type: 'inferred', match_confidence: conf, matched_by: by });
       };
 
@@ -1760,6 +1807,33 @@ export class FinanceBankService {
         if (best) { emit(mv, best, exact ? 0.6 : 0.5, 'motor-tes-cruzado'); p6++; }
       }
 
+      // [CB.50] Pase 7 — **no dejar peor a nadie.** El motor es greedy y depende del orden: al
+      // destrabar documentos que la llave vieja bloqueaba mal, la bolsa crece y un movimiento
+      // que ya estaba casado puede quedarse sin contraparte porque otro se la llevó primero.
+      // Medido en seco antes de agregar este pase: jul −18 y ago −8 pareos, y los 8 que se
+      // inspeccionaron apuntaban a documentos de UNA sola sucursal — o sea churn del greedy,
+      // no una corrección. Perder un pareo que ya existía, sin poder decir por qué, es
+      // justamente lo que el usuario preguntó que no pasara.
+      //
+      // Sólo mira movimientos que la corrida ANTERIOR tenía casados y ésta dejó sueltos, y sólo
+      // les ofrece lo que al motor ya le sobró: misma cuenta, misma dirección, monto exacto o
+      // ±$1, dentro de la ventana del pool. No inventa un criterio nuevo ni toca a nadie más.
+      let p7 = 0;
+      if (antesIds.size) {
+        for (const mv of bankMovs) {
+          if (matchedSet.has(mv.id) || !antesIds.has(mv.id)) continue;
+          const e = poolWide.get(`${mv.label}|${mv.dir}`); if (!e) continue;
+          const tc = cents(mv.amount);
+          let cands = (e.byAmt.get(tc) || []).filter((p) => !p.used);
+          const exact = cands.length > 0;
+          if (!exact) cands = candsInTol(e.byAmt, tc);
+          if (!cands.length) continue;
+          let best: any = null, bestD = Infinity;
+          for (const p of cands) { const d = p.fecha ? days(mv.date, p.fecha) : 999; if (d < bestD) { best = p; bestD = d; } }
+          if (best) { emit(mv, best, exact ? 0.55 : 0.45, 'motor-tes-rescate'); p7++; }
+        }
+      }
+
       // Declaración (ADR-056): dónde `fecha_valor` NO es la fecha del movimiento bancario
       // sino el día en que se capturó. Medido: la sucursal 00 retrofecha (c9≠c68 en ~92% de
       // sus cobros, lag 2-5 días) y la 01 no lo hace nunca (c9=c68 en ~97%). Donde no se
@@ -1788,7 +1862,28 @@ export class FinanceBankService {
       // única → duplicate key → 500. Aquí se unen sumando el importe.
       const uniqMatches = this.collapseMatches(matches);
       const periodMovIds = bankMovs.map((m: any) => m.id);
-      if (periodMovIds.length) {
+      // [CB.50] Antes/después SIN escribir. Un cambio que mueve el número tiene que poder
+      // enseñarlo antes de aplicarlo, y acá el riesgo real no es «casa menos» sino que el motor
+      // es GREEDY y depende del orden: al crecer la bolsa, un movimiento puede cambiar de
+      // contraparte. `perdidos` nombra uno por uno los que hoy están casados y con el cambio ya
+      // no — si esa lista no está vacía, el cambio no entra.
+      const perdidos = (bankMovs as any[]).filter((m) => antesIds.has(m.id) && !matchedSet.has(m.id));
+      const ganados = (bankMovs as any[]).filter((m) => !antesIds.has(m.id) && matchedSet.has(m.id));
+      const diff = {
+        casados_antes: antesIds.size, casados_despues: matchedSet.size, rescatados: p7,
+        ganados: ganados.length, perdidos: perdidos.length,
+        monto_ganado: Math.round(ganados.reduce((s, m) => s + m.amount, 0) * 100) / 100,
+        monto_perdido: Math.round(perdidos.reduce((s, m) => s + m.amount, 0) * 100) / 100,
+        // Nominal y acotada: una lista de 300 nombres no se revisa; 50 sí.
+        perdidos_detalle: perdidos.slice(0, 50).map((m) => ({
+          id: m.id, fecha: ymd(m.date), cuenta: m.label, dir: m.dir,
+          monto: Math.round(m.amount * 100) / 100, concepto: String(m.concept || '').slice(0, 60),
+        })),
+        perdidos_truncados: Math.max(0, perdidos.length - 50),
+      };
+      if (dryRun) {
+        this.logger.log(`match-tesoreria ${period} [EN SECO]: ${diff.casados_antes} → ${diff.casados_despues} (+${diff.ganados} / −${diff.perdidos}); no se escribió nada`);
+      } else if (periodMovIds.length) {
         await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
         // collapseMatches + el .del() previo garantizan unicidad → insert simple (sin
         // onConflict, que en esta knex genera "default values" → fila NULL → RLS).
@@ -1805,14 +1900,25 @@ export class FinanceBankService {
       const outMovs = bankMovs.filter((m) => m.dir === 'out'), inMovs = bankMovs.filter((m) => m.dir === 'in');
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + m.amount, 0);
-      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado)`);
+      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate)`);
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
-        second_pass: p2, name_pass: p3, group_pass: p4,
+        second_pass: p2, name_pass: p3, group_pass: p4, rescue_pass: p7,
         // CB.46 — cuánto se rescató cruzando el borde de mes, y qué NO se pudo conciliar
         // por fecha porque la fecha no existe (se declara, no se disfraza de faltante).
         batch_pass: p5, cross_month_pass: p6,
         kepler_ya_casado_otro_periodo: yaCasadosOtroPeriodo,
+        // [CB.50] El residuo del candado, con nombre y monto. `llave_parcial` son los documentos
+        // que se bloquearon contra filas históricas SIN sucursal: no se puede saber si son el
+        // mismo documento o un homónimo de otra plaza, así que se bloquean (conservador) y se
+        // DECLARAN. Se vacía solo conforme cada periodo se re-concilia escribiendo la sucursal.
+        claimed_llave_parcial: {
+          docs: bloqueadosPorLlaveParcial,
+          monto: Math.round(montoLlaveParcial * 100) / 100,
+          nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-conciliá los periodos anteriores para que la llave quede exacta.',
+        },
+        dry_run: !!dryRun,
+        diff,
         fecha_no_confiable: fechaNoConfiable,
         // CB.48 — cuántos documentos conciliaron con la fecha del complemento SAT en vez de la
         // de la póliza, y cuántos días los movió. Va en el resultado porque un cambio que mueve
@@ -1845,7 +1951,7 @@ export class FinanceBankService {
    * + fecha ±7d. Solo lado pago (los depósitos/cobranza quedan a control-total: Kepler agrega
    * por plaza, no casan 1:1). CB.27 lo reemplaza con el matching por banco cuando hay tesorería.
    */
-  async runMatch(period?: string) {
+  async runMatch(period?: string, opts?: { dryRun?: boolean }) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     // CB.27 — si el feed de tesorería (kdm1, por banco) tiene el periodo, usar el matching
@@ -1856,7 +1962,11 @@ export class FinanceBankService {
     const hasTreasury = await this.tk.run((trx) => trx('analytics.kepler_bank_movements')
       .where('tenant_id', tenantId).whereNotNull('account_label')
       .andWhere('fecha_efectiva', '>=', tIni).andWhere('fecha_efectiva', '<', tFin).first('doc_tipo'));
-    if (hasTreasury) return this.runMatchTreasury(period);
+    if (hasTreasury) return this.runMatchTreasury(period, opts);
+    // [CB.50] La ruta del 102 no tiene candado anti doble-cobro (su pool nunca cruza el mes),
+    // pero sus filas alimentan la llave parcial de OTROS periodos. Corre en seco negándose, en
+    // vez de escribir: nadie pidió un antes/después de un motor que acá ya no se usa.
+    if (opts?.dryRun) throw new BadRequestException('dry_run no está soportado en el motor 102 (sin tesorería para este periodo)');
 
     const cents = (x: number) => Math.round((Number(x) || 0) * 100);
     const days = (a: any, b: any) => Math.abs(Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000));
@@ -1876,7 +1986,10 @@ export class FinanceBankService {
       // Lado Kepler: abonos del 102 del periodo (pagos que salen).
       const posts = (await trx('analytics.bank_postings')
         .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'A' })
-        .select('doc_tipo', 'folio', 'fecha', 'importe', 'contraparte'))
+        // [CB.50] `sucursal` se arrastra para poder escribirla en el match: estas filas también
+        // alimentan la llave del candado de los OTROS periodos, y una sin sucursal degrada esa
+        // llave a parcial para todos. En este ledger vale siempre '00' (es el concentrador).
+        .select('sucursal', 'doc_tipo', 'folio', 'fecha', 'importe', 'contraparte'))
         .map((p: any) => ({ ...p, importe: n(p.importe), used: false }));
 
       // índice por monto en centavos
@@ -1910,7 +2023,7 @@ export class FinanceBankService {
         for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
         if (!best) continue;
         best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id);
-        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_sucursal: best.sucursal ?? null, kepler_doc_tipo: best.doc_tipo,
           kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
           match_type: 'inferred', match_confidence: !exact ? 0.7 : (bestD === 0 ? 0.95 : 0.75), matched_by: exact ? 'motor' : 'motor-tol' });
       }
@@ -1930,7 +2043,7 @@ export class FinanceBankService {
         for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 999; if (d < bestD) { best = p; bestD = d; } }
         if (!best) continue;
         best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id); secondPass++;
-        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_sucursal: best.sucursal ?? null, kepler_doc_tipo: best.doc_tipo,
           kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
           match_type: 'inferred', match_confidence: 0.5, matched_by: 'motor-2p' });
       }
@@ -1955,7 +2068,7 @@ export class FinanceBankService {
         }
         if (!best) continue;
         best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id); thirdPass++;
-        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_sucursal: best.sucursal ?? null, kepler_doc_tipo: best.doc_tipo,
           kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
           match_type: 'inferred', match_confidence: 0.6, matched_by: 'motor-name' });
       }
@@ -2004,7 +2117,7 @@ export class FinanceBankService {
         matchedIds.push(mv.id); matchedSet.add(mv.id); groupPass++;
         for (const i of idx) {
           const p = cands[i]; p.used = true;
-          matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: p.doc_tipo,
+          matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_sucursal: p.sucursal ?? null, kepler_doc_tipo: p.doc_tipo,
             kepler_doc_folio: p.folio, kepler_cuenta: '102', kepler_amount: p.importe,
             match_type: 'inferred', match_confidence: 0.55, matched_by: 'motor-group' });
         }
@@ -2022,7 +2135,7 @@ export class FinanceBankService {
         for (const i of idx) {
           const mv = cands[i];
           matchedIds.push(mv.id); matchedSet.add(mv.id);
-          matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: p.doc_tipo,
+          matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_sucursal: p.sucursal ?? null, kepler_doc_tipo: p.doc_tipo,
             kepler_doc_folio: p.folio, kepler_cuenta: '102', kepler_amount: n(mv.amount_out),
             match_type: 'inferred', match_confidence: 0.55, matched_by: 'motor-groupN1' });
         }
