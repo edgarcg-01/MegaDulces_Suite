@@ -11,7 +11,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosReparto } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 
 /**
@@ -130,19 +130,20 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
                   <td class="cs-r fin-dim">no entró al equipo</td></tr>
             </tbody>
           </table>
-          <div class="fin-row cs-acciones">
-            <p-button label="Conciliar ahora" icon="pi pi-link" size="small"
-                      [loading]="conciliando()" (onClick)="conciliarIngresos()"></p-button>
-            <span class="fin-dim">desde {{ e.desde }} · se puede repetir: descuenta lo ya atribuido</span>
-          </div>
+          <!-- [CG.58.5] Sin boton: esto corre solo cada hora. Lo que se publica es el LATIDO,
+               porque una automatizacion que no se ve se lee igual que una que no existe. -->
+          <p class="fin-dim cs-acciones">
+            <i class="pi pi-sync" aria-hidden="true"></i>
+            Se actualiza <strong>sola, cada hora</strong> desde {{ e.desde }}.
+            @if (latido(); as l) {
+              Última corrida <span class="mono">{{ l.cuando }}</span>
+              @if (l.error) { — <span class="cs-err-inline">{{ l.error }}</span> }
+              @else { · {{ l.nota }} }
+            } @else {
+              <span class="cs-err-inline">todavía no hay ninguna corrida registrada.</span>
+            }
+          </p>
           @if (ingError(); as msg) { <p class="cs-err">{{ msg }}</p> }
-          @if (ultimoReparto(); as r) {
-            <p class="cs-ok">
-              Atados <strong>{{ r.cubiertos }}</strong> de {{ r.depositos }} depósitos
-              ({{ money(r.monto_respaldado) }}); quedaron <strong>{{ r.sin_respaldo }}</strong> sin
-              respaldo ({{ money(r.monto_faltante) }}). Renglones escritos: {{ r.escritos }}.
-            </p>
-          }
         } @else if (ingError(); as msg) {
           <p class="cs-err">{{ msg }}</p>
         } @else {
@@ -270,7 +271,7 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
     .cs-mini { font-size:var(--fs-xs); }
     .cs-acciones { margin-top:.6rem; align-items:center; gap:.6rem; }
     .cs-err { font-size:var(--fs-xs); color:var(--bad-fg); margin:.5rem 0 0; }
-    .cs-ok  { font-size:var(--fs-xs); color:var(--ok-fg);  margin:.5rem 0 0; }
+    .cs-err-inline { color:var(--bad-fg); }
   `],
 })
 export class FinanzasCaosComponent implements OnInit, OnDestroy {
@@ -306,9 +307,17 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   // pantalla: es una consulta cara y la mayoría de quien abre CAOS viene a ver movimientos.
   readonly ingEstado = signal<CaosIngresosEstado | null>(null);
   readonly ingError = signal<string | null>(null);
-  readonly conciliando = signal(false);
-  readonly ultimoReparto = signal<CaosReparto | null>(null);
   private ingCargado = false;
+
+  /**
+   * `[CG.58.5]` El latido del carril que hace esto solo. Se lee del mismo estado, no de un
+   * endpoint aparte: las cifras sin saber cuándo se calcularon no responden «¿está al día?».
+   *
+   * ⚠️ Lee `ingEstado()` **incondicionalmente** (lo asigna antes de cualquier corte): un
+   * `computed` detrás de un `&&` que corta antes de leer el signal queda sin dependencias y no
+   * recalcula nunca — hay compuerta `reactividad` por eso.
+   */
+  readonly latido = computed(() => this.ingEstado()?.latido ?? null);
   cargando = signal(false);
   err = signal<string | null>(null);
   hasMore = signal(false);
@@ -386,22 +395,6 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     });
   }
 
-  /**
-   * Reparte y **escribe** la atribución. Es idempotente (descuenta lo ya atribuido), así que
-   * repetirlo no duplica tramos — por eso el botón no pide confirmación.
-   *
-   * ⚠️ Al terminar se RE-LEE el estado en vez de confiar en lo que devolvió el reparto: el
-   * resumen describe lo que ESTA corrida escribió, no el total acumulado, y pintarlo como el
-   * total diría que falta lo que otra corrida ya ató.
-   */
-  conciliarIngresos(): void {
-    this.conciliando.set(true);
-    this.ingError.set(null);
-    this.svc.conciliarIngresos().subscribe({
-      next: (r) => { this.ultimoReparto.set(r); this.conciliando.set(false); this.cargarIngEstado(); },
-      error: (e) => { this.ingError.set(this.textoError(e)); this.conciliando.set(false); },
-    });
-  }
 
   verDetalle(r: FilaUI): void {
     r.abierto = !r.abierto;

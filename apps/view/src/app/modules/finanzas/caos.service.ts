@@ -79,14 +79,11 @@ export class CaosService {
   }
 
   /**
-   * `[CG.58]` Reparte y **GUARDA** la atribución. Idempotente: descuenta lo ya atribuido, así que
-   * correrlo dos veces no duplica tramos.
+   * ⛔ **No hay cliente para `POST ingresos/conciliar` a propósito.** Lo dispara el carril
+   * automático (`CaosIngresoCronService`, cada hora) llamando al servicio directo, no por HTTP.
+   * El endpoint sigue existiendo para operación, pero la pantalla no lo ofrece: un botón que
+   * alguien tiene que acordarse de apretar es de donde veníamos — la tabla llevaba meses en cero.
    */
-  conciliarIngresos(f: { from?: string; to?: string } = {}): Observable<CaosReparto> {
-    const p: Record<string, string> = {};
-    for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
-    return this.http.post<CaosReparto>(`${this.base}/ingresos/conciliar`, {}, { params: p });
-  }
 }
 
 /**
@@ -104,18 +101,13 @@ export interface CaosIngresosEstado {
   monto_pendiente: number;
   /** Efectivo cobrado que todavía no entró al equipo. */
   monto_sin_depositar: number;
+  /**
+   * `[CG.58.5]` Cuándo corrió solo por última vez. **`null` = nunca**, y se declara: una
+   * automatización que no se ve se lee igual que una que no existe.
+   */
+  latido: { cuando: string; status: string; nota: string | null; error: string | null } | null;
 }
 
-export interface CaosReparto {
-  depositos: number;
-  cubiertos: number;
-  sin_respaldo: number;
-  monto_depositado: number;
-  monto_respaldado: number;
-  monto_faltante: number;
-  monto_sin_depositar: number;
-  escritos: number;
-}
 
 export interface CaosCuadreDia { dia: string; caos_dep: number; kepler_ing: number; caos_dis: number; kepler_egr: number }
 export interface CaosConciliacion {

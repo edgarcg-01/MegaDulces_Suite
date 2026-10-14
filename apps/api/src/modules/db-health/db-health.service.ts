@@ -935,6 +935,14 @@ export function veredictoRetirada(
 }
 
 export const CRON_JOBS: CronCfg[] = [
+  // `[CG.58.5]` La atribución del efectivo de la caja fuerte a cobros de Kepler
+  // (`CaosIngresoCronService`, @Cron cada hora al minuto 5). Existe porque el conciliador
+  // `[CG.58]` estaba construido, probado y DESPLEGADO desde el 7-oct y `caos_ingreso_atribucion`
+  // tenía **cero filas**: no tenía quién lo llamara — ni botón, ni cron, ni enganche al arqueo.
+  // Mismo patrón que la Fase IC y que `[VE.3]` acá abajo: el módulo existía, faltaba que se usara.
+  // Horario: warn al saltarse 3 corridas, crítico al saltarse 12. Sin esta fila, `db-health` lo
+  // clasifica con el `cfg ? classify : 'ok'` que da verde incondicional.
+  { key: 'caos_ingreso_conciliar', label: 'Atribución del efectivo de la caja fuerte', cadence: 'cada hora', warnH: 3, critH: 12 },
   // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
   // Sync al-minuto (Fase SYNC): on-prem empuja deltas por feeds-ingest (ingress gratis).
   // ⚠️ [DH.2] Decía "cada 2 min" y no corre así desde que `[VL.4]` lo mudó al carril `stock`
