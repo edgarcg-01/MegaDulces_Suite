@@ -307,6 +307,26 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/class="vf-may-total"/);
   });
 
+  // [VAC.U4/U5/U7/U9] Candados del bloque de interfaz: ninguno vuelve sin ponerse rojo.
+  it('sin plomería inline: ni onerror ni style= ni confirm() nativo ni versión escrita a mano', () => {
+    expect(PAGE).not.toMatch(/onerror=/);
+    expect(PAGE).not.toMatch(/\sstyle="/);
+    expect(PAGE).not.toMatch(/[^.\w]confirm\(/);
+    expect(PAGE).not.toMatch(/\bv1\.0\b/);
+  });
+
+  it('los controles del operador llegan a 44px en táctil y el Alto Contraste conserva el borde', () => {
+    expect(ESTILOS).toMatch(/@media \(pointer: coarse\)[^]*\.vf-icon-btn \{ min-width: 44px; min-height: 44px; \}/);
+    expect(ESTILOS).toMatch(/@media \(forced-colors: active\)/);
+    expect(ESTILOS).toMatch(/\.vf-mayoreo \{ border: 2px solid Highlight; \}/);
+  });
+
+  it('el esqueleto no usa animación en bucle (techo de movimiento) y el nombre largo se parte', () => {
+    const skel = /\.vf-skel \{([^}]*)\}/.exec(ESTILOS)?.[1] ?? '';
+    expect(skel).not.toMatch(/infinite/);
+    expect(ESTILOS).toMatch(/\.vf-nombre \{[^}]*overflow-wrap: anywhere/);
+  });
+
   // [VAC.H4] La unidad se lee a 1-2 m: el rótulo de la cifra grande no puede volver a ser chico ni
   // atenuado (era --fs-h3 en --text-muted: invisible a la distancia real de un kiosco).
   it('el rótulo de unidad de la cifra grande es grande y de contraste pleno', () => {

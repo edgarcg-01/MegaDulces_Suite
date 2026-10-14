@@ -4,6 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
+import { ConfirmationService } from 'primeng/api';
 import { SelectModule } from 'primeng/select';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
@@ -115,9 +116,12 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
         </div>
       }
 
-      <img class="vf-logo" src="assets/logos/mega-dulces-logo.webp" alt="Mega Dulces"
-           onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-      <div class="vf-logo-txt" style="display:none"><span class="vf-m">Mega</span><span class="vf-d">Dulces</span></div>
+      @if (!logoFalla()) {
+        <img class="vf-logo" src="assets/logos/mega-dulces-logo.webp" alt="Mega Dulces"
+             (error)="logoFalla.set(true)">
+      } @else {
+        <div class="vf-logo-txt"><span class="vf-m">Mega</span><span class="vf-d">Dulces</span></div>
+      }
 
       <!-- La barra ES el disparador de la cámara: ya tenía el icono y el texto, un botón
            redondo aparte al lado del input era el mismo gesto duplicado dos veces. -->
@@ -153,7 +157,17 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       <!-- Resultado: la tarjeta, tal como en el HTML original (oculta hasta la primera
            consulta, sin placeholder de "listo para consultar"). -->
       <section class="vf-result" aria-live="polite">
-        @switch (estado()) {
+        @switch (vista()) {
+          @case ('buscando') {
+            <!-- Esqueleto con las MEDIDAS de la tarjeta: cuando llega el resultado nada se
+                 corre (CLS 0). Entra con retardo: una consulta rápida nunca lo muestra, y un
+                 parpadeo gris en cada escaneo del mostrador sería ruido. -->
+            <div class="vf-skel" aria-hidden="true">
+              <span class="vf-skel-bar is-nombre"></span>
+              <span class="vf-skel-bar is-precio"></span>
+              <span class="vf-skel-bar is-nota"></span>
+            </div>
+          }
           @case ('encontrado') {
             @if (producto(); as p) {
               <!-- [TDA.6] is-pase-b alterna en cada consulta para reiniciar la animación
@@ -311,11 +325,10 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
           <button type="button" class="vf-counter-reset" title="Reiniciar contador" (click)="reiniciarContador()">&#8635;</button>
         </span>
         <span class="vf-version">
-          v1.0
           @if (snapshot(); as s) {
-            · Respaldo: {{ s.total }} productos ({{ s.descargadoAl | date:'dd/MM HH:mm' }})
+            Respaldo: {{ s.total }} productos ({{ s.descargadoAl | date:'dd/MM HH:mm' }})
           } @else {
-            · Sin respaldo local
+            Sin respaldo local
           }
           <p-button type="button" label="Actualizar respaldo" icon="pi pi-download"
                     styleClass="p-button-sm p-button-text" [disabled]="descargando() || !sucursal()"
@@ -455,7 +468,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-tag.is-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); border: 1px solid var(--warn-border); }
 
     .vf-nombre { font-size: var(--fs-h1); font-weight: 600; color: var(--text-main); margin: 4px 0 12px;
-      line-height: 1.15; text-wrap: balance; }
+      line-height: 1.15; text-wrap: balance; overflow-wrap: anywhere; min-width: 0; }
     .vf-gramaje { font-size: var(--fs-body); font-weight: 500; color: var(--text-muted); margin-left: .5rem; }
     /* La unidad es parte del precio: un precio sin unidad no es un precio. A 1-2 m (la distancia
        real de un kiosco) el rótulo chico y atenuado no se leía, así que sube de tamaño y de
@@ -565,8 +578,36 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-num { font-variant-numeric: tabular-nums; font-weight: 700; }
     .vf-version { display: inline-flex; align-items: center; gap: .4rem; color: var(--text-muted); }
 
+    /* Esqueleto de la tarjeta: mismas medidas (ancho, mínimo de alto, padding) y sin animación
+       de brillo (el techo de movimiento es 350 ms y un shimmer en bucle no cabe). */
+    .vf-skel { width: 100%; max-width: 1600px; min-height: 260px; box-sizing: border-box;
+      background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-xl);
+      padding: clamp(1rem, 2.5vw, 2rem) clamp(1rem, 3vw, 2.5rem);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+      opacity: 0; animation: vf-skel-in .15s ease-out .2s both; }
+    .vf-skel-bar { display: block; border-radius: var(--r-md); background: var(--overlay-hover); }
+    .vf-skel-bar.is-nombre { width: min(22rem, 70%); height: 2rem; }
+    .vf-skel-bar.is-precio { width: min(16rem, 55%); height: 5rem; }
+    .vf-skel-bar.is-nota { width: min(14rem, 45%); height: 1rem; }
+    @keyframes vf-skel-in { to { opacity: 1; } }
+
+    /* Pantalla táctil: los controles chicos del operador llegan a 44 px (el dedo no es un puntero). */
+    @media (pointer: coarse) {
+      .vf-icon-btn { min-width: 44px; min-height: 44px; }
+      .vf-counter-reset { min-width: 44px; min-height: 44px; }
+    }
+
+    /* Alto Contraste de Windows: nada puede depender sólo del color de fondo. Lo que se distingue
+       por relleno (pastilla del mayoreo, botón de cámara, rótulos) gana un borde de sistema. */
+    @media (forced-colors: active) {
+      .vf-scanbar, .vf-may-titulo, .vf-may-ahorro { border: 1px solid ButtonText; }
+      .vf-mayoreo { border: 2px solid Highlight; }
+      .vf-skel-bar { border: 1px solid GrayText; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .vf-card, .vf-err { animation: none; }
+      .vf-skel { animation: none; opacity: 1; }
     }
   `],
 })
@@ -603,12 +644,22 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   readonly sucursales = signal<SucursalVerificador[]>([]);
   readonly kiosco = signal(false);
   readonly buscando = signal(false);
+  /** `[VAC.U4]` El logo no cargó: se muestra el nombre en texto (antes lo hacía un onerror inline). */
+  readonly logoFalla = signal(false);
+  private readonly confirmacion = inject(ConfirmationService);
   readonly descargando = signal(false);
   readonly banner = signal<Banner>(null);
   /** Overlay de la cámara del celular como lector (tercera vía además de pistola HID y teclado). */
   readonly camaraAbierta = signal(false);
 
   readonly estado = signal<'idle' | 'encontrado' | 'no_encontrado' | 'sin_datos'>('idle');
+
+  /**
+   * `[VAC.U6]` Lo que la sección de resultado pinta. Mientras se consulta y NO hay una tarjeta
+   * vigente se muestra el esqueleto; si ya hay un producto en pantalla se conserva (no se
+   * parpadea entre escaneos seguidos). El estado de negocio sigue siendo `estado()`.
+   */
+  readonly vista = computed(() => (this.buscando() && this.estado() !== 'encontrado' ? 'buscando' : this.estado()));
   readonly producto = signal<ProductoPrecio | null>(null);
   readonly origen = signal<OrigenPrecio>('live');
   readonly snapshotAl = signal<string | null>(null);
@@ -1027,9 +1078,16 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   }
 
   reiniciarContador(): void {
-    if (!confirm('¿Reiniciar el contador de productos escaneados a cero?')) return;
-    this.contador.set(0);
-    try { localStorage.setItem(TiendaVerificadorComponent.LS_CONTADOR, '0'); } catch { /* no crítico */ }
+    this.confirmacion.confirm({
+      header: 'Reiniciar el contador',
+      message: '¿Reiniciar el contador de productos escaneados a cero?',
+      acceptLabel: 'Reiniciar',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        this.contador.set(0);
+        try { localStorage.setItem(TiendaVerificadorComponent.LS_CONTADOR, '0'); } catch { /* no crítico */ }
+      },
+    });
   }
 
   /**

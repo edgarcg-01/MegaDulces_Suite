@@ -4,6 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { Subject, of, throwError } from 'rxjs';
 import { signal } from '@angular/core';
+import { ConfirmationService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { EstadoSnapshot, ResultadoBusqueda, VerificadorService } from '../verificador.service';
 import { TiendaVerificadorComponent } from './tienda-verificador.component';
@@ -136,6 +137,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        ConfirmationService,
         { provide: VerificadorService, useValue: svc },
         { provide: StoreSocketService, useValue: sock },
         // La sucursal sale de la ficha del usuario: con warehouse_code no se ofrece elegir.
@@ -391,6 +393,47 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     const viejo = compactarTier(TIER_PAQUETE) as Record<string, unknown>;
     delete viejo['eq'];
     expect(expandirTier(viejo as never).equivale_a).toBeNull();
+  });
+
+  /** `[VAC.U4]` El logo que no carga se reemplaza por el nombre en texto, con estado y sin onerror. */
+  it('si el logo no carga, se muestra el nombre en texto', () => {
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('.vf-logo-txt')).toBeNull();
+    (el.querySelector('img.vf-logo') as HTMLImageElement).dispatchEvent(new Event('error'));
+    fix.detectChanges();
+    expect(el.querySelector('img.vf-logo')).toBeNull();
+    expect(el.querySelector('.vf-logo-txt')?.textContent).toContain('Mega');
+  });
+
+  /** `[VAC.U4]` Reiniciar el contador pregunta con el diálogo de la app y sólo borra si se acepta. */
+  it('reiniciar el contador pide confirmación y sólo reinicia al aceptar', () => {
+    const conf = TestBed.inject(ConfirmationService);
+    const espia = vi.spyOn(conf, 'confirm');
+    fix.componentInstance.contador.set(7);
+    fix.componentInstance.reiniciarContador();
+    expect(espia).toHaveBeenCalledTimes(1);
+    expect(fix.componentInstance.contador()).toBe(7);          // preguntó, aún no borró
+    espia.mock.calls[0][0].accept?.();
+    expect(fix.componentInstance.contador()).toBe(0);
+  });
+
+  /** `[VAC.U6]` Consultando sin tarjeta vigente: esqueleto; con tarjeta vigente: se conserva. */
+  it('mientras consulta muestra el esqueleto y no parpadea si ya hay una tarjeta', () => {
+    const el = fix.nativeElement as HTMLElement;
+    fix.componentInstance.buscando.set(true);
+    fix.detectChanges();
+    expect(el.querySelector('.vf-skel')).toBeTruthy();
+
+    fix.componentInstance.buscando.set(false);
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    expect(el.querySelector('.vf-card')).toBeTruthy();
+
+    fix.componentInstance.buscando.set(true);   // otro escaneo con la tarjeta anterior en pantalla
+    fix.detectChanges();
+    expect(el.querySelector('.vf-skel')).toBeNull();
+    expect(el.querySelector('.vf-card')).toBeTruthy();
   });
 
   /** La pastilla del ahorro no se duplica: una sola, la del escalón que aplica. */
@@ -725,7 +768,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
       await TestBed.resetTestingModule().configureTestingModule({
         imports: [TiendaVerificadorComponent],
         providers: [
-          provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+          provideRouter([]), provideHttpClient(), provideHttpClientTesting(), ConfirmationService,
           { provide: VerificadorService, useValue: svc2 },
           // `[TDA.8]` ngOnInit ahora tambien conecta el socket de etiquetas; sin stub, la
           // implementacion real pide `auth.token()` (que este AuthService minimo no tiene).
