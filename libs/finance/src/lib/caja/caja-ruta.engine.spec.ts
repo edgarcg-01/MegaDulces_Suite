@@ -30,6 +30,80 @@ describe('caja-ruta.engine — leer la venta de ruta que declara el texto', () =
   });
 
   /**
+   * `[CG.58.3]` El corpus de la CAJA FUERTE (`analytics.caos_cash_movements.ref`), que es prosa
+   * del MISMO negocio tecleada por otra gente y con otras costumbres. Medido sobre los 749
+   * depositos: el parser de `[CG.20]` entendia **18.3%**; con estas formas, **61.7%**.
+   *
+   * Las tres diferencias contra el corpus de la caja general, todas medidas:
+   *   · dice `ruta 21` y `r23`, no solo `RD 21`
+   *   · la fecha va DESPUES de la ruta, no antes
+   *   · la fecha se escribe sin separadores: `27 05 26` y `270526`
+   */
+  describe('corpus real de la caja fuerte (CAOS)', () => {
+    const casos: [string, string, number, number][] = [
+      ['ruta 21 27 05 26', '21', 5, 27],
+      ['ruta 27  280526', '27', 5, 28],
+      ['r23 12 10 26', '23', 10, 12],
+      ['rd 28 12 10 26', '28', 10, 12],
+      ['rd 26 13 10 26', '26', 10, 13],
+      ['rd21 09/10', '21', 10, 9],
+    ];
+    it.each(casos)('%s', (texto, ruta, mes, dia) => {
+      expect(leerVentaDeRuta(texto)).toEqual({ ruta, mes, dia });
+    });
+
+    /**
+     * ⛔ **La prueba que justifica que el descarte de vecinal sea EXPLICITO.** Antes de admitir
+     * `ruta` como token, `Ventas Ruta Vecinal 30/09` no matcheaba por casualidad (la expresion
+     * exigia una `D`). Ahora leeria la ruta **30**. Si alguien borra `RX_VECINAL`, esto se pone
+     * en rojo en vez de empezar a cobrarle a un vendedor la venta de un camion.
+     */
+    it('⛔ «Ruta Vecinal 30/09» NO es la ruta 30 — sin el descarte explicito, lo seria', () => {
+      expect(leerVentaDeRuta('Ventas Ruta Vecinal 30/09')).toBeNull();
+    });
+    it('⛔ y la vecinal de CAOS tampoco: RV321 no es la ruta 321', () => {
+      expect(leerVentaDeRuta('RV MORELIA RV15-321-15-321')).toBeNull();
+      expect(leerVentaDeRuta('RV 15 06-10-2026')).toBeNull();
+    });
+
+    /**
+     * ⚠️ El anio de DOS digitos se ignora a proposito y lo pone `anioDeVenta`. Que `26` sea 2026
+     * es cierto hoy y falso en 2099; la inferencia por fecha de captura no envejece.
+     */
+    it('el anio de dos digitos NO se toma del texto: lo infiere la captura', () => {
+      expect(leerVentaDeRuta('ruta 21 27 05 26')?.anio).toBeUndefined();
+      expect(fechaDeVentaDeclarada('ruta 21 27 05 26', '2026-05-28')).toBe('2026-05-27');
+    });
+
+    /** El separador manda: si hay `/` o `-`, esa es la fecha, aunque haya digitos sueltos cerca. */
+    it('el separador gana sobre la forma pegada', () => {
+      expect(leerVentaDeRuta('Ventas 06//10 RD 21')).toEqual({ ruta: '21', mes: 10, dia: 6 });
+    });
+
+    /** Lo que CAOS trae y sigue sin declarar ruta: no se adivina, se devuelve null. */
+    const sinDeclarar = ['deposito caja general', 'cj 15 26/05', 'rd canindo', 'rd morelia', 'rd28'];
+    it.each(sinDeclarar)('sigue sin declarar: %s', (texto) => {
+      expect(leerVentaDeRuta(texto)).toBeNull();
+    });
+
+    /**
+     * ⛔⛔ **Estos dos nombran la PLAZA, no el numero de ruta — y el digito que traen es el DIA.**
+     * Los puse como casos positivos esperando `ruta 29` y `ruta 1`, y la suite me corrigio: en
+     * `rd mor 29 /05` la ruta es Morelia y el 29 es el dia; en `rd canindo 1/06` la ruta es
+     * Canindo (501-505) y el 1 es el dia.
+     *
+     * Declinar es lo CORRECTO: inventar la "ruta 29" le aplicaria el deposito de Morelia a un
+     * camion de Padre Hidalgo. Quedan aca como caso negativo para que nadie los "arregle" despues
+     * creyendo que son cobertura perdida. Lo que falta para leerlos no es un regex mas ancho: es
+     * un catalogo de plaza -> rutas.
+     */
+    it('⛔ la PLAZA no es un numero de ruta, y su digito es el dia', () => {
+      expect(leerVentaDeRuta('rd mor 29 /05')).toBeNull();
+      expect(leerVentaDeRuta('rd canindo 1/06')).toBeNull();
+    });
+  });
+
+  /**
    * ⭐ El MISMO parser lee el lado de Kepler. Estos son los `concepto` reales de los cobros
    * `U-A-5` a la cuenta CAJA GENERAL, medidos en prod: traen la ruta y el día igual que la caja,
    * pero con guiones y CON año. Que sea una sola expresión es el punto — la identidad ruta+día es
