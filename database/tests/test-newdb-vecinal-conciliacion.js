@@ -182,6 +182,93 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
     const ms = Date.now() - t0;
     t(`el panel (45 días) responde en ${ms} ms (gate ${GATE_MS} ms)`, ms <= GATE_MS,
       `${ms} ms: por encima del gate deja de poder ser vista`);
+
+    // ── 9. `[VEC.11]` El puente Kepler ↔ Suite CIERRA ──────────────────────────────────────
+    //
+    // El panel publica una resta: lo que muestra esta pantalla, más el prorrateo del descuento,
+    // más el telemarketing, más la re-factura, menos lo que la matvista todavía no refrescó,
+    // tiene que dar **lo que el sell-out publica**. Si deja de cerrar, el panel está afirmando
+    // una aritmética falsa — y eso es peor que no tener puente.
+    //
+    // ⛔ Se mide sobre un MES CERRADO, no sobre los últimos 45 días: en el rango que incluye hoy
+    // el residuo depende de a qué hora corrió el refresco nocturno, así que un candado así
+    // parpadearía por motivos que no son un defecto.
+    const mesCerrado = (await db.raw(
+      `SELECT to_char(date_trunc('month', (now() AT TIME ZONE 'America/Mexico_City')::date
+                                           - interval '1 month'),'YYYY-MM-DD') AS ini,
+              to_char((date_trunc('month', (now() AT TIME ZONE 'America/Mexico_City')::date)
+                       - interval '1 day')::date,'YYYY-MM-DD') AS fin`)).rows[0];
+
+    /** Los cinco sumandos y el destino, con el MISMO corte de fechas. */
+    const SQL_PUENTE = `
+      WITH so AS (
+        SELECT COALESCE(sum(monto),0) AS sellout, max(business_date) AS hasta
+          FROM analytics.mv_kepler_sales_daily
+         WHERE tenant_id = ?::uuid AND channel = 'preventa'
+           AND business_date >= ?::date AND business_date <= ?::date),
+      doc AS (
+        SELECT COALESCE(sum(total),0) AS pagina FROM analytics.v_kepler_vecinal_sales_docs
+         WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
+      lin AS (
+        SELECT COALESCE(sum(importe) FILTER (WHERE doc_tipo = 10),0) AS ud10,
+               COALESCE(sum(importe) FILTER (WHERE doc_tipo = 8),0) AS tele,
+               COALESCE(sum(importe) FILTER (WHERE es_refactura),0) AS espejo,
+               COALESCE(sum(importe) FILTER (WHERE business_date > (SELECT hasta FROM so)),0) AS por_refrescar
+          FROM analytics.v_kepler_sales_lines
+         WHERE tenant_id = ?::uuid AND es_vecinal
+           AND business_date >= ?::date AND business_date <= ?::date)
+      SELECT doc.pagina, lin.ud10, lin.tele, lin.espejo, lin.por_refrescar, so.sellout,
+             round(lin.ud10 + lin.tele + lin.espejo - lin.por_refrescar - so.sellout, 2) AS residuo
+        FROM doc, lin, so`;
+    const P = [T, mesCerrado.ini, mesCerrado.fin, T, mesCerrado.ini, mesCerrado.fin, T, mesCerrado.ini, mesCerrado.fin];
+    const pu = (await db.raw(SQL_PUENTE, P)).rows[0];
+
+    if (!Number(pu.sellout) || !Number(pu.pagina)) {
+      noMedido(`el puente Kepler ↔ Suite cierra (${mesCerrado.ini})`,
+        'el mes cerrado no tiene venta vecinal o la matvista no lo cubre: no hay con qué probarlo');
+    } else {
+      // Tolerancia $1: los sumandos se redondean al peso para mostrarse. Medido 2026-10-14 sobre
+      // prod: agosto $0.05 · septiembre $0.37. Julio da $327.84 y por eso el panel lo DECLARA.
+      t(`el puente cierra en ${mesCerrado.ini.slice(0, 7)}: residuo ${Number(pu.residuo).toFixed(2)} `
+        + `(pantalla ${Number(pu.pagina).toFixed(2)} → sell-out ${Number(pu.sellout).toFixed(2)})`,
+        Math.abs(Number(pu.residuo)) <= 1,
+        `residuo ${pu.residuo}: la resta que el panel publica NO da, y el lector no tiene cómo saberlo`);
+
+      /**
+       * ⛔ **Prueba NEGATIVA — el bug que esto existe para impedir.** La primera versión tomaba
+       * la re-factura y el telemarketing de `v_vecinal_no_suma`, que agrega la **cabecera**
+       * (`c16`), mientras el sell-out está hecho de **líneas** (`c13`). Mezclar granos dejó el
+       * puente abierto por $2,762.84 en septiembre, y la cifra se veía razonable.
+       *
+       * Acá se arma el puente a propósito con el grano equivocado y se exige que NO cierre. Si
+       * algún día cerrara, los dos granos coincidirían y esta aserción quedaría vacua — por eso
+       * reporta NO MEDIDO en vez de ✔ cuando no hay descuento que prorratear.
+       */
+      const mal = (await db.raw(`
+        WITH so AS (
+          SELECT COALESCE(sum(monto),0) AS sellout
+            FROM analytics.mv_kepler_sales_daily
+           WHERE tenant_id = ?::uuid AND channel = 'preventa'
+             AND business_date >= ?::date AND business_date <= ?::date),
+        doc AS (
+          SELECT COALESCE(sum(total),0) AS pagina FROM analytics.v_kepler_vecinal_sales_docs
+           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
+        ns AS (
+          SELECT COALESCE(sum(refactura),0) AS espejo, COALESCE(sum(telemarketing),0) AS tele
+            FROM analytics.v_vecinal_no_suma
+           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date)
+        SELECT round(doc.pagina + ns.tele + ns.espejo - so.sellout, 2) AS residuo
+          FROM doc, ns, so`, P)).rows[0];
+      const dif = Math.abs(Number(mal.residuo));
+      if (dif === 0) {
+        noMedido('mezclar cabecera y línea NO cierra (prueba negativa)',
+          'en este mes los dos granos coinciden: la prueba no puede distinguir');
+      } else {
+        t(`prueba negativa: armado con el grano de CABECERA el puente NO cierra (${dif.toFixed(2)})`,
+          dif > 1,
+          'el puente cierra igual con el grano equivocado: no está probando nada');
+      }
+    }
   } finally {
     await db.destroy();
   }

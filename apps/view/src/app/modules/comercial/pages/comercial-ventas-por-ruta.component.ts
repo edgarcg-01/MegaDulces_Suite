@@ -26,6 +26,9 @@ import {
   SalesByRouteTicketDetail,
   SalesByRouteTicketsPage,
   SalesByRouteTicketsParams,
+  VecinalConciliacion,
+  VecinalConciliacionFila,
+  VecinalVeredicto,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -609,11 +612,57 @@ const MES: Record<string, string> = {
                   <span>
                     <strong>Esta ruta no deposita en la caja fuerte.</strong> La vecinal cobra en una
                     caja registradora de la sucursal, así que su dinero se cuenta en el
-                    <strong>arqueo de esa caja</strong>, no en CAOS ni en Caja General. El cuadre de
-                    la vecinal vive en el panel «Vecinal: la venta contra el dinero contado», arriba
-                    en esta misma pantalla.
+                    <strong>arqueo de esa caja</strong>, no en CAOS ni en Caja General.
                   </span>
                 </p>
+                <!-- [VEC.12] Antes esto terminaba acá, mandando a leer el panel de arriba. Pero la
+                     pregunta de quien abre una ruta es "ésta, ¿entregó el dinero?", y remitir a
+                     otro lado la deja sin responder donde se hace. Se muestran SUS cajas.
+                     ⛔ El grano es la CAJA, no la ruta: una caja mezcla rutas y mostrador, asi que
+                     la columna "% vecinal" dice cuanto del arqueo es atribuible -- y solo con 100
+                     el descuadre es de la vecinal. Sin eso, el numero invita a culpar al que pasa. -->
+                <app-load-state [loading]="arqCargando()" [error]="arqError()"
+                                [isEmpty]="!arqCargando() && !arqError() && !arqFilas().length"
+                                [skeletonRows]="5" emptyIcon="pi-wallet"
+                                emptyTitle="Ninguna caja con arqueo declara esta ruta en el período"
+                                emptyHint="El arqueo lo cierra la sucursal al terminar el turno. Si el período es reciente, puede que todavía no lo suban."
+                                (retry)="recargarArqueo()">
+                  @if (arqFilas().length) {
+                    <p class="rr-dep-sub">
+                      Las cajas donde se timbró esta ruta, y lo que se contó en ellas.
+                    </p>
+                    <p-table [value]="arqFilas()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
+                      <ng-template #header>
+                        <tr>
+                          <th scope="col">Día</th>
+                          <th scope="col">Caja</th>
+                          <th scope="col">Rutas en esa caja</th>
+                          <th scope="col" class="comm-num">Venta vecinal</th>
+                          <th scope="col" class="comm-num">% de la caja</th>
+                          <th scope="col" class="comm-num">Efectivo</th>
+                          <th scope="col">Estado</th>
+                        </tr>
+                      </ng-template>
+                      <ng-template #body let-f>
+                        <tr>
+                          <td class="rr-mono">{{ f.date }}</td>
+                          <td class="rr-mono">{{ f.caja }}</td>
+                          <td class="rr-mono rr-tenue">{{ f.rutas.join(' · ') }}</td>
+                          <td class="comm-num rr-mono">{{ f.vecinal | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <td class="comm-num rr-mono">
+                            @if (f.vecinal_pct === null) { <span class="rr-tenue">—</span> }
+                            @else { {{ f.vecinal_pct }}% }
+                          </td>
+                          <td class="comm-num rr-mono">
+                            @if (f.efectivo_diff === null) { <span class="rr-tenue">—</span> }
+                            @else { {{ f.efectivo_diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          </td>
+                          <td>{{ etiquetaArqueo(f.veredicto) }}</td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  }
+                </app-load-state>
               } @else {
                 <!-- La matriz de estados la lleva app-load-state: cargando, vacio y error de red
                      NO se pintan igual, y el error ofrece reintentar. -->
@@ -700,6 +749,9 @@ const MES: Record<string, string> = {
       padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md);
       font-size:var(--fs-sm); color:var(--text-muted); line-height:1.5; }
     .rr-dep-nota .pi { margin-top:2px; color:var(--text-faint); }
+    /* [VEC.12] El arqueo de la vecinal: su circuito del dinero, en su propia ruta. */
+    .rr-dep-sub { margin:0 0 var(--sp-2); font-size:var(--fs-micro); color:var(--text-muted); }
+    .rr-tenue { color:var(--text-faint); }
     .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
     .rr-dep-warn .pi { color: var(--warn-fg); }
     .rr-dep-bad-txt { color: var(--bad-fg); }
@@ -982,6 +1034,30 @@ export class ComercialVentasPorRutaComponent {
     return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '');
   });
 
+  // ── `[VEC.12]` El dinero de una ruta VECINAL: el arqueo de la caja donde se timbró ────────
+  //
+  // El otro circuito. No se reusa `depReporte` (CAOS) a propósito: son dos hechos distintos y
+  // juntarlos en una estructura invitaría a sumarlos.
+  arqData = signal<VecinalConciliacion | null>(null);
+  arqCargando = signal(false);
+  arqError = signal<string | null>(null);
+
+  /**
+   * Las filas día-caja donde participó ESTA ruta.
+   *
+   * ⚠️ El filtro es por pertenencia a `rutas`, no por igualdad: una caja mezcla rutas, y exigir
+   * que sea la única dejaría fuera justo las cajas compartidas —que son la mayoría— mostrando
+   * una tabla vacía que se leería como «no se contó».
+   */
+  readonly arqFilas = computed<VecinalConciliacionFila[]>(() => {
+    const d = this.arqData();
+    const row = this.peekRow();
+    if (!d || !row) return [];
+    const code = String(row.route_no ?? '').trim().toUpperCase();
+    if (!code) return [];
+    return d.filas.filter((f) => f.rutas.some((r) => r.trim().toUpperCase() === code));
+  });
+
   /** La fila del reporte que corresponde a ESTA ruta. Null = ningún depósito la declara. */
   readonly depFila = computed(() => {
     const rep = this.depReporte();
@@ -1142,6 +1218,10 @@ export class ComercialVentasPorRutaComponent {
     if ((t === 'deposito' || t === 'dias') && !this.esRutaVecinal() && !this.depReporte() && !this.depCargando()) {
       this.cargarDeposito();
     }
+    // `[VEC.12]` La vecinal tiene su propio circuito: el arqueo de la caja, no la caja fuerte.
+    if (t === 'deposito' && this.esRutaVecinal() && !this.arqData() && !this.arqCargando()) {
+      this.cargarArqueo();
+    }
   }
 
   /**
@@ -1151,6 +1231,46 @@ export class ComercialVentasPorRutaComponent {
    */
   /** Reintento desde `app-load-state`: tira lo que haya y vuelve a pedir. */
   recargarDeposito() { this.depReporte.set(null); this.cargarDeposito(); }
+
+  /** `[VEC.12]` Reintento del arqueo de la vecinal. */
+  recargarArqueo() { this.arqData.set(null); this.cargarArqueo(); }
+
+  /**
+   * `[VEC.12]` El arqueo del AÑO que la pantalla está mirando, igual que los depósitos: el drill
+   * puede estar en un mes y la pregunta «¿entregó?» no se contesta mes a mes.
+   */
+  private cargarArqueo() {
+    const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const desde = `${this.year}-01-01`;
+    const hasta = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
+    this.arqCargando.set(true);
+    this.arqError.set(null);
+    this.svc.vecinalConciliacion(desde, hasta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.arqData.set(r); this.arqCargando.set(false); },
+      error: () => {
+        this.arqError.set('No se pudo leer el arqueo de las cajas.');
+        this.arqCargando.set(false);
+      },
+    });
+  }
+
+  /**
+   * ⛔ Las dos ausencias NO se dicen igual (ADR-056): `sin_arqueo` lo arregla la sucursal subiendo
+   * su corte; `contado_en_cero` es un corte que existe y declara cero, que es otra cosa.
+   */
+  etiquetaArqueo(v: VecinalVeredicto): string {
+    switch (v) {
+      case 'cuadra': return 'Cuadra';
+      case 'faltante': return 'Falta efectivo';
+      case 'sobrante': return 'Sobra efectivo';
+      case 'contado_en_cero': return 'Contado en cero';
+      case 'vecinal_excede_arqueo': return 'La vecinal excede el arqueo';
+      case 'sin_arqueo': return 'Sin arqueo';
+      case 'arqueo_abierto': return 'Caja sin cerrar';
+      case 'dia_en_curso': return 'Día en curso';
+      default: return v;
+    }
+  }
 
   private cargarDeposito() {
     const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);

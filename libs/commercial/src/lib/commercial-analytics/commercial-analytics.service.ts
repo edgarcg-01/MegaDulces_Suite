@@ -872,6 +872,56 @@ export interface VecinalNoSuma {
   telemarketing_docs: number;
 }
 
+/**
+ * `[VEC.11]` — **El puente Kepler ↔ Suite: por qué las dos superficies dicen otra cifra.**
+ *
+ * Hasta acá la pantalla lo decía en prosa —*"el sell-out sí los cuenta, y por eso publica una
+ * cifra más alta"*— sin decir **cuál**. Una conciliación nombra los dos números y enseña la
+ * aritmética que los une; mientras falte el segundo, el lector tiene que creer en la palabra.
+ *
+ * ⛔ **Todos los sumandos salen de UNA fuente (`analytics.v_kepler_sales_lines`) y el destino se
+ * MIDE en `analytics.mv_kepler_sales_daily`.** La primera versión tomaba la re-factura de
+ * `v_vecinal_no_suma` —que agrega la **cabecera** `c16`— y el puente no cerraba por $2,762.84 en
+ * septiembre. No era un error de la vista: es que **un identidad no se arma mezclando granos**.
+ * `no_suma` sigue sirviendo para contar documentos; para que la resta dé cero manda la línea,
+ * porque de líneas está hecho el sell-out (`l.c13`).
+ *
+ * ⚠️ `sellout` se LEE de la matvista, no se deriva aplicándole sus filtros a la canónica: una
+ * derivación que comparte el error con su origen se confirma sola (la trampa que el runbook
+ * `VEC8` ya documenta sobre PH-agosto).
+ *
+ * ⭐ `por_refrescar` existe porque la matvista es **nocturna**: la venta de HOY está en la
+ * canónica y todavía no en el sell-out. Sin separarlo, el día en curso se leería como descuadre.
+ * Medido el 2026-10-14: $91,111.90 — todo el "hueco" del rango de 45 días era eso.
+ *
+ * Verificado contra prod (2026-10-14): residuo **$0.05** en agosto, **$0.37** en septiembre,
+ * **$0.48** en los 45 días; julio **$327.84** sobre $1.79 M (0.018 %), que se declara y NO se
+ * reparte entre los sumandos.
+ */
+export interface VecinalPuente {
+  /** Lo que publica `/comercial/ventas-por-ruta`: `U-D-10` al grano de documento (`c16`). */
+  pagina: number;
+  pagina_docs: number;
+  /** Δ cabecera ↔ línea del mismo `U-D-10`: el descuento se prorratea por renglón. */
+  prorrateo: number;
+  /** `U-D-8` con código de ruta vecinal. **Venta real**, de otro canal; no pasa por esa caja. */
+  telemarketing: number;
+  telemarketing_docs: number;
+  /** `U-D-12` re-factura: re-emite el mismo ticket. **No es venta** — el arqueo lo ignora. */
+  espejo: number;
+  espejo_docs: number;
+  /** El universo vecinal completo, al grano de línea. = `pagina + prorrateo + tele + espejo`. */
+  kepler_total: number;
+  /** Lo que la matvista nocturna todavía no tiene. Se resta aparte, no es descuadre. */
+  por_refrescar: number;
+  /** MEDIDO en `mv_kepler_sales_daily` (canal `preventa` = el universo vecinal). */
+  sellout: number;
+  /** Hasta qué día llega la matvista dentro del rango. `null` = no cubre ni un día. */
+  sellout_hasta: string | null;
+  /** Lo que no cierra. Se declara con su nombre; nunca se absorbe en otro renglón (ADR-056). */
+  residuo: number;
+}
+
 export interface VecinalConciliacion {
   period: { from: string; to: string };
   summary: {
@@ -893,6 +943,7 @@ export interface VecinalConciliacion {
     arqueo_hasta: string | null;
   };
   no_suma: VecinalNoSuma;
+  puente: VecinalPuente;
   filas: VecinalConciliacionFila[];
 }
 
@@ -8411,6 +8462,40 @@ export class CommercialAnalyticsService {
           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date`,
         [tenantId, from, to]);
 
+      /**
+       * `[VEC.11]` El puente Kepler ↔ Suite. Ver `VecinalPuente` para por qué cada sumando sale
+       * de la MISMA vista de líneas y por qué el destino se lee de la matvista en vez de
+       * derivarse. Medido contra prod: 146-209 ms en los cuatro rangos probados.
+       *
+       * ⚠️ `por_refrescar` se calcula con el `hasta` de la matvista, así que depende de `so`:
+       * va en el mismo CTE y no en una segunda ida a la base, que podría ver otro refresco.
+       */
+      const { rows: [pu] } = await trx.raw(
+        `WITH so AS (
+            SELECT COALESCE(sum(monto),0) AS sellout, max(business_date) AS hasta
+              FROM analytics.mv_kepler_sales_daily
+             WHERE tenant_id = ?::uuid AND channel = 'preventa'
+               AND business_date >= ?::date AND business_date <= ?::date),
+          doc AS (
+            SELECT COALESCE(sum(total),0) AS pagina, count(*)::int AS docs
+              FROM analytics.v_kepler_vecinal_sales_docs
+             WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
+          lin AS (
+            SELECT COALESCE(sum(importe) FILTER (WHERE doc_tipo = 10),0) AS ud10,
+                   COALESCE(sum(importe) FILTER (WHERE doc_tipo = 8),0) AS tele,
+                   count(DISTINCT folio) FILTER (WHERE doc_tipo = 8)::int AS tele_docs,
+                   COALESCE(sum(importe) FILTER (WHERE es_refactura),0) AS espejo,
+                   count(DISTINCT folio) FILTER (WHERE es_refactura)::int AS espejo_docs,
+                   COALESCE(sum(importe) FILTER (WHERE business_date > (SELECT hasta FROM so)),0) AS por_refrescar
+              FROM analytics.v_kepler_sales_lines
+             WHERE tenant_id = ?::uuid AND es_vecinal
+               AND business_date >= ?::date AND business_date <= ?::date)
+         SELECT doc.pagina, doc.docs AS pagina_docs, lin.ud10, lin.tele, lin.tele_docs,
+                lin.espejo, lin.espejo_docs, lin.por_refrescar, so.sellout,
+                to_char(so.hasta,'YYYY-MM-DD') AS sellout_hasta
+           FROM doc, lin, so`,
+        [tenantId, from, to, tenantId, from, to, tenantId, from, to]);
+
       const filas: VecinalConciliacionFila[] = (rows as FilaCruda[]).map((r) => ({
         warehouse_code: r.warehouse_code,
         warehouse_name: r.warehouse_name,
@@ -8443,6 +8528,30 @@ export class CommercialAnalyticsService {
       }
       const r2 = (v: number) => Math.round(v * 100) / 100;
 
+      // `[VEC.11]` El puente se arma acá y NO en SQL: la resta final tiene que verse en el
+      // mismo lugar que sus sumandos, porque es la afirmación que el panel publica.
+      const pagina = r2(Number(pu?.pagina) || 0);
+      const ud10 = r2(Number(pu?.ud10) || 0);
+      const tele = r2(Number(pu?.tele) || 0);
+      const espejo = r2(Number(pu?.espejo) || 0);
+      const por_refrescar = r2(Number(pu?.por_refrescar) || 0);
+      const sellout = r2(Number(pu?.sellout) || 0);
+      const kepler_total = r2(ud10 + tele + espejo);
+      const puente: VecinalPuente = {
+        pagina,
+        pagina_docs: Number(pu?.pagina_docs) || 0,
+        prorrateo: r2(ud10 - pagina),
+        telemarketing: tele,
+        telemarketing_docs: Number(pu?.tele_docs) || 0,
+        espejo,
+        espejo_docs: Number(pu?.espejo_docs) || 0,
+        kepler_total,
+        por_refrescar,
+        sellout,
+        sellout_hasta: (pu?.sellout_hasta as string | null) ?? null,
+        residuo: r2(kepler_total - por_refrescar - sellout),
+      };
+
       return {
         period: { from, to },
         summary: {
@@ -8462,6 +8571,7 @@ export class CommercialAnalyticsService {
           telemarketing: r2(Number(ns?.telemarketing) || 0),
           telemarketing_docs: Number(ns?.telemarketing_docs) || 0,
         },
+        puente,
         filas,
       };
     });
