@@ -194,6 +194,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   let cajaSock: {
     connect: () => void; disconnect: () => void; change$: Subject<CajaEvent>;
     connected: () => boolean;
+    /**
+     * [AUD] El doble lleva TAMBIEN el estado del canal. Esta pantalla todavia no lo lee -- usa
+     * `socketVivo()`, que sale de `connected` -- pero el servicio ya lo publica, y un doble al
+     * que le falta una pieza del contrato miente sobre el contrato (lo dice el comentario de
+     * arriba, y se cumple aunque hoy no se note).
+     */
+    estado: () => 'sin_iniciar' | 'conectando' | 'vivo' | 'caido';
     firmaTomada$: Subject<{ codigo: string; por: string | null }>;
     firmaRecibida$: Subject<FirmaRecibida>;
     firmaCortada$: Subject<{ codigo: string }>;
@@ -207,6 +214,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   function montar(over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}) {
     cajaSock = {
       connect: vi.fn(), disconnect: vi.fn(), change$: new Subject<CajaEvent>(), connected: () => false,
+      // Coherente con `connected: () => false`: en jsdom el canal nunca abre, y el estado que le
+      // corresponde a eso es `caido`, no un `conectando` eterno.
+      estado: () => 'caido' as const,
       firmaTomada$: new Subject(), firmaRecibida$: new Subject(), firmaCortada$: new Subject(),
       abrirFirma: vi.fn(async () => ({ ok: true, codigo: 'ABC234' })),
       tomarFirma: vi.fn(async () => ({ ok: true })),

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -34,6 +34,9 @@ import { CajaSocketService } from '../../caja-socket.service';
   imports: [FormsModule, ButtonModule, InputTextModule, MessageModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
+    /* Sin esto el host es inline y el alto de 100vh de .fm no tiene contra qué medirse. Las otras
+       dos pantallas del módulo ya lo declaran; ésta se había quedado afuera. */
+    :host { display:block; }
     .fm { min-height:100vh; display:flex; flex-direction:column; gap:var(--sp-4);
           padding:var(--sp-4); max-width:32rem; margin:0 auto; }
     .fm h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em; }
@@ -99,7 +102,9 @@ import { CajaSocketService } from '../../caja-socket.service';
         <div class="fm-acciones">
           <p-button label="Borrar" icon="pi pi-eraser" severity="secondary" [text]="true"
                     [disabled]="!hecha()" (onClick)="limpiar()"></p-button>
-          <p-button label="Enviar" icon="pi pi-send"
+          <!-- El envío viaja por el socket y puede tardar: sin spinner, el botón sólo se apaga y
+               quien firma no sabe si salió. [CG.68] ya pagó que el teléfono se vuelva a tocar. -->
+          <p-button label="Enviar" icon="pi pi-send" [loading]="enviando()"
                     [disabled]="!hecha() || enviando()" (onClick)="enviar()"></p-button>
         </div>
 
@@ -110,9 +115,25 @@ import { CajaSocketService } from '../../caja-socket.service';
                placeholder="ABC234" maxlength="9" autocomplete="off"
                inputmode="text" aria-label="Código que muestra la caja"
                (keyup.enter)="tomar()" />
+        <!-- ⛔⛔ El botón se apaga mientras el canal abre, y NO sólo mientras se pide. Habilitado
+             durante el handshake, el toque llegaba a un socket sin conectar, volvía "sin_conexion"
+             y el traductor lo contaba como "el QR venció" — con el QR perfectamente vivo.
+             Con loading y no con un rótulo a mano: pone el spinner Y desactiva, que es lo que
+             impide el segundo toque.
+             (Sin acentos graves acá adentro: esto vive en un template literal y uno lo CIERRA.) -->
         <p-button label="Continuar" icon="pi pi-arrow-right"
-                  [disabled]="codigo.trim().length < 6 || tomando()" (onClick)="tomar()"></p-button>
-        @if (!caja.connected()) {
+                  [loading]="tomando() || conectando()"
+                  [disabled]="codigo.trim().length < 6 || tomando() || conectando()"
+                  (onClick)="tomar()"></p-button>
+        <!-- ⚠️ TRES estados, no dos. "Todavía no" y "no se pudo" se veían iguales porque los dos
+             son connected() en false, así que al escanear el QR lo primero que aparecía era un
+             aviso ámbar mandando a revisar la red — con la red bien y el canal abriendo. -->
+        <!-- ⚠️ Se usa .fm-sub y no .fin-dim: este componente NO importa FINANZAS_SHARED_STYLES y los
+             estilos del vecino no cruzan la frontera del componente — la clase existiría en el
+             HTML sin una sola regla detrás. -->
+        @if (conectando()) {
+          <p class="fm-sub">Abriendo el canal con la caja…</p>
+        } @else if (caja.estado() === 'caido') {
           <p-message severity="warn">Sin conexión con el servidor. Revisá la red del teléfono.</p-message>
         }
       }
@@ -135,6 +156,13 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
   readonly aviso = signal<string | null>(null);
   /** Señal y no el primitivo: el primitivo no es reactivo y la plantilla no se enteraría. */
   readonly hecha = signal(false);
+
+  /**
+   * El canal todavía está abriendo. Se lee **incondicionalmente** del estado del servicio: un
+   * `computed` detrás de un `&&` que corte antes de leer la señal se queda sin dependencias y no
+   * recalcula nunca (compuerta `reactividad`).
+   */
+  readonly conectando = computed(() => this.caja.estado() === 'conectando');
 
   readonly money = (v: number) =>
     (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
@@ -270,9 +298,18 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
       case 'no_es_firma': return 'La firma no se pudo leer. Borra y firma de nuevo.';
       // ⭐ `[CG.84]` Entrar por QR y que no abra el canal casi siempre es UNA cosa: el QR venció.
       // Decir "revisa la red" ahí manda a la persona a buscar el problema donde no está.
-      case 'sin_conexion': return this.porPase
-        ? 'El QR venció (dura 3 minutos). Pide uno nuevo en la pantalla de la caja.'
-        : 'Sin conexión con el servidor. Revisa la red del teléfono.';
+      //
+      // ⛔ Pero NO siempre, y afirmarlo costaba caro: un pase vencido lo RECHAZA el servidor
+      // (`auth_error` → estado `caido`), mientras que un canal que todavía no abrió deja el
+      // estado en `conectando`. Con el botón apagado durante el handshake esto ya casi no
+      // debería verse; cuando se vea, cada caso dice lo suyo en vez de culpar siempre al QR.
+      case 'sin_conexion':
+        if (this.caja.estado() === 'conectando') {
+          return 'Todavía no abre el canal con la caja. Esperá unos segundos y volvé a intentar.';
+        }
+        return this.porPase
+          ? 'El QR venció (dura 3 minutos). Pide uno nuevo en la pantalla de la caja.'
+          : 'Sin conexión con el servidor. Revisa la red del teléfono.';
       case 'sin_respuesta': return 'El servidor no contestó. Prueba de nuevo.';
       default: return 'No se pudo continuar. Prueba de nuevo.';
     }
