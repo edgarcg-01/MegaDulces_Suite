@@ -53,11 +53,25 @@ type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'd
 type ArqDia = {
   date: string;
   venta_ruta: number;
+  /** El efectivo contado en su(s) caja(s). Se muestra SIEMPRE: existe aunque no sea sólo suyo. */
   deposito: number | null;
+  /** `efectivo_esperado − efectivo_contado` de la caja. `null` = todavía nadie la cerró. */
   diff: number | null;
+  /**
+   * ⛔ CUATRO estados, no tres. `sin_medir` no es «no cuadra»: es que no hay arqueo con qué
+   * juzgarlo, y mezclarlos bajaría el cumplimiento por algo que nadie midió (ADR-056).
+   */
+  estado: 'cuadra' | 'falta' | 'sobra' | 'sin_medir';
+  /** `false` cuando la caja fue compartida: un faltante NO es atribuible a esta ruta. */
   atribuible: boolean;
+  /** Por qué no es atribuible. Sólo se lee cuando el día SÍ se midió. */
   motivo: string | null;
-  veredicto: VecinalVeredicto;
+  /**
+   * ⛔ Campo aparte, y no un `motivo` reusado: son dos preguntas distintas. Con uno solo, el
+   * `??=` dejaba el día de hoy diciendo «caja compartida con 1V002» donde lo cierto es que
+   * **todavía no hay arqueo** — una respuesta correcta a la pregunta que nadie hizo.
+   */
+  sin_medir: string | null;
 };
 
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
@@ -651,11 +665,13 @@ const MES: Record<string, string> = {
                          de ESTA ruta sola y 100% vecinal. Medido: 129 de 735 dia-ruta (17.6%).
                          Donde no, se dice POR QUE en vez de dibujar una Δ que es de otro. -->
                     <p class="rr-dep-sub">
-                      <strong>{{ arqCuadrables() }}</strong> de {{ arqDias().length }} día(s) se
-                      pueden cuadrar contra el depósito.
-                      @if (arqCuadrables() < arqDias().length) {
-                        En el resto la caja la compartió con otra ruta o con el mostrador, y el
-                        dinero contado no es sólo de esta ruta — se dice en cada renglón.
+                      <strong>{{ arqCuadran() }}</strong> de {{ arqMedidos() }} día(s) medido(s)
+                      <strong>cuadran</strong>.
+                      @if (arqSinMedir()) {
+                        <!-- ADR-056: un dia sin arqueo no es "no cuadra", es que todavia no hay
+                             con que juzgarlo. Meterlo al denominador bajaria el cumplimiento por
+                             algo que nadie midio. -->
+                        {{ arqSinMedir() }} todavía sin arqueo, fuera de la cuenta.
                       }
                     </p>
                     <p-table [value]="arqDias()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
@@ -672,20 +688,32 @@ const MES: Record<string, string> = {
                         <tr>
                           <td class="rr-mono">{{ d.date }}</td>
                           <td class="comm-num rr-mono rr-strong">{{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <!-- El deposito SE MUESTRA SIEMPRE: es un hecho de la caja y existe
+                               aunque no se pueda atribuir a esta ruta sola. -->
                           <td class="comm-num rr-mono">
-                            <!-- ⛔ Nunca 0 por ausencia: sin atribucion no hay cifra que publicar. -->
                             @if (d.deposito === null) { <span class="rr-tenue">—</span> }
                             @else { {{ d.deposito | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                           </td>
                           <td class="comm-num rr-mono"
-                              [class.rr-bad]="d.diff !== null && d.diff > 1"
-                              [class.rr-warn]="d.diff !== null && d.diff < -1">
+                              [class.rr-bad]="d.estado === 'falta'"
+                              [class.rr-warn]="d.estado === 'sobra'">
                             @if (d.diff === null) { <span class="rr-tenue">—</span> }
+                            @else if (d.estado === 'cuadra') { 0 }
                             @else { {{ d.diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                           </td>
-                          <td [class.rr-tenue]="!d.atribuible">
-                            @if (d.atribuible) { {{ etiquetaArqueo(d.veredicto) }} }
-                            @else { {{ d.motivo }} }
+                          <td>
+                            @switch (d.estado) {
+                              @case ('cuadra') { <span class="rr-ok">Cuadra</span> }
+                              @case ('falta')  { <span class="rr-bad">No cuadra · falta</span> }
+                              @case ('sobra')  { <span class="rr-warn">No cuadra · sobra</span> }
+                              @default         { <span class="rr-tenue">{{ d.sin_medir ?? 'Sin arqueo' }}</span> }
+                            }
+                            @if (d.estado !== 'sin_medir' && !d.atribuible) {
+                              <!-- Cuando CUADRA, compartir caja no estorba: si la caja cuadro, el
+                                   dinero de esta ruta esta adentro. Cuando NO cuadra, de quien es
+                                   el faltante no se puede saber -- y eso hay que decirlo. -->
+                              <span class="rr-tenue rr-nota"> · {{ d.motivo }}</span>
+                            }
                           </td>
                         </tr>
                       </ng-template>
@@ -694,7 +722,9 @@ const MES: Record<string, string> = {
                       «Depósito» es el efectivo que se <strong>contó en el arqueo</strong> de la
                       caja donde se timbró la ruta — Kepler no registra el depósito por ruta
                       (<span class="rr-mono">cash_cuts</span> va por sucursal, caja y turno). Δ
-                      positiva = falta efectivo; negativa = sobra.
+                      positiva = falta efectivo; negativa = sobra. Cuando la caja cuadra, el dinero
+                      de esta ruta está dentro; cuando no, el faltante es <strong>de la caja</strong>
+                      y no se puede atribuir a una ruta sola.
                     </p>
                   }
                 </app-load-state>
@@ -790,6 +820,8 @@ const MES: Record<string, string> = {
     .rr-tenue { color:var(--text-faint); }
     .rr-bad { color:var(--bad-fg); }
     .rr-warn { color:var(--warn-fg); }
+    .rr-ok { color:var(--ok-fg); }
+    .rr-nota { font-size:var(--fs-micro); }
     .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
     .rr-dep-warn .pi { color: var(--warn-fg); }
     .rr-dep-bad-txt { color: var(--bad-fg); }
@@ -1128,42 +1160,55 @@ export class ComercialVentasPorRutaComponent {
     }
     const out: ArqDia[] = [];
     for (const [date, fs] of porDia) {
-      let venta = 0, contado = 0, diff = 0, atribuible = true;
-      let motivo: string | null = null;
-      // El veredicto del día es el del primer renglón que NO cuadra; si todos cuadran, 'cuadra'.
-      let veredicto: VecinalVeredicto = 'cuadra';
+      let venta = 0, contado = 0, diff = 0;
+      let atribuible = true, medido = false;
+      let motivo: string | null = null, sinMedir: string | null = null;
       for (const f of fs) {
         venta += f.vecinal_ruta ?? 0;
+        // La caja es compartida si otra ruta la usó o si también cobró mostrador. Eso NO impide
+        // decir si cuadra: impide decir DE QUIÉN es el faltante cuando no cuadra.
         const otras = this.otrasRutas(f);
         if (otras.length) {
           atribuible = false;
-          motivo ??= `comparte caja con ${otras.join(' · ')}`;
+          motivo ??= `caja compartida con ${otras.join(' · ')}`;
         } else if (f.vecinal_pct !== null && f.vecinal_pct < 100) {
           atribuible = false;
-          motivo ??= `la caja mezcla mostrador (${f.vecinal_pct}% vecinal)`;
-        } else if (f.efectivo_contado === null) {
-          atribuible = false;
-          motivo ??= this.etiquetaArqueo(f.veredicto).toLowerCase();
+          motivo ??= `la caja también cobró mostrador (${f.vecinal_pct}% vecinal)`;
         }
-        contado += f.efectivo_contado ?? 0;
-        diff += f.efectivo_diff ?? 0;
-        if (f.veredicto !== 'cuadra') veredicto = f.veredicto;
+        if (f.efectivo_contado !== null) {
+          medido = true;
+          contado += f.efectivo_contado;
+          diff += f.efectivo_diff ?? 0;
+        } else {
+          sinMedir ??= this.etiquetaArqueo(f.veredicto);
+        }
       }
+      /**
+       * ⚠️ El umbral es **$1**, no `=== 0`: la tabla redondea al peso y exigir el centavo pintaría
+       * «no cuadra» sobre un arqueo que cuadró. Medido en PH: el neto de 6 meses es $0.79.
+       */
+      const estado: ArqDia['estado'] = !medido ? 'sin_medir'
+        : Math.abs(diff) <= 1 ? 'cuadra'
+          : diff > 0 ? 'falta' : 'sobra';
       out.push({
         date,
         venta_ruta: Math.round(venta * 100) / 100,
-        deposito: atribuible ? Math.round(contado * 100) / 100 : null,
-        diff: atribuible ? Math.round(diff * 100) / 100 : null,
+        deposito: medido ? Math.round(contado * 100) / 100 : null,
+        diff: medido ? Math.round(diff * 100) / 100 : null,
+        estado,
         atribuible,
         motivo,
-        veredicto,
+        sin_medir: sinMedir,
       });
     }
     return out.sort((a, b) => (a.date < b.date ? 1 : -1));
   });
 
-  /** Cuántos días se pueden cuadrar de verdad. Va arriba de la tabla, no al pie: cambia cómo se lee. */
-  readonly arqCuadrables = computed(() => this.arqDias().filter((d) => d.atribuible).length);
+  /** Días con arqueo: el único denominador honesto del cumplimiento. */
+  readonly arqMedidos = computed(() => this.arqDias().filter((d) => d.estado !== 'sin_medir').length);
+  readonly arqCuadran = computed(() => this.arqDias().filter((d) => d.estado === 'cuadra').length);
+  /** Los que todavía no se pueden juzgar. Se publican aparte, NUNCA dentro del denominador. */
+  readonly arqSinMedir = computed(() => this.arqDias().filter((d) => d.estado === 'sin_medir').length);
 
   /** La fila del reporte que corresponde a ESTA ruta. Null = ningún depósito la declara. */
   readonly depFila = computed(() => {
@@ -1348,8 +1393,23 @@ export class ComercialVentasPorRutaComponent {
    */
   private cargarArqueo() {
     const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
-    const desde = `${this.year}-01-01`;
-    const hasta = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
+    /**
+     * `[VEC.12.3]` **Se pide el período que la pantalla está mirando, no el año entero.**
+     *
+     * A diferencia de los depósitos de CAOS —donde el año se pide a propósito, porque el texto
+     * del depósito sólo fecha en el 54.5% de los casos— acá cada renglón del arqueo **tiene su
+     * día**, así que traer meses que nadie va a ver sólo cuesta. Medido contra prod: el mes del
+     * drill son **18 ms** contra **206 ms** del año.
+     *
+     * ⚠️ `detailBounds().to` es el primer día del mes SIGUIENTE (tope exclusivo) y el endpoint
+     * filtra con `<=`. Sin restar el día, octubre arrastraría el 1-nov.
+     */
+    const b = this.detailBounds();
+    const menosUnDia = (d: string) =>
+      new Date(new Date(`${d}T00:00:00Z`).getTime() - 864e5).toISOString().slice(0, 10);
+    const desde = b.from ?? `${this.year}-01-01`;
+    const topeAnio = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
+    const hasta = b.to ? menosUnDia(b.to) : topeAnio;
     this.arqCargando.set(true);
     this.arqError.set(null);
     // `[VEC.12.1]` La ruta viaja al servidor: sin ella la fila sólo trae el total de la CAJA, y

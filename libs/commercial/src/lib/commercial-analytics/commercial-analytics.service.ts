@@ -8466,31 +8466,54 @@ export class CommercialAnalyticsService {
       : null;
 
     return this.tk.run(async (trx) => {
+      /**
+       * `[VEC.12.3]` **UNA pasada agregada, no un `LATERAL` por fila.**
+       *
+       * ⛔ La primera versión correlacionaba `v_kepler_vecinal_sales_docs` por renglón. Esa vista
+       * paga el `LEFT JOIN kduv` que `[VEC.13]` documenta (nested loop sobre un catálogo sin
+       * índice utilizable), así que **se pagaba entero una vez por fila**. Medido contra prod:
+       *
+       *     año completo (574 filas) ....  37,562 / 35,825 / 38,523 ms   <- lo que iba a producción
+       *     el mismo año, una pasada ....     208 /    206 /    203 ms   (180×)
+       *     sólo el mes del drill .......      19 /     18 /     18 ms
+       *
+       * ⚠️ El CTE se **arma sólo cuando hay ruta**: con `route = null` la condición igual
+       * devolvería cero filas, pero recorriendo los documentos del período para nada. El panel
+       * global no pregunta por una ruta y no tiene por qué pagarlo.
+       *
+       * `route` entró por un regex de forma (arriba), así que interpolarlo no abre inyección;
+       * aun así viaja como binding.
+       */
+      const conRuta = route !== null;
+      const cteRuta = conRuta
+        ? `WITH r AS (
+             -- Grano (sucursal, CAJA, día): una ruta puede timbrar en más de una caja el mismo
+             -- día (medido: 38 de 696), y repartir su total diario entre cajas sería inventarlo.
+             SELECT warehouse_code AS wh, caja::integer AS caja, business_date AS d,
+                    sum(total) AS ruta
+               FROM analytics.v_kepler_vecinal_sales_docs
+              WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date
+                AND upper(route_no) = ?::text
+              GROUP BY 1,2,3)`
+        : '';
       const { rows } = await trx.raw(
-        `SELECT c.warehouse_code, COALESCE(w.name, c.warehouse_code) AS warehouse_name,
+        `${cteRuta}
+         SELECT c.warehouse_code, COALESCE(w.name, c.warehouse_code) AS warehouse_name,
                 c.caja, to_char(c.business_date,'YYYY-MM-DD') AS date,
                 c.rutas, c.vecinal, c.tickets, c.arqueo_venta, c.otros_en_la_caja, c.vecinal_pct,
                 c.efectivo_esperado, c.efectivo_contado, c.efectivo_diff, c.veredicto,
-                r.ruta AS vecinal_ruta
+                ${conRuta ? 'r.ruta' : 'NULL::numeric'} AS vecinal_ruta
            FROM analytics.v_vecinal_conciliacion c
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = c.tenant_id AND w.code = c.warehouse_code AND w.deleted_at IS NULL
-           LEFT JOIN LATERAL (
-             -- ⛔ Se une por (sucursal, CAJA, día): una ruta puede timbrar en más de una caja el
-             --    mismo día (medido: 38 de 696) y repartir su total diario entre cajas sería
-             --    inventarlo. Acá cada caja trae lo que ESA caja vio de esta ruta.
-             SELECT sum(d.total) AS ruta
-               FROM analytics.v_kepler_vecinal_sales_docs d
-              WHERE ?::text IS NOT NULL
-                AND d.tenant_id = c.tenant_id
-                AND d.warehouse_code = c.warehouse_code
-                AND d.caja::integer = c.caja
-                AND d.business_date = c.business_date
-                AND upper(d.route_no) = ?::text
-           ) r ON true
+           ${conRuta
+            ? `LEFT JOIN r ON r.wh = c.warehouse_code AND r.caja = c.caja AND r.d = c.business_date`
+            : ''}
           WHERE c.tenant_id = ?::uuid AND c.business_date >= ?::date AND c.business_date <= ?::date
           ORDER BY c.business_date DESC, c.warehouse_code, c.caja`,
-        [route, route, tenantId, from, to]);
+        conRuta
+          ? [tenantId, from, to, route, tenantId, from, to]
+          : [tenantId, from, to]);
 
       // Lo que NO suma va en su propio grano (sucursal, día): la re-factura se emite en OTRA caja
       // que el ticket que copia, así que al grano de caja no se puede juntar con lo que refleja.
