@@ -34,7 +34,7 @@ import {
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
-import type { ContextoFirma, FirmaRecibida } from '@megadulces/contracts';
+import type { ContextoFirma, CorteRow, FirmaRecibida } from '@megadulces/contracts';
 import { todayMx } from '../../../../core/utils/mx-date';
 
 /** jsdom no implementa ResizeObserver y algún componente de PrimeNG lo usa al montar. */
@@ -3938,6 +3938,110 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       falla = true;
       comp.cargarFrecuentes();
       expect(comp.frecuentes().length, 'vaciar es publicar «no repite nada»').toBe(1);
+    });
+  });
+
+  // ⭐⭐ `[CG.182]` EL CORTE DE CAJA EN LA LISTA — la declaración deja de teclearse.
+  //
+  // Medido en prod: 708 referencias distintas en 749 depósitos, cero parseables; y por plaza,
+  // 31 de 34 declaran ruta+fecha en la 00 contra **0 de 16** en Morelia.
+  describe('[CG.182] el corte de caja se elige, no se teclea', () => {
+    const CORTE = (over: Partial<CorteRow> = {}): CorteRow => ({
+      clave: '07-UD2301-0000029', sucursal: '07', sucursal_nombre: 'Morelia Madero',
+      documento: 'UD2301-0000029', folio: '0000029', fecha: '2026-10-08',
+      referencia: 'Caja 4-199', caja: '4', turno: '199', monto: 41333.04,
+      cobrado: 0, saldo: 41333.04, estado_cobro: 'sin_cobro', cobros: [],
+      devoluciones: [], devoluciones_total: 0, arqueo: null,
+      cuadre: 'sin_arqueo', diferencia: null, ...over,
+    } as CorteRow);
+
+    const conCortes = (cortes: CorteRow[], ultimo: string | null = '2026-10-13') =>
+      vi.fn(() => of({
+        periodo: { from: '2026-10-08', to: '2026-10-14' },
+        alcance: { todas: true, sucursales: [] },
+        totales: { cortes: cortes.length, vendido: 0, cobrado: 0, pendiente: 0, sin_cobro: 0, con_diferencia: 0, sin_arqueo: 0 },
+        sucursales: [], cortes, cortes_en_blanco: 0, ultimo_corte: ultimo,
+      }));
+
+    it('elegirlo ESCRIBE el «Qué pasó» con caja, plaza y fecha', () => {
+      montar();
+      comp.abrirCaptura();
+      comp.usarCorte({ value: CORTE() } as never);
+      const g = comp.f().glosa;
+      expect(g).toContain('Caja 4-199');
+      expect(g).toContain('Morelia Madero');
+      expect(g).toContain('08/10/26');
+    });
+
+    it('⛔ [negativa] NO copia el monto del corte: se guarda lo CONTADO', () => {
+      // En el caso real faltan $4,508.99 entre lo vendido y lo depositado (monedas que CAOS no
+      // toma + lo no depositado). Copiar el monto inventaría un depósito que no ocurrió.
+      montar();
+      comp.abrirCaptura();
+      const antes = comp.f().monto;
+      comp.usarCorte({ value: CORTE({ monto: 41333.04 }) } as never);
+      expect(comp.f().monto).toBe(antes);
+    });
+
+    it('el importe ORDENA: el más cercano a lo contado va primero', () => {
+      montar({ cortesDeCaja: conCortes([
+        CORTE({ clave: 'a', monto: 3120, fecha: '2026-10-12' }),
+        CORTE({ clave: 'b', monto: 41333.04, fecha: '2026-10-08' }),
+      ]) });
+      comp.f.update((v) => ({ ...v, monto: 36440 }));
+      comp.cargarCortesPos();
+      comp.buscarCortes({ query: '' } as never);
+      expect(comp.cortesOpciones()[0].clave, 'el de $41,333 está más cerca de $36,440').toBe('b');
+    });
+
+    it('[control] sin monto contado manda la FECHA, no un orden inventado', () => {
+      montar({ cortesDeCaja: conCortes([
+        CORTE({ clave: 'viejo', monto: 99999, fecha: '2026-10-08' }),
+        CORTE({ clave: 'nuevo', monto: 10, fecha: '2026-10-13' }),
+      ]) });
+      comp.cargarCortesPos();
+      comp.buscarCortes({ query: '' } as never);
+      expect(comp.cortesOpciones()[0].clave).toBe('nuevo');
+    });
+
+    it('⛔ «hoy vacío» se DECLARA: el rezago de carga no es «no hubo cortes»', () => {
+      montar({ cortesDeCaja: conCortes([CORTE()], '2026-10-13') });
+      comp.cargarCortesPos();
+      expect(comp.cortesAviso()).toContain('rezago');
+    });
+
+    it('⛔ y un FALLO no se pinta como lista vacía', () => {
+      montar({ cortesDeCaja: vi.fn(() => throwError(() => ({ status: 500 }))) });
+      comp.cargarCortesPos();
+      expect(comp.cortesAviso()).toContain('no se pudo preguntar');
+      expect(comp.cortesAviso(), 'un fallo no afirma que no haya cortes').not.toContain('Sin cortes');
+    });
+
+    it('[control] lista vacía de verdad dice que está vacía, no que falló', () => {
+      montar({ cortesDeCaja: conCortes([], null) });
+      comp.cargarCortesPos();
+      expect(comp.cortesAviso()).toContain('Sin cortes');
+    });
+
+    it('se busca por CÓDIGO de sucursal: el papel puede decir «03», no «8 Esquinas»', () => {
+      montar({ cortesDeCaja: conCortes([
+        CORTE({ clave: 'ph', sucursal: '01', sucursal_nombre: 'Padre Hidalgo' }),
+        CORTE({ clave: 'ocho', sucursal: '03', sucursal_nombre: '8ESQ' }),
+      ]) });
+      comp.f.update((v) => ({ ...v, sucursal: '' }));   // sin acotar, para ver las dos
+      comp.cargarCortesPos();
+      comp.buscarCortes({ query: '03' } as never);
+      expect(comp.cortesOpciones().map((c) => c.clave)).toEqual(['ocho']);
+    });
+
+    it('la lista se acota a la sucursal que se captura: 20 candidatos, no los 195 de la red', () => {
+      montar({ cortesDeCaja: conCortes([
+        CORTE({ clave: 'mia', sucursal: '00' }),
+        CORTE({ clave: 'ajena', sucursal: '04' }),
+      ]) });
+      comp.f.update((v) => ({ ...v, sucursal: '00' }));
+      comp.cargarCortesPos();
+      expect(comp.cortesPos().map((c) => c.clave)).toEqual(['mia']);
     });
   });
 

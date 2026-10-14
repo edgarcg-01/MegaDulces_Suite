@@ -5,7 +5,13 @@ import { environment } from '../../../environments/environment';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
 // mano; cada uno que se pueda traer de acá es uno que no se puede desalinear en silencio.
-import type { Freshness, VeredictoCorte } from '@megadulces/contracts';
+import type {
+  CorteRow, CortesSucursalesResponse, Freshness, VeredictoCorte,
+} from '@megadulces/contracts';
+
+/** `[CG.182]` El corte del POS, tal como lo publica Fase CSU. Reexportado para que la pantalla
+ *  no tenga que saber de dos lugares — el mismo criterio que `ContextoFirma` en el socket. */
+export type { CorteRow };
 
 /**
  * CG.13/CG.17 — Cliente del libro de caja (ADR-070).
@@ -327,6 +333,30 @@ export class CashLedgerService {
   /** Devuelve 403 si lo intenta quien cerró: la doble llave está en la DB, no acá. */
   autorizarCorte(id: string): Observable<CorteCaja> {
     return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/autorizar`, {});
+  }
+
+  /**
+   * ⭐⭐ `[CG.182]` **LOS CORTES DE CAJA DEL POS — lo que la persona tiene EN LA MANO.**
+   *
+   * Hasta hoy, para declarar de dónde salió un depósito, lo único que la pantalla ofrecía eran
+   * documentos de Kepler y movimientos de CAOS. El papel que la persona trae del mostrador —el
+   * corte de caja— no estaba en ninguna lista, así que la declaración terminaba tecleada a mano:
+   * medido en prod, **708 referencias distintas en 749 depósitos**, cero parseables, y la misma
+   * ruta escrita `ruta 21 09 26`, `rd 21 04/07`, `ruta 21 13 10 26`.
+   *
+   * ⛔ **Vive FUERA de `finance/cash-ledger`, y no es un descuido de nombres**: el corte es de
+   * Fase CSU (`finance/cortes-sucursales`), que lee el POS desde el ODS. Acá sólo se consume.
+   * Por eso el tipo se IMPORTA de `libs/contracts` y no se redeclara: de los 26 tipos de este
+   * archivo, 24 están escritos a mano y cada uno que se pueda traer es uno que no se desalinea
+   * en silencio.
+   *
+   * ⚠️ `from`/`to` son obligatorios acá aunque el servidor acepte `month`: la ventana de este
+   * selector es **móvil** (los últimos días desde hoy), no un mes natural, porque entre el corte
+   * y su depósito pasan días — el caso que originó esto son **5**.
+   */
+  cortesDeCaja(from: string, to: string): Observable<CortesSucursalesResponse> {
+    const p = new HttpParams().set('from', from).set('to', to);
+    return this.http.get<CortesSucursalesResponse>(`${environment.apiUrl}/finance/cortes-sucursales`, { params: p });
   }
 
   cancelar(id: string, motivo: string): Observable<MovimientoCaja> {
