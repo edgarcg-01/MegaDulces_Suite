@@ -3831,6 +3831,68 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     });
   });
 
+  // ⛔⛔ `[CG.181]` EL 429 DE PRODUCCIÓN: una petición repetida que volvía CERO y se publicaba
+  // como un hecho. Medido en prod el 2026-10-14 con la pantalla abierta: la lista de cortes salía
+  // dos veces con los mismos parámetros, la segunda daba 429, el manejador de error vaciaba la
+  // lista, y el resumen imprimía «0 corte(s)» mientras el endpoint devolvía 1 (CC-2026-00001).
+  describe('[CG.181] una lista que falló no se publica como cero', () => {
+    it('⛔ los cortes se piden UNA vez al entrar, no dos', () => {
+      const cortes = vi.fn(() => of({ rows: [], limit: 50 }));
+      montar({ cortes });
+      expect(cortes, 'ngOnInit + el next de cargar() = 429 en la segunda').toHaveBeenCalledTimes(1);
+    });
+
+    it('[control] mover una fecha SÍ los vuelve a pedir: el rango es su insumo', () => {
+      const cortes = vi.fn(() => of({ rows: [], limit: 50 }));
+      montar({ cortes });
+      comp.setDesde(new Date(2026, 8, 1));
+      expect(cortes).toHaveBeenCalledTimes(2);
+    });
+
+    it('[control] cambiar el TIPO ya no los arrastra: no los toca', () => {
+      const cortes = vi.fn(() => of({ rows: [], limit: 50 }));
+      montar({ cortes });
+      comp.cargar();                       // lo que hace el selector de tipo / la búsqueda
+      expect(cortes, 'cargar() dejó de disparar cortes').toHaveBeenCalledTimes(1);
+    });
+
+    it('⛔ con los cortes caídos el resumen lo DICE, y no imprime «0 corte(s)»', () => {
+      const fx = montarJornada({ cortes: vi.fn(() => throwError(() => ({ status: 429 }))) });
+      const txt = fx.nativeElement.textContent as string;
+      expect(txt).toContain('los cortes no se pudieron leer');
+      expect(txt, 'un cero afirma lo que nadie midió').not.toContain('0 corte(s)');
+    });
+
+    it('[control] con los cortes sanos el conteo se publica igual que siempre', () => {
+      const fx = montarJornada({
+        cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
+      });
+      expect(fx.nativeElement.textContent).toContain('1 corte(s)');
+    });
+
+    it('⛔ y las dos mitades son independientes: el libro caído no tapa los cortes medidos', () => {
+      const fx = montarJornada({
+        libro: vi.fn(() => throwError(() => ({ status: 500 }))),
+        cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
+      });
+      const txt = fx.nativeElement.textContent as string;
+      expect(txt).toContain('el libro no se pudo leer');
+      expect(txt, 'los cortes SÍ se midieron').toContain('1 corte(s)');
+    });
+
+    it('⛔ una recarga fallida de frecuentes NO borra los chips que ya se midieron', () => {
+      let falla = false;
+      const frecuentes = vi.fn(() => (falla
+        ? throwError(() => ({ status: 429 }))
+        : of({ rows: [FRECUENTE], medido: { pares_con_soporte: 1, minimo_usos: 3 } })));
+      montar({ frecuentes });
+      expect(comp.frecuentes().length).toBe(1);
+      falla = true;
+      comp.cargarFrecuentes();
+      expect(comp.frecuentes().length, 'vaciar es publicar «no repite nada»').toBe(1);
+    });
+  });
+
   // `[CG.180]` Las dos mitades del cajón: una guarda, o ninguna.
   describe('[CG.180] el cajón viaja acoplado', () => {
     const conCajon = (cg: Record<string, unknown>) =>
