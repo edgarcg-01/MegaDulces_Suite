@@ -167,12 +167,35 @@ export class CashCutService {
    * hecho de Kepler y qué parte la tecleó una persona. **No cambia la aritmética**: cambia lo que
    * el corte puede DECIR de sí mismo (`cobertura_ingreso`).
    */
+  /**
+   * ⭐⭐ `[CG.160]` **EL ÚNICO lugar que define QUÉ MOVIMIENTOS SON DE UN CORTE.**
+   *
+   * Lo que se SUMA (`movimientosSueltos`) y lo que se ATA (`cerrar`) tienen que ser el mismo
+   * conjunto, y hasta hoy eso era cierto sólo en el eje FECHA (`[CG.115]`) y falso en el de la
+   * PLAZA: el cierre acotaba a `sucursal = '00'` mientras el conteo veía todas las plazas por
+   * `aplicarAlcanceCaja`. Dos funciones hermanas midiendo universos distintos, y ninguna capaz de
+   * contradecir a la otra porque nadie las comparó.
+   *
+   * Costaba, medido al centavo sobre `CC-2026-00001`: un **faltante inventado de $39,486.00**
+   * donde el arqueo real daba un sobrante de $251.05 (ver el bloque de `cerrar()`).
+   *
+   * ⛔ Por eso el predicado vive acá y NO se copia: un invariante que depende de que dos lugares
+   * digan lo mismo se rompe en cuanto alguien toca uno. Acá no pueden divergir.
+   */
+  private sueltosDe(
+    trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null,
+  ): Knex.QueryBuilder {
+    return trx('finance.cash_ledger')
+      .where({ tenant_id: tenantId })
+      .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
+      .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
+      .whereNull('corte_id').whereNull('deleted_at');
+  }
+
   private async movimientosSueltos(
     trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null,
   ): Promise<MovimientoDelCorte[]> {
-    const rows = await trx('finance.cash_ledger')
-      .where({ tenant_id: tenantId })
-      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+    const rows = await this.sueltosDe(trx, tenantId, sucursal, dia)
       /**
        * ⛔⛔ `[CG.115]` **ACÁ NO HABÍA NINGÚN FILTRO DE FECHA, y por eso el saldo salía en
        * −$206,008.34.** Medido en prod el 2026-10-13 sobre el corte `CC-2026-00001`, que es del
@@ -194,8 +217,6 @@ export class CashCutService {
        * simétrico. Se cuentan aparte en `sueltosFuera()` y la pantalla los declara: siguen vivos,
        * esperando el corte de SU jornada.
        */
-      .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
-      .whereNull('corte_id').whereNull('deleted_at')
       .select('tipo', 'monto', 'estado', 'origen_tipo')
       /**
        * `[CG.95]` Cuánto de cada movimiento nunca pasó por el cajón. DOS vías, y hacen falta las
@@ -743,10 +764,36 @@ export class CashCutService {
        * y su propia jornada ya no podría cuadrarse nunca.
        */
       const dia = this.diaDe(c.fecha);
-      const base = () => trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal: c.sucursal })
-        .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
-        .whereNull('corte_id').whereNull('deleted_at');
+      /**
+       * ⛔⛔ `[CG.160]` **ACÁ DECÍA `.where({ tenant_id, sucursal: c.sucursal })`, Y ESA ES LA
+       * OTRA MITAD DEL INVARIANTE — la del EJE SUCURSAL.**
+       *
+       * `[CG.115]` arregló el eje FECHA ("el conjunto atado y el sumado son el mismo por
+       * construcción") y dejó el de la plaza al revés: `contar()`, `recontar()` y `saldo()` leen
+       * por `movimientosSueltos()`, que aplica `aplicarAlcanceCaja` —el cajón de oficinas es UNO
+       * y ve todas las plazas, `[CG.98]`—, mientras **cerrar() ataba y sumaba sólo la `00`**.
+       *
+       * O sea que el conteo se selló contra un universo y el cierre lo iba a juzgar contra otro.
+       * Es el espejo de ADR-059 aplicado a dos funciones hermanas: ninguna podía contradecir a la
+       * otra porque nadie las comparó.
+       *
+       * ⭐ Medido en prod el 2026-10-14 sobre `CC-2026-00001` (12-oct), al centavo:
+       *
+       *     gastos de la 00 .................. $18,973.00
+       *     gastos de 01/05/06/07/08 ......... $39,737.05   <- quedaban fuera
+       *
+       *     esperado que iba a firmar ....  $43,139.50  ->  diferencia  −$39,486.00  (faltante)
+       *     esperado real ................   $3,402.45  ->  diferencia     +$251.05  (sobrante)
+       *
+       * El faltante de casi cuarenta mil pesos **no existe**: es exactamente la nómina y los
+       * gastos que otras plazas pagaron desde este mismo cajón, que `cash_ledger.sucursal`
+       * etiqueta con la plaza del DOCUMENTO y no con dónde estaba el efectivo. Cerrar sin esto
+       * dejaba firmado, y sin vuelta atrás, un arqueo que acusa a Carmen de un faltante inventado.
+       *
+       * ⚠️ El día que una plaza tenga su propio cajón, `aplicarAlcanceCaja` ya la acota a lo suyo
+       * — es la misma advertencia que lleva esa función desde `[CG.98]`.
+       */
+      const base = () => this.sueltosDe(trx, tenantId, c.sucursal, dia);
 
       // ⛔ Un movimiento CANCELADO entra al corte (se audita que se canceló) pero CONSERVA su
       // estado. Antes el UPDATE le pisaba `estado` a `'en_corte'`, y eso lo resucitaba: volvía a
