@@ -156,9 +156,31 @@ export const CajaCobertura = z.object({
    *     front compila igual y publica dos cifras sin decir de qué periodo son.
    */
   ventana: z.object({
-    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD'),
-    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD'),
-  }).refine((v) => v.from <= v.to, {
+    /**
+     * ⛔ `null` = **no hay periodo que describir**, y es un estado REAL, no un hueco.
+     *
+     * Cuando no vienen `from`/`to` y el filtro no devuelve nada, `min(fecha)`/`max(fecha)` son
+     * NULL: no se contó nada, así que no hay un periodo que se haya contado. Medido y **alcanzable
+     * desde la pantalla**: `tipo = 'deposito'` da **0 filas en todo el libro** y el selector lo
+     * ofrece; `ingreso` + sucursal `06` también.
+     *
+     * ⭐ La primera versión ponía `''` ahí, y es justo el defecto que este módulo persigue: un
+     * vacío sin motivo es indistinguible de un olvido. Las otras dos salidas también se
+     * descartaron — un periodo por default INVENTA un mes que nadie pidió (la cuarta respuesta
+     * plausible que `ventana` existe para evitar), y dejar el `''` no pasa el esquema.
+     *
+     * ⚠️ Es el mismo caso que las tres sesiones pasamos una hora protegiendo con `nonnegative()`
+     * —la ventana vacía que ve quien abre un día nuevo— y se nos coló por el otro campo:
+     * protegimos el contador y dejamos la fecha.
+     */
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD').nullable(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha en formato YYYY-MM-DD').nullable(),
+  }).refine((v) => (v.from === null) === (v.to === null), {
+    // Media ventana no existe: o se sabe el periodo o no se sabe. Una punta sola invita a
+    // completar la otra con un default.
+    message: 'la ventana va completa o va nula, nunca a medias',
+    path: ['to'],
+  }).refine((v) => v.from === null || v.to === null || v.from <= v.to, {
     // ⚠️ `<=` y NO `<`: la ventana de UN SOLO DÍA es legítima y está medida (`from = to =
     // 2026-10-08` da 1 capturado contra 33 por confirmar). Es el camino de quien revisa el día de
     // un corte concreto desde la liga con `?from=`/`?to=`. Un `<` estricto lo rompería el día que
@@ -172,6 +194,18 @@ export const CajaCobertura = z.object({
   frescura: Freshness,
   motivo: CajaCoberturaMotivo.nullable(),
 }).superRefine((c, ctx) => {
+  /**
+   * ⛔ **Sin periodo no puede haber movimientos contados.** Es lo que impide que el `null` de la
+   * ventana se vuelva una puerta de escape: nace para el único caso en que es verdad —no se contó
+   * nada, así que no hay periodo— y acá se sella para que no sirva de comodín cuando alguien no
+   * tenga la fecha a mano. Un `null` que se puede poner siempre deja de significar algo.
+   */
+  if (c.ventana.from === null && c.capturado.movimientos > 0) {
+    ctx.addIssue({
+      code: 'custom', path: ['ventana'],
+      message: 'hay movimientos contados, así que hubo un periodo: la ventana no puede ser nula',
+    });
+  }
   // ⛔ La coherencia se verifica en el ESQUEMA, no en una convención escrita en un comentario. Un
   // contrato de tres valores se degrada a dos sin que nadie lo note — y el modo en que se degrada
   // es exactamente éste: un `sin_medir` con `por_confirmar` poblado, que la pantalla divide igual.
@@ -205,6 +239,39 @@ export type CajaCobertura = z.infer<typeof CajaCobertura>;
  * dan números distintos: 11.3 % contra 16.8 % el 14-oct. Que las dos salgan de la misma función es
  * lo que impide que una pantalla publique una y la otra la otra sin decir cuál.
  */
+/**
+ * ⛔⛔ **LA VENTANA ES LO QUE SE PREGUNTÓ, NO LO QUE CONTESTÓ.**
+ *
+ * Existe como función —y no como dos `??` en el servicio— porque el defecto que cierra es
+ * invisible y vuelve solo. Nombre: **un denominador que se persigue la cola.**
+ *
+ * La primera versión derivaba la ventana del `min`/`max` de lo capturado. El numerador no llevaba
+ * filtro de fecha, pero el denominador sí se acotaba a esa ventana derivada — o sea **al tramo
+ * donde el numerador casualmente vive**. Medido en prod el 2026-10-14, sin `from`/`to`:
+ *
+ *     numerador                           75 movimientos (2026-09-25 → 2026-12-10)
+ *     denominador recortado a la derivada     835
+ *     denominador real                     13,235
+ *     cobertura publicada 8.2 %   ·   cobertura real 0.6 %      ← 15× mejor
+ *
+ * ⭐ El denominador se encoge hasta alcanzar al numerador, así que **tiende a 100 % por
+ * construcción y falla SIEMPRE hacia el lado que tranquiliza** — el peor sesgo posible para un
+ * número que existe para inquietar. Y nada se rompe: `8.2 %` es perfectamente plausible.
+ *
+ * ⚠️ Muerde también el caso lleno: pedir 01→31 sobre un libro que va del 05 al 12 publicaría
+ * «ventana 05→12» sobre cifras calculadas en 31 días. Ése es el que nadie va a mirar, porque no
+ * revienta.
+ *
+ * ⛔ `null` significa **«sin límite»**, NUNCA «no se sabe». Son dos ausencias distintas, y es la
+ * misma distinción que separa `no_corresponde` de `sin_medir` un campo más arriba. Lo que no se
+ * pudo determinar va en `estado: 'sin_medir'`; un `null` de acá dice que la pregunta no tenía tope.
+ */
+export function ventanaDeCobertura(q: { from?: string | null; to?: string | null }): {
+  from: string | null; to: string | null;
+} {
+  return { from: q.from ?? null, to: q.to ?? null };
+}
+
 export function cajaCoberturaPct(c: CajaCobertura, eje: 'movimientos' | 'monto'): number | null {
   if (c.estado !== 'medida' || !c.por_confirmar) return null;
   const n = eje === 'monto' ? c.capturado.monto : c.capturado.movimientos;

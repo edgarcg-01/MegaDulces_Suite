@@ -1,6 +1,7 @@
 import {
   CajaCobertura,
   cajaCoberturaPct,
+  ventanaDeCobertura,
   type CajaCoberturaEstado,
 } from './caja-cobertura.contract';
 
@@ -124,6 +125,49 @@ describe('[CG.183] ⛔ PRUEBAS NEGATIVAS: así es como se degrada a dos valores'
   });
 });
 
+/**
+ * ⛔⛔ `[CG.183]` **Un denominador que se persigue la cola.**
+ *
+ * La primera versión derivaba la ventana del `min`/`max` de lo capturado, y el denominador se
+ * acotaba a ella — o sea al tramo donde el numerador casualmente vive. Medido en prod sin
+ * `from`/`to`: **835 contra 13,235** de denominador, cobertura publicada **8.2 %** contra **0.6 %**
+ * real. Quince veces mejor, y nada se rompe.
+ *
+ * ⭐ El candado afirma la **PROPIEDAD**, no la cifra: una aserción sobre «8.2 % → 0.6 %» envejece
+ * en cuanto cambie el libro y —peor— pasaría igual si alguien vuelve a derivar la ventana de otro
+ * modo que hoy dé casualmente lo mismo.
+ */
+describe('[CG.183] la ventana es lo que se PREGUNTÓ, no lo que contestó', () => {
+  it('con `from`/`to` pedidos, los publica tal cual', () => {
+    expect(ventanaDeCobertura({ from: '2026-10-01', to: '2026-10-31' }))
+      .toEqual({ from: '2026-10-01', to: '2026-10-31' });
+  });
+
+  it('⛔ una ventana PEDIDA más ancha que los datos se publica entera', () => {
+    // El caso LLENO, que es el que nadie va a mirar porque no revienta: pedir 01→31 sobre un libro
+    // que va del 05 al 12 publicaría «05→12» sobre cifras calculadas en 31 días, y el porcentaje
+    // se leería como cobertura de doce días.
+    const pedida = ventanaDeCobertura({ from: '2026-10-01', to: '2026-10-31' });
+    expect(pedida.from).toBe('2026-10-01');
+    expect(pedida.to).toBe('2026-10-31');
+    // La prueba vive o muere acá: la función NO recibe el span de los datos, así que no puede
+    // publicarlo aunque alguien quiera. Si vuelve a aceptarlo como parámetro, esto se revisa.
+    expect(ventanaDeCobertura.length).toBe(1);
+  });
+
+  it('⭐ sin `from`/`to`, `null` = SIN LÍMITE — y no es lo mismo que `sin_medir`', () => {
+    // Son dos ausencias distintas, la misma distinción que separa `no_corresponde` de `sin_medir`.
+    // Un `null` acá dice que la pregunta no tenía tope; lo que no se pudo determinar va en `estado`.
+    expect(ventanaDeCobertura({})).toEqual({ from: null, to: null });
+    expect(ventanaDeCobertura({ from: undefined, to: undefined })).toEqual({ from: null, to: null });
+    expect(ventanaDeCobertura({ from: null, to: null })).toEqual({ from: null, to: null });
+  });
+
+  it('una sola punta pedida se respeta: media ventana es «desde X, sin tope»', () => {
+    expect(ventanaDeCobertura({ from: '2026-10-01' })).toEqual({ from: '2026-10-01', to: null });
+  });
+});
+
 describe('[CG.183] cajaCoberturaPct — los dos ejes dan números distintos, y por eso sale de un solo lugar', () => {
   it('reproduce lo medido en prod: 11.3 % de movimientos y 16.8 % del dinero', () => {
     expect(cajaCoberturaPct(medida, 'movimientos')).toBe(11.3);
@@ -153,6 +197,29 @@ describe('[CG.183] cajaCoberturaPct — los dos ejes dan números distintos, y p
     // Medido: `from = to = 2026-10-08` da 1 capturado contra 33 por confirmar. Es el camino de
     // quien revisa el día de un corte concreto desde la liga con `?from=`/`?to=`.
     expect(CajaCobertura.safeParse({ ...medida, ventana: { from: '2026-10-08', to: '2026-10-08' } }).success).toBe(true);
+  });
+
+  it('⭐ SIN PERIODO: la ventana nula es válida cuando no se contó nada', () => {
+    // Medido y alcanzable desde la pantalla: `tipo = 'deposito'` da 0 filas en TODO el libro y el
+    // selector lo ofrece. Sin `from`/`to`, `min(fecha)`/`max(fecha)` vienen NULL. La primera
+    // versión ponía `''` ahí y el esquema lo rechazaba — un 500 a un clic de distancia.
+    expect(CajaCobertura.safeParse({
+      ...base, estado: 'medida', motivo: null,
+      ventana: { from: null, to: null },
+      capturado: { movimientos: 0, monto: 0 },
+      por_confirmar: { movimientos: 508, monto: 3571067.99 },
+    }).success).toBe(true);
+  });
+
+  it('⛔ PRUEBA NEGATIVA: con movimientos contados la ventana NO puede ser nula', () => {
+    // Es lo que impide que el `null` se vuelva comodín. Si hubo movimientos, hubo un periodo; un
+    // `null` que se puede poner siempre deja de significar algo.
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: null, to: null } }).success).toBe(false);
+  });
+
+  it('⛔ PRUEBA NEGATIVA: media ventana se rechaza — invita a completar la otra con un default', () => {
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: '2026-10-01', to: null } }).success).toBe(false);
+    expect(CajaCobertura.safeParse({ ...medida, ventana: { from: null, to: '2026-10-14' } }).success).toBe(false);
   });
 
   it('un denominador en cero devuelve `null`, no una división por cero', () => {
