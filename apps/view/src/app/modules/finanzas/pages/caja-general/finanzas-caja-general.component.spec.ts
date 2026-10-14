@@ -4072,4 +4072,92 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       expect(comp.cajon()).toBeNull();
     });
   });
+
+/**
+ * ⭐⭐ `[CG.160]` — EL CORTE QUE NO SE PODÍA CERRAR, TRES JORNADAS SEGUIDAS.
+ *
+ * Medido en producción el 2026-10-14: `CC-2026-00001` (12-oct, sucursal 00) tenía su conteo
+ * SELLADO —`contado = 3,653.50`, seis renglones de denominación en la base— y seguía en
+ * `borrador`. `abrirCierre()` ponía `revelado()` en `null` incondicionalmente, así que después
+ * de recargar la pestaña el diálogo sólo ofrecía «Guardar conteo», el servidor contestaba
+ * *«este corte ya tiene un conteo sellado»*, y «Cerrar corte» no se pintaba NUNCA.
+ *
+ * Y no afectaba a un día: `ux_cash_cut_abierto` admite un solo borrador por sucursal, así que
+ * el corte trabado trancó también el del 13 y el del 14. **Un corte que no cierra tranca todos
+ * los que vienen detrás.**
+ *
+ * ⚠️ Estas pruebas afirman la PROPIEDAD («con conteo sellado se puede cerrar»), no la cifra:
+ * un literal `3653.50` envejece con los datos y además pasaría igual si alguien reintrodujera
+ * el defecto de un modo que hoy dé casualmente lo mismo.
+ */
+describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
+  /** El saldo tal como lo manda `saldo()` para un corte abierto con conteo sellado. */
+  function conSellado(sellado: unknown) {
+    return vi.fn(() => of({
+      ...SALDO,
+      sin_corte_abierto: false,
+      corte_abierto: {
+        id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 3327.5, ya_reconto: false,
+        conteo_sellado: sellado,
+      },
+    } as unknown as SaldoResponse));
+  }
+
+  it('⛔ el conteo sellado del servidor HABILITA cerrar tras recargar', () => {
+    montar({
+      saldo: conSellado({
+        contado: 3653.5, esperado: null, diferencia: null,
+        veredicto: 'sin_medir', ya_reconto: false,
+      }),
+    });
+    comp.abrirCierre();
+    // La revelación existe aunque nadie selló NADA en esta sesión: `revelado()` sigue en null.
+    expect(comp.revelado()).toBeNull();
+    expect(comp.revelacion()).not.toBeNull();
+    expect(comp.revelacion()!.contado).toBe(3653.5);
+    // Y es lo único que importa: el botón «Cerrar corte» cuelga de este gate.
+    expect(comp.gateCierre().ok).toBe(true);
+  });
+
+  it('⛔ [negativa] sin conteo sellado NO se puede cerrar — el arqueo ciego sigue entero', () => {
+    // El caso normal, que es el que más vale proteger: si esto se pusiera verde, el arreglo
+    // habría abierto «Cerrar corte» sobre un corte que nadie contó.
+    montar({ saldo: conSellado(null) });
+    comp.abrirCierre();
+    expect(comp.revelacion()).toBeNull();
+    expect(comp.gateCierre().ok).toBe(false);
+  });
+
+  it('⛔ [negativa] un API viejo que no manda el campo se lee como «nada sellado», no como sellado', () => {
+    montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, sin_corte_abierto: false,
+        corte_abierto: { id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 3327.5, ya_reconto: false },
+      } as unknown as SaldoResponse)),
+    });
+    comp.abrirCierre();
+    expect(comp.revelacion()).toBeNull();
+    expect(comp.gateCierre().ok).toBe(false);
+  });
+
+  it('un conteo ya recontado NO vuelve a ofrecer recontar', () => {
+    montar({
+      saldo: conSellado({
+        contado: 3653.5, esperado: 3700, diferencia: -46.5,
+        veredicto: 'falta', ya_reconto: true,
+      }),
+    });
+    comp.abrirCierre();
+    expect(comp.puedeRecontar()).toBe(false);
+    // Se cierra igual: un faltante se registra, no se esconde.
+    expect(comp.gateCierre().ok).toBe(true);
+  });
+
+  it('`sin_medir` tiene etiqueta propia — no cae al crudo ni a «no cuadra»', () => {
+    montar();
+    const t = comp.etiquetaVeredicto('sin_medir');
+    expect(t).not.toBe('sin_medir');
+    expect(t.toLowerCase()).not.toContain('no cuadra');
+  });
+});
 });
