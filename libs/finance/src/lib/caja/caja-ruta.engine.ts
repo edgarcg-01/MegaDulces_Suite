@@ -103,6 +103,23 @@ const RX_FECHA_ESPACIOS = /\b(\d{1,2})\s+(\d{1,2})\s+\d{2}\b/;
 const RX_FECHA_PEGADA = /\b(\d{2})(\d{2})\d{2}\b/;
 
 /**
+ * ⭐ `ruta` + ruta y fecha PEGADAS, sin un solo separador: `ruta22280526` = ruta 22 del 28/05/26.
+ *
+ * Es su propia expresion y no una combinacion de las de arriba, porque ninguna de las dos puede
+ * expresar "exactamente ocho digitos juntos" -- y ese conteo es justamente lo que desambigua:
+ *
+ *   ruta22280526  ->  22 + 28/05/26   leyendo la ruta de DOS digitos
+ *                 ->  222 + 8/05/26   leyendo la ruta de TRES ... y entonces sobra un digito
+ *
+ * Con `\b` a los dos lados y 8 digitos exactos, la unica lectura que cierra es la de dos. El
+ * `dia`/`mes` se validan igual que en el resto; si no son fecha, no se devuelve nada.
+ *
+ * Medido: 88 depositos / $1,416,800, TODOS de la ruta 22 -- la unica que escribe asi. Sin esto,
+ * la 22 aparecia depositando el **12.2%** de lo que vende y las otras cinco entre 105% y 111%.
+ */
+const RX_RUTA_FECHA_PEGADAS = /\bruta(\d{2})(\d{2})(\d{2})\d{2}\b/i;
+
+/**
  * Lee la declaracion. Devuelve null si falta cualquiera de las dos mitades: media declaracion no
  * sirve para ligar nada, y un null explicito es mejor que una fecha inventada (ADR-056).
  */
@@ -110,6 +127,16 @@ export function leerVentaDeRuta(texto: string | null | undefined): VentaDeRutaDe
   const t = String(texto || '');
   if (!t) return null;
   if (RX_VECINAL.test(t)) return null;
+
+  // Va PRIMERO: `ruta22280526` tambien matchea la expresion generica de ruta (leeria `222`), y
+  // ahi el conteo de digitos que desambigua ya se perdio.
+  const mp = t.match(RX_RUTA_FECHA_PEGADAS);
+  if (mp) {
+    const dia = Number(mp[2]); const mes = Number(mp[3]);
+    if (mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+      return { ruta: String(Number(mp[1])), mes, dia };
+    }
+  }
   const mr = t.match(RX_RUTA);
   if (!mr || mr.index === undefined) return null;
   /**
