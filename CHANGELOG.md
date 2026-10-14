@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — El surtidor recibe en vivo los pedidos de preventa de su sucursal, y la vendedora ve su avance (MCP.3 / MCP.8, 2026-10-14)
+- Bandeja nueva **«Preventa por surtir»** (`/almacen/surtir-preventa`): los pedidos de preventa de la sucursal en **Hoy / Mañana / Próximos**, que llegan solos (se refresca cada 20 s y el aviso en vivo la adelanta). Tocar el aviso de la campana **abre el pedido**.
+- **«Empezar a surtir»** registra quién y a qué hora; al terminar, el surtidor confirma «hubo todo» o manda el reporte. **Lo que no hubo se quita del pedido y el total se recalcula** (decisión de David), en la misma transacción.
+- **«Mis pedidos»** en la app de la vendedora: agendado → lo tomó el surtidor (nombre y hora) → surtido → cobrado en Kepler → entregado, con el reporte de faltantes y el total nuevo. El cobro se **detecta** por coincidencia y se muestra «por confirmar»: la liga la sigue confirmando quien entrega (D2/D6).
+- Tabla nueva `commercial.presale_picks` (mig `20261014095517`, aplicar antes del despliegue). El aviso en vivo a la sucursal ahora también llega por la clave de sucursal de la ficha.
 ### Changed — Cambios de precio: la pantalla sube y se aprovecha el ancho (ETQ-CAMBIOS.10, 2026-10-14)
 - **El selector de día (Día · Ayer · Actualizar · Compartir) pasa a la fila de las pestañas**, a la derecha de la píldora que dejaba media barra vacía; antes ocupaba una fila propia. **Las cuatro tarjetas (Para reimprimir · Subieron · Bajaron · Sin precio) pasan a una sola línea**, con la instrucción de uso al lado, y se quitó el título repetido (la pestaña activa ya dice dónde estás; queda para lectores de pantalla). La tabla sube unos 170 px. **No se quitó ningún número ni ningún texto**; suben + bajan + sin precio siguen sumando el total.
 - **Para eso `app-metric-strip` gana `density="compact"`** (cada métrica en una línea: cifra, etiqueta y nota). Es **aditivo**: el default no cambia ninguna de las otras pantallas que lo usan. Sin migraciones ni permisos → sin re-login. **Sin validación visual todavía** (no se levanta la app en local).

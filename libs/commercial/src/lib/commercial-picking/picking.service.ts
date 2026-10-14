@@ -306,6 +306,13 @@ export class PickingService {
             .from('commercial.wave_orders as wo')
             .whereRaw('wo.order_id = o.id')
             .andWhere('wo.stage', '<>', 'listo_embarque');
+        })
+        // [MCP.3] Ni uno que ya se esté surtiendo pedido por pedido desde la bandeja de preventa:
+        // meterlo además en una ola lo surtiría dos veces.
+        .whereNotExists(function () {
+          this.select(trx.raw('1'))
+            .from('commercial.presale_picks as pp')
+            .whereRaw('pp.order_id = o.id');
         });
 
       if (q.warehouse_id) qb = qb.where('o.warehouse_id', q.warehouse_id);

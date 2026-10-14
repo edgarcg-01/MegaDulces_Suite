@@ -22,6 +22,9 @@ export type AlertType =
   // `order_confirmed` —que es tenant-wide e informativo— éste va DIRIGIDO (`emitTo`) a quien
   // puede surtir en ese almacén, y tiene memoria: `commercial.order_notifications`.
   | 'order_to_pick'
+  // [MCP.8] A la VENDEDORA (emitTo): su pedido lo empezaron a surtir, o se cerró completo o con
+  // faltantes. `data.route` lleva a «Mis pedidos».
+  | 'presale_pick'
   | 'test';              // manual trigger para smoke testing
 
 export type AlertSeverity = 'info' | 'warn' | 'critical';

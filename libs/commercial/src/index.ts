@@ -41,6 +41,8 @@ export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';
 // [MCP.1] Mesa de Control de Preventa (pedido PD- + documento de Kepler).
 export * from './lib/presale-control/presale-control.module';
+// [MCP.3] + [MCP.8] Surtido de preventa por pedido y avance para la vendedora.
+export * from './lib/presale-picking/presale-picking.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';
