@@ -4,7 +4,7 @@
  */
 import {
   CASILLEROS, PISTA_CASILLERO, acuseDocumento, cierreDocumentos, esFinDocumentos, mensajePedirDocumentos, pendientes,
-  recordatorioDocumentos, solicitudDeDocumentos, veredictoDocumento,
+  recordatorioDocumentos, solicitudDeDocumentos, ventanaAbierta, veredictoDocumento,
 } from './documentos';
 
 describe('[RH.3.3.4] documentos del expediente', () => {
@@ -50,5 +50,16 @@ describe('[RH.3.3.4] documentos del expediente', () => {
     for (const t of ['hola', 'cuánto pagan', 'mañana se los mando', '']) expect(esFinDocumentos(t)).toBe(false);
     expect(cierreDocumentos([])).not.toContain('falta');
     expect(cierreDocumentos(['acta'])).toContain('el que falta');
+  });
+
+  it('[RH.3.3.4b] la ventana de 24 h de Meta, con media hora de margen; sin mensaje suyo nunca abrió', () => {
+    const ahora = new Date('2026-10-14T18:00:00Z');
+    expect(ventanaAbierta('2026-10-14T17:00:00Z', ahora)).toBe(true);
+    expect(ventanaAbierta('2026-10-13T18:31:00Z', ahora)).toBe(true);   // 23 h 29 min
+    expect(ventanaAbierta('2026-10-13T18:29:00Z', ahora)).toBe(false);  // 23 h 31 min: dentro de las 24 h, fuera del margen
+    expect(ventanaAbierta('2026-10-12T18:00:00Z', ahora)).toBe(false);
+    expect(ventanaAbierta(null, ahora)).toBe(false);
+    expect(ventanaAbierta('no es fecha', ahora)).toBe(false);
+    expect(ventanaAbierta('2026-10-14T19:00:00Z', ahora)).toBe(false);  // en el futuro: reloj raro, no se arriesga
   });
 });

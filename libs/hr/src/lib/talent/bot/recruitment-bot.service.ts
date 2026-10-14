@@ -61,6 +61,8 @@ interface Conversacion {
 /** `[RH.3.3.4]` Lo que devuelve `pedirDocumentos`: el mensaje para mandarle y cuándo escribió por última vez (la ventana de 24 h de Meta). */
 export interface PeticionDocumentos {
   telefono: string;
+  /** `[RH.3.3.4b]` El teléfono como llegó de WhatsApp (al que se le contesta); el del candidato si nunca escribió. */
+  telefono_wa: string;
   solicitados: string[];
   mensaje: string | null;
   ultimo_mensaje_en: string | null;
@@ -327,9 +329,9 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
       if (!exp.telefono || !exp.phone) throw new BadRequestException('El candidato no tiene teléfono: no se le pueden pedir documentos por WhatsApp.');
       const faltantes = DOCUMENTOS_EXPEDIENTE.filter((d) => d.obligatorio && !exp.vigentes.includes(d.key)).map((d) => d.key);
       const solicitados = solicitudDeDocumentos(elegidos, faltantes);
-      if (!solicitados.length) return { telefono: exp.telefono, solicitados, mensaje: null, ultimo_mensaje_en: null };
+      if (!solicitados.length) return { telefono: exp.telefono, telefono_wa: exp.phone, solicitados, mensaje: null, ultimo_mensaje_en: null };
       const actual = await this.cargar(trx, tenantId, exp.telefono);
-      const fila = await trx(T).where({ phone_key: exp.telefono }).first('last_inbound_at');
+      const fila = await trx(T).where({ phone_key: exp.telefono }).first('last_inbound_at', 'phone');
       const documents: DocsConversacion = { ...(actual.documents ?? {}), solicitados, pedidos_en: new Date().toISOString() };
       const cambios = {
         state: 'pidiendo_documentos', outcome: 'postulada', outcome_reason: null, candidate_id: candidateId,
@@ -339,7 +341,8 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
       if (!n) await trx(T).insert({ tenant_id: tenantId, phone: exp.phone, ...cambios });
       await this.intake.notaDelBot(trx, tenantId, candidateId, `Se le pidieron sus documentos por WhatsApp: ${solicitados.join(', ')}.`);
       return {
-        telefono: exp.telefono, solicitados, mensaje: mensajePedirDocumentos(exp.nombre, solicitados),
+        telefono: exp.telefono, telefono_wa: (fila?.phone as string | undefined) ?? exp.phone, solicitados,
+        mensaje: mensajePedirDocumentos(exp.nombre, solicitados),
         ultimo_mensaje_en: fila?.last_inbound_at ? new Date(fila.last_inbound_at as string).toISOString() : null,
       };
     });
@@ -489,6 +492,9 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
       application: c.application ? JSON.stringify(c.application) : null,
       // `[RH.3.3.4]` Sólo si el turno la trae: un turno que no habla de documentos no los borra.
       ...(c.documents !== undefined ? { documents: c.documents ? JSON.stringify(c.documents) : null } : {}),
+      // `[RH.3.3.4b]` El teléfono como llega de WhatsApp (con lada): a una conversación creada desde la web (10 dígitos)
+      // no se le podría contestar después.
+      phone: msg.phone,
       profile_name: msg.profileName ?? null, last_inbound_at: trx.fn.now(), updated_at: trx.fn.now(), ...extra,
     };
     // Actualizar o insertar, NO `ON CONFLICT … DO UPDATE`: Postgres valida los CHECK sobre la fila propuesta del INSERT
@@ -496,7 +502,7 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     // Es seguro porque `cargar` ya tomó el candado por teléfono en esta transacción.
     const telefono = String(msg.phone).replace(/\D/g, '').slice(-10);
     const n = await trx(T).where({ phone_key: telefono }).update(cambios);
-    if (!n) await trx(T).insert({ tenant_id: msg.tenantId, phone: msg.phone, ...cambios });
+    if (!n) await trx(T).insert({ tenant_id: msg.tenantId, ...cambios });
   }
 
   private async vacantes(trx: Knex.Transaction): Promise<VacanteBot[]> {

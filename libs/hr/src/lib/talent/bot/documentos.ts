@@ -122,3 +122,19 @@ export function cierreDocumentos(faltan: readonly string[]): string {
 export function apartadoAlPedirCv(slot: string): string {
   return `De todos modos guardé tu *${etiqueta(slot)}* para tu expediente; no te lo volveré a pedir. 🗂️`;
 }
+
+/**
+ * `[RH.3.3.4b]` La VENTANA de Meta: a quien escribió en las últimas 24 h se le puede mandar texto libre; fuera de ella sólo
+ * una plantilla aprobada. Se deja media hora de margen (el mensaje pasa por la cola antes de llegar a Meta): mejor
+ * declararlo fuera que mandarlo y que Meta lo rechace en silencio. Sin ningún mensaje suyo, la ventana nunca abrió.
+ */
+export const VENTANA_MS = 24 * 60 * 60 * 1000;
+export const MARGEN_VENTANA_MS = 30 * 60 * 1000;
+
+export function ventanaAbierta(ultimoMensaje: string | Date | null | undefined, ahora: Date = new Date()): boolean {
+  if (!ultimoMensaje) return false;
+  const t = new Date(ultimoMensaje).getTime();
+  if (Number.isNaN(t)) return false;
+  const edad = ahora.getTime() - t;
+  return edad >= 0 && edad < VENTANA_MS - MARGEN_VENTANA_MS;
+}

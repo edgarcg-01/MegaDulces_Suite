@@ -115,6 +115,20 @@ suite('[RH.3.3.4] documentos del expediente por WhatsApp contra la base', () => 
         siguiente = { slot: 'curp', motivo: 'la CURP', clasificado: true };
         r['tardio'] = await mandar(PNG);
 
+        // ── [RH.3.3.4b] Postulado por la web con 10 dígitos: la conversación nace así, y al escribir por WhatsApp guarda la lada ──
+        const telW10 = `37${String(sello).slice(-8)}`;
+        r['telW10'] = telW10;
+        const dW = await intake.postular({
+          phone: telW10, full_name: 'Carla Prueba Vega', email: null, city_branch: 'zamora-canindo', job_posting_id: null,
+          position_interest: 'Cajero(a)', relative_in_company: null, rehire_note: null, heard_from: 'Facebook',
+          cv: { adjunto: { buffer: PDF, contentType: 'application/pdf', sizeBytes: PDF.length } as never, file_name: 'cv.pdf' }, license: null,
+        }, 'web', TENANT);
+        const pW = await bot.pedirDocumentos(TENANT, String(dW.candidato_id));
+        r['telWeb'] = [pW.telefono_wa, pW.ultimo_mensaje_en];
+        await decir('hola', `521${telW10}`);
+        const pW2 = await bot.pedirDocumentos(TENANT, String(dW.candidato_id));
+        r['telWeb2'] = [pW2.telefono_wa, !!pW2.ultimo_mensaje_en];
+
         // ── Con todo lo obligatorio, no hay nada que pedir ─────────────────────────────────────────────────────
         const todos = OBLIGATORIOS_SIN_CV.map((slot) => ({ slot, storage_key: `k-${slot}`, origen: 'suite' }));
         await trx('talent.candidates').where({ id: candId }).update({ documents: JSON.stringify([...docs1, ...todos]) });
@@ -181,6 +195,9 @@ suite('[RH.3.3.4] documentos del expediente por WhatsApp contra la base', () => 
     expect(r['estadoDespues']).toBe('documentos_completos');
     expect(r['tardio']).toContain('Recibí tu *CURP*');
     expect(r['tardio']).toContain('sigue en revisión');
+    // Nunca escribió: la conversación nace con su teléfono de la web y sin ventana; al escribir, guarda el de WhatsApp.
+    expect(r['telWeb']).toEqual([r['telW10'], null]);
+    expect(r['telWeb2']).toEqual([`521${String(r['telW10'])}`, true]);
     expect(r['nadaQuePedir']).toBeNull();
     expect(r['apartado']).toContain('guardé tu *INE*');
     expect(r['unaPorCasillero']).toEqual([1, false]);

@@ -1,5 +1,41 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.3.4b · Pedir los documentos desde la ficha (2026-10-14)
+
+### Problema
+
+El bot ya sabía recibir los documentos del expediente, pero nadie podía pedírselos al candidato desde la Suite. Además,
+la Suite sólo sabía contestar mensajes: no podía escribirle primero a nadie. Y WhatsApp tiene una regla: a quien no te ha
+escrito en las últimas 24 horas sólo se le puede mandar una plantilla aprobada por Meta; un mensaje normal no le llega.
+
+### Solución
+
+- En el expediente de la ficha hay un botón «Pedir documentos por WhatsApp». Se eligen los documentos (lo obligatorio que
+  falta ya viene marcado) y se pide.
+- La lista siempre queda registrada: lo que la persona mande después se acomoda solo en su lugar.
+- Si escribió al WhatsApp de reclutamiento en las últimas 24 horas, el bot le manda la lista ahí mismo.
+- Si no, la ficha lo dice y explica qué hacer: pedirle por llamada o mensaje que escriba «hola» al número de
+  reclutamiento, y el bot le contestará con la lista. También deja copiar un texto para mandárselo por otro medio.
+
+### Cómo se implementó
+
+- La Suite ganó una salida de WhatsApp para RH: el mensaje sale desde el número de reclutamiento de la empresa, por la
+  misma cola y el mismo historial que las respuestas del bot. Si la empresa no tiene número de reclutamiento, no sale por
+  el de ventas.
+- `HrDocumentRequestService` registra la lista y decide si se puede mandar, con la regla de las 24 horas (y media hora de
+  margen, porque el mensaje tarda un poco en salir).
+- Cada mensaje que llega guarda el teléfono como lo manda WhatsApp, con la lada; a quien se postuló por la web se le
+  guardaba a 10 dígitos y no se le habría podido contestar.
+- Pruebas de la regla, del envío, de la pantalla y contra la base, comprobadas rompiendo el código a propósito (cinco
+  veces). Sin migración nueva.
+
+### Por qué así
+
+Intentar mandar fuera de las 24 horas falla sin avisar: RH creería que el candidato ya sabe y él nunca se enteraría. Por
+eso la Suite no lo intenta y lo dice claro. Registrar la lista aunque no se le pueda escribir permite que, en cuanto la
+persona escriba, el bot ya sepa qué pedirle. El texto para copiar le dice a qué número escribir, porque si dijera
+«mándalos aquí» desde el teléfono de RH, los documentos llegarían a donde el bot no los ve.
+
 ## RH.3.3.4 · Los documentos del expediente por WhatsApp (2026-10-14)
 
 ### Problema

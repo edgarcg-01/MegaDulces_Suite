@@ -607,8 +607,21 @@ que ese formulario necesita (`[RH.2.4]`).
   guardar que borra lo apartado, apartados que no viajan). **No incluye** (`[RH.3.3.4b]`): el botón «Pedir documentos»
   en la ficha ni el envío del mensaje — la Suite todavía no tiene cómo escribirle a un candidato por iniciativa propia,
   y fuera de las 24 h desde su último mensaje Meta exige plantilla aprobada (`[RH.3.6]`). Tampoco: leer datos de la foto.
-- [ ] **[RH.3.3.4b]** ⬜ El botón «Pedir documentos» en la ficha: endpoint que llama a `pedirDocumentos`, puerto de salida
-  de WhatsApp desde RH, y la regla de la ventana de 24 h (dentro, texto libre; fuera, plantilla o declararlo).
+- [ ] **[RH.3.3.4b]** 🧪 Pedir documentos desde la ficha (2026-10-14). Botón «Pedir documentos por WhatsApp» en el
+  expediente de la ficha (en línea, como las demás acciones de la ficha; casillas de PrimeNG con lo obligatorio que
+  falta ya marcado; sin CV ni reporte de la prueba) → `POST /api/hr/talent/candidates/:id/documents/request`
+  (`HR_RECRUITMENT_GESTIONAR`) → `HrDocumentRequestService`: la lista SIEMPRE queda registrada (lo que mande se
+  acomoda solo) y el mensaje sale **sólo dentro de la ventana de 24 h de Meta** (con media hora de margen: se encola
+  antes de llegar a Meta). Fuera de ella **no se intenta** —Meta lo rechazaría en silencio—: la ficha lo dice, explica
+  que le pida escribir «hola» al número de reclutamiento (el bot le contesta con la lista) y ofrece copiar un texto que
+  no dice «envíalos aquí». **La salida nueva:** puerto `RECRUITMENT_OUTBOUND_PORT` (contracts) → adaptador en
+  `composition` → `WhatsAppIngestService.sendRecruitmentText` (sale desde el número de reclutamiento DEL TENANT, misma
+  cola y mismo libro; sin número de reclutamiento, no sale por el de ventas). Vive en un servicio de RH distinto del
+  bot porque la ingesta ya depende del bot (si el bot dependiera de la salida habría un ciclo). Además: cada mensaje
+  entrante guarda el teléfono como llega de WhatsApp (una conversación creada desde la web nacía con 10 dígitos y no se
+  le podría contestar), y el resultado en la ficha va atado al candidato (la ficha se reusa al cambiar de persona).
+  Pruebas mutadas a rojo (5: ventana sin margen, mandar fuera de la ventana, salir por cualquier número, resultado de
+  otro candidato, teléfono sin lada). **No incluye:** plantilla aprobada para escribirle fuera de la ventana (`[RH.3.6]`).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
   (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
 - [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.
