@@ -270,6 +270,54 @@ export class ConversationThreadService {
   }
 
   /** Helper: ¿ya vimos este mensaje entrante? (dedup previo al encolado). */
+  /**
+   * `[RH.3.1]` Registra un mensaje de un flujo SIN hilo de comercio (reclutamiento) en el mismo libro
+   * (`whatsapp.messages`), con su teléfono y el número que lo recibió/envió. Idempotente por `wa_message_id`.
+   */
+  async logFlowMessage(
+    flow: 'recruitment' | 'bank_capture',
+    direction: 'in' | 'out',
+    m: { phone: string; phone_number_id?: string | null; wa_message_id?: string | null; type?: string; body?: string | null; payload?: unknown },
+  ): Promise<boolean> {
+    return this.tk.run(async (trx) => {
+      try {
+        await trx('whatsapp.messages').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          thread_id: null,
+          flow,
+          phone: m.phone,
+          phone_number_id: m.phone_number_id ?? null,
+          direction,
+          wa_message_id: m.wa_message_id || null,
+          type: m.type || 'text',
+          body: m.body ?? null,
+          payload: m.payload != null ? JSON.stringify(m.payload) : null,
+        });
+        return true;
+      } catch (e: unknown) {
+        if ((e as { code?: string } | null)?.code === '23505') return false; // ya registrado (reintrega de Meta)
+        throw e;
+      }
+    });
+  }
+
+  /**
+   * `[RH.3.1]` La VENTANA DE 24 H de Meta: dentro de ella se puede mandar texto libre; fuera, sólo plantillas aprobadas.
+   * Se mide como Mega Talento (`dentroDe24h`): desde el último mensaje ENTRANTE de ese teléfono en ese flujo. Sin mensajes
+   * → fuera de la ventana (nunca se asume que se puede escribir).
+   */
+  async ultimoEntrante(flow: 'commerce' | 'recruitment' | 'bank_capture', phone: string): Promise<Date | null> {
+    return this.tk.run(async (trx) => {
+      const r = await trx('whatsapp.messages').where({ flow, phone, direction: 'in' }).max('created_at as ultimo').first();
+      return r?.ultimo ? new Date(r.ultimo as string) : null;
+    });
+  }
+
+  async dentroDe24h(flow: 'commerce' | 'recruitment' | 'bank_capture', phone: string, ahora: Date = new Date()): Promise<boolean> {
+    const u = await this.ultimoEntrante(flow, phone);
+    return !!u && ahora.getTime() - u.getTime() < 24 * 3_600_000;
+  }
+
   async isDuplicateInbound(msg: InboundMessage): Promise<boolean> {
     if (!msg.wa_message_id) return false;
     return this.tk.run(async (trx) => {

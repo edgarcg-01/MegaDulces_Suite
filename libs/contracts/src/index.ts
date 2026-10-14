@@ -13,6 +13,7 @@ export * from './ports/finance-findings-sink.port';
 export * from './ports/invoice-issuer.port';
 export * from './ports/commerce-conversation.port';
 export * from './ports/bank-capture.port';
+export * from './ports/recruitment-bot.port';
 export * from './ports/health-notifier.port';
 export * from './ports/mailer.port';
 export * from './ports/service-desk-channels.port';

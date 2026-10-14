@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { CloudinaryModule, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
+import { AnthropicService, CloudinaryModule, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
@@ -19,6 +19,8 @@ import { HrTalentJobsService } from './talent/talent-jobs.service';
 import { HrTalentIntakeService } from './talent/talent-intake.service';
 import { HrTalentPublicController } from './talent/talent-public.controller';
 import { HrTalentLinksService } from './talent/talent-links.service';
+import { HrRecruitmentBotService } from './talent/bot/recruitment-bot.service';
+import { HrRecruitmentInterpreterService } from './talent/bot/interprete-registro.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -50,8 +52,12 @@ import { HrTalentLinksService } from './talent/talent-links.service';
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
-    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService,
+    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService,
+    // `[RH.3.2.1]` la IA del registro por WhatsApp, sobre el cliente compartido de Anthropic (infra leaf: cada módulo
+    // que lo usa lo pone en sus providers). Sin `ANTHROPIC_API_KEY` no consulta nada y el registro sigue igual.
+    AnthropicService, HrRecruitmentInterpreterService,
   ],
-  exports: [HrAttendanceIngestService, HrAttendanceReportService],
+  // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
+  exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],
 })
 export class HrModule {}
