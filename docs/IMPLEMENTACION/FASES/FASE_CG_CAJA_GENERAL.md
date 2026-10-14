@@ -3100,3 +3100,231 @@ de `deudaPrevista` verificados antes de tocarlo: ninguno compensaba el formato r
   pendiente humano.
 - **Adopción**, que es el marco de todo lo anterior: 70 movimientos, **1 corte y 0 cerrados**,
   0 reglas de entidad declaradas.
+
+---
+
+## §37 · `[CG.58.7]` — la ruta y su dinero: del depósito en CAOS a su entrada en Caja General (2026-10-14)
+
+> Pedido de Edgar: *«en "ventas por ruta" agreguemos su liga de la entrada a caja general que está
+> asociada con su depósito en un banco o caja llamada CAOS»*, y después, viendo la pantalla:
+> *«hay que mostrarlo en la misma columna de "Por día" para temas de conciliar»*.
+
+### 37.1 · La cadena, y por qué el último tramo NO es heurístico
+
+```
+venta de la ruta → el repartidor deposita en la caja fuerte (CAOS)
+                 → alguien captura esa entrada en Caja General
+```
+
+El segundo tramo ya estaba escrito en la base y nadie lo consumía: cuando la entrada se captura
+desde el depósito, `finance.cash_ledger` guarda `origen_tipo = 'caos'` y
+`origen_ref = '<device>|<external_id>'`, que es **la llave natural** del movimiento de CAOS. Por eso
+el folio es un enlace y no una coincidencia.
+
+⛔ **Y no se podía casar por monto.** Medido en prod sobre los 18 pares reales:
+
+| | |
+|---|---|
+| suma de las entradas | $282,782.00 |
+| suma de los depósitos | $280,600.00 |
+| Δ agregada | **$2,182.00 = 0.77%** · mediana **0.09%** · máxima 6.32% |
+| Δ negativas | **0** — la entrada siempre declara igual o más |
+
+Ejemplos: depósito `#1590` $13,800 ↔ entrada $14,370 · `#1577` $15,900 ↔ $16,973 · `#1589`
+$18,120 ↔ $18,132.
+
+⚠️ **Lo que NO se publica, y es lo importante:** la primera versión de la pantalla explicaba la Δ
+como *«el depósito es efectivo contado en múltiplos de 10 y la entrada es el cobro con sus
+centavos»*. **La medición no sostiene esa causa**: si fuera morralla, la Δ rondaría el **7.32%**,
+que es lo que la morralla pesa en el efectivo contado del arqueo del POS ($806,511.66 de
+$11,012,309.75 desde el 1-sep, dato aportado por `trade-marketing-b8`). Es 0.77%. La causa quedó
+**declarada como no medida** en vez de afirmada — una explicación inventada se cita después como si
+fuera un hecho.
+
+### 37.2 · El primer tramo sí es texto, y se atribuye al grano que aguanta
+
+De qué ruta es cada depósito lo dice el `ref` que tecleó quien depositó, y lo lee
+`atribuirDeposito()` (`[CG.58.6]`). Medido corriendo el clasificador contra **los 749 `ref` reales
+de prod** (may→oct 2026, $18,360,140):
+
+| grano | depósitos | monto | % del dinero |
+|---|---:|---:|---:|
+| `ruta_dia` | 551 | $10,011,860 | 54.5% |
+| `plaza` | 76 | $5,173,790 | 28.2% |
+| `sin_declarar` | 69 | $2,030,000 | 11.1% |
+| vecinal | 21 | $640,410 | 3.5% |
+| `ruta` | 32 | $504,080 | 2.7% |
+
+Y por ruta: `21` 95 dep./$1,800,090 · `22` 101/$1,564,450 · `23` 104/$2,081,040 · `26`
+97/$1,756,940 · `27` 102/$2,006,120 · `28` 82/$1,281,650 · **`226` 1/$14,250** · `501` 1/$11,400.
+
+⭐ **La `226` no existe en el reporte de ventas.** Es un error de tecleo que hasta hoy no se veía;
+la fila lo DECLARA (*«el reporte de ventas no conoce esa ruta»*) en vez de inventarle sucursal.
+
+**18 de 749 ($280,600) están capturados en Caja General.** No es un faltante: es captura
+pendiente, y el módulo arrancó hace días. ⚠️ Esto reencuadra el P7 que `trade-marketing-b8` levantó
+como *«Morelia no captura»*: **nadie captura**. Lo que sí es propio de Morelia es que **las dos
+mitades fallan igual** — el cobro se registra como bulto (0 de 16 por ruta) **y** el texto del
+depósito tampoco baja a ruta (`rd mor` es plaza).
+
+### 37.3 · Qué se entregó
+
+**Backend** — `libs/finance/src/lib/caos/caos-ruta-caja.service.ts` + `GET /finance/caos/por-ruta`:
+
+- El `LEFT JOIN LATERAL` **agrega del lado de Caja General a propósito**: con un join plano, dos
+  entradas apuntando al mismo depósito lo duplicarían en el total, que es justo el error que el
+  reporte existe para encontrar. Así el depósito sigue siendo una fila y el `>1` se publica.
+- **La sucursal se DERIVA** del universo real de rutas (`analytics.sales_by_route_monthly`), no se
+  cablea. Si un número cae en dos almacenes la fila lo dice (la `321` y la `322` viven en `07` y en
+  `MD-32`); si cae en ninguno, también.
+- ⚠️ **Gateado con `COMMERCIAL_ROUTE_SALES_VER`, no con `FINANCE_CAOS_VER`**, y es una decisión
+  medida: de los 10 roles que abren Ventas por ruta sólo 5 tienen el de CAOS — `compras`,
+  `compras_operaciones`, `jefe_marketing`, `repartidor` y `telemarketing` verían un 403 en un panel
+  de SU pantalla. Mismo criterio que los otros dos paneles de conciliación de esa página. **No se
+  acuña un permiso nuevo**: uno recién acuñado no está REPARTIDO, y hasta que alguien lo reparta la
+  pantalla queda muda para todos (la lección de `[LC.6.2]`). Sin migración y sin re-login.
+- `esVecinal()` se exportó del clasificador: el consumidor necesita separar **dos ausencias** que el
+  grano `sin_declarar` mete en la misma bolsa (ADR-056), y deducirlo leyendo la prosa de `motivo` se
+  rompe en silencio el día que alguien reescriba esa frase.
+
+**Frontend** — `/comercial/ventas-por-ruta`:
+
+1. **Pestaña «Depósito»** en el detalle de cada ruta, junto a Productos/Unidades/Por día/Clientes/
+   Tickets. ⭐ Edgar buscó el folio ahí y no estaba: el panel agrupado contesta *«¿de quién es cada
+   depósito?»*, pero quien está parado en una ruta se pregunta *«esta ruta, ¿depositó?»*.
+2. **Columnas «Depositado» y «Entrada a Caja General» dentro de «Por día»** — ahí es donde se
+   concilia: la venta del día y su depósito en el mismo renglón.
+   - ⛔ El día con el que se cruza es el que **declara el texto**, no `occurred_at`: el depósito se
+     hace cuando la ruta vuelve, normalmente al día siguiente.
+   - ⛔ **No se resta venta − depósito.** No son el mismo universo (la venta incluye crédito y otros
+     medios de pago; el depósito es sólo efectivo). Restar dos universos publica un descuadre que no
+     existe.
+   - Lo que no cabe en ningún renglón (declara ruta pero no día) se **declara al pie**.
+3. **Panel colapsable** arriba, que se queda: es el único lugar donde se ve lo que **no** tiene
+   dueño (los $694,850 de Canindo a nivel plaza, los $366,480 sin declarar, la «Ruta 226»).
+4. Para una ruta **vecinal** nada de esto se pinta: se DECLARA que esa ruta no deposita en la caja
+   fuerte y se manda al panel de vecinal. Una tabla vacía ahí se leería como «no depositó».
+5. `/finanzas/caja-general` lee `?q=`/`?from=`/`?to=` en `ngOnInit` **antes** de cargar — una liga
+   que te deja buscando a mano no es una liga. ⚠️ Archivo de `trade-marketing-27`: avisado y
+   aceptado por esa sesión antes de commitear.
+6. Entrada del diccionario versionado `deposito-ruta-caos` (la compuerta `check:pantalla` la pedía).
+
+⭐ **La `clave` de agrupación la manda el SERVIDOR** en cada depósito. La primera versión la
+re-deducía en la pantalla: dos implementaciones de la misma precedencia, y el día que una cambie, el
+detalle de una fila mostraría los depósitos de otra — sin error y sin rojo. `claveDeDeposito()` vive
+en un solo lugar y tiene candado **con mutación verificada** (invertir ruta/plaza lo pone rojo).
+
+### 37.4 · Dos trampas de verificación que costaron en esta sesión
+
+- ⛔⛔ **`npx tsc --noEmit` NO tipa las plantillas de Angular.** Dio verde sobre un
+  `(retry)="recargarDeposito()"` que apuntaba a un método inexistente; lo encontró Edgar con el
+  build real. La compuerta que sí las tipa es `check:pantalla` (*«tipa (0 errores semánticos)»*).
+- ⚠️ **`information_schema` no lista materialized views.** Un `SELECT ... FROM
+  information_schema.columns WHERE table_name = 'mv_kepler_sales_daily'` devuelve **0 filas**, y casi
+  publico el hallazgo falso de que al criterio de aceptación de `[VEC.8]` le faltaba una columna.
+  `pg_attribute` dice 22 columnas y que `channel` **sí** existe. Misma familia que la trampa de
+  `[CP.8.39]` con `role_table_grants`.
+
+### 37.5 · Pendiente
+
+- **`git push`** (sin autorizar) + **deploy**. ⛔ Verificado por esta sesión, no de oídas: el
+  renglón de `auto-deploy.sh` en el `crontab` de `md` está **comentado**; prod sirve la imagen
+  `62fb99896`, **12 commits atrás** del `main` local. Sin prender ese carril, nada de esto llega.
+- **Validación visual** del panel, de la pestaña y de las dos columnas nuevas.
+- **Decisión de negocio, no de software:** 18 de 749 depósitos capturados; y pedir que al depositar
+  se teclee siempre ruta y día — es el único camino que cierra el 45.5% sin fecha.
+- **Sin dueño hoy:** `plaza` $5,173,790 · `sin_declarar` $2,030,000 · la «Ruta 226» $14,250.
+
+---
+
+## `[CG.160]` — Tres jornadas sin poder cerrar, y el cierre iba a firmar un faltante inventado
+
+**2026-10-14.** Edgar: *«lo tiene que resolver ya, este sería el 3er cierre que no se puede hacer»*.
+
+### Lo medido en prod, antes de tocar nada
+
+`finance.cash_ledger_cuts` tiene **un solo renglón en toda su historia**: `CC-2026-00001`, del
+**12-oct**, sucursal `00`, en `borrador`, con el conteo **sellado** (`contado = $3,653.50`) y
+`esperado`/`diferencia` en NULL.
+
+Y `ux_cash_cut_abierto` admite **un solo borrador por sucursal** ⇒ mientras ése no cierre, no se
+puede abrir el del 13 ni el del 14. **Un corte trabado tranca todos los que vienen detrás.**
+
+### Defecto 1 — la pantalla no ofrecía cerrar (frontend)
+
+`abrirCierre()` ponía `revelado()` en `null` **incondicionalmente**. Al recargar, el diálogo sólo
+mostraba «Guardar conteo», el servidor contestaba *«este corte ya tiene un conteo sellado»*, y
+«Cerrar corte» **no se pintaba nunca**.
+
+El dato ya viajaba: `saldo()` publica `corte_abierto.conteo_sellado` desde `[CG.156]`, y el
+frontend **no lo tenía declarado**, así que no podía leerlo. *El backend llevaba un día arreglado y
+la pantalla no se había enterado.*
+
+⛔ No afloja el arqueo ciego: sin sellar sigue en `null` y el esperado sigue oculto. Ya sellado, la
+revelación **ya ocurrió** y el conteo no se retoca sin `recontar()`.
+
+⚠️ De paso, `esperado`/`diferencia` en NULL con `contado` real se pintaban con `money(null)` =
+**`$0.00`** — un cero afirmando que cuadra, justo en el corte donde nadie calculó con qué comparar.
+
+### ⭐⭐ Defecto 2 — `contar()` y `cerrar()` medían UNIVERSOS DISTINTOS
+
+`[CG.115]` cerró el invariante «lo atado y lo sumado son el mismo conjunto» en el eje **FECHA** y
+dejó el de la **PLAZA** al revés:
+
+| camino | alcance |
+|---|---|
+| `contar()` · `recontar()` · `saldo()` | `movimientosSueltos()` → `aplicarAlcanceCaja` → **todas las plazas** (`[CG.98]`: el cajón de oficinas es UNO) |
+| `cerrar()` | `.where({ sucursal: c.sucursal })` → **sólo la `00`** |
+
+Medido sobre `CC-2026-00001`, al centavo:
+
+```
+gastos de la 00 ................ $18,973.00
+gastos de 01/05/06/07/08 ....... $39,737.05   <- quedaban fuera del cierre
+
+esperado que iba a firmar ....  $43,139.50  ->  diferencia  −$39,486.00   FALTANTE INVENTADO
+esperado real ................   $3,402.45  ->  diferencia     +$251.05   sobrante, cuadrable
+```
+
+El faltante de casi cuarenta mil **no existe**: es exactamente la nómina y los gastos que otras
+plazas pagaron **desde este mismo cajón**. `cash_ledger.sucursal` es la plaza del *documento*, no
+dónde estaba el efectivo.
+
+⇒ **Cerrar sin esto dejaba firmado, y sin vuelta atrás, un arqueo que acusa a quien contó de un
+faltante que nadie perdió.** El arreglo no es «el cierre funciona»: es que el cierre **dice la
+verdad**.
+
+El predicado se extrajo a `sueltosDe()` y lo usan los dos caminos: ya no pueden divergir **por
+construcción**. *Un invariante que depende de que dos lugares digan lo mismo se rompe en cuanto
+alguien toca uno.*
+
+⛔ El candado arma el **query builder REAL de knex** (cliente `pg`, sin conexión) y compara el SQL.
+No es un doble: un doble no ejecuta SQL y se habría puesto verde con el defecto puesto — que es
+exactamente cómo este defecto sobrevivió a **1,296 pruebas en verde**. Mutado a rojo.
+
+### ⛔ Lo que NO es un defecto de software: el 13-oct no se puede cerrar todavía
+
+Aritmética del cajón por jornada (libro + las dos piernas de CAOS), medida en prod:
+
+| día | movs libro | esperado del cajón | ¿cierra? |
+|---|---|---|---|
+| 25-sep · 07 · 08 · 09 · 10-oct | 1 a 4 | ±$200–400 mil | ⛔ el módulo **no se usaba** |
+| **12-oct** | 23 | **+$3,402.45** | ✅ cuadra (+$251.05) |
+| **13-oct** | 36 | **−$28,784.79** | ⛔ imposible |
+| 14-oct (hoy) | 10 | +$4,915 sobre el fondo | ✅ |
+
+El 13 no cierra porque **el cajón bajó $32,438.29 ese día arrancando con $3,653.50**: el 10-oct la
+máquina dispensó **$165,410 que nadie capturó**, ese efectivo se gastó sin registro, y lo que entró
+después se depositó el 13. No falta código: **falta captura de los días 7 al 10 de octubre**.
+
+⇒ Es la causa raíz de «el cajón tiene −$29,110.79»: no es dinero perdido, es la frontera de una
+jornada que arrastra días que nunca se cerraron.
+
+### Pendiente
+
+- **Empujar + soltar** (sin autorizar al cierre de esta nota) y **re-login no hace falta**: sin
+  migraciones ni permisos nuevos.
+- **Cerrar `CC-2026-00001`** desde la pantalla, en cuanto esto esté afuera.
+- **Decisión de Edgar:** qué se hace con el 13-oct — capturar lo que falta del 7 al 10, o declarar
+  esos días fuera del libro y arrancar el arqueo el 12. ⛔ Lo que **no** se va a hacer es inventarle
+  un conteo a un día que ya pasó.
