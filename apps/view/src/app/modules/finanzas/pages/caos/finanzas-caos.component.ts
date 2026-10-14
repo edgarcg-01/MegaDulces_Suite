@@ -11,7 +11,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosReparto } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 
 /**
@@ -99,6 +99,54 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
           </table>
         } @else {
           <p class="fin-dim">Sin datos de cuadre en el rango.</p>
+        }
+      </details>
+
+      <!-- [CG.58.2] — el conciliador de ingresos existía, estaba desplegado y NO tenía invocador:
+           ni botón, ni cron, ni enganche al arqueo. Por eso la atribución estaba en cero. -->
+      <details class="cs-resumen" (toggle)="alAbrirIngresos($event)">
+        <summary>¿De qué cobros es este efectivo? (atribución)</summary>
+        <p class="fin-dim cs-nota">
+          Ata cada depósito de la caja fuerte a los cobros de Kepler que lo explican, consumiendo
+          del más viejo al más nuevo y sin reusar ninguno. Los tres montos van <strong>separados a
+          propósito</strong>: «sin respaldo» es un depósito que ningún cobro anterior explica, y
+          «sin depositar» es efectivo cobrado que todavía no entró al equipo. No son lo mismo y los
+          arregla gente distinta.
+        </p>
+        @if (ingEstado(); as e) {
+          <table class="cs-tbl cs-mini">
+            <tbody>
+              <tr><td>Depositado en la caja fuerte</td>
+                  <td class="cs-r mono">{{ money(e.monto_depositado) }}</td>
+                  <td class="cs-r fin-dim">{{ e.depositos }} depósitos</td></tr>
+              <tr><td>Ya atribuido a cobros</td>
+                  <td class="cs-r mono">{{ money(e.monto_conciliado) }}</td>
+                  <td class="cs-r fin-dim">{{ e.conciliados }} depósitos</td></tr>
+              <tr><td>Sin respaldo (ningún cobro lo explica)</td>
+                  <td class="cs-r mono">{{ money(e.monto_pendiente) }}</td>
+                  <td class="cs-r fin-dim">{{ e.pendientes }} depósitos</td></tr>
+              <tr><td>Cobrado en efectivo y <strong>no</strong> depositado</td>
+                  <td class="cs-r mono">{{ money(e.monto_sin_depositar) }}</td>
+                  <td class="cs-r fin-dim">no entró al equipo</td></tr>
+            </tbody>
+          </table>
+          <div class="fin-row cs-acciones">
+            <p-button label="Conciliar ahora" icon="pi pi-link" size="small"
+                      [loading]="conciliando()" (onClick)="conciliarIngresos()"></p-button>
+            <span class="fin-dim">desde {{ e.desde }} · se puede repetir: descuenta lo ya atribuido</span>
+          </div>
+          @if (ingError(); as msg) { <p class="cs-err">{{ msg }}</p> }
+          @if (ultimoReparto(); as r) {
+            <p class="cs-ok">
+              Atados <strong>{{ r.cubiertos }}</strong> de {{ r.depositos }} depósitos
+              ({{ money(r.monto_respaldado) }}); quedaron <strong>{{ r.sin_respaldo }}</strong> sin
+              respaldo ({{ money(r.monto_faltante) }}). Renglones escritos: {{ r.escritos }}.
+            </p>
+          }
+        } @else if (ingError(); as msg) {
+          <p class="cs-err">{{ msg }}</p>
+        } @else {
+          <p class="fin-dim">Cargando la atribución…</p>
         }
       </details>
 
@@ -220,6 +268,9 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
     .cs-h3 { font-size:var(--fs-sm); margin:0 0 .3rem; }
     .cs-nota { font-size:var(--fs-xs); margin:0 0 .35rem; }
     .cs-mini { font-size:var(--fs-xs); }
+    .cs-acciones { margin-top:.6rem; align-items:center; gap:.6rem; }
+    .cs-err { font-size:var(--fs-xs); color:var(--bad-fg); margin:.5rem 0 0; }
+    .cs-ok  { font-size:var(--fs-xs); color:var(--ok-fg);  margin:.5rem 0 0; }
   `],
 })
 export class FinanzasCaosComponent implements OnInit, OnDestroy {
@@ -250,6 +301,14 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
   kpi = signal<CaosKpi | null>(null);
   resumen = signal<{ porRuta: CaosPorRuta[]; porOperador: CaosPorOperador[] } | null>(null);
   conc = signal<CaosConciliacion | null>(null);
+
+  // `[CG.58.2]` — la atribución de ingresos. Se carga al ABRIR el panel, no al entrar a la
+  // pantalla: es una consulta cara y la mayoría de quien abre CAOS viene a ver movimientos.
+  readonly ingEstado = signal<CaosIngresosEstado | null>(null);
+  readonly ingError = signal<string | null>(null);
+  readonly conciliando = signal(false);
+  readonly ultimoReparto = signal<CaosReparto | null>(null);
+  private ingCargado = false;
   cargando = signal(false);
   err = signal<string | null>(null);
   hasMore = signal(false);
@@ -309,6 +368,40 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
 
   /** Porcentaje de cobertura; `null` se declara "sin medir", nunca 0% (ADR-056). */
   pct(x: number | null): string { return x == null ? 'sin medir' : Math.round(x * 100) + '%'; }
+
+  /**
+   * `[CG.58.2]` La primera apertura del panel dispara la carga. ⚠️ `toggle` también se emite al
+   * CERRAR, así que se mira `open` — si no, cerrarlo volvería a pedir la consulta cara.
+   */
+  alAbrirIngresos(ev: Event): void {
+    if (!(ev.target as HTMLDetailsElement)?.open || this.ingCargado) return;
+    this.ingCargado = true;
+    this.cargarIngEstado();
+  }
+
+  private cargarIngEstado(): void {
+    this.svc.ingresosEstado().subscribe({
+      next: (e) => { this.ingEstado.set(e); this.ingError.set(null); },
+      error: (e) => { this.ingEstado.set(null); this.ingError.set(this.textoError(e)); },
+    });
+  }
+
+  /**
+   * Reparte y **escribe** la atribución. Es idempotente (descuenta lo ya atribuido), así que
+   * repetirlo no duplica tramos — por eso el botón no pide confirmación.
+   *
+   * ⚠️ Al terminar se RE-LEE el estado en vez de confiar en lo que devolvió el reparto: el
+   * resumen describe lo que ESTA corrida escribió, no el total acumulado, y pintarlo como el
+   * total diría que falta lo que otra corrida ya ató.
+   */
+  conciliarIngresos(): void {
+    this.conciliando.set(true);
+    this.ingError.set(null);
+    this.svc.conciliarIngresos().subscribe({
+      next: (r) => { this.ultimoReparto.set(r); this.conciliando.set(false); this.cargarIngEstado(); },
+      error: (e) => { this.ingError.set(this.textoError(e)); this.conciliando.set(false); },
+    });
+  }
 
   verDetalle(r: FilaUI): void {
     r.abierto = !r.abierto;
