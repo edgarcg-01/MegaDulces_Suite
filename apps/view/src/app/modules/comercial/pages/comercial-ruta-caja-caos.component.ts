@@ -69,7 +69,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
             <label>Desde <input type="date" [ngModel]="from()" (ngModelChange)="from.set($event); reload()" [max]="to()" /></label>
             <label>Hasta <input type="date" [ngModel]="to()" (ngModelChange)="to.set($event); reload()" [max]="today" /></label>
             @if (data(); as d) {
-              <app-freshness-pill measures="data" [since]="d.datos_al" label="CAOS" [staleAfterSec]="86400" />
+              <app-freshness-pill measures="data" [since]="d.data_as_of" label="CAOS" [staleAfterSec]="86400" />
             }
           </div>
 

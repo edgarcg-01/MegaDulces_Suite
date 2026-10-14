@@ -124,7 +124,7 @@ export interface CaosPorRuta {
     monto_sin_declarar: number;
   };
   /** Última sincronización del espejo de CAOS. Null = no medida, NO «al día». */
-  datos_al: string | null;
+  data_as_of: string | null;
   generated_at: string;
 }
 
@@ -226,8 +226,8 @@ export class CaosRutaCajaService {
         [tenantId],
       )).rows;
 
-      const frescura: { datos_al: string | null } | undefined = (await trx.raw(
-        `SELECT max(synced_at)::text AS datos_al FROM analytics.caos_cash_movements WHERE tenant_id = ?`,
+      const frescura: { data_as_of: string | null } | undefined = (await trx.raw(
+        `SELECT max(synced_at)::text AS data_as_of FROM analytics.caos_cash_movements WHERE tenant_id = ?`,
         [tenantId],
       )).rows[0];
 
@@ -380,7 +380,7 @@ export class CaosRutaCajaService {
           sin_declarar: mudo.n,
           monto_sin_declarar: mudo.m,
         },
-        datos_al: frescura?.datos_al ?? null,
+        data_as_of: frescura?.data_as_of ?? null,
         generated_at: new Date().toISOString(),
       };
     });
