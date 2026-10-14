@@ -45,6 +45,11 @@ export interface HechosEtapa {
    * la venta se deshizo. Una nota parcial NO cierra el pedido (decisión de Francisco, 2026-10-10).
    */
   devuelto_nc?: boolean;
+  /**
+   * `[MCP.3]` Surtido pedido por pedido desde la bandeja de preventa (`commercial.presale_picks`):
+   * `surtiendo` = alguien tocó «Empezar a surtir»; `terminado` = lo cerró y quedó listo para la caja.
+   */
+  pick?: 'surtiendo' | 'terminado' | null;
 }
 
 /**
@@ -62,8 +67,8 @@ export function etapaDe(h: HechosEtapa): PresaleStage {
   if (h.en_guia_impresa) return 'en_ruta';
   if (h.ligado) return 'cobrado';
   if (!h.customer_erp_code) return 'esperando_alta';
-  if (h.wave_stage === 'listo_embarque') return 'en_caja';
-  if (h.wave_stage) return 'en_surtido';
+  if (h.wave_stage === 'listo_embarque' || h.pick === 'terminado') return 'en_caja';
+  if (h.wave_stage || h.pick === 'surtiendo') return 'en_surtido';
   return 'por_surtir';
 }
 

@@ -1053,6 +1053,78 @@ export class CommercialOrdersService {
     });
   }
 
+  /**
+   * `[MCP.3]` Lo que no hubo al surtir SE QUITA del pedido y el total se recalcula (decisión de
+   * David, 2026-10-14). Corre dentro de la transacción del cierre del surtido para que el pedido y
+   * el registro del surtido no puedan quedar desparejos.
+   *
+   * Sólo para PREVENTA confirmada: la preventa no aparta inventario (`place()` no reserva cuando
+   * hay fecha de entrega), así que borrar o recortar no tiene reserva que liberar. Un pedido sin
+   * fecha sí la tendría: se rechaza en vez de dejar existencia apartada colgando.
+   *
+   * ⚠️ Un renglón recortado se vuelve a tarificar con el motor (el precio de Kepler depende de la
+   * cantidad). Si el motor no puede, se recalcula con el precio unitario y se suelta
+   * `erp_gross_total`: si se conservara, `recalcOrderTotals` seguiría usando el total viejo.
+   */
+  async recortarTrasSurtido(
+    trx: Knex.Transaction,
+    orderId: string,
+    plan: { quitar: string[]; recortar: Array<{ line_id: string; quantity: number }> },
+    reason: string,
+  ): Promise<{ total_before: number; total_after: number }> {
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException('Pedido no encontrado');
+    if (order.status !== 'confirmed') {
+      throw new ConflictException(`El pedido está ${order.status}: ya no se ajusta desde el surtido.`);
+    }
+    if (!order.requested_delivery_date) {
+      throw new ConflictException('Sólo los pedidos de preventa se ajustan desde el surtido.');
+    }
+    const totalBefore = Number(order.total);
+    type Renglon = {
+      id: string; product_id: string; quantity: string | number; qty_unit: string | null;
+      unit_price: string | number; tax_rate: string | number; discount_percent: string | number;
+    };
+    const lines = (await trx('commercial.order_lines').where({ order_id: orderId })) as Renglon[];
+    const porId = new Map<string, Renglon>(lines.map((l) => [l.id, l]));
+    if (lines.length - plan.quitar.length <= 0) throw new BadRequestException('El pedido quedaría sin renglones.');
+
+    if (plan.quitar.length) {
+      for (const id of plan.quitar) {
+        if (!porId.has(id)) throw new BadRequestException('Renglón ajeno al pedido.');
+      }
+      await trx('commercial.order_lines').where({ order_id: orderId }).whereIn('id', plan.quitar).delete();
+    }
+    for (const r of plan.recortar) {
+      const line = porId.get(r.line_id);
+      if (!line) throw new BadRequestException('Renglón ajeno al pedido.');
+      const quantity = Number(r.quantity);
+      if (!(quantity > 0) || quantity >= Number(line.quantity)) {
+        throw new BadRequestException('El recorte tiene que dejar menos de lo pedido y más de cero.');
+      }
+      const discount = Number(line.discount_percent) || 0;
+      const motor = await this.tarificarConMotor(trx, order.warehouse_id, line.product_id, quantity, line.qty_unit, discount);
+      const unitPrice = motor ? motor.unit_price : Number(line.unit_price);
+      const taxRate = motor ? motor.tax_rate : Number(line.tax_rate);
+      const lineSubtotal = motor ? motor.line_subtotal : +(quantity * unitPrice * (1 - discount)).toFixed(2);
+      const lineTax = motor ? motor.line_tax : +(lineSubtotal * taxRate).toFixed(2);
+      const lineTotal = motor ? motor.line_total : +(lineSubtotal + lineTax).toFixed(2);
+      await trx('commercial.order_lines').where({ id: line.id }).update({
+        quantity,
+        unit_price: unitPrice,
+        tax_rate: taxRate,
+        line_subtotal: lineSubtotal,
+        line_tax: lineTax,
+        line_total: lineTotal,
+        erp_gross_total: motor ? motor.erp_gross_total : null,
+      });
+    }
+    await this.recalcOrderTotals(trx, orderId);
+    await this.recordHistory(trx, orderId, 'confirmed', 'confirmed', reason);
+    const after = await trx('commercial.orders').where({ id: orderId }).first('total');
+    return { total_before: totalBefore, total_after: Number(after?.total ?? 0) };
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // State machine
   // ─────────────────────────────────────────────────────────────────
@@ -1362,9 +1434,16 @@ export class CommercialOrdersService {
            JOIN identity.role_permissions rp
              ON rp.role_name = u.role_name AND rp.deleted_at IS NULL
           WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
-            AND u.warehouse_id = ?
+            -- [MCP.3] También por la CLAVE de sucursal de la ficha (warehouse_code): es la que
+            -- usa el alcance (ScopeService) y la que de verdad tienen llena los surtidores; con
+            -- sólo warehouse_id el aviso en vivo casi no le llegaba a nadie (medido 2026-10-13).
+            AND (u.warehouse_id = ?
+                 OR btrim(u.warehouse_code) IN (
+                   SELECT btrim(w.code) FROM commercial.warehouses w WHERE w.id = ?
+                   UNION SELECT btrim(w.kepler_code) FROM commercial.warehouses w
+                    WHERE w.id = ? AND w.kepler_code IS NOT NULL))
             AND (rp.permissions ->> 'COMMERCIAL_PICKING_GESTIONAR') = 'true'`,
-        [order.tenant_id, order.warehouse_id],
+        [order.tenant_id, order.warehouse_id, order.warehouse_id, order.warehouse_id],
       );
       for (const g of gente) {
         this.alerts.emitTo(order.tenant_id, g.username, {
@@ -1372,7 +1451,11 @@ export class CommercialOrdersService {
           severity: 'info',
           title: 'Pedido por armar',
           message: `${order.code} — ${customerName}`,
-          data: { order_id: order.id, code: order.code, warehouse_id: order.warehouse_id },
+          // [MCP.3] La campana navega a `data.route`: tocar el aviso abre el pedido para surtirlo.
+          data: {
+            order_id: order.id, code: order.code, warehouse_id: order.warehouse_id,
+            route: `/almacen/surtir-preventa?pedido=${order.id}`,
+          },
         });
       }
       // ⚠️ Medido 2026-10-06: sólo 1 de los 6 `almacenista` tiene `warehouse_id`, así que este

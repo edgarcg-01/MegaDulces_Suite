@@ -26,6 +26,16 @@ import {
 describe('etapaDe', () => {
   const base = { status: 'confirmed', wave_stage: null, ligado: false, customer_erp_code: '10182' };
 
+  it('[MCP.3] surtido por pedido: empezado = en surtido, terminado = en caja', () => {
+    expect(etapaDe({ ...base, pick: 'surtiendo' })).toBe('en_surtido');
+    expect(etapaDe({ ...base, pick: 'terminado' })).toBe('en_caja');
+    // La liga sigue mandando sobre el surtido: si ya se cobró, se cobró.
+    expect(etapaDe({ ...base, pick: 'terminado', ligado: true })).toBe('cobrado');
+    // Sin clave de Kepler sigue esperando el alta aunque alguien haya empezado a surtir.
+    expect(etapaDe({ ...base, customer_erp_code: null, pick: 'surtiendo' })).toBe('esperando_alta');
+    expect(etapaDe({ ...base, pick: null })).toBe('por_surtir');
+  });
+
   it('confirmado sin ola = por surtir', () => {
     expect(etapaDe(base)).toBe('por_surtir');
   });
