@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
+import { atribuirDeposito } from './caos-deposito-grano';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 
@@ -92,11 +93,68 @@ export class CaosIngresoCronService {
       this.logger.error(`[CG.58.5] la atribución de CAOS falló: ${motivo}`);
     }
 
-    await this.latir(cubiertos, pendientes, Date.now() - t0, motivo);
+    const granos = await this.clasificarGranos();
+
+    await this.latir(cubiertos, pendientes, Date.now() - t0, motivo, granos);
     return { cubiertos, pendientes, motivo };
   }
 
-  private async latir(cubiertos: number, pendientes: number, ms: number, motivo: string | null): Promise<void> {
+  /**
+   * ⭐ `[CG.58.6]` Lee el `ref` de los depósitos que todavía no tienen veredicto y escribe el
+   * **grano** al que su texto permite atribuirlos.
+   *
+   * Va en el mismo carril que la atribución de cobros a propósito: son las dos mitades de la
+   * misma pregunta —*de qué cobros es este efectivo* y *de qué ruta viene*— y separarlas en dos
+   * crones deja que una se quede atrás sin que se note.
+   *
+   * ⚠️ Sólo escribe los que NO tienen fila viva. No re-clasifica: si mañana el motor mejora, la
+   * re-clasificación es una decisión aparte (borrar el veredicto viejo) y no un efecto lateral
+   * de que el cron corra.
+   */
+  private async clasificarGranos(): Promise<number> {
+    try {
+      const nuevos: Array<{ device: string; external_id: string; occurred_at: Date; total: string; ref: string | null }> =
+        await this.knex('analytics.caos_cash_movements as m')
+          .where('m.tenant_id', MEGA)
+          .where('m.type_id', 0)
+          .whereNotExists(function (this: Knex.QueryBuilder) {
+            this.select(1).from('finance.caos_deposito_grano as g')
+              .whereRaw('g.tenant_id = m.tenant_id AND g.caos_device = m.device '
+                + 'AND g.caos_external_id = m.external_id AND g.deleted_at IS NULL');
+          })
+          .select('m.device', 'm.external_id', 'm.occurred_at', 'm.total', 'm.ref')
+          .limit(5000);
+      if (!nuevos.length) return 0;
+
+      const filas = nuevos.map((d) => {
+        const dia = new Date(d.occurred_at).toISOString().slice(0, 10);
+        const a = atribuirDeposito(d.ref, dia);
+        return {
+          tenant_id: MEGA,
+          caos_device: d.device,
+          caos_external_id: d.external_id,
+          grano: a.grano,
+          ruta: a.ruta,
+          plaza: a.plaza,
+          business_date: a.fecha,
+          ref_leido: d.ref,
+          motivo: a.motivo,
+          monto: d.total,
+        };
+      });
+      for (let i = 0; i < filas.length; i += 500) {
+        await this.knex('finance.caos_deposito_grano').insert(filas.slice(i, i + 500));
+      }
+      this.logger.log(`[CG.58.6] ${filas.length} depósito(s) clasificados por grano`);
+      return filas.length;
+    } catch (e) {
+      // No puede tumbar la atribución de cobros, que es la mitad que mueve dinero.
+      this.logger.warn(`[CG.58.6] no se pudo clasificar el grano: ${e instanceof Error ? e.message : e}`);
+      return 0;
+    }
+  }
+
+  private async latir(cubiertos: number, pendientes: number, ms: number, motivo: string | null, granos: number): Promise<void> {
     try {
       /**
        * ⛔ El veredicto NO es «cubiertos === 0». Con el backlog ya repartido, cero es el estado
@@ -117,7 +175,7 @@ export class CaosIngresoCronService {
           status: error ? 'error' : 'ok',
           rows_affected: cubiertos,
           duration_ms: ms,
-          note: error ? null : `${cubiertos} depósito(s) atribuidos · ${pendientes} sin respaldo`,
+          note: error ? null : `${cubiertos} depósito(s) atribuidos · ${pendientes} sin respaldo · ${granos} clasificado(s) por grano`,
           error,
           host: 'worker',
           updated_at: this.knex.fn.now(),

@@ -843,6 +843,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
         loadComponent: () => import('./modules/finanzas/pages/tesoreria-diagnostico.component').then(m => m.TesoreriaDiagnosticoComponent),
       },
+      // `[PU.13]` El estimado de ingresos por día, página propia por la misma razón que Tesorería.
+      {
+        path: 'ingresos',
+        canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
+        loadComponent: () => import('./modules/finanzas/pages/presupuesto-ingresos.component').then(m => m.PresupuestoIngresosComponent),
+      },
     ]
   },
   // ── Proyecto Desarrolladores (Fase DEV, 2026-10-01) ─────────────────

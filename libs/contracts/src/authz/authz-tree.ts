@@ -469,6 +469,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // lee como si el árbol entero estuviera roto. Va vacío porque la pantalla es un
           // diagnóstico de LECTURA: no hay nada que gestionar en ella.
           { id: 'tesoreria-diagnostico', label: 'Tesorería · diagnóstico', route: '/presupuesto/tesoreria', view: [Permission.PRESUPUESTOS_VER], manage: [] },
+          // `[PU.13]` El estimado de ingresos por día (bancos y caja general) con lo real al lado.
+          // Mismo permiso que el resto del proyecto: nada nuevo en el JWT, sin re-login. `manage: []`
+          // obligatorio (ver el renglón de arriba): la pantalla es de lectura.
+          { id: 'ingresos-estimado', label: 'Ingresos · estimado', route: '/presupuesto/ingresos', view: [Permission.PRESUPUESTOS_VER], manage: [] },
         ],
       },
       {

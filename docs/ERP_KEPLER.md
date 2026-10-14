@@ -509,7 +509,46 @@ X-A-30 Requisición      (c8=N, no mueve nada)
 Compra directa `X-A-5` hace inventario + CxP de golpe.
 **Devoluciones** `X-D-30/35/40`. **Pago a proveedor** `X-D-20/25/26`.
 
-**Traspasos** (género `N`): `N-A-6` entrada / `N-D-6` salida (sin proveedor, mueve entre almacenes).
+⛔⛔ **Traspasos: `N-A-6` / `N-D-6` están MUERTOS. Corregido el 2026-10-13** (`[KR.0]`, Fase KR).
+
+Esta línea decía *"Traspasos (género `N`): `N-A-6` entrada / `N-D-6` salida (sin proveedor, mueve
+entre almacenes)"*, y el decode del catálogo es correcto —`kdmm` los declara así, `N-A-6` =
+«Entrada Traspaso sucursal», `c8='S'`, cuentas `114-001`/`114-006`—. Lo que es falso es que se
+usen: **cero documentos en las NUEVE sucursales** (`md_00`…`md_08`, contados uno por uno).
+
+⚠️ Y el único género `N` con volumen real **no es mercancía**: `N-A-26` son **1,154
+transferencias BANCARIAS** (`c5` = «Transferencia bancaria», naturaleza egreso, cuenta `102` →
+`102`). Leerlo como traspaso de almacén mete tesorería en el inventario.
+
+⭐⭐ **Dónde está el traspaso de verdad: género `U`, y SÍ tiene documento de solicitud.**
+
+```
+U-D-40 Pedido        (c8=N, no mueve nada · c27='SUCURSAL' · c63='PD-')
+  → U-D-41 Embarque Sucursal   (c8=S ← SALE el inventario)
+    → U-A-50 Recepción Traspaso Suc   (c8=S ← ENTRA en el destino)
+```
+
+Medido en `md_00`, 120 días: **955 pedidos, 951 con `c27='SUCURSAL'`, y 886 (92.8 %) derivaron en
+su embarque** por el back-pointer `c37='40'`/`c39`=folio.
+
+⚠️ **El destino NO es un almacén: es un pseudo-cliente `TI###`** en `c10` (*"TRASPASO ZAMORA
+CENTRO"*). ⛔ **Y no se puede inferir del número de sucursal** — `02` La Piedad Abastos es
+`TI008`, `03` 8 Esquinas es `TI002`. La equivalencia vive en **`md.pv_suc_ip`** (`c1` = sucursal,
+`c7` = `TI###`), verificada contra el uso real:
+
+| sucursal | 00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---|---|---|---|---|---|---|---|---|
+| `TI###` | 000 | 001 | **008** | **002** | **003** | **007** | 006 | **009** | **004** |
+
+⚠️ **`c11` en `U-D-40` es el ESTADO del flujo**, no la referencia que es en `X-A-30`:
+`AUTORIZADO` → `SURTIDO` → `CHECADO` → `EMBARCADO`. `c31` vale `Ped` (en la requisición, `Req`).
+
+⚠️ **`md.kdfolio` tiene fila `PD-` con 74,439**, pero el folio máximo real de `U-D-40` en `md_00`
+es **`0001081`** sobre 1,077 documentos: la secuencia observada es **densa desde 1** y no
+corresponde a ese contador. Queda **sin explicar** si Kepler lo consulta para algo.
+
+Lo que esto costó saber: la Fase KR diseñó medio sprint sobre la premisa de que el traspaso no
+tenía documento. Es el **73 % de las requisiciones** ($11.8M).
 
 ⚠️ **El folio NO es único entre doctypes** — el mismo número de folio puede existir en `X-A-37` y `X-A-40`.
 Nunca joinees solo por folio; incluí el doctype. (Ver `reference_kepler_orden_entrada_xa2001` en las notas.)

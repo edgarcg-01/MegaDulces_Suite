@@ -1,10 +1,22 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
   validarSeguimiento, coberturaAutoabastoSql,
+  KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort, type KeplerLineaResuelta,
 } from '@megadulces/contracts';
+
+/**
+ * `[KR.4]` Hoy en la zona del negocio, `YYYY-MM-DD`.
+ *
+ * ⚠️ `new Date().toISOString()` daría UTC, y entre las 18:00 y la medianoche de México eso es
+ * **el día siguiente** — una requisición fechada mañana en el ERP. Es la misma trampa que
+ * `[LC.16]` encontró al revés (un `date` de pg renderizado en hora local daba el día anterior).
+ */
+const todayMx = (): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date());
 import { Knex } from 'knex';
 import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
@@ -441,6 +453,36 @@ export interface ReplenishmentFilters {
   categories: Record<string, unknown>[];
 }
 
+/**
+ * `[KR.4]` Lo que `pushToKepler` lee para armar el documento. Los `string | null` no son
+ * pereza: `kepler_code` y `origen_kepler_code` salen de un LEFT JOIN y pueden faltar — por eso
+ * hay dos `throw` que lo comprueban antes de usarlos.
+ */
+interface CabeceraPushKepler {
+  id: string;
+  folio: string;
+  estado: string;
+  source_type: string | null;
+  total_cost: string | number | null;
+  kepler_sucursal: string | null;
+  kepler_folio: string | null;
+  wcode: string | null;
+  kepler_code: string | null;
+  prov_code: string | null;
+  prov_name: string | null;
+  origen_kepler_code: string | null;
+}
+
+/** `[KR.6]` El renglón tal como sale de la consulta: `numeric` de pg llega como string. */
+interface LineaPushKepler {
+  sku: string;
+  nombre: string;
+  final_qty: string | number;
+  unit_cost: string | number | null;
+  line_cost: string | number | null;
+  box_factor: string | number | null;
+}
+
 @Injectable()
 export class CommercialReplenishmentService {
   private readonly logger = new Logger(CommercialReplenishmentService.name);
@@ -451,6 +493,13 @@ export class CommercialReplenishmentService {
     private readonly scanner: ReplenishmentScannerService,
     /** `[ZN.3.3]` El alcance de datos (ADR-050): sobre QUE sucursales, no si la pantalla abre. */
     private readonly scope: ScopeService,
+    /**
+     * `[KR.4]` La puerta hacia Kepler. **`@Optional()` a propósito**: sin binding —o sin
+     * `KEPLER_PUSH_URL`— todo el módulo sigue funcionando igual y sólo `pushToKepler` contesta
+     * que no está habilitado. Escribir al ERP es exactamente la clase de cosa que uno quiere
+     * poder apagar sin tocar a quien arma la requisición.
+     */
+    @Optional() @Inject(KEPLER_REQUISITION_SINK_PORT) private readonly keplerSink?: KeplerRequisitionSinkPort,
   ) {}
 
   // RA-PRO.27 — la migración 20260728170000 (settings + columnas de override) puede ir por
@@ -3836,6 +3885,11 @@ export class CommercialReplenishmentService {
           // distintos y ya llegaron desordenados antes en este repo.
           trx.raw(`to_jsonb(r) ->> 'oc_sucursal' AS oc_sucursal`),
           trx.raw(`to_jsonb(r) ->> 'oc_folio'    AS oc_folio`),
+          // `[KR.8]` La REQUISICIÓN que esta Suite escribió en Kepler — otro documento que la OC
+          // de arriba, que la captura una persona. Mismo `to_jsonb` por el mismo motivo.
+          trx.raw(`to_jsonb(r) ->> 'kepler_sucursal' AS kepler_sucursal`),
+          trx.raw(`to_jsonb(r) ->> 'kepler_folio'    AS kepler_folio`),
+          trx.raw(`to_jsonb(r) ->> 'kepler_error'    AS kepler_error`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
           // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
           // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva
@@ -4120,7 +4174,10 @@ export class CommercialReplenishmentService {
    * `null` y la aprobación pasa: castigar la ausencia de medición es dibujar un veredicto que
    * nadie emitió (ADR-056).
    */
-  async approve(id: string) {
+  async approve(
+    id: string,
+    empujar = true,
+  ): Promise<{ id: string; estado: string; kepler: { estado: string; folio?: string; motivo?: string } }> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     const vig = await this.tk.run(async (trx) => (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null);
@@ -4128,9 +4185,41 @@ export class CommercialReplenishmentService {
       throw new BadRequestException(
         `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales). Usá "Recalcular" y volvé a aprobar.`);
     }
-    return this.setEstado(id, 'pending_approval', 'approved');
+    const r = await this.setEstado(id, 'pending_approval', 'approved');
+    // `[KR.5]` El empuje cuelga de aprobar. `empujar:false` lo apaga para el lote (ver bulkEstado).
+    return { ...r, kepler: empujar ? await this.pushKeplerTrasAprobar(id) : { estado: 'en_lote' } };
   }
   reject(id: string) { return this.setEstado(id, 'pending_approval', 'cancelled'); }
+
+  /**
+   * `[KR.5]` — **El empuje a Kepler cuelga de APROBAR, y no puede voltear la aprobación.**
+   *
+   * Por qué al aprobar y no al armar: aprobar es cuando el documento se vuelve real. Empujado al
+   * armar, Kepler se llenaría de borradores que todavía pueden rechazarse — y **no los podemos
+   * borrar**, sólo darlos de baja a mano (el rol de escritura no tiene `DELETE`, a propósito).
+   * Es la doble captura lo que esto viene a quitar, no el criterio de quien aprueba.
+   *
+   * ⛔ **Nunca lanza.** La aprobación ya está commiteada cuando esto corre; si el empuje fallara
+   * hacia arriba, quien aprueba vería un error sobre algo que SÍ pasó, y un ERP lento o caído
+   * frenaría las compras. El motivo queda en `kepler_error` —que `pushToKepler` escribe antes de
+   * tirar— y la pantalla ofrece reintentar con `POST requisitions/:id/push-kepler`.
+   *
+   * ⚠️ Los traspasos se OMITEN con motivo, no fallan: no existe un `X-A-30` que los reciba (son
+   * género `N`, y `N-A-6`/`N-D-6` están **muertos en las nueve sucursales**). Son el **73% del
+   * volumen** — 360 requisiciones por $11.8M—, así que esto no es un caso borde: es la mitad
+   * grande del flujo, y se declara en vez de simular que salió.
+   */
+  private async pushKeplerTrasAprobar(id: string): Promise<{ estado: string; folio?: string; motivo?: string }> {
+    if (!this.keplerSink) return { estado: 'apagado' };
+    try {
+      const r = await this.pushToKepler(id);
+      return { estado: r.ya_estaba ? 'ya_estaba' : 'entregada', folio: r.kepler?.folio ?? undefined };
+    } catch (e: unknown) {
+      const motivo = (e as { message?: string })?.message || 'no se pudo';
+      this.logger.warn(`Requisición ${id} aprobada pero NO salió a Kepler: ${motivo}`);
+      return { estado: 'no_salio', motivo };
+    }
+  }
 
   /** Montos en el mensaje de error, para que diga CUÁNTO se movió y no sólo que se movió. */
   private pesos(n: number): string {
@@ -4154,7 +4243,13 @@ export class CommercialReplenishmentService {
     const ok: string[] = []; const fallas: Array<{ id: string; motivo: string }> = [];
     for (const id of unicos) {
       try {
-        await (accion === 'approve' ? this.approve(id) : this.reject(id));
+        // ⛔ `[KR.5]` **El lote NO empuja a Kepler.** Aprueba hasta 200 de una, y cada empuje
+        // son varios viajes de ida y vuelta al ERP: 200 escrituras dentro de una sola petición
+        // HTTP tardarían minutos y pueden dar timeout — y si el timeout corta a la mitad, queda
+        // la duda de cuáles salieron. Las requisiciones quedan aprobadas con `kepler_folio` en
+        // NULL, que es exactamente el estado "todavía no salió" que la bandeja sabe mostrar y
+        // reintentar. Se declara, no se dibuja como entregado.
+        await (accion === 'approve' ? this.approve(id, false) : this.reject(id));
         ok.push(id);
       } catch (e: unknown) {
         fallas.push({ id, motivo: (e as { message?: string })?.message || 'no se pudo' });
@@ -4226,6 +4321,135 @@ export class CommercialReplenishmentService {
       this.logger.log(`Requisición ${req.folio} recibida por ${userId ?? 'system'}`);
       return { id, estado: 'received' };
     });
+  }
+
+  /**
+   * `[KR.4]` — **Empuja la requisición a Kepler como documento `X-A-30`.**
+   *
+   * Primera escritura autorizada de la plataforma al ERP (excepción explícita a ADR-016/040,
+   * decisión de Edgar del 2026-10-13). El transporte vive detrás de
+   * `KEPLER_REQUISITION_SINK_PORT`; sin binding contesta que no está habilitado.
+   *
+   * ⭐ **La idempotencia la hace ESTE método, no el sink.** Un sink entrega lo que le dan:
+   * llamarlo dos veces escribe dos documentos. Pasó el 2026-10-13 con `RQ-2026-00807`, que dejó
+   * `0003114` y `0003115` vivos a la vez por $175,608.84 cuando la necesidad era $87,804.42.
+   *
+   * ⛔ **El sink se llama FUERA de la transacción de la Suite.** Si se llamara adentro y la
+   * nuestra se cayera después, en Kepler quedaría un documento huérfano: el ERP no participa de
+   * nuestro rollback. Orden: leer, cerrar, empujar, anotar.
+   *
+   * ⚠️ **`consolidar` viene en `true`.** El motor genera un renglón por almacén evaluado pero la
+   * línea **no guarda cuál** (`source_warehouse_id` va NULL en las de compra): medido en
+   * `RQ-2026-00807`, seis renglones del mismo SKU que sólo se distinguían por la existencia.
+   * Sumarlos no destruye información porque el desglose ya estaba perdido. **Si algún día la
+   * línea registra su destino, este default pasa a destruir dato y hay que invertirlo.**
+   */
+  async pushToKepler(
+    id: string,
+    opts?: { consolidar?: boolean },
+  ): Promise<{
+    ya_estaba: boolean;
+    kepler?: { sucursal: string | null; folio: string; renglones?: number };
+    lineas?: KeplerLineaResuelta[];
+    consolidado?: boolean;
+  }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    if (!this.keplerSink) throw new BadRequestException('La escritura a Kepler no está habilitada en este despliegue (KEPLER_REQUISITION_SINK_PORT sin ligar).');
+    const consolidar = opts?.consolidar !== false;
+
+    // 1. Leer. La transacción se cierra ANTES de hablarle al ERP.
+    const datos = await this.tk.run(async (trx) => {
+      const cab = (await trx('commercial.purchase_requisitions as r')
+        .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
+        .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
+        .where({ 'r.tenant_id': tenantId, 'r.id': id })
+        .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'r.tenant_id').andOn('sw.id', 'r.source_warehouse_id'))
+        .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.total_cost',
+          'r.kepler_sucursal', 'r.kepler_folio',
+          'w.code as wcode', 'w.kepler_code', 'sup.code as prov_code', 'sup.name as prov_name',
+          // `[KR.10]` El ORIGEN del traspaso: ahí se crea el pedido, y el destino va de `TI###`.
+          'sw.kepler_code as origen_kepler_code')
+        .first()) as CabeceraPushKepler | undefined;
+      if (!cab) throw new NotFoundException('Requisición no encontrada');
+      // `[KR.6]` El factor de caja viaja con la línea: es el TESTIGO contra el que el adapter
+      // contrasta el `c58` de Kepler antes de convertir. `null` cuando la Suite tampoco sabe —
+      // y entonces el adapter rechaza, porque dos ignorancias no hacen una certeza.
+      const lineas = (await trx('commercial.purchase_requisition_lines as l')
+        .join('catalog.products as p', (j) => j.on('p.tenant_id', 'l.tenant_id').andOn('p.id', 'l.product_id'))
+        .leftJoin('analytics.v_product_box_factor as bf', (j) => j.on('bf.tenant_id', 'l.tenant_id').andOn('bf.product_id', 'l.product_id'))
+        .where({ 'l.tenant_id': tenantId, 'l.requisition_id': id }).andWhere('l.final_qty', '>', 0)
+        .select('p.sku', 'p.nombre', 'l.final_qty', 'l.unit_cost', 'l.line_cost', 'bf.box_factor')
+        .orderBy('p.sku')) as LineaPushKepler[];
+      return { cab, lineas };
+    });
+    const { cab } = datos;
+
+    // 2. Idempotencia: si ya salió, no se vuelve a escribir.
+    if (cab.kepler_folio) return { ya_estaba: true, kepler: { sucursal: cab.kepler_sucursal, folio: cab.kepler_folio } };
+
+    // 3. Frenos. Cada uno existe porque su ausencia escribe basura en el ERP.
+    // `[KR.10]` Compra y traspaso son DOS documentos distintos de Kepler, no el mismo con otro
+    // código: `X-A-30` Requisición contra `U-D-40` Pedido. Lo decide `source_type`.
+    const tipo: 'compra' | 'traspaso' = cab.source_type === 'branch' ? 'traspaso' : 'compra';
+    if (!cab.kepler_code) throw new BadRequestException(`El almacén ${cab.wcode} no tiene kepler_code: no se sabe a qué sucursal va.`);
+    if (tipo === 'compra' && !cab.prov_code) throw new BadRequestException('El proveedor no tiene código Kepler cargado (kdm1.c10 es obligatorio).');
+    // ⚠️ En un traspaso, el almacén del ENCABEZADO es el destino y `source_warehouse_id` el
+    // origen — al revés que en la compra, donde el encabezado es dónde se entrega.
+    if (tipo === 'traspaso' && !cab.origen_kepler_code) throw new BadRequestException('El traspaso no tiene sucursal ORIGEN con kepler_code: no se sabe desde dónde sale.');
+    if (!datos.lineas.length) throw new BadRequestException('La requisición no tiene renglones con cantidad > 0');
+
+    // 4. Armar los renglones. `final_qty` ya viene en CAJAS y Kepler las acepta: sin conversión.
+    let lineas = datos.lineas;
+    if (consolidar) {
+      const porSku = new Map<string, LineaPushKepler>();
+      for (const l of lineas) {
+        const v = porSku.get(l.sku);
+        if (v) { v.final_qty = Number(v.final_qty) + Number(l.final_qty); v.line_cost = Number(v.line_cost) + Number(l.line_cost); }
+        else porSku.set(l.sku, { ...l });
+      }
+      lineas = [...porSku.values()];
+    }
+
+    const res = await this.keplerSink.entregar({
+      requisition_id: cab.id, folio_suite: cab.folio, tipo,
+      // El documento se crea DONDE SALE la mercancía: en la compra, el almacén que recibe del
+      // proveedor; en el traspaso, la sucursal origen — y el destino viaja como `TI###`.
+      sucursal: tipo === 'traspaso' ? cab.origen_kepler_code! : cab.kepler_code,
+      destino_sucursal: tipo === 'traspaso' ? cab.kepler_code : undefined,
+      proveedor_code: cab.prov_code ?? undefined, proveedor_nombre: cab.prov_name ?? undefined,
+      fecha: todayMx(), total: Number(cab.total_cost) || 0,
+      // ⭐ `[KR.6]` La Suite manda CAJAS y el adapter las escribe en `CJA`, sin convertir.
+      // El testigo (`piezas_por_caja`) se retiró el 2026-10-14: existía para contrastar antes de
+      // convertir, y ya no se convierte — Kepler copia el renglón entre documentos.
+      lineas: lineas.map((l) => ({
+        sku: String(l.sku), nombre: String(l.nombre),
+        cajas: Number(l.final_qty),
+        costo_caja: Number(l.unit_cost) || 0,
+        importe: Number(l.line_cost) || 0,
+      })),
+    });
+
+    // 5. Anotar. `kepler_error` se guarda igual que el folio: "no salió" y "salió mal" son
+    //    ausencias distintas y con una sola columna en NULL se leen igual (ADR-056).
+    await this.tk.run(async (trx) => {
+      await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).update(
+        res.estado === 'entregada'
+          ? { kepler_sucursal: res.kepler!.sucursal, kepler_folio: res.kepler!.folio, kepler_pushed_at: trx.fn.now(), kepler_pushed_by: userId, kepler_error: null }
+          : { kepler_error: res.motivo ?? 'rechazada sin motivo' });
+    });
+
+    if (res.estado !== 'entregada') {
+      // ⭐ El detalle por renglón viaja en la excepción: "no se pudo" sin decir CUÁL SKU ni por
+      // qué deja a quien aprueba sin nada que arreglar. La pantalla lo pinta tal cual.
+      throw new BadRequestException({
+        message: `Kepler rechazó la requisición: ${res.motivo}`,
+        lineas: res.lineas?.filter((l) => l.motivo) ?? [],
+      });
+    }
+    this.logger.log(`Requisición ${cab.folio} → Kepler ${res.kepler!.sucursal}/${res.kepler!.folio} por ${userId ?? 'system'}`);
+    return { ya_estaba: false, kepler: res.kepler, lineas: res.lineas, consolidado: lineas.length < datos.lineas.length };
   }
 
   // ── RA.8 — Hallazgos de reabastecimiento (bandeja) ────────────────────

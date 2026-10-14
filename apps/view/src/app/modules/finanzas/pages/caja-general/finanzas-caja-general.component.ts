@@ -17,7 +17,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo } from '@megadulces/contracts';
-import { prepararFirma, pintarQr, type FirmaCanvas } from '@megadulces/ui-web';
+import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
  * `[CG.74]` La página que abre el teléfono para firmar. Vive acá como constante porque la dicen
@@ -39,7 +39,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
-  type RecurrenteSinRegla } from '../../cash-ledger.service';
+  type RecurrenteSinRegla, type CorteRow } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -2055,6 +2055,36 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </div>
               }
 
+              <!-- ⭐⭐ [CG.182] EL CORTE DE CAJA, QUE ES LO QUE LA PERSONA TIENE EN LA MANO.
+                   Medido en prod: la unica declaracion humana de donde salio un deposito es texto
+                   libre -- 708 referencias distintas en 749 depositos, cero parseables, la misma
+                   ruta escrita "ruta 21 09 26", "rd 21 04/07", "ruta 21 13 10 26". Y se ve por
+                   plaza: en la 00, 31 de 34 cobros declaran ruta y fecha; en Morelia, 0 de 16.
+                   Elegir el corte ESCRIBE la glosa con su caja, su plaza y su fecha. No ancla
+                   nada: la liga estructural es la version siguiente y vive en el servidor. Lo que
+                   entrega hoy es que la declaracion salga estructurada del lugar donde se hace.
+                   ⛔ Solo en el INGRESO y sin documento: con un documento de Kepler la glosa ya
+                   sale de el, y en un gasto o un deposito al banco no hay corte que declarar. -->
+              @if (!fichaSolaLectura() && f().tipo === 'ingreso' && !cobroElegido()) {
+                <div class="fin-row fin-row-col">
+                  <label for="cg-corte">¿De qué corte de caja salió?</label>
+                  <p-autocomplete inputId="cg-corte" [(ngModel)]="cortesSel" [suggestions]="cortesOpciones()"
+                                  (completeMethod)="buscarCortes($event)" (onSelect)="usarCorte($event)"
+                                  (onClear)="soltarCorte()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [dropdown]="true" [showClear]="true"
+                                  appendTo="body" class="cg-full"
+                                  placeholder="Últimos 7 días de esta sucursal — buscá por caja, plaza o fecha"></p-autocomplete>
+                  <!-- ⛔ Cuatro estados. "Vacio" y "no se pudo leer" son ausencias distintas, y la
+                       de hoy tiene dueno distinto: el rezago de carga no lo resuelve quien captura. -->
+                  @if (cortesAviso(); as av) {
+                    <small class="fin-dim">{{ av }}</small>
+                  } @else {
+                    <small class="fin-dim">Al elegirlo se escribe el «Qué pasó» con su caja, su plaza y su
+                      fecha. El importe no se copia: se guarda lo que contaste.</small>
+                  }
+                </div>
+              }
+
               <!-- [CG.94] La glosa con documento se arma del documento (X-D-26 0023028 · …).
                    Preguntarla es pedir que alguien reescriba lo que ya quedo escrito. -->
               @if (!fichaSolaLectura()) {
@@ -2089,6 +2119,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       desde la bandeja, sin volver a elegir la cuenta.
                     </small>
                   </span>
+                </label>
+              }
+
+              <!--
+                [CG.160] El motivo de "sin documento". El servidor lo exige desde [CG.124] y la
+                pantalla no lo tenia: quien captura cobranza de ruta chocaba con un 400 que le
+                explicaba que hacer y no le daba donde. Aparece SOLO cuando no hay documento ni
+                movimiento del cajero elegido, que es cuando el servidor lo pide.
+              -->
+              @if (!cobroElegido() && !caosElegido()) {
+                <label class="fin-field cg-sin-doc">
+                  <span class="fin-label">Por qué este movimiento no tiene documento</span>
+                  <textarea
+                    rows="2"
+                    class="fin-input"
+                    [ngModel]="sinDocumentoMotivo()"
+                    (ngModelChange)="sinDocumentoMotivo.set($event)"
+                    [ngModelOptions]="{ standalone: true }"
+                    placeholder="Ej: cobranza de la ruta 501 que nadie registró en Kepler"
+                    maxlength="300"></textarea>
+                  <small class="fin-dim">
+                    No está enlazado a Kepler ni al cajero, así que hay que decir por qué.
+                    Un movimiento sin origen y sin motivo no se puede auditar después.
+                  </small>
                 </label>
               }
 
@@ -3409,6 +3463,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * de crédito (`cliente_credito`), pero SIEMPRE queda editable (decisión del usuario).
    */
   ventaCredito = signal<number>(0);
+  /**
+   * ⛔⛔ `[CG.160]` **Por qué este movimiento no tiene documento.** El servidor lo exige desde
+   * `[CG.124]` y la pantalla no tenía dónde escribirlo: quien captura cobranza de ruta sin
+   * documento en Kepler chocaba con un 400 que le explicaba qué hacer y no le daba cómo.
+   */
+  sinDocumentoMotivo = signal<string>('');
   /** ¿El cliente del cobro anclado es de crédito? (para mostrar el campo y el aviso del auto-relleno). */
   clienteCredito = signal<boolean>(false);
   /* ⛔ `[CG.48]` Acá vivía `contadoBandeja`: el total tecleado en la columna "Contado" de la
@@ -4267,6 +4327,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // exactamente el cambio. El botón quedaba apagado justo en el caso que la fase vino a
       // habilitar. Lo encontró la prueba del envío, no la lectura del código.
       devuelto: this.devuelto(),
+      // `[CG.160]` Las dos mitades de la conciliación, para que el botón se apague con su motivo
+      // en vez de que la persona choque contra el 400 del servidor. ⚠️ `origen_ref` se arma IGUAL
+      // que en `guardar()`: si acá se leyera distinto, el botón diría una cosa y el envío otra.
+      origen_ref: this.caosElegido()?.origen_ref ?? this.cobroElegido()?.origen_ref ?? null,
+      sin_documento_motivo: this.sinDocumentoMotivo(),
     },
     todayMx(),
   ));
@@ -5146,6 +5211,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
     this.ventaCredito.set(0);
     this.clienteCredito.set(false);
+    // ⛔ `[CG.160]` Y el motivo de «sin documento» MENOS que ninguno: heredado de la captura
+    // anterior, explicaría un movimiento que no es el suyo — y como el servidor sólo mira que
+    // tenga 12 caracteres, pasaría sin que nadie lo note. Es la peor forma de fallar acá: no un
+    // error, una explicación equivocada guardada como si fuera cierta.
+    this.sinDocumentoMotivo.set('');
     // ⛔ [CG.38] Y el cambio devuelto TAMPOCO. Sin esta línea, la captura siguiente arranca con
     // el cambio de la anterior ya restado del monto: dinero que se va de un movimiento al que
     // no pertenece, y encima en silencio porque el bloque nace plegado.
@@ -5854,6 +5924,142 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /** Un toque llena cuenta, concepto, glosa y beneficiario. El importe NUNCA se pre-llena. */
+  // ══ `[CG.182]` EL CORTE DE CAJA QUE LA PERSONA TIENE EN LA MANO ════════════════════════════
+  //
+  // El problema, medido en prod: para declarar de dónde salió un depósito, la única declaración
+  // humana que existe es texto libre — **708 referencias distintas en 749 depósitos**, cero
+  // parseables, y la misma ruta escrita de tres formas. Y se ve por sucursal: en la 00, 31 de 34
+  // cobros declaran ruta y fecha; en Morelia (07 y 08), **0 de 16** — todas "DEPOSITO EFECTIVO
+  // CAJA GENERAL M.M. 08/10/2026", un bulto del día. Por eso unos son rastreables y otros no.
+  //
+  // ⭐ Lo que esto hace NO es casar: es **prellenar**. Elegir el corte escribe la glosa con su
+  // caja, su plaza y su fecha, igual que `usarFrecuente` escribe cuenta y concepto. La liga
+  // ESTRUCTURAL (`finance.caos_cash_links`) es la versión siguiente y vive en el backend; ésta
+  // entrega hoy lo que de verdad falta: que la declaración salga estructurada del lugar donde se
+  // hace, sin pedirle a nadie que cambie de hábito.
+  //
+  // ⛔ Y el importe **ordena, no decide**. Casar por monto es imposible y está medido: CAOS no
+  // recibe monedas, los 749 depósitos son múltiplos de 10, así que una venta con centavos NUNCA
+  // puede igualar a un depósito. Poner arriba el corte más cercano le ahorra la lectura a la
+  // persona sin afirmar nada — el mismo criterio con el que `VERDAD_ABSOLUTA` conserva el precio
+  // pero no lo deja votar. Por eso NO se rotula "sugerido": la liga la declara quien captura.
+
+  /** Los cortes que se ofrecen. Vacío NO es "no hay": lo dice `cortesEstado()`. */
+  cortesPos = signal<CorteRow[]>([]);
+  /** Cuatro estados, no dos. `vacio` y `falla` son ausencias distintas y se dicen distinto. */
+  cortesEstado = signal<'inicial' | 'cargando' | 'listo' | 'falla'>('inicial');
+  /** El corte más reciente que trajo la ventana. `null` = no vino ninguno. */
+  cortesUltimo = signal<string | null>(null);
+  cortesSel: (CorteRow & { label: string }) | null = null;
+
+  /**
+   * ⚠️ **SIETE días, y la ventana no puede ser corta.** Entre el corte y su depósito pasan días:
+   * el caso real que originó esto son **5** (corte del 08-oct, depósito del 13), y el rezago de
+   * captura medido va de 1.7 a 3 días con máximo 7. Una ventana de 3 días le queda corta a la
+   * persona justo en el caso que la hizo abrir la pantalla.
+   */
+  private readonly CORTES_DIAS = 7;
+
+  /**
+   * ⛔ **«Hoy» está VACÍO y hay que decirlo.** Los cortes del POS cargan con ~1 día de rezago, así
+   * que una lista sin el día de hoy se lee como «no hubo cortes» cuando lo cierto es «todavía no
+   * llegaron». Son dos ausencias y ésta tiene dueño distinto: no la resuelve quien captura.
+   */
+  cortesAviso = computed(() => {
+    const estado = this.cortesEstado();            // se lee SIEMPRE: sin esto el computed no recalcula
+    const ultimo = this.cortesUltimo();
+    if (estado === 'falla') return 'No se pudo leer la lista de cortes. No es que no haya: no se pudo preguntar.';
+    if (estado !== 'listo') return null;
+    if (!this.cortesPos().length) return `Sin cortes en los últimos ${this.CORTES_DIAS} días para esta sucursal.`;
+    return ultimo && ultimo < todayMx()
+      ? `Lo más reciente es del ${dmy(ultimo)}: los cortes del POS cargan con un día de rezago.`
+      : null;
+  });
+
+  /**
+   * ⭐ El importe ORDENA, no decide. Los más cercanos a lo contado primero; a igual distancia,
+   * el más reciente. Si todavía no hay monto, manda la fecha.
+   *
+   * ⛔ Y NO se rotula «sugerido» ni se autoselecciona: casar por monto es **imposible** y está
+   * medido —CAOS no recibe monedas, los 749 depósitos son múltiplos de 10, así que una venta con
+   * centavos nunca puede igualar a un depósito—. Esto es orden de lectura, no una afirmación.
+   */
+  private ordenarCortes(rows: readonly CorteRow[]): CorteRow[] {
+    const ref = Number(this.f().monto) || 0;
+    return [...rows].sort((a, b) => {
+      if (ref > 0) {
+        const d = Math.abs(Number(a.monto) - ref) - Math.abs(Number(b.monto) - ref);
+        if (d !== 0) return d;
+      }
+      return a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0;
+    });
+  }
+
+  /** La etiqueta lleva el CÓDIGO además del nombre: el código `03` tiene dos nombres vivos
+   *  («8 Esquinas» y «8ESQ») y quien trae el reporte de Kepler en la mano puede leer cualquiera. */
+  corteLabel = (c: CorteRow) =>
+    `${dmy(c.fecha)} · ${c.referencia || 'sin caja'} · ${c.sucursal_nombre} (${c.sucursal}) · ${money(c.monto)}`;
+
+  cargarCortesPos(): void {
+    const hasta = todayMx();
+    const d = new Date(`${hasta}T12:00:00`);
+    d.setDate(d.getDate() - (this.CORTES_DIAS - 1));
+    const desde = toMxDateKey(d);
+    this.cortesEstado.set('cargando');
+    this.svc.cortesDeCaja(desde, hasta).subscribe({
+      next: (r) => {
+        // Acotado a la sucursal que se está capturando: la mediana por sucursal son ~20 cortes
+        // en 7 días, y la lista plana de la red son 195 — inusable.
+        const suc = this.f().sucursal;
+        const propios = (r.cortes ?? []).filter((c) => !suc || c.sucursal === suc);
+        this.cortesPos.set(propios);
+        this.cortesUltimo.set(r.ultimo_corte ?? null);
+        this.cortesEstado.set('listo');
+      },
+      // ⛔ No se vacía la lista: un fallo no es una ausencia de cortes. Se DECLARA en `cortesAviso`.
+      error: () => { this.cortesEstado.set('falla'); this.cortesUltimo.set(null); },
+    });
+  }
+
+  buscarCortes(e: AutoCompleteCompleteEvent): void {
+    if (this.cortesEstado() === 'inicial') { this.cargarCortesPos(); return; }
+    const base = this.ordenarCortes(this.cortesPos());
+    // Busca por caja, folio, plaza Y CÓDIGO. Sin el código, quien lee «03» en el papel no lo
+    // encuentra, que es la mitad del problema que la lista viene a resolver.
+    // ⭐ Tokenizado con el helper compartido, no `includes()`: así «pina» encuentra «PIÑA», el
+    // orden de las palabras deja de importar, y «03 caja» ya no exige que estén pegadas.
+    const hit = filtrarPorBusqueda(base, e.query, (c) =>
+      [c.referencia, c.documento, c.sucursal_nombre, c.sucursal, c.fecha].map((v) => (v == null ? '' : String(v))));
+    this.cortesOpciones.set(hit.map((c) => ({ ...c, label: this.corteLabel(c) })));
+  }
+
+  cortesOpciones = signal<Array<CorteRow & { label: string }>>([]);
+
+  /**
+   * ⭐⭐ Elegir un corte **PRELLENA**, no ancla. La glosa sale escrita con la caja, la plaza y la
+   * fecha — que es exactamente lo que hoy se teclea a mano y sale distinto cada vez.
+   *
+   * ⛔ El MONTO no se toca: lo que se guarda es lo que se contó, no lo que vendió la caja. En el
+   * caso real faltan $4,508.99 entre lo vendido y lo depositado (monedas que CAOS no toma + lo no
+   * depositado), así que copiar el monto del corte inventaría un depósito que no ocurrió.
+   */
+  usarCorte(e: AutoCompleteSelectEvent): void {
+    const c = e.value as CorteRow;
+    if (!c) return;
+    this.f.update((v) => ({
+      ...v,
+      glosa: `Corte ${c.referencia || c.documento} · ${c.sucursal_nombre} · ${dmy(c.fecha)}`,
+      fecha: v.fecha,            // la fecha del movimiento es la del DEPÓSITO, no la del corte
+    }));
+    this.onGlosa(this.f().glosa);
+  }
+
+  soltarCorte(): void {
+    this.cortesSel = null;
+    this.f.update((v) => ({ ...v, glosa: '' }));
+  }
+
+
   usarFrecuente(fr: Frecuente): void {
     const suc = this.f().sucursal;
     this.f.update((v) => ({
@@ -6163,6 +6369,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // documento: el monto sale del arqueo precargado, no se relee de Kepler.
       origen_tipo: caos ? 'caos' : (cobro ? (cobro.origen_tipo || (cobro.tipo === 'ingreso' ? 'cobro' : 'pago_proveedor')) : null),
       origen_ref: caos ? caos.origen_ref : (cobro ? cobro.origen_ref : null),
+      // `[CG.160]` Por qué no hay documento. Va SIEMPRE que no haya origen; con origen el servidor
+      // lo ignora (`conciliacion()` corta en `enlazado` antes de mirarlo).
+      sin_documento_motivo: (!caos && !cobro) ? (this.sinDocumentoMotivo().trim() || undefined) : undefined,
       // ⭐ Lo CONTADO, en su campo propio. Sin esto el servidor relee el importe del documento y
       // descarta el conteo: la diferencia llegaba al hallazgo pero NO al libro, o sea que la caja
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya

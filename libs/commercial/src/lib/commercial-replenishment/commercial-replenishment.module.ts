@@ -13,6 +13,8 @@ import { PurchaseAdjustmentsController } from './purchase-adjustments.controller
 import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments-findings-bridge.service';
 import { PurchaseFlowService } from './purchase-flow.service';
 import { PurchaseFlowController } from './purchase-flow.controller';
+import { KEPLER_REQUISITION_SINK_PORT } from '@megadulces/contracts';
+import { KeplerRequisitionSinkAdapter } from './kepler-requisition-sink.adapter';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
@@ -23,7 +25,13 @@ import { PurchaseFlowController } from './purchase-flow.controller';
  */
 @Module({
   controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController],
-  providers: [CommercialReplenishmentService, AutoabastoPedidoService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService],
+  providers: [CommercialReplenishmentService, AutoabastoPedidoService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService,
+    // `[KR.4]` La puerta hacia Kepler (ADR-016, excepción autorizada 2026-10-13).
+    // ⛔ Estar ligado NO significa estar encendido: el adapter sólo abre conexión si existe
+    // `KEPLER_PUSH_URL`, y aunque exista, sin `GRANT INSERT` sobre `md.kdm1`/`kdm2` la base
+    // rechaza la escritura. Son tres candados independientes y el de la base es el que manda.
+    KeplerRequisitionSinkAdapter,
+    { provide: KEPLER_REQUISITION_SINK_PORT, useExisting: KeplerRequisitionSinkAdapter }],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
 export class CommercialReplenishmentModule {}

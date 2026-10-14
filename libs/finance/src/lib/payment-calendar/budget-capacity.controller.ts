@@ -37,10 +37,12 @@ export class BudgetCapacityController {
 
   @Get('propose')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
-  @ApiOperation({ summary: 'Propone la capacidad diaria desde la cobranza esperada (flujo). Read-only; «sin CXC» se declara.' })
-  propose(@Query('from') from: string, @Query('to') to: string) {
+  @ApiOperation({ summary: 'Propone la capacidad diaria. Default (PU.14): desde el estimado de ingresos (real si ya entró); basis=cartera usa la cobranza esperada. Si no hay estimado que cubra el rango cae a cartera y lo declara (respaldo_de). Read-only.' })
+  propose(
+    @Query('from') from: string, @Query('to') to: string, @Query('basis') basis?: string,
+  ): ReturnType<BudgetCapacityService['propose']> {
     if (!from || !to) throw new BadRequestException('Se requiere from+to');
-    return this.svc.propose(from, to);
+    return this.svc.propose(from, to, basis);
   }
 
   @Post('confirm')

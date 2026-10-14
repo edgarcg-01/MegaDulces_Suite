@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 
 /**
@@ -20,6 +20,9 @@ import { TenantKnexService } from '@megadulces/platform-core';
 @Injectable()
 export class CajaControlService {
   constructor(private readonly tk: TenantKnexService) {}
+
+  /** `[CG.158]` Lo que no se puede leer se registra con su motivo real, no en silencio. */
+  private readonly logger = new Logger(CajaControlService.name);
 
   /** Tope duro: una pantalla que pide "todo" no es una pantalla, es una descarga. */
   private readonly TOPE = 400;
@@ -62,12 +65,38 @@ export class CajaControlService {
   private async frescura(trx: any) {
     const SRC = '0 T Movimientos';
     let at: string | null = null;
+    /**
+     * ⛔ `[CG.158]` **Acá el `catch` publicaba un motivo FALSO, y por eso nadie lo vio.**
+     *
+     * Decía *«el carril puede no existir en este entorno»*. Medido en prod el 2026-10-14: el
+     * carril existe y está **sano** —`_ship_watermark` de `0 T Movimientos` marca `2026-10-13
+     * 17:19` y corrió hace 4 minutos—, pero `app_runtime` **no tiene `USAGE` sobre el schema**
+     * `caja_general_ods`, así que la lectura muere con `42501` y esta pantalla viene reportando
+     * `unknown` desde siempre.
+     *
+     * ⚠️ El historial SÍ se ve, porque sale de `analytics.v_caja_control_cortes` (2,069 filas como
+     * `app_runtime`). **Que una pantalla cargue no prueba que sus fuentes se lean** — y un `catch`
+     * que inventa la razón convierte un permiso faltante en «no se pudo medir», que nadie va a ir
+     * a arreglar. Es el defecto de `[CP.8.39]`, que tuvo un puente muerto por lo mismo.
+     *
+     * El arreglo de fondo es el `GRANT` (migración `20261014100953`); esto hace que, si vuelve a
+     * pasar, el motivo quede escrito.
+     */
+    let motivo: string | null = null;
     try {
       const r = await trx('caja_general_ods._ship_watermark')
         .where('src_table', SRC).first('wm', 'updated_at');
       at = r?.wm ? new Date(r.wm).toISOString() : null;
-    } catch {
-      at = null; // el carril puede no existir en este entorno: se DECLARA, no se inventa
+      if (!r) motivo = 'el carril no ha registrado su marca todavía';
+    } catch (e) {
+      at = null;
+      const code = (e as { code?: string })?.code;
+      motivo = code === '42501'
+        ? 'sin permiso para leer el espejo de Control (falta USAGE sobre caja_general_ods)'
+        : code === '42P01'
+          ? 'el espejo de Control no existe en este destino'
+          : 'no se pudo leer la marca del carril';
+      this.logger.warn(`frescura de Control sin medir: ${motivo}`);
     }
     const horas = at ? (Date.now() - new Date(at).getTime()) / 3_600_000 : null;
     // 30 h: el arqueo de Control se captura en días hábiles, así que un fin de semana normal
@@ -81,8 +110,11 @@ export class CajaControlService {
     const input = {
       key: 'caja_general_ods', label: 'Arqueos de Control',
       at, age_human: edad, status, stale: status !== 'fresh',
+      // `[CG.158]` POR QUÉ no se pudo medir. Sin esto, «sin medir» por falta de permiso y «sin
+      // medir» porque el carril nunca corrió se leen igual, y sólo una de las dos tiene arreglo.
+      motivo,
     };
-    return { data_as_of: at, status, stale: status !== 'fresh', age_human: edad, inputs: [input] };
+    return { data_as_of: at, status, stale: status !== 'fresh', age_human: edad, motivo, inputs: [input] };
   }
 
   /**

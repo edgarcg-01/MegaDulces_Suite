@@ -262,7 +262,7 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 ### 8.0b Antes de pedir revisión — el protocolo previo al PR
 
-> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) y lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
+> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) y lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13) y la barra compacta de Cambios de precio (2026-10-14, puntos 14–17). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
 
 **1. El PR apunta a `main`. Siempre. No se apilan PR sobre ramas de feature.**
 - **Por qué:** el CI sólo corre con `pull_request: branches: [main]`. Un PR apuntado a otra rama **nunca se compila**: #305 llegó con 411 líneas que ningún compilador había visto. Y **re-apuntar la base no dispara el CI** (GitHub corre con `opened`/`synchronize`; cambiar la base no es ninguno): lo dispara un *push*.
@@ -308,6 +308,13 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 **13. Una mutación que no se aplicó parece una prueba que pasa.** Con archivos CRLF, `str.replace` de Python puede no cambiar nada y la prueba «sobrevive» sin haber probado. La mutación **afirma que el reemplazo ocurrió** (`assert a in s`) antes de correr la prueba, y se restaura el archivo y se vuelve a correr en verde.
 
+**14. Antes de tocar un archivo de frontend: carga la skill `diseno` y MIDE la pantalla — y vuelve a medirla al terminar.** En «Cambios de precio» (ETQ-CAMBIOS.10) escribí a mano un resumen de cuatro cifras en una línea; la skill dice que re-estilar a mano lo que ya existe es el antipatrón #1, y la cargué **después** de editar. El auditor lo confirmó: mi versión agregó una falla nueva (`Q.1 answer-first`) que `main` no tenía. Orden: (1) skill `diseno` y el inventario de `shared/components`; (2) `npm run check:pantalla -- <módulo>` **antes** de editar y guarda la lista; (3) edita; (4) vuelve a correrlo: **ninguna falla nueva** (que 247 pantallas ya fallen algo no es excusa para sumar una más).
+
+**15. Si una pieza compartida no tiene la variante que necesitas, extiéndela de forma ADITIVA — no la reimplementes en la pantalla.** `app-metric-strip` no tenía una versión compacta, así que ganó `density="compact"`, con el default sin cambio para las otras 96 pantallas que lo usan. Tres pruebas lo sostienen: *el default no cambia nada*, *la variante marca el contenedor* y *compactar no pierde ninguna métrica ni su nota* (ahorrar espacio no es quitar información). Después se rompe a propósito cada pieza (el consumidor deja de pedir la variante; el componente ignora la opción) y se verifica el rojo.
+
+**16. Scripts de edición: a un archivo, nunca `node -e "…"` con texto de documentación.** El shell expande los acentos graves: mi `CHANGELOG` salió con «Para eso  gana » (los nombres `app-metric-strip` y `density="compact"` se ejecutaron como comandos y desaparecieron) y hubo que corregirlo. Escribe el script con la herramienta de archivos y córrelo con `node ruta/script.js`. Y **no se invoca Python** (regla de `CLAUDE.md`: deja procesos huérfanos). Tras editar, lee el diff buscando huecos como ese.
+
+**17. Lo que no pudiste ver, se declara — con lo primero que probablemente haya que ajustar.** La regla del proyecto prohíbe levantar la app en local, así que un cambio de CSS/maquetación llega **sin validación visual**. En el PR di (a) que no se vio, (b) qué se midió en su lugar (auditor, pruebas, gates) y (c) qué es lo más probable de ajustar (aquí: el margen entre filas y cómo bajan los controles en pantalla angosta). Un «se ve bien» que nadie vio es una afirmación falsa (punto 12).
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
 ---
