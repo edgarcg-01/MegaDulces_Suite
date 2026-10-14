@@ -1,10 +1,29 @@
 # Runbook — corte de asistencia: Mega Talento → Suite (Fase RH, `[RH.1.8]`)
 
 > **Quién:** Edgar (prod en `md`), David (agente de relojes y Mega Talento), RH (valida y empieza a usarlo).
-> **Cuándo:** sábado **7-nov-2026**, fuera de horario hábil (después de las 20:00). La semana de nómina corre de jueves a
-> miércoles: la semana del 5 al 11 de noviembre queda mitad en Mega Talento y mitad en la Suite, y la carga trae todo.
+> **Cuándo:** ~~sábado 7-nov-2026~~ → **miércoles 14-oct-2026** (adelantado a pedido de David, 14-oct). Las migraciones
+> (§2.1–§2.3) en el día; lo que escribe la carga o reinicia pods (§2.4 en adelante), **después de las 20:00**. La semana
+> de nómina corre de jueves a miércoles: el miércoles es su último día, así que la semana que empieza el jueves 15 queda
+> **completa** en la Suite (con el 7-nov habría quedado partida a la mitad).
 > **Escrito el 2026-10-07** con los guiones ya probados contra la base local y contra Mega Talento real (sólo lectura).
 > Nada de esto se ha corrido contra prod todavía: desde la máquina de trabajo no hay acceso a `md`.
+
+## 0.0 Antes de empezar (14-oct): acceso y quién hace qué
+
+- **El lector de relojes corre en `LapSistemasA`, que es la laptop de David** (servicio «Mega Talento Agente de
+  Checadas», verificado el 14-oct). Para hoy va la **opción A** del paso 4: cambiar su `config.json` y reiniciar el
+  servicio. La B (lector en `md`) espera a que `[RH.0.3]` mida que `md` alcanza los 12 relojes.
+- **Acceso a `md` para David (sólo si Edgar lo aprueba):** dar de alta la llave de la laptop con el guion de `[SEG.1]`,
+  y quitarla después del corte si no debe quedarse:
+
+  ```sh
+  # en md, con la llave pública de la descripción del PR guardada en /tmp/david.pub
+  sh ~/ops/prod/ssh-llaves.sh agregar /tmp/david.pub david@lapsistemasa
+  # al terminar, si no se queda:
+  sh ~/ops/prod/ssh-llaves.sh quitar david@lapsistemasa
+  ```
+
+  Sin el acceso, Edgar corre los pasos de `md` y David los del lector y la revisión.
 
 ---
 
