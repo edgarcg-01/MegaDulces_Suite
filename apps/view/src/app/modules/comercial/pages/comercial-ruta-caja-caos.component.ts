@@ -205,8 +205,10 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                   no declaran nada; y <strong>{{ d.resumen.vecinal }}</strong>
                   ({{ money(d.resumen.monto_vecinal) }}) son de la vecinal, que se arquea en su caja
                   y tiene su propio panel arriba.
-                  La <strong>Δ</strong> no es un descuadre: el depósito es efectivo contado en múltiplos
-                  de 10 y la entrada es el cobro con sus centavos.
+                  La <strong>Δ</strong> es cuánto más dice la entrada que el depósito, y
+                  <strong>nunca es negativa</strong> en lo medido: la entrada siempre declara igual
+                  o más. Es chica —0.77% del total, mediana 0.09%— y por eso no se lee como
+                  faltante; <strong>la causa no está medida</strong> y no se afirma acá.
                 </span>
               </p>
             }
