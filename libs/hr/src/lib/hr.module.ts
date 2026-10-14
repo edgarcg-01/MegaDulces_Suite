@@ -22,6 +22,7 @@ import { HrTalentLinksService } from './talent/talent-links.service';
 import { HrRecruitmentBotService } from './talent/bot/recruitment-bot.service';
 import { HrRecruitmentInterpreterService } from './talent/bot/interprete-registro.service';
 import { HrCvValidatorService } from './talent/bot/validar-cv.service';
+import { HrDocumentClassifierService } from './talent/bot/clasificar-documento.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -61,6 +62,7 @@ import { HrCvValidatorService } from './talent/bot/validar-cv.service';
     SpeechToTextService,
     // `[RH.3.3.2]` revisa con visión que el CV lo sea (sin clave, acepta y marca para revisión).
     HrCvValidatorService,
+    HrDocumentClassifierService,
   ],
   // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
   exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],

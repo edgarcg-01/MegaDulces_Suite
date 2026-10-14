@@ -1,5 +1,42 @@
 # Recursos Humanos › Reclutamiento — el registro por WhatsApp
 
+## RH.3.3.4 · Los documentos del expediente por WhatsApp (2026-10-14)
+
+### Problema
+
+Para contratar a alguien, RH necesita su INE, CURP, RFC, NSS, comprobante de domicilio, acta, cuenta bancaria y aviso de
+privacidad firmado. En la Suite el bot no sabía recibirlos. Si un candidato ya postulado mandaba un documento, el bot le
+contestaba «primero necesito terminar tu registro», y eso era falso. Y si se le pedía el CV y mandaba su INE, la INE se
+perdía y después había que volver a pedírsela.
+
+### Solución
+
+- RH le pide sus documentos y el bot le manda la lista. Por omisión son los obligatorios que le faltan; el CV no, porque
+  ya lo mandó.
+- La persona los manda como foto o PDF, en el orden que quiera. El bot reconoce cada uno y lo guarda en su lugar del
+  expediente, y le dice qué falta. Cuando termina escribe «listo».
+- Si el bot no reconoce un documento, lo guarda como «otro» para que RH lo acomode. Nunca lo pone en un lugar adivinado.
+- A quien ya está postulado y manda un documento sin que se lo pidan, también se le guarda.
+- Si se le pedía el CV y mandó su INE, la INE se guarda aparte y entra a su expediente cuando manda el CV.
+
+### Cómo se implementó
+
+- `documentos.ts` tiene las reglas y los mensajes, sin base ni red. `clasificar-documento.service.ts` le pregunta a Claude
+  (Haiku, con visión) qué documento es, con el mismo catálogo que Mega Talento.
+- El documento queda en el expediente del candidato (`candidates.documents`), marcado como llegado por WhatsApp y con lo
+  que vio la visión. Lo que se pidió y lo guardado aparte viven en la conversación (columna nueva `documents`, migración
+  `20261014141356`).
+- Pruebas de las reglas, del clasificador y de la conversación completa contra la base, comprobadas rompiendo el código a
+  propósito (siete veces).
+
+### Por qué así
+
+Que la persona mande sus papeles por el mismo chat donde se postuló ahorra visitas y llamadas. Que la visión sólo pueda
+elegir entre los lugares que ya existen evita expedientes con documentos en el lugar equivocado; cuando duda, es mejor que
+RH lo acomode. Guardar aparte la INE mandada por error evita pedirle dos veces lo mismo. Falta el botón para pedir los
+documentos desde la ficha: la Suite todavía no tiene cómo escribirle primero a un candidato, y pasadas 24 horas desde su
+último mensaje Meta sólo permite plantillas aprobadas.
+
 ## RH.3.3.3 · El bot le arma el CV a quien no tiene (2026-10-14)
 
 ### Problema

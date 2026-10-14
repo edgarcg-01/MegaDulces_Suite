@@ -587,6 +587,28 @@ que ese formulario necesita (`[RH.2.4]`).
   **mutadas a rojo** (no purgar, sin filtro de sensibles, sin escapar, el archivo al libro, sin solicitud). **No
   incluye:** leer datos de la FOTO de un documento (INE, CURP); avisos versionados con titulares que no son usuarios
   (deuda declarada: PRV.2 liga la aceptación a un usuario).
+- [ ] **[RH.3.3.4]** 🧪 Documentos del expediente por WhatsApp (2026-10-14), lado del bot. Portado de la etapa
+  `pidiendo_documentos` de Mega Talento (`documentos.js`, `clasificarDocumento`, `manejarDocumento`): RH le pide sus
+  documentos (`HrRecruitmentBotService.pedirDocumentos`: por omisión, los OBLIGATORIOS que le faltan, sin el CV), la
+  persona los manda como foto o PDF en el orden que quiera, la visión (`HrDocumentClassifierService`, Haiku, mismo catálogo
+  y la misma prudencia: si duda, «otro») reconoce cada uno y va a su casillero de `candidates.documents` con
+  `origen: whatsapp` y el motivo; el acuse dice qué falta; «listo» cierra la etapa y lo anota en la bitácora. A quien
+  se postuló por la web se le crea la conversación. Tres cosas que Mega Talento no hacía o hacía mal: (1) **a un
+  postulado que manda un archivo sin que se lo pidan se le archiva** (la Suite le contestaba «primero termina tu
+  registro», defecto de `[RH.3.2]`); (2) **la visión no puede inventar casilleros** (una llave fuera del catálogo se
+  descarta) y sin IA no se adivina; (3) si se le pedía el CV y mandó su INE, **se APARTA** en la conversación (una por
+  casillero) y viaja a su expediente al postularse — en Mega Talento se archivaba porque el candidato existía desde el
+  primer «hola»; aquí todavía no existe. Un estado que el registro no conocía lo devolvía a pedir datos del registro:
+  los estados de documentos se tratan como postulados. Mig `20261014141356_talent_bot_documentos` (columna
+  `documents` + dos estados + el CHECK de cierre ampliado; aditiva, después de `20261014083512`). Pruebas: lógica pura,
+  clasificador, y la conversación contra la base (pedir → INE → «otro» → recordatorio → «listo» → no retoma el registro →
+  documento tardío; apartar dos INE y escribir antes del CV; papelera; tres CHECK), **mutadas a rojo** (7: casillero
+  inventado, postulado sin archivar, retomar el registro, papelera sin borrar del bucket, dos del mismo casillero,
+  guardar que borra lo apartado, apartados que no viajan). **No incluye** (`[RH.3.3.4b]`): el botón «Pedir documentos»
+  en la ficha ni el envío del mensaje — la Suite todavía no tiene cómo escribirle a un candidato por iniciativa propia,
+  y fuera de las 24 h desde su último mensaje Meta exige plantilla aprobada (`[RH.3.6]`). Tampoco: leer datos de la foto.
+- [ ] **[RH.3.3.4b]** ⬜ El botón «Pedir documentos» en la ficha: endpoint que llama a `pedirDocumentos`, puerto de salida
+  de WhatsApp desde RH, y la regla de la ventana de 24 h (dentro, texto libre; fuera, plantilla o declararlo).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2
   (manda la liga del cuestionario — ya existe, `[RH.2.4]`), aviso al jefe para aptitudes, MIDOT en modo manual.
 - [ ] **[RH.3.5]** Los cron con latido: avance, reactivar CV, destacados, riesgo, recordatorios de MIDOT, resumen diario.
