@@ -201,6 +201,6 @@ export interface RutaCajaReporte {
     plaza: number; monto_plaza: number;
     sin_declarar: number; monto_sin_declarar: number;
   };
-  datos_al: string | null;
+  data_as_of: string | null;
   generated_at: string;
 }
