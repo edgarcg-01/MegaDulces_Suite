@@ -266,3 +266,165 @@ Todo con `sh ~/ops/prod/pgprod.sh` en lectura, con `app.tenant_id` fijado en ses
 ⚠️ **Trampa de medición, por si alguien repite esto:** el `psql` del servidor está en **español** y
 usa **coma decimal** — «Duración: 32,886 ms» son **32.9 ms**, no 32.9 segundos. Se caza corriendo
 `select 1` como placebo: si también «tarda cientos de ms», lo que está mal es la lectura.
+
+---
+
+# Parte II — CAOS: dónde está el billete
+
+> Pedido de Edgar: *«cacemos el dinero: de dónde obtiene el flujo de efectivo (CAOS)»*. Medido
+> contra prod el 2026-10-13/14, lectura. **La Parte I siguió el LIBRO; ésta sigue el BILLETE.**
+
+## 9. Qué es CAOS, medido
+
+**Un solo dispositivo**, `AST700-19758`, vivo desde el **2026-05-27**. En cinco meses: **1,148
+movimientos, $40,383,040** brutos.
+
+| operación | movs | monto | qué es |
+|---|---|---|---|
+| Depósito | 749 | **$18,360,140** | entra efectivo a la máquina |
+| Dispensar | 367 | **$17,752,070** | sale efectivo de la máquina |
+| Vaciar Stocks | 11 | $2,622,130 | se sacan los casetes |
+| Dotar | 14 | $1,674,120 | se vuelven a cargar |
+| Cambio | 4 | $0.00 | — |
+| Contenido Modificado | 3 | **−$25,420** | ajuste del propio sistema |
+
+## 10. ⭐ El circuito físico, y quién lo mueve
+
+| usuario de la máquina | movs | deposita | dispensa |
+|---|---|---|---|
+| **`Vendedor (006) - VENTAS`** | 563 | **$12,396,390** | **nunca** |
+| `Maria del Carmen Rdriguez Vera (003)` | 485 | $4,655,210 | **$14,850,610** |
+| `Juan Jesus Carrillo Contreras (002)` | 93 | $1,158,640 | $2,901,460 |
+| `Maria de la Paz GUtierrez Guzman (005)` | 4 | $149,900 | — |
+| `caos (caos)` (el sistema) | 3 | — | — |
+
+⭐ **La máquina tiene dos lados y son dos funciones distintas.** Un usuario genérico —`Vendedor
+(006)`, compartido por todas las rutas— **sólo deposita**: $12.4 M, el 68 % de todo lo que entra.
+Y una sola persona concentra el **84 %** de lo que sale.
+
+El texto de cada movimiento confirma el circuito de la Parte I, ahora del lado físico:
+
+```
+ENTRA (refs de depósito):   rd28 · rd canindo · ruta 21 09 26 · rd morelia · ruta vecinal · cj 15
+SALE  (refs de dispensado): bolsas · gnf ma · nomina · cueritos · maniobras · logistica · lic omar
+```
+
+**La ruta deposita el billete en la caja fuerte; de ahí se dispensa para pagar proveedores y
+nómina.** «bolsas» es el mismo «Bolsas de los Altos» que la Parte I ya había cazado por otros dos
+caminos — Control ($16.78 M) y Kepler con `medio = caja` ($17.01 M). Tres sistemas, el mismo
+proveedor.
+
+### 10.1 A dónde va lo dispensado
+
+| destino (del texto libre) | movs | monto | % |
+|---|---|---|---|
+| **otros — texto libre sin clasificar** | 249 | $9,810,640 | **55.3 %** |
+| bolsas (proveedor) | 10 | $3,735,460 | 21.0 % |
+| gnf | 30 | $2,089,890 | 11.8 % |
+| nómina | 52 | $1,580,430 | 8.9 % |
+| cueritos (proveedor) | 8 | $339,840 | 1.9 % |
+| logística | 13 | $166,250 | 0.9 % |
+| maniobras | 5 | $29,560 | 0.2 % |
+
+⚠️ **El 55.3 % del efectivo que sale de la caja fuerte tiene referencia pero nadie la clasificó.**
+No es que falte el dato: es que vive en texto libre, con el mismo defecto que el «Recibido de» de
+Control (§2.2).
+
+## 11. ⛔ «Vaciar Stocks» NO es dinero que salga del edificio — pero $948,010 sí
+
+La primera lectura fue que $2.62 M salían en bulto sin destino. **Es falsa, y se descarta con el
+dato**: cada `Vaciar Stocks` tiene su `Dotar` **el mismo día, de la misma persona, con horas de
+diferencia**. Es mantenimiento de los casetes, no una salida.
+
+Lo que no cuadra es **cuánto vuelve a entrar**:
+
+| jornada | vació | volvió a dotar | **retirado** |
+|---|---|---|---|
+| 2026-06-17 | $709,230 | $258,880 | **$450,350** |
+| 2026-07-07 | $650,100 | $278,980 | **$371,120** |
+| 2026-08-18 | $418,360 | $418,360 | **$0** ✔ |
+| 2026-09-08 | $572,680 | $543,900 | $28,780 |
+| 2026-09-30 | $271,760 | $174,000 | $97,760 |
+| **total** | **$2,622,130** | **$1,674,120** | **$948,010** |
+
+⭐ El 18-ago cuadra **al peso**, lo que prueba que la operación *puede* cerrar en cero y que las
+otras cuatro no son un artefacto del registro.
+
+**Esos $948,010 son efectivo que salió de los casetes y no volvió. Es lo normal —se retira la
+recaudación y se deja el fondo de cambio—, pero no hay un solo dato que diga a dónde fue:**
+ninguno de esos 11 movimientos tiene `ref`.
+
+### 11.1 Y no llegaron al banco, con control de placebo
+
+Buscar por fecha no sirve: hay **~700 depósitos bancarios en cualquier ventana de 7 días**, por
+$15–25 M. Por eso se buscó **monto exacto**:
+
+| vaciado | monto | exacto en toda la historia | exacto en ±3 días | **placebo (monto + $10)** |
+|---|---|---|---|---|
+| 2026-06-17 | $709,230 | 0 | 0 | 0 |
+| 2026-07-07 | $650,100 | 0 | 0 | 0 |
+| 2026-09-08 | $501,830 | 0 | 0 | 0 |
+| 2026-08-18 | $418,360 | 0 | 0 | 0 |
+| 2026-09-30 | $167,000 | 1 | **0** | 0 |
+| 2026-09-30 | $86,200 | 0 | 0 | 0 |
+| 2026-09-08 | $65,070 | 0 | 0 | **1** |
+
+**Ningún vaciado aparece como depósito bancario del mismo monto.** El único acierto suelto está
+fuera de la ventana, y **el placebo también acertó una vez** — o sea que a este volumen un acierto
+aislado es ruido, no evidencia. Es coherente con §3.2: el depósito al banco de este circuito
+prácticamente no existe.
+
+## 12. ⚠️ Una hipótesis, declarada como hipótesis
+
+En la **misma ventana** (27-may → 30-sep):
+
+```
+retirado de los casetes de CAOS .......  $948,010
+neto del libro de Control ............. −$660,034   (salió más de lo que entró)
+diferencia ............................  $287,976
+```
+
+**Mecanismo plausible:** el efectivo retirado de la caja fuerte alimenta el cajón **sin quedar
+registrado como ingreso en el libro**, se gasta, y el gasto sí se registra — lo que deja el libro
+en negativo sin que falte dinero.
+
+⛔ **No está probado y no debe citarse como hallazgo.** Los dos números son del mismo orden y del
+mismo signo, pero difieren en $288 k, y «parecido» no es «igual». Lo que lo probaría es un `ref` en
+los 11 vaciados, o un movimiento del libro que declare de dónde vino el fondo.
+
+⚠️ **De paso corrijo la Parte I**: ahí escribí que el hueco del libro era −$897,044.68. Eso es el
+**año completo**; en la ventana de CAOS son **−$660,033.58**. Comparar un número de diez meses
+contra uno de cinco habría fabricado un cuadre que no existe.
+
+## 13. ⛔ Lo que de verdad falta: nadie está atando los dos mundos
+
+| | |
+|---|---|
+| movimientos de CAOS | **1,148** |
+| ligados a un movimiento del libro de la Suite | **7** (0.6 %) |
+| monto ligado | **$107,240** de $40,383,040 (**0.27 %**) |
+
+**El 99.7 % del efectivo que la máquina movió no está atado a ningún registro contable nuestro.**
+El mecanismo para atarlo existe (`finance.caos_cash_links`, la bandeja de capturables, el matcher)
+— lo que no existe es el uso. Es el mismo diagnóstico que `FASE_CG` ya traía para el libro: *no
+falta módulo, falta que se use*.
+
+## 14. Los tres hechos que esta parte agrega al circuito
+
+1. **El billete entra por la caja fuerte, no por el cajón.** $12.4 M los deposita un usuario
+   genérico de ruta que nunca dispensa. El cajón recibe la morralla; la máquina se queda los
+   billetes.
+2. **Sale a pagar proveedores y nómina**, con el 55.3 % en texto libre sin clasificar.
+3. **$948,010 salieron de los casetes sin destino declarado**, no llegaron al banco (verificado con
+   placebo), y son la pista más seria del circuito.
+
+## 15. Las tres preguntas para quien opera la máquina
+
+Esto ya no se contesta con datos; se contesta preguntando.
+
+1. **¿A dónde va el efectivo retirado en cada vaciado?** ¿Caja chica, bóveda física, traslado?
+2. **¿Qué pasó el 2026-09-30?** Es la única jornada con ajuste del sistema (`Contenido Modificado`
+   −$25,200 y −$200) junto con cinco vaciados y tres dotaciones. Parece un recuento completo.
+3. **`Vendedor (006) - VENTAS` es un usuario compartido por todas las rutas.** ¿Se puede dar uno
+   por ruta? Hoy **quién depositó sólo vive en el texto libre del `ref`**, y es el mismo problema
+   que hace que el ingreso del libro no se pueda autollenar.
