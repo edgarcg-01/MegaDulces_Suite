@@ -559,11 +559,51 @@ export interface RequisitionRow {
    */
   oc_sucursal?: string | null;
   oc_folio?: string | null;
+  /**
+   * `[KR.8]` La REQUISICIÓN `X-A-30` que esta Suite escribió en Kepler. No confundir con
+   * `oc_folio`, que es la ORDEN DE COMPRA y la captura una persona: son dos documentos
+   * distintos de la misma cadena.
+   *
+   * ⛔ Tres ausencias que NO son la misma y la pantalla no puede mezclar (ADR-056):
+   * `kepler_folio` con valor = salió · `kepler_error` con texto = salió mal, lo arregla una
+   * persona · los dos en `null` = **todavía no salió**, y eso se reintenta.
+   */
+  kepler_sucursal?: string | null;
+  kepler_folio?: string | null;
+  kepler_error?: string | null;
   /** `[RQ.2]` Días desde que se creó, calculados por el SERVIDOR (VP.0: nunca el reloj del navegador). */
   dias?: number;
   /** `[RQ.1]` Vigencia de sus costos. `null` = no se pudo medir ninguno. */
   vigencia?: RequisitionVigencia | null;
   recalculated_at?: string | null;
+}
+/**
+ * `[KR.5]` Qué pasó con el empuje a Kepler al aprobar. **Cinco estados, no dos**, porque
+ * «no salió» tiene causas que se arreglan distinto (ADR-056):
+ *
+ * `entregada` el ERP ya la tiene · `ya_estaba` idempotencia, no se escribió de nuevo ·
+ * `apagado` la integración no está habilitada en este despliegue · `en_lote` se aprobó en
+ * masa y el lote no empuja a propósito · `no_salio` se intentó y rebotó, con `motivo`.
+ */
+export interface KeplerPushEstado {
+  estado: 'entregada' | 'ya_estaba' | 'apagado' | 'en_lote' | 'no_salio';
+  folio?: string;
+  motivo?: string;
+}
+/** `[KR.6]` Con qué unidad salió cada renglón — o por qué no se pudo resolver. */
+export interface KeplerLineaResuelta {
+  sku: string;
+  unidad?: string;
+  unidad_caja?: string;
+  por_caja?: number;
+  cantidad?: number;
+  motivo?: string;
+}
+export interface KeplerPushResult {
+  ya_estaba: boolean;
+  kepler?: { sucursal: string; folio: string; renglones: number };
+  lineas?: KeplerLineaResuelta[];
+  consolidado?: boolean;
 }
 export interface RequisitionLine {
   id: string;
@@ -1412,8 +1452,16 @@ export class ComprasService {
   createRequisition(dto: CreateRequisitionDto): Observable<{ id: string; folio: string; estado: RequisitionEstado }> {
     return this.http.post<{ id: string; folio: string; estado: RequisitionEstado }>(`${this.base}/requisitions`, dto);
   }
-  approve(id: string): Observable<{ id: string; estado: RequisitionEstado }> {
-    return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/approve`, {});
+  approve(id: string): Observable<{ id: string; estado: RequisitionEstado; kepler?: KeplerPushEstado }> {
+    return this.http.post<{ id: string; estado: RequisitionEstado; kepler?: KeplerPushEstado }>(`${this.base}/requisitions/${id}/approve`, {});
+  }
+  /**
+   * `[KR.4]` Reintenta escribir la requisición en Kepler. El camino normal es que salga sola al
+   * aprobar; esto existe porque ese empuje es best-effort y puede rebotar.
+   * Idempotente: si ya salió, devuelve el folio existente sin tocar el ERP.
+   */
+  pushKepler(id: string): Observable<KeplerPushResult> {
+    return this.http.post<KeplerPushResult>(`${this.base}/requisitions/${id}/push-kepler`, {});
   }
   reject(id: string): Observable<{ id: string; estado: RequisitionEstado }> {
     return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/reject`, {});

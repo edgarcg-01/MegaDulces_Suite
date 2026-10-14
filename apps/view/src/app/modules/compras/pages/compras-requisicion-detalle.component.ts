@@ -97,6 +97,21 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               @if (o.supplier_name) { a {{ o.supplier_name }} }({{ estadoLabel($any(o.estado)) }}).</span>
           </div>
         }
+        <!-- [KR.8] DÓNDE ESTÁ ESTA REQUISICIÓN EN KEPLER. Cuatro salidas, no dos: medido el
+             2026-10-13, el 73 % de las requisiciones son traspasos y Kepler NO tiene documento
+             que los reciba (N-A-6 / N-D-6 están muertos en las nueve sucursales). Sin
+             declararlo, alguien buscaría en el ERP pedidos que nunca estuvieron.
+             SIN ACENTOS GRAVES ACÁ: esto vive dentro de un template literal y un backtick
+             cierra la cadena. Van siete veces que rompe el build de este repo. -->
+        @if (keplerBanner(r); as kb) {
+          <div class="rd-ruta" [class.rd-ruta-tenue]="kb.tenue" role="status">
+            <i class="pi" [ngClass]="kb.icono" aria-hidden="true"></i>
+            <span>{{ kb.texto }}</span>
+            @if (kb.reintentable && canManage) {
+              <button pButton type="button" class="p-button-sm p-button-text" [loading]="pushing()" (click)="pushKepler()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
+            }
+          </div>
+        }
         @if (r.lote; as l) {
           <div class="rd-ruta rd-ruta-tenue" role="status">
             <i class="pi pi-objects-column" aria-hidden="true"></i>
@@ -243,12 +258,77 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   approve(): void {
     this.busy.set(true);
     this.api.approve(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Aprobada' }); this.load(); },
+      // `[KR.5]` Aprobar y "salió a Kepler" son DOS hechos: el primero siempre ocurre, el
+      // segundo puede rebotar sin voltearlo. Un solo «Aprobada» los juntaría y dejaría creyendo
+      // que el ERP ya la tiene.
+      next: (r) => {
+        this.busy.set(false);
+        const k = r?.kepler;
+        if (k?.estado === 'entregada') this.toast.add({ severity: 'success', summary: 'Aprobada', detail: `Escrita en Kepler con folio ${k.folio}.` });
+        else if (k?.estado === 'no_salio') this.toast.add({ severity: 'warn', life: 14000, summary: 'Aprobada, pero NO salió a Kepler', detail: `${k.motivo} — se puede reintentar desde esta ficha.` });
+        else this.toast.add({ severity: 'success', summary: 'Aprobada' });
+        this.load();
+      },
       // `[RQ.3]` El freno del servidor DICE por qué y cuál es la salida. Taparlo con un
       // "No se pudo aprobar" genérico dejaría al comprador sin saber que un clic lo resuelve.
       error: (e) => {
         this.busy.set(false);
         this.toast.add({ severity: 'warn', summary: 'No se aprobó', life: 12000, detail: e?.error?.message || 'No se pudo aprobar.' });
+      },
+    });
+  }
+
+  pushing = signal(false);
+  /**
+   * `[KR.8]` Dónde está esta requisición respecto de Kepler. **Cuatro salidas, y ninguna se
+   * puede leer como otra** (ADR-056):
+   *
+   *  - **Traspaso** → no existe `X-A-30` que lo reciba. No es un error ni algo pendiente: es que
+   *    el documento no existe en el ERP. Es el **73 % del volumen**, así que callarlo haría que
+   *    alguien buscara en Kepler pedidos que nunca estuvieron.
+   *  - **Salió** → folio del ERP, que es lo que se busca en Kepler.
+   *  - **Salió y falló** → el motivo, para que una persona lo arregle. Reintentable.
+   *  - **Todavía no salió** → aprobada en lote, o la integración apagada. Reintentable.
+   *
+   * ⛔ Devuelve `null` mientras la requisición no esté aprobada: antes de eso no hay nada que
+   * decir, y un cartel de "no salió" en una pendiente se leería como una falla.
+   */
+  keplerBanner(r: RequisitionDetail): { texto: string; icono: string; tenue: boolean; reintentable: boolean } | null {
+    if (r.estado === 'pending_approval' || r.estado === 'draft' || r.estado === 'cancelled') return null;
+    // `[KR.10]` Compra y traspaso salen como DOCUMENTOS DISTINTOS, y decirlo importa: quien
+    // lo busque en Kepler tiene que saber si abre Requisición de compra o Pedido de traspaso.
+    const doc = r.source_type === 'branch' ? 'pedido de traspaso' : 'requisición';
+    if (r.kepler_folio) {
+      return { icono: 'pi-check-circle', tenue: true, reintentable: false,
+        texto: `En Kepler como ${doc} ${r.kepler_sucursal}/${r.kepler_folio}.` };
+    }
+    if (r.kepler_error) {
+      return { icono: 'pi-exclamation-triangle', tenue: false, reintentable: true,
+        texto: `No se pudo escribir en Kepler: ${r.kepler_error}` };
+    }
+    return { icono: 'pi-clock', tenue: false, reintentable: true,
+      texto: 'Todavía no se escribió en Kepler. Se aprobó en lote, o la integración está apagada en este despliegue.' };
+  }
+
+  /** `[KR.4]` Reintento manual. Idempotente del lado del servidor. */
+  pushKepler(): void {
+    this.pushing.set(true);
+    this.api.pushKepler(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.pushing.set(false);
+        this.toast.add({ severity: 'success', summary: r.ya_estaba ? 'Ya estaba en Kepler' : 'Escrita en Kepler', detail: `Folio ${r.kepler?.folio}.` });
+        this.load();
+      },
+      // ⭐ El servidor dice CUÁLES SKUs no resolvieron y por qué. Taparlo con un genérico deja a
+      // quien aprueba sin nada que arreglar — que es la diferencia entre un aviso y un estorbo.
+      error: (e) => {
+        this.pushing.set(false);
+        const malas: Array<{ sku: string; motivo?: string }> = e?.error?.lineas ?? [];
+        const det = malas.length
+          ? malas.slice(0, 4).map((l) => `${l.sku}: ${l.motivo}`).join(' · ') + (malas.length > 4 ? ` · y ${malas.length - 4} más` : '')
+          : (e?.error?.message || 'No se pudo escribir en Kepler.');
+        this.toast.add({ severity: 'warn', summary: 'No salió a Kepler', life: 16000, detail: det });
+        this.load();
       },
     });
   }

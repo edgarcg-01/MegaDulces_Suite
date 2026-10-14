@@ -521,6 +521,25 @@ export class CommercialReplenishmentController {
     return this.svc.markOrdered(id, { sucursal: dto?.oc_sucursal, folio: dto?.oc_folio });
   }
 
+  /**
+   * `[KR.4]` Primera escritura de la plataforma al ERP (excepción autorizada a ADR-016).
+   *
+   * Es el **reintento manual**: el camino normal es que salga sola al aprobar (`[KR.5]`). Existe
+   * porque ese empuje es best-effort y puede rebotar —ERP caído, un SKU sin unidad de
+   * referencia— y entonces hace falta un botón que lo vuelva a intentar sin re-aprobar.
+   *
+   * Idempotente: si la requisición ya salió, devuelve el folio existente **sin tocar Kepler**.
+   *
+   * Pide `GESTIONAR` y no un permiso nuevo: es la misma facultad que marcar la requisición como
+   * ordenada — actuar sobre una requisición ya autorizada, no autorizarla.
+   */
+  @Post('requisitions/:id/push-kepler')
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @ApiOperation({ summary: 'KR.4 — escribe la requisición en Kepler como documento X-A-30. Idempotente por kepler_folio. Body opcional: { consolidar } (default true: suma los renglones del mismo SKU, porque la línea no guarda su almacén destino).' })
+  pushToKepler(@Param('id') id: string, @Body() dto?: { consolidar?: boolean }) {
+    return this.svc.pushToKepler(id, { consolidar: dto?.consolidar });
+  }
+
   @Post('requisitions/:id/receive')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
   @ApiOperation({ summary: 'RA.14 — marca recibida (ordered → received) + captura cantidades recibidas por línea (fill rate).' })
