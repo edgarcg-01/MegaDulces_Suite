@@ -45,10 +45,31 @@ export interface VentaDeRutaDeclarada {
 }
 
 /**
- * El numero de ruta. Dos formas, y las dos estan en el corpus: `RD <n>` y `RD <plaza> <n>`.
- * El `\b` final evita que `RD 5011` se lea como la ruta 501.
+ * ⛔ **La ruta VECINAL se rechaza ANTES de buscar la ruta, y es obligatorio.**
+ *
+ * `[CG.20]` lo conseguia por omision: su expresion exigia una `D` literal, asi que
+ * `Ventas Ruta Vecinal 30/09` no matcheaba nada. Al admitir `ruta` como token (abajo, por el
+ * corpus de CAOS) eso **deja de ser cierto**: `Ruta Vecinal 30` leeria la ruta **30**, y la caja
+ * le aplicaria la venta de un camion a un vendedor que no lo maneja.
+ *
+ * Por eso el descarte es explicito y no un efecto lateral de la forma del otro regex. Cubre las
+ * cuatro formas medidas en los dos corpus: `RV 02/10` · `RV321` (CAOS) · `Ruta Vecinal` ·
+ * `RutaVecinal` (caja general, con y sin espacio).
  */
-const RX_RUTA = /\bR\.?\s?D\.?\s*(?:[A-Za-zÁÉÍÓÚÑáéíóúñ]+\s+)?0*(\d{2,3})\b/i;
+const RX_VECINAL = /\br\.?\s?v\b|\brv\d|ruta\s*vecinal/i;
+
+/**
+ * El numero de ruta. Las formas del corpus, de los DOS lados:
+ *
+ *   `RD 26` · `RD28` · `R.D. 21` · `RD Canindo 504`   caja general (Access) y CAOS
+ *   `ruta 21` · `ruta 27` · `r23`                      CAOS  <- las que faltaban
+ *
+ * ⚠️ El `\b` final evita que `RD 5011` se lea como la ruta 501.
+ *
+ * ⚠️ El orden de la alternancia importa: `ruta` va ANTES que `r`, porque la alternancia de
+ * JavaScript es ordenada y con `r` primero `ruta 21` leeria `r` y chocaria con la `u`.
+ */
+const RX_RUTA = /\b(?:ruta|R\.?\s?D\.?|R)\s*(?:[A-Za-zÁÉÍÓÚÑáéíóúñ]+\s+)?0*(\d{2,3})\b/i;
 /**
  * La fecha. UNA expresion para los DOS lados, y por eso acepta tres cosas que el corpus trae:
  *
@@ -64,6 +85,22 @@ const RX_RUTA = /\bR\.?\s?D\.?\s*(?:[A-Za-zÁÉÍÓÚÑáéíóúñ]+\s+)?0*(\d{
  * `01-10-26 RD 23` mal escrito. Cuatro digitos o nada.
  */
 const RX_FECHA = /\b(\d{1,2})[/-]+(\d{1,2})(?:[/-]+(\d{4}))?\b/;
+/**
+ * Las dos formas que CAOS agrega y que no llevan NINGUN separador. El operador del aparato
+ * teclea la fecha pegada o con espacios:
+ *
+ *   `ruta 21 27 05 26`   -> 27/05/26   espacios
+ *   `ruta 27 270526`     -> 27/05/26   pegada
+ *
+ * ⚠️ Van DESPUES de `RX_FECHA` en el orden de intento, no antes: `01-10-2026` tambien contiene
+ * `10 20` si se mira con la expresion equivocada, y el separador es la senal mas fuerte.
+ *
+ * ⚠️ El anio de dos digitos se IGNORA a proposito, igual que en `RX_FECHA` ("cuatro digitos o
+ * nada"): lo pone `anioDeVenta`, que ya esta probado contra la frontera de anio. Leer `26` como
+ * 2026 funciona hoy y se rompe en 2099; inferirlo no.
+ */
+const RX_FECHA_ESPACIOS = /\b(\d{1,2})\s+(\d{1,2})\s+\d{2}\b/;
+const RX_FECHA_PEGADA = /\b(\d{2})(\d{2})\d{2}\b/;
 
 /**
  * Lee la declaracion. Devuelve null si falta cualquiera de las dos mitades: media declaracion no
@@ -72,9 +109,21 @@ const RX_FECHA = /\b(\d{1,2})[/-]+(\d{1,2})(?:[/-]+(\d{4}))?\b/;
 export function leerVentaDeRuta(texto: string | null | undefined): VentaDeRutaDeclarada | null {
   const t = String(texto || '');
   if (!t) return null;
+  if (RX_VECINAL.test(t)) return null;
   const mr = t.match(RX_RUTA);
-  if (!mr) return null;
-  const mf = t.match(RX_FECHA);
+  if (!mr || mr.index === undefined) return null;
+  /**
+   * ⭐ La fecha se busca en el texto **sin los digitos que ya se gastaron en la ruta**, y no en
+   * el texto entero ni solo despues de la ruta. Las dos razones son del corpus:
+   *
+   *   `Ventas 02/10 RD 23`   la fecha va ANTES  (caja general)
+   *   `ruta 21 27 05 26`     la fecha va DESPUES (CAOS)
+   *
+   * Buscar solo despues rompia los ocho casos de la caja general; buscar en el texto entero deja
+   * que `ruta 21 27 05 26` lea la propia ruta (`21 27`) como dia y mes.
+   */
+  const resto = t.slice(0, mr.index) + ' ' + t.slice(mr.index + mr[0].length);
+  const mf = resto.match(RX_FECHA) || resto.match(RX_FECHA_ESPACIOS) || resto.match(RX_FECHA_PEGADA);
   if (!mf) return null;
   const dia = Number(mf[1]);
   const mes = Number(mf[2]);
