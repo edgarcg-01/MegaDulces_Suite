@@ -282,19 +282,41 @@ export class CashLedgerService {
         .where('tenant_id', tenantId).count({ n: '*' });
       const [deriv] = await trx('analytics.mv_caja_autofill_entidad')
         .where('tenant_id', tenantId).count({ n: '*' });
+      // ⚠️ `[CG.143.3]` **`error` NO se trae a propósito.** No es que no se use: es que no debe
+      // poder usarse. Un campo que llega al servicio es un campo que alguien agrega al objeto de
+      // respuesta sin pensarlo, y éste lleva nombres de tabla, de rol y de schema a una pantalla
+      // de captura. Su canal es `db-health`, que lo lee de la misma fila.
       const latido = await trx('analytics.cron_runs')
         .where({ tenant_id: tenantId, job_key: 'caja_autofill_entidad' })
-        .first('status', 'last_finish', 'rows_affected', 'error');
+        .first('status', 'last_finish', 'rows_affected');
 
-      // El eslabón de la corrida + —sólo si falló— un eslabón que NOMBRA el motivo. La píldora
-      // busca en `inputs[].label` qué tramo acusar: un "hay rezago" sin nombre no es accionable.
+      /**
+       * El eslabón de la corrida + —sólo si falló— uno que NOMBRA el tramo. La píldora busca en
+       * `inputs[].label` qué acusar: un "hay rezago" sin nombre no es accionable.
+       *
+       * ⛔ `[CG.143.3]` **El `label` es una frase para humanos, NUNCA el texto crudo del error.**
+       * La primera versión metía ahí `String(latido.error).slice(-180)`, y la sesión de frontend
+       * lo marcó con razón: las tres pantallas del repo que pintan `inputs[]`
+       * (`finanzas-cartera`, `comercial-sell-out`, `tienda-etiquetas`) filtran los que no están
+       * `fresh` y **imprimen su `label` tal cual**. O sea que un cajero habría terminado leyendo
+       * un error de Postgres con nombres de tabla, de rol y de schema. No es sólo feo: es
+       * superficie que no tiene por qué ver quien captura efectivo.
+       *
+       * ⭐ Y el texto crudo **no se manda por otro campo**: ya tiene su canal, y uno solo. Vive en
+       * `analytics.cron_runs.error` y `db-health` lo publica a quien puede accionarlo. Mandarlo
+       * también acá sería duplicar un canal para un consumidor que no debe pintarlo — y la
+       * duplicación es justo lo que hace que dos lados digan cosas distintas del mismo hecho.
+       *
+       * ⚠️ Ese canal sirve porque este carril recorta su error **por el final** (`slice(-400)`):
+       * los 80 caracteres que `db-health` muestra son la causa, no el principio del SQL.
+       */
       const inputs = latido
         ? [
           evalInput('caja_autofill_entidad', 'Autollenado por entidad',
             latido.last_finish, CAJA_AUTOFILL_FRESCURA_H),
           ...(latido.status === 'error'
             ? [evalInput('caja_autofill_error',
-              `Último refresco con error: ${String(latido.error ?? 'sin motivo registrado').slice(-180)}`,
+              'El refresco del autollenado falló; lo revisa Sistemas',
               null, CAJA_AUTOFILL_FRESCURA_H)]
             : []),
         ]

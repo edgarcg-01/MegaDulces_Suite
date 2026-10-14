@@ -2973,9 +2973,21 @@ bajar un control anti-fraude que la medición volvió innecesaria no se usa.*
 
 > **Estado:** 🧪 EN CÓDIGO, medido contra prod, **sin pushear**. 5 commits locales.
 >
-> ⚠️ **Los commits dicen `[CG.141]` y `[CG.142]`.** La sesión de frontend usó los mismos números
-> en la misma hora sobre otros cambios. No se amenda (checkout compartido, con commits encima):
-> se declara acá. **Backend toma CG.150–179; frontend CG.180+.**
+> ⚠️⚠️ **`CG.141` y `CG.142` ESTÁN DUPLICADOS. Esto es una colisión declarada, no un error de
+> tipeo** — y queda escrito con SHA porque dentro de seis meses nadie distingue una cosa de la
+> otra. Dos sesiones (backend y frontend) numeraron a la vez sobre el mismo `main`, con minutos de
+> diferencia, y ninguna miró `git log` antes de elegir:
+>
+> | commit | dice | es, de verdad | de quién |
+> |---|---|---|---|
+> | `27b07f59e` | `[CG.141]` | **CG.143** — la copia del autollenado nació vacía | backend |
+> | `497616de4` | `[CG.142]` | **CG.144** — la semana «Mon Oct 19» | backend |
+> | `eac35f79f` | `[CG.141.1/141.2]` | **CG.143.1/143.2** — `Freshness` canónico + el cajón acoplado | backend |
+> | `1baa96f22` | `[CG.141]` | **CG.141** (se queda) — el canal tiene tres estados | frontend |
+> | `9800f88e4` | `[CG.142]` | **CG.142** (se queda) — las ocho acciones que se apagaban sin decir por qué | frontend |
+>
+> No se amenda: es un checkout compartido y hay commits encima. **Reparto acordado entre las dos
+> sesiones: backend CG.150–179 · frontend CG.180+.**
 
 ### Lo que se midió, y lo que resultó NO ser un problema
 
