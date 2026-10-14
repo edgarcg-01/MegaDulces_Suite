@@ -223,10 +223,18 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                           </div>
                         </div>
                         @if (t.realza && x.destacado) {
+                          <!-- La cifra principal es el ahorro POR UNIDAD (la que vuelve comparables dos
+                               precios); el total del mínimo va de apoyo. Pegar un total a un porcentaje
+                               unitario se leía como si el % aplicara a ese total. -->
+                          @let tot = partes(t.ahorro_en_el_minimo);
                           <p class="vf-may-ahorro">
-                            Te ahorras
-                            <strong [appCountUp]="t.ahorro_en_el_minimo" [appCountUpLive]="true" countUpFormat="money2"></strong>
-                            <span class="vf-may-pct">({{ t.descuento_pct }}% menos c/u)</span>
+                            <span class="vf-may-ahorro-main">
+                              Ahorras
+                              <strong [appCountUp]="t.ahorro_por_unidad" [appCountUpLive]="true" countUpFormat="money2"></strong>
+                              {{ t.unidad_monto === 'c/u' ? 'por unidad' : t.unidad_monto }}
+                              <span class="vf-may-pct">({{ t.descuento_pct }}% menos)</span>
+                            </span>
+                            <span class="vf-may-total">Llevando {{ t.desde }} {{ t.palabra }}: &#36;{{ tot.entero }}.{{ tot.centavos }} en total</span>
                           </p>
                         }
                       }
@@ -501,9 +509,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-may-row:not(.is-realza) .vf-may-monto, .vf-may-row:not(.is-foco) .vf-may-monto {
       font-weight: 600; color: var(--text-muted); font-size: clamp(1.4rem, 3vw, 2.2rem); }
     .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; font-size: var(--fs-body); }
-    .vf-may-ahorro { margin: 0; display: inline-flex; align-items: center; gap: .45rem;
-      padding: .45rem 1.1rem; border-radius: var(--r-pill); background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
-      font-size: var(--fs-lg); font-weight: 600; color: var(--ok-soft-fg); }
+    .vf-may-ahorro { margin: 0; display: inline-flex; flex-direction: column; align-items: center; gap: .15rem;
+      padding: .45rem 1.25rem; border-radius: var(--r-xl); background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
+      font-size: var(--fs-lg); font-weight: 600; color: var(--ok-soft-fg); text-align: center; }
+    .vf-may-ahorro-main { display: inline-flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: .45rem; }
+    .vf-may-total { font-size: var(--fs-body); font-weight: 500; opacity: .85; }
     .vf-may-ahorro strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-weight: 700; font-size: var(--fs-h2); color: var(--ok-soft-fg); }
     .vf-may-pct { opacity: .8; font-size: var(--fs-body); }

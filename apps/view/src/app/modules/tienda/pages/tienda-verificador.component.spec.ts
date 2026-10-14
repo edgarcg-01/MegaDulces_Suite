@@ -297,8 +297,10 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
 
     const cifra = fix.nativeElement.querySelector('.vf-may-ahorro strong') as HTMLElement | null;
     expect(cifra).toBeTruthy();
-    expect(cifra!.textContent).toContain('6.60');
+    // La cifra principal es el ahorro POR UNIDAD ($0.66); el total ($6.60) va de apoyo.
+    expect(cifra!.textContent).toContain('0.66');
     expect(cifra!.textContent?.trim()).not.toBe('$0.00');
+    expect(fix.nativeElement.querySelector('.vf-may-total')?.textContent).toContain('$6.60 en total');
     // Y se afirma la premisa: nadie intersectó. Sin esto la prueba podría pasar por el camino
     // fácil y dejar el defecto vivo.
     expect(nadieIntersecto()).toBe(true);

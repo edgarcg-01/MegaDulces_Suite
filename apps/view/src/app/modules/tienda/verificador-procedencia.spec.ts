@@ -301,7 +301,10 @@ describe('verificador · el mayoreo', () => {
 
   it('el ahorro se muestra, que es lo que cierra la venta', () => {
     expect(SVC).toMatch(/ahorro_en_el_minimo: redondea\(\(o\.base - p\) \* nn\)/);
-    expect(PAGE).toMatch(/Te ahorras/);
+    // [VAC.H2] La cifra principal es el ahorro POR UNIDAD; el total del mínimo va de apoyo.
+    expect(SVC).toMatch(/ahorro_por_unidad: redondea\(o\.base - p\)/);
+    expect(PAGE).toMatch(/Ahorras/);
+    expect(PAGE).toMatch(/class="vf-may-total"/);
   });
 
   // [VAC.U11/U12] Sin piel propia (decisión 0Sistemas, 2026-10-14). Hasta hoy este bloque
@@ -391,7 +394,7 @@ describe('verificador · el mayoreo', () => {
    */
   it('el count-up sólo toca el ahorro, nunca un precio', () => {
     // Está, y usa la directiva COMPARTIDA (no una copia local).
-    expect(PAGE).toMatch(/\[appCountUp\]="t\.ahorro_en_el_minimo"/);
+    expect(PAGE).toMatch(/\[appCountUp\]="t\.ahorro_por_unidad"/);
     expect(PAGE).toMatch(/from '\.\.\/\.\.\/\.\.\/shared\/directives\/count-up\.directive'/);
     // Con centavos: los otros formatos de dinero de la directiva redondean, y $25.77 saldría
     // $26 — otro número que el de la fuente.
