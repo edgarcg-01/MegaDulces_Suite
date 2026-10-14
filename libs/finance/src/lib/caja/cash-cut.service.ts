@@ -7,6 +7,7 @@ import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
   proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
+  filasDenominacion, DenominacionFueraDeCatalogo,
   type ConteoDenominacion, type MovimientoDelCorte,
 } from './cash-cut.engine';
 
@@ -447,15 +448,59 @@ export class CashCutService {
 
       // El desglose de la APERTURA: lo que permite saber si hay con qué dar cambio, no sólo
       // cuánto hay. Va en la misma tabla que el cierre, separado por `momento`.
-      const ap = (input.apertura ?? []).filter((d) => Number(d.piezas) > 0);
-      if (ap.length) {
-        await trx('finance.cash_ledger_cut_denominations').insert(ap.map((d) => ({
-          tenant_id: tenantId, cut_id: c.id, momento: 'apertura',
-          denom_key: d.denom_key, denominacion: d.denominacion, piezas: d.piezas,
-        })));
-      }
+      // `[CG.155]` Por la única puerta. Acá se mandaba `d.denom_key` **crudo**: si quien abre la
+      // caja no lo trae, el insert viola `NOT NULL` y la apertura devuelve 500 — el mismo defecto
+      // que tiró `contar` y después `cerrar`, esperando su turno en el tercer camino.
+      await this.guardarDenominaciones(trx, tenantId, c.id, 'apertura', input.apertura);
       return c;
     });
+  }
+
+  /**
+   * ⛔⛔ `[CG.155]` **EL ÚNICO camino que escribe el desglose por denominación.**
+   *
+   * Medido en producción el 2026-10-14, con el arqueo caído por segunda vez en dos días:
+   * `POST /cortes/:id/cerrar` devolvía **500** (`null value in column "denom_key"`) después de que
+   * `[CG.152]` ya hubiera arreglado el mismo defecto en `contar`. **La tabla había pasado de 0 a 6
+   * filas**, o sea que el primer arreglo funcionó — y el segundo camino siguió roto.
+   *
+   * ⭐ Eran **TRES** caminos escribiendo la misma tabla (`abrir`, `sellarConteo`, `cerrar`) y la
+   * migración que agregó `denom_key NOT NULL` actualizó uno. Arreglar el segundo a mano habría
+   * dejado el tercero esperando su turno: **mientras haya tres implementaciones de la misma
+   * escritura, el arreglo de una no es el arreglo del defecto.** Por eso esto no es un parche —
+   * es la única puerta, y los tres llamadores pasan por acá.
+   *
+   * Dos reglas que la base exige y que sólo un camino cumplía:
+   *
+   * 1. `denom_key` es parte de la PK `(tenant_id, cut_id, momento, denom_key)` porque
+   *    `denominacion` sola NO identifica: el billete de 20 y la moneda de 20 valen lo mismo y son
+   *    dos renglones distintos (lo fuerza `cut_denom_par_chk`). Si quien cuenta manda la llave se
+   *    respeta; si no, se deriva del catálogo, que ante un 20 sin llave **asume billete**.
+   * 2. ⚠️ El borrado va **acotado por `momento`**. Sin eso, guardar el cierre borra en silencio el
+   *    desglose de la APERTURA — con el que se sabe si había para dar cambio. Es el mismo defecto
+   *    que `[CG.152]` cerró en un camino y que `cerrar` conservaba intacto.
+   */
+  private async guardarDenominaciones(
+    trx: any,
+    tenantId: string,
+    cutId: string,
+    momento: 'apertura' | 'cierre',
+    conteo: ConteoDenominacion[] | null | undefined,
+  ) {
+    await trx('finance.cash_ledger_cut_denominations')
+      .where({ tenant_id: tenantId, cut_id: cutId, momento })
+      .del();
+    let filas;
+    try {
+      filas = filasDenominacion(tenantId, cutId, momento, conteo, denomKeyDeValor);
+    } catch (e) {
+      // `DenominacionFueraDeCatalogo` es culpa de lo que se mandó, no del servidor: sale como 400
+      // con su frase, no como 500 con la traza. Misma regla que `[CG.154]`.
+      if (e instanceof DenominacionFueraDeCatalogo) throw new BadRequestException(e.message);
+      throw e;
+    }
+    if (!filas.length) return;
+    await trx('finance.cash_ledger_cut_denominations').insert(filas);
   }
 
   /** Guarda el conteo (denominaciones + morralla + total) sobre el corte, dentro de la trx. */
@@ -679,12 +724,10 @@ export class CashCutService {
         morralla: input.morralla ?? 0, nota: input.nota ?? c.nota, updated_at: trx.fn.now(),
       }).returning('*');
 
-      const piezas = (input.conteo ?? []).filter((d) => Number(d.piezas) > 0);
-      if (piezas.length) {
-        await trx('finance.cash_ledger_cut_denominations').where({ tenant_id: tenantId, cut_id: id }).del();
-        await trx('finance.cash_ledger_cut_denominations').insert(
-          piezas.map((d) => ({ tenant_id: tenantId, cut_id: id, denominacion: d.denominacion, piezas: d.piezas })));
-      }
+      // `[CG.155]` Por la única puerta. Acá vivía la tercera copia de esta escritura —sin
+      // `denom_key`, sin `momento` y con el borrado SIN acotar— y es la que tiró producción el
+      // 2026-10-14 con un 500 en `/cerrar`, un día después de arreglar la copia de `contar`.
+      await this.guardarDenominaciones(trx, tenantId, id, 'cierre', input.conteo);
 
       return { ...cerrado, totales: t };
     });
