@@ -4377,6 +4377,26 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.85] · cuando Kepler aplica la solicitud (`F`), el vale se cierra y pasa a Historial — 2026-10-13
+
+- [x] **[GX.85]** 🧪 Decisión del usuario, sobre la constancia «Autorizado y aplicado — el dinero salió»
+  (`XA1501-0000046`): *«el status se va a basar en esto porque tenemos un caos (…) ya puede cerrar el círculo, pasar
+  directo a historial»*. ⚠️ **Revierte a propósito la separación de `[GX.39]`** (el ejercicio era una dimensión aparte
+  de `status`). Medido en prod: **13 vales abiertos ya estaban en `F`** (3 `recibida`, 7 `aprobada` —6 provisionales—,
+  3 `revision`; incluye el `04-0000046` de la captura). La `F` acierta 7,949 de 7,949 (`ejercicio.contract.ts`).
+  `CierreKeplerService` (`@Cron` cada 10 min) los pasa a `validada` firmados `Kepler: autorizado y aplicado (el dinero
+  salió)`; la regla vive pura en `cierre-kepler.ts`. Cruce por `(sucursal, folio)` en dos viajes (la vista es cara de
+  unir), `set_config` del tenant (RLS forzado), condición de estado repetida en el `UPDATE`, latido
+  `gastos_cierre_kepler` con umbral en `CRON_JOBS`. **No cierra `rechazada`** (4 en `F` hoy, $13,450.70: es decisión
+  nuestra), ni `A`/`N`/`C`. Pruebas: finance expense-proofs 242/242 · mutación (meter `rechazada`) 3 en rojo ·
+  db-health 13/13.
+- [x] **[GX.84]** ❌ Absorbido por GX.85: la migración que cerraba sólo `01-0000022` ya no hace falta (también está en
+  `F`), así que se retiró antes de subirla. Sin migraciones en esta entrega.
+- [ ] **[GX.85.x]** Declarado: (1) un vale **provisional** que Kepler aplica se cierra **sin su factura** (6 hoy) y la
+  pantalla ya no la acepta (`addEvidence` sólo admite `aprobada`) — si se quiere, adjuntarla desde el Historial es
+  aparte; (2) el cierre automático **no avisa** a quien levantó el vale (el cierre manual sí); (3) `rechazada` + `F`
+  queda para revisión humana.
+
 ### 🔨 [GX.83] · «Gastos» desde «Mi trabajo» y desde Finanzas abría la captura de un folio — 2026-10-13
 
 - [x] **[GX.83]** 🧪 Reporte: *«cuando entran a gastos sale esto (Capturar gasto) en lugar de la ventana que sí es de
