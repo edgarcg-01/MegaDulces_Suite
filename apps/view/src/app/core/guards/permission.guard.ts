@@ -5,6 +5,8 @@ import { PermissionsService } from '../services/permissions.service';
 import { Permission } from '../constants/permissions';
 import { findProject } from '../constants/suite-map';
 import { loginUrlTree } from '../auth/login-redirect';
+import { primeraPestanaVisible } from '../../shared/components/page-tabs/pestanas-de-area';
+import { GASTOS_TABS } from '../../modules/finanzas/gastos-tabs';
 
 /**
  * Redirección a la pantalla de 403 con el contexto necesario para explicarla.
@@ -317,7 +319,8 @@ export const FINANZAS_LANDING: LandingCandidate[] = withTreeCandidates('finanzas
   { perm: Permission.FINANCE_RECEIVABLES_VER, url: '/finanzas/cartera' },
   { perm: Permission.FINANCE_PAYMENTS_VER, url: '/finanzas/pagos-comprobantes' },
   { perm: Permission.FINANCE_AI_CHAT, url: '/finanzas/hallazgos' },
-  { perm: Permission.FINANCE_EXPENSES_CAPTURAR, url: '/finanzas/gastos' },
+  // `[GX.83]` Al área de Gastos (sus pestañas), no a la pantalla de capturar un folio.
+  { perm: Permission.FINANCE_EXPENSES_CAPTURAR, url: '/finanzas/gastos-inicio' },
   // `[SM.9]` Llegó de ALMACEN_LANDING con el Cuadre. El rol de prevención (sólo
   // `RECONCILIATION_VER`) aterriza acá; sin esta línea rebotaría al fallback
   // `/finanzas/egresos`, que exige un permiso que no tiene, y de ahí a /sin-acceso.
@@ -351,6 +354,22 @@ export const carteraEntryGuard: CanActivateFn = (_route, state) => {
   if (perms.has(Permission.FINANCE_RECEIVABLES_VER)) return true;
   if (perms.has(Permission.FINANCE_COLLECTIONS_VER)) return router.parseUrl('/finanzas/cobranza');
   return denied(router, state.url, Permission.FINANCE_RECEIVABLES_VER);
+};
+
+/**
+ * `[GX.83]` **Puerta del área Gastos.** La tarjeta «Gastos» de «Mi trabajo» y la entrada a Finanzas
+ * llevaban a `/finanzas/gastos` (capturar un folio) en vez de a las pantallas de gastos. Ahora llevan
+ * acá, y esto manda a la PRIMERA pestaña que la persona ve —la misma regla que la barra
+ * (`pestanas-de-area.ts`) y que la entrada del menú—: quien firma cae en Aprobación, quien sólo
+ * captura en Mis gastos. Sin ninguna pestaña, se niega como cualquier ruta.
+ */
+export const gastosAreaEntryGuard: CanActivateFn = (_route, state) => {
+  const authService = inject(AuthService);
+  const perms = inject(PermissionsService);
+  const router = inject(Router);
+  if (!authService.isAuthenticated) return router.parseUrl('/login');
+  const primera = primeraPestanaVisible(GASTOS_TABS, (p) => perms.has(p));
+  return primera ? router.parseUrl(primera.route) : denied(router, state.url, Permission.FINANCE_EXPENSES_VER);
 };
 
 /** `[SN.4]` Landing de `/contabilidad`. Antes: `redirectTo: 'listas-sat'` fijo (exige FISCAL_LISTAS_VER). */

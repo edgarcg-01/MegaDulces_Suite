@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -678,6 +678,13 @@ export const routes: Routes = [
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
+        // `[GX.83]` Puerta del área Gastos: manda a la primera pestaña que la persona ve. El
+        // componente nunca se carga (el guard siempre redirige o niega).
+        path: 'gastos-inicio',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
+        canActivate: [gastosAreaEntryGuard]
       },
       // ── `[GX.80]` Área Gastos: UNA barra de pestañas para sus cuatro pantallas ──
       // Padre con `path: ''` (patrón de Almacén, WMS.1): las URLs de los hijos NO cambian, así que
