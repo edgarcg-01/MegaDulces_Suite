@@ -972,6 +972,38 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <div class="cg-jornada">
           <p class="fin-dim cg-sub-dim">{{ coberturaTexto() }}</p>
 
+          <!-- ⭐⭐ [CG.180] DE DONDE SALE EL AUTOLLENADO, Y SI SU FUENTE ESTA VIVA.
+               Lo midio la sesion de backend: la copia del historial llego a produccion POBLADA Y
+               CON CERO FILAS -la migracion lee una vista filtrada por current_tenant_id() y nunca
+               fijo el tenant; misma sesion y mismo instante, sin tenant 0 filas, con tenant
+               13,302-. Con la copia vacia el motor contesta "sin historia" para TODA entidad, asi
+               que esta pantalla le afirmaba al capturista que Kepler no tenia historia de ese
+               beneficiario. La frase ya se arreglo donde se dice (etiquetaProcedencia); esto es el
+               otro lado: que la cobertura DECLARE el estado de la fuente en vez de que haya que
+               deducirlo de una propuesta que no llega.
+               ⚠️ TRES casos y no dos: "esta version del servidor no lo informa" (deploy parcial)
+               no es "la copia esta vacia". Solo la segunda es un problema del dato. -->
+          @if (autofill(); as af) {
+            <p class="fin-dim cg-sub-dim">
+              Autollenado: {{ af.declarada.toLocaleString('es-MX') }} cuenta(s) declarada(s) ·
+              {{ af.derivada.toLocaleString('es-MX') }} derivada(s) del historial
+              @if (af.latido) {
+                <app-freshness-pill measures="data" [freshness]="af.latido" label="Autollenado" />
+              } @else {
+                <!-- "Nunca corrio" es su propio estado: no es un refresco viejo ni un cero. -->
+                <span class="fin-hint-warn">el carril nunca corrió</span>
+              }
+            </p>
+            @if (autofillFuenteVacia()) {
+              <p-message severity="warn" class="cg-full">La copia del historial está vacía: el
+                autollenado no tiene con qué proponer, y va a decir «sin propuesta» en cada
+                captura. No es que los beneficiarios no tengan historia — lo revisa Sistemas.</p-message>
+            }
+          } @else {
+            <p class="fin-dim cg-sub-dim">Autollenado: sin medir — esta versión del servidor no
+              informa el estado de su fuente.</p>
+          }
+
       <!-- ⚠️ Antes esto decía "No hay conceptos" también cuando la medición había FALLADO, y el
            subtítulo de arriba decía "sin medir" al mismo tiempo. Dos frases contradictorias sobre
            el mismo hecho. Ahora cada ausencia dice la suya. -->
@@ -1110,16 +1142,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    de los cobros de ruta y al cajon llega la morralla. Modelo "cajas separadas",
                    el mismo que ya declara conciliacionCajero. Sin esto el arqueo sale a contar
                    decenas de miles que estan dentro del cajero. -->
-              @if (a.caja_general.en_el_cajon != null) {
+              <!-- ⛔ [CG.180] UNA guarda para las DOS mitades. Acá la condición era
+                   "en_el_cajon != null" y tres lineas abajo se pintaba "a_la_boveda!" -- otro
+                   campo, nullable por su cuenta, con un signo de admiracion tapandole la boca al
+                   compilador. No rompia porque el servidor los manda juntos; bastaba que uno
+                   dejara de venir para que money(null) dibujara $0.00, o sea un cero afirmando
+                   que no quedo nada en el cajon. Ahora las dos salen del mismo objeto. -->
+              @if (cajon(); as cj) {
                 <div class="cg-conc-row"><span class="fin-dim">&nbsp;&nbsp;de eso, a la bóveda</span>
-                  <span class="mono fin-dim">{{ money(a.caja_general.a_la_boveda!) }}</span></div>
+                  <span class="mono fin-dim">{{ money(cj.a_la_boveda) }}</span></div>
                 <!-- ⛔ [CG.97.1] Esto NO es un saldo y el rotulo decia que si ("Queda en el cajon"),
                      con un NEGATIVO pintado de VERDE. Es el MOVIMIENTO del cajon en la jornada, y
                      puede ser negativo de verdad: un gasto de hoy pagado con efectivo que el cajero
                      dispenso ANTEAYER sale del cajon hoy y entro hace dos dias. Lo que hay en el
                      cajon = fondo inicial + esto, y el fondo se declara una vez. -->
                 <div class="cg-conc-row"><span class="fin-dim">&nbsp;&nbsp;le dejó al cajón</span>
-                  <span class="mono fin-dim">{{ money(a.caja_general.en_el_cajon!) }}</span></div>
+                  <span class="mono fin-dim">{{ money(cj.en_el_cajon) }}</span></div>
                 <!-- ⭐ [CG.99] Con el fondo, la resta se vuelve un SALDO que se puede ir a contar.
                      Sin el, "le dejo al cajon" es solo un movimiento y puede salir negativo de
                      forma legitima -- un gasto de hoy pagado con efectivo dispensado anteayer. -->
@@ -3688,6 +3726,27 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cobertura = signal<CoberturaResponse['catalogo']>([]);
   /** Medir CERO y NO PODER medir son cosas distintas y se dicen distinto (ADR-056). */
   coberturaSinMedir = signal(false);
+
+  /**
+   * `[CG.180]` **De dónde sale el autollenado.** `undefined` = la API desplegada no lo informa
+   * (deploy parcial); con valor, `derivada === 0` significa que la copia del historial está
+   * VACÍA. Las dos son ausencias y sólo la segunda es un problema del dato.
+   */
+  autofill = signal<NonNullable<CoberturaResponse['autofill']> | undefined>(undefined);
+
+  /**
+   * ⛔ La fuente del autollenado está vacía: no hay con qué proponer.
+   *
+   * De esto cuelga la frase que ve quien captura. Con la copia vacía, el motor contesta
+   * `sin_historia` para TODA entidad y la pantalla decía *"no hay historia de este proveedor"* —
+   * una afirmación sobre el proveedor cuando el hecho es sobre nosotros.
+   *
+   * ⚠️ `undefined` NO cuenta como vacía: no saber no es saber que está vacía.
+   */
+  autofillFuenteVacia = computed(() => {
+    const a = this.autofill();          // se lee SIEMPRE: un corte antes mataría la dependencia
+    return !!a && a.derivada === 0;
+  });
   propuesta = signal<AutofillResponse | null>(null);
   kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number; cancelados?: number; monto_cancelado?: number } | null>(null);
 
@@ -3750,8 +3809,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   hayEnCajon = computed(() => {
     const cg = this.arqueo()?.caja_general;
-    if (!cg || cg.fondo_inicial == null || cg.en_el_cajon == null) return null;
-    return Number((Number(cg.fondo_inicial) + Number(cg.en_el_cajon)).toFixed(2));
+    // `[CG.180]` La mitad del cajón sale del resolvedor acoplado, no del campo plano: así las dos
+    // cifras que esta pantalla publica del cajón vienen de la misma fuente y no pueden divergir.
+    const c = this.cajon();
+    if (!cg || cg.fondo_inicial == null || c == null) return null;
+    return Number((Number(cg.fondo_inicial) + Number(c.en_el_cajon)).toFixed(2));
   });
 
   /**
@@ -4079,6 +4141,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     { label: 'Depósito al banco', value: 'deposito' },
   ];
 
+  /**
+   * `[CG.180]` **Las dos mitades del cajón, en UN objeto o en ninguno.**
+   *
+   * La plantilla pintaba `a_la_boveda!` bajo la guarda de `en_el_cajon != null`: dos campos
+   * nullables por separado, una sola guarda y un `!` que le tapaba la boca al compilador. Hoy no
+   * rompe porque el servidor los emite juntos, pero bastaba que uno se volviera null por su
+   * cuenta para que `money(null)` dibujara **$0.00** — un cero afirmando que no quedó nada en el
+   * cajón, que es otra cosa que no poder saberlo.
+   *
+   * ⚠️ El `??` NO es cosmético: mientras la API desplegada no mande `cajon`, esto lo arma de los
+   * dos planos, y exige los DOS. Si llegara sólo uno, devuelve `null` — que es la respuesta
+   * honesta, no medio cajón.
+   */
+  cajon = computed(() => {
+    const cg = this.arqueo()?.caja_general;
+    if (!cg) return null;
+    if (cg.cajon !== undefined) return cg.cajon;          // API nueva: manda lo que diga, null incluido
+    const en = cg.en_el_cajon;
+    const bov = cg.a_la_boveda;
+    return en == null || bov == null ? null : { en_el_cajon: en, a_la_boveda: bov };
+  });
+
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
   textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
   corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
@@ -4187,7 +4271,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (doc) return { tono: 'propuesto' as const,
       texto: `Cuenta ${doc.cuenta} de la póliza del documento (Kepler)${doc.conceptos.length > 1 ? ' — elegí el concepto' : ''}.` };
     if (manual) return etiquetaManual();
-    return etiquetaProcedencia(this.propuesta()?.concepto);
+    // `[CG.180]` La fuente se lee ACÁ y no dentro del util: el util es puro y se prueba solo.
+    return etiquetaProcedencia(this.propuesta()?.concepto, this.autofillFuenteVacia());
   });
   /** `true` en cuanto la persona elige o teclea el concepto ella misma. */
   conceptoManual = signal(false);
@@ -4490,11 +4575,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargarCobertura(): void {
     this.svc.cobertura().subscribe({
-      next: (c) => { this.cobertura.set(c.catalogo ?? []); this.coberturaSinMedir.set(false); },
+      next: (c) => {
+        this.cobertura.set(c.catalogo ?? []);
+        // `[CG.180]` Se copia tal cual, incluido el `undefined`: el campo ausente dice "esta
+        // version del servidor no lo sabe" y no puede confundirse con una copia vacia.
+        this.autofill.set(c.autofill);
+        this.coberturaSinMedir.set(false);
+      },
       // Un error de red NO puede verse como "no hay conceptos": se DECLARA sin medir. Antes se
       // vaciaba la lista, y entonces el subtítulo decía "sin medir" mientras el aviso de abajo
       // afirmaba "No hay conceptos de Kepler" — dos frases contradictorias sobre el mismo hecho.
-      error: () => { this.cobertura.set([]); this.coberturaSinMedir.set(true); },
+      // `[CG.180]` El autofill también vuelve a `undefined`: con la petición caída no sabemos si
+      // la copia está vacía, y dejar el valor viejo publicaría una medición que ya no se hizo.
+      error: () => { this.cobertura.set([]); this.autofill.set(undefined); this.coberturaSinMedir.set(true); },
     });
   }
 
