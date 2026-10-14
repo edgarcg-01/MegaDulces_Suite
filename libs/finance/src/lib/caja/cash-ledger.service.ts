@@ -1,6 +1,11 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, type FinanceFindingsSinkPort } from '@megadulces/contracts';
+import {
+  TenantKnexService, TenantContextService, evalInput, composeFreshness,
+} from '@megadulces/platform-core';
+import {
+  FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
+  type FinanceFindingsSinkPort,
+} from '@megadulces/contracts';
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
@@ -260,6 +265,18 @@ export class CashLedgerService {
        * un cero con latido de hace una hora son dos cosas distintas, y sólo una es un problema
        * del dato. `latido` en `null` significa que el carril **nunca** escribió — que es su
        * propio estado, no un cero (ADR-056).
+       *
+       * ⛔ `[CG.141.1]` **La frescura sale como `Freshness`, el tipo canónico de `libs/contracts`,
+       * y NO como una forma propia.** La primera versión de este campo publicaba
+       * `{ status: 'ok'|'error', as_of, filas, error }` — un primitivo nuevo para algo que el
+       * repo ya resolvió en VP.2.1, y la sesión de frontend lo marcó con razón: con esa forma
+       * `app-freshness-pill` necesitaba un adaptador a mano en la pantalla, que es exactamente
+       * el "primitivo inventado" que ADR-056 manda evitar. Peor: un `ok`/`error` de dos valores
+       * **no puede expresar el tercer estado** — un refresco que corrió hace 40 horas sale `ok`
+       * y es `stale`, así que la forma propia pintaba verde justo el caso que importa.
+       *
+       * ⚠️ El umbral viene de `CAJA_AUTOFILL_FRESCURA_H`, no de un `3` escrito acá: el sensor del
+       * tablero usa el MISMO, y dos números a mano para el mismo hecho se separan en silencio.
        */
       const [decl] = await trx('finance.caja_autofill_declarada')
         .where('tenant_id', tenantId).count({ n: '*' });
@@ -269,17 +286,25 @@ export class CashLedgerService {
         .where({ tenant_id: tenantId, job_key: 'caja_autofill_entidad' })
         .first('status', 'last_finish', 'rows_affected', 'error');
 
+      // El eslabón de la corrida + —sólo si falló— un eslabón que NOMBRA el motivo. La píldora
+      // busca en `inputs[].label` qué tramo acusar: un "hay rezago" sin nombre no es accionable.
+      const inputs = latido
+        ? [
+          evalInput('caja_autofill_entidad', 'Autollenado por entidad',
+            latido.last_finish, CAJA_AUTOFILL_FRESCURA_H),
+          ...(latido.status === 'error'
+            ? [evalInput('caja_autofill_error',
+              `Último refresco con error: ${String(latido.error ?? 'sin motivo registrado').slice(-180)}`,
+              null, CAJA_AUTOFILL_FRESCURA_H)]
+            : []),
+        ]
+        : [];
+
       const autofill = {
         declarada: Number(decl?.n ?? 0),
         derivada: Number(deriv?.n ?? 0),
-        latido: latido
-          ? {
-            status: latido.status,
-            as_of: latido.last_finish,
-            filas: Number(latido.rows_affected ?? 0),
-            error: latido.error ?? null,
-          }
-          : null,
+        /** `null` = el carril NUNCA corrió. No es lo mismo que corrió y está viejo. */
+        latido: latido ? composeFreshness(inputs) : null,
       };
 
       return { catalogo, mapa, anclaje, ingreso, autofill };

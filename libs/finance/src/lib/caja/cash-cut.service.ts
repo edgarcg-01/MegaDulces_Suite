@@ -1177,6 +1177,35 @@ export class CashCutService {
                    END AS documento`),
         );
 
+      /**
+       * ⛔ `[CG.141.2]` **Las dos mitades del cajón se calculan UNA vez y viajan juntas.**
+       *
+       * Antes se calculaban en línea, cada una en su propiedad, las dos con el mismo
+       * `cajero ? … : null`. Funcionaba, pero el contrato las declaraba nullables **por separado**
+       * y la pantalla pinta `a_la_boveda!` bajo la guarda de `en_el_cajon != null` — o sea que el
+       * día que una se volviera `null` por su cuenta, la pantalla dibujaba **$0.00 sin avisar**
+       * (lo marcó la sesión de frontend auditando su lado).
+       *
+       * ⭐ El acoplamiento es real —las dos salen del MISMO feed del cajero— así que ahora lo dice
+       * el dato: `cajon` es un solo objeto nullable. Y de paso se calculan una sola vez: este
+       * archivo ya declara dos renglones más arriba que *"una resta que viaja dos veces es una
+       * resta que puede llegar distinta"*.
+       *
+       * ⚠️ Los campos planos se CONSERVAN con su forma exacta mientras la pantalla desplegada
+       * migra — el mismo criterio con el que `coverage()` conserva su `ingresos`. Se retiran
+       * cuando el front consuma `cajon`, no antes: quitarlos ahora deja el bloque en blanco sin
+       * ningún error.
+       */
+      const cajon = cajero
+        ? {
+          en_el_cajon: Number((ingresosCajon - gastosCajon - depositos
+            + (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)
+            - (Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)).toFixed(2)),
+          a_la_boveda: Number(((Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)
+            - (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)).toFixed(2)),
+        }
+        : null;
+
       return {
         fecha: dia,
         sucursal,
@@ -1224,11 +1253,9 @@ export class CashCutService {
            * caído). Ahí no se puede repartir, y un cero diría «nada quedó en el cajón», que es
            * una afirmación distinta de «no se puede saber».
            */
-          en_el_cajon: cajero
-            ? Number((ingresosCajon - gastosCajon - depositos
-              + (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)
-              - (Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)).toFixed(2))
-            : null,
+          // ⚠️ `[CG.141.2]` Sale de `cajon`, que es donde vive el cálculo. Se conserva plano para
+          // no romper la pantalla desplegada mientras migra; no se recalcula acá.
+          en_el_cajon: cajon?.en_el_cajon ?? null,
           /**
            * ⭐ `[CG.99]` **CON QUÉ ARRANCÓ EL CAJÓN, para que el movimiento se vuelva un SALDO.**
            *
@@ -1258,10 +1285,8 @@ export class CashCutService {
            * renglón que dice «de eso, a la bóveda» tiene que hablar de *eso*: del movimiento del
            * libro de arriba. Las dos piernas se descuentan de su propio lado.
            */
-          a_la_boveda: cajero
-            ? Number(((Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)
-              - (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)).toFixed(2))
-            : null,
+          // ⚠️ `[CG.141.2]` Igual que su mitad: sale de `cajon`, no se recalcula.
+          a_la_boveda: cajon?.a_la_boveda ?? null,
 
           /**
            * `[CG.139]` La parte de la jornada que se quedó la máquina, y por eso **no está** en
@@ -1274,6 +1299,12 @@ export class CashCutService {
             ingresos: ingresosEnBoveda, gastos: gastosEnBoveda,
             movimientos: Number(libro?.tocaron_boveda ?? 0),
           },
+          /**
+           * `[CG.141.2]` Las dos mitades del cajón, ACOPLADAS como vienen: o están las dos o no
+           * está ninguna. `null` = no hay cajero (cualquier sucursal que no sea OFICINAS, o el
+           * feed caído), que es distinto de «quedó en cero».
+           */
+          cajon,
         },
         cajero,
         corte_abierto: corte

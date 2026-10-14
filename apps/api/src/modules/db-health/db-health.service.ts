@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-core';
+import { CAJA_AUTOFILL_FRESCURA_H } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { Client } from 'pg';
 import { commitDelBuild } from '../../build-info';
@@ -1234,7 +1235,10 @@ export const CRON_JOBS: CronCfg[] = [
   // una copia vacía hace que `porEntidad()` devuelva `sin_historia` para TODA entidad, o sea que
   // el backend culpa al dato (“Kepler no tiene con qué”) de un defecto de construcción.
   // Corre cada hora al :07; warn al saltarse ~3 corridas, crítico a ~8.
-  { key: 'caja_autofill_entidad', label: 'Caja — autollenado por entidad (mv)', cadence: 'cada hora :07 MX', warnH: 3, critH: 8, maxRunH: 0.25 },
+  // ⚠️ `warnH` sale de `CAJA_AUTOFILL_FRESCURA_H` y no de un 3 escrito acá: la pantalla publica
+  // la frescura de este MISMO carril en `GET /cobertura`. Dos umbrales a mano para el mismo hecho
+  // se separan en silencio, y el día que se separan el tablero y la pantalla se contradicen.
+  { key: 'caja_autofill_entidad', label: 'Caja — autollenado por entidad (mv)', cadence: 'cada hora :07 MX', warnH: CAJA_AUTOFILL_FRESCURA_H, critH: 8, maxRunH: 0.25 },
   // ── [CG.76] El refresco OÍDO, que adelanta al cron cuando llega un movimiento ──────────────
   //
   // Sin este renglón el carril caería en `cfg ? classify : 'ok'` = **verde incondicional**, que es
