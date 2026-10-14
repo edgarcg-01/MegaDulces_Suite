@@ -72,8 +72,12 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 
               <app-metric-strip [items]="kpis()" ariaLabel="Conciliación de la vecinal contra el arqueo" />
 
-              <!-- dt-stack: el panel se embebe a anchos distintos según el sidebar; en angosto
-                   la rejilla se apila por renglón con su data-label en vez de scrollear a ciegas. -->
+              <!-- dt-scope + dt-stack: el panel se embebe a anchos distintos según el sidebar, y
+                   cada columna es un CAMPO del mismo registro (no un pivote), así que en angosto
+                   la rejilla se apila por renglón con su data-label en vez de scrollear a ciegas.
+                   ⚠️ El dt-stack SIN el dt-scope no apila nada: la consulta de contenedor no tiene
+                   contra qué medir. Se ve igual de roto, pero en verde. -->
+              <div class="dt-scope">
               <p-table [value]="filas()" class="dt-stack surf-table surf-table--plain surf-table--sticky"
                        size="small" [rowHover]="true" [scrollable]="true" scrollHeight="44vh"
                        [tableStyle]="{ 'min-width': '58rem' }">
@@ -119,6 +123,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                   </tr>
                 </ng-template>
               </p-table>
+              </div>
 
               <!-- Lo que lleva código de ruta vecinal y NO es venta de la caja. Se declara, no se suma. -->
               <p class="vr-nosuma">
