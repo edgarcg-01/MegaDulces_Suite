@@ -4,15 +4,13 @@ import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { pgRaw } from './pg-raw.util';
 // `[TDA.4]` El tier y su codificación de cable viven en el vocabulario común: los entienden el
 // backend que los emite y la pantalla que los consume, en vivo y en el respaldo offline.
-import { type MayoreoTier, compactarTier } from '@megadulces/contracts';
+import {
+  type MayoreoTier, type UnidadPrecioVerificador, type VerificadorPrecioResponse,
+  type VerificadorSnapshot, type VerificadorSnapshotItem, compactarTier,
+} from '@megadulces/contracts';
 
-/** Una unidad de venta con su precio, para el verificador. */
-export interface UnidadPrecio {
-  u:              string;
-  precio_con_iva: number;
-  precio_sin_iva: number;
-  factor:         number;
-}
+/** Una unidad de venta con su precio, para el verificador. `[VAC.L1]` Una sola definición: el contrato. */
+export type UnidadPrecio = UnidadPrecioVerificador;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kepler guarda casi todo como texto, incluidos costos y cantidades, y hay
@@ -446,7 +444,7 @@ export class KpService {
    * coinciden. Declararlo es el punto: un número inestable presentado como único es peor que un
    * número acompañado de "esto varía entre plazas".
    */
-  async getPrecio(q: string, sucursal?: string) {
+  async getPrecio(q: string, sucursal?: string): Promise<VerificadorPrecioResponse> {
     // Sólo alfanumérico: los códigos y los EAN lo son. Además va parametrizado.
     const code = String(q || '').replace(/[^0-9A-Za-z]/g, '');
     if (!code) return { ok: false, error: 'Sin código' };
@@ -627,7 +625,7 @@ export class KpService {
    * códigos tienen precio distinto entre plazas, así que el precio mostrado
    * cambiaría solo cada vez que una sucursal se re-sincroniza.
    */
-  async getPreciosTodos(sucursal?: string) {
+  async getPreciosTodos(sucursal?: string): Promise<VerificadorSnapshot> {
     // Sólo se aceptan códigos de dos dígitos; cualquier otra cosa se ignora.
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
 
@@ -645,7 +643,7 @@ export class KpService {
       const etiquetas = await this.mayoreoDeTodos(suc);
 
       const vistos = new Set<string>();
-      const items: any[] = [];
+      const items: VerificadorSnapshotItem[] = [];
 
       for (const r of rows) {
         if (vistos.has(r.codigo)) continue;
@@ -676,6 +674,7 @@ export class KpService {
         // El SKU sin ceros a la izquierda: `catalog.products.sku` no los lleva y `r.codigo` viene
         // con LPAD(5). Sin normalizar, el join en memoria fallaría para TODO el catálogo.
         const et = etiquetas.get(String(r.codigo).replace(/^0+/, ''));
+        const gramaje = et?.contenido ?? null;
 
         items.push({
           c: r.codigo,
@@ -687,7 +686,7 @@ export class KpService {
           // definición para los dos modos. Se OMITEN cuando no hay nada que decir: un array vacío
           // por producto son ~9,000 arrays vacíos en la descarga del kiosco.
           ...(et?.mayoreo.length ? { m: et.mayoreo.map(compactarTier) } : {}),
-          ...(et?.contenido ? { g: et.contenido } : {}),
+          ...(gramaje ? { g: gramaje } : {}),
         });
       }
 

@@ -6,18 +6,16 @@ import { environment } from '../../../environments/environment';
 import { OfflineDatabaseService } from '../../core/services/offline-database.service';
 // `[TDA.4]` El escalón de mayoreo y su forma de cable salen del vocabulario común: el backend
 // los emite y esta pantalla los consume —en vivo y desde el respaldo— con UNA definición.
-import { type MayoreoTier, type MayoreoTierCompacto, expandirTier } from '@megadulces/contracts';
+import {
+  type MayoreoTier, type SucursalVerificador as SucursalContrato, type UnidadPrecioVerificador,
+  type VerificadorPrecioResponse, type VerificadorSnapshot, type VerificadorSnapshotItem, expandirTier,
+} from '@megadulces/contracts';
 
 /** Se reexporta para que la pantalla lo importe de acá, junto al servicio que lo entrega. */
 export type { MayoreoTier } from '@megadulces/contracts';
 
-/** Una unidad de venta con su precio (PZA, PAQUETE, CAJA...). Espejo de KpService.UnidadPrecio. */
-export interface UnidadPrecio {
-  u: string;
-  precio_con_iva: number;
-  precio_sin_iva: number;
-  factor: number;
-}
+/** Una unidad de venta con su precio (PZA, PAQUETE, CAJA...). `[VAC.L1]` El contrato, no una copia. */
+export type UnidadPrecio = UnidadPrecioVerificador;
 
 /** Lo que la pantalla necesita mostrar de un producto. */
 export interface ProductoPrecio {
@@ -102,46 +100,12 @@ export type ResultadoBusqueda =
   | { estado: 'sin_datos'; codigo: string };
 
 /** Sucursal vigente + frescura del ODS de esa plaza (`datos_al` lo calcula el backend). */
-export interface SucursalVerificador {
-  codigo: string;
-  nombre: string;
-  direccion: string;
-  ciudad: string;
-  almacenes: string[];
-  datos_al: string | null;
-}
+export type SucursalVerificador = SucursalContrato;
 
-/** Un renglón del snapshot, tal como lo serializa `KpService.getPreciosTodos`. */
-interface SnapshotItem {
-  c: string;
-  b: string[];
-  /**
-   * `[TDA.3]` La UNIDAD de cada barcode, en el mismo índice que `b`. `null` = ese código no dice
-   * de qué unidad es (el SKU mismo, o `c96`, que trae códigos internos de Kepler).
-   *
-   * Opcional porque un respaldo descargado ANTES de este cambio no lo trae. Ausente se lee como
-   * "no sé de qué unidad es", que degrada al comportamiento viejo (precio de la unidad base) —
-   * nunca como "es la base". Los kioscos lo ganan solos al vencer el TTL de 12 h.
-   */
-  bu?: (string | null)[];
-  n: string;
-  u: Array<{ u: string; p: number; s: number }>;
-  /**
-   * `[TDA.4]` Mayoreo, con las claves cortas del cable. Opcional: un respaldo descargado antes
-   * de este cambio no lo trae, y ausente se lee como "este respaldo no sabe de mayoreo" —
-   * degrada al comportamiento anterior, nunca a un tier inventado.
-   */
-  m?: MayoreoTierCompacto[];
-  /** Gramaje. */
-  g?: string;
-}
+/** Un renglón del snapshot, tal como lo serializa `KpService.getPreciosTodos`. `[VAC.L1]` El contrato, no una copia. */
+type SnapshotItem = VerificadorSnapshotItem;
 
-interface SnapshotPayload {
-  total: number;
-  sucursal: string | null;
-  generado: string;
-  productos: SnapshotItem[];
-}
+type SnapshotPayload = VerificadorSnapshot;
 
 /** Estado del respaldo local, para pintarlo en la pantalla. */
 export interface EstadoSnapshot {
@@ -217,7 +181,7 @@ export class VerificadorService {
     const params: Record<string, string> = { q };
     if (sucursal) params['sucursal'] = sucursal;
 
-    return this.http.get<any>(`${this.base}/kp/precio`, { params }).pipe(
+    return this.http.get<VerificadorPrecioResponse>(`${this.base}/kp/precio`, { params }).pipe(
       timeout(TIMEOUT_LIVE_MS),
       map((r): ResultadoBusqueda => {
         // El backend contesta 200 con `ok:false` cuando no lo encuentra — no es un error
@@ -320,7 +284,7 @@ export class VerificadorService {
     return from(this.offline.getSnapshotPrecios(sucursal)).pipe(
       switchMap((guardado) => {
         if (guardado?.datos) {
-          const payload = guardado.datos as SnapshotPayload;
+          const payload = guardado.datos as VerificadorSnapshot;
           const estado: EstadoSnapshot = {
             sucursal,
             total: payload.total ?? payload.productos?.length ?? 0,
@@ -342,7 +306,7 @@ export class VerificadorService {
 
   /** Baja el catálogo completo de esa sucursal y lo persiste. Es la acción del botón. */
   descargarSnapshot(sucursal: string): Observable<EstadoSnapshot> {
-    return this.http.get<SnapshotPayload>(`${this.base}/kp/precios-todos`, { params: { sucursal } }).pipe(
+    return this.http.get<VerificadorSnapshot>(`${this.base}/kp/precios-todos`, { params: { sucursal } }).pipe(
       switchMap((payload) => {
         if (!payload?.productos?.length) throw new Error('El catálogo llegó vacío');
         return from(

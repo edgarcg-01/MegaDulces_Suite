@@ -135,7 +135,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       <!-- Captura: lo único con foco. Input nativo (mismo criterio que antes: un componente de
            PrimeNG metería su propio borde y rompería el look de la píldora). -->
       <div class="vf-input-row">
-        <input #scan type="text" inputmode="numeric" autocomplete="off" enterkeyhint="search"
+        <input #scan type="text" inputmode="numeric" autocomplete="off" enterkeyhint="search" maxlength="64"
                class="vf-input" aria-label="Escanear o teclear la clave o el código de barras"
                placeholder="Escanea o teclea el código…"
                [disabled]="!sucursal()"

@@ -41,8 +41,11 @@ const DIRECTIVA = readFileSync(
 
 describe('verificador · de qué plaza salió el precio', () => {
   it('el endpoint acepta sucursal', () => {
-    expect(CTRL).toMatch(/getPrecio\(@Query\('q'\) q: string, @Query\('sucursal'\) sucursal\?: string\)/);
-    expect(SVC).toMatch(/async getPrecio\(q: string, sucursal\?: string\)/);
+    // [VAC.L6] La consulta ya no llega suelta: la valida el pipe con el esquema del contrato.
+    expect(CTRL).toMatch(/getPrecio\(@Query\(new ZodValidationPipe\(VerificadorPrecioQuery\)\) query: VerificadorPrecioQuery\)/);
+    expect(CTRL).toMatch(/this\.kpService\.getPrecio\(query\.q \?\? '', query\.sucursal\)/);
+    // [VAC.L1] Y la respuesta lleva el tipo del contrato, no `any`.
+    expect(SVC).toMatch(/async getPrecio\(q: string, sucursal\?: string\): Promise<VerificadorPrecioResponse>/);
   });
 
   // LA NEGATIVA DEL DEFECTO: si volviera el `LIMIT 1` sin orden por plaza, volvería el número
@@ -158,7 +161,10 @@ describe('verificador · el precio grande sigue al barcode escaneado', () => {
     expect(SVC).toMatch(/bu: bus/);
     expect(FRONT).toMatch(/indiceUnidad/);
     // Y un respaldo viejo (sin `bu`) degrada al comportamiento anterior, no a una unidad inventada.
-    expect(FRONT).toMatch(/bu\?: \(string \| null\)\[\]/);
+    // [VAC.L1] La forma del renglón vive ahora en el contrato (una sola definición), no en el front.
+    const CONTRATO_SNAP = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'contracts', 'src', 'http', 'store.contract.ts'), 'utf8');
+    expect(CONTRATO_SNAP).toMatch(/bu\?: \(string \| null\)\[\]/);
+    expect(FRONT).toMatch(/type SnapshotItem = VerificadorSnapshotItem/);
   });
 
   // LA NEGATIVA CENTRAL: si el hero volviera a ser `unidades[0]` fijo, volvería el defecto.

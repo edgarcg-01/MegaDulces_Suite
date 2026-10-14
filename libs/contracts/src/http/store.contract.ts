@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 // [TDA.1] Eventos del proyecto Tienda que viajan por WebSocket, compartidos por backend y frontend
 // (ADR-052 / ADR-056).
 //
@@ -186,3 +188,119 @@ export function expandirTier(t: MayoreoTierCompacto): MayoreoTier {
     equivale_a: t.eq || null,
   };
 }
+
+// ── [VAC.L1] Lo que RESPONDEN los endpoints del verificador, declarado una sola vez ────────
+// Antes `UnidadPrecio`, el renglón del snapshot y la sucursal existían DOS veces (en `KpService` y
+// en `verificador.service.ts`) y la respuesta en vivo se leía como `any`: el día que el backend
+// agregaba un campo, nada avisaba del otro lado. Ahora el backend lo EMITE con este tipo y el
+// frontend lo CONSUME con el mismo.
+
+/** Una unidad de venta con su precio (PZA, PAQ, CJA, KG…). `factor` = cuántas unidades BASE trae. */
+export interface UnidadPrecioVerificador {
+  u: string;
+  precio_con_iva: number;
+  precio_sin_iva: number;
+  factor: number;
+}
+
+/** Un producto entre los que comparten un mismo código (`codigo_ambiguo`). */
+export interface CandidatoVerificador {
+  codigo: string;
+  nombre: string;
+  precio_con_iva: number | null;
+}
+
+/** `GET /kp/precio` cuando el producto existe. */
+export interface VerificadorPrecioOk {
+  ok: true;
+  codigo: string;
+  nombre: string;
+  unidad: string;
+  precio_con_iva: number | null;
+  precio_sin_iva: number | null;
+  /** Base primero: los `factor` de las demás se refieren a la primera. */
+  unidades: UnidadPrecioVerificador[];
+  /** De qué unidad es el código escaneado. `null` = "no sé", nunca "es la base". */
+  unidad_escaneada: string | null;
+  unidad_base: string | null;
+  mayoreo: MayoreoTier[];
+  contenido: string | null;
+  /** Llave del aviso en vivo. `null` = no se puede saber si un aviso le habla a esta pantalla. */
+  product_id: string | null;
+  iva_pct: number;
+  ieps_pct: number;
+  sucursal_precio: string | null;
+  precio_ambiguo: boolean;
+  plazas_con_precio_distinto: number;
+  codigo_ambiguo: boolean;
+  productos_candidatos: CandidatoVerificador[];
+  plaza_pedida_sin_dato: boolean;
+  origen_precio: 'kepler' | 'override_manual';
+}
+
+/** `GET /kp/precio` cuando NO está (200 con `ok:false`: es una respuesta, no un error). */
+export interface VerificadorPrecioNoEncontrado {
+  ok: false;
+  code?: string;
+  error: string;
+}
+
+export type VerificadorPrecioResponse = VerificadorPrecioOk | VerificadorPrecioNoEncontrado;
+
+/** Un renglón del snapshot offline, con las claves cortas del cable. */
+export interface VerificadorSnapshotItem {
+  c: string;
+  b: string[];
+  /** La unidad de cada barcode, en el mismo índice que `b`. Ausente en respaldos anteriores. */
+  bu?: (string | null)[];
+  n: string;
+  u: Array<{ u: string; p: number; s: number }>;
+  /** Mayoreo compacto. Ausente = "este respaldo no sabe de mayoreo". */
+  m?: MayoreoTierCompacto[];
+  /** Gramaje. */
+  g?: string;
+}
+
+/** `GET /kp/precios-todos`. */
+export interface VerificadorSnapshot {
+  total: number;
+  sucursal: string | null;
+  generado: string;
+  productos: VerificadorSnapshotItem[];
+}
+
+/** `GET /sucursales`: la plaza y la frescura del ODS de esa plaza. */
+export interface SucursalVerificador {
+  codigo: string;
+  nombre: string;
+  direccion: string;
+  ciudad: string;
+  almacenes: string[];
+  datos_al: string | null;
+}
+
+// ── [VAC.L6] La consulta del verificador, validada donde ENTRA el dato ─────────────────────
+// Los endpoints `/kp/precio` y `/kp/precios-todos` son `@Public()`: la frontera es un kiosco sin
+// cuenta, y hasta hoy el único control era un saneo a mano dentro del servicio (sin tope de
+// longitud: un `q` de megabytes llegaba hasta el SQL). El esquema vive acá para que el pipe del
+// backend y cualquier cliente hablen de LO MISMO.
+//
+// · `q` — tope de 64 caracteres: un EAN-14 mide 14 y las claves de Kepler 5; 64 deja margen para
+//   espacios que el servicio ya limpia. Opcional a propósito: la ausencia sigue contestándose con
+//   el 200 `{ ok: false, error: 'Sin código' }` que el frontend ya entiende.
+// · `sucursal` — dos dígitos o ausente. Antes un valor mal formado se IGNORABA en silencio y la
+//   respuesta caía en la plaza determinista: el error del que llama no se veía. Ahora es un 400.
+//   `''` cuenta como ausente (un `?sucursal=` vacío no es una plaza).
+const sucursalOpcional = z.preprocess(
+  (v) => (v === '' ? undefined : v),
+  z.string().regex(/^[0-9]{2}$/, 'sucursal debe ser de dos dígitos').optional(),
+);
+
+export const VerificadorPrecioQuery = z.object({
+  q: z.string().max(64, 'q admite hasta 64 caracteres').optional(),
+  sucursal: sucursalOpcional,
+});
+export type VerificadorPrecioQuery = z.infer<typeof VerificadorPrecioQuery>;
+
+export const VerificadorPreciosTodosQuery = z.object({ sucursal: sucursalOpcional });
+export type VerificadorPreciosTodosQuery = z.infer<typeof VerificadorPreciosTodosQuery>;
