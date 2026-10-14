@@ -210,7 +210,9 @@ export class CashLedgerController {
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
   @ApiOperation({ summary: 'Registra un movimiento. Folio atómico, par cuenta/concepto validado contra el catálogo vivo y arqueo que cuadra o no se guarda.' })
   create(@Body() body: CreateMovementInput, @Req() req: AuthedRequest) {
-    return this.svc.create(body, this.user(req));
+    // `[CG.154]` `createTraducido` y no `create`: las reglas de la tabla (glosa corta, monto en
+    // cero, uuid mal formado) salían como **500 Internal server error** con el SQL adentro.
+    return this.svc.createTraducido(body, this.user(req));
   }
 
   /**
