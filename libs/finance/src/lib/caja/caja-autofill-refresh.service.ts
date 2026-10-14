@@ -135,7 +135,11 @@ export class CajaAutofillRefreshService {
       // causa al final, así que un `slice(0, N)` guarda la consulta y tira el motivo — el defecto
       // medido en `cashflow_forecast_snapshot`, cuyo `error` en prod son 400 caracteres de SQL
       // que terminan a media lista de parámetros.
-      m.falla = e instanceof Error ? e.message.slice(-400) : String(e);
+      // ⚠️ `[CG.143.4]` **Las DOS ramas recortan por el final.** La de `String(e)` quedó sin
+      // recortar en la primera versión, y no es un caso de laboratorio: un rechazo del driver de
+      // pg o un `throw` de un string no son `Error`. Si cayera por ahí, `db-health` publicaría sus
+      // primeros 80 caracteres — exactamente el modo de falla que este recorte existe para cerrar.
+      m.falla = (e instanceof Error ? e.message : String(e)).slice(-400);
       this.logger.error(`refresco de ${MV} NO aplicado: ${m.falla}`);
     } finally {
       this.running = false;
