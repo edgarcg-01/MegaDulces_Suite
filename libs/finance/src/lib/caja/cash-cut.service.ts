@@ -481,7 +481,7 @@ export class CashCutService {
    *    que `[CG.152]` cerró en un camino y que `cerrar` conservaba intacto.
    */
   private async guardarDenominaciones(
-    trx: any,
+    trx: Knex.Transaction,
     tenantId: string,
     cutId: string,
     momento: 'apertura' | 'cierre',
