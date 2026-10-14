@@ -1,6 +1,11 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, type FinanceFindingsSinkPort } from '@megadulces/contracts';
+import {
+  TenantKnexService, TenantContextService, evalInput, composeFreshness,
+} from '@megadulces/platform-core';
+import {
+  FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
+  type FinanceFindingsSinkPort,
+} from '@megadulces/contracts';
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
@@ -241,7 +246,90 @@ export class CashLedgerService {
       const ingreso = anclaje
         .filter((r: any) => r.tipo === 'ingreso')
         .map((r: any) => ({ ...r, ingresos: r.movimientos }));
-      return { catalogo, mapa, anclaje, ingreso };
+
+      /**
+       * ⛔⛔ `[CG.141]` **Las fuentes del AUTOLLENADO, que este endpoint no declaraba.**
+       *
+       * Este método existe para que *«0 conceptos por carril caído no se vea igual que no hay
+       * conceptos»*, y miraba el catálogo, el mapa HITL y el anclaje — **no las dos fuentes de
+       * las que el autollenado propone la cuenta**. El instrumento que habría cazado el defecto
+       * no vigilaba el lugar donde ocurrió.
+       *
+       * Y ocurrió: `analytics.mv_caja_autofill_entidad` llegó a producción **poblada y con cero
+       * filas** (la migración que la creó no fijó `app.tenant_id`, y su fuente filtra por
+       * `current_tenant_id()`: 0 filas sin tenant contra 13,302 con tenant). Con las dos fuentes
+       * vacías, `porEntidad()` devuelve `sin_historia` para TODA entidad — o sea que el backend
+       * culpa al dato de un defecto de construcción.
+       *
+       * ⭐ Por eso viaja la **frescura** y no sólo el conteo: un cero con latido de hace un mes y
+       * un cero con latido de hace una hora son dos cosas distintas, y sólo una es un problema
+       * del dato. `latido` en `null` significa que el carril **nunca** escribió — que es su
+       * propio estado, no un cero (ADR-056).
+       *
+       * ⛔ `[CG.141.1]` **La frescura sale como `Freshness`, el tipo canónico de `libs/contracts`,
+       * y NO como una forma propia.** La primera versión de este campo publicaba
+       * `{ status: 'ok'|'error', as_of, filas, error }` — un primitivo nuevo para algo que el
+       * repo ya resolvió en VP.2.1, y la sesión de frontend lo marcó con razón: con esa forma
+       * `app-freshness-pill` necesitaba un adaptador a mano en la pantalla, que es exactamente
+       * el "primitivo inventado" que ADR-056 manda evitar. Peor: un `ok`/`error` de dos valores
+       * **no puede expresar el tercer estado** — un refresco que corrió hace 40 horas sale `ok`
+       * y es `stale`, así que la forma propia pintaba verde justo el caso que importa.
+       *
+       * ⚠️ El umbral viene de `CAJA_AUTOFILL_FRESCURA_H`, no de un `3` escrito acá: el sensor del
+       * tablero usa el MISMO, y dos números a mano para el mismo hecho se separan en silencio.
+       */
+      const [decl] = await trx('finance.caja_autofill_declarada')
+        .where('tenant_id', tenantId).count({ n: '*' });
+      const [deriv] = await trx('analytics.mv_caja_autofill_entidad')
+        .where('tenant_id', tenantId).count({ n: '*' });
+      // ⚠️ `[CG.143.3]` **`error` NO se trae a propósito.** No es que no se use: es que no debe
+      // poder usarse. Un campo que llega al servicio es un campo que alguien agrega al objeto de
+      // respuesta sin pensarlo, y éste lleva nombres de tabla, de rol y de schema a una pantalla
+      // de captura. Su canal es `db-health`, que lo lee de la misma fila.
+      const latido = await trx('analytics.cron_runs')
+        .where({ tenant_id: tenantId, job_key: 'caja_autofill_entidad' })
+        .first('status', 'last_finish', 'rows_affected');
+
+      /**
+       * El eslabón de la corrida + —sólo si falló— uno que NOMBRA el tramo. La píldora busca en
+       * `inputs[].label` qué acusar: un "hay rezago" sin nombre no es accionable.
+       *
+       * ⛔ `[CG.143.3]` **El `label` es una frase para humanos, NUNCA el texto crudo del error.**
+       * La primera versión metía ahí `String(latido.error).slice(-180)`, y la sesión de frontend
+       * lo marcó con razón: las tres pantallas del repo que pintan `inputs[]`
+       * (`finanzas-cartera`, `comercial-sell-out`, `tienda-etiquetas`) filtran los que no están
+       * `fresh` y **imprimen su `label` tal cual**. O sea que un cajero habría terminado leyendo
+       * un error de Postgres con nombres de tabla, de rol y de schema. No es sólo feo: es
+       * superficie que no tiene por qué ver quien captura efectivo.
+       *
+       * ⭐ Y el texto crudo **no se manda por otro campo**: ya tiene su canal, y uno solo. Vive en
+       * `analytics.cron_runs.error` y `db-health` lo publica a quien puede accionarlo. Mandarlo
+       * también acá sería duplicar un canal para un consumidor que no debe pintarlo — y la
+       * duplicación es justo lo que hace que dos lados digan cosas distintas del mismo hecho.
+       *
+       * ⚠️ Ese canal sirve porque este carril recorta su error **por el final** (`slice(-400)`):
+       * los 80 caracteres que `db-health` muestra son la causa, no el principio del SQL.
+       */
+      const inputs = latido
+        ? [
+          evalInput('caja_autofill_entidad', 'Autollenado por entidad',
+            latido.last_finish, CAJA_AUTOFILL_FRESCURA_H),
+          ...(latido.status === 'error'
+            ? [evalInput('caja_autofill_error',
+              'El refresco del autollenado falló; lo revisa Sistemas',
+              null, CAJA_AUTOFILL_FRESCURA_H)]
+            : []),
+        ]
+        : [];
+
+      const autofill = {
+        declarada: Number(decl?.n ?? 0),
+        derivada: Number(deriv?.n ?? 0),
+        /** `null` = el carril NUNCA corrió. No es lo mismo que corrió y está viejo. */
+        latido: latido ? composeFreshness(inputs) : null,
+      };
+
+      return { catalogo, mapa, anclaje, ingreso, autofill };
     });
   }
 

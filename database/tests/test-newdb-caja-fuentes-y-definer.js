@@ -276,6 +276,91 @@ const VISTAS_DEFINER = [
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // ⛔⛔ `[CG.141]` LA COPIA DEL AUTOLLENADO, QUE NACIÓ VACÍA.
+    //
+    // `analytics.mv_caja_autofill_entidad` llegó a producción **poblada y con cero filas**: la
+    // migración que la creó lee `finance.v_caja_movimientos_pendientes` —filtrada por
+    // `current_tenant_id()`— sin fijar `app.tenant_id`. Con las dos fuentes del autollenado en
+    // cero, `porEntidad()` devuelve `sin_historia` para TODA entidad: el backend culpa al dato
+    // de un defecto de construcción.
+    //
+    // ⭐ Se vigila la PREMISA, no sólo el síntoma. El síntoma (copia vacía) es el ✔ de abajo;
+    // la premisa es que **el contenido de esta copia depende de quién la refresca**. Mientras
+    // eso sea cierto, el `set_config` del carril es LOAD-BEARING y nadie puede quitarlo
+    // "limpiando"; el día que deje de serlo, que lo que se revise sea la DECISIÓN.
+    console.log('\n[6] La copia que alimenta el autollenado por entidad no está vacía');
+    {
+      const hay = (await c.query(`SELECT to_regclass('analytics.mv_caja_autofill_entidad') r`)).rows[0].r;
+      if (!hay) {
+        skip('analytics.mv_caja_autofill_entidad no existe en esta DB — nada que vigilar');
+      } else {
+        const n = (await c.query('SELECT count(*)::int n FROM analytics.mv_caja_autofill_entidad')).rows[0].n;
+        ok(n > 0,
+          `la copia tiene ${n} entidad(es). En cero, el autollenado responde «sin_historia» a todas `
+          + 'y la pantalla lee que Kepler no tiene con qué.');
+
+        // ── La premisa: ¿sigue dependiendo del tenant de la sesión? ──────────────────────────
+        //
+        // ⛔⛔ DOS TRAMPAS, y la primera me tocó a mí al escribir esto.
+        //
+        // 1. `set_config(k, v, true)` **fuera de una transacción explícita es un no-op**: el
+        //    `true` lo hace local a la transacción, y una consulta suelta abre y cierra la suya.
+        //    Sin el `BEGIN` de abajo, las dos mediciones daban idéntico (13,302 · 13,302) y la
+        //    aserción se "caía" por un defecto del test, no del sistema.
+        //
+        // 2. ⭐⭐ Y lo que eso destapó, que vale más: los roles de desarrollo traen el tenant
+        //    **clavado en el rol** — `ALTER ROLE edgar SET app.tenant_id = '…d01c'`, igual para
+        //    `david`, `francisco` y `sistemas`. O sea que este candado, corrido como persona,
+        //    NUNCA ve el mundo del que EJECUTA la migración (`postgres`, sin ese default). Es la
+        //    lección de `[CG.130]` —*"ensayé con un rol y ejecuté con otro"*— y la de `[CP.8.44]`.
+        //    Por eso el `set_config` explícito no es redundante: es lo único que iguala los dos
+        //    mundos dentro de esta prueba.
+        await c.query('BEGIN');
+        await c.query(`SELECT set_config('app.tenant_id', '', true)`);
+        const sin = (await c.query(
+          `SELECT count(*)::int n FROM finance.v_caja_movimientos_pendientes WHERE entidad_code IS NOT NULL`,
+        )).rows[0].n;
+        await c.query(`SELECT set_config('app.tenant_id', '00000000-0000-0000-0000-00000000d01c', true)`);
+        const con = (await c.query(
+          `SELECT count(*)::int n FROM finance.v_caja_movimientos_pendientes WHERE entidad_code IS NOT NULL`,
+        )).rows[0].n;
+        await c.query('COMMIT');
+
+        if (con === 0) {
+          skip(`la fuente devuelve 0 filas INCLUSO con el tenant puesto, así que la premisa no se `
+            + 'pudo ejercer: no se puede distinguir "no depende del tenant" de "no hay datos".');
+        } else {
+          ok(sin === 0,
+            `la fuente DEPENDE del tenant de la sesión (sin tenant ${sin} · con tenant ${con}): el `
+            + '`set_config` previo al REFRESH es load-bearing, no higiene.');
+        }
+
+        // ── El carril: ¿existe, y tiene umbral? ──────────────────────────────────────────────
+        const fs = require('fs'); const path = require('path');
+        const dbh = path.join(__dirname, '..', '..', 'apps', 'api', 'src', 'modules', 'db-health', 'db-health.service.ts');
+        if (!fs.existsSync(dbh)) {
+          skip('no se encontró db-health.service.ts para verificar el umbral del carril');
+        } else {
+          ok(fs.readFileSync(dbh, 'utf8').includes(`key: 'caja_autofill_entidad'`),
+            'el carril tiene renglón en CRON_JOBS. Sin él, `db-health` cae en `cfg ? classify : "ok"` '
+            + 'y un refresco parado se pinta VERDE.');
+        }
+
+        const lat = (await c.query(
+          `SELECT status, rows_affected, last_finish FROM analytics.cron_runs
+            WHERE job_key = 'caja_autofill_entidad'`,
+        )).rows[0];
+        if (!lat) {
+          skip('el carril `caja_autofill_entidad` todavía no escribió un latido (no ha corrido en '
+            + 'esta DB). Que la copia tenga filas HOY no dice que alguien la mantenga.');
+        } else {
+          ok(lat.status === 'ok' && Number(lat.rows_affected) > 0,
+            `último latido: ${lat.status} con ${lat.rows_affected} fila(s) (${lat.last_finish}).`);
+        }
+      }
+    }
+
     console.log(`\n${fail ? '✖' : '✔'} ${pass} ✓ / ${fail} ✗ / ${sinMedir} no medido`);
     process.exit(fail ? 1 : 0);
   } finally {

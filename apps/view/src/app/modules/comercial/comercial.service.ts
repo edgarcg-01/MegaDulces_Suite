@@ -2109,6 +2109,14 @@ export class ComercialService {
     return this.http.get<RouteClosureReconciliation>(`${this.base}/analytics/sales-by-route/closure-reconciliation`, { params });
   }
 
+  /** `[VEC.10]` — La venta vecinal contra el dinero que se contó en SU caja (arqueo). */
+  vecinalConciliacion(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<VecinalConciliacion>(`${this.base}/analytics/sales-by-route/vecinal-reconciliation`, { params });
+  }
+
   private salesByRouteParams(p: SalesByRouteParams): HttpParams {
     let params = new HttpParams().set('year', String(p.year));
     if (p.routes?.length) params = params.set('routes', p.routes.join(','));
@@ -3226,6 +3234,56 @@ export interface RouteClosureReconciliation {
     ok: number;
   };
   incidencias: RouteClosureIncidencia[];
+}
+
+// ── `[VEC.10]` — La vecinal contra el dinero que se contó en SU caja ──
+export type VecinalVeredicto =
+  | 'cuadra' | 'faltante' | 'sobrante' | 'contado_en_cero'
+  | 'vecinal_excede_arqueo' | 'sin_arqueo' | 'arqueo_abierto' | 'dia_en_curso';
+
+export interface VecinalConciliacionFila {
+  warehouse_code: string;
+  warehouse_name: string;
+  caja: number;
+  date: string;
+  rutas: string[];
+  vecinal: number;
+  tickets: number;
+  /** NULL = no hay arqueo. Nunca 0: la ausencia no se dibuja como cero. */
+  arqueo_venta: number | null;
+  otros_en_la_caja: number | null;
+  /** 100 = la caja es sólo de la vecinal → el descuadre ES de ella. */
+  vecinal_pct: number | null;
+  efectivo_esperado: number | null;
+  efectivo_contado: number | null;
+  efectivo_diff: number | null;
+  veredicto: VecinalVeredicto;
+}
+
+/** Lleva código de ruta vecinal y NO es venta de la caja. Se declara, NO se suma. */
+export interface VecinalNoSuma {
+  refactura: number;
+  refactura_docs: number;
+  telemarketing: number;
+  telemarketing_docs: number;
+}
+
+export interface VecinalConciliacion {
+  period: { from: string; to: string };
+  summary: {
+    dia_caja: number;
+    vecinal_total: number;
+    arqueo_total: number;
+    con_arqueo: number;
+    cobertura_pct: number;
+    por_veredicto: Record<string, number>;
+    efectivo_diff: number;
+    /** DOS frescuras: la venta va en vivo, el arqueo lo cierra la sucursal horas después. */
+    venta_hasta: string | null;
+    arqueo_hasta: string | null;
+  };
+  no_suma: VecinalNoSuma;
+  filas: VecinalConciliacionFila[];
 }
 
 // ── Fase T — Traspasos (no es venta) ──

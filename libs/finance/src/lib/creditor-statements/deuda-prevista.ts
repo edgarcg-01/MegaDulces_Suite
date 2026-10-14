@@ -60,6 +60,29 @@ export interface DeudaPrevista {
   base: 'pendiente';
 }
 
+/**
+ * ⛔⛔ `[CG.142]` **El bucket sale con `to_char`, no con `::date`.** Lo de abajo es un template
+ * literal, así que esta explicación vive acá: un acento grave dentro del SQL lo parte en dos
+ * (le pasó seis veces a este repo, y hay una compuerta propia: `npm run check:sql-backticks`).
+ *
+ * Con `date_trunc(...)::date` el driver entrega un **objeto `Date`** —este repo no fija
+ * `setTypeParser`, verificado— y el `String(row.bucket).slice(0, 10)` de más abajo daba
+ * **«Mon Oct 19»**: en inglés y sin año.
+ *
+ * ⚠️ Lo que lo volvía invisible: `Date.parse('Mon Oct 19')` **no da `NaN`** — da **2001**-10-19,
+ * porque JS completa el año que falta. O sea que todo lo que se calcule con esa fecha sale de un
+ * año equivocado **sin fallar**; sólo revienta al final, al meterla en una columna `date`.
+ *
+ * ⭐ Medido contra prod el 2026-10-13, mismas filas, las dos formas:
+ *
+ *     ::date   →  "Mon Oct 12"  ·  0 de 5 empatan con weekBuckets()  ·  horizonte_dias −9,133
+ *     to_char  →  "2026-10-12"  ·  5 de 5 empatan                    ·  horizonte_dias −2
+ *
+ * Qué costaba: `cashflow_forecast_snapshot` fallaba **todos los días** (la tabla
+ * `finance.cashflow_forecast` estaba VACÍA) y, en la curva de flujo, `pagMap.get(semana)` nunca
+ * encontraba nada → **`pagos = 0` todas las semanas**, el neto era la cobranza entera y la alerta
+ * de insuficiencia no podía sonar.
+ */
 const SQL = `
   SELECT proveedor,
          grupo,
@@ -67,8 +90,12 @@ const SQL = `
               WHEN vencimiento <  ?::date                     THEN 'vencido_fuera'
               WHEN vencimiento BETWEEN ?::date AND ?::date    THEN 'en_ventana'
               ELSE 'posterior' END                            AS categoria,
+         -- [CG.142] to_char y NO ::date. Con ::date el driver devuelve un objeto Date de JS
+         -- (este repo no fija setTypeParser, verificado), y el String(row.bucket).slice(0, 10)
+         -- de abajo daba "Mon Oct 19" -- en ingles y sin anio. Medido contra prod con el
+         -- driver real el 2026-10-13. Detalle y numeros, en el bloque de arriba.
          CASE WHEN vencimiento BETWEEN ?::date AND ?::date
-              THEN date_trunc('week', vencimiento)::date END  AS bucket,
+              THEN to_char(date_trunc('week', vencimiento), 'YYYY-MM-DD') END  AS bucket,
          round(sum(pendiente), 2)                             AS monto
     FROM analytics.v_supplier_payables
    WHERE tenant_id = ?

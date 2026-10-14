@@ -146,3 +146,34 @@ export function totalDenominaciones(conteo: Record<string, number | string> | nu
   const r2 = (n: number) => Math.round(n * 100) / 100;
   return { total: r2(billetes + monedas), billetes: r2(billetes), monedas: r2(monedas), desconocidas };
 }
+
+/**
+ * ⛔ `[CG.152]` **La llave canonica de un valor suelto.** Existe porque la base la exige y hay
+ * un camino que todavia no la manda.
+ *
+ * `finance.cash_ledger_cut_denominations` tiene `denom_key` NOT NULL y su llave primaria es
+ * `(tenant_id, cut_id, momento, denom_key)` — porque `denominacion` sola **no identifica**: el
+ * billete de $20 y la moneda de $20 valen lo mismo y son dos renglones distintos. El conteo del
+ * arqueo viaja hoy como `{ denominacion, piezas }`, sin llave, y el insert reventaba con 23502.
+ *
+ * ⚠️ **Lo que esta funcion NO puede hacer: adivinar la familia.** Ante `20` devuelve la llave del
+ * BILLETE (`'20'`), que es la convencion del catalogo —la moneda que colisiona lleva sufijo— y la
+ * que conserva el significado de todo lo ya capturado. O sea que **una moneda de $20 contada sin
+ * llave queda registrada como billete**.
+ *
+ * ⭐ El arqueo NO se ve afectado por eso: las dos valen 20, asi que el total contado es el mismo.
+ * Lo que se pierde es el desglose por familia. El arreglo de fondo es que quien cuenta mande la
+ * llave; mientras tanto, esto se declara en vez de inventar una heuristica.
+ *
+ * @returns la llave, o `null` si el valor no existe en el catalogo (no se inventa una).
+ */
+export function denomKeyDeValor(valor: number | string): string | null {
+  const v = Number(valor);
+  if (!Number.isFinite(v)) return null;
+  // Los billetes van primero en `DENOMINACIONES_MXN`, asi que el `find` ya prefiere la familia
+  // cuya llave es el valor pelado. Se deja explicito igual: depender del orden de un arreglo
+  // para una decision de dinero es como se rompe en silencio el dia que alguien lo reordena.
+  return BILLETES_MXN.find((d) => d.valor === v)?.key
+    ?? MONEDAS_MXN.find((d) => d.valor === v)?.key
+    ?? null;
+}

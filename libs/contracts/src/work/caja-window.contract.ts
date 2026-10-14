@@ -59,3 +59,17 @@ export const CAJA_VENTANA_DIAS = 45;
  * indistinguible de una bandeja vacía.
  */
 export const CAJA_JORNADA_DIAS = 3;
+
+/**
+ * `[CG.141]` — **Cuántas horas puede tener la copia del autollenado antes de ser vieja.**
+ *
+ * Vive acá, y no como un número suelto en cada lado, porque lo usan DOS consumidores que tienen
+ * que decir lo mismo: el sensor del tablero (`CRON_JOBS` en `db-health.service.ts`, su `warnH`) y
+ * la frescura que `GET /finance/cash-ledger/cobertura` le publica a la pantalla. Dos umbrales
+ * escritos a mano para el mismo hecho se separan en silencio, y el día que se separan el tablero
+ * y la pantalla contradicen — una pinta ámbar y la otra verde sobre el mismo dato.
+ *
+ * ⚠️ Es POLÍTICA, no medición: el carril corre cada hora, así que 3 h son ~3 corridas perdidas.
+ * Lo que sí está medido es el costo de la corrida (1,553 ms) y lo que publica (285 entidades).
+ */
+export const CAJA_AUTOFILL_FRESCURA_H = 3;

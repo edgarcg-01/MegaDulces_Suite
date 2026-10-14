@@ -6,6 +6,7 @@ import { CashLedgerController } from './cash-ledger.controller';
 import { CajaAutofillService } from './caja-autofill.service';
 import { CashCutService } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
+import { CajaAutofillRefreshService } from './caja-autofill-refresh.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
 import { CajaControlService } from './caja-control.service';
 import { CajaControlController } from './caja-control.controller';
@@ -27,9 +28,13 @@ import { CajaControlController } from './caja-control.controller';
   controllers: [CajaGeneralController, CashLedgerController, CajaControlController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y
   // no en el controller porque corre por `@Cron`, sin request — con su propia advertencia de RLS.
+  // [CG.141] El carril que refresca `mv_caja_autofill_entidad`. Va acá, y NO en el array
+  // genérico de `AnalyticsRefreshService`: aquél refresca sin fijar `app.tenant_id`, y esta
+  // matvista lee una vista filtrada por `current_tenant_id()` — refrescarla así la VACÍA, que
+  // es exactamente como nació.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService, CajaControlService],
+    CajaFechaFuturaScannerService, CajaControlService, CajaAutofillRefreshService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService, CajaControlService],
+    CajaFechaFuturaScannerService, CajaControlService, CajaAutofillRefreshService],
 })
 export class FinanceCajaGeneralModule {}

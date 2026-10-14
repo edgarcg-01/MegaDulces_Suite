@@ -44,6 +44,26 @@ export class CajaSocketService {
   private readonly auth = inject(AuthService);
 
   readonly connected = signal(false);
+
+  /**
+   * ⛔⛔ **`connected` vale `false` por DOS motivos distintos y eso ya mintió en pantalla.**
+   *
+   * Nace en `false` y recién pasa a `true` en el evento `connect`, así que durante todo el
+   * handshake "todavía no" y "no se pudo" se ven iguales. En `/finanzas/caja-general/firma`
+   * —el teléfono que se le pasa a quien recibe el efectivo— eso costaba dos cosas a la vez: un
+   * aviso ámbar *"revisá la red del teléfono"* apenas se escaneaba el QR, y, si la persona
+   * tocaba Continuar antes de que abriera el canal, un `sin_conexion` que el traductor de
+   * errores convierte en *"El QR venció (dura 3 minutos)"* — falso, y encima manda a buscar el
+   * problema donde no está.
+   *
+   * Es la misma regla que esta pantalla ya aplica a los datos (ADR-056): una ausencia no se
+   * pinta como la otra. Acá la ausencia es la conexión.
+   *
+   * `connected` SE QUEDA —lo leen otros consumidores y significa exactamente "se puede emitir"—
+   * y este estado lo acompaña con el porqué.
+   */
+  readonly estado = signal<'sin_iniciar' | 'conectando' | 'vivo' | 'caido'>('sin_iniciar');
+
   readonly change$ = new Subject<CajaEvent>();
 
   /** `[CG.68]` El teléfono tecleó el código y ya está del otro lado. */
@@ -83,9 +103,16 @@ export class CajaSocketService {
     // Idempotente por EXISTENCIA, no por estado: con `?.connected` un segundo connect() durante
     // el handshake ve false, crea OTRO socket y pisa la referencia — el primero queda huérfano,
     // reconectando solo y fuera del alcance de disconnect(). (Mismo defecto ya vivido en Bancos.)
-    if (this.socket) { if (!this.socket.connected) this.socket.connect(); return; }
+    if (this.socket) {
+      if (!this.socket.connected) { this.estado.set('conectando'); this.socket.connect(); }
+      return;
+    }
     const token = pase ? null : this.auth.token();
-    if (!pase && !token) return;
+    // ⚠️ Sin credencial no se intenta siquiera, y eso NO es "conectando": es que no se puede.
+    // Antes volvía en silencio y el estado quedaba en el `false` inicial, indistinguible de un
+    // handshake en curso que nunca iba a terminar.
+    if (!pase && !token) { this.estado.set('caido'); return; }
+    this.estado.set('conectando');
     this.modo = modoPedido;
     this.socket = io(`${this.baseUrl()}/caja`, {
       path: '/reports/socket.io',
@@ -95,9 +122,9 @@ export class CajaSocketService {
       reconnectionAttempts: 5,
       reconnectionDelay: 1500,
     });
-    this.socket.on('connect', () => this.connected.set(true));
-    this.socket.on('disconnect', () => this.connected.set(false));
-    this.socket.on('auth_error', () => this.connected.set(false));
+    this.socket.on('connect', () => { this.connected.set(true); this.estado.set('vivo'); });
+    this.socket.on('disconnect', () => { this.connected.set(false); this.estado.set('caido'); });
+    this.socket.on('auth_error', () => { this.connected.set(false); this.estado.set('caido'); });
     this.socket.on('caja_changed', (e: CajaEvent) => this.change$.next(e));
     // `[CG.68]` Los tres avisos del emparejamiento PC ↔ teléfono.
     this.socket.on('firma:tomada', (e: { codigo: string; por: string | null }) => this.firmaTomada$.next(e));
@@ -167,6 +194,9 @@ export class CajaSocketService {
     this.socket = null;
     this.modo = null;   // `[CG.84]` si no se limpia, el próximo connect() cree que sigue el modo viejo
     this.connected.set(false);
+    // Cerrar a propósito no es caerse: vuelve al estado de arranque, o la próxima pantalla que
+    // monte arrancaría mostrando una falla que no ocurrió.
+    this.estado.set('sin_iniciar');
   }
 
   private baseUrl(): string {
