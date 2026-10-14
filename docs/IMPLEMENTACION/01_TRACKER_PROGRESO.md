@@ -148,6 +148,54 @@ Y se actualiza el símbolo al avanzar:
   (39.5 MDP, Δ 0.00). *(batches 752-753)*
 - [x] **[VEC.3]** ✅ Candado `test-newdb-vecinal-truth.js` **en la regresión**: 12 ✓ / 2 ✗
   declaradas, con **prueba negativa** (ejerce el join malo y exige que dé más).
+- [x] **[VEC.10]** 🔨 **EN CÓDIGO 2026-10-13** — ⭐⭐ **La venta vecinal se cierra contra el DINERO,
+  y el enganche existía entero: nadie lo había conectado.** Disparador de Edgar: *"tenemos problemas
+  de conciliación con las ventas de vecinal"* · *"hay que cuadrarla contra todo, contra lo que
+  ingresa, lo que dice kepler"*.
+  ⛔ **Mi premisa de arranque era FALSA y medirla fue lo que destrabó la fase.** `[CG.117]` (de esa
+  misma mañana) dejó declarado que *"0 de 15 ingresos pegan con `kepler_vecinal`"*, y lo leí como
+  *"falta ligar la vecinal a Caja General"*. Es al revés: de los 29 ingresos del libro **~24 casan
+  con una ruta RD del push a ±$0.50 y con vecinal no casa ninguno**, porque `U-D-10` se llama
+  *"Ticket Contado Caja N"* — **la vecinal se timbra en una caja registradora de la sucursal y su
+  efectivo se cuenta en el arqueo de esa caja**. Caja General no es su destino y nunca lo fue.
+  ⚠️ *Un cruce que da cero significa "falta ligarlo" o "no va por ahí", y los dos se leen igual.*
+  Lo que los separa es preguntarle al OTRO lado. **Cobertura: 568 de 569 día-caja con arqueo = 99.8%**
+  (abril → octubre).
+  ⭐⭐ **Y el arqueo resultó ser el TERCER testigo de que `U-D-12` no es venta** — el más fuerte,
+  porque no deriva del mismo documento sino de una persona contando billetes: PH el 08-oct tiene
+  `U-D-10` $21,430.83 y `U-D-12` $21,430.96, y **la caja contó $21,430.83**. Si fuera venta
+  adicional habría contado el doble.
+  ⛔ **El grano es la CAJA, nunca la ruta** (`05` caja 2 cobra `1V002`+`2V001`+`3V001`; `02` caja 4
+  mezcla `1V003` con mostrador) → viaja `vecinal_pct`: sólo en 100 el descuadre es de la vecinal.
+  **Lo que encuentra al encenderse (sep-01 → oct-13):** `02` Piedad Abastos **−$50,279.27 sobrante**
+  (6 cortes, y **$52,000 redondos son UN solo corte** del 11-sep, que vendió $5,798.40 y declara
+  $57,798.40 contados — se publica sin afirmar la causa) · `05` Zamora **+$31,953.92** · `07`
+  Morelia $2,641.97 · `01` PH $0.79.
+  ⭐ **Un estado nuevo corrigió una clasificación:** 43 cortes declaran **CERO efectivo contado**
+  habiendo esperado ($416,406.67) y se leían como "faltante" — **$43,248.56 de los $49,748.27 del
+  período eran turnos que nadie contó**. Con `contado_en_cero` aparte, Zamora baja a $6,499.71.
+  **Siete estados**, cada uno con dueño distinto; las dos ausencias NO comparten etiqueta.
+  ⛔ **Hipótesis descartada POR MEDICIÓN** (queda escrita para que nadie la reconstruya): iba a usar
+  el desglose del arqueo (`arqueo_billetes+monedas+otros+retirado`) como testigo de
+  `efectivo_contado` para separar error de captura de diferencia de dinero — **no cuadra en 3,537 de
+  4,420 cortes (80%)**, con brechas de millones. Esas columnas **no son testigo de nada** hasta que
+  alguien las decodifique; un check montado ahí habría marcado el 80% de los cortes.
+  ⛔ **`U-D-8` "Factura Telemarketing" con código de ruta vecinal — $404,607.09 en `1V001` desde el
+  30-jun — es DECISIÓN de negocio, no bug:** no es espejo (**0 de 721 líneas** tienen gemelo, y el
+  mismo test encuentra 98.9% de espejos en `U-D-12`, o sea que sí detecta espejos) y tampoco entra al
+  arqueo. Es venta real por otro canal. Se publica aparte, sin sumar. ⚠️ `kduv` registra
+  **`2V004 = "TELEMARKETING MORELIA"`**, que cae en el patrón `^[0-9]V[0-9]` sin ser ruta de reparto.
+  **Entregado:** mig `20261013190000` (`analytics.v_vecinal_conciliacion` + `v_vecinal_no_suma`,
+  `security_invoker` + `GRANT` explícitos, **4 frenos**: signo de `efectivo_diff` 4,417/4,417,
+  cobertura ≥90%, el arqueo ignora la re-factura, costo ≤1 s) · `vecinalConciliacion()` +
+  `GET /commercial/analytics/sales-by-route/vecinal-reconciliation` (`COMMERCIAL_ROUTE_SALES_VER`,
+  sin permiso nuevo → **sin re-login**) · panel `app-vecinal-recon` en `/comercial/ventas-por-ruta`
+  (answer-first, `app-load-state` + `app-metric-strip` + `app-freshness-pill` + `p-table`/`surf-table`
+  + `p-tag`) · candado `test-newdb-vecinal-conciliacion.js` en la regresión.
+  ⭐ **Vista, no matvista: 38–41 ms en tres corridas.** La primera versión costaba **730 ms** porque
+  calculaba el total de la caja escaneando `kdm1` por fecha; ese total ya lo declara
+  `cash_cuts.venta_total`, así que el resto se **deriva** — 18× más barato y una fuente menos.
+  ⛔ **Pendiente: aplicar la migración a prod + redeploy api+view + validación visual.**
 - ⬜ **[VEC.8]** El sell-out sigue **doblando** la vecinal ($1,205,244.01 en sep-2026, 62%) porque
   suma `U-D-12`, que en estas rutas re-factura el ticket. Migrar `mv_kepler_sales_daily` exige
   `DROP CASCADE` sobre **15 objetos en 3 niveles (5 matviews, 2,453 MB)** y su refresco **bloquea

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { denomKeyDeValor } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
@@ -455,11 +456,45 @@ export class CashCutService {
     await trx('finance.cash_ledger_cuts').where({ id }).update({
       contado: t.contado, morralla: input.morralla ?? 0, updated_at: trx.fn.now(),
     });
-    await trx('finance.cash_ledger_cut_denominations').where({ tenant_id: tenantId, cut_id: id }).del();
+    /**
+     * ⛔⛔ `[CG.152]` **DOS DEFECTOS DEL MISMO CAMBIO, y el segundo sólo se ve al arreglar el
+     * primero.** La migración `20261006123000` agregó `denom_key` (NOT NULL, y parte de la PK
+     * junto con `momento`) y actualizó el camino de APERTURA — este, el del conteo, quedó igual.
+     *
+     * 1. **El insert no mandaba `denom_key`** → `23502` en cada conteo. Medido en prod el
+     *    2026-10-14: `POST /cortes/:id/contar` devolvía 500 y la tabla está **en cero filas**,
+     *    o sea que el arqueo nunca pudo cerrarse desde que la columna existe.
+     *
+     * 2. ⚠️ **El `del()` no filtraba por `momento`**, así que borraba también el desglose de
+     *    APERTURA. Hoy no se perdió nada porque el insert fallaba y la transacción se revertía
+     *    entera — pero arreglar sólo el insert habría convertido un error visible en **pérdida
+     *    silenciosa** del desglose con el que arrancó la caja. Por eso van juntos.
+     *
+     * ⚠️ `denominacion` sola NO identifica: el billete de $20 y la moneda de $20 valen lo mismo
+     * y son dos renglones distintos (lo fuerza `cut_denom_par_chk` en la base). Si quien cuenta
+     * manda la llave, se respeta; si no, se deriva del catálogo compartido, que ante un $20 sin
+     * llave **asume billete y lo declara**. El total contado no cambia —las dos valen 20—; lo
+     * que se pierde es el desglose por familia.
+     */
+    await trx('finance.cash_ledger_cut_denominations')
+      .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' }).del();
     const piezas = (input.conteo ?? []).filter((d) => Number(d.piezas) > 0);
     if (piezas.length) {
-      await trx('finance.cash_ledger_cut_denominations').insert(
-        piezas.map((d) => ({ tenant_id: tenantId, cut_id: id, denominacion: d.denominacion, piezas: d.piezas })));
+      const filas = piezas.map((d) => {
+        const key = d.denom_key ?? denomKeyDeValor(d.denominacion);
+        if (!key) {
+          // No se inventa una llave: una denominación fuera del catálogo es dinero que no se
+          // puede contar, y fallar acá es mejor que guardar un renglón que nadie podrá leer.
+          throw new BadRequestException(
+            `Denominación ${d.denominacion} no está en el catálogo: no se puede registrar el conteo.`,
+          );
+        }
+        return {
+          tenant_id: tenantId, cut_id: id, momento: 'cierre',
+          denom_key: key, denominacion: d.denominacion, piezas: d.piezas,
+        };
+      });
+      await trx('finance.cash_ledger_cut_denominations').insert(filas);
     }
   }
 
@@ -1177,6 +1212,35 @@ export class CashCutService {
                    END AS documento`),
         );
 
+      /**
+       * ⛔ `[CG.141.2]` **Las dos mitades del cajón se calculan UNA vez y viajan juntas.**
+       *
+       * Antes se calculaban en línea, cada una en su propiedad, las dos con el mismo
+       * `cajero ? … : null`. Funcionaba, pero el contrato las declaraba nullables **por separado**
+       * y la pantalla pinta `a_la_boveda!` bajo la guarda de `en_el_cajon != null` — o sea que el
+       * día que una se volviera `null` por su cuenta, la pantalla dibujaba **$0.00 sin avisar**
+       * (lo marcó la sesión de frontend auditando su lado).
+       *
+       * ⭐ El acoplamiento es real —las dos salen del MISMO feed del cajero— así que ahora lo dice
+       * el dato: `cajon` es un solo objeto nullable. Y de paso se calculan una sola vez: este
+       * archivo ya declara dos renglones más arriba que *"una resta que viaja dos veces es una
+       * resta que puede llegar distinta"*.
+       *
+       * ⚠️ Los campos planos se CONSERVAN con su forma exacta mientras la pantalla desplegada
+       * migra — el mismo criterio con el que `coverage()` conserva su `ingresos`. Se retiran
+       * cuando el front consuma `cajon`, no antes: quitarlos ahora deja el bloque en blanco sin
+       * ningún error.
+       */
+      const cajon = cajero
+        ? {
+          en_el_cajon: Number((ingresosCajon - gastosCajon - depositos
+            + (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)
+            - (Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)).toFixed(2)),
+          a_la_boveda: Number(((Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)
+            - (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)).toFixed(2)),
+        }
+        : null;
+
       return {
         fecha: dia,
         sucursal,
@@ -1224,11 +1288,9 @@ export class CashCutService {
            * caído). Ahí no se puede repartir, y un cero diría «nada quedó en el cajón», que es
            * una afirmación distinta de «no se puede saber».
            */
-          en_el_cajon: cajero
-            ? Number((ingresosCajon - gastosCajon - depositos
-              + (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)
-              - (Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)).toFixed(2))
-            : null,
+          // ⚠️ `[CG.141.2]` Sale de `cajon`, que es donde vive el cálculo. Se conserva plano para
+          // no romper la pantalla desplegada mientras migra; no se recalcula acá.
+          en_el_cajon: cajon?.en_el_cajon ?? null,
           /**
            * ⭐ `[CG.99]` **CON QUÉ ARRANCÓ EL CAJÓN, para que el movimiento se vuelva un SALDO.**
            *
@@ -1258,10 +1320,8 @@ export class CashCutService {
            * renglón que dice «de eso, a la bóveda» tiene que hablar de *eso*: del movimiento del
            * libro de arriba. Las dos piernas se descuentan de su propio lado.
            */
-          a_la_boveda: cajero
-            ? Number(((Number(cajero['depositado'] ?? 0) - ingresosEnBoveda)
-              - (Number(cajero['dispensado'] ?? 0) - gastosEnBoveda)).toFixed(2))
-            : null,
+          // ⚠️ `[CG.141.2]` Igual que su mitad: sale de `cajon`, no se recalcula.
+          a_la_boveda: cajon?.a_la_boveda ?? null,
 
           /**
            * `[CG.139]` La parte de la jornada que se quedó la máquina, y por eso **no está** en
@@ -1274,6 +1334,12 @@ export class CashCutService {
             ingresos: ingresosEnBoveda, gastos: gastosEnBoveda,
             movimientos: Number(libro?.tocaron_boveda ?? 0),
           },
+          /**
+           * `[CG.141.2]` Las dos mitades del cajón, ACOPLADAS como vienen: o están las dos o no
+           * está ninguna. `null` = no hay cajero (cualquier sucursal que no sea OFICINAS, o el
+           * feed caído), que es distinto de «quedó en cero».
+           */
+          cajon,
         },
         cajero,
         corte_abierto: corte

@@ -70,6 +70,60 @@ const ROLLBACK = Symbol('rollback');
     ok(neto === -20000, 'Fórmula §10: neto = cobros − pagos = −20,000 (real aunque no haya saldo inicial)');
     ok(round2(5000 + neto) === -15000, 'Con saldo inicial 5,000 → proyectado −15,000 < 0 → alerta falta_liquidez');
 
+    // ── 5. ⛔⛔ [CG.142] La clave de la semana EMPATA entre las dos piernas ────
+    //
+    // `deudaPrevista` devolvía su bucket como `date_trunc(...)::date`, y el driver entrega eso
+    // como objeto `Date` (este repo no fija `setTypeParser`). El `String(b).slice(0, 10)` del
+    // consumidor daba **«Mon Oct 19»**, mientras `weekBuckets()` pide `YYYY-MM-DD`: la curva
+    // buscaba con una clave que NUNCA estaba y `pagos` caía al `?? 0` todas las semanas. Neto =
+    // cobranza entera, y la alerta de insuficiencia sin poder sonar.
+    //
+    // ⚠️ Lo que lo volvía invisible: `Date.parse('Mon Oct 19')` **no da NaN**, da **2001**-10-19
+    // (JS completa el año), así que `horizonte_dias` salía de un año equivocado sin fallar.
+    //
+    // ⭐ Se vigilan las DOS formas en la misma corrida: la que se usa (`to_char`) tiene que
+    // empatar, y la que se retiró (`::date`) tiene que SEGUIR sin empatar — si algún día empata,
+    // la premisa cambió y lo que hay que revisar es la DECISIÓN, no el test.
+    {
+      const lunesISO = (d) => {
+        const x = new Date(d + 'T00:00:00Z'); const dow = (x.getUTCDay() + 6) % 7;
+        x.setUTCDate(x.getUTCDate() - dow); return x.toISOString().slice(0, 10);
+      };
+      const q = (expr) => knex.raw(
+        `SELECT ${expr} AS bucket FROM analytics.v_supplier_payables
+          WHERE tenant_id = ? AND pendiente > 0
+            AND vencimiento BETWEEN current_date AND (current_date + 90)
+          GROUP BY 1 ORDER BY 1 LIMIT 5`, [T]);
+
+      // ⚠️ Sin esto, una DB de pruebas sin la vista rompe la suite por el motivo EQUIVOCADO:
+      // el `catch` de abajo saldría con exit 1 y se leería como «la clave de la semana falló».
+      const hayVista = (await knex.raw(`SELECT to_regclass('analytics.v_supplier_payables') AS r`))
+        .rows[0].r;
+      const nuevas = hayVista
+        ? (await q(`to_char(date_trunc('week', vencimiento), 'YYYY-MM-DD')`)).rows
+          .map((r) => String(r.bucket).slice(0, 10))
+        : [];
+
+      if (!hayVista) {
+        console.log('  ◌ NO MEDIDO: analytics.v_supplier_payables no existe en esta DB — la clave '
+          + 'de la semana no se pudo ejercer.');
+      } else if (!nuevas.length) {
+        console.log('  ◌ NO MEDIDO: no hay deuda con vencimiento en los próximos 90 d en esta DB, '
+          + 'así que la clave de la semana no se pudo EJERCER.');
+      } else {
+        const esperadas = new Set(nuevas.map((k) => lunesISO(k)));
+        ok(nuevas.every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k) && esperadas.has(k)),
+          `la semana de la deuda sale ISO y empata con weekBuckets(): ${nuevas.slice(0, 3).join(', ')}`);
+
+        // Prueba negativa: la forma vieja, sobre LAS MISMAS filas.
+        const viejas = (await q(`date_trunc('week', vencimiento)::date`)).rows
+          .map((r) => String(r.bucket).slice(0, 10));
+        ok(viejas.length > 0 && !viejas.some((k) => esperadas.has(k)),
+          `la forma retirada (::date) sigue SIN empatar — ${JSON.stringify(viejas[0])} contra `
+          + `${JSON.stringify(nuevas[0])}. Si esto se pone verde, el driver cambió: revisar la decisión.`);
+      }
+    }
+
     console.log(`\nBudget cashflow (PU.3): ${pass} ✓ / ${fail} ✗`);
     await knex.destroy();
     process.exit(fail === 0 ? 0 : 1);

@@ -110,7 +110,20 @@ export class CashflowForecastSnapshotService {
         semanas = filas.length;
       });
     } catch (e) {
-      motivo = e instanceof Error ? e.message.slice(0, 400) : String(e);
+      // ⛔⛔ `[CG.142]` **Se corta por el FINAL, no por el principio.** Knex antepone el SQL
+      // completo y deja la causa al final, así que un `slice(0, 400)` guardaba la consulta y
+      // **tiraba el motivo**. Medido en prod el 2026-10-13: el `error` de este job eran
+      // exactamente 400 caracteres de `insert into "finance"."cashflow_forecast" (…) values
+      // ($1, $2, …` que terminaban a media lista de parámetros — el job fallaba todos los días
+      // desde que existe, la tabla estaba VACÍA, y por qué no se podía saber ni desde el tablero
+      // ni desde el log (el `logger.error` de abajo imprime este mismo texto ya cortado).
+      //
+      // ⭐ La causa, una vez legible: `semana` llegaba como «Mon Oct 19» y Postgres rechazaba el
+      // `date`. Arreglado en el origen (`deuda-prevista.ts`).
+      // ⚠️ `[CG.143.4]` Las DOS ramas recortan por el final. La de `String(e)` quedaba entera: un
+      // rechazo del driver de pg o un `throw` de un string no son `Error`, y por ahí volvía a
+      // entrar el mismo defecto que este recorte cierra.
+      motivo = (e instanceof Error ? e.message : String(e)).slice(-400);
       this.logger.error(`foto del pronóstico NO tomada: ${motivo}`);
     }
 

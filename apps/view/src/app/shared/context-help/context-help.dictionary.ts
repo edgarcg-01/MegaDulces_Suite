@@ -1716,7 +1716,12 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           // tiene mouse. Regla P: una definicion va al diccionario, no a un tooltip.
           { term: 'Autorrellenado', def: 'La etiqueta de una fila del libro: parte de ese movimiento lo propuso el sistema, no se tecleo entero. No dice que este mal -- dice de donde salio, que es otra cosa. Lo que se propone es la cuenta y el concepto; el importe se escribe siempre a mano.' },
           { term: 'Viendo: los mios / Todo el libro', def: 'El mismo boton en sus dos estados: alterna entre todo lo que la caja registro en el periodo y solo lo que capturaste vos. Filtra por tu identidad, nunca por tu nombre -- en esta base hay dos personas que se llaman igual, y un apellido mal tecleado devolveria el libro de otra.' },
-          { term: 'Frescura', def: 'De cuando son los datos de la bandeja. Sale del servidor, no del reloj del navegador. Si el carrilque alimenta la lista se cae, la foto se congela SIN dar error y esta es la unica senal.' },
+          { term: 'Frescura', def: 'De cuando son los datos de la bandeja. Sale del servidor, no del reloj del navegador. Si el carril que alimenta la lista se cae, la foto se congela SIN dar error y esta es la unica senal.' },
+          // `[CG.180]` La jerga nueva entra al diccionario el mismo dia que entra a la pantalla:
+          // "copia del historial" no significa nada para quien captura si no esta explicada.
+          { term: 'Autollenado', def: 'Lo que propone la cuenta y el concepto antes de que los teclees. Mira tres cosas, en orden: lo que la empresa DECLARO a mano para ese beneficiario, lo que la contabilidad ya hizo con el (la copia del historial), y la propia poliza del documento. Nunca propone el importe.' },
+          { term: 'Copia del historial', def: 'La tabla donde se resume que cuenta uso la contabilidad para cada beneficiario. Es una COPIA: se rehace sola cada tanto. Si esta vacia, el autollenado no tiene con que proponer y dice "sin propuesta" en cada captura -- eso NO significa que el beneficiario no tenga historia, significa que la copia no se armo. Lo resuelve Sistemas, no quien captura.' },
+          { term: 'El carril nunca corrio', def: 'El proceso que rehace la copia del historial no se ejecuto ni una vez. Es distinto de "corrio y esta viejo" y de "corrio y fallo": en los tres casos no hay propuesta, pero solo uno se arregla esperando.' },
         ],
       },
     ],
@@ -1789,6 +1794,66 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Costo inestable', def: 'El único costo disponible es el que Wincaja re-expresa cada noche, así que el markup de un mes YA CERRADO puede cambiar solo.' },
           { term: 'Costo de una fuente', def: 'El markup descansa en una sola fuente de costo, sin un segundo testigo que lo arbitre.' },
           { term: 'Corte', def: 'La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas distintas. Medido: no comparten folio, así que no se están contando dos veces.' },
+        ],
+      },
+    ],
+  },
+
+  // `[VEC.10]` El panel publica un CUADRE entre dos cosas que la empresa no tenía conectadas, y
+  // eso no es obvio: quien lo abre espera "la venta de la vecinal" y se encuentra con una tabla
+  // por CAJA. Cada definición está anclada a lo medido contra prod (2026-10-13). Registro llano:
+  // lo leen sucursales, finanzas y dirección.
+  'conciliacion-vecinal': {
+    title: 'La vecinal contra el dinero — qué cuadra con qué',
+    intro: 'La ruta vecinal no cobra con una libreta aparte: cada venta suya se timbra en una caja registradora de la sucursal, igual que una venta de mostrador. Por eso su dinero no aparece en Caja General — aparece en el arqueo de esa caja, cuando al cierre alguien cuenta el efectivo. Este panel pone las dos mitades una al lado de la otra.',
+    groups: [
+      {
+        heading: 'Lo primero que hay que entender',
+        entries: [
+          { term: 'Se compara por CAJA, no por ruta', def: 'El efectivo se cuenta por caja al cerrar el turno, y una misma caja puede cobrar varias rutas y además mostrador. Así que un faltante pertenece a la caja, no a una ruta en particular. Sólo cuando la columna "% vecinal" dice 100 el descuadre es, con seguridad, de la vecinal.' },
+          { term: '% vecinal', def: 'Qué parte de todo lo que vendió esa caja ese día fue de rutas vecinales. En 100 la caja es sólo de la vecinal. Más abajo, el descuadre se reparte con el mostrador y no se puede atribuir.' },
+          { term: 'Venta de la caja', def: 'Lo que el propio arqueo declara que vendió la caja completa. No lo calculamos nosotros: lo declara el cierre de turno.' },
+          { term: 'Efectivo', def: 'Lo que se esperaba en la caja menos lo que se contó. Positivo significa que falta; negativo, que sobra. Un sobrante no es una buena noticia: es tan descuadre como un faltante.' },
+        ],
+      },
+      {
+        heading: 'Los estados, y quién resuelve cada uno',
+        entries: [
+          { term: 'Cuadra', def: 'Lo contado y lo esperado no se separan más de un peso. La diferencia de centavos es morralla de redondeo.' },
+          { term: 'Falta efectivo / Sobra efectivo', def: 'El arqueo no cuadró. Lo resuelve la sucursal, revisando ese turno.' },
+          { term: 'Cero contado', def: 'El arqueo declara que se contaron cero pesos de efectivo, habiendo venta en efectivo. Desde afuera no se puede saber si nadie puso el número o si de verdad faltó todo, así que no se llama faltante: llamarlo así inventaría la causa. Medido en toda la historia: 43 cortes, $416,406.67. Lo resuelve quien cierra la caja.' },
+          { term: 'Sin arqueo', def: 'Nadie cerró esa caja ese día, así que no hay con qué juzgar el dinero. No es un cero: es una ausencia, y por eso la columna aparece vacía en vez de en cero.' },
+          { term: 'La caja declara menos', def: 'El arqueo dice que la caja vendió menos de lo que la vecinal sola facturó ahí. Es una anomalía: normalmente el turno cerró antes de que la ruta terminara de capturar.' },
+          { term: 'Día en curso', def: 'El día todavía no termina. No se juzga: se espera.' },
+        ],
+      },
+      {
+        heading: 'Lo que lleva código de ruta vecinal y NO suma',
+        entries: [
+          { term: 'Re-factura', def: 'Es el mismo ticket emitido otra vez como factura no fiscal. No es una segunda venta: de cada cien renglones, noventa y nueve son copia exacta de un ticket que ya está contado. La prueba decisiva es la caja — el día que Padre Hidalgo facturó $21,430.96 de re-factura, el arqueo contó exactamente los $21,430.83 del ticket original. Si fuera venta de verdad, habría contado el doble.' },
+          { term: 'Telemarketing', def: 'Facturas de telemarketing emitidas con el código de una ruta vecinal. Son venta real, pero de otro canal: no pasan por esta caja y no se cobran aquí. Se muestran aparte porque explican por qué otros reportes dan una cifra más alta.' },
+          { term: 'Por qué otros reportes dan más', def: 'El reporte de sell-out suma las dos cosas de arriba. Por eso en septiembre publicó $3,150,428.68 donde esta pantalla dice $1,943,014.72. La diferencia no es venta que falte aquí: es venta contada dos veces allá.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si una caja aparece con faltante o sobrante',
+        kind: 'fix',
+        intro: 'El dato sale del cierre de turno de la sucursal. El camino es:',
+        steps: [
+          'Mirar la columna "% vecinal": si no dice 100, la caja también cobró mostrador y el descuadre no es sólo de la ruta.',
+          'Abrir ese turno en Finanzas › Cortes/Sucursales, que trae el corte, los cobros aplicados y el arqueo completo.',
+          'Preguntar en la sucursal por ese turno y esa caja, con la fecha y el número de caja de este renglón.',
+        ],
+      },
+      {
+        heading: 'Si aparece "cero contado"',
+        kind: 'fix',
+        intro: 'Casi siempre es que el cierre quedó sin capturar el efectivo, no que falte el dinero. Antes de escalarlo:',
+        steps: [
+          'Confirmar con la sucursal si ese turno se contó y no se capturó, o si de verdad no se contó.',
+          'Capturar el arqueo de ese turno. En cuanto el número exista, el renglón pasa solo a cuadra, falta o sobra.',
         ],
       },
     ],

@@ -2,7 +2,10 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { VeredictoCorte } from '@megadulces/contracts';
+// `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
+// objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
+// mano; cada uno que se pueda traer de acá es uno que no se puede desalinear en silencio.
+import type { Freshness, VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.13/CG.17 — Cliente del libro de caja (ADR-070).
@@ -65,6 +68,37 @@ export interface LibroResponse {
 export interface CoberturaResponse {
   catalogo: Array<{ sucursal: string; filas_origen: number; usables: number; sin_subcuenta: number; sin_codigo: number; sin_nombre: number }>;
   mapa: Array<{ source_caja: string; cuentas: number; con_propuesta: number; sin_propuesta: number; confirmadas: number; por_confirmar: number }>;
+  /**
+   * `[CG.180]` **De dónde sale el autollenado, y si su fuente está viva.**
+   *
+   * Lo trajo la sesión de backend tras medir que `analytics.mv_caja_autofill_entidad` llegó a
+   * producción **poblada y con cero filas** (la migración que la creó lee una vista filtrada por
+   * `current_tenant_id()` y nunca fijó el tenant: misma sesión y mismo instante, sin tenant 0
+   * filas, con tenant 13,302). Efecto en esta pantalla: el nivel «entidad» devolvía
+   * `sin_historia` para TODA entidad, o sea que le decíamos al capturista *"no hay historia de
+   * este proveedor"* cuando la verdad era que la copia nació vacía. Encaja con lo medido: 25
+   * reclasificaciones sobre 70 movimientos.
+   *
+   * ⚠️ **Opcional, y el `undefined` significa algo distinto del cero.** La API desplegada todavía
+   * no manda este campo: `undefined` = "esta versión del servidor no lo sabe" y `derivada === 0` =
+   * "el servidor lo sabe y la copia está vacía". Sólo la segunda es un problema del dato, y se
+   * pintan distinto.
+   */
+  autofill?: {
+    /** Filas en `finance.caja_autofill_declarada` — lo que la empresa decidió a mano. */
+    declarada: number;
+    /** Filas en la copia derivada del historial. `0` con `latido` sano = la copia está vacía. */
+    derivada: number;
+    /**
+     * `null` = el carril **nunca corrió**, que es su propio estado y no un cero.
+     *
+     * Es el `Freshness` canónico de `libs/contracts` (ADR-056) y no una forma propia: así
+     * `app-freshness-pill` lo consume con `[freshness]` sin traductor, y el tercer estado
+     * (`unknown`) existe — con un `ok|error` de dos valores, un refresco de hace 40 horas sale
+     * verde.
+     */
+    latido: Freshness | null;
+  };
 }
 
 export interface Propuesta<T = unknown> {
@@ -730,6 +764,20 @@ export interface ArqueoDia {
     en_el_cajon?: number | null;
     /** `[CG.97]` Lo que la jornada le dejó a la bóveda, neto. Positivo = la bóveda creció. */
     a_la_boveda?: number | null;
+    /**
+     * `[CG.180]` **Las dos mitades del cajón, ACOPLADAS: o están las dos o no está ninguna.**
+     *
+     * Los dos campos de arriba se declaran nullables por separado y la plantilla pintaba
+     * `a_la_boveda!` bajo la guarda de `en_el_cajon != null` — correcto hoy porque el servidor
+     * los emite juntos, y a una línea de dibujar **$0.00** el día que uno se volviera null por su
+     * cuenta. El backend los acopló en el origen (`cash-cut.service.ts`), así que la guarda es
+     * una sola y el tipo la expresa.
+     *
+     * `null` = no hay cajero (cualquier sucursal que no sea OFICINAS, o el feed caído), que es
+     * distinto de «quedó en cero». ⚠️ Opcional mientras la API desplegada no lo mande: hasta
+     * entonces se arma de los dos planos, que el servidor conserva con su forma exacta.
+     */
+    cajon?: { en_el_cajon: number; a_la_boveda: number } | null;
     /**
      * ⭐⭐ `[CG.139]` **La parte de la jornada que se quedó la máquina, y por eso ya no está en
      * `ingresos` ni en `gastos`.**

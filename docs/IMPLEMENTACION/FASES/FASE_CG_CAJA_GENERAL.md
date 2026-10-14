@@ -2966,3 +2966,137 @@ mostró que **no hacía falta**: `hayEnCajon()` —que es literalmente *«cuánt
 `arqueo-dia`, gateado sólo por `FINANCE_CAJA_VER`, **no** de `saldo()`. Lo único que lo bloquea es
 `fondo_inicial == null`, que la pantalla ya declara y ya ofrece resolver. *Una autorización para
 bajar un control anti-fraude que la medición volvió innecesaria no se usa.*
+
+---
+
+## `[CG.143]` + `[CG.144]` — Auditoría del BACKEND de `/finanzas/caja-general` (2026-10-13)
+
+> **Estado:** 🧪 EN CÓDIGO, medido contra prod, **sin pushear**. 5 commits locales.
+>
+> ⚠️⚠️ **`CG.141` y `CG.142` ESTÁN DUPLICADOS. Esto es una colisión declarada, no un error de
+> tipeo** — y queda escrito con SHA porque dentro de seis meses nadie distingue una cosa de la
+> otra. Dos sesiones (backend y frontend) numeraron a la vez sobre el mismo `main`, con minutos de
+> diferencia, y ninguna miró `git log` antes de elegir:
+>
+> | commit | dice | es, de verdad | de quién |
+> |---|---|---|---|
+> | `27b07f59e` | `[CG.141]` | **CG.143** — la copia del autollenado nació vacía | backend |
+> | `497616de4` | `[CG.142]` | **CG.144** — la semana «Mon Oct 19» | backend |
+> | `eac35f79f` | `[CG.141.1/141.2]` | **CG.143.1/143.2** — `Freshness` canónico + el cajón acoplado | backend |
+> | `1baa96f22` | `[CG.141]` | **CG.141** (se queda) — el canal tiene tres estados | frontend |
+> | `9800f88e4` | `[CG.142]` | **CG.142** (se queda) — las ocho acciones que se apagaban sin decir por qué | frontend |
+>
+> No se amenda: es un checkout compartido y hay commits encima. **Reparto acordado entre las dos
+> sesiones: backend CG.150–179 · frontend CG.180+.**
+
+### Lo que se midió, y lo que resultó NO ser un problema
+
+Auditoría completa del lado servidor (39 archivos, 12,857 líneas) contra prod en lectura.
+
+⛔ **Una corrección propia, antes que nada.** A mitad reporté *«la bandeja tarda 32 segundos»*.
+**Era falso**: el `psql` del servidor está en español y usa coma decimal — «32,886 ms» son
+**32.9 ms**. Lo destapó un control de placebo (`select 1` no puede tardar 515 ms). *Un número
+reproducible no es un número válido.*
+
+Medido después con `pg_stat_statements` sobre **30 h de tráfico real** (no consultas parecidas):
+ninguna consulta de esta pantalla rompe el gate de 500 ms. La peor es el `count+sum` de la
+bandeja, **135 ms de media sobre 568 llamadas**, con 580 ms en el peor caso. `arqueo-dia` y
+`recurrentes-sin-regla` —los dos sospechosos -- no aparecen en el top 15: están por debajo de
+59 ms. ⚠️ La consulta de **2,615 ms de media y 13,431 ms la peor** que sí existe en prod **no es
+de acá**: es de `/finanzas/cortes-sucursales` (Fase CSU).
+
+### `[CG.143]` La copia del autollenado nació VACÍA, y el motivo que publica culpa al dato
+
+`analytics.mv_caja_autofill_entidad` (creada el 2026-10-13) está en prod **poblada y con cero
+filas**. La prueba que lo decide, misma sesión y mismo instante sobre su fuente:
+
+```
+sin tenant (como corrió la migración) ......      0 filas
+con tenant (como la lee la app) ............ 13,302 filas
+```
+
+La fuente filtra `current_tenant_id()`; la migración **etiqueta** el tenant en la lista de
+selección pero nunca lo **fija** en la sesión.
+
+⭐⭐ **La advertencia estaba escrita en el archivo de al lado** —
+`caja-fecha-futura-scanner.service.ts`: *«SIN ESTA LÍNEA EL UNIVERSO ES CERO, Y EL CERO SE LEE
+COMO “no hay nada mal”»*— sobre este mismísimo `set_config`. *Una lección documentada en el
+servicio no protege a la migración que vive dos carpetas más allá.*
+
+**Qué costaba:** con `finance.caja_autofill_declarada` también en 0, `porEntidad()` cae en
+`sin_historia` para **toda** entidad. Ese servicio distingue con cuidado `sin_fuente` (el carril
+se cayó) de `sin_historia` (Kepler no tiene con qué), y **una tabla que existe, se lee y está
+vacía derrota esa distinción**: el backend culpa al dato de un defecto de construcción. Consistente
+con lo medido: **25 reclasificaciones sobre 70 movimientos (36 %)**.
+
+**Entregado:** migración que repuebla **dentro de una transacción** (si la copia quedara vacía, se
+revierte y sobrevive la anterior: el defecto no se puede repetir) · `CajaAutofillRefreshService`
+—**nadie refrescaba esa matvista**: cero `REFRESH` en el repo, cero `job_key`, cero umbral— con
+prevuelo sobre la fuente y latido de **entrega** · su renglón en `CRON_JOBS` · `cobertura` declara
+las dos fuentes con su frescura · candado con prueba negativa.
+
+⭐ **Ensayado con el rol que EJECUTA** (`postgres`, no el de persona), en transacción y con
+`ROLLBACK`: 13,302 pendientes → **285 entidades en 1,553 ms** (210 `unanime` · 16 `dominante` ·
+10 `catalogo` · 49 `disperso`, que por diseño no proponen). Son **236 entidades que hoy no
+proponen y van a proponer**.
+
+⛔ **Y de ahí salió un hallazgo mayor que el bug:** los roles de persona (`edgar`, `david`,
+`francisco`, `sistemas`) traen `app.tenant_id` **clavado en el rol** (`pg_db_role_setting`), así
+que **un candado corrido como persona nunca ve el mundo del que ejecuta la migración**. Es
+`[CG.130]` (*«ensayé con un rol y ejecuté con otro»*) y `[CP.8.44]` otra vez. Mi propia prueba de
+premisa nació rota por eso: `set_config(…, true)` **fuera de una transacción explícita es un
+no-op**, y las dos mediciones daban idéntico.
+
+### `[CG.144]` La semana de la deuda salía «Mon Oct 19»
+
+Sale de auditar por qué `cashflow_forecast_snapshot` está en `error`. El latido guardaba el error
+con `slice(0, 400)` y **knex antepone el SQL y deja la causa al final**: en prod el campo son 400
+caracteres de `insert into …` que terminan a media lista de parámetros. Legible el mensaje, la
+causa era una línea de SQL.
+
+`deuda-prevista.ts` devolvía su bucket semanal como `::date` → el driver lo entrega como **objeto
+`Date`** (este repo no fija `setTypeParser`) → `String(b).slice(0, 10)` daba `"Mon Oct 19"`.
+
+```
+::date   →  "Mon Oct 12"  ·  0 de 5 empatan con weekBuckets()  ·  horizonte_dias −9,133
+to_char  →  "2026-10-12"  ·  5 de 5 empatan                    ·  horizonte_dias −2
+```
+
+**Dos daños distintos:** (1) el snapshot fallaba **todos los días** y `finance.cashflow_forecast`
+está **VACÍA** — la foto diaria del pronóstico no se tomó nunca; (2) ⛔ **este no fallaba**: en la
+curva de flujo `pagMap` se llenaba con `"Mon Oct 19"` y se consultaba con `"2026-10-19"`, así que
+**`pagos` caía a cero todas las semanas**, el neto era la cobranza entera y la alerta de
+insuficiencia no podía sonar. De las tres piernas, ésa era la **única sin `this.iso()`** — la
+asimetría era el síntoma a la vista.
+
+⚠️ Lo que lo volvía invisible: `Date.parse('Mon Oct 19')` **no da `NaN`**, da **2001**-10-19,
+porque JS completa el año que falta. Un dato de un año equivocado que no rompe nada.
+
+Arreglado en el **origen** (`to_char` en el SQL, precedente `[LC.16]`), con los tres consumidores
+de `deudaPrevista` verificados antes de tocarlo: ninguno compensaba el formato roto.
+
+### `[CG.143.1/143.2]` Lo que la sesión de frontend devolvió, y tenía razón
+
+- **La frescura salía con forma propia** (`{status:'ok'|'error', …}`) para algo que el repo ya
+  resolvió en VP.2.1. Ahora es `Freshness` canónico, armado con `evalInput`/`composeFreshness`.
+  ⛔ Y no era sólo forma: `ok`/`error` son **dos** valores y `FreshnessStatus` tiene **tres** — un
+  refresco de hace 40 h salía `ok` y es `stale`, o sea que la forma propia pintaba verde justo el
+  caso que el campo existe para mostrar. El umbral sube a `CAJA_AUTOFILL_FRESCURA_H` en
+  `libs/contracts`, compartido con el `warnH` del sensor: dos números a mano para el mismo hecho
+  se separan en silencio.
+- **`en_el_cajon` y `a_la_boveda` estaban acoplados en el servidor y el tipo no lo decía** (la
+  plantilla pinta uno bajo la guarda del otro → `$0.00` silencioso el día que uno se vuelva null
+  solo). Ahora `cajon` es un objeto nullable único, calculado **una** vez; los campos planos se
+  conservan hasta que el front migre.
+
+### Pendiente
+
+- **`git push`** (sin autorizar) → deploy → **recién ahí** aplicar `20261013185800` dentro de
+  `prod-api`: el archivo tiene que viajar en la imagen. Sin permisos nuevos → sin re-login.
+- `mv_caja_push` lleva **4.3 días en `running`** (muerto otra vez; ya pasó en `[CG.119]` con
+  99.5 h). El sensor lo marca; falta el brazo que lo levante.
+- Un gasto de **$1,060 fechado 2026-12-10** sigue vivo en el libro desde el 28-sep. **No es
+  defecto de código**: `caja_fecha_futura` lo declara todos los días (`1 en el libro`). Es un
+  pendiente humano.
+- **Adopción**, que es el marco de todo lo anterior: 70 movimientos, **1 corte y 0 cerrados**,
+  0 reglas de entidad declaradas.

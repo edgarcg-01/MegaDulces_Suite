@@ -156,7 +156,18 @@ export class BudgetCashflowService {
       // ── Ensamble semanal (semanas vacías = 0 real, no "sin datos") ────────────
       const cobMap = new Map(cobros.map((r: any) => [this.iso(r.bucket), Number(r.monto)]));
       const autMap = new Map(pagos.map((r: any) => [this.iso(r.bucket), Number(r.monto)]));
-      const pagMap = new Map(deuda.porSemana.map((r) => [r.bucket, r.monto]));
+      // ⛔⛔ `[CG.142]` **Esta línea era la única de las tres sin `this.iso()`, y esa asimetría
+      // costaba la mitad de la curva.** `deudaPrevista` devolvía sus semanas como «Mon Oct 19»
+      // (un `::date` que el driver entrega como objeto `Date`), mientras `weekBuckets()` las
+      // pide como `YYYY-MM-DD` → `pagMap.get(wk)` **nunca encontraba nada** y `p` caía al `?? 0`.
+      // O sea: la curva publicaba **pagos = 0 todas las semanas**, el neto era la cobranza
+      // entera y la «alerta de insuficiencia» no podía sonar nunca.
+      //
+      // ⭐ El origen ya quedó arreglado (`to_char` en el SQL de `deuda-prevista.ts`), así que
+      // `iso()` acá es un no-op hoy. Se deja igual, y a propósito: las tres piernas se
+      // normalizan de la misma forma, y la próxima que vuelva a entregar un `Date` no rompe
+      // nada. Un cero por clave que no empata se lee idéntico a «esa semana no se debe nada».
+      const pagMap = new Map(deuda.porSemana.map((r) => [this.iso(r.bucket), Number(r.monto)]));
       const weeks = this.weekBuckets(from, to);
       let acumNeto = 0;
       let saldo = opening.available ? (opening.amount as number) : null;
