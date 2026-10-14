@@ -34,6 +34,7 @@ import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 import { VecinalReconComponent } from './comercial-vecinal-recon.component';
+import { RutaCajaCaosComponent } from './comercial-ruta-caja-caos.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
 
 type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets';
@@ -55,7 +56,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RoutePromoComponent,
+    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -81,6 +82,11 @@ const MES: Record<string, string> = {
            Va aparte del de arriba a propósito: ése cruza el corte que sube el vendedor de RD, y la
            vecinal no sube corte — se timbra en una caja y su testigo es el arqueo. -->
       <app-vecinal-recon />
+
+      <!-- [CG.58.7] — La ruta y su DINERO: lo que deposito en la caja fuerte (CAOS) y la entrada
+           que esa caja genero en Caja General. Va despues del panel de la vecinal porque es el
+           otro circuito: las rutas directas depositan en CAOS, la vecinal se arquea en su caja. -->
+      <app-ruta-caja-caos />
 
       <!-- RR-PROMO — Agente AI: calcula incentivos de ruta desde el enunciado de la promo -->
       <app-comercial-route-promo />
