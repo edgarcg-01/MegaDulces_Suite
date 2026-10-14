@@ -416,6 +416,17 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
       texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: nadie midió con cuánto arrancó la caja.',
     };
   }
+  // ⛔ `[CG.156]` `sin_medir` TAMPOCO cae en "no cuadra". Es un conteo que se selló cuando el
+  // veredicto no se guardaba (`esperado` y `diferencia` quedaron en NULL): el efectivo se contó,
+  // pero no hay con qué compararlo guardado. Dejarlo caer en la rama de abajo haría que la
+  // pantalla AFIRMARA un faltante que nadie calculó — el error exacto que esta familia de
+  // arreglos viene cerrando.
+  if (veredicto === 'sin_medir') {
+    return {
+      ok: true,
+      texto: 'Se contó, pero la revelación de ese conteo no quedó guardada: se puede cerrar, sin poder decir si cuadra.',
+    };
+  }
   return {
     ok: true,
     texto: veredicto === 'cuadra'

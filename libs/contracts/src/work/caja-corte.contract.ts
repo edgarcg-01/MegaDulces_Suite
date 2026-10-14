@@ -38,14 +38,20 @@
  *                   decir `cuadra` sería afirmar que coincide con algo que nadie midió — y el
  *                   error se vería como un sobrante del tamaño exacto del fondo de cambio, todos
  *                   los días.
+ * · `sin_medir`   — `[CG.156]` el conteo SE SELLÓ pero su veredicto no quedó guardado. Son los
+ *                   cortes anteriores a `[CG.156]`, cuando `sellarConteo()` escribía `contado` y
+ *                   dejaba `esperado` y `diferencia` en NULL porque la revelación viajaba sólo en
+ *                   la respuesta HTTP. ⛔ **No se recalcula**: recalcular hoy daría el juicio de
+ *                   HOY —con los movimientos de hoy— sobre un conteo de ayer, y nadie podría
+ *                   distinguir ese número del que de verdad se reveló. Se declara y se ve.
  */
-export type VeredictoCorte = 'cuadra' | 'sobra' | 'falta' | 'sin_contar' | 'sin_base';
+export type VeredictoCorte = 'cuadra' | 'sobra' | 'falta' | 'sin_contar' | 'sin_base' | 'sin_medir';
 
 /**
  * Los veredictos en los que **no se puede afirmar si la caja cuadra**. Sirve para que la pantalla
  * no los pinte como un faltante ni como un cuadre: no son un resultado, son la ausencia de uno.
  */
-export const VEREDICTOS_SIN_RESPUESTA: readonly VeredictoCorte[] = ['sin_contar', 'sin_base'] as const;
+export const VEREDICTOS_SIN_RESPUESTA: readonly VeredictoCorte[] = ['sin_contar', 'sin_base', 'sin_medir'] as const;
 
 /** ¿Este veredicto responde «¿cuadra?», o declara que no se puede saber? */
 export function veredictoConcluyente(v: VeredictoCorte | null | undefined): boolean {
