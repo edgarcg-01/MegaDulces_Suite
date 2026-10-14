@@ -47,6 +47,12 @@ describe('caja-ruta.engine — leer la venta de ruta que declara el texto', () =
       ['rd 28 12 10 26', '28', 10, 12],
       ['rd 26 13 10 26', '26', 10, 13],
       ['rd21 09/10', '21', 10, 9],
+      // Ruta y fecha PEGADAS, sin un solo separador. Es la forma de la ruta 22, y son 88 de los
+      // 749 depositos ($1,416,800): sin leerla, la 22 aparece depositando el 12.2% de lo que
+      // vende mientras sus cinco hermanas van entre 105% y 111%.
+      ['ruta22280526', '22', 5, 28],
+      ['ruta22010626', '22', 6, 1],
+      ['ruta22290526', '22', 5, 29],
     ];
     it.each(casos)('%s', (texto, ruta, mes, dia) => {
       expect(leerVentaDeRuta(texto)).toEqual({ ruta, mes, dia });
@@ -100,6 +106,20 @@ describe('caja-ruta.engine — leer la venta de ruta que declara el texto', () =
     it('⛔ la PLAZA no es un numero de ruta, y su digito es el dia', () => {
       expect(leerVentaDeRuta('rd mor 29 /05')).toBeNull();
       expect(leerVentaDeRuta('rd canindo 1/06')).toBeNull();
+    });
+
+    /**
+     * ⭐ `rd226  05/09` existe en el corpus y la ruta **226 no existe** (son 21-28, 501-505,
+     * 321/322). El motor devuelve `226` igual, y eso es CORRECTO por contrato: esta funcion
+     * declara lo que el texto DICE; quien valida contra el registro operativo
+     * (`analytics.v_route_zone`) es el servicio.
+     *
+     * Queda escrito para que nadie "arregle" el parser haciendolo adivinar la ruta mas parecida:
+     * entre 22 y 26 no hay forma de elegir sin inventar, y una ruta inventada le cobra el
+     * deposito a un camion que no fue.
+     */
+    it('⭐ devuelve la ruta que el texto DICE aunque no exista — validarla es del servicio', () => {
+      expect(leerVentaDeRuta('rd226  05/09')).toEqual({ ruta: '226', mes: 9, dia: 5 });
     });
   });
 
