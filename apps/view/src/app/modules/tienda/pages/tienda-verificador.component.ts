@@ -457,8 +457,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-nombre { font-size: var(--fs-h1); font-weight: 600; color: var(--text-main); margin: 4px 0 12px;
       line-height: 1.15; text-wrap: balance; }
     .vf-gramaje { font-size: var(--fs-body); font-weight: 500; color: var(--text-muted); margin-left: .5rem; }
-    .vf-unidad-lbl { font-size: var(--fs-h3); color: var(--text-muted); font-weight: 600;
-      text-transform: uppercase; letter-spacing: 1px; }
+    /* La unidad es parte del precio: un precio sin unidad no es un precio. A 1-2 m (la distancia
+       real de un kiosco) el rótulo chico y atenuado no se leía, así que sube de tamaño y de
+       contraste (--text-main, no --text-muted). */
+    .vf-unidad-lbl { font-size: var(--fs-h1); color: var(--text-main); font-weight: 800;
+      text-transform: uppercase; letter-spacing: .06em; line-height: 1.1; }
     /* La cifra: tamano de lectura a distancia, con clamp para no reventar en el kiosco chico
        (maximo 2.5 veces el minimo). Geist Mono con tabular-nums: es el dato, no el titulo. El
        color es el del texto: la jerarquia la da el tamano y el contraste, no un verde. */
@@ -508,7 +511,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .3rem; }
     .vf-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700;
       font-size: clamp(2.4rem, 6vw, 4.5rem); color: var(--text-main); }
-    .vf-may-cu { font-size: var(--fs-body); color: var(--text-muted); }
+    .vf-may-cu { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
     /* Un umbral por bloque: el segundo escalón es otro bloque (otra condición de compra) y se
        separa con una línea, no se mezcla con el primero. */
     .vf-may-row + .vf-may-row, .vf-may-ahorro ~ .vf-may-row {

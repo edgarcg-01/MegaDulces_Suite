@@ -307,6 +307,18 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/class="vf-may-total"/);
   });
 
+  // [VAC.H4] La unidad se lee a 1-2 m: el rótulo de la cifra grande no puede volver a ser chico ni
+  // atenuado (era --fs-h3 en --text-muted: invisible a la distancia real de un kiosco).
+  it('el rótulo de unidad de la cifra grande es grande y de contraste pleno', () => {
+    const regla = /\.vf-unidad-lbl \{([^}]*)\}/.exec(PAGE)?.[1] ?? '';
+    // Token de la escala (--fs-h1 = 30px): el anterior era --fs-h3 (16px).
+    expect(regla).toMatch(/font-size:\s*var\(--fs-h1\)/);
+    expect(regla).toMatch(/color:\s*var\(--text-main\)/);
+    expect(regla).not.toMatch(/--text-muted/);
+    const cu = /\.vf-may-cu \{([^}]*)\}/.exec(PAGE)?.[1] ?? '';
+    expect(cu).toMatch(/color:\s*var\(--text-main\)/);
+  });
+
   // [VAC.H3] El mínimo del escalón de paquete en la unidad base se calcula UNA vez, en el servidor.
   it('la equivalencia en piezas del escalón de paquete la calcula el servidor, una vez', () => {
     expect(SVC).toMatch(/equivale_a:/);
