@@ -423,7 +423,7 @@ export interface CajaCobertura {
 | El depósito de caja fuerte casi nunca se captura | **18 de 749 (2.4 %)** | adopción |
 | Morelia no declara ruta **por ningún lado**: ni el cobro ni el texto del depósito | 16 de 16 cobros | operación |
 | El `.mdb` de Caja General no se escribe desde el 10-oct | la fuente del carril | decisión |
-| `ods_publish_tienda` lleva 11 días en `error` | ajeno a esta fase | sistemas |
+| `ods_publish_tienda` lleva 11 días en `error` (medido 11:00; **no re-verificado**) | ajeno a esta fase | sistemas |
 | 24 filas de `catalog.suppliers` son conceptos | catálogo compartido | datos |
 | El backend de caja **no tiene dueño** | — | Edgar |
 
@@ -445,8 +445,23 @@ k3s kubectl -n prod exec -i $POD -- psql -U postgres -d railway < consulta.sql
 ⚠️ Las vistas de `finance.*` filtran por `current_tenant_id()`: sin
 `set_config('app.tenant_id', …)` devuelven **0 filas**, que se lee como «no hay nada».
 
-⚠️ Para comprobar un permiso, conectarse **con el rol de producción**: `app_runtime` tiene `SELECT`
-sobre `caja_general_ods.doctos` y **no** tiene `USAGE` sobre su schema, y desde `postgres`, `edgar`
-o `dev_ro` el schema **se ve sano**. `to_regclass()` consulta el catálogo y no necesita `USAGE`, así
-que la guarda de existencia da verde y la lectura revienta la línea siguiente (es el 500 de
-`cortes/fondo-sugerido`). Mismo patrón que `[CP.8.44]`.
+⚠️ Para comprobar un permiso, conectarse **con el rol de producción**. Medido a las ~11:00 del
+2026-10-14: `app_runtime` tenía `SELECT` sobre `caja_general_ods.doctos` y **no** `USAGE` sobre su
+schema, mientras desde `postgres`, `edgar` o `dev_ro` el schema **se veía sano**. `to_regclass()`
+consulta el catálogo y no necesita `USAGE`, así que la guarda de existencia daba verde y la lectura
+reventaba la línea siguiente (era el 500 de `cortes/fondo-sugerido`). Mismo patrón que `[CP.8.44]`.
+
+✅ **Ese caso concreto quedó cerrado el mismo día**: la migración `20261014095517`…
+`20261014100953_caja_general_ods_usage_app_runtime.js` (`[CG.158]`, batch **926**) otorgó el `USAGE`,
+y verificado a las 14:00 `app_runtime` lee las **117,641** filas. **La lección de método sigue
+entera** y es lo que hay que conservar: un candado que se conecta con otro rol que el de producción
+verifica un permiso que nadie ejerce.
+
+⛔⛔ **Y una corrección sobre el DESPLIEGUE, porque este documento y su autor lo afirmaron mal tres
+veces.** Decir «el despliegue está apagado» mirando el renglón comentado de `auto-deploy` en el
+`crontab` de `md` es **medir el mecanismo retirado**. El vigente es
+**`vigia-despliegue.service` (systemd, `active` + `enabled`), que mira `prod-release`**. Medido el
+2026-10-14: **cinco despliegues ese día** (09:39 · 10:04 · 10:18 · 13:44), y prod sirviendo
+`48ced77df`. Lo detectó `trade-marketing-15`. Es la misma falla que el «importer redundante» de §12:
+**leer un componente retirado como si estuviera vivo**, y la regla que la evita ya estaba escrita —
+*medir dónde corre hoy, no dónde vive el código*.
