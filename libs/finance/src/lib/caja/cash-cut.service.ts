@@ -360,7 +360,14 @@ export class CashCutService {
 
       return fondoSugerido({
         folio: previo.folio,
-        fecha: String(previo.fecha).slice(0, 10),
+        // ⛔ `[CG.153]` `diaDe()` y NO `String(fecha).slice(0,10)`. `fecha` es una columna `date`
+        // y el driver la entrega como objeto `Date`, así que el `String()` daba **«Mon Oct 12»**
+        // — en inglés, sin año, y a texto VISIBLE: *"Es con lo que quedó el corte CC-2026-00001
+        // del Mon Oct 12"*. El helper correcto vivía 140 líneas más arriba, escrito para esto.
+        //
+        // ⚠️ Es la misma familia que `[CG.144]` («Mon Oct 19» en la semana de la deuda), que
+        // además **no da `NaN` al parsearse**: JS completa el año y devuelve 2001.
+        fecha: this.diaDe(previo.fecha) ?? '',
         contado: previo.contado === null || previo.contado === undefined ? null : Number(previo.contado),
         denominaciones: dens,
       });
@@ -1344,7 +1351,10 @@ export class CashCutService {
         cajero,
         corte_abierto: corte
           ? {
-            id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10),
+            // `[CG.153]` Mismo defecto que arriba: el contrato declara `fecha: string` con
+            // sentido de fecha y el API estaba mandando «Mon Oct 12». Hoy ningún componente la
+            // pinta — por eso no costó nada todavía, no porque esté bien.
+            id: corte.id, folio: corte.folio, fecha: this.diaDe(corte.fecha) ?? '',
             // `[CG.90.1]` Si el fondo se midió o no. La pantalla ofrece declararlo SOLO cuando
             // falta; sin este campo el botón saldría siempre, incluso con el fondo ya puesto.
             // ⚠️ `fondo()` devuelve `null` cuando no se midió — NO `0`, que sería "arrancó vacía".

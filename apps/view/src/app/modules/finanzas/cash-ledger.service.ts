@@ -583,7 +583,11 @@ export interface RevelacionCorte {
 
 export interface SaldoResponse {
   sucursal: string;
-  corte_abierto: { id: string; folio: string; fondo_inicial: number; ya_reconto: boolean } | null;
+  // ⛔ `[CG.153]` `fondo_inicial` es `number | null`, no `number`. El servidor manda `fondo(abierto)`
+  // y ese `null` SIGNIFICA «no se midió» — es justo la distinción que `[CG.39]`/`[CG.90.1]` pelearon
+  // por conservar contra un cero que diría «arrancó vacía». Este mismo archivo ya lo declara bien
+  // 228 líneas más abajo (`ArqueoDia`); acá mentía, y los consumidores ya guardan el null en runtime.
+  corte_abierto: { id: string; folio: string; fondo_inicial: number | null; ya_reconto: boolean } | null;
   saldo: number | null;
   /** `saldo` es el esperado con otro nombre: cuando está oculto se declara, no se confunde con 0. */
   saldo_oculto: boolean;
