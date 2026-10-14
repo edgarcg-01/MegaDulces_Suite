@@ -7967,6 +7967,17 @@ TP.6-TP.8+TP.10".
 **ADR-070** · Plan completo, medición y decisiones abiertas en
 [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
 
+> **2026-10-14 — dos investigaciones hermanas, medidas contra prod y SIN código:**
+> [`FASE_CG_CIRCUITO_DEL_EFECTIVO.md`](FASES/FASE_CG_CIRCUITO_DEL_EFECTIVO.md) (por dónde entra y
+> sale el efectivo, medido contra el espejo del Access + CAOS) y
+> [`FASE_CG_PATRONES_Y_ACCESIBILIDAD.md`](FASES/FASE_CG_PATRONES_Y_ACCESIBILIDAD.md) (los patrones
+> de lo que se paga y se ingresa, medidos contra el **ODS de Kepler**; la regla del efectivo; y qué
+> le falta a la pantalla de captura). La segunda contesta la pregunta que la primera dejó abierta
+> en su §13. **Lo más accionable de la segunda:** el libro de `/finanzas/caja-general` publica el
+> **5.2 % de los movimientos y el 7.8 % del dinero** sin declarar su denominador, y el contrato
+> `CajaCobertura` que lo arregla está **firmado por las sesiones de datos y frontend** y espera
+> dueño del backend.
+
 > ⚠️ **Deuda documental cerrada 2026-09-18:** CG.0–CG.7 (espejo `analytics.caja_general_*` +
 > `/finanzas/caja` con 7 pestañas + `finance.caja_bank_crosswalk`) **ya están en producción desde
 > ago-2026 pero nunca tuvieron entrada aquí, ni doc, ni ADR**. Se registran como ✅ hechos.
