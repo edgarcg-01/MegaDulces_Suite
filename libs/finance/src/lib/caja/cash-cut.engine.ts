@@ -86,7 +86,13 @@ export interface MovimientoDelCorte {
   en_boveda?: number;
 }
 
-export interface ConteoDenominacion { denominacion: number; piezas: number }
+/**
+ * ⚠️ `[CG.152]` `denom_key` es **opcional y nuevo**. La base lo exige (`NOT NULL`, y es parte de
+ * la PK junto con `momento`) porque `denominacion` sola no identifica: el billete de $20 y la
+ * moneda de $20 valen lo mismo. Quien pueda mandarlo, que lo mande; quien no, el servicio lo
+ * deriva del catálogo y **declara** que ante un $20 sin llave asume billete.
+ */
+export interface ConteoDenominacion { denominacion: number; piezas: number; denom_key?: string | null }
 
 export interface TotalesCorte {
   ingresos: number;
