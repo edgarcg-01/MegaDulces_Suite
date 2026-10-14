@@ -37,6 +37,19 @@
 **Falta:** aplicar la migración a prod · `git push` (sin autorizar) · redeploy · validación visual. **Declarado y no construido:** el armador de comisiones (`[CPA.6]`, ahora con el mapa derivado y la estructura corregida), el side-peek de detalle y la bandeja de CFDI sin asociar — diseñados y aprobados, ninguno escrito.
 
 
+## 2026-10-14 — `[ETQ-CAMBIOS.10]` Cambios de precio: la pantalla sube, y lo que costó hacerlo bien
+
+**Qué se pidió.** Optimizar el espacio de `/tienda/etiquetas/cambios` sin perder información: mover el selector de día a la barra de pestañas (la píldora dejaba media barra vacía), decir si las cuatro tarjetas hacen falta, y subir la tabla.
+
+**Qué se hizo.** El selector de día (Día · Ayer · Actualizar · Compartir) pasó a la fila de las pestañas; las 4 tarjetas pasaron a **una línea** con la instrucción de uso al lado; el título repetido quedó sólo para lectores de pantalla. ~170 px de alto ganados. La información de las tarjetas se conserva entera (suben + bajan + sin precio = total); lo que sobraba era el formato, no los números. Para eso `app-metric-strip` ganó `density="compact"` (**aditivo**: el default no cambia las otras 96 pantallas que lo usan).
+
+**Lo que falló en el camino** (ya en `ONBOARDING.md` §8.0b, puntos 14–17):
+1. **Reimplementé a mano una pieza que ya existía.** Escribí un resumen propio de cuatro cifras en una línea; la skill `diseno` lo prohíbe (antipatrón #1) y la cargué **después** de editar. El auditor `npm run check:pantalla` lo confirmó midiendo `main` contra mi árbol: mi versión agregó la falla `Q.1 answer-first`. Se rehizo con el organismo compartido. Orden correcto: skill y inventario → auditor **antes** → editar → auditor **después**.
+2. **El shell se comió el texto de la documentación.** Un `node -e "..."` con acentos graves ejecutó `app-metric-strip` y `density="compact"` como comandos y dejó el CHANGELOG diciendo «Para eso  gana ». Los scripts de edición van a un archivo (y no se invoca Python).
+3. **Un CSS que no se vio se declara.** La regla de sesión prohíbe levantar la app, así que esto llega **sin validación visual**; lo más probable de ajustar es el margen entre filas y cómo bajan los controles en pantalla angosta.
+
+**Verificación.** `modules/tienda` + `shared/components` verdes (305 y 31); 8 pruebas nuevas; dos mutaciones atrapadas (la página deja de pedir `compact`; el componente ignora la densidad); `check:pantalla` igual que `main` (0 fallas nuevas); pre-push de 17 gates.
+
 ## 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde
 
 **Qué se hizo.** (a) *Cambios de precio* pasó a **un código, una fila**, con confirmación del precio que lleva la etiqueta, y un clic en la fila lleva a imprimirla (#349, ya en `main`). (b) La etiquetera ahora dice **por qué** un producto no tiene precio (#351). (c) Se retiró del aviso la descarga en Excel/CSV por decisión de Edgar (#350).
