@@ -46,7 +46,8 @@ export interface PostulacionNueva {
 export type MotivoRechazo = 'en_proceso_misma_vacante' | 'en_proceso_otra_vacante' | 'cerrada_hace_poco';
 
 export type Decision =
-  | { accion: 'crear'; en_lista_negra: boolean }
+  /** `candidato_id` lo agrega `postular` al crear (la regla pura no lo conoce). */
+  | { accion: 'crear'; en_lista_negra: boolean; candidato_id?: string }
   | { accion: 'rechazar'; motivo: MotivoRechazo; candidato_id: string; vacante: string | null; puede_desde: string | null; en_lista_negra: boolean };
 
 /** Texto de vacante comparable: minúsculas, sin acentos, sin signos, espacios colapsados. */

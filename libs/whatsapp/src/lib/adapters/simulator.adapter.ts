@@ -3,6 +3,7 @@ import {
   ImageMessage,
   InboundMessage,
   InteractiveMessage,
+  SendOptions,
   SendResult,
   TemplateMessage,
   WhatsAppPort,
@@ -14,6 +15,8 @@ export interface SimOutbound {
   kind: 'text' | 'interactive' | 'image' | 'template';
   body: string;
   buttons?: { id: string; title: string }[];
+  /** `[RH.3.1]` Desde qué número salió (null = el configurado). */
+  from?: string | null;
   at: string; // ISO
 }
 
@@ -65,33 +68,36 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
     return { message_id: `sim-out-${Date.now()}-${++this.seq}` };
   }
 
-  async sendText(to: string, body: string): Promise<SendResult> {
-    return this.push({ to, kind: 'text', body, at: new Date().toISOString() });
+  async sendText(to: string, body: string, opts?: SendOptions): Promise<SendResult> {
+    return this.push({ to, kind: 'text', body, from: opts?.from ?? null, at: new Date().toISOString() });
   }
 
-  async sendInteractive(to: string, msg: InteractiveMessage): Promise<SendResult> {
+  async sendInteractive(to: string, msg: InteractiveMessage, opts?: SendOptions): Promise<SendResult> {
     return this.push({
       to,
       kind: 'interactive',
       body: msg.body,
       buttons: msg.buttons,
+      from: opts?.from ?? null,
       at: new Date().toISOString(),
     });
   }
 
-  async sendImage(to: string, msg: ImageMessage): Promise<SendResult> {
+  async sendImage(to: string, msg: ImageMessage, opts?: SendOptions): Promise<SendResult> {
     return this.push({
       to,
       kind: 'image',
       body: `[imagen ${msg.link}]${msg.caption ? ' ' + msg.caption : ''}`,
+      from: opts?.from ?? null,
       at: new Date().toISOString(),
     });
   }
 
-  async sendTemplate(to: string, msg: TemplateMessage): Promise<SendResult> {
+  async sendTemplate(to: string, msg: TemplateMessage, opts?: SendOptions): Promise<SendResult> {
     return this.push({
       to,
       kind: 'template',
+      from: opts?.from ?? null,
       body: `[template ${msg.name}/${msg.language}]${msg.imageLink ? ' +img' : ''}${msg.bodyParams?.length ? ' (' + msg.bodyParams.join(', ') + ')' : ''}`,
       at: new Date().toISOString(),
     });
@@ -140,6 +146,8 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
         type,
         text,
         media,
+        // `[RH.3.1]` el número que lo recibió: permite probar el ruteo por número (p. ej. el de reclutamiento).
+        phone_number_id: b['phone_number_id'] != null ? String(b['phone_number_id']) : null,
         raw: it,
         timestamp: Math.floor(Date.now() / 1000),
       });
