@@ -488,6 +488,78 @@ universo que no es el dueño.
 Kepler `07`, 08-sep) es el caso vivo: hoy no tiene rutas, pero el día que las tenga la trampa es la
 misma — y su handoff también hay que componerlo, no maximizarlo.
 
+### 4.7 ⭐⭐ El DINERO CONTADO: el tercer testigo de `U-D-12`, y el árbitro del efectivo de ruta
+
+Medido contra prod el **2026-10-13/14**. Lo que sigue **no reemplaza** a §4.4: la refuerza con un
+testigo que no deriva de los mismos documentos, que es justo lo que pide **R5**.
+
+#### El tercer testigo
+
+La exclusión de `U-D-12` en las rutas vecinales (§4.4) descansaba en el **solape línea a línea**
+con placebo. Es buena evidencia, pero las dos mitades salen del mismo par `kdm1`/`kdm2`. El
+efectivo contado no: lo escribe **una persona contando billetes** al cerrar su turno.
+
+```
+suc  día          U-D-10       U-D-12       arqueo (analytics.cash_cuts)
+01   2026-10-08   21,430.83    21,430.96    21,430.83   <- IGNORA la re-factura
+07   2026-10-06   27,725.49    27,725.17    27,725.49
+07   2026-10-10   17,970.59    17,970.26    17,970.59
+```
+
+Si `U-D-12` fuera venta adicional, la caja habría contado el doble. **No lo contó.** Sobre 132
+día-caja con re-factura en los últimos 60 días, **0 igualan `U-D-10 + U-D-12`**.
+
+⚠️ El candado (`test-newdb-vecinal-conciliacion.js`) prueba esto **refutando la hipótesis
+contraria**, no confirmando la propia: su primera versión definía «caja pura» por la misma igualdad
+que después afirmaba — circular, y un test así pasa siempre.
+
+#### Dónde está el dinero de cada canal
+
+⛔ **La vecinal NO deposita en Caja General, y buscarla ahí da cero por el motivo equivocado.**
+`U-D-10` se llama *"Ticket Contado Caja N"*: se timbra en una **caja registradora de la sucursal**
+y su efectivo se cuenta en el arqueo de esa caja. De los 29 ingresos del libro de Caja General,
+**~24 casan con una ruta RD del push a ±$0.50 y con vecinal ninguno**.
+
+⚠️ *Un cruce que da cero significa «falta ligarlo» **o** «no va por ahí», y los dos se leen igual.*
+Lo que los separa es preguntarle al OTRO lado.
+
+| canal | dónde cae su efectivo | cobertura medida |
+|---|---|---|
+| **vecinal** | arqueo de su caja (`analytics.cash_cuts`) | **568 de 569 día-caja = 99.8%** |
+| **ruta RD** | depósito en la caja fuerte CAOS; **no pasa por banco** | 105–112% del vendido, por ruta |
+
+⛔ **El grano del efectivo vecinal es la CAJA, nunca la ruta.** Una caja mezcla rutas y mostrador
+(`05` caja 2 cobra `1V002`+`2V001`+`3V001`). Un «faltante de la ruta X» es una atribución inventada
+salvo que la caja sea 100% de ella — por eso se publica `vecinal_pct`.
+
+#### ⛔ Hipótesis REFUTADA: la fecha de un depósito no se caza por monto
+
+Se intentó, con un conjunto de **respuestas conocidas**: a los 551 depósitos que SÍ declaran su
+fecha se les escondió y se buscó el día de su ruta cuyo importe casara en `[día−6, día]`.
+
+```
+tolerancia   acierta   se equivoca   ambiguo   sin candidato
+   $10          59          5           2          485
+   $50         155          8           6          382
+  $200         195         28          31          297
+```
+
+Aun a $200 recupera el **35%** y ya se equivoca 28 veces. No es afinable: **un depósito no es un
+día** — en el agregado la ruta cuadra, día por día no. El calendario tampoco (26 depósitos sin
+fecha contra **31** días huérfanos, y huérfanos **negativos** en las demás rutas).
+
+⭐ **El patrón estaba en el GRANO.** Atribuyendo cada familia al nivel que su texto aguanta:
+
+```
+ruta 28, con sus 26 depósitos sin fecha   $1,281,650 vs $1,287,985   99.5%
+Canindo, a nivel PLAZA (48 depósitos)     $3,864,610 vs $4,059,584   95.2%
+```
+
+⛔ **Canindo cierra sin saber cuál de las 501–505, y así se queda.** El texto dice `rd can`; elegir
+una ruta sería inventar, y una ruta inventada le cobra el depósito a un camión que no fue.
+Resolvedor: `finance.caos_deposito_grano` (`ruta_dia` · `ruta` · `plaza` · `sin_declarar`), con el
+CHECK de coherencia **en la base**.
+
 ---
 
 ## 5. Los resolvedores canónicos — qué leer para qué
@@ -676,6 +748,11 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 
 | hueco | tamaño | por qué |
 |---|---|---|
+| ⛔⛔ **la vecinal tiene DOS cifras publicadas en la misma app** | **+$1,207,414 en sep-2026 (62%)** · +$737,675 en oct | `/comercial/ventas-por-ruta` publica `U-D-10` ($1,943,014.72 en sep) y el sell-out publica $3,150,428.68, porque `mv_kepler_sales_daily` **suma `U-D-12`**, que acá es espejo (§4.4, y ahora con el tercer testigo del dinero contado en §4.7). **Mientras dos superficies de la misma app se contradigan, para la vecinal no hay verdad absoluta: hay dos.** No es una incógnita, es una tarea con runbook escrito y sin ejecutar: exige `DROP CASCADE` sobre **15 objetos en 3 niveles (5 matviews, 2,453 MB)** y su refresco bloquea lecturas → ventana. [`VEC8`](IMPLEMENTACION/RUNBOOKS/VEC8_SELLOUT_A_FUENTE_COMPARTIDA.md) |
+| ⚠️ **el efectivo vecinal que no cuadra** | **$802,240.95 de venta en 68 día-caja** · neto **−$51,119.60** | De $6,926,331.36, cuadra el **88.4%**. El resto: `faltante` 34 día-caja · `sobrante` 11 (**y el signo importa: sobra más de lo que falta**) · `vecinal_excede_arqueo` 13 · `contado_en_cero` 8. ⭐ Ese último estado existe porque **43 cortes declaran CERO efectivo contado habiendo esperado ($416,406.67)** y se leían como faltante: **$43,248.56 de los $49,748.27 del período eran turnos que nadie contó**, no dinero perdido. Desde afuera *«nadie capturó»* y *«faltó todo»* no se distinguen, así que se declara y no se nombra la causa. El mayor es **un solo corte**: `02` caja 2 del 11-sep, vendió $5,798.40 y declara **$57,798.40** contados |
+| ⛔ **la venta de Morelia 321/322 está incompleta — y lo delata su propio depósito** | **$1,309,180 depositados contra $349,367 vendidos = 375%** | Acá lo que falta **no es el dinero, es la venta**: el push no cubre Morelia. Es el caso inverso al resto de esta tabla y por eso vale: el efectivo se volvió el testigo de que una fuente de VENTA tiene un hueco |
+| ⚠️ **`U-D-8` con código de ruta vecinal** | **$404,607.09 en `1V001`** desde el 30-jun | *Factura Telemarketing* emitida contra una ruta vecinal. **No es espejo** (0 de 721 líneas tienen gemelo, y el mismo test encuentra 98.9% de espejos en `U-D-12` → el test sí detecta espejos) y **tampoco entra al arqueo**. Es venta real por otro canal. Si cuenta como de la ruta es **decisión de negocio**, no un bug: se publica aparte y sin sumar |
+| ⚠️ **`cj 15`: 19 depósitos sin decodificar** | **$403,280** | El `ref` de la caja fuerte dice `cj 15`, `c j 15`, `cj15`. No declara ruta ni plaza y nadie sabe qué es. Se clasifica `sin_declarar` **con su motivo**, nunca se reparte |
 | ⛔ **`U-D-8` sin árbitro de COSTO** — `irresoluble_con_la_fuente` | **$16.05M / 90 d** (16,845 renglones `sin_costo`) | Kepler **no escribe** `c62` ni `c63` ahí (~98.85% vacíos), y ése es el único testigo independiente del **costo**. ⚠️ **Corregido 2026-09-12 (ADR-063): esto vale para el COSTO, NO para la UNIDAD.** La unidad de `U-D-8` está declarada por Kepler al **99.96%** (`c9 = c56 × c58`) — se buscaba un testigo externo para un factor con el que el ERP ya calcula. Ver §14. ⚠️ La Fase R además intentó cerrar el costo con `c58 × costo_del_almacén` y es un **espejo** (§9.10); su recheck medía las **piezas** (99.87%) y no el veredicto (**1.14%**), corregido en la mig `20260911200000` |
 | **`contradicho`** en ventas | 9,011 renglones / $2.17M | el costo contradice el factor declarado. Conjunto finito, enumerado |
 | **`contradicho_por_factor`** en existencia | 273 filas / $2.02M | `cost_base` por bulto contra `c16` por pieza |

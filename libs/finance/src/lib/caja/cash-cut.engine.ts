@@ -138,6 +138,51 @@ export interface TotalesCorte {
 /** Tolerancia del cuadre: un centavo, por el redondeo de numeric. */
 export const CORTE_EPSILON = 0.005;
 
+/**
+ * ⭐⭐ `[CG.156]` **El veredicto, en UNA definición, porque ahora hay DOS lugares que lo necesitan.**
+ *
+ * Hasta acá el veredicto nacía y moría dentro de `calcularCorte()`: se calculaba al sellar y
+ * viajaba en la respuesta HTTP de `POST /contar`. **Nadie lo guardaba y ningún `GET` lo devolvía**
+ * — medido en prod el 2026-10-14 sobre el único corte que existió en la vida del módulo:
+ *
+ *     contado    = 3,653.50   ← sellado
+ *     esperado   = NULL
+ *     diferencia = NULL       ← justo lo que el diálogo promete revelar
+ *
+ * O sea que al recargar la página la revelación se perdía para siempre. **Un dato que no se puede
+ * volver a leer no es un dato: es un mensaje.** Y la pantalla, sin forma de saber que el corte ya
+ * tenía conteo, volvía a ofrecer «Guardar conteo» — que el servidor rechaza con *«este corte ya
+ * tiene un conteo sellado»*. Cerrar y recontar quedaban detrás de una rama que nunca se pintaba.
+ *
+ * ⛔ **La ceguera del primer conteo es deliberada; la amnesia del segundo no.** Por eso la salida
+ * no es aflojar el conteo ciego —eso convertiría el arqueo en una transcripción del esperado, que
+ * es lo que `[CG.19]` revirtió a propósito— sino **persistir el veredicto al sellar** y publicarlo
+ * al leer.
+ *
+ * Y por eso esta función se extrae: con el veredicto guardado hay un segundo consumidor (la
+ * lectura), y dos implementaciones del mismo juicio divergen. Es la misma lección que `[CG.155]`
+ * acaba de pagar con producción caída dos días seguidos por tres copias de la misma escritura.
+ *
+ * ⚠️ El orden de las tres preguntas **no es intercambiable** y cada una costó un hallazgo:
+ *
+ *  1. `sin_contar` PRIMERO: si nadie contó no hay con qué comparar, tenga base o no. Si devolviera
+ *     `cuadra` (0 contra 0), un día que nadie contó se vería igual que uno que cuadró al centavo.
+ *  2. `sin_base` antes que el cuadre (`[CG.42]`): con el fondo sin medir, `esperado` arranca de un
+ *     supuesto, y declarar `cuadra` contra eso afirma coincidencia con algo que nadie midió — el
+ *     error aparecería como un faltante del tamaño exacto del fondo, todos los días.
+ *  3. Recién entonces el cuadre, con tolerancia de un centavo.
+ */
+export function veredictoDe(input: {
+  huboConteo: boolean;
+  fondoSinMedir: boolean;
+  diferencia: number;
+}): VeredictoCorte {
+  if (!input.huboConteo) return 'sin_contar';
+  if (input.fondoSinMedir) return 'sin_base';
+  if (Math.abs(Number(input.diferencia)) <= CORTE_EPSILON) return 'cuadra';
+  return Number(input.diferencia) > 0 ? 'sobra' : 'falta';
+}
+
 export function redondea(n: number): number {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
@@ -279,15 +324,7 @@ export function calcularCorte(input: {
   const contado = redondea(piezas.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + morralla);
   const diferencia = redondea(contado - esperado);
 
-  let veredicto: TotalesCorte['veredicto'];
-  // `sin_contar` va PRIMERO: si nadie contó, no hay con qué comparar, tenga base o no.
-  if (!huboConteo) veredicto = 'sin_contar';
-  // ⛔ `[CG.42]` y `sin_base` va antes que el cuadre. Con el fondo sin medir, `esperado` arranca de
-  // un supuesto; declarar `cuadra` contra eso es afirmar que coincide con algo que nadie midió —
-  // y el error se vería como un sobrante o un faltante del tamaño exacto del fondo, todos los días.
-  else if (fondo_sin_medir) veredicto = 'sin_base';
-  else if (Math.abs(diferencia) <= CORTE_EPSILON) veredicto = 'cuadra';
-  else veredicto = diferencia > 0 ? 'sobra' : 'falta';
+  const veredicto = veredictoDe({ huboConteo, fondoSinMedir: fondo_sin_medir, diferencia });
 
   return {
     ingresos, gastos, depositos, esperado,

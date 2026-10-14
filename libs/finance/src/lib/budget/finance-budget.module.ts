@@ -23,6 +23,8 @@ import { PendingApprovalsService } from './pending-approvals.service';
 import { PresupuestoDireccionService } from './presupuesto-direccion.service';
 import { BudgetAutopilotService } from './budget-autopilot.service';
 import { BudgetGenerationService } from './budget-generation.service';
+import { BudgetIncomeForecastService } from './budget-income-forecast.service';
+import { BudgetIncomeForecastController } from './budget-income-forecast.controller';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Sistema de presupuestos: motor de egresos (PU.1, ledger de 5
@@ -34,8 +36,8 @@ import { BudgetGenerationService } from './budget-generation.service';
  * calendario; éste es el sistema de presupuestos. Comparten el schema `budget.*` pero no el módulo.
  */
 @Module({
-  controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
-  providers: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
+  controllers: [BudgetIncomeForecastController, BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
+  providers: [BudgetIncomeForecastService, BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
   exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
 })
 export class FinanceBudgetModule {}

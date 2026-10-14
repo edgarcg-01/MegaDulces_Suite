@@ -166,11 +166,33 @@ export interface FormularioCaja {
   venta_credito?: number | null;
   /** `[CG.38]` El cambio que salió de la caja en este acto. Se resta: `recibido − devuelto = monto`. */
   devuelto?: DenominacionCapturada[] | null;
+  /**
+   * `[CG.160]` El enlace al documento de Kepler o al movimiento del cajero. Vacío = sin conciliar,
+   * y entonces hace falta decir por qué (`sin_documento_motivo`).
+   */
+  origen_ref?: string | null;
+  /** `[CG.160]` Por qué este movimiento NO se puede enlazar. Lo exige el servidor desde `[CG.124]`. */
+  sin_documento_motivo?: string | null;
 }
 
 export type MotivoBloqueo =
   | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal' | 'fecha_futura'
-  | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra';
+  | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra'
+  | 'falta_motivo_sin_documento';
+
+/**
+ * ⛔⛔ `[CG.160]` **Largo mínimo del motivo, ESPEJADO del servidor.**
+ *
+ * El servidor lo exige desde `[CG.124]` (`MOTIVO_MIN` en `caja-conciliacion.engine.ts`). ⚠️ Está
+ * escrito dos veces porque `apps/view` **no puede importar de `@megadulces/finance`** —sólo
+ * `contracts`, y la compuerta de fronteras lo hace cumplir—, que es la misma razón por la que
+ * `VeredictoCorte` tuvo que subir a `libs/contracts`. Queda declarado como deuda: si alguien mueve
+ * uno, el otro sigue siendo plausible por separado.
+ *
+ * ⚠️ Va ANTES de `TEXTO_BLOQUEO` a propósito: ese objeto lo interpola al construirse, y un `const`
+ * declarado después queda en zona muerta temporal — el módulo reventaría al cargar.
+ */
+export const MOTIVO_SIN_DOC_MIN = 12;
 
 /** Texto que ve el capturista. Dice QUÉ falta, no "formulario inválido". */
 export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
@@ -185,6 +207,10 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
   monto_invalido: 'El monto tiene que ser mayor a cero.',
   falta_desglose: 'Contá el efectivo por denominación: el desglose es obligatorio, y de ahí sale el monto.',
   arqueo_no_cuadra: 'El desglose por denominación no cuadra con el monto.',
+  falta_motivo_sin_documento:
+    `Este movimiento no está enlazado a un documento de Kepler ni a uno del cajero. `
+    + `Decí por qué, con al menos ${MOTIVO_SIN_DOC_MIN} caracteres `
+    + `(por ejemplo: cobranza de ruta que nadie registró en Kepler).`,
 };
 
 /**
@@ -227,6 +253,29 @@ export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): Motivo
   // que consume cualquier llamador, y uno que mande monto y desglose por separado tiene que
   // chocar acá y no en un 400 del servidor.
   if (arqueo.estado === 'difiere') m.push('arqueo_no_cuadra');
+
+  /**
+   * ⛔⛔ `[CG.160]` **El servidor exigía esto y la pantalla no tenía dónde escribirlo.**
+   *
+   * `[CG.124]` puso la regla en el servidor: un movimiento sin `origen_ref` necesita decir por qué,
+   * en al menos 12 caracteres. ⚠️ **Pero el campo nunca llegó a la pantalla** — `grep` de
+   * `sin_documento_motivo` en todo `apps/view`: **cero**. Así que quien captura efectivo que no
+   * tiene documento en Kepler —cobranza de ruta, por ejemplo— chocaba con un 400 que le explicaba
+   * perfectamente qué hacer **y no tenía dónde hacerlo**.
+   *
+   * Medido en prod el 2026-10-14: de 71 movimientos vivos, 6 sin origen y **CERO** con motivo. Los
+   * únicos dos que alguna vez lo trajeron los mandó una auditoría por POST a mano. Por la pantalla
+   * la regla era **insatisfacible**.
+   *
+   * ⭐ El freno se agrega acá y no se afloja allá: la regla del servidor es correcta —un movimiento
+   * sin origen y sin motivo no se puede auditar después— y lo que faltaba era la puerta. Esto sólo
+   * adelanta el mismo veredicto al botón, con su texto, en vez de dejar que la persona lo descubra
+   * cuando ya tecleó todo.
+   */
+  const tieneOrigen = String(f.origen_ref ?? '').trim().length > 0;
+  const motivo = String(f.sin_documento_motivo ?? '').trim();
+  if (!tieneOrigen && motivo.length < MOTIVO_SIN_DOC_MIN) m.push('falta_motivo_sin_documento');
+
   return m;
 }
 
@@ -414,6 +463,17 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
     return {
       ok: true,
       texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: nadie midió con cuánto arrancó la caja.',
+    };
+  }
+  // ⛔ `[CG.156]` `sin_medir` TAMPOCO cae en "no cuadra". Es un conteo que se selló cuando el
+  // veredicto no se guardaba (`esperado` y `diferencia` quedaron en NULL): el efectivo se contó,
+  // pero no hay con qué compararlo guardado. Dejarlo caer en la rama de abajo haría que la
+  // pantalla AFIRMARA un faltante que nadie calculó — el error exacto que esta familia de
+  // arreglos viene cerrando.
+  if (veredicto === 'sin_medir') {
+    return {
+      ok: true,
+      texto: 'Se contó, pero la revelación de ese conteo no quedó guardada: se puede cerrar, sin poder decir si cuadra.',
     };
   }
   return {
