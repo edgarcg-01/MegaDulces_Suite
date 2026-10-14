@@ -15,6 +15,7 @@ import {
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
 import { revisarFirma } from './caja-firma.engine';
+import { traducirErrorDeCaja } from './caja-errores';
 import { conciliacion } from './caja-conciliacion.engine';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
@@ -1051,6 +1052,22 @@ export class CashLedgerService {
     // aparecer un movimiento que nunca existió.
     this.avisarLibro(tenantId);
     return creado;
+  }
+
+  /**
+   * `[CG.154]` Lo mismo que `create`, con las reglas de la tabla traducidas a frases.
+   *
+   * ⚠️ Envuelve y no reemplaza: el `create` de arriba se deja intacto para que lo que ya lo
+   * llama no cambie de comportamiento, y el controller pasa a usar éste.
+   */
+  async createTraducido(input: CreateMovementInput, user: { id?: string; username?: string }) {
+    try {
+      return await this.create(input, user);
+    } catch (e) {
+      // Un `BadRequestException` ya es una frase nuestra: no se vuelve a traducir.
+      if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+      return traducirErrorDeCaja(e);
+    }
   }
 
   /**
