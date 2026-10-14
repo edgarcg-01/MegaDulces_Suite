@@ -1377,6 +1377,20 @@ export class CommercialAnalyticsController {
     return this.service.routeClosureReconciliation(from?.trim() || undefined, to?.trim() || undefined);
   }
 
+  @Get('sales-by-route/vecinal-reconciliation')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      '[VEC.10] — La venta vecinal (U-D-10) contra el dinero que se contó en SU caja (arqueo). '
+      + 'Grano (sucursal, caja, día): el arqueo es por caja y una caja mezcla rutas y mostrador, '
+      + 'así que el descuadre NO se puede atribuir a una ruta (mirar vecinal_pct). Declara aparte, '
+      + 'sin sumarlos, U-D-12 (re-factura: el arqueo la ignora) y U-D-8 (telemarketing). '
+      + 'Params: from, to (YYYY-MM-DD; por omisión los últimos 45 días).',
+  })
+  vecinalConciliacion(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.vecinalConciliacion(from?.trim() || undefined, to?.trim() || undefined);
+  }
+
   @Get('sales-by-route')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({

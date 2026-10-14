@@ -33,6 +33,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
+import { VecinalReconComponent } from './comercial-vecinal-recon.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
 
 type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets';
@@ -54,7 +55,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, RoutePromoComponent,
+    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -75,6 +76,11 @@ const MES: Record<string, string> = {
 
       <!-- RR — Conciliación cierre de ruta (corte vendedor vs venta real, D+1) -->
       <app-route-closure-recon />
+
+      <!-- [VEC.10] — La vecinal contra el dinero que se contó en SU caja (arqueo de la sucursal).
+           Va aparte del de arriba a propósito: ése cruza el corte que sube el vendedor de RD, y la
+           vecinal no sube corte — se timbra en una caja y su testigo es el arqueo. -->
+      <app-vecinal-recon />
 
       <!-- RR-PROMO — Agente AI: calcula incentivos de ruta desde el enunciado de la promo -->
       <app-comercial-route-promo />
