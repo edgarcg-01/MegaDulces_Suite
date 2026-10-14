@@ -1,4 +1,4 @@
-import { atribuirDeposito } from './caos-deposito-grano';
+import { atribuirDeposito, esVecinal } from './caos-deposito-grano';
 
 /**
  * `[CG.58.6]` El candado del grano de atribución.
@@ -106,6 +106,28 @@ describe('atribuirDeposito — el grano que el texto aguanta, ni uno más fino',
       if (r.grano !== 'ruta_dia') expect(r.fecha).toBeNull();
       if (r.grano !== 'plaza') expect(r.plaza).toBeNull();
       if (r.grano === 'plaza') expect(r.ruta).toBeNull();
+    }
+  });
+});
+
+/**
+ * [CG.58.7] El predicado que separa las DOS ausencias. Sin el, quien consume la atribucion
+ * tiene que leer la prosa de motivo para saber si el deposito es vecinal o simplemente mudo,
+ * y entonces un cambio de redaccion le rompe la cuenta sin que nada se ponga rojo.
+ */
+describe('esVecinal — vecinal y mudo NO son la misma ausencia', () => {
+  it.each(['RV MORELIA RV15-321-15-321', 'rv 01/07', 'ruta vecinal 03/06', 'RV24416\RV321-16531', 'R V 15 06-10-2026'])(
+    'reconoce la vecinal: %s', (ref) => { expect(esVecinal(ref)).toBe(true); });
+
+  /** Prueba negativa: las rutas directas y el texto mudo NO son vecinal. */
+  it.each(['rd 28 13 10 26', 'rd28', 'rd can 26/05', 'ruta 21 13 10 26', 'deposito caja general', '', null, undefined])(
+    'NO la confunde con: %s', (ref) => { expect(esVecinal(ref)).toBe(false); });
+
+  /** El predicado y el clasificador NO pueden discrepar: salen de la misma expresion. */
+  it('⭐ coincide con el motivo que publica atribuirDeposito', () => {
+    for (const ref of ['RV MORELIA RV15-321-15-321', 'rd28', 'deposito caja general', 'rv 01/07']) {
+      const r = atribuirDeposito(ref, '2026-10-13');
+      expect(esVecinal(ref)).toBe(r.motivo.includes('vecinal'));
     }
   });
 });

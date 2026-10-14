@@ -23,6 +23,7 @@ export * from './ports/service-desk-channels.port';
 export * from './http/command-center.contract';
 // [VP.2.1] Procedencia (ADR-056): con qué se calculó el número que se publica.
 export * from './http/provenance.contract';
+export * from './http/caja-cobertura.contract';
 // [VU.0] La unidad viaja CON la cantidad al escribir. Censo 2026-09-12: 22 tablas con una
 // columna de cantidad y ninguna de unidad al lado. Leer el contrato antes de agregar otra.
 export * from './http/quantity-unit.contract';
