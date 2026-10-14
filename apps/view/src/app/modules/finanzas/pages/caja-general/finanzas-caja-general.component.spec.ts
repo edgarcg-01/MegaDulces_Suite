@@ -319,6 +319,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
 
     expect(comp.bloqueos()).toEqual([]);
@@ -332,6 +335,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
     expect(comp.bloqueos()).toEqual([]);
 
@@ -719,6 +725,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
     fx.detectChanges();
     expect(comp.bloqueos(), 'la firma NO puede ser un bloqueo').toEqual([]);
@@ -751,6 +760,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });                                  // $1,500
     fx.detectChanges();
 
@@ -776,6 +788,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
     comp.firmaRemotaPng.set('data:image/png;base64,AAA');
     comp.firmaRemotaMonto.set(999);                      // firmada sobre OTRO monto
@@ -815,6 +830,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
     fx.detectChanges();
 
@@ -1044,6 +1062,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
     expect(comp.bloqueos()).toEqual([]);
     await Promise.resolve();
@@ -1132,6 +1153,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'compra de papeleria');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 3 });
     expect(comp.bloqueos()).toEqual([]);
     fx.detectChanges();
@@ -1321,6 +1345,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto de caja chica');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 2, 100: 1 });        // 1100, contra un documento que dice 1060
 
     // ⚠️ `GASTO_TRABADO` es el documento REAL que salió mal en prod (`X-D-26 0001298`, fechado
@@ -1355,6 +1382,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto de caja chica');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 2, 100: 1 });
 
     expect(comp.f().fecha).toBe('2026-12-10');   // la fecha llega del documento, como siempre
@@ -1919,6 +1949,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'VIATICOS');
     comp.setF('glosa', 'gasto de caja chica');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 200: 1, 50: 1 });         // 250 — el monto sale del conteo, no del teclado
   }
 
@@ -1981,6 +2014,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'PAPELERIA');
     comp.setF('glosa', 'gasto suelto');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     contar({ 500: 1 });
     comp.guardar();
 
@@ -2121,6 +2157,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       comp.setF('kepler_cuenta', '601-001');
       comp.setF('kepler_concepto', 'PAPELERIA');
       comp.setF('glosa', 'entrega de ruta');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
       comp.setF('fecha', todayMx());
       comp.setPiezas(den('500'), 10);
       comp.setPiezasDevueltas(den('100'), 1);
@@ -2461,6 +2500,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('kepler_cuenta', '601-001');
     comp.setF('kepler_concepto', 'VENTAS');
     comp.setF('glosa', 'deposito de ruta 28');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
 
@@ -2552,6 +2594,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.denominacionesParaGuardar().reduce((a, d) => a + d.denominacion * d.piezas, 0)).toBe(1300);
     // Sin desglose tecleado, el arqueo YA cuadra (el del cajero) → no bloquea.
     comp.setF('kepler_cuenta', '201'); comp.setF('kepler_concepto', '001'); comp.setF('glosa', 'pago a cueritos');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
     const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
@@ -2663,6 +2708,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     montar();
     comp.capturarDesde(COBRO_CREDITO);
     comp.setF('glosa', 'cobro ruta a credito');
+    // [CG.160] Captura manual: sin documento de Kepler hay que decir por que. El servidor lo
+    // exige desde [CG.124]; antes la pantalla no tenia donde escribirlo y chocaba con un 400.
+    comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
     expect(comp.bloqueos()).toEqual([]);
     comp.guardar();
     const body = svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
