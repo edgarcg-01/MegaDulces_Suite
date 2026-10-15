@@ -10,7 +10,7 @@ import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
-  conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError,
+  conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError, separarPorFlujo,
   type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -570,5 +570,23 @@ describe('[CGP-V.5] textoDeError', () => {
   it('⛔ sin frase no se inventa una: se dice que el servidor respondió con error', () => {
     expect(textoDeError({ status: 500 })).toBe('El servidor respondió con un error.');
     expect(textoDeError(null)).toBe('El servidor respondió con un error.');
+  });
+});
+
+// ── `[CGP-L.8]` Las dos pilas del detalle ──────────────────────────────────────────────────────────
+describe('[CGP-L.8] separarPorFlujo', () => {
+  it('separa lo recibido del cambio; sin flujo, es lo recibido', () => {
+    const r = separarPorFlujo([
+      { denominacion: 500, piezas: 1, flujo: 'recibido' },
+      { denominacion: 100, piezas: 1, flujo: 'devuelto' },
+      { denominacion: 50, piezas: 2 },
+    ]);
+    expect(r.recibido).toEqual([{ denominacion: 500, piezas: 1 }, { denominacion: 50, piezas: 2 }]);
+    expect(r.devuelto).toEqual([{ denominacion: 100, piezas: 1 }]);
+  });
+
+  it('el numeric de Postgres llega como texto: se convierte', () => {
+    const r = separarPorFlujo([{ denominacion: '500.00' as unknown as number, piezas: '2' as unknown as number }]);
+    expect(r.recibido).toEqual([{ denominacion: 500, piezas: 2 }]);
   });
 });

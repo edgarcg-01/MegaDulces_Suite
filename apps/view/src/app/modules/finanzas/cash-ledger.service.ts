@@ -265,7 +265,7 @@ export class CashLedgerService {
       `${this.base}/frecuentes`, { params: p });
   }
 
-  detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number }>; arqueo: { desglosado: number; diferencia: number } | null }> {
+  detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number; flujo?: 'recibido' | 'devuelto' }>; arqueo: { desglosado: number; diferencia: number } | null }> {
     return this.leer(`${this.base}/${id}`);
   }
 

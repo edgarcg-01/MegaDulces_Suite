@@ -56,7 +56,7 @@ import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
-  pasoDelCorte, textoPaso, type PasoCorte, textoDeError,
+  pasoDelCorte, textoPaso, type PasoCorte, textoDeError, separarPorFlujo,
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 
@@ -6900,6 +6900,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return t === 'ingreso' ? 'success' : t === 'gasto' ? 'danger' : 'info';
   }
 
+  /**
+   * `[CGP-L.8]` El comprobante desde el DETALLE del servidor, con las dos pilas por separado: lo
+   * recibido va al desglose y el cambio a su sección. Mezclarlas imprimía el cambio como recibido.
+   */
+  comprobanteDeDetalle(
+    d: MovimientoCaja & { denominaciones?: Array<{ denominacion: number; piezas: number; flujo?: 'recibido' | 'devuelto' }> | null },
+  ): ComprobanteCaja {
+    const { recibido, devuelto } = separarPorFlujo(d.denominaciones);
+    return { ...this.comprobanteDe(d, recibido), devuelto };
+  }
+
   /** CS.3.8 — Arma el comprobante desde un movimiento + su desglose por denominación. */
   private comprobanteDe(m: MovimientoCaja, dens: Array<{ denominacion: number; piezas: number }>): ComprobanteCaja {
     return {
@@ -6919,7 +6930,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   imprimirComprobante(m: MovimientoCaja): void {
     this.svc.detalle(m.id).subscribe({
       next: (d) => {
-        if (!imprimirTicketComprobante(this.comprobanteDe(d, d.denominaciones ?? []))) {
+        if (!imprimirTicketComprobante(this.comprobanteDeDetalle(d))) {
           this.avisarError(null, 'El navegador no dejó abrir la impresión del comprobante');
         }
       },

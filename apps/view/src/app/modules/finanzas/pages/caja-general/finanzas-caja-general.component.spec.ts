@@ -4774,4 +4774,20 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(document.querySelector('label[for="cg-sin-doc"]') ?? fx.nativeElement.querySelector('label[for="cg-sin-doc"]')).not.toBeNull();
     });
   });
+  describe('[CGP-L.8] el comprobante del detalle', () => {
+    it('lo recibido va al desglose y el cambio a su sección', () => {
+      montar();
+      const c = comp.comprobanteDeDetalle({
+        id: 'm1', folio: 'ING-2026-00042', tipo: 'ingreso', fecha: '2026-10-12', sucursal: '00', monto: 380,
+        denominaciones: [
+          { denominacion: 500, piezas: 1, flujo: 'recibido' },
+          { denominacion: 100, piezas: 1, flujo: 'devuelto' },
+          { denominacion: 20, piezas: 1, flujo: 'devuelto' },
+        ],
+      } as never);
+      expect(c.denominaciones).toEqual([{ denominacion: 500, piezas: 1 }]);
+      expect(c.devuelto).toEqual([{ denominacion: 100, piezas: 1 }, { denominacion: 20, piezas: 1 }]);
+      expect(c.monto).toBe(380);
+    });
+  });
 });

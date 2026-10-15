@@ -436,6 +436,24 @@ export function evaluarDescuadre(
 export interface RenglonArqueo {
   denominacion: number | string;
   piezas: number | string;
+  /** `[CGP-L.8]` De qué lado del acto: lo que entró, o el cambio que salió. Sin él, lo recibido. */
+  flujo?: 'recibido' | 'devuelto' | null;
+}
+
+/**
+ * `[CGP-L.8]` **Lo que de verdad quedó en la caja por este acto: recibido − devuelto + morralla.**
+ *
+ * La pantalla manda las dos pilas con su `flujo` y cuadra `recibido − devuelto = monto`; acá se
+ * SUMABAN. Un cobro de $380 pagado con $500 y $120 de cambio daba $620: el servidor lo rechazaba por
+ * «no cuadra» y el detalle publicaba un descuadre de +$240 que no existía. Una sola función para el
+ * candado del arqueo y para el detalle, así no pueden volver a contar distinto.
+ */
+export function desgloseNeto(dens: readonly RenglonArqueo[] | null | undefined, morralla: number | string | null | undefined): number {
+  const neto = (dens ?? []).reduce((a, d) => {
+    const importe = Number(d.denominacion) * Number(d.piezas);
+    return d.flujo === 'devuelto' ? a - importe : a + importe;
+  }, 0);
+  return redondea2(neto + Number(morralla || 0));
 }
 
 export type VeredictoArqueo =
@@ -483,9 +501,8 @@ export function evaluarArqueo(
   if (hayConteo && !hayDesglose && credito <= 0) return { ok: false, motivo: 'conteo_sin_desglose' };
   if (!hayDesglose && credito <= 0) return { ok: true, motivo: 'sin_arqueo' };
 
-  const suma = redondea2(
-    (dens ?? []).reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + metal + credito,
-  );
+  // `[CGP-L.8]` Neto: el cambio devuelto RESTA. Sumarlo rechazaba toda captura con cambio.
+  const suma = redondea2(desgloseNeto(dens, metal) + credito);
   const diferencia = redondea2(suma - Number(monto));
   return Math.abs(diferencia) > epsilon
     ? { ok: false, motivo: 'no_cuadra', suma, diferencia }

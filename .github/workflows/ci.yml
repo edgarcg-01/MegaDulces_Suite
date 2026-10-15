@@ -983,7 +983,8 @@ jobs:
           # absorbía los movimientos sembrados por el otro y dejaba un corte abierto (medido en local).
           if ! npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism \
                  libs/finance/src/lib/caja/cash-cut.servicio-real.spec.ts \
-                 libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts 2>&1 | tee servicio.log; then
+                 libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts \
+                 libs/finance/src/lib/caja/cash-ledger.detalle-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
             exit 1
           fi

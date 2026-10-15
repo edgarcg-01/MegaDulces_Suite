@@ -635,3 +635,23 @@ export function textoDeError(e: unknown): string {
   if (err?.status === 409) return frase || 'Ese movimiento ya estaba aplicado.';
   return frase || 'El servidor respondió con un error.';
 }
+
+// ── `[CGP-L.8]` Las dos pilas del detalle ──────────────────────────────────────────────────────
+
+/**
+ * Separa lo que entró del cambio que salió. El detalle del servidor trae las dos pilas en una lista
+ * con su `flujo`; sin separarlas, el comprobante imprimía el cambio como recibido. Un renglón sin
+ * `flujo` (un movimiento anterior a `[CG.38]`) es lo recibido. Las cifras llegan como texto (el
+ * `numeric` de Postgres): se convierten.
+ */
+export function separarPorFlujo(
+  dens: ReadonlyArray<{ denominacion: number | string; piezas: number | string; flujo?: string | null }> | null | undefined,
+): { recibido: Array<{ denominacion: number; piezas: number }>; devuelto: Array<{ denominacion: number; piezas: number }> } {
+  const recibido: Array<{ denominacion: number; piezas: number }> = [];
+  const devuelto: Array<{ denominacion: number; piezas: number }> = [];
+  for (const d of dens ?? []) {
+    const r = { denominacion: Number(d.denominacion), piezas: Number(d.piezas) };
+    (d.flujo === 'devuelto' ? devuelto : recibido).push(r);
+  }
+  return { recibido, devuelto };
+}

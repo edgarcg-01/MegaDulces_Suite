@@ -23,7 +23,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
-  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
@@ -2497,9 +2497,10 @@ export class CashLedgerService {
       const denominaciones = await trx('finance.cash_ledger_denominations')
         .where({ tenant_id: tenantId, cash_ledger_id: id })
         .orderBy('denominacion', 'desc')
-        .select('denominacion', 'piezas');
-      const desglosado = denominaciones.reduce((a: number, d: any) => a + Number(d.denominacion) * Number(d.piezas), 0)
-        + Number(mov.morralla || 0);
+        // `[CGP-L.8]` Con su `flujo`: el comprobante tiene que poder decir qué fue cambio.
+        .select('denominacion', 'piezas', 'flujo');
+      // Neto (recibido − devuelto): sumarlo todo publicaba un descuadre que no existía.
+      const desglosado = desgloseNeto(denominaciones, mov.morralla);
       return {
         ...mov,
         denominaciones,
