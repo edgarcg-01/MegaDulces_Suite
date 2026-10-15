@@ -627,8 +627,38 @@ y la persona creía que le faltaba un permiso.
   la fila de ese corte**. Cada uno se limpia al volver a intentar.
 
 **Pruebas:** 5 puras + 4 del componente; **4 mutaciones atrapadas**. Directorio `caja-general`: **370**.
-⚠️ La compuerta `primeng` atrapó los tres `severity="error"` que puse en `p-message`: en v22 es
-`danger`. Corregido; la compuerta vuelve a la línea base.
+⛔ **Corregido después:** acá decía que la compuerta `primeng` había atrapado tres `severity="error"`
+míos en `p-message` y que en v22 iba `danger`. **Era un falso positivo de la compuerta**:
+`MessageSeverity` (primeng 22.0.0) admite `error` y no `danger`, y seguir su sugerencia rompía el
+tipado — lo frenó `check-template-types` en V.7. Ver §7.5.
+
+### 7.5 Estado al 2026-10-15: V.7, y una compuerta que empujaba a un error (🧪 probado en local)
+
+**`[CGP-V.7]` — lo no medido se dice, y las fechas no salen crudas.**
+
+- `money()` es compartida (Finanzas y Compras) y convierte `null` en `$0.00`. Cambiarla en el
+  origen movería decenas de pantallas fuera de caja, así que se extendió **aditiva**:
+  `moneyOSinMedir()` dice «sin medir» ante `null`, vacío o algo que no es número; un cero medido
+  sigue siendo cero.
+- **Dónde hacía falta se midió, no se adivinó.** Hay 82 `money()` en la pantalla. Se estrechó el tipo
+  de `money` a `number` en una copia temporal y se pasaron las dos compuertas de tipos: un solo sitio
+  sin guarda (el aviso de «Movimiento registrado»). A mano se revisaron los dos patrones que el tipo
+  no ve, `!` y `?? 0`: el monto cancelado (`?? 0`) era el otro.
+- **Fechas:** lo suelto de otras jornadas va en frase («desde el 25-sep», con guarda de `null`) y la
+  fecha valor de los pagables con `dmy`. La regla de la pantalla queda: **frase con `diaCorto`,
+  celda con `dmy`**, ninguna ISO cruda.
+
+**La compuerta `primeng` empujaba a un error.** Su regla de severidad marcaba `severity="error"` en
+cualquier etiqueta y mandaba a `danger`; en `p-message` es al revés. La única ocurrencia que contaba
+bajo su techo (`portal-login`) era ese mismo falso positivo. Ahora juzga **por componente**, con
+`--self-test` de 5 casos (rompiendo la excepción da *CONTROL fallido*) y techo 1 → 0.
+
+⚠️ **Un error mío en el camino:** para restaurar la compuerta tras su prueba negativa usé
+`git checkout` sobre el archivo con cambios sin commitear, y se llevó el arreglo. Se rehízo desde el
+script; desde ahí las mutaciones se restauran con copia de bytes, no con git.
+
+**Pruebas:** 5 de la variante + 2 del componente; la de CG.115 pasa a la fecha en palabras.
+`caja-general` + `shared/util` + `core/utils`: 9 archivos, **426**.
 
 ---
 

@@ -9187,6 +9187,14 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   al botón del cierre; autorizar en la fila de ese corte. Un 403 con frase (la doble llave) se dice
   tal cual; sólo el genérico del guardia se traduce (`textoDeError`, puro). 5 puras + 4 del
   componente; 4 mutaciones atrapadas.
+- [ ] 🧪 **`[CGP-V.7]`** Lo no medido dice «sin medir»: `moneyOSinMedir()` en `shared/util`, aditiva
+  (`money` no cambia: la usan Finanzas y Compras). En caja, el monto cancelado y el aviso de
+  movimiento registrado; los demás `money()` ya tenían guarda, y se verificó estrechando el tipo de
+  `money` y pasando las dos compuertas de tipos. Fechas: ninguna ISO cruda (frase con `diaCorto`,
+  celda con `dmy`). 5 + 2 pruebas; mutación atrapada.
+- [x] ✅ **Compuerta `primeng`** (2026-10-15): juzgaba `severity="error"` como retirado en cualquier
+  etiqueta, pero `p-message` lo admite y no admite `danger`; seguirla rompía el tipado. Ahora va por
+  componente, con `--self-test` (5 casos) y techo 1 → 0.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
