@@ -511,6 +511,63 @@ de Edgar y Contabilidad, igual que `[CGP-0.2]`–`[CGP-0.7]`.
 de cierre, y si el aviso «Este corte es de una jornada que ya pasó» sobra junto al rótulo con la
 fecha.
 
+### 7.2 Estado al 2026-10-15: V.1 y V.2 (🧪 probado en local)
+
+**`[CGP-V.2]` — la reja deja de teclearse en cuanto se revela, y reabrir el diálogo ya no vuelve
+atrás.** Los dos defectos del diagnóstico tenían la misma raíz: el estado del diálogo era una foto
+local.
+
+- **V2, el callejón sin recargar.** Después de sellar no se volvía a pedir el saldo y
+  `abrirCierre()` borraba lo sellado en la sesión: cerrar el diálogo y reabrirlo volvía a ofrecer
+  «Guardar conteo», y el servidor respondía 400. Ahora lo sellado en la sesión va atado a su corte,
+  la revelación se deriva (de la respuesta a sellar o del saldo) y el saldo se vuelve a pedir
+  después de sellar y de recontar.
+- **V1, la reja abierta.** Revelado el conteo, la reja muestra lo sellado pieza por pieza, de sólo
+  lectura, y «Cerrar corte» manda la reja vacía: lo que se firma es lo sellado (`[CGP-L.1]` lo usa
+  cuando el cuerpo no trae piezas). Un solo «Contado»: revelado, el de la línea del veredicto;
+  mientras se cuenta, el total de la reja.
+- **Recontar es un modo, no un campo.** Abre la reja vacía (se cuenta de nuevo, no se corrige un
+  renglón), pide motivo y esconde «Cerrar» hasta guardar el reconteo o volver al sellado: cerrar a
+  mitad firmaría el primero.
+- **Servidor, aditivo:** `saldo()` publica `conteo_sellado.desglose` y `morralla`. `cerrar()` y
+  `saldo()` leen lo sellado con la misma función (`leerSellado`): lo que se muestra y lo que se
+  firma no pueden divergir.
+- **Lo que no se puede mostrar se declara.** Un API anterior sin desglose, o un desglose con una
+  pieza que la reja de caja no tiene (el billete de $1,000: el servidor acepta todo el catálogo),
+  dice «no se puede mostrar pieza por pieza» en vez de pintar la reja a medias.
+- **El diálogo guarda el corte que tiene en la mano.** Si la relectura del saldo falla después de
+  sellar, se puede cerrar igual. Al abrir desde «rendir cuentas» el corte sale de la respuesta de
+  abrir, porque el saldo todavía no volvió.
+
+**`[CGP-V.1]` — los pasos a la vista.** Abrir → Contar a ciegas → Revisar la diferencia → Cerrar →
+Autorizar, debajo de la cabecera del cierre de la jornada (con la frase de qué sigue) y arriba del
+diálogo. El paso se deriva del servidor con una función pura (`pasoDelCorte`): sin saldo medido no
+se afirma ninguno; «revisar» sólo con diferencia y el reconteo sin usar, o con el esperado cambiado;
+«autorizar» nombra el folio del último corte cerrado. La pieza `app-caja-pasos` vive en
+`modules/finanzas/components/` (no hay stepper compartido: `DESIGN.md` lo lista como hueco), es de
+sólo lectura y el estado no depende sólo del color (icono, negrita y `aria-current="step"`).
+
+**Pruebas:** servidor contra Postgres real **13/13** (+1: el desglose sellado, el del reconteo, y que
+sin conteo no se publica nada); `libs/finance/src/lib/caja` 23 archivos, **435**. Front: 11 puras
+del paso + 16 del componente; directorio `caja-general` 4 archivos, **357**. **10 mutaciones, las 10
+atrapadas**: 9 del front (reabrir borra lo sellado, no volver a pedir el saldo, cerrar con lo
+tecleado, el permiso de cerrar atado al último saldo, la reja editable tras revelar, cerrar a mitad
+del reconteo, pintar a medias una pieza ajena, abrir sin el corte de la respuesta, «por autorizar»
+tomando el primero) y 1 del servidor (`saldo()` sin desglose). `check:pantalla -- caja-general`
+igual a la línea base; `templates`, `reactividad`, `tokens`, `estilos`, `motion` y
+`templates-types` verdes; `primeng` (306/305) y `sin emojis` (142/75) iguales con y sin los cambios.
+
+⚠️ Dos cosas que destaparon las pruebas: una prueba de V.3 atrapó que el texto del paso «abrir»
+invitaba a «rendir cuentas» justo cuando la pantalla bloquea abrir y ofrece «Reintentar»; y la
+primera versión de las pruebas usaba un billete de $1,000, que la reja de caja no tiene, de donde
+salió el caso de la pieza ajena.
+
+⛔ **Decidido acá, revisable:** el reconteo arranca con la reja vacía, no con lo sellado. Precargarla
+invitaría a corregir el renglón que «no cuadra» después de ver el esperado.
+
+⚠️ **Sin validación visual.** Lo más probable de ajustar: la tira de pasos en el diálogo de 40rem
+(cinco rótulos, se parte en dos renglones) y el pie con tres botones durante el reconteo.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación
@@ -537,6 +594,11 @@ No son de software, y sin ellas ninguna fase cierra el problema:
 5. Recontar los dólares y los papeles, que no se cuentan desde abril y desde 2025-10.
 6. Quién cierra y quién autoriza: el plan de la fase dice una cosa y lo construido hace otra.
 7. Los nombres del menú (CGP-V.8).
+
+⭐ **2026-10-15: Edgar tiene capturas del corte de cada día.** Son el testigo independiente que faltaba
+para 1 y 2, y para decidir qué efectivo se cuenta al cerrar una jornada que ya pasó. Por pedido suyo
+se revisan **al terminar los ítems de código del plan**, como evidencia, no para teclear un conteo
+como si hubiera sido ciego.
 
 ---
 

@@ -9160,6 +9160,17 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   `diaCorto` pasa a `libs/contracts` (lo comparten la campana y la pantalla). 10 pruebas del
   componente + 4 del formateador, 5 mutaciones atrapadas; `check:pantalla` igual a la línea base.
   Sin validación visual.
+- [ ] 🧪 **`[CGP-V.1]`** Los pasos del corte a la vista: Abrir → Contar a ciegas → Revisar la
+  diferencia → Cerrar → Autorizar, en el cierre de la jornada (con qué sigue) y arriba del diálogo.
+  Se derivan del servidor con una función pura (`pasoDelCorte`); sin saldo medido no se afirma
+  ninguno, y «autorizar» nombra el folio. Pieza `app-caja-pasos` en `finanzas/components/` (no
+  hay stepper compartido). 11 pruebas puras + 6 del componente. Sin validación visual.
+- [ ] 🧪 **`[CGP-V.2]`** Revelado el conteo, la reja muestra lo sellado de sólo lectura y «Cerrar»
+  manda la reja vacía (se firma lo sellado). «Recontar» es un modo: reja vacía, motivo, y sin
+  «Cerrar» hasta guardar o volver. Reabrir el diálogo ya no vuelve a «Guardar conteo»: lo sellado va
+  atado a su corte y el saldo se vuelve a pedir después de cada acción. `saldo()` publica el
+  desglose sellado (aditivo; `cerrar()` lo lee con la misma función). 10 del componente + 1 contra
+  la base; 10 mutaciones atrapadas. Sin validación visual.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
