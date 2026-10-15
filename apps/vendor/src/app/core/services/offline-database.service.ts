@@ -884,6 +884,32 @@ export class OfflineDatabaseService extends Dexie {
     });
   }
 
+  /**
+   * `[VTK.11]` El catálogo guardado de una lista, para ABRIR con red sin esperar la descarga
+   * (se muestra y se refresca detrás). Undefined si nunca se guardó.
+   */
+  getVendorCatalog(priceListId: string): Promise<VendorCatalogCache | undefined> {
+    return this.vendorCatalogCache.get(priceListId);
+  }
+
+  /**
+   * `[VTK.11]` Guarda SÓLO el contexto del cliente (lista + habituales), sin reescribir el
+   * catálogo: cuando se abrió con la copia guardada, volver a escribir ~10 MB idénticos en cada
+   * cliente sería trabajo de más en el celular.
+   */
+  async cacheVendorCustomer(
+    customerId: string,
+    ctx: { customer: any; priceListId: string; frequent: any[] },
+  ): Promise<void> {
+    await this.vendorCustomerCache.put({
+      id: customerId,
+      customer: ctx.customer,
+      priceListId: ctx.priceListId,
+      frequent: ctx.frequent,
+      cachedAt: new Date().toISOString(),
+    });
+  }
+
   /** Lee el contexto cacheado para abrir el take-order sin red. Null si falta. */
   async getVendorContext(customerId: string): Promise<{
     customer: any;

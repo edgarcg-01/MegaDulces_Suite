@@ -34,6 +34,11 @@ export class OfflineOrderService {
     return this.db.cacheVendorContext(customerId, ctx);
   }
 
+  /** `[VTK.11]` Sólo el cliente (lista + habituales), cuando el catálogo ya estaba guardado. */
+  cacheCustomer(customerId: string, ctx: { customer: any; priceListId: string; frequent: any[] }): Promise<void> {
+    return this.db.cacheVendorCustomer(customerId, ctx);
+  }
+
   /** Contexto cacheado para abrir el take-order sin red (null si nunca se cargó online). */
   getContext(customerId: string): Promise<{
     customer: any;
