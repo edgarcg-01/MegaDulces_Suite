@@ -188,6 +188,57 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                     </tr>
                   </tbody>
                 </table>
+                <!-- [VEC.14] El OTRO eje: el impuesto. Todo el puente de arriba esta en BRUTO
+                     -- el precio del renglon de Kepler ya trae impuestos -- y el negocio cuenta
+                     en neto. Va como bloque aparte y no como un renglon mas, porque no es otro
+                     sumando del mismo camino: es el MISMO dinero contado de otra manera. -->
+                <h4 class="vr-puente-h vr-puente-h2">
+                  La misma venta, sin impuestos
+                  <span class="vr-puente-sub">como la cuenta el negocio</span>
+                </h4>
+                <table class="vr-puente-t">
+                  <caption class="sr-only">De la venta bruta a la venta neta de impuestos</caption>
+                  <tbody>
+                    <tr>
+                      <th scope="row">Venta bruta</th>
+                      <td class="vr-tenue">el precio del renglón de Kepler ya trae el impuesto</td>
+                      <td class="comm-num vr-mono vr-strong">{{ money(d.puente.pagina) }}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">IVA</th>
+                      <td class="vr-tenue">
+                        <span class="vr-mono">c14</span> — la razón se pega a <strong>16%</strong>
+                        en los tickets de tasa única
+                      </td>
+                      <td class="comm-num vr-mono">{{ signo(-d.puente.iva) }}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">IEPS</th>
+                      <td class="vr-tenue">
+                        <span class="vr-mono">c15</span> — <strong>8%</strong>.
+                        ⛔ No se puede saltear dividiendo entre 1.16
+                      </td>
+                      <td class="comm-num vr-mono">{{ signo(-d.puente.ieps) }}</td>
+                    </tr>
+                    <tr class="vr-puente-tot">
+                      <th scope="row">Venta neta</th>
+                      <td class="vr-tenue">
+                        el impuesto es el <strong>{{ pctImpuesto() }}%</strong> de la venta bruta
+                      </td>
+                      <td class="comm-num vr-mono vr-strong">{{ money(d.puente.neto) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="vr-nosuma">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  <span>
+                    ⛔ Esto <strong>no afirma</strong> que el número que se cita de Kepler sea este
+                    neto: hay precedente medido en contra — la pantalla de utilidad rotulada
+                    «Monto sin IVA» <strong>sí traía</strong> el impuesto. Acá se publica una cifra
+                    definida y arbitrada; a qué reporte corresponde se ancla mirando ese reporte.
+                  </span>
+                </p>
+
                 @if (d.puente.espejo > 0) {
                   <p class="vr-nosuma">
                     <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -248,6 +299,8 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .vr-puente-h { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
       margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-main); }
     .vr-puente-sub { font-size: var(--fs-micro); font-weight: var(--fw-regular); color: var(--text-faint); }
+    /* [VEC.14] El segundo bloque necesita aire propio: es otra pregunta, no la continuacion. */
+    .vr-puente-h2 { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .vr-puente-t { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
     .vr-puente-t th, .vr-puente-t td { padding: var(--sp-1) var(--sp-2); text-align: left;
       border-bottom: 1px solid var(--border-color); vertical-align: baseline; }
@@ -408,6 +461,17 @@ export class VecinalReconComponent {
    * agosto $0.05 · septiembre $0.37 · 45 días $0.48 · julio $327.84 — el único que NO cierra.
    */
   readonly cierra = computed(() => Math.abs(this.data()?.puente.residuo ?? 0) <= 1);
+
+  /**
+   * `[VEC.14]` Qué porcentaje de la venta bruta es impuesto. Medido en prod: **9.0–9.7%** según
+   * el mes — y se mueve, porque depende de cuánto del mix lleva IEPS. Por eso se publica en vez
+   * de fijar una tasa: un «16%» escrito a mano sería falso en los tres meses medidos.
+   */
+  readonly pctImpuesto = computed(() => {
+    const p = this.data()?.puente;
+    if (!p || !p.pagina) return 0;
+    return Math.round(((p.iva + p.ieps) / p.pagina) * 1000) / 10;
+  });
 
   /** Cuánto infla la re-factura sobre lo que esta pantalla publica. 0 si no hay base que dividir. */
   readonly pctEspejo = computed(() => {
