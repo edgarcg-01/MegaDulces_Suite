@@ -42,6 +42,7 @@
  * 1.00 no pueden leerse igual.
  */
 import { denomKeyDeValor } from '@megadulces/contracts';
+import { diaCorto } from './caja-corte-abierto.engine';
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
 
@@ -659,4 +660,55 @@ export function filasDenominacion(
         piezas: Number(d.piezas),
       };
     });
+}
+
+// ── `[CGP-L.4]` ¿Se puede abrir el corte de esta fecha? ─────────────────────────────────────
+
+export type MotivoNoAbre = 'fecha_invalida' | 'fecha_futura' | 'ya_existe' | 'hay_posterior';
+
+/** 'YYYY-MM-DD' que además es un día real del calendario (sin `2026-02-30`). */
+function esFechaDeCalendario(f: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(f ?? ''));
+  if (!m) return false;
+  const [a, mes, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(a, mes - 1, d));
+  return t.getUTCFullYear() === a && t.getUTCMonth() === mes - 1 && t.getUTCDate() === d;
+}
+
+/**
+ * La pantalla abría siempre el corte de HOY y el servidor aceptaba cualquier fecha sin mirarla.
+ * Ponerse al día con jornadas atrasadas exige abrir fechas pasadas; esto frena lo que no tiene
+ * vuelta atrás:
+ *  · una fecha que no es fecha, o que todavía no pasa (`hoy` lo da la base, en hora de México);
+ *  · un día que ya tiene corte (la base también lo frena; acá sale con el folio);
+ *  · ⛔ un día ANTERIOR a un corte que ya existe: el posterior heredó su fondo sin ese día, y un
+ *    corte firmado ya no se corrige. Las jornadas se cierran en orden.
+ *
+ * ⚠️ La última regla choca con una decisión pendiente (`[CGP-0.6]`): si se decide capturar en la
+ * Suite días anteriores al primer corte (7 al 10-oct), esta regla los frena. Se relaja con una
+ * excepción EXPLÍCITA cuando esa decisión se tome, no en silencio.
+ */
+export function puedeAbrirCorte(i: {
+  fecha: string;
+  hoy: string;
+  mismoDia: { folio: string } | null;
+  posterior: { folio: string; fecha: string } | null;
+}): { ok: boolean; motivo?: MotivoNoAbre; texto?: string } {
+  if (!esFechaDeCalendario(i.fecha)) {
+    return { ok: false, motivo: 'fecha_invalida', texto: 'La fecha del corte no es una fecha válida (AAAA-MM-DD).' };
+  }
+  if (i.fecha > i.hoy) {
+    return { ok: false, motivo: 'fecha_futura', texto: `El ${diaCorto(i.fecha)} todavía no pasa: no se abre un corte de un día que no terminó.` };
+  }
+  if (i.mismoDia) {
+    return { ok: false, motivo: 'ya_existe', texto: `El ${diaCorto(i.fecha)} ya tiene su corte: ${i.mismoDia.folio}.` };
+  }
+  if (i.posterior) {
+    return {
+      ok: false, motivo: 'hay_posterior',
+      texto: `Ya existe el corte ${i.posterior.folio} del ${diaCorto(i.posterior.fecha)}. Las jornadas se cierran en orden: `
+        + `abrir una anterior dejaría a ese corte con un fondo que no contó este día.`,
+    };
+  }
+  return { ok: true };
 }

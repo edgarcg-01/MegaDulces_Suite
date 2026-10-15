@@ -7,10 +7,9 @@ import {
   avisoCortesAbiertos, debeAvisar, huellaDeSituacion, UMBRAL_CORTE_ABIERTO_H,
   type CorteAbiertoFila, type MedicionCortesAbiertos,
 } from './caja-corte-abierto.engine';
+import { jornadasSinCorte } from './caja-jornadas.query';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
-/** El cajón: la Caja General es UNA y su corte es el de la 00 (`[CG.98]`). */
-const SUCURSAL_DEL_CAJERO = '00';
 
 export interface MedicionSensorCorte extends MedicionCortesAbiertos {
   /** Movimientos vivos del libro que se vieron. En 0 el latido se pone rojo: no se vio la tabla. */
@@ -65,32 +64,17 @@ export class CajaCorteAbiertoScannerService {
            WHERE tenant_id = ? AND estado = 'borrador'
            ORDER BY created_at`, [tenantId]);
 
-        // Una jornada cuenta como "sin corte" recién cuando terminó hace más del umbral de aviso:
-        // si no, avisaría cada madrugada aunque la cajera cierre al día siguiente temprano.
-        // Antes del primer corte no hay jornada que reclamar (eso es historia de Control).
-        const jornadas = await trx.raw(`
-          WITH inicio AS (SELECT min(fecha) AS d FROM finance.cash_ledger_cuts WHERE tenant_id = ?)
-          SELECT to_char(l.fecha, 'YYYY-MM-DD') AS fecha
-            FROM finance.cash_ledger l, inicio
-           WHERE l.tenant_id = ? AND l.deleted_at IS NULL AND l.estado <> 'cancelado'
-             AND inicio.d IS NOT NULL AND l.fecha >= inicio.d
-             AND (l.fecha + 1)::timestamp
-                 < (now() AT TIME ZONE 'America/Mexico_City') - make_interval(hours => ?)
-             AND NOT EXISTS (
-               SELECT 1 FROM finance.cash_ledger_cuts c
-                WHERE c.tenant_id = l.tenant_id AND c.sucursal = ? AND c.fecha = l.fecha)
-           GROUP BY l.fecha
-           ORDER BY l.fecha`, [tenantId, tenantId, UMBRAL_CORTE_ABIERTO_H.aviso, SUCURSAL_DEL_CAJERO]);
-
-        const inicio = await trx.raw(
-          `SELECT to_char(min(fecha), 'YYYY-MM-DD') AS d FROM finance.cash_ledger_cuts WHERE tenant_id = ?`, [tenantId]);
+        // Una jornada cuenta como "sin corte" recién cuando terminó hace más del umbral de aviso: si
+        // no, avisaría cada madrugada aunque la cajera cierre al día siguiente temprano. La consulta
+        // es la MISMA que usa la pantalla para ofrecer el corte atrasado (`[CGP-L.4]`).
+        const sinCorte = await jornadasSinCorte(trx, tenantId, UMBRAL_CORTE_ABIERTO_H.aviso);
         const universo = await trx.raw(
           `SELECT count(*)::int AS n FROM finance.cash_ledger WHERE tenant_id = ? AND deleted_at IS NULL`, [tenantId]);
 
         m = {
           abiertos: abiertos.rows.map((r: CorteAbiertoFila) => ({ folio: r.folio, fecha: r.fecha, horas: Number(r.horas) })),
-          jornadasSinCorte: jornadas.rows.map((r: { fecha: string }) => r.fecha),
-          inicioLibro: inicio.rows[0]?.d ?? null,
+          jornadasSinCorte: sinCorte.jornadas.map((j) => j.fecha),
+          inicioLibro: sinCorte.inicio,
           universo: Number(universo.rows[0]?.n ?? 0),
           avisado: false,
         };

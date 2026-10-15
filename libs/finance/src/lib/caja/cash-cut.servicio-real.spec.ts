@@ -26,9 +26,9 @@ const URL = process.env.CAJA_TEST_DB_URL;
 const T = '00000000-0000-0000-0000-00000000d01c';
 const CAJERA = { id: '00000000-0000-0000-0000-0000000000c1', username: 'cajera_prueba' };
 const AUTORIZA = { id: '00000000-0000-0000-0000-0000000000c2', username: 'autoriza_prueba' };
-// Un año distinto por corrida: un corte es único por (sucursal, fecha), y así correrla dos veces
-// sobre la misma base no choca con lo que dejó la anterior.
-const ANIO = 2100 + Math.floor(Math.random() * 800);
+// Un año PASADO distinto por corrida: un corte es único por (sucursal, fecha), y desde `[CGP-L.4]`
+// no se abre una fecha que todavía no pasa (la primera versión usaba años 2100+ y quedó inválida).
+const ANIO = 1990 + Math.floor(Math.random() * 30);
 const dia = (mmdd: string) => `${ANIO}-${mmdd}`;
 // Y una sucursal distinta por corrida: sólo puede haber UN borrador por sucursal, sin importar la
 // fecha, y la prueba del arqueo ciego deja el suyo abierto a propósito (es el cierre rechazado).
@@ -67,6 +67,18 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     }));
   }
   const corte = (id: string) => tk.run((trx) => trx('finance.cash_ledger_cuts').where({ id }).first());
+  /**
+   * El día siguiente al último corte de esa sucursal, y nunca antes del 2000-01-03.
+   * ⚠️ El piso es a propósito: la prueba del sensor siembra días de la 00 ANTES de 1990 (un ancla y
+   * jornadas sin corte). Sin el piso, esta prueba caía justo en esos días, absorbía sus movimientos,
+   * no cuadraba y dejaba el corte abierto — trabando la 00 para todas las corridas siguientes.
+   */
+  async function diaDespuesDelUltimo(sucursal: string): Promise<string> {
+    const r = await tk.run((trx) => trx.raw(
+      `SELECT to_char(greatest(coalesce(max(fecha) + 1, date '2000-01-03'), date '2000-01-03'), 'YYYY-MM-DD') AS d
+         FROM finance.cash_ledger_cuts WHERE sucursal = ?`, [sucursal]));
+    return r.rows[0].d as string;
+  }
   const desglose = (id: string) => tk.run((trx) => trx('finance.cash_ledger_cut_denominations')
     .where({ cut_id: id, momento: 'cierre' }).select('denom_key', 'piezas'));
 
@@ -140,7 +152,9 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
   });
 
   it('`[CG.160]` el cajón de la 00 ata y suma lo que otras plazas pagaron desde él', async () => {
-    const f = dia('03-05');
+    // La 00 es una sola para todas las corridas: desde `[CGP-L.4]` las jornadas se abren EN ORDEN, así
+    // que se pide a la base el día siguiente al último corte que ya tenga.
+    const f = await diaDespuesDelUltimo('00');
     const c = await svc.abrir({ fecha: f, sucursal: '00', fondo_inicial: 500 }, CAJERA);
     await movimiento(f, '00', 'ingreso', 1000);
     await movimiento(f, '05', 'gasto', 200);         // nómina de otra plaza, pagada desde este cajón
@@ -153,11 +167,50 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(Number(atados[0].n)).toBe(2);
   });
 
-  it('`[CGP-L.6]` un segundo corte de la misma sucursal y fecha: lo frena la base y llega como frase', async () => {
+  it('`[CGP-L.4]` un segundo corte de la misma sucursal y fecha: 400 que nombra el folio que ya existe', async () => {
     const f = dia('03-01');   // L1 ya tiene su corte de este día (primera prueba), cerrado y autorizado
+    const existente = await tk.run((trx) => trx('finance.cash_ledger_cuts').where({ sucursal: suc('L1'), fecha: f }).first());
     await expect(svc.abrir({ fecha: f, sucursal: suc('L1') }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(svc.abrir({ fecha: f, sucursal: suc('L1') }, CAJERA))
-      .rejects.toThrow('Ya existe un corte de esta sucursal para esa fecha.');
+    // Antes lo frenaba la base con una frase genérica (`[CGP-L.6]`, sigue de respaldo); ahora la regla
+    // lo decide antes y dice CUÁL corte ya existe.
+    await expect(svc.abrir({ fecha: f, sucursal: suc('L1') }, CAJERA)).rejects.toThrow(existente.folio);
+  });
+
+  it('⛔ `[CGP-L.4]` una fecha que todavía no pasa NO se abre', async () => {
+    await expect(svc.abrir({ fecha: '2999-01-01', sucursal: suc('L8') }, CAJERA))
+      .rejects.toThrow(/todavía no pasa/);
+  });
+
+  it('⛔ `[CGP-L.4]` un día ANTERIOR a un corte que ya existe NO se abre: las jornadas se cierran en orden', async () => {
+    // L1 tiene corte el 03-01; el 02-28 es anterior.
+    await expect(svc.abrir({ fecha: dia('02-28'), sucursal: suc('L1') }, CAJERA))
+      .rejects.toThrow(/Las jornadas se cierran en orden/);
+  });
+
+  it('`[CGP-L.4]` las jornadas pendientes: días con movimientos y sin corte, para ofrecerlos en la pantalla', async () => {
+    // Un día de L9 no aplica (la consulta es del cajón de la 00); se siembra en la 00 con un ancla
+    // cerrada ANTES de todo lo demás de la 00, y un movimiento al día siguiente sin corte.
+    const ancla = `${ANIO - 1000}-05-10`;            // ~1000 años atrás: antes de cualquier corte de prueba
+    const pendiente = `${ANIO - 1000}-05-11`;
+    await tk.run(async (trx) => {
+      await trx('finance.cash_ledger_cuts').insert({
+        tenant_id: T, folio: `CC-ANCLA-L4-${ANIO}`, fecha: ancla, sucursal: '00', estado: 'cerrado',
+        fondo_inicial: 0, fondo_origen: 'contado', esperado: 0, contado: 0, diferencia: 0,
+        created_by: CAJERA.id, closed_by: CAJERA.id, closed_at: trx.fn.now(),
+      });
+    });
+    await movimiento(pendiente, '05', 'gasto', 50);
+    const r = await svc.jornadasPendientes('00');
+    expect(r.jornadas).toEqual(expect.arrayContaining([{ fecha: pendiente, movimientos: 1 }]));
+    expect(r.jornadas.map((j) => j.fecha)).not.toContain(ancla);
+    expect(r.hoy).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('`[CGP-L.4]` el saldo publica la FECHA del corte abierto: el diálogo tiene que decir qué jornada cierra', async () => {
+    const f = dia('03-09');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('L9'), fondo_inicial: 0 }, CAJERA);
+    const s = await svc.saldo(suc('L9'), true);
+    expect(s.corte_abierto).toMatchObject({ id: c.id, folio: c.folio, fecha: f });
   });
 
   it('⛔ `[CGP-L.2]` lo que se firma es lo que se reveló: si el esperado cambió después de contar, 409', async () => {

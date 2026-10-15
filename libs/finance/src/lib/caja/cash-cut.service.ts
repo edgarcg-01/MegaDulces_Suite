@@ -6,12 +6,13 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { denomKeyDeValor } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
+import { SUCURSAL_DEL_CAJERO, hoyMx, jornadasSinCorte } from './caja-jornadas.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
   proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
   filasDenominacion, DenominacionFueraDeCatalogo, veredictoDe,
-  decidirConteoDelCierre, esperadoCambio, textoConteoDistinto, textoEsperadoCambio,
+  decidirConteoDelCierre, esperadoCambio, textoConteoDistinto, textoEsperadoCambio, puedeAbrirCorte,
   type ConteoDenominacion, type ConteoSellado, type MovimientoDelCorte, type TotalesCorte,
 } from './cash-cut.engine';
 
@@ -53,7 +54,8 @@ import {
  * y hay que acotar por caja de verdad. Hoy no existe: medido, 27 de 27 movimientos son `0011` o
  * captura manual desde esta misma pantalla.
  */
-const SUCURSAL_DEL_CAJERO = '00';
+// `[CGP-L.4]` La constante del cajón vive en un solo lugar (`caja-jornadas.query.ts`): la usan
+// también el sensor y la consulta de jornadas pendientes, y dos copias del mismo '00' divergen.
 function aplicarAlcanceCaja(qb: any, sucursal: string): any {
   return sucursal === SUCURSAL_DEL_CAJERO ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
 }
@@ -411,6 +413,26 @@ export class CashCutService {
     };
   }
 
+  /**
+   * `[CGP-L.4]` Las jornadas del cajón con movimientos y SIN corte, de la más vieja a la más nueva:
+   * lo que la pantalla ofrece cerrar, en orden. Es la MISMA consulta que usa el sensor del corte
+   * abierto (`[CGP-L.10]`), con 0 h de margen: todo día que ya pasó.
+   *
+   * Sólo el cajón de la 00 tiene jornadas: es la Caja General (`[CG.98]`). Otra sucursal lo DECLARA
+   * con `alcance`, en vez de responder una lista vacía que se leería como "todo al día".
+   */
+  async jornadasPendientes(sucursal: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const hoy = await hoyMx(trx);
+      if (sucursal !== SUCURSAL_DEL_CAJERO) {
+        return { sucursal, hoy, inicio_libro: null, jornadas: [], alcance: 'solo_cajon' as const };
+      }
+      const r = await jornadasSinCorte(trx, tenantId, 0);
+      return { sucursal, hoy, inicio_libro: r.inicio, jornadas: r.jornadas, alcance: 'cajon' as const };
+    });
+  }
+
   async sugerirFondo(sucursal: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -486,6 +508,30 @@ export class CashCutService {
       }
 
       /**
+       * ⛔ `[CGP-L.4]` **LA FECHA SE MIRA.** La pantalla abría siempre el de HOY y esto aceptaba
+       * cualquier fecha. Ponerse al día con jornadas atrasadas exige abrir fechas pasadas, y eso
+       * trae lo que no tiene vuelta atrás: una fecha que todavía no pasa, o un día ANTERIOR a un
+       * corte que ya existe (el posterior heredó su fondo sin ese día; un corte firmado no se
+       * corrige). Primero se valida que sea fecha: consultar con "ayer" sería un error de la base.
+       */
+      const hoy = await hoyMx(trx);
+      const formato = puedeAbrirCorte({ fecha: String(input.fecha ?? ''), hoy, mismoDia: null, posterior: null });
+      if (!formato.ok) throw new BadRequestException(formato.texto);
+      const mismoDia = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, sucursal: input.sucursal, fecha: input.fecha }).first('folio');
+      const posterior = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, sucursal: input.sucursal })
+        .where('fecha', '>', input.fecha)
+        .orderBy('fecha', 'desc')
+        .first('folio', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`));
+      const gate = puedeAbrirCorte({
+        fecha: input.fecha, hoy,
+        mismoDia: mismoDia ? { folio: mismoDia.folio } : null,
+        posterior: posterior ? { folio: posterior.folio, fecha: posterior.fecha } : null,
+      });
+      if (!gate.ok) throw new BadRequestException(gate.texto);
+
+      /**
        * ⛔ `[CG.39]` ACÁ ESTABA `fondo_inicial: input.fondo_inicial ?? 0`.
        *
        * Ese `?? 0` no era un default inocuo: **afirmaba que la caja arrancó vacía**. Con el fondo
@@ -530,6 +576,9 @@ export class CashCutService {
           .where({ tenant_id: tenantId, sucursal: input.sucursal })
           .whereIn('estado', ['cerrado', 'autorizado'])
           .whereNotNull('contado')
+          // `[CGP-L.4]` El fondo hereda del último cierre ANTERIOR a esta fecha. La regla de orden de
+          // arriba ya impide que exista uno posterior; esto lo deja dicho en la consulta misma.
+          .where('fecha', '<', input.fecha)
           .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
           .first('folio', 'contado', 'fecha');
         if (prev && Number(prev.contado) >= 0) {
@@ -1138,6 +1187,8 @@ export class CashCutService {
         corte_abierto: abierto
           ? {
             id: abierto.id, folio: abierto.folio, fondo_inicial: fondo(abierto),
+            // `[CGP-L.4]` Qué jornada es: con cortes atrasados, el diálogo de cierre tiene que decirlo.
+            fecha: this.diaDe(abierto.fecha),
             // Que ya se recontó NO es secreto: no revela el esperado y la pantalla necesita
             // saberlo para apagar el botón antes de que el usuario lo intente.
             ya_reconto: abierto.conteo_previo != null,

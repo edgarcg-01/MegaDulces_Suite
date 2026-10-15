@@ -349,6 +349,17 @@ export class CashLedgerController {
     return this.cortes.sugerirFondo(sucursal || '00');
   }
 
+  /**
+   * `[CGP-L.4]` Jornadas con movimientos y sin corte, de la más vieja a la más nueva: lo que la
+   * pantalla ofrece cerrar en orden. Va ANTES de `@Get(':id')`, como el resto del archivo.
+   */
+  @Get('cortes/jornadas-pendientes')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CGP-L.4: jornadas del cajón con movimientos y sin corte, en orden. La misma consulta que el sensor del corte abierto.' })
+  jornadasPendientes(@Query('sucursal') sucursal?: string): ReturnType<CashCutService['jornadasPendientes']> {
+    return this.cortes.jornadasPendientes(sucursal || '00');
+  }
+
   @Post('cortes')
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
   @ApiOperation({ summary: 'Abre el corte de la sucursal con su fondo inicial. Uno solo abierto por sucursal.' })
