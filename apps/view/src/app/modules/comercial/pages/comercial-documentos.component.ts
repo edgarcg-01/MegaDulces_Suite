@@ -23,6 +23,7 @@ import { TELEMARKETING_TABS } from '../telemarketing-tabs';
 import {
   TelemarketingFiltrosComponent, TmFiltros, tmFiltrosIniciales,
 } from '../components/telemarketing-filtros.component';
+import { RouteCreditComponent } from './comercial-route-credit.component';
 
 /**
  * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
@@ -42,6 +43,7 @@ import {
     CommonModule, FormsModule, InputTextModule, TableModule, TagModule, ButtonModule, TooltipModule, ToastModule,
     MetricStripComponent, LoadStateComponent, SidePeekComponent, PageTabsComponent,
     TelemarketingFiltrosComponent,
+    RouteCreditComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -65,6 +67,12 @@ import {
     @if (report(); as r) {
       <app-metric-strip [items]="kpis(r)" />
     }
+
+    <!-- [VEC.21] Esta pantalla ya LISTA las facturas de telemarketing; lo que le faltaba era
+         que son venta a CREDITO y nadie veia si se cobraron. El panel trae la cadena:
+         factura -> cobro -> cuenta de tesoreria donde entro el dinero. Sin ruta fija: aca se
+         mira el universo completo, no una ruta. -->
+    <app-route-credit />
 
     <app-telemarketing-filtros [value]="filtros()" [vendedores]="vendedorOpts()"
                                [sucursales]="sucursales()" [sucursalDeclarada]="alcanceLeido()"

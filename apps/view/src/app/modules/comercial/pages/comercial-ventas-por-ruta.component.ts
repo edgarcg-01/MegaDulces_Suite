@@ -38,6 +38,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 import { VecinalReconComponent } from './comercial-vecinal-recon.component';
 import { RutaCajaCaosComponent } from './comercial-ruta-caja-caos.component';
+import { RouteCreditComponent } from './comercial-route-credit.component';
 import { CaosService, RutaCajaReporte } from '../../finanzas/caos.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
@@ -91,7 +92,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    RouterLink, LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
+    RouterLink, LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RouteCreditComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -122,6 +123,12 @@ const MES: Record<string, string> = {
            que esa caja genero en Caja General. Va despues del panel de la vecinal porque es el
            otro circuito: las rutas directas depositan en CAOS, la vecinal se arquea en su caja. -->
       <app-ruta-caja-caos />
+
+      <!-- [VEC.21] La venta a CREDITO de la ruta. Va DESPUES de los dos circuitos de efectivo
+           porque es el tercero y el unico que no se cobra el mismo dia: U-D-8 ("Factura
+           Telemarketing" en Kepler) es venta a credito -- el propio ERP la registra como cargo
+           en cartera con vencimiento y saldo. Aca se ve su cobro y la cuenta donde entro. -->
+      <app-route-credit />
 
       <!-- RR-PROMO — Agente AI: calcula incentivos de ruta desde el enunciado de la promo -->
       <app-comercial-route-promo />

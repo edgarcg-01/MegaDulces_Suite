@@ -2123,6 +2123,20 @@ export class ComercialService {
     return this.http.get<VecinalConciliacion>(`${this.base}/analytics/sales-by-route/vecinal-reconciliation`, { params });
   }
 
+  /**
+   * `[VEC.21]` — La venta a CRÉDITO de la ruta (`U-D-8`, que Kepler registra como cargo en
+   * cartera) con su cobro aplicado y la cuenta de tesorería donde entró el dinero.
+   *
+   * ⚠️ Por omisión son **90 días**, no 45: una factura a crédito vive mientras no se cobre.
+   */
+  routeCreditSales(from?: string, to?: string, route?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    if (route) params = params.set('route', route);
+    return this.http.get<RouteCreditSales>(`${this.base}/analytics/sales-by-route/credit`, { params });
+  }
+
   private salesByRouteParams(p: SalesByRouteParams): HttpParams {
     let params = new HttpParams().set('year', String(p.year));
     if (p.routes?.length) params = params.set('routes', p.routes.join(','));
@@ -3331,6 +3345,60 @@ export interface VecinalConciliacion {
   no_suma: VecinalNoSuma;
   puente: VecinalPuente;
   filas: VecinalConciliacionFila[];
+}
+
+// ── `[VEC.21]` La venta a CRÉDITO de la ruta y el dinero que la saldó ──
+/**
+ * Un abono aplicado a la factura. ⚠️ `medio`/`cuenta` en `null` NO quiere decir «efectivo»:
+ * quiere decir que el cobro no se pudo resolver contra tesorería, y se declara.
+ */
+export interface RouteCreditAbono {
+  folio: string;
+  monto: number;
+  tipo: string;
+  medio: string | null;
+  cuenta: string | null;
+  fecha: string | null;
+}
+
+/** CUATRO estados. `sin_vencimiento` no es `vigente`: es que no hay con qué juzgarlo. */
+export type RouteCreditCobranza = 'cobrada' | 'vigente' | 'vencida' | 'sin_vencimiento';
+
+export interface RouteCreditSaleRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  route_no: string;
+  route_name: string | null;
+  folio: string;
+  fecha: string;
+  vence: string | null;
+  cliente_code: string | null;
+  importe: number;
+  neto: number;
+  cobrado: number;
+  saldo: number;
+  cobranza: RouteCreditCobranza;
+  /** `null` sin vencimiento. Nunca 0: un 0 diría «vence hoy». */
+  dias_vencida: number | null;
+  abonos: RouteCreditAbono[];
+}
+
+export interface RouteCreditSales {
+  period: { from: string; to: string };
+  summary: {
+    facturas: number;
+    facturado: number;
+    neto: number;
+    cobrado: number;
+    saldo: number;
+    vencido: number;
+    facturas_vencidas: number;
+    por_estado: Record<string, number>;
+    /** Cobertura de la liga con tesorería: «0 con cuenta» y «sin abonos» no se leen igual. */
+    abonos: number;
+    abonos_con_cuenta: number;
+  };
+  filas: RouteCreditSaleRow[];
 }
 
 // ── Fase T — Traspasos (no es venta) ──
