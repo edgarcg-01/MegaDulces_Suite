@@ -9135,11 +9135,14 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
 - [ ] 🧪 **`[CGP-L.1]`** `cerrar()` con conteo sellado y otra cifra en la reja → 400 con frase,
   decidido antes de atar movimientos (`decidirConteoDelCierre`, motor puro).
 - [ ] 🧪 **`[CGP-L.2]`** Si el esperado cambió desde el conteo → 409 con datos; se confirma con
-  `esperado_visto`. ⛔ **No se despliega sin `[CGP-V.12]`** (la pantalla no tiene cómo confirmar).
+  `esperado_visto`. Va en el mismo lote que `[CGP-V.12]`, que le da a la pantalla cómo confirmar.
 - [ ] 🧪 **`[CGP-L.3]`** `recontar()` exige conteo previo y lee sólo el desglose de cierre.
 - [ ] 🧪 **`[CGP-L.6]`** (corte) los cinco métodos traducen las reglas de la base a frase.
   Local: 409 pruebas en `caja` en verde; cada capa del arqueo ciego probada sola por mutación.
-- [ ] ⬜ `[CGP-V.12]` Diálogo de cierre: ante el 409 de L.2, mostrar las dos cifras y confirmar.
+- [ ] 🧪 **`[CGP-V.12]`** Diálogo de cierre: ante el 409 de L.2 muestra las dos cifras (dentro
+  del diálogo, no un aviso que se va) y el botón pasa a «Confirmar $Y y cerrar». 5 pruebas puras +
+  4 del componente, 3 en rojo por mutación; `check:pantalla` igual a la línea base. Sin validación
+  visual.
 - [ ] 🧪 **`[CGP-L.10]`** Sensor `caja_corte_abierto` (cada hora): cortes en borrador > 26 h y
   jornadas con movimientos sin corte; latido con umbral en `CRON_JOBS`; aviso por la campana sin
   repetir (cambio o cada 6 h). 15 pruebas (12 puras + 3 contra la base), dos mutaciones en rojo.

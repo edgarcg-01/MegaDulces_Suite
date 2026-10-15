@@ -408,10 +408,25 @@ arqueo ciego se probó **sola**:
 - con la regla de la **base** apagada, el servicio sigue rechazando la reja tecleada (8/8);
 - con la decisión del **servicio** desactivada, 4 pruebas se ponen rojas (3 unitarias + la del servicio).
 
-⛔ **Restricción para desplegar L.2: no sale sin la pantalla.** Hoy, si entra un movimiento después
-de contar, la pantalla mostraría el 409 en un aviso de 7 s **sin forma de confirmar**: un callejón
-nuevo. Va con `[CGP-V.12]`: en el diálogo de cierre, mostrar las dos cifras y un «Confirmar el
-esperado nuevo y cerrar» que reenvía `esperado_visto`. L.1, L.3 y L.6 no tienen esa dependencia.
+✅ **Restricción para desplegar L.2 — LEVANTADA por `[CGP-V.12]` (mismo lote).** Sin la pantalla,
+un movimiento capturado después de contar dejaba el 409 en un aviso de 7 s **sin forma de
+confirmar**: un callejón nuevo. Ahora el diálogo de cierre:
+- muestra la frase del servidor con las dos cifras en un `p-message` **dentro del diálogo**, que no
+  se va solo;
+- cambia el botón a «Confirmar $Y y cerrar», que reenvía `esperado_visto`;
+- manda cualquier otro error al aviso de siempre, y limpia el conflicto al reabrir.
+
+La lectura del 409 es una función pura (`conflictoDeEsperado`, en `caja-captura.util.ts`): sin las
+dos cifras numéricas devuelve `null` y **no ofrece confirmar un número que no llegó**.
+
+**Pruebas:** 5 puras + 4 del componente (contra el servicio simulado del spec), y en **rojo 3 de 4**
+al desactivar la lectura (la cuarta cuida la mutación contraria). Directorio `caja-general`: 4
+archivos, 320 pruebas. `check:pantalla -- caja-general`: **igual a la línea base** (tipa sin errores,
+cero fallas nuevas). `check:templates`: verde.
+
+⚠️ **Sin validación visual** (no se levanta la app). Lo más probable de ajustar: el rótulo largo
+«Confirmar $1,800.00 y cerrar» en el pie del diálogo de 40rem en pantalla angosta, y si el aviso
+queda mejor arriba del bloque de la revelación que abajo.
 
 ⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da 21 errores `TS1272`, **todos en
 archivos que no se tocaron** (forma de importar tipos en firmas con decoradores) y ninguno en los
