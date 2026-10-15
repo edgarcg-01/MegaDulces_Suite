@@ -572,6 +572,70 @@ archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin lo
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
 cinco tocados. No es como tipa el CI; lo confirma `Build & typecheck`.
 
+### 6.8 Medición en prod del 2026-10-15: la bandeja propone y nadie la mira (`[CGP-0.5]` / `[CGP-L.13]`)
+
+> Primera lectura de producción de este plan. **Transacción `READ ONLY`, como `edgar` con el tenant
+> fijado — no como `app_runtime`**, así que el libro puede verse **más** completo de lo que lo ve la
+> app: todos los huecos de abajo son **cota inferior** (GOTCHAS §80).
+
+**Lo que la disparó:** Edgar, *«el 95% de los ingresos o egresos no se deben hacer manuales»*.
+
+#### Del lado del dato, la regla ya se cumple
+
+| Origen | Movs | Monto |
+|---|---:|---:|
+| `pago_proveedor` (documento de Kepler) | 49 | $807,374.48 |
+| `caos` (feed de la máquina) | 29 | $415,367.00 |
+| `cobro` (documento de Kepler) | 10 | $181,796.02 |
+| **a mano** | **6** | $103,649.00 |
+
+**6.4% a mano**, y **2 de esos 6 son movimientos de prueba E2E**. Nadie está tecleando el libro.
+
+#### El cuello está un paso después: confirmar
+
+Caja General (`clave_banco = '0011'`), desde que ADR-070 hizo a la Suite el libro (12-oct):
+
+| Día | Confirmados | Sin confirmar | Monto pendiente |
+|---|---:|---:|---:|
+| 12-oct | 13 | 8 | $52,598.28 |
+| 13-oct | 19 | 2 | $40,620.00 |
+| **14-oct** | **4** | **35** | **$159,929.71** |
+| 15-oct (en curso) | 14 | 15 | $135,891.00 |
+| **Total** | **51** | **60** | **$389,038.99** |
+
+⭐⭐ **Y no es rezago de la ingesta** — que es lo que lo vuelve accionable en vez de una queja: los
+**35 gastos del 14 entraron al ERP ese mismo día (29) o el anterior (6)**. Estaban en la bandeja
+cuando ocurrieron. Sobre todo lo pendiente desde el 12-oct el rezago es **41 a 0 días y 19 a −1**.
+
+⇒ **El 14-oct no «faltaron dos movimientos»: faltaron 35**, más **10 depósitos de CAOS por
+$255,290** que tampoco se capturaron. Un solo día flojo deja ~$415 mil que después nadie recuerda.
+
+#### ⛔ Una corrección a esta misma medición, y es la que define el código
+
+La primera pasada dio **3% de confirmación**. Era cierta y medía **otra cosa**: usaba la ventana de
+**45 días** del servicio (`CAJA_VENTANA_DIAS`), que incluye **un mes en que el módulo no existía** —
+ahí hay **1,965 movimientos por $17.8M** que nadie iba a capturar nunca. Con el denominador correcto
+son **46%**.
+
+⭐ Por eso `bandejaSinConfirmar()` cuenta **desde el primer corte**, igual que `jornadasSinCorte`:
+*un sensor con el denominador viejo nace rojo para siempre y se apaga a la semana.* **Un número
+cierto sobre el universo equivocado es la forma más cara de equivocarse**, porque pasa todas las
+revisiones.
+
+#### Lo que se hizo con esto
+
+`[CGP-L.13]` — **tercera señal del sensor que ya corre** (`[CGP-L.10]`), no un sensor nuevo: mismo
+pase, mismo latido, mismo umbral en `CRON_JOBS`, misma regla de no repetir. Aviso a **1 día**,
+crítico a **2**. Contra prod hoy daría **crítico: 45 movimientos · $253,147.99 · el más viejo del
+12-oct · 3 días**.
+
+⚠️ **Lo que queda abierto y no es software:** los 7 movimientos con fecha de documento en
+**diciembre** (`[CG.24]`) se van a quedar en la bandeja para siempre ensuciando la cuenta; y
+`finance.caos_cash_links` tiene **9 enlaces vivos en toda la tabla**, o sea que el mecanismo de
+conciliación con la máquina prácticamente no se usa.
+
+---
+
 ### 6.7 Estado al 2026-10-15: `[CGP-L.12]`, la jornada del corte (🧪 probado contra base real)
 
 **`[CGP-L.12]` — el corte mide el libro por el día del EFECTIVO.** Ítem nuevo, nacido del review de
