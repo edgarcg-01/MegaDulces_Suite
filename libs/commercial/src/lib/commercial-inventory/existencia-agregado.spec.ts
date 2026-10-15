@@ -73,6 +73,9 @@ describe('[EX-PERF.3] armarMatriz', () => {
     expect(t.celdas_sin_valuar).toBe(1);
     expect(t.skus_sin_valuar).toBe(1);
     expect(t.celdas_sin_factor).toBe(1);       // P3: factor_source none
+    // `[U.VA.1]` P3 NO es de peso: el desglose tiene que dejarlo del lado "sin factor declarado".
+    expect(t.celdas_sin_factor_peso).toBe(0);
+    expect(t.skus_sin_factor_peso).toBe(0);
     // Sin costo del ERP SÓLO cuenta celdas con existencia (P3 tiene 0): el SQL viejo nunca la
     // seleccionaba y la pantalla recibía siempre 0.
     expect(t.celdas_sin_costo_erp).toBe(0);
@@ -80,6 +83,29 @@ describe('[EX-PERF.3] armarMatriz', () => {
       { code: '01', valor: 720, cajas: 2, sin_valuar: 1, sin_factor: 0, skus_con_existencia: 2 },
       { code: '02', valor: 180, cajas: 0.5, sin_valuar: 0, sin_factor: 1, skus_con_existencia: 1 },
     ]);
+  });
+
+  // `[U.VA.1]` PRUEBA NEGATIVA del desglose: si las dos causas se vuelven a colapsar, esto se
+  // pone rojo. Medido en prod el 2026-10-15, el 73 % de las celdas "sin factor" eran de PESO y
+  // el banner las nombraba como "sin factor declarado" — la causa equivocada en 3 de cada 4.
+  it('el balde "sin factor" separa PESO de "sin factor declarado"', () => {
+    const foto = [
+      // de peso: el divisor cuenta piezas por caja, la cifra en cajas no es comparable
+      celda({ product_id: P1, sku: '100', nombre: 'GRANEL', warehouse_code: '01', nat: 30, dbf: 1,
+        factor_source: 'kepler_c84', is_weight: true, cu: 1 }),
+      // sin factor declarado por ninguna fuente
+      celda({ product_id: P2, sku: '200', nombre: 'SUELTO', warehouse_code: '01', nat: 10, dbf: 1,
+        factor_source: 'none', is_weight: false, cu: 1 }),
+      // control: éste NO entra al balde (tiene factor y no es de peso)
+      celda({ product_id: P3, sku: '300', nombre: 'NORMAL', warehouse_code: '01', nat: 10, dbf: 5,
+        factor_source: 'kepler_c84', is_weight: false, cu: 1 }),
+    ];
+    const t = armarMatriz(foto, F()).totals;
+    expect(t.celdas_sin_factor).toBe(2);
+    expect(t.celdas_sin_factor_peso).toBe(1);
+    expect(t.skus_sin_factor_peso).toBe(1);
+    // y el resto se deduce sin ambigüedad: 2 − 1 = 1 "sin factor declarado"
+    expect(t.celdas_sin_factor - t.celdas_sin_factor_peso).toBe(1);
   });
 
   it('filtros: búsqueda (sku o nombre), almacén, bucket, sólo sin verificar', () => {
