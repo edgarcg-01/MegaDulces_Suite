@@ -9238,6 +9238,12 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   zonas: `toISOString` da el día anterior al este de UTC. Suite de caja verde en UTC, México y Tokio;
   paso nuevo en `caja-db` que la corre en México y Tokio. ⚠️ `ymd()` del emparejador de CAOS sirve a
   `date` y `timestamptz` a la vez: no se tocó, queda declarado.
+- [ ] 🧪 **`[CGP-L.7]`** Las respuestas del corte, tipadas por contrato: `CorteCajaDto` y `aCorteCajaDto`
+  en `libs/contracts` (dinero como número, fecha como día, instantes en ISO, `null` sigue siendo «no
+  se midió», y no sale lo que no es del contrato). `abrir`, `cerrar`, `autorizar` y `listar` pasan
+  por ahí; la pantalla usa el mismo tipo (su copia decía `number` mientras llegaba texto). Prueba
+  contra la base en rojo antes (`'500.00'`), 4 del contrato. De paso: el rango de años libres de las
+  pruebas contra la base se agotó en un día de corridas, y se amplió.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

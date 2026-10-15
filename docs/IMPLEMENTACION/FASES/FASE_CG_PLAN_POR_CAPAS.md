@@ -511,6 +511,27 @@ borrador abierto en la base local: hay un limpiador para eso.
 columnas `date` y `timestamptz`, y usa `toISOString`. Cuál de las dos preguntas corresponde depende de
 cada llamador; ninguna prueba lo ejerce en Tokio.
 
+### 6.5 Estado al 2026-10-15: L.7 (🧪 probado en local)
+
+**`[CGP-L.7]` — las respuestas del corte, tipadas por contrato.** `abrir`, `cerrar`, `autorizar` y
+`listar` devolvían la fila cruda de Postgres. Medido contra la base: `abrir` respondía
+`fondo_inicial: '500.00'` (texto: el repo no fija `setTypeParser`) y la fecha como `Date`, que por
+JSON viaja con hora. La pantalla declaraba `number` y recibía texto.
+
+- `CorteCajaDto` y `aCorteCajaDto()` en `libs/contracts`: dinero como número, fecha como día
+  (`diaDeFecha`, de L.5), instantes en ISO. `null` sigue siendo «no se midió», nunca 0. No sale lo que
+  no es del contrato (`tenant_id`, `conteo_previo`).
+- Las cuatro respuestas pasan por ahí; la pantalla usa el mismo tipo en vez de su copia (que además
+  decía `fondo_inicial: number` cuando el servidor manda `null` si no se midió).
+
+**Pruebas:** 4 del contrato y 1 contra la base (en rojo antes: `'500.00'`). Caja: 26 archivos, **451**,
+dos corridas seguidas; `caja-general` 388; compuertas de tipos y de frontera en verde.
+
+⚠️ **De paso:** el rango de años libres de las pruebas contra la base (30 años) **se agotó en un día de
+corridas** sobre la misma base local, y la prueba nueva de L.7 chocaba con la sucursal de la de L.3
+(con las jornadas en orden, L.3 ya no podía abrir un día anterior). Rango ampliado (1100–2019 para el
+servicio, 1200–1989 para el sensor, sin tocar las anclas de 100–1019) y sucursal propia.
+
 ⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
 archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
