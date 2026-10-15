@@ -329,6 +329,22 @@ export class CashLedgerController {
     return this.cortes.arqueoDelDia(fecha, sucursal || SUCURSAL_CAJA_GENERAL);
   }
 
+  /**
+   * `[CGP-VEC.1]` Los cierres de ruta vecinal que ya tienen arqueo conciliado y no están en el libro.
+   *
+   * ⛔ Va ANTES de `@Get(':id')`, como el resto del archivo: Nest resuelve por orden de declaración
+   * y `vecinal-pendientes` se comería como un id.
+   *
+   * Es una LECTURA de una fuente que ya existe, no un importador: el árbitro es
+   * `analytics.v_vecinal_conciliacion` y acá sólo se descuenta lo que el libro ya tiene.
+   */
+  @Get('vecinal-pendientes')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CGP-VEC.1 — Cierres de ruta vecinal con arqueo conciliado que todavía no entraron al libro. `null` = no se pudo medir (el árbitro no está), que no es lo mismo que «no hay pendientes».' })
+  vecinalPendientes(@Query('desde') desde?: string): ReturnType<CashCutService['vecinalPendientes']> {
+    return this.cortes.vecinalPendientes(desde);
+  }
+
   @Get('cortes')
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Cortes de caja. Filtros: from, to, sucursal, estado.' })
