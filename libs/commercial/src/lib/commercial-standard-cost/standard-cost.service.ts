@@ -11,6 +11,18 @@ import {
 } from './entre-sucursales';
 
 import {
+  AntiguedadUltimo,
+  ConteoContraUltimo,
+  FilaContraUltimo,
+  MotivoSinCosto,
+  ORDEN_VEREDICTO_CONTRA_ULTIMO,
+  RespuestaContraUltimo,
+  TOLERANCIA_CONTRA_ULTIMO,
+  VeredictoContraUltimo,
+} from '@megadulces/contracts';
+import { antiguedadUltimo, clasificarContraUltimo } from './contra-ultimo';
+
+import {
   CambioEstandar,
   EntradaCruda,
   EntradaTrazada,
@@ -51,6 +63,38 @@ const restarDias = (iso: string, dias: number): string => {
   d.setUTCDate(d.getUTCDate() - dias);
   return d.toISOString().slice(0, 10);
 };
+
+export interface FiltrosContraUltimo {
+  /** SKU o nombre. */
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoContraUltimo;
+  antiguedad?: AntiguedadUltimo;
+  /** Por defecto `true`: sólo sucursal × producto con venta en 30 días. */
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+interface FilaCrudaContraUltimo {
+  sucursal: string;
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  unidad_base: string | null;
+  costo_estandar: string | null;
+  costo_ultimo: string | null;
+  ultimo_motivo: MotivoSinCosto | null;
+  ultimo_fecha: string | null;
+  ultimo_folio: string | null;
+  ultimo_proveedor: string | null;
+  ultimo_origen: 'propia' | 'red' | null;
+  ultimo_sucursal: string | null;
+  costo_promedio: string | null;
+  venta_30d: string | null;
+}
 
 export interface FiltrosEntreSucursales {
   /** SKU o nombre. */
@@ -679,6 +723,184 @@ export class StandardCostService {
         proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
         tolerancia_pct: TOLERANCIA_ENTRE_SUCURSALES * 100,
         actividad_al: (actividad as { al: string | null } | undefined)?.al ?? null,
+        total: visibles.length,
+        filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
+    });
+  }
+
+  /**
+   * `[CAT-COSTO.7]` **Contra último costo** (la Etapa 2b de Costos): el costo estándar de cada
+   * sucursal × producto contra lo que costó su última compra (XA2001).
+   *
+   * Lee `analytics.mv_kepler_costos` (`[CAT-COSTO.6]`), donde los costos ya vienen en la unidad base
+   * de la ficha; la regla de comparación es la función pura `clasificarContraUltimo`. El universo se
+   * trae una vez y se clasifica aquí — el resumen, los chips y la tabla cuentan EXACTAMENTE lo mismo.
+   *
+   * El **resumen NO filtra por veredicto ni por antigüedad**, a propósito: los chips son el selector
+   * de veredicto y tienen que mostrar el reparto completo (mismo criterio que `[CE.9]`).
+   *
+   * Si la matview nunca se calculó, responde `disponible: false` sin filas: una tabla vacía con
+   * conteos en cero se leería como «no hay diferencias».
+   */
+  async contraUltimo(f: FiltrosContraUltimo = {}): Promise<RespuestaContraUltimo> {
+    const limite = Math.min(Math.max(Number(f.limite) || 100, 1), 500);
+    const desplazamiento = Math.max(Number(f.desplazamiento) || 0, 0);
+    const soloConVenta = f.solo_con_venta ?? true;
+
+    const ceros = <K extends string>(ks: readonly K[]): Record<K, ConteoContraUltimo> =>
+      Object.fromEntries(ks.map((k) => [k, { filas: 0, venta_30d: 0 }])) as Record<K, ConteoContraUltimo>;
+    const ANTIGUEDADES: readonly AntiguedadUltimo[] = ['hasta_90', 'de_90_a_180', 'mas_de_180'];
+
+    return this.tk.run(async (trx) => {
+      const [{ rows: [meta] }, sucs, corrida, actividad] = await Promise.all([
+        trx.raw(`
+          SELECT (SELECT relispopulated FROM pg_class WHERE oid = to_regclass('analytics.mv_kepler_costos')) AS poblada,
+                 to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD')               AS hoy`),
+        trx
+          .from('commercial.warehouses')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .whereNotNull('kepler_code')
+          .whereNull('deleted_at')
+          .select('kepler_code')
+          .min({ nombre: 'name' })
+          .groupBy('kepler_code')
+          .orderBy('kepler_code'),
+        trx
+          .from('analytics.cron_runs')
+          .where({ job_key: 'analytics_refresh_kepler_costos', status: 'ok' })
+          .max({ al: 'last_finish' })
+          .first(),
+        trx.from('analytics.mv_kepler_standard_cost_activity').max({ al: 'ventana_hasta' }).first(),
+      ]);
+      const sucursales = (sucs as { kepler_code: string; nombre: string | null }[]).map((s) => ({
+        codigo: s.kepler_code,
+        nombre: s.nombre,
+      }));
+      const calculadoAl = (corrida as { al: Date | string | null } | undefined)?.al ?? null;
+      const ventaAl = (actividad as { al: Date | string | null } | undefined)?.al ?? null;
+      const base: RespuestaContraUltimo = {
+        disponible: false,
+        calculado_al: calculadoAl ? new Date(calculadoAl).toISOString() : null,
+        venta_al: ventaAl ? new Date(ventaAl).toISOString().slice(0, 10) : null,
+        tolerancia_pct: TOLERANCIA_CONTRA_ULTIMO * 100,
+        resumen: ceros(ORDEN_VEREDICTO_CONTRA_ULTIMO),
+        abajo_por_antiguedad: ceros(ANTIGUEDADES),
+        sucursales,
+        proveedores: [],
+        total: 0,
+        filas: [],
+      };
+      if (!meta?.poblada) {
+        this.logger.warn('[CAT-COSTO.7] analytics.mv_kepler_costos no está poblada: se responde disponible=false');
+        return base;
+      }
+
+      const qb = trx
+        .from('analytics.mv_kepler_costos as c')
+        .joinRaw(
+          'LEFT JOIN analytics.mv_kepler_standard_cost_activity a ON btrim(a.sucursal::text) = c.sucursal AND a.sku = c.sku',
+        )
+        .leftJoin('catalog.products as cp', function () {
+          this.on('cp.sku', '=', 'c.sku').andOnNull('cp.deleted_at').andOn(trx.raw('cp.tenant_id = current_tenant_id()'));
+        })
+        .leftJoin('catalog.suppliers as sup', function () {
+          this.on('sup.id', '=', 'cp.supplier_id').andOn('sup.tenant_id', '=', 'cp.tenant_id');
+        })
+        .whereRaw('c.tenant_id = current_tenant_id()')
+        .select(
+          'c.sucursal',
+          'c.sku',
+          'cp.nombre',
+          trx.raw('cp.supplier_id::text AS proveedor_id'),
+          'sup.name as proveedor',
+          'c.unidad_base',
+          'c.costo_estandar',
+          'c.costo_ultimo',
+          'c.ultimo_motivo',
+          trx.raw(`to_char(c.ultimo_fecha, 'YYYY-MM-DD') AS ultimo_fecha`),
+          'c.ultimo_folio',
+          'c.ultimo_proveedor',
+          'c.ultimo_origen',
+          'c.ultimo_sucursal',
+          'c.costo_promedio',
+          trx.raw('COALESCE(a.venta_bruta, 0) AS venta_30d'),
+        );
+      applySmartSearch(qb, f.q, { columns: ['c.sku', 'cp.nombre'] });
+      if (f.proveedor_id) qb.where('cp.supplier_id', f.proveedor_id);
+      if (f.sucursal) qb.where('c.sucursal', f.sucursal);
+      if (soloConVenta) qb.where('a.venta_bruta', '>', 0);
+
+      const crudo = (await qb) as FilaCrudaContraUltimo[];
+      const num = (v: string | null): number | null => (v === null || v === undefined ? null : Number(v));
+      const filas: FilaContraUltimo[] = crudo.map((r) => {
+        const costo_estandar = num(r.costo_estandar);
+        const costo_ultimo = num(r.costo_ultimo);
+        const c = clasificarContraUltimo({ costo_estandar, costo_ultimo, ultimo_motivo: r.ultimo_motivo });
+        return {
+          sucursal: r.sucursal,
+          sku: r.sku,
+          nombre: r.nombre,
+          proveedor_id: r.proveedor_id,
+          proveedor: r.proveedor,
+          unidad_base: r.unidad_base,
+          costo_estandar,
+          costo_ultimo,
+          ultimo_fecha: r.ultimo_fecha,
+          ultimo_folio: r.ultimo_folio,
+          ultimo_proveedor: r.ultimo_proveedor,
+          ultimo_origen: r.ultimo_origen,
+          ultimo_sucursal: r.ultimo_sucursal,
+          antiguedad: costo_ultimo !== null ? antiguedadUltimo(r.ultimo_fecha, meta.hoy) : null,
+          costo_promedio: num(r.costo_promedio),
+          diferencia_pct: c.diferencia_pct,
+          venta_30d: Number(r.venta_30d) || 0,
+          veredicto: c.veredicto,
+          motivo: costo_ultimo === null ? r.ultimo_motivo : null,
+        };
+      });
+
+      // El tablero: el universo completo de los filtros de texto/proveedor/sucursal/venta.
+      const resumen = ceros(ORDEN_VEREDICTO_CONTRA_ULTIMO);
+      const abajo = ceros(ANTIGUEDADES);
+      const proveedores = new Map<string, { id: string; nombre: string; productos: number }>();
+      for (const x of filas) {
+        resumen[x.veredicto].filas++;
+        resumen[x.veredicto].venta_30d += x.venta_30d;
+        if (x.veredicto === 'estandar_abajo' && (x.diferencia_pct ?? 0) > 5 && x.antiguedad) {
+          abajo[x.antiguedad].filas++;
+          abajo[x.antiguedad].venta_30d += x.venta_30d;
+        }
+        if (x.proveedor_id) {
+          const p = proveedores.get(x.proveedor_id) ?? { id: x.proveedor_id, nombre: x.proveedor ?? x.proveedor_id, productos: 0 };
+          p.productos++;
+          proveedores.set(x.proveedor_id, p);
+        }
+      }
+      const redondea = (r: Record<string, ConteoContraUltimo>) => {
+        for (const k of Object.keys(r)) r[k].venta_30d = Math.round(r[k].venta_30d * 100) / 100;
+      };
+      redondea(resumen);
+      redondea(abajo);
+
+      const visibles = filas
+        .filter((x) => !f.veredicto || x.veredicto === f.veredicto)
+        .filter((x) => !f.antiguedad || x.antiguedad === f.antiguedad)
+        .sort(
+          (a, b) =>
+            ORDEN_VEREDICTO_CONTRA_ULTIMO.indexOf(a.veredicto) - ORDEN_VEREDICTO_CONTRA_ULTIMO.indexOf(b.veredicto) ||
+            b.venta_30d - a.venta_30d ||
+            Math.abs(b.diferencia_pct ?? 0) - Math.abs(a.diferencia_pct ?? 0) ||
+            a.sku.localeCompare(b.sku) ||
+            a.sucursal.localeCompare(b.sucursal),
+        );
+
+      return {
+        ...base,
+        disponible: true,
+        resumen,
+        abajo_por_antiguedad: abajo,
+        proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
         total: visibles.length,
         filas: visibles.slice(desplazamiento, desplazamiento + limite),
       };

@@ -9566,6 +9566,28 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   **mutado para aceptar traspasos `U-A-50` como último costo → 8 ✗**. Pendiente: aplicar la mig en prod +
   primer refresco; las pantallas que la consumen son `[CAT-COSTO.7]` en adelante.
 
+- [x] **[CAT-COSTO.7]** 🔨 **Costos · Etapa 2b: «Contra último costo»** (2026-10-15) — tercera vista de
+  `/compras/catalogo/costos` (`?vista=ultimo`): el costo estándar de cada sucursal × producto contra su
+  último costo de compra (XA2001), con el promedio al lado. Endpoint `GET commercial/standard-cost/contra-ultimo`
+  (antes de `:sku`, `COMPRAS_COSTO_ESTANDAR_VER`, sin permiso nuevo) sobre `analytics.mv_kepler_costos`;
+  contrato `libs/contracts/http/kepler-costos.contract.ts` (las cuatro definiciones en UN lugar, tipos,
+  etiquetas, orden); regla pura `clasificarContraUltimo` (±1 %; `sin_compra` / `unidad_no_clara` /
+  `sin_estandar` se DECLARAN, nunca como «igual»; un último costo en 0 es ausente) + `antiguedadUltimo`
+  (90 / 180 días). Resumen y chips sobre el MISMO universo que la tabla, sin veredicto ni antigüedad
+  (criterio `[CE.9]`); por defecto sólo sucursal × producto con venta en 30 d. Si la matview no está poblada
+  responde `disponible:false` y la pantalla lo dice en vez de pintar ceros. Pantalla
+  `compras-costos-ultimo.component.ts`: titular + `app-metric-strip` (venta con estándar abajo, la parte
+  con compra de 90 días, iguales, no comparables) · chips · filtros (texto, proveedor, sucursal, antigüedad
+  con `app-segmented`, con/sin venta) · `p-table` con folio XA2001 y «compra de otra sucursal» declarado ·
+  `app-load-state` · `app-freshness-pill` del cálculo nocturno · `app-context-help` con el tema nuevo
+  `costos-kepler`. **`check:pantalla` 10/10**; la pantalla padre pasa de 4 a **3** fallas (se quitó D.4c:
+  el selector de vistas era un `role=tablist` sin panel → `app-segmented`). Pruebas: regla 9/9 (2 negativas)
+  · componente 6/6 (2 negativas; **mutada para no mostrar el vacío → rojo**) · directorio de Compras
+  96 ✔. Compuertas: templates · templates-types · tokens · estilos · primeng · reactividad · tables ·
+  teclado · búsqueda · wiring · boundary en verde (la de emojis ya estaba roja por `portal`/`vendor`).
+  **Sin validación visual** (necesita la mig aplicada y el primer refresco). **NO MEDIDO: el tiempo de la
+  consulta contra la matview** (no existe en prod todavía).
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

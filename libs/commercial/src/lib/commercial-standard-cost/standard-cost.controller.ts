@@ -10,6 +10,7 @@ import {
   RespuestaHistorial,
 } from './standard-cost.service';
 import { VeredictoEntreSucursales } from './entre-sucursales';
+import type { AntiguedadUltimo, RespuestaContraUltimo, VeredictoContraUltimo } from '@megadulces/contracts';
 
 /**
  * `[CE.3]` — Costo estándar por producto.
@@ -105,6 +106,38 @@ export class StandardCostController {
       veredicto: veredicto?.trim() as VeredictoEntreSucursales | undefined,
       solo_diferencias: soloDiferencias === undefined ? true : soloDiferencias !== 'false',
       solo_con_venta: soloConVenta === 'true',
+      limite: Number(limite) || undefined,
+      desplazamiento: Number(desplazamiento) || undefined,
+    });
+  }
+
+  /** ⚠️ Va ANTES de `:sku`: si no, `contra-ultimo` se leería como un SKU. */
+  @Get('contra-ultimo')
+  @RequirePermissions(Permission.COMPRAS_COSTO_ESTANDAR_VER)
+  @ApiOperation({
+    summary: 'Costo estándar contra el último costo de compra (XA2001), por sucursal y producto',
+    description:
+      'Sale de analytics.mv_kepler_costos (unidad base de la ficha, sin impuesto). Tolerancia ±1 %. ' +
+      'Lo que no se puede comparar se declara (sin_compra, unidad_no_clara, sin_estandar). Por defecto ' +
+      'sólo sucursal × producto con venta en 30 días. `disponible=false` si la fuente nunca se calculó.',
+  })
+  contraUltimo(
+    @Query('q') q?: string,
+    @Query('proveedor_id') proveedorId?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('veredicto') veredicto?: VeredictoContraUltimo,
+    @Query('antiguedad') antiguedad?: AntiguedadUltimo,
+    @Query('solo_con_venta') soloConVenta?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaContraUltimo> {
+    return this.service.contraUltimo({
+      q,
+      proveedor_id: proveedorId?.trim() || undefined,
+      sucursal: sucursal?.trim() || undefined,
+      veredicto: veredicto?.trim() as VeredictoContraUltimo | undefined,
+      antiguedad: antiguedad?.trim() as AntiguedadUltimo | undefined,
+      solo_con_venta: soloConVenta === undefined ? true : soloConVenta !== 'false',
       limite: Number(limite) || undefined,
       desplazamiento: Number(desplazamiento) || undefined,
     });
