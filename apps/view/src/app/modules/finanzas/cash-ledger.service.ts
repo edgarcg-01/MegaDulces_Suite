@@ -444,6 +444,13 @@ export interface ConteoSellado {
   diferencia: number | null;
   veredicto: VeredictoCorte;
   ya_reconto: boolean;
+  /**
+   * `[CGP-V.2]` Lo sellado, pieza por pieza, y la morralla. La reja lo muestra de sólo lectura una
+   * vez revelado. Opcionales: un API anterior no los manda, y la pantalla lo declara en vez de
+   * pintar la reja en blanco junto a un «Contado» con cifra.
+   */
+  desglose?: Array<{ denom_key: string; denominacion: number; piezas: number }>;
+  morralla?: number;
 }
 
 /**

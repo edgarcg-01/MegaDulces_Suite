@@ -10,8 +10,8 @@ import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
-  conflictoDeEsperado,
-  type FormularioCaja, type CorteVista,
+  conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE,
+  type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
 
@@ -484,5 +484,60 @@ describe('[CGP-V.12] conflictoDeEsperado — el 409 del cierre se lee para poder
     expect(conflictoDeEsperado({ status: 409, error: { motivo: 'esperado_cambio', esperado_mostrado: 1500 } })).toBeNull();
     expect(conflictoDeEsperado(null)).toBeNull();
     expect(conflictoDeEsperado(new Error('red caída'))).toBeNull();
+  });
+});
+
+// ── `[CGP-V.1]` En qué paso va el corte ──────────────────────────────────────────────────────────
+//
+// La pantalla tiene que decir siempre en qué paso está el corte y qué sigue. El paso se DERIVA de lo
+// que dice el servidor (corte abierto, conteo sellado, corte por autorizar), nunca de lo que la
+// persona hizo en esta pestaña.
+describe('[CGP-V.1] pasoDelCorte', () => {
+  const base: EstadoParaPaso = { corteAbierto: true, sellado: null, conflicto: false, porAutorizar: false, recontando: false };
+
+  it('los cinco pasos, en el orden de la jornada', () => {
+    expect(PASOS_CORTE.map((p) => p.paso)).toEqual(['abrir', 'contar', 'revisar', 'cerrar', 'autorizar']);
+  });
+
+  it('⛔ [negativa] sin saber si hay corte (el saldo no se midió) no se afirma ningún paso', () => {
+    expect(pasoDelCorte({ ...base, corteAbierto: null })).toBeNull();
+  });
+
+  it('sin corte abierto y nada por autorizar: sigue abrir', () => {
+    expect(pasoDelCorte({ ...base, corteAbierto: false })).toBe('abrir');
+  });
+
+  it('sin corte abierto y uno cerrado sin autorizar: sigue autorizar', () => {
+    expect(pasoDelCorte({ ...base, corteAbierto: false, porAutorizar: true })).toBe('autorizar');
+  });
+
+  it('corte abierto sin conteo sellado: sigue contar a ciegas', () => {
+    expect(pasoDelCorte(base)).toBe('contar');
+  });
+
+  it('conteo sellado sin nada que decidir: sigue cerrar', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: false } })).toBe('cerrar');
+  });
+
+  it('conteo sellado con diferencia y el reconteo sin usar: sigue revisar la diferencia', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: true } })).toBe('revisar');
+  });
+
+  it('⛔ el esperado cambió desde el conteo: se vuelve a revisar aunque cuadrara', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: false }, conflicto: true })).toBe('revisar');
+  });
+
+  it('recontando: se vuelve a contar', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: true }, recontando: true })).toBe('contar');
+  });
+
+  it('el texto de autorizar nombra el folio y dice que es otra persona', () => {
+    const t = textoPaso('autorizar', 'CC-2026-00009');
+    expect(t).toContain('CC-2026-00009');
+    expect(t).toContain('otra persona');
+  });
+
+  it('cada paso tiene un texto de qué sigue', () => {
+    for (const p of PASOS_CORTE) expect(textoPaso(p.paso).length).toBeGreaterThan(10);
   });
 });

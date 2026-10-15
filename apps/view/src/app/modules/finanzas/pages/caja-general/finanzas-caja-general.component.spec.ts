@@ -394,11 +394,23 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('el arqueo OCULTO no imprime un monto: $0.00 se leería como "cuadra a cero"', () => {
-    const fixture = montar();
-    comp.revelado.set({
-      ingresos: 0, gastos: 0, depositos: 0, contado: 900, movimientos: 3, cancelados: 0,
-      ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null, oculto: true,
+    // [CGP-V.2] Lo sellado en la sesión va atado a SU corte: se monta uno abierto y se abre el diálogo.
+    const fixture = montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, sin_corte_abierto: false,
+        corte_abierto: { id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 500, ya_reconto: false, conteo_sellado: null },
+      } as unknown as SaldoResponse)),
     });
+    comp.abrirCierre();
+    comp.revelado.set({
+      corteId: 'c1', puedeRecontar: false, conteo: [], morralla: 0,
+      totales: {
+        ingresos: 0, gastos: 0, depositos: 0, contado: 900, movimientos: 3, cancelados: 0,
+        ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null, oculto: true,
+      },
+    });
+    // Que la prueba ejerza el caso: la revelación oculta tiene que estar vigente.
+    expect(comp.revelacion()?.oculto).toBe(true);
     comp.cuadreAbierto.set(true);
     fixture.detectChanges();
 
@@ -4336,6 +4348,183 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       comp.fondoInicial.set(800);
       comp.abrirCorte();
       expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+  });
+  // ── `[CGP-V.1]` + `[CGP-V.2]` Los pasos del corte, y la reja después de revelar ─────────────────
+  //
+  // V2 (diagnóstico): el callejón de CG.160 seguía siendo posible SIN recargar. Después de sellar no
+  // se volvía a pedir el saldo y `abrirCierre()` borraba lo sellado en la sesión, así que cerrar el
+  // diálogo y reabrirlo volvía a ofrecer «Guardar conteo» (400). V1: la reja seguía editable después
+  // de revelar y «Cerrar corte» mandaba lo tecleado.
+  describe('[CGP-V.1][CGP-V.2] el corte paso a paso', () => {
+    const abierto = (conteo_sellado: unknown = null) => ({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id: 'c1', folio: 'CC-2026-00007', fecha: todayMx(), fondo_inicial: 500, ya_reconto: false, conteo_sellado },
+    } as unknown as SaldoResponse);
+    const TOTALES_CUADRA = {
+      ingresos: 1000, gastos: 0, depositos: 0, esperado: 1500, contado: 1500, diferencia: 0, veredicto: 'cuadra',
+      movimientos: 1, cancelados: 0, ingresos_anclados: 0, ingresos_capturados: 1000, cobertura_ingreso: 0,
+    };
+    const SELLADO_FALTA = {
+      contado: 1400, esperado: 1500, diferencia: -100, veredicto: 'falta', ya_reconto: false,
+      desglose: [{ denom_key: '500', denominacion: 500, piezas: 2 }, { denom_key: '200', denominacion: 200, piezas: 2 }],
+      morralla: 0,
+    };
+    const den = (key: string) => comp.reja.find((d) => d.key === key)!;
+    const contar = () => vi.fn(() => of({ corte_id: 'c1', totales: TOTALES_CUADRA, puede_recontar: false }));
+    const cerrado = () => vi.fn(() => of({ id: 'c1', estado: 'cerrado', totales: {} }));
+
+    it('⛔ V2: sellar, cerrar el diálogo y reabrirlo NO vuelve a ofrecer «Guardar conteo»', () => {
+      // El saldo sigue diciendo «sin sellar»: es justo el caso en que no se volvió a pedir.
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cierreAbierto.set(false);
+      comp.abrirCierre();
+      expect(comp.revelacion()?.contado).toBe(1500);
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.gateCierre().ok).toBe(true);
+    });
+
+    it('después de sellar se vuelve a pedir el saldo: el estado sale del servidor', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
+      comp.abrirCierre();
+      const antes = svc['saldo'].mock.calls.length;
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      expect(svc['saldo'].mock.calls.length).toBe(antes + 1);
+    });
+
+    it('revelado, la reja muestra LO SELLADO por el servidor y deja de teclearse', () => {
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.piezasSelladasDe(den('500'))).toBe(2);
+      expect(comp.piezasSelladasDe(den('200'))).toBe(2);
+      expect(comp.piezasSelladasDe(den('100'))).toBe(0);
+    });
+
+    it('⛔ cerrar después de revelar manda la reja VACÍA: lo que se firma es lo sellado', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
+      expect(svc['cerrarCorte'].mock.calls[0][1]).toEqual([]);
+      expect(svc['cerrarCorte'].mock.calls[0][2]).toBe(0);
+    });
+
+    it('⛔ si la relectura del saldo falla después de sellar, el corte del diálogo se puede cerrar igual', () => {
+      let falla = false;
+      const saldo = vi.fn(() => (falla ? throwError(() => ({ status: 500, error: {} })) : of(abierto(null))));
+      montar({ saldo, contarCorte: contar(), cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(den('500'), 3);
+      falla = true;
+      comp.sellarConteo();
+      expect(comp.saldoResp()).toBeNull();     // la relectura falló de verdad
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
+      expect(svc['cerrarCorte'].mock.calls[0][0]).toBe('c1');
+    });
+
+    it('Recontar abre la reja VACÍA, pide motivo, y mientras tanto no se cierra', () => {
+      const recontarCorte = vi.fn(() => of({ corte_id: 'c1', totales: TOTALES_CUADRA, puede_recontar: false }));
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))), recontarCorte, cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      expect(comp.ofreceRecontar()).toBe(true);
+      comp.empezarReconteo();
+      expect(comp.rejaEditable()).toBe(true);
+      expect(comp.conteoCorte()).toEqual([]);
+
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).not.toHaveBeenCalled();   // a mitad del reconteo firmaría el primero
+
+      comp.setPiezasCorte(den('500'), 3);
+      comp.recontar();
+      expect(recontarCorte).not.toHaveBeenCalled();         // sin motivo no hay reconteo
+      comp.motivoReconteo.set('Faltó contar el billete de 500');
+      comp.recontar();
+      expect(recontarCorte).toHaveBeenCalledTimes(1);
+      expect(comp.recontando()).toBe(false);
+      expect(comp.puedeRecontar()).toBe(false);             // era el único
+      expect(comp.revelacion()?.contado).toBe(1500);
+    });
+
+    it('«Volver al conteo sellado» descarta lo tecleado y vuelve a la reja de sólo lectura', () => {
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
+      comp.abrirCierre();
+      comp.empezarReconteo();
+      comp.setPiezasCorte(den('100'), 3);
+      comp.cancelarReconteo();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.conteoCorte()).toEqual([]);
+    });
+
+    it('⛔ un API que no manda el desglose: la reja NO se pinta en blanco, se declara', () => {
+      const { desglose: _d, morralla: _m, ...sinDesglose } = SELLADO_FALTA;
+      montar({ saldo: vi.fn(() => of(abierto(sinDesglose))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.desgloseSellado()).toBeNull();
+    });
+
+    it('⛔ un desglose con una pieza que la reja no tiene ($1,000) se declara, no se pinta a medias', () => {
+      // La reja de sólo lectura no tendría dónde ponerla, y lo que se ve no sumaría lo sellado.
+      montar({ saldo: vi.fn(() => of(abierto({
+        ...SELLADO_FALTA, contado: 1400,
+        desglose: [{ denom_key: '1000', denominacion: 1000, piezas: 1 }, { denom_key: '200', denominacion: 200, piezas: 2 }],
+      }))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.desgloseSellado()).toBeNull();
+    });
+
+    it('abrir desde «rendir cuentas»: el diálogo ya sabe qué corte es aunque el saldo no haya vuelto', () => {
+      // El saldo no trae el corte recién abierto (todavía no volvió): sale de la respuesta de abrir.
+      montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+      comp.cerrarJornada();
+      expect(comp.cierreAbierto()).toBe(true);
+      expect(comp.rotuloCorte()).toContain('CC-2026-00001');
+    });
+
+    // V.1 — el paso, en la página.
+    it('el paso de la página sin corte abierto es abrir', () => {
+      montar();
+      expect(comp.pasoPagina()).toBe('abrir');
+    });
+
+    it('el paso de la página con el corte abierto y sin sellar es contar', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))) });
+      expect(comp.pasoPagina()).toBe('contar');
+    });
+
+    it('el paso de la página con un conteo sellado que cuadra es cerrar', () => {
+      montar({ saldo: vi.fn(() => of(abierto({ ...SELLADO_FALTA, veredicto: 'cuadra', diferencia: 0, esperado: 1400 }))) });
+      expect(comp.pasoPagina()).toBe('cerrar');
+    });
+
+    it('con diferencia y el reconteo sin usar, el paso es revisar la diferencia', () => {
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
+      expect(comp.pasoPagina()).toBe('revisar');
+    });
+
+    it('cerrado y sin autorizar: el paso es autorizar, y nombra el folio', () => {
+      montar({
+        cortes: vi.fn(() => of({ rows: [
+          { id: 'c0', folio: 'CC-2026-00006', fecha: '2026-10-12', sucursal: '00', estado: 'autorizado' },
+          { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', sucursal: '00', estado: 'cerrado' },
+        ] })),
+      });
+      expect(comp.pasoPagina()).toBe('autorizar');
+      expect(comp.textoPasoPagina()).toContain('CC-2026-00009');
+    });
+
+    it('⛔ [negativa] sin saldo medido la página no afirma ningún paso', () => {
+      montar({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+      expect(comp.pasoPagina()).toBeNull();
     });
   });
 });

@@ -51,7 +51,22 @@ import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
+  pasoDelCorte, textoPaso, type PasoCorte,
 } from './caja-captura.util';
+import { CajaPasosComponent } from '../../components/caja-pasos.component';
+
+/**
+ * `[CGP-V.2]` Lo que el servidor respondió al sellar o recontar EN ESTA sesión, atado a SU corte, con
+ * la reja que se mandó (es la que el servidor aceptó). Cubre el rato entre la respuesta y la
+ * relectura del saldo, y no se pierde si la relectura falla.
+ */
+interface SelladoEnSesion {
+  corteId: string;
+  totales: TotalesCorte;
+  puedeRecontar: boolean;
+  conteo: DenominacionCapturada[];
+  morralla: number;
+}
 
 /** Etiquetas de lo que se PINTA. El enum de la columna (`deposito`, `sin_contar`) es de la DB. */
 const ETIQUETA_TIPO: Record<string, string> = {
@@ -142,7 +157,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
-    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe,
+    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -1068,6 +1083,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       (onClick)="cerrarJornada()"></p-button>
           }
         </div>
+
+        <!-- [CGP-V.1] En que paso va el corte y que sigue, siempre a la vista. Sale del servidor; sin
+             saldo medido no se afirma ningun paso (la etiqueta de arriba ya dice "sin medir"). -->
+        @if (pasoPagina(); as paso) {
+          <app-caja-pasos [paso]="paso" [texto]="textoPasoPagina()" />
+        }
 
         <!-- [CGP-V.3] LAS JORNADAS ATRASADAS, EN ORDEN. El boton de arriba ya abre la mas vieja y lo
              dice en su etiqueta; esto dice cuales faltan y por que el orden importa.
@@ -3151,6 +3172,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
               header="Cerrar corte — contá el efectivo" [draggable]="false">
       <div class="fin-form">
+        <!-- [CGP-V.1] Los pasos, sin texto: el dialogo ya dice que sigue en sus propios avisos. -->
+        @if (pasoCorte(); as paso) {
+          <app-caja-pasos [paso]="paso" />
+        }
         <!-- [CGP-V.3] De que jornada es el corte. Con atrasadas, el corte abierto puede no ser el
              de hoy, y la persona tiene que saberlo antes de contar. -->
         @if (rotuloCorte(); as rc) {
@@ -3188,7 +3213,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <p-tag [value]="etiquetaVeredicto(r.veredicto)" [severity]="sevVeredicto(r.veredicto || '')"></p-tag>
           }
         } @else {
-          <p class="fin-dim">Contado hasta ahora: <strong>{{ money(sumaConteo()) }}</strong></p>
+          <!-- [CGP-V.2] Un solo Contado: lo que se lleva sumado es el total de la reja, abajo. -->
           <p-message severity="info" class="cg-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
         }
         <!-- CG.23 - La misma reja que la captura, por el mismo motivo: se cuentan piezas, los
@@ -3201,65 +3226,88 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                Antes era un aviso de 7 segundos sin salida: un callejon como el del 12-oct. -->
           <p-message severity="warn" class="cg-full">{{ cf.mensaje }}</p-message>
         }
-        <p class="cg-cap">Desglose del efectivo del corte</p>
-        <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
-          <ng-template #header>
-            <tr>
-              <th scope="col">Denominación</th>
-              <th scope="col">Piezas</th>
-              <th scope="col">Importe</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-b>
-            <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
-              <th scope="row" class="mono">{{ b.label }}<!--
-                --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
-              <td>
-                <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric" placeholder="0"
-                       [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
-                       (keydown.enter)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                       [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
-              </td>
-              <td class="mono cg-sub">{{ money(subtotalCorteDe(b)) }}</td>
-            </tr>
-          </ng-template>
-          <ng-template #footer>
-            <tr>
-              <!-- Mismo rotulo que la reja de la captura: la morralla es el metal de menos de 50
-                   centavos, el unico que no tiene renglon propio desde [CG.38]. -->
-              <th scope="row">Morralla <span class="fin-dim">· menos de 50&cent;</span></th>
-              <td class="fin-dim cg-na">—</td>
-              <td>
-                <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
-                       inputmode="decimal"
-                       [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
-                       (keydown.enter)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                       aria-label="Importe de morralla del corte: el metal de menos de 50 centavos, que no tiene renglón" />
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Contado</th>
-              <td class="fin-dim cg-na">del conteo</td>
-              <td>
-                <input pInputText class="mono cg-total" [value]="money(sumaConteo())"
-                       disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
-        @if (revelacion() && revelacion()!.veredicto !== 'cuadra' && puedeRecontar()) {
+        <!-- [CGP-V.2] Revelado el conteo, la reja muestra LO SELLADO y ya no se teclea: la unica via
+             para cambiarlo es Recontar, que pide motivo. Antes seguia abierta y Cerrar mandaba lo que
+             hubiera en ella; al reabrir salia en blanco junto a un Contado con cifra. -->
+        @if (rejaEditable() || desgloseSellado()) {
+          <p class="cg-cap">{{ !rejaEditable() ? 'Desglose sellado' : recontando() ? 'Reconteo del efectivo' : 'Desglose del efectivo del corte' }}</p>
+          <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Denominación</th>
+                <th scope="col">Piezas</th>
+                <th scope="col">Importe</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-b>
+              <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+                <th scope="row" class="mono">{{ b.label }}<!--
+                  --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
+                <td>
+                  @if (rejaEditable()) {
+                    <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric" placeholder="0"
+                           [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
+                           (keydown.enter)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                           [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
+                  } @else {
+                    <span class="mono">{{ piezasSelladasDe(b) }}</span>
+                  }
+                </td>
+                <td class="mono cg-sub">{{ money(rejaEditable() ? subtotalCorteDe(b) : subtotalSelladoDe(b)) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #footer>
+              <tr>
+                <!-- Mismo rotulo que la reja de la captura: la morralla es el metal de menos de 50
+                     centavos, el unico que no tiene renglon propio desde [CG.38]. -->
+                <th scope="row">Morralla <span class="fin-dim">· menos de 50&cent;</span></th>
+                <td class="fin-dim cg-na">—</td>
+                <td>
+                  @if (rejaEditable()) {
+                    <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
+                           inputmode="decimal"
+                           [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
+                           (keydown.enter)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                           aria-label="Importe de morralla del corte: el metal de menos de 50 centavos, que no tiene renglón" />
+                  } @else {
+                    <span class="mono cg-sub">{{ money(desgloseSellado()?.morralla ?? 0) }}</span>
+                  }
+                </td>
+              </tr>
+              <!-- Un solo Contado: revelado, es el de la linea de arriba, que sale del servidor. -->
+              @if (rejaEditable()) {
+                <tr>
+                  <th scope="row">{{ recontando() ? 'Reconteo' : 'Contado' }}</th>
+                  <td class="fin-dim cg-na">del conteo</td>
+                  <td>
+                    <input pInputText class="mono cg-total" [value]="money(sumaConteo())"
+                           disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
+                  </td>
+                </tr>
+              }
+            </ng-template>
+          </p-table>
+        } @else {
+          <!-- Sin desglose (API anterior) o con una pieza que la reja no tiene: se dice, no se pinta a medias. -->
+          <small class="fin-dim">El desglose de este conteo no se puede mostrar pieza por pieza. Lo sellado es el total
+            de arriba, y el corte se cierra con ese.</small>
+        }
+        @if (recontando()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>
             <input pInputText id="cg-motivo" [ngModel]="motivoReconteo()" (ngModelChange)="motivoReconteo.set($event)"
                    class="cg-full"
                    placeholder="Por qué se vuelve a contar — queda guardado junto al primer conteo" />
           </div>
+          <small class="fin-hint-warn">Contá todo otra vez, desde cero. Este reconteo es el último y
+            reemplaza al primero, que queda guardado con su motivo.</small>
+        } @else {
+          <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
         }
-        <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(cierreAbierto)"></p-button>
@@ -3269,11 +3317,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <p-button label="Guardar conteo" icon="pi pi-lock" size="small"
                     [loading]="sellando()"
                     [disabled]="sumaConteo() <= 0 || sellando()" (onClick)="sellarConteo()"></p-button>
+        } @else if (recontando()) {
+          <!-- [CGP-V.2] Recontar es un modo: la reja se abre vacia y Cerrar no se ofrece hasta guardar
+               el reconteo o volver al conteo sellado. Cerrar a mitad de un reconteo firmaria el primero. -->
+          <p-button label="Volver al conteo sellado" severity="secondary" size="small" [text]="true"
+                    [disabled]="sellando()" (onClick)="cancelarReconteo()"></p-button>
+          <p-button label="Guardar reconteo" icon="pi pi-lock" size="small"
+                    [loading]="sellando()"
+                    [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sumaConteo() <= 0 || sellando()"
+                    (onClick)="recontar()"></p-button>
         } @else {
-          @if (revelacion()!.veredicto !== 'cuadra' && puedeRecontar()) {
+          @if (ofreceRecontar()) {
             <p-button label="Recontar" icon="pi pi-replay" size="small" severity="secondary"
-                      [loading]="sellando()"
-                      [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sellando()" (onClick)="recontar()"></p-button>
+                      (onClick)="empezarReconteo()"></p-button>
           }
           <p-button [label]="conflictoEsperado() ? 'Confirmar ' + money(conflictoEsperado()!.actual) + ' y cerrar' : 'Cerrar corte'"
                     icon="pi pi-check" size="small"
@@ -4233,12 +4289,34 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * CG.19 Capa 1b — null mientras se cuenta a ciegas; con valor una vez SELLADO el conteo.
    * No se inicializa con los totales del saldo a propósito: ahí está justamente lo que hay que
    * ocultar, y el servidor ya no lo manda a quien no autoriza.
-   */
-  revelado = signal<TotalesCorte | null>(null);
-  /**
-   * ⭐⭐ `[CG.160]` **El conteo que ya estaba sellado ANTES de abrir el diálogo.**
    *
-   * `revelado` sólo se llena cuando se sella en esta sesión, y `abrirCierre()` lo pone en `null`.
+   * ⭐ `[CGP-V.2]` Va ATADO a su corte (`SelladoEnSesion`) y `abrirCierre()` ya no lo borra. Antes
+   * se ponía en `null` al reabrir el diálogo y, como después de sellar no se volvía a pedir el saldo,
+   * el diálogo reabierto ofrecía otra vez «Guardar conteo» y el servidor respondía 400: el callejón
+   * de `[CG.160]`, esta vez sin recargar la pestaña.
+   */
+  revelado = signal<SelladoEnSesion | null>(null);
+  /**
+   * `[CGP-V.2]` El corte que el diálogo de cierre tiene en la mano, tomado al abrirlo. Las acciones
+   * del diálogo van a ESTE corte aunque la relectura del saldo falle: un saldo que no volvía dejaba
+   * `corteAbierto()` en `null` y «Cerrar corte» salía por el `return` sin decir nada. Con el
+   * diálogo cerrado manda el saldo: así un corte que otra sesión cerró no queda pegado acá.
+   */
+  private corteDelCierre = signal<{ id: string; folio: string; fecha?: string } | null>(null);
+  corteEnCierre = computed(() => {
+    const d = this.corteDelCierre();
+    const enDialogo = this.cierreAbierto();
+    const ca = this.corteAbierto();
+    if (enDialogo && d) return d;
+    return ca ? { id: ca.id, folio: ca.folio, fecha: ca.fecha } : null;
+  });
+  /**
+   * ⭐⭐ `[CG.160]` **El conteo que ya estaba sellado en la base.**
+   *
+   * Era una foto (`selladoPrevio`) tomada al abrir el diálogo; desde `[CGP-V.2]` se deriva del
+   * saldo, que se vuelve a pedir después de cada acción. Y sólo vale para el corte del diálogo.
+   *
+   * `revelado` sólo se llenaba cuando se sellaba en esta sesión, y `abrirCierre()` lo ponía en `null`.
    * O sea que recargar la pestaña borraba la revelación de un conteo que en la base es
    * INMUTABLE: el diálogo volvía a ofrecer «Guardar conteo», el servidor contestaba *«este corte
    * ya tiene un conteo sellado»*, y «Cerrar corte» no se pintaba nunca. Sin salida.
@@ -4253,13 +4331,61 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * borrador por sucursal, tampoco se podía abrir el del día siguiente. Un corte trabado tranca
    * todos los que vienen detrás.
    */
-  selladoPrevio = signal<ConteoSellado | null>(null);
+  selladoServidor = computed<ConteoSellado | null>(() => {
+    const ca = this.corteAbierto();
+    const c = this.corteEnCierre();
+    return ca && c && ca.id === c.id ? ca.conteo_sellado ?? null : null;
+  });
+  /** `[CGP-V.2]` Lo sellado en esta sesión, sólo si es de ESTE corte. */
+  reveladoVigente = computed<SelladoEnSesion | null>(() => {
+    const r = this.revelado();
+    const c = this.corteEnCierre();
+    return r && c && r.corteId === c.id ? r : null;
+  });
   /**
-   * `[CG.160]` Lo sellado en esta sesión manda; si no, lo que ya estaba sellado en la base. Las
-   * dos formas encajan en `RevelacionVista`, así que el diálogo no tiene que saber de cuál vino.
+   * `[CG.160]` Lo sellado en esta sesión manda; si no, lo que dice el servidor. Las dos formas
+   * encajan en `RevelacionVista`, así que el diálogo no tiene que saber de cuál vino.
    */
-  revelacion = computed<RevelacionVista | null>(() => this.revelado() ?? this.selladoPrevio());
-  puedeRecontar = signal(false);
+  revelacion = computed<RevelacionVista | null>(() => {
+    const r = this.reveladoVigente();
+    const s = this.selladoServidor();
+    return r ? r.totales : s;
+  });
+  /** Recontar es de UNA vez. Sale de la misma fuente que la revelación, no de un flag aparte. */
+  puedeRecontar = computed(() => {
+    const r = this.reveladoVigente();
+    const s = this.selladoServidor();
+    return r ? r.puedeRecontar : s ? !s.ya_reconto : false;
+  });
+  /** Se ofrece recontar con conteo sellado, con diferencia y con el reconteo sin usar. */
+  ofreceRecontar = computed(() => {
+    const r = this.revelacion();
+    const p = this.puedeRecontar();
+    return !!r && r.veredicto !== 'cuadra' && p;
+  });
+  /** `[CGP-V.2]` La persona eligió recontar: la reja vuelve a abrirse, vacía, y pide motivo. */
+  recontando = signal(false);
+  /** La reja se teclea mientras se cuenta o se recuenta; revelado el conteo, muestra lo sellado. */
+  rejaEditable = computed(() => {
+    const r = this.revelacion();
+    const re = this.recontando();
+    return !r || re;
+  });
+  /**
+   * `[CGP-V.2]` Lo sellado, pieza por pieza: lo que esta sesión mandó y el servidor aceptó o, si no,
+   * lo que publica `saldo()`. `null` = no se puede mostrar pieza por pieza: un API anterior no
+   * manda el desglose, o trae una pieza que esta reja no tiene (el servidor acepta todo el catálogo,
+   * con el billete de $1,000). Pintarla a medias haría que la reja no sumara lo sellado.
+   */
+  desgloseSellado = computed<{ conteo: Array<{ denom_key?: string | null; piezas: number }>; morralla: number } | null>(() => {
+    const r = this.reveladoVigente();
+    const s = this.selladoServidor();
+    const d = r ? { conteo: r.conteo, morralla: r.morralla }
+      : s?.desglose ? { conteo: s.desglose, morralla: Number(s.morralla ?? 0) } : null;
+    if (!d) return null;
+    const enReja = new Set(this.reja.map((x) => x.key));
+    return d.conteo.every((x) => !(Number(x.piezas) > 0) || enReja.has(String(x.denom_key))) ? d : null;
+  });
   sellando = signal(false);
   motivoReconteo = signal('');
   conceptoSel: (ConceptoKepler & { label: string }) | null = null;
@@ -4377,7 +4503,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * no tapa nada.
    */
   corteVista = computed<CorteVista | null>(() => {
-    const c = this.corteAbierto();
+    // `[CGP-V.2]` El corte del diálogo, no el del último saldo: si la relectura falla, se sigue
+    // pudiendo cerrar el corte que se tiene en la mano.
+    const c = this.corteEnCierre();
     return c ? { id: c.id, folio: c.folio, estado: 'borrador' } : null;
   });
   /** No se cierra sin haber SELLADO el conteo: sin revelación no hay nada firmado que cerrar. */
@@ -4996,15 +5124,59 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** `Corte CC-… · jornada del 12-oct`. Sin fecha (API viejo), sólo el folio. */
   rotuloCorte = computed(() => {
-    const c = this.corteAbierto();
+    const c = this.corteEnCierre();
     if (!c) return null;
     return c.fecha ? `Corte ${c.folio} · jornada del ${diaCorto(c.fecha)}` : `Corte ${c.folio}`;
   });
 
   corteAtrasado = computed(() => {
-    const c = this.corteAbierto();
+    const c = this.corteEnCierre();
     const hoy = this.hoyCaja();
     return !!c?.fecha && c.fecha < hoy;
+  });
+
+  // ── `[CGP-V.1]` En qué paso va el corte ────────────────────────────────────────────────────
+  //
+  // El paso sale de lo que dice el servidor: corte abierto, conteo sellado, corte por autorizar.
+  // La decisión es pura (`pasoDelCorte`) y tiene sus pruebas; acá sólo se le pasa el estado.
+
+  /** El último corte del cajón, si quedó cerrado y nadie lo autorizó todavía. */
+  cortePorAutorizar = computed(() => {
+    const cs = this.cortes();
+    const ultimo = cs
+      .filter((c) => c.sucursal === this.sucursalActiva)
+      .reduce<CorteCaja | null>((a, c) => (!a || c.fecha > a.fecha ? c : a), null);
+    return ultimo?.estado === 'cerrado' ? ultimo : null;
+  });
+
+  pasoCorte = computed<PasoCorte | null>(() => {
+    const c = this.corteEnCierre();
+    const sinMedir = this.saldoSinMedir();
+    const r = this.revelacion();
+    const ofrece = this.ofreceRecontar();
+    const cf = this.conflictoEsperado();
+    const re = this.recontando();
+    const pa = this.cortePorAutorizar();
+    return pasoDelCorte({
+      corteAbierto: c ? true : sinMedir ? null : false,
+      sellado: r ? { ofreceRecontar: ofrece } : null,
+      conflicto: !!cf,
+      porAutorizar: !!pa,
+      recontando: re,
+    });
+  });
+
+  /** En la página: sin saldo medido no se afirma ningún paso (la etiqueta ya dice «sin medir»). */
+  pasoPagina = computed<PasoCorte | null>(() => {
+    const sinMedir = this.saldoSinMedir();
+    const p = this.pasoCorte();
+    return sinMedir ? null : p;
+  });
+
+  textoPasoPagina = computed(() => {
+    const p = this.pasoPagina();
+    const pa = this.cortePorAutorizar();
+    return p ? textoPaso(p, pa?.folio) : '';
   });
 
   /**
@@ -5206,7 +5378,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // Mandar `null` NO sirve: el servicio compara contra `undefined`.
       fondo_inicial: this.fondoInicial() ?? undefined,
     }).subscribe({
-      next: () => {
+      next: (abierto) => {
         this.abriendo.set(false);
         this.aperturaAbierta.set(false);
         const f = this.fondoInicial();
@@ -5217,7 +5389,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // [CG.29] Si la apertura vino de "rendir cuentas", se sigue DERECHO al conteo: el gesto
         // es uno solo. Sin esto la persona quedaba con el corte abierto y sin saber que le
         // faltaba un segundo clic en otro lado.
-        if (this.cerrarTrasAbrir()) { this.cerrarTrasAbrir.set(false); this.abrirCierre(); }
+        // [CGP-V.2] El corte va de la RESPUESTA: el saldo que lo trae todavía no volvió. La fecha es
+        // la que se pidió abrir (la fila trae un Date, que por JSON llega con hora).
+        if (this.cerrarTrasAbrir()) {
+          this.cerrarTrasAbrir.set(false);
+          this.abrirCierre(abierto?.id ? { id: abierto.id, folio: abierto.folio, fecha } : null);
+        }
       },
       /**
        * ⛔ `[CG.90.1]` **LA INTENCIÓN SE LIMPIA TAMBIÉN CUANDO FALLA.**
@@ -5243,22 +5420,41 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * CG.19 Capa 1b — el arqueo es CIEGO: se abre sin revelación y sin motivo de reconteo.
    * El esperado aparece cuando el servidor lo devuelve, y sólo después de SELLAR el conteo.
    */
-  abrirCierre(): void {
+  abrirCierre(corte?: { id: string; folio: string; fecha?: string } | null): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
-    this.revelado.set(null); this.motivoReconteo.set(''); this.conflictoEsperado.set(null);
+    this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
     /**
      * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
      * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
      *
-     * ⚠️ `?? null` y no `|| null`: un corte sin sellar manda `conteo_sellado: null` y uno servido
-     * por un API viejo no manda el campo — las dos ausencias terminan en `null`, que acá es el
-     * mismo hecho ("no hay nada sellado que leer") y por eso se pueden barrer juntas.
+     * ⭐ `[CGP-V.2]` Ya no se toma una foto del saldo ni se borra lo sellado en esta sesión: la
+     * revelación se DERIVA (`revelacion()`), del servidor o de la respuesta a sellar, y va atada a
+     * este corte. Lo único que se fija acá es cuál es el corte. Recién abierto, el saldo todavía no
+     * lo trae: por eso `abrirCorte()` lo pasa de su respuesta.
      */
-    this.selladoPrevio.set(this.saldoResp()?.corte_abierto?.conteo_sellado ?? null);
-    // Recontar es de UNA vez: si ya se recontó, el botón no se ofrece.
-    this.puedeRecontar.set(this.selladoPrevio() ? !this.selladoPrevio()!.ya_reconto : false);
+    const ca = this.corteAbierto();
+    this.corteDelCierre.set(corte ?? (ca ? { id: ca.id, folio: ca.folio, fecha: ca.fecha } : null));
     this.abrirConFoco(this.cierreAbierto);
   }
+
+  /** `[CGP-V.2]` Recontar es empezar de cero: la reja se abre vacía y pide motivo. */
+  empezarReconteo(): void {
+    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
+    this.recontando.set(true);
+  }
+
+  /** Vuelve al conteo sellado sin tocarlo: lo tecleado del reconteo se descarta. */
+  cancelarReconteo(): void {
+    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
+    this.recontando.set(false);
+  }
+
+  /** `[CGP-V.2]` Lo sellado en ese renglón. `0` y no `null`: un renglón sin piezas se contó en cero. */
+  piezasSelladasDe(d: Denominacion): number {
+    return this.desgloseSellado()?.conteo.find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  }
+
+  subtotalSelladoDe(d: Denominacion): number { return redondea(d.valor * this.piezasSelladasDe(d)); }
 
   /** Lo que la persona lleva sumado. No revela nada: es su propia suma. */
   sumaConteo(): number {
@@ -5267,13 +5463,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Sella el conteo y recibe la revelación. A partir de acá el conteo ya no se retoca en silencio. */
   sellarConteo(): void {
-    const c = this.corteAbierto();
+    const c = this.corteEnCierre();
     if (!c || this.sellando()) return;
+    // Lo que se manda es lo que se guarda como sellado: se toma ANTES de la llamada.
+    const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
     this.sellando.set(true);
-    this.svc.contarCorte(c.id, this.conteoCorte(), this.morrallaCorte()).subscribe({
+    this.svc.contarCorte(c.id, conteo, morralla).subscribe({
       next: (r) => {
-        this.revelado.set(r.totales); this.puedeRecontar.set(r.puede_recontar); this.sellando.set(false);
+        this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: r.puede_recontar, conteo, morralla });
+        this.sellando.set(false);
         this.avisarOk('Conteo sellado', r.totales?.oculto ? 'El resultado lo ve quien autoriza.' : undefined);
+        // `[CGP-V.1]` El estado sale del servidor: se vuelve a pedir después de cada acción.
+        this.cargarSaldo();
       },
       error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo sellar el conteo'); },
     });
@@ -5281,13 +5482,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Segundo y último conteo. El motivo es obligatorio y el primero se conserva en el corte. */
   recontar(): void {
-    const c = this.corteAbierto();
-    if (!c || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando()) return;
+    const c = this.corteEnCierre();
+    if (!c || !this.recontando() || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando()) return;
+    const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
     this.sellando.set(true);
-    this.svc.recontarCorte(c.id, this.conteoCorte(), this.morrallaCorte(), this.motivoReconteo().trim()).subscribe({
+    this.svc.recontarCorte(c.id, conteo, morralla, this.motivoReconteo().trim()).subscribe({
       next: (r) => {
-        this.revelado.set(r.totales); this.puedeRecontar.set(false); this.sellando.set(false);
+        this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: false, conteo, morralla });
+        this.sellando.set(false); this.recontando.set(false); this.motivoReconteo.set('');
         this.avisarOk('Reconteo guardado');
+        this.cargarSaldo();
       },
       error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo recontar'); },
     });
@@ -5315,14 +5519,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   cerrarCorte(): void {
-    const c = this.corteAbierto();
-    if (!c || !this.gateCierre().ok || this.cerrando()) return;
+    const c = this.corteEnCierre();
+    if (!c || this.recontando() || !this.gateCierre().ok || this.cerrando()) return;
     this.cerrando.set(true);
     // [CGP-V.12] Con un conflicto a la vista, el botón confirma el esperado que la persona VIO.
-    this.svc.cerrarCorte(c.id, this.conteoCorte(), this.morrallaCorte(), undefined, this.conflictoEsperado()?.actual).subscribe({
+    // ⭐ [CGP-V.2] La reja va VACÍA: lo que se firma es lo sellado, y el servidor lo usa cuando el
+    // cuerpo no trae piezas ([CGP-L.1]; antes, el respaldo de [CG.159]). Mandar lo tecleado era
+    // la otra mitad de L1: la reja seguía abierta después de revelar.
+    this.svc.cerrarCorte(c.id, [], 0, undefined, this.conflictoEsperado()?.actual).subscribe({
       next: () => {
         this.cerrando.set(false);
         this.cierreAbierto.set(false); this.conflictoEsperado.set(null);
+        this.corteDelCierre.set(null); this.revelado.set(null); this.recontando.set(false);
         this.avisarOk('Corte cerrado', 'Queda pendiente de autorizar por otra persona.');
         this.cargarSaldo(); this.cargar(); this.cargarCortes(); this.cargarJornadasAtrasadas();
       },

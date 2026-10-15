@@ -842,18 +842,7 @@ export class CashCutService {
        * Desde `[CGP-D.3]` la base lo frena con un error crudo; acá se decide antes de atar un solo
        * movimiento, y la persona recibe qué está sellado, qué tecleó y cómo se corrige.
        */
-      let sellado: ConteoSellado | null = null;
-      if (c.contado != null) {
-        const filas = await trx('finance.cash_ledger_cut_denominations')
-          .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' })
-          .select('denom_key', 'denominacion', 'piezas');
-        sellado = {
-          conteo: filas.map((d: { denom_key: string; denominacion: string | number; piezas: string | number }) => ({
-            denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: Number(d.piezas),
-          })),
-          morralla: Number(c.morralla ?? 0),
-        };
-      }
+      const sellado = c.contado != null ? await this.leerSellado(trx, tenantId, id, c.morralla) : null;
       const decision = decidirConteoDelCierre(sellado, { conteo: input.conteo, morralla: input.morralla });
       if (decision.usar === 'rechazo') {
         throw new BadRequestException(textoConteoDistinto(decision.sellado, decision.tecleado));
@@ -1148,7 +1137,10 @@ export class CashCutService {
    * `veredicto: 'sin_medir'` en vez de recalcularlos — recalcular hoy daría el juicio de HOY sobre
    * un conteo de ayer, que es otra cosa y nadie podría distinguirla.
    */
-  private conteoSellado(c: { contado?: unknown; esperado?: unknown; diferencia?: unknown; fondo_inicial?: unknown; conteo_previo?: unknown } | null | undefined) {
+  private conteoSellado(
+    c: { contado?: unknown; esperado?: unknown; diferencia?: unknown; fondo_inicial?: unknown; conteo_previo?: unknown } | null | undefined,
+    desglose?: ConteoSellado | null,
+  ) {
     if (!c) return null;
     const contado = c.contado == null ? null : Number(c.contado);
     if (contado == null || contado <= 0) return null;
@@ -1163,6 +1155,31 @@ export class CashCutService {
         ? ('sin_medir' as const)
         : veredictoDe({ huboConteo: true, fondoSinMedir: c.fondo_inicial == null, diferencia }),
       ya_reconto: c.conteo_previo != null,
+      /**
+       * `[CGP-V.2]` Lo que se selló, pieza por pieza. Sin esto la pantalla sólo tenía el total: al
+       * reabrir el diálogo la reja salía en blanco junto a un «Contado» con cifra, y quedaba abierta
+       * para teclear otra cosa. Con el desglose la reja muestra lo sellado, de sólo lectura.
+       * Opcional: el resumen de la jornada (`arqueoDia`) no lo pide.
+       */
+      ...(desglose ? { desglose: desglose.conteo, morralla: desglose.morralla } : {}),
+    };
+  }
+
+  /**
+   * El conteo sellado de un corte, pieza por pieza: el desglose del CIERRE (el de apertura ya pasó)
+   * y la morralla, que vive en el corte. Lo leen `cerrar()`, para decidir qué se firma, y `saldo()`,
+   * para que la pantalla lo muestre. Una sola lectura para las dos, así no pueden divergir.
+   */
+  private async leerSellado(trx: Knex.Transaction, tenantId: string, cutId: string, morralla: unknown): Promise<ConteoSellado> {
+    const filas = await trx('finance.cash_ledger_cut_denominations')
+      .where({ tenant_id: tenantId, cut_id: cutId, momento: 'cierre' })
+      .orderBy('denominacion', 'desc')
+      .select('denom_key', 'denominacion', 'piezas');
+    return {
+      conteo: filas.map((d: { denom_key: string; denominacion: string | number; piezas: string | number }) => ({
+        denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: Number(d.piezas),
+      })),
+      morralla: Number(morralla ?? 0),
     };
   }
 
@@ -1182,6 +1199,9 @@ export class CashCutService {
       const fuera = await this.sueltosFuera(trx, tenantId, sucursal, dia);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.fecha ?? null);
       const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
+      // `[CGP-V.2]` El desglose sólo cuando hay conteo: sin sellar no hay nada que mostrar.
+      const desglose = abierto?.contado != null && Number(abierto.contado) > 0
+        ? await this.leerSellado(trx, tenantId, abierto.id, abierto.morralla) : null;
       return {
         sucursal,
         corte_abierto: abierto
@@ -1196,7 +1216,7 @@ export class CashCutService {
              * `[CG.156]` ⭐ El conteo YA sellado, para que recargar no borre la revelación.
              * `null` mientras nadie contó — y ahí el `esperado` sigue oculto por `revela`.
              */
-            conteo_sellado: this.conteoSellado(abierto),
+            conteo_sellado: this.conteoSellado(abierto, desglose),
           }
           : null,
         // Sin corte abierto el "saldo" no tiene punto de partida: se declara, no se dibuja en 0.

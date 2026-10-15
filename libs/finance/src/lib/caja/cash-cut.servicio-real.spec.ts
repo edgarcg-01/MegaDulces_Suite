@@ -213,6 +213,34 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(s.corte_abierto).toMatchObject({ id: c.id, folio: c.folio, fecha: f });
   });
 
+  it('`[CGP-V.2]` el saldo publica lo SELLADO pieza por pieza, y después del reconteo, el del reconteo', async () => {
+    const f = dia('03-10');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('V2'), fondo_inicial: 500 }, CAJERA);
+    await movimiento(f, suc('V2'), 'ingreso', 1000);
+
+    // ⛔ [negativa] Sin conteo no hay nada sellado que mostrar: el arqueo sigue ciego.
+    expect((await svc.saldo(suc('V2'), false)).corte_abierto?.conteo_sellado).toBeNull();
+
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1], ['200', 200, 2]), morralla: 3.5 }, CAJERA);
+    const s1 = (await svc.saldo(suc('V2'), false)).corte_abierto?.conteo_sellado;
+    expect(s1).toMatchObject({ contado: 1403.5, morralla: 3.5 });
+    expect(s1?.desglose).toEqual([
+      { denom_key: '1000', denominacion: 1000, piezas: 1 },
+      { denom_key: '200', denominacion: 200, piezas: 2 },
+    ]);
+
+    await svc.recontar(c.id, {
+      conteo: conteo(['1000', 1000, 1], ['500', 500, 1]), morralla: 0, motivo: 'Faltó contar el billete de 500',
+    }, CAJERA);
+    const s2 = (await svc.saldo(suc('V2'), false)).corte_abierto?.conteo_sellado;
+    expect(s2).toMatchObject({ contado: 1500, morralla: 0, ya_reconto: true });
+    expect(s2?.desglose?.map((d) => d.denom_key)).toEqual(['1000', '500']);
+
+    // Y lo que se publica es lo que cerrar() firma: cerrar con la reja vacía usa ESE desglose.
+    const cerrado = await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
+    expect(Number(cerrado.contado)).toBe(1500);
+  });
+
   it('⛔ `[CGP-L.2]` lo que se firma es lo que se reveló: si el esperado cambió después de contar, 409', async () => {
     const f = dia('03-06');
     const c = await svc.abrir({ fecha: f, sucursal: suc('L6'), fondo_inicial: 500 }, CAJERA);

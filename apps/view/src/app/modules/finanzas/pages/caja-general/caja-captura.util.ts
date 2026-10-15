@@ -556,3 +556,56 @@ export function conflictoDeEsperado(e: unknown): ConflictoEsperado | null {
   if (!Number.isFinite(mostrado) || !Number.isFinite(actual)) return null;
   return { mostrado, actual, mensaje: String(err.error.message ?? '') };
 }
+
+// ── `[CGP-V.1]` En qué paso va el corte ──────────────────────────────────────────────────────────
+
+/**
+ * Los pasos de un corte, en el orden de la jornada. Revisar la diferencia va aparte de cerrar
+ * porque son dos decisiones: si hay diferencia se puede recontar una vez, y después ya no.
+ */
+export type PasoCorte = 'abrir' | 'contar' | 'revisar' | 'cerrar' | 'autorizar';
+
+export const PASOS_CORTE: ReadonlyArray<{ paso: PasoCorte; label: string }> = [
+  { paso: 'abrir', label: 'Abrir' },
+  { paso: 'contar', label: 'Contar a ciegas' },
+  { paso: 'revisar', label: 'Revisar la diferencia' },
+  { paso: 'cerrar', label: 'Cerrar' },
+  { paso: 'autorizar', label: 'Autorizar' },
+];
+
+/** Lo que hace falta saber para decir el paso. Todo sale del servidor. */
+export interface EstadoParaPaso {
+  /** `null` = el saldo no se pudo medir: no se sabe si hay corte abierto. */
+  corteAbierto: boolean | null;
+  /** El conteo sellado del corte abierto; `null` mientras nadie contó. */
+  sellado: { ofreceRecontar: boolean } | null;
+  /** El esperado cambió desde el conteo (el 409 de `[CGP-L.2]`). */
+  conflicto: boolean;
+  /** Sin corte abierto, el último corte quedó cerrado y nadie lo autorizó todavía. */
+  porAutorizar: boolean;
+  /** La persona eligió recontar: la reja vuelve a abrirse. */
+  recontando: boolean;
+}
+
+/**
+ * ⛔ Devuelve `null` cuando no se sabe si hay corte: afirmar «abrir» ahí invitaría a abrir un
+ * segundo corte encima de uno vivo, que es justo lo que ese «sin medir» protege.
+ */
+export function pasoDelCorte(e: EstadoParaPaso): PasoCorte | null {
+  if (e.corteAbierto === null) return null;
+  if (!e.corteAbierto) return e.porAutorizar ? 'autorizar' : 'abrir';
+  if (!e.sellado || e.recontando) return 'contar';
+  if (e.conflicto || e.sellado.ofreceRecontar) return 'revisar';
+  return 'cerrar';
+}
+
+/** Qué sigue, en una frase. El folio sólo se usa para nombrar el corte que falta autorizar. */
+export function textoPaso(p: PasoCorte, folio?: string | null): string {
+  switch (p) {
+    case 'abrir': return 'No hay corte abierto: sigue abrir el de la jornada.';
+    case 'contar': return 'Sigue contar el efectivo sin ver el esperado. Al guardar el conteo se revela la diferencia.';
+    case 'revisar': return 'Revisá la diferencia: se puede recontar una sola vez, con motivo, o cerrar con ella.';
+    case 'cerrar': return 'Sigue cerrar el corte. Después lo autoriza otra persona.';
+    case 'autorizar': return `${folio ? `El corte ${folio} quedó cerrado: falta` : 'Falta'} que lo autorice otra persona, porque quien cierra no autoriza.`;
+  }
+}
