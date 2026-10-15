@@ -9538,6 +9538,34 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   sin ver datos no se sabe si `c12` trae IVA/descuento ni si `f3` cuenta desde la base. **NO MEDIDO contra
   prod** (cifras ni tiempo).
 
+- [x] **[CAT-COSTO.6]** 🔨 **Los tres costos de Kepler en una sola fuente** (2026-10-15) —
+  `analytics.mv_kepler_costos` (mig `20261015115146`, `WITH NO DATA`, refresco nocturno
+  `analytics_refresh_kepler_costos` con umbral en `CRON_JOBS`). Una fila por sucursal × producto
+  (87,070 fichas, 00–08), todo en la unidad BASE de la ficha. **Definiciones de Compras (Francisco,
+  2026-10-14/15), verificadas contra el ERP:** **estándar** = `kdii.c77` (el del catálogo, lleva el
+  margen) · **último** = renglón de la última **XA2001 Aplica Orden Entrada**, y nada más (ni traspaso,
+  ni ajuste, ni la entrada física `X-A-40`); `c13/c9`, fecha `c68`, sin canceladas, documento de su
+  sucursal; si la sucursal no compró, la red y se declara (`ultimo_origen`) · **promedio** = costo del
+  kardex en la última salida (venta o traspaso): es contra el que Kepler mide la utilidad · `kdik.c16`
+  = costo de la **última entrada** (compra, traspaso o ajuste), sólo de referencia. ⛔ **Esto refuta a
+  la documentación**, que llamaba a `c16` «promedio ponderado» (`VERDAD_ABSOLUTA` §3.4, `ERP_KEPLER`
+  §2.1, la retractación de `FASE_CE`): en las 12,972 filas donde las dos hipótesis difieren, `c16`
+  sigue a la última entrada en **98.57 %** y al promedio acumulado `c8/c5` en **0.02 %** (el 61 % que
+  se citaba eran las filas donde los dos coinciden). Medido además: el promedio del kardex no se mueve
+  sin una entrada (99.7 % de 148,741 pares de días) y tras una compra queda entre el anterior y el de la
+  compra (89 %); el renglón XA2001 coincide con la `X-A-40` al 0.5 % en el 80 % (mediana 1.000) → `c12`
+  es unitario y SIN impuesto (cierra la duda que frenaba la Etapa 2b). Lo que falta se **declara** en
+  `*_motivo`: `sin_compra` 32,661 · `unidad_no_resuelta` 1,847 (la unidad base que se contradice entre
+  compra y catálogo — **la lista a depurar del analista de catálogo**) · `inverosimil` 660. Sin JOIN a
+  tablas con RLS (lección `[MR.9.1]`). Ensayo contra prod: 11 s el cuerpo completo; control `70001`/01 =
+  estándar 66.52 · último 69.98 · promedio 69.75 · última entrada 69.98. Migración probada en Docker
+  local (up · idempotente · REFRESH · CONCURRENTLY · down, revertido). **Candado
+  `test-newdb-kepler-costos.js` 31 ✔ / 0 ✗ / 1 no medido** contra prod: segunda implementación en JS
+  (12 fichas), folios de último = XA2001, ningún hueco sin motivo, unidad (medianas 1.0002 / 1.0000), no
+  es espejo (56.7 %) y **vigilancia de la premisa** (`c16` = última entrada 99.1 %, `c8/c5` 0.0 %);
+  **mutado para aceptar traspasos `U-A-50` como último costo → 8 ✗**. Pendiente: aplicar la mig en prod +
+  primer refresco; las pantallas que la consumen son `[CAT-COSTO.7]` en adelante.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

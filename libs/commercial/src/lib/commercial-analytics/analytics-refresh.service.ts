@@ -557,6 +557,15 @@ export class AnalyticsRefreshService {
       ['analytics.mv_erp_margin_ficha_daily', 'analytics_refresh_erp_margin_ficha',
         'Refresh MV costo estándar de mayoreo (nightly)', ['analytics.mv_erp_margin_daily']],
       /**
+       * `[CAT-COSTO.6]` Los tres costos de Kepler (estándar · último XA2001 · promedio del kardex)
+       * por sucursal × producto: la fuente única de Compras › Catálogo › Costos. Sale directo del
+       * ODS → `deps` vacío. Medido: ~11 s el cuerpo completo (87,070 fichas). Nace `WITH NO DATA`:
+       * el loop lo detecta por `relispopulated` y el primer poblado va sin `CONCURRENTLY`.
+       * ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_kepler_costos`) o una MV parada se ve VERDE.
+       */
+      ['analytics.mv_kepler_costos', 'analytics_refresh_kepler_costos',
+        'Refresh MV tres costos de Kepler (nightly)', []],
+      /**
        * ⛔ `[PR.S2.1]` La cascada agregada al grano (sucursal, sku). **Se materializó el
        * 2026-09-30 y quedó fuera de este array** — el mismo defecto que el comentario de arriba
        * documenta para `mv_erp_margin_daily`, repetido por mí tres párrafos después de leerlo.
