@@ -16,7 +16,7 @@ Documentos hermanos: [`FASE_ETIQUETAS_ANAQUEL`](FASE_ETIQUETAS_ANAQUEL.md) (la e
 | **Se confirma qué precio lleva la etiqueta** (Todos / Pieza / Paquete / Caja) antes de imprimir | Quien reimprime | #349 | ✅ en `main` |
 | **Un clic en un producto lo manda a la etiquetera**, con ese precio elegido | Quien reimprime | #349 | ✅ en `main` |
 | **Cambios de precio gana ~170 px de alto**: el selector de día pasa a la fila de las pestañas, las 4 tarjetas a una línea y se quita el título repetido (no se pierde ninguna información) | Quien reimprime | #407 | 🧪 PR abierto, sin validación visual |
-| **Cambios de precio trae las columnas del PDF de Compras**: proveedor, UXC, costo anterior/actual con impuesto, mayoreo (precio de la caja) y tipo N/S. El «anterior» sale de una **foto diaria** del costo (Kepler no guarda la historia) | Compras y quien usa etiquetas | (este PR) | 🧪 en código · migración antes del código · SQL sin ejecutar · sin validación visual |
+| **Cambios de precio trae las columnas del PDF de Compras**: proveedor, UXC, costo anterior/actual con impuesto, mayoreo (precio de la caja) y tipo N/S. El «anterior» sale de una **foto diaria** del costo (Kepler no guarda la historia) | Compras y quien usa etiquetas | #417 | 🧪 en código · migración antes del código · SQL sin ejecutar · sin validación visual |
 | **La etiquetera dice POR QUÉ un producto no tiene precio**: no existe en Kepler / existe pero no en esa tienda / precio 0 | Quien carga códigos | #351 | ✅ en `main` (2026-10-12) |
 | **Aviso en la campana** a cada sucursal cuando hay cambios de precio (07:30 resume ayer, 14:00 lo de hoy); al tocarlo entra a Cambios de precio de su tienda | Encargados y quien usa la etiquetera | #350 | ✅ en `main` (2026-10-12) · migraciones por confirmar en prod |
 | **Compras puede avisar a una o varias sucursales** con una nota (permiso propio) | Compras | #350 | ✅ en `main` · el permiso necesita su migración y re-login |
@@ -217,4 +217,4 @@ Llevar los tres PR a verde dejó seis lecciones, ya en el protocolo previo a env
 | 2026-10-12 | #351 y #361 fusionados; Edgar fusiona `main` en #350 y lo fusiona | `1726a2bb8` / #350 |
 | 2026-10-13 | Prod sirve `a5223868` (tip de `main`); migraciones de #350 sin poder confirmarse desde aquí | `/api/health` |
 | 2026-10-14 | Barra superior compacta de Cambios de precio (`ETQ-CAMBIOS.10`); `app-metric-strip` gana densidad compacta | #407 |
-| 2026-10-15 | Columnas del PDF de Compras en Cambios de precio y foto diaria del costo (`ETQ-CAMBIOS.11`) | (este PR) |
+| 2026-10-15 | Columnas del PDF de Compras en Cambios de precio y foto diaria del costo (`ETQ-CAMBIOS.11`) | #417 |
