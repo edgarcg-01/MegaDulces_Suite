@@ -4,6 +4,27 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-14 — `[VAC]` El verificador de mostrador entra al estándar, y una auditoría de diseño encuentra que el problema no era visual
+
+**Qué se pidió.** Acoplar `/tienda/verificador` al estándar de la Suite, todo en local: unificar tipografía y tema, centavos más chicos, ancho fluido, kiosco sin información interna y el mayoreo como protagonista. Después llegó una auditoría de diseño y se aplicó por partes.
+
+**⭐ Lo que la auditoría encontró y no era de pantalla.** La escalera de precios publicada no es monótona: a partir de 3 piezas, comprar suelto a precio de mayoreo sale **más barato que el paquete o la caja** (caja $114.80 más cara que 48 sueltas). Es una decisión de Precios/Comercial y **no se resolvió**; antes hay que medir cuántos SKUs la tienen rota (consulta de sólo lectura contra prod, **no medida**) y verificar los precios del ejemplo contra el SKU real (salían del mockup).
+
+**⛔ El hallazgo propio, de la capa de lógica.** Ante un fallo de la base, el servicio contestaba `200 { ok:false, error: e.message }`. Eran **dos defectos**: fuga del mensaje de Postgres hacia un endpoint `@Public()`, y que el frontend lo leía como «el catálogo contestó que no está» y **pintaba PRODUCTO NO ENCONTRADO sin consultar el respaldo local, que tenía el precio**. Es la misma familia de «cero filas por un defecto leído como cero filas por desuso» (CLAUDE.md, 2026-10-14). Corregido (503 + código estable) con pruebas probadas por mutación.
+
+**Decisiones de 0Sistemas.** (1) Se retira la excepción de piel de §O.3 (D1/D4). (2) **El mayoreo conserva la prioridad**, contra la recomendación de la auditoría (una sola cifra héroe); queda documentado como excepción acotada de `--action`. (3) Los hallazgos 2–4 se aplican por partes.
+
+**Cifras (medidas en el worktree).** Hex crudo del componente 69 → 2 · `::ng-deep` 3 → 0 · pruebas de la tienda 325 (eran 298 al cerrar la piel) · `KpService` de 0 a 28 pruebas de comportamiento · `check:pantalla`: las mismas 2 fallas que `main` y una advertencia menos.
+
+**Lecciones.**
+- *Cada medición de «es seguro» se hace sobre lo que la regla protege.* El ratchet de `font-size` no cuenta `var(--fs-*)` pero SÍ cuenta `var(--vf-*)`: bajar el tamaño del rótulo con una propiedad propia subía el tope; el token de la escala lo evitó.
+- *Un test que pasa a la primera se muta.* Todos los candados nuevos se probaron rompiendo a propósito lo que vigilan (sin ellos, el de los 33 candados de texto del spec de procedencia es una intención).
+- ⛔ **`npm run check` NO es sólo lint: incluye `nx build api` y la compuerta `boot`, que intenta levantar el API.** Se corrió para validar la rama, contra la regla de CLAUDE.md; murió al cargar `pdf-lib` (dependencia nueva de `main` ausente del `node_modules` compartido) antes de abrir ninguna conexión, y se verificó que no quedó ningún proceso ni conexión viva. Para validar en local: las compuertas sueltas, `npx tsgo -p tsconfig.ts7.json` (tipos de la API), `npx vitest run` y `npx eslint <archivos>`.
+
+**Estado de las compuertas sobre la rama fusionada con `origin/main`.** En verde: templates, templates-types, boundary, provenance, reactividad, tokens, teclado, búsqueda, motion, estilos, tablas, commit-wiring, tipos de la API (**0 errores en archivos propios**; 1 error ajeno: `pdf-lib` no instalado en este entorno), `vitest` de `view` (3,307) y de `api` (134), eslint de los archivos propios (0 errores). **Rojas y ajenas a esta rama:** `primeng` (`almacen-cuadre`), `sidebar-tabs`, `sin-emojis` (preexistentes, ninguno agregado por esta rama), `etiqueta-gate`, y `build`/`boot`/`test` del workspace por la dependencia `pdf-lib` ausente. `mig-colisiones`: **no medido** (sin URL de prod; esta rama no trae migraciones).
+
+**Pendiente.** L2/L4/L5/L8, U1/U2/U3/U14, el frente de datos (VAC.1) y las decisiones D2/D3/D5; **validación visual en el monitor real** (lector, cámara, pantalla completa y datos reales) que **no se hizo**.
+
 ## 2026-10-12 — `[CPA.10]` La bandeja «Mi cierre»: contabilidad no ignoraba la Suite, ignoraba SU módulo
 
 **Qué se pidió.** *"Analizá todo /contabilidad y decime cómo aportarle valor para que contabilidad empiece a usar la Suite y su trabajo se automatice un 90 %; tenemos un puente ContPAQi, pero hoy no le encuentran nada de valor a su módulo."* Después: diseñar las interfaces primero, y luego construirlas.

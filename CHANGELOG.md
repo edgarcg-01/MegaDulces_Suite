@@ -9,6 +9,20 @@
 ---
 
 ## [Unreleased]
+### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, 2026-10-14)
+- **Mayoreo como protagonista**, enmarcado, con **el ahorro por unidad** como cifra principal («Ahorras $5.59 por unidad (6.5% menos)») y el total del mínimo de apoyo; cada umbral es su propio bloque y el de paquete dice a cuántas piezas equivale («Equivale a 144 piezas»).
+- **Ancho fluido** (la tarjeta usa todo el ancho, dos columnas precio | mayoreo en pantalla ancha) y **centavos más chicos** en todo precio. **La unidad se lee a 1–2 m.**
+- **Modo kiosco** sin botón de cámara y sin los datos internos del producto. ⚠️ En kiosco el aviso de «este precio acaba de cambiar» ya no se muestra (el respaldo sí sigue declarado por el banner).
+- **Sin piel propia:** retirada la excepción de tipografía, paleta y tema fijo; la pantalla **sigue el tema claro/oscuro**. Sniglet fuera de la app.
+- **El respaldo dice POR QUÉ** (sin red · servidor lento · el servidor falló · consulta rechazada) y un respaldo de formato anterior se declara y se re-descarga solo.
+- Ayuda contextual nueva (mayoreo, avisos, kiosco y cámara); targets de 44 px en táctil; Alto Contraste; esqueleto de carga; el `confirm()` nativo pasa al diálogo de la app.
+### Fixed — Verificador: un fallo de la base se leía como «PRODUCTO NO ENCONTRADO» y filtraba el mensaje de Postgres (VAC.L3, 2026-10-14)
+- `/kp/precio` y `/kp/precios-todos` contestaban `200 { ok:false, error: <mensaje de Postgres> }` ante cualquier fallo: **fuga** en un endpoint público y, peor, **el kiosco lo pintaba como «producto no encontrado» sin consultar su respaldo**, que sí tenía el precio. Ahora contestan **503** con un código estable y el detalle va sólo al log; el kiosco cae al respaldo.
+- ⚠️ **Cambio de comportamiento:** una sucursal mal formada en `?sucursal=` ahora es un **400** (antes se ignoraba en silencio) y `q` admite hasta 64 caracteres.
+### Internal — VAC
+- Contrato tipado en `libs/contracts` (`VerificadorPrecioResponse`, `VerificadorSnapshot`, `SucursalVerificador`…) y esquemas Zod de la consulta; fuera `http.get<any>` y las copias locales.
+- `KpService` ya tiene pruebas de comportamiento (28 + 10 del controlador), probadas por mutación. El doble de Knex no ejecuta el SQL: el `LPAD` (CV.28) sigue siendo del smoke `[CV.26]` contra la base.
+- Sin migraciones ni permisos nuevos (**sin re-login**). Pendiente de la fase: lectura desde `v_label_prices` y el candado de paridad (necesitan prod), unidades dudosas (L5), descomponer el componente (U1) y la cámara compartida (U2). Plan en [`FASE_VAC`](docs/IMPLEMENTACION/FASES/FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR.md).
 ### Removed — La app del vendedor sin IA: menos peticiones al abrir un cliente y Mi ruta (VTK.8, 2026-10-14)
 - **Tomar pedido** ya no pide sugerencias a Thot (salía al abrir el cliente y otra vez tras cada ráfaga de +/−), ni tiene dictado por voz ni el «por qué ofrecerlo». Quedan «Lo que suele pedir» y «Catálogo · más vendidos»; la canasta sugerida se queda porque es una cuenta local sobre el historial, no IA.
 - **Mi ruta** ya no espera la consulta de «para reordenar» (`/intelligence/nba`) para pintar la lista, ni manda una señal al abrir la hoja de un cliente.
