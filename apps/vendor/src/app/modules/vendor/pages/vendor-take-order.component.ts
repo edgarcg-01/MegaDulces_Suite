@@ -23,7 +23,8 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, forkJoin, from, of, switchMap, catchError, map } from 'rxjs';
 import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
-import { VendorService, VendorCustomer, VendorOrder, FrequentProduct } from '../vendor.service';
+import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type CatalogoAlAbrir } from '../vendor.service';
+import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -215,6 +216,10 @@ const foldText = (s: string | null | undefined): string =>
             @if (stockView() === 'camioneta') {
               <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traés en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
             }
+          }
+          <!-- [VTK.11] Se abrió con el catálogo guardado: se dice de cuándo es mientras llega el nuevo. -->
+          @if (catalogoAviso(); as av) {
+            <p class="cat-age" [class.warn]="av.fallo" role="status"><i class="pi pi-clock" aria-hidden="true"></i> {{ av.texto }}</p>
           }
           <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Catálogo -->
           @if (searchTerm().trim()) {
@@ -614,6 +619,10 @@ const foldText = (s: string | null | undefined): string =>
       .ss-warn i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       .ss-note { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--text-muted); }
       .ss-note i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
+      /* [VTK.11] Edad del catálogo cuando se abrió con la copia guardada. */
+      .cat-age { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-muted); }
+      .cat-age i { font-size: 0.7rem; }
+      .cat-age.warn { color: var(--warn-fg); }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -851,6 +860,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly loadError = signal(false);
   readonly customer = signal<VendorCustomer | null>(null);
   readonly prices = signal<PriceRow[]>([]);
+  /** `[VTK.11]` De dónde salió el catálogo que se ve y de cuándo es. */
+  readonly catalogo = signal<{ origen: OrigenCatalogo; at: number } | null>(null);
+  /** `[VTK.11]` Bajando el catálogo nuevo detrás de la copia que se muestra. */
+  readonly catalogoRefrescando = signal(false);
+  /** `[VTK.11]` La recarga de fondo falló: se sigue con la copia y se dice. */
+  readonly catalogoFallo = signal(false);
+  /**
+   * `[VTK.11]` El aviso de la edad del catálogo (ADR-056). Null cuando lo que se ve acaba de
+   * bajar del servidor: ahí no hay nada que declarar.
+   */
+  readonly catalogoAviso = computed(() => {
+    const c = this.catalogo();
+    const refrescando = this.catalogoRefrescando();
+    const fallo = this.catalogoFallo();
+    if (!c || c.origen === 'servidor') return null;
+    const edad = edadCatalogo(Date.now() - c.at);
+    if (refrescando) return { texto: `Precios y existencia de ${edad} · actualizando…`, fallo: false };
+    if (fallo) return { texto: `Precios y existencia de ${edad} · no se pudo actualizar`, fallo: true };
+    return { texto: `Precios y existencia de ${edad}`, fallo: false };
+  });
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
   /**
@@ -1245,9 +1274,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             warehouseId: of(warehouseId),
             // catalog/draft con fallback: un 403/red en ellos ya no deja la
             // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
+            // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
             catalog: this.api
-              .catalogForCustomer(customer, warehouseId || undefined)
-              .pipe(catchError(() => of({ priceListId: '', prices: [] as PriceRow[] }))),
+              .catalogInstant(customer, warehouseId || undefined)
+              .pipe(
+                catchError(() =>
+                  of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
+                ),
+              ),
             // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
             // el borrador suelto del cliente, como siempre.
             existingDraft: this.editingOrderId()
@@ -1279,16 +1313,24 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.loading.set(false);
           // Cachear el contexto (best-effort) para poder armar el pedido sin red
           // en una próxima visita a este cliente.
+          // [VTK.11] El catálogo sólo se reescribe cuando llegó del servidor; si se abrió con la
+          // copia guardada, se guarda sólo el cliente (reescribir ~10 MB iguales es trabajo de más).
+          this.catalogo.set({ origen: catalog.origen, at: catalog.at });
+          this.catalogoFallo.set(false);
           if (catalog.priceListId) {
-            void this.offlineApi
-              .cacheContext(customerId, {
-                customer,
-                priceListId: catalog.priceListId,
-                warehouseId: warehouseId || '',
-                prices: catalog.prices,
-                frequent,
-              })
-              .catch(() => void 0);
+            const guardar = catalog.origen === 'servidor'
+              ? this.offlineApi.cacheContext(customerId, {
+                  customer,
+                  priceListId: catalog.priceListId,
+                  warehouseId: warehouseId || '',
+                  prices: catalog.prices,
+                  frequent,
+                })
+              : this.offlineApi.cacheCustomer(customerId, { customer, priceListId: catalog.priceListId, frequent });
+            void guardar.catch(() => void 0);
+            if (hayQueRefrescar(catalog.origen, catalog.at, Date.now())) {
+              this.refrescarCatalogo(customer, warehouseId || '', customerId, frequent);
+            }
           }
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
@@ -1354,6 +1396,42 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.stockLoading.set(false);
         },
         error: () => this.stockLoading.set(false),
+      });
+  }
+
+  /**
+   * `[VTK.11]` Baja el catálogo nuevo detrás de la copia con la que se abrió y la reemplaza.
+   * Si mientras tanto el vendedor cambió a ver la camioneta, NO se pisa esa vista: el catálogo
+   * nuevo igual queda guardado para la próxima apertura.
+   */
+  private refrescarCatalogo(
+    customer: VendorCustomer,
+    warehouseId: string,
+    customerId: string,
+    frequent: FrequentProduct[],
+  ): void {
+    this.catalogoRefrescando.set(true);
+    this.api
+      .catalogForCustomer(customer, warehouseId || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fresh) => {
+          this.catalogoRefrescando.set(false);
+          if (!fresh.priceListId || !fresh.prices.length) {
+            this.catalogoFallo.set(true);
+            return;
+          }
+          void this.offlineApi
+            .cacheContext(customerId, { customer, priceListId: fresh.priceListId, warehouseId, prices: fresh.prices, frequent })
+            .catch(() => void 0);
+          if (this.stockView() !== 'sucursal' || this.stockWarehouseId() !== warehouseId) return;
+          this.prices.set(fresh.prices);
+          this.catalogo.set({ origen: 'servidor', at: Date.now() });
+        },
+        error: () => {
+          this.catalogoRefrescando.set(false);
+          this.catalogoFallo.set(true);
+        },
       });
   }
 

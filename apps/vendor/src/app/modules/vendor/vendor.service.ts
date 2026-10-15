@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map, of, switchMap, forkJoin } from 'rxjs';
+import { Observable, map, of, switchMap, forkJoin, from } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   PortalService,
@@ -9,6 +9,17 @@ import {
   OrderLine,
 } from '../portal/portal.service';
 import { AuthService } from '../../core/services/auth.service';
+import { OfflineDatabaseService } from '../../core/services/offline-database.service';
+import { type OrigenCatalogo, sirveCopia } from './catalogo-al-abrir';
+
+/** `[VTK.11]` El catálogo con el que se abre un cliente, y de dónde salió. */
+export interface CatalogoAlAbrir {
+  priceListId: string;
+  prices: PriceRow[];
+  origen: OrigenCatalogo;
+  /** Epoch ms en que se bajó del servidor. */
+  at: number;
+}
 
 /** Subconjunto de `AddressJsonb` (platform-core) que la app muestra. */
 export interface VendorAddress {
@@ -264,7 +275,14 @@ export class VendorService {
   private readonly http = inject(HttpClient);
   private readonly portal = inject(PortalService);
   private readonly auth = inject(AuthService);
+  private readonly offlineDb = inject(OfflineDatabaseService);
   private readonly base = environment.apiUrl + '/commercial';
+
+  /**
+   * `[VTK.11]` El último catálogo bajado en esta sesión, por lista + almacén. Al pasar de un
+   * cliente a otro de la misma ruta se abre desde aquí sin tocar la red.
+   */
+  private readonly catalogosEnMemoria = new Map<string, { prices: PriceRow[]; at: number }>();
 
   /** sub del JWT del vendedor logueado. Lo usamos para scoping de drafts / "Mi día". */
   private get vendorUserId(): string | null {
@@ -363,10 +381,7 @@ export class VendorService {
   ): Observable<{ priceListId: string; prices: PriceRow[] }> {
     return this.portal.listPriceLists().pipe(
       switchMap((priceLists) => {
-        const list =
-          (customer.default_price_list_id &&
-            priceLists.find((p: any) => p.id === customer.default_price_list_id)) ||
-          priceLists.find((p: any) => p.is_default);
+        const list = this.listaDelCliente(customer, priceLists);
         if (!list) return of({ priceListId: '', prices: [] as PriceRow[] });
         // priced_only: el catálogo del vendedor = solo lo pedible (con precio),
         // completo. Sin esto el backend capa a 500 productos. Devolvemos el
@@ -374,7 +389,57 @@ export class VendorService {
         // sort=sales: más vendido → menos vendido (ranking real) arriba.
         return this.portal
           .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales' })
-          .pipe(map((prices) => ({ priceListId: list.id, prices })));
+          .pipe(
+            map((prices) => {
+              // [VTK.11] Queda en memoria para el siguiente cliente de la ruta.
+              this.catalogosEnMemoria.set(`${list.id}|${warehouseId || ''}`, { prices, at: Date.now() });
+              return { priceListId: list.id, prices };
+            }),
+          );
+      }),
+    );
+  }
+
+  /** La lista de precios del cliente: la suya, o la de la empresa por defecto. */
+  private listaDelCliente(
+    customer: VendorCustomer,
+    priceLists: Array<{ id: string; is_default?: boolean }>,
+  ): { id: string } | undefined {
+    return (
+      (customer.default_price_list_id && priceLists.find((p) => p.id === customer.default_price_list_id)) ||
+      priceLists.find((p) => p.is_default)
+    );
+  }
+
+  /**
+   * `[VTK.11]` El catálogo para ABRIR un cliente sin esperar la descarga: primero el de esta
+   * sesión, luego el guardado en el celular, y sólo si no hay copia que sirva, el servidor.
+   * La copia sirve si es de la misma sucursal y tiene menos de un día (`sirveCopia`). Quien la
+   * use debe refrescarla detrás (`hayQueRefrescar`) y decir su edad.
+   */
+  catalogInstant(customer: VendorCustomer, warehouseId?: string): Observable<CatalogoAlAbrir> {
+    const wh = warehouseId || '';
+    return this.portal.listPriceLists().pipe(
+      switchMap((priceLists) => {
+        const list = this.listaDelCliente(customer, priceLists);
+        if (!list) return of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() });
+        const mem = this.catalogosEnMemoria.get(`${list.id}|${wh}`);
+        if (mem && sirveCopia({ warehouseId: wh, at: mem.at }, wh, Date.now())) {
+          return of<CatalogoAlAbrir>({ priceListId: list.id, prices: mem.prices, origen: 'memoria', at: mem.at });
+        }
+        return from(this.offlineDb.getVendorCatalog(list.id).catch(() => undefined)).pipe(
+          switchMap((guardado) => {
+            const at = guardado ? Date.parse(guardado.cachedAt) : Number.NaN;
+            const prices = (guardado?.prices ?? []) as PriceRow[];
+            if (guardado && prices.length && sirveCopia({ warehouseId: guardado.warehouseId, at }, wh, Date.now())) {
+              this.catalogosEnMemoria.set(`${list.id}|${wh}`, { prices, at });
+              return of<CatalogoAlAbrir>({ priceListId: list.id, prices, origen: 'telefono', at });
+            }
+            return this.catalogForCustomer(customer, warehouseId).pipe(
+              map((c): CatalogoAlAbrir => ({ ...c, origen: 'servidor', at: Date.now() })),
+            );
+          }),
+        );
       }),
     );
   }

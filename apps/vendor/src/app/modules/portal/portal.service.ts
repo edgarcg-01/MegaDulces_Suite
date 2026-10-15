@@ -225,6 +225,9 @@ export interface OrderShipmentEntry {
   route_name: string | null;
 }
 
+/** [VTK.10] Cuántos productos pide el catálogo completo: el techo del servidor. */
+export const CATALOGO_COMPLETO = 10000;
+
 @Injectable({ providedIn: 'root' })
 export class PortalService {
   private readonly http = inject(HttpClient);
@@ -312,8 +315,12 @@ export class PortalService {
     // priced_only: trae SOLO los productos pedibles (con precio) del price list,
     // completos en un fetch (sube el techo del backend a 10k). Sin él, el backend
     // capa a 500 → el catálogo queda truncado al primer ~5%.
+    //
+    // [VTK.10] El tope era 8,000 y en prod hay 9,429 productos con precio (medido 2026-10-15): como
+    // el catálogo viene ordenado por venta, los 1,429 MENOS vendidos nunca llegaban al celular y no
+    // aparecían al buscarlos. 10,000 es el techo del servidor (listPrices).
     let params = new HttpParams()
-      .set('pageSize', opts.pricedOnly ? 8000 : 5000)
+      .set('pageSize', opts.pricedOnly ? CATALOGO_COMPLETO : 5000)
       .set('commercial_only', 'true');
     if (opts.pricedOnly) params = params.set('priced_only', 'true');
     // sort=sales → ordenado de más vendido a menos vendido (ranking real).
