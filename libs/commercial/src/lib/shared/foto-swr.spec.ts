@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from 'vitest';
 import { FotoSwr } from './foto-swr';
 
 /** Reloj manual: las pruebas mueven el tiempo, no esperan. */
