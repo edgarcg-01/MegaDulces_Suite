@@ -9223,6 +9223,13 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   corte, el cajero, los valores por defecto del controlador, el libro y la pantalla (una sola
   definición; `grep` fuera de comentarios = 0). Prueba vigía con negativa: con el servicio anterior
   marca `cash-cut.service.ts`. El respaldo del selector decía «00 · CEDIS»: Kepler `'00'` es Oficinas.
+- [ ] 🧪 **`[CGP-L.8]`** El cambio devuelto RESTA. La pantalla manda las dos pilas con su `flujo` y
+  cuadra `recibido − devuelto = monto`; el servidor las SUMABA: **toda captura con cambio se rechazaba
+  por «no cuadra»**, y `detail()` (el comprobante impreso) publicaba un descuadre inventado (medido
+  contra la base: $380 cobrados con $500 → «desglosado $620, diferencia +$240») y listaba el cambio
+  como recibido. `desgloseNeto()` en el motor (una sola cuenta para el candado y el detalle);
+  `detail()` devuelve el `flujo`; el ticket imprime CAMBIO aparte. Prueba nueva contra la base, en el
+  job `caja-db`. 3 mutaciones atrapadas.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

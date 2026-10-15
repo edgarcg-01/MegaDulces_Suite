@@ -456,6 +456,27 @@ servidor ya lo corregía.
 **Pruebas:** `libs/finance/src/lib/caja` 25 archivos, **443**, dos corridas seguidas;
 `caja-general` 383; `libs/contracts` 665.
 
+### 6.3 Estado al 2026-10-15: L.8 (🧪 probado en local)
+
+**`[CGP-L.8]` — el cambio devuelto resta.** La pantalla manda las dos pilas del arqueo con su `flujo`
+(`recibido` / `devuelto`) y cuadra `recibido − devuelto = monto`. El servidor las **sumaba**, en dos
+lugares:
+
+- **`evaluarArqueo`**, el candado de `create()`: un cobro de $380 pagado con $500 y $120 de cambio
+  daba $620 contra $380. **Toda captura con cambio se rechazaba por «no cuadra».**
+- **`detail()`**, que alimenta el comprobante impreso: medido contra la base, ese mismo cobro salía
+  «desglosado $620, diferencia +$240» —un descuadre que no existe— y, como no devolvía el `flujo`, el
+  ticket listaba el cambio como recibido.
+
+`desgloseNeto()` (motor, puro) es la única cuenta para los dos: recibido − devuelto + morralla; un
+renglón sin `flujo` es lo recibido. `detail()` devuelve el `flujo`; la pantalla separa las dos pilas
+(`separarPorFlujo`, `comprobanteDeDetalle`) y el ticket imprime **CAMBIO** aparte.
+
+**Pruebas:** 4 del motor, 1 **contra la base** (`cash-ledger.detalle-real.spec.ts`, agregada al job
+`caja-db` del CI), 2 de la separación, 2 del ticket y 1 del componente. **3 mutaciones atrapadas**
+(el cambio vuelve a sumarse, el ticket no lo imprime, la pantalla mezcla las pilas).
+`libs/finance/src/lib/caja`: 26 archivos, **448**; `caja-general`: **388**.
+
 ⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
 archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
