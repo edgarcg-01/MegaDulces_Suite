@@ -7,7 +7,7 @@ import {
   avisoCortesAbiertos, debeAvisar, huellaDeSituacion, UMBRAL_CORTE_ABIERTO_H,
   type CorteAbiertoFila, type MedicionCortesAbiertos,
 } from './caja-corte-abierto.engine';
-import { jornadasSinCorte } from './caja-jornadas.query';
+import { jornadasSinCorte, bandejaSinConfirmar, hoyMx } from './caja-jornadas.query';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 
@@ -52,7 +52,7 @@ export class CajaCorteAbiertoScannerService {
     this.running = true;
     const t0 = Date.now();
     const fallas: string[] = [];
-    let m: MedicionSensorCorte = { abiertos: [], jornadasSinCorte: [], inicioLibro: null, universo: 0, avisado: false };
+    let m: MedicionSensorCorte = { abiertos: [], jornadasSinCorte: [], inicioLibro: null, bandeja: null, universo: 0, avisado: false };
     try {
       await this.knex.transaction(async (trx) => {
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
@@ -71,10 +71,15 @@ export class CajaCorteAbiertoScannerService {
         const universo = await trx.raw(
           `SELECT count(*)::int AS n FROM finance.cash_ledger WHERE tenant_id = ? AND deleted_at IS NULL`, [tenantId]);
 
+        // `[CGP-L.13]` Y lo tercero: lo que la bandeja propone y nadie confirmó. Mismo pase, misma
+        // transacción y mismo latido — no es un sensor nuevo, es una señal más del que ya corre.
+        const bandeja = await bandejaSinConfirmar(trx, tenantId, await hoyMx(trx));
+
         m = {
           abiertos: abiertos.rows.map((r: CorteAbiertoFila) => ({ folio: r.folio, fecha: r.fecha, horas: Number(r.horas) })),
           jornadasSinCorte: sinCorte.jornadas.map((j) => j.fecha),
           inicioLibro: sinCorte.inicio,
+          bandeja,
           universo: Number(universo.rows[0]?.n ?? 0),
           avisado: false,
         };
@@ -95,6 +100,7 @@ export class CajaCorteAbiertoScannerService {
       durationMs: Date.now() - t0,
       fallas,
       note: `${m.abiertos.length} abierto(s) · ${m.jornadasSinCorte.length} jornada(s) sin corte`
+        + (m.bandeja ? ` · ${m.bandeja.movimientos} en bandeja` : ' · bandeja NO MEDIDA')
         + (aviso ? ` · ${aviso.severity}` : ' · sin aviso'),
     });
 
