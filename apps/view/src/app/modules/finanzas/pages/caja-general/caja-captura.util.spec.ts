@@ -10,6 +10,7 @@ import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
+  conflictoDeEsperado,
   type FormularioCaja, type CorteVista,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -448,5 +449,40 @@ describe('[CG.160] sin documento, hay que decir por qué', () => {
   it('el texto dice QUÉ hacer, y nombra el mínimo que el servidor va a exigir', () => {
     expect(TEXTO_BLOQUEO.falta_motivo_sin_documento).toContain(String(MOTIVO_SIN_DOC_MIN));
     expect(TEXTO_BLOQUEO.falta_motivo_sin_documento.toLowerCase()).toContain('kepler');
+  });
+});
+
+describe('[CGP-V.12] conflictoDeEsperado — el 409 del cierre se lee para poder confirmarlo', () => {
+  const conflicto = {
+    status: 409,
+    error: {
+      motivo: 'esperado_cambio', esperado_mostrado: 1500, esperado_actual: 1800,
+      message: 'El esperado cambió desde que se contó: se mostró $1,500.00 y ahora da $1,800.00.',
+    },
+  };
+
+  it('lee las dos cifras y la frase del servidor', () => {
+    expect(conflictoDeEsperado(conflicto)).toEqual({
+      mostrado: 1500, actual: 1800, mensaje: conflicto.error.message,
+    });
+  });
+
+  it('las cifras que llegan como texto (numeric de Postgres) se convierten a número', () => {
+    const r = conflictoDeEsperado({ ...conflicto, error: { ...conflicto.error, esperado_actual: '1800.00' } });
+    expect(r?.actual).toBe(1800);
+  });
+
+  it('⛔ otro 409 no es este conflicto: no se ofrece confirmar nada', () => {
+    expect(conflictoDeEsperado({ status: 409, error: { motivo: 'otra_cosa' } })).toBeNull();
+  });
+
+  it('⛔ un 400 (la reja tecleada, L.1) no es este conflicto', () => {
+    expect(conflictoDeEsperado({ ...conflicto, status: 400 })).toBeNull();
+  });
+
+  it('⛔ sin las dos cifras no se ofrece confirmar un número que no llegó', () => {
+    expect(conflictoDeEsperado({ status: 409, error: { motivo: 'esperado_cambio', esperado_mostrado: 1500 } })).toBeNull();
+    expect(conflictoDeEsperado(null)).toBeNull();
+    expect(conflictoDeEsperado(new Error('red caída'))).toBeNull();
   });
 });

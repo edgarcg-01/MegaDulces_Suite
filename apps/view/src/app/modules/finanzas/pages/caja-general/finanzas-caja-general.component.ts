@@ -49,7 +49,7 @@ import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
-  type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
+  type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
 } from './caja-captura.util';
 
 /** Etiquetas de lo que se PINTA. El enum de la columna (`deposito`, `sin_contar`) es de la DB. */
@@ -3165,6 +3165,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              importes se calculan, y las flechas bajan por la columna en vez de incrementar el
              valor. La clase es distinta ("cg-pieza-corte") a proposito: el foco de este dialogo
              no puede saltar a los inputs del otro. -->
+        @if (conflictoEsperado(); as cf) {
+          <!-- CGP-V.12: el esperado cambio despues de contar porque entro o cambio un movimiento de
+               la jornada. Se dice aca, con las dos cifras, y el boton de abajo confirma la nueva.
+               Antes era un aviso de 7 segundos sin salida: un callejon como el del 12-oct. -->
+          <p-message severity="warn" class="cg-full">{{ cf.mensaje }}</p-message>
+        }
         <p class="cg-cap">Desglose del efectivo del corte</p>
         <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
           <ng-template #header>
@@ -3239,7 +3245,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       [loading]="sellando()"
                       [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sellando()" (onClick)="recontar()"></p-button>
           }
-          <p-button label="Cerrar corte" icon="pi pi-check" size="small"
+          <p-button [label]="conflictoEsperado() ? 'Confirmar ' + money(conflictoEsperado()!.actual) + ' y cerrar' : 'Cerrar corte'"
+                    icon="pi pi-check" size="small"
                     [loading]="cerrando()"
                     [disabled]="!gateCierre().ok || cerrando()" (onClick)="cerrarCorte()"></p-button>
         }
@@ -3457,6 +3464,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Banderas de ocupado: sin ellas el doble clic abría dos cortes y autorizaba dos veces. */
   abriendo = signal(false);
   cerrando = signal(false);
+  /**
+   * `[CGP-V.12]` El esperado cambió desde que se contó (el 409 de `[CGP-L.2]`): las dos cifras y la
+   * frase del servidor. Mientras exista, el diálogo lo muestra y el botón confirma la cifra nueva.
+   */
+  conflictoEsperado = signal<ConflictoEsperado | null>(null);
   autorizando = signal(false);
   conceptos = signal<Array<ConceptoKepler & { label: string }>>([]);
   /** CG.19 — los movimientos de Kepler sin aplicar, y cuál se eligió en el diálogo. */
@@ -5073,7 +5085,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   abrirCierre(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
-    this.revelado.set(null); this.motivoReconteo.set('');
+    this.revelado.set(null); this.motivoReconteo.set(''); this.conflictoEsperado.set(null);
     /**
      * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
      * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
@@ -5146,14 +5158,22 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const c = this.corteAbierto();
     if (!c || !this.gateCierre().ok || this.cerrando()) return;
     this.cerrando.set(true);
-    this.svc.cerrarCorte(c.id, this.conteoCorte(), this.morrallaCorte()).subscribe({
+    // [CGP-V.12] Con un conflicto a la vista, el botón confirma el esperado que la persona VIO.
+    this.svc.cerrarCorte(c.id, this.conteoCorte(), this.morrallaCorte(), undefined, this.conflictoEsperado()?.actual).subscribe({
       next: () => {
         this.cerrando.set(false);
-        this.cierreAbierto.set(false);
+        this.cierreAbierto.set(false); this.conflictoEsperado.set(null);
         this.avisarOk('Corte cerrado', 'Queda pendiente de autorizar por otra persona.');
         this.cargarSaldo(); this.cargar(); this.cargarCortes();
       },
-      error: (e) => { this.cerrando.set(false); this.avisarError(e, 'No se pudo cerrar el corte'); },
+      error: (e) => {
+        this.cerrando.set(false);
+        // [CGP-V.12] El esperado cambió desde el conteo: se dice DENTRO del diálogo y se confirma
+        // con el botón, en vez de un aviso de 7 s sin salida. Cualquier otro error sigue al aviso.
+        const cf = conflictoDeEsperado(e);
+        if (cf) { this.conflictoEsperado.set(cf); return; }
+        this.avisarError(e, 'No se pudo cerrar el corte');
+      },
     });
   }
 

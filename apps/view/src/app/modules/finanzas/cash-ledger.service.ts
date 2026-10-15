@@ -326,8 +326,16 @@ export class CashLedgerService {
     return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/recontar`, { conteo, morralla, motivo });
   }
 
-  cerrarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, nota?: string): Observable<CorteCaja & { totales: TotalesCorte }> {
-    return this.http.post<CorteCaja & { totales: TotalesCorte }>(`${this.base}/cortes/${id}/cerrar`, { conteo, morralla, nota });
+  /**
+   * `[CGP-V.12]` `esperadoVisto`: el esperado que la persona confirmó después de un 409 de
+   * `[CGP-L.2]` (cambió desde el conteo). Sin él, el servidor compara contra lo que reveló el conteo.
+   */
+  cerrarCorte(
+    id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, nota?: string,
+    esperadoVisto?: number,
+  ): Observable<CorteCaja & { totales: TotalesCorte }> {
+    return this.http.post<CorteCaja & { totales: TotalesCorte }>(`${this.base}/cortes/${id}/cerrar`,
+      { conteo, morralla, nota, esperado_visto: esperadoVisto });
   }
 
   /** Devuelve 403 si lo intenta quien cerró: la doble llave está en la DB, no acá. */

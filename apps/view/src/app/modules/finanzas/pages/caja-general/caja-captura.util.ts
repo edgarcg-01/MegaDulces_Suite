@@ -532,3 +532,27 @@ export function textoSaldo(
    */
   return `Esperado en caja: ${m} (corte ${r.corte_abierto?.folio ?? '—'}).`;
 }
+
+/**
+ * `[CGP-V.12]` El 409 de `cerrar()` cuando el esperado cambió desde que se contó (`[CGP-L.2]`).
+ *
+ * Si entró un movimiento de la jornada después de contar, el servidor ya no firma en silencio otro
+ * esperado: responde 409 con las dos cifras. Esto las lee para que el diálogo de cierre las MUESTRE
+ * y ofrezca confirmar la nueva; sin esto el 409 caía en un aviso de 7 s sin salida — un callejón.
+ *
+ * ⚠️ Sin las dos cifras numéricas devuelve `null`: no se ofrece confirmar un número que no llegó, y
+ * el error sigue por el aviso normal.
+ */
+export interface ConflictoEsperado { mostrado: number; actual: number; mensaje: string }
+
+export function conflictoDeEsperado(e: unknown): ConflictoEsperado | null {
+  const err = e as {
+    status?: number;
+    error?: { motivo?: string; message?: unknown; esperado_mostrado?: unknown; esperado_actual?: unknown };
+  } | null;
+  if (!err || err.status !== 409 || err.error?.motivo !== 'esperado_cambio') return null;
+  const mostrado = Number(err.error.esperado_mostrado);
+  const actual = Number(err.error.esperado_actual);
+  if (!Number.isFinite(mostrado) || !Number.isFinite(actual)) return null;
+  return { mostrado, actual, mensaje: String(err.error.message ?? '') };
+}

@@ -4159,5 +4159,62 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
     expect(t).not.toBe('sin_medir');
     expect(t.toLowerCase()).not.toContain('no cuadra');
   });
+
+  // ── `[CGP-V.12]` El esperado cambió desde el conteo (el 409 de `[CGP-L.2]`) ──────────────────
+  //
+  // Si entra un movimiento de la jornada después de contar, el servidor ya no firma otro esperado
+  // en silencio: responde 409. Sin esto la pantalla lo mostraba en un aviso de 7 s y no había forma
+  // de confirmar — un callejón nuevo, el mismo tipo de defecto que trabó el 12-oct.
+  const conflicto409 = () => throwError(() => ({
+    status: 409,
+    error: {
+      motivo: 'esperado_cambio', esperado_mostrado: 1500, esperado_actual: 1800,
+      message: 'El esperado cambió desde que se contó: se mostró $1,500.00 y ahora da $1,800.00.',
+    },
+  }));
+  const sellado1500 = { contado: 1500, esperado: 1500, diferencia: 0, veredicto: 'cuadra', ya_reconto: false };
+
+  it('⛔ [CGP-V.12] si el esperado cambió, el diálogo lo MUESTRA con las dos cifras y no se cierra', () => {
+    montar({ saldo: conSellado(sellado1500), cerrarCorte: vi.fn(conflicto409) });
+    comp.abrirCierre();
+    comp.cerrarCorte();
+    expect(comp.conflictoEsperado()).toMatchObject({ mostrado: 1500, actual: 1800 });
+    expect(comp.cierreAbierto()).toBe(true);
+    // El primer intento va SIN confirmación: nadie vio todavía el esperado nuevo.
+    expect(svc['cerrarCorte'].mock.calls[0][4]).toBeUndefined();
+  });
+
+  it('[CGP-V.12] confirmar reenvía el esperado que la persona VIO, y cierra', () => {
+    const cerrar = vi.fn()
+      .mockImplementationOnce(conflicto409)
+      .mockImplementationOnce(() => of({ id: 'c1', estado: 'cerrado', totales: {} }));
+    montar({ saldo: conSellado(sellado1500), cerrarCorte: cerrar });
+    comp.abrirCierre();
+    comp.cerrarCorte();     // 409: aparece el conflicto
+    comp.cerrarCorte();     // la persona confirma
+    expect(cerrar).toHaveBeenCalledTimes(2);
+    expect(cerrar.mock.calls[1][4]).toBe(1800);
+    expect(comp.conflictoEsperado()).toBeNull();
+    expect(comp.cierreAbierto()).toBe(false);
+  });
+
+  it('⛔ [CGP-V.12] otro error NO se confunde con el conflicto: sigue yendo al aviso', () => {
+    montar({
+      saldo: conSellado(sellado1500),
+      cerrarCorte: vi.fn(() => throwError(() => ({ status: 400, error: { message: 'El conteo de este corte ya está sellado.' } }))),
+    });
+    comp.abrirCierre();
+    comp.cerrarCorte();
+    expect(comp.conflictoEsperado()).toBeNull();
+  });
+
+  it('[CGP-V.12] reabrir el diálogo limpia un conflicto viejo', () => {
+    montar({ saldo: conSellado(sellado1500), cerrarCorte: vi.fn(conflicto409) });
+    comp.abrirCierre();
+    comp.cerrarCorte();
+    expect(comp.conflictoEsperado()).not.toBeNull();
+    comp.abrirCierre();
+    expect(comp.conflictoEsperado()).toBeNull();
+  });
 });
 });
