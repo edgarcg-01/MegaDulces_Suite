@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
@@ -82,6 +83,28 @@ describe('[VAC.L6] KpController', () => {
     expect(kp.getPrecio).toHaveBeenLastCalledWith('', undefined);
     expect(c.getPreciosTodos({ sucursal: '01' })).toBe('r2');
     expect(kp.getPreciosTodos).toHaveBeenCalledWith('01');
+  });
+
+  /**
+   * ⛔ La prueba que faltaba el 2026-10-15, cuando `[VAC]` tiró la API en PRODUCCIÓN con los
+   * CUATRO checks del CI en verde. El defecto no era de tipos ni de lint: el parámetro decorado
+   * estaba anotado con el NOMBRE DEL ESQUEMA, que también existe como valor, así que
+   * `emitDecoratorMetadata` emitía el objeto Zod en `design:paramtypes` y Swagger moría al
+   * arrancar leyendo `.constructor`.
+   *
+   * Las pruebas por regex que ya había NO lo veían: fijaban el texto del renglón que mataba el
+   * arranque y lo daban por bueno. Ésta mira la metadata que Swagger realmente lee.
+   *
+   * ⚠️ Primero comprueba que HAY metadata: sin `emitDecoratorMetadata` la lista sale vacía y la
+   * prueba pasaría sin medir nada — que es la forma de fallar que ya nos costó dos veces hoy.
+   */
+  it('⛔ el parámetro decorado NO lleva el esquema Zod en design:paramtypes (Swagger no arranca)', () => {
+    for (const [metodo, esquema] of [['getPrecio', VerificadorPrecioQuery], ['getPreciosTodos', VerificadorPreciosTodosQuery]] as const) {
+      const tipos = Reflect.getMetadata('design:paramtypes', KpController.prototype, metodo);
+      expect(Array.isArray(tipos) && tipos.length > 0,
+        `sin design:paramtypes en ${metodo} esta prueba no mide nada`).toBe(true);
+      expect(tipos).not.toContain(esquema);
+    }
   });
 
   it('cada ruta pública lleva el pipe de validación puesto (texto de la fuente)', () => {
