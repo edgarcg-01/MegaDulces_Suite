@@ -498,3 +498,75 @@ repone — el radio de daño se queda en *traer lo que el ERP ya tiene*.
 - **El barrido cubre 5 tablas** (las que tienen fecha de negocio). Las que no la tienen las mira
   `--chicas` cada 30 min, pero **con su propio universo acotado**, no con ventana ancha.
 - **La ventana del carril continuo sigue en 3 días.** El semanal la compensa; no la cambia.
+
+---
+
+# `[VEC.20]` — «Telemarketing» es VENTA A CRÉDITO de la ruta, y su cadena hasta el banco existe entera
+
+> Edgar, 2026-10-15: *"se llama telemarketing pero son ventas a crédito que después. Hay que
+> agregarlas aquí y cazarlas con su depósito… para conciliar el depósito, la factura y las ventas"*.
+
+⛔ **Yo lo tenía mal.** `[VEC.11]` publicaba `U-D-8` como *"venta real, de otro canal"* y lo dejaba
+**fuera** del total de la ruta, declarado pero sin sumar, esperando una decisión de negocio. La
+decisión ya estaba tomada en el ERP y no la había mirado: **el propio Kepler lo registra como
+CARGO EN CARTERA**.
+
+```
+doc_code   doc_label                cargo/abono   docs 2026   importe 2026
+UD0801     Factura Telemarketing         C          4,457     $30,345,234.05
+```
+
+Es venta a crédito con todas las letras: tiene **cliente, vencimiento, saldo y estatus**.
+
+## La cadena, verificada salto por salto
+
+```
+kdm1  U-D-8              la ruta factura a crédito
+  └─ kdue  UD0801  (C)   cargo en cartera — vencimiento, saldo, estatus
+       └─ kdm5           la APLICACIÓN: liga el abono con la factura que salda
+            └─ kdue  UA0501 (A)   el cobro
+                 └─ analytics.erp_collections   medio_cobro + cuenta_tesoreria
+                      └─ [Fase CB]  el movimiento bancario
+```
+
+**Los cuatro primeros saltos están medidos y funcionan.** Para las rutas vecinales, ago→oct:
+
+| suc | ruta | facturas | facturado | **saldo sin cobrar** | con cobro |
+|---|---|---:|---:|---:|---:|
+| 01 | `1V001` | 35 | $281,613.32 | **$111,327.20** | 17 |
+| 08 | `2V004` | 2 | $16,671.18 | **$16,671.18** | 0 |
+| 08 | `2V005` | 2 | $8,402.38 | $365.52 | 2 |
+
+⚠️ **$128,363.90 facturados por las rutas y todavía sin cobrar**, que hoy no se ven en ninguna
+pantalla. `2V004` no tiene un solo cobro aplicado.
+
+## ⭐ El depósito: la ficha NO es el camino, el cobro ya lo dice
+
+`finance.collection_deposits` (Fase CC, la ficha escaneada con OCR) tiene **CERO filas, de
+ninguna sucursal**, contra 5,661 cobros desde agosto. ⛔ No es que nadie suba fichas: **Fase CC
+nunca terminó de desplegarse** (su propio tracker lo dice: *"pendiente prod: redeploy + correr
+importer desde LAN"*). *Cero filas por un defecto es indistinguible de cero filas por desuso.*
+
+⭐ **Pero no hace falta.** `analytics.erp_collections` ya trae `medio_cobro` y `cuenta_tesoreria`:
+
+```
+suc 01 · banco · BBVA 6721 ......  382 cobros · $4,629,570.93
+suc 01 · banco · BANORTE 3041 ...  144 cobros · $2,094,398.87
+suc 01 · caja  · CAJA GENERAL ...   10 cobros ·   $228,963.18
+suc 08 · banco · BAJIO 6506 .....   18 cobros · $1,335,910.74
+```
+
+O sea que *«¿se depositó, y en qué cuenta?»* se contesta **hoy**, sin esperar a Fase CC. Y
+`cuenta_tesoreria` es la misma nomenclatura que `finance.bank_accounts` de Fase CB, así que el
+último tramo —cobro ↔ movimiento bancario— también es alcanzable.
+
+## Lo que falta construir
+
+1. **`/comercial/ventas-por-ruta`**: la venta a crédito entra al total de la ruta (decisión de
+   Edgar), con su estado de cobranza — facturado · cobrado · saldo · vencido.
+2. **`/comercial/documentos`**: el documento con su cadena completa, factura → cobro → cuenta.
+3. Una **vista canónica** que resuelva la cadena una sola vez, para que las dos pantallas no la
+   re-deriven cada una (prototipo medido: **1.2–1.5 s**, hay que bajarlo antes de publicarlo).
+
+⛔ **`U-D-12` sigue FUERA y eso no cambia**: en estas rutas es espejo (98.2 % de solape, placebo 0,
+y el arqueo lo ignora). Lo que entra es `U-D-8`, que es el crédito de verdad.
