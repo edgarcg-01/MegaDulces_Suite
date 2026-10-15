@@ -264,6 +264,34 @@ Medido en local (PostgreSQL 18.4 portátil en `C:/tmp`, `knex`/`pg` del lockfile
 | `test-newdb-cash-ledger-cuts.js` | **43 ✓ / 0 ✗ / 4 NO MEDIDO** (los 4 piden datos reales o HTTP; ya venían declarados) |
 | Prevuelo de la migración (negativas) | aborta y nombra el folio si un corte ya viola una regla; aborta como NO MEDIDO si el rol no salta RLS; no deja nada a medias |
 | Preparador (negativas) | se niega a un destino no local (clasificó `192.168.0.222` como prod) y a una base con historia |
+| **Servicio REAL** (`cash-cut.servicio-real.spec.ts`, `[CGP-L.0]`) | **6/6**, el código de prod conectado como `app_runtime`. En **rojo** al apagar la guardia de la base |
+| Todo `libs/finance/src/lib/caja` | **19 archivos, 394 pruebas en verde** |
+
+**`[CGP-L.0]` — el servicio real, no una imitación.** La suite de invariantes imita el orden de
+escritura del servicio; ésta EJECUTA `CashCutService` (con el `TenantKnexService` real) con el
+payload de la pantalla:
+1. abrir → contar → cerrar sin teclear (lo que manda la pantalla al recargar) → autorizar con
+   doble llave;
+2. cerrar con el mismo conteo sellado en la reja (lo que manda sin recargar);
+3. ⛔ **cerrar con otra cifra en la reja lo frena la base** y el corte queda intacto. Con la
+   guardia apagada esta prueba se pone roja, o sea que **el código de `cerrar()` de hoy sí deja
+   pasar la cifra tecleada**: lo único que lo frena es la regla nueva de la base. Hoy sale como
+   error crudo (un 500); `[CGP-L.1]` lo vuelve un 400 con frase;
+4. recontar con dos `UPDATE` en la misma transacción y después cerrar;
+5. el cajón de la `00` ata y suma el gasto que otra plaza pagó desde él (el caso del 12-oct);
+6. un segundo corte de la misma sucursal y fecha lo frena la base.
+
+Sin `CAJA_TEST_DB_URL` se salta y lo declara, así no rompe el job de pruebas del CI (sin Postgres).
+
+⚠️ **`[CGP-D.2c]` Fragilidad encontrada en `test-newdb-cash-ledger-cuts.js`:** mide el saldo corrido
+de la `00` en ABSOLUTO, o sea que da por hecho que la sucursal está vacía. Corrida después de la
+prueba del servicio (que confirma sus datos) da **41 ✓ / 2 ✗** (esperaba 500, vio 7,500). En el CI
+se resuelve por orden (las suites que deshacen primero, el servicio al final); el arreglo de fondo
+es medir el saldo como diferencia contra lo que había antes.
+
+⚠️ **Lo mismo que trabó prod tres días, visto en la prueba:** un corte en borrador bloquea **todo**
+corte nuevo de su sucursal, de cualquier fecha (`ux_cash_cut_abierto`). La primera versión de la
+prueba lo pisó al repetirse sobre la misma base.
 
 ⭐ **La suite encontró algo en el camino:** la primera base armada no tenía el `USAGE` de
 `finance` para `app_runtime` (en prod lo da la migración de Maat que creó el schema). Todas las

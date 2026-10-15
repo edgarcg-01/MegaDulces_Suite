@@ -9126,6 +9126,12 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   de soltar el código que la nombra.**
 - [ ] 🧪 `[CGP-D.5]` Privilegios de `app_runtime` verificados uno por uno. La suite encontró que la
   base armada no tenía el `USAGE` de `finance` (lo da en prod la migración de Maat).
+- [ ] 🧪 **`[CGP-L.0]`** El SERVICIO REAL del corte (`cash-cut.servicio-real.spec.ts`) contra la base
+  de caja, como `app_runtime`: **6/6** en local, repetible, y en ROJO con la guardia de la base
+  apagada (prueba que `cerrar()` de hoy deja pasar la reja tecleada y solo la base lo frena).
+  Todo `libs/finance/src/lib/caja`: 19 archivos, 394 pruebas en verde. Va en el job `caja-db`.
+- [ ] ⬜ `[CGP-D.2c]` `test-newdb-cash-ledger-cuts.js` mide el saldo corrido de la 00 en absoluto
+  (asume la sucursal vacía): falla si corre después de datos confirmados. Medir como diferencia.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
