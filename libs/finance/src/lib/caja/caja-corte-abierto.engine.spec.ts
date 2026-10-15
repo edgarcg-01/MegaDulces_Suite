@@ -87,4 +87,68 @@ describe('[CGP-L.10] avisoCortesAbiertos', () => {
     const a = avisoCortesAbiertos({ ...sano, abiertos: [{ folio: 'CC-1', fecha: '2026-10-15', horas: 30.4 }] });
     expect(a?.message).toMatch(/lleva 30 h abierto/);
   });
+
+  /**
+   * `[CGP-L.13]` La tercera señal: la bandeja propone y nadie confirma.
+   * Medido en prod el 2026-10-15: el 14-oct quedaron **35 gastos sin confirmar por $159,929.71**,
+   * y los 35 ya estaban en la bandeja ESE día (29 capturados por el ERP el 14, 6 el 13). Ningún
+   * sistema avisó.
+   */
+  describe('[CGP-L.13] la bandeja sin confirmar', () => {
+    const bandeja = { movimientos: 35, monto: 159929.71, masViejo: '2026-10-14', dias: 1 };
+
+    it('avisa con lo de ayer sin confirmar, aunque el corte esté sano', () => {
+      const a = avisoCortesAbiertos({ ...sano, bandeja });
+      expect(a).toMatchObject({ severity: 'warn' });
+      expect(a?.title).toContain('sin confirmar');
+      expect(a?.message).toContain('35 movimientos');
+      expect(a?.message).toContain('$159,929.71');
+      expect(a?.message).toContain('14-oct');
+    });
+
+    it('⛔ a los dos días es crítico', () => {
+      const a = avisoCortesAbiertos({ ...sano, bandeja: { ...bandeja, dias: 2 } });
+      expect(a?.severity).toBe('critical');
+    });
+
+    it('lo de HOY todavía no es un olvido: no avisa', () => {
+      expect(avisoCortesAbiertos({ ...sano, bandeja: { ...bandeja, dias: 0 } })).toBeNull();
+    });
+
+    it('la bandeja al día no avisa', () => {
+      expect(avisoCortesAbiertos({ ...sano, bandeja: { movimientos: 0, monto: 0, masViejo: '2026-10-15', dias: 0 } })).toBeNull();
+    });
+
+    /**
+     * ⛔ **`null` es NO MEDIDO y no es «al día»** (ADR-056). Si la vista no está, el sensor no
+     * puede afirmar que la bandeja esté limpia — y tampoco puede inventar una alarma.
+     */
+    it('sin medición no habla, ni para bien ni para mal', () => {
+      expect(avisoCortesAbiertos({ ...sano, bandeja: null })).toBeNull();
+      expect(avisoCortesAbiertos({ ...sano, bandeja: undefined })).toBeNull();
+    });
+
+    it('con un corte trabado, el título sigue siendo el del corte: es lo que BLOQUEA', () => {
+      const a = avisoCortesAbiertos({
+        abiertos: [{ folio: 'CC-2026-00001', fecha: '2026-10-12', horas: 75 }],
+        jornadasSinCorte: [], inicioLibro: '2026-10-12', bandeja,
+      });
+      expect(a?.title).toContain('corte');
+      expect(a?.message).toContain('CC-2026-00001');
+      expect(a?.message).toContain('35 movimientos');
+    });
+
+    /**
+     * Confirmar 3 de 35 no es una situación nueva: si la huella cambiara con el conteo, la campana
+     * volvería a sonar cada vez que alguien avanza, que es la forma de enseñar a ignorarla.
+     */
+    it('la huella NO cambia al confirmar algunos; sí cuando aparece un día más viejo', () => {
+      const m1 = { ...sano, bandeja };
+      const m2 = { ...sano, bandeja: { ...bandeja, movimientos: 32, monto: 140000 } };
+      const m3 = { ...sano, bandeja: { ...bandeja, masViejo: '2026-10-13', dias: 2 } };
+      const h = (m: typeof m1) => huellaDeSituacion(m, avisoCortesAbiertos(m)!);
+      expect(h(m1)).toBe(h(m2));
+      expect(h(m1)).not.toBe(h(m3));
+    });
+  });
 });

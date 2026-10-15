@@ -85,6 +85,71 @@ export async function jornadasSinCorte(
   };
 }
 
+/** `[CGP-L.13]` Lo que la bandeja propone y nadie confirmó. `null` = NO SE PUDO MEDIR. */
+export interface BandejaSinConfirmar {
+  movimientos: number;
+  monto: number;
+  /** El documento más viejo que sigue sin confirmar (`YYYY-MM-DD`). */
+  masViejo: string;
+  /** Días que lleva esperando el más viejo. */
+  dias: number;
+}
+
+/**
+ * ⛔⛔ `[CGP-L.13]` **LA BANDEJA PROPONE Y NADIE LA MIRA.**
+ *
+ * Medido en prod el 2026-10-15, desde que ADR-070 hizo a la Suite el libro (12-oct): de 111
+ * movimientos de Caja General que el ERP registró, **51 se confirmaron y 60 no** ($389,038.99). Y el
+ * **14-oct** se desplomó: **4 de 39**, con $159,929.71 colgando.
+ *
+ * ⭐ **No es rezago de la ingesta, y eso es lo que lo vuelve accionable:** los 35 gastos del 14 que
+ * quedaron sin confirmar entraron al ERP **ese mismo día (29) o el anterior (6)**. Estaban en la
+ * bandeja cuando ocurrieron. Es el mismo patrón que `[CGP-L.10]`: *tres jornadas trabadas y ningún
+ * sistema avisó* — acá, un día entero sin confirmar y tampoco.
+ *
+ * ── Dos decisiones del alcance, y las dos tienen porqué ───────────────────────────────────────
+ *
+ * 1. **Desde el PRIMER corte**, igual que `jornadasSinCorte`. Sin eso el sensor nacería rojo para
+ *    siempre: en la ventana de 45 días del código hay **1,965 movimientos por $17.8M**, casi todos
+ *    de antes de que el módulo existiera. *Un denominador que incluye el pasado que nadie iba a
+ *    capturar no mide trabajo pendiente, mide historia* — me pasó midiendo esto: la primera cifra
+ *    dio 3% de confirmación y la correcta es 46%.
+ * 2. **Sólo lo que ya cumplió un día** (`fecha_valor <= hoy − 1`). Lo de hoy todavía es trabajo del
+ *    día, no un olvido.
+ *
+ * ⚠️ `null` cuando la vista no existe (la base de pruebas del corte no la trae): **no se declara
+ * cero**, que sería indistinguible de «la bandeja está al día» (ADR-056).
+ */
+export async function bandejaSinConfirmar(
+  trx: Knex | Knex.Transaction, tenantId: string, hoy: string,
+): Promise<BandejaSinConfirmar | null> {
+  const existe = await trx.raw(`SELECT to_regclass('finance.v_caja_movimientos_pendientes') AS t`);
+  if (!existe.rows?.[0]?.t) return null;
+
+  const r = await trx.raw(`
+    WITH inicio AS (SELECT min(fecha) AS d FROM finance.cash_ledger_cuts WHERE tenant_id = ?)
+    SELECT count(*)::int AS movimientos,
+           coalesce(sum(p.monto), 0)::float AS monto,
+           to_char(min(p.fecha_valor), 'YYYY-MM-DD') AS mas_viejo,
+           coalesce((?::date - min(p.fecha_valor)::date), 0)::int AS dias
+      FROM finance.v_caja_movimientos_pendientes p, inicio
+     WHERE p.tenant_id = ?
+       -- 0011 es la cuenta de CAJA GENERAL en Kepler; la vista ya la usa para la pierna de las
+       -- rutas. Sin este filtro entrarían los bancos y la bandeja mediría otra caja.
+       AND p.clave_banco = '0011'
+       AND inicio.d IS NOT NULL AND p.fecha_valor >= inicio.d
+       AND p.fecha_valor <= (?::date - 1)`, [tenantId, hoy, tenantId, hoy]);
+
+  const f = r.rows[0];
+  if (!f || Number(f.movimientos) === 0) return { movimientos: 0, monto: 0, masViejo: hoy, dias: 0 };
+  return {
+    movimientos: Number(f.movimientos),
+    monto: Number(f.monto),
+    masViejo: String(f.mas_viejo),
+    dias: Number(f.dias),
+  };
+}
+
 /** La fecha de hoy en México, la de la BASE: el reloj del servidor de la app puede estar en otra zona. */
 export async function hoyMx(trx: Knex | Knex.Transaction): Promise<string> {
   const r = await trx.raw(`SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD') AS d`);
