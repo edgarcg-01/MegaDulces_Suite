@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Fixed — Caja Fuerte (CAOS): la pantalla acusaba de $18.5 M de efectivo «sin respaldo» por un defecto nuestro (CG.162/CG.163, 2026-10-15)
+- El panel de atribución publicaba **«Sin respaldo (ningún cobro lo explica): $18,500,100 · 757 depósitos»**, y el carril automático latía en `error` **cada hora** desde hacía días. No era un problema del efectivo ni de la gente: el servicio leía la fecha de cada cobro con `String(fecha_valor).slice(0,10)` sobre una columna `date`, que el driver entrega como objeto `Date` → `"Wed May 27"`. Como cualquier letra ordena después de `"2026-…"`, el motor descartaba **todos** los cobros en la primera comparación. **Tras el arreglo, contra las filas reales: 758 depósitos, 758 cubiertos, 0 sin respaldo.**
+- Ahora el motor **se niega** ante una fecha ilegible en vez de degradar a «sin respaldo»: un error de lectura ya no puede publicarse como un veredicto de negocio. Prueba nueva contra el driver real (sólo-lectura), además de las que ya existían con datos literales — que estaban las 12 en verde mientras producción estaba rota.
+- El mismo defecto, sobre la misma vista y columna, estaba en un camino de **Caja General que escribe al libro**: corregido también.
+- **El panel «Resumen por operador y ruta» devolvía 500** cada vez que alguien lo abría, y la pantalla lo pintaba como «no hubo movimientos». Se quitó la regex que lo causaba: el panel ahora deriva del resolvedor de grano que ya existía con pruebas. La ruta 22 recupera sus **21 depósitos / $335,240** (la regex mostraba 4 y repartía el resto entre 19 «rutas» inventadas como `Ruta 22240926`); Canindo se declara como plaza en vez de asignarle una ruta al azar, y la vecinal se separa de «sin ruta declarada».
+- **El KPI «Balance» no era un balance**: dejaba fuera 37 movimientos por $4,870,730 que sí aparecían en la tabla. Se llama ahora «Depósitos − dispensado» y lo excluido se publica aparte, declarado.
+- **La pantalla abre ~100× más rápido**: los paneles plegados consultaban al entrar y cada 60 segundos, incluido el cuadre contra Kepler (~1 s). Ahora cada panel carga al abrirse.
+- Un fallo de cualquier panel se declara con botón de reintentar, en vez de verse como un rango vacío. Se agregan la antigüedad del dato, el filtro por los 7 tipos que la máquina registra (había 4), el aviso cuando el desglose por denominación no suma el total, y la ayuda contextual del módulo.
+
 ### Changed — La interfaz le habla de TÚ, no de VOS: 1,525 formas corregidas en 311 archivos (2026-10-15)
 - Toda la suite le hablaba al usuario en **voseo rioplatense** («No tenés pedidos», «Elegí una sucursal», «Revisá el corte», «Confirmás la entrega»). La gente que la usa es mexicana: el registro correcto es el **tuteo** («No tienes», «Elige», «Revisa», «Confirmas»). Pedido de Edgar.
 - Alcance: **sólo texto que ve el usuario** — literales de cadena en `.ts` y cuerpo de los `.html` de `apps/view`, `apps/portal`, `apps/vendor` y `libs/*`. **Los comentarios de código quedaron intactos a propósito**: la memoria interna del repo está escrita en voseo y reescribirla serían miles de líneas de diff que no cambian una sola pantalla.

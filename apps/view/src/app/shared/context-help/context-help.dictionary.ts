@@ -1935,4 +1935,59 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[CG.163]` La pantalla de la caja fuerte publica cuatro palabras que no se explican solas y
+  // que la auditoría del 2026-10-15 encontró leídas al revés: «sin respaldo» se entendió como
+  // una acusación a la gente cuando era un defecto nuestro, y «balance» se leyó como el saldo de
+  // la máquina cuando es una resta de dos de sus siete tipos de movimiento.
+  'caja-fuerte': {
+    title: 'Caja Fuerte (CAOS) — qué dice cada número',
+    intro: 'CAOS es el dispositivo que recibe y entrega el efectivo de OFICINAS. Esta pantalla es un espejo de lo que la máquina registró: no corrige nada, no escribe nada y no decide nada. Cuando un número no se pudo calcular, lo dice en vez de poner cero.',
+    groups: [
+      {
+        heading: 'La tira de arriba',
+        entries: [
+          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Es el único número que cuenta los siete tipos.' },
+          { term: 'Depósitos − dispensado', def: 'La resta de los dos tipos que mueven efectivo hacia y desde las rutas. NO es el saldo de la caja fuerte: deja fuera Dotar, Vaciar Stocks y los ajustes, que también mueven dinero. Por eso se llama por la resta que hace y no "balance".' },
+          { term: 'Otros movimientos', def: 'Lo que la máquina registró y no es depósito ni dispensación: dotarla, vaciar sus cajetines, los cierres de día y los ajustes de contenido. Aparece con su monto y aparte porque su dirección (entra o sale) no está decodificada contra el dispositivo; sumarla al neto con un signo supuesto daría una cifra con la que alguien intentaría cuadrar.' },
+          { term: 'La píldora de frescura', def: 'La edad del DATO, no la de la pantalla: mide la última vez que el carril trajo movimientos de la máquina. Si se pone ámbar, lo que ves puede estar viejo aunque la página se acabe de cargar.' },
+        ],
+      },
+      {
+        heading: 'El panel de atribución, y las dos ausencias que no son la misma',
+        entries: [
+          { term: 'Sin respaldo', def: 'Un depósito que ningún cobro ANTERIOR de Kepler explica. Lo revisa quien maneja el efectivo. ⚠️ Antes de leerlo como un problema de la gente, mirá el renglón del carril: si está en rojo, el reparto no corrió y este número no describe nada.' },
+          { term: 'Cobrado y no depositado', def: 'Al revés que el anterior: cobros que Kepler ya registró y cuyo efectivo todavía no entró a la máquina. Lo revisa quien cobra en la calle. No es lo mismo que "sin respaldo" y lo arregla gente distinta — por eso van en renglones separados y nunca sumados.' },
+          { term: 'El carril corre solo, cada hora', def: 'La atribución no tiene botón a propósito: un botón que alguien tiene que acordarse de apretar fue exactamente como la tabla se quedó meses en cero. Lo que se publica es el latido — cuándo corrió y si falló —, porque una automatización que no se ve se lee igual que una que no existe.' },
+        ],
+      },
+      {
+        heading: 'El panel por ruta: el grano',
+        entries: [
+          { term: 'Grano', def: 'Hasta dónde alcanza a declarar el texto que el operador escribió en el depósito. Es el nivel al que se puede atribuir ese dinero sin inventar nada.' },
+          { term: 'ruta_dia', def: 'El texto declara la ruta Y el día de la venta. Es el grano más fino que existe y el que permite cuadrar contra un día concreto.' },
+          { term: 'ruta', def: 'El texto declara la ruta pero no el día. El dinero es de esa ruta; a qué jornada corresponde, no se sabe.' },
+          { term: 'plaza', def: 'El texto nombra la plaza (Canindo, Morelia) y no la ruta. Es exacto a nivel plaza. Elegir una de sus rutas sería inventar, y una ruta inventada le cobra el depósito a un camión que no fue.' },
+          { term: 'Vecinal (otro circuito)', def: 'El texto sí declara de quién es, pero la vecinal se arquea en su propia caja. No es dinero sin dueño: es dinero de otro circuito, y por eso se muestra separado de "sin ruta declarada".' },
+          { term: 'sin ruta declarada', def: 'El texto no dice ni ruta ni plaza. El dinero queda sin dueño hasta que alguien lo reclame. Se declara así, no se reparte por parecido.' },
+          { term: 'sin clasificar todavía', def: 'El depósito existe pero el carril que lee su texto no lo ha visto aún. Es distinto de "no declara nada": acá todavía no se miró.' },
+        ],
+      },
+      {
+        heading: 'El cuadre contra la Caja General',
+        entries: [
+          { term: 'Cobertura', def: 'Qué fracción del efectivo de la Caja General de Kepler pasó por la máquina. NO es un cuadre: por CAOS pasa una parte del efectivo y el resto se maneja fuera. Una cobertura menor a 100% no es un faltante.' },
+          { term: 'Por qué el último día suele verse descuadrado', def: 'El carril de CAOS es más fresco que el contable de Kepler. El día en curso puede mostrar movimiento en la máquina y todavía nada en el contable: es rezago del otro lado, no un error.' },
+          { term: 'Por qué este panel tarda', def: 'El cuadre recorre el contable de Kepler, que es una derivación grande del ERP: cerca de un segundo. Por eso se pide al abrir el panel y no al entrar a la pantalla.' },
+        ],
+      },
+      {
+        heading: 'El detalle por denominación',
+        entries: [
+          { term: 'Suma del desglose', def: 'Lo que suman los billetes contados. Se muestra junto al total declarado porque no siempre coinciden: hay movimientos donde el dispositivo reporta un total y un desglose que no cuadran entre sí.' },
+          { term: 'Cuando el desglose no suma el total', def: 'La pantalla lo avisa y no corrige ninguno de los dos: ambos vienen del dispositivo y no hay forma de saber cuál miente. Es un dato para reclamarle a la máquina, no para ajustar a mano.' },
+        ],
+      },
+    ],
+  },
 };
