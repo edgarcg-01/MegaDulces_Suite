@@ -179,6 +179,10 @@ const { buildClaimIndex, claimVerdict } = LLAVE;
 
   } finally {
     await knex.destroy();
+    // Los stubs de módulo son andamio: se borran SIEMPRE, también si el test falló. Sin esto
+    // quedan dos `.stub-cb51-*.js` sin rastrear en un checkout que comparten varias sesiones,
+    // y el siguiente `git status` se los encuentra como si fueran trabajo de alguien.
+    for (const f of Object.values(stubPaths)) { try { require('fs').unlinkSync(f); } catch { /* ya no está */ } }
   }
 
   console.log(`\n[CB.51] ${pass} ✓ / ${fail} ✗${nomedido ? ` / ${nomedido} no medidos` : ''}`);
