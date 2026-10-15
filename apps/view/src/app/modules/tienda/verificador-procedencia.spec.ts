@@ -42,7 +42,12 @@ const DIRECTIVA = readFileSync(
 describe('verificador · de qué plaza salió el precio', () => {
   it('el endpoint acepta sucursal', () => {
     // [VAC.L6] La consulta ya no llega suelta: la valida el pipe con el esquema del contrato.
-    expect(CTRL).toMatch(/getPrecio\(@Query\(new ZodValidationPipe\(VerificadorPrecioQuery\)\) query: VerificadorPrecioQuery\)/);
+    expect(CTRL).toMatch(/getPrecio\(@Query\(new ZodValidationPipe\(VerificadorPrecioQuery\)\) query: PrecioQuery\)/);
+    // ⛔ El tipo del parametro NO puede ser el NOMBRE DEL ESQUEMA: ese nombre tambien es un VALOR,
+    //    y emitDecoratorMetadata lo emite en design:paramtypes, donde Swagger lo introspecciona
+    //    como clase y MATA EL ARRANQUE de la API (medido en prod el 2026-10-15). Por eso es un
+    //    alias solo-tipo. Quien lo vigila de verdad es kp.controller.spec.ts, que lee la metadata:
+    //    este regex sobre la fuente NO vio el defecto mientras estuvo vivo, lo daba por bueno.
     expect(CTRL).toMatch(/this\.kpService\.getPrecio\(query\.q \?\? '', query\.sucursal\)/);
     // [VAC.L1] Y la respuesta lleva el tipo del contrato, no `any`.
     expect(SVC).toMatch(/async getPrecio\(q: string, sucursal\?: string\): Promise<VerificadorPrecioResponse>/);
