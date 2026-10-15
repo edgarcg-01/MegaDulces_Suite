@@ -9200,6 +9200,12 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   (GESTIONAR); autorizar pide «Autorizar corte» (AUTORIZAR). Sin el permiso el botón no se ofrece y
   se dice una vez; los métodos también frenan. Sin permisos cargados NO se bloquea (decide el
   servidor). 6 pruebas; 6 mutaciones atrapadas.
+- [ ] 🧪 **`[CGP-V.9]`** Contar cero con confirmación: «Conté y no hay efectivo» sella un conteo en $0
+  (`cero_declarado`, aditivo en contar/recontar/cerrar). Sin declararlo, la reja vacía sigue siendo «no
+  se contó». Declarar cero con piezas es una contradicción (400 con frase). De paso: un cero sellado era
+  **invisible** (`conteoSellado()` y el freno de re-sellado usaban `contado > 0`), así que habría vuelto
+  el callejón de CG.160 y se podía re-sellar sin motivo. 4 puras + 2 contra la base + 4 del componente;
+  8 mutaciones atrapadas.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

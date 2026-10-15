@@ -680,6 +680,30 @@ ofrecía «Autorizar» a quien no podía: el clic terminaba en un 403.
 **Pruebas:** 6 del componente (con la bandeja de dos filas marcadas, para que el freno del lote sea
 el permiso y no una bandeja vacía); **6 mutaciones atrapadas**. Directorio `caja-general`: **378**.
 
+### 7.7 Estado al 2026-10-15: V.9 (🧪 probado en local)
+
+**`[CGP-V.9]` — contar cero con confirmación explícita.** Con la caja en $0, «Guardar conteo» quedaba
+deshabilitado sin explicación y ese corte no se podía cerrar nunca. Medido antes de tocar la
+pantalla: **el servidor también lo rechazaba**, porque una reja vacía es `sin_contar` para el motor.
+«No se contó» y «se contó y no hay efectivo» son dos hechos distintos (ADR-056): el segundo se
+**declara**.
+
+- **Motor y servicio (aditivo):** `cero_declarado` en `contar`, `recontar` y `cerrar`. Con la
+  reja vacía y sin morralla, es un conteo en $0 con su veredicto (cuadra, o falta lo esperado).
+  Declarar cero **con piezas** es una contradicción: 400 con frase, nada se sella.
+- **El cero sellado era invisible, y se arregló antes de que pudiera pasar.** `conteoSellado()`
+  devolvía `null` con `contado <= 0`, y el freno de re-sellado de `contar()` miraba `contado > 0`.
+  Con un cero sellado, la pantalla habría vuelto a ofrecer «Guardar conteo» (el callejón de CG.160) y
+  se podía re-sellar **sin reconteo ni motivo**. Ahora «sellado» es `contado != null`: `abrir()` no
+  escribe `contado` y la base no tiene ningún borrador con `contado = 0` (medido).
+- **Pantalla:** con la reja en cero aparece «Conté y no hay efectivo en la caja», con el porqué del
+  botón apagado. Marcada, el botón dice «Sellar en $0.00». Si después se teclea una pieza, la
+  declaración deja de valer; al reabrir el diálogo se olvida (se confirma cada vez).
+
+**Pruebas:** 4 puras del motor, 2 contra la base real (sella, se publica, no se re-sella, se cierra;
+la contradicción da 400 y no sella) y 4 del componente. **8 mutaciones atrapadas** (4 del servidor,
+4 de la pantalla). `libs/finance/src/lib/caja`: 24 archivos, **441**.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación
