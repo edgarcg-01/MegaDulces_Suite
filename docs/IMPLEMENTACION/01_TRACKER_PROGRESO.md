@@ -9182,6 +9182,11 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   LAN reventaba antes de emitir. Reemplaza la copia privada del componente. ⚠️ Queda la copia de
   andén (`nuevaLlave`) y `offline-database.service` llama `randomUUID` directo (Capacitor): deuda
   declarada, fuera de caja.
+- [ ] 🧪 **`[CGP-V.5]`** El error del servidor se queda donde se hizo la acción, con su frase, hasta el
+  siguiente intento: sellar, recontar y cerrar en el diálogo de cierre; abrir en su diálogo o junto
+  al botón del cierre; autorizar en la fila de ese corte. Un 403 con frase (la doble llave) se dice
+  tal cual; sólo el genérico del guardia se traduce (`textoDeError`, puro). 5 puras + 4 del
+  componente; 4 mutaciones atrapadas.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

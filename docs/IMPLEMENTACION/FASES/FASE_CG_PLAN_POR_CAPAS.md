@@ -611,6 +611,25 @@ mutaciones atrapadas.** Directorios `caja-general` + `core/utils`: 8 archivos, *
   `0995-05-11`, así que **fallaba una de cada tres corridas** (con el año antes de 2000). Año
   rellenado; 4 corridas seguidas en verde, 435 pruebas.
 
+### 7.4 Estado al 2026-10-15: V.5 (🧪 probado en local)
+
+**`[CGP-V.5]` — el error se queda donde se hizo la acción, con su frase.** Antes todo salía en un
+aviso de 7 s, el diálogo de cierre no conservaba ningún error, y **un 403 se pintaba siempre «No
+tenés permiso»**: la frase de la doble llave («Quien cerró el corte no puede autorizarlo») se perdía
+y la persona creía que le faltaba un permiso.
+
+- `textoDeError()` (puro): un 403 con frase del servidor se dice tal cual; sólo el genérico del
+  guardia (sin frase, o «Forbidden resource») se traduce. Las frases de validación en lista se juntan.
+  Un 429 se dice como «el servidor pidió esperar».
+- Sellar, recontar y cerrar: el error queda **en el diálogo de cierre**. Abrir: en su diálogo, o junto
+  al botón del cierre cuando se abre desde «rendir cuentas» (que no pasa por diálogo); los dos frenos
+  de abrir (saldo sin medir, jornadas sin medir) también van ahí en vez de a un aviso. Autorizar: **en
+  la fila de ese corte**. Cada uno se limpia al volver a intentar.
+
+**Pruebas:** 5 puras + 4 del componente; **4 mutaciones atrapadas**. Directorio `caja-general`: **370**.
+⚠️ La compuerta `primeng` atrapó los tres `severity="error"` que puse en `p-message`: en v22 es
+`danger`. Corregido; la compuerta vuelve a la línea base.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación
