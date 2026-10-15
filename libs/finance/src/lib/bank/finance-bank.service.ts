@@ -3164,8 +3164,23 @@ export class FinanceBankService {
       //
       // El pareo persistido se reclama ANTES de que corra un solo `take()`, para que el greedy no
       // pueda robarle su documento a un movimiento que ya tiene dueño.
-      const movIds = excel.map((e: any) => e.id);
-      const persistidos = movIds.length
+      const movIds = excel.map((e) => e.id);
+      /**
+       * `[CB.51]` Un pareo que el motor ya guardo, con las columnas que pide el select de abajo.
+       * Se declara en vez de dejarlo en `any[]`: lo que viene de knex no tiene forma, y estos seis
+       * campos se leen mas abajo uno por uno.
+       */
+      interface PareoGuardado {
+        bank_movement_id: string;
+        kepler_sucursal: string | null;
+        kepler_doc_tipo: string | null;
+        kepler_doc_folio: string | null;
+        kepler_cuenta: string | null;
+        kepler_amount: string | number | null;
+      }
+      /** Un documento del pool de Kepler, con la forma que le da el `.map()` de la consulta. */
+      type DocPool = (typeof kepler)[number];
+      const persistidos: PareoGuardado[] = movIds.length
         ? await trx('finance.bank_recon_matches')
             .where('tenant_id', tenantId).whereIn('bank_movement_id', movIds)
             .select('bank_movement_id', 'kepler_sucursal', 'kepler_doc_tipo', 'kepler_doc_folio',
@@ -3173,15 +3188,15 @@ export class FinanceBankService {
         : [];
       // Índice del pool por las dos llaves: la exacta y la degradada sin sucursal, porque las
       // filas escritas antes de [CB.51] no la tienen (ver `recon-claim-key.ts`).
-      const poolExacta = new Map<string, any>(), poolParcial = new Map<string, any>();
-      for (const x of kepler as any[]) {
+      const poolExacta = new Map<string, DocPool>(), poolParcial = new Map<string, DocPool>();
+      for (const x of kepler) {
         poolExacta.set(x.key, x);
         const [, dt, fo, cl] = String(x.key).split('|');
         if (!poolParcial.has(`${dt}|${fo}|${cl}`)) poolParcial.set(`${dt}|${fo}|${cl}`, x);
       }
       /** bank_movement_id → lo que Conciliar guardó (puede ser N docs: pase agrupado / lote). */
-      const casadoPorMov = new Map<string, { importe: number; docs: string[]; pool: any; n: number; en_el_mes: boolean }>();
-      for (const r of persistidos as any[]) {
+      const casadoPorMov = new Map<string, { importe: number; docs: string[]; pool: DocPool | null; n: number; en_el_mes: boolean }>();
+      for (const r of persistidos) {
         const dt = String(r.kepler_doc_tipo ?? '').trim(), fo = String(r.kepler_doc_folio ?? '').trim();
         const cl = String(r.kepler_cuenta ?? '').trim(), su = String(r.kepler_sucursal ?? '').trim();
         const hit = (su && poolExacta.get(`${su}|${dt}|${fo}|${cl}`)) || poolParcial.get(`${dt}|${fo}|${cl}`) || null;
@@ -3201,9 +3216,12 @@ export class FinanceBankService {
         // de ahí salga se marca `inferido`, porque no es lo mismo que el motor lo haya decidido.
         const fijo = casadoPorMov.get(e.id);
         const k = fijo
-          ? { doc_tipo: fijo.docs[0] || '', folio: '', importe: fijo.importe, key: fijo.pool?.key ?? null,
-              _doc: fijo.n > 1 ? `${fijo.docs[0]} +${fijo.n - 1}` : fijo.docs[0] }
+          ? { doc_tipo: fijo.docs[0] || '', folio: '', importe: fijo.importe, key: fijo.pool?.key ?? null }
           : take(kIdx, e.dir, e.importe);
+        // `[CB.51]` El rotulo del pase agrupado va APARTE, no colgado de `k`: `k` es una union
+        // (el pareo guardado, o lo que devuelva `take()`), y una propiedad que solo tiene una de
+        // las dos ramas obligaba a leerla con `as any`.
+        const docAgrupado = fijo ? (fijo.n > 1 ? `${fijo.docs[0]} +${fijo.n - 1}` : fijo.docs[0]) : null;
         const c = take(cIdx, e.dir, e.importe);
         // `partido` (Kepler parte la venta) es SÓLO para depósitos: un egreso no se "parte por venta".
         // `sin_categoria` = sin `group_key` (ni traspaso/factoraje por raw_type): lo que una REGLA de
@@ -3219,7 +3237,7 @@ export class FinanceBankService {
                       : 'sin_match';
         return { ...e, source: 'workbook', key: String(e.id), kepler: !!k, contpaqi: !!c, recon,
           kepler_importe: k ? n(k.importe) : null, contpaqi_importe: c ? n(c.importe) : null,
-          kepler_doc: k ? ((k as any)._doc ?? `${k.doc_tipo} ${k.folio}`.trim()) : null,
+          kepler_doc: k ? (docAgrupado ?? `${k.doc_tipo} ${k.folio}`.trim()) : null,
           contpaqi_poliza: c ? c.poliza : null,
           // [CB.51] De dónde salió esta pareja: `conciliado` = lo decidió el motor y está
           // guardado; `inferido` = lo adivinó esta pantalla por monto+dirección. No es lo mismo
