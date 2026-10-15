@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 // [TDA.1] Eventos del proyecto Tienda que viajan por WebSocket, compartidos por backend y frontend
 // (ADR-052 / ADR-056).
 //
@@ -106,6 +108,14 @@ export interface MayoreoTier {
   aplica_a: 'base' | 'paquete';
   /** `[TDA.7]` Cómo se rotula `precio_con_iva`: `c/u` o `por paquete`. Nunca se asume. */
   unidad_monto: string;
+  /**
+   * `[VAC.H3]` El mínimo del escalón expresado en la unidad BASE, ya con su palabra (`"144 piezas"`).
+   * Sólo viene cuando el escalón es de PAQUETE: dos escalones con mínimos en unidades distintas
+   * (3 piezas / 12 paquetes) se leían como si fueran comparables, y son 48 veces de distancia.
+   * Opcional y `null`/ausente = no se pudo derivar (o ya está en base): la pantalla no inventa la
+   * equivalencia. Los respaldos bajados antes de `VAC.H3` no lo traen y se leen como siempre.
+   */
+  equivale_a?: string | null;
 }
 
 /**
@@ -129,6 +139,8 @@ export interface MayoreoTierCompacto {
   a?: 0 | 1;
   /** `[TDA.7]` `unidad_monto`. Ausente en respaldos previos a TDA.7. */
   um?: string;
+  /** `[VAC.H3]` `equivale_a`. Ausente en respaldos previos a VAC.H3 y en escalones de base. */
+  eq?: string;
 }
 
 /**
@@ -147,6 +159,7 @@ export function compactarTier(t: MayoreoTier): MayoreoTierCompacto {
     r: t.realza ? 1 : 0,
     a: t.aplica_a === 'paquete' ? 1 : 0,
     um: t.unidad_monto,
+    ...(t.equivale_a ? { eq: t.equivale_a } : {}),
   };
 }
 
@@ -172,5 +185,141 @@ export function expandirTier(t: MayoreoTierCompacto): MayoreoTier {
     realza: t.r === 1,
     aplica_a: t.a === 1 ? 'paquete' : 'base',
     unidad_monto: t.um || 'c/u',
+    equivale_a: t.eq || null,
   };
 }
+
+// ── [VAC.L1] Lo que RESPONDEN los endpoints del verificador, declarado una sola vez ────────
+// Antes `UnidadPrecio`, el renglón del snapshot y la sucursal existían DOS veces (en `KpService` y
+// en `verificador.service.ts`) y la respuesta en vivo se leía como `any`: el día que el backend
+// agregaba un campo, nada avisaba del otro lado. Ahora el backend lo EMITE con este tipo y el
+// frontend lo CONSUME con el mismo.
+
+/** Una unidad de venta con su precio (PZA, PAQ, CJA, KG…). `factor` = cuántas unidades BASE trae. */
+export interface UnidadPrecioVerificador {
+  u: string;
+  precio_con_iva: number;
+  precio_sin_iva: number;
+  factor: number;
+}
+
+/** Un producto entre los que comparten un mismo código (`codigo_ambiguo`). */
+export interface CandidatoVerificador {
+  codigo: string;
+  nombre: string;
+  precio_con_iva: number | null;
+}
+
+/** `GET /kp/precio` cuando el producto existe. */
+export interface VerificadorPrecioOk {
+  ok: true;
+  codigo: string;
+  nombre: string;
+  unidad: string;
+  precio_con_iva: number | null;
+  precio_sin_iva: number | null;
+  /** Base primero: los `factor` de las demás se refieren a la primera. */
+  unidades: UnidadPrecioVerificador[];
+  /** De qué unidad es el código escaneado. `null` = "no sé", nunca "es la base". */
+  unidad_escaneada: string | null;
+  unidad_base: string | null;
+  mayoreo: MayoreoTier[];
+  contenido: string | null;
+  /** Llave del aviso en vivo. `null` = no se puede saber si un aviso le habla a esta pantalla. */
+  product_id: string | null;
+  iva_pct: number;
+  ieps_pct: number;
+  sucursal_precio: string | null;
+  precio_ambiguo: boolean;
+  plazas_con_precio_distinto: number;
+  codigo_ambiguo: boolean;
+  productos_candidatos: CandidatoVerificador[];
+  plaza_pedida_sin_dato: boolean;
+  origen_precio: 'kepler' | 'override_manual';
+}
+
+/** `GET /kp/precio` cuando NO está (200 con `ok:false`: es una respuesta, no un error). */
+export interface VerificadorPrecioNoEncontrado {
+  ok: false;
+  code?: string;
+  error: string;
+}
+
+export type VerificadorPrecioResponse = VerificadorPrecioOk | VerificadorPrecioNoEncontrado;
+
+/** Un renglón del snapshot offline, con las claves cortas del cable. */
+export interface VerificadorSnapshotItem {
+  c: string;
+  b: string[];
+  /** La unidad de cada barcode, en el mismo índice que `b`. Ausente en respaldos anteriores. */
+  bu?: (string | null)[];
+  n: string;
+  u: Array<{ u: string; p: number; s: number }>;
+  /** Mayoreo compacto. Ausente = "este respaldo no sabe de mayoreo". */
+  m?: MayoreoTierCompacto[];
+  /** Gramaje. */
+  g?: string;
+}
+
+/**
+ * `[VAC.L11]` Versión del FORMATO del snapshot que sirve `/kp/precios-todos`.
+ *
+ * El snapshot se guarda en el navegador del kiosco y vive 12 h, así que convive con backends más
+ * nuevos. Hasta hoy un formato viejo se leía "con lo que tuviera" y la ausencia de un campo
+ * degradaba en silencio (sin unidad escaneada, sin mayoreo). Ahora el snapshot DECLARA su versión:
+ * el kiosco sabe que su respaldo es de un formato anterior, lo dice en pantalla y se re-descarga
+ * en cuanto hay red en vez de esperar al vencimiento.
+ *
+ *  · 1 (o sin `v`) = anterior a esta marca: sin garantías sobre `bu`, `m` ni `g`.
+ *  · 2 = lleva la unidad de cada código (`bu`), el mayoreo compacto con su equivalencia (`m`/`eq`)
+ *        y el gramaje (`g`).
+ *
+ * Se sube al CAMBIAR la forma del snapshot, no en cada release.
+ */
+export const VERIFICADOR_SNAPSHOT_FORMATO = 2;
+
+/** `GET /kp/precios-todos`. */
+export interface VerificadorSnapshot {
+  /** Versión del formato (`VERIFICADOR_SNAPSHOT_FORMATO`). Ausente en respaldos anteriores a VAC.L11. */
+  v: number;
+  total: number;
+  sucursal: string | null;
+  generado: string;
+  productos: VerificadorSnapshotItem[];
+}
+
+/** `GET /sucursales`: la plaza y la frescura del ODS de esa plaza. */
+export interface SucursalVerificador {
+  codigo: string;
+  nombre: string;
+  direccion: string;
+  ciudad: string;
+  almacenes: string[];
+  datos_al: string | null;
+}
+
+// ── [VAC.L6] La consulta del verificador, validada donde ENTRA el dato ─────────────────────
+// Los endpoints `/kp/precio` y `/kp/precios-todos` son `@Public()`: la frontera es un kiosco sin
+// cuenta, y hasta hoy el único control era un saneo a mano dentro del servicio (sin tope de
+// longitud: un `q` de megabytes llegaba hasta el SQL). El esquema vive acá para que el pipe del
+// backend y cualquier cliente hablen de LO MISMO.
+//
+// · `q` — tope de 64 caracteres: un EAN-14 mide 14 y las claves de Kepler 5; 64 deja margen para
+//   espacios que el servicio ya limpia. Opcional a propósito: la ausencia sigue contestándose con
+//   el 200 `{ ok: false, error: 'Sin código' }` que el frontend ya entiende.
+// · `sucursal` — dos dígitos o ausente. Antes un valor mal formado se IGNORABA en silencio y la
+//   respuesta caía en la plaza determinista: el error del que llama no se veía. Ahora es un 400.
+//   `''` cuenta como ausente (un `?sucursal=` vacío no es una plaza).
+const sucursalOpcional = z.preprocess(
+  (v) => (v === '' ? undefined : v),
+  z.string().regex(/^[0-9]{2}$/, 'sucursal debe ser de dos dígitos').optional(),
+);
+
+export const VerificadorPrecioQuery = z.object({
+  q: z.string().max(64, 'q admite hasta 64 caracteres').optional(),
+  sucursal: sucursalOpcional,
+});
+export type VerificadorPrecioQuery = z.infer<typeof VerificadorPrecioQuery>;
+
+export const VerificadorPreciosTodosQuery = z.object({ sucursal: sucursalOpcional });
+export type VerificadorPreciosTodosQuery = z.infer<typeof VerificadorPreciosTodosQuery>;

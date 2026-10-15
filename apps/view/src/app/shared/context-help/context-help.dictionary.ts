@@ -1141,6 +1141,34 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Frescura del ERP sin medir', def: 'El sistema no sabe de cuándo es el dato de esa sucursal porque no le llega el latido del ERP. No significa que el precio esté mal: significa que nadie puede afirmar que esté al día. Es dato para Sistemas.' },
         ],
       },
+      {
+        // [VAC.U15] Lo que el mostrador ve en la tarjeta y no es obvio. Cada definición está
+        // anclada a la regla real de KpService (guardas del mayoreo) y de la pantalla.
+        heading: 'Mayoreo y ahorro',
+        entries: [
+          { term: 'Precio por mayoreo', def: 'El precio que se cobra cuando el cliente lleva al menos la cantidad indicada ("Llevando 3 o más piezas"). Sólo se muestra si el ERP trae una cantidad mínima real y el precio es más barato que el normal; si falta cualquiera de las dos, no se muestra mayoreo.' },
+          { term: 'Ahorras $X por unidad', def: 'Cuánto menos paga el cliente por cada unidad a precio de mayoreo, comparado con el precio normal. Debajo va el total que ahorra si lleva justo la cantidad mínima. El porcentaje es el descuento por unidad, no del total.' },
+          { term: 'Equivale a N piezas', def: 'El mínimo del mayoreo de paquete contado en piezas, para poder compararlo con el de pieza (12 paquetes de 12 piezas son 144 piezas). Si el sistema no pudo calcularlo, la línea no aparece.' },
+          { term: 'Dos mayoreos en la misma tarjeta', def: 'Pieza y paquete tienen cada uno su propia cantidad mínima y su propio precio. Son dos condiciones de compra distintas, separadas por una línea: aplica la que el cliente cumpla.' },
+        ],
+      },
+      {
+        heading: 'Avisos que hay que leer antes de cobrar',
+        entries: [
+          { term: 'Este precio acaba de cambiar', def: 'Mientras el precio estaba en pantalla, el ERP lo modificó. Se muestra el anterior para ver la diferencia. Confirma en caja antes de cobrar. En modo kiosco este aviso no se muestra: es para quien atiende, no para el cliente.' },
+          { term: 'Ese código está en N productos', def: 'El mismo código de barras está registrado en más de un producto del catálogo. Lo que se ve es UNO de ellos, elegido por orden, no una afirmación: confirma cuál tienes en la mano. Es dato para corregir el catálogo.' },
+          { term: 'Precios distintos entre plazas', def: 'El producto tiene precio diferente en distintas sucursales y no se pudo acotar a la tuya. Confírmalo en caja.' },
+          { term: 'Tu sucursal no tiene este producto cargado', def: 'El producto existe, pero no en tu plaza: el precio mostrado es de otra sucursal y puede no ser el tuyo.' },
+          { term: 'El código que escaneaste es de [unidad]', def: 'Cada unidad (pieza, paquete, caja) tiene su propio código de barras. La cifra grande es el precio de la unidad que se escaneó; las demás aparecen debajo.' },
+        ],
+      },
+      {
+        heading: 'Modo kiosco y cámara',
+        entries: [
+          { term: 'Modo kiosco', def: 'Pantalla completa para que el cliente consulte solo. Oculta el botón de cámara y los datos internos del producto (código, origen del precio, aviso de cambio). Se activa y se sale con el botón de la esquina.' },
+          { term: 'Escanear con la cámara', def: 'En un celular o tableta, el botón "Escanea tu Producto" abre la cámara para leer el código de barras. No aparece en modo kiosco, donde se usa el lector del mostrador.' },
+        ],
+      },
     ],
   },
   arqueo: {
