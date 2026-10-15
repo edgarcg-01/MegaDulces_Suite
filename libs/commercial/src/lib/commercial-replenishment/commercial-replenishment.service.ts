@@ -4213,7 +4213,7 @@ export class CommercialReplenishmentService {
     if (!this.keplerSink) return { estado: 'apagado' };
     try {
       const r = await this.pushToKepler(id);
-      return { estado: r.ya_estaba ? 'ya_estaba' : 'entregada', folio: r.kepler?.folio };
+      return { estado: r.ya_estaba ? 'ya_estaba' : 'entregada', folio: r.kepler?.folio ?? undefined };
     } catch (e: unknown) {
       const motivo = (e as { message?: string })?.message || 'no se pudo';
       this.logger.warn(`Requisición ${id} aprobada pero NO salió a Kepler: ${motivo}`);
@@ -4349,7 +4349,7 @@ export class CommercialReplenishmentService {
     opts?: { consolidar?: boolean },
   ): Promise<{
     ya_estaba: boolean;
-    kepler?: { sucursal: string | null; folio: string | null; renglones?: number };
+    kepler?: { sucursal: string | null; folio: string; renglones?: number };
     lineas?: KeplerLineaResuelta[];
     consolidado?: boolean;
   }> {

@@ -1827,6 +1827,55 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // `[CG.58.7]` El panel enlaza la ruta con SU dinero, y la cadena no es obvia: el repartidor
+  // deposita en una caja fuerte que no es Caja General, y la entrada en Caja General la captura
+  // otra persona más tarde. Cifras medidas contra prod el 2026-10-14 (749 depósitos, $18,360,140).
+  'deposito-ruta-caos': {
+    title: 'El depósito de la ruta — de la caja fuerte a Caja General',
+    intro: 'Las rutas directas no depositan en un banco: dejan el efectivo en una caja fuerte que cuenta los billetes sola, llamada CAOS. Esa caja registra cada depósito con el texto que la persona teclea al hacerlo. Después, alguien captura ese depósito como una entrada en Caja General. Este panel muestra las dos mitades y quién es el dueño de cada peso.',
+    groups: [
+      {
+        heading: 'Lo primero que hay que entender',
+        entries: [
+          { term: 'De quién es el depósito lo dice el texto', def: 'La caja fuerte no sabe de rutas: guarda lo que se teclea. Si dice "rd 28 13 10 26" sabemos ruta y día; si dice "rd can" sabemos la plaza pero no cuál de sus cinco rutas; si no dice nada, no hay dueño. Se atribuye al nivel que el texto aguanta y ni uno más fino: elegir una ruta concreta donde el texto sólo nombra la plaza le cobraría el depósito a un camión que no fue.' },
+          { term: 'La liga con Caja General es exacta', def: 'Cuando la entrada se captura desde el depósito, Caja General guarda de qué depósito salió. Por eso el folio es un enlace y no una coincidencia: no se está adivinando por monto ni por fecha.' },
+          { term: 'Δ (la diferencia de monto)', def: 'La entrada en Caja General casi nunca vale lo mismo que el depósito, y está bien: el depósito es efectivo contado en billetes, que salen en múltiplos de diez, mientras que la entrada es el cobro completo con sus centavos y su morralla. La columna la publica para que nadie la descubra después y la confunda con un faltante.' },
+          { term: 'Sin capturar', def: 'El dinero ya está en la caja fuerte y todavía nadie hizo su entrada en Caja General. No es un faltante ni un descuadre: es captura pendiente. Medido el 14 de octubre de 2026: 18 depósitos de 749 están capturados, porque Caja General arrancó hace días.' },
+        ],
+      },
+      {
+        heading: 'Lo que se declara aparte y por qué',
+        entries: [
+          { term: 'Sin ruta (sólo la plaza)', def: 'El texto nombra Canindo o Morelia pero no la ruta. A nivel plaza el número cierra bien, y a nivel ruta sería inventado. Medido: 76 depósitos, $5,173,790.' },
+          { term: 'Sin declarar', def: 'El texto no nombra ruta ni plaza, así que ese dinero no tiene dueño en este reporte. Se muestra en vez de repartirlo entre las rutas. Medido: 69 depósitos, $2,030,000.' },
+          { term: 'Ruta vecinal', def: 'La vecinal es otro circuito: cobra en una caja registradora de la sucursal y su dinero se cuenta en el arqueo de esa caja. Tiene su propio panel más arriba en esta misma pantalla. Medido: 21 depósitos, $640,410.' },
+          { term: 'Sucursal sin resolver', def: 'El número de ruta se busca contra las rutas que de verdad venden en el reporte. Si ese número no existe en ninguna, o si vende en dos almacenes a la vez, la columna lo dice en vez de elegir uno. Medido: hay un depósito a una "ruta 226" que no existe.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si un depósito aparece sin capturar',
+        kind: 'fix',
+        intro: 'El dinero ya entró a la caja fuerte; falta registrarlo en Caja General. El camino es:',
+        steps: [
+          'Abrir Finanzas › Caja General y usar el buscador de depósitos de la caja fuerte, que los lista pendientes con su texto y su monto.',
+          'Capturar la entrada eligiendo ese depósito, para que quede ligado y aparezca aquí con su folio.',
+          'Si el texto del depósito no dice de quién es, preguntar en la sucursal antes de capturarlo: una entrada sin dueño no se puede atribuir después.',
+        ],
+      },
+      {
+        heading: 'Si el texto del depósito no declara la ruta',
+        kind: 'info',
+        intro: 'No hay forma de deducirlo desde aquí: se intentó cazarlo por monto y fecha y no funciona.',
+        steps: [
+          'Medido sobre 551 depósitos que sí declaran su fecha, escondiéndosela al buscador: con una tolerancia de doscientos pesos acierta 195, se equivoca 28 y no encuentra candidato en 297.',
+          'El camino que sí sirve es de ida: pedir en la sucursal que al depositar se teclee siempre la ruta y el día.',
+        ],
+      },
+    ],
+  },
+
   // `[VEC.10]` El panel publica un CUADRE entre dos cosas que la empresa no tenía conectadas, y
   // eso no es obvio: quien lo abre espera "la venta de la vecinal" y se encuentra con una tabla
   // por CAJA. Cada definición está anclada a lo medido contra prod (2026-10-13). Registro llano:

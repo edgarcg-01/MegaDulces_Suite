@@ -19,7 +19,8 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
-  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement, ExpenseConcentration }
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement, ExpenseConcentration,
+  CapacityProposal, CapacityProposalItem, CapacityConfirmResult }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 // `[PVI.9]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
@@ -225,6 +226,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
           <span class="pres-nav-sep">¿Alcanza el dinero?</span>
           <a class="p-button p-button-sm p-button-text pres-nav-link" routerLink="/presupuesto/tesoreria">Diagnóstico</a>
+          <a class="p-button p-button-sm p-button-text pres-nav-link" routerLink="/presupuesto/ingresos">Ingresos</a>
           <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="¿Alcanza el dinero?" />
         </div>
       </header>
@@ -1145,24 +1147,61 @@ const VISTA_DEFAULT: PresView = 'direccion';
             @if (!p.available) {
               <p class="pres-nodata"><span class="pi pi-info-circle"></span> {{ p.reason || 'Sin cartera CXC para proponer capacidad.' }}</p>
             } @else {
+              <!-- [PU.14] Si no hubo estimado de ingresos para el rango, la propuesta cayo a la cartera: se dice. -->
+              @if (p.respaldo_de) {
+                <p class="pres-nodata"><span class="pi pi-exclamation-triangle"></span> Se usó la cartera de clientes porque {{ p.respaldo_de }}</p>
+              }
               <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ p.note }} · <strong>{{ p.items.length }}</strong> días · total <strong class="pres-mono">{{ money(capProposalTotal()) }}</strong>.
                 <button pButton type="button" class="p-button-sm" (click)="confirmCapacity()" [loading]="confirmingCap()">Confirmar capacidad propuesta</button></p>
-              <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
-                <ng-template #header><tr><th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Cobranza de la semana</th></tr></ng-template>
-                <ng-template #body let-it>
-                  <tr><td class="pres-mono">{{ it.date }}</td><td class="ta-r pres-mono">{{ money(it.amount) }}</td><td class="ta-r pres-mono">{{ dash(it.cobros_week) }}</td></tr>
-                </ng-template>
-              </p-table>
+              @if (p.sin_estimado?.length) {
+                <p class="pres-nodata"><span class="pi pi-info-circle"></span> Sin estimado ni real (no se proponen en cero): {{ p.sin_estimado!.join(', ') }}</p>
+              }
+              @if (capPorIngreso(p)) {
+                <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
+                  <ng-template #header><tr>
+                    <th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Ingreso del día</th>
+                    <th class="ta-r">Fin de semana / feriado</th><th>Origen</th><th>Pagos</th>
+                  </tr></ng-template>
+                  <ng-template #body let-it>
+                    <tr>
+                      <td class="pres-mono">{{ it.date }}</td>
+                      <td class="ta-r pres-mono">{{ money(it.amount) }}</td>
+                      <td class="ta-r pres-mono">{{ dash(it.ingreso_dia) }}</td>
+                      <td class="ta-r pres-mono">{{ it.arrastre ? money(it.arrastre) : '—' }}</td>
+                      <td>{{ it.origen === 'real' ? 'Ya entró' : it.origen === 'mixto' ? 'Real y estimado' : 'Estimado' }}</td>
+                      <td>@if (it.bloqueado) { <p-tag severity="secondary" value="Ya en Pagos" /> } @else { — }</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              } @else {
+                <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
+                  <ng-template #header><tr><th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Cobranza de la semana</th></tr></ng-template>
+                  <ng-template #body let-it>
+                    <tr><td class="pres-mono">{{ it.date }}</td><td class="ta-r pres-mono">{{ money(it.amount) }}</td><td class="ta-r pres-mono">{{ dash(it.cobros_week) }}</td></tr>
+                  </ng-template>
+                </p-table>
+              }
             }
           }
 
-          <h3 style="margin-top:1.4rem">Ajuste manual de un día</h3>
+          <h3 style="margin-top:1.4rem">Ajuste manual del día (antes de pasar a Pagos)</h3>
+          <p class="pres-nodata"><span class="pi pi-info-circle"></span>
+            El ajuste se hace el día anterior. Un día que ya pasó a Pagos (liberado, en ejecución o cerrado) no se puede cambiar.</p>
           <div class="pres-cap-form">
             <input type="date" [(ngModel)]="capDate" (change)="loadCapacity()" class="pres-date" aria-label="Fecha" />
-            <input pInputText type="number" [(ngModel)]="capAmount" placeholder="Importe autorizado" class="pres-amt" />
-            <input pInputText type="text" [(ngModel)]="capReason" placeholder="Motivo del cambio" class="pres-reason" />
-            <button pButton type="button" (click)="saveCapacity()" [loading]="savingCap()">Guardar</button>
+            <input pInputText type="number" [(ngModel)]="capAmount" placeholder="Importe autorizado" class="pres-amt" [disabled]="!!capDayBloqueado()" />
+            <input pInputText type="text" [(ngModel)]="capReason" placeholder="Motivo del cambio" class="pres-reason" [disabled]="!!capDayBloqueado()" />
+            <button pButton type="button" (click)="saveCapacity()" [loading]="savingCap()" [disabled]="!!capDayBloqueado()">Guardar</button>
           </div>
+          @if (capDayEstimate(); as e) {
+            <p class="pres-current">
+              Estimado de ingresos para el {{ capDate }}: <strong class="pres-mono">{{ money(e.amount) }}</strong>
+              ({{ e.origen === 'real' ? 'ya entró' : e.origen === 'mixto' ? 'parte ya entró' : 'estimado' }}@if (e.arrastre) {, incluye {{ money(e.arrastre) }} del fin de semana o feriado}).
+              @if (capDayBloqueado()) { <p-tag severity="secondary" value="Ya en Pagos" /> }
+            </p>
+          } @else if (capDayBloqueado()) {
+            <p class="pres-current"><p-tag severity="secondary" value="Ya en Pagos" /> Este día ya pasó a Pagos: su capacidad no se puede cambiar.</p>
+          }
           @if (currentCapacity(); as c) {
             <p class="pres-current">Capacidad actual del {{ capDate }}: <strong class="pres-mono">{{ money(c.authorized_amount) }}</strong> · actualizado por {{ c.updated_by || '—' }}</p>
           } @else {
@@ -1601,7 +1640,10 @@ export class FinanzasPresupuestoComponent implements OnInit {
   margenInput: number | null = null;
 
   // ── Capacidad (TP) ──
-  capDate = new Date().toISOString().slice(0, 10);
+  // [PU.14] Arranca en MAÑANA: el ajuste manual se hace el día anterior, antes de pasar a Pagos.
+  // En hora LOCAL: con toISOString (UTC), en México después de las 18:00 salía pasado mañana.
+  capDate = ((d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)(
+    new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 1));
   capAmount: number | null = null;
   capReason = '';
   savingCap = signal(false);
@@ -2555,6 +2597,30 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const fuera = cc && cc.vencido_fuera > 0
       ? `${this.money(cc.vencido_fuera)} de cartera vencida no sostiene esta propuesta: es exigible, pero sin fecha`
       : undefined;
+    // [PU.14] Base por default: el estimado de ingresos. Lo que sostiene la propuesta es lo que entra
+    // (real si ya está cargado), no la cartera.
+    // Sin propuesta en curso (p. ej. recién confirmada) también rige la base por default: el ingreso.
+    if (!p || (p.available && this.capPorIngreso(p))) {
+      const real = p ? p.items.filter((i) => i.origen === 'real').reduce((s, i) => s + Number(i.amount), 0) : 0;
+      const sinPropuesta = 'Todavía no se propuso capacidad para un rango';
+      return [
+        p
+          ? { label: 'Capacidad propuesta', value: total, format: 'currency-short', state: 'derivado',
+              method: 'Ingreso de cada día hábil (real si ya entró, si no el estimado) + fines de semana y feriados anteriores' }
+          : { label: 'Capacidad propuesta', value: '—', format: 'text', state: 'no_medido', stateNote: sinPropuesta },
+        p && dias > 0
+          ? { label: 'Por día hábil', value: total / dias, format: 'currency-short', state: 'derivado', method: `Promedio de ${dias} días hábiles` }
+          : { label: 'Por día hábil', value: '—', format: 'text', state: 'no_medido', stateNote: p ? 'Sin días hábiles en el rango' : sinPropuesta },
+        p
+          ? { label: 'De lo que ya entró', value: real, format: 'currency-short', state: 'medido', stateNote: 'El resto de la propuesta es estimado' }
+          : { label: 'De lo que ya entró', value: '—', format: 'text', state: 'no_medido', stateNote: sinPropuesta },
+        cur
+          ? { label: `Autorizado el ${this.capDate}`, value: cur.authorized_amount, format: 'currency-short', state: 'medido',
+              stateNote: `Tope autorizado por ${cur.updated_by || 'alguien sin registrar'} — es un permiso, no un saldo` }
+          : { label: `Autorizado el ${this.capDate}`, value: '—', format: 'text', state: 'no_medido',
+              stateNote: 'Sin fila para ese día: capacidad NO DEFINIDA, que no es lo mismo que cero' },
+      ];
+    }
     return [
       p?.available
         ? { label: 'Capacidad propuesta', value: total, format: 'currency-short', state: 'parcial', stateNote: fuera }
@@ -2621,16 +2687,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
    * capacidad desde el 11.8% de la cartera sin decirlo es el mismo defecto que `[CXC.22]`
    * corrigió del lado del flujo.
    */
-  capProposal = signal<{
-    available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>;
-    note?: string; reason?: string; base?: string; as_of?: string | null;
-    cobranza_cobertura?: { en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number; total: number; pct_en_ventana: number | null };
-  } | null>(null);
+  // [PU.14] El tipo sale del contrato: la propuesta ahora tiene DOS bases (ingreso estimado / cartera).
+  capProposal = signal<CapacityProposal | null>(null);
+  /** [PU.14] ¿La propuesta salió del estimado de ingresos (la base por default)? */
+  capPorIngreso(p: CapacityProposal | null): boolean { return p?.basis === 'ingreso_estimado'; }
+  /** [PU.14] El ingreso estimado del día que se va a ajustar a mano (o null si no hay). */
+  capDayEstimate = signal<CapacityProposalItem | null>(null);
+  /** [PU.14] Estado del lote si el día del ajuste ya pasó a Pagos (con cualquier base de propuesta). */
+  capDayBloqueado = signal<string | null>(null);
   loadingCapProp = signal(false); confirmingCap = signal(false);
   proposeCapacity(): void {
     if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elegí desde y hasta.' }); return; }
     this.loadingCapProp.set(true);
-    this.http.get<NonNullable<ReturnType<typeof this.capProposal>>>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<CapacityProposal>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.capProposal.set(r); this.loadingCapProp.set(false); },
       error: (e) => { this.loadingCapProp.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer la capacidad.' }); },
     });
@@ -2639,8 +2708,18 @@ export class FinanzasPresupuestoComponent implements OnInit {
   confirmCapacity(): void {
     const p = this.capProposal(); if (!p || !p.available || !p.items.length) return;
     this.confirmingCap.set(true);
-    this.http.post<{ written: number }>(`${this.base}/capacity/confirm`, { items: p.items.map((i) => ({ date: i.date, amount: i.amount })), reason: 'Capacidad propuesta desde el flujo' }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.confirmingCap.set(false); this.capProposal.set(null); this.toast.add({ severity: 'success', summary: 'Capacidad confirmada', detail: `${r.written} días escritos.` }); this.loadCapacity(); },
+    // [PU.14] El motivo dice de qué base salió; los días que ya pasaron a Pagos el servidor los salta y los devuelve.
+    const reason = this.capPorIngreso(p) ? 'Capacidad desde el estimado de ingresos' : 'Capacidad propuesta desde el flujo';
+    this.http.post<CapacityConfirmResult>(`${this.base}/capacity/confirm`, { items: p.items.map((i) => ({ date: i.date, amount: i.amount })), reason }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.confirmingCap.set(false); this.capProposal.set(null);
+        this.toast.add({ severity: 'success', summary: 'Capacidad confirmada', detail: `${r.written} días escritos.` });
+        if (r.omitidos?.length) {
+          this.toast.add({ severity: 'warn', summary: 'Días ya en Pagos', sticky: true,
+            detail: `No se cambiaron ${r.omitidos.length} día(s) que ya pasaron a Pagos: ${r.omitidos.map((o) => o.date).join(', ')}.` });
+        }
+        this.loadCapacity();
+      },
       error: (e) => { this.confirmingCap.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo confirmar la capacidad.' }); },
     });
   }
@@ -2967,6 +3046,21 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
     this.http.get<CapacityHistoryRow[]>(`${this.base}/capacity/history`, { params: { date: this.capDate } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (h) => this.history.set(h), error: () => this.history.set([]),
+    });
+    // [PU.14] Lo que el estimado de ingresos propone para ESE día, para ajustarlo con algo enfrente,
+    // y si ya pasó a Pagos (entonces no se puede tocar).
+    this.capDayEstimate.set(null);
+    this.capDayBloqueado.set(null);
+    const dia = this.capDate;
+    this.http.get<CapacityProposal>(`${this.base}/capacity/propose`, { params: { from: dia, to: dia } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        // Si mientras viajaba se eligió otro día, esta respuesta ya no es de la fecha en pantalla.
+        if (dia !== this.capDate) return;
+        this.capDayEstimate.set(this.capPorIngreso(p) ? (p.items[0] ?? null) : null);
+        // El candado vale con cualquier base (también si la propuesta cayó a cartera).
+        this.capDayBloqueado.set(p.items[0]?.bloqueado ?? null);
+      },
+      error: () => { if (dia === this.capDate) { this.capDayEstimate.set(null); this.capDayBloqueado.set(null); } },
     });
   }
   saveCapacity(): void {

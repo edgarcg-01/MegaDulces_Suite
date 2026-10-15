@@ -94,7 +94,7 @@ export interface MetricStripItem {
   imports: [CountUpDirective, SparklineComponent, RingGaugeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ms" [class]="'ms--' + mode()" role="group" [attr.aria-label]="ariaLabel() || null">
+    <div class="ms" [class]="'ms--' + mode()" [class.ms--compact]="density() === 'compact'" role="group" [attr.aria-label]="ariaLabel() || null">
       @if (mode() === 'composition') {
         <div class="ms-band">
           <div class="ms-bar" role="img" [attr.aria-label]="ariaLabel() || null">
@@ -236,6 +236,17 @@ export interface MetricStripItem {
     .ms-leg i { width:9px; height:9px; border-radius:3px; }
     .ms-leg i.tone-ok { background:var(--ok-fg); } .ms-leg i.tone-warn { background:var(--warn-fg); } .ms-leg i.tone-bad { background:var(--bad-fg); } .ms-leg i.tone-brand { background:var(--action); } .ms-leg i.tone-muted { background:var(--text-muted); } .ms-leg i.tone-default { background:var(--text-faint); }
     .ms-leg b { font-family:var(--font-mono); font-weight:600; color:var(--text-main); font-variant-numeric:tabular-nums; }
+    /* ── densidad compacta (solo modo strip): cada métrica en UNA línea — cifra, etiqueta y nota —
+       en vez de apilarlas. Misma información, ~1/3 del alto. Es ADITIVA: el default 'normal' no
+       cambia ninguna de las pantallas que ya usan este organismo. Se ordena con order porque el DOM
+       lleva etiqueta antes que cifra (lectores de pantalla) y a la vista la cifra va primero. */
+    .ms--compact .ms-item { flex-direction:row; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); padding:.1rem var(--sp-4); }
+    .ms--compact .ms-item:first-child { padding-left:.15rem; }
+    .ms--compact .ms-item:not(:first-child)::before { top:.15rem; bottom:.15rem; }
+    .ms--compact .ms-row { order:1; }
+    .ms--compact .ms-l { order:2; font-size:var(--fs-micro); }
+    .ms--compact .ms-sub { order:3; font-size:var(--fs-micro); }
+    .ms--compact .ms-v { font-size:var(--fs-lg); }
     /* móvil: grid 2 columnas con un divisor central por fila */
     @media (max-width:35rem) {
       .ms:not(.ms--composition) { display:grid; grid-template-columns:1fr 1fr; row-gap:.85rem; }
@@ -253,6 +264,12 @@ export class MetricStripComponent implements AfterViewInit {
   readonly items = input<MetricStripItem[]>([]);
   readonly mode = input<MetricStripMode>('strip');
   readonly ariaLabel = input<string>('');
+  /**
+   * `normal` (default) apila etiqueta / cifra / nota como siempre. `compact` los pone en una línea:
+   * para pantallas donde el alto vale más que el aire (una tabla densa debajo). Sólo aplica al modo
+   * `strip`; los demás modos ignoran la densidad.
+   */
+  readonly density = input<'normal' | 'compact'>('normal');
   /** total para composición (default = suma de valores). */
   readonly total = input<number | null>(null);
 

@@ -182,6 +182,138 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
     const ms = Date.now() - t0;
     t(`el panel (45 días) responde en ${ms} ms (gate ${GATE_MS} ms)`, ms <= GATE_MS,
       `${ms} ms: por encima del gate deja de poder ser vista`);
+
+    // ── 8b. `[VEC.12.1]` La venta de LA RUTA no es la de su caja ───────────────────────────
+    //
+    // El detalle de una ruta mostraba `vecinal` —el total de la caja— bajo una columna que el
+    // lector leía como suya. Medido el 2026-10-14 sobre abril→octubre: de 735 día-caja-ruta,
+    // **310 (42%) comparten caja** y ahí el total infla 5.05× de media, 85.6× en el peor caso.
+    // En PH el 14-oct la pantalla decía $18,694 donde `1V001` había vendido $6,662.41.
+    const comparte = (await db.raw(
+      `WITH r AS (
+         SELECT warehouse_code wh, caja, business_date d, route_no, sum(total) ruta
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 180
+          GROUP BY 1,2,3,4),
+       c AS (SELECT wh, caja, d, count(*) rutas, sum(ruta) caja_total FROM r GROUP BY 1,2,3)
+       SELECT count(*)::int AS filas,
+              count(*) FILTER (WHERE c.rutas > 1)::int AS compartidas,
+              round(max(c.caja_total / NULLIF(r.ruta,0)), 2) AS peor_factor
+         FROM r JOIN c ON c.wh = r.wh AND c.caja = r.caja AND c.d = r.d`, [T])).rows[0];
+
+    if (!Number(comparte.compartidas)) {
+      noMedido('la venta de la ruta no es la de su caja',
+        'en este período ninguna caja la comparten dos rutas: no hay con qué distinguir');
+    } else {
+      // ⛔ Prueba NEGATIVA: si `vecinal` sirviera como venta de la ruta, el factor sería 1.00 en
+      // todas. Se exige que NO lo sea — o sea, que las dos cifras sean realmente distintas.
+      t(`la caja NO sirve de proxy de la ruta: ${comparte.compartidas} de ${comparte.filas} día-caja `
+        + `comparten caja, factor hasta ${comparte.peor_factor}×`,
+        Number(comparte.peor_factor) > 1.01,
+        'ninguna caja compartida infla: la columna por ruta no estaría corrigiendo nada');
+    }
+
+    // Y la invariante que el endpoint tiene que cumplir: lo de la ruta nunca excede lo de la caja.
+    const excede = (await db.raw(
+      `WITH r AS (
+         SELECT warehouse_code wh, caja::integer caja, business_date d, sum(total) ruta
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 180
+          GROUP BY 1,2,3,route_no)
+       SELECT count(*)::int AS mal
+         FROM r JOIN analytics.v_vecinal_conciliacion c
+           ON c.tenant_id = ? AND c.warehouse_code = r.wh AND c.caja = r.caja
+          AND c.business_date = r.d
+        WHERE r.ruta > c.vecinal + 0.01`, [T, T])).rows[0];
+    t('la venta de una ruta nunca excede lo vecinal de su caja', Number(excede.mal) === 0,
+      `${excede.mal} filas donde la parte es mayor que el todo: el join de caja está mal`);
+
+    // ── 9. `[VEC.11]` El puente Kepler ↔ Suite CIERRA ──────────────────────────────────────
+    //
+    // El panel publica una resta: lo que muestra esta pantalla, más el prorrateo del descuento,
+    // más el telemarketing, más la re-factura, menos lo que la matvista todavía no refrescó,
+    // tiene que dar **lo que el sell-out publica**. Si deja de cerrar, el panel está afirmando
+    // una aritmética falsa — y eso es peor que no tener puente.
+    //
+    // ⛔ Se mide sobre un MES CERRADO, no sobre los últimos 45 días: en el rango que incluye hoy
+    // el residuo depende de a qué hora corrió el refresco nocturno, así que un candado así
+    // parpadearía por motivos que no son un defecto.
+    const mesCerrado = (await db.raw(
+      `SELECT to_char(date_trunc('month', (now() AT TIME ZONE 'America/Mexico_City')::date
+                                           - interval '1 month'),'YYYY-MM-DD') AS ini,
+              to_char((date_trunc('month', (now() AT TIME ZONE 'America/Mexico_City')::date)
+                       - interval '1 day')::date,'YYYY-MM-DD') AS fin`)).rows[0];
+
+    /** Los cinco sumandos y el destino, con el MISMO corte de fechas. */
+    const SQL_PUENTE = `
+      WITH so AS (
+        SELECT COALESCE(sum(monto),0) AS sellout, max(business_date) AS hasta
+          FROM analytics.mv_kepler_sales_daily
+         WHERE tenant_id = ?::uuid AND channel = 'preventa'
+           AND business_date >= ?::date AND business_date <= ?::date),
+      doc AS (
+        SELECT COALESCE(sum(total),0) AS pagina FROM analytics.v_kepler_vecinal_sales_docs
+         WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
+      lin AS (
+        SELECT COALESCE(sum(importe) FILTER (WHERE doc_tipo = 10),0) AS ud10,
+               COALESCE(sum(importe) FILTER (WHERE doc_tipo = 8),0) AS tele,
+               COALESCE(sum(importe) FILTER (WHERE es_refactura),0) AS espejo,
+               COALESCE(sum(importe) FILTER (WHERE business_date > (SELECT hasta FROM so)),0) AS por_refrescar
+          FROM analytics.v_kepler_sales_lines
+         WHERE tenant_id = ?::uuid AND es_vecinal
+           AND business_date >= ?::date AND business_date <= ?::date)
+      SELECT doc.pagina, lin.ud10, lin.tele, lin.espejo, lin.por_refrescar, so.sellout,
+             round(lin.ud10 + lin.tele + lin.espejo - lin.por_refrescar - so.sellout, 2) AS residuo
+        FROM doc, lin, so`;
+    const P = [T, mesCerrado.ini, mesCerrado.fin, T, mesCerrado.ini, mesCerrado.fin, T, mesCerrado.ini, mesCerrado.fin];
+    const pu = (await db.raw(SQL_PUENTE, P)).rows[0];
+
+    if (!Number(pu.sellout) || !Number(pu.pagina)) {
+      noMedido(`el puente Kepler ↔ Suite cierra (${mesCerrado.ini})`,
+        'el mes cerrado no tiene venta vecinal o la matvista no lo cubre: no hay con qué probarlo');
+    } else {
+      // Tolerancia $1: los sumandos se redondean al peso para mostrarse. Medido 2026-10-14 sobre
+      // prod: agosto $0.05 · septiembre $0.37. Julio da $327.84 y por eso el panel lo DECLARA.
+      t(`el puente cierra en ${mesCerrado.ini.slice(0, 7)}: residuo ${Number(pu.residuo).toFixed(2)} `
+        + `(pantalla ${Number(pu.pagina).toFixed(2)} → sell-out ${Number(pu.sellout).toFixed(2)})`,
+        Math.abs(Number(pu.residuo)) <= 1,
+        `residuo ${pu.residuo}: la resta que el panel publica NO da, y el lector no tiene cómo saberlo`);
+
+      /**
+       * ⛔ **Prueba NEGATIVA — el bug que esto existe para impedir.** La primera versión tomaba
+       * la re-factura y el telemarketing de `v_vecinal_no_suma`, que agrega la **cabecera**
+       * (`c16`), mientras el sell-out está hecho de **líneas** (`c13`). Mezclar granos dejó el
+       * puente abierto por $2,762.84 en septiembre, y la cifra se veía razonable.
+       *
+       * Acá se arma el puente a propósito con el grano equivocado y se exige que NO cierre. Si
+       * algún día cerrara, los dos granos coincidirían y esta aserción quedaría vacua — por eso
+       * reporta NO MEDIDO en vez de ✔ cuando no hay descuento que prorratear.
+       */
+      const mal = (await db.raw(`
+        WITH so AS (
+          SELECT COALESCE(sum(monto),0) AS sellout
+            FROM analytics.mv_kepler_sales_daily
+           WHERE tenant_id = ?::uuid AND channel = 'preventa'
+             AND business_date >= ?::date AND business_date <= ?::date),
+        doc AS (
+          SELECT COALESCE(sum(total),0) AS pagina FROM analytics.v_kepler_vecinal_sales_docs
+           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
+        ns AS (
+          SELECT COALESCE(sum(refactura),0) AS espejo, COALESCE(sum(telemarketing),0) AS tele
+            FROM analytics.v_vecinal_no_suma
+           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date)
+        SELECT round(doc.pagina + ns.tele + ns.espejo - so.sellout, 2) AS residuo
+          FROM doc, ns, so`, P)).rows[0];
+      const dif = Math.abs(Number(mal.residuo));
+      if (dif === 0) {
+        noMedido('mezclar cabecera y línea NO cierra (prueba negativa)',
+          'en este mes los dos granos coinciden: la prueba no puede distinguir');
+      } else {
+        t(`prueba negativa: armado con el grano de CABECERA el puente NO cierra (${dif.toFixed(2)})`,
+          dif > 1,
+          'el puente cierra igual con el grano equivocado: no está probando nada');
+      }
+    }
   } finally {
     await db.destroy();
   }

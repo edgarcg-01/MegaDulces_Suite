@@ -1386,10 +1386,18 @@ export class CommercialAnalyticsController {
       + 'Grano (sucursal, caja, día): el arqueo es por caja y una caja mezcla rutas y mostrador, '
       + 'así que el descuadre NO se puede atribuir a una ruta (mirar vecinal_pct). Declara aparte, '
       + 'sin sumarlos, U-D-12 (re-factura: el arqueo la ignora) y U-D-8 (telemarketing). '
-      + 'Params: from, to (YYYY-MM-DD; por omisión los últimos 45 días).',
+      + 'Params: from, to (YYYY-MM-DD; por omisión los últimos 45 días), route (p.ej. 1V001). '
+      + 'Con route, cada fila trae además vecinal_ruta = lo que ESA ruta vendió en esa caja ese '
+      + 'día; sin route llega null (el panel global no pregunta por una ruta). vecinal sigue '
+      + 'siendo el total de la caja — en el 42% de los día-caja la comparten 2-3 rutas.',
   })
-  vecinalConciliacion(@Query('from') from?: string, @Query('to') to?: string): Promise<VecinalConciliacion> {
-    return this.service.vecinalConciliacion(from?.trim() || undefined, to?.trim() || undefined);
+  vecinalConciliacion(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('route') route?: string,
+  ): Promise<VecinalConciliacion> {
+    return this.service.vecinalConciliacion(
+      from?.trim() || undefined, to?.trim() || undefined, route?.trim() || undefined);
   }
 
   @Get('sales-by-route')

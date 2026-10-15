@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CaosService, type CaosQuery } from './caos.service';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
+import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
 
 interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string } }
 
@@ -19,7 +20,33 @@ export class CaosController {
   constructor(
     private readonly svc: CaosService,
     private readonly recon: CaosIngresoReconService,
+    private readonly rutaCaja: CaosRutaCajaService,
   ) {}
+
+  /**
+   * [CG.58.7] La liga que pide /comercial/ventas-por-ruta: de la ruta a su entrada en Caja
+   * General, pasando por el deposito de CAOS que la origino.
+   *
+   * ⚠️ Gateado con COMMERCIAL_ROUTE_SALES_VER y NO con FINANCE_CAOS_VER, a proposito y medido:
+   * de los 10 roles que abren Ventas por ruta, solo 5 tienen el permiso de CAOS -- compras,
+   * compras_operaciones, jefe_marketing, repartidor y telemarketing verian un 403 en un panel de
+   * SU pantalla. Es el mismo criterio que ya usan los otros dos paneles de conciliacion de esa
+   * pagina (cierre de ruta y vecinal), que tambien publican dinero contado. No se acuña un
+   * permiso nuevo: un permiso recien acuñado no esta REPARTIDO, y hasta que alguien lo reparta la
+   * pantalla queda muda para todos (la leccion de [LC.6.2]).
+   */
+  @Get('por-ruta')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      '[CG.58.7] — Deposito de CAOS -> entrada a Caja General, agrupado por la ruta que declara '
+      + 'el texto del deposito. Grano ruta_dia|ruta|plaza|sin_declarar: lo que el texto aguanta. '
+      + 'Declara aparte la vecinal (otro circuito) y los depositos aun NO capturados en Caja '
+      + 'General. Params: from, to (YYYY-MM-DD; por omision los ultimos 45 dias).',
+  })
+  porRuta(@Query('from') from?: string, @Query('to') to?: string): Promise<CaosPorRuta> {
+    return this.rutaCaja.porRuta(from?.trim() || undefined, to?.trim() || undefined);
+  }
 
   @Get('movimientos')
   @RequirePermissions(Permission.FINANCE_CAOS_VER)

@@ -1455,6 +1455,10 @@ export const CRON_JOBS: CronCfg[] = [
   // ⚠️ El primer REFRESH (400 d) pasa de 300 s: nace WITH NO DATA y su poblado inicial va en
   // ventana, una vez. Lo que se vigila aca es que NO SE QUEDE VIEJA.
   { key: 'analytics_refresh_erp_margin',      label: 'Refresh MV árbitro de costo',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [MR.9.1] La otra mitad del margen contra el costo estándar: el MAYOREO (U-D-8), costeado con la
+  // ficha porque c62 viene vacío. Si se queda vieja, v_margin_standard_daily publica el mayoreo
+  // reciente como «sin costo» — se ve como cobertura baja, no como falla. Por eso el umbral.
+  { key: 'analytics_refresh_erp_margin_ficha', label: 'Refresh MV costo estándar de mayoreo (MR.9.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // ⛔ [PR.S2.1] La cascada de precio se materializó el 2026-09-30 y nació SIN carril que la
   // refrescara ni umbral que lo notara — el mismo defecto que la fila de arriba documenta, y que
   // se repitió igual. Una MV que nadie refresca no se ve rota: se ve idéntica, publicando el

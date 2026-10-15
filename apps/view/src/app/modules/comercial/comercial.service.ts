@@ -2109,11 +2109,17 @@ export class ComercialService {
     return this.http.get<RouteClosureReconciliation>(`${this.base}/analytics/sales-by-route/closure-reconciliation`, { params });
   }
 
-  /** `[VEC.10]` — La venta vecinal contra el dinero que se contó en SU caja (arqueo). */
-  vecinalConciliacion(from?: string, to?: string) {
+  /**
+   * `[VEC.10]` — La venta vecinal contra el dinero que se contó en SU caja (arqueo).
+   *
+   * `[VEC.12.1]` Con `route`, cada fila trae además `vecinal_ruta`: lo que ESA ruta vendió en esa
+   * caja ese día. Sin `route` llega `null`, que es lo correcto para el panel global.
+   */
+  vecinalConciliacion(from?: string, to?: string, route?: string) {
     let params = new HttpParams();
     if (from) params = params.set('from', from);
     if (to) params = params.set('to', to);
+    if (route) params = params.set('route', route);
     return this.http.get<VecinalConciliacion>(`${this.base}/analytics/sales-by-route/vecinal-reconciliation`, { params });
   }
 
@@ -3247,8 +3253,14 @@ export interface VecinalConciliacionFila {
   caja: number;
   date: string;
   rutas: string[];
+  /** ⛔ Lo vecinal de TODA la caja, sumando las rutas que la comparten. NO es de una ruta. */
   vecinal: number;
   tickets: number;
+  /**
+   * `[VEC.12.1]` Lo que vendió la ruta por la que se preguntó, en esta caja y este día.
+   * `null` = no se pidió por ruta. Nunca 0 por ausencia: un 0 diría «no vendió».
+   */
+  vecinal_ruta: number | null;
   /** NULL = no hay arqueo. Nunca 0: la ausencia no se dibuja como cero. */
   arqueo_venta: number | null;
   otros_en_la_caja: number | null;
@@ -3268,6 +3280,32 @@ export interface VecinalNoSuma {
   telemarketing_docs: number;
 }
 
+/**
+ * `[VEC.11]` El puente Kepler ↔ Suite: la aritmética que une lo que publica esta pantalla con lo
+ * que publica el sell-out. Todos los sumandos salen de la vista de LÍNEAS y `sellout` se MIDE en
+ * la matvista — mezclar granos fue lo que impidió que cerrara en la primera versión.
+ */
+export interface VecinalPuente {
+  /** Lo que publica esta pantalla: `U-D-10` al grano de documento. */
+  pagina: number;
+  pagina_docs: number;
+  /** Δ cabecera ↔ línea del mismo `U-D-10` (el descuento se prorratea por renglón). */
+  prorrateo: number;
+  /** `U-D-8`: venta REAL de otro canal, que no pasa por la caja de la vecinal. */
+  telemarketing: number;
+  telemarketing_docs: number;
+  /** `U-D-12`: re-emite el mismo ticket. NO es venta. */
+  espejo: number;
+  espejo_docs: number;
+  kepler_total: number;
+  /** Lo que la matvista nocturna todavía no tiene. No es descuadre. */
+  por_refrescar: number;
+  sellout: number;
+  sellout_hasta: string | null;
+  /** Lo que no cierra. Se declara; nunca se absorbe en otro renglón. */
+  residuo: number;
+}
+
 export interface VecinalConciliacion {
   period: { from: string; to: string };
   summary: {
@@ -3283,6 +3321,7 @@ export interface VecinalConciliacion {
     arqueo_hasta: string | null;
   };
   no_suma: VecinalNoSuma;
+  puente: VecinalPuente;
   filas: VecinalConciliacionFila[];
 }
 

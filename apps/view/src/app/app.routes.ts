@@ -843,6 +843,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
         loadComponent: () => import('./modules/finanzas/pages/tesoreria-diagnostico.component').then(m => m.TesoreriaDiagnosticoComponent),
       },
+      // `[PU.13]` El estimado de ingresos por día, página propia por la misma razón que Tesorería.
+      {
+        path: 'ingresos',
+        canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
+        loadComponent: () => import('./modules/finanzas/pages/presupuesto-ingresos.component').then(m => m.PresupuestoIngresosComponent),
+      },
     ]
   },
   // ── Proyecto Desarrolladores (Fase DEV, 2026-10-01) ─────────────────
@@ -1471,6 +1477,16 @@ export const routes: Routes = [
         path: 'surtir',
         loadComponent: () => import('./modules/almacen/pages/almacen-surtir.component').then(m => m.AlmacenSurtirComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_GESTIONAR)]
+      },
+      {
+        /**
+         * `[MCP.3]` **Pedidos de preventa por surtir** de la sucursal, por día (Hoy / Mañana /
+         * Próximos), y su surtido pedido por pedido. Foco, como Surtir. Ver es `COMMERCIAL_PICKING_VER`;
+         * empezar y cerrar exige `GESTIONAR` en el servidor. El aviso de la campana trae `?pedido=`.
+         */
+        path: 'surtir-preventa',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtir-preventa.component').then(m => m.AlmacenSurtirPreventaComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
       },
       {
         /**

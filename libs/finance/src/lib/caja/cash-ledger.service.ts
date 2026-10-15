@@ -1,11 +1,24 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import type { Knex } from 'knex';
 import {
   TenantKnexService, TenantContextService, evalInput, composeFreshness,
 } from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
-  type FinanceFindingsSinkPort,
+  type FinanceFindingsSinkPort, type Freshness,
+  ventanaDeCobertura,
+  type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
 } from '@megadulces/contracts';
+
+/**
+ * `[CG.183]` Los carriles de los que depende la cola por confirmar, con nombre para humanos.
+ * ⚠️ Son DOS piernas y gana la peor: un matview fresco sobre un ODS parado es verde falso.
+ */
+const ETIQUETA_CARRIL: Record<string, string> = {
+  ods_live_hot: 'Carril del ODS (caliente)',
+  ods_live_mirror: 'Carril del ODS (espejo)',
+  mv_caja_refresh: 'Refresco de la cola de caja',
+};
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
@@ -2168,6 +2181,196 @@ export class CashLedgerService {
     });
   }
 
+  /**
+   * ⭐⭐ `[CG.183]` **LA COBERTURA: contra qué se está publicando el KPI.**
+   *
+   * Medido contra prod el 2026-10-14, ventana 01→14-oct: el libro tiene **70 movimientos y
+   * \$774,890.89**, y la cola por confirmar **549 y \$3,827,485.38** — o sea que el encabezado
+   * publica el **11.3 % de los movimientos y el 16.8 % del dinero** sin decirlo. El rótulo «El
+   * libro, del X al Y» no miente, dice de dónde sale; lo que falta es el denominador.
+   *
+   * ── Las tres decisiones que no son obvias ───────────────────────────────────────────────────
+   *
+   * 1. ⛔ **Tres filtros vuelven la comparación imposible, no incorrecta.** `cuenta`, `search` y
+   *    `mios` no existen del lado por confirmar: son documentos del ERP que nadie capturó todavía,
+   *    así que no tienen cuenta contable nuestra, ni texto nuestro, ni **dueño**. ⚠️ `mios` es el
+   *    peor: devolver `0` ahí publicaría **100 % de cobertura**, que es el resultado más
+   *    tranquilizador y el más falso. Por eso el estado es `no_corresponde` y `por_confirmar` va
+   *    `null` — un `null` no se divide por accidente.
+   *
+   * 2. ⛔ **`sucursal` se normaliza con `split_part(...,'-',1)` en LOS DOS lados.** La cola trae
+   *    códigos compuestos (`01-001`…`01-005`, nacidos del corte del 1-oct) que el libro no tiene.
+   *    Medido: comparar por igualdad en Padre Hidalgo da **78 movimientos / \$774,054** cuando son
+   *    **107 / \$1,301,686** — esconde **29 movimientos y \$527,631.59, el 40.5 %**, y el renglón
+   *    se ve perfectamente sano. Un filtro que coincide a medias no falla: resta en silencio.
+   *
+   * 3. ⛔ **La frescura decide el estado, y la regla vive ACÁ, no en la pantalla.** No es higiene:
+   *    es aritmética. Medido, **139 de 1,308 movimientos del universo de 30 días (10.6 %) entraron
+   *    en las últimas 72 h** — o sea que **un carril parado tres días MEJORA la cobertura solo**,
+   *    porque encoge el denominador. Una cifra que mejora cuando la ingesta se cae no se puede
+   *    publicar; se declara `sin_medir`.
+   *
+   * ⚠️ El denominador replica el `whereNotExists` por glosa de `movimientosPendientes()`. Sin eso
+   * contaría documentos que la cola **ya oculta** por estar capturados, y la cobertura saldría peor
+   * de lo que es — midiendo trabajo que ya se hizo.
+   */
+  private async coberturaDe(
+    trx: Knex.Transaction,
+    tenantId: string,
+    q: LedgerQuery,
+    capturado: { movimientos: number; monto: number },
+    periodoReal: { from: string | null; to: string | null },
+  ): Promise<CajaCobertura> {
+    /**
+     * ⛔ La ventana sale del `from`/`to` que recibió la petición, **nunca** de una fija. Medido con
+     * el numerador casi quieto (69→71): la cobertura da **12.0 % (mes en curso) · 5.4 % (30 d) ·
+     * 3.6 % (45 d) · 2.9 % (un día)**. Una ventana equivocada no se equivoca un poco: da cuatro
+     * respuestas y todas parecen razonables.
+     *
+     * ⚠️ Y cuando NO vienen —`list()` no impone ventana por default, a diferencia de `range()`—
+     * se publica el periodo **que de verdad se contó** (el mínimo y el máximo de lo que entró al
+     * KPI), no un mes inventado. Un mes inventado sería una cuarta respuesta plausible.
+     */
+    /**
+     * ⛔⛔ **LA VENTANA ES PROPIEDAD DE LO QUE SE PREGUNTÓ, NO DE LO QUE CONTESTÓ.**
+     *
+     * Acá se derivaba del `min(fecha)`/`max(fecha)` de lo capturado, y era un defecto grave que
+     * fallaba **hacia el lado tranquilizador**. Medido en prod el 2026-10-14, sin `from`/`to`:
+     *
+     *     numerador (sin filtro de fecha)      75 movimientos, del 2026-09-25 al 2026-12-10
+     *     denominador RECORTADO a esa ventana     835
+     *     denominador real, sin recortar       13,235
+     *
+     *     cobertura publicada  8.2 %      cobertura real  0.6 %      ← 15× mejor
+     *
+     * El numerador no llevaba filtro de fecha —cubría todo el libro— pero el denominador sí se
+     * acotaba a la ventana derivada, o sea **al tramo donde el numerador casualmente vive**. El
+     * denominador se encoge hasta alcanzar al numerador y el porcentaje se ve quince veces mejor,
+     * sin que nada se rompa: `8.2 %` es perfectamente plausible.
+     *
+     * ⚠️ Y muerde también el caso lleno: si alguien pide 01→31 y el libro sólo tiene del 05 al 12,
+     * se publicaría «ventana 05→12» sobre cifras calculadas en 31 días.
+     *
+     * ⭐ Por eso la ventana es **lo que vino en la petición**, y se conoce siempre — haya filas o
+     * no. ⛔ `null` significa **«sin límite»**, NO «no se sabe»: son dos ausencias distintas y
+     * confundirlas es exactamente lo que separa `no_corresponde` de `sin_medir` un campo más
+     * abajo. Lo que no se pudo determinar va en `estado: 'sin_medir'`, nunca en un `null` de acá.
+     *
+     * ⚠️ `periodoReal` se conserva y se publica aparte (`periodo_contado`): decir en qué tramo
+     * cayeron de verdad los movimientos es útil, pero **no es la ventana** y no puede acotar el
+     * denominador.
+     */
+    const ventana = ventanaDeCobertura(q);
+    void periodoReal; // se publica aparte, en `list()`: describe, no acota.
+
+    // Orden fijo y TODOS los activos: nombrar sólo el primero manda a quitar uno y volver a chocar
+    // con el siguiente.
+    const incompatibles: CajaCoberturaFiltro[] = [];
+    if (q.cuenta) incompatibles.push('cuenta');
+    if (q.search) incompatibles.push('search');
+    if (q.solo_de) incompatibles.push('mios');
+
+    if (incompatibles.length) {
+      const nombres: Record<CajaCoberturaFiltro, string> = {
+        cuenta: 'la cuenta contable', search: 'la búsqueda', mios: '«los míos»',
+      };
+      return {
+        estado: 'no_corresponde', ventana, capturado, por_confirmar: null,
+        frescura: await this.frescuraCobertura(trx),
+        motivo: {
+          tipo: 'filtro', filtros: incompatibles,
+          texto: `Con ${incompatibles.map((f) => nombres[f]).join(' y ')} no hay con qué comparar: `
+            + 'lo que falta por confirmar son documentos del ERP que nadie capturó todavía, así que '
+            + 'no tienen cuenta, ni texto nuestro, ni dueño.',
+        },
+      };
+    }
+
+    const frescura = await this.frescuraCobertura(trx);
+    if (frescura.status !== 'fresh') {
+      return {
+        estado: 'sin_medir', ventana, capturado, por_confirmar: null, frescura,
+        motivo: {
+          tipo: 'fallo',
+          texto: frescura.status === 'unknown'
+            ? 'No se pudo medir la frescura de la cola por confirmar, así que no se puede decir contra qué se compara.'
+            : `La cola por confirmar está atrasada (${frescura.age_human ?? 'sin edad'}): con el carril rezagado la cobertura MEJORA sola y no se puede publicar.`,
+        },
+      };
+    }
+
+    try {
+      const yaCapturado = (sub: Knex.QueryBuilder) => sub
+        .select(trx.raw('1'))
+        .from('finance.cash_ledger as yac')
+        .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
+           AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
+           AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                              || ' ' || v_caja_movimientos_pendientes.folio || '%'`);
+
+      let qb = trx('finance.v_caja_movimientos_pendientes')
+        .where('tenant_id', tenantId)
+        .whereNotExists(yaCapturado);
+      if (ventana.from) qb = qb.where('fecha_valor', '>=', ventana.from);
+      if (ventana.to) qb = qb.where('fecha_valor', '<=', ventana.to);
+      if (q.tipo) qb = qb.where('tipo', q.tipo);
+      // ⛔ La normalización, acá. Ver el punto 2 del docstring: sin esto se esconde el 40.5 %.
+      if (q.sucursal) qb = qb.whereRaw(`split_part(sucursal,'-',1) = split_part(?,'-',1)`, [q.sucursal]);
+
+      const [d] = await qb.select(
+        trx.raw(`count(*)::int AS movimientos`),
+        // ⛔ `::numeric`, nunca `::float8`: es dinero. Y `n()` en el map porque el repo no fija
+        // `setTypeParser` y un `numeric` llega como string.
+        trx.raw(`coalesce(sum(monto),0)::numeric AS monto`),
+      );
+
+      return {
+        estado: 'medida', ventana, capturado, frescura, motivo: null,
+        por_confirmar: {
+          movimientos: Number(d?.movimientos ?? 0),
+          monto: Number(Number(d?.monto ?? 0).toFixed(2)),
+        },
+      };
+    } catch (e) {
+      // ⛔ Un fallo se DECLARA, no se publica como cobertura total. Es `[CG.181]` —el 429 que salió
+      // como «0 corte(s)»— en este mismo módulo y el mismo día. Y el texto nunca lleva el mensaje
+      // crudo de Postgres: esto llega a una pantalla de captura de efectivo (`[CG.154]`).
+      this.logger.warn(`cobertura sin medir: ${(e instanceof Error ? e.message : String(e)).slice(-300)}`);
+      return {
+        estado: 'sin_medir', ventana, capturado, por_confirmar: null, frescura,
+        motivo: { tipo: 'fallo', texto: 'No se pudo leer la cola por confirmar. Lo revisa Sistemas.' },
+      };
+    }
+  }
+
+  /**
+   * `[CG.183]` La frescura de la cobertura: **dos piernas, y gana la peor.** Un matview fresco
+   * sobre un ODS parado es verde falso — por eso no alcanza con mirar el refresco.
+   *
+   * ⚠️ `unknown` si no se puede medir, nunca `fresh`. No poder medir no es estar al día, y este
+   * módulo ya fue corregido por eso en `[CG.141.1]`.
+   */
+  private async frescuraCobertura(trx: Knex.Transaction): Promise<Freshness> {
+    try {
+      const filas = await trx('analytics.cron_runs')
+        .whereIn('job_key', ['ods_live_hot', 'ods_live_mirror', 'mv_caja_refresh'])
+        .select('job_key', 'last_finish');
+      if (!filas.length) {
+        return composeFreshness([
+          evalInput('cobertura_caja', 'Cola por confirmar', null, CAJA_AUTOFILL_FRESCURA_H),
+        ]);
+      }
+      return composeFreshness(filas.map((f: { job_key: string; last_finish: string | null }) =>
+        evalInput(f.job_key, ETIQUETA_CARRIL[f.job_key] ?? f.job_key, f.last_finish, CAJA_AUTOFILL_FRESCURA_H)));
+    } catch {
+      // La ausencia del latido se DECLARA. Si acá se devolviera `fresh`, la cobertura se publicaría
+      // sobre un denominador de edad desconocida — que es el verde falso que ADR-056 persigue.
+      return composeFreshness([
+        evalInput('cobertura_caja', 'Cola por confirmar', null, CAJA_AUTOFILL_FRESCURA_H),
+      ]);
+    }
+  }
+
   /** Lista paginada con KPIs del mismo filtro — el encabezado no puede contar otra cosa. */
   async list(q: LedgerQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -2243,7 +2446,45 @@ export class CashLedgerService {
         trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='deposito' AND estado IS DISTINCT FROM 'cancelado'),0)::numeric AS depositos`),
       );
 
-      return { rows, kpi, limit, offset, has_more: rows.length === limit };
+      /**
+       * `[CG.183]` El periodo que DE VERDAD se contó, para cuando no vienen `from`/`to`. Sale de la
+       * misma consulta filtrada, así que describe exactamente lo que entró al KPI — no un mes
+       * inventado, que sería una respuesta plausible más (ver `coberturaDe`).
+       */
+      const [periodo] = await base().select(
+        trx.raw(`to_char(min(fecha),'YYYY-MM-DD') AS desde`),
+        trx.raw(`to_char(max(fecha),'YYYY-MM-DD') AS hasta`),
+      );
+
+      // ⚠️ `n()` sobre los importes del KPI: el repo no fija `setTypeParser`, así que un `::numeric`
+      // llega como STRING. Hoy la pantalla sobrevive porque `money()` hace `Number(v || 0)`; el
+      // contrato de la cobertura exige `number` y acá se cumple en el origen.
+      const n = (v: unknown) => Number(Number(v ?? 0).toFixed(2));
+      const cobertura = await this.coberturaDe(
+        trx, tenantId, q,
+        {
+          movimientos: Number(kpi?.movimientos ?? 0),
+          monto: n(Number(kpi?.ingresos ?? 0) + Number(kpi?.gastos ?? 0) + Number(kpi?.depositos ?? 0)),
+        },
+        { from: periodo?.desde ?? null, to: periodo?.hasta ?? null },
+      );
+
+      return {
+        rows, kpi, limit, offset, has_more: rows.length === limit, cobertura,
+        /**
+         * ⚠️ `[CG.183]` En qué tramo cayeron DE VERDAD los movimientos contados. Es informativo y
+         * va **aparte de `cobertura.ventana`** a propósito: describir no es acotar. Derivarlo y
+         * usarlo como ventana es el defecto que inflaba la cobertura 15× — el denominador se
+         * encogía hasta alcanzar al numerador.
+         *
+         * `null` en las dos puntas cuando no se contó nada.
+         */
+        // ⚠️ `from`/`to`, NO `desde`/`hasta`: `CLAUDE.md` §Convenciones fija English snake_case para
+        // los campos de DTO, y un rango de fechas no es un término de dominio sin traducción. Dos
+        // vocabularios para lo mismo a diez líneas de distancia —y justo entre los dos campos que
+        // esta fase existe para no mezclar— es cómo el próximo lector adivina cuál describe qué.
+        periodo_contado: { from: periodo?.desde ?? null, to: periodo?.hasta ?? null } satisfies CajaPeriodoContado,
+      };
     });
   }
 

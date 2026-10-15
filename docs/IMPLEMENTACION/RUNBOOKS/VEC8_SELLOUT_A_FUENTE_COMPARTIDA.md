@@ -95,3 +95,112 @@ Con la canónica en producción como fuente del sell-out, las demás derivacione
 pueden migrar una por una, cada una con su propia verificación de fidelidad. **De las 44 vistas de
 `analytics` que leen `kdm1`/`kdm2`, ninguna comparte reglas con otra**: unas unen por caja y otras
 no, unas excluyen cancelados y otras no. Ése es el trabajo de fondo que esta fase abre.
+
+---
+
+# `[VEC.11]` — Mientras el sell-out no se migre, la contradicción se DECLARA con su aritmética
+
+> **Estado: en código, candado verde contra prod (15 ✓ / 0 ✗). Sin desplegar.** 2026-10-14.
+
+`[VEC.8]` sigue pendiente de ventana, así que las dos cifras conviven. Hasta hoy el panel de la
+vecinal lo decía en prosa —*"el sell-out sí los cuenta, y por eso publica una cifra más alta"*— sin
+decir **cuál**. Una conciliación nombra los dos números y enseña la resta que los une; mientras
+falte el segundo, al lector sólo le queda creer en la palabra.
+
+`/comercial/ventas-por-ruta` publica ahora el puente completo, medido contra prod:
+
+| | sep-2026 |
+|---|---|
+| lo que publica esta pantalla (`U-D-10`, cabecera `c16`) | **$1,943,014.72** |
+| prorrateo del descuento por renglón | +$2,169.95 |
+| telemarketing con código vecinal (`U-D-8`, venta real de otro canal) | +$107,251.22 |
+| **re-factura (`U-D-12`, el espejo — no es venta)** | **+$1,097,993.16** |
+| = lo que publica el sell-out, **medido en su propia tabla** | **$3,150,428.68** |
+| lo que no cierra | **$0.37** |
+
+## ⛔ Lo que costó: una identidad no se arma mezclando granos
+
+La primera versión tomaba la re-factura y el telemarketing de `analytics.v_vecinal_no_suma`, que
+agrega la **cabecera** (`c16`). El sell-out está hecho de **líneas** (`l.c13`). El puente quedó
+abierto por **$2,762.84** en septiembre — y la cifra se veía razonable, que es lo peligroso.
+
+Todos los sumandos salen ahora de `analytics.v_kepler_sales_lines`. `v_vecinal_no_suma` sigue
+sirviendo para **contar documentos**; para que la resta dé cero manda la línea.
+
+El candado lleva la **prueba negativa**: arma el puente a propósito con el grano de cabecera y
+exige que **NO** cierre (medido: $4,932.79). Si algún día cerrara, los dos granos coincidirían y la
+aserción quedaría vacua → reporta `NO MEDIDO`, no ✔.
+
+## ⭐ `sellout` se LEE, no se deduce
+
+Se podría calcular aplicándole a la canónica los filtros del sell-out (catálogo, almacén, `SER`,
+`qty > 0`) — y da $1,870,983.49 contra los $1,870,983.60 de la canónica cruda, o sea que esos
+filtros valen **$0.11**. Pero una derivación que comparte el origen con lo que quiere comprobar
+**se confirma sola**; es la misma trampa de PH-agosto que este runbook documenta arriba. El destino
+se lee de `analytics.mv_kepler_sales_daily`.
+
+## ⭐ `por_refrescar`: el día en curso NO es descuadre
+
+La matvista del sell-out es **nocturna**. La venta de hoy ya está en la vista viva y todavía no en
+ella. Medido el 2026-10-14: **$91,111.90** — todo el "hueco" del rango de 45 días era eso, y sin
+separarlo se habría leído como error. Día por día, los cerrados cuadran al centavo (Δ máx $0.04).
+
+Residuo medido en cuatro períodos: agosto **$0.05** · septiembre **$0.37** · 45 días **$0.48** ·
+julio **$327.84** sobre $1.79 M (0.018 %) — el único que no cierra, y por eso el panel lo declara
+en vez de repartirlo entre los sumandos.
+
+---
+
+# `[VEC.12]` — La ruta vecinal responde "¿y el dinero?" en SU detalle
+
+La pestaña **Depósito** de una ruta vecinal declaraba que esa ruta no deposita en la caja fuerte y
+mandaba a leer el panel de arriba. La pregunta de quien abre una ruta es *"ésta, ¿entregó?"*, y
+remitir a otro lado la deja sin responder donde se hace. Ahora muestra **sus cajas** con el arqueo:
+día, caja, rutas que comparten esa caja, venta vecinal, **% de la caja**, efectivo y estado.
+
+⛔ El grano sigue siendo la **caja**, nunca la ruta — una caja mezcla rutas y mostrador. Por eso la
+columna de porcentaje: sólo con 100 el descuadre es atribuible a la vecinal. Sin ella el número
+invita a culpar al que pasa.
+
+---
+
+# Dónde vive la vecinal (verificado contra prod, 2026-10-14)
+
+Pedido de Edgar: *"todo lo de vecinal debe salir de una base normalizada, con su FK y PK, nada de
+imports ni tablas copia, para mantener la frescura"*. Medido:
+
+| objeto | tipo | |
+|---|---|---|
+| `v_kepler_vecinal_sales_docs` | vista | grano ticket, `total` = `c16` |
+| `v_kepler_vecinal_sales_lines` | vista | grano línea (join **con la caja**) |
+| `v_kepler_vecinal_monthly` | vista | rollup mensual |
+| `v_vecinal_conciliacion` | vista | la venta contra el arqueo |
+| `v_vecinal_no_suma` | vista | lo que lleva código vecinal y no es venta de esa caja |
+| `mv_kepler_vecinal_monthly` | **matvista** 88 kB | la única copia — ver abajo |
+
+**Cero tablas y cero importers.** `import-kepler-vecinal-routes.js` está retirado y su rollup en
+`sales_by_route_monthly` **se excluye a propósito** (quedó con un monto 2.07× el real y, como sube
+con `GREATEST`, nunca baja: no se corrige re-corriéndolo, se corrige dejando de leerlo).
+
+## La única copia, y por qué sigue ahí
+
+`mv_kepler_vecinal_monthly` la lee la matriz de la pantalla. **No es una tabla de importer**: no
+tiene escritor propio, tiene **PK UNIQUE** (`tenant_id, warehouse_code, route_no, month`) y por eso
+refresca `CONCURRENTLY` cada 30 min, con **latido verde** (`analytics_refresh`, `ok`).
+
+Medido el 2026-10-14 contra la vista viva: **$0.00 de rezago** en agosto, septiembre y octubre, con
+el mismo conteo de tickets. Existe por tiempo, no por comodidad:
+
+```
+vista viva .......................... 1,319 / 1,462 / 1,701 ms   (gate 1,000 ms)
+la copia ................................................ 5 ms
+```
+
+⛔ **Quitarla hoy rompe la pantalla.** Se prototipó una equivalente más rápida (`kduv` normalizado
+una vez en vez de un nested loop por documento): **978 / 1,159 ms, 61 de 61 filas idénticas** — una
+mejora del 30 % que **sigue por encima del gate**. El plan lo explica: el costo que queda es el
+`LEFT JOIN LATERAL` por documento contra `kepler_ods.kdm2` (5.2 M filas, 2.4 GB).
+
+**Para retirar la copia hace falta primero que la vista viva baje del gate**, y eso es trabajo con
+migración (índices sobre `kepler_ods.kduv` por las expresiones `btrim`, y una reescritura del
+lateral). Hasta entonces la copia se queda, declarada, con PK y con latido.

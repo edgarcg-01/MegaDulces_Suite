@@ -59,6 +59,18 @@ export class CaosService {
     return this.http.get<CaosDetalle>(`${this.base}/movimientos/${id}`);
   }
 
+  /**
+   * [CG.58.7] La liga de la ruta con su dinero. La consume el panel de
+   * /comercial/ventas-por-ruta, gateada con COMMERCIAL_ROUTE_SALES_VER (no con el permiso de
+   * CAOS): la mitad de los roles que abren esa pantalla no lo tienen.
+   */
+  rutaCaja(from?: string, to?: string): Observable<RutaCajaReporte> {
+    const p: Record<string, string> = {};
+    if (from) p['from'] = from;
+    if (to) p['to'] = to;
+    return this.http.get<RutaCajaReporte>(`${this.base}/por-ruta`, { params: p });
+  }
+
   resumen(f: { from?: string; to?: string }): Observable<CaosResumen> {
     let p: Record<string, string> = {};
     for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
@@ -124,3 +136,71 @@ export interface CaosPorOperador {
   dispensado_n: number; dispensado_total: number;
 }
 export interface CaosResumen { porRuta: CaosPorRuta[]; porOperador: CaosPorOperador[]; desde: string }
+
+/**
+ * [CG.58.7] — La liga que consume /comercial/ventas-por-ruta: deposito de CAOS -> entrada a
+ * Caja General, agrupado por la ruta que DECLARA el texto del deposito.
+ *
+ * ⚠️ El nombre no es CaosPorRuta: esa interfaz ya existe en este archivo y es otra cosa (el
+ * resumen CS.6, que agrupa movimientos por el ref sin cruzar nada contra Caja General).
+ */
+export type RutaCajaGrano = 'ruta_dia' | 'ruta' | 'plaza' | 'sin_declarar';
+
+export interface RutaCajaDeposito {
+  /** A que fila pertenece. La manda el servidor: la pantalla NO re-deduce la precedencia. */
+  clave: string;
+  device: string;
+  external_id: number;
+  occurred_at: string;
+  monto_caos: number;
+  ref: string | null;
+  grano: RutaCajaGrano;
+  vecinal: boolean;
+  ruta: string | null;
+  plaza: string | null;
+  fecha_venta: string | null;
+  motivo: string;
+  cg_folio: string | null;
+  cg_fecha: string | null;
+  cg_monto: number | null;
+  cg_estado: string | null;
+  cg_sucursal: string | null;
+  cg_entradas: number;
+  delta: number | null;
+}
+
+export interface RutaCajaFila {
+  clave: string;
+  etiqueta: string;
+  grano: RutaCajaGrano;
+  vecinal: boolean;
+  ruta: string | null;
+  plaza: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  sucursales: string[];
+  motivo_sucursal: string | null;
+  depositos: number;
+  monto_caos: number;
+  en_caja_general: number;
+  monto_caja_general: number;
+  pendientes: number;
+  monto_pendiente: number;
+}
+
+export interface RutaCajaReporte {
+  from: string;
+  to: string;
+  filas: RutaCajaFila[];
+  depositos: RutaCajaDeposito[];
+  resumen: {
+    depositos: number; monto: number;
+    en_caja_general: number; monto_caja_general: number;
+    pendientes: number; monto_pendiente: number;
+    vecinal: number; monto_vecinal: number;
+    plaza: number; monto_plaza: number;
+    sin_declarar: number; monto_sin_declarar: number;
+  };
+  data_as_of: string | null;
+  generated_at: string;
+}
