@@ -9214,6 +9214,15 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   aplica hoy** (la pantalla no abre ningún detalle de varios campos; `detalle()` sólo imprime).
   1 prueba de DOM, atrapada en rojo.
 - [ ] ⬜ `[CGP-V.8]` Nombres del menú (la captura y el espejo de Control): **decide Edgar**.
+- [ ] 🧪 **`[CGP-L.11]`** Fuera la aserción tautológica de `cash-cut.alcance.spec.ts` (T4: comparaba
+  el universo consigo mismo). Medido: devolviendo `cerrar()` al filtro viejo por sucursal, las
+  cuatro de ese archivo seguían verdes. El candado real ya existía contra la base (job `caja-db`) y
+  con esa mutación se pone en rojo; ahora el archivo dice dónde vive.
+- [ ] 🧪 **`[CGP-L.9]`** `SUCURSAL_CAJA_GENERAL = '00'` en `libs/contracts`, con su porqué: el cajón
+  físico es uno y paga a todas las plazas. Reemplaza los `'00'` escritos a mano en el alcance del
+  corte, el cajero, los valores por defecto del controlador, el libro y la pantalla (una sola
+  definición; `grep` fuera de comentarios = 0). Prueba vigía con negativa: con el servicio anterior
+  marca `cash-cut.service.ts`. El respaldo del selector decía «00 · CEDIS»: Kepler `'00'` es Oficinas.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

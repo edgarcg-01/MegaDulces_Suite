@@ -429,6 +429,33 @@ cero fallas nuevas). `check:templates`: verde.
 «Confirmar $1,800.00 y cerrar» en el pie del diálogo de 40rem en pantalla angosta, y si el aviso
 queda mejor arriba del bloque de la revelación que abajo.
 
+### 6.2 Estado al 2026-10-15: L.11 y L.9 (🧪 probado en local)
+
+**`[CGP-L.11]` — el candado del alcance de `cerrar()` es contra la base, no una tautología.** La
+cuarta prueba de `cash-cut.alcance.spec.ts` comparaba `universo('00')` consigo misma (T4).
+Medido devolviendo `cerrar()` al filtro viejo (`.where('sucursal', c.sucursal)`): **las cuatro de
+ese archivo siguieron verdes**, y la de la base («el cajón de la 00 ata y suma lo que otras plazas
+pagaron desde él», en el job `caja-db`) se puso **roja**. Se quita la tautología y el archivo dice
+dónde vive el candado.
+
+⚠️ **Esa mutación dejó un corte abierto en la 00 de la base local**: con `cerrar()` roto, el cierre
+falló a propósito y el borrador quedó vivo, y como la 00 admite uno solo, trabó las corridas
+siguientes —el mismo mecanismo que trabó producción—. Se limpió (el corte y sus dos movimientos de
+prueba, con baja lógica). En el CI no pasa porque la base nace cada vez; en local, **una mutación
+sobre una prueba que usa la 00 compartida se limpia después**.
+
+**`[CGP-L.9]` — la sucursal del cajón es una sola constante.** `SUCURSAL_CAJA_GENERAL = '00'` en
+`libs/contracts`, con su porqué: el cajón físico es uno y paga a todas las plazas (`[CG.98]`), y
+CAOS es un solo dispositivo ahí. Reemplaza los `'00'` escritos a mano en el alcance del corte, el
+cajero, los valores por defecto del controlador, el libro, el nombre de Kepler y la pantalla: **una
+definición, y ningún `'00'` fuera de comentarios en el código de caja**. Una prueba lo vigila
+(con su negativa; con el servicio anterior marca `cash-cut.service.ts`). De paso, el respaldo del
+selector de sucursal decía «00 · CEDIS»: Kepler `'00'` es Oficinas (`ERP_KEPLER` §2.3), y el propio
+servidor ya lo corregía.
+
+**Pruebas:** `libs/finance/src/lib/caja` 25 archivos, **443**, dos corridas seguidas;
+`caja-general` 383; `libs/contracts` 665.
+
 ⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
 archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
