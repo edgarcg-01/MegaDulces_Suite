@@ -52,6 +52,10 @@ export {
 } from './order/qty-units';
 export type { Presentacion } from './order/qty-units';
 
+/** `[VTK.9]` Cuanto trae la caja, en las presentaciones del selector. */
+export { contenidoCaja, UNIDAD_BASE_SIN_ROTULO } from './order/box-content';
+export type { ContenidoCaja, ParteCaja } from './order/box-content';
+
 /**
  * `[KBD.1]` Teclado en tablas. ⛔ NO es una navegación propia: `pSelectableRow` de PrimeNG ya
  * mueve con `↑↓`, `Home`/`End`, `Enter`/`Space` y ya hace roving tabindex. Acá viven los DOS

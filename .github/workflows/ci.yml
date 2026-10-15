@@ -868,8 +868,8 @@ jobs:
   #
   # Del 12 al 14-oct entraron 33 arreglos de Caja General y cada uno destapó el siguiente EN
   # PRODUCCIÓN: ninguna prueba ejercía el corte contra una base, porque ningún job del CI tenía
-  # una (deuda VP.5). Este job la levanta desde cero con `dev:bootstrap-vacia`, sobre la misma
-  # imagen `pgvector:pg18` que corre prod, y corre las suites de caja.
+  # una (deuda VP.5). Este job arma una base de caja DESDE CERO, sobre la misma imagen
+  # `pgvector:pg18` que corre prod, y corre las suites del corte.
   #
   # ⚠️ NO está en el `needs` de `sellar`, a propósito: hasta que acumule corridas verdes es una
   #    MEDICIÓN, no una compuerta. Un gate que se pone rojo por un defecto de infraestructura frena
@@ -895,6 +895,8 @@ jobs:
           --health-retries 30
     env:
       DATABASE_URL_NEW: postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform
+      # Algún guardián de tests lee también DATABASE_URL: que apunte a la misma base.
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform
       TZ: America/Mexico_City
     steps:
       - name: Checkout
@@ -921,23 +923,89 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
-      - name: Base desde cero (dev:bootstrap-vacia)
-        run: node database/scripts/dev-bootstrap-empty-db.js --url "$DATABASE_URL_NEW"
+      # `[CGP-D.1.1]` La base de caja se arma DESDE CERO con un preparador propio, no con
+      # `dev:bootstrap-vacia`. Ése repite ~1,000 migraciones de todos los módulos y salta las que
+      # fallan: la primera corrida (38678099685) murió en una migración de RUTAS por su tope de 120
+      # saltos, y se va a seguir rompiendo con cada migración nueva de cualquier módulo.
+      # El preparador aplica sólo las migraciones REALES que crean o alteran el corte, crea vacías
+      # las tablas ajenas que pidan (con la forma del snapshot de prod) y NUNCA salta una migración.
+      # Probado en local contra PostgreSQL 18.4: 14 migraciones, cero saltadas, y la suite de
+      # invariantes en 28 ✓ / 0 ✗ (encontró en el camino que faltaba el USAGE de `finance`).
+      # El motivo de una falla sale como anotación: los logs del CI piden sesión, las anotaciones no.
+      - name: Base de caja desde cero
+        run: |
+          if ! node database/tests/caja/preparar-base-caja.js --url "$DATABASE_URL_NEW" 2>&1 | tee base.log; then
+            motivo=$(grep -A3 '⛔' base.log | tr '\n' ' ' | cut -c1-900)
+            echo "::error title=preparar-base-caja::${motivo:-sin motivo en el log}"
+            exit 1
+          fi
+          echo "::notice title=Base de caja::$(grep -E 'LISTO|tablas ajenas|traídas' base.log | tr '\n' ' ' | cut -c1-600)"
 
-      # Cada suite corre aunque falle la anterior: un rojo no tiene que esconder a los demás, y la
-      # anotación `::error` deja el nombre de la que falló en el resumen de la corrida.
-      - name: Suites de caja
+      # Cada suite corre aunque falle la anterior: un rojo no tiene que esconder a los demás. El
+      # resumen y las aserciones fallidas salen como anotaciones, que se leen sin iniciar sesión.
+      # ⚠️ `test-newdb-cash-ledger.js` NO corre acá (`[CGP-D.2b]`): prueba el autollenado y el mapa de
+      #    conceptos de Kepler, que piden ocho vistas de analytics ajenas al corte. Queda declarada.
+      - name: Suites del corte
         run: |
           set +e
           rc=0
-          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger.js test-newdb-cash-ledger-cuts.js; do
+          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger-cuts.js; do
             echo "::group::$s"
-            node "database/tests/$s"
-            r=$?
+            node "database/tests/$s" 2>&1 | tee "$s.log"
+            r=${PIPESTATUS[0]}
             echo "::endgroup::"
-            if [ "$r" -ne 0 ]; then echo "::error title=$s::la suite salió con código $r"; rc=1; fi
+            resumen=$(grep -E '✓ / ' "$s.log" | tail -1)
+            echo "::notice title=$s::${resumen:-sin resumen}"
+            if [ "$r" -ne 0 ]; then
+              fallas=$(grep -E '✗|💥' "$s.log" | head -8 | tr '\n' ' ' | cut -c1-900)
+              echo "::error title=$s::código $r · ${fallas:-sin detalle}"
+              rc=1
+            fi
           done
           exit $rc
+
+      # `[CGP-L.0]` El SERVICIO REAL del corte (el mismo código que corre en prod) contra esta base,
+      # conectado como `app_runtime`: abrir → contar → cerrar → autorizar con el payload de la
+      # pantalla, el reconteo, el alcance del cajón de la 00 y el cierre con la reja tecleada.
+      # Probado en local contra PostgreSQL 18.4: 6/6, y en ROJO con la guardia de la base apagada.
+      # ⚠️ Va DESPUÉS de las suites, a propósito: el servicio abre y CONFIRMA sus propias
+      #    transacciones, y `test-newdb-cash-ledger-cuts` mide el saldo corrido de la 00 en absoluto
+      #    (asume la sucursal vacía). Medido en local: con el servicio antes, esa suite da 41 ✓ / 2 ✗.
+      # `[CGP-L.10]` Y el SENSOR del corte abierto: siembra un corte trabado y jornadas sin corte, y
+      # comprueba que los ve, deja su latido y avisa sin repetir. Probado en rojo con dos mutaciones.
+      - name: Servicio real del corte
+        # Corre aunque fallen las suites: un rojo no tiene que esconder el otro resultado.
+        if: ${{ !cancelled() }}
+        env:
+          CAJA_TEST_DB_URL: postgresql://app_runtime:app_runtime@127.0.0.1:5432/postgres_platform
+        run: |
+          # --no-file-parallelism: los dos archivos escriben en la MISMA caja (la 00). En paralelo uno
+          # absorbía los movimientos sembrados por el otro y dejaba un corte abierto (medido en local).
+          if ! npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism \
+                 libs/finance/src/lib/caja/cash-cut.servicio-real.spec.ts \
+                 libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts \
+                 libs/finance/src/lib/caja/cash-ledger.detalle-real.spec.ts \
+                 libs/finance/src/lib/caja/caja-db.util-real.spec.ts \
+                 libs/finance/src/lib/caos/caos-ingreso-cron.granos-real.spec.ts 2>&1 | tee servicio.log; then
+            echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          fi
+          echo "::notice title=Servicio real del corte::$(grep -E 'Tests ' servicio.log | tr -s ' ')"
+
+      # [CGP-L.5] El dia de una fecha no puede depender de la zona del servidor. El runner corre en UTC;
+      # esto repite la suite de caja en Mexico y al este de UTC (Tokio), donde toISOString() sobre un
+      # date de pg da el dia ANTERIOR (medido con el parser de pg). Probado en rojo: diaDe con
+      # toISOString rompe 6 pruebas en Tokio.
+      - name: Fechas de caja en tres zonas
+        if: ${{ !cancelled() }}
+        env:
+          CAJA_TEST_DB_URL: postgresql://app_runtime:app_runtime@127.0.0.1:5432/postgres_platform
+        run: |
+          for tz in America/Mexico_City Asia/Tokyo; do
+            echo "-- TZ=$tz"
+            TZ=$tz npx vitest run --config libs/contracts/vitest.config.ts libs/contracts/src/finance/dia-negocio.spec.ts || exit 1
+            TZ=$tz npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism libs/finance/src/lib/caja || exit 1
+          done
 
   # ──────────────────────────────────────────────────────────────────────────────────────────
   # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.

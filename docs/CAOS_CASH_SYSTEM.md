@@ -172,18 +172,41 @@ concretos, en orden de valor:
 4. **Trazabilidad del efectivo del CEDIS/tesorería** que hoy no vive en Kepler ni en Wincaja: es un
    circuito propio de la caja fuerte.
 
-### ✅ Anclaje de negocio (respondido por el usuario 2026-09-25)
+### ⛔ Anclaje de negocio — SUPERADO el 2026-10-15. Son DOS cajas, no una
 
-**CAOS ES la Caja General de OFICINAS (sucursal `00`).** El efectivo físico que mueve CAOS es el
-mismo que ya representan (a) la contabilidad de Kepler (`kdm1`, `c45 = 0011` CAJA GENERAL / EFECTIVO)
-y (b) el libro nuevo `finance.cash_ledger`. Son **tres vistas del mismo dinero**; CAOS es la única
-con el **conteo físico por denominación de la máquina**.
+> **Lo que decía este bloque (respuesta del usuario, 2026-09-25):** *«CAOS **ES** la Caja General de
+> OFICINAS (sucursal `00`)… son tres vistas del mismo dinero»*, y de ahí *«como CAOS* es *la Caja
+> General, sus movimientos NO se agregan como asientos nuevos al libro — eso sería doble conteo»*.
+> Se deja escrito porque la frase se citó para decidir, y borrarla deja el razonamiento sin origen.
 
-⛔ **Consecuencia de diseño:** como CAOS *es* la Caja General, sus movimientos **NO se agregan como
-asientos nuevos** al libro — eso sería doble conteo. El valor de CAOS es ser el **árbitro**: su
-conteo de máquina se **cruza** contra la contabilidad (Kepler `0011` / `cash_ledger`) y las
-diferencias se levantan como hallazgo. Esto redefine las capas: CS.3/CS.4/CS.5 son, en el fondo, un
-**único matcher CAOS (máquina) ↔ Kepler caja 0011 (contabilidad)**.
+**El modelo vigente son dos cajas** (`VERDAD_ABSOLUTA §28`, `FASE_CG_PLAN_POR_CAPAS §1.1`):
+
+- **el cajón** — el efectivo de oficina, que **se cuenta a mano** por denominación; y
+- **la bóveda CAOS** — la máquina, que **publica flujos y nunca el saldo**.
+
+⭐ **El propio documento ya lo había medido tres párrafos más abajo y la cabecera no se actualizó:**
+por CAOS pasa **~40%** del efectivo de la Caja General, sin llave común con la contabilidad. Un
+subconjunto del 40% no *es* el conjunto. *Una conclusión medida que no sube al encabezado deja la
+afirmación vieja gobernando a quien sólo lee el encabezado.*
+
+✅ **Lo que sobrevive, y por qué:** los movimientos de CAOS **no se agregan como asientos nuevos** al
+libro — pero no porque CAOS sea la Caja General, sino porque son las **dos piernas** que mueven
+efectivo **entre** las dos cajas. Entran al esperado del cajón con su signo:
+
+```text
+esperado del cajón = fondo + ingresos − gastos + dispensado(CAOS) − depositado(CAOS)
+```
+
+⛔ **Dispensado SUMA al cajón y depositado RESTA** — en ese orden, y con la bóveda como el *otro*
+lado: lo que sale de la máquina entra al cajón. La fórmula la sostienen dos derivaciones
+independientes que coinciden al centavo (`VERDAD_ABSOLUTA §28.6`). ⚠️ El signo de un flujo de
+efectivo es el lugar donde esta familia de defectos se repite: `[CGP-L.8]`, en la misma fase, sumaba
+el **cambio devuelto** en vez de restarlo y eso rechazaba por «no cuadra» toda captura que diera
+cambio.
+
+⛔ **Lo que NO sobrevive:** «CAOS es el árbitro de la contabilidad». La medición del 2026-09-25 (abajo)
+refutó el matcher 1:1 **y** el árbitro por totales. El árbitro del arqueo es `VERDAD_ABSOLUTA §28`,
+con el grano **hora por hora**, no el día (§28.10, trampa nº 1).
 
 ### ⭐ MEDICIÓN 2026-09-25 (en `md`, contra prod) — el árbitro naïve queda REFUTADO
 

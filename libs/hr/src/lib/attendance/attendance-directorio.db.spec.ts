@@ -84,5 +84,7 @@ suite('[RH.1.7c] directorio de todas las plazas contra la base', () => {
     expect([a22?.nombre, a22?.ligado, a22?.departamento]).toEqual(['RELOJ 22', false, null]);
     const b15 = filas.find((f) => clave(f) === 'b:15');
     expect([b15?.nombre, b15?.promotora]).toEqual(['PRUEBA PROMO', true]);
-  });
+    // Sola tarda ~1 s, pero corre en paralelo con las demás pruebas contra la base: sus migraciones esperan candados que
+    // otras transacciones de prueba sostienen hasta deshacerse. Con el límite por omisión (5 s) fallaba de vez en cuando.
+  }, 60_000);
 });

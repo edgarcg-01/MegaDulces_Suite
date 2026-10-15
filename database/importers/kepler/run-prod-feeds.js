@@ -120,7 +120,7 @@ const STEPS = {
     // que `livefast` mantiene a 60 s — o sea MÁS fresco de lo que este carril se daba a sí mismo.
     path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
     // [NORM.3] decía "— tras sales-fact" y ya no lo es: el fact lo mantiene `livefast` a 60 s.
-    path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking)
+    [path.join(K, 'import-demand-clean.js'), '--hb=live'], // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking) `[RA.VA.6]` --hb: llave de latido propia de este carril (corre en live y nightly).
     // [DB-MEM.10] `import-replenishment-plan.js` SE RETIRÓ DE ACÁ (sigue en `stock` y `nightly`).
     //
     // Es la consulta #1 de toda la base: `CREATE TEMP TABLE stg_rplan` mide **157 s por corrida**
@@ -239,7 +239,7 @@ const STEPS = {
     path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
     path.join(K, 'import-sales-monthly.js'), // HVT.1 rollup mensual durable (sales_daily → sales_monthly, serie larga + calibración demanda) — tras sales-fact
-    path.join(K, 'import-demand-clean.js'),  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact
+    [path.join(K, 'import-demand-clean.js'), '--hb=nightly'],  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact `[RA.VA.6]` --hb: llave de latido propia de este carril (corre en live y nightly).
     path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — ANTES de inventory-health/DRP/fact (guard: no borra si Irapuato vacío)
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en PIEZAS crudas (canónico, ver import-inventory-health)
     path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)

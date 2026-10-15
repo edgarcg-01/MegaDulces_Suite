@@ -204,3 +204,297 @@ mejora del 30 % que **sigue por encima del gate**. El plan lo explica: el costo 
 **Para retirar la copia hace falta primero que la vista viva baje del gate**, y eso es trabajo con
 migración (índices sobre `kepler_ods.kduv` por las expresiones `btrim`, y una reescritura del
 lateral). Hasta entonces la copia se queda, declarada, con PK y con latido.
+
+---
+
+# `[VEC.15]` — La conciliación que cierra a centavos, y el único hueco que queda
+
+> Edgar, 2026-10-15: *"¿ya tenemos una conciliación de las ventas de vecinal con Kepler, que no
+> haya ninguna diferencia?"*. **Sí — y acá está la identidad, con su excepción nombrada.**
+
+## La identidad
+
+```
+Σ kdm2.c13  =  kdm1.c16  +  c13 × (1 + (c14 + c15) / (c16 − c14 − c15))
+   líneas       cabecera      descuento BRUTEADO a la tasa del documento
+```
+
+Medido contra prod (2026-10-15), venta vecinal `U-D-10`:
+
+| mes | documentos | residuo | docs que no cierran |
+|---|---:|---:|---:|
+| julio | 1,689 | **$0.06** | 0 |
+| septiembre | 2,553 | **$0.70** | 1 |
+| octubre | 1,371 | **$0.02** | 0 |
+| **últimos 60 días (candado)** | **4,720** | **$0.74** | **1** |
+
+Eso es redondeo, no descuadre.
+
+## ⭐ Cómo apareció: el patrón estaba en las filas INCORRECTAS
+
+El puente de `[VEC.11]` tenía un renglón rotulado *«prorrateo del descuento»* que **nadie había
+demostrado** — era el nombre que se le puso a una diferencia. Al mirar los **22 documentos de
+sep-2026 que no cuadraban**, en **todos** la diferencia excedía al descuento por un factor de
+**1.07–1.10**:
+
+```
+suc 07 · 2V003 · 18-sep · folio 0000513
+  cabecera 4,767.01   líneas 4,914.44   dif 147.43   descuento(c13) 135.26
+  147.43 / 135.26 = 1.0900
+```
+
+`ERP_KEPLER` §2.6 ya lo tenía decodificado y el puente no lo estaba usando: **`c13` está SIN
+impuesto y el total está CON impuesto.** El factor no es constante (1.07–1.10) porque cada ticket
+mezcla tasas — por eso se brutea con la tasa **de ese documento**, no con un 16% fijo.
+
+⚠️ El candado lleva la **prueba negativa**: con el descuento tal cual (`c13`, sin brutear) el
+residuo salta de **$0.74 a $406.70**. Si las dos fórmulas dieran lo mismo, la corrección no
+estaría probando nada y la aserción reporta `NO MEDIDO`, no ✔.
+
+## ⛔ El único hueco: el 17-ago-2026, y es MÁS GRANDE que la vecinal
+
+Agosto no cierra: **28 documentos, $26,016.13**. No es la fórmula — es que ese día la ingesta de
+`kdm2` llegó incompleta a las sucursales **02 y 05**. Y al medir el día entero, el hueco excede a
+esta fase:
+
+| sucursal | canal | docs | sin renglones | venta sin renglones |
+|---|---|---:|---:|---:|
+| 02 | mostrador / otro | 307 | **118** | $17,051.82 |
+| 02 | vecinal | 20 | 18 | $10,692.43 |
+| 05 | mostrador / otro | 182 | 25 | $3,740.78 |
+| 05 | vecinal | 16 | 6 | $13,548.25 |
+| | | | **167** | **$45,033.28** |
+
+**Sólo el 54% es vecinal.** Los otros doctypes del mismo día también: `U-D-5` 18 de 25 en la 02,
+`U-D-40` 4 de 4. Y los días **15, 16, 18 y 19 tienen CERO** documentos sin renglones en `U-D-10`
+— o sea que es un día, no un régimen.
+
+⭐ **Cualquier pantalla que sume renglones subdeclara ese día**: el sell-out, los productos más
+vendidos, el margen. No es un problema de la vecinal; la vecinal fue el **detector**.
+
+⚠️ **Lo que NO está establecido**: si las líneas existen en la réplica de la sucursal y no
+llegaron al ODS, o si Kepler tampoco las tiene. Eso se decide mirando la réplica de `02`/`05`, y
+no se hizo. Se declara en vez de nombrar la causa.
+
+El candado **excluye ese día explícitamente** (`sucursal IN ('02','05') AND día = 2026-08-17`) para
+que la identidad se pueda vigilar sin que un incidente viejo la deje roja para siempre — pero la
+exclusión está escrita a la vista, con su monto, no escondida en un umbral.
+
+---
+
+# `[VEC.16]` — El hueco del 17-ago investigado: Kepler SÍ tiene las líneas, y nadie puede reponerlas
+
+> Edgar, 2026-10-15: *"investigalo"*. **Resultado: no es Kepler, es la ingesta — y el agujero no
+> es ese día, es que no existe forma de reparar un hueco de más de 3 días.**
+
+## 1. Kepler tiene las líneas
+
+Consultada la réplica de la sucursal (`pgvector-md`, `kepler_md_02` / `kepler_md_05`, schema `md`),
+17-ago-2026, venta `U-D-10`:
+
+| | docs | **sin líneas** | venta |
+|---|---:|---:|---:|
+| `kepler_md_02` mostrador | 307 | **0** | $64,484.88 |
+| `kepler_md_02` vecinal | 20 | **0** | $12,186.31 |
+| `kepler_md_05` mostrador | 182 | **0** | $59,588.87 |
+| `kepler_md_05` vecinal | 16 | **0** | $32,451.47 |
+
+**Cero documentos sin renglones**, y las cabeceras coinciden **al centavo** con el ODS — mismos
+documentos, mismo dinero. O sea: el ERP registró todo y el ODS perdió los renglones en el camino.
+
+## 2. Es un día, no un régimen
+
+Barrido del ODS por sucursal y mes (`U-D-10`, jul→oct):
+
+```
+sucursal 02 ── jul: sin huecos · ago: 17-ago -> 136/327 docs · $27,744.25 · sep: sin huecos · oct: sin huecos
+sucursal 05 ── jul: sin huecos · ago: 17-ago ->  31/198 docs · $17,289.03 · sep: sin huecos · oct: sin huecos
+```
+
+**167 documentos · $45,033.28**, todo el mismo día. Y alcanza a otros doctypes de esas plazas
+(`U-D-5` 18 de 25 en la 02, `U-D-40` 4 de 4), no sólo a la venta.
+
+## 3. ⛔⛔ Lo que de verdad importa: nadie puede reponerlo
+
+Hay dos reconciliadores, y **ninguno de los dos puede cerrar este hueco**:
+
+| modo | ventana | ¿repone? |
+|---|---|---|
+| ventana (lo que corre en prod: `--days=3 --watch=900`) | **3 días** | **sí** |
+| `--full` (barrido del backlog) | todo | **NO** — `faltan = FULL ? [] : …`, es sólo-DELETE |
+
+Verificado en el despliegue (`ops/k3s/22-ods-reconcile.deployment.yaml`, líneas 41/43) y en el
+código (`reconcile-ods-window.js`, el comentario lo dice: *"`--full` no repone (sería re-ship
+masivo sobre tablas de millones)"*).
+
+⭐ **O sea que la ventana de reparación del ODS es de 3 días.** Lo que se pierda y no se detecte
+dentro de ese plazo queda invisible para siempre — no por olvido, por diseño. Este incidente lleva
+**59 días** así, y se encontró de casualidad: la conciliación vecinal de `[VEC.15]` fue el
+detector, no la víctima.
+
+⚠️ Y el costo no es la vecinal: **toda pantalla que sume renglones subdeclara ese día** — el
+sell-out, los más vendidos, el margen. La cabecera sí está, así que los totales de venta están
+bien; lo que falta es el desglose.
+
+## 4. ✅ REPARADO — 968 renglones repuestos, verificado contra prod
+
+Autorizado por Edgar el 2026-10-15. Corrido **dentro del pod de ingesta** (`ods-reconcile`, que es
+donde vive `ODS_SOURCE_BASE`), no desde la máquina de trabajo.
+
+⚠️ `feeds-cron` **no sirve**: no tiene esa variable y el script aborta con un error que nombra
+`DATABASE_URL_NEW` — leerlo rápido hace pensar que falta el destino, cuando lo que falta es el
+ORIGEN.
+
+**Primero en seco**, que es inocuo y dimensiona:
+
+```
+suc 02 · kdm2 · 60d ──  local 141,212 · faltan 828 · sobran 0
+suc 05 · kdm2 · 60d ──  local  70,125 · faltan 140 · sobran 0
+```
+
+**Cero sobrantes**: no había nada que borrar, era puro faltante. Después con `--apply`:
+
+```bash
+node database/importers/kepler/reconcile-ods-window.js --branch=02 --tables=kdm2 --days=60 --apply
+node database/importers/kepler/reconcile-ods-window.js --branch=05 --tables=kdm2 --days=60 --apply
+```
+
+→ **828 + 140 = 968 filas repuestas.**
+
+### La verificación, contra prod y no contra el reporte del script
+
+| | antes | después |
+|---|---:|---:|
+| documentos sin renglones el 17-ago | **167** | **0** |
+| venta sin renglones ese día | **$45,033.28** | **$0.00** |
+| residuo de la identidad en agosto | **$26,016.13** | **$0.05** |
+| documentos de agosto que no cierran | **4** | **0** |
+
+Control: septiembre quedó **idéntico** ($0.70 de residuo, 1 documento) — la reparación movió lo
+que debía y nada más.
+
+⛔ **Y se retiró la exclusión del candado.** `test-newdb-vecinal-conciliacion.js` excluía
+explícitamente ese día; ahora corre sin exclusión y pasa: **4,755 de 4,756 documentos, residuo
+$0.75**. *Una exclusión que sobrevive a su causa deja al candado ciego justo donde ya falló una vez.*
+
+## 5. ⛔ Lo que esto NO arregló
+
+La reparación cierra **este** hueco. No cierra el que lo hizo posible:
+
+- **La ventana de reparación del ODS sigue siendo de 3 días.** El modo que repone corre con
+  `--days=3`; el `--full` que mira todo **no repone**. Un hueco que no se detecte en 72 h vuelve a
+  ser permanente. Éste se encontró a los **59 días**, y por casualidad.
+- **No se estableció la causa**: por qué el 17-ago se perdieron esas 968 filas (el CDC, el shipper,
+  un reinicio). El latido de ese día no se revisó.
+- **Sólo se barrieron dos ramas y `U-D-10`.** Las otras seis ramas y los demás doctypes **no se
+  revisaron**, y con una ventana de 3 días cualquier hueco viejo que haya ahí es igual de invisible.
+
+---
+
+# `[VEC.17]` — El barrido completo: no era un día, el ODS pierde filas en 7 de 9 ramas
+
+> Edgar, 2026-10-15: *"sí, barrelo"*. Barrido en seco de **9 ramas × 5 tablas de movimiento ×
+> 60 días**, con el propio reconciliador (compara ODS contra réplica de sucursal).
+
+## Filas ausentes en el ODS
+
+| suc | `kdm1` | `kdm2` | `kdij` | `kdue` | `kdpord` |
+|---|---:|---:|---:|---:|---:|
+| 00 | 0 | 487 | 38 | 111 | 3 |
+| 01 | 1 | 1 | **547** | **524** | 232 |
+| 02 | 0 | **0** ✅ | 0 | 39 | 0 |
+| 03 | 6 | 307 | **569** | 150 | 0 |
+| 04 | 0 | 0 | 0 | 0 | 0 |
+| 05 | 0 | **0** ✅ | 144 | 38 | 15 |
+| 06 | 0 | 33 | 0 | 5 | 3 |
+| 07 | 0 | 0 | 2 | 0 | 0 |
+| 08 | 0 | 15 | 0 | 0 | 235 |
+| **Σ** | **7** | **843** | **1,300** | **867** | **488** |
+
+**3,505 filas ausentes** en 60 días, en **7 de 9 ramas**.
+
+## Lo que dice la tabla
+
+- ⭐ **`kdij` es el peor con 1,300** — y el kardex es lo que **valúa el inventario**. `kdue` con
+  **867** es la **cartera**. O sea que el hueco no es un detalle de venta: toca dinero por cobrar
+  y capital en piso.
+- ✅ **`02` y `05` en `kdm2` quedaron en CERO**: la reparación de `[VEC.16]` se sostiene.
+- ⭐⭐ **`04` y `07` están impecables en las cinco tablas.** Eso es lo que convierte al resto en
+  defecto y no en «así es esto»: el carril **puede** no perder nada.
+- `01` tiene **39 sobrantes** en `kdm2` (filas en el ODS que ya no están en origen). Eso es otra
+  cosa —borrados no propagados— y sí tiene quien lo atienda: el `--delete-sobrantes` nocturno.
+  **Lo que no tiene quien lo atienda es el faltante.**
+
+⚠️ **`01/kdm2` necesitó `--max-old-space-size=2048`**: con el heap por default el proceso muere
+por OOM y el barrido imprime *«sin salida»*, que se lee como «no hay nada». Es la rama más grande
+(480,137 filas en la ventana). Un barrido que se queda sin memoria **no reporta cero: no reporta**.
+
+## ⛔ La causa del 17-ago NO es establecible, y ahora se sabe por qué
+
+`analytics.cron_run_log` (690,648 filas) **no cubre agosto**: salta del **31-jul al 02-sep**, y
+sólo se puebla de verdad desde el **07-sep**. No hay telemetría del período, así que por qué se
+perdieron esas 968 filas no se puede responder con lo que hay.
+
+⭐ Eso cierra el círculo: **el hueco duró 59 días porque no había ni quién lo repusiera (ventana
+de 3 días) ni quién lo registrara (sin log).**
+
+---
+
+# `[VEC.19]` — Reposición completa: 3,494 filas, y el carril que impide que vuelva a pasar
+
+Autorizado por Edgar el 2026-10-15 («repongo todo ahora» + «carril semanal que repone»).
+
+## La reposición
+
+`reconcile-ods-window --branch=NN --tables=T --days=60 --apply`, rama por rama y tabla por tabla
+(⚠️ con `--max-old-space-size=2048`: las 9 ramas juntas mueren por heap a los 9 s).
+
+| suc | repuestas |
+|---|---:|
+| 00 | 637 |
+| 01 | 1,303 |
+| 02 | 39 |
+| 03 | 1,027 |
+| 05 | 197 |
+| 06 | 39 |
+| 07 | 2 |
+| 08 | 250 |
+| **Σ** | **3,494** |
+
+**Ni una falla, ni un «SIN SALIDA».** Cada renglón reportó `faltan N · repuestas N`.
+
+## La verificación, con su residuo declarado
+
+Barrido nuevo en seco: **3,505 → 36**. Los que quedan son de **1 a 14**, dispersos, donde antes
+eran bloques de 487/547/569.
+
+⚠️ **Y no se dio por transitorio: se midió.** Re-medición ~5 min después:
+
+| | antes | después |
+|---|---:|---:|
+| `01 · kdij` | 14 | **0** ✅ |
+| `02 · kdm1` | 2 | **1** |
+| `08 · kdm2` | 4 | **4** ⚠️ |
+
+Los dos primeros confirman la hipótesis —venta en vuelo que el carril continuo (`--days=3`,
+cada 15 min) alcanza solo—. **`08/kdm2` no se movió, y eso NO se puede llamar venta en vuelo.**
+Son 4 filas; quedan declaradas y el carril semanal nuevo las barre. *Un residuo que se explica a
+medias se declara a medias.*
+
+## El carril que cierra el agujero
+
+[`ops/k3s/31-ods-reconcile-ancho.cronjob.yaml`](../../../ops/k3s/31-ods-reconcile-ancho.cronjob.yaml)
+— domingo 03:30 MX, `--days=45 --apply`, rama por rama, latido propio `cdc_reconcile_ancho` con
+umbral registrado en `CRON_JOBS` (warn 8 d / crit 10 d).
+
+⛔ **Sin `--delete-sobrantes`**: borrar es del carril diario, que ya tiene sus frenos. Éste sólo
+repone — el radio de daño se queda en *traer lo que el ERP ya tiene*.
+
+⚠️ **Falta aplicarlo a k3s.** Está versionado, sin desplegar.
+
+## Lo que sigue abierto
+
+- **La causa del 17-ago no es establecible**: `cron_run_log` salta del 31-jul al 02-sep.
+- **El barrido cubre 5 tablas** (las que tienen fecha de negocio). Las que no la tienen las mira
+  `--chicas` cada 30 min, pero **con su propio universo acotado**, no con ventana ancha.
+- **La ventana del carril continuo sigue en 3 días.** El semanal la compensa; no la cambia.

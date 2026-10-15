@@ -40,3 +40,20 @@ export interface RecruitmentBotPort {
   /** Procesa un mensaje del número de reclutamiento y devuelve 0..n respuestas, en orden. Scope CLS ya establecido. */
   handleMessage(msg: RecruitmentInbound): Promise<RecruitmentReply[]>;
 }
+
+// ── `[RH.3.3.4b]` La SALIDA por iniciativa de RH ──────────────────────────────────────────────────────────────────────
+// El bot sólo contesta; para que RH le escriba PRIMERO a un candidato (p. ej. pedirle sus documentos) hace falta el camino
+// inverso: libs/hr pide mandar un texto y la capa de WhatsApp lo encola desde el número de reclutamiento del tenant (misma
+// cola con reintentos, mismo libro). Se inyecta @Optional(): sin binding, RH lo declara en vez de mandarlo.
+//
+// ⚠️ La ventana de 24 h de Meta la decide quien llama (libs/hr), no este puerto: fuera de ella un texto libre no llega.
+
+export const RECRUITMENT_OUTBOUND_PORT = 'RECRUITMENT_OUTBOUND_PORT';
+
+export interface RecruitmentOutboundPort {
+  /**
+   * Encola un texto al teléfono `to` (como llegó de WhatsApp) desde el número de reclutamiento del tenant.
+   * `encolado: false` con `motivo: 'sin_numero'` si el tenant no tiene número de reclutamiento.
+   */
+  sendText(tenantId: string, to: string, body: string): Promise<{ encolado: boolean; motivo?: 'sin_numero' }>;
+}

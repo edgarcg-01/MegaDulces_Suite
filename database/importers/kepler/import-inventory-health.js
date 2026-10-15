@@ -16,6 +16,27 @@
  */
 
 const { Client } = require('pg');
+// `[RA.VA.6]` LATIDO PROPIO — esta tabla no declaraba su edad y de ella salen REORDEN y MÁXIMO.
+//
+// Medido el 2026-10-15 (VERDAD_ABSOLUTA §30.4/§30.8): `analytics.inventory_health` tiene filas con
+// `computed_at` del **31-jul** y nada avisaba. De acá sale `avg_daily_units` → `reorder_policy` →
+// el "Reorden" y el "Máx" de `/compras/pedido` y el objetivo del panel «Ciclo», así que un
+// carril detenido se lee como umbrales al día.
+//
+// ⚠️ `computed_at` de la tabla NO sirve de frescura y por eso hace falta la llave: el UPSERT de
+// abajo es **sin churn** (`IS DISTINCT FROM`), o sea que esa columna dice *cuándo cambió esa
+// fila*, no cuándo se verificó — la misma trampa que `import-replenishment-plan.js` documenta.
+// Lo que late es la ENTREGA del fact (ADR-053).
+//
+// ⚠️ Llave parametrizable por la misma razón que el fact del pedido: la PK de
+// `analytics.cron_runs` es `(tenant_id, job_key)` sin host, y si dos carriles emiten sobre la
+// misma llave se pisan el renglón y `hb.begin()` cierra como ERROR la corrida que encuentre
+// `running` → falsos "no reportó cierre".
+const hb = require('../lib/cron-heartbeat');
+const HB_ARG = process.argv.find((a) => a.startsWith('--hb='));
+const HB_SUFIJO = HB_ARG ? HB_ARG.slice(5) : (process.env.IH_HB_SUFIJO || '');
+const HB_KEY = 'fact_inventory_health' + (HB_SUFIJO ? '_' + HB_SUFIJO : '');
+const HB_LABEL = `Salud de inventario (inventory_health${HB_SUFIJO ? ', ' + HB_SUFIJO : ''})`;
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -76,7 +97,15 @@ const SELECT_HEALTH = `
       LEFT JOIN analytics.product_box_price   bp  ON bp.tenant_id = sd.tenant_id AND bp.product_id = sd.product_id AND bp.cja_price > 0
       LEFT JOIN analytics.v_product_box_factor vbf ON vbf.tenant_id = sd.tenant_id AND vbf.product_id = sd.product_id
      WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND (sd.units > 0 OR sd.revenue > 0)
-       AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
+       -- [RA.VA.1] ⛔ Mismo filtro huérfano que import-demand-clean.js, con el mismo motivo
+       -- y la misma medición (ver el comentario largo allá, y VERDAD_ABSOLUTA §30).
+       -- Resumen: el comentario decía «=TI% traspaso interno» pero **K.3 retiró esa rama el
+       -- 2026-09-08**; hoy la única vía a mayoreo es el doctype 8 = U-D-8 Factura
+       -- Telemarketing, o sea VENTA REAL de '01', '06' y '08' — $12.92M en 30 días.
+       -- ⚠️ Acá pesa DOBLE: de esta tabla salen avg_daily_units, y de ahí reorder_policy
+       -- (reorder_point / max_stock), que es el "Reorden" y el "Máx" que lee /compras/pedido
+       -- **y** el objetivo del panel «Ciclo». Con el filtro puesto, los umbrales de esas tres
+       -- sucursales estaban dimensionados contra una demanda recortada ~23 %.
      GROUP BY sd.product_id, sd.warehouse_id, sd.sale_date::date, b.nombre, bp.cja_price, vbf.box_factor
   ), wh AS (
     -- [RA-DYN.U2] Días de la ventana en que ESE almacén pudo vender. Un almacén con más de 90
@@ -145,6 +174,8 @@ const SELECT_HEALTH = `
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  let hbStat = { status: 'ok', rows: null };
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch((e) => console.warn(`[latido] begin ${HB_KEY}: ${e.message}`));
   try {
     console.log(`\n=== inventory_health desde stock × sales_daily (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
@@ -182,11 +213,14 @@ const SELECT_HEALTH = `
              WHERE w.id=h.warehouse_id AND w.deleted_at IS NOT NULL))`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} upserted, ${del.rowCount} purgados.`);
+    hbStat = { status: 'ok', rows: up.rowCount, note: `${up.rowCount} upserted, ${del.rowCount} purgados` };
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    hbStat = { status: 'error', error: e.message };
     process.exitCode = 1;
   } finally {
     await db.end();
+    if (APPLY) await hb.end(HB_KEY, hbStat).catch((e) => console.warn(`[latido] end ${HB_KEY}: ${e.message}`));
   }
 })();

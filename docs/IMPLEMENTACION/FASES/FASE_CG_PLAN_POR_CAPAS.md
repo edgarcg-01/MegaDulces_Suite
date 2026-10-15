@@ -240,18 +240,78 @@ lugar donde probarlo que no sea producción.
 
 **Salida:** el job `caja-db` verde en CI, con sus negativas, y una mutación verificada.
 
-### 5.1 Estado al 2026-10-14 (🔨 en código, sin correr)
+### 5.1 Estado al 2026-10-14 (🧪 probado en local contra Postgres 18.4)
 
-Lo hecho en esta entrega. **Nada corrió todavía contra una base:** esta máquina no tiene Docker
-ni `node_modules`, y la regla del proyecto es que lo compile y lo pruebe el CI. Solo se verificó la
-sintaxis (`node --check`) y que la marca de la migración no colisiona (sin el ledger de prod).
+**Primera corrida del CI (38678099685, PR #413): ❌ en el arranque de la base.**
+`dev:bootstrap-vacia` se detuvo en `20261007180000` (una migración de rutas que lee
+`runner.existencias_ruta`) por su tope de 120 migraciones saltadas: desde su frontera analítica
+entraron 815. Las suites no llegaron a correr. Decisión de Edgar: **no arreglar ese script, hacer
+una base propia para caja desde cero** (`[CGP-D.1.1]`).
+
+**`database/tests/caja/preparar-base-caja.js`** arma la base del corte:
+- aplica las migraciones REALES que **crean o alteran** el corte (12), más la del tenant y la que
+  crea el schema `finance` (donde vive su `GRANT USAGE`);
+- crea vacías, con la forma del snapshot de prod, las tablas ajenas que pidan (hoy una:
+  `analytics.erp_collections`);
+- **nunca salta una migración**: si algo no se resuelve, se detiene y lo dice.
+
+Medido en local (PostgreSQL 18.4 portátil en `C:/tmp`, `knex`/`pg` del lockfile):
+
+| Qué | Resultado |
+|---|---|
+| Preparador | 14 migraciones, **0 saltadas**, 1 tabla ajena vacía |
+| `test-newdb-caja-invariantes.js` | **28 ✓ / 0 ✗**, como `app_runtime`, con las mutaciones en rojo cuando se apaga cada regla |
+| `test-newdb-cash-ledger-cuts.js` | **43 ✓ / 0 ✗ / 4 NO MEDIDO** (los 4 piden datos reales o HTTP; ya venían declarados) |
+| Prevuelo de la migración (negativas) | aborta y nombra el folio si un corte ya viola una regla; aborta como NO MEDIDO si el rol no salta RLS; no deja nada a medias |
+| Preparador (negativas) | se niega a un destino no local (clasificó `192.168.0.222` como prod) y a una base con historia |
+| **Servicio REAL** (`cash-cut.servicio-real.spec.ts`, `[CGP-L.0]`) | **6/6**, el código de prod conectado como `app_runtime`. En **rojo** al apagar la guardia de la base |
+| Todo `libs/finance/src/lib/caja` | **19 archivos, 394 pruebas en verde** |
+
+**`[CGP-L.0]` — el servicio real, no una imitación.** La suite de invariantes imita el orden de
+escritura del servicio; ésta EJECUTA `CashCutService` (con el `TenantKnexService` real) con el
+payload de la pantalla:
+1. abrir → contar → cerrar sin teclear (lo que manda la pantalla al recargar) → autorizar con
+   doble llave;
+2. cerrar con el mismo conteo sellado en la reja (lo que manda sin recargar);
+3. ⛔ **cerrar con otra cifra en la reja lo frena la base** y el corte queda intacto. Con la
+   guardia apagada esta prueba se pone roja, o sea que **el código de `cerrar()` de hoy sí deja
+   pasar la cifra tecleada**: lo único que lo frena es la regla nueva de la base. Hoy sale como
+   error crudo (un 500); `[CGP-L.1]` lo vuelve un 400 con frase;
+4. recontar con dos `UPDATE` en la misma transacción y después cerrar;
+5. el cajón de la `00` ata y suma el gasto que otra plaza pagó desde él (el caso del 12-oct);
+6. un segundo corte de la misma sucursal y fecha lo frena la base.
+
+Sin `CAJA_TEST_DB_URL` se salta y lo declara, así no rompe el job de pruebas del CI (sin Postgres).
+
+⚠️ **`[CGP-D.2c]` Fragilidad encontrada en `test-newdb-cash-ledger-cuts.js`:** mide el saldo corrido
+de la `00` en ABSOLUTO, o sea que da por hecho que la sucursal está vacía. Corrida después de la
+prueba del servicio (que confirma sus datos) da **41 ✓ / 2 ✗** (esperaba 500, vio 7,500). En el CI
+se resuelve por orden (las suites que deshacen primero, el servicio al final); el arreglo de fondo
+es medir el saldo como diferencia contra lo que había antes.
+✅ **Resuelto el 2026-10-15:** el saldo se mide como diferencia contra el saldo corrido previo, con la
+misma columna. Sobre una base donde ya corrió el servicio: **43 ✓ / 0 ✗** (sin el arreglo, 41 ✓ / 2 ✗).
+
+⚠️ **Lo mismo que trabó prod tres días, visto en la prueba:** un corte en borrador bloquea **todo**
+corte nuevo de su sucursal, de cualquier fecha (`ux_cash_cut_abierto`). La primera versión de la
+prueba lo pisó al repetirse sobre la misma base.
+
+⭐ **La suite encontró algo en el camino:** la primera base armada no tenía el `USAGE` de
+`finance` para `app_runtime` (en prod lo da la migración de Maat que creó el schema). Todas las
+escrituras del rol de prod fallaban. Sin la sección de permisos se habría probado como superusuario
+y pasado en verde.
+
+⚠️ **Lo que esta base NO prueba:** si prod tiene cambios aplicados a mano fuera de las migraciones.
+El snapshot de columnas de prod **no trae las tablas del corte** (comparar contra él daba un verde
+falso: un lado vacío no prueba nada). La comprobación de que el criterio no dejó fuera una
+migración que altere el corte se hizo por otro camino: las 11 excluidas solo crean tablas satélite
+con llave foránea hacia el corte.
 
 | Item | Estado | Qué quedó |
 |---|---|---|
-| CGP-D.1 | 🔨 | Job `caja-db` en `ci.yml`: Postgres `pgvector:pg18` de servicio → `dev:bootstrap-vacia` → las tres suites de caja. **No** entra al `needs` de `sellar`: mide, no frena, hasta tener historia |
-| CGP-D.2 | 🔨 | `test-newdb-cash-ledger.js` y `test-newdb-cash-ledger-cuts.js` con `denom_key`. La de cortes sella el conteo antes de recontar: registraba un reconteo sobre un corte que nadie había contado |
-| CGP-D.3 | 🔨 | Migración `20261014212702_finance_cash_cut_invariantes.js` + suite `test-newdb-caja-invariantes.js` (registrada en `run-all-tests.js`) + las frases de las reglas en `caja-errores.ts`, con su prueba |
-| CGP-D.5 | 🔨 | La suite verifica `USAGE` y cada privilegio de `app_runtime` **por separado**: con una lista separada por comas, `has_table_privilege` devuelve verdadero si el rol tiene cualquiera |
+| CGP-D.1 | 🧪 | Job `caja-db` con el preparador propio + las dos suites del corte. **No** entra al `needs` de `sellar`. Falta su primera corrida verde en el CI |
+| CGP-D.2 | 🧪 | `test-newdb-cash-ledger-cuts.js` reparada y en verde. `test-newdb-cash-ledger.js` reparada (`denom_key`) pero **fuera de esta base** (`[CGP-D.2b]`): prueba el autollenado y el mapa de conceptos de Kepler, que piden ocho vistas de analytics ajenas al corte |
+| CGP-D.3 | 🧪 | Migración `20261014212702` + suite + frases en `caja-errores.ts`. **En `main` (PR #413) y SIN aplicar en prod** |
+| CGP-D.5 | 🧪 | Cada privilegio de `app_runtime` se verifica por separado, y el `USAGE` del schema aparte |
 | CGP-D.4, D.6 | ⬜ | Decisiones pendientes (índice de CAOS; tablas sin escritor). La regla del fondo (D2 de §2.1) va en su propia migración, porque corregirla puede volver intocable un corte viejo y eso se mide antes |
 
 **Las reglas que la base hace cumplir desde la migración `20261014212702`:**
@@ -324,6 +384,194 @@ escritura se ejerce contra una base real.
 **Salida:** cada camino de escritura de las tablas de caja tiene una prueba que lo ejerce, y las
 mutaciones de L.1, L.2 y L.11 están verificadas en rojo.
 
+### 6.1 Estado al 2026-10-14 (🧪 probado en local contra Postgres 18.4)
+
+| Item | Estado | Qué quedó |
+|---|---|---|
+| **CGP-L.1** | 🧪 | `decidirConteoDelCierre()` (motor puro): con conteo sellado, una reja vacía o con el mismo desglose usa el sellado; cualquier otra cosa —aunque sume lo mismo, o cambie sólo la morralla— es **400** con lo sellado, lo tecleado y cómo se corrige. Se decide **antes de atar un solo movimiento** |
+| **CGP-L.2** | 🧪 | `esperadoCambio()`: si el esperado cambió desde el conteo, `cerrar()` responde **409** con `motivo`, `esperado_mostrado` y `esperado_actual`, y revierte lo atado. Quien ya vio el nuevo lo confirma con `esperado_visto`. Un corte sellado antes de que el esperado se guardara (CG.156) se **declara** (`contra: null`), no se bloquea |
+| **CGP-L.3** | 🧪 | `recontar()` exige un conteo previo (400 con frase) y lee sólo el desglose de **cierre** (el de apertura inflaba la constancia del primer conteo) |
+| **CGP-L.4** | 🧪 | `puedeAbrirCorte()` (motor puro) rechaza con frase la fecha que no es fecha, la que todavía no pasa (el hoy lo da la **base**, en hora de México), el día que ya tiene corte (nombra el folio) y el día **anterior** a un corte que ya existe: las jornadas se cierran en orden, porque el posterior heredó su fondo sin ese día y un corte firmado no se corrige. La fecha se valida antes de consultar con ella. El fondo heredado sale del último cierre **anterior** a la fecha. `GET cortes/jornadas-pendientes` lista los días del cajón con movimientos y sin corte (la consulta la comparte el sensor). `saldo()` publica la fecha del corte abierto. ⚠️ La regla de orden choca con `[CGP-0.6]`: si se decide capturar en la Suite el 7–10 oct, se relaja con una excepción explícita |
+| **CGP-L.6** | 🧪 (corte) | `abrir`, `contar`, `recontar`, `cerrar` y `autorizar` pasan por `conFrase()`: una regla de la base violada llega como frase; lo desconocido sigue siendo un 500 ruidoso. Frase nueva para `ux_cash_cut_abierto`. Falta el resto del módulo (CLS, CAOS) |
+| **CGP-L.10** | 🧪 | **El sensor del corte abierto** (`caja_corte_abierto`, cada hora a los :20). Dos señales: cortes en **borrador** de más de 26 h (crítico a las 50 h) y **jornadas con movimientos y sin corte** del cajón (crítico con 2 o más: el 13 y el 14-oct). Una jornada cuenta recién cuando terminó hace más de 26 h, para no avisar cada madrugada. Deja su latido (universo en 0 = rojo) con umbral en `CRON_JOBS` (2 h / 6 h) y avisa por la campana con enlace a la pantalla. **No repite**: avisa cuando la situación cambia y la recuerda cada 6 h (el canal no agrupa). Se apaga con `ENABLE_CAJA_CORTE_SCAN=false` |
+
+**`[CGP-L.10]` pruebas:** 12 puras (umbrales, mensajes, la regla de no repetir) + 3 contra la base
+real (siembra un corte trabado de 75 h y dos jornadas sin corte; latido; no repite y recuerda),
+probadas en **rojo con dos mutaciones**. Una de ellas destapó que mi aserción «el día con corte no
+aparece» era **vacía** (ese día no tenía movimientos): se corrigió y ahora la mutación la pone roja.
+
+⚠️ **Al hacerlo se corrigió un contrato:** `FinanceNotice.severity` decía `'info' | 'warn'`, pero la
+campana ya admite `'critical'` y `caja_fecha_futura` ya lo mandaba; compilaba sólo porque `.bind()`
+devuelve `any` con el tsconfig no estricto. Se amplió a `'critical'` (aditivo; su único consumidor,
+el adaptador, lo pasa tal cual). `libs/contracts`: 661 pruebas en verde.
+
+**Pruebas:** `cash-cut.cierre.spec.ts` (13, puras) + el servicio real (8/8) + todo
+`libs/finance/src/lib/caja` en **20 archivos, 409 pruebas en verde**. Cada capa de defensa del
+arqueo ciego se probó **sola**:
+- con la regla de la **base** apagada, el servicio sigue rechazando la reja tecleada (8/8);
+- con la decisión del **servicio** desactivada, 4 pruebas se ponen rojas (3 unitarias + la del servicio).
+
+✅ **Restricción para desplegar L.2 — LEVANTADA por `[CGP-V.12]` (mismo lote).** Sin la pantalla,
+un movimiento capturado después de contar dejaba el 409 en un aviso de 7 s **sin forma de
+confirmar**: un callejón nuevo. Ahora el diálogo de cierre:
+- muestra la frase del servidor con las dos cifras en un `p-message` **dentro del diálogo**, que no
+  se va solo;
+- cambia el botón a «Confirmar $Y y cerrar», que reenvía `esperado_visto`;
+- manda cualquier otro error al aviso de siempre, y limpia el conflicto al reabrir.
+
+La lectura del 409 es una función pura (`conflictoDeEsperado`, en `caja-captura.util.ts`): sin las
+dos cifras numéricas devuelve `null` y **no ofrece confirmar un número que no llegó**.
+
+**Pruebas:** 5 puras + 4 del componente (contra el servicio simulado del spec), y en **rojo 3 de 4**
+al desactivar la lectura (la cuarta cuida la mutación contraria). Directorio `caja-general`: 4
+archivos, 320 pruebas. `check:pantalla -- caja-general`: **igual a la línea base** (tipa sin errores,
+cero fallas nuevas). `check:templates`: verde.
+
+⚠️ **Sin validación visual** (no se levanta la app). Lo más probable de ajustar: el rótulo largo
+«Confirmar $1,800.00 y cerrar» en el pie del diálogo de 40rem en pantalla angosta, y si el aviso
+queda mejor arriba del bloque de la revelación que abajo.
+
+### 6.2 Estado al 2026-10-15: L.11 y L.9 (🧪 probado en local)
+
+**`[CGP-L.11]` — el candado del alcance de `cerrar()` es contra la base, no una tautología.** La
+cuarta prueba de `cash-cut.alcance.spec.ts` comparaba `universo('00')` consigo misma (T4).
+Medido devolviendo `cerrar()` al filtro viejo (`.where('sucursal', c.sucursal)`): **las cuatro de
+ese archivo siguieron verdes**, y la de la base («el cajón de la 00 ata y suma lo que otras plazas
+pagaron desde él», en el job `caja-db`) se puso **roja**. Se quita la tautología y el archivo dice
+dónde vive el candado.
+
+⚠️ **Esa mutación dejó un corte abierto en la 00 de la base local**: con `cerrar()` roto, el cierre
+falló a propósito y el borrador quedó vivo, y como la 00 admite uno solo, trabó las corridas
+siguientes —el mismo mecanismo que trabó producción—. Se limpió (el corte y sus dos movimientos de
+prueba, con baja lógica). En el CI no pasa porque la base nace cada vez; en local, **una mutación
+sobre una prueba que usa la 00 compartida se limpia después**.
+
+**`[CGP-L.9]` — la sucursal del cajón es una sola constante.** `SUCURSAL_CAJA_GENERAL = '00'` en
+`libs/contracts`, con su porqué: el cajón físico es uno y paga a todas las plazas (`[CG.98]`), y
+CAOS es un solo dispositivo ahí. Reemplaza los `'00'` escritos a mano en el alcance del corte, el
+cajero, los valores por defecto del controlador, el libro, el nombre de Kepler y la pantalla: **una
+definición, y ningún `'00'` fuera de comentarios en el código de caja**. Una prueba lo vigila
+(con su negativa; con el servicio anterior marca `cash-cut.service.ts`). De paso, el respaldo del
+selector de sucursal decía «00 · CEDIS»: Kepler `'00'` es Oficinas (`ERP_KEPLER` §2.3), y el propio
+servidor ya lo corregía.
+
+**Pruebas:** `libs/finance/src/lib/caja` 25 archivos, **443**, dos corridas seguidas;
+`caja-general` 383; `libs/contracts` 665.
+
+### 6.3 Estado al 2026-10-15: L.8 (🧪 probado en local)
+
+**`[CGP-L.8]` — el cambio devuelto resta.** La pantalla manda las dos pilas del arqueo con su `flujo`
+(`recibido` / `devuelto`) y cuadra `recibido − devuelto = monto`. El servidor las **sumaba**, en dos
+lugares:
+
+- **`evaluarArqueo`**, el candado de `create()`: un cobro de $380 pagado con $500 y $120 de cambio
+  daba $620 contra $380. **Toda captura con cambio se rechazaba por «no cuadra».**
+- **`detail()`**, que alimenta el comprobante impreso: medido contra la base, ese mismo cobro salía
+  «desglosado $620, diferencia +$240» —un descuadre que no existe— y, como no devolvía el `flujo`, el
+  ticket listaba el cambio como recibido.
+
+`desgloseNeto()` (motor, puro) es la única cuenta para los dos: recibido − devuelto + morralla; un
+renglón sin `flujo` es lo recibido. `detail()` devuelve el `flujo`; la pantalla separa las dos pilas
+(`separarPorFlujo`, `comprobanteDeDetalle`) y el ticket imprime **CAMBIO** aparte.
+
+**Pruebas:** 4 del motor, 1 **contra la base** (`cash-ledger.detalle-real.spec.ts`, agregada al job
+`caja-db` del CI), 2 de la separación, 2 del ticket y 1 del componente. **3 mutaciones atrapadas**
+(el cambio vuelve a sumarse, el ticket no lo imprime, la pantalla mezcla las pilas).
+`libs/finance/src/lib/caja`: 26 archivos, **448**; `caja-general`: **388**.
+
+### 6.4 Estado al 2026-10-15: L.5 (🧪 probado en local, en tres zonas horarias)
+
+**`[CGP-L.5]` — un solo helper de fechas, y las dos preguntas separadas.** La caja se hace dos
+preguntas de fecha que no son la misma, y mezclarlas era el defecto:
+
+- **¿Qué día es esta columna `date`?** → `diaDeFecha`. node-pg arma un `date` como medianoche LOCAL
+  del proceso (el repo no fija `setTypeParser`). **Medido con el propio parser de pg en tres zonas:**
+  `toISOString().slice(0,10)` da el día correcto en UTC y en México, y **el anterior en Tokio**; los
+  componentes locales dan el correcto en las tres. `String(Date).slice(0,10)` da «Tue Oct 13».
+- **¿Qué día de NEGOCIO fue este instante?** → `diaMxDeInstante` (zona de México).
+
+Los dos viven en `libs/contracts` (sin dependencias: los comparten servidor y pantalla). Se aplican:
+
+- **El defecto vivo:** la conciliación de ingresos de CAOS (`occurred_at` es `timestamptz`) tomaba el
+  día del depósito en UTC. Un depósito a las 19:00 del 12-oct «era» del 13 y **consumía un cobro del
+  13**, dinero que todavía no existía. Prueba en rojo antes del arreglo.
+- `diaDe` del corte (su nota decía que el `date` llega a medianoche UTC: era falso, y funcionaba de
+  casualidad), el `ymd` y el mes por omisión de la caja general (con `toISOString` el último día
+  después de las 18:00 ya era el mes siguiente), y la ventana del autollenado.
+
+**Pruebas:** 6 del helper y 2 del motor de CAOS. **La suite de caja completa (450, con las de la base)
+pasa con el proceso en UTC, México y Tokio.** 2 mutaciones atrapadas: `diaDe` con `toISOString`
+rompe 6 pruebas en Tokio, y el depósito con el día UTC rompe la suya. Paso nuevo en el job `caja-db`:
+la suite en México y en Tokio.
+
+⚠️ **Lo que encontré midiendo:** en Git Bash, `TZ=Asia/Tokyo` **no llega a Node** (se queda en la zona
+de la máquina): la primera corrida «en tres zonas» en realidad cubrió dos. Se repitió desde PowerShell,
+preguntándole a Node qué zona usaba. Y las mutaciones sobre la prueba de la 00 vuelven a dejar un
+borrador abierto en la base local: hay un limpiador para eso.
+
+⛔ **Declarado, no tocado:** `ymd()` del emparejador de CAOS (`caja-caos-match.engine`) sirve a la vez a
+columnas `date` y `timestamptz`, y usa `toISOString`. Cuál de las dos preguntas corresponde depende de
+cada llamador; ninguna prueba lo ejerce en Tokio.
+
+### 6.5 Estado al 2026-10-15: L.7 (🧪 probado en local)
+
+**`[CGP-L.7]` — las respuestas del corte, tipadas por contrato.** `abrir`, `cerrar`, `autorizar` y
+`listar` devolvían la fila cruda de Postgres. Medido contra la base: `abrir` respondía
+`fondo_inicial: '500.00'` (texto: el repo no fija `setTypeParser`) y la fecha como `Date`, que por
+JSON viaja con hora. La pantalla declaraba `number` y recibía texto.
+
+- `CorteCajaDto` y `aCorteCajaDto()` en `libs/contracts`: dinero como número, fecha como día
+  (`diaDeFecha`, de L.5), instantes en ISO. `null` sigue siendo «no se midió», nunca 0. No sale lo que
+  no es del contrato (`tenant_id`, `conteo_previo`).
+- Las cuatro respuestas pasan por ahí; la pantalla usa el mismo tipo en vez de su copia (que además
+  decía `fondo_inicial: number` cuando el servidor manda `null` si no se midió).
+
+**Pruebas:** 4 del contrato y 1 contra la base (en rojo antes: `'500.00'`). Caja: 26 archivos, **451**,
+dos corridas seguidas; `caja-general` 388; compuertas de tipos y de frontera en verde.
+
+⚠️ **De paso:** el rango de años libres de las pruebas contra la base (30 años) **se agotó en un día de
+corridas** sobre la misma base local, y la prueba nueva de L.7 chocaba con la sucursal de la de L.3
+(con las jornadas en orden, L.3 ya no podía abrir un día anterior). Rango ampliado (1100–2019 para el
+servicio, 1200–1989 para el sensor, sin tocar las anclas de 100–1019) y sucursal propia.
+
+### 6.6 Estado al 2026-10-15: el resto de L.6 (🧪 probado en local)
+
+**`[CGP-L.6]` en el libro y en CAOS.** Lo del corte ya estaba (`conFrase`); faltaban los dos puntos que
+el diagnóstico nombraba fuera de él, y el segundo resultó más grave que lo escrito.
+
+- **`clasificarGranos` nunca escribió un grano.** Medido contra la base como `app_runtime` (el rol de
+  prod): escribía con la conexión cruda en `finance.caos_deposito_grano`, que tiene **RLS forzado**,
+  sin fijar el tenant. La política rechazaba cada fila («new row violates row-level security
+  policy»), el `catch` se lo tragaba con un `warn` y **el latido publicaba «0 clasificados»**: un
+  carril que no escribe nada se veía igual que uno sin trabajo. ⚠️ **Hipótesis sin medir en prod**:
+  lleva escribiendo cero desde que se desplegó. Se confirma leyendo `finance.caos_deposito_grano`.
+- **Y su lectura tampoco veía nada.** El `NOT EXISTS` contra la tabla de granos, por la conexión cruda,
+  la veía vacía: una vez arreglada la escritura, la segunda corrida volvía a elegir depósitos ya
+  clasificados y chocaba contra `cdg_un_deposito`. **Lo destapó correr la prueba dos veces.** Ahora lee
+  y escribe en UNA transacción con el tenant fijado; el día del depósito es el de México (L.5); y el
+  error ya no se traga: va al latido, con estado `error`, sin tumbar la atribución de cobros.
+- **Los dos `catch` vacíos del libro** (leer `analytics.v_caos_link_patterns` «a ver si existe»): dentro
+  de una transacción, el error la deja **abortada (`25P02`)** y la consulta siguiente revienta
+  —`frescuraCaos` en una ruta, `marcarClientesCredito` en la bandeja—. Probado contra Postgres real.
+  Ahora se pregunta antes con `relacionExiste()` (`to_regclass`, el patrón que el repo ya usaba), y
+  cualquier otro error se ve.
+- **La base de prueba**: el preparador suma la tabla de granos y la vista de patrones (lo que el
+  servicio lee y escribe), crea el rol `dev_ro` (sin login; las migraciones le dan GRANT) y ahora
+  encuentra las migraciones que escriben `CREATE TABLE finance.${TABLA}`. Probado armando una base
+  **desde cero** (19 migraciones, ninguna saltada) y corriendo encima caja y CAOS: **512 pruebas**.
+
+**Pruebas:** 2 del grano contra la base (en rojo antes, con el mensaje del RLS; la segunda, la de
+correrlo dos veces) y 3 del mecanismo de la transacción abortada. Las tres entran al job `caja-db`.
+
+⛔ **No tocado:** los demás `catch` del libro (avisos, hallazgos, `caos_cash_links`) no dejan una
+consulta después dentro de la misma transacción, o son escrituras de observabilidad que no deben
+tumbar la captura. Quedan como están.
+
+⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
+archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
+decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
+cinco tocados. No es como tipa el CI; lo confirma `Build & typecheck`.
+
 ---
 
 ## 7. Fase 3: capa visual
@@ -359,6 +607,262 @@ correrlo al terminar (ninguna falla nueva).
 **Salida:** `check:pantalla` sin fallas nuevas, specs verdes y validación visual con la cajera, con
 checklist. Si no se pudo ver la pantalla, se declara.
 
+### 7.1 Estado al 2026-10-14 (🧪 probado en local)
+
+**`[CGP-V.12]`** está en §6.1, junto a L.2, porque son un solo lote.
+
+**`[CGP-V.3]` — las jornadas atrasadas se cierran desde la pantalla.** El 13 y el 14-oct no tenían
+camino: la pantalla abría **siempre** el corte de hoy, y abrir hoy primero los deja huérfanos (L.4
+rechaza abrir un día anterior a un corte que ya existe).
+
+- **Un solo botón, no dos.** «Rendir cuentas» abre la atrasada **más vieja** y lo dice en su
+  etiqueta («Rendir cuentas del 12-oct»). Un segundo botón «abrir hoy» al lado habría ofrecido
+  justo el gesto que deja huérfanas a las de atrás.
+- **Las dos puertas comparten la decisión.** «Declarar con cuánto arrancó la caja» abre el corte
+  desde su propio diálogo; si abriera hoy, rompía lo mismo. La fecha se decide dentro de
+  `abrirCorte()`, adonde llegan las dos, y ese diálogo también la nombra.
+- **Cuatro estados de la lista, no dos.** `medido` (vacía = al día), `midiendo` (el botón espera),
+  `sin_medir` (no se abre nada a ciegas: «Reintentar» re-mide el saldo y la lista) y `no_informa`
+  (404: un API anterior a L.4 no lista jornadas, pero tampoco tiene la regla que las deja
+  huérfanas, así que abrir hoy es lo que ya pasaba; trabar el cierre de caja por un 404 sería peor).
+- **El hoy es el del servidor**, que es el reloj con el que rechaza una fecha futura.
+- Se vuelve a medir después de abrir y de cerrar: así aparece la siguiente.
+- El subtítulo de «Tu jornada» las nombra («2 jornadas sin corte desde el 12-oct»): es lo único que
+  se ve sin abrir la ventana. El diálogo de cierre dice «Corte CC-… · jornada del 12-oct», y avisa
+  si es de un día que ya pasó.
+- `diaCorto` pasa a `libs/contracts`: la campana del sensor y la pantalla nombran el día igual.
+
+**Pruebas:** 10 del componente (contra el servicio simulado) + 4 del formateador. **5 mutaciones,
+las 5 atrapadas**, cada una por la prueba hecha para ella: ignorar las atrasadas, abrir hoy sin
+saber, no re-medir al cerrar, tratar el 404 como falla y usar el hoy del navegador. Directorio
+`caja-general`: 4 archivos, **330 pruebas**. `check:pantalla -- caja-general`: **igual a la línea
+base** (tipa sin errores). `check:templates` y `reactividad`: verdes.
+
+⚠️ `primeng` (306 contra techo 305) y `sin emojis` (142 contra techo 75) fallan en esta rama **con
+y sin estos cambios**, y ninguna línea es de caja: deuda de la base de la rama, no de V.3.
+
+⛔ **Declarado, no decidido:** qué efectivo se cuenta para cerrar una jornada que ya pasó (el cajón
+de hoy no es el del 12-oct). La pantalla sólo dice que el corte es de otro día; el procedimiento es
+de Edgar y Contabilidad, igual que `[CGP-0.2]`–`[CGP-0.7]`.
+
+⚠️ **Sin validación visual.** Lo más probable de ajustar: el largo del aviso de atrasadas en el bloque
+de cierre, y si el aviso «Este corte es de una jornada que ya pasó» sobra junto al rótulo con la
+fecha.
+
+### 7.2 Estado al 2026-10-15: V.1 y V.2 (🧪 probado en local)
+
+**`[CGP-V.2]` — la reja deja de teclearse en cuanto se revela, y reabrir el diálogo ya no vuelve
+atrás.** Los dos defectos del diagnóstico tenían la misma raíz: el estado del diálogo era una foto
+local.
+
+- **V2, el callejón sin recargar.** Después de sellar no se volvía a pedir el saldo y
+  `abrirCierre()` borraba lo sellado en la sesión: cerrar el diálogo y reabrirlo volvía a ofrecer
+  «Guardar conteo», y el servidor respondía 400. Ahora lo sellado en la sesión va atado a su corte,
+  la revelación se deriva (de la respuesta a sellar o del saldo) y el saldo se vuelve a pedir
+  después de sellar y de recontar.
+- **V1, la reja abierta.** Revelado el conteo, la reja muestra lo sellado pieza por pieza, de sólo
+  lectura, y «Cerrar corte» manda la reja vacía: lo que se firma es lo sellado (`[CGP-L.1]` lo usa
+  cuando el cuerpo no trae piezas). Un solo «Contado»: revelado, el de la línea del veredicto;
+  mientras se cuenta, el total de la reja.
+- **Recontar es un modo, no un campo.** Abre la reja vacía (se cuenta de nuevo, no se corrige un
+  renglón), pide motivo y esconde «Cerrar» hasta guardar el reconteo o volver al sellado: cerrar a
+  mitad firmaría el primero.
+- **Servidor, aditivo:** `saldo()` publica `conteo_sellado.desglose` y `morralla`. `cerrar()` y
+  `saldo()` leen lo sellado con la misma función (`leerSellado`): lo que se muestra y lo que se
+  firma no pueden divergir.
+- **Lo que no se puede mostrar se declara.** Un API anterior sin desglose, o un desglose con una
+  pieza que la reja de caja no tiene (el billete de $1,000: el servidor acepta todo el catálogo),
+  dice «no se puede mostrar pieza por pieza» en vez de pintar la reja a medias.
+- **El diálogo guarda el corte que tiene en la mano.** Si la relectura del saldo falla después de
+  sellar, se puede cerrar igual. Al abrir desde «rendir cuentas» el corte sale de la respuesta de
+  abrir, porque el saldo todavía no volvió.
+
+**`[CGP-V.1]` — los pasos a la vista.** Abrir → Contar a ciegas → Revisar la diferencia → Cerrar →
+Autorizar, debajo de la cabecera del cierre de la jornada (con la frase de qué sigue) y arriba del
+diálogo. El paso se deriva del servidor con una función pura (`pasoDelCorte`): sin saldo medido no
+se afirma ninguno; «revisar» sólo con diferencia y el reconteo sin usar, o con el esperado cambiado;
+«autorizar» nombra el folio del último corte cerrado. La pieza `app-caja-pasos` vive en
+`modules/finanzas/components/` (no hay stepper compartido: `DESIGN.md` lo lista como hueco), es de
+sólo lectura y el estado no depende sólo del color (icono, negrita y `aria-current="step"`).
+
+**Pruebas:** servidor contra Postgres real **13/13** (+1: el desglose sellado, el del reconteo, y que
+sin conteo no se publica nada); `libs/finance/src/lib/caja` 23 archivos, **435**. Front: 11 puras
+del paso + 16 del componente; directorio `caja-general` 4 archivos, **357**. **10 mutaciones, las 10
+atrapadas**: 9 del front (reabrir borra lo sellado, no volver a pedir el saldo, cerrar con lo
+tecleado, el permiso de cerrar atado al último saldo, la reja editable tras revelar, cerrar a mitad
+del reconteo, pintar a medias una pieza ajena, abrir sin el corte de la respuesta, «por autorizar»
+tomando el primero) y 1 del servidor (`saldo()` sin desglose). `check:pantalla -- caja-general`
+igual a la línea base; `templates`, `reactividad`, `tokens`, `estilos`, `motion` y
+`templates-types` verdes; `primeng` (306/305) y `sin emojis` (142/75) iguales con y sin los cambios.
+
+⚠️ Dos cosas que destaparon las pruebas: una prueba de V.3 atrapó que el texto del paso «abrir»
+invitaba a «rendir cuentas» justo cuando la pantalla bloquea abrir y ofrece «Reintentar»; y la
+primera versión de las pruebas usaba un billete de $1,000, que la reja de caja no tiene, de donde
+salió el caso de la pieza ajena.
+
+⛔ **Decidido acá, revisable:** el reconteo arranca con la reja vacía, no con lo sellado. Precargarla
+invitaría a corregir el renglón que «no cuadra» después de ver el esperado.
+
+⚠️ **Sin validación visual.** Lo más probable de ajustar: la tira de pasos en el diálogo de 40rem
+(cinco rótulos, se parte en dos renglones) y el pie con tres botones durante el reconteo.
+
+### 7.3 Estado al 2026-10-15: V.4 y V.10 (🧪 probado en local)
+
+**`[CGP-V.4]` — una lectura frenada por el límite ya no deja la pantalla «sin medir».** Medido antes
+de cambiar nada: el límite es de **10 lecturas por segundo por IP** (`ThrottlerModule`, tramo
+`short`), y al entrar la pantalla lanza **10 GET** más los del marco de la app. El diagnóstico decía
+9: **V.3 sumó la lista de jornadas**, y con eso el undécimo cae seguro en el 429.
+
+- **Se reintenta en vez de escalonar.** Escalonar en dos olas obligaba a pintar «midiendo» en cada
+  bloque que espera, y el riesgo era dibujar «sin medir» durante ese segundo. Toda lectura del
+  servicio de caja (16 GET) pasa por `leer()`, que reintenta sola un 429 hasta dos veces, con la
+  espera que dice el servidor (`Retry-After-<tramo>`, el mayor) o un segundo por intento. Si el
+  tramo bloqueado pide más de 10 s, no se reintenta a ciegas: el bloque se declara. **Las escrituras
+  no pasan por ahí.**
+- **Midiendo no es «sin medir».** Mientras el saldo está en vuelo no sale la etiqueta «Corte sin
+  medir» ni «Reintentar» (reintentar mandaba más lecturas contra el mismo límite): el botón espera,
+  el saldo dice «midiendo» y el subtítulo también. Si falla de verdad, entonces sí.
+- **Ninguna de las dos puertas abre un corte sin saldo medido.** «Declarar con cuánto arrancó la
+  caja» no pasaba por ningún freno de saldo.
+
+**`[CGP-V.10]`** `uuidV4()` en `core/utils/uuid.ts`: `randomUUID` con contexto seguro,
+`getRandomValues` sin él (sí existe por http://), `Math.random` sólo sin `crypto`. `confirmarLote`
+llamaba `crypto.randomUUID()` directo: por http:// en la LAN la petición reventaba antes de salir y
+«Confirmar N» se quedaba cargando. La copia privada del componente se retira. ⚠️ Fuera de caja
+quedan la copia de andén (`nuevaLlave`) y `offline-database.service`, que llama `randomUUID` directo:
+deuda declarada.
+
+**Pruebas:** 9 del operador y del servicio (un 429 y después la respuesta; tres seguidos se rinde;
+un 500 no se reintenta; `Retry-After` de cualquier tramo; el de un minuto se declara; el saldo
+reintentado llega; abrir el corte **no** se repite) + 4 de `uuidV4` + 4 del componente. **6
+mutaciones atrapadas.** Directorios `caja-general` + `core/utils`: 8 archivos, **410**.
+
+**De paso, dos defectos míos de L.4 que destapó esto:**
+
+- **La compuerta de frontera** (`lint-boundary-gate`, la que corre el CI) marcó
+  `jornadasPendientes()` sin tipo de retorno. El retorno pasa a un contrato de `libs/contracts`
+  (`JornadasPendientes`, ADR-052), y la pantalla deja su copia.
+- **Las pruebas contra la base chocaban entre corridas.** Elegían el año al azar entre 30 y escriben
+  sin deshacer: el 2013 se repitió y `ux_cash_cut_sucursal_fecha` rechazó la siembra. Ahora eligen
+  un año sin cortes en la 00 ni movimientos, y marcan sus sucursales y folios por corrida. Y al
+  variar el año apareció otro: la prueba de L.4 sembraba `995-05-11` y el servidor responde
+  `0995-05-11`, así que **fallaba una de cada tres corridas** (con el año antes de 2000). Año
+  rellenado; 4 corridas seguidas en verde, 435 pruebas.
+
+### 7.4 Estado al 2026-10-15: V.5 (🧪 probado en local)
+
+**`[CGP-V.5]` — el error se queda donde se hizo la acción, con su frase.** Antes todo salía en un
+aviso de 7 s, el diálogo de cierre no conservaba ningún error, y **un 403 se pintaba siempre «No
+tenés permiso»**: la frase de la doble llave («Quien cerró el corte no puede autorizarlo») se perdía
+y la persona creía que le faltaba un permiso.
+
+- `textoDeError()` (puro): un 403 con frase del servidor se dice tal cual; sólo el genérico del
+  guardia (sin frase, o «Forbidden resource») se traduce. Las frases de validación en lista se juntan.
+  Un 429 se dice como «el servidor pidió esperar».
+- Sellar, recontar y cerrar: el error queda **en el diálogo de cierre**. Abrir: en su diálogo, o junto
+  al botón del cierre cuando se abre desde «rendir cuentas» (que no pasa por diálogo); los dos frenos
+  de abrir (saldo sin medir, jornadas sin medir) también van ahí en vez de a un aviso. Autorizar: **en
+  la fila de ese corte**. Cada uno se limpia al volver a intentar.
+
+**Pruebas:** 5 puras + 4 del componente; **4 mutaciones atrapadas**. Directorio `caja-general`: **370**.
+⛔ **Corregido después:** acá decía que la compuerta `primeng` había atrapado tres `severity="error"`
+míos en `p-message` y que en v22 iba `danger`. **Era un falso positivo de la compuerta**:
+`MessageSeverity` (primeng 22.0.0) admite `error` y no `danger`, y seguir su sugerencia rompía el
+tipado — lo frenó `check-template-types` en V.7. Ver §7.5.
+
+### 7.5 Estado al 2026-10-15: V.7, y una compuerta que empujaba a un error (🧪 probado en local)
+
+**`[CGP-V.7]` — lo no medido se dice, y las fechas no salen crudas.**
+
+- `money()` es compartida (Finanzas y Compras) y convierte `null` en `$0.00`. Cambiarla en el
+  origen movería decenas de pantallas fuera de caja, así que se extendió **aditiva**:
+  `moneyOSinMedir()` dice «sin medir» ante `null`, vacío o algo que no es número; un cero medido
+  sigue siendo cero.
+- **Dónde hacía falta se midió, no se adivinó.** Hay 82 `money()` en la pantalla. Se estrechó el tipo
+  de `money` a `number` en una copia temporal y se pasaron las dos compuertas de tipos: un solo sitio
+  sin guarda (el aviso de «Movimiento registrado»). A mano se revisaron los dos patrones que el tipo
+  no ve, `!` y `?? 0`: el monto cancelado (`?? 0`) era el otro.
+- **Fechas:** lo suelto de otras jornadas va en frase («desde el 25-sep», con guarda de `null`) y la
+  fecha valor de los pagables con `dmy`. La regla de la pantalla queda: **frase con `diaCorto`,
+  celda con `dmy`**, ninguna ISO cruda.
+
+**La compuerta `primeng` empujaba a un error.** Su regla de severidad marcaba `severity="error"` en
+cualquier etiqueta y mandaba a `danger`; en `p-message` es al revés. La única ocurrencia que contaba
+bajo su techo (`portal-login`) era ese mismo falso positivo. Ahora juzga **por componente**, con
+`--self-test` de 5 casos (rompiendo la excepción da *CONTROL fallido*) y techo 1 → 0.
+
+⚠️ **Un error mío en el camino:** para restaurar la compuerta tras su prueba negativa usé
+`git checkout` sobre el archivo con cambios sin commitear, y se llevó el arreglo. Se rehízo desde el
+script; desde ahí las mutaciones se restauran con copia de bytes, no con git.
+
+**Pruebas:** 5 de la variante + 2 del componente; la de CG.115 pasa a la fecha en palabras.
+`caja-general` + `shared/util` + `core/utils`: 9 archivos, **426**.
+
+### 7.6 Estado al 2026-10-15: V.6 (🧪 probado en local)
+
+**`[CGP-V.6]` — cada botón pide el permiso de su endpoint, y la pantalla dice cuál falta.** Quien
+sólo tenía VER veía «Rendir cuentas», «Registrar movimiento» y «Confirmar N», y la fila del corte
+ofrecía «Autorizar» a quien no podía: el clic terminaba en un 403.
+
+- **El permiso de cada botón se leyó del controlador, no se supuso:** todas las escrituras de
+  captura y del corte piden GESTIONAR (`crear`, `lote`, `reglas`, `cortes`, `contar`,
+  `recontar`, `cerrar`, `cancelar`, `reclasificar`); sólo `autorizar` pide AUTORIZAR.
+- Sin GESTIONAR, la barra dice una vez «Sólo lectura: capturar, confirmar y rendir cuentas necesitan
+  el permiso «Capturar en Caja General»», y los botones de registrar, confirmar y rendir cuentas no
+  se ofrecen. Sin AUTORIZAR, la fila del corte dice qué permiso falta.
+- Los métodos también frenan (`abrirCaptura`, `pedirConfirmacion`, `guardar`, `confirmarLote`,
+  `cerrarJornada`, `abrirCorte`): un atajo nuevo no puede saltarse el permiso.
+- ⚠️ **Sin permisos cargados no se bloquea nada.** «Todavía no sé» no es «no tiene», y el candado de
+  verdad es el servidor.
+
+**Pruebas:** 6 del componente (con la bandeja de dos filas marcadas, para que el freno del lote sea
+el permiso y no una bandeja vacía); **6 mutaciones atrapadas**. Directorio `caja-general`: **378**.
+
+### 7.7 Estado al 2026-10-15: V.9 (🧪 probado en local)
+
+**`[CGP-V.9]` — contar cero con confirmación explícita.** Con la caja en $0, «Guardar conteo» quedaba
+deshabilitado sin explicación y ese corte no se podía cerrar nunca. Medido antes de tocar la
+pantalla: **el servidor también lo rechazaba**, porque una reja vacía es `sin_contar` para el motor.
+«No se contó» y «se contó y no hay efectivo» son dos hechos distintos (ADR-056): el segundo se
+**declara**.
+
+- **Motor y servicio (aditivo):** `cero_declarado` en `contar`, `recontar` y `cerrar`. Con la
+  reja vacía y sin morralla, es un conteo en $0 con su veredicto (cuadra, o falta lo esperado).
+  Declarar cero **con piezas** es una contradicción: 400 con frase, nada se sella.
+- **El cero sellado era invisible, y se arregló antes de que pudiera pasar.** `conteoSellado()`
+  devolvía `null` con `contado <= 0`, y el freno de re-sellado de `contar()` miraba `contado > 0`.
+  Con un cero sellado, la pantalla habría vuelto a ofrecer «Guardar conteo» (el callejón de CG.160) y
+  se podía re-sellar **sin reconteo ni motivo**. Ahora «sellado» es `contado != null`: `abrir()` no
+  escribe `contado` y la base no tiene ningún borrador con `contado = 0` (medido).
+- **Pantalla:** con la reja en cero aparece «Conté y no hay efectivo en la caja», con el porqué del
+  botón apagado. Marcada, el botón dice «Sellar en $0.00». Si después se teclea una pieza, la
+  declaración deja de valer; al reabrir el diálogo se olvida (se confirma cada vez).
+
+**Pruebas:** 4 puras del motor, 2 contra la base real (sella, se publica, no se re-sella, se cierra;
+la contradicción da 400 y no sella) y 4 del componente. **8 mutaciones atrapadas** (4 del servidor,
+4 de la pantalla). `libs/finance/src/lib/caja`: 24 archivos, **441**.
+
+### 7.8 Estado al 2026-10-15: V.11, y lo que queda de la capa visual
+
+**`[CGP-V.11]` — deuda de diseño, medida.**
+
+- **Clases que no existen:** de 19 clases `fin-*` que usa la pantalla, tres no están definidas en
+  ningún lado: `fin-field`, `fin-label` y `fin-input`, todas en el motivo de «sin documento», que
+  encima era un `<textarea>` sin la directiva de PrimeNG (se pintaba sin estilo). Ahora es
+  `pTextarea` con su `<label for>` y el patrón `fin-row fin-row-col` de la pantalla. ⚠️ La primera
+  medición, con un script por `node -e`, dijo **cero**: el escape de la expresión regular lo hizo
+  mentir. La de `grep` encontró las tres.
+- **`comm-num`:** 20 celdas y encabezados numéricos con `ta-r mono` pasan a `comm-num`, que es lo
+  mismo (derecha, mono y cifras tabulares) con el vocabulario del sistema; la regla local `.ta-r`
+  queda sin uso y se retira.
+- **`app-side-peek`: no aplica hoy.** La pantalla no abre ningún detalle de varios campos:
+  `detalle()` sólo se usa para imprimir el comprobante. Se declara en vez de inventar un panel.
+
+**Pruebas:** 1 de DOM (el campo es `p-textarea` y tiene su etiqueta), en rojo al quitar la directiva.
+
+**Lo que queda de la capa visual:** `[CGP-V.8]`, los nombres del menú (la captura y el espejo de
+Control), que **decide Edgar**. Todo lo demás de V.1–V.12 está 🧪 en local, **sin validación visual**.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación
@@ -371,6 +875,17 @@ checklist. Si no se pudo ver la pantalla, se declara.
 | CGP-E.4 | Checklist de liberación: `soltar.sh --ver` (migraciones pendientes) → soltar → `/api/health` → lectura del saldo de humo |
 | CGP-E.5 | Runbook para cajera y supervisor: qué hacer si no puedo cerrar, cómo leer el motivo, a quién llamar |
 | CGP-E.6 | Métricas: cortes cerrados por día hábil, horas en borrador, % de movimientos conciliados, % de depósitos de ruta capturados (hoy 18 de 749) |
+
+### 8.1 Estado al 2026-10-15
+
+| Item | Estado | Qué quedó |
+|---|---|---|
+| **CGP-E.1** | 🧪 | El proceso de tres jornadas contra la base, con un **oráculo independiente** escrito en la prueba (`cash-cut.servicio-real.spec.ts`, describe `[CGP-E.1]`): fondo declarado, tres tipos de movimiento, conteo ciego que cuadra al centavo, cierre y doble llave; fondo heredado del contado; faltante y reconteo con motivo; jornadas 3 y 4 cerradas en orden, cada una atando sólo lo suyo, y un día anterior que ya no se abre. **Probado en rojo**: si el depósito suma en vez de restar, el oráculo lo atrapa. ⚠️ Va a nivel de servicio, no de HTTP: levantar la API en local está prohibido (CLAUDE.md). ⚠️ El fondo del primer día se declara: el arqueo de Control no existe en la base de prueba |
+| CGP-E.1b / E.2 | ⬜ | El mismo escenario por HTTP y con Playwright: necesitan la API y la pantalla levantadas **en el CI**. No se escribieron sin poder correrlos |
+| CGP-E.3 | ✅ | Las suites de caja corren en el job `caja-db`: servicio real, sensor, detalle (L.8) y «Fechas de caja en tres zonas» (L.5). `run-all-tests.js` sólo corre scripts de Node: no se duplicó |
+| CGP-E.4 | 🧪 | [`CAJA_GENERAL_LIBERACION`](../RUNBOOKS/CAJA_GENERAL_LIBERACION.md): fusionar `main` (la rama va 1 atrás), CI, migraciones (la rama no trae; verificar `20261014212702` con `soltar.sh --ver`), humo con las rutas verificadas en el controlador, cambios a avisar y vuelta atrás |
+| CGP-E.5 | 🧪 | [`CAJA_GENERAL_OPERACION`](../RUNBOOKS/CAJA_GENERAL_OPERACION.md): para la cajera y el supervisor, con los textos que muestra la pantalla. ⬜ Falta el contacto de soporte y revisarla con una cajera frente a la pantalla |
+| CGP-E.6 | 🧪 | Tres consultas (cortes cerrados y autorizados el mismo día, horas en borrador, movimientos anclados) en el runbook de liberación, probadas contra la base local. La de depósitos de ruta cita el método de `FASE_CG` |
 
 ---
 
@@ -385,6 +900,11 @@ No son de software, y sin ellas ninguna fase cierra el problema:
 5. Recontar los dólares y los papeles, que no se cuentan desde abril y desde 2025-10.
 6. Quién cierra y quién autoriza: el plan de la fase dice una cosa y lo construido hace otra.
 7. Los nombres del menú (CGP-V.8).
+
+⭐ **2026-10-15: Edgar tiene capturas del corte de cada día.** Son el testigo independiente que faltaba
+para 1 y 2, y para decidir qué efectivo se cuenta al cerrar una jornada que ya pasó. Por pedido suyo
+se revisan **al terminar los ítems de código del plan**, como evidencia, no para teclear un conteo
+como si hubiera sido ciego.
 
 ---
 

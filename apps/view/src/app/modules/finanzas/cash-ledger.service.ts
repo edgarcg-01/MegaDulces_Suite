@@ -2,6 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { uuidV4 } from '../../core/utils/uuid';
+import type { JornadasPendientes, CorteCajaDto } from '@megadulces/contracts';
+import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
 // mano; cada uno que se pueda traer de acá es uno que no se puede desalinear en silencio.
@@ -127,23 +130,35 @@ export interface AutofillResponse {
 @Injectable({ providedIn: 'root' })
 export class CashLedgerService {
   private http = inject(HttpClient);
+
+  /**
+   * `[CGP-V.4]` Toda LECTURA de caja pasa por acá y se reintenta sola ante un 429.
+   *
+   * Medido el 2026-10-15: al entrar, Caja General lanza 10 GET a la vez (más los del marco de la
+   * app) contra un límite de 10 por segundo por IP. El que caía en el 429 dejaba su bloque «sin
+   * medir» —y si era el saldo, el cierre pedía «Reintentar»— sin que nada estuviera roto. Un GET es
+   * idempotente: repetirlo en la ventana siguiente es seguro. Las ESCRITURAS no pasan por acá.
+   */
+  private leer<T>(url: string, opciones?: { params?: HttpParams }): Observable<T> {
+    return this.http.get<T>(url, opciones).pipe(reintentarSi429<T>());
+  }
   private base = `${environment.apiUrl}/finance/cash-ledger`;
 
   libro(f: { from?: string; to?: string; tipo?: string; sucursal?: string; cuenta?: string; search?: string; limit?: number; offset?: number ; mios?: '1' }): Observable<LibroResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<LibroResponse>(this.base, { params: p });
+    return this.leer<LibroResponse>(this.base, { params: p });
   }
 
   conceptos(sucursal?: string, search?: string, limit = 50): Observable<{ rows: ConceptoKepler[]; limit: number }> {
     let p = new HttpParams().set('limit', String(limit));
     if (sucursal) p = p.set('sucursal', sucursal);
     if (search) p = p.set('search', search);
-    return this.http.get<{ rows: ConceptoKepler[]; limit: number }>(`${this.base}/conceptos`, { params: p });
+    return this.leer<{ rows: ConceptoKepler[]; limit: number }>(`${this.base}/conceptos`, { params: p });
   }
 
   cobertura(): Observable<CoberturaResponse> {
-    return this.http.get<CoberturaResponse>(`${this.base}/cobertura`);
+    return this.leer<CoberturaResponse>(`${this.base}/cobertura`);
   }
 
   /** PROPONE. No guarda nada. Lo que no puede proponer vuelve en null con su motivo. */
@@ -185,7 +200,7 @@ export class CashLedgerService {
   ): Observable<PendientesResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<PendientesResponse>(`${this.base}/movimientos-pendientes`, { params: p });
+    return this.leer<PendientesResponse>(`${this.base}/movimientos-pendientes`, { params: p });
   }
 
   /**
@@ -197,7 +212,7 @@ export class CashLedgerService {
   ): Observable<CaosCapturablesResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<CaosCapturablesResponse>(`${this.base}/caos-capturables`, { params: p });
+    return this.leer<CaosCapturablesResponse>(`${this.base}/caos-capturables`, { params: p });
   }
 
   /**
@@ -209,7 +224,7 @@ export class CashLedgerService {
   ): Observable<CaosCandidatosResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<CaosCandidatosResponse>(`${this.base}/caos-candidatos`, { params: p });
+    return this.leer<CaosCandidatosResponse>(`${this.base}/caos-candidatos`, { params: p });
   }
 
   /**
@@ -221,7 +236,7 @@ export class CashLedgerService {
   cajas(dias?: number): Observable<{ rows: CajaKepler[]; ventana_dias: number }> {
     let p = new HttpParams();
     if (dias) p = p.set('dias', String(dias));
-    return this.http.get<{ rows: CajaKepler[]; ventana_dias: number }>(`${this.base}/cajas`, { params: p });
+    return this.leer<{ rows: CajaKepler[]; ventana_dias: number }>(`${this.base}/cajas`, { params: p });
   }
 
   /**
@@ -236,7 +251,9 @@ export class CashLedgerService {
     return this.http.post<ResumenLote>(`${this.base}/lote`, {
       // El `client_uuid` va por fila: si la red corta y la persona reintenta, el reintento
       // devuelve lo que ya se guardó en vez de duplicarlo.
-      items: items.map((i) => ({ ...i, client_uuid: crypto.randomUUID() })),
+      // `[CGP-V.10]` `uuidV4()` y no `crypto.randomUUID()`: por http:// en la LAN no existe, la
+      // petición reventaba antes de salir y «Confirmar N» quedaba cargando para siempre.
+      items: items.map((i) => ({ ...i, client_uuid: uuidV4() })),
     });
   }
 
@@ -244,19 +261,19 @@ export class CashLedgerService {
   frecuentes(f: { tipo?: string; sucursal?: string; limit?: number } = {}): Observable<{ rows: Frecuente[]; medido: { pares_con_soporte: number; minimo_usos: number } }> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<{ rows: Frecuente[]; medido: { pares_con_soporte: number; minimo_usos: number } }>(
+    return this.leer<{ rows: Frecuente[]; medido: { pares_con_soporte: number; minimo_usos: number } }>(
       `${this.base}/frecuentes`, { params: p });
   }
 
-  detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number }>; arqueo: { desglosado: number; diferencia: number } | null }> {
-    return this.http.get<any>(`${this.base}/${id}`);
+  detalle(id: string): Observable<MovimientoCaja & { denominaciones: Array<{ denominacion: number; piezas: number; flujo?: 'recibido' | 'devuelto' }>; arqueo: { desglosado: number; diferencia: number } | null }> {
+    return this.leer(`${this.base}/${id}`);
   }
 
   // ── CG.15 · corte, saldo y cancelación ───────────────────────────────────────────────
 
   /** `saldo: null` + `sin_corte_abierto` NO es cero: la caja no tiene punto de partida. */
   saldo(sucursal: string): Observable<SaldoResponse> {
-    return this.http.get<SaldoResponse>(`${this.base}/saldo/${encodeURIComponent(sucursal)}`);
+    return this.leer<SaldoResponse>(`${this.base}/saldo/${encodeURIComponent(sucursal)}`);
   }
 
   /**
@@ -269,7 +286,7 @@ export class CashLedgerService {
   arqueoDia(f: { fecha?: string; sucursal?: string } = {}): Observable<ArqueoDia> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<ArqueoDia>(`${this.base}/arqueo-dia`, { params: p });
+    return this.leer<ArqueoDia>(`${this.base}/arqueo-dia`, { params: p });
   }
 
   /**
@@ -281,14 +298,14 @@ export class CashLedgerService {
     // dice (TS2367). Copiar el bucle de al lado sin mirar los tipos rompía el build.
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null) p = p.set(k, String(v));
-    return this.http.get<RecurrentesResponse>(`${this.base}/recurrentes-sin-regla`, { params: p });
+    return this.leer<RecurrentesResponse>(`${this.base}/recurrentes-sin-regla`, { params: p });
   }
 
   /** `[CG.27-B.0]` Las reglas ya declaradas. Hasta ahora sólo se podían escribir. */
   reglas(f: { incluir_inactivas?: boolean; limit?: number } = {}): Observable<{ rows: ReglaCaja[]; limit: number; has_more: boolean }> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null) p = p.set(k, String(v));
-    return this.http.get<{ rows: ReglaCaja[]; limit: number; has_more: boolean }>(`${this.base}/reglas`, { params: p });
+    return this.leer<{ rows: ReglaCaja[]; limit: number; has_more: boolean }>(`${this.base}/reglas`, { params: p });
   }
 
   /**
@@ -302,7 +319,7 @@ export class CashLedgerService {
   cortes(f: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number } = {}): Observable<{ rows: CorteCaja[]; limit: number }> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<{ rows: CorteCaja[]; limit: number }>(`${this.base}/cortes`, { params: p });
+    return this.leer<{ rows: CorteCaja[]; limit: number }>(`${this.base}/cortes`, { params: p });
   }
 
   /**
@@ -314,20 +331,42 @@ export class CashLedgerService {
   }
 
   /**
+   * `[CGP-L.4]` Las jornadas del cajón con movimientos y SIN corte, de la más vieja a la más nueva.
+   * Es lo que la pantalla ofrece abrir, y en ese orden: el servidor rechaza abrir un día anterior a
+   * un corte que ya existe, así que abrir hoy primero deja huérfanos a los de atrás.
+   */
+  jornadasPendientes(sucursal: string): Observable<JornadasPendientes> {
+    return this.leer<JornadasPendientes>(`${this.base}/cortes/jornadas-pendientes`, {
+      params: new HttpParams().set('sucursal', sucursal),
+    });
+  }
+
+  /**
    * CG.19 — SELLA el conteo y recién entonces revela. Era `previa`, que mostraba la diferencia
    * mientras se contaba: con eso el arqueo era una transcripción del esperado.
    */
-  contarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0): Observable<RevelacionCorte> {
-    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/contar`, { conteo, morralla });
+  // `[CGP-V.9]` `ceroDeclarado`: «conté y no hay efectivo». Sin él, una reja vacía es «no se contó».
+  contarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, ceroDeclarado = false): Observable<RevelacionCorte> {
+    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/contar`,
+      ceroDeclarado ? { conteo, morralla, cero_declarado: true } : { conteo, morralla });
   }
 
   /** Segundo y ÚLTIMO conteo. El motivo es obligatorio y el primero se conserva. */
-  recontarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla: number, motivo: string): Observable<RevelacionCorte> {
-    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/recontar`, { conteo, morralla, motivo });
+  recontarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla: number, motivo: string, ceroDeclarado = false): Observable<RevelacionCorte> {
+    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/recontar`,
+      ceroDeclarado ? { conteo, morralla, motivo, cero_declarado: true } : { conteo, morralla, motivo });
   }
 
-  cerrarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, nota?: string): Observable<CorteCaja & { totales: TotalesCorte }> {
-    return this.http.post<CorteCaja & { totales: TotalesCorte }>(`${this.base}/cortes/${id}/cerrar`, { conteo, morralla, nota });
+  /**
+   * `[CGP-V.12]` `esperadoVisto`: el esperado que la persona confirmó después de un 409 de
+   * `[CGP-L.2]` (cambió desde el conteo). Sin él, el servidor compara contra lo que reveló el conteo.
+   */
+  cerrarCorte(
+    id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, nota?: string,
+    esperadoVisto?: number,
+  ): Observable<CorteCaja & { totales: TotalesCorte }> {
+    return this.http.post<CorteCaja & { totales: TotalesCorte }>(`${this.base}/cortes/${id}/cerrar`,
+      { conteo, morralla, nota, esperado_visto: esperadoVisto });
   }
 
   /** Devuelve 403 si lo intenta quien cerró: la doble llave está en la DB, no acá. */
@@ -356,7 +395,7 @@ export class CashLedgerService {
    */
   cortesDeCaja(from: string, to: string): Observable<CortesSucursalesResponse> {
     const p = new HttpParams().set('from', from).set('to', to);
-    return this.http.get<CortesSucursalesResponse>(`${environment.apiUrl}/finance/cortes-sucursales`, { params: p });
+    return this.leer<CortesSucursalesResponse>(`${environment.apiUrl}/finance/cortes-sucursales`, { params: p });
   }
 
   cancelar(id: string, motivo: string): Observable<MovimientoCaja> {
@@ -364,24 +403,12 @@ export class CashLedgerService {
   }
 }
 
-export interface CorteCaja {
-  id: string;
-  folio: string;
-  fecha: string;
-  sucursal: string;
-  estado: 'borrador' | 'cerrado' | 'autorizado';
-  fondo_inicial: number;
-  total_ingresos: number | null;
-  total_gastos: number | null;
-  total_depositos: number | null;
-  esperado: number | null;
-  contado: number | null;
-  diferencia: number | null;
-  closed_by: string | null;
-  closed_by_username: string | null;
-  authorized_by_username: string | null;
-  nota: string | null;
-}
+/**
+ * `[CGP-L.7]` El corte, con la forma del contrato que comparte con el servidor: el dinero como número
+ * y la fecha como día. Antes era una copia a mano que decía `number` mientras llegaba texto, y
+ * `fondo_inicial: number` cuando el servidor manda `null` si no se midió.
+ */
+export type CorteCaja = CorteCajaDto;
 
 export interface TotalesCorte {
   ingresos: number; gastos: number; depositos: number;
@@ -425,6 +452,13 @@ export interface ConteoSellado {
   diferencia: number | null;
   veredicto: VeredictoCorte;
   ya_reconto: boolean;
+  /**
+   * `[CGP-V.2]` Lo sellado, pieza por pieza, y la morralla. La reja lo muestra de sólo lectura una
+   * vez revelado. Opcionales: un API anterior no los manda, y la pantalla lo declara en vez de
+   * pintar la reja en blanco junto a un «Contado» con cifra.
+   */
+  desglose?: Array<{ denom_key: string; denominacion: number; piezas: number }>;
+  morralla?: number;
 }
 
 /**
@@ -640,6 +674,9 @@ export interface RevelacionCorte {
   conteo_previo_contado?: number;
 }
 
+/** `[CGP-L.4]` Lo que devuelve `GET cortes/jornadas-pendientes`: el contrato que comparte con el servidor. */
+export type { JornadasPendientes };
+
 export interface SaldoResponse {
   sucursal: string;
   // ⛔ `[CG.153]` `fondo_inicial` es `number | null`, no `number`. El servidor manda `fondo(abierto)`
@@ -648,6 +685,12 @@ export interface SaldoResponse {
   // 228 líneas más abajo (`ArqueoDia`); acá mentía, y los consumidores ya guardan el null en runtime.
   corte_abierto: {
     id: string; folio: string; fondo_inicial: number | null; ya_reconto: boolean;
+    /**
+     * `[CGP-L.4]` La jornada del corte (`YYYY-MM-DD`). Con jornadas atrasadas, el corte abierto
+     * puede no ser el de hoy y el diálogo de cierre tiene que decirlo. Opcional: el API puede ir
+     * por detrás del front en un deploy parcial.
+     */
+    fecha?: string;
     /**
      * ⭐ `[CG.160]` **El conteo que YA está sellado en la base.** Lo publica `saldo()` desde
      * `[CG.156]` y acá no estaba declarado, así que la pantalla no podía leerlo: al recargar,

@@ -1,5 +1,5 @@
 /**
- * `[CB.50]` **Retira el índice único que no lleva la sucursal.** Es el segundo tiempo que
+ * `[CB.51]` **Retira el índice único que no lleva la sucursal.** Es el segundo tiempo que
  * `[CC.13]` (mig 20260925120100) dejó declarado: aquella agregó
  * `bank_recon_matches_doc_suc_key` (5 columnas, con `kepler_sucursal`) y **a propósito no borró
  * la vieja de 4**, porque el código en vivo podía depender de ella.
@@ -15,7 +15,7 @@
  *
  * ⚠️ Medido el 2026-10-14 antes de tocar nada: `kepler_sucursal` estaba poblada en **0 de 20,926
  * filas** — o sea que la llave de 5 columnas que `[CC.13]` creó venía comportándose **igual que
- * la de 4**, porque Postgres trata los NULL como distintos. El commit de `[CB.50]` empieza a
+ * la de 4**, porque Postgres trata los NULL como distintos. El commit de `[CB.51]` empieza a
  * escribir la columna; las filas históricas se corrigen solas conforme cada periodo se
  * re-concilia (el motor borra y reinserta el periodo completo).
  *
@@ -33,13 +33,13 @@ exports.up = async function up(knex) {
   // retira la corta — quedaríamos sin ninguna y el motor podría duplicar filas en silencio.
   const nueva = await knex.raw(`SELECT 1 FROM pg_indexes WHERE schemaname='finance' AND indexname=?`, [NUEVA]);
   if (!nueva.rows.length) {
-    console.log(`[CB.50] falta ${NUEVA} — no se retira ${VIEJA}. Corré antes 20260925120100.`);
+    console.log(`[CB.51] falta ${NUEVA} — no se retira ${VIEJA}. Corré antes 20260925120100.`);
     return;
   }
   await knex.raw(`ALTER TABLE ${TABLA} DROP CONSTRAINT IF EXISTS ${VIEJA}`);
   await knex.raw(`DROP INDEX IF EXISTS finance.${VIEJA}`);
   await knex.raw(`COMMENT ON COLUMN ${TABLA}.kepler_sucursal IS
-    '[CB.50] Parte de la IDENTIDAD del documento de Kepler, junto con doc_tipo+folio+cuenta: el folio reinicia por sucursal y por año. NULL = fila escrita antes de 2026-10-14, cuando nadie la poblaba; el candado anti doble-cobro cae a llave parcial para esas y lo DECLARA en el resultado de Conciliar.'`);
+    '[CB.51] Parte de la IDENTIDAD del documento de Kepler, junto con doc_tipo+folio+cuenta: el folio reinicia por sucursal y por año. NULL = fila escrita antes de 2026-10-14, cuando nadie la poblaba; el candado anti doble-cobro cae a llave parcial para esas y lo DECLARA en el resultado de Conciliar.'`);
 };
 
 exports.down = async function down(knex) {
@@ -51,6 +51,6 @@ exports.down = async function down(knex) {
     await knex.raw(`ALTER TABLE ${TABLA} ADD CONSTRAINT ${VIEJA}
       UNIQUE (tenant_id, bank_movement_id, kepler_doc_tipo, kepler_doc_folio)`);
   } catch (e) {
-    console.log(`[CB.50] down: no se pudo recrear ${VIEJA} (${e.message}). Hay filas que sólo difieren por sucursal.`);
+    console.log(`[CB.51] down: no se pudo recrear ${VIEJA} (${e.message}). Hay filas que sólo difieren por sucursal.`);
   }
 };
