@@ -1221,7 +1221,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <td class="dt-id" role="cell"><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
               <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code | sucursal }}</td>
               <td class="pr-r pr-muted dt-num" role="cell" data-label="Existencia (cajas)" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
-              <td class="pr-r pr-muted dt-num" role="cell" data-label="Costo" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
+              <td class="pr-r pr-muted dt-num" role="cell" data-label="Costo" [title]="deadCostTitle(r)">{{ money(r.caja_cost) }}@if (deadCostoDebil(r)) {*}</td>
               <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Inmovilizado">{{ money(r.dead_value) }}</td>
               <td class="pr-muted" role="cell" data-label="Última actividad">{{ r.last_activity ? (r.last_activity | date:'dd/MM/yy') : 'sin actividad' }}</td>
               <td class="pr-supp" role="cell" data-label="Proveedor">{{ r.supplier_name || '—' }}</td>
@@ -1287,10 +1287,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               </div>
               @if (m.data.window; as w) {
                 <dl class="pr-mo-kv">
-                  <dt title="La venta REAL de los últimos 30 días, sumada día por día. No es el mismo número que la columna V30d de la tabla, que es la demanda diaria del motor × 30 (suavizada). Son dos medidas distintas a propósito; por eso se muestran las dos.">Últimos 30 días (venta real)</dt>
+                  <dt title="La venta REAL de los últimos 30 días naturales, sumada día por día, de TODOS los canales. No es el mismo número que la columna V30d de la tabla: ésa es la demanda del motor, que mide una ventana propia por sucursal (anclada a su última venta) y reconstruye las piezas por precio en vez de contarlas. Son dos medidas distintas a propósito; por eso se muestran las dos.">Últimos 30 días (venta real)</dt>
                   <dd>{{ w.v30_cajas | number:'1.0-1' }} cj@if (w.v30_parcial) {*}</dd>
                   @if (m.vta != null) {
-                    <dt title="Lo que muestra la columna V30d: la demanda diaria que calcula el motor, por 30. Suaviza los picos, así que casi nunca es idéntica a la venta real de arriba.">V30d de la tabla (demanda × 30)</dt>
+                    <dt title="Lo que muestra la columna V30d: la demanda diaria que calcula el motor, por 30. Difiere de la venta real de arriba por tres cosas, todas a propósito: mide una ventana de 30 días propia de cada sucursal (anclada a su última venta, no al calendario), reconstruye las piezas dividiendo el importe por el precio unitario, y aplica el freno de fin de pico. Hasta el 2026-10-15 difería además por un canal entero (telemarketing) que el motor no contaba: eso ya se corrigió.">V30d de la tabla (demanda × 30)</dt>
                     <dd>{{ m.vta | number:'1.0-1' }} cj</dd>
                   }
                   <dt>Próximos 30 días, año anterior</dt>
@@ -3223,6 +3223,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const u = (r.base_label || '').trim() || 'u';
     const n = Math.round(Number(r.on_hand) || 0).toLocaleString('es-MX');
     return bf > 1 ? `${n} ${u} sueltas · ${bf} ${u} por caja` : `${n} ${u} — sin factor de caja`;
+  }
+  /**
+   * `[RA.VA.4]` ¿el costo de esta fila tiene TESTIGO? — ADR-056: lo débil se DECLARA.
+   *
+   * El costo sale del resolvedor canónico `analytics.v_erp_unit_cost` (VERDAD_ABSOLUTA §5), que
+   * publica su propia procedencia. `kepler_kdik` y `wincaja_costo_promedio` están arbitrados
+   * contra el ERP; lo que cae al CATÁLOGO o se queda sin costo no lo está — y el catálogo es
+   * justo el que inflaba el inmovilizado un 26 %. Esas filas llevan asterisco.
+   */
+  private static readonly DEAD_COSTO_CON_TESTIGO = ['kepler_kdik', 'wincaja_costo_promedio'];
+  deadCostoDebil(r: { cost_source?: string }): boolean {
+    return !ComprasPedidoRealComponent.DEAD_COSTO_CON_TESTIGO.includes(r.cost_source || '');
+  }
+  deadCostTitle(r: { unit_cost: number; base_label?: string; box_factor?: number; cost_source?: string; cost_veredicto?: string | null }): string {
+    const u = (r.base_label || '').trim() || 'u';
+    const base = `Costo de una caja (${(Number(r.unit_cost) || 0).toFixed(2)} por ${u} × ${Number(r.box_factor) || 1})`;
+    const origen = `Origen: ${r.cost_source || 'sin_costo'}${r.cost_veredicto ? ` · ${r.cost_veredicto}` : ''}.`;
+    return this.deadCostoDebil(r)
+      ? `${base}. ${origen} * Sin testigo del ERP: el costo viene del catálogo o falta, y el catálogo suele venir inflado.`
+      : `${base}. ${origen}`;
   }
   /** Factor cajas→unidad elegida: pieza=uxc(pz/caja), paquete=packs/caja, caja=1. */
   unitFactor(pid: string): number {

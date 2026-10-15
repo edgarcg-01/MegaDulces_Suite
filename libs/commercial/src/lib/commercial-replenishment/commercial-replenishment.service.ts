@@ -3236,7 +3236,22 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 200));
     const whIds = await this.whIds(q);
     return this.tk.run(async (trx) => {
-      const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
+      // `[RA.VA.2]` LA EXISTENCIA DEL CICLO SALE DEL FACT, NO DE LA COPIA `commercial.stock`.
+      //
+      // Acá vivía `COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0)` — la copia que
+      // **ADR-055 retiró del motor por medición** (contra el POS vivo, 2026-09-02: la vista
+      // acierta 100.0 % y la copia 91.0 %, 15,324 unidades de error, porque su importer es un
+      // delta contra un snapshot en disco que se desincroniza y deja fantasmas para siempre).
+      // `worklist` nunca se mudó, así que la pestaña «Ciclo» contaba una existencia y la grilla
+      // de al lado otra, en la MISMA pantalla.
+      //
+      // Medido contra prod el 2026-10-15, sobre los 36,048 pares con política de reorden:
+      //     copia  2,663,275 pz        fact  2,855,692 pz     error absoluto 316,169 pz (−6.7 %)
+      //     bajo reorden: 21,781 (copia) contra 21,729 (fact) — no es la misma lista de compra
+      //
+      // ⚠️ `reserved_quantity` se pierde y está medido: **1 fila, 15 piezas** en toda la base.
+      // El fact no lleva reservas; cambiar 316,169 piezas de error por 15 de reserva es el trato.
+      const oh = 'COALESCE(rpl.stock_pz,0)';
       const it = this.transitDescuento();   // `[RA.TR]` hoy: 0 — ver transito.ts
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
@@ -3251,7 +3266,27 @@ export class CommercialReplenishmentService {
       // abajo): mientras los dos lean la misma álgebra, el total y el drill cuadran.
       const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
-      const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
+      // `[RA.VA.3]` EL COSTO DEL CICLO ES EL DE KEPLER, EL MISMO QUE LA GRILLA.
+      //
+      // Acá estaba `COALESCE(pr.cost_with_tax, pr.cost_base, 0)` — el costo de CATÁLOGO que
+      // **RA-PRO.46 ya había retirado** de la grilla y del pedido ("leerlo de Kepler sacó $1.1M
+      // de costo inventado del catálogo"). Resultado: el mismo inventario valía distinto arriba
+      // y abajo de la misma pantalla.
+      //
+      // Medido contra prod el 2026-10-15, 6,401 productos:
+      //     catálogo $315,617.32/pz   ·   Kepler $282,757.11/pz   →  **sesgo +11.62 %**
+      //     4,802 de 6,401 (75.0 %) se separan más del 5 %
+      // Y en el sugerido del propio panel (base máximo, 36,048 pares):
+      //     $48,569,479  →  $42,764,483   (−$5,804,996, −12.0 %)
+      //
+      // ⚠️ `sug` viaja en la unidad NATIVA del almacén (sale de `reorder_policy`, que se deriva
+      // de la misma vista de existencia), así que el costo tiene que ser por unidad nativa:
+      // `caja_cost / display_bf` — exactamente la división con la que el fact valúa la
+      // existencia (`stock_pz / display_bf * caja_cost`). Dividir por `bf` acá daría el costo
+      // de la unidad BASE de Kepler, que en Wincaja no es la nativa (ADR-055).
+      // El catálogo queda de respaldo para los pares sin fila en el fact: 456 pares quedan en
+      // costo 0 con las dos fórmulas, así que el respaldo no tapa ningún hueco nuevo.
+      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0), pr.cost_with_tax, pr.cost_base, 0)`;
       // RA-PRO.12 — categoría de compra: el agg (n_skus/sugerido) solo cuenta productos de la categoría.
       const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
 
@@ -3309,7 +3344,9 @@ export class CommercialReplenishmentService {
                      AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
                 JOIN commercial.reorder_policy rp ON rp.tenant_id=rc.tenant_id
                      AND rp.warehouse_id=rc.warehouse_id AND rp.product_id=pr.id
-                LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
+                -- [RA.VA.2] commercial.stock ya NO se une acá: la existencia sale de rpl.
+                -- Se quita el join además de dejar de leerlo, para que nadie lo vuelva a usar
+                -- sin pasar por la medición de arriba.
                 LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
                 LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
             ) x
@@ -3372,17 +3409,56 @@ export class CommercialReplenishmentService {
     // mig 20260902200000: la demanda de Wincaja viene en esa misma unidad, así que convertir sólo
     // la existencia rompía el cálculo). Para MOSTRAR cajas está `display_box_factor`.
     //
-    // ⚠️ DEUDA PREEXISTENTE (ADR-051): el multiplicador es `cost_with_tax`/`cost_base` del
-    // CATÁLOGO, que en buena parte viene por CAJA, no por la unidad de stock — así que el
-    // "inmovilizado" mezcla unidades y está inflado para esos SKUs. El costo correcto por unidad
-    // de stock es `analytics.v_supplier_cost_ladder.box_cost / display_box_factor`. Se DECLARA acá
-    // en vez de dibujarlo: arreglarlo es de la Fase MR, no de este cambio de fuente.
-    const valueExpr = 'COALESCE(s.qty_stock_units,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+    // ⚠️ DEUDA PREEXISTENTE (ADR-051) — **SALDADA, se conserva el enunciado porque explica el
+    // arreglo de abajo**: el multiplicador era `cost_with_tax`/`cost_base` del CATÁLOGO, que en
+    // buena parte viene por CAJA y no por la unidad de stock, así que el "inmovilizado" mezclaba
+    // unidades y estaba inflado para esos SKUs. El costo correcto por unidad de stock es
+    // `analytics.v_supplier_cost_ladder.box_cost / display_box_factor`.
+    //
+    // ⭐ `[RA.VA.4]` 2026-10-15 — **esa deuda se cierra acá**, pero NO con la receta que el
+    // comentario de arriba dejó escrita, y la diferencia importa.
+    //
+    // La primera versión de este arreglo usó `v_supplier_cost_ladder.box_cost` para ser
+    // consistente con la grilla del Pedido. **Choca con VERDAD_ABSOLUTA §5**, que separa dos
+    // preguntas que se parecen y no son la misma:
+    //     · "¿cuánto me COBRA el proveedor por una caja?"  →  `v_supplier_cost_ladder`
+    //     · "¿cuánto VALE este inventario?"                →  `analytics.v_erp_unit_cost`
+    // y sobre la escalera dice explícito: *"NO sirve de árbitro del costo de la ficha: es un
+    // ESPEJO"*. Acá la pregunta es la SEGUNDA (capital inmovilizado), así que va el resolvedor
+    // canónico — el mismo que §3.2 usó para medir los $5.59 M de sobrevaluación del inventario.
+    //
+    // Medido contra prod el 2026-10-15, los 1,695 pares con existencia:
+    //     catálogo (lo que publicaba)  $2,328,954
+    //     escalera de proveedor        $1,677,210   ← la primera versión, 14 pares sin dato
+    //     **v_erp_unit_cost**          **$1,716,337**  ← **cobertura 100 %, 0 pares sin dato**
+    // O sea el inmovilizado estaba inflado **−26.3 %** por el COSTO, no por el inventario; y el
+    // resolvedor canónico además no necesita respaldo, que es la segunda razón para preferirlo.
+    //
+    // ⭐ `costo_unitario` viene al MISMO grano que `qty_stock_units` (almacén × producto, unidad
+    // nativa — §3.2: *"al mismo grano que la cantidad"*), así que el dinero es una multiplicación
+    // directa: **no se divide por `box_factor`**. `vbf` sigue sólo para MOSTRAR cajas.
+    // Control de placebo: la vista tiene 249,040 filas para 249,040 llaves → el join no duplica.
+    const costUnitario = 'COALESCE(euc.costo_unitario, 0)';
+    const valueExpr = `(COALESCE(s.qty_stock_units,0) * ${costUnitario})`;
     // GREATEST ignora NULLs → la más reciente entre última venta y último movimiento.
+    //
+    // ⭐ `[RA.VA.5]` LOS DOS FACTS DE VENTA, NO UNO. Acá sólo se miraba `product_sales_daily`,
+    // que trae **31.5 % menos venta** que `sales_daily` (1,438,302 contra 2,099,736 piezas en
+    // 30 d) y va un día atrás. Medido sobre 76,331 pares el 2026-10-15: **38,960 tienen venta en
+    // `sales_daily` y NINGUNA en `product_sales_daily`** — se publicaban como "sin actividad"
+    // teniendo venta, que es justo lo que decide si un producto se declara muerto. En otros
+    // 6,543 `sales_daily` es más reciente (2.9 días en promedio).
+    // ⚠️ No se CAMBIA de fact: se suman los dos. Hay 5,852 pares al revés (sólo en
+    // `product_sales_daily`), así que quedarse con uno pierde información en los dos sentidos.
+    // El tope `<= CURRENT_DATE` es por las filas con fecha futura de `sales_daily` (medido:
+    // 4 filas / $230 en 2026-12) — sin él, un glitch de captura resucita un producto muerto.
     const lastActivity =
       `GREATEST(
-         (SELECT MAX(sd.sale_date) FROM analytics.product_sales_daily sd
-           WHERE sd.tenant_id = pr.tenant_id AND sd.product_id = pr.id AND sd.warehouse_id = w.id),
+         (SELECT MAX(sd.sale_date) FROM analytics.sales_daily sd
+           WHERE sd.tenant_id = pr.tenant_id AND sd.product_id = pr.id AND sd.warehouse_id = w.id
+             AND sd.sale_date <= CURRENT_DATE),
+         (SELECT MAX(psd.sale_date) FROM analytics.product_sales_daily psd
+           WHERE psd.tenant_id = pr.tenant_id AND psd.product_id = pr.id AND psd.warehouse_id = w.id),
          (SELECT MAX(sm.doc_date) FROM analytics.stock_movements sm
            WHERE sm.tenant_id = pr.tenant_id AND sm.product_id = pr.id AND sm.warehouse_id = w.id))`;
     return this.tk.run(async (trx) => {
@@ -3395,6 +3471,11 @@ export class CommercialReplenishmentService {
         .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
           j.on('vbf.tenant_id', 'pr.tenant_id').andOn('vbf.warehouse_id', 'w.id').andOn('vbf.product_id', 'pr.id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+        // `[RA.VA.4]` El resolvedor canónico del costo para VALUAR (VERDAD_ABSOLUTA §5).
+        // Trae su propia procedencia (`costo_source`, `veredicto`), así que la pantalla no
+        // tiene que inventar una bandera a mano — ADR-056 con el primitivo que ya existe.
+        .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
+          j.on('euc.tenant_id', 'pr.tenant_id').andOn('euc.warehouse_id', 'w.id').andOn('euc.product_id', 'pr.id'))
         .where('pr.tenant_id', tenantId)
         .andWhere('pr.activo', true)
         .whereNull('w.deleted_at')
@@ -3422,16 +3503,20 @@ export class CommercialReplenishmentService {
           trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
           trx.raw('COALESCE(s.qty_stock_units,0) AS on_hand'),
           // La cantidad se MUESTRA en cajas (la unidad más grande); la nativa viaja igual para el
-          // tooltip y porque es la que multiplica `dead_value`. El valor NO se toca: sigue con la
-          // deuda ADR-051 declarada arriba, y convertirlo sin arreglar el costo la escondería.
+          // tooltip y porque es la que multiplica `dead_value`.
+          // ⭐ `[RA.VA.4]` el valor YA no arrastra la deuda ADR-051: `caja_cost` es el de Kepler
+          // y `unit_cost` se DERIVA de él (÷ box_factor), así que los tres números del renglón
+          // —nativa, cajas y dinero— cierran entre sí y con la grilla de arriba.
           trx.raw('GREATEST(COALESCE(vbf.box_factor, 1), 1) AS box_factor'),
           trx.raw('ROUND((COALESCE(s.qty_stock_units,0) / GREATEST(COALESCE(vbf.box_factor,1),1))::numeric, 1) AS on_hand_cajas'),
           trx.raw(`COALESCE(vbf.base_label, 'u') AS base_label`),
-          trx.raw('COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost'),
-          // Costo POR CAJA = costo de la unidad nativa × unidades por caja. Así el renglón
-          // multiplica exacto en la unidad que se muestra (cajas × costo_caja = inmovilizado),
-          // sin cambiar ni un peso el total: es el MISMO valor, re-expresado.
-          trx.raw('ROUND((COALESCE(pr.cost_with_tax, pr.cost_base, 0) * GREATEST(COALESCE(vbf.box_factor,1),1))::numeric, 2) AS caja_cost'),
+          trx.raw(`ROUND((${costUnitario})::numeric, 4) AS unit_cost`),
+          trx.raw(`ROUND((${costUnitario} * GREATEST(COALESCE(vbf.box_factor,1),1))::numeric, 2) AS caja_cost`),
+          // `[RA.VA.4]` de dónde salió el costo de ESTE renglón — ADR-056. No es una bandera
+          // inventada acá: es la que el propio resolvedor publica (`kepler_kdik`,
+          // `wincaja_costo_promedio`, `catalogo_neto`, `sin_costo`…), con su veredicto.
+          trx.raw(`COALESCE(euc.costo_source, 'sin_costo') AS cost_source`),
+          trx.raw(`euc.veredicto AS cost_veredicto`),
           trx.raw(`ROUND(${valueExpr}, 2) AS dead_value`),
           trx.raw(`${lastActivity} AS last_activity`),
           trx.raw('pr.created_at::date AS created_at'),

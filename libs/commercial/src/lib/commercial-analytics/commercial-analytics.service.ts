@@ -8559,7 +8559,7 @@ export class CommercialAnalyticsService {
              WHERE tenant_id = ?::uuid AND channel = 'preventa'
                AND business_date >= ?::date AND business_date <= ?::date),
           doc AS (
-            -- `[VEC.14]` `impuesto` (IVA) y `ieps` salen de la vista canónica, NO se re-derivan
+            -- [VEC.14] impuesto (IVA) y ieps salen de la vista canónica, NO se re-derivan
             -- acá: el que netea por su cuenta se queda corto por el IEPS sin enterarse.
             SELECT COALESCE(sum(total),0) AS pagina, count(*)::int AS docs,
                    COALESCE(sum(impuesto),0) AS iva, COALESCE(sum(ieps),0) AS ieps
