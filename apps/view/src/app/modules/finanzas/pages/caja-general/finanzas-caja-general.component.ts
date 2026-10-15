@@ -8,6 +8,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TableModule } from 'primeng/table';
 import { CheckboxModule } from 'primeng/checkbox';
+import { TextareaModule } from 'primeng/textarea';
 import { ChipModule } from 'primeng/chip';
 import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
@@ -17,7 +18,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -39,9 +40,14 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
+import { uuidV4 } from '../../../../core/utils/uuid';
+import { moneyOSinMedir } from '../../../../shared/util';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
-  type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista } from '../../cash-ledger.service';
+  type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
+  type JornadasPendientes } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
+import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, cuerpoReporteDia, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
@@ -49,8 +55,23 @@ import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
-  type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
+  type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
+  pasoDelCorte, textoPaso, type PasoCorte, textoDeError, separarPorFlujo,
 } from './caja-captura.util';
+import { CajaPasosComponent } from '../../components/caja-pasos.component';
+
+/**
+ * `[CGP-V.2]` Lo que el servidor respondió al sellar o recontar EN ESTA sesión, atado a SU corte, con
+ * la reja que se mandó (es la que el servidor aceptó). Cubre el rato entre la respuesta y la
+ * relectura del saldo, y no se pierde si la relectura falla.
+ */
+interface SelladoEnSesion {
+  corteId: string;
+  totales: TotalesCorte;
+  puedeRecontar: boolean;
+  conteo: DenominacionCapturada[];
+  morralla: number;
+}
 
 /** Etiquetas de lo que se PINTA. El enum de la columna (`deposito`, `sin_contar`) es de la DB. */
 const ETIQUETA_TIPO: Record<string, string> = {
@@ -137,11 +158,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
   selector: 'app-finanzas-caja-general',
   standalone: true,
   imports: [
-    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule,
+    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule, TextareaModule,
     ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
-    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe,
+    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -716,11 +737,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-2); font-size:var(--fs-micro); }
     /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
     .ta-c { text-align:center; }
-    /* [CG.26] .ta-r se usaba 12 veces en esta plantilla y NO ESTABA DEFINIDA en ningun lado
-       alcanzable: el bloque local define .ta-c, FINANZAS_SHARED_STYLES la excluye a proposito, y
-       en styles.css solo existe ".ta-r > .surf-sort". O sea que los importes de la bandeja y del
-       libro nunca estuvieron alineados a la derecha. Otras ~10 pantallas la definen local. */
-    .ta-r { text-align:right; }
+    /* [CG.26] Aca vivia .ta-r, que no estaba definida en ningun lado alcanzable: los importes nunca
+       se alinearon a la derecha. [CGP-V.11] Las celdas numericas pasan a comm-num (global, DESIGN):
+       derecha + mono + cifras tabulares, y la regla local se retira. */
     /* ⛔ ".cg-print" retirada: era un <button> con la impresora adentro, con su borde, su hover
        y su anillo a mano. Hoy es un p-button redondo de icono. */
     /* CS.3.11 — panel de conciliación caja chica vs cajero (CAOS). */
@@ -963,8 +982,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <span class="cg-jornada-res">{{ subtituloJornada() }}</span>
         </button>
 
-        <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
-                  (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
+        <!-- [CGP-V.6] Sin el permiso de captura el boton no se ofrece: se dice, una vez, aca arriba. -->
+        @if (puedeGestionar()) {
+          <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
+                    (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
+        } @else {
+          <small class="fin-hint-warn">Sólo lectura: capturar, confirmar y rendir cuentas necesitan el
+            permiso «Capturar en Caja General».</small>
+        }
       </header>
 
       <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
@@ -1033,7 +1058,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
           <!-- ⚠️ Tres estados, no dos. Cuando el saldo NO se pudo medir no sabemos si hay corte
                abierto, y ofrecer abrirlo sobre uno vivo es el peor final. -->
-          @if (saldoSinMedir()) {
+          <!-- [CGP-V.4] Midiendo no es sin medir: mientras la lectura esta en vuelo no hay etiqueta. -->
+          @if (saldoSinMedir() && !cargandoSaldo()) {
             <p-tag value="Corte sin medir" severity="warn"></p-tag>
           } @else if (corteAbierto(); as c) {
             <p-tag [value]="'Corte ' + c.folio" severity="info"></p-tag>
@@ -1055,16 +1081,49 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                El mecanismo existia -- abrir corte, contar a ciegas, sellar, cerrar, autorizar --
                pero entraba por un boton "Abrir corte" gris y chico, en medio de una linea de
                texto. Nadie busca "corte" cuando quiere rendir cuentas del dia. -->
-          @if (saldoSinMedir()) {
+          <!-- [CGP-V.3] Tambien se reintenta cuando no se sabe si hay jornadas atrasadas: abrir hoy
+               a ciegas puede dejarlas sin poder cerrarse, y eso no se deshace desde aqui. -->
+          <!-- [CGP-V.4] Mientras el saldo se mide el boton espera: Reintentar mandaria mas lecturas
+               contra el mismo limite que la esta frenando. -->
+          <!-- [CGP-V.6] Sin el permiso no se ofrece el boton: se dice cual falta. -->
+          @if (!puedeGestionar()) {
+            <small class="fin-hint-warn">Rendir cuentas necesita el permiso «Capturar en Caja General»:
+              este usuario sólo puede ver.</small>
+          } @else if (cierreSinMedir() && !cargandoSaldo()) {
             <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
-                      [text]="true" (onClick)="cargarSaldo()"></p-button>
+                      [text]="true" (onClick)="reintentarCierre()"></p-button>
           } @else {
-            <p-button [label]="corteAbierto() ? 'Rendir cuentas del día' : 'Cerrar jornada y rendir cuentas'"
+            <p-button [label]="etiquetaCierre()"
                       icon="pi pi-lock" size="small"
-                      [loading]="abriendo()" [disabled]="abriendo()"
+                      [loading]="abriendo() || midiendoAtrasadas() || cargandoSaldo()"
+                      [disabled]="abriendo() || midiendoAtrasadas() || cargandoSaldo()"
                       (onClick)="cerrarJornada()"></p-button>
           }
         </div>
+
+        <!-- [CGP-V.1] En que paso va el corte y que sigue, siempre a la vista. Sale del servidor; sin
+             saldo medido no se afirma ningun paso (la etiqueta de arriba ya dice "sin medir"). -->
+        @if (pasoPagina(); as paso) {
+          <app-caja-pasos [paso]="paso" [texto]="textoPasoPagina()" />
+        }
+        <!-- [CGP-V.5] Abrir desde rendir cuentas no pasa por un dialogo: el error va junto al boton. -->
+        @if (errorApertura() && !aperturaAbierta()) {
+          <p-message severity="error" class="cg-full">{{ errorApertura() }}</p-message>
+        }
+
+        <!-- [CGP-V.3] LAS JORNADAS ATRASADAS, EN ORDEN. El boton de arriba ya abre la mas vieja y lo
+             dice en su etiqueta; esto dice cuales faltan y por que el orden importa.
+             (Sin acentos graves aca adentro: esto vive en un template literal.) -->
+        @if (atrasadas().length) {
+          <p-message severity="warn" class="cg-full">{{ textoAtrasadas() }} Se cierran en orden, de
+            la más vieja a la más nueva: si se abre primero el corte de hoy, las de atrás ya no se
+            pueden cerrar desde aquí.</p-message>
+        } @else if (cierreSinMedir() && !saldoSinMedir()) {
+          <small class="fin-hint-warn">No se pudo saber si hay jornadas sin corte antes de hoy.
+            Abrir el corte de hoy sin saberlo podría dejarlas sin poder cerrarse.</small>
+        } @else if (jornadasAtrasadas().estado === 'no_informa') {
+          <small class="fin-dim">Esta versión del servidor no informa las jornadas sin corte.</small>
+        }
 
         @if (cargandoArqueo()) {
           <small class="fin-dim">Midiendo la jornada...</small>
@@ -1199,12 +1258,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     Fuera de esta jornada</strong>
                   @if (sf.anteriores.movimientos) {
                     <div class="cg-conc-row"><span>{{ sf.anteriores.movimientos }} de días anteriores
-                      <small class="fin-dim">(desde {{ sf.desde }}) — su jornada nunca se cerró</small></span>
+                      <small class="fin-dim">@if (sf.desde) {(desde el {{ diaCorto(sf.desde) }}) }— su jornada nunca se cerró</small></span>
                       <span class="mono">{{ money(sf.anteriores.neto) }}</span></div>
                   }
                   @if (sf.posteriores.movimientos) {
                     <div class="cg-conc-row"><span>{{ sf.posteriores.movimientos }} con fecha posterior
-                      <small class="fin-dim">(hasta {{ sf.hasta }}) — o es captura adelantada, o la fecha está mal</small></span>
+                      <small class="fin-dim">@if (sf.hasta) {(hasta el {{ diaCorto(sf.hasta) }}) }— o es captura adelantada, o la fecha está mal</small></span>
                       <span class="mono">{{ money(sf.posteriores.neto) }}</span></div>
                   }
                   <small class="fin-dim">No entran a este corte ni a su esperado. Siguen sueltos,
@@ -1267,7 +1326,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <p class="cg-cap">Movimientos del cajero en la jornada, por tipo</p>
                 <p-table [value]="cj.por_tipo" size="small" class="cg-conc-tbl">
                   <ng-template #header>
-                    <tr><th scope="col">Tipo</th><th scope="col" class="ta-r">Movs</th><th scope="col" class="ta-r">Monto</th></tr>
+                    <tr><th scope="col">Tipo</th><th scope="col" class="comm-num">Movs</th><th scope="col" class="comm-num">Monto</th></tr>
                   </ng-template>
                   <ng-template #body let-t>
                     <tr [class.cg-trabada]="t.desconocido">
@@ -1277,8 +1336,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                           <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
                         }
                       </td>
-                      <td class="ta-r mono">{{ t.movimientos }}</td>
-                      <td class="ta-r mono">{{ money(t.monto) }}</td>
+                      <td class="comm-num">{{ t.movimientos }}</td>
+                      <td class="comm-num">{{ money(t.monto) }}</td>
                     </tr>
                   </ng-template>
                   <ng-template #emptymessage>
@@ -1482,7 +1541,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <div class="cg-caos-row">
                 <span class="cg-caos-tag">{{ g.pagable_label }}</span>
                 <span class="mono">{{ g.folio }}</span>
-                <span class="fin-dim">{{ g.fecha_valor }}</span>
+                <span class="fin-dim">{{ dmy(g.fecha_valor) }}</span>
                 <span class="cg-caos-ref">{{ g.beneficiario || 'sin beneficiario' }}
                   @if (g.concepto) { <small class="fin-dim">· {{ g.concepto }}</small> }
                 </span>
@@ -1518,11 +1577,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <ng-template #header>
               <tr>
                 <th scope="col">Beneficiario</th>
-                <th scope="col" class="ta-r">Pagos</th>
-                <th scope="col" class="ta-r">Monto</th>
+                <th scope="col" class="comm-num">Pagos</th>
+                <th scope="col" class="comm-num">Monto</th>
                 <th scope="col">Importe</th>
                 <th scope="col">Cuenta</th>
-                <th scope="col" class="ta-r">Sin cobrar</th>
+                <th scope="col" class="comm-num">Sin cobrar</th>
                 <th scope="col"><span class="sr-only">Declarar</span></th>
               </tr>
             </ng-template>
@@ -1536,8 +1595,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       <small class="fin-hint-warn d-block">{{ r.pagos_con_regla }} de sus pagos ya los clasifica una regla.</small>
                     }
                   </td>
-                  <td class="ta-r mono">{{ r.pagos }}</td>
-                  <td class="ta-r mono">{{ money(r.monto) }}</td>
+                  <td class="comm-num">{{ r.pagos }}</td>
+                  <td class="comm-num">{{ money(r.monto) }}</td>
                   <td>
                     <!-- ⭐ El CV decide QUE se le puede proponer. Es lo unico que discrimina: la
                          cadencia da 2-5 dias para todos. -->
@@ -1551,7 +1610,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       <small class="fin-dim">Sin de donde proponer: la contabilidad no tiene su par.</small>
                     }
                   </td>
-                  <td class="ta-r mono">
+                  <td class="comm-num">
                     @if (r.dias_sin_pago !== null) {
                       <span [class.fin-neg]="r.dias_sin_pago > rc.caido_dias">{{ r.dias_sin_pago }} d</span>
                     } @else { <span class="cg-na">&mdash;</span> }
@@ -1668,7 +1727,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <!-- scope="col" como en las otras tres tablas de la pantalla: sin el, un lector de
                  pantalla no liga la celda con su encabezado y lee nueve valores sueltos. -->
             <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cuenta / Concepto</th>
-            <th scope="col">Qué pasó</th><th scope="col" class="ta-r">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
+            <th scope="col">Qué pasó</th><th scope="col" class="comm-num">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
             <th scope="col" class="ta-c">Comprobante</th>
           </tr>
         </ng-template>
@@ -1682,7 +1741,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <small class="fin-dim d-block">{{ m.kepler_concepto_nombre }}</small>
             </td>
             <td>{{ m.glosa }}</td>
-            <td class="ta-r mono">{{ money(m.monto) }}</td>
+            <td class="comm-num">{{ money(m.monto) }}</td>
             <td>{{ m.created_by_username || '—' }}</td>
             <td>
               @if (m.autofill) {
@@ -1722,7 +1781,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
-            <th scope="col" class="ta-r">Esperado</th><th scope="col" class="ta-r">Contado</th><th scope="col" class="ta-r">Diferencia</th>
+            <th scope="col" class="comm-num">Esperado</th><th scope="col" class="comm-num">Contado</th><th scope="col" class="comm-num">Diferencia</th>
             <th scope="col">Cerró / Autorizó</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
@@ -1732,9 +1791,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <td>{{ dmy(c.fecha) }}</td>
             <td>{{ c.sucursal | sucursal }}</td>
             <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
-            <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
-            <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
-            <td class="ta-r mono" [class.fin-neg]="c.diferencia < 0">
+            <td class="comm-num">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
+            <td class="comm-num">{{ c.contado === null ? '—' : money(c.contado) }}</td>
+            <td class="comm-num" [class.fin-neg]="c.diferencia < 0">
               {{ c.diferencia === null ? '—' : money(c.diferencia) }}
             </td>
             <td>
@@ -1746,6 +1805,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <p-button label="Autorizar" size="small" severity="secondary"
                             [loading]="autorizando()" [disabled]="autorizando()"
                             (onClick)="autorizar(c)"></p-button>
+                  @if (errorAutorizar()?.id === c.id) {
+                    <small class="fin-hint-warn" role="alert">{{ errorAutorizar()?.texto }}</small>
+                  }
                 } @else {
                   <!-- El porqué NO puede vivir en un [title] de un botón deshabilitado: ahí no lo
                        alcanza el teclado, ni el lector de pantalla, ni un dedo. Se dice. -->
@@ -2133,11 +2195,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 movimiento del cajero elegido, que es cuando el servidor lo pide.
               -->
               @if (!cobroElegido() && !caosElegido()) {
-                <label class="fin-field cg-sin-doc">
-                  <span class="fin-label">Por qué este movimiento no tiene documento</span>
+                <!-- [CGP-V.11] Era fin-field/fin-label/fin-input, que no existen en ningun lado, sobre
+                     un textarea crudo: se pintaba sin estilo. Ahora el patron de la pantalla. -->
+                <div class="fin-row fin-row-col cg-sin-doc">
+                  <label for="cg-sin-doc">Por qué este movimiento no tiene documento</label>
                   <textarea
+                    pTextarea id="cg-sin-doc"
                     rows="2"
-                    class="fin-input"
+                    class="cg-full"
                     [ngModel]="sinDocumentoMotivo()"
                     (ngModelChange)="sinDocumentoMotivo.set($event)"
                     [ngModelOptions]="{ standalone: true }"
@@ -2147,7 +2212,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     No está enlazado a Kepler ni al cajero, así que hay que decir por qué.
                     Un movimiento sin origen y sin motivo no se puede auditar después.
                   </small>
-                </label>
+                </div>
               }
 
               @if (bloqueos().length) {
@@ -2183,10 +2248,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    llamando al mismo metodo. DESIGN reserva el color de marca para la accion
                    obvia; cuando hay cuatro naranjas en pantalla ninguna lo es. Este queda
                    secundario: el CTA de registrar vive arriba, aca es una salida del vacio. -->
-              <p-button label="Registrar uno nuevo" icon="pi pi-plus" size="small"
-                        severity="secondary" [outlined]="true"
-                        [disabled]="!hayConceptos() && !coberturaSinMedir()"
-                        (onClick)="abrirCaptura()"></p-button>
+              @if (puedeGestionar()) {
+                <p-button label="Registrar uno nuevo" icon="pi pi-plus" size="small"
+                          severity="secondary" [outlined]="true"
+                          [disabled]="!hayConceptos() && !coberturaSinMedir()"
+                          (onClick)="abrirCaptura()"></p-button>
+              }
             </div>
           }
             </div>
@@ -2257,11 +2324,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                significa "apreta aca"; en el estado en el que arranca la pantalla -sin nada
                marcado- no hay donde apretar. Con algo marcado SI es la accion obvia de la
                bandeja y recupera el naranja, con su cuenta. -->
-          <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
-                    icon="pi pi-check" size="small"
-                    [severity]="marcadas().length ? undefined : 'secondary'"
-                    [loading]="confirmando()"
-                    [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
+          @if (puedeGestionar()) {
+            <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
+                      icon="pi pi-check" size="small"
+                      [severity]="marcadas().length ? undefined : 'secondary'"
+                      [loading]="confirmando()"
+                      [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
+          }
         </div>
 
         <!-- El recibo del lote va ARRIBA de la lista y FUERA de ella. Estaba adentro, así que al
@@ -2370,7 +2439,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                      TERCERA forma de contar el mismo dinero, y la unica sin desglose. El conteo
                      va al arqueo -- de un movimiento en la ficha, de todo el dia en el corte. -->
                 <th scope="col">Contraparte</th>
-                <th scope="col" class="ta-r">Importe (ERP)</th>
+                <th scope="col" class="comm-num">Importe (ERP)</th>
                 <th scope="col" class="cg-th-abrir"><span class="sr-only">Capturar a mano</span></th>
               </tr>
             </ng-template>
@@ -2453,7 +2522,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          roba ancho a la contraparte, que es lo que se lee primero. -->
                     <small class="cg-fila-doc mono d-block">{{ p.doc_tipo }} {{ p.folio }}</small>
                   </td>
-                  <td class="ta-r mono">{{ money(p.monto) }}</td>
+                  <td class="comm-num">{{ money(p.monto) }}</td>
                   <!-- ⭐ [CG.63] ACA VIVIA UN BOTON POR FILA, y se retira: la FILA es el boton.
                        Edgar: "no le estas dando visibilidad, ademas lo especificas como si fuera
                        algo secundario, es el boton principal de la interaccion. me gustaria que
@@ -3116,6 +3185,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <!-- [CG.29] Se dice que esto NO termina acá: el gesto sigue en el conteo. Sin decirlo, la
              persona confirma y cree que ya rindió cuentas. -->
         <small class="fin-dim">Al confirmar seguís directo al conteo del efectivo.</small>
+        <!-- [CGP-V.3] Esta puerta tambien abre la atrasada mas vieja, y lo dice. -->
+        @if (aperturaAtrasada(); as dia) {
+          <small class="fin-hint-warn">Se abre el corte de la jornada del {{ dia }}: es la más
+            vieja sin corte, y las jornadas se cierran en orden.</small>
+        }
+        <!-- [CGP-V.5] Si abrir falla, se dice aca adentro. -->
+        @if (errorApertura(); as er) {
+          <p-message severity="error" class="cg-full">{{ er }}</p-message>
+        }
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
@@ -3129,6 +3207,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
               header="Cerrar corte — contá el efectivo" [draggable]="false">
       <div class="fin-form">
+        <!-- [CGP-V.1] Los pasos, sin texto: el dialogo ya dice que sigue en sus propios avisos. -->
+        @if (pasoCorte(); as paso) {
+          <app-caja-pasos [paso]="paso" />
+        }
+        <!-- [CGP-V.3] De que jornada es el corte. Con atrasadas, el corte abierto puede no ser el
+             de hoy, y la persona tiene que saberlo antes de contar. -->
+        <!-- [CGP-V.5] El error del servidor se queda aca, con su frase, hasta el siguiente intento. -->
+        @if (errorCierre(); as er) {
+          <p-message severity="error" class="cg-full">{{ er }}</p-message>
+        }
+        @if (rotuloCorte(); as rc) {
+          <small class="fin-dim">{{ rc }}</small>
+          @if (corteAtrasado()) {
+            <p-message severity="warn" class="cg-full">Este corte es de una jornada que ya pasó, no de hoy.</p-message>
+          }
+        }
         <!-- CG.19 Capa 1b: el arqueo es CIEGO. Acá se pintaba "Esperado / Diferencia" mientras la
              persona tecleaba, o sea que contaba hasta que la diferencia diera cero. Ahora sólo se
              ve lo que ella misma sumó; el resultado aparece al SELLAR. -->
@@ -3158,88 +3252,138 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <p-tag [value]="etiquetaVeredicto(r.veredicto)" [severity]="sevVeredicto(r.veredicto || '')"></p-tag>
           }
         } @else {
-          <p class="fin-dim">Contado hasta ahora: <strong>{{ money(sumaConteo()) }}</strong></p>
+          <!-- [CGP-V.2] Un solo Contado: lo que se lleva sumado es el total de la reja, abajo. -->
           <p-message severity="info" class="cg-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
         }
         <!-- CG.23 - La misma reja que la captura, por el mismo motivo: se cuentan piezas, los
              importes se calculan, y las flechas bajan por la columna en vez de incrementar el
              valor. La clase es distinta ("cg-pieza-corte") a proposito: el foco de este dialogo
              no puede saltar a los inputs del otro. -->
-        <p class="cg-cap">Desglose del efectivo del corte</p>
-        <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
-          <ng-template #header>
-            <tr>
-              <th scope="col">Denominación</th>
-              <th scope="col">Piezas</th>
-              <th scope="col">Importe</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-b>
-            <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
-              <th scope="row" class="mono">{{ b.label }}<!--
-                --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
-              <td>
-                <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric" placeholder="0"
-                       [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
-                       (keydown.enter)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                       [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
-              </td>
-              <td class="mono cg-sub">{{ money(subtotalCorteDe(b)) }}</td>
-            </tr>
-          </ng-template>
-          <ng-template #footer>
-            <tr>
-              <!-- Mismo rotulo que la reja de la captura: la morralla es el metal de menos de 50
-                   centavos, el unico que no tiene renglon propio desde [CG.38]. -->
-              <th scope="row">Morralla <span class="fin-dim">· menos de 50&cent;</span></th>
-              <td class="fin-dim cg-na">—</td>
-              <td>
-                <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
-                       inputmode="decimal"
-                       [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
-                       (keydown.enter)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
-                       (keydown.arrowup)="moverEnRejaCorte($event, -1)"
-                       aria-label="Importe de morralla del corte: el metal de menos de 50 centavos, que no tiene renglón" />
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Contado</th>
-              <td class="fin-dim cg-na">del conteo</td>
-              <td>
-                <input pInputText class="mono cg-total" [value]="money(sumaConteo())"
-                       disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
-        @if (revelacion() && revelacion()!.veredicto !== 'cuadra' && puedeRecontar()) {
+        @if (conflictoEsperado(); as cf) {
+          <!-- CGP-V.12: el esperado cambio despues de contar porque entro o cambio un movimiento de
+               la jornada. Se dice aca, con las dos cifras, y el boton de abajo confirma la nueva.
+               Antes era un aviso de 7 segundos sin salida: un callejon como el del 12-oct. -->
+          <p-message severity="warn" class="cg-full">{{ cf.mensaje }}</p-message>
+        }
+        <!-- [CGP-V.2] Revelado el conteo, la reja muestra LO SELLADO y ya no se teclea: la unica via
+             para cambiarlo es Recontar, que pide motivo. Antes seguia abierta y Cerrar mandaba lo que
+             hubiera en ella; al reabrir salia en blanco junto a un Contado con cifra. -->
+        @if (rejaEditable() || desgloseSellado()) {
+          <p class="cg-cap">{{ !rejaEditable() ? 'Desglose sellado' : recontando() ? 'Reconteo del efectivo' : 'Desglose del efectivo del corte' }}</p>
+          <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Denominación</th>
+                <th scope="col">Piezas</th>
+                <th scope="col">Importe</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-b>
+              <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
+                <th scope="row" class="mono">{{ b.label }}<!--
+                  --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
+                <td>
+                  @if (rejaEditable()) {
+                    <input pInputText type="number" class="cg-pieza-corte" min="0" step="1" inputmode="numeric" placeholder="0"
+                           [ngModel]="piezasCorteDe(b)" (ngModelChange)="setPiezasCorte(b, $event)"
+                           (keydown.enter)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                           [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
+                  } @else {
+                    <span class="mono">{{ piezasSelladasDe(b) }}</span>
+                  }
+                </td>
+                <td class="mono cg-sub">{{ money(rejaEditable() ? subtotalCorteDe(b) : subtotalSelladoDe(b)) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #footer>
+              <tr>
+                <!-- Mismo rotulo que la reja de la captura: la morralla es el metal de menos de 50
+                     centavos, el unico que no tiene renglon propio desde [CG.38]. -->
+                <th scope="row">Morralla <span class="fin-dim">· menos de 50&cent;</span></th>
+                <td class="fin-dim cg-na">—</td>
+                <td>
+                  @if (rejaEditable()) {
+                    <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
+                           inputmode="decimal"
+                           [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
+                           (keydown.enter)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
+                           (keydown.arrowup)="moverEnRejaCorte($event, -1)"
+                           aria-label="Importe de morralla del corte: el metal de menos de 50 centavos, que no tiene renglón" />
+                  } @else {
+                    <span class="mono cg-sub">{{ money(desgloseSellado()?.morralla ?? 0) }}</span>
+                  }
+                </td>
+              </tr>
+              <!-- Un solo Contado: revelado, es el de la linea de arriba, que sale del servidor. -->
+              @if (rejaEditable()) {
+                <tr>
+                  <th scope="row">{{ recontando() ? 'Reconteo' : 'Contado' }}</th>
+                  <td class="fin-dim cg-na">del conteo</td>
+                  <td>
+                    <input pInputText class="mono cg-total" [value]="money(sumaConteo())"
+                           disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
+                  </td>
+                </tr>
+              }
+            </ng-template>
+          </p-table>
+        } @else {
+          <!-- Sin desglose (API anterior) o con una pieza que la reja no tiene: se dice, no se pinta a medias. -->
+          <small class="fin-dim">El desglose de este conteo no se puede mostrar pieza por pieza. Lo sellado es el total
+            de arriba, y el corte se cierra con ese.</small>
+        }
+        <!-- [CGP-V.9] Con la reja en cero, sellar exige decir que se conto y no hay efectivo: es
+             distinto de no haber contado. Se dice aca por que el boton esta apagado. -->
+        @if (rejaEditable() && sumaConteo() === 0) {
+          <label class="fin-row cg-declara">
+            <p-checkbox [binary]="true" [ngModel]="ceroDeclarado()"
+                        (ngModelChange)="ceroDeclarado.set($event)"></p-checkbox>
+            <span>Conté y no hay efectivo en la caja.
+              <small class="fin-dim d-block">Con la reja en cero el conteo no se puede guardar sin esta
+                confirmación: «no hay efectivo» es un conteo, «no conté» no.</small>
+            </span>
+          </label>
+        }
+        @if (recontando()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>
             <input pInputText id="cg-motivo" [ngModel]="motivoReconteo()" (ngModelChange)="motivoReconteo.set($event)"
                    class="cg-full"
                    placeholder="Por qué se vuelve a contar — queda guardado junto al primer conteo" />
           </div>
+          <small class="fin-hint-warn">Contá todo otra vez, desde cero. Este reconteo es el último y
+            reemplaza al primero, que queda guardado con su motivo.</small>
+        } @else {
+          <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
         }
-        <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(cierreAbierto)"></p-button>
         @if (!revelacion()) {
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
-          <p-button label="Guardar conteo" icon="pi pi-lock" size="small"
+          <p-button [label]="ceroVigente() ? 'Sellar en $0.00' : 'Guardar conteo'" icon="pi pi-lock" size="small"
                     [loading]="sellando()"
-                    [disabled]="sumaConteo() <= 0 || sellando()" (onClick)="sellarConteo()"></p-button>
+                    [disabled]="!puedeSellar() || sellando()" (onClick)="sellarConteo()"></p-button>
+        } @else if (recontando()) {
+          <!-- [CGP-V.2] Recontar es un modo: la reja se abre vacia y Cerrar no se ofrece hasta guardar
+               el reconteo o volver al conteo sellado. Cerrar a mitad de un reconteo firmaria el primero. -->
+          <p-button label="Volver al conteo sellado" severity="secondary" size="small" [text]="true"
+                    [disabled]="sellando()" (onClick)="cancelarReconteo()"></p-button>
+          <p-button label="Guardar reconteo" icon="pi pi-lock" size="small"
+                    [loading]="sellando()"
+                    [disabled]="motivoReconteo().trim().length < GLOSA_MIN || !puedeSellar() || sellando()"
+                    (onClick)="recontar()"></p-button>
         } @else {
-          @if (revelacion()!.veredicto !== 'cuadra' && puedeRecontar()) {
+          @if (ofreceRecontar()) {
             <p-button label="Recontar" icon="pi pi-replay" size="small" severity="secondary"
-                      [loading]="sellando()"
-                      [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sellando()" (onClick)="recontar()"></p-button>
+                      (onClick)="empezarReconteo()"></p-button>
           }
-          <p-button label="Cerrar corte" icon="pi pi-check" size="small"
+          <p-button [label]="conflictoEsperado() ? 'Confirmar ' + money(conflictoEsperado()!.actual) + ' y cerrar' : 'Cerrar corte'"
+                    icon="pi pi-check" size="small"
                     [loading]="cerrando()"
                     [disabled]="!gateCierre().ok || cerrando()" (onClick)="cerrarCorte()"></p-button>
         }
@@ -3250,6 +3394,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private svc = inject(CashLedgerService);
   private auth = inject(AuthService);
+  private perms = inject(PermissionsService);
   private toast = inject(MessageService);
   private borrador = inject(CajaBorradorService);
   private caja = inject(CajaSocketService);
@@ -3365,7 +3510,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * El guardado de verdad sigue en `guardar()`, que el diálogo llama.
    */
   pedirConfirmacion(): void {
-    if (this.bloqueos().length || this.guardando()) return;
+    if (this.bloqueos().length || this.guardando() || !this.puedeGestionar()) return;
     this.abrirConFoco(this.confirmarGuardar);
   }
 
@@ -3381,6 +3526,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   readonly money = money;
   readonly dmy = dmy;
+  // `[CGP-V.7]` Para lo que puede no haberse medido: dice «sin medir» en vez de $0.00.
+  readonly moneyOSinMedir = moneyOSinMedir;
+  readonly diaCorto = diaCorto;
   /**
    * `[CG.38]` Lo que la caja cuenta: **cinco billetes y seis monedas**, del mayor al menor.
    * Salen del catálogo compartido, no de una lista de acá.
@@ -3457,6 +3605,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Banderas de ocupado: sin ellas el doble clic abría dos cortes y autorizaba dos veces. */
   abriendo = signal(false);
   cerrando = signal(false);
+  /**
+   * `[CGP-V.12]` El esperado cambió desde que se contó (el 409 de `[CGP-L.2]`): las dos cifras y la
+   * frase del servidor. Mientras exista, el diálogo lo muestra y el botón confirma la cifra nueva.
+   */
+  conflictoEsperado = signal<ConflictoEsperado | null>(null);
   autorizando = signal(false);
   conceptos = signal<Array<ConceptoKepler & { label: string }>>([]);
   /** CG.19 — los movimientos de Kepler sin aplicar, y cuál se eligió en el diálogo. */
@@ -4191,12 +4344,34 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * CG.19 Capa 1b — null mientras se cuenta a ciegas; con valor una vez SELLADO el conteo.
    * No se inicializa con los totales del saldo a propósito: ahí está justamente lo que hay que
    * ocultar, y el servidor ya no lo manda a quien no autoriza.
-   */
-  revelado = signal<TotalesCorte | null>(null);
-  /**
-   * ⭐⭐ `[CG.160]` **El conteo que ya estaba sellado ANTES de abrir el diálogo.**
    *
-   * `revelado` sólo se llena cuando se sella en esta sesión, y `abrirCierre()` lo pone en `null`.
+   * ⭐ `[CGP-V.2]` Va ATADO a su corte (`SelladoEnSesion`) y `abrirCierre()` ya no lo borra. Antes
+   * se ponía en `null` al reabrir el diálogo y, como después de sellar no se volvía a pedir el saldo,
+   * el diálogo reabierto ofrecía otra vez «Guardar conteo» y el servidor respondía 400: el callejón
+   * de `[CG.160]`, esta vez sin recargar la pestaña.
+   */
+  revelado = signal<SelladoEnSesion | null>(null);
+  /**
+   * `[CGP-V.2]` El corte que el diálogo de cierre tiene en la mano, tomado al abrirlo. Las acciones
+   * del diálogo van a ESTE corte aunque la relectura del saldo falle: un saldo que no volvía dejaba
+   * `corteAbierto()` en `null` y «Cerrar corte» salía por el `return` sin decir nada. Con el
+   * diálogo cerrado manda el saldo: así un corte que otra sesión cerró no queda pegado acá.
+   */
+  private corteDelCierre = signal<{ id: string; folio: string; fecha?: string } | null>(null);
+  corteEnCierre = computed(() => {
+    const d = this.corteDelCierre();
+    const enDialogo = this.cierreAbierto();
+    const ca = this.corteAbierto();
+    if (enDialogo && d) return d;
+    return ca ? { id: ca.id, folio: ca.folio, fecha: ca.fecha } : null;
+  });
+  /**
+   * ⭐⭐ `[CG.160]` **El conteo que ya estaba sellado en la base.**
+   *
+   * Era una foto (`selladoPrevio`) tomada al abrir el diálogo; desde `[CGP-V.2]` se deriva del
+   * saldo, que se vuelve a pedir después de cada acción. Y sólo vale para el corte del diálogo.
+   *
+   * `revelado` sólo se llenaba cuando se sellaba en esta sesión, y `abrirCierre()` lo ponía en `null`.
    * O sea que recargar la pestaña borraba la revelación de un conteo que en la base es
    * INMUTABLE: el diálogo volvía a ofrecer «Guardar conteo», el servidor contestaba *«este corte
    * ya tiene un conteo sellado»*, y «Cerrar corte» no se pintaba nunca. Sin salida.
@@ -4211,13 +4386,78 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * borrador por sucursal, tampoco se podía abrir el del día siguiente. Un corte trabado tranca
    * todos los que vienen detrás.
    */
-  selladoPrevio = signal<ConteoSellado | null>(null);
+  selladoServidor = computed<ConteoSellado | null>(() => {
+    const ca = this.corteAbierto();
+    const c = this.corteEnCierre();
+    return ca && c && ca.id === c.id ? ca.conteo_sellado ?? null : null;
+  });
+  /** `[CGP-V.2]` Lo sellado en esta sesión, sólo si es de ESTE corte. */
+  reveladoVigente = computed<SelladoEnSesion | null>(() => {
+    const r = this.revelado();
+    const c = this.corteEnCierre();
+    return r && c && r.corteId === c.id ? r : null;
+  });
   /**
-   * `[CG.160]` Lo sellado en esta sesión manda; si no, lo que ya estaba sellado en la base. Las
-   * dos formas encajan en `RevelacionVista`, así que el diálogo no tiene que saber de cuál vino.
+   * `[CG.160]` Lo sellado en esta sesión manda; si no, lo que dice el servidor. Las dos formas
+   * encajan en `RevelacionVista`, así que el diálogo no tiene que saber de cuál vino.
    */
-  revelacion = computed<RevelacionVista | null>(() => this.revelado() ?? this.selladoPrevio());
-  puedeRecontar = signal(false);
+  revelacion = computed<RevelacionVista | null>(() => {
+    const r = this.reveladoVigente();
+    const s = this.selladoServidor();
+    return r ? r.totales : s;
+  });
+  /** Recontar es de UNA vez. Sale de la misma fuente que la revelación, no de un flag aparte. */
+  puedeRecontar = computed(() => {
+    const r = this.reveladoVigente();
+    const s = this.selladoServidor();
+    return r ? r.puedeRecontar : s ? !s.ya_reconto : false;
+  });
+  /** Se ofrece recontar con conteo sellado, con diferencia y con el reconteo sin usar. */
+  ofreceRecontar = computed(() => {
+    const r = this.revelacion();
+    const p = this.puedeRecontar();
+    return !!r && r.veredicto !== 'cuadra' && p;
+  });
+  /** `[CGP-V.2]` La persona eligió recontar: la reja vuelve a abrirse, vacía, y pide motivo. */
+  recontando = signal(false);
+  /**
+   * `[CGP-V.9]` «Conté y no hay efectivo». Con la caja en $0 «Guardar conteo» quedaba deshabilitado
+   * sin explicación y el corte no se podía cerrar nunca. Sólo vale con la reja en cero: si después se
+   * teclea una pieza, deja de valer (el servidor rechaza la contradicción).
+   */
+  ceroDeclarado = signal(false);
+  ceroVigente = computed(() => {
+    const declarado = this.ceroDeclarado();
+    const suma = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
+    return declarado && suma === 0;
+  });
+  /** Se sella con algo contado, o con el cero declarado. */
+  puedeSellar = computed(() => {
+    const suma = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
+    const cero = this.ceroVigente();
+    return suma > 0 || cero;
+  });
+  /** La reja se teclea mientras se cuenta o se recuenta; revelado el conteo, muestra lo sellado. */
+  rejaEditable = computed(() => {
+    const r = this.revelacion();
+    const re = this.recontando();
+    return !r || re;
+  });
+  /**
+   * `[CGP-V.2]` Lo sellado, pieza por pieza: lo que esta sesión mandó y el servidor aceptó o, si no,
+   * lo que publica `saldo()`. `null` = no se puede mostrar pieza por pieza: un API anterior no
+   * manda el desglose, o trae una pieza que esta reja no tiene (el servidor acepta todo el catálogo,
+   * con el billete de $1,000). Pintarla a medias haría que la reja no sumara lo sellado.
+   */
+  desgloseSellado = computed<{ conteo: Array<{ denom_key?: string | null; piezas: number }>; morralla: number } | null>(() => {
+    const r = this.reveladoVigente();
+    const s = this.selladoServidor();
+    const d = r ? { conteo: r.conteo, morralla: r.morralla }
+      : s?.desglose ? { conteo: s.desglose, morralla: Number(s.morralla ?? 0) } : null;
+    if (!d) return null;
+    const enReja = new Set(this.reja.map((x) => x.key));
+    return d.conteo.every((x) => !(Number(x.piezas) > 0) || enReja.has(String(x.denom_key))) ? d : null;
+  });
   sellando = signal(false);
   motivoReconteo = signal('');
   conceptoSel: (ConceptoKepler & { label: string }) | null = null;
@@ -4278,7 +4518,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   });
 
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
-  textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
+  /** `[CGP-V.4]` Midiendo no es «sin medir»: la primera lectura del saldo todavía no volvió. */
+  textoSaldoUI = computed(() => {
+    const cargando = this.cargandoSaldo();
+    const r = this.saldoResp();
+    return cargando && !r ? 'Saldo: midiendo…' : textoSaldo(r);
+  });
   corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
   /**
    * CS.3.11 — Conciliación con el CAJERO (CAOS): el movimiento de la bóveda desde que abrió el corte.
@@ -4335,7 +4580,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * no tapa nada.
    */
   corteVista = computed<CorteVista | null>(() => {
-    const c = this.corteAbierto();
+    // `[CGP-V.2]` El corte del diálogo, no el del último saldo: si la relectura falla, se sigue
+    // pudiendo cerrar el corte que se tiene en la mano.
+    const c = this.corteEnCierre();
     return c ? { id: c.id, folio: c.folio, estado: 'borrador' } : null;
   });
   /** No se cierra sin haber SELLADO el conteo: sin revelación no hay nada firmado que cerrar. */
@@ -4349,6 +4596,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
   /** Sin saldo no sabemos si hay corte abierto. No es lo mismo que saber que no hay. */
   saldoSinMedir = computed(() => this.saldoResp() === null);
+  /**
+   * `[CGP-V.4]` Una lectura del saldo en vuelo. Sin esto, mientras cargaba, la pantalla decía
+   * «Corte sin medir» y ofrecía «Reintentar» — y reintentar mandaba MÁS lecturas contra el mismo
+   * límite de 10 por segundo que la estaba frenando. Mientras mide, el botón espera.
+   */
+  cargandoSaldo = signal(false);
 
   /**
    * `[CG.115]` Lo suelto de otras jornadas. El signal se lee **incondicionalmente** (no detrás de
@@ -4427,7 +4680,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Las sucursales que el propio censo de cobertura ya mide, con sus conceptos usables. */
   opcionesSucursal = computed(() => {
     const rows = this.cobertura().filter((r) => r.sucursal);
-    if (!rows.length) return [{ label: '00 · CEDIS', value: '00' }];
+    // [CGP-L.9] Kepler '00' es OFICINAS (ERP_KEPLER §2.3; el servidor lo corrige igual en keplerSucursal).
+    if (!rows.length) return [{ label: SUCURSAL_CAJA_GENERAL + ' · Oficinas', value: SUCURSAL_CAJA_GENERAL }];
     return rows
       .slice()
       .sort((a, b) => String(a.sucursal).localeCompare(String(b.sucursal)))
@@ -4567,7 +4821,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      */
     const canc = Number(k.cancelados ?? 0);
     const subCancelados = canc > 0
-      ? `incluye ${canc} cancelado${canc === 1 ? '' : 's'} por ${money(k.monto_cancelado ?? 0)}, fuera de los importes`
+      ? `incluye ${canc} cancelado${canc === 1 ? '' : 's'} por ${moneyOSinMedir(k.monto_cancelado)}, fuera de los importes`
       : undefined;
     return [
       { label: 'Movimientos', value: String(k.movimientos ?? 0), sub: subCancelados },
@@ -4605,6 +4859,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cargarCobertura();
     this.cargar();
     this.cargarSaldo();
+    this.cargarJornadasAtrasadas();
     this.cargarCortes();
     // CG.20/CG.21 — la bandeja y los frecuentes se piden al abrir: son la acción principal, no
     // algo que aparezca después de un clic.
@@ -4702,13 +4957,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // clic y no pasaba nada, indistinguible de un botón muerto. Tres de esas cinco ni siquiera
   // tenían rama `error`, así que el fallo no llegaba a ningún lado.
 
-  private textoError(e: unknown): string {
-    const err = e as { status?: number; error?: { message?: string } };
-    if (err?.status === 0) return 'No hay conexión con el servidor.';
-    if (err?.status === 403) return 'No tenés permiso para esta acción.';
-    if (err?.status === 409) return err?.error?.message || 'Ese movimiento ya estaba aplicado.';
-    return err?.error?.message || 'El servidor respondió con un error.';
-  }
+  // `[CGP-V.5]` La frase sale de una función pura con pruebas: un 403 con frase del servidor (la
+  // doble llave) se dice tal cual, y sólo el 403 genérico se traduce a «no tenés permiso».
+  private textoError(e: unknown): string { return textoDeError(e); }
+
+  /**
+   * `[CGP-V.5]` **El error se queda donde se hizo la acción, y no se va solo.** Antes todo salía en
+   * un aviso de 7 s: el diálogo de cierre no conservaba ningún error y la persona volvía a intentar
+   * sin saber qué había pasado. Cada uno se limpia al volver a intentar.
+   */
+  errorCierre = signal<string | null>(null);
+  /** El de abrir: dentro del diálogo de apertura si está abierto, si no junto al botón del cierre. */
+  errorApertura = signal<string | null>(null);
+  /** El de autorizar, en la fila de ESE corte. */
+  errorAutorizar = signal<{ id: string; texto: string } | null>(null);
 
   private avisarError(e: unknown, titulo: string): void {
     this.toast.add({ severity: 'error', summary: titulo, detail: this.textoError(e), life: 7000 });
@@ -4761,27 +5023,50 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * valida. El candado real esta en la DB: esto solo evita el 403 sorpresa.
    */
   gateAutorizar(c: CorteCaja) {
+    // `[CGP-V.6]` Primero el permiso: sin él, el botón terminaba en un 403.
+    if (!this.puedeAutorizarPorPermiso()) {
+      return { ok: false, texto: 'Autorizar necesita el permiso «Autorizar corte de Caja General».' };
+    }
     return puedeAutorizarUI(c as unknown as CorteVista, this.auth.user()?.sub ?? null);
   }
 
+  // ── `[CGP-V.6]` Los botones dependen del permiso, y lo dicen ─────────────────────────────────
+  //
+  // Quien sólo tenía VER veía «Rendir cuentas», y la fila del corte ofrecía «Autorizar» a quien no
+  // podía: el clic terminaba en un 403. ⚠️ Sin permisos cargados NO se bloquea: «todavía no sé» no
+  // es «no tiene», y el candado de verdad es el servidor.
+  puedeGestionar = computed(() => {
+    const cargado = this.perms.cargado();
+    const tiene = this.perms.has(Permission.FINANCE_CAJA_GESTIONAR);
+    return !cargado || tiene;
+  });
+  puedeAutorizarPorPermiso = computed(() => {
+    const cargado = this.perms.cargado();
+    const tiene = this.perms.has(Permission.FINANCE_CAJA_AUTORIZAR);
+    return !cargado || tiene;
+  });
+
   autorizar(c: CorteCaja): void {
     if (!this.gateAutorizar(c).ok || this.autorizando()) return;
-    this.autorizando.set(true);
+    this.autorizando.set(true); this.errorAutorizar.set(null);
     this.svc.autorizarCorte(c.id).subscribe({
       next: () => { this.autorizando.set(false); this.avisarOk('Corte autorizado', c.folio); this.cargarCortes(); },
-      error: (e) => { this.autorizando.set(false); this.avisarError(e, 'No se pudo autorizar el corte'); },
+      // `[CGP-V.5]` En la fila de ESE corte, con la frase (la doble llave), y hasta el siguiente intento.
+      error: (e) => { this.autorizando.set(false); this.errorAutorizar.set({ id: c.id, texto: this.textoError(e) }); },
     });
   }
 
   /** Sucursal del corte. Por ahora fija; cuando haya selector de corte, sale de ahí. */
-  private sucursalActiva = '00';
+  private sucursalActiva = SUCURSAL_CAJA_GENERAL;
 
   cargarSaldo(): void {
+    // `[CGP-V.4]` El servicio ya reintenta solo un 429; esto marca que la lectura está en vuelo.
+    this.cargandoSaldo.set(true);
     this.svc.saldo(this.sucursalActiva).subscribe({
-      next: (r) => this.saldoResp.set(r),
+      next: (r) => { this.saldoResp.set(r); this.cargandoSaldo.set(false); },
       // Un error de red NO es "saldo 0": se declara como sin medir. Y la barra de arriba ya NO
       // pinta "Abrir corte" en ese caso — no sabemos si hay uno abierto.
-      error: () => this.saldoResp.set(null),
+      error: () => { this.saldoResp.set(null); this.cargandoSaldo.set(false); },
     });
   }
 
@@ -4822,7 +5107,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * sellar, CG.19) y la doble llave sigue puesta: quien cierra **no** puede autorizar.
    */
   cerrarJornada(): void {
-    if (this.abriendo()) return;
+    // `[CGP-V.4]` Con el saldo en vuelo no se sabe todavía si hay un corte abierto.
+    if (this.abriendo() || this.cargandoSaldo() || !this.puedeGestionar()) return;
     if (this.corteAbierto()) { this.abrirCierre(); return; }
     /**
      * ⭐⭐ `[CG.90.1]` **EL FONDO DEJA DE PREGUNTARSE. NI SIQUIERA EL DIÁLOGO.**
@@ -4852,6 +5138,161 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Marca que la apertura vino de "rendir cuentas": al confirmarla se sigue al conteo. */
   private cerrarTrasAbrir = signal(false);
+
+  // ── `[CGP-V.3]` Las jornadas atrasadas ─────────────────────────────────────────────────────
+  //
+  // ⛔ El 13 y el 14-oct no tenían camino: la pantalla SIEMPRE abría el corte de hoy, y abrir hoy
+  // primero los deja huérfanos — `[CGP-L.4]` rechaza abrir una jornada anterior a un corte que ya
+  // existe. Ahora se cierran desde acá, de la más vieja a la más nueva.
+  //
+  // Cuatro estados y no dos, porque se resuelven distinto:
+  //   · `midiendo`   — todavía no se sabe: el botón espera;
+  //   · `medido`     — la lista del servidor (vacía = al día);
+  //   · `sin_medir`  — falló la consulta: NO se abre hoy a ciegas, se ofrece reintentar;
+  //   · `no_informa` — 404, un API anterior a `[CGP-L.4]`. No lista jornadas, pero tampoco tiene la
+  //     regla que las deja huérfanas: abrir hoy ahí es lo que ya pasaba. Trabar el cierre de caja por
+  //     un 404 sería peor que lo que evita.
+
+  jornadasAtrasadas = signal<
+    { estado: 'midiendo' | 'sin_medir' | 'no_informa' } | { estado: 'medido'; datos: JornadasPendientes }
+  >({ estado: 'midiendo' });
+
+  cargarJornadasAtrasadas(): void {
+    this.jornadasAtrasadas.set({ estado: 'midiendo' });
+    this.svc.jornadasPendientes(this.sucursalActiva).subscribe({
+      next: (datos) => this.jornadasAtrasadas.set({ estado: 'medido', datos }),
+      error: (e: { status?: number }) =>
+        this.jornadasAtrasadas.set({ estado: e?.status === 404 ? 'no_informa' : 'sin_medir' }),
+    });
+  }
+
+  /** El reintento re-mide las DOS cosas de las que depende abrir un corte. */
+  reintentarCierre(): void { this.cargarSaldo(); this.cargarJornadasAtrasadas(); }
+
+  /** Las atrasadas medidas, de la más vieja a la más nueva. Vacía también cuando no se midió. */
+  atrasadas = computed(() => {
+    const a = this.jornadasAtrasadas();
+    return a.estado === 'medido' ? a.datos.jornadas : [];
+  });
+
+  /**
+   * Hoy según el SERVIDOR cuando se pudo medir: es el reloj con el que rechaza una fecha futura.
+   * Sin la lista, el del navegador en hora de México.
+   */
+  hoyCaja = computed(() => {
+    const a = this.jornadasAtrasadas();
+    return a.estado === 'medido' ? a.datos.hoy : todayMx();
+  });
+
+  /**
+   * La jornada que abre un corte nuevo — por cualquiera de las dos puertas: la atrasada más vieja,
+   * o hoy. `null` = no se sabe, y entonces no se abre nada.
+   */
+  fechaParaAbrir = computed<string | null>(() => {
+    const a = this.jornadasAtrasadas();
+    if (a.estado === 'medido') return a.datos.jornadas[0]?.fecha ?? a.datos.hoy;
+    if (a.estado === 'no_informa') return todayMx();
+    return null;
+  });
+
+  /**
+   * Con corte abierto, la lista no hace falta: el botón va a ESE corte. Sin corte, no saber si hay
+   * atrasadas se trata como no saber si hay corte — se reintenta.
+   */
+  cierreSinMedir = computed(() => {
+    const saldo = this.saldoSinMedir();
+    const c = this.corteAbierto();
+    const estado = this.jornadasAtrasadas().estado;
+    return saldo || (!c && estado === 'sin_medir');
+  });
+
+  midiendoAtrasadas = computed(() => {
+    const c = this.corteAbierto();
+    const estado = this.jornadasAtrasadas().estado;
+    return !c && estado === 'midiendo';
+  });
+
+  /** La etiqueta nombra la jornada cuando no es la de hoy: el gesto no cambia, el día sí. */
+  etiquetaCierre = computed(() => {
+    const c = this.corteAbierto();
+    const hoy = this.hoyCaja();
+    const destino = this.fechaParaAbrir();
+    if (c) return c.fecha && c.fecha < hoy ? `Rendir cuentas del ${diaCorto(c.fecha)}` : 'Rendir cuentas del día';
+    return destino && destino < hoy ? `Rendir cuentas del ${diaCorto(destino)}` : 'Cerrar jornada y rendir cuentas';
+  });
+
+  textoAtrasadas = computed(() => {
+    const atr = this.atrasadas();
+    if (!atr.length) return '';
+    const lista = atr
+      .map((j) => `${diaCorto(j.fecha)} (${j.movimientos} ${j.movimientos === 1 ? 'movimiento' : 'movimientos'})`)
+      .join(', ');
+    return `${atr.length === 1 ? 'Hay una jornada sin corte' : `Hay ${atr.length} jornadas sin corte`}: ${lista}.`;
+  });
+
+  /** El diálogo de apertura lo dice cuando no abre la jornada de hoy. */
+  aperturaAtrasada = computed(() => {
+    const destino = this.fechaParaAbrir();
+    const hoy = this.hoyCaja();
+    return destino && destino < hoy ? diaCorto(destino) : null;
+  });
+
+  /** `Corte CC-… · jornada del 12-oct`. Sin fecha (API viejo), sólo el folio. */
+  rotuloCorte = computed(() => {
+    const c = this.corteEnCierre();
+    if (!c) return null;
+    return c.fecha ? `Corte ${c.folio} · jornada del ${diaCorto(c.fecha)}` : `Corte ${c.folio}`;
+  });
+
+  corteAtrasado = computed(() => {
+    const c = this.corteEnCierre();
+    const hoy = this.hoyCaja();
+    return !!c?.fecha && c.fecha < hoy;
+  });
+
+  // ── `[CGP-V.1]` En qué paso va el corte ────────────────────────────────────────────────────
+  //
+  // El paso sale de lo que dice el servidor: corte abierto, conteo sellado, corte por autorizar.
+  // La decisión es pura (`pasoDelCorte`) y tiene sus pruebas; acá sólo se le pasa el estado.
+
+  /** El último corte del cajón, si quedó cerrado y nadie lo autorizó todavía. */
+  cortePorAutorizar = computed(() => {
+    const cs = this.cortes();
+    const ultimo = cs
+      .filter((c) => c.sucursal === this.sucursalActiva)
+      .reduce<CorteCaja | null>((a, c) => (!a || c.fecha > a.fecha ? c : a), null);
+    return ultimo?.estado === 'cerrado' ? ultimo : null;
+  });
+
+  pasoCorte = computed<PasoCorte | null>(() => {
+    const c = this.corteEnCierre();
+    const sinMedir = this.saldoSinMedir();
+    const r = this.revelacion();
+    const ofrece = this.ofreceRecontar();
+    const cf = this.conflictoEsperado();
+    const re = this.recontando();
+    const pa = this.cortePorAutorizar();
+    return pasoDelCorte({
+      corteAbierto: c ? true : sinMedir ? null : false,
+      sellado: r ? { ofreceRecontar: ofrece } : null,
+      conflicto: !!cf,
+      porAutorizar: !!pa,
+      recontando: re,
+    });
+  });
+
+  /** En la página: sin saldo medido no se afirma ningún paso (la etiqueta ya dice «sin medir»). */
+  pasoPagina = computed<PasoCorte | null>(() => {
+    const sinMedir = this.saldoSinMedir();
+    const p = this.pasoCorte();
+    return sinMedir ? null : p;
+  });
+
+  textoPasoPagina = computed(() => {
+    const p = this.pasoPagina();
+    const pa = this.cortePorAutorizar();
+    return p ? textoPaso(p, pa?.folio) : '';
+  });
 
   /**
    * `[CG.29]` El subtítulo de la página: el estado de HOY, no la cobertura del catálogo.
@@ -4894,11 +5335,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
           // caía a «N de las M que se ven», que es justo la frase de la sección de abajo.
           ? 'Sin medir cuántos faltan por confirmar'
           : `${n(total)} por confirmar`;
-    if (this.saldoSinMedir()) return `${trabajo} · no se pudo medir si hay corte abierto`;
+    if (this.saldoSinMedir()) {
+      return this.cargandoSaldo()
+        ? `${trabajo} · midiendo si hay corte abierto…`
+        : `${trabajo} · no se pudo medir si hay corte abierto`;
+    }
     const c = this.corteAbierto();
-    return c
-      ? `${trabajo} · corte ${c.folio} abierto, falta rendir cuentas`
-      : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
+    // [CGP-V.3] Las atrasadas van acá: el subtítulo es lo único que se ve sin abrir la ventana.
+    const atr = this.atrasadas();
+    const atrasadas = atr.length
+      ? ` · ${atr.length === 1 ? 'una jornada' : `${atr.length} jornadas`} sin corte desde el ${diaCorto(atr[0].fecha)}`
+      : '';
+    if (c) return `${trabajo} · corte ${c.folio} abierto, falta rendir cuentas${atrasadas}`;
+    return atr.length ? `${trabajo}${atrasadas}` : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
   });
 
   /**
@@ -5017,35 +5466,62 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.pedirPropuesta();
   }
 
-  abrirApertura(): void { this.fondoInicial.set(null); this.abrirConFoco(this.aperturaAbierta); }
+  abrirApertura(): void { this.fondoInicial.set(null); this.errorApertura.set(null); this.abrirConFoco(this.aperturaAbierta); }
 
   /** Si se cancela la apertura, la intención de cerrar NO queda colgada esperando. */
   cancelarApertura(): void { this.cerrarTrasAbrir.set(false); this.cerrarConFoco(this.aperturaAbierta); }
 
   abrirCorte(): void {
-    if (this.abriendo()) return;
+    if (this.abriendo() || !this.puedeGestionar()) return;
+    this.errorApertura.set(null);
+    /**
+     * ⭐ `[CGP-V.3]` La jornada la decide `fechaParaAbrir()`, y se decide ACÁ y no en cada botón:
+     * a este método llegan las dos puertas — «rendir cuentas» y «Declarar con cuánto arrancó la
+     * caja» —, y cualquiera de las dos que abriera hoy dejaría huérfanas a las atrasadas.
+     */
+    /**
+     * ⛔ `[CGP-V.4]` Sin saldo medido no se sabe si ya hay un corte abierto, y abrir otro encima es
+     * el peor final (la base lo rechaza, pero con su error). Vale para las dos puertas: la de
+     * «Declarar con cuánto arrancó la caja» no pasaba por ningún freno de saldo.
+     */
+    if (this.saldoSinMedir() || this.cargandoSaldo()) {
+      this.cerrarTrasAbrir.set(false);
+      this.errorApertura.set('No se abrió el corte: todavía no se sabe si ya hay uno abierto. Esperá a que termine de medir o reintentá.');
+      return;
+    }
+    const fecha = this.fechaParaAbrir();
+    if (!fecha) {
+      this.cerrarTrasAbrir.set(false);
+      this.errorApertura.set('No se abrió el corte: no se pudo saber si hay jornadas sin corte antes de hoy. Reintentá antes de abrir.');
+      return;
+    }
     this.abriendo.set(true);
     this.svc.abrirCorte({
-      // `todayMx()`, no `toISOString()`: después de las 18:00 hora de México el segundo ya
-      // devuelve MAÑANA, y el corte nacía con fecha de mañana.
-      fecha: todayMx(),
+      // La atrasada más vieja, o el hoy del SERVIDOR. Sin la lista (404), `todayMx()` — nunca
+      // `toISOString()`, que después de las 18:00 hora de México ya devuelve mañana.
+      fecha,
       sucursal: this.sucursalActiva,
       // `null` → `undefined`: es la forma exacta que `abrir()` traduce a `NULL` + `sin_medir`.
       // Mandar `null` NO sirve: el servicio compara contra `undefined`.
       fondo_inicial: this.fondoInicial() ?? undefined,
     }).subscribe({
-      next: () => {
+      next: (abierto) => {
         this.abriendo.set(false);
         this.aperturaAbierta.set(false);
         const f = this.fondoInicial();
         this.avisarOk('Corte abierto', f == null
           ? 'Sin fondo inicial medido: el arqueo no va a poder decir si cuadra.'
           : `Fondo inicial ${money(f)}`);
-        this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo();
+        this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo(); this.cargarJornadasAtrasadas();
         // [CG.29] Si la apertura vino de "rendir cuentas", se sigue DERECHO al conteo: el gesto
         // es uno solo. Sin esto la persona quedaba con el corte abierto y sin saber que le
         // faltaba un segundo clic en otro lado.
-        if (this.cerrarTrasAbrir()) { this.cerrarTrasAbrir.set(false); this.abrirCierre(); }
+        // [CGP-V.2] El corte va de la RESPUESTA: el saldo que lo trae todavía no volvió. La fecha es
+        // la que se pidió abrir (la fila trae un Date, que por JSON llega con hora).
+        if (this.cerrarTrasAbrir()) {
+          this.cerrarTrasAbrir.set(false);
+          this.abrirCierre(abierto?.id ? { id: abierto.id, folio: abierto.folio, fecha } : null);
+        }
       },
       /**
        * ⛔ `[CG.90.1]` **LA INTENCIÓN SE LIMPIA TAMBIÉN CUANDO FALLA.**
@@ -5062,7 +5538,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       error: (e) => {
         this.abriendo.set(false);
         this.cerrarTrasAbrir.set(false);
-        this.avisarError(e, 'No se pudo abrir el corte');
+        // `[CGP-V.5]` Con su frase y donde se intentó, no en un aviso de 7 s.
+        this.errorApertura.set(`No se pudo abrir el corte: ${this.textoError(e)}`);
       },
     });
   }
@@ -5071,22 +5548,42 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * CG.19 Capa 1b — el arqueo es CIEGO: se abre sin revelación y sin motivo de reconteo.
    * El esperado aparece cuando el servidor lo devuelve, y sólo después de SELLAR el conteo.
    */
-  abrirCierre(): void {
+  abrirCierre(corte?: { id: string; folio: string; fecha?: string } | null): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
-    this.revelado.set(null); this.motivoReconteo.set('');
+    this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
+    this.errorCierre.set(null); this.ceroDeclarado.set(false);
     /**
      * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
      * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
      *
-     * ⚠️ `?? null` y no `|| null`: un corte sin sellar manda `conteo_sellado: null` y uno servido
-     * por un API viejo no manda el campo — las dos ausencias terminan en `null`, que acá es el
-     * mismo hecho ("no hay nada sellado que leer") y por eso se pueden barrer juntas.
+     * ⭐ `[CGP-V.2]` Ya no se toma una foto del saldo ni se borra lo sellado en esta sesión: la
+     * revelación se DERIVA (`revelacion()`), del servidor o de la respuesta a sellar, y va atada a
+     * este corte. Lo único que se fija acá es cuál es el corte. Recién abierto, el saldo todavía no
+     * lo trae: por eso `abrirCorte()` lo pasa de su respuesta.
      */
-    this.selladoPrevio.set(this.saldoResp()?.corte_abierto?.conteo_sellado ?? null);
-    // Recontar es de UNA vez: si ya se recontó, el botón no se ofrece.
-    this.puedeRecontar.set(this.selladoPrevio() ? !this.selladoPrevio()!.ya_reconto : false);
+    const ca = this.corteAbierto();
+    this.corteDelCierre.set(corte ?? (ca ? { id: ca.id, folio: ca.folio, fecha: ca.fecha } : null));
     this.abrirConFoco(this.cierreAbierto);
   }
+
+  /** `[CGP-V.2]` Recontar es empezar de cero: la reja se abre vacía y pide motivo. */
+  empezarReconteo(): void {
+    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
+    this.recontando.set(true); this.errorCierre.set(null); this.ceroDeclarado.set(false);
+  }
+
+  /** Vuelve al conteo sellado sin tocarlo: lo tecleado del reconteo se descarta. */
+  cancelarReconteo(): void {
+    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
+    this.recontando.set(false); this.errorCierre.set(null); this.ceroDeclarado.set(false);
+  }
+
+  /** `[CGP-V.2]` Lo sellado en ese renglón. `0` y no `null`: un renglón sin piezas se contó en cero. */
+  piezasSelladasDe(d: Denominacion): number {
+    return this.desgloseSellado()?.conteo.find((x) => x.denom_key === d.key)?.piezas ?? 0;
+  }
+
+  subtotalSelladoDe(d: Denominacion): number { return redondea(d.valor * this.piezasSelladasDe(d)); }
 
   /** Lo que la persona lleva sumado. No revela nada: es su propia suma. */
   sumaConteo(): number {
@@ -5095,29 +5592,37 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Sella el conteo y recibe la revelación. A partir de acá el conteo ya no se retoca en silencio. */
   sellarConteo(): void {
-    const c = this.corteAbierto();
-    if (!c || this.sellando()) return;
-    this.sellando.set(true);
-    this.svc.contarCorte(c.id, this.conteoCorte(), this.morrallaCorte()).subscribe({
+    const c = this.corteEnCierre();
+    if (!c || this.sellando() || !this.puedeSellar()) return;
+    // Lo que se manda es lo que se guarda como sellado: se toma ANTES de la llamada.
+    const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
+    this.sellando.set(true); this.errorCierre.set(null);
+    this.svc.contarCorte(c.id, conteo, morralla, this.ceroVigente()).subscribe({
       next: (r) => {
-        this.revelado.set(r.totales); this.puedeRecontar.set(r.puede_recontar); this.sellando.set(false);
+        this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: r.puede_recontar, conteo, morralla });
+        this.sellando.set(false);
         this.avisarOk('Conteo sellado', r.totales?.oculto ? 'El resultado lo ve quien autoriza.' : undefined);
+        // `[CGP-V.1]` El estado sale del servidor: se vuelve a pedir después de cada acción.
+        this.cargarSaldo();
       },
-      error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo sellar el conteo'); },
+      error: (e) => { this.sellando.set(false); this.errorCierre.set(`No se pudo sellar el conteo: ${this.textoError(e)}`); },
     });
   }
 
   /** Segundo y último conteo. El motivo es obligatorio y el primero se conserva en el corte. */
   recontar(): void {
-    const c = this.corteAbierto();
-    if (!c || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando()) return;
-    this.sellando.set(true);
-    this.svc.recontarCorte(c.id, this.conteoCorte(), this.morrallaCorte(), this.motivoReconteo().trim()).subscribe({
+    const c = this.corteEnCierre();
+    if (!c || !this.recontando() || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando() || !this.puedeSellar()) return;
+    const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
+    this.sellando.set(true); this.errorCierre.set(null);
+    this.svc.recontarCorte(c.id, conteo, morralla, this.motivoReconteo().trim(), this.ceroVigente()).subscribe({
       next: (r) => {
-        this.revelado.set(r.totales); this.puedeRecontar.set(false); this.sellando.set(false);
+        this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: false, conteo, morralla });
+        this.sellando.set(false); this.recontando.set(false); this.motivoReconteo.set('');
         this.avisarOk('Reconteo guardado');
+        this.cargarSaldo();
       },
-      error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo recontar'); },
+      error: (e) => { this.sellando.set(false); this.errorCierre.set(`No se pudo recontar: ${this.textoError(e)}`); },
     });
   }
 
@@ -5143,17 +5648,29 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   cerrarCorte(): void {
-    const c = this.corteAbierto();
-    if (!c || !this.gateCierre().ok || this.cerrando()) return;
-    this.cerrando.set(true);
-    this.svc.cerrarCorte(c.id, this.conteoCorte(), this.morrallaCorte()).subscribe({
+    const c = this.corteEnCierre();
+    if (!c || this.recontando() || !this.gateCierre().ok || this.cerrando()) return;
+    this.cerrando.set(true); this.errorCierre.set(null);
+    // [CGP-V.12] Con un conflicto a la vista, el botón confirma el esperado que la persona VIO.
+    // ⭐ [CGP-V.2] La reja va VACÍA: lo que se firma es lo sellado, y el servidor lo usa cuando el
+    // cuerpo no trae piezas ([CGP-L.1]; antes, el respaldo de [CG.159]). Mandar lo tecleado era
+    // la otra mitad de L1: la reja seguía abierta después de revelar.
+    this.svc.cerrarCorte(c.id, [], 0, undefined, this.conflictoEsperado()?.actual).subscribe({
       next: () => {
         this.cerrando.set(false);
-        this.cierreAbierto.set(false);
+        this.cierreAbierto.set(false); this.conflictoEsperado.set(null);
+        this.corteDelCierre.set(null); this.revelado.set(null); this.recontando.set(false);
         this.avisarOk('Corte cerrado', 'Queda pendiente de autorizar por otra persona.');
-        this.cargarSaldo(); this.cargar(); this.cargarCortes();
+        this.cargarSaldo(); this.cargar(); this.cargarCortes(); this.cargarJornadasAtrasadas();
       },
-      error: (e) => { this.cerrando.set(false); this.avisarError(e, 'No se pudo cerrar el corte'); },
+      error: (e) => {
+        this.cerrando.set(false);
+        // [CGP-V.12] El esperado cambió desde el conteo: se dice DENTRO del diálogo y se confirma
+        // con el botón, en vez de un aviso de 7 s sin salida. Cualquier otro error sigue al aviso.
+        const cf = conflictoDeEsperado(e);
+        if (cf) { this.conflictoEsperado.set(cf); return; }
+        this.errorCierre.set(`No se pudo cerrar el corte: ${this.textoError(e)}`);
+      },
     });
   }
 
@@ -5271,6 +5788,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   abrirCaptura(): void {
+    // `[CGP-V.6]` Captura, confirmar y cerrar piden GESTIONAR en el servidor: acá también.
+    if (!this.puedeGestionar()) return;
     this.f.set(this.formVacio());
     this.conceptoSel = null;
     this.conceptoManual.set(false);
@@ -5931,7 +6450,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   confirmarLote(): void {
     const refs = this.marcadas();
-    if (!refs.length || this.confirmando()) return;
+    if (!refs.length || this.confirmando() || !this.puedeGestionar()) return;
     this.confirmando.set(true);
     // `[CG.48]` Sólo las referencias: el lote ESPEJA al ERP. Acá iba un `monto_contado` por fila
     // que entraba al libro sin un solo billete declarado detrás.
@@ -6381,6 +6900,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return t === 'ingreso' ? 'success' : t === 'gasto' ? 'danger' : 'info';
   }
 
+  /**
+   * `[CGP-L.8]` El comprobante desde el DETALLE del servidor, con las dos pilas por separado: lo
+   * recibido va al desglose y el cambio a su sección. Mezclarlas imprimía el cambio como recibido.
+   */
+  comprobanteDeDetalle(
+    d: MovimientoCaja & { denominaciones?: Array<{ denominacion: number; piezas: number; flujo?: 'recibido' | 'devuelto' }> | null },
+  ): ComprobanteCaja {
+    const { recibido, devuelto } = separarPorFlujo(d.denominaciones);
+    return { ...this.comprobanteDe(d, recibido), devuelto };
+  }
+
   /** CS.3.8 — Arma el comprobante desde un movimiento + su desglose por denominación. */
   private comprobanteDe(m: MovimientoCaja, dens: Array<{ denominacion: number; piezas: number }>): ComprobanteCaja {
     return {
@@ -6400,7 +6930,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   imprimirComprobante(m: MovimientoCaja): void {
     this.svc.detalle(m.id).subscribe({
       next: (d) => {
-        if (!imprimirTicketComprobante(this.comprobanteDe(d, d.denominaciones ?? []))) {
+        if (!imprimirTicketComprobante(this.comprobanteDeDetalle(d))) {
           this.avisarError(null, 'El navegador no dejó abrir la impresión del comprobante');
         }
       },
@@ -6409,7 +6939,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   guardar(): void {
-    if (this.bloqueos().length || this.guardando()) return;
+    if (this.bloqueos().length || this.guardando() || !this.puedeGestionar()) return;
     this.guardando.set(true);
     // `[CG.62]` La ventana se cierra ACA, al empezar: si fallara, el aviso de error tiene que
     // quedar a la vista y la captura abierta para reintentar, no detras de un modal.
@@ -6471,12 +7001,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
-      client_uuid: this.nuevoUuid(),
+      // `crypto.randomUUID` sólo existe en contexto seguro: por http:// en la LAN `guardar()`
+      // reventaba antes de emitir la petición. `uuidV4()` tiene el respaldo ([CGP-V.10]).
+      client_uuid: uuidV4(),
     }).subscribe({
       next: (m) => {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
-        this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
+        this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${moneyOSinMedir(f.monto)}`);
         /**
          * ⛔ `[CG.81]` **ACÁ EL COMPROBANTE SALÍA SOLO A LA TÉRMICA, y se retiró.** Pedido de
          * Edgar: *"hay que dejar de mandar el imprimible del ticket y sólo almacenarlo como un
@@ -6535,11 +7067,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * `crypto.randomUUID` sólo existe en contexto seguro: sobre `http://` en la LAN —que es como se
-   * abre esta pantalla en las sucursales— es `undefined` y `guardar()` reventaba ANTES de emitir
-   * la petición, con el error tragado encima. La llave de idempotencia no puede depender de eso.
-   */
-  /**
    * Declara el beneficiario -> cuenta. Va en su propia peticion y NO tumba nada si falla: el
    * efectivo ya quedo registrado, y una regla que no se pudo crear se vuelve a ofrecer la
    * proxima vez. Lo que NO se hace es callarselo.
@@ -6561,12 +7088,4 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  private nuevoUuid(): string {
-    const c = globalThis.crypto as Crypto | undefined;
-    if (c?.randomUUID) return c.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
-      const r = (Math.random() * 16) | 0;
-      return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-    });
-  }
 }

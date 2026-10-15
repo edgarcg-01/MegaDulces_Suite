@@ -6,6 +6,7 @@ import { CashLedgerController } from './cash-ledger.controller';
 import { CajaAutofillService } from './caja-autofill.service';
 import { CashCutService } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
+import { CajaCorteAbiertoScannerService } from './caja-corte-abierto-scanner.service';
 import { CajaAutofillRefreshService } from './caja-autofill-refresh.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
 import { CajaControlService } from './caja-control.service';
@@ -32,9 +33,10 @@ import { CajaControlController } from './caja-control.controller';
   // genérico de `AnalyticsRefreshService`: aquél refresca sin fijar `app.tenant_id`, y esta
   // matvista lee una vista filtrada por `current_tenant_id()` — refrescarla así la VACÍA, que
   // es exactamente como nació.
+  // [CGP-L.10] El sensor del corte abierto: el del 12-oct estuvo trabado tres jornadas y nadie avisó.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService, CajaControlService, CajaAutofillRefreshService],
+    CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService, CajaControlService, CajaAutofillRefreshService],
+    CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService],
 })
 export class FinanceCajaGeneralModule {}

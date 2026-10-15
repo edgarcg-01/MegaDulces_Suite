@@ -1,7 +1,8 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { diaMxDeInstante } from '@megadulces/contracts';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { atribuirDeposito } from './caos-deposito-grano';
 
@@ -56,6 +57,8 @@ export class CaosIngresoCronService {
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly recon: CaosIngresoReconService,
     private readonly tenantCtx: TenantContextService,
+    // `[CGP-L.6]` Para escribir el grano con el tenant fijado: la tabla tiene RLS FORZADO.
+    private readonly tk: TenantKnexService,
   ) {}
 
   /**
@@ -93,7 +96,20 @@ export class CaosIngresoCronService {
       this.logger.error(`[CG.58.5] la atribución de CAOS falló: ${motivo}`);
     }
 
-    const granos = await this.clasificarGranos();
+    /**
+     * ⛔ `[CGP-L.6]` El grano ya no se traga su error. Antes `clasificarGranos` devolvía 0 ante
+     * cualquier falla y el latido decía «0 clasificados»: medido contra la base como `app_runtime`,
+     * la escritura la RECHAZABA el RLS en cada corrida y nadie lo veía. Ahora el motivo va al latido
+     * (estado `error`). Sigue sin tumbar la atribución de cobros, que ya corrió arriba.
+     */
+    let granos = 0;
+    try {
+      granos = await this.clasificarGranos();
+    } catch (e) {
+      const m = e instanceof Error ? e.message.slice(0, 300) : 'fallo sin mensaje';
+      this.logger.error(`[CG.58.6] no se pudo clasificar el grano: ${m}`);
+      motivo = motivo ? `${motivo} · grano: ${m}` : `grano: ${m}`;
+    }
 
     await this.latir(cubiertos, pendientes, Date.now() - t0, motivo, granos);
     return { cubiertos, pendientes, motivo };
@@ -112,9 +128,15 @@ export class CaosIngresoCronService {
    * de que el cron corra.
    */
   private async clasificarGranos(): Promise<number> {
-    try {
+    /**
+     * `[CGP-L.6]` Leer y escribir en UNA transacción con el tenant fijado. `finance.caos_deposito_grano`
+     * tiene RLS FORZADO: por la conexión cruda la escritura se rechazaba, y la LECTURA del
+     * `NOT EXISTS` veía la tabla vacía —así que volvía a elegir depósitos ya clasificados y chocaba
+     * contra `cdg_un_deposito`—. Lo destapó la segunda corrida de la prueba contra la base.
+     */
+    return this.tk.run(MEGA, async (trx) => {
       const nuevos: Array<{ device: string; external_id: string; occurred_at: Date; total: string; ref: string | null }> =
-        await this.knex('analytics.caos_cash_movements as m')
+        await trx('analytics.caos_cash_movements as m')
           .where('m.tenant_id', MEGA)
           .where('m.type_id', 0)
           .whereNotExists(function (this: Knex.QueryBuilder) {
@@ -127,7 +149,8 @@ export class CaosIngresoCronService {
       if (!nuevos.length) return 0;
 
       const filas = nuevos.map((d) => {
-        const dia = new Date(d.occurred_at).toISOString().slice(0, 10);
+        // `[CGP-L.5]` El día de NEGOCIO del depósito (México), no el de UTC.
+        const dia = diaMxDeInstante(d.occurred_at) ?? '';
         const a = atribuirDeposito(d.ref, dia);
         return {
           tenant_id: MEGA,
@@ -141,17 +164,13 @@ export class CaosIngresoCronService {
           motivo: a.motivo,
           monto: d.total,
         };
-      });
-      for (let i = 0; i < filas.length; i += 500) {
-        await this.knex('finance.caos_deposito_grano').insert(filas.slice(i, i + 500));
-      }
-      this.logger.log(`[CG.58.6] ${filas.length} depósito(s) clasificados por grano`);
-      return filas.length;
-    } catch (e) {
-      // No puede tumbar la atribución de cobros, que es la mitad que mueve dinero.
-      this.logger.warn(`[CG.58.6] no se pudo clasificar el grano: ${e instanceof Error ? e.message : e}`);
-      return 0;
+    });
+    for (let i = 0; i < filas.length; i += 500) {
+      await trx('finance.caos_deposito_grano').insert(filas.slice(i, i + 500));
     }
+    this.logger.log(`[CG.58.6] ${filas.length} depósito(s) clasificados por grano`);
+    return filas.length;
+    });
   }
 
   private async latir(cubiertos: number, pendientes: number, ms: number, motivo: string | null, granos: number): Promise<void> {

@@ -8,7 +8,7 @@
  *     volvería a capturar de a una y toda la fase sería inútil.
  */
 import {
-  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, aplicaPatron, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS, LOTE_EPSILON, REGLA_MAX_PATRON,
   type MapaRuta, type FilaLote, type UsoGasto, type ReglaGasto,
 } from './caja-lote.engine';
@@ -452,5 +452,36 @@ describe('CAIDO_DIAS — cuándo un recurrente cuenta como caído', () => {
   it('son 21 días, y no 30, porque el hueco normal llega a 17', () => {
     // Con 30 se perderían los 11 que hoy están caídos en prod.
     expect(CAIDO_DIAS).toBe(21);
+  });
+});
+
+// ── `[CGP-L.8]` El cambio devuelto RESTA ───────────────────────────────────────────────────────────
+//
+// La pantalla manda las dos pilas con su `flujo` y cuadra `recibido − devuelto = monto`. El motor las
+// SUMABA: una captura de $380 pagada con un billete de $500 y $120 de cambio daba $620 contra $380, y
+// el servidor la rechazaba por «no cuadra». Toda captura con cambio, rechazada.
+describe('[CGP-L.8] evaluarArqueo y desgloseNeto respetan el flujo', () => {
+  const COBRO_CON_CAMBIO = [
+    { denominacion: 500, piezas: 1, flujo: 'recibido' as const },
+    { denominacion: 100, piezas: 1, flujo: 'devuelto' as const },
+    { denominacion: 20, piezas: 1, flujo: 'devuelto' as const },
+  ];
+
+  it('⛔ $500 recibidos y $120 de cambio cuadran contra $380', () => {
+    expect(evaluarArqueo(380, 0, COBRO_CON_CAMBIO)).toEqual({ ok: true, motivo: 'cuadra', suma: 380 });
+  });
+
+  it('⛔ [negativa] el mismo cambio contra $620 (sumándolo) NO cuadra', () => {
+    expect(evaluarArqueo(620, 0, COBRO_CON_CAMBIO).ok).toBe(false);
+  });
+
+  it('un renglón sin flujo es lo recibido (el front viejo no lo mandaba)', () => {
+    expect(evaluarArqueo(500, 0, [{ denominacion: 500, piezas: 1 }])).toMatchObject({ ok: true, suma: 500 });
+  });
+
+  it('desgloseNeto: recibido − devuelto + morralla', () => {
+    expect(desgloseNeto(COBRO_CON_CAMBIO, 0.5)).toBe(380.5);
+    expect(desgloseNeto([], 0)).toBe(0);
+    expect(desgloseNeto(null, 3)).toBe(3);
   });
 });
