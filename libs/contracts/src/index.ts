@@ -139,6 +139,7 @@ export * from './finance/dia-corto.contract';
 export * from './finance/jornadas-pendientes.contract';
 export * from './finance/caja-sucursal.contract';
 export * from './finance/dia-negocio.contract';
+export * from './finance/corte-caja.contract';
 export * from './finance/protocolo-gasto.contract';
 // `[GX.75]` La transferencia XD2601 que pagó el gasto: tercer número del expediente.
 export * from './finance/transferencia-gasto.contract';

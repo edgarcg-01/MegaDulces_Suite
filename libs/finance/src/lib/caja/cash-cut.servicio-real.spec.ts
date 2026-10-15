@@ -28,7 +28,8 @@ const CAJERA = { id: '00000000-0000-0000-0000-0000000000c1', username: 'cajera_p
 const AUTORIZA = { id: '00000000-0000-0000-0000-0000000000c2', username: 'autoriza_prueba' };
 // Un año PASADO distinto por corrida: un corte es único por (sucursal, fecha), y desde `[CGP-L.4]`
 // no se abre una fecha que todavía no pasa (la primera versión usaba años 2100+ y quedó inválida).
-// El año lo elige `anioLibre()` en `beforeAll`, entre 1990 y 2019; la ancla de L.4 va 1000 años antes.
+// El año lo elige `anioLibre()` en `beforeAll`, entre 1100 y 2019; la ancla de L.4 va 1000 años antes
+// (100–1019). Con 30 años el rango se agotó en un día de corridas sobre la misma base.
 let ANIO = 0;
 // Una marca por corrida en las sucursales y los folios sembrados: dos corridas nunca comparten sucursal.
 const CORRIDA = Date.now().toString(36);
@@ -74,7 +75,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     const ctx = { requireTenantId: () => T } as unknown as TenantContextService;
     tk = new TenantKnexService(knex, ctx);
     svc = new CashCutService(tk, ctx);
-    ANIO = await anioLibre(tk, 1990, 30);
+    ANIO = await anioLibre(tk, 1100, 920);
   });
   afterAll(async () => {
     await knex?.destroy();
@@ -292,6 +293,26 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     await expect(svc.contar(c.id, { conteo: conteo(['100', 100, 1]), morralla: 0, cero_declarado: true }, CAJERA))
       .rejects.toThrow(/no hay efectivo/);
     expect((await corte(c.id)).contado).toBeNull();   // nada quedó sellado
+  });
+
+  it('`[CGP-L.7]` abrir, cerrar, autorizar y listar responden con el dinero como número y la fecha como día', async () => {
+    const f = dia('03-13');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('T7'), fondo_inicial: 500 }, CAJERA);
+    // Antes: '500.00' (texto) y un Date que por JSON viajaba con hora.
+    expect(c.fondo_inicial).toBe(500);
+    expect(c.fecha).toBe(f);
+    await movimiento(f, suc('T7'), 'ingreso', 1000);
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1], ['500', 500, 1]), morralla: 0 }, CAJERA);
+    const cerrado = await svc.cerrar(c.id, {}, CAJERA);
+    expect(cerrado.esperado).toBe(1500);
+    expect(cerrado.contado).toBe(1500);
+    const aut = await svc.autorizar(c.id, AUTORIZA);
+    expect(aut.estado).toBe('autorizado');
+    expect(typeof aut.authorized_at).toBe('string');
+    const l = await svc.listar({ sucursal: suc('T7') });
+    expect(l.rows[0]).toMatchObject({ folio: c.folio, fecha: f, esperado: 1500, diferencia: 0 });
+    // Lo que no es del contrato no sale.
+    expect((l.rows[0] as unknown as Record<string, unknown>)['tenant_id']).toBeUndefined();
   });
 
   it('⛔ `[CGP-L.2]` lo que se firma es lo que se reveló: si el esperado cambió después de contar, 409', async () => {

@@ -64,7 +64,7 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
       notify: async (_t: string, n: FinanceNotice) => { avisos.push(n); },
     });
 
-    ANIO = await anioLibre(tk, 1950, 40);
+    ANIO = await anioLibre(tk, 1200, 790);
     ANCLA = `${ANIO}-06-10`;
     SIN_CORTE = [`${ANIO}-06-11`, `${ANIO}-06-12`];
     await tk.run(async (trx) => {

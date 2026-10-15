@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -403,24 +403,12 @@ export class CashLedgerService {
   }
 }
 
-export interface CorteCaja {
-  id: string;
-  folio: string;
-  fecha: string;
-  sucursal: string;
-  estado: 'borrador' | 'cerrado' | 'autorizado';
-  fondo_inicial: number;
-  total_ingresos: number | null;
-  total_gastos: number | null;
-  total_depositos: number | null;
-  esperado: number | null;
-  contado: number | null;
-  diferencia: number | null;
-  closed_by: string | null;
-  closed_by_username: string | null;
-  authorized_by_username: string | null;
-  nota: string | null;
-}
+/**
+ * `[CGP-L.7]` El corte, con la forma del contrato que comparte con el servidor: el dinero como número
+ * y la fecha como día. Antes era una copia a mano que decía `number` mientras llegaba texto, y
+ * `fondo_inicial: number` cuando el servidor manda `null` si no se midió.
+ */
+export type CorteCaja = CorteCajaDto;
 
 export interface TotalesCorte {
   ingresos: number; gastos: number; depositos: number;

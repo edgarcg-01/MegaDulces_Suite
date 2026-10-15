@@ -3,7 +3,10 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { denomKeyDeValor, SUCURSAL_CAJA_GENERAL, diaDeFecha, type JornadasPendientes } from '@megadulces/contracts';
+import {
+  denomKeyDeValor, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
+  type JornadasPendientes, type CorteCajaDto,
+} from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte } from './caja-jornadas.query';
@@ -512,7 +515,8 @@ export class CashCutService {
     return p.catch((e: unknown) => traducirErrorDeCaja(e));
   }
 
-  async abrir(input: AbrirCorteInput, user: Usuario) {
+  // `[CGP-L.7]` Las cuatro respuestas del corte salen por el contrato: dinero como número, fecha como día.
+  async abrir(input: AbrirCorteInput, user: Usuario): Promise<CorteCajaDto> {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.conFrase(this.tk.run(async (trx) => {
@@ -616,7 +620,7 @@ export class CashCutService {
       // caja no lo trae, el insert viola `NOT NULL` y la apertura devuelve 500 — el mismo defecto
       // que tiró `contar` y después `cerrar`, esperando su turno en el tercer camino.
       await this.guardarDenominaciones(trx, tenantId, c.id, 'apertura', input.apertura);
-      return c;
+      return aCorteCajaDto(c);
     }));
   }
 
@@ -1001,11 +1005,11 @@ export class CashCutService {
       // `[CG.155]` cerró; reaparece por otra puerta en cuanto el origen del conteo deja de ser uno.
       await this.guardarDenominaciones(trx, tenantId, id, 'cierre', conteo);
 
-      return { ...cerrado, totales: t };
+      return { ...aCorteCajaDto(cerrado), totales: t };
     }));
   }
 
-  async autorizar(id: string, user: Usuario) {
+  async autorizar(id: string, user: Usuario): Promise<CorteCajaDto> {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.conFrase(this.tk.run(async (trx) => {
@@ -1033,11 +1037,11 @@ export class CashCutService {
         authorized_by: u.id, authorized_by_username: u.username ?? null, authorized_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       }).returning('*');
-      return aut;
+      return aCorteCajaDto(aut);
     }));
   }
 
-  async listar(q: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number }) {
+  async listar(q: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number }): Promise<{ rows: CorteCajaDto[]; limit: number }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 200);
     return this.tk.run(async (trx) => {
@@ -1047,7 +1051,7 @@ export class CashCutService {
       if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
       if (q.estado) qb = qb.where('estado', q.estado);
       const rows = await qb.orderBy('fecha', 'desc').orderBy('folio', 'desc').limit(limit);
-      return { rows, limit };
+      return { rows: rows.map(aCorteCajaDto), limit };
     });
   }
 
