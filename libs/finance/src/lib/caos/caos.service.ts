@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { diaMxDeInstante } from '@megadulces/contracts';
+import type { Knex } from 'knex';
 
 /**
  * ⚠️ `[CG.163]` El default de la ventana se calculaba con
@@ -151,7 +152,7 @@ export class CaosService {
       const tipos = await trx('analytics.caos_cash_movements')
         .where('tenant_id', tenantId)
         .where('occurred_at', '>=', desde)
-        .modify((qb: any) => { if (hasta) qb.where('occurred_at', '<', hasta); })
+        .modify((qb: Knex.QueryBuilder) => { if (hasta) qb.where('occurred_at', '<', hasta); })
         .select('type_id', 'type_label')
         .count({ n: '*' })
         .groupBy('type_id', 'type_label')
@@ -201,7 +202,7 @@ export class CaosService {
        * `sin_clasificar`; no se cuenta como «sin ruta», que es otra cosa.
        */
       const porRuta = await trx('analytics.caos_cash_movements as m')
-        .leftJoin('finance.caos_deposito_grano as g', function joinGrano(this: any) {
+        .leftJoin('finance.caos_deposito_grano as g', function joinGrano(this: Knex.JoinClause) {
           this.on('g.tenant_id', '=', 'm.tenant_id')
             .andOn('g.caos_device', '=', 'm.device')
             .andOn('g.caos_external_id', '=', 'm.external_id')
@@ -210,7 +211,7 @@ export class CaosService {
         .where('m.tenant_id', tenantId)
         .where('m.type_id', 0)
         .where('m.occurred_at', '>=', desde)
-        .modify((qb: any) => { if (hasta) qb.where('m.occurred_at', '<', hasta); })
+        .modify((qb: Knex.QueryBuilder) => { if (hasta) qb.where('m.occurred_at', '<', hasta); })
         .select(trx.raw(`coalesce(g.grano, 'sin_clasificar') AS grano`))
         .select('g.ruta', 'g.plaza')
         .select(trx.raw(`coalesce(g.motivo, 'el carril de clasificación todavía no lo vio') AS motivo`))
@@ -322,7 +323,8 @@ export class CaosService {
        * miente. Se publica la suma al lado del total para que la diferencia se VEA (ADR-056).
        */
       const denominaciones_total = denom.reduce(
-        (a: number, d: any) => a + Number(d.denom) * Number(d.quantity), 0,
+        (a: number, d: { denom: string | number; quantity: string | number }) =>
+          a + Number(d.denom) * Number(d.quantity), 0,
       );
       return {
         ...mov,
