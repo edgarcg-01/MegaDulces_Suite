@@ -570,3 +570,69 @@ O sea que *«¿se depositó, y en qué cuenta?»* se contesta **hoy**, sin esper
 
 ⛔ **`U-D-12` sigue FUERA y eso no cambia**: en estas rutas es espejo (98.2 % de solape, placebo 0,
 y el arqueo lo ignora). Lo que entra es `U-D-8`, que es el crédito de verdad.
+
+---
+
+# `[VEC.22]` — ⛔ CORRECCIÓN: el índice de `[VEC.13]` NO arregló la vista. El arreglo es otro, y está medido
+
+> `[VEC.13]` se commiteó afirmando que el índice sobre `kduv` bajaría
+> `v_kepler_vecinal_monthly` de 1,077 ms a ~42 ms y que eso **desbloqueaba retirar la copia**.
+> **Las dos cosas son falsas.** Medido en prod el 2026-10-15, con el índice ya aplicado
+> (batch 931):
+
+```
+v_kepler_vecinal_monthly (vista VIVA) ....  1,604 / 1,490 / 1,127 ms
+mv_kepler_vecinal_monthly (la COPIA) ....       4 /     4 /     4 ms
+```
+
+## Por qué me equivoqué
+
+La prueba que me convenció fue `SET enable_nestloop = off`, que bajó la vista a 42 ms. De ahí
+concluí *"falta el índice"*. **El índice no era lo que esa prueba demostraba.** Lo que demostraba
+es que **la ESTRATEGIA de join** estaba mal, y forzar un hash la arreglaba.
+
+El plan de hoy, con el índice puesto, lo dice:
+
+```
+Nested Loop Left Join  (cost=... rows=1) (actual rows=9135, loops=1)
+  Rows Removed by Join Filter: 3,644,865
+  ->  Index Scan using ix_kdm1_ruta_vecinal on kdm1  (rows=1 estimado · 9,135 real)
+  ->  Seq Scan on kduv  (rows=400, loops=9135)
+```
+
+⭐ **La causa es la ESTIMACIÓN, no el acceso**: el planner cree que el lado externo trae **1 fila**
+(trae 9,135). Con un estimado de 1, un nested loop con seq scan de 400 filas parece costar ~10
+unidades — **ningún índice cambia esa elección**, porque el planner cree que el bucle corre una vez.
+
+⚠️ El índice **no fue inútil**: `pg_stat_user_indexes` lo da con **103,656 scans**, así que otros
+consumidores de `kduv` sí lo usan. Pero **no arregla esta vista**, que es lo que el commit decía.
+
+## El arreglo real, medido
+
+Resolver `kduv` **DESPUÉS de agrupar** — 61 filas en vez de 9,135 — en vez de unirlo por documento:
+
+```
+cabeceras agrupadas, SIN kduv ................  70 / 39 / 42 ms
+kduv resuelto DESPUÉS de agrupar (61 filas) ..  46 / 45 / 46 ms
+hoy (kduv por documento) ..................... 1,127-1,604 ms
+```
+
+**35×**, y sin tocar ningún índice.
+
+⛔ **No se implementó todavía, a propósito.** `route_name` vive hoy en
+`v_kepler_vecinal_sales_docs` (grano documento) y lo consume la matriz; moverlo al rollup es un
+**cambio de contrato sobre tres vistas encadenadas** (docs → monthly → matview, con su PK UNIQUE).
+Hacer esa reestructura al final de una sesión larga, justo después de haberme equivocado sobre esta
+misma vista, es cómo se produce el error siguiente.
+
+## Lo que esto cambia en las decisiones ya tomadas
+
+- ⛔ **La copia `mv_kepler_vecinal_monthly` SIGUE justificada** (4 ms contra 1,500). El commit de
+  `[VEC.13]` decía que quedaba sin razón de ser: **no es cierto a día de hoy.**
+- ✅ `[VEC.14]` sí entregó: en prod, septiembre da bruto $1,943,014.72 · IVA $112,060.52 ·
+  IEPS $69,251.27 · **neto $1,761,702.93**.
+
+⚠️ **Y una trampa que casi me hace concluir mal otra vez:** al preguntar si las migraciones estaban
+aplicadas, `knex` resolvió `identity.knex_migrations` (vacía) en vez de `public.knex_migrations`
+(donde sí están, batches 931 y 933). *Prod tiene DOS ledgers y el que contesta depende del
+`search_path`* — un `[]` ahí se lee como «no está aplicada».
