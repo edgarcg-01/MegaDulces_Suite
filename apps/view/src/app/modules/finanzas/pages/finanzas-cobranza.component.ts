@@ -134,7 +134,7 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
         <p class="cb-ruido muted">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
           «Hay cobro candidato» significa que existe un cobro del mismo importe y fecha cercana —
-          <b>no</b> que sea ése. Medido contra su placebo, ~1 de cada 13 coincide por azar: revisá
+          <b>no</b> que sea ése. Medido contra su placebo, ~1 de cada 13 coincide por azar: revisa
           antes de ligar.
         </p>
         @if (errorB()) {

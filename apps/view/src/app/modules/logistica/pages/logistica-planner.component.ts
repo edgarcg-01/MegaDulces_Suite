@@ -21,7 +21,7 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
         <div class="surf-page-head-text">
           <span class="pl-eyebrow"><i class="pi pi-compass" aria-hidden="true"></i> Logística</span>
           <h1>Planeador de ruta</h1>
-          <p class="surf-page-sub">Seleccioná un embarque, optimizá el orden de las paradas y velo en el mapa.</p>
+          <p class="surf-page-sub">Selecciona un embarque, optimiza el orden de las paradas y velo en el mapa.</p>
         </div>
       </header>
     
@@ -29,7 +29,7 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
       <div class="sheet cols-12">
         <article class="cell cell-span-12 pl-build">
           <span class="cell-label">Armar reparto del día</span>
-          <p class="comm-muted is-small" style="margin:.25rem 0 .75rem">Elegí unidad + pedidos pendientes → crea el embarque, la guía y optimiza la ruta.</p>
+          <p class="comm-muted is-small" style="margin:.25rem 0 .75rem">Elige unidad + pedidos pendientes → crea el embarque, la guía y optimiza la ruta.</p>
           <div class="pl-build-row">
             <p-select [options]="vehicleOptions()" [(ngModel)]="buildVehicle" optionLabel="label" optionValue="value"
             [filter]="true" placeholder="Unidad" styleClass="pl-select" appendTo="body"></p-select>

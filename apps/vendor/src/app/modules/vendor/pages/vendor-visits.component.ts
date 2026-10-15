@@ -52,7 +52,7 @@ import { VendorService, CoverageCustomer } from '../vendor.service';
       <p-card>
         <div class="empty">
           <i class="pi pi-map-marker"></i>
-          <p>No tenés cartera asignada.</p>
+          <p>No tienes cartera asignada.</p>
           <p class="hint">Pedile a tu supervisor que te asigne tus rutas de venta.</p>
         </div>
       </p-card>
@@ -234,7 +234,7 @@ export class VendorVisitsComponent implements OnInit {
           this.toast.add({
             severity: 'error',
             summary: 'No se pudo registrar',
-            detail: e?.error?.message || 'Intentá de nuevo.',
+            detail: e?.error?.message || 'Intenta de nuevo.',
           });
         },
       });

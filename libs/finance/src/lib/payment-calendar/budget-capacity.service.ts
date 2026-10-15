@@ -227,7 +227,7 @@ export class BudgetCapacityService {
       items.sort((a, b) => (a.date < b.date ? -1 : 1));
       return {
         available: true, from, to, basis: 'cobranza_esperada_repartida_en_dias_habiles', as_of: cxc.as_of,
-        note: 'Propuesto = cobranza esperada (CXC) de cada semana ÷ sus días hábiles. NO incluye el saldo en banco; súbelo si querés autorizar contra el saldo disponible.',
+        note: 'Propuesto = cobranza esperada (CXC) de cada semana ÷ sus días hábiles. NO incluye el saldo en banco; súbelo si quieres autorizar contra el saldo disponible.',
         // [CXC.22] La propuesta se arma con lo que vence DENTRO del rango. Lo ya vencido es
         // exigible hoy y no tiene fecha comprometida: viaja declarado para que quien autoriza
         // sepa que la propuesta es conservadora, no que no haya más por cobrar.

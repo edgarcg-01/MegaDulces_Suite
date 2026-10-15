@@ -84,7 +84,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-calendar-times" aria-hidden="true"></i></div><h3>Sin lotes por vencer</h3><p>No hay lotes por vencer en esta ventana. Capturá caducidad al recibir mercancía para verlos aquí.</p></div></td></tr>
+          <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-calendar-times" aria-hidden="true"></i></div><h3>Sin lotes por vencer</h3><p>No hay lotes por vencer en esta ventana. Captura caducidad al recibir mercancía para verlos aquí.</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>

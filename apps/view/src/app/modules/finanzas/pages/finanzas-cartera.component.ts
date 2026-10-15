@@ -271,12 +271,12 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
               } @empty {
-                <tr><td colspan="10" class="ct-empty">Sin cartera para el filtro. Ajustá sucursal o búsqueda.</td></tr>
+                <tr><td colspan="10" class="ct-empty">Sin cartera para el filtro. Ajusta sucursal o búsqueda.</td></tr>
               }
             </tbody>
           </table>
           @if (d.total_clientes > d.clientes.length) {
-            <p class="ct-more muted">Mostrando {{ d.clientes.length }} de {{ d.total_clientes }} clientes. Afiná el filtro para ver el resto.</p>
+            <p class="ct-more muted">Mostrando {{ d.clientes.length }} de {{ d.total_clientes }} clientes. Afina el filtro para ver el resto.</p>
           }
         </section>
       }
@@ -434,7 +434,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
           @if (res.skus.length > 1) { <span class="muted"> · {{ res.skus.length }} SKU coincidieron</span> }
         </p>
         @if (res.truncado) {
-          <p class="ct-bp-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Se muestran los primeros {{ res.renglones.length }}: <b>hay más</b>. Afiná el texto.</p>
+          <p class="ct-bp-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> Se muestran los primeros {{ res.renglones.length }}: <b>hay más</b>. Afina el texto.</p>
         }
         <!-- La cobertura se DECLARA. Un vacío sin esta línea se lee como "no se vendió". -->
         <p class="ct-bp-nota ct-bp-excluye">

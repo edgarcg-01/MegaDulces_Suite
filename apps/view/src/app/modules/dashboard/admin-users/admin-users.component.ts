@@ -488,13 +488,13 @@ export class AdminUsersComponent implements OnInit {
       await navigator.clipboard.writeText(v);
       this.messageService.add({
         severity: 'success', summary: 'Copiada',
-        detail: 'La contraseña quedó en el portapapeles. Anotala antes de cerrar: no se vuelve a mostrar.',
+        detail: 'La contraseña quedó en el portapapeles. Anótala antes de cerrar: no se vuelve a mostrar.',
       });
     } catch {
       // Sin permiso de portapapeles (o http). El campo está visible: se copia a mano.
       this.messageService.add({
         severity: 'warn', summary: 'No se pudo copiar',
-        detail: 'Copiala del campo a mano.',
+        detail: 'Cópiala del campo a mano.',
       });
     }
   }
@@ -1536,7 +1536,7 @@ export class AdminUsersComponent implements OnInit {
           this.messageService.add({
             severity: 'error',
             summary: 'No se pudieron guardar los permisos',
-            detail: this.apiError(err, 'Revisá el detalle e intentá de nuevo.'),
+            detail: this.apiError(err, 'Revisa el detalle e intenta de nuevo.'),
           });
         },
       });
@@ -1591,7 +1591,7 @@ export class AdminUsersComponent implements OnInit {
             this.messageService.add({
               severity: 'error',
               summary: `No se pudo guardar el alcance de ${etiqueta}`,
-              detail: this.apiError(err, 'Revisá el detalle e intentá de nuevo.'),
+              detail: this.apiError(err, 'Revisa el detalle e intenta de nuevo.'),
             });
             // Se corta la cadena: lo ya escrito queda, y el toast dice hasta dónde
             // llegó. Seguir con las demás dejaría un estado a medias sin avisar.

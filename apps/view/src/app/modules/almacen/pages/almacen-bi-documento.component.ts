@@ -37,7 +37,7 @@ import { money } from '../../../shared/util/money.util';
               <div><span class="abd-l">Tipo</span><span class="abd-v abd-mono">{{ d.header['doc_code'] }}</span></div>
               @if (d.header['dest_label']) {
                 <div><span class="abd-l">Destino</span><span class="abd-v">{{ d.header['dest_label'] }}
-                  @if (d.dest_redacted) { <i class="pi pi-lock abd-lock" title="Oculto: no tenés permiso para ver clientes" aria-hidden="true"></i> }
+                  @if (d.dest_redacted) { <i class="pi pi-lock abd-lock" title="Oculto: no tienes permiso para ver clientes" aria-hidden="true"></i> }
                 </span></div>
               }
             </div>

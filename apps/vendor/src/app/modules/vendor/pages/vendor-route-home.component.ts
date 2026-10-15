@@ -103,7 +103,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
                   {{ ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido' }}
                   {{ fmtMoney(ac.pending_total) }} — entregar / ver
                 } @else {
-                  <span class="muted"><i class="pi pi-bolt"></i> Tocá para tomar pedido</span>
+                  <span class="muted"><i class="pi pi-bolt"></i> Toca para tomar pedido</span>
                 }
               </span>
             }
@@ -124,7 +124,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           (click)="detectArrival()"
           >
           <i class="pi pi-map-marker"></i>
-          {{ geoStatus() === 'denied' ? 'Activá la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
+          {{ geoStatus() === 'denied' ? 'Activa la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
         </button>
       }
     
@@ -161,7 +161,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             <div class="empty">
               <i class="pi pi-cloud"></i>
               <p>No se pudo cargar tu ruta.</p>
-              <p class="hint">Revisá tu conexión e intentá de nuevo.</p>
+              <p class="hint">Revisa tu conexión e intenta de nuevo.</p>
               <button pButton (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
             </div>
           </p-card>
@@ -173,7 +173,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             <div class="empty">
               <i class="pi pi-sitemap"></i>
               <p>No hay clientes en tu ronda de hoy.</p>
-              <p class="hint">Agregá un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
+              <p class="hint">Agrega un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
               <div class="empty-actions">
                 <button pButton (click)="addCustomer()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar cliente</span></button>
                 <a pButton severity="secondary" [text]="true" routerLink="/vendor/search"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar un cliente</span></a>
@@ -628,7 +628,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
           this.toast.add({
             severity: 'error',
             summary: 'No se pudo cargar tu ruta',
-            detail: 'Revisá tu conexión e intentá de nuevo.',
+            detail: 'Revisa tu conexión e intenta de nuevo.',
           });
         },
       });
@@ -790,7 +790,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
         },
         error: (e) => {
           this.checking.set(false);
-          this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: e?.error?.message || 'Intentá de nuevo.' });
+          this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: e?.error?.message || 'Intenta de nuevo.' });
         },
       });
   }

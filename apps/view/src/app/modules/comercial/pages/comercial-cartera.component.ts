@@ -35,7 +35,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cartera de ventas</h1>
-          <p class="surf-page-sub">Asigná rutas de venta a cada vendedor y ordená la secuencia de visita de sus clientes.</p>
+          <p class="surf-page-sub">Asigna rutas de venta a cada vendedor y ordena la secuencia de visita de sus clientes.</p>
         </div>
         <div class="ca-tabs">
           <button type="button" class="ca-tab" [class.on]="view() === 'vendedores'" (click)="view.set('vendedores')"><i class="pi pi-users"></i> Vendedores</button>
@@ -47,7 +47,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
       @if (view() === 'sucursales') {
         <article class="ca-panel" style="margin-bottom:1rem">
           <div class="ca-panel-head"><i class="pi pi-pencil"></i> Nombres de sucursales</div>
-          <p class="surf-page-sub" style="margin:0 0 .6rem">Editá cómo se llama cada sucursal (es lo que ve el vendedor en su app).</p>
+          <p class="surf-page-sub" style="margin:0 0 .6rem">Edita cómo se llama cada sucursal (es lo que ve el vendedor en su app).</p>
           @if (!loadingWh()) {
             <div class="ca-wh-list">
               @for (w of warehouses(); track w.id) {
@@ -65,7 +65,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
         </article>
         <article class="ca-panel">
           <div class="ca-panel-head"><i class="pi pi-building"></i> Sucursal de surtido por ruta</div>
-          <p class="surf-page-sub" style="margin:0 0 .6rem">De qué sucursal se surte cada ruta. El vendedor ve la existencia de esta sucursal en su app. La sugerencia sale de la zona — confirmala o corregila.</p>
+          <p class="surf-page-sub" style="margin:0 0 .6rem">De qué sucursal se surte cada ruta. El vendedor ve la existencia de esta sucursal en su app. La sugerencia sale de la zona — confírmala o corrígela.</p>
           @if (loadingWh()) { <p-skeleton height="220px"></p-skeleton> }
           @if (!loadingWh()) {
             <p-table [value]="routesWh()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="62vh">
@@ -167,7 +167,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
           @if (!selectedRoute()) {
             <div class="ca-empty">
               <i class="pi pi-arrow-left"></i>
-              <p>Elegí una ruta para ordenar la secuencia de visita de sus clientes (arrastrá las filas).</p>
+              <p>Elige una ruta para ordenar la secuencia de visita de sus clientes (arrastra las filas).</p>
             </div>
           }
     

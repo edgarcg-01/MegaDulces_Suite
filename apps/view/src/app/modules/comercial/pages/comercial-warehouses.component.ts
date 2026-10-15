@@ -110,7 +110,7 @@ import { ComercialService, Warehouse } from '../comercial.service';
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-warehouse" aria-hidden="true"></i></div>
                     <h3>Sin almacenes</h3>
-                    <p>Creá un almacén para empezar a registrar stock y procesar pedidos.</p>
+                    <p>Crea un almacén para empezar a registrar stock y procesar pedidos.</p>
                     <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo almacén</span></button>
                   </div>
                 </td>

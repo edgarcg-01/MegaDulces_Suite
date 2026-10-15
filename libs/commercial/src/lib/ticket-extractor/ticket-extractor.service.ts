@@ -66,7 +66,7 @@ export class TicketExtractorService {
     }
     if (file.size > MAX_BYTES) {
       throw new BadRequestException(
-        `Imagen excede ${MAX_BYTES} bytes (recibido ${file.size}). Reducí calidad o tamaño.`,
+        `Imagen excede ${MAX_BYTES} bytes (recibido ${file.size}). Reduce calidad o tamaño.`,
       );
     }
 
@@ -78,7 +78,7 @@ export class TicketExtractorService {
         () =>
           reject(
             new GatewayTimeoutException(
-              'La lectura del ticket tardó demasiado. Revisá tu conexión y reintentá.',
+              'La lectura del ticket tardó demasiado. Revisa tu conexión y reintenta.',
             ),
           ),
         PIPELINE_DEADLINE_MS,
@@ -117,7 +117,7 @@ export class TicketExtractorService {
     }
     if (file.size > MAX_BYTES) {
       throw new BadRequestException(
-        `Imagen excede ${MAX_BYTES} bytes (recibido ${file.size}). Reducí calidad o tamaño.`,
+        `Imagen excede ${MAX_BYTES} bytes (recibido ${file.size}). Reduce calidad o tamaño.`,
       );
     }
     let deadline: ReturnType<typeof setTimeout>;
@@ -126,7 +126,7 @@ export class TicketExtractorService {
         () =>
           reject(
             new GatewayTimeoutException(
-              'La lectura de la foto tardó demasiado. Revisá tu conexión y reintentá.',
+              'La lectura de la foto tardó demasiado. Revisa tu conexión y reintenta.',
             ),
           ),
         PIPELINE_DEADLINE_MS,

@@ -131,7 +131,7 @@ interface Arrival {
             <label class="cll-f">
               <span>Código de barras / SKU</span>
               <input pInputText #codeInput [(ngModel)]="code" (keyup.enter)="resolverCodigo()"
-                placeholder="Escaneá o tecleá y Enter" class="cll-code" autofocus />
+                placeholder="Escanea o teclea y Enter" class="cll-code" autofocus />
             </label>
             <label class="cll-f">
               <span>Cantidad @if (sel(); as s) { <em>({{ unidadDe(s) }})</em> }</span>

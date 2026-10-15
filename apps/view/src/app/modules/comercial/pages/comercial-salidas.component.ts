@@ -197,7 +197,7 @@ const MES: Record<string, string> = {
         }
       } @else {
         <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-box"></i></div>
-          <h3>Consultá el reporte</h3><p>Elegí el período y filtros; el reporte carga solo.</p></div>
+          <h3>Consulta el reporte</h3><p>Elige el período y filtros; el reporte carga solo.</p></div>
       }
     </div>
   `,
@@ -366,7 +366,7 @@ export class ComercialSalidasComponent {
 
   load() {
     if (this.periodMode() === 'range' && !(this.rangeDates?.[0] && this.rangeDates?.[1])) {
-      this.toast.add({ severity: 'info', summary: 'Elegí un rango de fechas' });
+      this.toast.add({ severity: 'info', summary: 'Elige un rango de fechas' });
       return;
     }
     this.saveFilters();

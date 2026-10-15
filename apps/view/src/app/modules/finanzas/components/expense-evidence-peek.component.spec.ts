@@ -59,7 +59,7 @@ describe('[GX.68] ExpenseEvidencePeekComponent · el motivo por el que no se ve'
    */
   it('⭐ un 403 muestra el motivo del servidor, no «la conexión»', () => {
     const req = abrirCon();
-    req.flush({ message: 'Este vale no es tuyo. Podés abrir los que vos levantaste o los que comprobaste.' },
+    req.flush({ message: 'Este vale no es tuyo. Puedes abrir los que tú levantaste o los que comprobaste.' },
       { status: 403, statusText: 'Forbidden' });
     fix.detectChanges();
     const msg = fix.componentInstance.errorMsg() || '';

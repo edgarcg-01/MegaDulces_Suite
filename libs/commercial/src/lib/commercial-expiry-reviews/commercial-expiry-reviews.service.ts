@@ -693,7 +693,7 @@ export class CommercialExpiryReviewsService {
 
     if (dim.modeWrite === 'all') {
       if (!wanted || !UUID_REGEX.test(wanted))
-        throw new BadRequestException('Elegí la sucursal (warehouse_id) — tu usuario no está asignado a una sola.');
+        throw new BadRequestException('Elige la sucursal (warehouse_id) — tu usuario no está asignado a una sola.');
       const w = await trx('commercial.warehouses').where({ id: wanted }).whereNull('deleted_at').first();
       if (!w) throw new NotFoundException('Almacén no encontrado');
       // Sólo SUCURSALES. `commercial.warehouses` también tiene almacenes-ruta
@@ -710,7 +710,7 @@ export class CommercialExpiryReviewsService {
       // Cazado por el smoke, no por el build.
       if (!/^[0-9]{2}$/.test(String(w.code || '')))
         throw new BadRequestException(
-          `"${w.name || w.code}" no es una sucursal (código ${w.code}), y las caducidades se archivan por sucursal. Elegí una de las sucursales.`,
+          `"${w.name || w.code}" no es una sucursal (código ${w.code}), y las caducidades se archivan por sucursal. Elige una de las sucursales.`,
         );
       return { id: w.id, code: w.code, name: w.name };
     }
@@ -728,7 +728,7 @@ export class CommercialExpiryReviewsService {
     if (rows.length === 1) return rows[0];
     // Alcance de varias sucursales: que diga en cuál.
     const pick = wanted ? rows.find((r: any) => r.id === wanted) : undefined;
-    if (!pick) throw new BadRequestException('Tenés varias sucursales en tu alcance: elegí en cuál registrar.');
+    if (!pick) throw new BadRequestException('Tienes varias sucursales en tu alcance: elige en cuál registrar.');
     return pick;
   }
 
@@ -845,7 +845,7 @@ export class CommercialExpiryReviewsService {
   async createEntry(dto: EntryDto) {
     this.validateLine(dto);
     if (!dto.product_id && !String(dto.product_code_raw || '').trim() && !String(dto.product_name_raw || '').trim())
-      throw new BadRequestException('Decí qué producto es (escaneado, buscado o al menos su código).');
+      throw new BadRequestException('Di qué producto es (escaneado, buscado o al menos su código).');
 
     const ctx = this.tenantCtx.get();
     return this.tk.run(async (trx) => {

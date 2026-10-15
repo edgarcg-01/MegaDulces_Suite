@@ -162,7 +162,7 @@ interface GastoFile {
               <label class="cb-pickbtn"><i class="pi pi-file-pdf"></i> Elegir PDF
                 <input type="file" accept="application/pdf" (change)="onFile($event)" hidden />
               </label>
-              <span class="cb-drop-hint"><i class="pi pi-cloud-upload" aria-hidden="true"></i> o arrastrá el PDF aquí</span>
+              <span class="cb-drop-hint"><i class="pi pi-cloud-upload" aria-hidden="true"></i> o arrastra el PDF aquí</span>
             </div>
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </div>
@@ -210,7 +210,7 @@ interface GastoFile {
               <div><dt>Banco destino</dt><dd>{{ ocrForm.banco_destino || '—' }}</dd></div>
               <div class="cb-read-wide"><dt>Beneficiario</dt><dd>{{ ocrForm.beneficiario || '—' }}</dd></div>
             </dl>
-            <p class="cb-read-out">Si algo quedó mal leído: <button type="button" class="cb-linkbtn" (click)="runOcr()">releer</button>, subí un archivo mejor, o guardá así y que se resuelva al validar.</p>
+            <p class="cb-read-out">Si algo quedó mal leído: <button type="button" class="cb-linkbtn" (click)="runOcr()">releer</button>, sube un archivo mejor, o guarda así y que se resuelva al validar.</p>
           }
 
           <!-- PC.2 — foto(s) del gasto (evidencia de lo comprado); Σ se valida contra el pago -->

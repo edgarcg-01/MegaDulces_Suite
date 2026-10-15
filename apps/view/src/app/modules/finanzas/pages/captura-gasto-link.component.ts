@@ -443,7 +443,7 @@ export class CapturaGastoLinkComponent {
   readonly llevaTicket = computed(() => requiereEvidencia(this.clasificacion()));
   clasHint(): string {
     switch (this.clasificacion()) {
-      case 'fiscal': return 'Te dieron factura. Sacale foto junto con la solicitud firmada.';
+      case 'fiscal': return 'Te dieron factura. Sácale foto junto con la solicitud firmada.';
       case 'no_fiscal_comprobable': return 'Te dieron ticket o nota, pero no factura.';
       case 'no_comprobable': return 'No hay ticket ni factura. Vas a tener que contar por qué.';
       default: return 'Elige una para continuar.';

@@ -282,7 +282,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         <ng-template #pickOne>
           <div class="comm-empty gc-pick">
             <i class="pi pi-arrow-left"></i>
-            <p>Elegí una guía para ver su desglose</p>
+            <p>Elige una guía para ver su desglose</p>
           </div>
         </ng-template>
       </aside>

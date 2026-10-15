@@ -131,7 +131,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 @if (!loading() && loadError() && customers().length === 0) {
                   <div class="empty">
                     <i class="pi pi-cloud"></i>
-                    <p>No se pudo buscar. Revisá tu conexión.</p>
+                    <p>No se pudo buscar. Revisa tu conexión.</p>
                     <a pButton severity="secondary" [text]="true" (click)="retry()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></a>
                   </div>
                 }
@@ -145,7 +145,7 @@ import { AuthService } from '../../../core/services/auth.service';
                       <p>No tienes clientes en tu ruta de hoy.</p>
                     }
                     @if (!search && tab() === 'others') {
-                      <p>Escribí para buscar un cliente.</p>
+                      <p>Escribe para buscar un cliente.</p>
                     }
                     @if (search) {
                       <a pButton severity="secondary" [text]="true" (click)="toggleForm()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear cliente nuevo</span></a>
@@ -155,7 +155,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 <!-- Resultados previos en pantalla pero la última búsqueda falló -->
                 @if (!loading() && loadError() && customers().length > 0) {
                   <button type="button" class="err-banner" (click)="retry()">
-                    <i class="pi pi-exclamation-triangle"></i> No se pudo actualizar — tocá para reintentar
+                    <i class="pi pi-exclamation-triangle"></i> No se pudo actualizar — toca para reintentar
                   </button>
                 }
                 @if (!loading() && customers().length > 0) {
@@ -657,7 +657,7 @@ export class VendorCustomersComponent implements OnInit {
           this.saving.set(false);
           this.formError.set(
             e?.error?.message ||
-              'No se pudo crear el cliente. Revisá los datos e intentá de nuevo.',
+              'No se pudo crear el cliente. Revisa los datos e intenta de nuevo.',
           );
         },
       });

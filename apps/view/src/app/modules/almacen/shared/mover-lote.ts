@@ -76,12 +76,12 @@ export function validarMovimiento(m: MovimientoPropuesto): Veredicto {
   const aviso = `${nombre} · tiene ${Number(destino.unidades ?? 0)} unidades`;
 
   if (!Number.isFinite(cantidad) || cantidad <= 0)
-    return { puede: false, aviso: 'Escribí cuánto vas a mover.', esProblema: true };
+    return { puede: false, aviso: 'Escribe cuánto vas a mover.', esProblema: true };
 
   if (cantidad > disponible)
     return {
       puede: false,
-      aviso: `En ${desde} hay ${disponible}: no podés mover ${cantidad}.`,
+      aviso: `En ${desde} hay ${disponible}: no puedes mover ${cantidad}.`,
       esProblema: true,
     };
 

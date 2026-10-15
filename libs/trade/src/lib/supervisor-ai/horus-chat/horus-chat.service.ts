@@ -25,9 +25,9 @@ const THINK_MAX_TOKENS = 8192;
 const THINK_TIMEOUT_MS = 60_000;
 const DEEP_ITERATIONS = 12;
 const DEEP_DIRECTIVE =
-  '\n\nMODO INVESTIGACIÓN PROFUNDA: investigá de forma exhaustiva. Usá varias tools y ' +
-  'cruzá los resultados (salud + hallazgos + baseline + timeline + visión). No te conformes ' +
-  'con el primer dato; entregá un diagnóstico completo citando la evidencia de cada afirmación.';
+  '\n\nMODO INVESTIGACIÓN PROFUNDA: investiga de forma exhaustiva. Usa varias tools y ' +
+  'cruza los resultados (salud + hallazgos + baseline + timeline + visión). No te conformes ' +
+  'con el primer dato; entrega un diagnóstico completo citando la evidencia de cada afirmación.';
 
 export interface HorusChatTurn {
   role: 'user' | 'assistant';
@@ -148,7 +148,7 @@ export class HorusChatService {
       } catch (e: any) {
         this.logger.warn(`Claude error: ${e?.message || e}`);
         return {
-          answer: 'Tuve un problema consultando los datos en este momento. Probá de nuevo en unos segundos.',
+          answer: 'Tuve un problema consultando los datos en este momento. Prueba de nuevo en unos segundos.',
           source: 'error',
           tools_used: traces,
           iterations,
@@ -179,7 +179,7 @@ export class HorusChatService {
 
     return {
       answer:
-        'La consulta requería demasiados pasos. Reformulá la pregunta de forma más específica (ej: un colaborador o una tienda concretos).',
+        'La consulta requería demasiados pasos. Reformula la pregunta de forma más específica (ej: un colaborador o una tienda concretos).',
       source: 'llm',
       tools_used: traces,
       iterations,

@@ -246,7 +246,7 @@ interface FilaUI extends CaosMovimiento { abierto?: boolean; denom?: CaosDenomin
           </tbody>
         </table>
         @if (hasMore()) {
-          <p class="fin-dim cs-rezago">La lista viene topada en {{ limite }} filas. Acotá el rango para ver el resto.</p>
+          <p class="fin-dim cs-rezago">La lista viene topada en {{ limite }} filas. Acota el rango para ver el resto.</p>
         }
       </app-load-state>
     </div>

@@ -528,7 +528,7 @@ export class CashCutService {
         .where({ tenant_id: tenantId, sucursal: input.sucursal, estado: 'borrador' }).first();
       if (abierto) {
         throw new BadRequestException(
-          `La sucursal ${input.sucursal} ya tiene el corte ${abierto.folio} abierto. Cerralo antes de abrir otro.`);
+          `La sucursal ${input.sucursal} ya tiene el corte ${abierto.folio} abierto. Ciérralo antes de abrir otro.`);
       }
 
       /**
@@ -1837,7 +1837,7 @@ export class CashCutService {
     const m0 = String(motivo ?? '').trim();
     if (m0.length < 12) {
       throw new BadRequestException(
-        'Explicá por qué se reclasifica, con al menos 12 caracteres. Una corrección sin razón '
+        'Explica por qué se reclasifica, con al menos 12 caracteres. Una corrección sin razón '
         + 'escrita es indistinguible de un ajuste para que cuadre.');
     }
     return this.tk.run(async (trx) => {
@@ -1850,7 +1850,7 @@ export class CashCutService {
       if (m.corte_id) {
         throw new BadRequestException(
           'Este movimiento ya entró a un corte: no se reclasifica sin mover un cuadre que alguien '
-          + 'firmó. Registrá un movimiento que lo corrija.');
+          + 'firmó. Registra un movimiento que lo corrija.');
       }
 
       const a = await trx('analytics.v_caja_contracuenta_cobro')
@@ -1906,7 +1906,7 @@ export class CashCutService {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     if (!motivoCancelacionValido(motivo)) {
-      throw new BadRequestException('Explicá por qué se cancela, con al menos 5 caracteres.');
+      throw new BadRequestException('Explica por qué se cancela, con al menos 5 caracteres.');
     }
     return this.tk.run(async (trx) => {
       // ⛔ `[CG.42]` `forUpdate` sobre el MOVIMIENTO, y es lo que hace cierto al freno de abajo.
@@ -1938,7 +1938,7 @@ export class CashCutService {
         throw new BadRequestException(
           m.estado === 'cancelado'
             ? 'Este movimiento ya está cancelado.'
-            : 'Este movimiento ya entró a un corte cerrado: no se puede cancelar sin mover un cuadre que alguien firmó. Registrá un movimiento que lo corrija.');
+            : 'Este movimiento ya entró a un corte cerrado: no se puede cancelar sin mover un cuadre que alguien firmó. Registra un movimiento que lo corrija.');
       }
       const [cancelado] = await trx('finance.cash_ledger').where({ id }).update({
         estado: 'cancelado', cancel_reason: motivo.trim(),

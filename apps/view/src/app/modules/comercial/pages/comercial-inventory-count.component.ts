@@ -58,7 +58,7 @@ interface FeedEntry {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Conteo de inventario</h1>
-          <p class="surf-page-sub">Escaneá el código y registrá la cantidad física. No verás el teórico.</p>
+          <p class="surf-page-sub">Escanea el código y registra la cantidad física. No verás el teórico.</p>
         </div>
       </header>
 
@@ -77,7 +77,7 @@ interface FeedEntry {
               [(ngModel)]="selectedFolioId"
               optionLabel="label"
               optionValue="id"
-              placeholder="Elegí el folio"
+              placeholder="Elige el folio"
               styleClass="ic-folio-select"
               appendTo="body"
               (onChange)="onFolioChange()"
@@ -90,7 +90,7 @@ interface FeedEntry {
           <div class="ic-start">
             <i class="pi pi-stopwatch"></i>
             <h2>Fase {{ currentPass() }} · {{ currentPass() === 1 ? 'Primer conteo' : 'Segundo conteo (ciego)' }}</h2>
-            <p>Al iniciar entrás en modo conteo: la app queda fija en esta pantalla hasta que toques <b>Terminar</b>.</p>
+            <p>Al iniciar entras en modo conteo: la app queda fija en esta pantalla hasta que toques <b>Terminar</b>.</p>
             <button pButton class="ic-start-btn" [loading]="starting()" (click)="startCount()"><span class="p-button-icon p-button-icon-left pi pi-play" aria-hidden="true"></span><span class="p-button-label">Iniciar conteo</span></button>
           </div>
         }
@@ -100,7 +100,7 @@ interface FeedEntry {
           <div class="ic-done">
             <i class="pi pi-check-circle"></i>
             <h2>Fase {{ justFinishedPass() }} terminada</h2>
-            <p>Registramos tu conteo. Esperá a que el supervisor habilite la siguiente fase o cierre el folio.</p>
+            <p>Registramos tu conteo. Espera a que el supervisor habilite la siguiente fase o cierre el folio.</p>
             <button pButton [text]="true" severity="secondary" (click)="startCount()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Volver a contar esta fase</span></button>
           </div>
         }
@@ -125,7 +125,7 @@ interface FeedEntry {
                reintentan, pero NO desaparecen en silencio — el contador los ve y avisa. -->
           @if (discarded().length) {
             <div class="ic-net ic-net-off ic-net-discarded">
-              <span><i class="pi pi-exclamation-triangle"></i> {{ discarded().length }} escaneo(s) rechazado(s) — no llegaron al conteo. Avisá al supervisor.</span>
+              <span><i class="pi pi-exclamation-triangle"></i> {{ discarded().length }} escaneo(s) rechazado(s) — no llegaron al conteo. Avisa al supervisor.</span>
               <ul class="ic-discarded-list">
                 @for (d of discarded(); track d.scan_uuid) {
                   <li><b>{{ d.quantity }}</b> · {{ d.barcode || d.product_id }} <small>{{ d.motivo_descarte }}</small></li>
@@ -141,7 +141,7 @@ interface FeedEntry {
             <div class="ic-progress-meta">
               <span><b>{{ progress()?.counted ?? 0 }}</b> de <b>{{ progress()?.total ?? 0 }}</b> contados</span>
               <span class="ic-remaining"><b>{{ progress()?.remaining ?? 0 }}</b> restantes</span>
-              <span class="ic-mine">vos: <b>{{ progress()?.mine ?? 0 }}</b></span>
+              <span class="ic-mine">tú: <b>{{ progress()?.mine ?? 0 }}</b></span>
             </div>
           </div>
 
@@ -159,7 +159,7 @@ interface FeedEntry {
                 autocomplete="off"
                 [(ngModel)]="code"
                 (keydown.enter)="onCodeEnter()"
-                placeholder="Escaneá, tecleá o usá la cámara"
+                placeholder="Escanea, teclea o usa la cámara"
                 class="ic-input ic-input-code"
               />
               @if (scanSupported()) {
@@ -173,7 +173,7 @@ interface FeedEntry {
                 <video #scanVideo class="ic-scan-video" playsinline muted></video>
                 <div class="ic-scan-mask">
                   <div class="ic-scan-frame"></div>
-                  <p class="ic-scan-hint">Apuntá al código de barras</p>
+                  <p class="ic-scan-hint">Apunta al código de barras</p>
                 </div>
                 <button #scanCancel pButton class="ic-scan-cancel" (click)="stopScan()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar</span></button>
               </div>
@@ -455,7 +455,7 @@ export class ComercialInventoryCountComponent {
   // ───── Escaneo por cámara (ZXing) ─────
   async startScan() {
     if (!this.scanSupported()) {
-      this.toast.add({ severity: 'info', summary: 'Sin acceso a cámara', detail: 'Usá un lector o tecleá el código.' });
+      this.toast.add({ severity: 'info', summary: 'Sin acceso a cámara', detail: 'Usa un lector o teclea el código.' });
       return;
     }
     this.scanning.set(true);
@@ -480,7 +480,7 @@ export class ComercialInventoryCountComponent {
         );
       } catch {
         this.scanning.set(false);
-        this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la cámara', detail: 'Revisá los permisos (requiere HTTPS).' });
+        this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la cámara', detail: 'Revisa los permisos (requiere HTTPS).' });
       }
     }, 80);
   }

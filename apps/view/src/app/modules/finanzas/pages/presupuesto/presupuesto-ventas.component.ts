@@ -148,14 +148,14 @@ import {
                   <td role="cell" data-label="Acciones"></td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usa «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
             </p-table>
             </div>
             <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad) · Proxy canal (entidad nueva, estimada desde su canal) · Sin base (ni entidad ni canal con señal → declarada en 0, no ausente) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—).</p>
           } @else if (loadingSales()) {
             <p class="pres-muted">Cargando presupuesto de ventas…</p>
           } @else {
-            <p class="pres-hint"><span class="pi pi-info-circle"></span> El «meta vs real» consulta el sell-out del ODS (unos segundos). Pulsá <strong>«Cargar meta vs real»</strong> para verlo. La propuesta del plan no lo necesita.</p>
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> El «meta vs real» consulta el sell-out del ODS (unos segundos). Pulsa <strong>«Cargar meta vs real»</strong> para verlo. La propuesta del plan no lo necesita.</p>
           }
         }
 

@@ -260,7 +260,7 @@ export class VehicleAssignmentService {
         .first('folio');
       if (vigente) {
         throw new ConflictException(
-          `La unidad ${vehiculo.plate} ya está asignada en el acta ${vigente.folio}. Registrá la devolución antes de reasignarla.`,
+          `La unidad ${vehiculo.plate} ya está asignada en el acta ${vigente.folio}. Registra la devolución antes de reasignarla.`,
         );
       }
 

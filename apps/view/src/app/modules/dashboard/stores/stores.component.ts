@@ -364,7 +364,7 @@ export class StoresComponent implements OnInit {
               this.promotingId.set(null);
               const detail =
                 err?.error?.message ||
-                'No se pudo promover. Verificá que exista una lista de precios default en /comercial/pricing.';
+                'No se pudo promover. Verifica que exista una lista de precios default en /comercial/pricing.';
               this.messageService.add({
                 severity: 'error',
                 summary: 'Error al promover',

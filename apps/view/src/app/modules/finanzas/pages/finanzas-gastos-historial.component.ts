@@ -90,7 +90,7 @@ function opcionesDeFaceta(
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Historial de levantamientos</h1>
-          <p class="surf-page-sub">Cada día, cuántos gastos se levantaron y cuánto sumaron. Abrí un día para ver sus vales.</p>
+          <p class="surf-page-sub">Cada día, cuántos gastos se levantaron y cuánto sumaron. Abre un día para ver sus vales.</p>
         </div>
       </header>
 

@@ -51,7 +51,7 @@ const EXPLICA: Record<MotivoNegativa, string> = {
   aplicado_en_kepler:
     'Este gasto ya se aplicó en Kepler, así que ya tiene póliza. Cambiarle la evidencia haría que el expediente deje de coincidir con la contabilidad: la corrección va en un documento aparte.',
   todavia_no_decidido: 'Este vale todavía está esperando decisión — no hace falta reabrirlo, todavía se le puede agregar.',
-  ya_abierto: 'Este vale ya está abierto: agregá la evidencia y mandalo otra vez.',
+  ya_abierto: 'Este vale ya está abierto: agrega la evidencia y mándalo otra vez.',
   no_es_tuyo: 'Sólo quien levantó el vale puede pedir que se reabra.',
 };
 

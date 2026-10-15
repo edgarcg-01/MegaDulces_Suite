@@ -73,7 +73,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 
       @if (camaraAbierta()) {
         <div class="psf-cam-ov" role="dialog" aria-modal="true" aria-label="Escaneo con la cámara">
-          <p class="psf-cam-tip">Encuadrá el código de barras</p>
+          <p class="psf-cam-tip">Encuadra el código de barras</p>
           <video #video class="psf-cam-vid" playsinline muted></video>
           <button #cancelar type="button" class="psf-cam-x" (click)="cerrarCamara()" (keyup.escape)="cerrarCamara()">Cancelar</button>
         </div>
@@ -82,7 +82,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
       <div class="psf-pie">
         <span class="psf-est" [class.on]="activo()">
           <span class="psf-dot" aria-hidden="true"></span>
-          {{ activo() ? 'Pistola lista — dispará' : 'Tocá el campo para usar la pistola' }}
+          {{ activo() ? 'Pistola lista — dispara' : 'Toca el campo para usar la pistola' }}
         </span>
         <span class="psf-help">Enter busca · Esc limpia</span>
       </div>
@@ -159,8 +159,8 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 })
 export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
   readonly valor = input.required<string>();
-  readonly etiqueta = input('Escaneá o escribí el código');
-  readonly placeholder = input('Escaneá con la pistola, la cámara o escribí el código');
+  readonly etiqueta = input('Escanea o escribe el código');
+  readonly placeholder = input('Escanea con la pistola, la cámara o escribe el código');
   readonly deshabilitado = input(false);
   /** Resolviendo contra la API: el ícono gira y no se aceptan disparos nuevos. */
   readonly ocupado = input(false);
@@ -214,7 +214,7 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
     // `getUserMedia` no existe fuera de contexto seguro: en http de LAN el botón
     // tiene que decir POR QUÉ no abre, no quedarse mudo.
     if (!navigator.mediaDevices?.getUserMedia) {
-      this.sinCamara.emit('Este equipo no da acceso a la cámara (requiere HTTPS). Usá la pistola o escribí el código.');
+      this.sinCamara.emit('Este equipo no da acceso a la cámara (requiere HTTPS). Usa la pistola o escribe el código.');
       return;
     }
     this.camaraAbierta.set(true);
@@ -237,7 +237,7 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
         );
       } catch {
         this.cerrarCamara();
-        this.sinCamara.emit('No se pudo abrir la cámara. Revisá los permisos del navegador (requiere HTTPS).');
+        this.sinCamara.emit('No se pudo abrir la cámara. Revisa los permisos del navegador (requiere HTTPS).');
       }
     }, 80);
   }

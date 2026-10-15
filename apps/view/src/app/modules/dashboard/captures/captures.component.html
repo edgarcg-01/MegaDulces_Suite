@@ -105,13 +105,13 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
             (onChange)="onSelectRoute($event.value)"
             optionLabel="label"
             optionValue="value"
-            placeholder="Seleccioná tu ruta"
+            placeholder="Selecciona tu ruta"
             appendTo="body"
             styleClass="w-full sm:w-64"
           [filter]="svc.zoneRoutes().length > 8"></p-select>
           @if (svc.zoneRoutes().length === 0) {
             <div class="text-[10px] sm:text-xs text-content-muted mt-1">
-              No hay rutas para tu zona. Avisá a tu supervisor.
+              No hay rutas para tu zona. Avisa a tu supervisor.
             </div>
           }
         </div>
@@ -860,7 +860,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
           <div class="flex flex-col h-full -mx-2 px-2" id="step-5-container">
             <header class="space-y-1 mb-4">
               <h2 class="text-base font-semibold text-content-main">Productos en el exhibidor</h2>
-              <p class="text-xs text-content-muted leading-relaxed">Marca los productos que están en exhibición. Podés escribir una lista o buscar por marca.</p>
+              <p class="text-xs text-content-muted leading-relaxed">Marca los productos que están en exhibición. Puedes escribir una lista o buscar por marca.</p>
             </header>
             <!-- Fase K — Agregar con AI (requiere red) -->
             @if (isOnline()) {
@@ -871,7 +871,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
                 class="w-full mb-3 min-h-[48px] flex items-center justify-center gap-2 px-4 py-3 bg-surface-card border border-brand-orange/40 text-brand-orange rounded-xl text-sm font-medium motion-safe:transition-colors hover:bg-brand-orange/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2">
                 <i class="pi pi-sparkles" aria-hidden="true"></i>
                 <span>Reconocer con AI</span>
-                <span class="text-xs text-content-muted font-normal hidden sm:inline">— pegá tu lista</span>
+                <span class="text-xs text-content-muted font-normal hidden sm:inline">— pega tu lista</span>
               </button>
             }
             <!--
@@ -1024,7 +1024,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
                       <i class="pi pi-search text-xl text-content-muted" aria-hidden="true"></i>
                     </div>
                     <p class="text-sm font-medium text-content-main mb-1">Sin resultados</p>
-                    <p class="text-xs text-content-muted">Probá con otra búsqueda o usa "Reconocer con AI".</p>
+                    <p class="text-xs text-content-muted">Prueba con otra búsqueda o usa "Reconocer con AI".</p>
                   </div>
                 }
               </div>
@@ -1086,7 +1086,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
                 <div class="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
                   <header class="space-y-1">
                     <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
-                    <p class="text-xs text-content-muted leading-relaxed">Tomá la foto del ticket y la IA detecta los productos automáticamente. Con una foto alcanza; si el ticket es muy largo podés agregar más (opcional). Vos confirmás cuáles van al exhibidor.</p>
+                    <p class="text-xs text-content-muted leading-relaxed">Toma la foto del ticket y la IA detecta los productos automáticamente. Con una foto alcanza; si el ticket es muy largo puedes agregar más (opcional). Tú confirmas cuáles van al exhibidor.</p>
                   </header>
                   <!-- Upload state -->
                   @if (!ticketPreview()) {
@@ -1142,7 +1142,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
                           <div class="text-sm">
                             <div class="font-semibold text-content-main">Ticket guardado (sin conexión)</div>
                             <div class="text-xs text-content-muted mt-0.5">
-                              La foto del ticket se guardó. Se analizará automáticamente cuando vuelva la conexión. Tocá Finalizar para guardar la visita.
+                              La foto del ticket se guardó. Se analizará automáticamente cuando vuelva la conexión. Toca Finalizar para guardar la visita.
                             </div>
                           </div>
                         </div>

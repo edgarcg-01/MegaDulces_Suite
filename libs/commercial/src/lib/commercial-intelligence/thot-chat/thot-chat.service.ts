@@ -31,9 +31,9 @@ const THINK_TIMEOUT_MS = 60_000;    // el razonamiento agrega latencia
 // Deep Search = más iteraciones para cruzar más tools + directiva exhaustiva.
 const DEEP_ITERATIONS = 12;
 const DEEP_DIRECTIVE =
-  '\n\nMODO BÚSQUEDA PROFUNDA: investigá de forma exhaustiva. Usá varias tools y ' +
-  'cruzá los resultados (compará períodos, segmentá por marca/cliente/categoría, validá ' +
-  'contra totales). No te conformes con el primer dato; entregá un análisis completo y ' +
+  '\n\nMODO BÚSQUEDA PROFUNDA: investiga de forma exhaustiva. Usa varias tools y ' +
+  'cruza los resultados (compara períodos, segmenta por marca/cliente/categoría, valida ' +
+  'contra totales). No te conformes con el primer dato; entrega un análisis completo y ' +
   'contextualizado, citando los números que respaldan cada afirmación.';
 
 export interface ThotChatTurn {
@@ -58,7 +58,7 @@ const SV_DIM_METRICS: Record<string, string[]> = {
 };
 const SV_TOOL = {
   name: 'compose_sales_view',
-  description: 'Arma el tablero de "Ventas Generales" que responde la pregunta del usuario. Devolvés SOLO la estructura (bloques); los números los pone el sistema. Siempre empezá con un bloque kpi.',
+  description: 'Arma el tablero de "Ventas Generales" que responde la pregunta del usuario. Devuelves SOLO la estructura (bloques); los números los pone el sistema. Siempre empieza con un bloque kpi.',
   input_schema: {
     type: 'object',
     properties: {
@@ -66,7 +66,7 @@ const SV_TOOL = {
       narrative: { type: 'string', description: '1-2 frases en español que expliquen qué muestra el tablero. NO inventes cifras.' },
       filters: {
         type: 'object',
-        description: 'Alcance (WHERE) que recorta TODO el tablero. Usalo cuando la pregunta es sobre algo específico (un producto, una marca, una categoría, un canal). Vacío = toda la red.',
+        description: 'Alcance (WHERE) que recorta TODO el tablero. Úsalo cuando la pregunta es sobre algo específico (un producto, una marca, una categoría, un canal). Vacío = toda la red.',
         properties: {
           sku: { type: 'string', description: 'Código/SKU exacto del producto si la pregunta lo menciona (ej. "79141").' },
           brand: { type: 'string', description: 'Nombre de la marca si la pregunta es de una marca específica.' },
@@ -76,7 +76,7 @@ const SV_TOOL = {
       },
       blocks: {
         type: 'array',
-        description: 'Bloques del tablero, en orden. Empezá con un kpi.',
+        description: 'Bloques del tablero, en orden. Empieza con un kpi.',
         items: {
           type: 'object',
           properties: {
@@ -97,8 +97,8 @@ const SV_TOOL = {
   },
 };
 const SV_SYSTEM = (today: string) =>
-  `Sos Thot, el motor de ventas de Mega Dulces. Tu tarea: traducir una pregunta de ventas en un TABLERO, ` +
-  `llamando SIEMPRE a la tool compose_sales_view. NUNCA escribas números ni SQL: solo elegís qué medir y cómo mostrarlo; ` +
+  `Eres Thot, el motor de ventas de Mega Dulces. Tu tarea: traducir una pregunta de ventas en un TABLERO, ` +
+  `llamando SIEMPRE a la tool compose_sales_view. NUNCA escribas números ni SQL: solo eliges qué medir y cómo mostrarlo; ` +
   `el sistema rellena los datos reales. Hoy es ${today} (America/Mexico_City).\n\n` +
   `Catálogo (no inventes fuera de esto):\n` +
   `- métricas: ventas (monto $, DEFAULT), margen, unidades, tickets, ticket_promedio.\n` +
@@ -107,13 +107,13 @@ const SV_SYSTEM = (today: string) =>
   `- series (histórico) usa range: 30d, 90d, 12m.\n\n` +
   `Reglas:\n` +
   `1. Primer bloque SIEMPRE type:kpi (span 12).\n` +
-  `2. "ventas" = monto por default (revenue-first); usá unidades solo si lo piden explícito.\n` +
-  `3. margen aplica a canal/marca/categoria/producto. "márgenes por proveedor" → usá dimension:marca con metric:margen.\n` +
+  `2. "ventas" = monto por default (revenue-first); usa unidades solo si lo piden explícito.\n` +
+  `3. margen aplica a canal/marca/categoria/producto. "márgenes por proveedor" → usa dimension:marca con metric:margen.\n` +
   `4. histórico / evolución / tendencia → un bloque series.\n` +
-  `5. Si la pregunta es amplia ("centro de control", "todas mis ventas"), armá 3-5 bloques (kpi + varios breakdown/series, span 6).\n` +
+  `5. Si la pregunta es amplia ("centro de control", "todas mis ventas"), arma 3-5 bloques (kpi + varios breakdown/series, span 6).\n` +
   `6. Si es puntual ("ventas por canal"), kpi + 1 breakdown span 12.\n` +
-  `7. Poné títulos claros en español en cada bloque.\n` +
-  `8. ALCANCE: si la pregunta es sobre algo específico, llená filters — producto por código/SKU (ej. "ventas del producto 79141" → filters.sku:"79141"), marca (filters.brand), categoría (filters.category) o canal (filters.channel). ` +
+  `7. Pon títulos claros en español en cada bloque.\n` +
+  `8. ALCANCE: si la pregunta es sobre algo específico, llena filters — producto por código/SKU (ej. "ventas del producto 79141" → filters.sku:"79141"), marca (filters.brand), categoría (filters.category) o canal (filters.channel). ` +
   `Con filters.sku, el desglose útil es por canal o por tiempo (NO por producto). El filtro recorta TODO el tablero (KPIs incluidos), así que las cifras serán las de ese alcance, no las de la red.`;
 
 export interface ThotToolTrace {
@@ -189,7 +189,7 @@ export class ThotChatService {
     source: 'llm' | 'no_api_key' | 'error';
   }> {
     const q = (input.question || '').trim();
-    if (!q) return { spec: this.fallbackSpec('Escribí una pregunta de ventas.'), source: 'error' };
+    if (!q) return { spec: this.fallbackSpec('Escribe una pregunta de ventas.'), source: 'error' };
     if (!this.apiKey) {
       return { spec: this.fallbackSpec('El asistente no está configurado (falta ANTHROPIC_API_KEY).'), source: 'no_api_key' };
     }
@@ -354,7 +354,7 @@ export class ThotChatService {
       } catch (e: any) {
         this.logger.warn(`Claude error: ${e?.message || e}`);
         return {
-          answer: 'Tuve un problema consultando los datos en este momento. Probá de nuevo en unos segundos.',
+          answer: 'Tuve un problema consultando los datos en este momento. Prueba de nuevo en unos segundos.',
           source: 'error',
           tools_used: traces,
           iterations,
@@ -386,7 +386,7 @@ export class ThotChatService {
 
     // Se acabaron las iteraciones — pedir un cierre con lo que ya tiene.
     return {
-      answer: 'La consulta requería demasiados pasos. Reformulá la pregunta de forma más específica (ej: un período o un producto concreto).',
+      answer: 'La consulta requería demasiados pasos. Reformula la pregunta de forma más específica (ej: un período o un producto concreto).',
       source: 'llm',
       tools_used: traces,
       iterations,

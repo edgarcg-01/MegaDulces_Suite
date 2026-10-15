@@ -66,14 +66,14 @@ export function normalizeBinCode(raw: unknown): string {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '-'); // "RACK 12" → "RACK-12": se conserva la intención, no el espacio
-  if (!code) throw new BadRequestException('Escribí el código de la ubicación (es el que se imprime y se escanea).');
+  if (!code) throw new BadRequestException('Escribe el código de la ubicación (es el que se imprime y se escanea).');
   if (code.length > CODE_MAX)
     throw new BadRequestException(
       `El código no puede pasar de ${CODE_MAX} caracteres (escribiste ${code.length}). Es la etiqueta que se pega en el rack: cortito se lee de lejos, p. ej. "R-12".`,
     );
   if (!CODE_OK.test(code))
     throw new BadRequestException(
-      `El código "${code}" tiene caracteres que la pistola no lee igual siempre. Usá letras sin acento, números y - _ . — por ejemplo "R-12" o "T-03-A".`,
+      `El código "${code}" tiene caracteres que la pistola no lee igual siempre. Usa letras sin acento, números y - _ . — por ejemplo "R-12" o "T-03-A".`,
     );
   return code;
 }
@@ -250,7 +250,7 @@ export class BinLocationService {
     if (!UUID.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const used = await trx('commercial.stock_lot_locations').where({ bin_id: id }).where('quantity', '>', 0).first('id');
-      if (used) throw new ConflictException('El bin tiene inventario ubicado; vacialo antes de eliminarlo');
+      if (used) throw new ConflictException('El bin tiene inventario ubicado; vacíalo antes de eliminarlo');
 
       // Las filas en CERO se limpian acá, en la misma transacción.
       //
@@ -317,7 +317,7 @@ export class BinLocationService {
       const lotQty = Number(lotRow.quantity);
       if (located + dto.quantity > lotQty) {
         throw new ConflictException(
-          `No podés ubicar ${dto.quantity}: del lote quedan ${lotQty - located} por ubicar (lote ${lotQty}, ya ubicado ${located}).`,
+          `No puedes ubicar ${dto.quantity}: del lote quedan ${lotQty - located} por ubicar (lote ${lotQty}, ya ubicado ${located}).`,
         );
       }
 
@@ -388,10 +388,10 @@ export class BinLocationService {
 
       const hay = Number(fila?.quantity || 0);
       if (hay <= 0)
-        throw new ConflictException('En esa ubicación no hay nada de ese lote: revisá el rack de origen.');
+        throw new ConflictException('En esa ubicación no hay nada de ese lote: revisa el rack de origen.');
       if (hay < dto.quantity)
         throw new ConflictException(
-          `En el origen hay ${hay} de ese lote y querés mover ${dto.quantity}.`,
+          `En el origen hay ${hay} de ese lote y quieres mover ${dto.quantity}.`,
         );
 
       // Sale del origen. La fila se deja en 0 en vez de borrarla: es el rastro de

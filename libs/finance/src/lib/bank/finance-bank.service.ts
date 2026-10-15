@@ -1953,7 +1953,7 @@ export class FinanceBankService {
         claimed_llave_parcial: {
           docs: bloqueadosPorLlaveParcial,
           monto: Math.round(montoLlaveParcial * 100) / 100,
-          nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-conciliá los periodos anteriores para que la llave quede exacta.',
+          nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-concilia los periodos anteriores para que la llave quede exacta.',
         },
         dry_run: !!dryRun,
         diff,

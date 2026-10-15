@@ -129,7 +129,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <tr><td colspan="8" class="comm-empty-cell">
                   <div class="comm-empty">
                     <i class="pi pi-users comm-empty-icon"></i>
-                    <p>Sin colaboradores. Creá el primero con el botón de arriba.</p>
+                    <p>Sin colaboradores. Crea el primero con el botón de arriba.</p>
                   </div>
                 </td></tr>
               </ng-template>

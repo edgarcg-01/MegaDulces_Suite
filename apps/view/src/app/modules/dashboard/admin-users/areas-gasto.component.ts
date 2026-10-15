@@ -205,7 +205,7 @@ export class AreasGastoComponent {
       .subscribe({
         next: (e) => { this.estado.set(e); this.editado.set({}); this.cargando.set(false); },
         // Un error NO se pinta como «nadie necesita áreas»: eso es otra afirmación.
-        error: () => { this.error.set('No se pudo cargar. ¿Tenés permiso de gestionar usuarios?'); this.cargando.set(false); },
+        error: () => { this.error.set('No se pudo cargar. ¿Tienes permiso de gestionar usuarios?'); this.cargando.set(false); },
       });
   }
 

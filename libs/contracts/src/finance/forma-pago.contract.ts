@@ -65,7 +65,7 @@ export const FORMAS_PAGO: readonly FormaPago[] = [
   { id: 'transferencia', label: 'Transferencia', codigo_kepler: '03', detalle_label: 'Referencia del banco', detalle_ejemplo: '882301',   detalle_max: 30,   detalle_solo_digitos: false },
   { id: 'cheque',        label: 'Cheque',        codigo_kepler: '02', detalle_label: 'Número de cheque',     detalle_ejemplo: '1204',     detalle_max: 12,   detalle_solo_digitos: true },
   { id: 'vales',         label: 'Vales',         codigo_kepler: '07', detalle_label: null,                   detalle_ejemplo: null,       detalle_max: null, detalle_solo_digitos: false },
-  { id: 'otro',          label: 'Otro',          codigo_kepler: '99', detalle_label: '¿Cuál?',               detalle_ejemplo: 'Escribilo', detalle_max: 60,  detalle_solo_digitos: false },
+  { id: 'otro',          label: 'Otro',          codigo_kepler: '99', detalle_label: '¿Cuál?',               detalle_ejemplo: 'Escríbelo', detalle_max: 60,  detalle_solo_digitos: false },
 ] as const;
 
 /** Los ids, para un CHECK de base de datos o una validación rápida. */

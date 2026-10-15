@@ -984,7 +984,7 @@ export class CommercialQuotesService {
       await this.assertEscribeSucursal(current.source_branch);
       if (current.status === 'accepted') {
         throw new ConflictException(
-          'La cotización ya fue aceptada y tiene pedido: cancelá el pedido, no la cotización.',
+          'La cotización ya fue aceptada y tiene pedido: cancela el pedido, no la cotización.',
         );
       }
       if (current.status === 'cancelled') {

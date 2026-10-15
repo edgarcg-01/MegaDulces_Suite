@@ -38,7 +38,7 @@ import { SupervisorAiService, RouteOptRow, RouteOptDetail } from './supervisor-a
             (onChange)="loadDetail($event.value)"
             optionLabel="label"
             optionValue="value"
-            placeholder="Elegí una ruta"
+            placeholder="Elige una ruta"
             [filter]="true"
             styleClass="ro__select"
           />
@@ -50,7 +50,7 @@ import { SupervisorAiService, RouteOptRow, RouteOptDetail } from './supervisor-a
         <p-skeleton height="30rem" />
       } @else if (routes().length === 0) {
         <div class="card empty">
-          Sin rutas con clientes geolocalizados suficientes. Cargá coordenadas de clientes (app vendedor)
+          Sin rutas con clientes geolocalizados suficientes. Carga coordenadas de clientes (app vendedor)
           para poder optimizar el recorrido.
         </div>
       } @else {

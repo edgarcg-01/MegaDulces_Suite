@@ -277,7 +277,7 @@ Devuelve SOLO el mensaje final, sin comillas ni explicación.`;
   }
 
   private async draftExplanation(action: any, chain: Array<{ step: string; text: string }>): Promise<string> {
-    const system = `Eres el asistente de un analista comercial de una distribuidora de dulces (Mega Dulces). El MOTOR ya decidió esta recomendación y su cadena de razonamiento. NO recalcules ni inventes datos: usá SOLO lo provisto. Redacta una explicación breve (2-3 frases, español) de POR QUÉ conviene esta acción, en tono ejecutivo. Devuelve SOLO el texto.`;
+    const system = `Eres el asistente de un analista comercial de una distribuidora de dulces (Mega Dulces). El MOTOR ya decidió esta recomendación y su cadena de razonamiento. NO recalcules ni inventes datos: usa SOLO lo provisto. Redacta una explicación breve (2-3 frases, español) de POR QUÉ conviene esta acción, en tono ejecutivo. Devuelve SOLO el texto.`;
     const userMsg = [
       `Acción: ${action.title}`,
       'Cadena de razonamiento (motor, determinista):',

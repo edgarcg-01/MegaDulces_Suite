@@ -12,6 +12,6 @@ export const countFocusGuard: CanDeactivateFn<unknown> = () => {
   const focus = inject(CountFocusService);
   if (!focus.active()) return true;
   return confirm(
-    'Tenés un conteo en curso. Si salís ahora se interrumpe.\n¿Querés abandonar el conteo?',
+    'Tienes un conteo en curso. Si sales ahora se interrumpe.\n¿Quieres abandonar el conteo?',
   );
 };

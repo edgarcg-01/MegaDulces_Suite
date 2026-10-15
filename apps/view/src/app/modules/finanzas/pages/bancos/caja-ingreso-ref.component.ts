@@ -242,8 +242,8 @@ export class CajaIngresoRefComponent {
     if (!c.fuentes) return [];
     const META: Record<string, { nombre: string; accion: string }> = {
       caja: { nombre: 'Caja (depósitos de tienda)', accion: 'Su origen dejó de alimentarse; mientras no vuelva, los depósitos de tienda no tienen con qué cruzarse.' },
-      cobranza: { nombre: 'Cobranza del ERP', accion: 'Revisá el feed de cobros de Kepler.' },
-      tesoreria: { nombre: 'Tesorería del ERP', accion: 'Revisá el feed de movimientos de banco de Kepler.' },
+      cobranza: { nombre: 'Cobranza del ERP', accion: 'Revisa el feed de cobros de Kepler.' },
+      tesoreria: { nombre: 'Tesorería del ERP', accion: 'Revisa el feed de movimientos de banco de Kepler.' },
       espejo: { nombre: 'Retiros espejo', accion: 'Faltan estados de cuenta cargados para encontrar la pata contraria.' },
     };
     return Object.entries(c.fuentes)

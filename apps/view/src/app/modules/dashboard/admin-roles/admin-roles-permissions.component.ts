@@ -102,7 +102,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
             [(ngModel)]="presetSel" (onChange)="applyPreset($event.value)"
             placeholder="Aplicar plantilla…" appendTo="body" [showClear]="false"
             ariaLabel="Aplicar plantilla de área"
-            pTooltip="Rellena el árbol con los permisos típicos de un área (podés ajustar antes de guardar)"
+            pTooltip="Rellena el árbol con los permisos típicos de un área (puedes ajustar antes de guardar)"
           ></p-select>
           <p-button
             label="Guardar Cambios"
@@ -261,7 +261,7 @@ export class AdminRolesPermissionsComponent implements OnInit {
     this.messageService.add({
       severity: 'info',
       summary: 'Plantilla aplicada',
-      detail: `"${preset.label}" — revisá los permisos y guardá para aplicar.`,
+      detail: `"${preset.label}" — revisa los permisos y guarda para aplicar.`,
     });
   }
 

@@ -172,11 +172,11 @@ const MES: Record<string, string> = {
           }
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
-            <h3>Sin traspasos</h3><p>No hay movimientos de traspaso para los filtros elegidos. Corré el feed <code>import-transfers-monthly.js</code>.</p></div>
+            <h3>Sin traspasos</h3><p>No hay movimientos de traspaso para los filtros elegidos. Corre el feed <code>import-transfers-monthly.js</code>.</p></div>
         }
       } @else {
         <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-sync"></i></div>
-          <h3>Traspasos</h3><p>Elegí año y sucursales; el reporte carga automáticamente.</p></div>
+          <h3>Traspasos</h3><p>Elige año y sucursales; el reporte carga automáticamente.</p></div>
       }
     </div>
   `,

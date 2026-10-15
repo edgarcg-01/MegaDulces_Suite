@@ -89,7 +89,7 @@ import { AdminService } from '../admin.service';
       <!-- [UIM.2] Apilado por campos: las 7 columnas son campos de UN puesto. -->
       <app-load-state class="dt-scope" [loading]="loading()" [error]="error()" [isEmpty]="!visibles().length" [skeletonRows]="10"
                       emptyIcon="pi-sitemap" emptyTitle="Ningún puesto con estos filtros"
-                      emptyHint="Probá con «Todos los departamentos»."
+                      emptyHint="Prueba con «Todos los departamentos»."
                       (retry)="cargar()">
         <p-table [value]="visibles()" [scrollable]="true" scrollHeight="flex"
                  styleClass="p-datatable-sm ax-table dt-stack" [rowHover]="true" dataKey="code"

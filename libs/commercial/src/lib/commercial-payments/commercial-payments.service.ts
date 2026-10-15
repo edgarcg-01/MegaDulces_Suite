@@ -372,7 +372,7 @@ export class CommercialPaymentsService {
     const order = await trx('commercial.orders').where({ id: orderId }).first('customer_id');
     const me = await trx('public.users').where({ id: ctx.userId }).first('customer_id');
     if (!order || !me?.customer_id || order.customer_id !== me.customer_id) {
-      throw new ForbiddenException('No tenés acceso a los pagos de este pedido.');
+      throw new ForbiddenException('No tienes acceso a los pagos de este pedido.');
     }
   }
 }

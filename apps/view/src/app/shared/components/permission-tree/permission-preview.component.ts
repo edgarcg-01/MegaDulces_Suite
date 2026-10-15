@@ -43,7 +43,7 @@ type EstadoMarco = 'cargando' | 'ok' | 'no-embebible';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (!modulo()) {
-      <p class="pv-vacio">Elegí un módulo del árbol para ver qué pantalla abre.</p>
+      <p class="pv-vacio">Elige un módulo del árbol para ver qué pantalla abre.</p>
     } @else {
       <article class="pv">
         <header class="pv-head">
@@ -100,8 +100,8 @@ type EstadoMarco = 'cargando' | 'ok' | 'no-embebible';
             <div>
               <strong>No se puede previsualizar</strong>
               <p>
-                Vos no abrís esta pantalla, así que mostrártela acá sería darte por la ventana lo
-                que la puerta te niega. Podés <strong>quitársela</strong> sin verla; para
+                Tú no abres esta pantalla, así que mostrártela acá sería darte por la ventana lo
+                que la puerta te niega. Puedes <strong>quitársela</strong> sin verla; para
                 concedérsela a alguien, primero tiene que tenerla tu propio perfil.
               </p>
             </div>
@@ -136,7 +136,7 @@ type EstadoMarco = 'cargando' | 'ok' | 'no-embebible';
                 <span>
                   La app no se deja embeber a sí misma (política de framing del servidor), así que
                   el marco queda vacío. Se declara en vez de dejarlo mudo:
-                  <strong>usá «Abrir en una pestaña»</strong>.
+                  <strong>usa «Abrir en una pestaña»</strong>.
                 </span>
               </div>
             }

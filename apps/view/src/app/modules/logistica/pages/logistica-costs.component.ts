@@ -145,7 +145,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     <div class="comm-empty">
                       <i class="pi pi-receipt comm-empty-icon" aria-hidden="true"></i>
                       <strong>Sin costos en este rango.</strong>
-                      <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
+                      <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Prueba ampliar el rango de fechas o abrir un embarque.</span>
                     </div>
                   </td>
                 </tr>

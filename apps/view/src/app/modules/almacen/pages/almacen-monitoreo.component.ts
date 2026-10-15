@@ -65,7 +65,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="5" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-eye" aria-hidden="true"></i></div><h3>Sin monitoreos</h3><p>Iniciá uno manual o desde un expediente de pérdida no identificada.</p></div></td></tr>
+              <tr><td colspan="5" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-eye" aria-hidden="true"></i></div><h3>Sin monitoreos</h3><p>Inicia uno manual o desde un expediente de pérdida no identificada.</p></div></td></tr>
             </ng-template>
           </p-table>
         </section>
@@ -106,11 +106,11 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
                     <td class="num mo-strong" [class.mo-neg]="+c.difference < 0">{{ c.difference }}</td>
                   </tr>
                 </ng-template>
-                <ng-template #emptymessage><tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><p>Sin conteos aún. Registrá el primero.</p></div></td></tr></ng-template>
+                <ng-template #emptymessage><tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><p>Sin conteos aún. Registra el primero.</p></div></td></tr></ng-template>
               </p-table>
             </div>
           } @else {
-            <div class="surf-card mo-placeholder"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-arrow-left" aria-hidden="true"></i></div><h3>Elegí un monitoreo</h3><p>Seleccioná un SKU para registrar conteos y ver sus ventanas de pérdida.</p></div></div>
+            <div class="surf-card mo-placeholder"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-arrow-left" aria-hidden="true"></i></div><h3>Elige un monitoreo</h3><p>Selecciona un SKU para registrar conteos y ver sus ventanas de pérdida.</p></div></div>
           }
         </section>
       </div>
@@ -119,7 +119,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
       <p-dialog [visible]="startOpen()" (visibleChange)="startOpen.set($event)" [modal]="true" [style]="{ width: '520px' }" header="Iniciar monitoreo intensivo" [dismissableMask]="true">
         <div class="mo-form">
           <label class="mo-field"><span>Almacén *</span>
-            <p-select [options]="warehouseOptions()" [(ngModel)]="sWarehouse" optionLabel="label" optionValue="value" placeholder="Elegí" styleClass="mo-w"></p-select>
+            <p-select [options]="warehouseOptions()" [(ngModel)]="sWarehouse" optionLabel="label" optionValue="value" placeholder="Elige" styleClass="mo-w"></p-select>
           </label>
           <label class="mo-field"><span>Producto *</span><app-product-search (productSelected)="sProduct = $event"></app-product-search></label>
           <div class="mo-row">

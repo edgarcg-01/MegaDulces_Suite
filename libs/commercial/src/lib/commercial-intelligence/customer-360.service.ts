@@ -109,7 +109,7 @@ export class Customer360Service {
       return r?.customer_id ?? null;
     });
     if (!mine || mine !== customerId) {
-      throw new ForbiddenException('No tenés acceso a la información de este cliente.');
+      throw new ForbiddenException('No tienes acceso a la información de este cliente.');
     }
   }
 

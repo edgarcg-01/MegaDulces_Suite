@@ -65,11 +65,11 @@ function mismo(a: string, b: string): boolean {
       @if (!creando()) {
         <p class="ub-nota">
           @if (lote().binSugerido) {
-            Este SKU ya vive en <b>{{ lote().binSugerido }}</b>. Viene precargado; escaneá el rack si va a otro lado.
+            Este SKU ya vive en <b>{{ lote().binSugerido }}</b>. Viene precargado; escanea el rack si va a otro lado.
           } @else if (!bins().length) {
-            Todavía no hay ninguna ubicación dada de alta en este almacén. Creá la primera acá abajo.
+            Todavía no hay ninguna ubicación dada de alta en este almacén. Crea la primera acá abajo.
           } @else {
-            Sin ubicación previa para este SKU. Escaneá el rack donde lo vas a dejar.
+            Sin ubicación previa para este SKU. Escanea el rack donde lo vas a dejar.
           }
         </p>
 
@@ -78,7 +78,7 @@ function mismo(a: string, b: string): boolean {
         <app-scan-field
           #scan
           etiqueta="Rack o tarima"
-          placeholder="Escaneá o escribí el código"
+          placeholder="Escanea o escribe el código"
           [valor]="bin()"
           [conCamara]="true"
           (valorChange)="bin.set($event)"
@@ -106,7 +106,7 @@ function mismo(a: string, b: string): boolean {
 
         <button pButton type="button" class="ub-go" [loading]="guardando()"
           [disabled]="!encontrado() || guardando()" (click)="emitir()">
-          {{ encontrado() ? 'Acomodar en ' + encontrado()!.code : 'Elegí o creá la ubicación' }}
+          {{ encontrado() ? 'Acomodar en ' + encontrado()!.code : 'Elige o crea la ubicación' }}
         </button>
 
         <button pButton type="button" [text]="true" severity="secondary" class="ub-alt"
@@ -145,7 +145,7 @@ function mismo(a: string, b: string): boolean {
           @if (duplicada()) {
             <p class="ub-res ub-mal">
               Ya existe una ubicación con el código <b>{{ code().trim().toUpperCase() }}</b>.
-              Usá esa o cambiá el código.
+              Usa esa o cambia el código.
             </p>
           }
 

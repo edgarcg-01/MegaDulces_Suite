@@ -70,7 +70,7 @@ class ReconNotifierAdapter implements ReconNotifierPort {
       const hora = item.hora_apertura ? ` a las ${item.hora_apertura.slice(0, 5)}` : '';
       return {
         title: 'Tu caja está abierta',
-        message: `Kepler te abrió la caja ${item.caja}${hora}. Podés arquear cuando quieras — no hay horario.`,
+        message: `Kepler te abrió la caja ${item.caja}${hora}. Puedes arquear cuando quieras — no hay horario.`,
       };
     }
     return {

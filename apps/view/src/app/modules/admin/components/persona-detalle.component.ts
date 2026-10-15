@@ -96,7 +96,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
             <input pInputText id="pd-pass" [type]="verPass() ? 'text' : 'password'"
                    [ngModel]="fPassword()" (ngModelChange)="fPassword.set($event)"
                    [disabled]="!puedeEscribir" class="mono" autocomplete="new-password"
-                   [placeholder]="persona ? 'Dejala vacía para no cambiarla' : 'Mínimo 6 caracteres'" />
+                   [placeholder]="persona ? 'Déjala vacía para no cambiarla' : 'Mínimo 6 caracteres'" />
             <button pButton type="button" class="icon-btn-ghost" (click)="verPass.set(!verPass())"
                     [attr.aria-label]="verPass() ? 'Ocultar la contraseña' : 'Ver la contraseña'">
               <span class="pi" [class.pi-eye]="!verPass()" [class.pi-eye-slash]="verPass()"
@@ -123,12 +123,12 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
               <strong>se cierran las sesiones que tenga abiertas</strong> y
               {{ esDispositivo()
                  ? 'la cuenta NO tendrá que cambiarla: es de dispositivo, y forzarlo dejaría la pantalla afuera.'
-                 : 'tendrá que cambiarla la primera vez que entre — la elegiste vos, no su dueño.' }}
-              Copiala antes de guardar: no se vuelve a mostrar.
+                 : 'tendrá que cambiarla la primera vez que entre — la elegiste tú, no su dueño.' }}
+              Cópiala antes de guardar: no se vuelve a mostrar.
             </p>
           } @else {
             <p class="pd-hint">
-              Sólo se cambia si escribís una. La actual no se puede leer: está hasheada.
+              Sólo se cambia si escribes una. La actual no se puede leer: está hasheada.
             </p>
           }
 
@@ -194,7 +194,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                    SIN BACKTICKS: adentro de un template literal lo cierran. -->
               <p class="pd-hint">
                 Sin puesto no hay jefe que heredar. {{ esPersona()
-                  ? 'Elegí uno arriba y el organigrama propone el suyo.'
+                  ? 'Elige uno arriba y el organigrama propone el suyo.'
                   : 'Es una cuenta de dispositivo o de sistema, así que no ocupa un puesto del organigrama.' }}
               </p>
             } @else {
@@ -284,7 +284,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
             <p-select inputId="pd-rol" [options]="rolOpts()" [ngModel]="fRol()"
                       (ngModelChange)="fRol.set($event)" optionLabel="label"
                       optionValue="value" [filter]="true" filterBy="label" appendTo="body"
-                      [disabled]="!puedeEscribir" placeholder="Elegí el perfil"></p-select>
+                      [disabled]="!puedeEscribir" placeholder="Elige el perfil"></p-select>
 
             @if (hayDesvio()) {
               <label class="pd-lbl pd-lbl-req" for="pd-motivo">
@@ -343,7 +343,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
         </section>
 
         @if (!persona) {
-          <p class="pd-vacio">Los permisos se revisan una vez que la persona existe. Guardá primero.</p>
+          <p class="pd-vacio">Los permisos se revisan una vez que la persona existe. Guarda primero.</p>
         } @else {
           <app-persona-acceso [userId]="persona.id" [puedeEscribir]="puedeEscribir"
                               [positionCode]="fPuesto()"

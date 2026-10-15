@@ -49,12 +49,12 @@ export class SelloutChatToolsService {
     return [
       {
         name: 'sellout_total',
-        description: 'Total de venta (monto y cajas) del sell-out en un rango, con filtros opcionales por marca/canal/sucursal. Usalo para "cuánto vendió X", "total de agosto".',
+        description: 'Total de venta (monto y cajas) del sell-out en un rango, con filtros opcionales por marca/canal/sucursal. Úsalo para "cuánto vendió X", "total de agosto".',
         input_schema: { type: 'object', properties: { ...dateProps, ...filterProps }, required: ['from', 'to'] },
       },
       {
         name: 'sellout_top',
-        description: 'Ranking (top N) de una dimensión por monto en un rango. dim=brand|branch|channel|product. Usalo para "top 5 marcas", "qué sucursal vendió más".',
+        description: 'Ranking (top N) de una dimensión por monto en un rango. dim=brand|branch|channel|product. Úsalo para "top 5 marcas", "qué sucursal vendió más".',
         input_schema: {
           type: 'object',
           properties: {
@@ -69,7 +69,7 @@ export class SelloutChatToolsService {
       },
       {
         name: 'sellout_explain',
-        description: 'Explica el cambio: descompone al centavo quién movió la venta entre un periodo y su espejo, por dimensión. compare=prev (periodo anterior) | yoy (año anterior). Usalo para "¿por qué subió/bajó X?", "qué explica la caída".',
+        description: 'Explica el cambio: descompone al centavo quién movió la venta entre un periodo y su espejo, por dimensión. compare=prev (periodo anterior) | yoy (año anterior). Úsalo para "¿por qué subió/bajó X?", "qué explica la caída".',
         input_schema: {
           type: 'object',
           properties: {
@@ -83,12 +83,12 @@ export class SelloutChatToolsService {
       },
       {
         name: 'sellout_series',
-        description: 'Serie mensual de monto en un rango (para tendencia), con filtros opcionales. Usalo para "cómo viene la tendencia", "evolución de X".',
+        description: 'Serie mensual de monto en un rango (para tendencia), con filtros opcionales. Úsalo para "cómo viene la tendencia", "evolución de X".',
         input_schema: { type: 'object', properties: { ...dateProps, ...filterProps }, required: ['from', 'to'] },
       },
       {
         name: 'render_response',
-        description: 'Respuesta FINAL al usuario. Llamala cuando ya tenés los datos. narrative en español, conciso, citando los números de las tools. NO inventes cifras.',
+        description: 'Respuesta FINAL al usuario. Llámala cuando ya tienes los datos. narrative en español, conciso, citando los números de las tools. NO inventes cifras.',
         input_schema: {
           type: 'object',
           properties: {
@@ -103,16 +103,16 @@ export class SelloutChatToolsService {
 
   buildSystemPrompt(ctx: { today: string }): string {
     return [
-      'Sos el asistente de análisis del reporte Sell-Out (venta real) de Mega Dulces, distribuidora de dulces en México.',
+      'Eres el asistente de análisis del reporte Sell-Out (venta real) de Mega Dulces, distribuidora de dulces en México.',
       `Hoy es ${ctx.today} (zona America/Mexico_City).`,
       '',
       'REGLA #1 — NUNCA inventes un número. TODA cifra sale de las tools; si una tool no te dio el dato, decilo, no lo estimes.',
       'REGLA #2 — Las fechas SIEMPRE en ISO YYYY-MM-DD. "agosto 2026" = 2026-08-01 a 2026-08-31. "este mes"/"mes en curso" = el mes de hoy. Un mes completo va del día 01 al último día del mes.',
-      'REGLA #3 — Elegí la tool correcta: "cuánto vendió X" -> sellout_total; "top/ranking/quién vendió más" -> sellout_top; "por qué subió/bajó / qué explica el cambio" -> sellout_explain (compare=prev si dicen "vs mes anterior", yoy si "vs año pasado"); "tendencia/evolución" -> sellout_series.',
+      'REGLA #3 — Elige la tool correcta: "cuánto vendió X" -> sellout_total; "top/ranking/quién vendió más" -> sellout_top; "por qué subió/bajó / qué explica el cambio" -> sellout_explain (compare=prev si dicen "vs mes anterior", yoy si "vs año pasado"); "tendencia/evolución" -> sellout_series.',
       '',
-      'Vocabulario: canales = mostrador, ruta, mayoreo, preventa (=vecinal). `mayoreo` incluye el telemarketing y junta las dos mitades del cambio de ERP; `credito` es un alias VIEJO del mismo canal, no un canal aparte. Las marcas son las EMPRESAS/proveedores. El monto es venta con IVA (bruto de línea). Podés cruzar varias tools antes de responder.',
+      'Vocabulario: canales = mostrador, ruta, mayoreo, preventa (=vecinal). `mayoreo` incluye el telemarketing y junta las dos mitades del cambio de ERP; `credito` es un alias VIEJO del mismo canal, no un canal aparte. Las marcas son las EMPRESAS/proveedores. El monto es venta con IVA (bruto de línea). Puedes cruzar varias tools antes de responder.',
       '',
-      'Cuando ya tengas todo, llamá render_response con la respuesta en español (concisa, citando los números) y 2-3 suggested_follow_ups.',
+      'Cuando ya tengas todo, llama render_response con la respuesta en español (concisa, citando los números) y 2-3 suggested_follow_ups.',
     ].join('\n');
   }
 
