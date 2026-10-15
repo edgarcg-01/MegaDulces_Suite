@@ -704,6 +704,27 @@ pantalla: **el servidor también lo rechazaba**, porque una reja vacía es `sin_
 la contradicción da 400 y no sella) y 4 del componente. **8 mutaciones atrapadas** (4 del servidor,
 4 de la pantalla). `libs/finance/src/lib/caja`: 24 archivos, **441**.
 
+### 7.8 Estado al 2026-10-15: V.11, y lo que queda de la capa visual
+
+**`[CGP-V.11]` — deuda de diseño, medida.**
+
+- **Clases que no existen:** de 19 clases `fin-*` que usa la pantalla, tres no están definidas en
+  ningún lado: `fin-field`, `fin-label` y `fin-input`, todas en el motivo de «sin documento», que
+  encima era un `<textarea>` sin la directiva de PrimeNG (se pintaba sin estilo). Ahora es
+  `pTextarea` con su `<label for>` y el patrón `fin-row fin-row-col` de la pantalla. ⚠️ La primera
+  medición, con un script por `node -e`, dijo **cero**: el escape de la expresión regular lo hizo
+  mentir. La de `grep` encontró las tres.
+- **`comm-num`:** 20 celdas y encabezados numéricos con `ta-r mono` pasan a `comm-num`, que es lo
+  mismo (derecha, mono y cifras tabulares) con el vocabulario del sistema; la regla local `.ta-r`
+  queda sin uso y se retira.
+- **`app-side-peek`: no aplica hoy.** La pantalla no abre ningún detalle de varios campos:
+  `detalle()` sólo se usa para imprimir el comprobante. Se declara en vez de inventar un panel.
+
+**Pruebas:** 1 de DOM (el campo es `p-textarea` y tiene su etiqueta), en rojo al quitar la directiva.
+
+**Lo que queda de la capa visual:** `[CGP-V.8]`, los nombres del menú (la captura y el espejo de
+Control), que **decide Edgar**. Todo lo demás de V.1–V.12 está 🧪 en local, **sin validación visual**.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación

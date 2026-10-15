@@ -9206,6 +9206,14 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   **invisible** (`conteoSellado()` y el freno de re-sellado usaban `contado > 0`), así que habría vuelto
   el callejón de CG.160 y se podía re-sellar sin motivo. 4 puras + 2 contra la base + 4 del componente;
   8 mutaciones atrapadas.
+- [ ] 🧪 **`[CGP-V.11]`** Deuda de diseño, medida con `grep` (no con un script: el escape de
+  `node -e` reportó «0 clases sin definir» cuando eran 3). El motivo de «sin documento» usaba
+  `fin-field`/`fin-label`/`fin-input`, que no existen, sobre un `<textarea>` crudo: ahora `pTextarea`
+  con su `<label for>` y el patrón de la pantalla. 20 celdas numéricas `ta-r mono` → `comm-num`
+  (mismo aspecto, vocabulario del sistema) y se retira la regla local `.ta-r`. `app-side-peek`: **no
+  aplica hoy** (la pantalla no abre ningún detalle de varios campos; `detalle()` sólo imprime).
+  1 prueba de DOM, atrapada en rojo.
+- [ ] ⬜ `[CGP-V.8]` Nombres del menú (la captura y el espejo de Control): **decide Edgar**.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
