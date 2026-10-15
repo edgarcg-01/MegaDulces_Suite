@@ -9171,6 +9171,17 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   atado a su corte y el saldo se vuelve a pedir después de cada acción. `saldo()` publica el
   desglose sellado (aditivo; `cerrar()` lo lee con la misma función). 10 del componente + 1 contra
   la base; 10 mutaciones atrapadas. Sin validación visual.
+- [ ] 🧪 **`[CGP-V.4]`** Midiendo no es «sin medir». Toda lectura del servicio de caja (16 GET) pasa
+  por `leer()`, que reintenta sola un 429 respetando `Retry-After-<tramo>` (hasta 10 s; más que eso
+  se declara). Medido: al entrar salen 10 GET contra 10 por segundo por IP, y V.3 sumó uno. Con el
+  saldo en vuelo el botón espera (no «Reintentar», no «Corte sin medir») y ninguna de las dos
+  puertas abre un corte. Las escrituras NO se reintentan. 13 pruebas + 4 del componente; 4
+  mutaciones atrapadas.
+- [ ] 🧪 **`[CGP-V.10]`** `uuidV4()` en `core/utils`: `randomUUID` si hay contexto seguro,
+  `getRandomValues` si no. `confirmarLote` llamaba `crypto.randomUUID()` directo y por http:// en la
+  LAN reventaba antes de emitir. Reemplaza la copia privada del componente. ⚠️ Queda la copia de
+  andén (`nuevaLlave`) y `offline-database.service` llama `randomUUID` directo (Capacitor): deuda
+  declarada, fuera de caja.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

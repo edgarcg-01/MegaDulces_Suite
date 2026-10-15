@@ -568,6 +568,49 @@ invitaría a corregir el renglón que «no cuadra» después de ver el esperado.
 ⚠️ **Sin validación visual.** Lo más probable de ajustar: la tira de pasos en el diálogo de 40rem
 (cinco rótulos, se parte en dos renglones) y el pie con tres botones durante el reconteo.
 
+### 7.3 Estado al 2026-10-15: V.4 y V.10 (🧪 probado en local)
+
+**`[CGP-V.4]` — una lectura frenada por el límite ya no deja la pantalla «sin medir».** Medido antes
+de cambiar nada: el límite es de **10 lecturas por segundo por IP** (`ThrottlerModule`, tramo
+`short`), y al entrar la pantalla lanza **10 GET** más los del marco de la app. El diagnóstico decía
+9: **V.3 sumó la lista de jornadas**, y con eso el undécimo cae seguro en el 429.
+
+- **Se reintenta en vez de escalonar.** Escalonar en dos olas obligaba a pintar «midiendo» en cada
+  bloque que espera, y el riesgo era dibujar «sin medir» durante ese segundo. Toda lectura del
+  servicio de caja (16 GET) pasa por `leer()`, que reintenta sola un 429 hasta dos veces, con la
+  espera que dice el servidor (`Retry-After-<tramo>`, el mayor) o un segundo por intento. Si el
+  tramo bloqueado pide más de 10 s, no se reintenta a ciegas: el bloque se declara. **Las escrituras
+  no pasan por ahí.**
+- **Midiendo no es «sin medir».** Mientras el saldo está en vuelo no sale la etiqueta «Corte sin
+  medir» ni «Reintentar» (reintentar mandaba más lecturas contra el mismo límite): el botón espera,
+  el saldo dice «midiendo» y el subtítulo también. Si falla de verdad, entonces sí.
+- **Ninguna de las dos puertas abre un corte sin saldo medido.** «Declarar con cuánto arrancó la
+  caja» no pasaba por ningún freno de saldo.
+
+**`[CGP-V.10]`** `uuidV4()` en `core/utils/uuid.ts`: `randomUUID` con contexto seguro,
+`getRandomValues` sin él (sí existe por http://), `Math.random` sólo sin `crypto`. `confirmarLote`
+llamaba `crypto.randomUUID()` directo: por http:// en la LAN la petición reventaba antes de salir y
+«Confirmar N» se quedaba cargando. La copia privada del componente se retira. ⚠️ Fuera de caja
+quedan la copia de andén (`nuevaLlave`) y `offline-database.service`, que llama `randomUUID` directo:
+deuda declarada.
+
+**Pruebas:** 9 del operador y del servicio (un 429 y después la respuesta; tres seguidos se rinde;
+un 500 no se reintenta; `Retry-After` de cualquier tramo; el de un minuto se declara; el saldo
+reintentado llega; abrir el corte **no** se repite) + 4 de `uuidV4` + 4 del componente. **6
+mutaciones atrapadas.** Directorios `caja-general` + `core/utils`: 8 archivos, **410**.
+
+**De paso, dos defectos míos de L.4 que destapó esto:**
+
+- **La compuerta de frontera** (`lint-boundary-gate`, la que corre el CI) marcó
+  `jornadasPendientes()` sin tipo de retorno. El retorno pasa a un contrato de `libs/contracts`
+  (`JornadasPendientes`, ADR-052), y la pantalla deja su copia.
+- **Las pruebas contra la base chocaban entre corridas.** Elegían el año al azar entre 30 y escriben
+  sin deshacer: el 2013 se repitió y `ux_cash_cut_sucursal_fecha` rechazó la siembra. Ahora eligen
+  un año sin cortes en la 00 ni movimientos, y marcan sus sucursales y folios por corrida. Y al
+  variar el año apareció otro: la prueba de L.4 sembraba `995-05-11` y el servidor responde
+  `0995-05-11`, así que **fallaba una de cada tres corridas** (con el año antes de 2000). Año
+  rellenado; 4 corridas seguidas en verde, 435 pruebas.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación
