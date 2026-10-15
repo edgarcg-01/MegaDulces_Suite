@@ -1006,6 +1006,7 @@ jobs:
           # absorbía los movimientos sembrados por el otro y dejaba un corte abierto (medido en local).
           if ! npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism \
                  libs/finance/src/lib/caja/cash-cut.servicio-real.spec.ts \
+                 libs/finance/src/lib/caja/cash-ledger.http-real.spec.ts \
                  libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts \
                  libs/finance/src/lib/caja/cash-ledger.detalle-real.spec.ts \
                  libs/finance/src/lib/caja/caja-db.util-real.spec.ts \
