@@ -93,6 +93,18 @@ export interface ExistenciaTotals {
   celdas_sin_factor: number;
   skus_sin_factor: number;
   /**
+   * `[U.VA.1]` De las de arriba, las que son así porque el producto **se mide en PESO** — el
+   * divisor cuenta piezas por caja y la cifra en cajas no es comparable.
+   *
+   * ⚠️ **Son DOS causas distintas y el banner publicaba una sola.** Medido contra prod el
+   * 2026-10-15: de 1,833 celdas sin factor, **1,335 (73 %) son de peso** y sólo 498 son
+   * "ninguna fuente declara el factor". La celda ya las distinguía (`nf: 'peso' | 'sin_factor'`,
+   * dos tooltips); se perdían justo en la frase que todo el mundo lee. Se arreglan distinto:
+   * el de peso necesita vender por kilo, el otro necesita que alguien declare el factor.
+   */
+  celdas_sin_factor_peso: number;
+  skus_sin_factor_peso: number;
+  /**
    * `KE.2` Celdas cuyo costo salió del CATÁLOGO y no del ERP. El backend la devolvía desde el
    * 2026-09-08 y la pantalla no la mostraba: declararlo en el response no es declararlo al
    * usuario.

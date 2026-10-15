@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 318 KB, 4811 líneas, 34 secciones.
+> **Índice navegable** — 321 KB, 4856 líneas, 34 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -40,7 +40,7 @@
 | 4133 | 4322 | 10 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
 | 4323 | 4391 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
 | 4392 | 4686 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4687 | 4857 | 10 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4687 | 4902 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4781,7 +4781,52 @@ inventario, lo **esconde**. (Mismo signo que midió §3.2 por el otro lado.)
 
 ✅ **Y la pantalla NO las dibuja**: `/compras/pedido` deja **Pedido y Valor en blanco** en esas
 celdas y muestra la existencia nativa con su rótulo (§30.7). Ahora sabemos cuánto protege esa
-decisión: **$8.73M**.
+decisión: **$8.73M**. `/almacen/existencia` publica la misma verdad con sus palabras:
+*"no valen cero: no se están midiendo… por lo que se pagó valdrían ~$X, cifra de referencia para
+revisar — no publicable"*.
+
+#### ⚠️ 31.4-bis. Estas cifras son VIVAS. No las cites como constantes
+
+Las dos vistas que las producen (`v_unit_rung_audit` y `v_erp_stock_on_hand`) se recalculan sobre
+existencia y costos que se mueven. **Medido el mismo día, con una hora de diferencia:**
+
+| | 11:3x | 12:1x | lo que mostraba la pantalla |
+|---|---:|---:|---:|
+| celdas sin valuar | 484 | **493** | 484 |
+| productos | 159 | **163** | 159 |
+| valor arbitrado | $9,740,521 | **$9,753,343** | ~$9,740,520 |
+
+⇒ **Ni la pantalla ni este documento están mal: el número es una MEDICIÓN, no un hecho.** Si
+alguien compara una captura con esta sección y no coinciden al peso, eso es lo esperado. Lo que
+tiene que coincidir es el **orden de magnitud y el signo**, no el dígito.
+
+⚠️ **Y declará el universo cuando cites el conteo** (§1): `/almacen/existencia` cuenta sólo celdas
+**con existencia** (~31,033), este documento a veces cuenta **todas** las celdas del árbitro
+(249,040). Por eso "`default` = 43,752 celdas / 2,283 productos" (§31.3) y "1,833 celdas / 358
+productos" (la pantalla) **no se contradicen**: son el mismo hecho sobre dos universos. El error
+sería restarlos.
+
+#### ⭐⭐ 31.4-ter. El segundo balde: "ninguna fuente respalda el divisor" nombraba mal la causa en 3 de 4
+
+Junto al balde de arriba, `/almacen/existencia` publica otro: las celdas que **sí suman** al total
+de cajas pero con un divisor que no es comparable — marcadas con **°**, su cifra es la cantidad
+suelta. El banner decía *"un divisor que ninguna fuente respalda"*. **Medido el 2026-10-15 sobre
+las celdas con existencia, eso era falso para el 73 %:**
+
+| causa | celdas | productos | se arregla |
+|---|---:|---:|---|
+| ⭐ **el producto se mide en PESO** (el divisor cuenta piezas por caja) | **1,335 (73 %)** | 231 | vendiéndolo por kilo |
+| falta el factor: ninguna fuente lo declara | 498 (27 %) | 127 | que alguien lo declare |
+| **total** | **1,833** | 358 | — |
+
+⛔ **Lo que lo volvía invisible es que la pantalla YA sabía la diferencia**: cada celda lleva
+`nf: 'peso' | 'sin_factor'` con **dos tooltips distintos**. Se perdía al totalizar — o sea justo
+en la única frase que se lee **sin pasar el mouse**.
+
+⇒ **Regla:** un agregado que colapsa dos causas manda a la gente a arreglar la equivocada. Si las
+celdas distinguen, **el total también tiene que distinguir**. Corregido en `[U.VA.1]`, con prueba
+negativa (`existencia-agregado.spec.ts`: si el desglose se vuelve a colapsar, se pone rojo —
+verificado rompiéndolo a propósito).
 
 ### 31.5. El ERP se contradice a sí mismo en el 2.91 % de los SKUs — que es el 11.92 % del dinero
 
