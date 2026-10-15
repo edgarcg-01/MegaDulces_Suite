@@ -142,8 +142,17 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                       <td class="comm-num vr-mono vr-strong">{{ money(d.puente.pagina) }}</td>
                     </tr>
                     <tr>
-                      <th scope="row">Prorrateo del descuento por renglón</th>
-                      <td class="vr-tenue">el total del ticket contra la suma de sus líneas</td>
+                      <!-- [VEC.15] Antes decia "prorrateo del descuento" sin demostrarlo. El
+                           patron estaba en los 22 documentos que no cuadraban: en TODOS la
+                           diferencia excedia al descuento por 1.07-1.10x. c13 esta SIN impuesto
+                           y el total CON impuesto, asi que el descuento hay que brutearlo. Con
+                           eso la identidad cierra en 4,719 de 4,720 documentos. -->
+                      <th scope="row">Descuento, con su impuesto</th>
+                      <td class="vr-tenue">
+                        el ticket se registra <strong>ya descontado</strong> y sus renglones no;
+                        <span class="vr-mono">c13</span> viene <strong>sin</strong> impuesto y el
+                        total <strong>con</strong>, así que se bruteó a la tasa del documento
+                      </td>
                       <td class="comm-num vr-mono">{{ signo(d.puente.prorrateo) }}</td>
                     </tr>
                     <tr>
