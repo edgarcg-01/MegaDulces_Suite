@@ -9105,6 +9105,27 @@ pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fas
 20 o las 6? · ¿entra el centro de costo `kdc3`? · ¿también ContPAQi? · ¿el historial 2008-2025? ·
 ¿se resuelve junto con VL.5?
 
+### Sprint CGP — Estabilización por capas (2026-10-14)
+
+Plan: [`FASE_CG_PLAN_POR_CAPAS.md`](FASES/FASE_CG_PLAN_POR_CAPAS.md). Prefijo propio `CGP-*`
+porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160).
+
+- [x] ✅ **`[CGP-0.1]`** CG.160 soltado a prod: `/api/health` sirve `07665276b` (2026-10-14, ~8 min
+  desde el push de `prod-release`). Las dos actualizaciones anteriores no lo traían.
+- [ ] ⬜ `[CGP-0.2]`–`[CGP-0.7]` Verificar en prod con `app_runtime`, decidir el conteo del 12-oct
+  ($3,340.00 de Control contra $3,653.50 sellado el 14 a las 09:40), cerrar y autorizar, medir la
+  causa del 13-oct hora por hora, decidir el 13 y el 14, revisión diaria de cortes abiertos.
+- [ ] 🔨 **`[CGP-D.1]`** Job `caja-db` en el CI (Postgres de servicio + `dev:bootstrap-vacia` +
+  suites de caja). No entra al `needs` de `sellar`. **Sin correr todavía.**
+- [ ] 🔨 **`[CGP-D.2]`** Suites `cash-ledger` y `cash-ledger-cuts` reparadas (`denom_key`).
+- [ ] 🔨 **`[CGP-D.3]`** Migración `20261014212702`: conteo sellado inmutable salvo reconteo con
+  constancia, desglose = contado (diferida), aritmética exacta, corte firmado inmutable, un corte por
+  sucursal y fecha, con prevuelo que aborta si un corte de hoy ya viola algo. Suite
+  `test-newdb-caja-invariantes.js` con negativas por nombre de regla y mutaciones.
+  **Sin aplicar en prod; se aplica ANTES de soltar el código que la nombra.**
+- [ ] 🔨 `[CGP-D.5]` Privilegios de `app_runtime` verificados uno por uno en la suite.
+- [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
+
 ---
 
 ## Fase RR — Ventas por ruta

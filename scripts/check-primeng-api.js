@@ -210,7 +210,17 @@ const TECHO = {
   // ⛔ Esto NO es una meta ni un perdon: es deuda MEDIDA, congelada en su valor real para que
   //    la 304a y la 269a no entren. Cada una es un `styleClass` que PrimeNG 22 ignora, o sea
   //    una clase que no llega al DOM y un estilo que no se aplica en produccion.
-  'styleClass p-table': 305,
+  // 2026-10-15 [OPS.TRINQUETE]: 305 -> 304. El techo se habia desbordado a 306 y eso ponia
+  //    ROJA a TODA PR abierta (#414, #412, #410) sin que ninguna tuviera la culpa. No lo
+  //    subio una decision: cuatro commits del 14-oct copiaron LA MISMA linea
+  //    (styleClass="p-datatable-sm surf-table" en un <p-table>), dos de ellos sobre la
+  //    misma tabla. Se convirtieron las dos que quedaron vivas en comercial-ventas-por-ruta
+  //    al patron canonico del repo -- size="small" class="surf-table" -- que ya usan
+  //    almacen-llegadas, almacen-pedidos, almacen-preventa y 5 pantallas mas.
+  // ⚠️ NO es cosmetico: v22 IGNORA styleClass, asi que esas dos tablas venian renderizando
+  //    en densidad default y SIN surf-table. Convertir no cambia el codigo, cambia lo que
+  //    llega al DOM: ahora si se aplican la densidad compacta y el tema que pedian.
+  'styleClass p-table': 304,
   // ⚠️ 269 y no 268: la fusion de `integra` trae el filtro `medio` de Pagos a proveedor, que es
   //    un <p-select> mas en `finanzas-pagos-comprobantes.component.ts`. Escrito IGUAL que sus
   //    cuatro hermanos del mismo bloque (`styleClass="cb-sel"`): convertir solo el nuevo dejaria
