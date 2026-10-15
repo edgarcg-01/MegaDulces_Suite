@@ -209,6 +209,13 @@ export function calcularCorte(input: {
   conteo?: ConteoDenominacion[] | null;
   morralla?: number;
   /**
+   * `[CGP-V.9]` **Se contó y no hay efectivo.** Una reja vacía se lee como «no se contó»
+   * (`sin_contar`), y con la caja en $0 el corte no se podía sellar ni cerrar nunca. Son dos hechos
+   * distintos: éste se DECLARA, y entonces es un conteo en cero. Sólo cuenta con la reja vacía y sin
+   * morralla — sobre piezas reales no se inventa un cero.
+   */
+  ceroDeclarado?: boolean;
+  /**
    * `[CG.96]` Lo que el cajero movió en la jornada y **nadie capturó** como movimiento del libro.
    * Dispensado = billetes que salieron de la bóveda y están en el cajón; depositado = efectivo que
    * salió del cajón a la bóveda. Ausente = 0: no se asume nada sobre un cajero que no se midió.
@@ -322,7 +329,7 @@ export function calcularCorte(input: {
 
   const piezas = (input.conteo ?? []).filter((d) => d && Number(d.piezas) > 0);
   const morralla = Number(input.morralla || 0);
-  const huboConteo = piezas.length > 0 || morralla > 0;
+  const huboConteo = piezas.length > 0 || morralla > 0 || input.ceroDeclarado === true;
   const contado = redondea(piezas.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + morralla);
   const diferencia = redondea(contado - esperado);
 

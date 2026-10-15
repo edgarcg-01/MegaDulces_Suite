@@ -3333,6 +3333,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <small class="fin-dim">El desglose de este conteo no se puede mostrar pieza por pieza. Lo sellado es el total
             de arriba, y el corte se cierra con ese.</small>
         }
+        <!-- [CGP-V.9] Con la reja en cero, sellar exige decir que se conto y no hay efectivo: es
+             distinto de no haber contado. Se dice aca por que el boton esta apagado. -->
+        @if (rejaEditable() && sumaConteo() === 0) {
+          <label class="fin-row cg-declara">
+            <p-checkbox [binary]="true" [ngModel]="ceroDeclarado()"
+                        (ngModelChange)="ceroDeclarado.set($event)"></p-checkbox>
+            <span>Conté y no hay efectivo en la caja.
+              <small class="fin-dim d-block">Con la reja en cero el conteo no se puede guardar sin esta
+                confirmación: «no hay efectivo» es un conteo, «no conté» no.</small>
+            </span>
+          </label>
+        }
         @if (recontando()) {
           <div class="fin-row">
             <label for="cg-motivo">Motivo del reconteo</label>
@@ -3351,9 +3363,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         @if (!revelacion()) {
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
-          <p-button label="Guardar conteo" icon="pi pi-lock" size="small"
+          <p-button [label]="ceroVigente() ? 'Sellar en $0.00' : 'Guardar conteo'" icon="pi pi-lock" size="small"
                     [loading]="sellando()"
-                    [disabled]="sumaConteo() <= 0 || sellando()" (onClick)="sellarConteo()"></p-button>
+                    [disabled]="!puedeSellar() || sellando()" (onClick)="sellarConteo()"></p-button>
         } @else if (recontando()) {
           <!-- [CGP-V.2] Recontar es un modo: la reja se abre vacia y Cerrar no se ofrece hasta guardar
                el reconteo o volver al conteo sellado. Cerrar a mitad de un reconteo firmaria el primero. -->
@@ -3361,7 +3373,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     [disabled]="sellando()" (onClick)="cancelarReconteo()"></p-button>
           <p-button label="Guardar reconteo" icon="pi pi-lock" size="small"
                     [loading]="sellando()"
-                    [disabled]="motivoReconteo().trim().length < GLOSA_MIN || sumaConteo() <= 0 || sellando()"
+                    [disabled]="motivoReconteo().trim().length < GLOSA_MIN || !puedeSellar() || sellando()"
                     (onClick)="recontar()"></p-button>
         } @else {
           @if (ofreceRecontar()) {
@@ -4406,6 +4418,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   });
   /** `[CGP-V.2]` La persona eligió recontar: la reja vuelve a abrirse, vacía, y pide motivo. */
   recontando = signal(false);
+  /**
+   * `[CGP-V.9]` «Conté y no hay efectivo». Con la caja en $0 «Guardar conteo» quedaba deshabilitado
+   * sin explicación y el corte no se podía cerrar nunca. Sólo vale con la reja en cero: si después se
+   * teclea una pieza, deja de valer (el servidor rechaza la contradicción).
+   */
+  ceroDeclarado = signal(false);
+  ceroVigente = computed(() => {
+    const declarado = this.ceroDeclarado();
+    const suma = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
+    return declarado && suma === 0;
+  });
+  /** Se sella con algo contado, o con el cero declarado. */
+  puedeSellar = computed(() => {
+    const suma = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
+    const cero = this.ceroVigente();
+    return suma > 0 || cero;
+  });
   /** La reja se teclea mientras se cuenta o se recuenta; revelado el conteo, muestra lo sellado. */
   rejaEditable = computed(() => {
     const r = this.revelacion();
@@ -5519,7 +5548,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   abrirCierre(corte?: { id: string; folio: string; fecha?: string } | null): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
     this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
-    this.errorCierre.set(null);
+    this.errorCierre.set(null); this.ceroDeclarado.set(false);
     /**
      * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
      * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
@@ -5537,13 +5566,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** `[CGP-V.2]` Recontar es empezar de cero: la reja se abre vacía y pide motivo. */
   empezarReconteo(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
-    this.recontando.set(true); this.errorCierre.set(null);
+    this.recontando.set(true); this.errorCierre.set(null); this.ceroDeclarado.set(false);
   }
 
   /** Vuelve al conteo sellado sin tocarlo: lo tecleado del reconteo se descarta. */
   cancelarReconteo(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
-    this.recontando.set(false); this.errorCierre.set(null);
+    this.recontando.set(false); this.errorCierre.set(null); this.ceroDeclarado.set(false);
   }
 
   /** `[CGP-V.2]` Lo sellado en ese renglón. `0` y no `null`: un renglón sin piezas se contó en cero. */
@@ -5561,11 +5590,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Sella el conteo y recibe la revelación. A partir de acá el conteo ya no se retoca en silencio. */
   sellarConteo(): void {
     const c = this.corteEnCierre();
-    if (!c || this.sellando()) return;
+    if (!c || this.sellando() || !this.puedeSellar()) return;
     // Lo que se manda es lo que se guarda como sellado: se toma ANTES de la llamada.
     const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
     this.sellando.set(true); this.errorCierre.set(null);
-    this.svc.contarCorte(c.id, conteo, morralla).subscribe({
+    this.svc.contarCorte(c.id, conteo, morralla, this.ceroVigente()).subscribe({
       next: (r) => {
         this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: r.puede_recontar, conteo, morralla });
         this.sellando.set(false);
@@ -5580,10 +5609,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Segundo y último conteo. El motivo es obligatorio y el primero se conserva en el corte. */
   recontar(): void {
     const c = this.corteEnCierre();
-    if (!c || !this.recontando() || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando()) return;
+    if (!c || !this.recontando() || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando() || !this.puedeSellar()) return;
     const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
     this.sellando.set(true); this.errorCierre.set(null);
-    this.svc.recontarCorte(c.id, conteo, morralla, this.motivoReconteo().trim()).subscribe({
+    this.svc.recontarCorte(c.id, conteo, morralla, this.motivoReconteo().trim(), this.ceroVigente()).subscribe({
       next: (r) => {
         this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: false, conteo, morralla });
         this.sellando.set(false); this.recontando.set(false); this.motivoReconteo.set('');

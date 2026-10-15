@@ -99,6 +99,22 @@ export interface CerrarCorteInput {
    * nuevo lo confirma mandándolo acá.
    */
   esperado_visto?: number;
+  /**
+   * `[CGP-V.9]` «Conté y no hay efectivo»: sella un conteo en cero. Sin esto una reja vacía es «no
+   * se contó». Con piezas o morralla en el cuerpo es una contradicción y se rechaza con frase.
+   */
+  cero_declarado?: boolean;
+}
+
+/** `[CGP-V.9]` Declarar cero con piezas en la reja: o se cuenta, o se declara cero, no las dos. */
+function rechazarCeroContradictorio(input: CerrarCorteInput): void {
+  if (input.cero_declarado !== true) return;
+  const piezas = (input.conteo ?? []).some((d) => d && Number(d.piezas) > 0);
+  if (piezas || Number(input.morralla || 0) > 0) {
+    throw new BadRequestException(
+      'Marcaste que no hay efectivo, pero la reja trae piezas. O se cuenta lo que hay, o se declara que no hay nada.',
+    );
+  }
 }
 
 interface Usuario { id?: string; username?: string }
@@ -730,7 +746,9 @@ export class CashCutService {
       if (!c) throw new NotFoundException('Corte no encontrado');
       if (c.estado !== 'borrador') throw new BadRequestException(TEXTO_NO_CIERRA['no_es_borrador']);
       // Sellar dos veces sin motivo sería recontar por la puerta de atrás.
-      if (Number(c.contado ?? 0) > 0 || c.conteo_previo != null) {
+      // `[CGP-V.9]` `!= null` y no `> 0`: un cero sellado también es un conteo, y con `> 0` se podía
+      // volver a sellar por la puerta de atrás, sin reconteo ni motivo.
+      if (c.contado != null || c.conteo_previo != null) {
         throw new BadRequestException(
           'Este corte ya tiene un conteo sellado. Para cambiarlo hay que recontar, y el reconteo pide motivo.',
         );
@@ -740,9 +758,10 @@ export class CashCutService {
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
+      rechazarCeroContradictorio(input);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo: input.conteo, morralla: input.morralla ?? 0,
+        conteo: input.conteo, morralla: input.morralla ?? 0, ceroDeclarado: input.cero_declarado === true,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
 
@@ -783,6 +802,8 @@ export class CashCutService {
       const totalesPrevios = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
+        // `[CGP-V.9]` Un primer conteo sellado en cero fue un conteo, no «sin contar».
+        ceroDeclarado: c.contado != null && Number(c.contado) === 0,
       });
 
       const gate = puedeRecontar(c, totalesPrevios, input.motivo);
@@ -798,9 +819,10 @@ export class CashCutService {
         updated_at: trx.fn.now(),
       });
 
+      rechazarCeroContradictorio(input);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo: input.conteo, morralla: input.morralla ?? 0,
+        conteo: input.conteo, morralla: input.morralla ?? 0, ceroDeclarado: input.cero_declarado === true,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
       await this.sellarConteo(trx, tenantId, id, totales, input);
@@ -920,9 +942,14 @@ export class CashCutService {
       // El conteo y la morralla salen de la decisión de `[CGP-L.1]`, arriba: el sellado cuando lo hay
       // (`[CG.159]`: la pantalla después de recargar manda el cuerpo vacío), el del cuerpo sólo en un
       // corte que nunca se contó.
+      // `[CGP-V.9]` Un conteo sellado en cero se firma como cero; sin sellar, el cuerpo lo declara.
+      if (decision.usar !== 'sellado') rechazarCeroContradictorio(input);
+      const ceroDeclarado = decision.usar === 'sellado'
+        ? Number(c.contado) === 0
+        : input.cero_declarado === true;
       const t = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo, morralla,
+        conteo, morralla, ceroDeclarado,
       });
 
       const gate = puedeCerrar(c, u.id, t);
@@ -1143,7 +1170,9 @@ export class CashCutService {
   ) {
     if (!c) return null;
     const contado = c.contado == null ? null : Number(c.contado);
-    if (contado == null || contado <= 0) return null;
+    // `[CGP-V.9]` Sólo `null` es «nadie contó». Un cero sellado se publica: si no, la pantalla volvía
+    // a ofrecer «Guardar conteo» sobre un corte que ya tiene conteo, y el servidor lo rechazaba.
+    if (contado == null) return null;
     const esperado = c.esperado == null ? null : Number(c.esperado);
     const diferencia = c.diferencia == null ? null : Number(c.diferencia);
     return {
@@ -1200,7 +1229,7 @@ export class CashCutService {
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.fecha ?? null);
       const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
       // `[CGP-V.2]` El desglose sólo cuando hay conteo: sin sellar no hay nada que mostrar.
-      const desglose = abierto?.contado != null && Number(abierto.contado) > 0
+      const desglose = abierto?.contado != null
         ? await this.leerSellado(trx, tenantId, abierto.id, abierto.morralla) : null;
       return {
         sucursal,

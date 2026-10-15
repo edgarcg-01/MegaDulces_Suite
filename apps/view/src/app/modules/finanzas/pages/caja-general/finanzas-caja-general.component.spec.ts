@@ -4705,4 +4705,61 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(comp.puedeAutorizarPorPermiso()).toBe(true);
     });
   });
+  // ── `[CGP-V.9]` Contar cero con confirmación explícita ───────────────────────────────────────
+  //
+  // Con la caja en $0, «Guardar conteo» quedaba deshabilitado sin explicación y ese corte no se podía
+  // cerrar nunca. «No se contó» y «se contó y no hay efectivo» son dos hechos: el segundo se declara.
+  describe('[CGP-V.9] contar cero con confirmación', () => {
+    const abierto = () => vi.fn(() => of({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id: 'c1', folio: 'CC-2026-00007', fecha: todayMx(), fondo_inicial: 0, ya_reconto: false, conteo_sellado: null },
+    } as unknown as SaldoResponse));
+    const contarCero = () => vi.fn(() => of({
+      corte_id: 'c1', puede_recontar: false,
+      totales: {
+        ingresos: 0, gastos: 0, depositos: 0, esperado: 0, contado: 0, diferencia: 0, veredicto: 'cuadra',
+        movimientos: 0, cancelados: 0, ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null,
+      },
+    }));
+    const den = (key: string) => comp.reja.find((d) => d.key === key)!;
+    const texto = (fx: { nativeElement: HTMLElement }) => document.body.textContent + fx.nativeElement.textContent;
+
+    it('⛔ con la reja en cero y sin declarar no se sella, y la pantalla dice cómo se hace', () => {
+      const fx = montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      fx.detectChanges();
+      expect(comp.puedeSellar()).toBe(false);
+      comp.sellarConteo();
+      expect(svc['contarCorte']).not.toHaveBeenCalled();
+      expect(texto(fx)).toContain('Conté y no hay efectivo');
+    });
+
+    it('declarando «conté y no hay efectivo» se sella en cero, y viaja la declaración', () => {
+      montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      comp.ceroDeclarado.set(true);
+      expect(comp.puedeSellar()).toBe(true);
+      comp.sellarConteo();
+      expect(svc['contarCorte'].mock.calls[0][3]).toBe(true);
+      expect(comp.revelacion()?.contado).toBe(0);
+    });
+
+    it('⛔ si después se teclea una pieza, la declaración de cero deja de valer', () => {
+      montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      comp.ceroDeclarado.set(true);
+      comp.setPiezasCorte(den('500'), 1);
+      expect(comp.ceroVigente()).toBe(false);
+      comp.sellarConteo();
+      expect(svc['contarCorte'].mock.calls[0][3]).toBe(false);
+    });
+
+    it('reabrir el diálogo olvida la declaración: se confirma cada vez', () => {
+      montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      comp.ceroDeclarado.set(true);
+      comp.abrirCierre();
+      expect(comp.ceroDeclarado()).toBe(false);
+    });
+  });
 });

@@ -345,13 +345,16 @@ export class CashLedgerService {
    * CG.19 — SELLA el conteo y recién entonces revela. Era `previa`, que mostraba la diferencia
    * mientras se contaba: con eso el arqueo era una transcripción del esperado.
    */
-  contarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0): Observable<RevelacionCorte> {
-    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/contar`, { conteo, morralla });
+  // `[CGP-V.9]` `ceroDeclarado`: «conté y no hay efectivo». Sin él, una reja vacía es «no se contó».
+  contarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla = 0, ceroDeclarado = false): Observable<RevelacionCorte> {
+    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/contar`,
+      ceroDeclarado ? { conteo, morralla, cero_declarado: true } : { conteo, morralla });
   }
 
   /** Segundo y ÚLTIMO conteo. El motivo es obligatorio y el primero se conserva. */
-  recontarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla: number, motivo: string): Observable<RevelacionCorte> {
-    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/recontar`, { conteo, morralla, motivo });
+  recontarCorte(id: string, conteo: Array<{ denominacion: number; piezas: number }>, morralla: number, motivo: string, ceroDeclarado = false): Observable<RevelacionCorte> {
+    return this.http.post<RevelacionCorte>(`${this.base}/cortes/${id}/recontar`,
+      ceroDeclarado ? { conteo, morralla, motivo, cero_declarado: true } : { conteo, morralla, motivo });
   }
 
   /**

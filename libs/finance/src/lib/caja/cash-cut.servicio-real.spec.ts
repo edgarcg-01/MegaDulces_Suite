@@ -267,6 +267,33 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(Number(cerrado.contado)).toBe(1500);
   });
 
+  it('`[CGP-V.9]` contar CERO declarado: se sella, saldo() lo publica, no se re-sella, y se cierra', async () => {
+    const f = dia('03-11');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('V9'), fondo_inicial: 0 }, CAJERA);
+    // ⛔ [negativa] la reja vacía SIN declarar sigue siendo «no se contó»
+    await expect(svc.contar(c.id, { conteo: [], morralla: 0 }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
+
+    const r = await svc.contar(c.id, { conteo: [], morralla: 0, cero_declarado: true }, CAJERA);
+    expect(r.totales).toMatchObject({ contado: 0, veredicto: 'cuadra' });
+    // El cero sellado se publica: sin esto la pantalla volvía a ofrecer «Guardar conteo».
+    const s0 = (await svc.saldo(suc('V9'), false)).corte_abierto?.conteo_sellado;
+    expect(s0).toMatchObject({ contado: 0, desglose: [], morralla: 0 });
+    // ⛔ [negativa] un cero sellado NO se vuelve a sellar por la puerta de atrás
+    await expect(svc.contar(c.id, { conteo: conteo(['100', 100, 1]), morralla: 0 }, CAJERA))
+      .rejects.toThrow(/ya tiene un conteo sellado/);
+
+    const cerrado = await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
+    expect(cerrado.estado).toBe('cerrado');
+    expect(Number((await corte(c.id)).contado)).toBe(0);
+  });
+
+  it('⛔ `[CGP-V.9]` declarar cero con piezas en la reja es una contradicción: 400 con frase', async () => {
+    const c = await svc.abrir({ fecha: dia('03-12'), sucursal: suc('V9b'), fondo_inicial: 0 }, CAJERA);
+    await expect(svc.contar(c.id, { conteo: conteo(['100', 100, 1]), morralla: 0, cero_declarado: true }, CAJERA))
+      .rejects.toThrow(/no hay efectivo/);
+    expect((await corte(c.id)).contado).toBeNull();   // nada quedó sellado
+  });
+
   it('⛔ `[CGP-L.2]` lo que se firma es lo que se reveló: si el esperado cambió después de contar, 409', async () => {
     const f = dia('03-06');
     const c = await svc.abrir({ fecha: f, sucursal: suc('L6'), fondo_inicial: 500 }, CAJERA);
