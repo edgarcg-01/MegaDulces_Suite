@@ -48,6 +48,8 @@ const POR_CONSTRAINT: Record<string, string> = {
   cut_firmado_inmutable_chk: 'Este corte ya está cerrado: no se reabre y sus cifras ya no cambian.',
   cut_desglose_cuadra_chk: 'El desglose por denominación no suma lo que dice el contado.',
   ux_cash_cut_sucursal_fecha: 'Ya existe un corte de esta sucursal para esa fecha.',
+  // La carrera de dos aperturas a la vez: el servicio ya lo revisa antes, esto es lo que queda.
+  ux_cash_cut_abierto: 'Esta sucursal ya tiene un corte abierto: hay que cerrarlo antes de abrir otro.',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

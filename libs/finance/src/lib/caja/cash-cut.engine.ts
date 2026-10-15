@@ -41,6 +41,7 @@
  * ingreso descansa en un hecho del ERP y no en un teclado. Un corte con cobertura 0.58 y otro con
  * 1.00 no pueden leerse igual.
  */
+import { denomKeyDeValor } from '@megadulces/contracts';
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
 
@@ -412,6 +413,96 @@ export function puedeCerrar(
   return { ok: true };
 }
 
+// ── `[CGP-L.1]` El conteo sellado no se cambia al cerrar ──────────────────────────────────────
+
+/** Lo que ya está sellado en el corte: su desglose de cierre y su morralla. */
+export interface ConteoSellado { conteo: ConteoDenominacion[]; morralla: number }
+
+export type DecisionConteoCierre =
+  | { usar: 'cuerpo' }
+  | { usar: 'sellado' }
+  | { usar: 'rechazo'; motivo: 'conteo_distinto'; sellado: number; tecleado: number };
+
+/** Piezas por denominación (la fila sin llave se identifica por su valor) + total + morralla. */
+function huellaDelConteo(conteo: ConteoDenominacion[], morralla: number) {
+  const mapa = new Map<string, number>();
+  let suma = 0;
+  for (const d of conteo) {
+    const piezas = Number(d?.piezas);
+    if (!d || !(piezas > 0)) continue;
+    const llave = d.denom_key ?? denomKeyDeValor(d.denominacion) ?? String(Number(d.denominacion));
+    mapa.set(llave, (mapa.get(llave) ?? 0) + piezas);
+    suma += Number(d.denominacion) * piezas;
+  }
+  const m = redondea(Number(morralla || 0));
+  return { mapa, morralla: m, total: redondea(suma + m) };
+}
+
+/**
+ * ¿Con qué conteo se cierra?
+ *
+ * ⛔ `cerrar()` usaba lo que viniera en la reja en lugar del sellado y reescribía el desglose sellado
+ * sin compararlos: contar, ver el esperado, teclear otra cifra y cerrar saltaba el arqueo ciego, sin
+ * recontar y sin motivo. Desde `[CGP-D.3]` lo frena la base; acá se decide ANTES, para que la persona
+ * reciba una frase y no un error de servidor.
+ *
+ *  · sin conteo sellado → el del cuerpo (contar y cerrar en un paso sigue existiendo);
+ *  · sellado y la reja SIN piezas → el sellado. La morralla sola no es un conteo nuevo: rechazar
+ *    ahí trabaría un cierre legítimo según cómo mande la pantalla ese campo;
+ *  · sellado y la reja con el MISMO desglose (en cualquier orden, sin filas en cero) → el sellado;
+ *  · sellado y cualquier otra cosa, aunque sume lo mismo → rechazo: lo sellado es el desglose.
+ */
+export function decidirConteoDelCierre(
+  sellado: ConteoSellado | null,
+  cuerpo: { conteo?: ConteoDenominacion[] | null; morralla?: number | null },
+): DecisionConteoCierre {
+  if (!sellado) return { usar: 'cuerpo' };
+  const piezas = (cuerpo.conteo ?? []).filter((d) => d && Number(d.piezas) > 0);
+  if (piezas.length === 0) return { usar: 'sellado' };
+  const a = huellaDelConteo(sellado.conteo, sellado.morralla);
+  const b = huellaDelConteo(piezas, Number(cuerpo.morralla || 0));
+  const iguales = a.morralla === b.morralla
+    && a.mapa.size === b.mapa.size
+    && [...a.mapa].every(([k, v]) => b.mapa.get(k) === v);
+  return iguales
+    ? { usar: 'sellado' }
+    : { usar: 'rechazo', motivo: 'conteo_distinto', sellado: a.total, tecleado: b.total };
+}
+
+// ── `[CGP-L.2]` Lo que se firma es lo que se reveló ──────────────────────────────────────────
+
+/**
+ * ¿El esperado cambió desde que la persona lo vio?
+ *
+ * `cerrar()` recalcula el esperado con el universo de ESE momento: si entró un movimiento de la
+ * jornada después de contar, firmaba otro número sin decirlo. Se compara contra lo que la persona
+ * VIO (`visto`, si la pantalla lo manda) o, si no, contra lo que `contar()` reveló y guardó.
+ *
+ * Un corte sellado antes de que el esperado se guardara (`[CG.156]`) no tiene contra qué compararse:
+ * se DECLARA con `contra: null`, no se inventa.
+ */
+export function esperadoCambio(
+  revelado: number | null, actual: number, visto?: number | null,
+): { cambio: boolean; contra: number | null } {
+  const v = visto == null ? NaN : Number(visto);
+  const contra = Number.isFinite(v) ? redondea(v) : revelado == null ? null : redondea(Number(revelado));
+  if (contra == null) return { cambio: false, contra: null };
+  return { cambio: redondea(actual) !== contra, contra };
+}
+
+const pesos = (n: number) =>
+  `$${Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export function textoConteoDistinto(sellado: number, tecleado: number): string {
+  return `El conteo de este corte ya está sellado en ${pesos(sellado)} y la reja trae ${pesos(tecleado)}. `
+    + 'Lo sellado no se cambia al cerrar: para corregirlo hay que recontar, y el reconteo pide motivo.';
+}
+
+export function textoEsperadoCambio(contra: number, actual: number): string {
+  return `El esperado cambió desde que se contó: se mostró ${pesos(contra)} y ahora da ${pesos(actual)}, `
+    + 'porque entró o cambió un movimiento de la jornada. Revisá ese movimiento y confirmá el esperado nuevo para cerrar.';
+}
+
 /** Motivo de cancelación: mismo piso que el CHECK de la DB, para avisar antes del 400. */
 export const CANCEL_MOTIVO_MIN = 5;
 
@@ -472,9 +563,12 @@ export function proyectarCiego(t: TotalesCorte, revela: boolean): TotalesCorte |
   return { ...ciego, oculto: true, conto: veredicto !== 'sin_contar' };
 }
 
-export type MotivoNoRecuenta = 'no_es_borrador' | 'ya_reconto' | 'sin_motivo' | 'no_hay_diferencia';
+export type MotivoNoRecuenta =
+  | 'no_es_borrador' | 'ya_reconto' | 'sin_motivo' | 'no_hay_diferencia' | 'sin_conteo_previo';
 
 export const TEXTO_NO_RECUENTA: Record<MotivoNoRecuenta, string> = {
+  // `[CGP-L.3]` Lo decide el servicio con el corte en la mano (el gate puro no recibe el contado).
+  sin_conteo_previo: 'Todavía no hay un conteo que recontar: primero se cuenta, y sólo si no cuadra se vuelve a contar.',
   no_es_borrador: 'El corte ya está cerrado: para corregirlo hace falta un movimiento nuevo, no un reconteo.',
   ya_reconto: 'Ya se recontó una vez. El segundo conteo es el que vale; si sigue sin cuadrar, eso es el hallazgo.',
   sin_motivo: 'Decí por qué se vuelve a contar, con al menos 5 caracteres. Un reconteo sin razón no se distingue de un ajuste.',

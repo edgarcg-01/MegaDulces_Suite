@@ -1,5 +1,5 @@
 import knexFactory, { Knex } from 'knex';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { CashCutService } from './cash-cut.service';
 
@@ -100,19 +100,18 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(cerrado.estado).toBe('cerrado');
   });
 
-  it('⛔ el arqueo ciego NO se salta: cerrar con otra cifra en la reja lo frena la base', async () => {
+  it('⛔ el arqueo ciego NO se salta: cerrar con otra cifra en la reja es un 400 con su frase', async () => {
     const f = dia('03-03');
     const c = await svc.abrir({ fecha: f, sucursal: suc('L3'), fondo_inicial: 500 }, CAJERA);
     await movimiento(f, suc('L3'), 'ingreso', 1000);
     await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1], ['500', 500, 1]), morralla: 0 }, CAJERA);
 
     const tecleado = conteo(['1000', 1000, 1], ['500', 500, 1], ['100', 100, 3]);   // $1,800 ≠ $1,500 sellado
-    const intento = svc.cerrar(c.id, { conteo: tecleado, morralla: 0 }, CAJERA);
-    await expect(intento).rejects.toMatchObject({ code: '23514', constraint: 'cut_conteo_sellado_chk' });
-    // ⚠️ HOY sale como error crudo (un 500 en la API): `cerrar()` no lo traduce. `[CGP-L.1]`/`[CGP-L.6]`
-    //    lo convierten en un 400 con su frase; cuando eso entre, esta aserción se invierte a propósito.
+    // `[CGP-L.1]` Antes salía como error crudo de la base (un 500). Ahora el servicio lo decide ANTES
+    // de escribir y la persona recibe qué está sellado, qué tecleó y cómo se corrige.
+    await expect(svc.cerrar(c.id, { conteo: tecleado, morralla: 0 }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
     await expect(svc.cerrar(c.id, { conteo: tecleado, morralla: 0 }, CAJERA))
-      .rejects.not.toBeInstanceOf(BadRequestException);
+      .rejects.toThrow(/ya está sellado en \$1,500\.00 y la reja trae \$1,800\.00/);
 
     const fila = await corte(c.id);
     expect(fila.estado).toBe('borrador');            // nada quedó a medias
@@ -154,9 +153,44 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(Number(atados[0].n)).toBe(2);
   });
 
-  it('un segundo corte de la misma sucursal y fecha lo frena la base', async () => {
+  it('`[CGP-L.6]` un segundo corte de la misma sucursal y fecha: lo frena la base y llega como frase', async () => {
     const f = dia('03-01');   // L1 ya tiene su corte de este día (primera prueba), cerrado y autorizado
+    await expect(svc.abrir({ fecha: f, sucursal: suc('L1') }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
     await expect(svc.abrir({ fecha: f, sucursal: suc('L1') }, CAJERA))
-      .rejects.toMatchObject({ code: '23505', constraint: 'ux_cash_cut_sucursal_fecha' });
+      .rejects.toThrow('Ya existe un corte de esta sucursal para esa fecha.');
+  });
+
+  it('⛔ `[CGP-L.2]` lo que se firma es lo que se reveló: si el esperado cambió después de contar, 409', async () => {
+    const f = dia('03-06');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('L6'), fondo_inicial: 500 }, CAJERA);
+    await movimiento(f, suc('L6'), 'ingreso', 1000);
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1], ['500', 500, 1]), morralla: 0 }, CAJERA);   // reveló $1,500
+
+    await movimiento(f, suc('L6'), 'ingreso', 300);   // se capturó tarde: ahora el esperado da $1,800
+    await expect(svc.cerrar(c.id, {}, CAJERA)).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.cerrar(c.id, {}, CAJERA))
+      .rejects.toThrow(/se mostró \$1,500\.00 y ahora da \$1,800\.00/);
+    // Y con DATOS, para que la pantalla ofrezca confirmar sin recalcular nada por su cuenta.
+    await expect(svc.cerrar(c.id, {}, CAJERA)).rejects.toMatchObject({
+      response: { motivo: 'esperado_cambio', esperado_mostrado: 1500, esperado_actual: 1800 },
+    });
+    expect((await corte(c.id)).estado).toBe('borrador');   // no firmó nada
+
+    // Quien ya vio el esperado nuevo lo confirma, y entonces sí cierra: falta $300, a la vista.
+    const cerrado = await svc.cerrar(c.id, { esperado_visto: 1800 }, CAJERA);
+    expect(cerrado.estado).toBe('cerrado');
+    expect(Number(cerrado.esperado)).toBe(1800);
+    expect(Number(cerrado.diferencia)).toBe(-300);
+  });
+
+  it('⛔ `[CGP-L.3]` recontar sin un conteo previo no existe, y se dice en palabras', async () => {
+    const f = dia('03-07');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('L7'), fondo_inicial: 500 }, CAJERA);
+    await expect(svc.recontar(c.id, {
+      conteo: conteo(['500', 500, 1]), morralla: 0, motivo: 'Recontar algo que nunca se contó',
+    }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.recontar(c.id, {
+      conteo: conteo(['500', 500, 1]), morralla: 0, motivo: 'Recontar algo que nunca se contó',
+    }, CAJERA)).rejects.toThrow('Todavía no hay un conteo que recontar');
   });
 });
