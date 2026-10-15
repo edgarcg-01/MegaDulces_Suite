@@ -348,4 +348,77 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
       conteo: conteo(['500', 500, 1]), morralla: 0, motivo: 'Recontar algo que nunca se contó',
     }, CAJERA)).rejects.toThrow('Todavía no hay un conteo que recontar');
   });
+  /**
+   * `[CGP-E.1]` **El proceso, no la pantalla: tres jornadas seguidas, con un oráculo independiente.**
+   *
+   * Cada esperado lo calcula ESTA prueba con la fórmula escrita aparte —fondo + ingresos − gastos −
+   * depósitos—, no el motor: un árbitro que repite al motor es un espejo (R5). En una plaza que no es
+   * la 00 no hay bóveda ni cajero, así que la fórmula es exacta.
+   *
+   * ⚠️ El plan lo pide por HTTP con la API levantada en el CI. Acá va a nivel de servicio (el mismo
+   * código, la misma base): levantar el backend en local está prohibido. La capa HTTP queda para el CI.
+   * ⚠️ El fondo del primer día se DECLARA: el arqueo de Control no existe en la base de prueba.
+   */
+  describe('[CGP-E.1] el proceso de tres jornadas', () => {
+    const oraculo = (fondo: number, movs: Array<['ingreso' | 'gasto' | 'deposito', number]>) =>
+      Math.round((fondo + movs.reduce((a, [t, m]) => a + (t === 'ingreso' ? m : -m), 0)) * 100) / 100;
+
+    it('abrir, mover, contar a ciegas, cerrar, autorizar otra persona; heredar; y jornadas en orden', async () => {
+      const S = suc('E1');
+
+      // ── Jornada 1: fondo declarado, tres tipos de movimiento, cuadra al centavo ──
+      const d1 = dia('04-01');
+      const c1 = await svc.abrir({ fecha: d1, sucursal: S, fondo_inicial: 500 }, CAJERA);
+      const movs1: Array<['ingreso' | 'gasto' | 'deposito', number]> = [['ingreso', 1000], ['ingreso', 250.5], ['gasto', 200], ['deposito', 300]];
+      for (const [t, m] of movs1) await movimiento(d1, S, t as 'ingreso' | 'gasto', m);
+      const esp1 = oraculo(500, movs1);                                   // 1,250.50
+      const r1 = await svc.contar(c1.id, { conteo: conteo(['1000', 1000, 1], ['200', 200, 1], ['50', 50, 1]), morralla: 0.5 }, CAJERA);
+      expect(r1.totales).toMatchObject({ esperado: esp1, contado: esp1, veredicto: 'cuadra' });
+      const k1 = await svc.cerrar(c1.id, {}, CAJERA);
+      expect(k1.esperado).toBe(esp1);
+      await expect(svc.autorizar(c1.id, CAJERA)).rejects.toBeInstanceOf(ForbiddenException);   // doble llave
+      expect((await svc.autorizar(c1.id, AUTORIZA)).estado).toBe('autorizado');
+
+      // ── Jornada 2: el fondo se HEREDA del contado anterior; falta, se recuenta con motivo ──
+      const d2 = dia('04-02');
+      const c2 = await svc.abrir({ fecha: d2, sucursal: S }, CAJERA);
+      expect(c2).toMatchObject({ fondo_inicial: esp1, fondo_origen: 'cierre_anterior' });
+      const movs2: Array<['ingreso' | 'gasto' | 'deposito', number]> = [['gasto', 100], ['ingreso', 500]];
+      for (const [t, m] of movs2) await movimiento(d2, S, t as 'ingreso' | 'gasto', m);
+      const esp2 = oraculo(esp1, movs2);                                  // 1,650.50
+      const primero = await svc.contar(c2.id, { conteo: conteo(['1000', 1000, 1], ['500', 500, 1], ['100', 100, 1]), morralla: 0.5 }, CAJERA);
+      expect(primero.totales).toMatchObject({ esperado: esp2, veredicto: 'falta', diferencia: -50 });
+      const re = await svc.recontar(c2.id, {
+        conteo: conteo(['1000', 1000, 1], ['500', 500, 1], ['100', 100, 1], ['50', 50, 1]), morralla: 0.5,
+        motivo: 'Faltó contar un billete de 50',
+      }, CAJERA);
+      expect(re.totales).toMatchObject({ contado: esp2, veredicto: 'cuadra' });
+      expect((await svc.cerrar(c2.id, {}, CAJERA)).esperado).toBe(esp2);
+      await svc.autorizar(c2.id, AUTORIZA);
+
+      // ── Jornadas 3 y 4: hay movimientos en las dos; se cierran EN ORDEN y cada una ata sólo lo suyo ──
+      const d3 = dia('04-03');
+      const d4 = dia('04-04');
+      await movimiento(d3, S, 'ingreso', 400);
+      await movimiento(d4, S, 'gasto', 150);
+      const c3 = await svc.abrir({ fecha: d3, sucursal: S }, CAJERA);
+      expect(c3.fondo_inicial).toBe(esp2);
+      // Mientras la 3 está abierta, no se abre otra: un borrador por sucursal.
+      await expect(svc.abrir({ fecha: d4, sucursal: S }, CAJERA)).rejects.toBeInstanceOf(BadRequestException);
+      const esp3 = oraculo(esp2, [['ingreso', 400]]);                     // 2,050.50
+      await svc.contar(c3.id, { conteo: conteo(['1000', 1000, 2], ['50', 50, 1]), morralla: 0.5 }, CAJERA);
+      const k3 = await svc.cerrar(c3.id, {}, CAJERA);
+      expect(k3.esperado).toBe(esp3);                                     // el gasto del día 4 NO entró
+      await svc.autorizar(c3.id, AUTORIZA);
+
+      const c4 = await svc.abrir({ fecha: d4, sucursal: S }, CAJERA);
+      expect(c4.fondo_inicial).toBe(esp3);
+      const esp4 = oraculo(esp3, [['gasto', 150]]);                       // 1,900.50
+      await svc.contar(c4.id, { conteo: conteo(['1000', 1000, 1], ['500', 500, 1], ['200', 200, 2]), morralla: 0.5 }, CAJERA);
+      expect((await svc.cerrar(c4.id, {}, CAJERA)).esperado).toBe(esp4);
+
+      // Y un día anterior a todo lo cerrado ya no se abre: las jornadas se cierran en orden.
+      await expect(svc.abrir({ fecha: dia('03-31'), sucursal: S }, CAJERA)).rejects.toThrow(/en orden/);
+    });
+  });
 });
