@@ -60,13 +60,9 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad' | 'info'; texto: string; detalle?: st
  * DESIGN Operations §O.3 (Mostrador/POS): keyboard-first, el foco vuelve solo a la captura, los
  * blancos de toque son grandes porque se usa con prisa y a veces con guantes.
  *
- * ⚠️ **Decisión de diseño que queda ABIERTA para Edgar.** Esta pantalla usa los tokens estándar de
- * Operations (Hanken Grotesk, Geist Mono, zinc, sunset) y respeta el modo oscuro. NO copia la piel
- * del verificador (Sniglet, paleta `--vf-*`, tema claro fijo), porque esa es una **excepción
- * autorizada explícitamente** para esa pantalla y su propio comentario dice «no repetir el patrón
- * en otro módulo sin la misma autorización». Si el mostrador quiere las dos pantallas idénticas,
- * es una decisión de Edgar y se aplica después — cambiar la piel no toca ninguna de las reglas de
- * correctud de acá.
+ * Piel: tokens estándar de Operations (Hanken Grotesk, Geist Mono, zinc, sunset), con modo oscuro.
+ * Desde el 2026-10-14 `/tienda/verificador` usa la misma (retiró su piel propia, `[VAC.U11/U12]`),
+ * así que las dos pantallas del mostrador ya coinciden en tipografía y tema.
  *
  * ── Sin modo sin red, a propósito ────────────────────────────────────────────────────────────
  * Reportar ESCRIBE. Una escritura guardada sólo en el navegador de una caja es un dato que nadie

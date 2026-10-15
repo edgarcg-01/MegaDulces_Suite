@@ -149,8 +149,13 @@ const TOPE = {
   //    es UN tamano: cambiarlo por un token achica justo lo que el almacenista tiene que leer de
   //    pie. Ese archivo ya usa tokens en todo lo demas. Queda DECLARADO, no disfrazado; si hacen
   //    falta tamanos de conteo en la escala, es una decision de `DESIGN.md`, no de este gate.
-  fontSize:   2702,
-  hex:        1449,  // hex crudo en declaración de color
+  //
+  // ⬇️ 2,680 y 1,396 (antes 2,702 y 1,449): `[VAC.U11/U12]` retira la piel propia de
+  //    `tienda-verificador.component.ts` (Sniglet, paleta cruda, fondo fijo). Medido antes y despues
+  //    sobre origin/main + ese commit: 22 `font-size` literales a tokens y 53 hex a tokens. El tope
+  //    baja con la deuda, que es lo que este gate pide para no arrastrar un colchon sin declarar.
+  fontSize:   2680,
+  hex:        1396,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
   outline:       0,  // CERRADA 2026-10-03: eran 37 (27 + 10 que el chequeo por ARCHIVO escondia). Un outline:none nuevo sin anillo es ROJO

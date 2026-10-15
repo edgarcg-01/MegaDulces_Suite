@@ -1,5 +1,9 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { Public } from '@megadulces/platform-core';
+import { Public, ZodValidationPipe } from '@megadulces/platform-core';
+import {
+  type SucursalVerificador, type VerificadorPrecioResponse, type VerificadorSnapshot,
+  VerificadorPrecioQuery, VerificadorPreciosTodosQuery,
+} from '@megadulces/contracts';
 import { KpService } from './kp.service';
 import { SucursalesService } from './sucursales.service';
 
@@ -31,8 +35,8 @@ export class KpController {
    */
   @Public()
   @Get('precio')
-  getPrecio(@Query('q') q: string, @Query('sucursal') sucursal?: string) {
-    return this.kpService.getPrecio(q, sucursal);
+  getPrecio(@Query(new ZodValidationPipe(VerificadorPrecioQuery)) query: VerificadorPrecioQuery): Promise<VerificadorPrecioResponse> {
+    return this.kpService.getPrecio(query.q ?? '', query.sucursal);
   }
 
   /**
@@ -41,8 +45,8 @@ export class KpController {
    */
   @Public()
   @Get('precios-todos')
-  getPreciosTodos(@Query('sucursal') sucursal?: string) {
-    return this.kpService.getPreciosTodos(sucursal);
+  getPreciosTodos(@Query(new ZodValidationPipe(VerificadorPreciosTodosQuery)) query: VerificadorPreciosTodosQuery): Promise<VerificadorSnapshot> {
+    return this.kpService.getPreciosTodos(query.sucursal);
   }
 }
 
@@ -58,5 +62,5 @@ export class SucursalesController {
   /** GET /api/sucursales */
   @Public()
   @Get()
-  getSucursales() { return this.sucursalesService.getSucursales(); }
+  getSucursales(): Promise<SucursalVerificador[]> { return this.sucursalesService.getSucursales(); }
 }
