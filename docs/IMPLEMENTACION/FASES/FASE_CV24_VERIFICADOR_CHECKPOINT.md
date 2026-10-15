@@ -510,4 +510,6 @@ incorrectos en el mostrador, no solo estético).
 
 La pantalla dejó de ser la excepción de piel de §O.3 y se acopló al estándar; el mayoreo pasó a ser el protagonista y la capa de lógica dejó de leer un fallo de la base como «producto no encontrado». El detalle, las mediciones y lo que sigue abierto viven en [`FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR`](FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR.md).
 
+**PR #414** — abierto contra `main` (2026-10-14), pendiente de review: 16 commits propios, sin migraciones ni permisos nuevos. Las observaciones del PM al protocolo previo al PR quedaron en `ONBOARDING.md` §8.0b (puntos 18–25). **Falta la validación visual en el monitor real** y llevar el hallazgo H1 (escalera de precios no monótona) a Precios/Comercial con cifras de prod.
+
 Lo que cambió respecto de este checkpoint: el «clon fiel de `verificador.html`» con Sniglet, paleta propia y tema fijo (§8.1) ya **no es el estado vigente**, y en modo kiosco el aviso de «precio cambiado» **ya no se muestra** (el respaldo sí sigue declarado por el banner). Lo que **no** cambió y sigue siendo la regla de la pantalla: foco permanente en la captura, procedencia del precio, declarar-en-vez-de-esconder (ADR-056) y «no encontrado» ≠ «sin conexión».

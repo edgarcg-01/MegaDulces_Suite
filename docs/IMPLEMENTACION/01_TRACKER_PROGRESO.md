@@ -99,7 +99,7 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
-### Fase VAC — Acople del verificador de precios al estándar · 2026-10-14 · plan en [`FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR`](FASES/FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR.md)
+### Fase VAC — Acople del verificador de precios al estándar · 2026-10-14 · **PR #414 (abierto contra `main`)** · plan en [`FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR`](FASES/FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR.md)
 
 - [x] **[VAC.U11/U12]** 🧪 Piel del estándar sin excepción (hex 69 → 2, `::ng-deep` 3 → 0, sigue el tema), centavos pequeños en todo precio, ancho fluido con `@container`, kiosco sin información interna, mayoreo protagonista.
 - [x] **[VAC.H2]** 🧪 Ahorro **por unidad** como cifra principal, total del mínimo de apoyo. **[VAC.H3]** 🧪 Un umbral por bloque + «Equivale a N piezas» (`equivale_a`, campo aditivo del contrato). **[VAC.H4]** 🧪 La unidad se lee a 1–2 m. ⛔ **H1 abierto, no es de pantalla:** la escalera de precios no es monótona; decide Precios/Comercial y está **sin medir** contra prod.

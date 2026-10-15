@@ -6,7 +6,7 @@
 
 ## 2026-10-14 — `[VAC]` El verificador de mostrador entra al estándar, y una auditoría de diseño encuentra que el problema no era visual
 
-**Qué se pidió.** Acoplar `/tienda/verificador` al estándar de la Suite, todo en local: unificar tipografía y tema, centavos más chicos, ancho fluido, kiosco sin información interna y el mayoreo como protagonista. Después llegó una auditoría de diseño y se aplicó por partes.
+**PR #414**, abierto contra `main` el 2026-10-14. **Qué se pidió.** Acoplar `/tienda/verificador` al estándar de la Suite, todo en local: unificar tipografía y tema, centavos más chicos, ancho fluido, kiosco sin información interna y el mayoreo como protagonista. Después llegó una auditoría de diseño y se aplicó por partes.
 
 **⭐ Lo que la auditoría encontró y no era de pantalla.** La escalera de precios publicada no es monótona: a partir de 3 piezas, comprar suelto a precio de mayoreo sale **más barato que el paquete o la caja** (caja $114.80 más cara que 48 sueltas). Es una decisión de Precios/Comercial y **no se resolvió**; antes hay que medir cuántos SKUs la tienen rota (consulta de sólo lectura contra prod, **no medida**) y verificar los precios del ejemplo contra el SKU real (salían del mockup).
 

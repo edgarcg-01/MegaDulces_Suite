@@ -9,7 +9,7 @@
 ---
 
 ## [Unreleased]
-### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, 2026-10-14)
+### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, PR #414, 2026-10-14)
 - **Mayoreo como protagonista**, enmarcado, con **el ahorro por unidad** como cifra principal («Ahorras $5.59 por unidad (6.5% menos)») y el total del mínimo de apoyo; cada umbral es su propio bloque y el de paquete dice a cuántas piezas equivale («Equivale a 144 piezas»).
 - **Ancho fluido** (la tarjeta usa todo el ancho, dos columnas precio | mayoreo en pantalla ancha) y **centavos más chicos** en todo precio. **La unidad se lee a 1–2 m.**
 - **Modo kiosco** sin botón de cámara y sin los datos internos del producto. ⚠️ En kiosco el aviso de «este precio acaba de cambiar» ya no se muestra (el respaldo sí sigue declarado por el banner).
