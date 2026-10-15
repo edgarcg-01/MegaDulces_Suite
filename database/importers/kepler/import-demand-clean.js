@@ -56,7 +56,7 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
   });
   await db.connect();
   let hbStat = { status: 'ok', rows: null };
-  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch(() => {});
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch((e) => console.warn(`[latido] begin ${HB_KEY}: ${e.message}`));
   try {
     console.log(`\n=== DEMANDA LIMPIA → analytics.product_demand (${APPLY ? 'APPLY' : 'DRY-RUN'}, ${DAYS}d) ===\n`);
 
@@ -249,6 +249,6 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
     process.exitCode = 1;
   } finally {
     await db.end();
-    if (APPLY) await hb.end(HB_KEY, hbStat).catch(() => {});
+    if (APPLY) await hb.end(HB_KEY, hbStat).catch((e) => console.warn(`[latido] end ${HB_KEY}: ${e.message}`));
   }
 })();

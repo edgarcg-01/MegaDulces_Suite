@@ -175,7 +175,7 @@ const SELECT_HEALTH = `
   const db = new Client({ connectionString: DST });
   await db.connect();
   let hbStat = { status: 'ok', rows: null };
-  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch(() => {});
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch((e) => console.warn(`[latido] begin ${HB_KEY}: ${e.message}`));
   try {
     console.log(`\n=== inventory_health desde stock × sales_daily (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
@@ -221,6 +221,6 @@ const SELECT_HEALTH = `
     process.exitCode = 1;
   } finally {
     await db.end();
-    if (APPLY) await hb.end(HB_KEY, hbStat).catch(() => {});
+    if (APPLY) await hb.end(HB_KEY, hbStat).catch((e) => console.warn(`[latido] end ${HB_KEY}: ${e.message}`));
   }
 })();
