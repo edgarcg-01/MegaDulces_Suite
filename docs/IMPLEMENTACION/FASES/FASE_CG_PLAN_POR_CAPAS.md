@@ -382,6 +382,30 @@ escritura se ejerce contra una base real.
 **Salida:** cada camino de escritura de las tablas de caja tiene una prueba que lo ejerce, y las
 mutaciones de L.1, L.2 y L.11 están verificadas en rojo.
 
+### 6.1 Estado al 2026-10-14 (🧪 probado en local contra Postgres 18.4)
+
+| Item | Estado | Qué quedó |
+|---|---|---|
+| **CGP-L.1** | 🧪 | `decidirConteoDelCierre()` (motor puro): con conteo sellado, una reja vacía o con el mismo desglose usa el sellado; cualquier otra cosa —aunque sume lo mismo, o cambie sólo la morralla— es **400** con lo sellado, lo tecleado y cómo se corrige. Se decide **antes de atar un solo movimiento** |
+| **CGP-L.2** | 🧪 | `esperadoCambio()`: si el esperado cambió desde el conteo, `cerrar()` responde **409** con `motivo`, `esperado_mostrado` y `esperado_actual`, y revierte lo atado. Quien ya vio el nuevo lo confirma con `esperado_visto`. Un corte sellado antes de que el esperado se guardara (CG.156) se **declara** (`contra: null`), no se bloquea |
+| **CGP-L.3** | 🧪 | `recontar()` exige un conteo previo (400 con frase) y lee sólo el desglose de **cierre** (el de apertura inflaba la constancia del primer conteo) |
+| **CGP-L.6** | 🧪 (corte) | `abrir`, `contar`, `recontar`, `cerrar` y `autorizar` pasan por `conFrase()`: una regla de la base violada llega como frase; lo desconocido sigue siendo un 500 ruidoso. Frase nueva para `ux_cash_cut_abierto`. Falta el resto del módulo (CLS, CAOS) |
+
+**Pruebas:** `cash-cut.cierre.spec.ts` (13, puras) + el servicio real (8/8) + todo
+`libs/finance/src/lib/caja` en **20 archivos, 409 pruebas en verde**. Cada capa de defensa del
+arqueo ciego se probó **sola**:
+- con la regla de la **base** apagada, el servicio sigue rechazando la reja tecleada (8/8);
+- con la decisión del **servicio** desactivada, 4 pruebas se ponen rojas (3 unitarias + la del servicio).
+
+⛔ **Restricción para desplegar L.2: no sale sin la pantalla.** Hoy, si entra un movimiento después
+de contar, la pantalla mostraría el 409 en un aviso de 7 s **sin forma de confirmar**: un callejón
+nuevo. Va con `[CGP-V.12]`: en el diálogo de cierre, mostrar las dos cifras y un «Confirmar el
+esperado nuevo y cerrar» que reenvía `esperado_visto`. L.1, L.3 y L.6 no tienen esa dependencia.
+
+⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da 21 errores `TS1272`, **todos en
+archivos que no se tocaron** (forma de importar tipos en firmas con decoradores) y ninguno en los
+cinco tocados. No es como tipa el CI; lo confirma `Build & typecheck`.
+
 ---
 
 ## 7. Fase 3: capa visual

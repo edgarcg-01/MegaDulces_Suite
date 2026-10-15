@@ -9132,6 +9132,14 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   Todo `libs/finance/src/lib/caja`: 19 archivos, 394 pruebas en verde. Va en el job `caja-db`.
 - [ ] ⬜ `[CGP-D.2c]` `test-newdb-cash-ledger-cuts.js` mide el saldo corrido de la 00 en absoluto
   (asume la sucursal vacía): falla si corre después de datos confirmados. Medir como diferencia.
+- [ ] 🧪 **`[CGP-L.1]`** `cerrar()` con conteo sellado y otra cifra en la reja → 400 con frase,
+  decidido antes de atar movimientos (`decidirConteoDelCierre`, motor puro).
+- [ ] 🧪 **`[CGP-L.2]`** Si el esperado cambió desde el conteo → 409 con datos; se confirma con
+  `esperado_visto`. ⛔ **No se despliega sin `[CGP-V.12]`** (la pantalla no tiene cómo confirmar).
+- [ ] 🧪 **`[CGP-L.3]`** `recontar()` exige conteo previo y lee sólo el desglose de cierre.
+- [ ] 🧪 **`[CGP-L.6]`** (corte) los cinco métodos traducen las reglas de la base a frase.
+  Local: 409 pruebas en `caja` en verde; cada capa del arqueo ciego probada sola por mutación.
+- [ ] ⬜ `[CGP-V.12]` Diálogo de cierre: ante el 409 de L.2, mostrar las dos cifras y confirmar.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
