@@ -1,5 +1,5 @@
 /**
- * `[CB.50]` — La llave del candado anti doble-cobro tiene que llevar la SUCURSAL.
+ * `[CB.51]` — La llave del candado anti doble-cobro tiene que llevar la SUCURSAL.
  *
  * Nace de un caso real medido en prod el 2026-10-14. La línea `IVA TASA DE DESC DEBITO` de
  * **$126.68** del 28-sep en la cuenta `4176` tiene su gemelo exacto en Kepler —sucursal **08**,
@@ -34,8 +34,17 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
 
 require('ts-node').register({
   transpileOnly: true, skipProject: true,
-  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', ignoreDeprecations: '6.0' },
+  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node',
+    experimentalDecorators: true, emitDecoratorMetadata: true, ignoreDeprecations: '6.0' },
 });
+const STUBS = { '@megadulces/platform-core': { TenantKnexService: class {}, TenantContextService: class {} },
+  '@megadulces/contracts': { FINANCE_FINDINGS_SINK_PORT: Symbol('findings-sink') } };
+const stubPaths = {};
+for (const k of Object.keys(STUBS)) { const f = path.resolve(__dirname, `.stub-cb51-${k.replace(/[@/]/g,'_')}.js`);
+  require('fs').writeFileSync(f, `module.exports = require(${JSON.stringify(__filename)}).__stubs[${JSON.stringify(k)}];`); stubPaths[k]=f; }
+module.exports.__stubs = STUBS;
+const _origResolve = Module._resolveFilename;
+Module._resolveFilename = function (req, ...rest) { return stubPaths[req] || _origResolve.call(this, req, ...rest); };
 const LLAVE = require(path.resolve(__dirname, '../../libs/finance/src/lib/bank/recon-claim-key.ts'));
 const { buildClaimIndex, claimVerdict } = LLAVE;
 
@@ -125,10 +134,53 @@ const { buildClaimIndex, claimVerdict } = LLAVE;
     ok(LLAVE.claimKeyExacta('08', 'X-D-26', '0000119', '4176') !== LLAVE.claimKeyExacta('00', 'X-D-26', '0000119', '4176'),
       'la llave exacta SÍ distingue por sucursal (si alguien la quita, el bloque 5 se vuelve falso positivo)');
 
+    // ── 7. La pantalla no puede contradecir a la base ───────────────────────────────────
+    // `[CB.51]` — el drill 3 vías rearmaba su propio pareo con `take()` y una tolerancia FIJA
+    // de ±$1. Sobre un renglón de $2.11 eso es el 47% de su valor: un movimiento anterior se
+    // llevaba el documento que a éste le tocaba exacto y lo marcaba `used`. Medido en prod sobre
+    // la cuenta 4885 de sep-2026: **73 retiros salían «sin Kepler» y 72 estaban casados**.
+    // Es `threeWayDetail`, que es READ-ONLY: se puede ejercer contra prod sin escribir.
+    console.log('\n[7] El drill 3 vías lee lo que Conciliar guardó');
+    const periodo = '2026-09';
+    const cuentas = await knex.raw(`
+      SELECT ba.account_label lbl, count(*)::int movs
+        FROM finance.bank_movements bm
+        JOIN finance.bank_statements st ON st.id=bm.statement_id
+        JOIN finance.bank_accounts ba ON ba.id=bm.bank_account_id
+       WHERE st.period=? AND bm.deleted_at IS NULL AND coalesce(ba.kind,'bank')='bank'
+       GROUP BY 1 HAVING count(*) > 100 ORDER BY 2 DESC LIMIT 3`, [periodo]);
+    if (!cuentas.rows.length) {
+      skip(`no hay cuentas con movimientos en ${periodo} — el drill no tiene qué mostrar`);
+    } else {
+      const { FinanceBankService } = require(path.resolve(__dirname, '../../libs/finance/src/lib/bank/finance-bank.service.ts'));
+      const svc = new FinanceBankService({ run: (cb) => cb(knex) }, { requireTenantId: () => MEGA });
+      let contradicciones = 0, revisados = 0, conciliados = 0;
+      for (const { lbl } of cuentas.rows) {
+        const r = await svc.threeWayDetail(periodo, lbl);
+        const casadosDB = new Set(await knex('finance.bank_recon_matches as m')
+          .join('finance.bank_movements as bm', 'bm.id', 'm.bank_movement_id')
+          .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .where('st.period', periodo).andWhere('ba.account_label', lbl)
+          .pluck('m.bank_movement_id'));
+        for (const e of r.excel || []) {
+          revisados++;
+          if (e.kepler_fuente === 'conciliado') conciliados++;
+          // La contradicción: la base dice que está casado y la pantalla lo pinta sin Kepler.
+          if (!e.kepler && casadosDB.has(e.id)) contradicciones++;
+        }
+      }
+      ok(contradicciones === 0, `ningún movimiento casado en la base se muestra «sin Kepler» (${revisados} renglones de ${cuentas.rows.length} cuentas, ${contradicciones} contradicciones)`);
+      // Prueba de que el bloque MIDE algo: si no hubiera ningún pareo persistido, el cero de
+      // arriba sería vacuo — se pondría verde solo. Un candado que sólo puede pasar no es candado.
+      if (conciliados === 0) skip('ninguna fila vino de un pareo persistido: el cero de arriba es vacuo, corré Conciliar primero');
+      else ok(conciliados > 0, `y el veredicto NO es vacuo: ${conciliados} renglones declaran su origen \`conciliado\``);
+    }
+
   } finally {
     await knex.destroy();
   }
 
-  console.log(`\n[CB.50] ${pass} ✓ / ${fail} ✗${nomedido ? ` / ${nomedido} no medidos` : ''}`);
+  console.log(`\n[CB.51] ${pass} ✓ / ${fail} ✗${nomedido ? ` / ${nomedido} no medidos` : ''}`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });

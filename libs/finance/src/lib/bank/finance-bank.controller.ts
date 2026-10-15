@@ -88,7 +88,7 @@ export class FinanceBankController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const period = body?.period;
-    // [CB.50] En seco: corre el motor completo y NO escribe. Devuelve `diff` (antes/después +
+    // [CB.51] En seco: corre el motor completo y NO escribe. Devuelve `diff` (antes/después +
     // los que perderían su pareo, nominales). Siempre inline: un antes/después que se contesta
     // con 202 y llega por WS no sirve para decidir si el cambio entra.
     const dryRun = dryRunQ === 'true' || body?.dry_run === true;
