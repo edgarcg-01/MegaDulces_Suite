@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { denomKeyDeValor, SUCURSAL_CAJA_GENERAL, type JornadasPendientes } from '@megadulces/contracts';
+import { denomKeyDeValor, SUCURSAL_CAJA_GENERAL, diaDeFecha, type JornadasPendientes } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte } from './caja-jornadas.query';
@@ -273,14 +273,14 @@ export class CashCutService {
   /**
    * `[CG.115]` **La jornada de un corte, como string `YYYY-MM-DD`.**
    *
-   * ⚠️ `String(unDate).slice(0,10)` da `"Mon Oct 12"` y `unDate.toISOString()` es lo único que
-   * devuelve el día que se guardó: una columna `date` de pg llega como `Date` a la medianoche
-   * **UTC**, y renderizarla en hora de México la corre un día para atrás. Es el mismo defecto que
-   * `[LC.16]`, y acá decidiría **qué movimientos entran a un corte de dinero**.
+   * ⚠️ `String(unDate).slice(0,10)` da `"Mon Oct 12"`. Y `toISOString()` sólo funcionaba de casualidad:
+   * node-pg arma un `date` como medianoche LOCAL del proceso (no UTC, como decía esta nota), así que
+   * con el servidor en UTC o en México da el día correcto y al este de UTC da el ANTERIOR — medido
+   * con el parser de pg en tres zonas (`[CGP-L.5]`). `diaDeFecha` lee los componentes locales: da el
+   * día que se guardó en cualquier zona. Acá decide **qué movimientos entran a un corte de dinero**.
    */
   private diaDe(fecha: string | Date | null | undefined): string | null {
-    if (fecha == null) return null;
-    return fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha).slice(0, 10);
+    return diaDeFecha(fecha);
   }
 
   /**

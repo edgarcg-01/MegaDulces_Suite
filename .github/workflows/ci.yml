@@ -990,6 +990,21 @@ jobs:
           fi
           echo "::notice title=Servicio real del corte::$(grep -E 'Tests ' servicio.log | tr -s ' ')"
 
+      # [CGP-L.5] El dia de una fecha no puede depender de la zona del servidor. El runner corre en UTC;
+      # esto repite la suite de caja en Mexico y al este de UTC (Tokio), donde toISOString() sobre un
+      # date de pg da el dia ANTERIOR (medido con el parser de pg). Probado en rojo: diaDe con
+      # toISOString rompe 6 pruebas en Tokio.
+      - name: Fechas de caja en tres zonas
+        if: ${{ !cancelled() }}
+        env:
+          CAJA_TEST_DB_URL: postgresql://app_runtime:app_runtime@127.0.0.1:5432/postgres_platform
+        run: |
+          for tz in America/Mexico_City Asia/Tokyo; do
+            echo "-- TZ=$tz"
+            TZ=$tz npx vitest run --config libs/contracts/vitest.config.ts libs/contracts/src/finance/dia-negocio.spec.ts || exit 1
+            TZ=$tz npx vitest run --config libs/finance/vitest.config.ts --no-file-parallelism libs/finance/src/lib/caja || exit 1
+          done
+
   # ──────────────────────────────────────────────────────────────────────────────────────────
   # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.
   #

@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
-import { SUCURSAL_CAJA_GENERAL, type Freshness } from '@megadulces/contracts';
+import { SUCURSAL_CAJA_GENERAL, diaDeFecha, diaMxDeInstante, type Freshness } from '@megadulces/contracts';
 import { casarPorImporte, canonBank, escapaLike, type MovCuadre } from './caja-cuadre.engine';
 import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
 
@@ -65,11 +65,8 @@ export interface CajaQuery {
  * mismo flip que ya se corrigió antes en esta pantalla.
  */
 function ymd(f: unknown): string {
-  if (f instanceof Date) {
-    const p2 = (x: number) => String(x).padStart(2, '0');
-    return `${f.getFullYear()}-${p2(f.getMonth() + 1)}-${p2(f.getDate())}`;
-  }
-  return String(f ?? '').slice(0, 10);
+  // `[CGP-L.5]` El helper compartido: componentes locales para un `date`, y nada de `String(Date)`.
+  return diaDeFecha(f) ?? '';
 }
 
 @Injectable()
@@ -119,7 +116,8 @@ export class CajaGeneralService {
   /** Deriva [from,to] (date) desde month o from/to; default = mes en curso. */
   private range(q: CajaQuery): [string, string] {
     if (q.from && q.to) return [q.from, q.to];
-    const m = q.month && /^\d{4}-\d{2}$/.test(q.month) ? q.month : new Date().toISOString().slice(0, 7);
+    // `[CGP-L.5]` El mes en curso en MÉXICO: con `toISOString` el último día después de las 18:00 ya era el siguiente.
+    const m = q.month && /^\d{4}-\d{2}$/.test(q.month) ? q.month : (diaMxDeInstante(new Date()) ?? '').slice(0, 7);
     const [y, mo] = m.split('-').map(Number);
     const last = new Date(y, mo, 0).getDate();
     return [`${m}-01`, `${m}-${String(last).padStart(2, '0')}`];
