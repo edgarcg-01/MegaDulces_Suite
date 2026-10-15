@@ -3391,6 +3391,55 @@ sin que nadie la mida.*
 > #416 aterrice.** Ninguno de los dos invalida lo construido; los dos quedan **dentro** de lo que el
 > plan ya declara como pendiente, pero sin nombre y sin dueño.
 
+### ⛔⛔ 0 (P0). Las dos piernas del cajero se cancelan — pero cada una cae en una jornada distinta
+
+**Lo pidió Edgar el 2026-10-15, por enésima vez:** *«al corte de Caja General no se le considera lo
+dispensado en CAOS, al menos en ingreso; si [es] egreso y existe un sobrante, se le carga a Caja
+General»*. **El motor ya lo hace** (`[CG.95]`/`[CG.96]`): la dispensación (+) y el gasto (−) se
+anulan, y al cajón sólo le queda la **morralla o el sobrante**. Lo que estaba mal era lo **escrito**:
+el plan §1.3, `VERDAD_ABSOLUTA §28.6` y `CAOS_CASH_SYSTEM.md` publican `+ dispensado` como término
+suelto, que se lee como «la dispensación es un ingreso del cajón». *Por eso hubo que repetirlo: el
+código tenía razón y la documentación seguía diciendo lo contrario.*
+
+⛔ **Pero la cancelación depende de que las dos piernas caigan en la misma jornada, y en el corte no
+caen.** Medido en el código de la rama:
+
+| | Reloj del **libro** | Reloj de **CAOS** |
+|---|---|---|
+| `arqueoDelDia` (el cuadre del día, `[CG.82]`/`[CG.139]`) | **`created_at`** — el día físico en MX | `accounting_date` |
+| **`contar` · `cerrar` · `saldo`** (lo que se **FIRMA**) | **`cash_ledger.fecha`** — la fecha del **documento de Kepler** | `accounting_date` |
+
+- `sueltosDe()` filtra `.where('fecha', dia)`; `fecha` nace del documento (`input.fecha`, y la bandeja
+  propone `fecha_valor`).
+- `[CG.82]` ya midió el rezago: **mediana de 3 días**, y en prod **2 de 5** movimientos vivos tenían
+  la fecha del papel distinta del día en que se registraron — uno fechado **10-dic** y registrado el
+  **28-sep**.
+- El propio `arqueoDelDia` publica `fechados_otro_dia` para no leer la jornada como un corte contable.
+  **El corte no publica nada de eso, y además es el que firma.**
+
+⇒ **Qué produce.** Un gasto pagado el 12-oct con billetes dispensados el 12-oct, pero con documento
+fechado el 9-oct:
+
+```text
+corte del 12-oct : + dispensado $X   (sin su gasto)  -> pide contar $X que ya se gastaron  = FALTANTE
+corte del  9-oct : − gasto      $X   (sin su pierna) -> esperado $X más bajo                = SOBRANTE
+```
+
+⭐ **Es un faltante inventado del mismo tamaño que un sobrante inventado, en dos jornadas distintas**
+— y explica los saldos imposibles del 13-oct mucho mejor que la hipótesis de los $165,410, que
+`VERDAD_ABSOLUTA §28.5` ya refutó. ⚠️ También quiere decir que **el `−$39,486` de `[CG.160]` no era el
+último faltante inventado de este módulo**: era el del eje *plaza*, y éste es el del eje *tiempo*.
+
+⛔ **Y el plan declara la regla correcta y nadie la comparó con el código:** §1.4 regla 2 dice *«para
+el libro, la jornada se mide por `created_at`; para CAOS, por `accounting_date`»*. Eso es lo que hace
+`arqueoDelDia`; **no** es lo que hace el corte. *Dos implementaciones del mismo cuadre divergieron, y
+la que firma es la que se apartó del plan.*
+
+⇒ **No se cierra con una decisión de software.** Antes de mover el filtro hay que decidir **qué es la
+jornada de Caja General** (ver las preguntas abiertas abajo), porque mover el reloj cambia a qué corte
+pertenece cada movimiento ya capturado. Hasta entonces: ningún corte con movimientos `fechados_otro_dia`
+debería firmarse sin declararlo — y el corte hoy ni siquiera los cuenta.
+
 ### ⛔ 1. La fórmula del esperado tiene cinco términos; contra base real se ejercen tres
 
 `esperado = fondo + ingresos − gastos + dispensado(CAOS) − depositado(CAOS)` (§1.3 del plan,
