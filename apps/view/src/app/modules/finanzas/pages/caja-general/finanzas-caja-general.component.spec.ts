@@ -4527,4 +4527,44 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(comp.pasoPagina()).toBeNull();
     });
   });
+  // ── `[CGP-V.4]` Midiendo no es «sin medir» ───────────────────────────────────────────────────
+  //
+  // Mientras el saldo cargaba, la pantalla decía «Corte sin medir» y ofrecía «Reintentar»: y
+  // reintentar mandaba MÁS lecturas contra el mismo límite de 10 por segundo que la frenaba.
+  describe('[CGP-V.4] el saldo midiendo', () => {
+    const enVuelo = () => vi.fn(() => new Subject());
+    const falla500 = () => vi.fn(() => throwError(() => ({ status: 500, error: {} })));
+    const panel = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('.cg-conc')?.textContent ?? '';
+
+    it('mientras el saldo mide no dice «sin medir» ni ofrece «Reintentar»: el botón espera', () => {
+      const fx = montarJornada({ saldo: enVuelo() });
+      expect(comp.cargandoSaldo()).toBe(true);
+      expect(comp.textoSaldoUI()).toContain('midiendo');
+      expect(comp.subtituloJornada()).toContain('midiendo si hay corte abierto');
+      expect(panel(fx)).not.toContain('Corte sin medir');
+      expect(panel(fx)).not.toContain('Reintentar');
+    });
+
+    it('⛔ con el saldo en vuelo, rendir cuentas no abre nada', () => {
+      montarJornada({ saldo: enVuelo() });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+
+    it('⛔ la otra puerta tampoco: declarar el fondo sin saldo medido no abre', () => {
+      montarJornada({ saldo: falla500() });
+      comp.abrirApertura();
+      comp.fondoInicial.set(800);
+      comp.abrirCorte();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+
+    it('si el saldo FALLA, entonces sí: sin medir y «Reintentar»', () => {
+      const fx = montarJornada({ saldo: falla500() });
+      expect(comp.cargandoSaldo()).toBe(false);
+      expect(comp.saldoSinMedir()).toBe(true);
+      expect(panel(fx)).toContain('Corte sin medir');
+      expect(panel(fx)).toContain('Reintentar');
+    });
+  });
 });

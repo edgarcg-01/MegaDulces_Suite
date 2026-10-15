@@ -39,6 +39,7 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
+import { uuidV4 } from '../../../../core/utils/uuid';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
   type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
   type JornadasPendientes } from '../../cash-ledger.service';
@@ -1049,7 +1050,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
           <!-- ⚠️ Tres estados, no dos. Cuando el saldo NO se pudo medir no sabemos si hay corte
                abierto, y ofrecer abrirlo sobre uno vivo es el peor final. -->
-          @if (saldoSinMedir()) {
+          <!-- [CGP-V.4] Midiendo no es sin medir: mientras la lectura esta en vuelo no hay etiqueta. -->
+          @if (saldoSinMedir() && !cargandoSaldo()) {
             <p-tag value="Corte sin medir" severity="warn"></p-tag>
           } @else if (corteAbierto(); as c) {
             <p-tag [value]="'Corte ' + c.folio" severity="info"></p-tag>
@@ -1073,13 +1075,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                texto. Nadie busca "corte" cuando quiere rendir cuentas del dia. -->
           <!-- [CGP-V.3] Tambien se reintenta cuando no se sabe si hay jornadas atrasadas: abrir hoy
                a ciegas puede dejarlas sin poder cerrarse, y eso no se deshace desde aqui. -->
-          @if (cierreSinMedir()) {
+          <!-- [CGP-V.4] Mientras el saldo se mide el boton espera: Reintentar mandaria mas lecturas
+               contra el mismo limite que la esta frenando. -->
+          @if (cierreSinMedir() && !cargandoSaldo()) {
             <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
                       [text]="true" (onClick)="reintentarCierre()"></p-button>
           } @else {
             <p-button [label]="etiquetaCierre()"
                       icon="pi pi-lock" size="small"
-                      [loading]="abriendo() || midiendoAtrasadas()" [disabled]="abriendo() || midiendoAtrasadas()"
+                      [loading]="abriendo() || midiendoAtrasadas() || cargandoSaldo()"
+                      [disabled]="abriendo() || midiendoAtrasadas() || cargandoSaldo()"
                       (onClick)="cerrarJornada()"></p-button>
           }
         </div>
@@ -4446,7 +4451,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   });
 
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
-  textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
+  /** `[CGP-V.4]` Midiendo no es «sin medir»: la primera lectura del saldo todavía no volvió. */
+  textoSaldoUI = computed(() => {
+    const cargando = this.cargandoSaldo();
+    const r = this.saldoResp();
+    return cargando && !r ? 'Saldo: midiendo…' : textoSaldo(r);
+  });
   corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
   /**
    * CS.3.11 — Conciliación con el CAJERO (CAOS): el movimiento de la bóveda desde que abrió el corte.
@@ -4519,6 +4529,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
   /** Sin saldo no sabemos si hay corte abierto. No es lo mismo que saber que no hay. */
   saldoSinMedir = computed(() => this.saldoResp() === null);
+  /**
+   * `[CGP-V.4]` Una lectura del saldo en vuelo. Sin esto, mientras cargaba, la pantalla decía
+   * «Corte sin medir» y ofrecía «Reintentar» — y reintentar mandaba MÁS lecturas contra el mismo
+   * límite de 10 por segundo que la estaba frenando. Mientras mide, el botón espera.
+   */
+  cargandoSaldo = signal(false);
 
   /**
    * `[CG.115]` Lo suelto de otras jornadas. El signal se lee **incondicionalmente** (no detrás de
@@ -4948,11 +4964,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private sucursalActiva = '00';
 
   cargarSaldo(): void {
+    // `[CGP-V.4]` El servicio ya reintenta solo un 429; esto marca que la lectura está en vuelo.
+    this.cargandoSaldo.set(true);
     this.svc.saldo(this.sucursalActiva).subscribe({
-      next: (r) => this.saldoResp.set(r),
+      next: (r) => { this.saldoResp.set(r); this.cargandoSaldo.set(false); },
       // Un error de red NO es "saldo 0": se declara como sin medir. Y la barra de arriba ya NO
       // pinta "Abrir corte" en ese caso — no sabemos si hay uno abierto.
-      error: () => this.saldoResp.set(null),
+      error: () => { this.saldoResp.set(null); this.cargandoSaldo.set(false); },
     });
   }
 
@@ -4993,7 +5011,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * sellar, CG.19) y la doble llave sigue puesta: quien cierra **no** puede autorizar.
    */
   cerrarJornada(): void {
-    if (this.abriendo()) return;
+    // `[CGP-V.4]` Con el saldo en vuelo no se sabe todavía si hay un corte abierto.
+    if (this.abriendo() || this.cargandoSaldo()) return;
     if (this.corteAbierto()) { this.abrirCierre(); return; }
     /**
      * ⭐⭐ `[CG.90.1]` **EL FONDO DEJA DE PREGUNTARSE. NI SIQUIERA EL DIÁLOGO.**
@@ -5220,7 +5239,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
           // caía a «N de las M que se ven», que es justo la frase de la sección de abajo.
           ? 'Sin medir cuántos faltan por confirmar'
           : `${n(total)} por confirmar`;
-    if (this.saldoSinMedir()) return `${trabajo} · no se pudo medir si hay corte abierto`;
+    if (this.saldoSinMedir()) {
+      return this.cargandoSaldo()
+        ? `${trabajo} · midiendo si hay corte abierto…`
+        : `${trabajo} · no se pudo medir si hay corte abierto`;
+    }
     const c = this.corteAbierto();
     // [CGP-V.3] Las atrasadas van acá: el subtítulo es lo único que se ve sin abrir la ventana.
     const atr = this.atrasadas();
@@ -5359,6 +5382,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      * a este método llegan las dos puertas — «rendir cuentas» y «Declarar con cuánto arrancó la
      * caja» —, y cualquiera de las dos que abriera hoy dejaría huérfanas a las atrasadas.
      */
+    /**
+     * ⛔ `[CGP-V.4]` Sin saldo medido no se sabe si ya hay un corte abierto, y abrir otro encima es
+     * el peor final (la base lo rechaza, pero con su error). Vale para las dos puertas: la de
+     * «Declarar con cuánto arrancó la caja» no pasaba por ningún freno de saldo.
+     */
+    if (this.saldoSinMedir() || this.cargandoSaldo()) {
+      this.cerrarTrasAbrir.set(false);
+      this.toast.add({
+        severity: 'warn', summary: 'No se abrió el corte', life: 7000,
+        detail: 'Todavía no se sabe si ya hay un corte abierto. Esperá a que termine de medir o reintentá.',
+      });
+      return;
+    }
     const fecha = this.fechaParaAbrir();
     if (!fecha) {
       this.cerrarTrasAbrir.set(false);
@@ -6859,7 +6895,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.
       autofill: this.propuesta()?.provenance ?? null,
-      client_uuid: this.nuevoUuid(),
+      // `crypto.randomUUID` sólo existe en contexto seguro: por http:// en la LAN `guardar()`
+      // reventaba antes de emitir la petición. `uuidV4()` tiene el respaldo ([CGP-V.10]).
+      client_uuid: uuidV4(),
     }).subscribe({
       next: (m) => {
         this.guardando.set(false);
@@ -6923,11 +6961,6 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * `crypto.randomUUID` sólo existe en contexto seguro: sobre `http://` en la LAN —que es como se
-   * abre esta pantalla en las sucursales— es `undefined` y `guardar()` reventaba ANTES de emitir
-   * la petición, con el error tragado encima. La llave de idempotencia no puede depender de eso.
-   */
-  /**
    * Declara el beneficiario -> cuenta. Va en su propia peticion y NO tumba nada si falla: el
    * efectivo ya quedo registrado, y una regla que no se pudo crear se vuelve a ofrecer la
    * proxima vez. Lo que NO se hace es callarselo.
@@ -6949,12 +6982,4 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  private nuevoUuid(): string {
-    const c = globalThis.crypto as Crypto | undefined;
-    if (c?.randomUUID) return c.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
-      const r = (Math.random() * 16) | 0;
-      return (ch === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-    });
-  }
 }
