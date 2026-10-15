@@ -279,3 +279,75 @@ no se hizo. Se declara en vez de nombrar la causa.
 El candado **excluye ese día explícitamente** (`sucursal IN ('02','05') AND día = 2026-08-17`) para
 que la identidad se pueda vigilar sin que un incidente viejo la deje roja para siempre — pero la
 exclusión está escrita a la vista, con su monto, no escondida en un umbral.
+
+---
+
+# `[VEC.16]` — El hueco del 17-ago investigado: Kepler SÍ tiene las líneas, y nadie puede reponerlas
+
+> Edgar, 2026-10-15: *"investigalo"*. **Resultado: no es Kepler, es la ingesta — y el agujero no
+> es ese día, es que no existe forma de reparar un hueco de más de 3 días.**
+
+## 1. Kepler tiene las líneas
+
+Consultada la réplica de la sucursal (`pgvector-md`, `kepler_md_02` / `kepler_md_05`, schema `md`),
+17-ago-2026, venta `U-D-10`:
+
+| | docs | **sin líneas** | venta |
+|---|---:|---:|---:|
+| `kepler_md_02` mostrador | 307 | **0** | $64,484.88 |
+| `kepler_md_02` vecinal | 20 | **0** | $12,186.31 |
+| `kepler_md_05` mostrador | 182 | **0** | $59,588.87 |
+| `kepler_md_05` vecinal | 16 | **0** | $32,451.47 |
+
+**Cero documentos sin renglones**, y las cabeceras coinciden **al centavo** con el ODS — mismos
+documentos, mismo dinero. O sea: el ERP registró todo y el ODS perdió los renglones en el camino.
+
+## 2. Es un día, no un régimen
+
+Barrido del ODS por sucursal y mes (`U-D-10`, jul→oct):
+
+```
+sucursal 02 ── jul: sin huecos · ago: 17-ago -> 136/327 docs · $27,744.25 · sep: sin huecos · oct: sin huecos
+sucursal 05 ── jul: sin huecos · ago: 17-ago ->  31/198 docs · $17,289.03 · sep: sin huecos · oct: sin huecos
+```
+
+**167 documentos · $45,033.28**, todo el mismo día. Y alcanza a otros doctypes de esas plazas
+(`U-D-5` 18 de 25 en la 02, `U-D-40` 4 de 4), no sólo a la venta.
+
+## 3. ⛔⛔ Lo que de verdad importa: nadie puede reponerlo
+
+Hay dos reconciliadores, y **ninguno de los dos puede cerrar este hueco**:
+
+| modo | ventana | ¿repone? |
+|---|---|---|
+| ventana (lo que corre en prod: `--days=3 --watch=900`) | **3 días** | **sí** |
+| `--full` (barrido del backlog) | todo | **NO** — `faltan = FULL ? [] : …`, es sólo-DELETE |
+
+Verificado en el despliegue (`ops/k3s/22-ods-reconcile.deployment.yaml`, líneas 41/43) y en el
+código (`reconcile-ods-window.js`, el comentario lo dice: *"`--full` no repone (sería re-ship
+masivo sobre tablas de millones)"*).
+
+⭐ **O sea que la ventana de reparación del ODS es de 3 días.** Lo que se pierda y no se detecte
+dentro de ese plazo queda invisible para siempre — no por olvido, por diseño. Este incidente lleva
+**59 días** así, y se encontró de casualidad: la conciliación vecinal de `[VEC.15]` fue el
+detector, no la víctima.
+
+⚠️ Y el costo no es la vecinal: **toda pantalla que sume renglones subdeclara ese día** — el
+sell-out, los más vendidos, el margen. La cabecera sí está, así que los totales de venta están
+bien; lo que falta es el desglose.
+
+## 4. Cómo se repara (NO ejecutado — es escritura a prod)
+
+La herramienta existe y el modo con ventana **sí repone**:
+
+```bash
+node database/importers/kepler/reconcile-ods-window.js --branch=02 --tables=kdm2 --days=60 --apply
+node database/importers/kepler/reconcile-ods-window.js --branch=05 --tables=kdm2 --days=60 --apply
+```
+
+⚠️ **Va fuera de horario hábil y con autorización**: es un `--apply` contra prod y compara ~60 días
+de `kdm2` de esa rama. Correrlo antes en seco (sin `--apply`) dice cuántas filas repondría.
+
+⛔ **Lo que queda abierto y no se midió**: por qué se perdieron ese día (el CDC, el shipper o un
+reinicio), y si el mismo hueco existe en tablas que esta fase no toca. El barrido de arriba cubre
+`U-D-10` en dos sucursales; **las otras seis ramas y los demás doctypes no se revisaron**.
