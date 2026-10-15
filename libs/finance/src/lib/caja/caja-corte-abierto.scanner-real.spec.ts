@@ -17,11 +17,31 @@ import { CajaCorteAbiertoScannerService } from './caja-corte-abierto-scanner.ser
 const URL = process.env.CAJA_TEST_DB_URL;
 const T = '00000000-0000-0000-0000-00000000d01c';
 const CAJERA = '00000000-0000-0000-0000-0000000000c1';
-// Un año pasado distinto por corrida: las jornadas tienen que haber terminado hace más de 26 h.
-const ANIO = 1950 + Math.floor(Math.random() * 40);
-const ANCLA = `${ANIO}-06-10`;
-const SIN_CORTE = [`${ANIO}-06-11`, `${ANIO}-06-12`];
+// Un año pasado que la 00 no usó (lo elige `anioLibre()`): las jornadas tienen que haber terminado
+// hace más de 26 h, y una corrida no puede chocar con lo que sembró otra.
+let ANIO = 0;
+let ANCLA = '';
+let SIN_CORTE: string[] = [];
+const CORRIDA = Date.now().toString(36);
 const HORA = 60 * 60 * 1000;
+
+/**
+ * Un año sin cortes en la 00 y sin movimientos de ninguna plaza.
+ * `ux_cash_cut_sucursal_fecha` admite un corte por (sucursal, fecha) y esta prueba escribe sin
+ * deshacer: con un año al azar, dos corridas sobre la misma base terminaban chocando (pasó el
+ * 2026-10-15 con el 2013). Si se agotan, falla con frase en vez de chocar a mitad.
+ */
+async function anioLibre(tk: TenantKnexService, desde: number, cuantos: number): Promise<number> {
+  const usados = new Set<number>(await tk.run(async (trx) => {
+    const r = await trx.raw(`SELECT extract(year FROM fecha)::int AS y FROM finance.cash_ledger_cuts WHERE sucursal = '00' UNION SELECT extract(year FROM fecha)::int FROM finance.cash_ledger`);
+    return r.rows.map((x: { y: number }) => Number(x.y));
+  }));
+  const libres = Array.from({ length: cuantos }, (_, i) => desde + i).filter((y) => !usados.has(y));
+  if (!libres.length) {
+    throw new Error(`La base de prueba ya usó los ${cuantos} años desde ${desde}: reconstruila con database/tests/caja/preparar-base-caja.js.`);
+  }
+  return libres[Math.floor(Math.random() * libres.length)];
+}
 
 if (!URL) {
   // eslint-disable-next-line no-console
@@ -44,10 +64,13 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
       notify: async (_t: string, n: FinanceNotice) => { avisos.push(n); },
     });
 
+    ANIO = await anioLibre(tk, 1950, 40);
+    ANCLA = `${ANIO}-06-10`;
+    SIN_CORTE = [`${ANIO}-06-11`, `${ANIO}-06-12`];
     await tk.run(async (trx) => {
       // El primer corte del libro (cerrado): desde acá hay jornadas que reclamar.
       await trx('finance.cash_ledger_cuts').insert({
-        tenant_id: T, folio: `CC-ANCLA-${ANIO}`, fecha: ANCLA, sucursal: '00', estado: 'cerrado',
+        tenant_id: T, folio: `CC-ANCLA-${ANIO}-${CORRIDA}`, fecha: ANCLA, sucursal: '00', estado: 'cerrado',
         fondo_inicial: 0, fondo_origen: 'contado', esperado: 0, contado: 0, diferencia: 0,
         created_by: CAJERA, closed_by: CAJERA, closed_at: trx.fn.now(),
       });
@@ -67,9 +90,9 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
         });
       }
       // El corte trabado: en borrador desde hace 75 horas, como el del 12-oct.
-      folioTrabado = `CC-TRABADO-${ANIO}`;
+      folioTrabado = `CC-TRABADO-${ANIO}-${CORRIDA}`;
       await trx('finance.cash_ledger_cuts').insert({
-        tenant_id: T, folio: folioTrabado, fecha: `${ANIO}-06-13`, sucursal: `ZT-${ANIO}`,
+        tenant_id: T, folio: folioTrabado, fecha: `${ANIO}-06-13`, sucursal: `ZT-${ANIO}-${CORRIDA}`,
         fondo_inicial: 0, fondo_origen: 'contado', created_by: CAJERA,
         created_at: trx.raw(`now() - interval '75 hours'`),
       });

@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { denomKeyDeValor } from '@megadulces/contracts';
+import { denomKeyDeValor, type JornadasPendientes } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { SUCURSAL_DEL_CAJERO, hoyMx, jornadasSinCorte } from './caja-jornadas.query';
@@ -421,7 +421,7 @@ export class CashCutService {
    * Sólo el cajón de la 00 tiene jornadas: es la Caja General (`[CG.98]`). Otra sucursal lo DECLARA
    * con `alcance`, en vez de responder una lista vacía que se leería como "todo al día".
    */
-  async jornadasPendientes(sucursal: string) {
+  async jornadasPendientes(sucursal: string): Promise<JornadasPendientes> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const hoy = await hoyMx(trx);

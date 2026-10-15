@@ -28,14 +28,35 @@ const CAJERA = { id: '00000000-0000-0000-0000-0000000000c1', username: 'cajera_p
 const AUTORIZA = { id: '00000000-0000-0000-0000-0000000000c2', username: 'autoriza_prueba' };
 // Un año PASADO distinto por corrida: un corte es único por (sucursal, fecha), y desde `[CGP-L.4]`
 // no se abre una fecha que todavía no pasa (la primera versión usaba años 2100+ y quedó inválida).
-const ANIO = 1990 + Math.floor(Math.random() * 30);
+// El año lo elige `anioLibre()` en `beforeAll`, entre 1990 y 2019; la ancla de L.4 va 1000 años antes.
+let ANIO = 0;
+// Una marca por corrida en las sucursales y los folios sembrados: dos corridas nunca comparten sucursal.
+const CORRIDA = Date.now().toString(36);
 const dia = (mmdd: string) => `${ANIO}-${mmdd}`;
 // Y una sucursal distinta por corrida: sólo puede haber UN borrador por sucursal, sin importar la
 // fecha, y la prueba del arqueo ciego deja el suyo abierto a propósito (es el cierre rechazado).
 // Es el mismo mecanismo que trabó prod tres días: un borrador viejo bloquea los cortes que siguen.
-const suc = (k: string) => `${k}-${ANIO}`;
+const suc = (k: string) => `${k}-${ANIO}-${CORRIDA}`;
 const conteo = (...pares: Array<[string, number, number]>) =>
   pares.map(([denom_key, denominacion, piezas]) => ({ denom_key, denominacion, piezas }));
+
+/**
+ * Un año sin cortes en la 00 y sin movimientos de ninguna plaza (desplazado -1000 años, donde siembra su ancla).
+ * `ux_cash_cut_sucursal_fecha` admite un corte por (sucursal, fecha) y esta prueba escribe sin
+ * deshacer: con un año al azar, dos corridas sobre la misma base terminaban chocando (pasó el
+ * 2026-10-15 con el 2013). Si se agotan, falla con frase en vez de chocar a mitad.
+ */
+async function anioLibre(tk: TenantKnexService, desde: number, cuantos: number): Promise<number> {
+  const usados = new Set<number>(await tk.run(async (trx) => {
+    const r = await trx.raw(`SELECT extract(year FROM fecha)::int AS y FROM finance.cash_ledger_cuts WHERE sucursal = '00' UNION SELECT extract(year FROM fecha)::int FROM finance.cash_ledger`);
+    return r.rows.map((x: { y: number }) => Number(x.y));
+  }));
+  const libres = Array.from({ length: cuantos }, (_, i) => desde + i).filter((y) => !usados.has(y + -1000));
+  if (!libres.length) {
+    throw new Error(`La base de prueba ya usó los ${cuantos} años desde ${desde}: reconstruila con database/tests/caja/preparar-base-caja.js.`);
+  }
+  return libres[Math.floor(Math.random() * libres.length)];
+}
 
 if (!URL) {
   // eslint-disable-next-line no-console
@@ -48,11 +69,12 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
   let svc: CashCutService;
   let n = 0;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     knex = knexFactory({ client: 'pg', connection: URL as string, pool: { min: 0, max: 4 } });
     const ctx = { requireTenantId: () => T } as unknown as TenantContextService;
     tk = new TenantKnexService(knex, ctx);
     svc = new CashCutService(tk, ctx);
+    ANIO = await anioLibre(tk, 1990, 30);
   });
   afterAll(async () => {
     await knex?.destroy();
@@ -190,11 +212,15 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
   it('`[CGP-L.4]` las jornadas pendientes: días con movimientos y sin corte, para ofrecerlos en la pantalla', async () => {
     // Un día de L9 no aplica (la consulta es del cajón de la 00); se siembra en la 00 con un ancla
     // cerrada ANTES de todo lo demás de la 00, y un movimiento al día siguiente sin corte.
-    const ancla = `${ANIO - 1000}-05-10`;            // ~1000 años atrás: antes de cualquier corte de prueba
-    const pendiente = `${ANIO - 1000}-05-11`;
+    // ~1000 años atrás: antes de cualquier corte de prueba. ⚠️ El año va RELLENO a 4 dígitos: el
+    // servidor responde "0995-05-11" y con ANIO < 2000 la prueba sembraba "995-05-11" y fallaba una
+    // de cada tres corridas (lo destapó elegir el año entre los libres).
+    const y = String(ANIO - 1000).padStart(4, '0');
+    const ancla = `${y}-05-10`;
+    const pendiente = `${y}-05-11`;
     await tk.run(async (trx) => {
       await trx('finance.cash_ledger_cuts').insert({
-        tenant_id: T, folio: `CC-ANCLA-L4-${ANIO}`, fecha: ancla, sucursal: '00', estado: 'cerrado',
+        tenant_id: T, folio: `CC-ANCLA-L4-${ANIO}-${CORRIDA}`, fecha: ancla, sucursal: '00', estado: 'cerrado',
         fondo_inicial: 0, fondo_origen: 'contado', esperado: 0, contado: 0, diferencia: 0,
         created_by: CAJERA.id, closed_by: CAJERA.id, closed_at: trx.fn.now(),
       });
