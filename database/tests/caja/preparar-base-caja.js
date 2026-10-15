@@ -50,7 +50,9 @@ const NUCLEO = ['cash_ledger_cut_denominations', 'cash_ledger_cuts', 'cash_ledge
  * de la bóveda (CAOS) y el reparto cajón/bóveda. Sin esto la base sirve para probar las reglas de
  * la tabla, pero no el servicio real. Se trae la migración REAL que crea cada objeto.
  */
-const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_reparto_movimiento', 'finance.caos_cash_links'];
+const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_reparto_movimiento', 'finance.caos_cash_links',
+  // `[CGP-L.10]` Donde late el sensor del corte abierto: sin la tabla, el latido no se puede probar.
+  'analytics.cron_runs'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────

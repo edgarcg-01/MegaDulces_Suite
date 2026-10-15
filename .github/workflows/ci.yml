@@ -971,6 +971,8 @@ jobs:
       # ⚠️ Va DESPUÉS de las suites, a propósito: el servicio abre y CONFIRMA sus propias
       #    transacciones, y `test-newdb-cash-ledger-cuts` mide el saldo corrido de la 00 en absoluto
       #    (asume la sucursal vacía). Medido en local: con el servicio antes, esa suite da 41 ✓ / 2 ✗.
+      # `[CGP-L.10]` Y el SENSOR del corte abierto: siembra un corte trabado y jornadas sin corte, y
+      # comprueba que los ve, deja su latido y avisa sin repetir. Probado en rojo con dos mutaciones.
       - name: Servicio real del corte
         # Corre aunque fallen las suites: un rojo no tiene que esconder el otro resultado.
         if: ${{ !cancelled() }}
@@ -978,7 +980,8 @@ jobs:
           CAJA_TEST_DB_URL: postgresql://app_runtime:app_runtime@127.0.0.1:5432/postgres_platform
         run: |
           if ! npx vitest run --config libs/finance/vitest.config.ts \
-                 libs/finance/src/lib/caja/cash-cut.servicio-real.spec.ts 2>&1 | tee servicio.log; then
+                 libs/finance/src/lib/caja/cash-cut.servicio-real.spec.ts \
+                 libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
             exit 1
           fi

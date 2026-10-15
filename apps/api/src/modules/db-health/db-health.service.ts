@@ -1083,6 +1083,10 @@ export const CRON_JOBS: CronCfg[] = [
   // `cfg ? classify : 'ok'` y un cron parado se vería verde — que es justo el modo de falla que
   // este job existe para no repetir.
   { key: 'caja_fecha_futura',   label: 'Caja: movimientos fechados adelante', cadence: 'diario 07:15 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [CGP-L.10] El sensor del corte abierto corre cada hora: 2 h de aviso (una corrida perdida), 6 h
+  // de crítico. Sin este renglón un sensor parado se pinta verde, que es justo la falla que tuvo el
+  // corte del 12-oct: tres jornadas trabadas y ningún sistema lo dijo.
+  { key: 'caja_corte_abierto',  label: 'Caja: corte abierto y jornadas sin corte', cadence: 'cada hora (:20)', warnH: 2, critH: 6, maxRunH: 0.25 },
   // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
   { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },

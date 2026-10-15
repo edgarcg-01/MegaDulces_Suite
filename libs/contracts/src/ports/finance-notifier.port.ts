@@ -19,7 +19,9 @@ export interface FinanceCriticalItem {
 /** Aviso informativo genérico de finanzas (no crítico): feed nuevo, movimientos, etc. */
 export interface FinanceNotice {
   key: string;                    // clave de origen/regla (dedup + ícono en la campana)
-  severity: 'info' | 'warn';
+  // `[CGP-L.10]` + 'critical': la campana ya lo admite (`AlertSeverity`) y `caja_fecha_futura` ya lo
+  // mandaba; compilaba sólo porque `.bind()` devuelve `any` con el tsconfig no estricto.
+  severity: 'info' | 'warn' | 'critical';
   title: string;
   message: string;
   route?: string;                 // deep-link (p.ej. '/finanzas/bancos')
