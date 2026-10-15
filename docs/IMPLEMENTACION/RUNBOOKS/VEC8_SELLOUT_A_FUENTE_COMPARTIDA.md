@@ -388,3 +388,52 @@ La reparación cierra **este** hueco. No cierra el que lo hizo posible:
   un reinicio). El latido de ese día no se revisó.
 - **Sólo se barrieron dos ramas y `U-D-10`.** Las otras seis ramas y los demás doctypes **no se
   revisaron**, y con una ventana de 3 días cualquier hueco viejo que haya ahí es igual de invisible.
+
+---
+
+# `[VEC.17]` — El barrido completo: no era un día, el ODS pierde filas en 7 de 9 ramas
+
+> Edgar, 2026-10-15: *"sí, barrelo"*. Barrido en seco de **9 ramas × 5 tablas de movimiento ×
+> 60 días**, con el propio reconciliador (compara ODS contra réplica de sucursal).
+
+## Filas ausentes en el ODS
+
+| suc | `kdm1` | `kdm2` | `kdij` | `kdue` | `kdpord` |
+|---|---:|---:|---:|---:|---:|
+| 00 | 0 | 487 | 38 | 111 | 3 |
+| 01 | 1 | 1 | **547** | **524** | 232 |
+| 02 | 0 | **0** ✅ | 0 | 39 | 0 |
+| 03 | 6 | 307 | **569** | 150 | 0 |
+| 04 | 0 | 0 | 0 | 0 | 0 |
+| 05 | 0 | **0** ✅ | 144 | 38 | 15 |
+| 06 | 0 | 33 | 0 | 5 | 3 |
+| 07 | 0 | 0 | 2 | 0 | 0 |
+| 08 | 0 | 15 | 0 | 0 | 235 |
+| **Σ** | **7** | **843** | **1,300** | **867** | **488** |
+
+**3,505 filas ausentes** en 60 días, en **7 de 9 ramas**.
+
+## Lo que dice la tabla
+
+- ⭐ **`kdij` es el peor con 1,300** — y el kardex es lo que **valúa el inventario**. `kdue` con
+  **867** es la **cartera**. O sea que el hueco no es un detalle de venta: toca dinero por cobrar
+  y capital en piso.
+- ✅ **`02` y `05` en `kdm2` quedaron en CERO**: la reparación de `[VEC.16]` se sostiene.
+- ⭐⭐ **`04` y `07` están impecables en las cinco tablas.** Eso es lo que convierte al resto en
+  defecto y no en «así es esto»: el carril **puede** no perder nada.
+- `01` tiene **39 sobrantes** en `kdm2` (filas en el ODS que ya no están en origen). Eso es otra
+  cosa —borrados no propagados— y sí tiene quien lo atienda: el `--delete-sobrantes` nocturno.
+  **Lo que no tiene quien lo atienda es el faltante.**
+
+⚠️ **`01/kdm2` necesitó `--max-old-space-size=2048`**: con el heap por default el proceso muere
+por OOM y el barrido imprime *«sin salida»*, que se lee como «no hay nada». Es la rama más grande
+(480,137 filas en la ventana). Un barrido que se queda sin memoria **no reporta cero: no reporta**.
+
+## ⛔ La causa del 17-ago NO es establecible, y ahora se sabe por qué
+
+`analytics.cron_run_log` (690,648 filas) **no cubre agosto**: salta del **31-jul al 02-sep**, y
+sólo se puebla de verdad desde el **07-sep**. No hay telemetría del período, así que por qué se
+perdieron esas 968 filas no se puede responder con lo que hay.
+
+⭐ Eso cierra el círculo: **el hueco duró 59 días porque no había ni quién lo repusiera (ventana
+de 3 días) ni quién lo registrara (sin log).**
