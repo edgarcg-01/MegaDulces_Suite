@@ -52,7 +52,10 @@ const NUCLEO = ['cash_ledger_cut_denominations', 'cash_ledger_cuts', 'cash_ledge
  */
 const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_reparto_movimiento', 'finance.caos_cash_links',
   // `[CGP-L.10]` Donde late el sensor del corte abierto: sin la tabla, el latido no se puede probar.
-  'analytics.cron_runs'];
+  'analytics.cron_runs',
+  // [CGP-L.6] Lo que lee y escribe la atribución de CAOS: el grano de cada depósito (con RLS forzado,
+  // la escritura sin tenant fallaba en silencio) y lo aprendido de los enlaces.
+  'finance.caos_deposito_grano', 'analytics.v_caos_link_patterns'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
@@ -127,16 +130,21 @@ function creadorDeFuncion(nombreCalificado, archivos) {
  * La migración más vieja que crea la tabla o vista `schema.nombre`.
  * ⚠️ Hay migraciones que guardan el nombre en una constante (`const VISTA = 'analytics.x'` y
  * después `CREATE OR REPLACE VIEW ${VISTA}`): buscar sólo el nombre literal no las encuentra.
+ * `[CGP-L.6]` Y otras guardan sólo el nombre (`const TABLA = 'caos_deposito_grano'`) y escriben
+ * `CREATE TABLE finance.${TABLA}`: con eso tampoco se encontraba la tabla de granos de CAOS.
  */
 function creadorDeRelacion(schema, nombre, archivos) {
   const crea = '(CREATE\\s+(OR\\s+REPLACE\\s+)?(MATERIALIZED\\s+)?(TABLE|VIEW)\\s+(IF\\s+NOT\\s+EXISTS\\s+)?)';
   const literal = new RegExp(`${crea}${schema}\\.${nombre}\\b`, 'i');
   const constante = new RegExp(`const\\s+([A-Za-z_]\\w*)\\s*=\\s*['"]${schema}\\.${nombre}['"]`, 'g');
+  const corta = new RegExp(`const\\s+([A-Za-z_]\\w*)\\s*=\\s*['"]${nombre}['"]`, 'g');
   return archivos.find((f) => {
     const src = sinComentarios(fs.readFileSync(path.join(DIR, f), 'utf8'));
     if (literal.test(src)) return true;
     const nombres = [...src.matchAll(constante)].map((m) => m[1]);
-    return nombres.some((c) => new RegExp(`${crea}\\$\\{${c}\\}`, 'i').test(src));
+    if (nombres.some((c) => new RegExp(`${crea}\\$\\{${c}\\}`, 'i').test(src))) return true;
+    const cortos = [...src.matchAll(corta)].map((m) => m[1]);
+    return cortos.some((c) => new RegExp(`${crea}${schema}\\.\\$\\{${c}\\}`, 'i').test(src));
   }) || null;
 }
 
@@ -178,10 +186,15 @@ async function main() {
     }
     const snapshot = cargarSnapshot();
 
+    // `[CGP-L.6]` `dev_ro`, el rol de sólo lectura, también: varias migraciones le dan GRANT (la de los
+    // granos de CAOS, entre ellas) y sin el rol la migración se cae. Acá basta con que exista: sin login.
     await knex.raw(`
       DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_runtime') THEN
           CREATE ROLE app_runtime WITH LOGIN PASSWORD 'app_runtime';
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dev_ro') THEN
+          CREATE ROLE dev_ro NOLOGIN;
         END IF;
       END $$`);
     await knex.raw(`CREATE TABLE IF NOT EXISTS public._caja_test_base (

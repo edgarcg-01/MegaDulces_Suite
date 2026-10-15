@@ -31,6 +31,7 @@ import {
 import { revisarFirma } from './caja-firma.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { conciliacion } from './caja-conciliacion.engine';
+import { relacionExiste } from './caja-db.util';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
@@ -1565,15 +1566,17 @@ export class CashLedgerService {
       }));
 
       // Lo APRENDIDO: si la vista aún no existe (deploy por delante de la migración), se sigue sin ella.
+      // ⛔ `[CGP-L.6]` Se PREGUNTA antes de leer. Era un `try/catch` vacío: dentro de la transacción el
+      // error la dejaba abortada (25P02) y `frescuraCaos`, la consulta siguiente, tumbaba la respuesta.
       let aprendido: Map<string, PatronAprendido> | undefined;
-      try {
+      if (await relacionExiste(trx, 'analytics.v_caos_link_patterns')) {
         const pat = await trx('analytics.v_caos_link_patterns').where('tenant_id', tenantId)
           .select('ref_norm', 'casos', 'cuenta_tipica', 'concepto_tipico', 'beneficiario_tipico');
         aprendido = new Map(pat.map((p: any) => [p.ref_norm, {
           ref_norm: p.ref_norm, casos: Number(p.casos), cuenta_tipica: p.cuenta_tipica,
           concepto_tipico: p.concepto_tipico, beneficiario_tipico: p.beneficiario_tipico,
         }]));
-      } catch { aprendido = undefined; }
+      }
 
       const g: CaosGastoCtx = {
         monto: q.monto != null ? Number(q.monto) : null, fecha,
@@ -1628,15 +1631,17 @@ export class CashLedgerService {
       sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
       denominaciones: porMov.get(m.id) || [], type_id: Number(m.type_id),
     }));
+    // ⛔ `[CGP-L.6]` Se pregunta antes de leer: el `catch` vacío abortaba la transacción y
+    // `marcarClientesCredito`, la consulta siguiente de la bandeja, reventaba con 25P02.
     let aprendido: Map<string, PatronAprendido> | undefined;
-    try {
+    if (await relacionExiste(trx, 'analytics.v_caos_link_patterns')) {
       const pat = await trx('analytics.v_caos_link_patterns').where('tenant_id', tenantId)
         .select('ref_norm', 'casos', 'cuenta_tipica', 'concepto_tipico', 'beneficiario_tipico');
       aprendido = new Map(pat.map((p: any) => [p.ref_norm, {
         ref_norm: p.ref_norm, casos: Number(p.casos), cuenta_tipica: p.cuenta_tipica,
         concepto_tipico: p.concepto_tipico, beneficiario_tipico: p.beneficiario_tipico,
       }]));
-    } catch { /* sin aprendido: cold-start */ }
+    } // sin la vista: sin aprendido (cold-start)
     // Un CAOS se ofrece a UN solo pendiente (greedy por orden de la bandeja): no se une a dos.
     const usados = new Set<string>();
     return rows.map((r: any) => {
