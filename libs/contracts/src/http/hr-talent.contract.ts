@@ -139,6 +139,28 @@ export interface HrDocumentoNuevo {
   file_base64: string;
 }
 
+/** `[RH.3.3.4b]` Pedirle sus documentos por WhatsApp. Sin `slots`: los obligatorios que le faltan (el CV no). */
+export interface HrPedirDocumentos {
+  slots?: string[] | null;
+}
+
+/**
+ * `[RH.3.3.4b]` Qué pasó al pedirle sus documentos. La lista SIEMPRE queda registrada (lo que mande se acomoda solo);
+ * `enviado` dice si además se le mandó el mensaje, y si no, por qué:
+ *  · `nada_que_pedir`   — ya tiene todo lo obligatorio.
+ *  · `fuera_de_ventana` — no ha escrito al número de reclutamiento en las últimas 24 h (o nunca): Meta no deja mandarle
+ *                         texto libre. Se le avisa por otro medio y, en cuanto escriba, el bot le contesta con la lista.
+ *  · `sin_whatsapp`     — la salida por WhatsApp no está disponible en este servidor, o el tenant no tiene número de RH.
+ */
+export interface HrPedirDocumentosResultadoDto {
+  solicitados: string[];
+  enviado: boolean;
+  motivo: 'enviado' | 'nada_que_pedir' | 'fuera_de_ventana' | 'sin_whatsapp';
+  /** El texto que se le mandó (o el que habría que mandarle por otro medio). */
+  mensaje: string | null;
+  ultimo_mensaje_en: string | null;
+}
+
 /** Lo que RH puede corregir a mano de un candidato. */
 export interface HrCandidatoEdicion {
   full_name?: string | null;

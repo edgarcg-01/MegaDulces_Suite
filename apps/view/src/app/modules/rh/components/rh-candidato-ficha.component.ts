@@ -3,8 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
+import { CheckboxModule } from 'primeng/checkbox';
 import {
-  HR_ESTILOS_LIDERAZGO, hrResultadoLiderazgo, type HrAptitudesEvalGuardada,
+  HR_ESTILOS_LIDERAZGO, hrResultadoLiderazgo, type HrAptitudesEvalGuardada, type HrPedirDocumentosResultadoDto,
   type HrCandidatoEdicion, type HrCandidatoFichaDto, type HrCasilleroDto, type HrDocumentoDto, type HrLigaCreadaDto, type HrTalentCanal,
   type HrTalentEtapa, type HrTalentTipoEvento,
 } from '@megadulces/contracts';
@@ -47,7 +48,24 @@ export function expedienteDe(docs: HrDocumentoDto[], casilleros: HrCasilleroDto[
   };
 }
 
-type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' | 'editar';
+/**
+ * `[RH.3.3.4b]` Lo que se le puede pedir por WhatsApp: todo el expediente menos el CV (ya lo mandó al postularse) y el
+ * reporte de la prueba (lo manda el proveedor, no el candidato).
+ */
+export function pediblesDe(casilleros: HrCasilleroDto[]): HrCasilleroDto[] {
+  return casilleros.filter((c) => c.key !== 'cv' && c.key !== 'midot');
+}
+
+/**
+ * `[RH.3.3.4b]` El texto para pedírselos por otro medio cuando no se le puede escribir por WhatsApp: no dice «envíalos
+ * aquí» (se pega en otro chat), le dice a qué número escribir para que el bot los reciba.
+ */
+export function listaParaCopiar(etiquetas: string[]): string {
+  return `Para continuar con tu proceso necesitamos estos documentos: ${etiquetas.join(', ')}. `
+    + 'Mándalos como foto o PDF al WhatsApp de reclutamiento de MegaDulces (escríbenos «hola» y te digo cuáles faltan).';
+}
+
+type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' | 'editar' | 'pedir_docs';
 
 /**
  * Fase RH · `[RH.2.3]` — la FICHA de un candidato, dentro del panel lateral de Candidatos. Todo lo que RH hace con
@@ -60,7 +78,7 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
 @Component({
   selector: 'app-rh-candidato-ficha',
   standalone: true,
-  imports: [FormsModule, SelectModule, InputTextModule, ButtonModule],
+  imports: [FormsModule, SelectModule, InputTextModule, ButtonModule, CheckboxModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let f = ficha();
@@ -216,6 +234,40 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
               </div>
             } @else {
               <p-button label="Mandar liga para subir su CV" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga('cv')" />
+            }
+          </div>
+          <div class="cf-liga" role="group" aria-label="Pedir documentos por WhatsApp">
+            @if (accion() === 'pedir_docs') {
+              <p class="cf-nota">Elige qué pedirle. Lo que mande al WhatsApp de reclutamiento se acomoda solo en su casillero.</p>
+              <div class="cf-checks">
+                @for (c of pedibles(); track c.key) {
+                  <label class="cf-check">
+                    <p-checkbox [binary]="true" [ngModel]="pedidos().has(c.key)" (ngModelChange)="alternarPedido(c.key, $event)" [inputId]="'pd-' + c.key" />
+                    <span>{{ c.label }}@if (!c.obligatorio) { <small> · opcional</small> }</span>
+                  </label>
+                }
+              </div>
+              <div class="cf-fila">
+                <p-button label="Pedir documentos" icon="pi pi-whatsapp" size="small" [disabled]="!pedidos().size" [loading]="ocupado()" (onClick)="pedirDocumentos()" />
+                <p-button label="Cancelar" size="small" [text]="true" severity="secondary" (onClick)="cerrarAccion()" />
+              </div>
+            } @else if (peticion(); as p) {
+              <p class="cf-nota" role="status">
+                <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                La lista quedó registrada: lo que mande se acomodará solo. Pero no se le pudo escribir por WhatsApp:
+                @if (p.motivo === 'fuera_de_ventana') {
+                  no ha escrito al número de reclutamiento en las últimas 24 horas, y WhatsApp no deja escribirle primero.
+                  Pídele por llamada o mensaje que escriba «hola» a ese número: el bot le contestará con la lista.
+                } @else {
+                  el WhatsApp de reclutamiento no está disponible en este servidor. Pídeselos por otro medio.
+                }
+              </p>
+              <div class="cf-fila">
+                <p-button label="Copiar la lista" icon="pi pi-copy" size="small" severity="secondary" [outlined]="true" (onClick)="copiarListaDocumentos(p)" />
+                <p-button label="Listo" size="small" [text]="true" severity="secondary" (onClick)="cerrarPeticion()" />
+              </div>
+            } @else {
+              <p-button label="Pedir documentos por WhatsApp" icon="pi pi-whatsapp" size="small" severity="secondary" [outlined]="true" (onClick)="abrirPedirDocumentos()" />
             }
           </div>
         }
@@ -381,6 +433,9 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
       border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-main); width: 100%; }
     .cf-wa { color: var(--action); font-weight: 600; }
     .cf-form { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .cf-checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: var(--sp-1) var(--sp-3); }
+    .cf-check { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
+    .cf-check small { color: var(--text-muted); }
     .cf-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .cf-evento { flex-direction: row; flex-wrap: wrap; align-items: center; }
     .cf-evento input { flex: 1 1 14rem; }
@@ -425,6 +480,12 @@ export class RhCandidatoFichaComponent {
   readonly liga = signal<HrLigaCreadaDto | null>(null);
   readonly ligaLiderazgo = signal<HrLigaCreadaDto | null>(null);
   readonly ligaAptitudes = signal<HrLigaCreadaDto | null>(null);
+  /** `[RH.3.3.4b]` Los casilleros elegidos para pedirle, y lo que contestó el servidor cuando no se le pudo escribir. */
+  readonly pedidos = signal<ReadonlySet<string>>(new Set());
+  /** Con el id del candidato: la ficha se reusa al cambiar de persona y un resultado viejo no debe verse con otra. */
+  private readonly peticionDe = signal<{ id: string; r: HrPedirDocumentosResultadoDto } | null>(null);
+  readonly peticion = computed(() => { const p = this.peticionDe(); return p && p.id === this.ficha().id ? p.r : null; });
+  readonly pedibles = computed(() => pediblesDe(this.casilleros()));
   /** La evaluación del jefe, como quedó guardada (`aptitude_eval`). */
   readonly aptitudes = computed(() => {
     const a = this.ficha().aptitude_eval as Partial<HrAptitudesEvalGuardada> | null;
@@ -576,6 +637,52 @@ export class RhCandidatoFichaComponent {
     const ok = () => this.aviso.set({ texto: 'Mensaje con la liga copiado: pégalo en WhatsApp.', mal: false });
     const mal = () => this.aviso.set({ texto: 'No se pudo copiar: selecciona la liga y cópiala a mano.', mal: true });
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(l.mensaje).then(ok, mal); else mal();
+  }
+
+  /** `[RH.3.3.4b]` Abre la petición con lo obligatorio que le falta ya marcado. */
+  abrirPedirDocumentos(): void {
+    const pedibles = new Set(this.pedibles().map((c) => c.key));
+    this.pedidos.set(new Set(this.ficha().documentos_faltantes.filter((k) => pedibles.has(k))));
+    this.peticionDe.set(null);
+    this.abrirAccion('pedir_docs');
+  }
+
+  cerrarPeticion(): void { this.peticionDe.set(null); }
+
+  alternarPedido(key: string, marcado: boolean): void {
+    const s = new Set(this.pedidos());
+    if (marcado) s.add(key); else s.delete(key);
+    this.pedidos.set(s);
+  }
+
+  /**
+   * `[RH.3.3.4b]` La lista siempre queda registrada en el servidor. Si se le pudo escribir, basta el aviso; si no (fuera
+   * de la ventana de 24 h, o sin WhatsApp), se queda a la vista el porqué y cómo pedírselos por otro medio.
+   */
+  pedirDocumentos(): void {
+    const id = this.ficha().id;
+    const orden = this.pedibles().map((c) => c.key).filter((k) => this.pedidos().has(k));
+    this.ocupado.set(true);
+    this.api.pedirDocumentos(id, orden).subscribe({
+      next: (r) => {
+        this.ocupado.set(false);
+        this.accion.set(null);
+        if (r.motivo === 'enviado') this.aviso.set({ texto: `Le mandé por WhatsApp la lista de ${r.solicitados.length} documento(s).`, mal: false });
+        else if (r.motivo === 'nada_que_pedir') this.aviso.set({ texto: 'No hay nada que pedirle: ya tiene esos documentos.', mal: false });
+        else this.peticionDe.set({ id, r });
+        // La petición queda en su historia: se recarga la ficha.
+        this.api.ficha(id).subscribe({ next: (f) => this.actualizada.emit(f), error: () => undefined });
+      },
+      error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudieron pedir los documentos.'), mal: true }); },
+    });
+  }
+
+  copiarListaDocumentos(p: HrPedirDocumentosResultadoDto): void {
+    const etiqueta = (k: string) => this.casilleros().find((c) => c.key === k)?.label ?? k;
+    const texto = listaParaCopiar(p.solicitados.map(etiqueta));
+    const ok = () => this.aviso.set({ texto: 'Lista copiada: pégala en el medio por el que le escribas.', mal: false });
+    const mal = () => this.aviso.set({ texto: 'No se pudo copiar.', mal: true });
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(texto).then(ok, mal); else mal();
   }
 
   fusionar(absorbId: string): void {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
+import { diaMxDeInstante } from '@megadulces/contracts';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   classifyByRules, learnConceptFromHistory, pickBest, buildProvenance,
@@ -118,7 +119,8 @@ export class CajaAutofillService {
           const rows: HistoryRow[] = await trx('analytics.expense_entries')
             .where('tenant_id', tenantId)
             .whereNotNull('concepto')
-            .where('fecha', '>=', desde.toISOString().slice(0, 10))
+            // `[CGP-L.5]` El día de México del instante; `toISOString` lo corría después de las 18:00.
+            .where('fecha', '>=', diaMxDeInstante(desde))
             .where((b: any) => b
               .whereILike('beneficiario', `%${sujeto}%`)
               .orWhereILike('beneficiario_doc', `%${sujeto}%`))

@@ -125,3 +125,33 @@ describe('repartirIngresosCaos — el ingreso se cubre con cobros ANTERIORES', (
     expect(v.cubierto).toBe(0);
   });
 });
+
+// ── `[CGP-L.5]` El día del depósito es el día de NEGOCIO en México ─────────────────────────────────
+//
+// El servicio manda `occurred_at` como ISO en UTC. Recortarlo daba el día en UTC: un depósito a las
+// 19:00 del 12-oct «era» del 13, y podía consumir un cobro del 13 — dinero que todavía no existía.
+describe('[CGP-L.5] el corte del depósito usa el día de México', () => {
+  it('⛔ un depósito a las 19:00 del 12-oct NO consume un cobro del 13', () => {
+    const { resultados } = repartirIngresosCaos(
+      [dep(1, '2026-10-13T01:00:00.000Z', 500)],               // 19:00 del 12-oct en México
+      [
+        { origen_ref: 'A', fecha: '2026-10-12', monto: 300 },
+        { origen_ref: 'B', fecha: '2026-10-13', monto: 500 },
+      ],
+    );
+    const v = resultados[0].veredicto;
+    expect(v.aplicaciones.map((a) => a.fecha)).toEqual(['2026-10-12']);
+    expect(v).toMatchObject({ estado: 'sin_respaldo', cubierto: 300, faltante: 200 });
+  });
+
+  it('a mediodía del 13 sí lo consume', () => {
+    const { resultados } = repartirIngresosCaos(
+      [dep(1, '2026-10-13T18:00:00.000Z', 500)],
+      [
+        { origen_ref: 'A', fecha: '2026-10-12', monto: 300 },
+        { origen_ref: 'B', fecha: '2026-10-13', monto: 500 },
+      ],
+    );
+    expect(resultados[0].veredicto).toMatchObject({ estado: 'cubierto', cubierto: 500 });
+  });
+});
