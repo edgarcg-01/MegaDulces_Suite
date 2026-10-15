@@ -30,7 +30,7 @@ export class SatListIngestService {
   async refreshFromSat(lista: string): Promise<SatListIngestResult> {
     const cfg = listaConfig(lista);
     if (!cfg.urls.length) {
-      throw new Error(`Lista ${lista} sin URLs configuradas (ver env). Usá ingestCsv() con archivo.`);
+      throw new Error(`Lista ${lista} sin URLs configuradas (ver env). Usa ingestCsv() con archivo.`);
     }
     const texts: string[] = [];
     for (const url of cfg.urls) {

@@ -52,13 +52,13 @@ describe('motivoHttp', () => {
   });
 
   it('429 dice que espere, no que falló', () => {
-    expect(motivoHttp({ status: 429 }, ACCION)).toContain('Esperá');
+    expect(motivoHttp({ status: 429 }, ACCION)).toContain('Espera');
   });
 
   it('500: da el número para reportarlo y dice que no lo puede arreglar el operario', () => {
     const t = motivoHttp({ status: 500, error: { message: 'Internal server error' } }, ACCION);
     expect(t).toContain('error 500');
-    expect(t).toContain('avisá a sistemas');
+    expect(t).toContain('avisa a sistemas');
     // "Internal server error" no informa: repetirlo tal cual sería ruido.
     expect(t).not.toContain('Internal server error');
   });

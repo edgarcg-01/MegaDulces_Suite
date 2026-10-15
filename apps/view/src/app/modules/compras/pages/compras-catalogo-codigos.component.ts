@@ -69,7 +69,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
         <span class="cd-rail-m">
           {{ enVivo()
             ? 'te avisa acá cuando alguien corrija un precio o un código'
-            : 'los datos son de la última carga; recargá para ver si cambió algo' }}
+            : 'los datos son de la última carga; recarga para ver si cambió algo' }}
         </span>
       </div>
 
@@ -615,7 +615,7 @@ export class ComprasCatalogoCodigosComponent implements OnInit, OnDestroy {
           this.cargando.set(false);
           this.toast.add({
             severity: 'error', summary: 'No se pudo leer el catálogo de códigos',
-            detail: e?.error?.message || 'Revisá que la API esté arriba y que tengas permiso.',
+            detail: e?.error?.message || 'Revisa que la API esté arriba y que tengas permiso.',
           });
         },
       });

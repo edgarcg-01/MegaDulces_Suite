@@ -2527,7 +2527,7 @@ export class ReportsComponent implements OnInit, AfterViewInit {
       this.messageService.add({
         severity: 'warn',
         summary: 'Selecciona una marca',
-        detail: 'Elegí una marca del menú para generar su reporte.',
+        detail: 'Elige una marca del menú para generar su reporte.',
       });
       return;
     }

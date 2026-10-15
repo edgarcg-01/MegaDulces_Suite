@@ -115,7 +115,7 @@ export class VendorThotToolsService implements ThotToolProvider {
 
   /** Valida que el cliente sea de la cartera antes de ejecutar fn. */
   private async guarded(vendor: string, customerId: any, fn: () => Promise<any>): Promise<any> {
-    if (!UUID_RE.test(String(customerId || ''))) return { error: 'customer_id inválido. Buscalo con thot_find_customer.' };
+    if (!UUID_RE.test(String(customerId || ''))) return { error: 'customer_id inválido. Búscalo con thot_find_customer.' };
     const ok = await this.tk.run(async (trx) => {
       const row = await trx('commercial.customers as c')
         .where('c.id', customerId).whereNull('c.deleted_at')
@@ -129,7 +129,7 @@ export class VendorThotToolsService implements ThotToolProvider {
 
   private async findCustomer(vendor: string, query: string) {
     const q = query.trim();
-    if (q.length < 2) return { error: 'Escribí al menos 2 caracteres.' };
+    if (q.length < 2) return { error: 'Escribe al menos 2 caracteres.' };
     const like = `%${q}%`;
     return this.tk.run(async (trx) => {
       const rows = await trx('commercial.customers as c')
@@ -198,7 +198,7 @@ export class VendorThotToolsService implements ThotToolProvider {
 
   private async productStock(query: string, warehouseCode?: string | null) {
     const q = query.trim();
-    if (q.length < 2) return { error: 'Escribí al menos 2 caracteres.' };
+    if (q.length < 2) return { error: 'Escribe al menos 2 caracteres.' };
     const tenantId = this.ctx.requireTenantId();
     const like = `%${q}%`;
     const wh = warehouseCode || 'MD-10';

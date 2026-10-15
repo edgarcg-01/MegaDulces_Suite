@@ -158,9 +158,9 @@ const DIAS_ABANDONADO = 7;
               <!-- [IC.23] El consejo depende de quién mira: quien sólo asigna no puede abrir uno,
                    y decirle que lo haga es mandarlo a buscar un botón que no tiene. -->
               @if (puedeSupervisar()) {
-                <span>No hay folios. Abrí uno para empezar a contar.</span>
+                <span>No hay folios. Abre uno para empezar a contar.</span>
               } @else {
-                <span>No hay folios abiertos en este momento. Cuando se abra uno, acá asignás quién cuenta.</span>
+                <span>No hay folios abiertos en este momento. Cuando se abra uno, acá asignas quién cuenta.</span>
               }
             </div>
           </td></tr>
@@ -211,7 +211,7 @@ const DIAS_ABANDONADO = 7;
           <!-- Forma explícita, NO banana-in-a-box + (ngModelChange): los dos handlers LEEN
                la señal que acaban de cambiar, y con el banana el orden dependería del orden
                de los atributos. Acá el .set() corre primero porque está escrito primero. -->
-          <p-select [options]="warehouses()" [ngModel]="formWarehouse()" (ngModelChange)="formWarehouse.set($event); onAlmacenChange()" optionLabel="label" optionValue="id" placeholder="Elegí el almacén" styleClass="in-w-full" [filter]="true" appendTo="body"></p-select>
+          <p-select [options]="warehouses()" [ngModel]="formWarehouse()" (ngModelChange)="formWarehouse.set($event); onAlmacenChange()" optionLabel="label" optionValue="id" placeholder="Elige el almacén" styleClass="in-w-full" [filter]="true" appendTo="body"></p-select>
 
           <label>Tipo de conteo</label>
           <p-select [options]="typeOptions" [ngModel]="formType()" (ngModelChange)="formType.set($event); onTipoChange()" optionLabel="label" optionValue="value" styleClass="in-w-full" appendTo="body"></p-select>
@@ -223,12 +223,12 @@ const DIAS_ABANDONADO = 7;
             @if (abcCargando()) {
               <small class="in-dim">Leyendo la clasificación ABC del almacén…</small>
             } @else if (!formWarehouse()) {
-              <small class="in-dim">Elegí primero el almacén.</small>
+              <small class="in-dim">Elige primero el almacén.</small>
             } @else if (abcTotal() === 0) {
               <div class="in-aviso">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                 <span>Este almacén <b>no tiene clasificación ABC</b>, así que no se puede acotar el conteo.
-                  Corré <b>Recalcular ABC</b> en la pestaña <b>Cíclico (ABC)</b>, o abrí un conteo <b>Total</b>.</span>
+                  Corre <b>Recalcular ABC</b> en la pestaña <b>Cíclico (ABC)</b>, o abre un conteo <b>Total</b>.</span>
               </div>
             } @else {
               <p-select [options]="abcOptions()" [(ngModel)]="formAbcClass" optionLabel="label" optionValue="value"
@@ -484,7 +484,7 @@ export class ComercialInventorySessionsComponent {
         error: () => {
           this.asignarCargando.set(false);
           this.asignarVisible.set(false);
-          this.toast.add({ severity: 'warn', summary: 'No se pudo leer quién está asignado', detail: 'Probá de nuevo.' });
+          this.toast.add({ severity: 'warn', summary: 'No se pudo leer quién está asignado', detail: 'Prueba de nuevo.' });
         },
       });
   }
@@ -577,7 +577,7 @@ export class ComercialInventorySessionsComponent {
         // resumen en null y `puedeAbrir()` frena, con el aviso de arriba.
         error: () => {
           this.abcCargando.set(false);
-          this.toast.add({ severity: 'warn', summary: 'No se pudo leer la clasificación ABC', detail: 'Probá de nuevo o abrí un conteo Total.' });
+          this.toast.add({ severity: 'warn', summary: 'No se pudo leer la clasificación ABC', detail: 'Prueba de nuevo o abre un conteo Total.' });
         },
       });
   }
@@ -633,7 +633,7 @@ export class ComercialInventorySessionsComponent {
               error: () => {
                 this.opening.set(false);
                 this.dialogVisible.set(false);
-                this.toast.add({ severity: 'warn', summary: `Folio ${r.folio} abierto, pero falló la asignación`, detail: 'Asignalos desde el detalle del folio.' });
+                this.toast.add({ severity: 'warn', summary: `Folio ${r.folio} abierto, pero falló la asignación`, detail: 'Asígnalos desde el detalle del folio.' });
                 this.load();
               },
             });

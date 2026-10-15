@@ -38,7 +38,7 @@ async function anioLibre(tk: TenantKnexService, desde: number, cuantos: number):
   }));
   const libres = Array.from({ length: cuantos }, (_, i) => desde + i).filter((y) => !usados.has(y));
   if (!libres.length) {
-    throw new Error(`La base de prueba ya usó los ${cuantos} años desde ${desde}: reconstruila con database/tests/caja/preparar-base-caja.js.`);
+    throw new Error(`La base de prueba ya usó los ${cuantos} años desde ${desde}: reconstrúyela con database/tests/caja/preparar-base-caja.js.`);
   }
   return libres[Math.floor(Math.random() * libres.length)];
 }

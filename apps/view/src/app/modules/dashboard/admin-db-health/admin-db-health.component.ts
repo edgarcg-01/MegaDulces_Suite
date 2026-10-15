@@ -102,7 +102,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
       } @else if (report()?.overall === 'critical') {
         <div class="banner crit">
           <i class="pi pi-times-circle"></i>
-          Hay fuentes <strong>sin actualizarse</strong> más allá de su cadencia. Revisá el feed correspondiente.
+          Hay fuentes <strong>sin actualizarse</strong> más allá de su cadencia. Revisa el feed correspondiente.
         </div>
       }
 

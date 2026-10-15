@@ -71,8 +71,8 @@ import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
             traspasos en camino a las sucursales que te tocan. En cuanto capturen una, aparece acá.
           </p>
           <p class="su-cero-hint">
-            <b>¿Llegó un camión igual?</b> El papel puede llegar antes que Kepler. Buscá el vale
-            por su folio y recibilo sin esperar a que aparezca en la lista.
+            <b>¿Llegó un camión igual?</b> El papel puede llegar antes que Kepler. Busca el vale
+            por su folio y recíbelo sin esperar a que aparezca en la lista.
           </p>
           <button pButton type="button" class="su-cero-go" (click)="verFolio.emit()">Buscar por folio</button>
         </div>

@@ -371,7 +371,7 @@ interface RouteTrack {
             <div class="surf-panel">
               <div class="ru-placeholder">
                 <i class="pi pi-map ru-empty-icon" aria-hidden="true"></i>
-                <p class="ru-empty-title">Seleccioná una ruta</p>
+                <p class="ru-empty-title">Selecciona una ruta</p>
                 <p class="ru-empty-msg">Verás cobertura de tiendas, tiempos de cada visita y el recorrido en el mapa.</p>
               </div>
             </div>

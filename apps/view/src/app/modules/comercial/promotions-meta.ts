@@ -123,7 +123,7 @@ export function summarizePromotion(
       return `Pack de ${items.length} productos por $${rules.price}`;
     }
     case 'cross_sell_discount':
-      return `Comprá ${productName(rules.trigger_product_id)} → -${pctLabel(rules.percent)}% en ${productName(rules.target_product_id)}`;
+      return `Compra ${productName(rules.trigger_product_id)} → -${pctLabel(rules.percent)}% en ${productName(rules.target_product_id)}`;
     default:
       return type;
   }

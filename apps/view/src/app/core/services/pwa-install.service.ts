@@ -80,7 +80,7 @@ export class PwaInstallService {
     const text = document.createElement('div');
     text.className = 'pwa-install-prompt-text';
     text.innerHTML =
-      'Tocá <strong>Compartir</strong> en Safari y luego <strong>Agregar a inicio</strong>.';
+      'Toca <strong>Compartir</strong> en Safari y luego <strong>Agregar a inicio</strong>.';
     content.appendChild(title);
     content.appendChild(text);
     const buttons = document.createElement('div');
@@ -221,7 +221,7 @@ export class PwaInstallService {
 
     const text = document.createElement('div');
     text.className = 'pwa-install-prompt-text';
-    text.textContent = 'Sumá la app a tu pantalla de inicio para acceder más rápido.';
+    text.textContent = 'Suma la app a tu pantalla de inicio para acceder más rápido.';
 
     content.appendChild(title);
     content.appendChild(text);

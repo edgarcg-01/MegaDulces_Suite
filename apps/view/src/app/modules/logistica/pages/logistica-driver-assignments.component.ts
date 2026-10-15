@@ -211,7 +211,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <div class="da-empty">
             <div class="da-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
             <h3>Sin entregas pendientes</h3>
-            <p>{{ statusFilter ? 'No hay shipments en este estado.' : 'No tenés shipments asignados todavía.' }}</p>
+            <p>{{ statusFilter ? 'No hay shipments en este estado.' : 'No tienes shipments asignados todavía.' }}</p>
             @if (statusFilter) {
               <button
                 type="button"

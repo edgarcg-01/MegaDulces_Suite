@@ -64,7 +64,7 @@ import { AdminService } from '../admin.service';
         <div class="surf-page-head-text">
           <h1>Responsabilidades</h1>
           <p class="surf-page-sub">
-            De qué responde cada puesto. <strong>El permiso decide si podés abrirlo; la
+            De qué responde cada puesto. <strong>El permiso decide si puedes abrirlo; la
             responsabilidad decide si es tuyo.</strong> Asignar acá no concede ningún permiso: si el
             perfil del puesto no abre la bandeja, lo que corresponde es arreglar el rol.
           </p>
@@ -366,7 +366,7 @@ export class AdminResponsabilidadesComponent implements OnInit {
     this.confirm.confirm({
       header: 'Quitar la responsabilidad',
       message: ultimo
-        ? `«${a.position_name}» es el ÚNICO que responde de «${r.label}». Si lo quitás, el trabajo de esa bandeja deja de tener a quién dirigirse.`
+        ? `«${a.position_name}» es el ÚNICO que responde de «${r.label}». Si lo quitas, el trabajo de esa bandeja deja de tener a quién dirigirse.`
         : `«${a.position_name}» deja de responder de «${r.label}».`,
       icon: 'pi pi-exclamation-triangle',
       acceptLabel: 'Sí, quitar',

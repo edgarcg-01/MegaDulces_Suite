@@ -52,7 +52,7 @@ import { TiendaStateService } from '../tienda-state.service';
       <header class="surf-page-head tda-head">
         <div class="surf-page-head-text">
           <h1>Tienda — sucursales</h1>
-          <p class="surf-page-sub">Desempeño del día por tienda · tocá una sucursal para ver su detalle</p>
+          <p class="surf-page-sub">Desempeño del día por tienda · toca una sucursal para ver su detalle</p>
         </div>
         <div class="tda-head-right">
           @if (s.scopedWarehouse) {
@@ -84,7 +84,7 @@ import { TiendaStateService } from '../tienda-state.service';
       <p class="bk-scope">
         <i class="pi pi-chart-bar"></i>
         @if (focus()) { Desempeño de <b>{{ s.branchName(focus()) }}</b> hoy }
-        @else { Desempeño de <b>toda la red</b> hoy — elegí una sucursal para ver la suya }
+        @else { Desempeño de <b>toda la red</b> hoy — elige una sucursal para ver la suya }
       </p>
 
       <!-- Mismo selector que el tablero de dirección, pero el ritmo que compara es el de
@@ -189,7 +189,7 @@ import { TiendaStateService } from '../tienda-state.service';
           </section>
         </div>
       } @else {
-        <div class="tda-empty">Seleccioná una sucursal para ver sus tickets y su ritmo.</div>
+        <div class="tda-empty">Selecciona una sucursal para ver sus tickets y su ritmo.</div>
       }
     </div>
   `,

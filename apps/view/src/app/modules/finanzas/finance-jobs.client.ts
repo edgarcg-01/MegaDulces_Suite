@@ -78,7 +78,7 @@ export class FinanceJobsClient {
       status: 'error',
       actor: null,
       result: null,
-      error: `Sigue corriendo después de ${mins} min. Recargá la pantalla para ver el resultado.`,
+      error: `Sigue corriendo después de ${mins} min. Recarga la pantalla para ver el resultado.`,
       took_ms: null,
       emitted_at: new Date().toISOString(),
     };

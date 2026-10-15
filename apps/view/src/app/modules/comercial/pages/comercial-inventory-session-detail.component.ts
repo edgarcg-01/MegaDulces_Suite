@@ -121,7 +121,7 @@ interface LiveCountEntry {
           @if (canAdvance()) {
             <p-button [label]="advanceLabel()" icon="pi pi-arrow-right" severity="success" size="small" [loading]="advancing()" (click)="advancePass()"></p-button>
           } @else {
-            <small class="in-phase-hint">Completá el 100% de la pasada para avanzar de fase.</small>
+            <small class="in-phase-hint">Completa el 100% de la pasada para avanzar de fase.</small>
           }
         </div>
       }
@@ -177,7 +177,7 @@ interface LiveCountEntry {
                            placeholder="Todos (folio abierto)" [filter]="true" display="chip" styleClass="in-ms"
                            appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
                            (onPanelHide)="saveAssign('counter')"></p-multiselect>
-            <small>Si no asignás ninguno, cualquiera con permiso de contar puede contar este folio.</small>
+            <small>Si no asignas ninguno, cualquiera con permiso de contar puede contar este folio.</small>
           </div>
           <div class="in-assign-col">
             <label>Supervisores asignados</label>

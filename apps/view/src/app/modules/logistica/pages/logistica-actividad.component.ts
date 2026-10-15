@@ -176,7 +176,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           } @else {
             <article class="cell cell-span-5">
               <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
-              <p>Seleccioná una unidad para ver el detalle de sus paradas del día.</p>
+              <p>Selecciona una unidad para ver el detalle de sus paradas del día.</p>
             </div>
           </article>
           }
@@ -188,14 +188,14 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-chart-bar" aria-hidden="true"></i></div>
                 <h3>Sin actividad reconstruida</h3>
-                <p>No hay viajes para <b>{{ date() }}</b>. Si ya hubo rastreo ese día, probá <b>Reconstruir día</b>.</p>
+                <p>No hay viajes para <b>{{ date() }}</b>. Si ya hubo rastreo ese día, prueba <b>Reconstruir día</b>.</p>
                 <button pButton size="small" [loading]="rebuilding()" (click)="rebuild()"><span class="p-button-label">Reconstruir día</span></button>
               </div>
             } @else {
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                 <h3>No se pudo cargar la actividad</h3>
-                <p>Revisá tu conexión y reintentá.</p>
+                <p>Revisa tu conexión y reintenta.</p>
                 <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
               </div>
             }

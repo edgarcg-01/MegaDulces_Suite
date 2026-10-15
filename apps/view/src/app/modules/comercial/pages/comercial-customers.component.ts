@@ -322,7 +322,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
           <div class="access-result">
             <div class="warn-banner">
               <i class="pi pi-exclamation-triangle"></i>
-              <span><strong>Copialo ahora.</strong> El password no se mostrará otra vez.</span>
+              <span><strong>Cópialo ahora.</strong> El password no se mostrará otra vez.</span>
             </div>
             <div class="access-field">
               <label>Usuario</label>
@@ -887,7 +887,7 @@ export class ComercialCustomersComponent {
   createPortalAccess(c: Customer): void {
     if (this.creatingAccessId() === c.id) return;
     this.confirm.confirm({
-      message: `¿Crear acceso al Portal B2B para "${c.name}"? Se generará un usuario y password temporal. El password solo se mostrará una vez — copialo y entregalo al cliente.`,
+      message: `¿Crear acceso al Portal B2B para "${c.name}"? Se generará un usuario y password temporal. El password solo se mostrará una vez — cópialo y entrégalo al cliente.`,
       header: 'Crear acceso Portal B2B',
       icon: 'pi pi-key',
       acceptLabel: 'Sí, crear acceso',

@@ -222,7 +222,7 @@ export class CajaFechaFuturaScannerService {
         message: `${m.libro} movimiento${m.libro === 1 ? '' : 's'} del libro por `
           + `$${m.libro_monto.toLocaleString('es-MX')} está${m.libro === 1 ? '' : 'n'} fechado${m.libro === 1 ? '' : 's'} `
           + 'después de hoy y no aparece' + (m.libro === 1 ? '' : 'n') + ' en el libro del mes. '
-          + 'Corregí la fecha del documento en Kepler y acá se actualiza solo.' + congelado,
+          + 'Corrige la fecha del documento en Kepler y acá se actualiza solo.' + congelado,
         route: '/finanzas/caja-general',
         data: { movimientos: m.libro, monto: m.libro_monto, congelados: m.congelados },
       }).catch((e: unknown) => this.logger.warn(`aviso libro: ${e instanceof Error ? e.message : e}`));

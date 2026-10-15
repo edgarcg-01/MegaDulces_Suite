@@ -81,7 +81,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
 
             @if (scanCandidates().length) {
               <div class="erd-scan-pick">
-                <span class="erd-scan-pick-lbl">Ese código coincide con {{ scanCandidates().length }} productos — elegí:</span>
+                <span class="erd-scan-pick-lbl">Ese código coincide con {{ scanCandidates().length }} productos — elige:</span>
                 @for (c of scanCandidates(); track c.id) {
                   <button type="button" class="erd-scan-cand" (click)="pickCandidate(c)">
                     <strong>{{ c.nombre }}</strong>
@@ -93,7 +93,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
             }
 
             <div class="erd-alt">
-              <span class="erd-alt-lbl">o buscalo por nombre</span>
+              <span class="erd-alt-lbl">o búscalo por nombre</span>
               <app-product-search [brandIds]="promoterBrandIds()" (productSelected)="onProduct($event)"></app-product-search>
               @if (promoterBrands().length) {
                 <small class="erd-scoped"><i class="pi pi-filter" aria-hidden="true"></i> Solo tus marcas: {{ promoterBrandNames() }}</small>
@@ -190,7 +190,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
                     @if (photoFailed()) {
                       <div class="erd-photo-failed" role="alert">
                         <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                        La foto no se subió. Si guardás así, el renglón queda <strong>sin evidencia</strong>.
+                        La foto no se subió. Si guardas así, el renglón queda <strong>sin evidencia</strong>.
                       </div>
                     }
                     <label class="erd-pickbtn" [class.busy]="uploading()">
@@ -543,7 +543,7 @@ export class ComercialExpiryReviewDetailComponent {
           this.productId.set(null);
           this.nameRaw.set('');
           this.scanMiss.set(r.out_of_scope
-            ? 'Ese código es de una marca que no llevás. Se guardará como código libre.'
+            ? 'Ese código es de una marca que no llevas. Se guardará como código libre.'
             : 'Sin coincidencia en el catálogo. Se guarda como código libre (no alimenta FEFO).');
           this.refocusTick.update((n) => n + 1);
         },
@@ -631,7 +631,7 @@ export class ComercialExpiryReviewDetailComponent {
             this.toast.add({
               severity: 'error', life: 8000,
               summary: 'No se pudo subir la foto',
-              detail: e?.error?.message || 'Revisá la conexión e intentá de nuevo.',
+              detail: e?.error?.message || 'Revisa la conexión e intenta de nuevo.',
             });
           },
         });
@@ -791,7 +791,7 @@ export class ComercialExpiryReviewDetailComponent {
       return `Se escaneó el código de ${this.unitFromScan}${x}: se asume ${this.unitFromScan}.`;
     }
     const code = (this.codeRaw() || '').trim();
-    if (code && /^\d+$/.test(code)) return 'Código de anaquel numérico: se asume caja. Cambialo si llegó suelto.';
+    if (code && /^\d+$/.test(code)) return 'Código de anaquel numérico: se asume caja. Cámbialo si llegó suelto.';
     if (this.productId()) return 'Producto elegido del buscador: se asume pieza.';
     return null;
   }

@@ -51,11 +51,11 @@ describe('ComercialPromotionsComponent · el alta abre creando', () => {
     expect(c.dialogVisible).toBe(true);
   });
 
-  it('el encabezado nombra la mecánica desde el arranque, sin "Elegí el tipo"', () => {
+  it('el encabezado nombra la mecánica desde el arranque, sin "Elige el tipo"', () => {
     const { c } = montar();
     c.openCreate();
     expect(c.dialogHeader()).toContain('Nueva promoción · ');
-    expect(c.dialogHeader()).not.toContain('Elegí el tipo');
+    expect(c.dialogHeader()).not.toContain('Elige el tipo');
   });
 
   it('⭐ NEGATIVA: cambiar de mecánica CONSERVA código, nombre y vigencia', () => {

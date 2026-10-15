@@ -69,7 +69,7 @@ import { Permission } from '../../../core/constants/permissions';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div><h3>Sin sesiones</h3><p>Abrí una nueva sesión de recepción para empezar a escanear.</p></div></td></tr>
+          <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div><h3>Sin sesiones</h3><p>Abre una nueva sesión de recepción para empezar a escanear.</p></div></td></tr>
         </ng-template>
       </p-table>
 
@@ -80,7 +80,7 @@ import { Permission } from '../../../core/constants/permissions';
                  Sucursal, almacén y proveedor salen de la orden elegida. -->
             <label class="rs-field"><span>Folio del vale</span>
               <input pInputText [(ngModel)]="newErpFolio" (keyup.enter)="searchOrders()" (ngModelChange)="matches.set([])"
-                     placeholder="Tecleá el folio y Enter — ej. 909" autofocus />
+                     placeholder="Teclea el folio y Enter — ej. 909" autofocus />
             </label>
             <button pButton [text]="true" severity="secondary" size="small" (click)="searchOrders()" [loading]="looking()" [disabled]="!newErpFolio">
               <span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span> Buscar en todas las sucursales
@@ -90,7 +90,7 @@ import { Permission } from '../../../core/constants/permissions';
               <p class="rs-nores">Sin coincidencias para <strong>{{ newErpFolio }}</strong>.</p>
             }
             @if (matches().length) {
-              <p class="rs-hint">{{ matches().length }} coincidencia(s) — el mismo folio existe en varias sucursales. Elegí la tuya:</p>
+              <p class="rs-hint">{{ matches().length }} coincidencia(s) — el mismo folio existe en varias sucursales. Elige la tuya:</p>
               <div class="rs-matches">
                 @for (o of matches(); track o.sucursal + '/' + o.folio) {
                   <button type="button" class="rs-match" [class.on]="isPicked(o)" (click)="pick(o)">
@@ -136,7 +136,7 @@ import { Permission } from '../../../core/constants/permissions';
               </p>
               <p class="rs-choque-hint">
                 @if (prev.can_cancel) {
-                  Si fue un error, abrí ese vale y cancelalo. Si la mercancía llegó otra vez, recibila de nuevo.
+                  Si fue un error, abre ese vale y cancélalo. Si la mercancía llegó otra vez, recíbela de nuevo.
                 } @else {
                   Ese vale ya está cerrado: la mercancía entró a inventario y no se puede cancelar.
                   Recibir de nuevo abre un <strong>segundo</strong> vale para el mismo folio — sólo si de verdad volvió a llegar.
@@ -164,7 +164,7 @@ import { Permission } from '../../../core/constants/permissions';
       </p-dialog>
 
       <p-dialog [visible]="mapOpen()" (visibleChange)="mapOpen.set($event)" [modal]="true" [style]="{ width: '540px' }" header="Almacén destino por sucursal ERP" [dismissableMask]="true">
-        <p class="rs-hint">Configurá una vez a qué almacén entra cada sucursal del ERP; después el almacén se autollena al buscar la orden.</p>
+        <p class="rs-hint">Configura una vez a qué almacén entra cada sucursal del ERP; después el almacén se autollena al buscar la orden.</p>
         <div class="rs-map">
           @for (s of sucursalOptions; track s.value) {
             <div class="rs-map-row">

@@ -38,7 +38,7 @@ describe('PERMISSION_META cubre el enum Permission', () => {
    * alguna vez `Object.values(Permission)` devolviera `[]`. Un gate que no se puede romper a
    * propósito es una intención, no un gate (ADR-056).
    */
-  it('el candado DETECTA un hueco (rompelo a propósito)', () => {
+  it('el candado DETECTA un hueco (rómpelo a propósito)', () => {
     const conHueco: Record<string, unknown> = { ...PERMISSION_META };
     delete conHueco[Permission.USUARIOS_VER];
     const sinEntrada = claves.filter((k) => !conHueco[k]);

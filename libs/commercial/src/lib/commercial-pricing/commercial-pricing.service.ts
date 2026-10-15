@@ -190,7 +190,7 @@ export class CommercialPricingService {
       this.priceTruthOk = !!r.rows[0]?.t;
     } catch { this.priceTruthOk = false; }
     if (!this.priceTruthOk)
-      this.logger.warn('[VPR.2] falta analytics.v_price_truth — el catálogo publica el precio de RED, no el de la plaza (aplicá la migración 20261003190000).');
+      this.logger.warn('[VPR.2] falta analytics.v_price_truth — el catálogo publica el precio de RED, no el de la plaza (aplica la migración 20261003190000).');
     return this.priceTruthOk;
   }
 
@@ -280,7 +280,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(id)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
       const row = await trx('commercial.price_lists')
         .where({ id })
@@ -413,7 +413,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(priceListId)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
       // `[VPR.2]` El precio por plaza sólo entra si el almacén se conoce Y la vista existe.
       const porPlaza = !!warehouseId && (await this.priceTruthReady(trx));
@@ -738,7 +738,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(priceListId)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
       const base = () =>
         trx('catalog.products as p')
@@ -853,7 +853,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(priceListId)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
 
       // INNER JOIN con product_prices: solo devolvemos top sellers que tienen

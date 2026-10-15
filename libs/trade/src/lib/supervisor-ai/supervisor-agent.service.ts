@@ -299,7 +299,7 @@ export class SupervisorAgentService {
     if (findings.length === 0 && stats.collaborators === 0) {
       return {
         headline: 'Sin novedades',
-        summary: 'No hay capturas ni hallazgos en el período. Corré el cómputo si esperabas datos.',
+        summary: 'No hay capturas ni hallazgos en el período. Corre el cómputo si esperabas datos.',
         attention: [],
         stats,
         comparison,
@@ -459,7 +459,7 @@ export class SupervisorAgentService {
     const lines = [
       'Eres el asistente de un supervisor de ventas de campo (trade marketing).',
       'El MOTOR ya decidió esta recomendación y su cadena de razonamiento. NO recalcules ni inventes',
-      'números, nombres o tiendas: usá SOLO lo provisto. Redacta una explicación breve (2-3 frases',
+      'números, nombres o tiendas: usa SOLO lo provisto. Redacta una explicación breve (2-3 frases',
       'en español) de POR QUÉ se recomienda esta acción, en tono de supervisor, con la herramienta',
       'explain_recommendation.',
       '',
@@ -478,7 +478,7 @@ export class SupervisorAgentService {
               name: 'explain_recommendation',
               description:
                 'Explica al supervisor por qué conviene esta acción, a partir de la cadena de ' +
-                'razonamiento YA calculada por el motor. Usá SOLO lo provisto; no inventes datos.',
+                'razonamiento YA calculada por el motor. Usa SOLO lo provisto; no inventes datos.',
               input_schema: {
                 type: 'object',
                 properties: {
@@ -634,7 +634,7 @@ export class SupervisorAgentService {
               name: 'daily_briefing',
               description:
                 'Redacta el parte diario de un supervisor de ventas de campo a partir de datos YA ' +
-                'calculados por el motor. NO inventes nombres, números ni tiendas: usá SOLO lo provisto.',
+                'calculados por el motor. NO inventes nombres, números ni tiendas: usa SOLO lo provisto.',
               input_schema: {
                 type: 'object',
                 properties: {
@@ -688,11 +688,11 @@ export class SupervisorAgentService {
   private buildPrompt(findings: Finding[], stats: Briefing['stats'], comparison: Comparison): string {
     const lines: string[] = [
       'Eres el asistente de un supervisor de ventas de campo (trade marketing / auditoría de exhibición en tiendas).',
-      'Te doy datos YA CALCULADOS por el motor. NO los recalcules ni inventes nombres, números o tiendas: usá SOLO lo provisto.',
+      'Te doy datos YA CALCULADOS por el motor. NO los recalcules ni inventes nombres, números o tiendas: usa SOLO lo provisto.',
       'Redacta un parte diario conciso en español con la herramienta daily_briefing.',
-      'El parte debe tener MEMORIA: arrancá por lo que CAMBIÓ desde ayer (nuevos/resueltos/tendencia),',
+      'El parte debe tener MEMORIA: arranca por lo que CAMBIÓ desde ayer (nuevos/resueltos/tendencia),',
       'dá seguimiento explícito a lo que persiste ("X sigue igual desde hace N días"), y si un coaching',
-      'aprobado FUNCIONÓ, reconocelo en una línea. No repitas como novedad lo que ya venía de días previos.',
+      'aprobado FUNCIONÓ, reconócelo en una línea. No repitas como novedad lo que ya venía de días previos.',
       '',
       'Resumen del período (últimos 30 días):',
       `- Colaboradores activos: ${stats.collaborators}`,

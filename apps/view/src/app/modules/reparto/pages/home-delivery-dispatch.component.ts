@@ -39,7 +39,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Asignar entrega a domicilio</h1>
-          <p class="surf-page-sub">Buscá el folio Kepler, capturá el domicilio y asigná repartidor + moto</p>
+          <p class="surf-page-sub">Busca el folio Kepler, captura el domicilio y asigna repartidor + moto</p>
         </div>
       </header>
     
@@ -219,12 +219,12 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                   @if (picked(); as p) {
                     <span class="rd-geo-ok"><i class="pi pi-check-circle"></i> Ubicado ({{ p.lat | number:'1.4-4' }}, {{ p.lng | number:'1.4-4' }})</span>
                   } @else {
-                    <span class="rd-geo-hint">Buscá la dirección o tocá el mapa para fijar el punto.</span>
+                    <span class="rd-geo-hint">Busca la dirección o toca el mapa para fijar el punto.</span>
                   }
                 </div>
                 @if (geoResults().length > 1) {
                   <p-select [options]="geoResults()" [(ngModel)]="chosenGeo" optionLabel="place_name"
-                    appendTo="body" styleClass="rd-full" placeholder="Elegí el match correcto"
+                    appendTo="body" styleClass="rd-full" placeholder="Elige el match correcto"
                     (onChange)="chooseGeo($event.value)" />
                   }
                   <app-map [pickable]="true" [pickedPoint]="picked()" (mapClick)="onPick($event)"
@@ -236,7 +236,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                     <div class="rd-field">
                       <label for="drv">Repartidor <span class="req">*</span></label>
                       <p-select inputId="drv" [options]="riders()" [(ngModel)]="riderUserId" optionValue="rider_user_id"
-                        appendTo="body" styleClass="rd-full" placeholder="Elegí repartidor"
+                        appendTo="body" styleClass="rd-full" placeholder="Elige repartidor"
                         [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores activos'">
                         <ng-template let-d #item>
                           <div class="rd-opt">
@@ -280,7 +280,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                     @if (ci.over) {
                       <div class="rd-advisory warn">
                         <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                        <span>El pedido son ~{{ ci.units }} u y esta moto rinde {{ ci.cap }} cajas. Podría no caber — se valida al asignar (o considerá CEDIS).</span>
+                        <span>El pedido son ~{{ ci.units }} u y esta moto rinde {{ ci.cap }} cajas. Podría no caber — se valida al asignar (o considera CEDIS).</span>
                       </div>
                     } @else if (ci.cap != null) {
                       <div class="rd-advisory info">
@@ -319,7 +319,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                     @if (r.requires_cedis) {
                       <div class="rd-advisory warn rd-mt">
                         <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                        <span>Excede la capacidad de la moto ({{ r.total_units }} u). Considerá surtir desde CEDIS.</span>
+                        <span>Excede la capacidad de la moto ({{ r.total_units }} u). Considera surtir desde CEDIS.</span>
                       </div>
                     }
                     <div class="rd-actions">
@@ -484,7 +484,7 @@ export class HomeDeliveryDispatchComponent implements OnInit {
     this.assignError.set(null);
     this.assignOk.set(null);
     const rider = this.assignRider[o.order_id];
-    if (!rider) { this.assignError.set(`Elegí un repartidor para ${o.customer_name}.`); return; }
+    if (!rider) { this.assignError.set(`Elige un repartidor para ${o.customer_name}.`); return; }
     this.assigningId.set(o.order_id);
     this.svc
       .dispatchOrder(o.order_id, {

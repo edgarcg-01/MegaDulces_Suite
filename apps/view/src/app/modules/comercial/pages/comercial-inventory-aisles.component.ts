@@ -34,23 +34,23 @@ import { Permission } from '../../../core/constants/permissions';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pasillos</h1>
-          <p class="surf-page-sub">Layout 2D del almacén — ubicá los pasillos y mapeá qué SKUs viven en cada uno</p>
+          <p class="surf-page-sub">Layout 2D del almacén — ubica los pasillos y mapea qué SKUs viven en cada uno</p>
         </div>
         <div class="pa-head-actions">
           <p-select [options]="whOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-                    placeholder="Elegí un almacén" (onChange)="load()" styleClass="pa-wh" ariaLabel="Almacén"></p-select>
+                    placeholder="Elige un almacén" (onChange)="load()" styleClass="pa-wh" ariaLabel="Almacén"></p-select>
           <button pButton type="button" size="small" (click)="openCreate()" [disabled]="!warehouseId()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo pasillo</span></button>
         </div>
       </header>
 
       @if (!warehouseId()) {
-        <div class="pa-empty">Elegí un almacén para ver y editar sus pasillos.</div>
+        <div class="pa-empty">Elige un almacén para ver y editar sus pasillos.</div>
       } @else {
         <div class="pa-body">
           <!-- Grilla 2D -->
           <div class="pa-grid-wrap">
             @if (aisles().length === 0) {
-              <div class="pa-empty">Este almacén no tiene pasillos. Creá el primero con <b>Nuevo pasillo</b>; luego mapeá SKUs (por marca / clase ABC / rango).</div>
+              <div class="pa-empty">Este almacén no tiene pasillos. Crea el primero con <b>Nuevo pasillo</b>; luego mapea SKUs (por marca / clase ABC / rango).</div>
             } @else {
               <div class="pa-grid" [style.gridTemplateColumns]="'repeat(' + cols() + ', minmax(120px, 1fr))'">
                 @for (a of aisles(); track a.id) {
@@ -100,7 +100,7 @@ import { Permission } from '../../../core/constants/permissions';
               @switch (assignMode()) {
                 @case ('brand') {
                   <p-select [options]="brands()" [(ngModel)]="brandId" optionLabel="nombre" optionValue="id" [filter]="true"
-                            placeholder="Elegí una marca" styleClass="pa-mode" ariaLabel="Marca"></p-select>
+                            placeholder="Elige una marca" styleClass="pa-mode" ariaLabel="Marca"></p-select>
                 }
                 @case ('abc') {
                   <p-select [options]="abcOptions" [(ngModel)]="abcClass" optionLabel="label" optionValue="value" styleClass="pa-mode" ariaLabel="Clase ABC"></p-select>
@@ -282,9 +282,9 @@ export class ComercialInventoryAislesComponent {
     const sel = this.selected(); const wh = this.warehouseId(); if (!sel || !wh) return;
     const mode = this.assignMode();
     const filter: any = {};
-    if (mode === 'brand') { if (!this.brandId()) return this.toast.add({ severity: 'warn', summary: 'Elegí una marca' }); filter.brand_id = this.brandId(); }
-    else if (mode === 'abc') { if (!this.abcClass()) return this.toast.add({ severity: 'warn', summary: 'Elegí una clase' }); filter.abc_class = this.abcClass(); }
-    else if (mode === 'range') { if (!this.skuFrom() || !this.skuTo()) return this.toast.add({ severity: 'warn', summary: 'Completá el rango' }); filter.sku_from = this.skuFrom(); filter.sku_to = this.skuTo(); }
+    if (mode === 'brand') { if (!this.brandId()) return this.toast.add({ severity: 'warn', summary: 'Elige una marca' }); filter.brand_id = this.brandId(); }
+    else if (mode === 'abc') { if (!this.abcClass()) return this.toast.add({ severity: 'warn', summary: 'Elige una clase' }); filter.abc_class = this.abcClass(); }
+    else if (mode === 'range') { if (!this.skuFrom() || !this.skuTo()) return this.toast.add({ severity: 'warn', summary: 'Completa el rango' }); filter.sku_from = this.skuFrom(); filter.sku_to = this.skuTo(); }
     else if (mode === 'unassigned') { filter.only_unassigned = true; }
     if (this.onlyUnassigned() && mode !== 'unassigned') filter.only_unassigned = true;
     this.working.set(true);

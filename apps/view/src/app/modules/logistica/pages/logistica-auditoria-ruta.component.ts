@@ -187,7 +187,7 @@ interface RouteEntry {
         <div class="rk-empty">
           <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
           <h3>No se pudo cargar la auditoría</h3>
-          <p>Revisá tu conexión y reintentá.</p>
+          <p>Revisa tu conexión y reintenta.</p>
           <div class="rk-empty-actions">
             <button pButton size="small" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
           </div>

@@ -387,7 +387,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
                     {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
                   }
                 } @else {
-                  Falló la medición de frescura. El precio puede estar al día o no — confirmalo
+                  Falló la medición de frescura. El precio puede estar al día o no — confírmalo
                   antes de imprimir.
                 }
               </span>
@@ -917,7 +917,7 @@ export class TiendaEtiquetasComponent {
     return `No se puede imprimir: este equipo no pudo cargar ${f || 'la tipografía de la etiqueta'}. `
       + 'La etiqueta calcula los tamaños midiendo el texto, así que con la tipografía de respaldo '
       + 'salen renglones cortados y montos de distinto tamaño (medido: 48 de 220 etiquetas). '
-      + 'Recargá la página con Ctrl+F5; si sigue igual, reportalo con una foto de esta línea.';
+      + 'Recarga la página con Ctrl+F5; si sigue igual, repórtalo con una foto de esta línea.';
   });
 
   private checkPrintGuard(): void {

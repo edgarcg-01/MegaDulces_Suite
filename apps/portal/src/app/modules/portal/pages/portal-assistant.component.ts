@@ -30,7 +30,7 @@ const SUGGESTIONS = [
     <div class="pa">
       <header class="pa-head">
         <h1>Tu asistente</h1>
-        <p>Preguntame qué te conviene pedir, tus pedidos, promociones o si hay algo disponible.</p>
+        <p>Pregúntame qué te conviene pedir, tus pedidos, promociones o si hay algo disponible.</p>
       </header>
 
       <div class="pa-thread" #thread>
@@ -77,7 +77,7 @@ const SUGGESTIONS = [
       </div>
 
       <form class="pa-input" (ngSubmit)="send(draft)">
-        <input [(ngModel)]="draft" name="draft" [disabled]="loading()" placeholder="Escribí tu pregunta…" autocomplete="off" />
+        <input [(ngModel)]="draft" name="draft" [disabled]="loading()" placeholder="Escribe tu pregunta…" autocomplete="off" />
         <button type="submit" [disabled]="!draft.trim() || loading()" aria-label="Enviar"><i class="pi pi-arrow-up"></i></button>
       </form>
     </div>
@@ -144,7 +144,7 @@ export class PortalAssistantComponent {
         this.replacePending({ role: 'assistant', content: res.answer, blocks, error: res.source === 'error', logId: res.log_id });
         this.loading.set(false); this.scroll();
       },
-      error: () => { this.replacePending({ role: 'assistant', content: 'No pude responder ahora. Probá de nuevo.', error: true }); this.loading.set(false); this.scroll(); },
+      error: () => { this.replacePending({ role: 'assistant', content: 'No pude responder ahora. Prueba de nuevo.', error: true }); this.loading.set(false); this.scroll(); },
     });
   }
 

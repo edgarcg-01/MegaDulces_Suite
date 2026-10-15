@@ -53,11 +53,11 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         steps: [
           'El motor lee cada noche el costo, el precio, la venta de 30 días y la existencia, directo del ERP.',
           'Para cada producto en cada plaza prueba sus reglas EN ORDEN y se queda con la primera que aplica. Por eso cada renglón dice una sola cosa y no una lista de sugerencias.',
-          'Le pone precio a esa acción: cuántos pesos mueve. Y le pone certeza, que es lo que decide si le creés.',
+          'Le pone precio a esa acción: cuántos pesos mueve. Y le pone certeza, que es lo que decide si le crees.',
           'Ordena la cola por dinero, de mayor a menor.',
-          'Vos abrís el renglón: ahí está la historia del costo contra la venta, y qué pasó las veces anteriores que se tocó ese precio.',
-          'Simulás un precio nuevo. El simulador te dice el margen que quedaría, dónde aterriza el número, y cuánto volumen tendrías que perder para que el cambio te deje peor que como estás.',
-          'Si convence, lo capturás en Kepler. El motor lo ve en la corrida siguiente.',
+          'Tú abres el renglón: ahí está la historia del costo contra la venta, y qué pasó las veces anteriores que se tocó ese precio.',
+          'Simulas un precio nuevo. El simulador te dice el margen que quedaría, dónde aterriza el número, y cuánto volumen tendrías que perder para que el cambio te deje peor que como estás.',
+          'Si convence, lo capturas en Kepler. El motor lo ve en la corrida siguiente.',
         ],
       },
       {
@@ -65,10 +65,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'info',
         intro: 'Sirve para una sola pregunta: si subo el precio, ¿deja de comprar? Diseñar NO cambia ningún precio.',
         steps: [
-          'Elegís la terminación a probar y en qué rangos de precio. El motor parte las celdas elegibles en dos mitades parejas.',
-          'Una mitad es TRATAMIENTO y lleva el precio nuevo. La otra es CONTROL y se queda exactamente igual. El control es lo que compra el calendario: si subís en diciembre y la venta sube, sin control no sabés si fue el precio o fue diciembre.',
+          'Eliges la terminación a probar y en qué rangos de precio. El motor parte las celdas elegibles en dos mitades parejas.',
+          'Una mitad es TRATAMIENTO y lleva el precio nuevo. La otra es CONTROL y se queda exactamente igual. El control es lo que compra el calendario: si subes en diciembre y la venta sube, sin control no sabes si fue el precio o fue diciembre.',
           'El reparto es al azar pero REPRODUCIBLE: la semilla queda guardada, así que cualquiera puede rehacerlo y verificar que no se eligieron a dedo las celdas convenientes.',
-          'Capturás en Kepler SÓLO las del tratamiento, y vas marcando cada una conforme la aplicás.',
+          'Capturas en Kepler SÓLO las del tratamiento, y vas marcando cada una conforme la aplicas.',
           'Pasada la ventana, el sistema compara el volumen de las dos mitades y da uno de cuatro resultados: no inferior, inferior, no concluyente, o abortado.',
           'Los rangos marcados NO ALCANZA no se corren a propósito: arriba de $100 el margen que el negocio tolera es tan chico que harían falta más de cien mil celdas por mitad, y hay mil. Correrlo igual daría "no concluyente", que se lee como "no funciona" y no es lo mismo.',
         ],
@@ -78,7 +78,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'info',
         intro: 'Sale de la medición mensual de ISCAM, que mide a un panel de mayoristas y nos incluye. Restando lo nuestro queda lo que vendió el resto del canal.',
         steps: [
-          '¿Cuánto peso tengo en esa categoría? Con una parte grande el precio lo ponés vos; con una chica lo tomás del mercado. No es lo mismo decidir que seguir.',
+          '¿Cuánto peso tengo en esa categoría? Con una parte grande el precio lo pones tú; con una chica lo tomas del mercado. No es lo mismo decidir que seguir.',
           '¿Estoy caro o barato en esa marca? La pantalla compara nuestro precio implícito contra el del resto del canal, y dice con palabras si la comparación se sostiene o si vendemos tan poco de esa marca que el número es ruido.',
           '¿El terreno se está moviendo? Si el mercado de esa categoría creció y nosotros caímos, subir el precio ahí empuja en la dirección en la que ya venías perdiendo.',
           '¿Hay marcas que el canal compra y nosotros no vendemos? Ahí no hay nada que corregir de precio: es surtido, y es una conversación con compras.',
@@ -235,8 +235,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Encontré un faltante grande. ¿Qué hago?',
         kind: 'fix',
         steps: [
-          'Mirá primero la Conciliación de ese almacén: si el movimiento lo explica, no hay nada que investigar.',
-          'Si sigue sin explicarse, revisá en Reincidencia si ese SKU es «sostenido» o «un evento». Un evento aislado casi siempre es una captura, y se resuelve mirando ESE conteo.',
+          'Mira primero la Conciliación de ese almacén: si el movimiento lo explica, no hay nada que investigar.',
+          'Si sigue sin explicarse, revisa en Reincidencia si ese SKU es «sostenido» o «un evento». Un evento aislado casi siempre es una captura, y se resuelve mirando ESE conteo.',
           'Si es sostenido y siempre falta, ahí sí corresponde abrir expediente en Prevención.',
         ],
       },
@@ -409,8 +409,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Objetivo', def: 'El margen contra el que se mide todo. Es editable arriba a la derecha, y los cortes de las bandas se mueven con él.' },
           { term: 'Brecha (pp)', def: 'Distancia al objetivo en puntos porcentuales. La del resumen ya descuenta las palancas: es lo que de verdad falta resolver.' },
-          { term: 'Brecha $', def: 'Los pesos que faltaron para llegar al objetivo. Ordená por esta columna para atacar por tamaño del problema y no por porcentaje: un producto al 2% que vende poco pesa menos que uno al 13% que vende mucho.' },
-          { term: 'Bandas', def: 'Cada contador es un filtro: hacé clic y la tabla se acota a esa banda. "Bajo costo" es margen negativo; los demás cortes salen del objetivo, no son fijos.' },
+          { term: 'Brecha $', def: 'Los pesos que faltaron para llegar al objetivo. Ordena por esta columna para atacar por tamaño del problema y no por porcentaje: un producto al 2% que vende poco pesa menos que uno al 13% que vende mucho.' },
+          { term: 'Bandas', def: 'Cada contador es un filtro: haz clic y la tabla se acota a esa banda. "Bajo costo" es margen negativo; los demás cortes salen del objetivo, no son fijos.' },
         ],
       },
       {
@@ -438,8 +438,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         intro: 'El costo de catálogo de ese producto contradice al que cobra el punto de venta: está capturado en otra unidad (caja contra pieza). El margen no lo usa —sale del sell-out— pero la valuación de su inventario sí, y por eso no se publica su GMROI.',
         steps: [
-          'Abrí el producto en el catálogo y compará su costo contra el precio al que se vende.',
-          'Si el costo es el de la caja, corregilo a la unidad en que se vende (o registrá el factor de caja).',
+          'Abre el producto en el catálogo y compara su costo contra el precio al que se vende.',
+          'Si el costo es el de la caja, corrígelo a la unidad en que se vende (o registra el factor de caja).',
           'El aviso de arriba dice cuánto capital total está valuado así: sirve para priorizar cuáles corregir primero.',
         ],
       },
@@ -448,8 +448,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         intro: 'Las cuatro palancas por categoría aparecen en cero porque la fuente no tiene datos, no porque el mes no haya tenido descuentos. Son dos cosas distintas y la pantalla lo distingue a propósito.',
         steps: [
-          'Verificá que el feed de ajustes de compra haya corrido.',
-          'Mientras tanto, leé el margen negociado como incompleto: sólo trae el descuento tomado al pagar.',
+          'Verifica que el feed de ajustes de compra haya corrido.',
+          'Mientras tanto, lee el margen negociado como incompleto: sólo trae el descuento tomado al pagar.',
           'El detalle documento por documento vive en Compras → Descuentos y apoyos.',
         ],
       },
@@ -460,14 +460,14 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         steps: [
           'Que la fuente de ajustes esté vacía: la pantalla lo avisa arriba de la cascada.',
           'Que se compró poco en la ventana: el descuento se gana sobre las compras, así que con poca compra el efecto en margen es chico aunque la tasa sea buena.',
-          'Que efectivamente no se esté cobrando lo pactado: abrí un proveedor y compará "Lo pactado" contra lo que se cobró.',
+          'Que efectivamente no se esté cobrando lo pactado: abre un proveedor y compara "Lo pactado" contra lo que se cobró.',
         ],
       },
     ],
   },
   'ventas-generales': {
     title: 'Ventas generales — guía',
-    intro: 'Consultá la venta global de la red y desglosala como quieras (métrica × dimensión). Los números salen tal cual de la base — la interfaz solo los ordena y grafica; no calcula ni inventa. Venta REAL (POS/ERP), no pedidos B2B.',
+    intro: 'Consulta la venta global de la red y desglosala como quieras (métrica × dimensión). Los números salen tal cual de la base — la interfaz solo los ordena y grafica; no calcula ni inventa. Venta REAL (POS/ERP), no pedidos B2B.',
     groups: [
       {
         heading: 'Qué estás viendo',
@@ -482,7 +482,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Cómo preguntar',
         entries: [
-          { term: 'Métrica × dimensión', def: 'Elegí qué medir (ventas/margen/unidades/tickets) y por qué cortarlo (canal, marca, categoría, sucursal, producto, cliente o tiempo).' },
+          { term: 'Métrica × dimensión', def: 'Elige qué medir (ventas/margen/unidades/tickets) y por qué cortarlo (canal, marca, categoría, sucursal, producto, cliente o tiempo).' },
           { term: 'Participación (Part.)', def: 'Cuánto pesa cada fila sobre el total del corte (share %).' },
           { term: 'Ver en Sell-Out / Salidas', def: 'El botón lleva al reporte especializado con más detalle y export, filtrado por lo que estás viendo.' },
         ],
@@ -539,13 +539,13 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   'almacen-movimientos': {
     title: 'Diario de movimientos — guía',
-    intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abrí un día para ver sus documentos, y un documento para validar contra su contraparte antes de auditarlo. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es lectura + auditoría; no mueve inventario.',
+    intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abre un día para ver sus documentos, y un documento para validar contra su contraparte antes de auditarlo. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es lectura + auditoría; no mueve inventario.',
     groups: [
       {
         heading: 'Diario',
         entries: [
           { term: 'Documento y contraparte', def: 'Un traspaso genera una salida en el origen (TrsfShip) y una recepción en el destino (TrsfRcv). Al abrir uno se muestra el otro al lado para verificar que lo enviado = lo recibido.' },
-          { term: 'Destino (sucursal/ruta/cliente)', def: 'A dónde va el traspaso. Por defecto se muestran los tres; podés acotar a solo sucursales para conciliar traspasos entre tiendas.' },
+          { term: 'Destino (sucursal/ruta/cliente)', def: 'A dónde va el traspaso. Por defecto se muestran los tres; puedes acotar a solo sucursales para conciliar traspasos entre tiendas.' },
           { term: 'Estado', def: 'En tránsito (salió, aún no se recibe), Completado (recibido y cuadra) o Con diferencia (enviado ≠ recibido).' },
           { term: 'Auditar', def: 'Marca el documento como revisado (queda quién y cuándo). Requiere permiso de gestión de movimientos.' },
         ],
@@ -571,7 +571,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Por qué no coincide con otras pantallas',
         entries: [
-          { term: 'vs. Pedido (Compras)', def: 'Las dos tienen razón. Existencia lee el ERP directo cada vez que abrís la pantalla; Pedido lee una foto que se recalcula cada 15-30 minutos, porque además necesita venta, tránsito y estacionalidad. Si acabás de mover mercancía, Existencia lo ve antes.' },
+          { term: 'vs. Pedido (Compras)', def: 'Las dos tienen razón. Existencia lee el ERP directo cada vez que abres la pantalla; Pedido lee una foto que se recalcula cada 15-30 minutos, porque además necesita venta, tránsito y estacionalidad. Si acabas de mover mercancía, Existencia lo ve antes.' },
           { term: 'vs. Ajustes de stock (Almacén)', def: 'Esa pantalla muestra el libro interno de la app —el que lleva los apartados y el que escriben los ajustes— y su cantidad discrepa del punto de venta alrededor del 9%. Para saber qué hay físicamente, esta pantalla. Medido: contra el POS, el ERP acierta 100% y el libro interno 91%.' },
           { term: '¿Y el apartado?', def: 'No se muestra, y no es un olvido: el apartado sólo existe en el libro interno y hoy tiene 1 producto con 15 unidades en toda la red. Mezclarlo daría una cifra que no es ni el físico ni lo disponible.' },
         ],
@@ -580,7 +580,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'La edad del dato',
         entries: [
           { term: 'Frescura por rama', def: 'Los almacenes no se actualizan al mismo ritmo, así que hay una edad por grupo y un aviso en cada columna. Sucursales 01-06 vienen de Kepler; el CEDIS 00 y los de Morelia (MD-30 / MD-32) vienen de Wincaja.' },
-          { term: '¿Por qué no dice "en vivo"?', def: 'Porque no siempre lo está. La pantalla consulta el ERP al momento, pero el ERP se alimenta de feeds que a veces se atrasan horas. En vez de prometer frescura, se publica la edad real y vos decidís si sirve.' },
+          { term: '¿Por qué no dice "en vivo"?', def: 'Porque no siempre lo está. La pantalla consulta el ERP al momento, pero el ERP se alimenta de feeds que a veces se atrasan horas. En vez de prometer frescura, se publica la edad real y tú decides si sirve.' },
         ],
       },
       {
@@ -610,7 +610,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Cómo se calcula el pedido',
         entries: [
           { term: 'Pedido (cajas)', def: 'Lo que falta para cubrir la venta durante la cobertura: máx(0, venta diaria × días de cobertura − existencia − en tránsito). Si da 0 o menos, no hace falta pedir.' },
-          { term: 'Cobertura (días)', def: 'Cuántos días de venta querés tener en piso. Es el control de arriba; súbelo/bájalo y todo el pedido se recalcula.' },
+          { term: 'Cobertura (días)', def: 'Cuántos días de venta quieres tener en piso. Es el control de arriba; súbelo/bájalo y todo el pedido se recalcula.' },
           { term: 'En tránsito', def: 'Cajas ya pedidas al proveedor que aún no llegan (OC sin entrada). Se restan del pedido para no pedir de más.' },
           { term: '$ Pedido', def: 'Valor del pedido sugerido: cajas a pedir × costo por caja.' },
         ],
@@ -644,7 +644,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Traspaso', def: 'Mover producto desde el CEDIS/otra sucursal con sobrante hacia la que tiene déficit, en vez de comprar. Primero traspaso, luego compra.' },
           { term: 'Sobrestock', def: 'Existencia por encima del máximo (capital inmovilizado). Candidata a traspasar a otra sucursal o a dejar de pedir.' },
           { term: 'Señal', def: 'La métrica que dispara la acción: cobertura en días (compra) · déficit en cajas (traspaso) · días en mano (sobrestock).' },
-          { term: 'Cant. (✎)', def: 'Cantidad a pedir, editable. Arranca en el sugerido; podés ajustarla antes de armar la requisición o exportar.' },
+          { term: 'Cant. (✎)', def: 'Cantidad a pedir, editable. Arranca en el sugerido; puedes ajustarla antes de armar la requisición o exportar.' },
           { term: 'Pedir en: caja / paquete / pieza', def: 'Unidad de captura de la cantidad. No cambia el producto, solo cómo cuentas lo que pides (1 caja = N piezas).' },
         ],
       },
@@ -1175,13 +1175,13 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   bancos: {
     title: 'Conciliación bancaria — guía',
-    intro: 'Reemplaza el Excel manual de bancos. Cada mes: subís los estados de cuenta, el motor clasifica los movimientos contra un catálogo alineado a Kepler, y la pantalla te dice si TODO cuadra — y si no, exactamente qué falta y dónde.',
+    intro: 'Reemplaza el Excel manual de bancos. Cada mes: subes los estados de cuenta, el motor clasifica los movimientos contra un catálogo alineado a Kepler, y la pantalla te dice si TODO cuadra — y si no, exactamente qué falta y dónde.',
     groups: [
       {
         heading: 'Las vistas',
         entries: [
           { term: 'Cierre', def: 'La respuesta del mes: ¿cuadra o no? Arriba el veredicto y el resumen del dinero; abajo la lista de "qué falta", ordenada por impacto, con un botón que te lleva al lugar exacto de arreglarlo.' },
-          { term: 'Movimientos', def: 'Todos los ingresos y egresos del periodo. Aquí clasificás (asignás categoría) lo que el motor dejó "sin clasificar".' },
+          { term: 'Movimientos', def: 'Todos los ingresos y egresos del periodo. Aquí clasificas (asignas categoría) lo que el motor dejó "sin clasificar".' },
           { term: 'Concentrado', def: 'Pivote cuenta × grupo (ingresos, compras, gastos, traspasos…): en qué se movió el dinero por banco.' },
           { term: 'Conciliación', def: 'Cruce contra Kepler: cuántos retiros ya tienen su pago en el mayor, y qué quedó sin conciliar por ambos lados.' },
           { term: 'Cuentas', def: 'Cuadre de saldos por cuenta. Clic en una cuenta para ver sus movimientos.' },
@@ -1235,7 +1235,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'info',
         intro: 'Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210); no son abono al 102, así que nunca concilian contra el 102.',
         steps: [
-          'En Kepler confirmá que el pago esté en 210 (acreedor factoraje).',
+          'En Kepler confirma que el pago esté en 210 (acreedor factoraje).',
           'Si está en 210, es correcto — no se toca.',
         ],
       },
@@ -1253,10 +1253,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         intro: 'Éste SÍ se captura en Kepler: pagos de mercancía que salieron del banco pero no tienen egreso aplicado en el 102.',
         steps: [
-          'En Kepler abrí el auxiliar del 102 (bancos) del periodo.',
-          'Buscá la póliza de egreso por beneficiario + monto + fecha.',
-          'Si NO existe → capturala: abono al 102 / cargo al proveedor (aplicá el pago a su factura).',
-          'Si existe pero en otra cuenta de banco → reclasificala al 102 correcto.',
+          'En Kepler abre el auxiliar del 102 (bancos) del periodo.',
+          'Busca la póliza de egreso por beneficiario + monto + fecha.',
+          'Si NO existe → captúrala: abono al 102 / cargo al proveedor (aplica el pago a su factura).',
+          'Si existe pero en otra cuenta de banco → reclasifícala al 102 correcto.',
           'La lista exacta por proveedor está en el tab Conciliación → "Pagos Kepler (102) sin conciliar".',
         ],
       },
@@ -1271,9 +1271,9 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Qué hacer en Kepler',
         kind: 'fix',
         steps: [
-          'En Kepler, buscá cada movimiento por monto + fecha en el auxiliar del 102 (o en la cuenta del beneficiario).',
+          'En Kepler, busca cada movimiento por monto + fecha en el auxiliar del 102 (o en la cuenta del beneficiario).',
           'La contracuenta que usó Kepler te dice su naturaleza: nómina 601, servicios 603, comisión bancaria 611-003, etc.',
-          'Si el movimiento NO está registrado en Kepler, capturalo en la cuenta correcta — ese es el gap real que cierra el cuadre.',
+          'Si el movimiento NO está registrado en Kepler, captúralo en la cuenta correcta — ese es el gap real que cierra el cuadre.',
           'Los patrones que más pesan salen listados abajo (código + concepto) para ubicarlos rápido.',
         ],
       },
@@ -1289,8 +1289,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         steps: [
           'La fila expande el/los renglón(es) donde el saldo del banco salta más de lo que explica el movimiento: ahí está el error.',
-          'Si falta un movimiento, capturalo (o volvé a subir el estado de cuenta si el Excel venía incompleto).',
-          'Si el saldo inicial/final está mal tecleado, corregilo en la fuente y reimportá.',
+          'Si falta un movimiento, captúralo (o vuelve a subir el estado de cuenta si el Excel venía incompleto).',
+          'Si el saldo inicial/final está mal tecleado, corrígelo en la fuente y reimporta.',
         ],
       },
     ],
@@ -1304,9 +1304,9 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Qué hacer en Kepler',
         kind: 'fix',
         steps: [
-          'Si TI ≠ TE, en Kepler revisá que el traspaso tenga sus DOS lados capturados (cuenta origen y cuenta destino).',
-          'Si falta un lado, capturalo en Kepler.',
-          'Los traspasos reales (TI/TE) ya se miden aparte y netean a cero; un Spei u otro movimiento mal etiquetado como traspaso también descuadra — en Kepler verificá su cuenta real.',
+          'Si TI ≠ TE, en Kepler revisa que el traspaso tenga sus DOS lados capturados (cuenta origen y cuenta destino).',
+          'Si falta un lado, captúralo en Kepler.',
+          'Los traspasos reales (TI/TE) ya se miden aparte y netean a cero; un Spei u otro movimiento mal etiquetado como traspaso también descuadra — en Kepler verifica su cuenta real.',
         ],
       },
     ],
@@ -1320,8 +1320,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Cargarla o desactivarla',
         kind: 'fix',
         steps: [
-          'Subí el estado de cuenta del periodo para esa cuenta.',
-          'Si la cuenta ya no aplica, desactivala en Admin → Cuentas.',
+          'Sube el estado de cuenta del periodo para esa cuenta.',
+          'Si la cuenta ya no aplica, desactívala en Admin → Cuentas.',
           'CAJA GENERAL tiene un layout de columnas distinto — puede requerir su importador propio.',
         ],
       },
@@ -1330,14 +1330,14 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
 
   bancos_retiros_sin_casar: {
     title: 'Retiros del banco sin conciliar',
-    intro: 'Retiros que salieron del banco y no encontraron su pago equivalente en el 102 de Kepler. NO todos son un error — mirá la columna "Categoría": según qué sean, se resuelven distinto (o no requieren nada).',
+    intro: 'Retiros que salieron del banco y no encontraron su pago equivalente en el 102 de Kepler. NO todos son un error — mira la columna "Categoría": según qué sean, se resuelven distinto (o no requieren nada).',
     resolve: [
       {
         heading: '① Pago a factoraje / Compra con factoraje',
         kind: 'info',
         intro: 'Reducen el pasivo de factoraje en Kepler (cuenta 210); no son abono al 102, por eso nunca concilian.',
         steps: [
-          'En Kepler confirmá que el pago esté en 210 (acreedor factoraje).',
+          'En Kepler confirma que el pago esté en 210 (acreedor factoraje).',
           'Si está en 210, es correcto — no se toca.',
         ],
       },
@@ -1354,10 +1354,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         intro: 'Éstos SÍ se capturan en Kepler: pagos que salieron del banco sin egreso aplicado en el 102 (p. ej. REM BOLSAS, SWEETS DIMENSION, CANEL\'S).',
         steps: [
-          'En Kepler abrí el auxiliar del 102 (bancos) del periodo.',
-          'Buscá la póliza de egreso por beneficiario + monto + fecha.',
-          'Si NO existe → capturala: abono al 102 / cargo al proveedor (aplicá el pago a su factura).',
-          'Si existe pero en otra cuenta de banco → reclasificala al 102 correcto.',
+          'En Kepler abre el auxiliar del 102 (bancos) del periodo.',
+          'Busca la póliza de egreso por beneficiario + monto + fecha.',
+          'Si NO existe → captúrala: abono al 102 / cargo al proveedor (aplica el pago a su factura).',
+          'Si existe pero en otra cuenta de banco → reclasifícala al 102 correcto.',
         ],
       },
     ],
@@ -1371,10 +1371,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Qué hacer en Kepler',
         kind: 'fix',
         steps: [
-          'Abrí cada póliza por su folio (columna Doc) y mirá contra qué banco y fecha se registró.',
+          'Abre cada póliza por su folio (columna Doc) y mira contra qué banco y fecha se registró.',
           'Si salió de OTRA cuenta de banco (o de caja/factoraje) → es correcto, solo no casó contra este banco.',
-          'Si tiene fecha/monto mal capturado o está duplicada en Kepler → corregila ahí.',
-          'Si de verdad no salió del banco → revisá si es una provisión / cuenta por pagar que todavía no se paga.',
+          'Si tiene fecha/monto mal capturado o está duplicada en Kepler → corrígela ahí.',
+          'Si de verdad no salió del banco → revisa si es una provisión / cuenta por pagar que todavía no se paga.',
         ],
       },
     ],
@@ -1382,7 +1382,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
 
   egresos: {
     title: 'Egresos contables — guía',
-    intro: 'Todo lo que sale (pólizas de cargo del mayor de Kepler): compras a proveedor, gastos operativos, compra de activo fijo y gastos financieros e impuestos. Podés ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',
+    intro: 'Todo lo que sale (pólizas de cargo del mayor de Kepler): compras a proveedor, gastos operativos, compra de activo fijo y gastos financieros e impuestos. Puedes ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',
     groups: [
       {
         heading: 'Familia del egreso',
@@ -1406,7 +1406,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   hallazgos: {
     title: 'Hallazgos de Maat — guía',
-    intro: 'Patrones que el motor detecta en los libros. Vos confirmás o descartás cada uno: ese veredicto ENTRENA la precisión de la regla (las reglas ruidosas se auto-suprimen). El motor decide, vos validás, el LLM queda fuera del número.',
+    intro: 'Patrones que el motor detecta en los libros. Tú confirmas o descartas cada uno: ese veredicto ENTRENA la precisión de la regla (las reglas ruidosas se auto-suprimen). El motor decide, tú validas, el LLM queda fuera del número.',
     groups: [
       {
         heading: 'Clase de hallazgo',
@@ -1436,7 +1436,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   reembolsos: {
     title: 'Reembolsos / comprobaciones — guía',
-    intro: 'Comprobación de gastos: ligás la evidencia (facturas, tickets, XMLs) a una solicitud de gasto de Kepler para que el egreso quede soportado.',
+    intro: 'Comprobación de gastos: ligas la evidencia (facturas, tickets, XMLs) a una solicitud de gasto de Kepler para que el egreso quede soportado.',
     groups: [
       {
         heading: 'Estado',
@@ -1449,7 +1449,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Archivos',
         entries: [
-          { term: 'Comprobante por rol', def: 'Cada gasto puede pedir distintos documentos (factura, ticket, XML). Subí el archivo en su casilla.' },
+          { term: 'Comprobante por rol', def: 'Cada gasto puede pedir distintos documentos (factura, ticket, XML). Sube el archivo en su casilla.' },
           { term: 'Solicitud (Kepler)', def: 'El folio de gasto autorizado en Kepler al que se liga la comprobación.' },
         ],
       },
@@ -1457,7 +1457,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   solicitudes: {
     title: 'Solicitudes de gasto — guía',
-    intro: 'Solicitudes de gasto capturadas en Kepler. Desde aquí ves su estado y saltás a comprobarlas (subir soporte) o a ver el egreso ya contabilizado.',
+    intro: 'Solicitudes de gasto capturadas en Kepler. Desde aquí ves su estado y saltas a comprobarlas (subir soporte) o a ver el egreso ya contabilizado.',
     groups: [
       {
         heading: 'Estado de la solicitud',
@@ -1490,7 +1490,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Los tres ejes que NO se mezclan',
         entries: [
-          { term: 'Permiso', def: 'Decide si podés ABRIR una pantalla. Sale del rol, y se edita en Roles y permisos.' },
+          { term: 'Permiso', def: 'Decide si puedes ABRIR una pantalla. Sale del rol, y se edita en Roles y permisos.' },
           { term: 'Responsabilidad', def: 'Decide si un trabajo ES TUYO. No abre nada: si el puesto responde de una bandeja que su perfil no abre, lo que corresponde es arreglar el rol.' },
           { term: 'Tarea', def: 'Dice que alguien te asignó algo en concreto. Es lo que aparece en Mi trabajo.' },
           { term: 'Por qué separados', def: 'Juntarlos crearía un cuarto sistema de autorización. Ya pasó: se midieron cuatro compuertas muertas por tener la autorización en dos lugares.' },
@@ -1587,10 +1587,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         kind: 'fix',
         intro: 'Esta pantalla es de sólo lectura sobre el ERP. El costo estándar se edita en Kepler, que es el sistema de registro del catálogo.',
         steps: [
-          'Ordená por Impacto 30 d: arriba está el dinero, no el porcentaje más feo. Una desviación del 300% sobre algo que no se vende no es el problema.',
-          'Abrí la fila y mirá la escalera: si el testigo dice otro peldaño, lo que hay que arreglar es la UNIDAD de la ficha, no el número del costo.',
-          'Mirá el mismo producto en todas las plazas. La ficha se mantiene por sucursal: si sólo una divergió, se corrige esa; si divergieron todas, el criterio cambió.',
-          'Corregí la ficha en Kepler. El cambio llega acá por el ODS, y la fila se recalcula sola en el siguiente refresco.',
+          'Ordena por Impacto 30 d: arriba está el dinero, no el porcentaje más feo. Una desviación del 300% sobre algo que no se vende no es el problema.',
+          'Abre la fila y mira la escalera: si el testigo dice otro peldaño, lo que hay que arreglar es la UNIDAD de la ficha, no el número del costo.',
+          'Mira el mismo producto en todas las plazas. La ficha se mantiene por sucursal: si sólo una divergió, se corrige esa; si divergieron todas, el criterio cambió.',
+          'Corrige la ficha en Kepler. El cambio llega acá por el ODS, y la fila se recalcula sola en el siguiente refresco.',
         ],
       },
       {
@@ -1715,7 +1715,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           // `[CG.136]` Estas dos vivian en un `title=` fijo, o sea que solo existian para quien
           // tiene mouse. Regla P: una definicion va al diccionario, no a un tooltip.
           { term: 'Autorrellenado', def: 'La etiqueta de una fila del libro: parte de ese movimiento lo propuso el sistema, no se tecleo entero. No dice que este mal -- dice de donde salio, que es otra cosa. Lo que se propone es la cuenta y el concepto; el importe se escribe siempre a mano.' },
-          { term: 'Viendo: los mios / Todo el libro', def: 'El mismo boton en sus dos estados: alterna entre todo lo que la caja registro en el periodo y solo lo que capturaste vos. Filtra por tu identidad, nunca por tu nombre -- en esta base hay dos personas que se llaman igual, y un apellido mal tecleado devolveria el libro de otra.' },
+          { term: 'Viendo: los mios / Todo el libro', def: 'El mismo boton en sus dos estados: alterna entre todo lo que la caja registro en el periodo y solo lo que capturaste tú. Filtra por tu identidad, nunca por tu nombre -- en esta base hay dos personas que se llaman igual, y un apellido mal tecleado devolveria el libro de otra.' },
           { term: 'Frescura', def: 'De cuando son los datos de la bandeja. Sale del servidor, no del reloj del navegador. Si el carril que alimenta la lista se cae, la foto se congela SIN dar error y esta es la unica senal.' },
           // `[CG.180]` La jerga nueva entra al diccionario el mismo dia que entra a la pantalla:
           // "copia del historial" no significa nada para quien captura si no esta explicada.

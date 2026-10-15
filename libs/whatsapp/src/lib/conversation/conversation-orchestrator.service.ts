@@ -207,7 +207,7 @@ export class ConversationOrchestratorService {
       messages.push({ role: 'user', content: toolResults });
     }
     // Se agotaron las iteraciones: respuesta segura.
-    return { text: 'Perfecto, ya casi. ¿Confirmo tu pedido o querés agregar algo más?', iterations: this.maxIters, tools };
+    return { text: 'Perfecto, ya casi. ¿Confirmo tu pedido o quieres agregar algo más?', iterations: this.maxIters, tools };
   }
 
   private async execTool(
@@ -228,7 +228,7 @@ export class ConversationOrchestratorService {
       case 'mi_historial': {
         // FIQ.4: "lo de siempre" / reorden. Requiere cliente reconocido (FIQ.0).
         if (!work.customerId) {
-          return { info: 'Cliente no identificado (número nuevo): no hay historial. Ofrecé ayudarle a buscar productos.' };
+          return { info: 'Cliente no identificado (número nuevo): no hay historial. Ofrece ayudarle a buscar productos.' };
         }
         const hist = await this.commerce!.customerHistory(work.customerId, { limit: 8 });
         for (const h of hist) seen.set(h.product_id, h); // habilita agregar_al_carrito (tope con stock)
@@ -254,7 +254,7 @@ export class ConversationOrchestratorService {
       case 'sugeridos_para_ti': {
         // FIQ.4: canasta IA (upsell/cross-sell). Requiere cliente reconocido.
         if (!work.customerId) {
-          return { info: 'Cliente no identificado: no hay sugeridos personalizados. Usá promociones_activas o buscar_producto.' };
+          return { info: 'Cliente no identificado: no hay sugeridos personalizados. Usa promociones_activas o buscar_producto.' };
         }
         const sug = await this.commerce!.customerSuggested(work.customerId);
         for (const h of sug) seen.set(h.product_id, h);
@@ -354,7 +354,7 @@ export class ConversationOrchestratorService {
         const cantidad = Math.max(1, Math.floor(Number(input.cantidad) || 1));
         const unidad = String(input.unidad || 'pieza').toLowerCase() === 'paquete' ? 'paquete' : 'pieza';
         const hit = seen.get(pid);
-        if (!hit) return { error: 'Producto no encontrado en la última búsqueda. Usá buscar_producto primero y agregá con un product_id de esos resultados.' };
+        if (!hit) return { error: 'Producto no encontrado en la última búsqueda. Usa buscar_producto primero y agrega con un product_id de esos resultados.' };
         const factor = hit.pieces_per_package || 1;
         // Convertir a PIEZAS (unidad canónica del pedido).
         const addPieces = unidad === 'paquete' ? cantidad * factor : cantidad;
@@ -362,7 +362,7 @@ export class ConversationOrchestratorService {
         const already = existing?.qty || 0;
         // Validación de existencia (motor, no LLM): nunca por encima del stock.
         if (hit.stock_pieces <= 0) {
-          return { error: `"${hit.name}" está agotado ahora mismo. Ofrecé otra opción.` };
+          return { error: `"${hit.name}" está agotado ahora mismo. Ofrece otra opción.` };
         }
         if (already + addPieces > hit.stock_pieces) {
           // FIQ.2: rechaza sin revelar el total. El LLM ofrece menos o waitlist,
@@ -371,7 +371,7 @@ export class ConversationOrchestratorService {
             error: 'insuficiente',
             mensaje: 'No tengo esa cantidad disponible ahora mismo.',
             instruccion:
-              'Pedí una cantidad menor o ofrecé avisarle cuando se reponga. NO menciones el número disponible.',
+              'Pide una cantidad menor o ofrece avisarle cuando se reponga. NO menciones el número disponible.',
           };
         }
         if (existing) existing.qty += addPieces;
@@ -399,8 +399,8 @@ export class ConversationOrchestratorService {
         return { ok: true, domicilio: work.address };
       }
       case 'confirmar_pedido': {
-        if (work.cart.length === 0) return { error: 'El carrito está vacío. Agregá al menos un producto.' };
-        if (!work.address?.street) return { error: 'Falta el domicilio de entrega. Pedí la calle y número.' };
+        if (work.cart.length === 0) return { error: 'El carrito está vacío. Agrega al menos un producto.' };
+        if (!work.address?.street) return { error: 'Falta el domicilio de entrega. Pide la calle y número.' };
         // FIQ.7 (ADR-037): gate de confianza. El MOTOR decide el tier; el LLM
         // comunica sin acusar. Degrada a 'allow' si el puerto falla (no romper).
         let trust: { tier: string; reasons: string[] } | null = null;
@@ -418,7 +418,7 @@ export class ConversationOrchestratorService {
           return {
             gate: 'handoff',
             instruccion:
-              'NO confirmes el pedido. Con calidez, decile que un asesor de Mega Dulces lo va a contactar para coordinar este pedido. NUNCA menciones su historial, ni "bloqueo", ni desconfianza. Amable y neutral.',
+              'NO confirmes el pedido. Con calidez, dile que un asesor de Mega Dulces lo va a contactar para coordinar este pedido. NUNCA menciones su historial, ni "bloqueo", ni desconfianza. Amable y neutral.',
           };
         }
         work.state = 'review';
@@ -429,7 +429,7 @@ export class ConversationOrchestratorService {
             mensaje: 'Pedido listo para revisión de un asesor.',
             resumen: { carrito: this.cartView(work.cart), domicilio: work.address },
             instruccion:
-              'Pedile con tacto un ANTICIPO o pago por TRANSFERENCIA para asegurar el pedido (política para pedidos nuevos o grandes) y avisá que un asesor lo confirma. NO menciones su historial ni des explicaciones negativas, NO pidas datos de tarjeta (no hay pago en línea).',
+              'Pedile con tacto un ANTICIPO o pago por TRANSFERENCIA para asegurar el pedido (política para pedidos nuevos o grandes) y avisa que un asesor lo confirma. NO menciones su historial ni des explicaciones negativas, NO pidas datos de tarjeta (no hay pago en línea).',
           };
         }
         return {
@@ -442,7 +442,7 @@ export class ConversationOrchestratorService {
         // FIQ.6 (ADR-038): aparta (reserva con TTL) lo que hay en el carrito. El
         // MOTOR reserva el stock de forma atómica; el bot NO cierra el pedido.
         if (!work.phone) return { error: 'No tengo el teléfono del contacto para el apartado.' };
-        if (work.cart.length === 0) return { error: 'El carrito está vacío. Agregá productos antes de apartar.' };
+        if (work.cart.length === 0) return { error: 'El carrito está vacío. Agrega productos antes de apartar.' };
         const horas = Math.max(1, Math.min(Math.floor(Number(input.horas) || 3), 24));
         try {
           const res = await this.commerce!.reserveStock({
@@ -461,14 +461,14 @@ export class ConversationOrchestratorService {
             total: res.total,
             items: res.lines.map((l) => ({ producto: l.name, piezas: l.quantity })),
             instruccion:
-              'Confirmá el folio y hasta cuándo se lo guardamos. El apartado NO es una entrega: si quiere que se lo llevemos, armá un pedido con confirmar_pedido (domicilio + confirmar).',
+              'Confirma el folio y hasta cuándo se lo guardamos. El apartado NO es una entrega: si quiere que se lo llevemos, arma un pedido con confirmar_pedido (domicilio + confirmar).',
           };
         } catch (e: any) {
           // Stock insuficiente (ConflictException del motor) → mensaje cualitativo, sin números.
           return {
             error: 'no_apartado',
             mensaje: e?.message || 'No pudimos apartar esos productos ahora.',
-            instruccion: 'Ofrecé una cantidad menor o quitar el producto que no alcanzó. NUNCA menciones números de inventario.',
+            instruccion: 'Ofrece una cantidad menor o quitar el producto que no alcanzó. NUNCA menciones números de inventario.',
           };
         }
       }
@@ -476,7 +476,7 @@ export class ConversationOrchestratorService {
         // FIQ.6: apartados vigentes del contacto.
         if (!work.phone) return { info: 'Sin teléfono no puedo consultar apartados.' };
         const list = await this.commerce!.activeReservations(work.phone);
-        if (list.length === 0) return { info: 'No tenés apartados activos en este momento.' };
+        if (list.length === 0) return { info: 'No tienes apartados activos en este momento.' };
         return {
           apartados: list.map((r) => ({
             folio: r.folio,
@@ -491,7 +491,7 @@ export class ConversationOrchestratorService {
         if (!work.phone) return { error: 'Sin teléfono no puedo cancelar apartados.' };
         const res = await this.commerce!.releaseReservation({ phone: work.phone });
         if (res.released === 0) return { info: 'No tenías apartados activos para cancelar.' };
-        return { ok: true, cancelados: res.released, instruccion: 'Confirmá que liberaste el apartado.' };
+        return { ok: true, cancelados: res.released, instruccion: 'Confirma que liberaste el apartado.' };
       }
       case 'handoff_humano':
         work.handoff = true;
@@ -584,34 +584,34 @@ export class ConversationOrchestratorService {
   }): string {
     const cart = this.cartView(work.cart);
     const cliente = work.customerName
-      ? `CLIENTE RECONOCIDO: "${work.customerName}". Saludalo por su nombre (solo el primer nombre, cálido) al inicio. Ya es cliente de Mega Dulces: si pide "lo de siempre"/su pedido habitual, o si querés sugerirle, usá mi_historial.`
-      : 'CLIENTE NUEVO/NO IDENTIFICADO: tratalo con calidez; no inventes su nombre ni su historial.';
+      ? `CLIENTE RECONOCIDO: "${work.customerName}". Salúdalo por su nombre (solo el primer nombre, cálido) al inicio. Ya es cliente de Mega Dulces: si pide "lo de siempre"/su pedido habitual, o si quieres sugerirle, usa mi_historial.`
+      : 'CLIENTE NUEVO/NO IDENTIFICADO: trátalo con calidez; no inventes su nombre ni su historial.';
     // FIQ.4: memoria — dirección de un pedido anterior (solo si aún no capturó una en este pedido).
     const memoria =
       work.knownAddress?.street && !work.address?.street
-        ? `MEMORIA: en un pedido anterior lo enviaste a "${work.knownAddress.street}". Cuando llegue el momento de la entrega, ofrecé enviar a la misma dirección (confirmá antes de usarla; si dice que sí, capturala con capturar_domicilio).`
+        ? `MEMORIA: en un pedido anterior lo enviaste a "${work.knownAddress.street}". Cuando llegue el momento de la entrega, ofrece enviar a la misma dirección (confirma antes de usarla; si dice que sí, captúrala con capturar_domicilio).`
         : '';
     return [
-      'Sos el asistente de pedidos de Mega Dulces (dulcería) por WhatsApp. Hablás en español mexicano, cálido y breve (mensajes cortos, sin markdown).',
+      'Eres el asistente de pedidos de Mega Dulces (dulcería) por WhatsApp. Hablas en español mexicano, cálido y breve (mensajes cortos, sin markdown).',
       cliente,
       memoria,
       'Tu trabajo: ayudar al cliente a armar un pedido a domicilio.',
       'REGLAS DURAS:',
-      '- Para agregar un producto SIEMPRE usá primero buscar_producto y luego agregar_al_carrito con un product_id de esos resultados. Nunca inventes productos ni precios.',
+      '- Para agregar un producto SIEMPRE usa primero buscar_producto y luego agregar_al_carrito con un product_id de esos resultados. Nunca inventes productos ni precios.',
       '- Los precios, existencia y total salen de las herramientas, no los inventes ni los cambies.',
-      '- EXISTENCIA: NUNCA menciones cantidades exactas de inventario ni "quedan N piezas". Comunicá SOLO la disponibilidad cualitativa de buscar_producto (disponibilidad: "disponible" = hay; "pocas" = quedan pocas, podés generar urgencia SIN número; "agotado" = ofrecé otra opción). Si el cliente pide más de lo que hay, agregar_al_carrito lo rechaza: pedile una cantidad menor o ofrecé avisarle cuando se reponga, SIN decir el número disponible.',
-      '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
-      '- MAYOREO/PRECIOS: los precios que te da buscar_producto YA son los del cliente (de mayoreo si está reconocido) — nunca inventes ni cambies un precio. Cuando el producto viene en caja (piezas_por_paquete > 1), ofrecé SIEMPRE el precio por CAJA (precio_paquete) además del de pieza, ej. "la caja de 40 te sale a $precio_paquete ($precio_pieza c/u)". Respetá minimo_piezas (cantidad mínima de compra) al cerrar.',
-      '- UPSELL (con tacto): si el cliente está reconocido y por cerrar o dudando, ofrecé 1-2 productos de sugeridos_para_ti (con su motivo) o de promociones_activas. Nunca insistas ni satures; máximo una sugerencia por turno.',
-      '- QUÉ COMPRAR/MERCADO: si el cliente es NUEVO, está indeciso, o pregunta "¿qué me recomiendas?"/"¿qué es lo más vendido?"/"¿qué está de moda?", usá top_productos (los más pedidos) o tendencias_mercado (lo de temporada) como prueba social. Funciona también para casual sin historial. Preséntalo natural ("de lo que más se llevan es...") sin dar cifras de ventas.',
-      '- APARTADO: si el cliente quiere que le GUARDES/RESERVES producto para que no se agote (sin entregarlo aún, o porque lo recoge después, o no está listo para dar domicilio), armá el carrito y usá apartar_pedido. Dale el folio AP-... y decile hasta cuándo se lo guardás. El apartado NO es una entrega: si además quiere que se lo lleven, eso es un pedido aparte (domicilio + confirmar_pedido). Puede consultar (consultar_apartado) o cancelar (cancelar_apartado) su apartado.',
-      '- ENTREGA (UBICACIÓN PRIMERO): cuando ya haya productos y toque la entrega, PEDÍ PRIMERO que comparta su UBICACIÓN por WhatsApp (📎/clip → Ubicación → "Enviar tu ubicación actual"). Es lo más rápido y exacto para que el repartidor llegue. Es el método preferido.',
-      '- Cuando comparta su ubicación (pin), YA queda guardada: SOLO confirmá con calidez ("¡Listo, recibí tu ubicación! 📍, ya casi"). Con el pin ALCANZA para entregar — podés pedir una referencia corta (color de casa) pero NO la exijas ni bloquees por eso.',
-      '- Solo si NO puede o NO quiere mandar el pin, recién ahí pedile la calle y número por texto y guardala con capturar_domicilio.',
-      '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y la ubicación de entrega (el pin compartido O la calle capturada).',
-      '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
-      '- CONFIANZA/PAGO: si confirmar_pedido te devuelve una instrucción de pedir anticipo/transferencia o de derivar a un asesor, seguila con calidez y SIN explicaciones negativas. NUNCA menciones el historial del cliente, "bloqueo", deuda ni desconfianza.',
-      '- Si el cliente pide algo que no entendés, se enoja, o pide hablar con una persona, usá handoff_humano.',
+      '- EXISTENCIA: NUNCA menciones cantidades exactas de inventario ni "quedan N piezas". Comunica SOLO la disponibilidad cualitativa de buscar_producto (disponibilidad: "disponible" = hay; "pocas" = quedan pocas, puedes generar urgencia SIN número; "agotado" = ofrece otra opción). Si el cliente pide más de lo que hay, agregar_al_carrito lo rechaza: pedile una cantidad menor o ofrece avisarle cuando se reponga, SIN decir el número disponible.',
+      '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agrega con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclárale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirma siempre la cantidad en piezas y paquetes.',
+      '- MAYOREO/PRECIOS: los precios que te da buscar_producto YA son los del cliente (de mayoreo si está reconocido) — nunca inventes ni cambies un precio. Cuando el producto viene en caja (piezas_por_paquete > 1), ofrece SIEMPRE el precio por CAJA (precio_paquete) además del de pieza, ej. "la caja de 40 te sale a $precio_paquete ($precio_pieza c/u)". Respeta minimo_piezas (cantidad mínima de compra) al cerrar.',
+      '- UPSELL (con tacto): si el cliente está reconocido y por cerrar o dudando, ofrece 1-2 productos de sugeridos_para_ti (con su motivo) o de promociones_activas. Nunca insistas ni satures; máximo una sugerencia por turno.',
+      '- QUÉ COMPRAR/MERCADO: si el cliente es NUEVO, está indeciso, o pregunta "¿qué me recomiendas?"/"¿qué es lo más vendido?"/"¿qué está de moda?", usa top_productos (los más pedidos) o tendencias_mercado (lo de temporada) como prueba social. Funciona también para casual sin historial. Preséntalo natural ("de lo que más se llevan es...") sin dar cifras de ventas.',
+      '- APARTADO: si el cliente quiere que le GUARDES/RESERVES producto para que no se agote (sin entregarlo aún, o porque lo recoge después, o no está listo para dar domicilio), arma el carrito y usa apartar_pedido. Dale el folio AP-... y dile hasta cuándo se lo guardas. El apartado NO es una entrega: si además quiere que se lo lleven, eso es un pedido aparte (domicilio + confirmar_pedido). Puede consultar (consultar_apartado) o cancelar (cancelar_apartado) su apartado.',
+      '- ENTREGA (UBICACIÓN PRIMERO): cuando ya haya productos y toque la entrega, Pide PRIMERO que comparta su UBICACIÓN por WhatsApp (📎/clip → Ubicación → "Enviar tu ubicación actual"). Es lo más rápido y exacto para que el repartidor llegue. Es el método preferido.',
+      '- Cuando comparta su ubicación (pin), YA queda guardada: SOLO confirma con calidez ("¡Listo, recibí tu ubicación! 📍, ya casi"). Con el pin ALCANZA para entregar — puedes pedir una referencia corta (color de casa) pero NO la exijas ni bloquees por eso.',
+      '- Solo si NO puede o NO quiere mandar el pin, recién ahí pedile la calle y número por texto y guárdala con capturar_domicilio.',
+      '- Antes de confirmar necesitas: al menos 1 producto en el carrito Y la ubicación de entrega (el pin compartido O la calle capturada).',
+      '- Al confirmar, avisa que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres tú).',
+      '- CONFIANZA/PAGO: si confirmar_pedido te devuelve una instrucción de pedir anticipo/transferencia o de derivar a un asesor, síguela con calidez y SIN explicaciones negativas. NUNCA menciones el historial del cliente, "bloqueo", deuda ni desconfianza.',
+      '- Si el cliente pide algo que no entiendes, se enoja, o pide hablar con una persona, usa handoff_humano.',
       '- El pago es contra-entrega (efectivo al recibir). No pidas datos de tarjeta.',
       `ESTADO ACTUAL → etapa: ${work.state}. Carrito: ${cart.items.length ? JSON.stringify(cart) : 'vacío'}. Domicilio: ${work.address?.street ? JSON.stringify(work.address) : 'no capturado'}.`,
     ].join('\n');
@@ -651,7 +651,7 @@ export class ConversationOrchestratorService {
       },
       {
         name: 'agregar_al_carrito',
-        description: 'Agrega un producto al carrito. Usá un product_id que haya devuelto buscar_producto. Especificá la unidad: "pieza" (suelto) o "paquete" (caja/bolsa completa de piezas_por_paquete). Valida existencia automáticamente y rechaza si no alcanza.',
+        description: 'Agrega un producto al carrito. Usa un product_id que haya devuelto buscar_producto. Especifica la unidad: "pieza" (suelto) o "paquete" (caja/bolsa completa de piezas_por_paquete). Valida existencia automáticamente y rechaza si no alcanza.',
         input_schema: {
           type: 'object',
           properties: {
@@ -674,7 +674,7 @@ export class ConversationOrchestratorService {
       },
       {
         name: 'capturar_domicilio',
-        description: 'Guarda el domicilio de entrega (texto). Pedí al menos calle y número.',
+        description: 'Guarda el domicilio de entrega (texto). Pide al menos calle y número.',
         input_schema: {
           type: 'object',
           properties: {
@@ -714,7 +714,7 @@ export class ConversationOrchestratorService {
       },
       {
         name: 'handoff_humano',
-        description: 'Deriva la conversación a un asesor humano cuando no podés ayudar o el cliente lo pide.',
+        description: 'Deriva la conversación a un asesor humano cuando no puedes ayudar o el cliente lo pide.',
         input_schema: { type: 'object', properties: { motivo: { type: 'string' } } },
       },
     ];

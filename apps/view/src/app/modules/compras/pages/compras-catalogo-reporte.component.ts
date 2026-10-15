@@ -127,7 +127,7 @@ interface GrupoImpresion {
               [showClear]="true"
               [maxSelectedLabels]="2"
               selectedItemsLabel="{0} proveedores"
-              placeholder="Elegí uno o más proveedores"
+              placeholder="Elige uno o más proveedores"
               emptyFilterMessage="Sin coincidencias"
               appendTo="body"
               scrollHeight="320px"
@@ -202,7 +202,7 @@ interface GrupoImpresion {
           <article class="cell cell-span-12">
             <div class="rp-empty">
               <div class="rp-empty-ico"><i class="pi pi-users" aria-hidden="true"></i></div>
-              <h3>Elegí un proveedor para empezar</h3>
+              <h3>Elige un proveedor para empezar</h3>
               <p>El reporte se arma con los productos del proveedor y los precios que Kepler tiene cargados para ellos.</p>
             </div>
           </article>
@@ -215,7 +215,7 @@ interface GrupoImpresion {
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                 <div>
                   <strong>No se pudo cargar el reporte.</strong>
-                  <span>Puede ser un corte de red o un permiso. Vuelve a intentar; si sigue, avisá a sistemas.</span>
+                  <span>Puede ser un corte de red o un permiso. Vuelve a intentar; si sigue, avisa a sistemas.</span>
                 </div>
                 <button pButton size="small" [outlined]="true" (click)="recargar()">
                   <span class="p-button-label">Reintentar</span>
@@ -248,7 +248,7 @@ interface GrupoImpresion {
               <i class="pi pi-filter" aria-hidden="true"></i>
               <div>
                 <strong>La lista se cortó en {{ m.limite }} renglones.</strong>
-                <span>Hay {{ m.total }} productos que cumplen el filtro. Elegí menos proveedores o filtrá para verlos todos.</span>
+                <span>Hay {{ m.total }} productos que cumplen el filtro. Elige menos proveedores o filtra para verlos todos.</span>
               </div>
             </div>
           }

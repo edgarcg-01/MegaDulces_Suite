@@ -121,12 +121,12 @@ const ALLOWED_IMAGE_TYPES = [
                 (onChange)="onSelectRoute($event.value)"
                 optionLabel="label"
                 optionValue="value"
-                placeholder="Seleccioná tu ruta"
+                placeholder="Selecciona tu ruta"
                 appendTo="body"
                 styleClass="w-full sm:w-64"
               [filter]="zoneRoutes().length > 8"></p-select>
               @if (zoneRoutes().length === 0) {
-                <div class="text-[10px] sm:text-xs text-content-muted mt-1">No hay rutas para tu zona. Avisá a tu supervisor.</div>
+                <div class="text-[10px] sm:text-xs text-content-muted mt-1">No hay rutas para tu zona. Avisa a tu supervisor.</div>
               }
             </div>
           }
@@ -182,8 +182,8 @@ const ALLOWED_IMAGE_TYPES = [
               <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
                 <i class="pi pi-map text-2xl"></i>
               </div>
-              <h3 class="text-lg font-bold text-content-main mb-2">Elegí tu ruta</h3>
-              <p class="text-sm text-content-dim max-w-sm mx-auto">Seleccioná tu ruta de hoy arriba para iniciar la visita.</p>
+              <h3 class="text-lg font-bold text-content-main mb-2">Elige tu ruta</h3>
+              <p class="text-sm text-content-dim max-w-sm mx-auto">Selecciona tu ruta de hoy arriba para iniciar la visita.</p>
             } @else {
               <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-brand-orange">
                 <i class="pi pi-spin pi-spinner text-2xl"></i>
@@ -211,8 +211,8 @@ const ALLOWED_IMAGE_TYPES = [
                 <i class="pi pi-sparkles text-[0.7rem]" aria-hidden="true"></i> Para que la IA lea bien el exhibidor
               </p>
               <ul class="text-xs text-content-muted space-y-1.5">
-                <li class="flex items-start gap-2"><i class="pi pi-search text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Acercate</strong>: que se lean las marcas en los empaques, no la tienda entera.</span></li>
-                <li class="flex items-start gap-2"><i class="pi pi-th-large text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Enfocá tu sección</strong>: si el exhibidor es grande, encuadrá la zona con más producto propio.</span></li>
+                <li class="flex items-start gap-2"><i class="pi pi-search text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Acércate</strong>: que se lean las marcas en los empaques, no la tienda entera.</span></li>
+                <li class="flex items-start gap-2"><i class="pi pi-th-large text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Enfoca tu sección</strong>: si el exhibidor es grande, encuadra la zona con más producto propio.</span></li>
                 <li class="flex items-start gap-2"><i class="pi pi-sun text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Buena luz y de frente</strong>: sin reflejos ni sombras sobre los productos.</span></li>
               </ul>
             </div>
@@ -496,7 +496,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.customerId = qp.get('customerId');
     this.customerName = qp.get('customerName') || '';
     if (!this.customerId) {
-      this.startError.set('Abrí la captura desde el menú de un cliente (Buscar cliente o Mi ruta).');
+      this.startError.set('Abre la captura desde el menú de un cliente (Buscar cliente o Mi ruta).');
     }
     this.svc.refreshAll(); // catálogos + asignación de ruta
   }
@@ -508,11 +508,11 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   async start(): Promise<void> {
     if (this.starting()) return;
     if (!this.customerId) {
-      this.startError.set('Entrá a capturar desde el menú de un cliente.');
+      this.startError.set('Entra a capturar desde el menú de un cliente.');
       return;
     }
     if (this.needsRoute()) {
-      this.toast.add({ severity: 'warn', summary: 'Elegí tu ruta', detail: 'Seleccioná tu ruta de hoy antes de iniciar.' });
+      this.toast.add({ severity: 'warn', summary: 'Elige tu ruta', detail: 'Selecciona tu ruta de hoy antes de iniciar.' });
       return;
     }
     this.starting.set(true);
@@ -520,7 +520,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     try {
       await this.svc.iniciarVisitaParaCliente({ id: this.customerId, name: this.customerName || 'Cliente' });
     } catch (e: any) {
-      this.startError.set(e?.message || 'No se pudo capturar la ubicación. Verificá que el GPS esté activado.');
+      this.startError.set(e?.message || 'No se pudo capturar la ubicación. Verifica que el GPS esté activado.');
       this.toast.add({ severity: 'error', summary: 'Error de GPS', detail: e?.message || 'No se pudo capturar la ubicación.' });
     } finally {
       this.starting.set(false);
@@ -630,7 +630,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'success',
           summary: `${matched.length} producto(s) identificado(s)`,
-          detail: 'Revisá y confirmá lo que corresponde en la lista.',
+          detail: 'Revisa y confirma lo que corresponde en la lista.',
         });
       } else if (rawItems.length) {
         // La IA SÍ leyó productos pero ninguno coincidió con el catálogo (caso típico
@@ -638,20 +638,20 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'info',
           summary: `Leí ${rawItems.length} producto(s) pero no coinciden con el catálogo`,
-          detail: 'Marcalos a mano. (Los reconocidos aparecen en la lista.)',
+          detail: 'Márcalos a mano. (Los reconocidos aparecen en la lista.)',
         });
       } else {
         this.toast.add({
           severity: 'info',
           summary: 'No se leyeron productos en la foto',
-          detail: 'Acercá la cámara al anaquel, con buena luz, y volvé a intentar.',
+          detail: 'Acerca la cámara al anaquel, con buena luz, y vuelve a intentar.',
         });
       }
     } catch (e: any) {
       console.error('[exhibición] error identificando productos', { status: e?.status, message: e?.message, error: e?.error });
       // Best-effort: si falla, la foto igual queda; el vendedor marca a mano.
       if (!(e instanceof TimeoutError) && !isTransientStatus(e?.status)) {
-        const hint = e?.status === 404 ? 'El servicio aún no está disponible (redeploy pendiente).' : 'Marcá los productos a mano.';
+        const hint = e?.status === 404 ? 'El servicio aún no está disponible (redeploy pendiente).' : 'Marca los productos a mano.';
         this.toast.add({ severity: 'warn', summary: 'No se pudo identificar', detail: hint });
       }
     } finally {
@@ -727,7 +727,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       this.toast.add({
         severity: ocr.length ? 'success' : 'warn',
         summary: ocr.length ? `${ocr.length} productos detectados` : 'Ticket ilegible',
-        detail: ocr.length ? `${this.confirmedCount()} confirmados` : 'Tomá la foto con mejor luz.',
+        detail: ocr.length ? `${this.confirmedCount()} confirmados` : 'Toma la foto con mejor luz.',
       });
     } catch (e: any) {
       // Si la falla es transient (red caída mid-flight, 500/504 del server, o
@@ -741,7 +741,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           detail: 'La foto se guardará y el reconocimiento se procesará al sincronizar.',
         });
       } else {
-        this.toast.add({ severity: 'error', summary: 'OCR falló', detail: e?.error?.message || 'Intentá de nuevo.' });
+        this.toast.add({ severity: 'error', summary: 'OCR falló', detail: e?.error?.message || 'Intenta de nuevo.' });
       }
     } finally {
       this.processing.set(false);
@@ -835,11 +835,11 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     const lat = this.svc.latitud();
     const lng = this.svc.longitud();
     if (!lat || !lng) {
-      this.toast.add({ severity: 'error', summary: 'Sin GPS', detail: 'Re-iniciá la captura para tomar ubicación.' });
+      this.toast.add({ severity: 'error', summary: 'Sin GPS', detail: 'Re-inicia la captura para tomar ubicación.' });
       return;
     }
     if (!this.exhibidorFile()) {
-      this.toast.add({ severity: 'warn', summary: 'Falta foto', detail: 'Tomá la foto del exhibidor.' });
+      this.toast.add({ severity: 'warn', summary: 'Falta foto', detail: 'Toma la foto del exhibidor.' });
       return;
     }
 

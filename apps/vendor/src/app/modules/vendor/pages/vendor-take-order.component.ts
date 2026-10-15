@@ -184,7 +184,7 @@ const foldText = (s: string | null | undefined): string =>
             <i class="pi pi-bolt"></i>
             <div class="pn-body">
               <b>Pedido sugerido cargado</b>
-              <span>Según lo que suele pedir. Ajustá cantidades y confirmá.</span>
+              <span>Según lo que suele pedir. Ajusta cantidades y confirma.</span>
             </div>
             <button (click)="clearOrder()">Vaciar</button>
           </div>
@@ -194,7 +194,7 @@ const foldText = (s: string | null | undefined): string =>
         @if (isEditing()) {
           <div class="edit-banner">
             <i class="pi pi-pencil"></i>
-            <span>Estás corrigiendo <b>{{ editingCode() || 'un pedido agendado' }}</b>. Guardá al terminar para volver a agendarlo.</span>
+            <span>Estás corrigiendo <b>{{ editingCode() || 'un pedido agendado' }}</b>. Guarda al terminar para volver a agendarlo.</span>
           </div>
         }
         <!-- Search. [VTK.6] Fijo arriba al desplazarse. -->
@@ -208,13 +208,13 @@ const foldText = (s: string | null | undefined): string =>
           <!-- Avisos de la fuente de existencia (el selector vive en la tira de arriba, [VTK.6]) -->
           @if (stockSources().sucursal && !offlineMode()) {
             @if (stockSources().sucursal?.assigned === false) {
-              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tenés sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
+              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tienes sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
             }
             <!-- Mirar la camioneta es consulta, no surtido: el pedido es preventa y se
                  reparte desde la sucursal. Si no se dice, el vendedor cree que está
                  pidiendo de lo que trae hoy. -->
             @if (stockView() === 'camioneta') {
-              <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traés en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
+              <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traes en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
             }
           }
           <!-- [VTK.11] Se abrió con el catálogo guardado: se dice de cuándo es mientras llega el nuevo. -->
@@ -243,7 +243,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (habitualRows().length) {
               <div class="list-head">
                 <span class="lh-t"><i class="pi pi-history"></i> Lo que suele pedir</span>
-                <span class="lh-s">{{ habitualRows().length }} · escribí cantidades</span>
+                <span class="lh-s">{{ habitualRows().length }} · escribe cantidades</span>
               </div>
               <div class="catalog">
                 @for (p of habitualRows(); track trackProduct($index, p)) {
@@ -255,7 +255,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (browseRows().length) {
               <div class="list-head">
                 <span class="lh-t"><i class="pi pi-chart-bar"></i> Catálogo · más vendidos</span>
-                <span class="lh-s">buscá para ver los {{ pricedCount() }}</span>
+                <span class="lh-s">busca para ver los {{ pricedCount() }}</span>
               </div>
               <div class="catalog">
                 @for (p of browseRows(); track trackProduct($index, p)) {
@@ -266,7 +266,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (!habitualRows().length && !browseRows().length) {
               <div class="no-res">
                 <i class="pi pi-search"></i>
-                <p>Buscá un producto para empezar el pedido.</p>
+                <p>Busca un producto para empezar el pedido.</p>
               </div>
             }
             @if (unpricedCount() > 0) {
@@ -361,7 +361,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (cartLines().length === 0) {
               <div class="empty-cart">
                 <i class="pi pi-shopping-cart"></i>
-                <p>Tocá <b>+</b> en un producto para empezar el pedido.</p>
+                <p>Toca <b>+</b> en un producto para empezar el pedido.</p>
               </div>
             }
           </div>
@@ -479,7 +479,7 @@ const foldText = (s: string | null | undefined): string =>
                 </button>
                 <button class="fin-opt" [class.on]="finishOutcome() === 'no_venta'" (click)="finishOutcome.set('no_venta')">
                   <i class="pi pi-times-circle"></i>
-                  <span class="lbl">No compró <small>Elegí el motivo</small></span>
+                  <span class="lbl">No compró <small>Elige el motivo</small></span>
                 </button>
                 @if (finishOutcome() === 'no_venta') {
                   <div class="reasons">
@@ -1455,7 +1455,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.toast.add({
             severity: 'warn',
             summary: 'Sin datos offline',
-            detail: 'Este cliente no se cargó con conexión antes. Abrilo una vez con señal.',
+            detail: 'Este cliente no se cargó con conexión antes. Ábrelo una vez con señal.',
             life: 6000,
           });
           return;
@@ -1807,7 +1807,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const orderId = this.cartOrderId();
     if (!orderId || this.submitting() || this.settling()) return;
     if (!this.requestedDate) {
-      this.toast.add({ severity: 'warn', summary: 'Elegí la fecha de entrega' });
+      this.toast.add({ severity: 'warn', summary: 'Elige la fecha de entrega' });
       return;
     }
     // Sin ajustes en vuelo, el total ya es el del servidor → se pregunta directo.
@@ -1966,7 +1966,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private onError(err: any): void {
     this.submitting.set(false);
     this.haptic.notification('error');
-    this.toast.add({ severity: 'error', summary: 'No se pudo completar', detail: err?.error?.message || err?.message || 'Intentá de nuevo.' });
+    this.toast.add({ severity: 'error', summary: 'No se pudo completar', detail: err?.error?.message || err?.message || 'Intenta de nuevo.' });
   }
 
   cancelDraft(): void {

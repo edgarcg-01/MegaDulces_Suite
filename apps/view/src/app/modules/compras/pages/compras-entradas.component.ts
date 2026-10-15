@@ -117,7 +117,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
             } @else {
               Las órdenes de entrada de la red
               @if (report()) { <strong>{{ ventanaTexto() }}</strong> }
-              , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
+              , lo más reciente primero. Busca por los <strong>últimos 4 dígitos</strong> del folio,
               o por proveedor / RFC / OC / vale. Para el trabajo diario están las pantallas por
               oficio: <strong>Captura de facturas</strong> y <strong>Revisión de facturas</strong>.
             }
@@ -222,7 +222,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           }
           }
           @if (algunaAtrasada()) {
-            <span class="fresh-note">Su cadencia normal es menor: revisá el feed de esa fuente.</span>
+            <span class="fresh-note">Su cadencia normal es menor: revisa el feed de esa fuente.</span>
           }
         </div>
       }
@@ -540,12 +540,12 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
       <div class="cb-form">
         @if (photoFirst() && attachStep() === 1) {
           <!-- PASO 1 — identificar la entrada por los últimos 4 dígitos del folio (OE opcional) -->
-          <div class="cb-step-head"><span class="cb-step-n">1</span><span>Identificá la orden de entrada por los <strong>últimos 4 dígitos</strong> de su folio (buscala abajo). En el paso 2 subís la <strong>factura</strong>.</span></div>
+          <div class="cb-step-head"><span class="cb-step-n">1</span><span>Identifica la orden de entrada por los <strong>últimos 4 dígitos</strong> de su folio (búscala abajo). En el paso 2 subes la <strong>factura</strong>.</span></div>
           @if (!ordenFile() && !attachTarget()) {
             <div class="cb-drop cb-drop-opt" [class.drag]="dragging()"
                  (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
               <i class="pi pi-file-pdf cb-drop-ico" aria-hidden="true"></i>
-              <div class="cb-drop-main"><span class="cb-opt-tag">opcional</span> Arrastrá el <strong>PDF de la orden de entrada</strong> para enlazarla sola</div>
+              <div class="cb-drop-main"><span class="cb-opt-tag">opcional</span> Arrastra el <strong>PDF de la orden de entrada</strong> para enlazarla sola</div>
               <div class="cb-drop-or">o</div>
               <label class="cb-pickbtn"><i class="pi pi-upload"></i> Elegir PDF
                 <input type="file" accept="application/pdf,image/*" (change)="onFiles($event)" hidden />
@@ -1794,7 +1794,7 @@ export class ComprasEntradasComponent {
       },
       error: (e) => {
         this.bulking.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo aprobar el lote', detail: e?.error?.message || 'Intentá de nuevo.' });
+        this.toast.add({ severity: 'error', summary: 'No se pudo aprobar el lote', detail: e?.error?.message || 'Intenta de nuevo.' });
       },
     });
   }
@@ -1904,7 +1904,7 @@ export class ComprasEntradasComponent {
         },
         error: (e) => {
           this.descartando.set(null);
-          this.toast.add({ severity: 'error', summary: 'No se pudo descartar', detail: e?.error?.message || 'Intentá de nuevo.' });
+          this.toast.add({ severity: 'error', summary: 'No se pudo descartar', detail: e?.error?.message || 'Intenta de nuevo.' });
         },
       });
   }
@@ -1921,7 +1921,7 @@ export class ComprasEntradasComponent {
         },
         error: (e) => {
           this.descartando.set(null);
-          this.toast.add({ severity: 'error', summary: 'No se pudo reactivar', detail: e?.error?.message || 'Intentá de nuevo.' });
+          this.toast.add({ severity: 'error', summary: 'No se pudo reactivar', detail: e?.error?.message || 'Intenta de nuevo.' });
         },
       });
   }
@@ -2137,7 +2137,7 @@ export class ComprasEntradasComponent {
     this.grSocket.newReceipts$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
       this.newCount.update((c) => c + e.count);
       const first = e.sample?.[0];
-      this.toast.add({ severity: 'info', summary: `${e.count} orden(es) de entrada nueva(s)`, detail: first ? (first.proveedor || `${first.sucursal}/${first.folio}`) : 'Actualizá para verlas' });
+      this.toast.add({ severity: 'info', summary: `${e.count} orden(es) de entrada nueva(s)`, detail: first ? (first.proveedor || `${first.sucursal}/${first.folio}`) : 'Actualiza para verlas' });
     });
     this.destroyRef.onDestroy(() => this.grSocket.disconnect());
   }
@@ -2847,7 +2847,7 @@ export class ComprasEntradasComponent {
   }
   private dupMsg(name: string, d: DuplicateHit): string {
     const where = `entrada ${d.sucursal}/${d.folio}${d.proveedor ? ' · ' + d.proveedor : ''}`;
-    return d.reason === 'file' ? `"${name}" ya se había subido (${where}). Quitala.` : `El folio de "${name}" ya se subió (${where}). Quitala.`;
+    return d.reason === 'file' ? `"${name}" ya se había subido (${where}). Quítala.` : `El folio de "${name}" ya se subió (${where}). Quítala.`;
   }
   dupText(f: AttachFile): string {
     const d = f.dup; if (!d) return '';
@@ -2905,8 +2905,8 @@ export class ComprasEntradasComponent {
   saveAttach() {
     const t = this.attachTarget();
     const files = this.attachFiles();
-    if (!t || !files.length) { this.attachError.set('Agregá al menos una foto.'); return; }
-    if (this.dupFiles().length) { this.attachError.set('Hay hojas duplicadas (misma imagen o folio ya subido). Quitalas para guardar.'); return; }
+    if (!t || !files.length) { this.attachError.set('Agrega al menos una foto.'); return; }
+    if (this.dupFiles().length) { this.attachError.set('Hay hojas duplicadas (misma imagen o folio ya subido). Quítalas para guardar.'); return; }
     if (this.missingGroups().length) { this.attachError.set('Faltan documentos: ' + this.missingGroups().map((g) => g.label).join(', ') + '.'); return; }
     this.attachError.set('');
     this.saving.set(true);
@@ -2998,7 +2998,7 @@ export class ComprasEntradasComponent {
     // está deshabilitado sin él) y "Otro" no vale sin explicación — si no, el catálogo se
     // vuelve un `otro` universal y volvemos al texto libre por la puerta de atrás.
     const code = this.rejectCodigo();
-    if (!code) { this.rejectError.set('Elegí un motivo.'); return; }
+    if (!code) { this.rejectError.set('Elige un motivo.'); return; }
     if (code === 'otro' && !this.rejectMotivo.trim()) { this.rejectError.set('Con "Otro" hace falta explicar.'); return; }
     this.rejectError.set('');
     this.saving.set(true);

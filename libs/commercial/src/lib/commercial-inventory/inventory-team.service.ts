@@ -89,7 +89,7 @@ export class InventoryTeamService {
       if (reqAisleIds.length) aislesQ = aislesQ.whereIn('id', reqAisleIds);
       const aisles = await aislesQ.select('id', 'code', 'name', 'grid_row', 'grid_col', 'span_rows', 'span_cols');
       if (!aisles.length)
-        throw new BadRequestException('No hay pasillos activos en este almacén. Definí pasillos primero (Pasillos).');
+        throw new BadRequestException('No hay pasillos activos en este almacén. Define pasillos primero (Pasillos).');
 
       const n = aisles.length;
       const base = Math.floor(cntIds.length / n);

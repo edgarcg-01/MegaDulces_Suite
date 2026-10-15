@@ -34,7 +34,7 @@ import { RiderRoute, RiderRouteStop, RiderService } from '../rider.service';
         @if (mapUrl(); as url) {
           <img class="rt-map" [src]="url" alt="Mapa de la ruta" loading="lazy" />
         } @else if (r.stops.length) {
-          <div class="rt-nomap">No se pudo cargar el mapa. Usá la lista de abajo.</div>
+          <div class="rt-nomap">No se pudo cargar el mapa. Usa la lista de abajo.</div>
         }
 
         @if (r.stops.length) {
@@ -80,7 +80,7 @@ import { RiderRoute, RiderRouteStop, RiderService } from '../rider.service';
         }
 
         @if (!r.stops.length && !r.unlocated.length) {
-          <div class="rt-empty"><i class="pi pi-check-circle"></i><p>No tenés entregas pendientes hoy.</p></div>
+          <div class="rt-empty"><i class="pi pi-check-circle"></i><p>No tienes entregas pendientes hoy.</p></div>
         }
       } @else if (!loading()) {
         <div class="rt-empty"><i class="pi pi-map"></i><p>Sin ruta cargada.</p></div>

@@ -56,7 +56,7 @@ interface SelSolicitud {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Capturar gasto</h1>
-          <p class="surf-page-sub">Pegá el folio de la solicitud de HOY, decí cómo se pagó y tomá la foto. Lo demás lo llena el sistema.</p>
+          <p class="surf-page-sub">Pega el folio de la solicitud de HOY, di cómo se pagó y toma la foto. Lo demás lo llena el sistema.</p>
         </div>
       </header>
 
@@ -75,7 +75,7 @@ interface SelSolicitud {
               a qué pegarle los documentos. Puede ser que el vale todavía no llegue por el feed,
               que el folio sea de otra sucursal, o que se haya cancelado.
             </p>
-            <p class="cap-nohallado-q">Si el folio es correcto, buscalo acá abajo o avisá a Sistemas.</p>
+            <p class="cap-nohallado-q">Si el folio es correcto, búscalo acá abajo o avisa a Sistemas.</p>
           </div>
         }
 
@@ -111,7 +111,7 @@ interface SelSolicitud {
                 </div>
               </ng-template>
             </p-autocomplete>
-            <em class="cap-hint">Con los últimos dígitos basta: el 23 encuentra el folio 0000023. También podés buscar por beneficiario.</em>
+            <em class="cap-hint">Con los últimos dígitos basta: el 23 encuentra el folio 0000023. También puedes buscar por beneficiario.</em>
           </label>
         } @else {
           <div class="cap-gasto">
@@ -254,7 +254,7 @@ interface SelSolicitud {
                   explorador y, elegido el archivo, ya esta. Sin superficie que ocupe alto
                   esperando algo que la mayoria de los gastos no tiene.
                 -->
-                <div class="cap-step">3 · Capturá la evidencia de tu gasto</div>
+                <div class="cap-step">3 · Captura la evidencia de tu gasto</div>
                 <div class="cap-ev">
                   <div class="cap-ev-c">
                     <!--
@@ -460,7 +460,7 @@ interface SelSolicitud {
               </dl>
             </section>
             <section>
-              <h3><i class="pi pi-pencil" aria-hidden="true"></i> Lo que agregas vos</h3>
+              <h3><i class="pi pi-pencil" aria-hidden="true"></i> Lo que agregas tú</h3>
               <dl>
                 <dt>Método de pago</dt>
                 <dd>
@@ -820,17 +820,17 @@ export class FinanzasCapturarGastoComponent {
    */
   tituloEvidencia(): string {
     switch (this.clasificacion()) {
-      case 'fiscal': return 'Tomá la factura';
-      case 'no_comprobable': return 'Tomá el vale autorizado';
-      default: return 'Tomá el ticket';
+      case 'fiscal': return 'Toma la factura';
+      case 'no_comprobable': return 'Toma el vale autorizado';
+      default: return 'Toma el ticket';
     }
   }
 
   clasHint(): string {
     switch (this.clasificacion()) {
-      case 'fiscal': return 'Te dieron factura. Adjuntala.';
-      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Tomá la foto y subí la cotización.';
-      case 'no_comprobable': return 'Sacale foto al vale firmado, o subí el vale escaneado.';
+      case 'fiscal': return 'Te dieron factura. Adjúntala.';
+      case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo. Toma la foto y sube la cotización.';
+      case 'no_comprobable': return 'Sácale foto al vale firmado, o sube el vale escaneado.';
       default: return '';
     }
   }
@@ -1106,9 +1106,9 @@ export class FinanzasCapturarGastoComponent {
    */
   vacioMsg(): string {
     const q = this.ultimo();
-    if (!q) return 'Escribí el folio de la solicitud.';
-    if (/^[0-9]+$/.test(q)) return `No hay ninguna solicitud con folio ${q}. Revisá el número — el folio del gasto y el de la solicitud NO son el mismo.`;
-    return 'Sin coincidencias. Si buscás por nombre y no sale nada, puede que no tengas áreas de gasto asignadas: buscá por folio exacto.';
+    if (!q) return 'Escribe el folio de la solicitud.';
+    if (/^[0-9]+$/.test(q)) return `No hay ninguna solicitud con folio ${q}. Revisa el número — el folio del gasto y el de la solicitud NO son el mismo.`;
+    return 'Sin coincidencias. Si buscas por nombre y no sale nada, puede que no tengas áreas de gasto asignadas: busca por folio exacto.';
   }
 
   buscar(ev: { query: string }) {
@@ -1348,7 +1348,7 @@ export class FinanzasCapturarGastoComponent {
     this.svc.listasParaComprobar().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.listas.set(r); this.listasLoading.set(false); this.cdr.markForCheck(); },
       // Un error NO se pinta como lista vacía: eso diría «no tenés nada», que es otra cosa.
-      error: () => { this.listas.set({ medido: false, motivo: "no se pudo consultar; reintentá", ventana_dias: 0, rows: [] }); this.listasLoading.set(false); this.cdr.markForCheck(); },
+      error: () => { this.listas.set({ medido: false, motivo: "no se pudo consultar; reintenta", ventana_dias: 0, rows: [] }); this.listasLoading.set(false); this.cdr.markForCheck(); },
     });
   }
 

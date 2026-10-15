@@ -184,7 +184,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p class="ex-alcance">
           <i class="pi pi-mobile" aria-hidden="true"></i>
           <span>Pantalla angosta: se muestra <strong>{{ columns()[0].label }}</strong> sola.
-            Para comparar almacenes, abrí un producto.</span>
+            Para comparar almacenes, abre un producto.</span>
         </p>
       }
 

@@ -93,7 +93,7 @@ export class HorusToolsService {
       {
         name: 'horus_resolve_entity',
         description:
-          'Resuelve un nombre difuso a su id. Buscá acá PRIMERO cuando el usuario mencione un colaborador, tienda o zona por nombre.',
+          'Resuelve un nombre difuso a su id. Busca acá PRIMERO cuando el usuario mencione un colaborador, tienda o zona por nombre.',
         input_schema: {
           type: 'object',
           properties: {
@@ -106,7 +106,7 @@ export class HorusToolsService {
       {
         name: 'horus_execution_360',
         description:
-          'Feature store de ejecución: visitas, score promedio, tendencia, share propio, salud (exec_score) con su señal más débil, nivel, minutos por visita — por colaborador/tienda/zona/supervisor en ventana 7 o 30 días. Filtrá con subject_id si ya lo resolviste.',
+          'Feature store de ejecución: visitas, score promedio, tendencia, share propio, salud (exec_score) con su señal más débil, nivel, minutos por visita — por colaborador/tienda/zona/supervisor en ventana 7 o 30 días. Filtra con subject_id si ya lo resolviste.',
         input_schema: {
           type: 'object',
           properties: {
@@ -322,7 +322,7 @@ export class HorusToolsService {
       }
     } catch (e: any) {
       this.logger.warn(`Tool ${name} falló: ${e?.message || e}`);
-      return { error: `La tool ${name} falló: ${e?.message || 'error interno'}. Probá con otros parámetros u otra tool.` };
+      return { error: `La tool ${name} falló: ${e?.message || 'error interno'}. Prueba con otros parámetros u otra tool.` };
     }
   }
 

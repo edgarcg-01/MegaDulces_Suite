@@ -397,7 +397,7 @@ const DEFAULT_EXPLORE_FIELDS = [
                 <ng-template #emptymessage>
                   <tr><td [attr.colspan]="selectedFields().length || 1" class="comm-empty-cell">
                     <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-table" aria-hidden="true"></i></div>
-                      <h3>Sin vista previa</h3><p>Elegí columnas y tocá Consultar.</p></div>
+                      <h3>Sin vista previa</h3><p>Elige columnas y toca Consultar.</p></div>
                   </td></tr>
                 </ng-template>
               </p-table>
@@ -864,7 +864,7 @@ export class AlmacenAnalisisBiComponent {
       },
       error: () => {
         flag.set(false);
-        this.toast.add({ severity: 'error', summary: 'Exportar', detail: 'No se pudo generar el archivo. Intentá de nuevo.' });
+        this.toast.add({ severity: 'error', summary: 'Exportar', detail: 'No se pudo generar el archivo. Intenta de nuevo.' });
       },
     });
   }

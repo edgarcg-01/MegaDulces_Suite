@@ -180,7 +180,7 @@ import { environment } from '../../../../environments/environment';
       <!-- DETAIL: paradas + qué lleva -->
       <aside class="et-detail" aria-label="Detalle del viaje">
         @if (!detail()) {
-          <p class="et-empty"><i class="pi pi-arrow-left" aria-hidden="true"></i> Elegí un viaje para ver sus paradas y qué lleva.</p>
+          <p class="et-empty"><i class="pi pi-arrow-left" aria-hidden="true"></i> Elige un viaje para ver sus paradas y qué lleva.</p>
         } @else if (loadingDetail()) {
           <p-skeleton height="320px"></p-skeleton>
         } @else {

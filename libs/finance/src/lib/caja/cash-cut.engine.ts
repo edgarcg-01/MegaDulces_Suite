@@ -407,7 +407,7 @@ export type MotivoNoCierra = 'no_es_borrador' | 'sin_conteo' | 'sin_usuario';
 
 export const TEXTO_NO_CIERRA: Record<MotivoNoCierra, string> = {
   no_es_borrador: 'Este corte ya está cerrado.',
-  sin_conteo: 'Contá el efectivo antes de cerrar: un corte sin conteo no cuadra nada.',
+  sin_conteo: 'Cuenta el efectivo antes de cerrar: un corte sin conteo no cuadra nada.',
   sin_usuario: 'No se pudo identificar quién cierra.',
 };
 
@@ -508,7 +508,7 @@ export function textoConteoDistinto(sellado: number, tecleado: number): string {
 
 export function textoEsperadoCambio(contra: number, actual: number): string {
   return `El esperado cambió desde que se contó: se mostró ${pesos(contra)} y ahora da ${pesos(actual)}, `
-    + 'porque entró o cambió un movimiento de la jornada. Revisá ese movimiento y confirmá el esperado nuevo para cerrar.';
+    + 'porque entró o cambió un movimiento de la jornada. Revisa ese movimiento y confirma el esperado nuevo para cerrar.';
 }
 
 /** Motivo de cancelación: mismo piso que el CHECK de la DB, para avisar antes del 400. */
@@ -579,7 +579,7 @@ export const TEXTO_NO_RECUENTA: Record<MotivoNoRecuenta, string> = {
   sin_conteo_previo: 'Todavía no hay un conteo que recontar: primero se cuenta, y sólo si no cuadra se vuelve a contar.',
   no_es_borrador: 'El corte ya está cerrado: para corregirlo hace falta un movimiento nuevo, no un reconteo.',
   ya_reconto: 'Ya se recontó una vez. El segundo conteo es el que vale; si sigue sin cuadrar, eso es el hallazgo.',
-  sin_motivo: 'Decí por qué se vuelve a contar, con al menos 5 caracteres. Un reconteo sin razón no se distingue de un ajuste.',
+  sin_motivo: 'Di por qué se vuelve a contar, con al menos 5 caracteres. Un reconteo sin razón no se distingue de un ajuste.',
   no_hay_diferencia: 'El conteo cuadró: no hay nada que recontar.',
 };
 

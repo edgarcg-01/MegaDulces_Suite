@@ -366,7 +366,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                  publica $74,850,066.62, exactamente lo mismo que el real. Si no se dice, se lee
                  como presupuesto. -->
             @if (b.is_test) {
-              <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <strong>Este es un ejercicio de PRUEBA.</strong> Sus cifras no son presupuesto: el autopiloto no lo toca y no cuenta como el ejercicio del año. <span class="pres-muted">Elegí otro arriba para ver el que manda.</span></p>
+              <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <strong>Este es un ejercicio de PRUEBA.</strong> Sus cifras no son presupuesto: el autopiloto no lo toca y no cuenta como el ejercicio del año. <span class="pres-muted">Elige otro arriba para ver el que manda.</span></p>
             }
             <div class="pres-detail-bar">
               <span class="pres-summary-title">@if (b.is_test) { <p-tag value="PRUEBA" severity="danger" styleClass="pres-tag" />&nbsp; }{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
@@ -576,7 +576,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                      quien acababa de crear un ejercicio. El boton de rayo de arriba corre la MISMA
                      pasada ahora mismo; omitirlo convertia un clic en un dia de espera. -->
                 Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) — no se capturan a mano.
-                Si acabás de crear este ejercicio, dale al botón <span class="pi pi-bolt"></span> <strong>Re-armar ahora</strong> de arriba y las arma en el momento; si no, entran solas en la pasada de la mañana.
+                Si acabas de crear este ejercicio, dale al botón <span class="pi pi-bolt"></span> <strong>Re-armar ahora</strong> de arriba y las arma en el momento; si no, entran solas en la pasada de la mañana.
                 @if (autopilot(); as a) {
                   @if (a.status === 'error') {
                     <div class="pres-empty-diag bad"><span class="pi pi-times-circle"></span> La pasada <strong>falló</strong>{{ a.last_start ? ' (' + (a.last_start | date:'dd/MM HH:mm') + ')' : '' }}: {{ a.error || 'sin detalle' }}</div>
@@ -771,13 +771,13 @@ const VISTA_DEFAULT: PresView = 'direccion';
                   <td class="ta-r pres-mono">{{ money(r.anual) }}</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin presupuesto de gastos propuesto. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer gastos del año» para armarlo desde los egresos de Kepler. }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin presupuesto de gastos propuesto. @if (b.status === 'borrador' || b.status === 'en_revision') { Usa «Proponer gastos del año» para armarlo desde los egresos de Kepler. }</td></tr></ng-template>
             </p-table>
             @if (expenseByAccount().length) {
               <p class="pres-hint"><span class="pi pi-calculator"></span> Total propuesto (año): <strong class="pres-mono">{{ money(expenseTotal()) }}</strong> · grano <strong>cuenta mayor × mes</strong> (base del año anterior × crecimiento; relleno por recurrencia). Al <strong>aprobar</strong> el ejercicio, esta propuesta se materializa en las partidas del libro de 5 estados (arriba).</p>
             }
           } @else {
-            <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
+            <p class="pres-muted">Elige un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
           }
         </section>
       }
@@ -799,7 +799,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
             (proposePlan)="runProposePlan()" (loadComparison)="loadSalesComparison()" (projectTargets)="projectTargets()" />
         } @else {
           <section class="pres-section">
-            <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
+            <p class="pres-muted">Elige un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
           </section>
         }
       }
@@ -909,7 +909,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
               <p class="pres-muted">Calculando resultado…</p>
             }
           } @else {
-            <p class="pres-muted">Elegí un ejercicio en «Ejercicio» para ver su resultado presupuestado.</p>
+            <p class="pres-muted">Elige un ejercicio en «Ejercicio» para ver su resultado presupuestado.</p>
           }
 
           <div class="pres-section-head" style="margin-top:1.4rem">
@@ -1032,7 +1032,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
           } @else if (loadingCashflow()) {
             <p class="pres-muted">Cargando flujo…</p>
           } @else {
-            <p class="pres-hint"><span class="pi pi-info-circle"></span> El flujo de caja consulta la cartera CXC en vivo (unos segundos). Pulsá <strong>«Actualizar»</strong> para calcularlo.</p>
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> El flujo de caja consulta la cartera CXC en vivo (unos segundos). Pulsa <strong>«Actualizar»</strong> para calcularlo.</p>
           }
         </section>
       }
@@ -1251,7 +1251,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
             <strong>Esta lista no distingue el ejercicio de prueba.</strong> La obligación no trae
             de qué presupuesto viene, así que si hay un ejercicio marcado como prueba sus
             obligaciones aparecen acá mezcladas — y autorizar una la mete al Calendario.
-            Verificá el ejercicio antes de autorizar.
+            Verifica el ejercicio antes de autorizar.
           </p>
           <p-table [value]="expenses()" [loading]="loadingExpenses()" styleClass="p-datatable-sm surf-table pres-table">
             <ng-template #header>
@@ -1269,7 +1269,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                 <td>@if (e.status === 'pending' || e.status === 'propuesta') { <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="cancelExpense(e)" title="Cancelar" aria-label="Cancelar obligación"><span class="pi pi-times"></span></button> }</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin obligaciones. Usá «Generar del plan» para crear las recurrentes del plan de gastos.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin obligaciones. Usa «Generar del plan» para crear las recurrentes del plan de gastos.</td></tr></ng-template>
           </p-table>
         </section>
       }
@@ -1823,7 +1823,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
           const matErr = resp?.materialization?.error;
           this.http.post(`${this.base}/budgets/${b.id}/sales-plan/project-targets`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => { /* silencioso */ }, error: () => { /* no bloquea */ } });
           if (matErr) {
-            this.toast.add({ severity: 'warn', summary: 'Aprobado, pero SIN materializar', detail: `Las partidas NO se materializaron: ${matErr}. Corregí y usá "Re-materializar".`, life: 8000 });
+            this.toast.add({ severity: 'warn', summary: 'Aprobado, pero SIN materializar', detail: `Las partidas NO se materializaron: ${matErr}. Corrige y usa "Re-materializar".`, life: 8000 });
           } else {
             this.toast.add({ severity: 'success', summary: 'Ejercicio aprobado', detail: 'Partidas materializadas del plan y metas proyectadas a Análisis.' });
           }
@@ -2262,7 +2262,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   confirmGenPlan(): void {
     const b = this.selected(); if (!b) return;
     const g = Number(this.genGrowthPct);
-    if (!Number.isFinite(g)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresá el crecimiento objetivo.' }); return; }
+    if (!Number.isFinite(g)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresa el crecimiento objetivo.' }); return; }
     this.savingGen.set(true);
     this.http.post<{ generated: number; entities_with_base: number; prior_year: number }>(`${this.base}/budgets/${b.id}/sales-plan/generate`,
       { growth_pct: g / 100, overwrite_manual: this.genOverwriteManual }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -2274,7 +2274,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   openMetaEdit(r: SalesRow): void { this.metaEditRow.set(r); this.metaEditAmount = r.meta; this.metaEditVisible = true; }
   confirmMetaEdit(): void {
     const b = this.selected(); const r = this.metaEditRow(); if (!b || !r || !r.entity_key) return;
-    if (!(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresá una meta válida (≥ 0).' }); return; }
+    if (!(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresa una meta válida (≥ 0).' }); return; }
     this.savingMeta.set(true);
     this.http.post(`${this.base}/budgets/${b.id}/sales-plan/line`, { entity_key: r.entity_key, period_no: this.salesPeriod, meta_amount: Number(this.metaEditAmount) }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.savingMeta.set(false); this.metaEditVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Guardada', detail: 'Meta capturada.' }); },
@@ -2363,9 +2363,9 @@ export class FinanzasPresupuestoComponent implements OnInit {
           // otro ejercicio. Mandarlas al mismo toast haría que alguien intente capturar metas en la
           // copia de prueba porque la pantalla le dijo que faltaban (ADR-056).
           if (r.note === 'ejercicio de prueba') {
-            this.toast.add({ severity: 'warn', summary: 'No se proyecta', detail: 'Este ejercicio está marcado como PRUEBA. Sus metas no se publican al «vs objetivo» de Análisis, que es con lo que se mide a un vendedor. Elegí el ejercicio real.' });
+            this.toast.add({ severity: 'warn', summary: 'No se proyecta', detail: 'Este ejercicio está marcado como PRUEBA. Sus metas no se publican al «vs objetivo» de Análisis, que es con lo que se mide a un vendedor. Elige el ejercicio real.' });
           } else if (r.note === 'plan vacío' || !r.lines) {
-            this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Armá el plan primero.' });
+            this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Arma el plan primero.' });
           } else {
             this.toast.add({ severity: 'success', summary: 'Proyectado a Análisis', detail: `${r.projected} metas mensuales (scope×mes) desde ${r.lines} celdas del plan · ${r.months} meses. Ya se ve en el «vs objetivo» de Análisis.` });
           }
@@ -2697,7 +2697,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   capDayBloqueado = signal<string | null>(null);
   loadingCapProp = signal(false); confirmingCap = signal(false);
   proposeCapacity(): void {
-    if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elegí desde y hasta.' }); return; }
+    if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elige desde y hasta.' }); return; }
     this.loadingCapProp.set(true);
     this.http.get<CapacityProposal>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.capProposal.set(r); this.loadingCapProp.set(false); },
@@ -2731,7 +2731,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   isObligSel(id: string): boolean { return this.obligSelected.has(id); }
   toggleOblig(id: string): void { if (this.obligSelected.has(id)) this.obligSelected.delete(id); else this.obligSelected.add(id); }
   generateObligFromPlan(): void {
-    const b = this.selected(); if (!b) { this.toast.add({ severity: 'warn', summary: 'Ejercicio', detail: 'Elegí un ejercicio en «Ejercicio».' }); return; }
+    const b = this.selected(); if (!b) { this.toast.add({ severity: 'warn', summary: 'Ejercicio', detail: 'Elige un ejercicio en «Ejercicio».' }); return; }
     this.generatingOblig.set(true);
     this.http.post<{ generated: number; updated: number; skipped: number; accounts_recurrent: number }>(`${this.base}/expenses/from-plan`, { budget_id: b.id }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.generatingOblig.set(false); this.toast.add({ severity: 'success', summary: 'Obligaciones generadas', detail: `${r.generated} nuevas · ${r.updated} actualizadas · ${r.skipped} sin cambio (${r.accounts_recurrent} cuentas recurrentes).` }); this.loadExpenses(); },
@@ -2739,7 +2739,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
   authorizeOblig(): void {
-    const ids = [...this.obligSelected]; if (!ids.length) { this.toast.add({ severity: 'warn', summary: 'Selección', detail: 'Seleccioná obligaciones en estado propuesta.' }); return; }
+    const ids = [...this.obligSelected]; if (!ids.length) { this.toast.add({ severity: 'warn', summary: 'Selección', detail: 'Selecciona obligaciones en estado propuesta.' }); return; }
     this.authorizingOblig.set(true);
     this.http.post<{ authorized: number; skipped: number }>(`${this.base}/expenses/authorize`, { ids }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.authorizingOblig.set(false); this.obligSelected.clear(); this.toast.add({ severity: 'success', summary: 'Autorizadas', detail: `${r.authorized} obligaciones autorizadas (entran al Calendario).` }); this.loadExpenses(); },

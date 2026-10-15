@@ -116,7 +116,7 @@ interface BundleItem {
           <label class="full">
             <span>Banner (URL de imagen)</span>
             <input pInputText formControlName="banner_url" placeholder="https://res.cloudinary.com/.../banner.png" />
-            <small class="comm-muted is-small">Opcional. Se muestra como portada en el portal (home + promociones). Subí la imagen a Cloudinary y pegá la URL.</small>
+            <small class="comm-muted is-small">Opcional. Se muestra como portada en el portal (home + promociones). Sube la imagen a Cloudinary y pega la URL.</small>
           </label>
           @if (form.value.banner_url) {
             <div class="full">
@@ -129,7 +129,7 @@ interface BundleItem {
                 />
                 @if (bannerPreviewError) {
                   <small class="comm-muted is-small">
-                    No se pudo cargar la imagen. Verificá la URL.
+                    No se pudo cargar la imagen. Verifica la URL.
                   </small>
                 }
               </div>
@@ -211,7 +211,7 @@ interface BundleItem {
                       </div>
                     }
                     @if (tiers.length === 0) {
-                      <div class="muted">Sin tiers. Agregá al menos uno.</div>
+                      <div class="muted">Sin tiers. Agrega al menos uno.</div>
                     }
                   </div>
                 </div>
@@ -244,7 +244,7 @@ interface BundleItem {
                       </div>
                     }
                     @if (bundle.length === 0) {
-                      <div class="muted">Agregá al menos 2 productos.</div>
+                      <div class="muted">Agrega al menos 2 productos.</div>
                     }
                   </div>
                 </div>

@@ -80,7 +80,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
         <div class="empty">
           <i class="pi pi-cloud"></i>
           <p>No se pudo cargar.</p>
-          <span class="hint">Revisá tu conexión e intentá de nuevo.</span>
+          <span class="hint">Revisa tu conexión e intenta de nuevo.</span>
           <button type="button" class="retry-btn" (click)="load()"><i class="pi pi-refresh"></i> Reintentar</button>
         </div>
       }
@@ -88,7 +88,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
         <div class="empty">
           <i class="pi pi-truck"></i>
           <p>No tienes pedidos confirmados para cargar.</p>
-          <span class="hint">Aparecen acá los pedidos que tomás y confirmás en la ruta.</span>
+          <span class="hint">Aparecen acá los pedidos que tomas y confirmas en la ruta.</span>
         </div>
       }
       @if (orders().length > 0) {
@@ -106,7 +106,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
         @if (viewingMisdatedDay()) {
           <div class="misdate">
             <i class="pi pi-exclamation-triangle"></i>
-            <span>Estos pedidos están agendados para otro día. Usá <b>Mover</b> para pasarlos al próximo día hábil.</span>
+            <span>Estos pedidos están agendados para otro día. Usa <b>Mover</b> para pasarlos al próximo día hábil.</span>
           </div>
         }
         <!-- Banner: resumen de la carga -->
@@ -114,7 +114,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
           <span class="cic"><i class="pi" [ngClass]="allResolved() ? 'pi-check-circle' : 'pi-box'"></i></span>
           <div class="ct">
             @if (!allResolved()) {
-              <b>Resolvé la carga · {{ pendingLines() }} {{ pendingLines() === 1 ? 'línea' : 'líneas' }} pendientes</b>
+              <b>Resuelve la carga · {{ pendingLines() }} {{ pendingLines() === 1 ? 'línea' : 'líneas' }} pendientes</b>
             }
             @if (allResolved()) {
               <b>Carga resuelta · {{ orders().length }} {{ orders().length === 1 ? 'pedido' : 'pedidos' }}</b>

@@ -73,7 +73,7 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
         <span class="pg-rail-m">
           {{ enVivo()
             ? 'te avisa acá cuando alguien corrija un precio o un código'
-            : 'los datos son de la última carga; recargá para ver si cambió algo' }}
+            : 'los datos son de la última carga; recarga para ver si cambió algo' }}
         </span>
       </div>
 
@@ -197,7 +197,7 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
               <div class="pg-nombre">
                 {{ r.nombre || r.sku }}
                 @if (r.sospecha_unidad) {
-                  <span class="pg-tag" pTooltip="Una plaza cobra 3× lo de otra: revisá la unidad, no el precio"
+                  <span class="pg-tag" pTooltip="Una plaza cobra 3× lo de otra: revisa la unidad, no el precio"
                         tooltipPosition="top">unidad</span>
                 }
               </div>
@@ -515,7 +515,7 @@ export class ComprasCatalogoPreciosComponent implements OnInit, OnDestroy {
           this.cargando.set(false);
           this.toast.add({
             severity: 'error', summary: 'No se pudieron comparar los precios',
-            detail: e?.error?.message || 'Revisá que la API esté arriba y que tengas permiso.',
+            detail: e?.error?.message || 'Revisa que la API esté arriba y que tengas permiso.',
           });
         },
       });

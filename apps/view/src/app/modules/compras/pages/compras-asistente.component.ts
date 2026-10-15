@@ -22,7 +22,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Asistente de compras</h1>
-          <p class="surf-page-sub">Armá la requisición conversando: "¿qué toca pedir?", "arma Fabricas Selectas para Padre Hidalgo a cadencia", "sube el globo dorado a 20 cajas", "créala". El motor pone las cantidades; tú apruebas.</p>
+          <p class="surf-page-sub">Arma la requisición conversando: "¿qué toca pedir?", "arma Fabricas Selectas para Padre Hidalgo a cadencia", "sube el globo dorado a 20 cajas", "créala". El motor pone las cantidades; tú apruebas.</p>
         </div>
         @if (messages().length) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva</span></button> }
       </header>
@@ -31,7 +31,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
         @if (!messages().length) {
           <div class="ca-empty">
             <i class="pi pi-shopping-cart ca-empty-ic"></i>
-            <p>Empecemos un pedido. Probá:</p>
+            <p>Empecemos un pedido. Prueba:</p>
             <div class="ca-chips">
               @for (s of samples; track s) { <button class="ca-chip" (click)="send(s)">{{ s }}</button> }
             </div>

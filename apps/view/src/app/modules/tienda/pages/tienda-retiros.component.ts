@@ -57,7 +57,7 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad'; texto: string; detalle?: string } | 
       <!-- [ZN.7] Del ALCANCE, no del catalogo publico del verificador: el endpoint de retiros
            ya rechaza con 403 una sucursal ajena, asi que ofrecerlas todas era ofrecer un error. -->
       <app-sucursal-picker [valor]="sucursal()" (valorChange)="cambiarSucursal(unCodigo($event))"
-                           placeholder="Elegí la sucursal" etiqueta="Sucursal" />
+                           placeholder="Elige la sucursal" etiqueta="Sucursal" />
     </header>
 
     <nav class="tabs">
@@ -67,7 +67,7 @@ type Aviso = { tono: 'ok' | 'warn' | 'bad'; texto: string; detalle?: string } | 
     </nav>
 
     @if (!sucursal()) {
-      <p class="vacio"><i class="pi pi-arrow-up"></i> Elegí una sucursal para empezar.</p>
+      <p class="vacio"><i class="pi pi-arrow-up"></i> Elige una sucursal para empezar.</p>
     } @else if (tab() === 'registrar') {
       <section class="form">
         <div class="fila">
@@ -323,7 +323,7 @@ export class TiendaRetirosComponent implements OnInit {
     this.aviso.set({
       tono: 'bad',
       texto: 'No se pudo leer la bitácora.',
-      detalle: 'Revisá la conexión y volvé a entrar a la pestaña.',
+      detalle: 'Revisa la conexión y vuelve a entrar a la pestaña.',
     });
   }
 
@@ -388,7 +388,7 @@ export class TiendaRetirosComponent implements OnInit {
         this.aviso.set({
           tono: 'bad',
           texto: 'No se guardó.',
-          detalle: e?.error?.message ?? 'Revisá la conexión y volvé a intentar. Nada se perdió: el formulario sigue como estaba.',
+          detalle: e?.error?.message ?? 'Revisa la conexión y vuelve a intentar. Nada se perdió: el formulario sigue como estaba.',
         });
       },
     });

@@ -43,7 +43,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Conteo cíclico</h1>
-          <p class="surf-page-sub">Clasificá por valor (ABC) y contá lo que toca — control continuo</p>
+          <p class="surf-page-sub">Clasifica por valor (ABC) y cuenta lo que toca — control continuo</p>
         </div>
         <div class="abc-head-actions">
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
@@ -52,7 +52,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                     (onChange)="load()" styleClass="abc-cls" ariaLabel="Filtrar por clase"></p-select>
           <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
           <button pButton type="button" [text]="true" severity="secondary" size="small" (click)="recalc()" [loading]="working()"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular ABC</span></button>
-          <button pButton type="button" size="small" (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()" [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Generar folios</span></button>
+          <button pButton type="button" size="small" (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()" [pTooltip]="isSpecific() ? '' : 'Selecciona un almacén para generar su folio cíclico'"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Generar folios</span></button>
         </div>
       </header>
 
@@ -296,7 +296,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             } @else {
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-hand-point-left"></i></span>
-                <h3>Elegí un producto</h3>
+                <h3>Elige un producto</h3>
                 <p>La ficha muestra su capital, su historia de conteos y por que un descuadre pudo no ser merma.</p>
               </div>
             }
@@ -345,7 +345,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-check-circle"></i></span>
                 <h3>Nada pendiente de contar</h3>
-                <p>Si no clasificaste aún, usá <b>Recalcular ABC</b>; el conteo se agenda por cadencia (A 30d · B 90d · C 365d).</p>
+                <p>Si no clasificaste aún, usa <b>Recalcular ABC</b>; el conteo se agenda por cadencia (A 30d · B 90d · C 365d).</p>
               </div>
             </td></tr>
           </ng-template>
@@ -384,7 +384,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-sort-amount-down"></i></span>
                 <h3>Sin clasificación ABC</h3>
-                <p>Corré <b>Recalcular ABC</b> para clasificar por valor de consumo (ventas 90d × costo).</p>
+                <p>Corre <b>Recalcular ABC</b> para clasificar por valor de consumo (ventas 90d × costo).</p>
               </div>
             </td></tr>
           </ng-template>

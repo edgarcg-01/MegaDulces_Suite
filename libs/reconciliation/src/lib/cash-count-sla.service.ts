@@ -91,7 +91,7 @@ export class CashCountSlaService {
           this.logger.warn(`barrido tenant ${t.id} falló: ${e?.message || e}`);
         }
       }
-      if (avisados) this.logger.log(`Arqueo ${source}: ${avisados} avisos "contá lo que estás sacando".`);
+      if (avisados) this.logger.log(`Arqueo ${source}: ${avisados} avisos "cuenta lo que estás sacando".`);
       return { tenants: tenants.length, avisados };
     } finally {
       this.running = false;

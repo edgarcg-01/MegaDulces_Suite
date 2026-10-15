@@ -542,8 +542,8 @@ export class CommercialOrdersService {
     if (afirma && clienteDeclara && Math.abs(fc - factor) > 0.0001) {
       throw new BadRequestException(
         `Desacuerdo de empaque en "${u}": la pantalla usó ${fc} y el ERP dice ${factor}. `
-        + 'La línea no se guarda con ninguno de los dos: refrescá el catálogo de la pantalla o '
-        + 'corregí el empaque, pero que los dos digan lo mismo antes de pedir.',
+        + 'La línea no se guarda con ninguno de los dos: refresca el catálogo de la pantalla o '
+        + 'corrige el empaque, pero que los dos digan lo mismo antes de pedir.',
       );
     }
 
@@ -576,8 +576,8 @@ export class CommercialOrdersService {
             + `, factor=${factor}). `
           : 'el producto no está en el resolvedor de unidad. ')
         : 'es un rótulo intermedio y este resolvedor sólo publica el peldaño de la caja. ')
-      + 'Mandá `qty_factor` con el empaque que mostró la pantalla, capturá en la unidad base, o '
-      + 'corregí el empaque en el catálogo — multiplicar por 1 metería una pieza donde pediste '
+      + 'Manda `qty_factor` con el empaque que mostró la pantalla, captura en la unidad base, o '
+      + 'corrige el empaque en el catálogo — multiplicar por 1 metería una pieza donde pediste '
       + 'una caja.',
     );
   }
@@ -892,7 +892,7 @@ export class CommercialOrdersService {
       if (ctx?.roleName === 'customer_b2b') {
         const me = await this.resolveCustomerIdFromUser(trx);
         if (!me || me !== customerId) {
-          throw new ForbiddenException('No tenés acceso a la información de este cliente.');
+          throw new ForbiddenException('No tienes acceso a la información de este cliente.');
         }
       }
       return trx('commercial.order_lines as ol')
@@ -2112,7 +2112,7 @@ export class CommercialOrdersService {
         .first();
       if (otroBorrador)
         throw new ConflictException(
-          `Este cliente ya tiene un pedido en curso (${otroBorrador.code}). Terminalo o cancelalo antes de corregir este.`,
+          `Este cliente ya tiene un pedido en curso (${otroBorrador.code}). Termínalo o cancélalo antes de corregir este.`,
         );
 
       // Lo efectivamente apartado por ESTE pedido, por producto.
@@ -2292,7 +2292,7 @@ export class CommercialOrdersService {
       throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
     }
     if (order.customer_id !== myCustomerId) {
-      throw new ForbiddenException('No tenés acceso a este pedido');
+      throw new ForbiddenException('No tienes acceso a este pedido');
     }
   }
 

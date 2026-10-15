@@ -125,7 +125,7 @@ export class AiProductPickerComponent {
       const status = err?.status;
       let msg = err?.error?.message || err?.message || 'Error desconocido';
       if (status === 401) msg = 'Sesión expirada. Recarga la página.';
-      else if (status === 429) msg = 'Demasiados pedidos. Esperá un minuto.';
+      else if (status === 429) msg = 'Demasiados pedidos. Espera un minuto.';
       else if (status === 400) msg = `Texto inválido: ${msg}`;
       this.errorMsg.set(msg);
       this.state.set('error');

@@ -315,7 +315,7 @@ export class WhatsAppIngestService implements OnModuleInit {
           to: p.phone,
           thread_id: threadId,
           kind: 'text',
-          body: 'Listo, no te enviaremos más promociones. Si querés volver a recibirlas, escribinos. 🙌',
+          body: 'Listo, no te enviaremos más promociones. Si quieres volver a recibirlas, escríbenos. 🙌',
         });
         return;
       }

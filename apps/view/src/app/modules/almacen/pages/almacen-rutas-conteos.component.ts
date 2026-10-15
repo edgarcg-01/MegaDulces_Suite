@@ -32,7 +32,7 @@ import { ComercialService, RouteCountSheetRow } from '../../comercial/comercial.
         <div class="surf-page-head-text">
           <h1>Inventarios de Ruta Directa</h1>
           <p class="surf-page-sub">
-            Elegí el camión y contá renglón por renglón. Lo que la pantalla pone enfrente es
+            Elige el camión y cuenta renglón por renglón. Lo que la pantalla pone enfrente es
             <strong>lo que la camioneta declara de sí misma</strong> — la misma hoja que hoy se
             imprime, sin papel y sin regla.
           </p>

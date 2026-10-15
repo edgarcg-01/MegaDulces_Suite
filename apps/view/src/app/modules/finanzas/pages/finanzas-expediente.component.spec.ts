@@ -562,7 +562,7 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       expect(fix.nativeElement.querySelector('.exp-f-resumen')).toBeNull();
     });
 
-    it('cero vales con filtro lo dice, en vez de «elegí una persona»', () => {
+    it('cero vales con filtro lo dice, en vez de «elige una persona»', () => {
       montar(REPORTE({
         filtro: { desde: '2026-01-01', hasta: '2026-01-31', departamento: null },
         personas: [],
@@ -570,7 +570,7 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
         personas_sin_usuario: 0,
       }));
       expect(txt()).toContain('Ningún vale con estos filtros');
-      expect(txt()).not.toContain('Elegí una persona');
+      expect(txt()).not.toContain('Elige una persona');
     });
 
     it('«Limpiar filtros» vuelve a pedir sin ninguno', () => {

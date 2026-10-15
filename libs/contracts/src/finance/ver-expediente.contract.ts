@@ -107,5 +107,5 @@ export function puedeVerCualquierExpediente(
  * repo ya aprendió del lado del almacenamiento.
  */
 export const MENSAJE_EXPEDIENTE_AJENO =
-  'Este vale no es tuyo. Podés abrir los que vos levantaste o los que comprobaste; '
+  'Este vale no es tuyo. Puedes abrir los que tú levantaste o los que comprobaste; '
   + 'para ver los de otras personas hace falta permiso de ver gastos.';

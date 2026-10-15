@@ -158,7 +158,7 @@ export class PortalThotToolsService implements ThotToolProvider {
 
   private async catalogSearch(customerId: string, query: string, warehouseCode?: string | null) {
     const q = query.trim();
-    if (q.length < 2) return { error: 'Escribí al menos 2 caracteres.' };
+    if (q.length < 2) return { error: 'Escribe al menos 2 caracteres.' };
     const tenantId = this.ctx.requireTenantId();
     const like = `%${q}%`;
     const wh = warehouseCode || 'MD-10';
@@ -192,7 +192,7 @@ export class PortalThotToolsService implements ThotToolProvider {
 
   private async availability(query: string, warehouseCode?: string | null) {
     const q = query.trim();
-    if (q.length < 2) return { error: 'Escribí al menos 2 caracteres.' };
+    if (q.length < 2) return { error: 'Escribe al menos 2 caracteres.' };
     const tenantId = this.ctx.requireTenantId();
     const like = `%${q}%`;
     const wh = warehouseCode || 'MD-10';

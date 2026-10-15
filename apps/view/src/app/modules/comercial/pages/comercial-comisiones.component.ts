@@ -206,7 +206,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 
         <section class="cm-detail">
           @if (!sel()) {
-            <p class="cm-empty">Elegí una quincena.</p>
+            <p class="cm-empty">Elige una quincena.</p>
           } @else if (!sel()!.run_id) {
             <div class="cm-card">
               <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>

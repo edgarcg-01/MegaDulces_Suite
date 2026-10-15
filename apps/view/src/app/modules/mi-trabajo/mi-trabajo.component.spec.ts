@@ -993,7 +993,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const chips = [...q<HTMLAnchorElement>('a.mt-chip')].map((c) => c.textContent ?? '');
     expect(chips.length).toBe(2);
     expect(chips.join(' ')).not.toContain('Finanzas');
-    expect(html()).toContain('lo que más abrís');
+    expect(html()).toContain('lo que más abres');
     localStorage.removeItem('mt.accesos.v1');
   });
 

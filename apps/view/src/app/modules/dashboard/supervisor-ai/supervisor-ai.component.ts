@@ -271,9 +271,9 @@ const QUADRANT_LABELS: Record<string, string> = {
               }
             </div>
             @if (!vc.has_api_key) {
-              <p class="empty">Configurá <code>ANTHROPIC_API_KEY</code> para que Horus mire las fotos.</p>
+              <p class="empty">Configura <code>ANTHROPIC_API_KEY</code> para que Horus mire las fotos.</p>
             } @else if (vc.analyzed === 0) {
-              <p class="empty">Sin fotos analizadas aún. Tocá "Escanear fotos" para que Horus las mire.</p>
+              <p class="empty">Sin fotos analizadas aún. Toca "Escanear fotos" para que Horus las mire.</p>
             }
             @if (visionFlagged().length > 0) {
               <div class="vgrid">
@@ -597,7 +597,7 @@ const QUADRANT_LABELS: Record<string, string> = {
 
           <h3 class="sub">Precisión de las reglas (aprende de tus confirmaciones y descartes)</h3>
           @if (ruleStats().length === 0) {
-            <p class="empty">Sin estadística de reglas todavía. Confirmá o descartá hallazgos y Horus aprenderá cuáles sirven.</p>
+            <p class="empty">Sin estadística de reglas todavía. Confirma o descarta hallazgos y Horus aprenderá cuáles sirven.</p>
           } @else {
             <table class="tbl">
               <thead>

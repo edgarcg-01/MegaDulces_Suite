@@ -67,7 +67,7 @@ import { CajaSocketService } from '../../caja-socket.service';
     <div class="fm">
       <header>
         <h1>Firmar un movimiento de caja</h1>
-        <p class="fm-sub">{{ ctx() ? 'Firmá donde dice, y tocá Enviar.' : 'Escribí el código que muestra la caja.' }}</p>
+        <p class="fm-sub">{{ ctx() ? 'Firma donde dice, y toca Enviar.' : 'Escribe el código que muestra la caja.' }}</p>
       </header>
 
       @if (aviso(); as a) { <p-message severity="warn">{{ a }}</p-message> }
@@ -77,7 +77,7 @@ import { CajaSocketService } from '../../caja-socket.service';
         <div class="fm-listo">
           <i class="pi pi-check-circle" aria-hidden="true"></i>
           <strong>Firma enviada</strong>
-          <p>Ya está en la pantalla de la caja. Podés devolver el teléfono.</p>
+          <p>Ya está en la pantalla de la caja. Puedes devolver el teléfono.</p>
           <p-button label="Firmar otro" icon="pi pi-replay" size="small" severity="secondary"
                     [outlined]="true" (onClick)="reiniciar()"></p-button>
         </div>
@@ -85,7 +85,7 @@ import { CajaSocketService } from '../../caja-socket.service';
         <!-- ⭐ QUÉ se está firmando, antes de firmar. Una firma sobre algo que no se leyó no es
              conformidad: es un trámite. -->
         <div class="fm-que">
-          <span class="lbl">{{ c.tipo === 'gasto' ? 'Recibís de la caja' : 'Movimiento de caja' }}</span>
+          <span class="lbl">{{ c.tipo === 'gasto' ? 'Recibes de la caja' : 'Movimiento de caja' }}</span>
           <span class="fm-monto">{{ money(c.monto) }}</span>
           @if (c.beneficiario) { <span class="fm-quien">{{ c.beneficiario }}</span> }
           @if (c.documento) { <span class="fm-doc">{{ c.documento }}</span> }
@@ -94,7 +94,7 @@ import { CajaSocketService } from '../../caja-socket.service';
         <canvas #pad class="fm-pad"
                 (pointerdown)="abajo($event)" (pointermove)="mueve($event)"
                 (pointerup)="arriba()" (pointerleave)="arriba()"
-                aria-label="Firmá acá con el dedo"></canvas>
+                aria-label="Firma acá con el dedo"></canvas>
 
         <input type="text" pInputText [(ngModel)]="nombre" placeholder="Tu nombre"
                maxlength="120" aria-label="Nombre de quien firma" />
@@ -134,7 +134,7 @@ import { CajaSocketService } from '../../caja-socket.service';
         @if (conectando()) {
           <p class="fm-sub">Abriendo el canal con la caja…</p>
         } @else if (caja.estado() === 'caido') {
-          <p-message severity="warn">Sin conexión con el servidor. Revisá la red del teléfono.</p-message>
+          <p-message severity="warn">Sin conexión con el servidor. Revisa la red del teléfono.</p-message>
         }
       }
     </div>
@@ -262,7 +262,7 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
     const png = p?.aPng();
     // ⚠️ Se vuelve a preguntar al primitivo en vez de confiar en la señal: entre que se habilitó
     // el botón y el toque pudo pasar un "Borrar".
-    if (!png) { this.aviso.set('Todavía no hay firma. Firmá en el recuadro blanco.'); return; }
+    if (!png) { this.aviso.set('Todavía no hay firma. Firma en el recuadro blanco.'); return; }
     this.aviso.set(null);
     this.enviando.set(true);
     try {
@@ -305,7 +305,7 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
       // debería verse; cuando se vea, cada caso dice lo suyo en vez de culpar siempre al QR.
       case 'sin_conexion':
         if (this.caja.estado() === 'conectando') {
-          return 'Todavía no abre el canal con la caja. Esperá unos segundos y volvé a intentar.';
+          return 'Todavía no abre el canal con la caja. Espera unos segundos y vuelve a intentar.';
         }
         return this.porPase
           ? 'El QR venció (dura 3 minutos). Pide uno nuevo en la pantalla de la caja.'

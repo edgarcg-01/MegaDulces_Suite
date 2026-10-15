@@ -23,7 +23,7 @@ import { ComercialService, RoutePromoResult, RoutePromoBody, PromoClientRow } fr
     <div class="rp card-premium card-flat">
       <button type="button" class="rp-head" (click)="open.set(!open())" [attr.aria-expanded]="open()">
         <span class="rp-title"><i class="pi pi-sparkles" aria-hidden="true"></i> Incentivo por enunciado (AI)</span>
-        <span class="rp-hint">Pegá la mecánica de la promo tal cual — calcula el pago por ruta</span>
+        <span class="rp-hint">Pega la mecánica de la promo tal cual — calcula el pago por ruta</span>
         <i class="pi rp-caret" [class.pi-chevron-down]="!open()" [class.pi-chevron-up]="open()" aria-hidden="true"></i>
       </button>
 
@@ -100,9 +100,9 @@ import { ComercialService, RoutePromoResult, RoutePromoBody, PromoClientRow } fr
 
               @if (r.candidates?.length) {
                 <div class="rp-amb">
-                  <span>Producto ambiguo — elegí el SKU:</span>
+                  <span>Producto ambiguo — elige el SKU:</span>
                   <p-select [options]="r.candidates" optionLabel="nombre" optionValue="sku" [(ngModel)]="pickSku"
-                            placeholder="Seleccioná" appendTo="body" styleClass="w-full" />
+                            placeholder="Selecciona" appendTo="body" styleClass="w-full" />
                   <button pButton size="small" severity="secondary" (click)="run(pickSku)" [disabled]="!pickSku">Recalcular</button>
                 </div>
               }
@@ -453,7 +453,7 @@ export class RoutePromoComponent {
           const s = this.elapsed();
           this.err.set(e?.status === 0
             ? `Se perdió la conexión con el servidor a los ${s}s (o se agotó el tiempo de espera).`
-            : e?.status === 429 ? 'Demasiadas corridas seguidas: esperá un minuto.'
+            : e?.status === 429 ? 'Demasiadas corridas seguidas: espera un minuto.'
             : (e?.error?.message || `No se pudo calcular (error ${e?.status ?? '?'} a los ${s}s)`));
         },
       });

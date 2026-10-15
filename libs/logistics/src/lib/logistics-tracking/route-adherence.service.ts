@@ -587,7 +587,7 @@ export class RouteAdherenceService {
 
       let reason = 'OK';
       if (positions_day === 0) reason = 'Sin posiciones GPS ese día (¿el poller está corriendo? faltan credenciales o redeploy).';
-      else if (route_trucks === 0) reason = 'Ningún tracker tiene ruta asignada (route_number). Sincronizá rutas/operadores o asigná a mano.';
+      else if (route_trucks === 0) reason = 'Ningún tracker tiene ruta asignada (route_number). Sincroniza rutas/operadores o asigna a mano.';
       else if (trucks_with_activity === 0) reason = 'Hay posiciones pero ningún camión de ruta con actividad reconstruida ese día.';
       else if (store_stops_built === 0) reason = 'Se reconstruyeron viajes pero ninguna parada matcheó una tienda (¿tiendas sin coordenadas o lejos de la ruta?).';
       else if (stores_with_route === 0) reason = 'Las tiendas no tienen ruta_id → no hay plan contra el cual medir.';

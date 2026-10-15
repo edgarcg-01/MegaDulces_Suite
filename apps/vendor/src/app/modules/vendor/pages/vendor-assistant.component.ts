@@ -66,7 +66,7 @@ const SUGGESTIONS = [
             <i class="pi" [class.pi-microphone]="!listening()" [class.pi-stop-circle]="listening()"></i>
           </button>
         }
-        <input [(ngModel)]="draft" name="draft" [disabled]="loading()" [placeholder]="listening() ? 'Escuchando…' : 'Preguntá o dictá…'" autocomplete="off" />
+        <input [(ngModel)]="draft" name="draft" [disabled]="loading()" [placeholder]="listening() ? 'Escuchando…' : 'Pregunta o dicta…'" autocomplete="off" />
         <button type="submit" class="va-send" [disabled]="!draft.trim() || loading()" aria-label="Enviar"><i class="pi pi-arrow-up"></i></button>
       </form>
     </div>

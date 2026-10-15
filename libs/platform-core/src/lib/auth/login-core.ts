@@ -250,7 +250,7 @@ export async function autenticarYFirmar(
   }
 
   if (user.expires_at && new Date(user.expires_at).getTime() <= Date.now()) {
-    throw new UnauthorizedException('La cuenta venció. Pedí una extensión al administrador.');
+    throw new UnauthorizedException('La cuenta venció. Pide una extensión al administrador.');
   }
 
   // ── 3. Último acceso (fire-and-forget) ─────────────────────────────────────

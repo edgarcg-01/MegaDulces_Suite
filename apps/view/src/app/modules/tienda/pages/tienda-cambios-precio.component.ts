@@ -232,7 +232,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
           <div>
             <b>Tu usuario no tiene tienda asignada</b>
             <span>La bitácora es por plaza: mezclarlas diría que cambió algo que en esa tienda no
-              cambió. Elegí cuál querés revisar.</span>
+              cambió. Elige cuál quieres revisar.</span>
           </div>
         </div>
 

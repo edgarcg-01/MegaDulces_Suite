@@ -145,14 +145,14 @@ export class ReceivingAuditorService {
    */
   async resolveForDating(code: string) {
     const c = String(code || '').trim();
-    if (!c) throw new BadRequestException('Escaneá o escribí un código');
+    if (!c) throw new BadRequestException('Escanea o escribe un código');
 
     return this.tk.run(async (trx) => {
       let prod = await trx('public.products').where({ barcode: c }).first();
       if (!prod) prod = await trx('public.products').where({ sku: c }).first();
       if (!prod) {
         throw new NotFoundException(
-          `Ningún producto del catálogo tiene el código ${c}. Revisá la etiqueta o buscalo por nombre.`,
+          `Ningún producto del catálogo tiene el código ${c}. Revisa la etiqueta o búscalo por nombre.`,
         );
       }
       return {

@@ -133,7 +133,7 @@ export class StockReservationService {
             const name = await this.productName(trx, p.product_id);
             // Rechazo CUALITATIVO (FIQ.2): nunca revelamos el inventario disponible.
             throw new ConflictException(
-              `No pudimos apartar "${name}" en esa cantidad. Ofrecé una cantidad menor.`,
+              `No pudimos apartar "${name}" en esa cantidad. Ofrece una cantidad menor.`,
             );
           }
           throw e;

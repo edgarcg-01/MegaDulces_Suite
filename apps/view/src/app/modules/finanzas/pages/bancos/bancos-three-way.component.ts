@@ -282,7 +282,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
             <span><b class="mono">{{ resto | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> del descuadre
             no cae en ninguna cuenta del desglose: alguna fuente tiene movimientos en una cuenta
-            que no está en el catálogo de bancos. Revisá el enlace de cuentas en Configuración.</span>
+            que no está en el catálogo de bancos. Revisa el enlace de cuentas en Configuración.</span>
           </p>
         }
 

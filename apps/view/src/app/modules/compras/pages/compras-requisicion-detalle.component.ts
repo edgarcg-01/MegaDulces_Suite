@@ -349,7 +349,7 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       },
       error: (e) => {
         this.recalc.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo recalcular', detail: e?.error?.message || 'Intentá de nuevo.' });
+        this.toast.add({ severity: 'error', summary: 'No se pudo recalcular', detail: e?.error?.message || 'Intenta de nuevo.' });
       },
     });
   }
@@ -374,7 +374,7 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
     }
     const cola = v.sin_medir > 0 ? ` · ${v.sin_medir} sin medir` : '';
     return { cls: 'rd-vig-mal', icono: 'pi-exclamation-triangle',
-      texto: `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}${edad}. Recalculá antes de aprobar — aprobar está frenado hasta entonces.` };
+      texto: `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}${edad}. Recalcula antes de aprobar — aprobar está frenado hasta entonces.` };
   }
   reject(): void {
     this.busy.set(true);

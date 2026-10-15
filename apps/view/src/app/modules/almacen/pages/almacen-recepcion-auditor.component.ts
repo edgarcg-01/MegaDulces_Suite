@@ -80,7 +80,7 @@ interface ValePendiente extends ReceivingLine {
                 </button>
               </div>
               @if (valePendientes().length) {
-                <p class="rec-vale-sub">{{ valePendientes().length }} renglón(es) por fechar — elegí uno:</p>
+                <p class="rec-vale-sub">{{ valePendientes().length }} renglón(es) por fechar — elige uno:</p>
                 <div class="rec-vale-lines">
                   @for (l of valePendientes(); track l.id) {
                     <button type="button" class="rec-vale-line" [class.is-active]="l.id === valeLineId()" (click)="pickLine(l)">
@@ -102,7 +102,7 @@ interface ValePendiente extends ReceivingLine {
           <label class="rec-field">
             <span>Almacén</span>
             <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
-              placeholder="Elegí un almacén" styleClass="rec-w" [disabled]="!!vale()"></p-select>
+              placeholder="Elige un almacén" styleClass="rec-w" [disabled]="!!vale()"></p-select>
           </label>
 
           @if (vale() && valeLineId()) {
@@ -436,7 +436,7 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
       error: () => {
         // Vale ilegible → se degrada a captura suelta en vez de dejar la pantalla muerta.
         this.vale.set(null);
-        this.toast.add({ severity: 'warn', summary: 'Vale', detail: 'No se pudo cargar el vale; capturá suelto.' });
+        this.toast.add({ severity: 'warn', summary: 'Vale', detail: 'No se pudo cargar el vale; captura suelto.' });
       },
     });
   }
@@ -490,12 +490,12 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
         if (r.expiry_date) this.confirmedExpiry = r.expiry_date;
         this.ocrConfidence.set(r.confidence);
         if (!r.lot_code && !r.expiry_date) {
-          this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se distinguió lote/caducidad. Capturá a mano.' });
+          this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se distinguió lote/caducidad. Captura a mano.' });
         }
       },
       error: () => {
         this.ocrRunning.set(false);
-        this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se pudo leer la foto. Capturá a mano.' });
+        this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se pudo leer la foto. Captura a mano.' });
       },
     });
   }
@@ -592,13 +592,13 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
       notes: this.policyNotes?.trim() || null,
     };
     if (this.policyScopeKind === 'product') {
-      if (!this.policyProduct) { this.toast.add({ severity: 'warn', summary: 'Falta producto', detail: 'Elegí un producto' }); return; }
+      if (!this.policyProduct) { this.toast.add({ severity: 'warn', summary: 'Falta producto', detail: 'Elige un producto' }); return; }
       dto.product_id = this.policyProduct.id;
     } else if (this.policyScopeKind === 'category') {
-      if (!this.policyCategory.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta categoría', detail: 'Escribí la categoría' }); return; }
+      if (!this.policyCategory.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta categoría', detail: 'Escribe la categoría' }); return; }
       dto.category = this.policyCategory.trim();
     } else {
-      if (!this.policySupplier.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta proveedor', detail: 'Escribí el código de proveedor' }); return; }
+      if (!this.policySupplier.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta proveedor', detail: 'Escribe el código de proveedor' }); return; }
       dto.supplier_code = this.policySupplier.trim();
     }
     this.savingPolicy.set(true);
