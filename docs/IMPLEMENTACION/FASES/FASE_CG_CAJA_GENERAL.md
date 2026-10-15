@@ -3452,7 +3452,19 @@ los dos casos solas — si el sobrante vuelve a la máquina aparece su depósito
 queda, el arqueo lo encuentra. **No hace falta enlazar cada dispensación con su egreso**, que es lo
 que `[CG.96]` ya había decidido. Lo único fuera de lugar es **el reloj del libro**.
 
-#### `[CGP-L.12]` ⬜ El libro del corte se mide por el día del EFECTIVO
+#### `[CGP-L.12]` 🧪 El libro del corte se mide por el día del EFECTIVO
+
+> ✅ **HECHO el 2026-10-15** (`003a190e8`), probado contra PostgreSQL real como `app_runtime`:
+> **456/456** en México, Tokio y UTC, con las **dos mutaciones en rojo** (la del reloj devuelve el
+> faltante fantasma de **$2,000**; la del `toISOString`, 2 rojas en Tokio). El estado completo, con
+> lo que quedó NO MEDIDO, está en **§6.7 de
+> [`FASE_CG_PLAN_POR_CAPAS`](FASE_CG_PLAN_POR_CAPAS.md)** — ahí vive ahora, porque el #416 ya
+> aterrizó y el plan se puede editar sin conflicto.
+>
+> ⭐ **Y destapó un defecto preexistente:** `conciliacionCajero` sacaba el día de la bóveda con
+> `toISOString()` —lo que `[CGP-L.5]` ya había refutado—, así que con el proceso al este de UTC el
+> corte sumaba las piernas **de otra jornada**. Ninguna prueba podía verlo: la suite no sembraba un
+> solo movimiento de CAOS. *El hueco nº 1 de este review no era teórico.*
 
 **Alcance exacto — una sola función.** Gracias al extracto de `[CG.160]`, `sueltosDe()` es la única
 puerta: la usan `contar` (761), `recontar` (797), el atado de `cerrar` (922) y `saldo` (1231). Se

@@ -572,6 +572,69 @@ archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin lo
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
 cinco tocados. No es como tipa el CI; lo confirma `Build & typecheck`.
 
+### 6.7 Estado al 2026-10-15: `[CGP-L.12]`, la jornada del corte (🧪 probado contra base real)
+
+**`[CGP-L.12]` — el corte mide el libro por el día del EFECTIVO.** Ítem nuevo, nacido del review de
+este plan. **Decisión de Edgar:** *«el día en que se movió el efectivo»*; y sobre el sobrante de una
+dispensación, *«depende, se puede devolver a CAOS o se queda en caja; **es por eso que se carga a
+Caja General**»*.
+
+⭐ **El motor ya estaba bien** (`[CG.95]`/`[CG.96]`): la dispensación (+) y su gasto (−) se cancelan y
+al cajón sólo le llega la morralla o el sobrante. **Lo que estaba mal era el reloj**, y §1.4 regla 2
+de este plan ya declaraba el correcto (`created_at`) sin que nadie lo comparara con el código: el
+corte filtraba por `cash_ledger.fecha` —la del **documento**, con mediana de **3 días** de rezago
+(`[CG.82]`)— mientras la bóveda se agrupa por `accounting_date`, el día físico.
+
+```text
+corte del 12 : + dispensado $X sin su gasto   ->  pide contar lo que ya se gastó  = FALTANTE
+corte del  9 : − gasto $X sin su pierna       ->  esperado $X más bajo            = SOBRANTE
+```
+
+Es `[CG.160]` otra vez, en el eje **TIEMPO** en vez del eje **PLAZA**. Y `arqueoDelDia` ya usaba el
+reloj correcto: **dos implementaciones del mismo cuadre divergieron, y la que FIRMA fue la que se
+apartó**.
+
+**El arreglo:** una sola definición (`JORNADA_LIBRO` + `enJornadaLibro`, en `caja-jornadas.query.ts`)
+que comparten los **tres** lectores: el universo del corte (`sueltosDe` → contar/recontar/cerrar/
+saldo), los sueltos de otras jornadas (`sueltosFuera`) y las jornadas sin corte (`jornadasSinCorte`,
+que alimenta al sensor y a la pantalla). Predicado como **rango sobre la columna**, nunca
+`(created_at AT TIME ZONE …)::date =`, que la saca del índice (`[LC.9]`).
+
+⭐⭐ **Y al probarlo apareció un defecto PREEXISTENTE que ninguna prueba podía ver.**
+`conciliacionCajero` —la que lee las dos piernas de la bóveda— sacaba el día con `toISOString()`,
+exactamente lo que `[CGP-L.5]` refutó (da el día **anterior** en Tokio) y que la línea 281 del mismo
+archivo ya llamaba *«funcionaba de casualidad»*. Con el proceso en cualquier zona al este de UTC, el
+corte sumaba el dispensado y el depositado **de otra jornada**. En prod no se veía porque el
+contenedor corre en hora de México, y **ninguna prueba lo ejercía: la suite no sembraba un solo
+movimiento de CAOS**. *El helper compartido de L.5 no sirvió en el único sitio que no lo llamaba.*
+
+**Medido** contra PostgreSQL 18.4 real, como `app_runtime`:
+
+| Qué | Resultado |
+|---|---|
+| Prueba nueva (`cash-cut.servicio-real.spec.ts`) | Gasto con `fecha` = D−3 y efectivo en D + su dispensación en `accounting_date` = D. **Es la primera prueba del repo que ejerce las piernas de la bóveda contra la base** |
+| **Mutación 1** (`sueltosDe` vuelve a `.where('fecha', dia)`) | **roja con el número exacto**: esperado **2,500** en vez de 500 — el faltante fantasma de **$2,000**. Sólo cae esa; las otras 17 siguen verdes |
+| **Mutación 2** (vuelve el `toISOString`) | **2 rojas en Tokio** |
+| `libs/finance/src/lib/caja` | **456/456** en **México, Tokio y UTC**, con `--no-file-parallelism` como lo corre el CI, y verificando que Node **reciba** la zona (en Git Bash `TZ=Asia/Tokyo` no llega — `[CGP-L.5]`) |
+| Base limpia, dos corridas seguidas | verdes las dos |
+| `npm run lint:boundary` | verde |
+
+El candado de alcance conserva sus dientes: comprueba **las dos fronteras** del rango y que **no
+vuelva** un `"fecha" =`, así que «simplificarlo» a un `::date =` lo pone rojo.
+
+⛔ **NO MEDIDO en local:** `test-newdb-caja-invariantes` y `test-newdb-cash-ledger-cuts`. El `.env`
+del repo apunta `DATABASE_URL_NEW` a **prod** y el candado de destino seguro aborta, con razón. Las
+corre el job `caja-db`.
+
+⚠️ **Declarado, no resuelto:** `created_at` es **cuándo se tecleó**. Coincide con el día del efectivo
+cuando la captura es del mismo día; una captura tardía vuelve a separar las piernas. El libro **no
+tiene columna para el día del efectivo** (`fecha` = documento, `created_at` = captura; `occurred_at`
+es de la máquina). **Deuda con nombre:** una columna propia, por omisión la de captura.
+
+⚠️ **Y una trampa del andamio, para el próximo:** el preparador de la base de prueba reconoce qué
+remediar **leyendo el mensaje de error de Postgres en inglés**. En un servidor en español se detiene
+en la primera tabla ajena. Se destraba con `ALTER DATABASE <base> SET lc_messages='C'`.
+
 ---
 
 ## 7. Fase 3: capa visual
