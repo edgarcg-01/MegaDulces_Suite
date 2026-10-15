@@ -2064,6 +2064,14 @@ flujo entero, no el archivo tocado.
   productos y hay 9,429 con precio**: como viene ordenado por venta, los 1,429 menos vendidos nunca
   llegaban al celular y no aparecían al buscarlos → se pide hasta el techo del servidor (10,000).
   **Falta: medir el después en prod tras el despliegue** (no se levanta el backend en local).
+- [ ] **[VTK.11]** 🧪 **Abrir con el catálogo que el celular ya tiene.** *2026-10-15.* Aun con
+  [VTK.10], el catálogo (~1.2 MB comprimido) se bajaba completo en cada cliente, y es el mismo para
+  toda la ruta (misma lista y sucursal). El celular ya lo guardaba para el modo sin conexión
+  (`VendorCatalogCache`) pero con red no se usaba. Ahora se abre con la copia de la sesión o la
+  guardada (misma sucursal, menos de un día) y la nueva se baja detrás si la copia tiene más de
+  2 min; la pantalla dice «Precios y existencia de hace N min · actualizando…». Lo que se cobra no
+  sale de la copia. Si el vendedor cambió a ver la camioneta, la recarga no pisa esa vista. Pruebas
+  10 nuevas (reglas + pantalla, mutación verificada).
 
 ### Fase EMB — El embarque de Kepler en la Suite (cabecera logística) · 2026-09-17
 

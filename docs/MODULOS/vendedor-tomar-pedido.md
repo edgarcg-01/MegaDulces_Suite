@@ -5,6 +5,38 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Abrir el cliente sin esperar el catálogo (VTK.11, 2026-10-15)
+
+### El problema
+
+Aun con el servidor rápido, el catálogo (~1.2 MB comprimido, 9,429 productos) se bajaba completo cada vez que el
+vendedor abría un cliente: en la oficina 2–6 s de descarga, más en 4G. Y es el mismo para todos los clientes de la
+ruta.
+
+### La solución
+
+La pantalla abre con el catálogo que el celular ya tiene y baja el nuevo detrás. Mientras llega, dice de cuándo son
+los precios y la existencia que se ven.
+
+### Cómo se implementó
+
+- `VendorService.catalogInstant`: primero el catálogo de esta sesión (en memoria), luego el guardado en el celular
+  (`VendorCatalogCache`, la misma copia que ya usaba el modo sin conexión) y sólo si no hay copia que sirva, el
+  servidor.
+- Reglas puras en `catalogo-al-abrir.ts`: la copia sirve si es de la misma sucursal y tiene menos de un día; se
+  refresca detrás si tiene más de 2 minutos.
+- Al abrir con copia sólo se guarda el cliente; el catálogo se reescribe cuando llega el nuevo.
+
+### Por qué así
+
+- **La existencia cambia por almacén**: una copia de otra sucursal (o de la camioneta) no se usa.
+- **Lo que se cobra no sale de la copia**: el renglón lo tarifa el servidor al agregarlo, como siempre.
+- **La edad se dice** (ADR-056): unos precios de hace 10 minutos no se presentan como de este momento.
+- **No pisa lo que el vendedor está viendo**: si cambió a la camioneta mientras llegaba el catálogo nuevo, se guarda
+  para la próxima apertura y no reemplaza la vista.
+
+---
+
 ## Abrir un cliente tardaba 13–19 segundos (VTK.10, 2026-10-15)
 
 ### El problema

@@ -13,6 +13,7 @@
 - Lo lento era sólo el catálogo: 11–12 s de servidor, el resto de la pantalla responde en menos de 0.6 s. 9.4 s los ponía la vista de mayoreo (`analytics.product_volume_tiers`), que se calcula sobre toda la red en cada apertura. Ahora el mayoreo y la escalera de la sucursal se sirven como foto que se recarga detrás (2 y 1 minutos), y la respuesta dice de cuándo es cada una.
 - La app pedía 8,000 productos y hay 9,429 con precio; los menos vendidos no llegaban al celular y no aparecían al buscarlos. Ahora pide el catálogo completo (hasta 10,000).
 - El precio que se cobra no cambia: el renglón lo sigue calculando el servidor al agregarlo. Sin migraciones ni permisos → sin re-login.
+- **Y al abrir el cliente ya no se espera el catálogo (VTK.11):** se muestra el que el celular ya tiene (de la sesión o guardado, misma sucursal y de menos de un día) y el nuevo se baja detrás, con la edad a la vista. Al pasar de un cliente a otro de la ruta en menos de 2 minutos ni siquiera se vuelve a bajar.
 ### Removed — La app del vendedor sin IA: menos peticiones al abrir un cliente y Mi ruta (VTK.8, 2026-10-14)
 - **Tomar pedido** ya no pide sugerencias a Thot (salía al abrir el cliente y otra vez tras cada ráfaga de +/−), ni tiene dictado por voz ni el «por qué ofrecerlo». Quedan «Lo que suele pedir» y «Catálogo · más vendidos»; la canasta sugerida se queda porque es una cuenta local sobre el historial, no IA.
 - **Mi ruta** ya no espera la consulta de «para reordenar» (`/intelligence/nba`) para pintar la lista, ni manda una señal al abrir la hoja de un cliente.
