@@ -45,6 +45,12 @@ const ORIGEN = '20260526000001_init_tenants_and_extensions.js';
 /** Las tablas y la vista que son el corte. Una migración que las crea o altera, entra. */
 const NUCLEO = ['cash_ledger_cut_denominations', 'cash_ledger_cuts', 'cash_ledger_denominations',
   'cash_ledger_sequences', 'v_cash_ledger_balance', 'cash_ledger'];
+/**
+ * Lo que LEE el servicio del corte fuera del núcleo (`contar`, `cerrar`, `saldo`): las dos piernas
+ * de la bóveda (CAOS) y el reparto cajón/bóveda. Sin esto la base sirve para probar las reglas de
+ * la tabla, pero no el servicio real. Se trae la migración REAL que crea cada objeto.
+ */
+const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_reparto_movimiento', 'finance.caos_cash_links'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
@@ -115,10 +121,21 @@ function creadorDeFuncion(nombreCalificado, archivos) {
   return archivos.find((f) => rx.test(fs.readFileSync(path.join(DIR, f), 'utf8'))) || null;
 }
 
-/** La migración más vieja que crea la tabla o vista `schema.nombre` (si el snapshot no la tiene). */
+/**
+ * La migración más vieja que crea la tabla o vista `schema.nombre`.
+ * ⚠️ Hay migraciones que guardan el nombre en una constante (`const VISTA = 'analytics.x'` y
+ * después `CREATE OR REPLACE VIEW ${VISTA}`): buscar sólo el nombre literal no las encuentra.
+ */
 function creadorDeRelacion(schema, nombre, archivos) {
-  const rx = new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?(MATERIALIZED\\s+)?(TABLE|VIEW)\\s+(IF\\s+NOT\\s+EXISTS\\s+)?${schema}\\.${nombre}\\b`, 'i');
-  return archivos.find((f) => rx.test(sinComentarios(fs.readFileSync(path.join(DIR, f), 'utf8')))) || null;
+  const crea = '(CREATE\\s+(OR\\s+REPLACE\\s+)?(MATERIALIZED\\s+)?(TABLE|VIEW)\\s+(IF\\s+NOT\\s+EXISTS\\s+)?)';
+  const literal = new RegExp(`${crea}${schema}\\.${nombre}\\b`, 'i');
+  const constante = new RegExp(`const\\s+([A-Za-z_]\\w*)\\s*=\\s*['"]${schema}\\.${nombre}['"]`, 'g');
+  return archivos.find((f) => {
+    const src = sinComentarios(fs.readFileSync(path.join(DIR, f), 'utf8'));
+    if (literal.test(src)) return true;
+    const nombres = [...src.matchAll(constante)].map((m) => m[1]);
+    return nombres.some((c) => new RegExp(`${crea}\\$\\{${c}\\}`, 'i').test(src));
+  }) || null;
 }
 
 // ── principal ───────────────────────────────────────────────────────────────────────────────
@@ -151,6 +168,12 @@ async function main() {
       /CREATE\s+SCHEMA\s+(IF\s+NOT\s+EXISTS\s+)?finance\b/i.test(sinComentarios(fs.readFileSync(path.join(DIR, f), 'utf8'))));
     if (!creadorDeSchema) throw new Error('ninguna migración crea el schema finance: no se puede reproducir su permiso.');
     const conjunto = new Set([ORIGEN, creadorDeSchema, ...nucleo]);
+    for (const obj of LEE_EL_SERVICIO) {
+      const [s, n] = obj.split('.');
+      const creador = creadorDeRelacion(s, n, todos);
+      if (!creador) throw new Error(`ninguna migración crea ${obj}, que lee el servicio del corte.`);
+      conjunto.add(creador);
+    }
     const snapshot = cargarSnapshot();
 
     await knex.raw(`

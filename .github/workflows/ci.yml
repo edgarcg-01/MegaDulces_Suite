@@ -964,6 +964,26 @@ jobs:
           done
           exit $rc
 
+      # `[CGP-L.0]` El SERVICIO REAL del corte (el mismo código que corre en prod) contra esta base,
+      # conectado como `app_runtime`: abrir → contar → cerrar → autorizar con el payload de la
+      # pantalla, el reconteo, el alcance del cajón de la 00 y el cierre con la reja tecleada.
+      # Probado en local contra PostgreSQL 18.4: 6/6, y en ROJO con la guardia de la base apagada.
+      # ⚠️ Va DESPUÉS de las suites, a propósito: el servicio abre y CONFIRMA sus propias
+      #    transacciones, y `test-newdb-cash-ledger-cuts` mide el saldo corrido de la 00 en absoluto
+      #    (asume la sucursal vacía). Medido en local: con el servicio antes, esa suite da 41 ✓ / 2 ✗.
+      - name: Servicio real del corte
+        # Corre aunque fallen las suites: un rojo no tiene que esconder el otro resultado.
+        if: ${{ !cancelled() }}
+        env:
+          CAJA_TEST_DB_URL: postgresql://app_runtime:app_runtime@127.0.0.1:5432/postgres_platform
+        run: |
+          if ! npx vitest run --config libs/finance/vitest.config.ts \
+                 libs/finance/src/lib/caja/cash-cut.servicio-real.spec.ts 2>&1 | tee servicio.log; then
+            echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"
+            exit 1
+          fi
+          echo "::notice title=Servicio real del corte::$(grep -E 'Tests ' servicio.log | tr -s ' ')"
+
   # ──────────────────────────────────────────────────────────────────────────────────────────
   # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.
   #
