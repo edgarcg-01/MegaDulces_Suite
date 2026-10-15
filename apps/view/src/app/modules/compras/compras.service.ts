@@ -380,8 +380,15 @@ export interface DeadStockRow {
   on_hand_cajas: number;
   box_factor: number;        // unidades nativas por caja (1 = el producto no viene en caja)
   base_label: string;        // rótulo de la unidad suelta, tal como lo declara el ERP del almacén
-  unit_cost: number;         // costo de la unidad NATIVA
-  caja_cost: number;         // = unit_cost × box_factor → cuadra con on_hand_cajas
+  // `[RA.VA.4]` el costo sale del RESOLVEDOR CANÓNICO para valuar (`analytics.v_erp_unit_cost`,
+  // VERDAD_ABSOLUTA §5) — NO de la escalera del proveedor, que contesta otra pregunta ("cuánto me
+  // cobran"), ni del catálogo, que inflaba el inmovilizado 26 %.
+  unit_cost: number;         // costo de la unidad NATIVA, al mismo grano que `on_hand`
+  caja_cost: number;         // = unit_cost × box_factor → cuadra con `on_hand_cajas`
+  /** ADR-056 — procedencia que publica el propio resolvedor: `kepler_kdik`, `wincaja_costo_promedio`, `catalogo_neto`, `sin_costo`… */
+  cost_source: string;
+  /** Veredicto del resolvedor sobre ese costo (`confirmado`, `precio_movido`, `contradicho_por_factor`, `sin_testigo`…). */
+  cost_veredicto: string | null;
   dead_value: number;        // existencia × costo = capital inmovilizado (0 si sin stock)
   last_activity: string | null; // última venta/movimiento en el almacén; null = nunca
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
