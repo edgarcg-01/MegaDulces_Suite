@@ -284,6 +284,31 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
   de permisos por rol. → En código 2026-10-07, ver §5.3.
 - [ ] **[RH.1.8]** Corte de asistencia (§6): carga única verificada de checadas, incidencias y cierres; el
   agente apunta a la Suite; las pantallas de asistencia de Mega Talento quedan de sólo lectura 2 semanas.
+- [ ] **[RH.1.11]** 🧪 El motor de personas en `libs/hr` (2026-10-15): `logic/personas.ts` (`normalizarNombre`, `decidir`,
+  `seccionDe`, palabras mínimas) + `candidatosPara` (los candidatos de la bandeja de `[RH.1.12]`). ⚠️ El guion de la carga
+  conserva su copia en JavaScript porque corre dentro del pod, cuya imagen **no trae `libs/` ni TypeScript** (el «que lo
+  importe de `libs/`» que proponía la auditoría del 15-oct no es posible); `personas.spec.ts` exige que las dos copias
+  decidan IGUAL sobre el mismo corpus.
+- [ ] **[RH.1.12]** 🧪 Ligar códigos de reloj a personas desde la Suite (2026-10-15). **El hueco:** nada en el producto
+  escribía `hr.device_enrollments.user_id`; sólo la carga única. En Mega Talento entran **3 a 11 personas por semana**
+  (medido 17-ago → 12-oct, sólo lectura): después del corte cada una sería «Empleado N», sin faltas ni sección, y nadie
+  podría arreglarlo. **Entregado:** bandeja «Códigos sin persona» en `/rh/relojes` (`RhSinPersonaComponent`) sobre
+  `GET /hr/attendance/enrollments/unlinked` (sin la cuenta «Admin» ni los ignorados, el que checó más reciente primero)
+  con candidatos del mismo motor (`mismo_codigo` · `mismo_nombre` · `nombre_parecido`; `sugerido` = lo que haría la
+  carga). RH confirma con un clic — **nunca se liga automático**: un enlace equivocado le pasa las faltas de una persona a
+  otra. `POST …/:id/link` liga el código en **todos** los relojes de la plaza (como la carga), deja `confirmado` y
+  `updated_by`, y **no pisa** el enlace a otra persona sin `reemplazar` explícito (409 → la pantalla pide confirmar).
+  `…/:id/unlink` exige motivo. `…/:id/register` da de alta a la persona **sin contraseña ni acceso** (rol `sin_acceso`,
+  username `rh.<plaza>.<código>`, como la carga) con su **sección** (sin ella no entra al cierre, `[RH.1.6b]`) y la liga.
+  `GET …/people?q=` busca a mano. Cada cambio asienta en `identity.user_events` (`reloj_ligado`, `reloj_desligado`,
+  `alta_desde_reloj`). Permiso: lectura `HR_ATTENDANCE_VER`/`HR_DEVICES_GESTIONAR`, escritura `HR_DEVICES_GESTIONAR`
+  (ya repartido a `recursos_humanos` por `20261008094815`: **sin migración ni reparto nuevo**). La asistencia se calcula
+  al leer: ligar días después recupera todo el historial (por eso el corte no tiene que esperar a esto, pero debe llegar
+  en su primera semana). Pruebas: motor y candidatos (puras, CI), la bandeja completa contra la base (ligar, no pisar,
+  reemplazar, desligar, alta, y de punta a punta el padrón de asistencia ya la conoce con su sección), pantalla; **7
+  mutaciones a rojo**. **No incluye:** desligar desde la pantalla (la API existe; los códigos ligados no están en esta
+  bandeja); el alta con número de checador ANTES de que el reloj vea a la persona (`[RH.1.13]`: requiere `user_id` en
+  `hr.person_site_profiles`); el umbral de «enrolamientos activos sin ligar» en Salud BD (`[RH.1.14]`).
 - [ ] **[RH.1.9]** (opcional) Modo push ADMS para las plazas sin ruta (PH, Morelia Abastos): endpoint `/iclock`
   con parser de texto, autenticación por serie y tenant explícito. Se prueba en **un** reloj primero.
 
