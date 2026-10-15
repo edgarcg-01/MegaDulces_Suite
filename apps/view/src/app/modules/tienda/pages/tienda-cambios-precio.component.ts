@@ -375,8 +375,8 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
             }
           </div>
         } @else if (items().length) {
-          <div class="cpr-wrap">
-            <table class="cpr-tabla">
+          <div class="cpr-wrap dt-scope">
+            <table class="cpr-tabla dt-stack">
               <thead>
                 <tr>
                   <th style="width:3rem">
@@ -408,34 +408,34 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                        FUERA del orden de tabulador (tabindex -1) para no duplicar las paradas por fila. -->
                   <tr class="cpr-fila-click" tabindex="0" [class.is-sel]="marcado(p)" (click)="clicFila(p)"
                       (keydown)="teclaFila($event, p)" title="Clic, Enter o Espacio para imprimir la etiqueta de este producto">
-                    <td (click)="$event.stopPropagation()">
+                    <td data-label="Marcar" role="cell" (click)="$event.stopPropagation()">
                       <label class="cpr-check">
                         <input type="checkbox" [checked]="marcado(p)" (change)="alternar(p)"
                                [attr.aria-label]="'Marcar ' + p.sku" />
                       </label>
                     </td>
-                    <td class="cpr-num">{{ p.sku }}</td>
-                    <td>
+                    <td class="cpr-num dt-id" data-label="Código" role="cell">{{ p.sku }}</td>
+                    <td data-label="Producto" role="cell">
                       {{ p.name || '—' }}
                       @if (p.es_baja) {
                         <span class="cpr-badge" title="El ERP le quitó el precio a una presentación: esa etiqueta saldría SIN PRECIO.">sin precio</span>
                       }
                     </td>
-                    <td class="cpr-prov" [title]="proveedorTxt(p)">{{ proveedorTxt(p) }}</td>
-                    <td class="cpr-money">{{ uxcTxt(p) }}</td>
-                    <td class="cpr-money">
+                    <td class="cpr-prov" data-label="Proveedor" role="cell" [title]="proveedorTxt(p)">{{ proveedorTxt(p) }}</td>
+                    <td class="cpr-money dt-num" data-label="UXC" role="cell">{{ uxcTxt(p) }}</td>
+                    <td class="cpr-money dt-num" data-label="Costo anterior" role="cell">
                       @for (r of p.filas; track $index) {
                         <div class="cpr-cl" [class.cpr-cl-nd]="costoAnteriorTxt(p, r) === '—'"
                              [title]="anteriorTitulo(p, r)">{{ costoAnteriorTxt(p, r) }}</div>
                       }
                     </td>
-                    <td class="cpr-money">
+                    <td class="cpr-money dt-num" data-label="Costo actual" role="cell">
                       @for (r of p.filas; track $index) {
                         <div class="cpr-cl" [class.cpr-cl-nd]="costoActualTxt(p, r) === 'sin dato'"
                              [title]="costoActualTxt(p, r) === 'sin dato' ? motivoSinCosto(p, r) : ''">{{ costoActualTxt(p, r) }}</div>
                       }
                     </td>
-                    <td>
+                    <td data-label="Precio punto de venta" role="cell">
                       @for (r of p.filas; track $index) {
                         <div class="cpr-linea">
                           <span class="cpr-und">{{ r.unidad || '—' }}</span>
@@ -453,8 +453,8 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                         </div>
                       }
                     </td>
-                    <td class="cpr-money" title="Precio de la presentación CAJA">{{ mayoreoTxt(p) }}@if (cajaDeTxt(p); as caja) {<span class="cpr-pct">{{ caja }}</span>}</td>
-                    <td>
+                    <td class="cpr-money dt-num" data-label="Mayoreo" role="cell" title="Precio de la presentación CAJA">{{ mayoreoTxt(p) }}@if (cajaDeTxt(p); as caja) {<span class="cpr-pct">{{ caja }}</span>}</td>
+                    <td data-label="Tipo" role="cell">
                       @for (r of p.filas; track $index) {
                         <div class="cpr-cl" style="text-align:left">
                           @if (tipoDe(p, r); as t) {
@@ -466,7 +466,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                         </div>
                       }
                     </td>
-                    <td class="cpr-accion">
+                    <td class="cpr-accion dt-actions" role="cell">
                       <button type="button" class="cpr-btn-imprimir" tabindex="-1" (click)="imprimirUno($event, p)"
                               [attr.aria-label]="'Imprimir la etiqueta de ' + p.sku" title="Imprimir esta etiqueta">
                         <i class="pi pi-print" aria-hidden="true"></i> Imprimir

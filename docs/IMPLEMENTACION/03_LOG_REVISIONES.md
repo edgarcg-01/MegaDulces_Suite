@@ -407,7 +407,9 @@ quedarse cortas.
 
 **Observaciones del PM aplicadas a este mismo PR** (puntos 18–25 de `ONBOARDING.md` §8.0b, que salieron de la auditoría de diseño del verificador y valen para cualquier pantalla de precios): **(19)** el «mayoreo» ya no es una cifra suelta junto a precios por unidad: dice **«caja de 12»**; **(20)** `anterior_desde` viajaba en el contrato y no se pintaba: ahora está en el title del costo anterior; **(23)** al principio, si la historia fallaba al leerse, la pantalla decía «todavía no hay historia», que es **otra cosa**: ahora viaja `costo_historial_error` y se dice «no se pudo leer»; **(25)** las pruebas nuevas se mutaron (costo sin impuesto; ignorar la historia) y se pusieron rojas. **(18)** no se midió: no se comprobó que la escalera de precios sea coherente (precio de caja por unidad contra pieza); se declara «no medido».
 
-**Verificación.** `modules/tienda` 337/337 · `commercial-labels` 29/29 · contratos 24/24 (15 nuevos); dos mutaciones atrapadas (costo sin impuesto; ignorar la historia); `check:pantalla` idéntico a `main`; boundary/templates/tokens/primeng/estilos en verde; `tsgo` sólo marca `pdf-lib` (preexistente, ajeno).
+**Lo que frenó el primer push.** La compuerta `tablas densas` del `pre-push` marcó la tabla: **11 columnas sin salida en estrecho**. Es una exigencia real (DESIGN_TABLES §6, caso A: columnas = campos de un registro → apilar), no un detalle: sin ella la tabla de 11 columnas en un teléfono es ilegible. Se agregó `dt-scope` + `dt-stack` y `data-label` + `role="cell"` en cada celda, con una prueba que los exige. **Lección (punto 29 del protocolo):** al sumar columnas a una tabla existente, corre `node scripts/check-dense-tables.js` **antes** de pushear, no al pushear.
+
+**Verificación.** `modules/tienda` 338/338 · `commercial-labels` 29/29 · contratos 24/24 (15 nuevos); dos mutaciones atrapadas (costo sin impuesto; ignorar la historia); `check:pantalla` idéntico a `main`; boundary/templates/tokens/primeng/estilos en verde; `tsgo` sólo marca `pdf-lib` (preexistente, ajeno).
 
 
 ## 2026-10-14 — `[ETQ-CAMBIOS.10]` Cambios de precio: la pantalla sube, y lo que costó hacerlo bien

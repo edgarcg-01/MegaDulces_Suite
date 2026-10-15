@@ -271,6 +271,17 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
       } finally { HISTORIA_CON_ERROR = false; }
     });
 
+    it('⭐ con 11 columnas la tabla se APILA en estrecho: contenedor, tabla y cada celda con su rótulo (DESIGN_TABLES §6)', () => {
+      expect(root().querySelector('.cpr-wrap')?.classList.contains('dt-scope')).toBe(true);
+      expect(root().querySelector('table.cpr-tabla')?.classList.contains('dt-stack')).toBe(true);
+      const tds = Array.from(root().querySelectorAll('tbody td'));
+      expect(tds.length).toBeGreaterThan(0);
+      // sin data-label y role="cell" el apilado pierde los rótulos y el lector de pantalla las celdas
+      expect(tds.every((td) => td.getAttribute('role') === 'cell')).toBe(true);
+      const rotulos = Array.from(celdas(filaDe('91059'))).map((td) => td.getAttribute('data-label'));
+      expect(rotulos).toEqual(['Marcar', 'Código', 'Producto', 'Proveedor', 'UXC', 'Costo anterior', 'Costo actual',
+        'Precio punto de venta', 'Mayoreo', 'Tipo', null]); // la última es la acción: va sin rótulo
+    });
     it('declara desde cuándo existe el costo anterior (antes de esa fecha no hay dato)', () => {
       const t = root().textContent ?? '';
       expect(t).toContain('El costo anterior se registra desde el 2026-10-15');
