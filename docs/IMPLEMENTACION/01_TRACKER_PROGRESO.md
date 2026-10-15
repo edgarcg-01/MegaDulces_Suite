@@ -9272,6 +9272,9 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   Postgres) pasan a `relacionExiste()`. El preparador de la base de prueba suma la tabla de granos y
   la vista de patrones (y el rol `dev_ro`), y sabe encontrar `CREATE TABLE finance.${TABLA}`. Hipótesis
   sin medir en prod: el carril de granos lleva escribiendo cero desde que se desplegó.
+- [x] ✅ `[CGP-D.2c]` `test-newdb-cash-ledger-cuts.js` mide el saldo corrido de la 00 como DIFERENCIA
+  contra lo que ya había: medirlo en absoluto daba por hecho una sucursal vacía. Sobre una base donde
+  ya corrieron las pruebas del servicio: antes 41 ✓ / 2 ✗, ahora 43 ✓ / 0 ✗.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

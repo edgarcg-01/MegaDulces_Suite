@@ -288,6 +288,8 @@ de la `00` en ABSOLUTO, o sea que da por hecho que la sucursal está vacía. Cor
 prueba del servicio (que confirma sus datos) da **41 ✓ / 2 ✗** (esperaba 500, vio 7,500). En el CI
 se resuelve por orden (las suites que deshacen primero, el servicio al final); el arreglo de fondo
 es medir el saldo como diferencia contra lo que había antes.
+✅ **Resuelto el 2026-10-15:** el saldo se mide como diferencia contra el saldo corrido previo, con la
+misma columna. Sobre una base donde ya corrió el servicio: **43 ✓ / 0 ✗** (sin el arreglo, 41 ✓ / 2 ✗).
 
 ⚠️ **Lo mismo que trabó prod tres días, visto en la prueba:** un corte en borrador bloquea **todo**
 corte nuevo de su sucursal, de cualquier fecha (`ux_cash_cut_abierto`). La primera versión de la
