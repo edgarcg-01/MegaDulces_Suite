@@ -864,6 +864,81 @@ jobs:
             echo "aviso publicado en el PR #$PR"
           fi
 
+  # `[CGP-D.1]` CAJA GENERAL CONTRA UNA BASE REAL — el primer job del CI que levanta Postgres.
+  #
+  # Del 12 al 14-oct entraron 33 arreglos de Caja General y cada uno destapó el siguiente EN
+  # PRODUCCIÓN: ninguna prueba ejercía el corte contra una base, porque ningún job del CI tenía
+  # una (deuda VP.5). Este job la levanta desde cero con `dev:bootstrap-vacia`, sobre la misma
+  # imagen `pgvector:pg18` que corre prod, y corre las suites de caja.
+  #
+  # ⚠️ NO está en el `needs` de `sellar`, a propósito: hasta que acumule corridas verdes es una
+  #    MEDICIÓN, no una compuerta. Un gate que se pone rojo por un defecto de infraestructura frena
+  #    producción sin haber encontrado nada; se prende cuando tenga historia (ADR-056).
+  # ⚠️ Esta base NO es prod: valida estructura, reglas, RLS y permisos. No mide datos del ERP.
+  caja-db:
+    name: Caja General · base real (CGP-D.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres_platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL_NEW: postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform
+      TZ: America/Mexico_City
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Misma clave EXACTA que `build`: los dos jobs comparten el `node_modules` armado.
+      - name: Caché de node_modules (clave exacta por package-lock)
+        id: cache-nm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+          CI: 'true'
+
+      - name: Base desde cero (dev:bootstrap-vacia)
+        run: node database/scripts/dev-bootstrap-empty-db.js --url "$DATABASE_URL_NEW"
+
+      # Cada suite corre aunque falle la anterior: un rojo no tiene que esconder a los demás, y la
+      # anotación `::error` deja el nombre de la que falló en el resumen de la corrida.
+      - name: Suites de caja
+        run: |
+          set +e
+          rc=0
+          for s in test-newdb-caja-invariantes.js test-newdb-cash-ledger.js test-newdb-cash-ledger-cuts.js; do
+            echo "::group::$s"
+            node "database/tests/$s"
+            r=$?
+            echo "::endgroup::"
+            if [ "$r" -ne 0 ]; then echo "::error title=$s::la suite salió con código $r"; rc=1; fi
+          done
+          exit $rc
+
   # ──────────────────────────────────────────────────────────────────────────────────────────
   # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.
   #

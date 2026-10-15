@@ -171,10 +171,11 @@ const baseMov = (over = {}) => ({
       // 1 × $1000 + 2 × $100 + 3 × $10 + $4.56 de morralla = $1,234.56 = el monto.
       const [arq] = await trx('finance.cash_ledger')
         .insert(baseMov({ tipo: 'ingreso', monto: 1234.56, morralla: 4.56 })).returning('*');
+      // `[CGP-D.2]` `denom_key` es NOT NULL desde `20261006123000`: sin él este insert daba 23502.
       await trx('finance.cash_ledger_denominations').insert([
-        { tenant_id: T, cash_ledger_id: arq.id, denominacion: 1000, piezas: 1 },
-        { tenant_id: T, cash_ledger_id: arq.id, denominacion: 100, piezas: 2 },
-        { tenant_id: T, cash_ledger_id: arq.id, denominacion: 10, piezas: 3 },
+        { tenant_id: T, cash_ledger_id: arq.id, denom_key: '1000', denominacion: 1000, piezas: 1 },
+        { tenant_id: T, cash_ledger_id: arq.id, denom_key: '100', denominacion: 100, piezas: 2 },
+        { tenant_id: T, cash_ledger_id: arq.id, denom_key: '10', denominacion: 10, piezas: 3 },
       ]);
       const cuadre = await trx.raw(`
         SELECT (l.monto - (coalesce(sum(d.denominacion*d.piezas),0) + l.morralla)) AS dif
@@ -184,13 +185,13 @@ const baseMov = (over = {}) => ({
       ok(Number(cuadre.rows[0].dif) === 0, `el arqueo cuadra al centavo (dif ${cuadre.rows[0].dif})`);
 
       const c13 = await violation(trx, () => trx('finance.cash_ledger_denominations')
-        .insert({ tenant_id: T, cash_ledger_id: arq.id, denominacion: 37, piezas: 1 }));
+        .insert({ tenant_id: T, cash_ledger_id: arq.id, denom_key: '37', denominacion: 37, piezas: 1 }));
       ok(c13 === '23514', `[negativa] denominación inexistente ($37) → 23514, got ${c13}`);
       const c14 = await violation(trx, () => trx('finance.cash_ledger_denominations')
-        .insert({ tenant_id: T, cash_ledger_id: arq.id, denominacion: 50, piezas: 0 }));
+        .insert({ tenant_id: T, cash_ledger_id: arq.id, denom_key: '50', denominacion: 50, piezas: 0 }));
       ok(c14 === '23514', `[negativa] 0 piezas → 23514, got ${c14}`);
       const c15 = await violation(trx, () => trx('finance.cash_ledger_denominations')
-        .insert({ tenant_id: T, cash_ledger_id: arq.id, denominacion: 1000, piezas: 2 }));
+        .insert({ tenant_id: T, cash_ledger_id: arq.id, denom_key: '1000', denominacion: 1000, piezas: 2 }));
       ok(c15 === '23505', `[negativa] misma denominación dos veces en el mismo movimiento → 23505, got ${c15}`);
 
       console.log('\n── 5. El folio se genera ATÓMICO (§5.2, patrón order_sequences) ──');
