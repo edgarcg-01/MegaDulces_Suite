@@ -28,6 +28,8 @@ export interface ComprobanteCaja {
   kepler_concepto_nombre?: string | null;
   glosa?: string | null;
   denominaciones: Array<{ denominacion: number; piezas: number }>;
+  /** `[CGP-L.8]` El cambio que SALIÓ en este acto. Se imprime aparte: no es lo recibido. */
+  devuelto?: Array<{ denominacion: number; piezas: number }> | null;
   morralla?: number | null;
   monto: number;
   created_by_username?: string | null;
@@ -106,6 +108,15 @@ export function cuerpoComprobante(c: ComprobanteCaja): string {
     L.push(fila(izq, money(d.denominacion * d.piezas)));
   }
   if (Number(c.morralla || 0) > 0) L.push(fila('Morralla', money(c.morralla)));
+  // `[CGP-L.8]` El cambio, aparte: lo que salió de la caja. Sin esto se imprimía como recibido.
+  const cambio = [...(c.devuelto ?? [])].sort((a, b) => b.denominacion - a.denominacion);
+  if (cambio.length) {
+    L.push('CAMBIO');
+    for (const d of cambio) {
+      const izq = `${String(d.denominacion).padStart(5)} x ${String(d.piezas).padStart(4)} =`;
+      L.push(fila(izq, money(d.denominacion * d.piezas)));
+    }
+  }
   L.push(linea());
   L.push(fila('TOTAL', money(c.monto)));
 

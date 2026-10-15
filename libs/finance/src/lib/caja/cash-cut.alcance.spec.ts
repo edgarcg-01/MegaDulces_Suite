@@ -60,11 +60,14 @@ describe('[CG.160] el cierre ata EXACTAMENTE lo que el conteo suma', () => {
     expect(universo('00', null)).not.toContain('"fecha" =');
   });
 
-  it('⭐⭐ el universo del CIERRE y el del CONTEO son el mismo texto, carácter por carácter', () => {
-    // El invariante de `[CG.115]` extendido al eje de la plaza. Los dos caminos salen hoy de
-    // `sueltosDe()`, así que esto no puede fallar sin que alguien copie el predicado — que es
-    // exactamente lo que hay que impedir.
-    expect(universo('00', DIA)).toBe(universo('00', DIA));
-    expect(universo('00', DIA)).not.toBe(universo('06', DIA));
-  });
+  /*
+   * ⛔ `[CGP-L.11]` Acá había una cuarta prueba que comparaba `universo('00')` CONSIGO MISMA (T4 del
+   * plan): no podía fallar nunca. Medido el 2026-10-15 devolviendo `cerrar()` al filtro viejo
+   * (`.where('sucursal', c.sucursal)`): las cuatro de este archivo siguieron verdes.
+   *
+   * Que `cerrar()` ate el MISMO universo que `contar()` suma no se ve armando SQL: se ve ejecutando.
+   * El candado vive contra la base, en `cash-cut.servicio-real.spec.ts` («el cajón de la 00 ata y
+   * suma lo que otras plazas pagaron desde él»), y corre en el job `caja-db` del CI. Con esa misma
+   * mutación se pone en ROJO (ata 1 movimiento en vez de 2 y el esperado deja de ser 1,300).
+   */
 });

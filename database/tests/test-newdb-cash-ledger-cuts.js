@@ -65,6 +65,16 @@ const corte = (over = {}) => ({
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
 
       console.log('\n── 2. El saldo corrido se DERIVA ──');
+      // `[CGP-D.2c]` La 00 la comparten las pruebas del servicio, que CONFIRMAN sus datos: medir el saldo
+      // en absoluto daba por hecho una sucursal vacía (corrida después de ellas: esperaba 500, vio
+      // 7,500). Se mide la DIFERENCIA contra el saldo corrido que ya había, con la misma columna.
+      const saldoDe00 = async () => {
+        const r = await trx.raw(
+          `SELECT saldo_movimientos FROM finance.v_cash_ledger_balance
+            WHERE sucursal='00' ORDER BY created_at DESC, id DESC LIMIT 1`);
+        return r.rows.length ? Number(r.rows[0].saldo_movimientos) : 0;
+      };
+      const saldoPrevio00 = await saldoDe00();
       const [i1] = await trx('finance.cash_ledger').insert(mov({ tipo: 'ingreso', monto: 1000 })).returning('*');
       const [g1] = await trx('finance.cash_ledger').insert(mov({ tipo: 'gasto', monto: 300 })).returning('*');
       const [d1] = await trx('finance.cash_ledger').insert(mov({ tipo: 'deposito', monto: 200 })).returning('*');
@@ -72,8 +82,8 @@ const corte = (over = {}) => ({
       const saldos = await trx.raw(
         `SELECT id, tipo, monto, efecto, saldo_movimientos FROM finance.v_cash_ledger_balance
           WHERE sucursal='00' ORDER BY created_at, id`);
-      const fin = Number(saldos.rows[saldos.rows.length - 1].saldo_movimientos);
-      ok(fin === 500, `1000 − 300 − 200 = 500 de movimientos (dio ${fin})`);
+      const fin = Number(saldos.rows[saldos.rows.length - 1].saldo_movimientos) - saldoPrevio00;
+      ok(fin === 500, `1000 − 300 − 200 = 500 de movimientos (dio ${fin} sobre los ${saldoPrevio00} que ya había)`);
       ok(Number(saldos.rows.find((r) => r.id === i1.id).efecto) === 1000, 'un ingreso suma');
       ok(Number(saldos.rows.find((r) => r.id === g1.id).efecto) === -300, 'un gasto resta');
       ok(Number(saldos.rows.find((r) => r.id === d1.id).efecto) === -200, 'un depósito al banco resta de la caja');
@@ -96,8 +106,9 @@ const corte = (over = {}) => ({
       const cancelado = tras.rows.find((r) => r.id === g1.id);
       ok(!!cancelado, 'el movimiento cancelado SIGUE en la vista — lo que se audita es que se canceló');
       ok(Number(cancelado.efecto) === 0, 'y su efecto sobre el saldo es 0');
-      ok(Number(tras.rows[tras.rows.length - 1].saldo_movimientos) === 800,
-        `el saldo se recalcula solo: 1000 − 200 = 800 (dio ${tras.rows[tras.rows.length - 1].saldo_movimientos})`);
+      const trasCancelar = Number(tras.rows[tras.rows.length - 1].saldo_movimientos) - saldoPrevio00;
+      ok(trasCancelar === 800,
+        `el saldo se recalcula solo: 1000 − 200 = 800 (dio ${trasCancelar} sobre los ${saldoPrevio00} que ya había)`);
 
       console.log('\n── 4. El corte: abrir ──');
       const [abierto] = await trx('finance.cash_ledger_cuts').insert(corte()).returning('*');
