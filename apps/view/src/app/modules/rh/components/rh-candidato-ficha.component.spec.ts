@@ -3,7 +3,8 @@ import { of } from 'rxjs';
 import { vi } from 'vitest';
 import type { HrCandidatoFichaDto, HrCasilleroDto, HrDocumentoDto } from '@megadulces/contracts';
 import { ReclutamientoService } from '../reclutamiento.service';
-import { RhCandidatoFichaComponent, expedienteDe, historiaDe } from './rh-candidato-ficha.component';
+import type { HrPedirDocumentosResultadoDto } from '@megadulces/contracts';
+import { RhCandidatoFichaComponent, expedienteDe, historiaDe, listaParaCopiar, pediblesDe } from './rh-candidato-ficha.component';
 
 /**
  * `[RH.2.3]` La ficha del candidato. Lo que se defiende: la historia junta los dos registros de una fusión, el
@@ -46,6 +47,14 @@ describe('[RH.2.3] reglas de la ficha', () => {
     expect(h[0].detalle).toBe('5.5 h en la etapa anterior');
   });
 
+  it('[RH.3.3.4b] lo que se le puede pedir: sin el CV ni el reporte de la prueba; el texto para otro medio no dice «aquí»', () => {
+    expect(pediblesDe([...CASILLEROS, { key: 'midot', label: 'Reporte', obligatorio: false }]).map((c) => c.key)).toEqual(['ine', 'licencia']);
+    const t = listaParaCopiar(['INE', 'Acta de nacimiento']);
+    expect(t).toContain('INE, Acta de nacimiento');
+    expect(t).toContain('WhatsApp de reclutamiento');
+    expect(t).not.toContain('aquí');
+  });
+
   it('el expediente: por casillero, lo que falta, lo que no tiene casillero y lo retirado aparte', () => {
     const e = expedienteDe([doc({}), doc({ llave: 'x', slot: 'pasaporte' }), doc({ llave: 'r', slot: 'ine', vigente: false })], CASILLEROS, ['ine']);
     expect(e.filas.map((f) => [f.casillero.key, f.docs.length, f.falta])).toEqual([['cv', 1, false], ['ine', 0, true], ['licencia', 0, false]]);
@@ -67,6 +76,7 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
       crearLiga: vi.fn(() => of({ url: 'https://suite/empleo/liga/tok', expires_at: '2026-10-20T00:00:00Z', mensaje: 'Hola Ana… https://suite/empleo/liga/tok',
         whatsapp_url: 'https://wa.me/523511234567?text=Hola' })),
       ficha: vi.fn(() => of(f)),
+      pedirDocumentos: vi.fn(() => of(resultadoPedir)),
     };
     await TestBed.configureTestingModule({
       imports: [RhCandidatoFichaComponent],
@@ -80,6 +90,8 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
     await fix.whenStable();
   }
 
+  let resultadoPedir: HrPedirDocumentosResultadoDto;
+  beforeEach(() => { resultadoPedir = { solicitados: ['ine'], enviado: true, motivo: 'enviado', mensaje: 'Docs', ultimo_mensaje_en: '2026-10-14T10:00:00Z' }; });
   afterEach(() => TestBed.resetTestingModule());
 
   it('⭐ «Pasar a» la siguiente etapa llama al servidor y avisa con la ficha nueva', async () => {
@@ -147,10 +159,42 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
     expect(api['noRecontratable']).toHaveBeenCalledWith(ID, true, 'abandonó el puesto');
   });
 
+  it('⭐ [RH.3.3.4b] «Pedir documentos por WhatsApp»: lo que falta ya marcado; enviado = aviso y la ficha se recarga', async () => {
+    await render(ficha(), true);
+    const nueva = vi.fn();
+    fix.componentInstance.actualizada.subscribe(nueva);
+    boton('Pedir documentos por WhatsApp')!.click();
+    fix.detectChanges();
+    expect([...fix.componentInstance.pedidos()]).toEqual(['ine']); // falta la INE; la licencia es opcional y no se marca
+    fix.componentInstance.alternarPedido('licencia', true);
+    fix.detectChanges();
+    boton('Pedir documentos')!.click();
+    fix.detectChanges();
+    expect(api['pedirDocumentos']).toHaveBeenCalledWith(ID, ['ine', 'licencia']);
+    expect(texto()).toContain('Le mandé por WhatsApp la lista de 1 documento(s)');
+    expect(nueva).toHaveBeenCalled();
+  });
+
+  it('⛔ [RH.3.3.4b] fuera de la ventana de 24 h: lo dice, explica cómo pedírselos y ofrece copiar la lista', async () => {
+    await render(ficha(), true);
+    resultadoPedir = { solicitados: ['ine'], enviado: false, motivo: 'fuera_de_ventana', mensaje: 'Docs', ultimo_mensaje_en: null };
+    boton('Pedir documentos por WhatsApp')!.click();
+    fix.detectChanges();
+    boton('Pedir documentos')!.click();
+    fix.detectChanges();
+    expect(texto()).toContain('no se le pudo escribir por WhatsApp');
+    expect(texto()).toContain('escriba «hola»');
+    expect(boton('Copiar la lista')).toBeTruthy();
+    // Al cambiar de candidato, el resultado de otro no se queda a la vista.
+    fix.componentRef.setInput('ficha', ficha({ id: OTRO }));
+    fix.detectChanges();
+    expect(boton('Copiar la lista')).toBeUndefined();
+  });
+
   it('⛔ NEGATIVA — quien sólo ve no tiene con qué cambiar nada', async () => {
     await render(ficha({ mismo_telefono: [{ id: OTRO, full_name: 'Ana', created_at: '2026-10-01T00:00:00Z', no_rehire: false }] }), false);
     for (const t of ['Corregir', 'No recontratable', 'Spam', 'Papelera', 'Fusionar aquí', 'Registrar', 'Retirar', 'Mandar liga para subir su CV',
-      'Mandar liga del cuestionario', 'Liga para el jefe que entrevista']) expect(boton(t)).toBeUndefined();
+      'Mandar liga del cuestionario', 'Liga para el jefe que entrevista', 'Pedir documentos por WhatsApp']) expect(boton(t)).toBeUndefined();
     expect(texto()).not.toContain('Pasar a');
     expect(texto()).toContain('Mismo teléfono'); // pero sí lo ve
   });

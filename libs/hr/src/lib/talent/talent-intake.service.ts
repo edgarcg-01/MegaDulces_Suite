@@ -56,6 +56,12 @@ export interface EntradaPostulacion {
   portal_data?: Record<string, unknown> | null;
   /** `[RH.3.3.3]` La solicitud de empleo armada por chat (`candidates.application`). Al crear, o si a su proceso le falta. */
   application?: Record<string, unknown> | null;
+  /**
+   * `[RH.3.3.4]` Documentos del expediente que el bot ya subió al bucket antes de que existiera el candidato (su INE
+   * cuando se le pedía el CV). Al crear entran todos; a un proceso abierto, sólo los de casilleros que le faltan. Lo
+   * que no se use se borra del bucket.
+   */
+  documentos?: EntradaDocumento[] | null;
 }
 
 /** Los campos que sólo trae el bot, con su nombre de columna (se guardan al crear y se rellenan si faltan). */
@@ -171,6 +177,8 @@ export class HrTalentIntakeService {
     let licKey: string | null = null;
     let cvUsado = false;
     let licUsada = false;
+    const apartados = (e.documentos ?? []).filter((d) => typeof d['storage_key'] === 'string');
+    let apartadosUsados = new Set<string>();
     try {
       if (e.cv) cvKey = (await this.storage.putBuffer(e.cv.adjunto.buffer, e.cv.adjunto.contentType, carpeta, e.cv.file_name)).key;
       if (e.license) licKey = (await this.storage.putBuffer(e.license.adjunto.buffer, e.license.adjunto.contentType, carpeta, e.license.file_name)).key;
@@ -192,7 +200,7 @@ export class HrTalentIntakeService {
         const licDoc = doc('licencia', licKey, e.license);
 
         if (decision.accion === 'crear') {
-          const docs = [cvDoc, licDoc].filter((d): d is EntradaDocumento => !!d);
+          const docs = [cvDoc, licDoc, ...apartados].filter((d): d is EntradaDocumento => !!d);
           const [nuevo] = await trx(T).insert({
             tenant_id: tenant, phone: e.phone, full_name: e.full_name, email: e.email, city_branch: e.city_branch,
             job_posting_id: nueva.job_posting_id, position_interest: nueva.position_interest, relative_in_company: e.relative_in_company,
@@ -204,7 +212,9 @@ export class HrTalentIntakeService {
           }).returning('id');
           cvUsado = !!cvDoc;
           licUsada = !!licDoc;
-          await this.nota(trx, tenant, nuevo.id ?? nuevo, canal, `Se postuló por ${origen}${nueva.position_interest ? ` para ${nueva.position_interest}` : ''}.`);
+          apartadosUsados = new Set(apartados.map((d) => String(d['storage_key'])));
+          await this.nota(trx, tenant, nuevo.id ?? nuevo, canal, `Se postuló por ${origen}${nueva.position_interest ? ` para ${nueva.position_interest}` : ''}.`
+            + (apartados.length ? ` Trajo además: ${apartados.map((d) => casilleroDe(d) ?? 'otro').join(', ')}.` : ''));
           if (decision.en_lista_negra) {
             await this.nota(trx, tenant, nuevo.id ?? nuevo, canal, 'Su teléfono coincide con alguien marcado como NO RECONTRATABLE (ver Revisiones).');
           }
@@ -217,10 +227,11 @@ export class HrTalentIntakeService {
           : 'ya está en un proceso';
         let rellenados: string[] = [];
         if (decision.motivo !== 'cerrada_hace_poco') {
-          const r = await this.completar(trx, decision.candidato_id, e, cvDoc, licDoc);
+          const r = await this.completar(trx, decision.candidato_id, e, cvDoc, licDoc, apartados);
           rellenados = r.rellenados;
           cvUsado = r.cvUsado;
           licUsada = r.licUsada;
+          apartadosUsados = r.apartadosUsados;
         }
         await this.nota(trx, tenant, decision.candidato_id, canal,
           `Intentó postularse otra vez por ${origen}${nueva.position_interest ? ` (para ${nueva.position_interest})` : ''}: rechazado, ${motivo}.`
@@ -229,7 +240,8 @@ export class HrTalentIntakeService {
       });
       return d;
     } finally {
-      for (const [key, usado] of [[cvKey, cvUsado], [licKey, licUsada]] as const) {
+      const sobrantes = apartados.map((d) => String(d['storage_key'])).filter((k) => !apartadosUsados.has(k));
+      for (const [key, usado] of [[cvKey, cvUsado], [licKey, licUsada], ...sobrantes.map((k) => [k, false] as const)] as const) {
         if (!key || usado) continue;
         try { await this.storage.remove(key); } catch (err) {
           this.logger.warn(`No se pudo borrar ${key} del bucket: ${err instanceof Error ? err.message : String(err)}`);
@@ -261,10 +273,10 @@ export class HrTalentIntakeService {
    * Rellena SÓLO lo vacío del proceso abierto, y le pone el CV o la licencia si no tiene uno vigente. Nunca pisa un
    * dato. `source` (dónde se enteró) entra en la lista: el bot no lo pregunta, la web sí.
    */
-  private async completar(trx: Knex.Transaction, id: string, e: EntradaPostulacion, cv: EntradaDocumento | null, lic: EntradaDocumento | null):
-    Promise<{ rellenados: string[]; cvUsado: boolean; licUsada: boolean }> {
+  private async completar(trx: Knex.Transaction, id: string, e: EntradaPostulacion, cv: EntradaDocumento | null, lic: EntradaDocumento | null,
+    apartados: EntradaDocumento[] = []): Promise<{ rellenados: string[]; cvUsado: boolean; licUsada: boolean; apartadosUsados: Set<string> }> {
     const c = await trx(T).where({ id }).forUpdate().first();
-    if (!c) return { rellenados: [], cvUsado: false, licUsada: false };
+    if (!c) return { rellenados: [], cvUsado: false, licUsada: false, apartadosUsados: new Set() };
     const cambios: Record<string, unknown> = {};
     const rellenados: string[] = [];
     const vacio = (v: unknown) => v == null || String(v).trim() === '';
@@ -280,9 +292,54 @@ export class HrTalentIntakeService {
     if (cvUsado && cv) { nuevos.push(cv); rellenados.push('CV'); }
     const licUsada = !!lic && !(c.license_url && String(c.license_url).trim()) && !tiene('licencia');
     if (licUsada && lic) { nuevos.push(lic); rellenados.push('licencia'); }
+    // `[RH.3.3.4]` Lo que el bot apartó: sólo lo de casilleros que su proceso no tiene (nunca se duplica un casillero).
+    const apartadosUsados = new Set<string>();
+    for (const d of apartados) {
+      const slot = casilleroDe(d);
+      if (slot && slot !== 'otro' && (tiene(slot) || nuevos.some((n) => casilleroDe(n) === slot))) continue;
+      nuevos.push(d);
+      apartadosUsados.add(String(d['storage_key']));
+      rellenados.push(slot ?? 'un documento');
+    }
     if (nuevos.length) cambios['documents'] = JSON.stringify([...docs, ...nuevos]);
     if (Object.keys(cambios).length) await trx(T).where({ id }).update({ ...cambios, last_activity_at: trx.fn.now(), updated_at: trx.fn.now() });
-    return { rellenados, cvUsado, licUsada };
+    return { rellenados, cvUsado, licUsada, apartadosUsados };
+  }
+
+  /**
+   * `[RH.3.3.4]` El bot archiva un documento en el expediente de alguien que YA es candidato (el archivo ya está en el
+   * bucket). Corre en la transacción del bot (con el tenant puesto). Devuelve los casilleros vigentes después de
+   * agregarlo, para decirle qué falta; `null` si el candidato no existe o está en la papelera (no se archiva).
+   */
+  async archivarDelBot(trx: Knex.Transaction, tenant: string, candidateId: string, entrada: EntradaDocumento): Promise<string[] | null> {
+    const c = await trx(T).where({ id: candidateId }).forUpdate().first('id', 'documents', 'deleted_at', 'cv_url');
+    if (!c || c.deleted_at) return null;
+    const docs = [...(Array.isArray(c.documents) ? (c.documents as EntradaDocumento[]) : []), entrada];
+    await trx(T).where({ id: candidateId }).update({ documents: JSON.stringify(docs), last_activity_at: trx.fn.now(), updated_at: trx.fn.now() });
+    const slot = casilleroDe(entrada);
+    await this.nota(trx, tenant, candidateId, 'whatsapp',
+      `Mandó por WhatsApp ${slot && slot !== 'otro' ? `su documento «${slot}»` : 'un documento que el bot no reconoció'}: ${String(entrada['filename'] ?? 'sin nombre')}.`);
+    const vig = docs.filter(vigente).map(casilleroDe).filter((s): s is string => !!s);
+    if (c.cv_url && String(c.cv_url).trim()) vig.push('cv');
+    return [...new Set(vig)];
+  }
+
+  /** `[RH.3.3.4]` Los casilleros vigentes del expediente (para la lista de lo que se le pide). `null` si no existe o está en la papelera. */
+  async casillerosVigentes(trx: Knex.Transaction, candidateId: string):
+    Promise<{ vigentes: string[]; nombre: string | null; telefono: string | null; phone: string | null } | null> {
+    const c = await trx(T).where({ id: candidateId }).first('documents', 'deleted_at', 'cv_url', 'full_name', 'phone', 'phone_key');
+    if (!c || c.deleted_at) return null;
+    const vig = (Array.isArray(c.documents) ? (c.documents as EntradaDocumento[]) : []).filter(vigente).map(casilleroDe).filter((s): s is string => !!s);
+    if (c.cv_url && String(c.cv_url).trim()) vig.push('cv');
+    return {
+      vigentes: [...new Set(vig)], nombre: (c.full_name as string | null) ?? null,
+      telefono: (c.phone_key as string | null) ?? null, phone: (c.phone as string | null) ?? null,
+    };
+  }
+
+  /** `[RH.3.3.4]` Una nota del bot en la bitácora del candidato (en la transacción del bot). */
+  async notaDelBot(trx: Knex.Transaction, tenant: string, candidateId: string, note: string): Promise<void> {
+    await this.nota(trx, tenant, candidateId, 'whatsapp', note);
   }
 
   private async nota(trx: Knex.Transaction, tenant: string, candidateId: string, canal: 'web' | 'whatsapp', note: string): Promise<void> {

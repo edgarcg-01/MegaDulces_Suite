@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   ObjectStorageService, SpeechToTextService, TenantKnexService, htmlAPdf, sanitizarNombre, validarAdjunto, type AdjuntoValido,
@@ -6,7 +6,7 @@ import {
 import type { RecruitmentBotPort, RecruitmentInbound, RecruitmentReply } from '@megadulces/contracts';
 import { HrTalentIntakeService, type EntradaPostulacion } from '../talent-intake.service';
 import { respuestaPublica, type Decision } from '../logic/postulacion';
-import { MAX_DOCUMENTO_BYTES } from '../logic/expediente';
+import { DOCUMENTOS_EXPEDIENTE, MAX_DOCUMENTO_BYTES, casilleroDe, type EntradaDocumento } from '../logic/expediente';
 import {
   avanzarRegistro, comandoInformativo, construirMenu, construirSucursales, construirVacantes, faltantesParaIA,
   postulacionDesdeRegistro, preguntaPendiente, type DatosRegistro, type EstadoOrientacion, type Turno, type VacanteBot,
@@ -19,6 +19,11 @@ import { COMO_LO_VES, aplicarFoto, avanzarArmado, esEstadoArmado, iniciarArmado,
 import { nombreCompleto, type CtxSolicitud } from './solicitud';
 import { consentimientoVigente } from './consentimiento';
 import { htmlCv } from './cv-html';
+import { HrDocumentClassifierService } from './clasificar-documento.service';
+import {
+  acuseDocumento, apartadoAlPedirCv, cierreDocumentos, esFinDocumentos, mensajePedirDocumentos, pendientes, recordatorioDocumentos,
+  sinClasificar, solicitudDeDocumentos, type ClasificacionDocumento, type DocsConversacion,
+} from './documentos';
 
 /**
  * Fase RH · `[RH.3.2]` — el BOT DE RECLUTAMIENTO de la Suite, detrás de `RECRUITMENT_BOT_PORT`: la conversación de
@@ -35,14 +40,33 @@ import { htmlCv } from './cv-html';
  *   · `[RH.3.3.3]` A quien no tiene CV, el bot se lo ARMA: la solicitud de empleo por chat (`application`), la foto al
  *     bucket, el CV en PDF (Chromium compartido) que se le manda para revisar, y al aceptarlo se postula con ese PDF y
  *     su solicitud (`candidates.application`). El PDF se arma FUERA de la transacción (tarda segundos).
+ *   · `[RH.3.3.4]` Los documentos del EXPEDIENTE: RH se los pide (`pedirDocumentos`), los manda en el orden que quiera,
+ *     la visión reconoce cada uno y va a su casillero de `candidates.documents`; «listo» cierra la etapa. A un postulado
+ *     que manda un documento sin que se lo pidan, también se le archiva. Y si se le pedía el CV y mandó su INE, la INE se
+ *     APARTA en la conversación y viaja a su expediente al postularse (así no se le vuelve a pedir).
  *   · Un candado por teléfono: dos mensajes de la misma persona al mismo tiempo no pisan su conversación.
  *
  * No hace: avisarle a RH por WhatsApp (el candidato aparece en el tablero de Reclutamiento).
  */
 
 const T = 'talent.bot_conversations';
+/** `[RH.3.3.4]` Los estados de alguien ya postulado (llevan `outcome = 'postulada'` y su candidato). */
+const POSTULADOS = ['postulada', 'pidiendo_documentos', 'documentos_completos'];
 
-interface Conversacion { state: string; data: DatosRegistro; orientation: EstadoOrientacion | null; application: Aplicacion | null }
+interface Conversacion {
+  state: string; data: DatosRegistro; orientation: EstadoOrientacion | null; application: Aplicacion | null;
+  documents?: DocsConversacion | null; candidate_id?: string | null;
+}
+
+/** `[RH.3.3.4]` Lo que devuelve `pedirDocumentos`: el mensaje para mandarle y cuándo escribió por última vez (la ventana de 24 h de Meta). */
+export interface PeticionDocumentos {
+  telefono: string;
+  /** `[RH.3.3.4b]` El teléfono como llegó de WhatsApp (al que se le contesta); el del candidato si nunca escribió. */
+  telefono_wa: string;
+  solicitados: string[];
+  mensaje: string | null;
+  ultimo_mensaje_en: string | null;
+}
 type Cierre = Partial<Record<'outcome' | 'outcome_reason' | 'candidate_id', string | null>>;
 /** Lo que se le contesta: texto, o un mensaje ya armado (el documento del CV). */
 type Salida = string | RecruitmentReply;
@@ -50,6 +74,12 @@ type Salida = string | RecruitmentReply;
 const NO_TEXTO = 'Por ahora sólo puedo leer *mensajes de texto* 🙏 Escríbeme tu respuesta, por favor.';
 const ARCHIVO_ANTES = 'Recibí tu archivo 📎, pero primero necesito terminar tu registro. Cuando te lo pida, me mandas tu CV.';
 const ARCHIVO_EN_ARMADO = 'Recibí tu archivo 📎, pero ahora toca contestar la pregunta de tu solicitud.';
+const ARCHIVO_RECHAZADA = 'Recibí tu archivo 📎, pero ya revisamos tu solicitud y te respondimos arriba 🙌\n'
+  + 'Si quieres registrarte de nuevo más adelante, escribe *reiniciar*.';
+const SIN_BUCKET_DOC = 'Recibí tu archivo 📎, pero en este momento no lo puedo guardar 😕 Mándamelo de nuevo en un rato, por favor.';
+const DOC_SIN_EXPEDIENTE = 'Recibí tu archivo 📎. Si necesitamos algo más, un reclutador te escribe por aquí. 🙌';
+/** `[RH.3.3.4]` Lo que no es CV pero podría ser del expediente (se le pregunta a la visión a qué casillero va). */
+const TIPOS_DE_EXPEDIENTE = ['identificacion', 'comprobante', 'otro_documento'];
 const POSTULACION_COMPLETA = '✅ ¡Gracias! Con esto tu *postulación queda completa*. Un reclutador revisará tu información y te contactará. 🙌';
 const CV_SUBIDO = '¡Listo! ✅ Subí tu *currículum* a tu postulación. Con esto tu solicitud queda *completa* y un reclutador la va a revisar. ¡Mucha suerte! 🍀';
 const SIN_ARMADO = 'Por ahora no puedo armarte el CV desde aquí 🙏 Mándamelo como *PDF* o *foto* (aunque sea sencillo, con tus datos y tus trabajos anteriores).';
@@ -70,6 +100,8 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     @Optional() private readonly validadorCv?: HrCvValidatorService,
     /** `[RH.3.3.3]` Opcional: sin bucket no se puede armar el CV (no hay dónde guardar la foto ni el PDF); se le pide el suyo. */
     @Optional() private readonly storage?: ObjectStorageService,
+    /** `[RH.3.3.4]` Opcional: sin él (o sin IA), el documento se archiva como «otro» y RH lo acomoda. */
+    @Optional() private readonly clasificador?: HrDocumentClassifierService,
   ) {}
 
   /** `[RH.3.3.3]` El generador de PDF (Chromium compartido). Las pruebas lo sustituyen para no levantar un navegador. */
@@ -121,6 +153,22 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
       const actual = await this.cargar(trx, msg.tenantId, telefono);
       const vacantes = await this.vacantes(trx);
       const texto = (msg.text ?? '').trim();
+
+      // `[RH.3.3.4]` RH le pidió sus documentos: «listo» cierra la etapa; otro texto, se le recuerda qué falta.
+      // («reiniciar» sigue funcionando en cualquier momento, como en todo el registro.)
+      if (actual.state === 'pidiendo_documentos' && actual.candidate_id && texto.toLowerCase() !== 'reiniciar') {
+        const exp = await this.intake.casillerosVigentes(trx, actual.candidate_id);
+        const faltan = pendientes(actual.documents?.solicitados ?? [], exp?.vigentes ?? []);
+        if (!esFinDocumentos(texto)) {
+          await this.guardar(trx, msg, actual, {});
+          return { salidas: [recordatorioDocumentos(faltan)] };
+        }
+        await this.guardar(trx, msg, { ...actual, state: 'documentos_completos' }, {});
+        await this.intake.notaDelBot(trx, msg.tenantId, actual.candidate_id, faltan.length
+          ? `Terminó de mandar sus documentos. Faltan: ${faltan.join(', ')}.`
+          : 'Terminó de mandar sus documentos: llegaron todos los que se le pidieron.');
+        return { salidas: [cierreDocumentos(faltan)] };
+      }
 
       // `[RH.3.3.3]` En el armado manda `armado.ts`, salvo «reiniciar» (vuelve al registro) y los comandos informativos.
       if (esEstadoArmado(actual.state) && texto.toLowerCase() !== 'reiniciar') {
@@ -224,6 +272,9 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
   private async archivo(msg: RecruitmentInbound, telefono: string): Promise<Salida[]> {
     const actual = await this.tk.run(msg.tenantId, (trx) => this.cargar(trx, msg.tenantId, telefono));
     if (actual.state === 'armando_solicitud') return this.fotoDelArmado(msg, telefono, actual);
+    // `[RH.3.3.4]` Ya es candidato: lo que mande va a su expediente (antes se le contestaba «primero termina tu registro»).
+    if (POSTULADOS.includes(actual.state) && actual.candidate_id) return this.documentoDelCandidato(msg, telefono, actual);
+    if (actual.state === 'rechazada') return [ARCHIVO_RECHAZADA];
     if (actual.state !== 'esperando_cv') return this.recordar(msg, telefono, esEstadoArmado(actual.state) ? ARCHIVO_EN_ARMADO : ARCHIVO_ANTES, actual);
 
     const bajado = msg.descargar ? await msg.descargar() : null;
@@ -234,7 +285,7 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     // `[RH.3.3.2]` ¿Es un CV? Lo que claramente no lo es no entra (ni completa la postulación); sin validador, o si no
     // se pudo revisar, se acepta y queda marcado para que RH lo mire.
     const revision: ValidacionCv = this.validadorCv ? await this.validadorCv.validar(v.adjunto.buffer, v.adjunto.contentType) : sinRevisar('sin validador');
-    if (!revision.valido) return [mensajeCvRechazado(revision)];
+    if (!revision.valido) return this.cvRechazado(msg, telefono, v.adjunto, revision);
     return [await this.postularConCv(msg, telefono, actual, v.adjunto, sanitizarNombre(msg.media?.filename ?? null, v.adjunto.contentType),
       { tipo: revision.tipo, motivo: revision.motivo, revisar: revision.revisar }, null)];
   }
@@ -264,6 +315,105 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     return r.efecto === 'armar_cv' ? [...r.respuestas, ...(await this.armarCv(msg, telefono))] : r.respuestas;
   }
 
+  // ── `[RH.3.3.4]` Documentos del expediente ──────────────────────────────────────────────
+
+  /**
+   * RH le pide sus documentos desde la ficha: deja la conversación en `pidiendo_documentos` con la lista y devuelve el
+   * mensaje para mandarle. Si quien se postuló por la web no tiene conversación, se le crea. Sin nada que pedir (ya tiene
+   * todo), no cambia nada y `mensaje` es null. NO manda nada: quien llama decide (la ventana de 24 h de Meta).
+   */
+  async pedirDocumentos(tenantId: string, candidateId: string, elegidos?: string[] | null): Promise<PeticionDocumentos> {
+    return this.tk.run(tenantId, async (trx) => {
+      const exp = await this.intake.casillerosVigentes(trx, candidateId);
+      if (!exp) throw new NotFoundException('Candidato no encontrado (o está en la papelera).');
+      if (!exp.telefono || !exp.phone) throw new BadRequestException('El candidato no tiene teléfono: no se le pueden pedir documentos por WhatsApp.');
+      const faltantes = DOCUMENTOS_EXPEDIENTE.filter((d) => d.obligatorio && !exp.vigentes.includes(d.key)).map((d) => d.key);
+      const solicitados = solicitudDeDocumentos(elegidos, faltantes);
+      if (!solicitados.length) return { telefono: exp.telefono, telefono_wa: exp.phone, solicitados, mensaje: null, ultimo_mensaje_en: null };
+      const actual = await this.cargar(trx, tenantId, exp.telefono);
+      const fila = await trx(T).where({ phone_key: exp.telefono }).first('last_inbound_at', 'phone');
+      const documents: DocsConversacion = { ...(actual.documents ?? {}), solicitados, pedidos_en: new Date().toISOString() };
+      const cambios = {
+        state: 'pidiendo_documentos', outcome: 'postulada', outcome_reason: null, candidate_id: candidateId,
+        documents: JSON.stringify(documents), updated_at: trx.fn.now(),
+      };
+      const n = await trx(T).where({ phone_key: exp.telefono }).update(cambios);
+      if (!n) await trx(T).insert({ tenant_id: tenantId, phone: exp.phone, ...cambios });
+      await this.intake.notaDelBot(trx, tenantId, candidateId, `Se le pidieron sus documentos por WhatsApp: ${solicitados.join(', ')}.`);
+      return {
+        telefono: exp.telefono, telefono_wa: (fila?.phone as string | undefined) ?? exp.phone, solicitados,
+        mensaje: mensajePedirDocumentos(exp.nombre, solicitados),
+        ultimo_mensaje_en: fila?.last_inbound_at ? new Date(fila.last_inbound_at as string).toISOString() : null,
+      };
+    });
+  }
+
+  /** Un documento de alguien que ya es candidato: la visión dice a qué casillero va, y se archiva en su expediente. */
+  private async documentoDelCandidato(msg: RecruitmentInbound, telefono: string, actual: Conversacion): Promise<Salida[]> {
+    const bajado = msg.descargar ? await msg.descargar() : null;
+    if (!bajado) return ['No pude abrir tu archivo 😕 ¿Me lo mandas de nuevo, en *PDF* o *foto*?'];
+    const v = validarAdjunto(`data:${bajado.mime};base64,${Buffer.from(bajado.buffer).toString('base64')}`, MAX_DOCUMENTO_BYTES);
+    if (!v.ok) return [`No pude usar ese archivo: ${v.detalle}. Mándalo como *PDF* o *foto*, por favor.`];
+    if (!this.storage) return [SIN_BUCKET_DOC];
+    const adj = v.adjunto;
+    const c = this.clasificador ? await this.clasificador.clasificar(adj.buffer, adj.contentType) : sinClasificar('sin clasificador');
+    const nombre = sanitizarNombre(msg.media?.filename ?? null, adj.contentType);
+    const { key } = await this.storage.putBuffer(adj.buffer, adj.contentType, `talent/${msg.tenantId}/${actual.candidate_id}`, nombre);
+    const r = await this.tk.run(msg.tenantId, async (trx) => {
+      const fresca = await this.cargar(trx, msg.tenantId, telefono);
+      if (!POSTULADOS.includes(fresca.state) || !fresca.candidate_id) return null;
+      const vigentes = await this.intake.archivarDelBot(trx, msg.tenantId, fresca.candidate_id, this.entradaBot(c, nombre, adj, key));
+      if (!vigentes) return null;
+      await this.guardar(trx, msg, fresca, {});
+      return { vigentes, fresca };
+    });
+    if (!r) {
+      await this.storage.remove(key).catch(() => undefined);
+      return [DOC_SIN_EXPEDIENTE];
+    }
+    const faltan = pendientes(r.fresca.documents?.solicitados ?? [], r.vigentes);
+    return [acuseDocumento(c, faltan, r.fresca.state === 'pidiendo_documentos')];
+  }
+
+  /**
+   * Se le pedía el CV y mandó otra cosa. No completa la postulación (`[RH.3.3.2]`), pero si es un documento del
+   * expediente (su INE, su comprobante) se APARTA en la conversación y viaja a su expediente al postularse.
+   */
+  private async cvRechazado(msg: RecruitmentInbound, telefono: string, adj: AdjuntoValido, revision: ValidacionCv): Promise<Salida[]> {
+    const base = mensajeCvRechazado(revision);
+    if (!this.clasificador || !this.storage || !TIPOS_DE_EXPEDIENTE.includes(revision.tipo)) return [base];
+    const c = await this.clasificador.clasificar(adj.buffer, adj.contentType);
+    const slot = c.slot;
+    if (!slot || slot === 'cv') return [base];
+    const nombre = sanitizarNombre(msg.media?.filename ?? null, adj.contentType);
+    const { key } = await this.storage.putBuffer(adj.buffer, adj.contentType, `talent/${msg.tenantId}/bot-docs`, nombre);
+    const reemplazados = await this.tk.run(msg.tenantId, async (trx) => {
+      const fresca = await this.cargar(trx, msg.tenantId, telefono);
+      if (fresca.state !== 'esperando_cv') return null;
+      const docs = fresca.documents ?? {};
+      const previos = docs.apartados ?? [];
+      // Uno por casillero: si vuelve a mandar su INE, queda la última.
+      const apartados = [...previos.filter((d) => casilleroDe(d) !== slot), this.entradaBot(c, nombre, adj, key)];
+      await this.guardar(trx, msg, { ...fresca, documents: { ...docs, apartados } }, {});
+      return previos.filter((d) => casilleroDe(d) === slot);
+    });
+    if (!reemplazados) {
+      await this.storage.remove(key).catch(() => undefined);
+      return [base];
+    }
+    for (const d of reemplazados) await this.storage.remove(String(d['storage_key'])).catch(() => undefined);
+    return [`${base}\n\n${apartadoAlPedirCv(slot)}`];
+  }
+
+  /** La entrada del expediente para un documento que llegó por WhatsApp (sin reconocer = «otro», con su motivo). */
+  private entradaBot(c: ClasificacionDocumento, nombre: string, adj: AdjuntoValido, key: string): EntradaDocumento {
+    return {
+      slot: c.slot ?? 'otro', filename: nombre, mime_type: adj.contentType, size_bytes: adj.sizeBytes, storage_key: key,
+      origen: 'whatsapp', recibido_en: new Date().toISOString(), subido_por: null, subido_por_nombre: 'bot',
+      clasificacion: { motivo: c.motivo, revisada_por_ia: c.clasificado },
+    };
+  }
+
   /** Postula con un CV (el que mandó o el armado) y cierra la conversación con el resultado. */
   private async postularConCv(msg: RecruitmentInbound, telefono: string, actual: Conversacion, adjunto: AdjuntoValido, archivo: string,
     validacion: { tipo: string; motivo: string; revisar: boolean }, app: Aplicacion | null): Promise<string> {
@@ -273,6 +423,7 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
       cv: { adjunto, file_name: archivo }, license: null,
       portal_data: { ...(actual.orientation ? { orientacion: actual.orientation } : {}), validacion_cv: validacion },
       application: app ? { ...app } : null,
+      documentos: actual.documents?.apartados ?? null,
     };
     let d: Decision;
     try {
@@ -284,10 +435,12 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     }
     await this.tk.run(msg.tenantId, async (trx) => {
       const fresca = await this.cargar(trx, msg.tenantId, telefono); // toma el candado por teléfono
+      // Los apartados ya los usó (o los borró del bucket) la postulación: no se quedan en la conversación.
+      const documents: DocsConversacion | null = fresca.documents ? { ...fresca.documents, apartados: [] } : null;
       if (d.accion === 'crear') {
-        await this.guardar(trx, msg, { ...fresca, state: 'postulada' }, { outcome: 'postulada', outcome_reason: null, candidate_id: d.candidato_id ?? null });
+        await this.guardar(trx, msg, { ...fresca, state: 'postulada', documents }, { outcome: 'postulada', outcome_reason: null, candidate_id: d.candidato_id ?? null });
       } else {
-        await this.guardar(trx, msg, { ...fresca, state: 'rechazada' }, { outcome: 'rechazada', outcome_reason: d.motivo, candidate_id: d.candidato_id });
+        await this.guardar(trx, msg, { ...fresca, state: 'rechazada', documents }, { outcome: 'rechazada', outcome_reason: d.motivo, candidate_id: d.candidato_id });
       }
     });
     return d.accion === 'crear' ? POSTULACION_COMPLETA : respuestaPublica(d, true);
@@ -320,14 +473,16 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
 
   /** La conversación sin tomar el candado (para decidir si consultar a la IA). */
   private async leer(trx: Knex.Transaction, telefono: string): Promise<Conversacion> {
-    const fila = await trx(T).where({ phone_key: telefono }).first('state', 'data', 'orientation', 'application');
-    if (!fila) return { state: 'nuevo', data: {}, orientation: null, application: null };
+    const fila = await trx(T).where({ phone_key: telefono }).first('state', 'data', 'orientation', 'application', 'documents', 'candidate_id');
+    if (!fila) return { state: 'nuevo', data: {}, orientation: null, application: null, documents: null, candidate_id: null };
     const objeto = (v: unknown): boolean => !!v && typeof v === 'object' && !Array.isArray(v);
     return {
       state: String(fila.state),
       data: objeto(fila.data) ? (fila.data as DatosRegistro) : {},
       orientation: objeto(fila.orientation) ? (fila.orientation as EstadoOrientacion) : null,
       application: objeto(fila.application) ? (fila.application as Aplicacion) : null,
+      documents: objeto(fila.documents) ? (fila.documents as DocsConversacion) : null,
+      candidate_id: (fila.candidate_id as string | null) ?? null,
     };
   }
 
@@ -335,6 +490,11 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     const cambios = {
       state: c.state, data: JSON.stringify(c.data), orientation: c.orientation ? JSON.stringify(c.orientation) : null,
       application: c.application ? JSON.stringify(c.application) : null,
+      // `[RH.3.3.4]` Sólo si el turno la trae: un turno que no habla de documentos no los borra.
+      ...(c.documents !== undefined ? { documents: c.documents ? JSON.stringify(c.documents) : null } : {}),
+      // `[RH.3.3.4b]` El teléfono como llega de WhatsApp (con lada): a una conversación creada desde la web (10 dígitos)
+      // no se le podría contestar después.
+      phone: msg.phone,
       profile_name: msg.profileName ?? null, last_inbound_at: trx.fn.now(), updated_at: trx.fn.now(), ...extra,
     };
     // Actualizar o insertar, NO `ON CONFLICT … DO UPDATE`: Postgres valida los CHECK sobre la fila propuesta del INSERT
@@ -342,7 +502,7 @@ export class HrRecruitmentBotService implements RecruitmentBotPort {
     // Es seguro porque `cargar` ya tomó el candado por teléfono en esta transacción.
     const telefono = String(msg.phone).replace(/\D/g, '').slice(-10);
     const n = await trx(T).where({ phone_key: telefono }).update(cambios);
-    if (!n) await trx(T).insert({ tenant_id: msg.tenantId, phone: msg.phone, ...cambios });
+    if (!n) await trx(T).insert({ tenant_id: msg.tenantId, ...cambios });
   }
 
   private async vacantes(trx: Knex.Transaction): Promise<VacanteBot[]> {
