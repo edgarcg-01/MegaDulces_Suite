@@ -290,6 +290,97 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
         'ningún documento se pega al 16%: la columna no es el IVA y el neto estaría mal');
     }
 
+    // ── 8d. `[VEC.15]` La identidad CABECERA ↔ LÍNEAS, que cierra a centavos ───────────────
+    //
+    // Edgar: *"¿ya tenemos una conciliación que no haya ninguna diferencia?"*. La había, pero con
+    // un renglón sin nombre: la pantalla publica `kdm1.c16` y el sell-out suma `kdm2.c13`, y entre
+    // los dos quedaba una diferencia que se rotulaba «prorrateo del descuento» sin demostrarla.
+    //
+    // ⭐ **El patrón estaba en las filas incorrectas.** De los 22 documentos de sep-2026 que no
+    // cuadraban, en TODOS la diferencia excedía al descuento por un factor de 1.07–1.10. Eso es
+    // exactamente lo que `ERP_KEPLER` §2.6 ya había decodificado: **`c13` está SIN impuesto y el
+    // total está CON impuesto**. La identidad completa es:
+    //
+    //     Σ kdm2.c13  =  kdm1.c16  +  c13 × (1 + (c14+c15)/(c16−c14−c15))
+    //
+    // Medido contra prod el 2026-10-15: julio **$0.06** (0 de 1,689 docs fallan) · septiembre
+    // **$0.70** (1 de 2,553) · octubre **$0.02** (0 de 1,371). Eso es redondeo, no descuadre.
+    //
+    // ⛔ **Agosto es la excepción, y NO es la fórmula**: 28 documentos ($26,016.13) del **17-ago**
+    // en las sucursales 02 y 05. Ese día la ingesta de `kdm2` llegó incompleta — y el hueco
+    // excede a la vecinal: **167 documentos de venta y $45,033.28** sin un solo renglón, de los
+    // que sólo el 54% es vecinal. Los días 15, 16, 18 y 19 tienen CERO. Se declara, no se absorbe.
+    const EXC = `(btrim(h.sucursal) IN ('02','05') AND h.c9::date = DATE '2026-08-17')`;
+    const ident = (await db.raw(
+      `WITH d AS (
+         SELECT btrim(h.sucursal) s, h.c5::integer cj, btrim(h.c6) f,
+                h.c16 total, COALESCE(h.c13,0) dd, COALESCE(h.c14,0) iva, COALESCE(h.c15,0) ieps
+           FROM kepler_ods.kdm1 h
+          WHERE h.c2='U' AND h.c3='D' AND h.c4::integer=10
+            AND btrim(COALESCE(h.c12,'')) ~ '^[0-9]V[0-9]'
+            AND btrim(COALESCE(h.c1,'')) = btrim(h.sucursal)
+            AND COALESCE(NULLIF(btrim(h.c43),''),'') <> 'C'
+            AND h.c9::date >= current_date - 60 AND h.c9::date < current_date
+            AND NOT ${EXC}),
+       l AS (
+         SELECT d.s, d.cj, d.f, sum(x.c13) lineas
+           FROM d JOIN kepler_ods.kdm2 x
+             ON btrim(x.sucursal)=d.s AND x.c2='U' AND x.c3='D' AND x.c4::integer=10
+            AND x.c5::integer=d.cj AND btrim(x.c6)=d.f AND btrim(x.c1)=d.s
+          GROUP BY 1,2,3)
+       SELECT count(*)::int AS docs,
+              round(sum(l.lineas - d.total
+                   - d.dd*(1+(d.iva+d.ieps)/NULLIF(d.total-d.iva-d.ieps,0))),2) AS residuo,
+              count(*) FILTER (WHERE abs(l.lineas - d.total
+                   - d.dd*(1+(d.iva+d.ieps)/NULLIF(d.total-d.iva-d.ieps,0))) > 0.02)::int AS fallan,
+              round(sum(d.dd),2) AS descuento_neto
+         FROM d JOIN l ON l.s=d.s AND l.cj=d.cj AND l.f=d.f`)).rows[0];
+
+    if (!Number(ident.docs)) {
+      noMedido('la identidad cabecera ↔ líneas cierra', 'no hay documentos vecinales en los 60 días');
+    } else {
+      // Tolerancia $5 sobre decenas de miles de documentos: lo medido es $0.02–$0.70 al mes.
+      t(`cabecera + descuento con impuesto = líneas en ${ident.docs - ident.fallan} de ${ident.docs} `
+        + `documentos · residuo ${Number(ident.residuo).toFixed(2)}`,
+        Math.abs(Number(ident.residuo)) <= 5,
+        `residuo ${ident.residuo}: la venta vecinal dejó de cuadrar contra sus propios renglones`);
+
+      /**
+       * ⛔ **Prueba NEGATIVA — el renglón que esto existe para no volver a dar por bueno.** Si
+       * bastara el descuento TAL CUAL (`c13`, sin impuesto), la identidad cerraría igual. Se
+       * exige que NO: con el descuento neto el residuo tiene que ser materialmente peor.
+       *
+       * ⚠️ Si en el período no hubo descuentos, esto NO pasa a ✔ — reporta NO MEDIDO. Un mes sin
+       * descuento no prueba que haya que brutearlo: prueba que no hubo con qué distinguirlo.
+       */
+      if (Math.abs(Number(ident.descuento_neto)) < 1) {
+        noMedido('el descuento hay que brutearlo (prueba negativa)',
+          'no hubo descuentos en el período: las dos fórmulas dan lo mismo');
+      } else {
+        const crudo = (await db.raw(
+          `WITH d AS (
+             SELECT btrim(h.sucursal) s, h.c5::integer cj, btrim(h.c6) f, h.c16 total, COALESCE(h.c13,0) dd
+               FROM kepler_ods.kdm1 h
+              WHERE h.c2='U' AND h.c3='D' AND h.c4::integer=10
+                AND btrim(COALESCE(h.c12,'')) ~ '^[0-9]V[0-9]'
+                AND btrim(COALESCE(h.c1,'')) = btrim(h.sucursal)
+                AND COALESCE(NULLIF(btrim(h.c43),''),'') <> 'C'
+                AND h.c9::date >= current_date - 60 AND h.c9::date < current_date
+                AND NOT ${EXC}),
+           l AS (
+             SELECT d.s, d.cj, d.f, sum(x.c13) lineas
+               FROM d JOIN kepler_ods.kdm2 x
+                 ON btrim(x.sucursal)=d.s AND x.c2='U' AND x.c3='D' AND x.c4::integer=10
+                AND x.c5::integer=d.cj AND btrim(x.c6)=d.f AND btrim(x.c1)=d.s
+              GROUP BY 1,2,3)
+           SELECT round(sum(l.lineas - d.total - d.dd),2) AS residuo
+             FROM d JOIN l ON l.s=d.s AND l.cj=d.cj AND l.f=d.f`)).rows[0];
+        t(`prueba negativa: con el descuento SIN impuesto el residuo salta a ${Number(crudo.residuo).toFixed(2)}`,
+          Math.abs(Number(crudo.residuo)) > 5,
+          'las dos fórmulas dan lo mismo: la corrección por impuesto no está probando nada');
+      }
+    }
+
     // ── 9. `[VEC.11]` El puente Kepler ↔ Suite CIERRA ──────────────────────────────────────
     //
     // El panel publica una resta: lo que muestra esta pantalla, más el prorrateo del descuento,

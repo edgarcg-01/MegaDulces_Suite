@@ -204,3 +204,78 @@ mejora del 30 % que **sigue por encima del gate**. El plan lo explica: el costo 
 **Para retirar la copia hace falta primero que la vista viva baje del gate**, y eso es trabajo con
 migración (índices sobre `kepler_ods.kduv` por las expresiones `btrim`, y una reescritura del
 lateral). Hasta entonces la copia se queda, declarada, con PK y con latido.
+
+---
+
+# `[VEC.15]` — La conciliación que cierra a centavos, y el único hueco que queda
+
+> Edgar, 2026-10-15: *"¿ya tenemos una conciliación de las ventas de vecinal con Kepler, que no
+> haya ninguna diferencia?"*. **Sí — y acá está la identidad, con su excepción nombrada.**
+
+## La identidad
+
+```
+Σ kdm2.c13  =  kdm1.c16  +  c13 × (1 + (c14 + c15) / (c16 − c14 − c15))
+   líneas       cabecera      descuento BRUTEADO a la tasa del documento
+```
+
+Medido contra prod (2026-10-15), venta vecinal `U-D-10`:
+
+| mes | documentos | residuo | docs que no cierran |
+|---|---:|---:|---:|
+| julio | 1,689 | **$0.06** | 0 |
+| septiembre | 2,553 | **$0.70** | 1 |
+| octubre | 1,371 | **$0.02** | 0 |
+| **últimos 60 días (candado)** | **4,720** | **$0.74** | **1** |
+
+Eso es redondeo, no descuadre.
+
+## ⭐ Cómo apareció: el patrón estaba en las filas INCORRECTAS
+
+El puente de `[VEC.11]` tenía un renglón rotulado *«prorrateo del descuento»* que **nadie había
+demostrado** — era el nombre que se le puso a una diferencia. Al mirar los **22 documentos de
+sep-2026 que no cuadraban**, en **todos** la diferencia excedía al descuento por un factor de
+**1.07–1.10**:
+
+```
+suc 07 · 2V003 · 18-sep · folio 0000513
+  cabecera 4,767.01   líneas 4,914.44   dif 147.43   descuento(c13) 135.26
+  147.43 / 135.26 = 1.0900
+```
+
+`ERP_KEPLER` §2.6 ya lo tenía decodificado y el puente no lo estaba usando: **`c13` está SIN
+impuesto y el total está CON impuesto.** El factor no es constante (1.07–1.10) porque cada ticket
+mezcla tasas — por eso se brutea con la tasa **de ese documento**, no con un 16% fijo.
+
+⚠️ El candado lleva la **prueba negativa**: con el descuento tal cual (`c13`, sin brutear) el
+residuo salta de **$0.74 a $406.70**. Si las dos fórmulas dieran lo mismo, la corrección no
+estaría probando nada y la aserción reporta `NO MEDIDO`, no ✔.
+
+## ⛔ El único hueco: el 17-ago-2026, y es MÁS GRANDE que la vecinal
+
+Agosto no cierra: **28 documentos, $26,016.13**. No es la fórmula — es que ese día la ingesta de
+`kdm2` llegó incompleta a las sucursales **02 y 05**. Y al medir el día entero, el hueco excede a
+esta fase:
+
+| sucursal | canal | docs | sin renglones | venta sin renglones |
+|---|---|---:|---:|---:|
+| 02 | mostrador / otro | 307 | **118** | $17,051.82 |
+| 02 | vecinal | 20 | 18 | $10,692.43 |
+| 05 | mostrador / otro | 182 | 25 | $3,740.78 |
+| 05 | vecinal | 16 | 6 | $13,548.25 |
+| | | | **167** | **$45,033.28** |
+
+**Sólo el 54% es vecinal.** Los otros doctypes del mismo día también: `U-D-5` 18 de 25 en la 02,
+`U-D-40` 4 de 4. Y los días **15, 16, 18 y 19 tienen CERO** documentos sin renglones en `U-D-10`
+— o sea que es un día, no un régimen.
+
+⭐ **Cualquier pantalla que sume renglones subdeclara ese día**: el sell-out, los productos más
+vendidos, el margen. No es un problema de la vecinal; la vecinal fue el **detector**.
+
+⚠️ **Lo que NO está establecido**: si las líneas existen en la réplica de la sucursal y no
+llegaron al ODS, o si Kepler tampoco las tiene. Eso se decide mirando la réplica de `02`/`05`, y
+no se hizo. Se declara en vez de nombrar la causa.
+
+El candado **excluye ese día explícitamente** (`sucursal IN ('02','05') AND día = 2026-08-17`) para
+que la identidad se pueda vigilar sin que un incidente viejo la deje roja para siempre — pero la
+exclusión está escrita a la vista, con su monto, no escondida en un umbral.
