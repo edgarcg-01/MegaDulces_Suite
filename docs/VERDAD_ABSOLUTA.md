@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 307 KB, 4624 líneas, 33 secciones.
+> **Índice navegable** — 308 KB, 4638 líneas, 33 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -37,9 +37,9 @@
 | 3684 | 3835 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
 | 3836 | 4041 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
 | 4042 | 4131 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4132 | 4307 | 9 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4308 | 4376 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4377 | 4669 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4132 | 4321 | 10 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4322 | 4390 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4391 | 4683 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4273,19 +4273,33 @@ movimiento, y el libro más las dos piernas de CAOS. Coinciden al centavo.
 | **saldo de la bóveda** | — | ⛔ **límite de la fuente**: CAOS no lo publica |
 | faltante del arqueo del 12-oct | $62.45 | operación |
 
-### 28.9 ⛔⛔ El corte del 12-oct NO se puede sellar con el código desplegado
+### 28.9 El corte del 12-oct no se podía sellar con el código desplegado — ⭐ el impedimento de CÓDIGO se levantó el 2026-10-15
 
-La API de prod corre `1e9b7788`, **anterior a `[CG.115]`**. Con ese código, `cerrar()` barre
-**todo** lo que tenga `corte_id IS NULL` sin mirar la fecha: medido el 2026-10-13, son **58
-movimientos del 25-sep al 10-dic**, y el esperado que publica es **−$85,818.37** (reproducido al
-centavo contra prod).
+**Lo que pasaba (2026-10-13).** La API de prod corría `1e9b7788`, **anterior a `[CG.115]`**. Con ese
+código, `cerrar()` barre **todo** lo que tenga `corte_id IS NULL` sin mirar la fecha: medido ese día,
+son **58 movimientos del 25-sep al 10-dic**, y el esperado que publica es **−$85,818.37** (reproducido
+al centavo contra prod).
 
 ⛔ Sellar así no sólo firmaría un número imposible: **ataría al corte del 12-oct los $130,000 del
 25-sep y todo lo del 13**, y esos días ya no podrían cuadrarse nunca — un movimiento atado a un
 corte deja de estar suelto.
 
-**El corte del 12-oct se sella DESPUÉS de desplegar `[CG.115]`.** Con el arreglo, el mismo corte
-publica **$3,402.45** sobre 23 movimientos de su jornada.
+**⭐ Medido el 2026-10-15 11:45 (MX):** `GET /api/health` de prod devuelve **`ab0b06655`** (= `ci-green`
+= `prod-release`, arrancado minutos antes), y ese commit **contiene** `2e0437aef`
+(`[CG.112/113/114/115/116]`) y los dos arreglos de `[CG.160]` (`e5a438abc`, `9e77b3ba5`). O sea: **el
+impedimento de código ya no aplica**, y con él se levanta también lo que `CGP-0.1` pedía.
+
+⚠️ **Lo que esto NO dice.** Que el commit desplegado traiga el arreglo **no es** haber comprobado el
+número: falta la lectura de prod de `CGP-0.2` (transacción `READ ONLY`, rol `app_runtime`) que
+reproduzca el esperado **$3,402.45** sobre los 23 movimientos de la jornada del 12. Hasta esa lectura,
+el $3,402.45 sigue siendo la derivación de §28.6, no una medición del endpoint. Y **con qué conteo se
+sella** sigue siendo la decisión abierta `CGP-0.3` (§28.6: $3,340.00 contado contra el $3,653.50 que
+`FASE_CG` reporta sellado el 14-oct).
+
+⛔ **Un SHA escrito en prosa envejece el mismo día en que se escribe** — esta sección ya cargó dos
+(`1e9b7788`, y `62fb99896` en `FASE_CG §37.5`). El resolvedor de «qué corre en prod» es
+`curl http://192.168.0.222:30080/api/health`; lo que se escribe acá es la medición **con su fecha y
+hora**, nunca el estado presente.
 
 ### 28.10 Las trampas que cobraron escribiendo esta sección
 

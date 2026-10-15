@@ -3227,9 +3227,14 @@ en un solo lugar y tiene candado **con mutación verificada** (invertir ruta/pla
 
 ### 37.5 · Pendiente
 
-- **`git push`** (sin autorizar) + **deploy**. ⛔ Verificado por esta sesión, no de oídas: el
-  renglón de `auto-deploy.sh` en el `crontab` de `md` está **comentado**; prod sirve la imagen
-  `62fb99896`, **12 commits atrás** del `main` local. Sin prender ese carril, nada de esto llega.
+- **`git push`** (sin autorizar) + **deploy**. ⛔ Verificado por esa sesión, no de oídas: el
+  renglón de `auto-deploy.sh` en el `crontab` de `md` está **comentado**. Sin prender ese carril,
+  nada de esto llega solo.
+  > ⭐ **El SHA que decía este renglón (`62fb99896`, «12 commits atrás») queda como lo que era: una
+  > medición con fecha, no un estado.** Medido el **2026-10-15 11:45 (MX)**, prod sirve
+  > **`ab0b06655`**, 15 commits detrás de `main`. El resolvedor es
+  > `curl http://192.168.0.222:30080/api/health`; escribir el SHA en prosa sin su hora es lo que
+  > produjo los tres estados de despliegue contradictorios de §11.4 del plan por capas.
 - **Validación visual** del panel, de la pestaña y de las dos columnas nuevas.
 - **Decisión de negocio, no de software:** 18 de 749 depósitos capturados; y pedir que al depositar
   se teclee siempre ruta y día — es el único camino que cierra el 45.5% sin fecha.
@@ -3313,18 +3318,64 @@ Aritmética del cajón por jornada (libro + las dos piernas de CAOS), medida en 
 | **13-oct** | 36 | **−$28,784.79** | ⛔ imposible |
 | 14-oct (hoy) | 10 | +$4,915 sobre el fondo | ✅ |
 
-El 13 no cierra porque **el cajón bajó $32,438.29 ese día arrancando con $3,653.50**: el 10-oct la
-máquina dispensó **$165,410 que nadie capturó**, ese efectivo se gastó sin registro, y lo que entró
-después se depositó el 13. No falta código: **falta captura de los días 7 al 10 de octubre**.
+El 13 no cierra: **el cajón bajó $32,438.29 ese día arrancando con $3,653.50**. No falta código.
 
-⇒ Es la causa raíz de «el cajón tiene −$29,110.79»: no es dinero perdido, es la frontera de una
-jornada que arrastra días que nunca se cerraron.
+> ⛔⛔ **CORRECCIÓN 2026-10-15 — la causa que decía este párrafo está REFUTADA, y se deja escrita
+> para que nadie la reconstruya.** Decía: *«el 10-oct la máquina dispensó $165,410 que nadie capturó
+> ⇒ falta captura de los días 7 al 10 de octubre»*. **`VERDAD_ABSOLUTA §28.5` lo midió hora por hora
+> y las tres dispensaciones del sábado 10-oct tienen dueño (3 de 3):** $55,150 → Control `A23639`
+> (11:56); $105,260 → Control `A23640` (12:43); $5,000 → el libro. Suman exactamente los $165,410.
+>
+> ⭐ **El error no fue de dato, fue de grano:** sumar día contra día destruye el pareo. Es la trampa
+> nº 1 de `VERDAD_ABSOLUTA §28.10`, y esta nota la volvió a pisar **al día siguiente** de que se
+> escribiera. *Si los dos lados traen hora, el pareo se hace con la hora.*
+>
+> **Lo que sí está medido** (`§28.8`, con nombre y monto): la dispensación del **12-oct 12:29 ·
+> $13,800** sin dueño, y **$53,573** del 13-oct sin dueño con el día todavía abierto. La causa del
+> cajón del 13 **no está establecida**: es lo que mide `CGP-0.5`, y hasta entonces se declara, no se
+> afirma.
+>
+> ⚠️ Y los tres saldos del 13-oct que circulan en esta fase —**−$28,784.79**, **−$29,110.79** y el
+> **−$32,438.29** de arriba— no están conciliados entre sí (§11.3 del plan por capas). Ninguno se
+> cita como «el saldo del 13» hasta que una sola lectura los explique.
 
 ### Pendiente
 
-- **Empujar + soltar** (sin autorizar al cierre de esta nota) y **re-login no hace falta**: sin
-  migraciones ni permisos nuevos.
-- **Cerrar `CC-2026-00001`** desde la pantalla, en cuanto esto esté afuera.
-- **Decisión de Edgar:** qué se hace con el 13-oct — capturar lo que falta del 7 al 10, o declarar
+- ~~**Empujar + soltar**~~ ✅ **hecho y verificado el 2026-10-15 11:45 (MX)**: `/api/health` devuelve
+  `ab0b06655`, que **contiene** `e5a438abc` y `9e77b3ba5` (los dos arreglos de `[CG.160]`) y
+  `2e0437aef` (`[CG.112/113/114/115/116]`). **Re-login no hizo falta**: sin migraciones ni permisos
+  nuevos. Es la aceptación de `CGP-0.1`.
+- **Cerrar `CC-2026-00001`** desde la pantalla. ⚠️ El impedimento de **código** ya no existe (arriba);
+  lo que falta es la lectura de `CGP-0.2` que reproduzca el esperado **$3,402.45** contra prod, y la
+  decisión `CGP-0.3` de con qué conteo se sella. **El cierre no tiene vuelta atrás**: no se sella sin
+  esas dos cosas.
+- **Decisión de Edgar (`CGP-0.6`):** qué se hace con el 13-oct — capturar lo que falte, o declarar
   esos días fuera del libro y arrancar el arqueo el 12. ⛔ Lo que **no** se va a hacer es inventarle
   un conteo a un día que ya pasó.
+  ⚠️ **La decisión va DESPUÉS de `CGP-0.5`, no antes.** Este renglón decía «capturar lo que falta del
+  7 al 10», que descansa sobre la hipótesis de los $165,410 **refutada arriba**: elegir sobre ella es
+  capturar contra un hueco que la medición hora por hora no encontró. Lo medido y sin dueño es
+  **$13,800 del 12-oct 12:29** y **$53,573 del 13-oct** (`VERDAD_ABSOLUTA §28.8`).
+
+---
+
+## §11 del plan por capas — estado medido el 2026-10-15
+
+> ⚠️ **Esto corrige la lista «Documentación a corregir» de
+> [`FASE_CG_PLAN_POR_CAPAS`](FASE_CG_PLAN_POR_CAPAS.md) §11, y vive acá a propósito:** ese archivo lo
+> está modificando el PR **#416**, y editarlo en `main` sembraría un conflicto. **Se fusiona en §11
+> cuando #416 aterrice.**
+
+| # de §11 | Qué decía | Medido hoy |
+|---|---|---|
+| 1 | `CG.160` contradice `VA §28.5`/`§28.10` | ✅ **cierto y corregido**: los $165,410 eran 3 dispensaciones **con dueño**; la nota los daba por no capturados. Queda escrita como refutada |
+| 2 | conteo del 12-oct: $3,340.00 contra $3,653.50 | ✅ cierto. **No se resuelve sin `CGP-0.3`** (decisión + lectura de prod); los dos documentos ya apuntan a la decisión en vez de afirmar cada uno el suyo |
+| 3 | tres saldos distintos del 13-oct | ✅ cierto: **−$28,784.79**, **−$29,110.79**, **−$32,438.29**. Declarado en `CG.160`; lo concilia `CGP-0.5` |
+| 4 | tres estados de despliegue | ✅ cierto y **cerrado por medición**: prod sirve `ab0b06655` (2026-10-15 11:45 MX). Corregidos `§37.5` y `VA §28.9`; el resolvedor es `/api/health`, no la prosa |
+| 5 | números duplicados **y SHAs que no existen** | ⚠️ **a medias.** Duplicados: **ciertos** — `CG.98` es a la vez los chips con teclado y «el cajón es UNO»; `CG.130` es a la vez el fondo no declarado y la lección del rol. `CG.160` tiene **una sola** definición. ⛔ **Los «SHAs que no existen» son FALSOS**: de los 42 citados en los cuatro docs de CG, **todos existen**; los 12 que un grep marca ausentes son **códigos de cuenta contable** (`41000000`…) y un folio (`0000024`) con la misma forma que un SHA corto |
+| 6 | tracker sin `CG > 42`; CHANGELOG sin `CG.115` ni `CG.152–160` | ✅ cierto, medido: el tracker llega a **CG.42** (más un `CG.117` suelto) y el CHANGELOG a **CG.150**, mientras `FASE_CG` documenta hasta **CG.180**. ⬜ **No se reparó acá**: #416 ya agrega 171 renglones al tracker |
+| 7 | `CAOS_CASH_SYSTEM.md` dice que CAOS *es* la Caja General | ✅ cierto y corregido en ese archivo: el modelo vigente son **dos cajas**, y el propio documento ya tenía medido tres párrafos más abajo que por CAOS pasa **~40%** |
+
+⭐ **Lo que deja esta pasada:** de los 7 renglones, **uno estaba mal** (el 5) y nadie lo había
+comprobado — *una lista de «documentación a corregir» también es documentación, y también envejece
+sin que nadie la mida.*
