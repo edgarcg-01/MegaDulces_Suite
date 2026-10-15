@@ -228,6 +228,68 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
     t('la venta de una ruta nunca excede lo vecinal de su caja', Number(excede.mal) === 0,
       `${excede.mal} filas donde la parte es mayor que el todo: el join de caja está mal`);
 
+    // ── 8c. `[VEC.14]` El NETO: el negocio cuenta sin IVA ni IEPS ──────────────────────────
+    //
+    // La vista publica `ieps` y `neto` porque `impuesto` sola (= `c14`) deja el IEPS adentro.
+    // Las tasas se arbitran con el DINERO, no con la documentación.
+    const cols = (await db.raw(
+      `SELECT count(*) FILTER (WHERE attname = 'ieps')::int AS tiene_ieps,
+              count(*) FILTER (WHERE attname = 'neto')::int AS tiene_neto
+         FROM pg_attribute
+        WHERE attrelid = 'analytics.v_kepler_vecinal_sales_docs'::regclass
+          AND attnum > 0 AND NOT attisdropped`)).rows[0];
+    t('la vista canónica publica `ieps` y `neto`',
+      Number(cols.tiene_ieps) === 1 && Number(cols.tiene_neto) === 1,
+      'sin esas columnas cada consumidor re-deriva el neto y el que netee sólo por IVA se queda corto');
+
+    if (Number(cols.tiene_ieps) !== 1) {
+      noMedido('el neto cuadra y el IEPS pesa', 'la migración [VEC.14] no está aplicada acá');
+    } else {
+      const imp = (await db.raw(
+        `SELECT round(sum(total),2) AS bruto, round(sum(impuesto),2) AS iva,
+                round(sum(ieps),2) AS ieps, round(sum(neto),2) AS neto,
+                count(*)::int AS docs, count(*) FILTER (WHERE ieps > 0)::int AS con_ieps
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 120`, [T])).rows[0];
+
+      // La identidad que la pantalla publica. Tolerancia $1 por el redondeo de presentación.
+      const esperado = Number(imp.bruto) - Number(imp.iva) - Number(imp.ieps);
+      t(`el neto es bruto − IVA − IEPS: ${Number(imp.neto).toFixed(2)} sobre ${Number(imp.bruto).toFixed(2)}`,
+        Math.abs(Number(imp.neto) - esperado) <= 1,
+        `la columna neto no reproduce la resta: ${imp.neto} contra ${esperado.toFixed(2)}`);
+
+      /**
+       * ⛔ **Prueba NEGATIVA — el atajo que esto existe para impedir.** Si bastara dividir entre
+       * 1.16, o netear sólo con `impuesto`, el IEPS sería despreciable. Se exige que NO lo sea.
+       * Medido 2026-10-15 sobre jul–oct: **$198,536.34 en 4,585 de 7,253 documentos (63%)**.
+       *
+       * ⚠️ Si algún período no tuviera IEPS, esto NO pasa a ✔: reporta NO MEDIDO. Un mes sin
+       * IEPS no prueba que el atajo sirva — prueba que no hubo con qué refutarlo.
+       */
+      if (!Number(imp.con_ieps)) {
+        noMedido('netear sólo por IVA deja el IEPS adentro (prueba negativa)',
+          'ningún documento del período lleva IEPS: no hay con qué distinguir');
+      } else {
+        const pct = (Number(imp.ieps) / Number(imp.bruto)) * 100;
+        t(`prueba negativa: el IEPS NO es despreciable — ${Number(imp.ieps).toFixed(2)} `
+          + `(${pct.toFixed(2)}% del bruto) en ${imp.con_ieps} de ${imp.docs} documentos`,
+          Number(imp.ieps) > 0 && pct > 0.5,
+          'el IEPS es ruido: netear sólo por IVA daría igual y la columna no aporta');
+      }
+
+      // ⭐ R2: la tasa se arbitra con el dinero. En los tickets de tasa ÚNICA el IVA tiene que
+      //    pegarse a 16% — si no se pega en ninguno, `c14` no es lo que creemos que es.
+      const tasa = (await db.raw(
+        `SELECT count(*)::int AS n
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 120
+            AND impuesto > 0
+            AND round(impuesto / NULLIF(total - impuesto, 0), 4) BETWEEN 0.1595 AND 0.1605`, [T])).rows[0];
+      t(`\`impuesto\` se comporta como IVA 16% en ${tasa.n} documentos de tasa única`,
+        Number(tasa.n) > 0,
+        'ningún documento se pega al 16%: la columna no es el IVA y el neto estaría mal');
+    }
+
     // ── 9. `[VEC.11]` El puente Kepler ↔ Suite CIERRA ──────────────────────────────────────
     //
     // El panel publica una resta: lo que muestra esta pantalla, más el prorrateo del descuento,
