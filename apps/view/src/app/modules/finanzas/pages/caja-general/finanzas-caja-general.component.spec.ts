@@ -4762,4 +4762,16 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(comp.ceroDeclarado()).toBe(false);
     });
   });
+  // ── `[CGP-V.11]` Deuda de diseño ──────────────────────────────────────────────────────────────
+  describe('[CGP-V.11] deuda de diseño', () => {
+    it('el motivo de «sin documento» es un pTextarea con su etiqueta, no un textarea crudo', () => {
+      const fx = montar();
+      comp.abrirCaptura();
+      fx.detectChanges();
+      const ta = (document.querySelector('#cg-sin-doc') ?? fx.nativeElement.querySelector('#cg-sin-doc')) as HTMLElement | null;
+      expect(ta).not.toBeNull();
+      expect(ta!.classList.contains('p-textarea')).toBe(true);
+      expect(document.querySelector('label[for="cg-sin-doc"]') ?? fx.nativeElement.querySelector('label[for="cg-sin-doc"]')).not.toBeNull();
+    });
+  });
 });

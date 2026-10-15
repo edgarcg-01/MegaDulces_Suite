@@ -8,6 +8,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TableModule } from 'primeng/table';
 import { CheckboxModule } from 'primeng/checkbox';
+import { TextareaModule } from 'primeng/textarea';
 import { ChipModule } from 'primeng/chip';
 import { DatePickerModule } from 'primeng/datepicker';
 import { SelectModule } from 'primeng/select';
@@ -157,7 +158,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
   selector: 'app-finanzas-caja-general',
   standalone: true,
   imports: [
-    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule,
+    FormsModule, ButtonModule, InputTextModule, InputNumberModule, TableModule, CheckboxModule, TextareaModule,
     ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
@@ -736,11 +737,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-2); font-size:var(--fs-micro); }
     /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
     .ta-c { text-align:center; }
-    /* [CG.26] .ta-r se usaba 12 veces en esta plantilla y NO ESTABA DEFINIDA en ningun lado
-       alcanzable: el bloque local define .ta-c, FINANZAS_SHARED_STYLES la excluye a proposito, y
-       en styles.css solo existe ".ta-r > .surf-sort". O sea que los importes de la bandeja y del
-       libro nunca estuvieron alineados a la derecha. Otras ~10 pantallas la definen local. */
-    .ta-r { text-align:right; }
+    /* [CG.26] Aca vivia .ta-r, que no estaba definida en ningun lado alcanzable: los importes nunca
+       se alinearon a la derecha. [CGP-V.11] Las celdas numericas pasan a comm-num (global, DESIGN):
+       derecha + mono + cifras tabulares, y la regla local se retira. */
     /* ⛔ ".cg-print" retirada: era un <button> con la impresora adentro, con su borde, su hover
        y su anillo a mano. Hoy es un p-button redondo de icono. */
     /* CS.3.11 — panel de conciliación caja chica vs cajero (CAOS). */
@@ -1327,7 +1326,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <p class="cg-cap">Movimientos del cajero en la jornada, por tipo</p>
                 <p-table [value]="cj.por_tipo" size="small" class="cg-conc-tbl">
                   <ng-template #header>
-                    <tr><th scope="col">Tipo</th><th scope="col" class="ta-r">Movs</th><th scope="col" class="ta-r">Monto</th></tr>
+                    <tr><th scope="col">Tipo</th><th scope="col" class="comm-num">Movs</th><th scope="col" class="comm-num">Monto</th></tr>
                   </ng-template>
                   <ng-template #body let-t>
                     <tr [class.cg-trabada]="t.desconocido">
@@ -1337,8 +1336,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                           <small class="fin-hint-warn d-block">Tipo que no conocemos: NO se sumo a ninguna pierna.</small>
                         }
                       </td>
-                      <td class="ta-r mono">{{ t.movimientos }}</td>
-                      <td class="ta-r mono">{{ money(t.monto) }}</td>
+                      <td class="comm-num">{{ t.movimientos }}</td>
+                      <td class="comm-num">{{ money(t.monto) }}</td>
                     </tr>
                   </ng-template>
                   <ng-template #emptymessage>
@@ -1578,11 +1577,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <ng-template #header>
               <tr>
                 <th scope="col">Beneficiario</th>
-                <th scope="col" class="ta-r">Pagos</th>
-                <th scope="col" class="ta-r">Monto</th>
+                <th scope="col" class="comm-num">Pagos</th>
+                <th scope="col" class="comm-num">Monto</th>
                 <th scope="col">Importe</th>
                 <th scope="col">Cuenta</th>
-                <th scope="col" class="ta-r">Sin cobrar</th>
+                <th scope="col" class="comm-num">Sin cobrar</th>
                 <th scope="col"><span class="sr-only">Declarar</span></th>
               </tr>
             </ng-template>
@@ -1596,8 +1595,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       <small class="fin-hint-warn d-block">{{ r.pagos_con_regla }} de sus pagos ya los clasifica una regla.</small>
                     }
                   </td>
-                  <td class="ta-r mono">{{ r.pagos }}</td>
-                  <td class="ta-r mono">{{ money(r.monto) }}</td>
+                  <td class="comm-num">{{ r.pagos }}</td>
+                  <td class="comm-num">{{ money(r.monto) }}</td>
                   <td>
                     <!-- ⭐ El CV decide QUE se le puede proponer. Es lo unico que discrimina: la
                          cadencia da 2-5 dias para todos. -->
@@ -1611,7 +1610,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       <small class="fin-dim">Sin de donde proponer: la contabilidad no tiene su par.</small>
                     }
                   </td>
-                  <td class="ta-r mono">
+                  <td class="comm-num">
                     @if (r.dias_sin_pago !== null) {
                       <span [class.fin-neg]="r.dias_sin_pago > rc.caido_dias">{{ r.dias_sin_pago }} d</span>
                     } @else { <span class="cg-na">&mdash;</span> }
@@ -1728,7 +1727,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <!-- scope="col" como en las otras tres tablas de la pantalla: sin el, un lector de
                  pantalla no liga la celda con su encabezado y lee nueve valores sueltos. -->
             <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cuenta / Concepto</th>
-            <th scope="col">Qué pasó</th><th scope="col" class="ta-r">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
+            <th scope="col">Qué pasó</th><th scope="col" class="comm-num">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
             <th scope="col" class="ta-c">Comprobante</th>
           </tr>
         </ng-template>
@@ -1742,7 +1741,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <small class="fin-dim d-block">{{ m.kepler_concepto_nombre }}</small>
             </td>
             <td>{{ m.glosa }}</td>
-            <td class="ta-r mono">{{ money(m.monto) }}</td>
+            <td class="comm-num">{{ money(m.monto) }}</td>
             <td>{{ m.created_by_username || '—' }}</td>
             <td>
               @if (m.autofill) {
@@ -1782,7 +1781,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
-            <th scope="col" class="ta-r">Esperado</th><th scope="col" class="ta-r">Contado</th><th scope="col" class="ta-r">Diferencia</th>
+            <th scope="col" class="comm-num">Esperado</th><th scope="col" class="comm-num">Contado</th><th scope="col" class="comm-num">Diferencia</th>
             <th scope="col">Cerró / Autorizó</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
@@ -1792,9 +1791,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <td>{{ dmy(c.fecha) }}</td>
             <td>{{ c.sucursal | sucursal }}</td>
             <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
-            <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
-            <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
-            <td class="ta-r mono" [class.fin-neg]="c.diferencia < 0">
+            <td class="comm-num">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
+            <td class="comm-num">{{ c.contado === null ? '—' : money(c.contado) }}</td>
+            <td class="comm-num" [class.fin-neg]="c.diferencia < 0">
               {{ c.diferencia === null ? '—' : money(c.diferencia) }}
             </td>
             <td>
@@ -2196,11 +2195,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 movimiento del cajero elegido, que es cuando el servidor lo pide.
               -->
               @if (!cobroElegido() && !caosElegido()) {
-                <label class="fin-field cg-sin-doc">
-                  <span class="fin-label">Por qué este movimiento no tiene documento</span>
+                <!-- [CGP-V.11] Era fin-field/fin-label/fin-input, que no existen en ningun lado, sobre
+                     un textarea crudo: se pintaba sin estilo. Ahora el patron de la pantalla. -->
+                <div class="fin-row fin-row-col cg-sin-doc">
+                  <label for="cg-sin-doc">Por qué este movimiento no tiene documento</label>
                   <textarea
+                    pTextarea id="cg-sin-doc"
                     rows="2"
-                    class="fin-input"
+                    class="cg-full"
                     [ngModel]="sinDocumentoMotivo()"
                     (ngModelChange)="sinDocumentoMotivo.set($event)"
                     [ngModelOptions]="{ standalone: true }"
@@ -2210,7 +2212,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     No está enlazado a Kepler ni al cajero, así que hay que decir por qué.
                     Un movimiento sin origen y sin motivo no se puede auditar después.
                   </small>
-                </label>
+                </div>
               }
 
               @if (bloqueos().length) {
@@ -2437,7 +2439,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                      TERCERA forma de contar el mismo dinero, y la unica sin desglose. El conteo
                      va al arqueo -- de un movimiento en la ficha, de todo el dia en el corte. -->
                 <th scope="col">Contraparte</th>
-                <th scope="col" class="ta-r">Importe (ERP)</th>
+                <th scope="col" class="comm-num">Importe (ERP)</th>
                 <th scope="col" class="cg-th-abrir"><span class="sr-only">Capturar a mano</span></th>
               </tr>
             </ng-template>
@@ -2520,7 +2522,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          roba ancho a la contraparte, que es lo que se lee primero. -->
                     <small class="cg-fila-doc mono d-block">{{ p.doc_tipo }} {{ p.folio }}</small>
                   </td>
-                  <td class="ta-r mono">{{ money(p.monto) }}</td>
+                  <td class="comm-num">{{ money(p.monto) }}</td>
                   <!-- ⭐ [CG.63] ACA VIVIA UN BOTON POR FILA, y se retira: la FILA es el boton.
                        Edgar: "no le estas dando visibilidad, ademas lo especificas como si fuera
                        algo secundario, es el boton principal de la interaccion. me gustaria que
