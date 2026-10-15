@@ -58,6 +58,14 @@ export interface PriceChangesResult {
   productos_del_dia: number;
   tope_productos: number;
   freshness: Freshness | null;
+  /**
+   * `[ETQ-CAMBIOS.11]` Lo que Compras pidió ver junto al precio: proveedor, UXC, mayoreo (precio de la caja)
+   * y los costos por presentación. Opcional a propósito: durante un despliegue la pantalla nueva puede hablar
+   * con una API vieja, y sin esto se cae en vez de mostrar la lista sin las columnas nuevas.
+   */
+  fichas?: FichaCompras[];
+  /** Desde cuándo existe la foto diaria del costo. `null` = todavía no hay «costo anterior» para nadie. */
+  costo_historial_desde?: string | null;
 }
 
 /**
@@ -76,6 +84,7 @@ export interface PriceChangesResult {
  */
 export type { Freshness, FreshnessInput, FreshnessStatus } from '@megadulces/contracts';
 import type {
+  FichaCompras,
   Freshness,
   PriceChangeNoticeDto,
   PriceNoticeRecipientsDto,

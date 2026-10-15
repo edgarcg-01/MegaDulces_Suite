@@ -392,6 +392,22 @@ quedarse cortas.
 **Falta:** aplicar la migración a prod · `git push` (sin autorizar) · redeploy · validación visual. **Declarado y no construido:** el armador de comisiones (`[CPA.6]`, ahora con el mapa derivado y la estructura corregida), el side-peek de detalle y la bandeja de CFDI sin asociar — diseñados y aprobados, ninguno escrito.
 
 
+## 2026-10-15 — `[ETQ-CAMBIOS.11]` Cambios de precio con las columnas del PDF de Compras
+
+**Qué se pidió.** Que «Cambios de precio» traiga «tal cual» lo del PDF que Compras arma a mano: proveedor, código, producto, UXC, costo anterior y actual con impuesto, precio de punto de venta, mayoreo y tipo de cambio (N/S).
+
+**Lo que se midió antes de escribir.** Siete de las ocho columnas tienen fuente (`catalog.suppliers`, la presentación CAJA de `v_label_prices`, `v_kepler_standard_cost`, la bitácora). La octava, **costo anterior, no existe**: Kepler guarda el costo estándar de hoy en `kdii.c77/c78/c79` y nada de su historia. Se preguntó a Edgar tres cosas con dueño de negocio: quién ve costos (**todos los de etiquetas**; se recomendó lo contrario y se dejó dicho), cómo obtener el anterior (**foto diaria propia**) y qué es «mayoreo» (**el precio de la caja**).
+
+**Qué se hizo.** Tabla de historia `analytics.product_cost_history` (una fila sólo cuando el costo cambia; sin eso serían ~260 mil filas por noche), worker a las 04:30 MX con latido y umbral en `CRON_JOBS`, `fichas` aditivas en la API y las columnas en la pantalla. El «anterior» y el tipo salen de funciones puras en `libs/contracts` que prueban los dos lados.
+
+**Lo que NO se pudo verificar** (se declara en el PR):
+1. **El SQL nunca corrió contra una base** (sin Docker, sin base local y sin credencial de lectura de prod). Las pruebas simulan la base: prueban la lógica, no el SQL. Queda `database/scripts/verificar-cambios-compras.js`, de sólo lectura, para quien tenga acceso: comprueba la tabla, la foto simulada y — lo más importante — **la hipótesis de que el rótulo de la unidad de la bitácora casa con el de la ficha**; si no casa, el síntoma sería «poca cobertura», no un error.
+2. **Sin validación visual** (la regla de sesión no permite levantar la app). Lo más probable de ajustar: la alineación de las líneas de costo con las de «Qué cambió» (cada celda lleva una línea por presentación con el mismo alto y raya) y el ancho de la tabla, que ahora es de 10 columnas.
+3. **El anterior arranca vacío:** aparece desde el día 2 de la foto y un cambio de costo anterior a la primera foto no tendrá dato. Está dicho en pantalla.
+
+**Verificación.** `modules/tienda` 335/335 · `commercial-labels` 28/28 · contratos 24/24 (15 nuevos); dos mutaciones atrapadas (costo sin impuesto; ignorar la historia); `check:pantalla` idéntico a `main`; boundary/templates/tokens/primeng/estilos en verde; `tsgo` sólo marca `pdf-lib` (preexistente, ajeno).
+
+
 ## 2026-10-14 — `[ETQ-CAMBIOS.10]` Cambios de precio: la pantalla sube, y lo que costó hacerlo bien
 
 **Qué se pidió.** Optimizar el espacio de `/tienda/etiquetas/cambios` sin perder información: mover el selector de día a la barra de pestañas (la píldora dejaba media barra vacía), decir si las cuatro tarjetas hacen falta, y subir la tabla.

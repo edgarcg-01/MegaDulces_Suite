@@ -3,6 +3,7 @@ import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
+import type { FichaCompras } from '@megadulces/contracts';
 import { EtiquetasService, PriceChange, PriceChangesResult } from '../etiquetas.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { TiendaCambiosPrecioComponent } from './tienda-cambios-precio.component';
@@ -28,11 +29,27 @@ const ITEMS: PriceChange[] = [
   fila('88888', 'PAQ', 12, 10, '10:00'),
 ];
 
+/**
+ * `[ETQ-CAMBIOS.11]` Lo de Compras. El 91059 tiene costo en las dos presentaciones (la caja cambió, la 500 es
+ * nueva: sin anterior); el 95459 no trae costo; el 77777 no trae ficha. Cada uno ejerce una rama distinta.
+ */
+const FICHAS: FichaCompras[] = [
+  {
+    sku: '91059', proveedor: 'MONDELEZ MEXICO', uxc: 12, mayoreo_caja: 6378.26, impuesto_pct: 16,
+    costos: [
+      { unidad: 'CJA', costo_actual: 5000, costo_anterior: 4800, anterior_desde: '2026-10-10' },
+      { unidad: '500', costo_actual: 150, costo_anterior: null, anterior_desde: null },
+    ],
+  },
+  { sku: '95459', proveedor: null, uxc: null, mayoreo_caja: null, impuesto_pct: null, costos: [] },
+];
+
 class EtiquetasStub {
   priceChanges(): ReturnType<EtiquetasService['priceChanges']> {
     const r: PriceChangesResult = {
       items: ITEMS, fecha: '2026-10-08', truncado: false, fuente_al: '2026-10-08',
       ocultos_centavo: 0, productos_del_dia: 3, tope_productos: 300, freshness: null,
+      fichas: FICHAS, costo_historial_desde: '2026-10-15',
     };
     return of(r);
   }
@@ -175,6 +192,67 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
     const opciones = Array.from(root().querySelectorAll('.seg-btn')).map((b) => b.textContent?.trim());
     expect(opciones).toEqual(['Todos los precios', 'Pieza', 'Paquete', 'Caja']);
   });
+  describe('columnas de Compras (ETQ-CAMBIOS.11)', () => {
+    const filaDe = (sku: string): HTMLTableRowElement =>
+      Array.from(root().querySelectorAll('tbody tr')).find((tr) => tr.querySelector('td.cpr-num')?.textContent?.trim() === sku) as HTMLTableRowElement;
+    const celdas = (tr: HTMLTableRowElement): HTMLTableCellElement[] => Array.from(tr.querySelectorAll('td'));
+    const lineas = (td: Element): string[] => Array.from(td.querySelectorAll('.cpr-cl')).map((d) => d.textContent?.trim() ?? '');
+
+    it('⭐ la tabla trae las columnas del PDF de Compras, en su orden', () => {
+      const cab = Array.from(root().querySelectorAll('thead th')).map((th) => th.textContent?.trim()).filter(Boolean);
+      expect(cab).toEqual(['Código', 'Producto', 'Proveedor', 'UXC', 'Costo anterior', 'Costo actual', 'Precio punto de venta', 'Mayoreo', 'Tipo', 'Imprimir']); // «Imprimir» sólo lo lee el lector de pantalla
+    });
+
+    it('⭐ proveedor, UXC y mayoreo (precio de la CAJA) del producto', () => {
+      // celdas: 0 casilla · 1 código · 2 producto · 3 proveedor · 4 UXC · 5 costo ant · 6 costo act · 7 precio · 8 mayoreo · 9 tipo
+      const c = celdas(filaDe('91059'));
+      expect(c[3].textContent?.trim()).toBe('MONDELEZ MEXICO');
+      expect(c[4].textContent?.trim()).toBe('12');
+      expect(c[8].textContent?.trim()).toBe('$6,378.26');
+    });
+
+    it('⭐ los costos van CON impuesto y una línea por presentación, alineados con las de «Qué cambió»', () => {
+      const c = celdas(filaDe('91059'));
+      // CJA: 5000 × 1.16 = 5,800.00 hoy; 4800 × 1.16 = 5,568.00 antes. La 500 es nueva: sin anterior.
+      expect(lineas(c[6])).toEqual(['$5,800.00', '$174.00']);
+      expect(lineas(c[5])).toEqual(['$5,568.00', '—']);
+    });
+
+    it('⭐ el tipo: S si el costo cambió, N si no hay costo anterior', () => {
+      const c = celdas(filaDe('91059'));
+      expect(Array.from(c[9].querySelectorAll('.cpr-tipo')).map((t) => t.textContent?.trim())).toEqual(['S', 'N']);
+    });
+
+    it('⛔ sin costo NO se dibuja un cero: dice «sin dato» y el proveedor/mayoreo quedan en «—»', () => {
+      for (const sku of ['95459', '77777']) {
+        const c = celdas(filaDe(sku));
+        expect(c[3].textContent?.trim()).toBe('—');
+        expect(c[8].textContent?.trim()).toBe('—');
+        expect(lineas(c[6]).every((t) => t === 'sin dato')).toBe(true);
+        // (el $0.00 del 77777 en «Qué cambió» es real: el ERP le quitó el precio; aquí sólo importan los costos)
+        expect((c[5].textContent ?? '') + (c[6].textContent ?? '')).not.toContain('$0.00');
+        expect(c[9].querySelector('.cpr-tipo')).toBeNull();
+      }
+    });
+
+    it('⛔ sin tasa de impuesto conocida el costo es «sin dato», no el costo sin impuesto', () => {
+      const f = (cmp as unknown as { fichas: () => Map<string, FichaCompras> }).fichas().get('91059')!;
+      const tasa = f.impuesto_pct;
+      try {
+        f.impuesto_pct = null;
+        const p = cmp.productos().find((x) => x.sku === '91059')!;
+        expect(cmp.costoActualTxt(p, p.filas[0])).toBe('sin dato');
+        expect(cmp.motivoSinCosto(p, p.filas[0])).toContain('impuesto');
+      } finally { f.impuesto_pct = tasa; }
+    });
+
+    it('declara desde cuándo existe el costo anterior (antes de esa fecha no hay dato)', () => {
+      const t = root().textContent ?? '';
+      expect(t).toContain('El costo anterior se registra desde el 2026-10-15');
+      expect(t).toContain('N = sin costo anterior');
+    });
+  });
+
   describe('barra superior compacta (ETQ-CAMBIOS.10)', () => {
     it('⭐ el selector de día vive en la fila de las pestañas, no en una fila aparte', () => {
       const top = root().querySelector('.cpr-top');
