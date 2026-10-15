@@ -66,6 +66,8 @@ export interface PriceChangesResult {
   fichas?: FichaCompras[];
   /** Desde cuándo existe la foto diaria del costo. `null` = todavía no hay «costo anterior» para nadie. */
   costo_historial_desde?: string | null;
+  /** `true` = la historia del costo NO se pudo leer (error). Distinto de «todavía no hay foto». */
+  costo_historial_error?: boolean;
 }
 
 /**

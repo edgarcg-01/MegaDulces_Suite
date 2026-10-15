@@ -426,7 +426,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                     <td class="cpr-money">
                       @for (r of p.filas; track $index) {
                         <div class="cpr-cl" [class.cpr-cl-nd]="costoAnteriorTxt(p, r) === '—'"
-                             [title]="costoAnteriorTxt(p, r) === '—' ? 'No hay costo anterior registrado: el producto es nuevo o la foto diaria del costo todavía no tiene historia.' : ''">{{ costoAnteriorTxt(p, r) }}</div>
+                             [title]="anteriorTitulo(p, r)">{{ costoAnteriorTxt(p, r) }}</div>
                       }
                     </td>
                     <td class="cpr-money">
@@ -453,7 +453,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                         </div>
                       }
                     </td>
-                    <td class="cpr-money" title="Precio de la presentación CAJA">{{ mayoreoTxt(p) }}</td>
+                    <td class="cpr-money" title="Precio de la presentación CAJA">{{ mayoreoTxt(p) }}@if (cajaDeTxt(p); as caja) {<span class="cpr-pct">{{ caja }}</span>}</td>
                     <td>
                       @for (r of p.filas; track $index) {
                         <div class="cpr-cl" style="text-align:left">
@@ -506,7 +506,9 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                antes de esa fecha NO existe, y una celda vacía sin explicación se lee como que no cambió. -->
           @if (hayFichas()) {
             <p class="cpr-head"><span style="font-size:var(--fs-xs); color:var(--fg-3)">
-              @if (costoHistorialDesde(); as desde) {
+              @if (costoHistorialError()) {
+                <b>No se pudo leer la historia de costos</b>: no es que no haya cambios, es que no se pudo preguntar. El costo anterior no se muestra.
+              } @else if (costoHistorialDesde(); as desde) {
                 El costo anterior se registra desde el <b>{{ desde }}</b>; de un cambio de costo anterior a esa fecha no hay dato.
               } @else {
                 Todavía no hay historia de costos: el costo anterior aparecerá desde el día siguiente al primer registro nocturno.
@@ -718,6 +720,7 @@ export class TiendaCambiosPrecioComponent {
   private readonly fichas = computed(() => new Map((this.datos.value()?.fichas ?? []).map((f) => [f.sku, f])));
   /** Desde cuándo existe la foto diaria del costo. `null` = todavía no hay «costo anterior» para nadie. */
   readonly costoHistorialDesde = computed(() => this.datos.value()?.costo_historial_desde ?? null);
+  readonly costoHistorialError = computed(() => this.datos.value()?.costo_historial_error === true);
   readonly hayFichas = computed(() => (this.datos.value()?.fichas ?? []).length > 0);
 
   private ficha(p: ProductoCambio): FichaCompras | null { return this.fichas().get(p.sku) ?? null; }
@@ -751,6 +754,17 @@ export class TiendaCambiosPrecioComponent {
     if (!f) return 'No se pudo leer la ficha de Compras de este producto.';
     if (!this.costoDe(p, r)) return 'Kepler no trae un costo para la presentación «' + (r.unidad ?? '') + '» en esta tienda.';
     return 'No se conoce el impuesto de este producto (no tiene ventas recientes), así que no se calcula el costo con impuesto.';
+  }
+  /** La unidad del mayoreo, dicha junto a la cifra: «caja de 12». Sin UXC conocido no se inventa. */
+  cajaDeTxt(p: ProductoCambio): string | null {
+    const u = this.ficha(p)?.uxc;
+    return u != null && this.ficha(p)?.mayoreo_caja != null ? `caja de ${u}` : null;
+  }
+  /** Explica la celda de costo anterior: desde cuándo se registró, o por qué no hay. `anterior_desde` viaja para esto. */
+  anteriorTitulo(p: ProductoCambio, r: PriceChange): string {
+    const c = this.costoDe(p, r);
+    if (c?.costo_anterior != null && c.anterior_desde) return `Costo anterior registrado desde el ${c.anterior_desde}`;
+    return 'No hay costo anterior registrado: el producto es nuevo o la foto diaria del costo todavía no tiene historia.';
   }
   tipoDe(p: ProductoCambio, r: PriceChange): TipoCambio | null { return tipoCambio(this.costoDe(p, r)); }
 

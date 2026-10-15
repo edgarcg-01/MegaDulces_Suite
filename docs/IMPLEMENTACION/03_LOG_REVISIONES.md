@@ -405,7 +405,9 @@ quedarse cortas.
 2. **Sin validación visual** (la regla de sesión no permite levantar la app). Lo más probable de ajustar: la alineación de las líneas de costo con las de «Qué cambió» (cada celda lleva una línea por presentación con el mismo alto y raya) y el ancho de la tabla, que ahora es de 10 columnas.
 3. **El anterior arranca vacío:** aparece desde el día 2 de la foto y un cambio de costo anterior a la primera foto no tendrá dato. Está dicho en pantalla.
 
-**Verificación.** `modules/tienda` 335/335 · `commercial-labels` 28/28 · contratos 24/24 (15 nuevos); dos mutaciones atrapadas (costo sin impuesto; ignorar la historia); `check:pantalla` idéntico a `main`; boundary/templates/tokens/primeng/estilos en verde; `tsgo` sólo marca `pdf-lib` (preexistente, ajeno).
+**Observaciones del PM aplicadas a este mismo PR** (puntos 18–25 de `ONBOARDING.md` §8.0b, que salieron de la auditoría de diseño del verificador y valen para cualquier pantalla de precios): **(19)** el «mayoreo» ya no es una cifra suelta junto a precios por unidad: dice **«caja de 12»**; **(20)** `anterior_desde` viajaba en el contrato y no se pintaba: ahora está en el title del costo anterior; **(23)** al principio, si la historia fallaba al leerse, la pantalla decía «todavía no hay historia», que es **otra cosa**: ahora viaja `costo_historial_error` y se dice «no se pudo leer»; **(25)** las pruebas nuevas se mutaron (costo sin impuesto; ignorar la historia) y se pusieron rojas. **(18)** no se midió: no se comprobó que la escalera de precios sea coherente (precio de caja por unidad contra pieza); se declara «no medido».
+
+**Verificación.** `modules/tienda` 337/337 · `commercial-labels` 29/29 · contratos 24/24 (15 nuevos); dos mutaciones atrapadas (costo sin impuesto; ignorar la historia); `check:pantalla` idéntico a `main`; boundary/templates/tokens/primeng/estilos en verde; `tsgo` sólo marca `pdf-lib` (preexistente, ajeno).
 
 
 ## 2026-10-14 — `[ETQ-CAMBIOS.10]` Cambios de precio: la pantalla sube, y lo que costó hacerlo bien

@@ -44,12 +44,14 @@ const FICHAS: FichaCompras[] = [
   { sku: '95459', proveedor: null, uxc: null, mayoreo_caja: null, impuesto_pct: null, costos: [] },
 ];
 
+let HISTORIA_CON_ERROR = false;
+
 class EtiquetasStub {
   priceChanges(): ReturnType<EtiquetasService['priceChanges']> {
     const r: PriceChangesResult = {
       items: ITEMS, fecha: '2026-10-08', truncado: false, fuente_al: '2026-10-08',
       ocultos_centavo: 0, productos_del_dia: 3, tope_productos: 300, freshness: null,
-      fichas: FICHAS, costo_historial_desde: '2026-10-15',
+      fichas: FICHAS, costo_historial_desde: HISTORIA_CON_ERROR ? null : '2026-10-15', costo_historial_error: HISTORIA_CON_ERROR,
     };
     return of(r);
   }
@@ -208,7 +210,7 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
       const c = celdas(filaDe('91059'));
       expect(c[3].textContent?.trim()).toBe('MONDELEZ MEXICO');
       expect(c[4].textContent?.trim()).toBe('12');
-      expect(c[8].textContent?.trim()).toBe('$6,378.26');
+      expect(c[8].textContent?.trim()).toBe('$6,378.26caja de 12'); // la cifra y su unidad (punto 19 del protocolo)
     });
 
     it('⭐ los costos van CON impuesto y una línea por presentación, alineados con las de «Qué cambió»', () => {
@@ -244,6 +246,29 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
         expect(cmp.costoActualTxt(p, p.filas[0])).toBe('sin dato');
         expect(cmp.motivoSinCosto(p, p.filas[0])).toContain('impuesto');
       } finally { f.impuesto_pct = tasa; }
+    });
+
+    it('⭐ el mayoreo dice su unidad («caja de 12») y el costo anterior dice desde cuándo se registró', () => {
+      const c = celdas(filaDe('91059'));
+      expect(c[8].textContent).toContain('caja de 12');
+      const anterior = c[5].querySelectorAll('.cpr-cl')[0] as HTMLElement;
+      expect(anterior.getAttribute('title')).toBe('Costo anterior registrado desde el 2026-10-10');
+      // sin UXC no se inventa la unidad
+      expect(celdas(filaDe('95459'))[8].textContent).not.toContain('caja de');
+    });
+
+    it('⛔ error ≠ vacío: si no se pudo leer la historia lo dice, y no dice «todavía no hay historia»', async () => {
+      HISTORIA_CON_ERROR = true;
+      try {
+        const otro = TestBed.createComponent(TiendaCambiosPrecioComponent);
+        otro.detectChanges();
+        await otro.whenStable();
+        await new Promise((r) => setTimeout(r, 0));
+        otro.detectChanges();
+        const t = (otro.nativeElement as HTMLElement).textContent ?? '';
+        expect(t).toContain('No se pudo leer la historia de costos');
+        expect(t).not.toContain('Todavía no hay historia de costos');
+      } finally { HISTORIA_CON_ERROR = false; }
     });
 
     it('declara desde cuándo existe el costo anterior (antes de esa fecha no hay dato)', () => {

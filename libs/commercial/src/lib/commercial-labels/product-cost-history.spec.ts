@@ -127,5 +127,12 @@ describe('[ETQ-CAMBIOS.11] las fichas de Compras de la lista de cambios', () => 
     const costos = f.costos as Array<{ costo_anterior: number | null }>;
     expect(costos.every((c) => c.costo_anterior === null)).toBe(true);
     expect(r.historial_desde).toBeNull();
+    // error ≠ vacío: se AVISA que no se pudo leer, no se hace pasar por «todavía no hay foto»
+    expect(r.historial_error).toBe(true);
+  });
+
+  it('con la tabla vacía NO es error: es «todavía no hay foto»', async () => {
+    const r = await montarFichas({ costos: [COSTO], historia: [] })();
+    expect(r.historial_error).toBe(false);
   });
 });

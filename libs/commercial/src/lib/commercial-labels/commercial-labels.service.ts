@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import {
   FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt,
@@ -163,6 +163,8 @@ const barcodeFmt = (v: unknown): string | null => {
  */
 @Injectable()
 export class CommercialLabelsService {
+  private readonly logger = new Logger(CommercialLabelsService.name);
+
   constructor(private readonly tk: TenantKnexService) {}
 
   /**
@@ -352,6 +354,8 @@ export class CommercialLabelsService {
     fichas: FichaCompras[];
     /** Desde cuándo existe la foto diaria del costo. `null` = todavía no hay ninguna: no hay «anterior» para nadie. */
     costo_historial_desde: string | null;
+    /** `true` = la historia NO se pudo leer (error). Distinto de `costo_historial_desde: null` (todavía no hay foto): error ≠ vacío. */
+    costo_historial_error: boolean;
   }> {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(fecha ?? '')) ? String(fecha) : CommercialLabelsService.ayer();
@@ -361,7 +365,7 @@ export class CommercialLabelsService {
       // cambió algo que en TU tienda no cambió.
       if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, ocultos_centavo: 0,
         productos_del_dia: 0, tope_productos: CommercialLabelsService.TOPE_CAMBIOS, freshness,
-        fichas: [], costo_historial_desde: null };
+        fichas: [], costo_historial_desde: null, costo_historial_error: false };
       const r = await trx.raw(CommercialLabelsService.SQL_CAMBIOS,
         [suc, dia, CommercialLabelsService.TOPE_CAMBIOS, suc]);
       const row = r?.rows?.[0] ?? {};
@@ -372,7 +376,7 @@ export class CommercialLabelsService {
       // varias unidades). Deducirlo del largo diría "truncado" en días completos.
       const productosDelDia = Number(row.productos_del_dia ?? 0);
       const truncado = productosDelDia > CommercialLabelsService.TOPE_CAMBIOS;
-      const { fichas, historial_desde } = await this.fichasCompras(trx, suc, [...new Set(filas.map((f) => String(f.sku)))]);
+      const { fichas, historial_desde, historial_error } = await this.fichasCompras(trx, suc, [...new Set(filas.map((f) => String(f.sku)))]);
       return {
         items: filas,
         fecha: dia,
@@ -384,6 +388,7 @@ export class CommercialLabelsService {
         freshness,
         fichas,
         costo_historial_desde: historial_desde,
+        costo_historial_error: historial_error,
       };
     });
   }
@@ -400,12 +405,13 @@ export class CommercialLabelsService {
    *
    * ⚠️ La historia va en un SAVEPOINT: si la migración todavía no está aplicada, esa consulta falla y SIN el
    * savepoint Postgres abortaría la transacción entera y se caería también la lista de cambios. Se degrada a
-   * «sin anterior» y `costo_historial_desde` queda en `null`, que la pantalla declara.
+   * «sin anterior» y se AVISA con `historial_error: true` (error ≠ vacío: «todavía no hay foto» y «no se pudo
+   * leer» son cosas distintas y la pantalla las dice por separado).
    */
   private async fichasCompras(
     trx: Knex.Transaction, suc: string, skus: string[],
-  ): Promise<{ fichas: FichaCompras[]; historial_desde: string | null }> {
-    if (skus.length === 0) return { fichas: [], historial_desde: null };
+  ): Promise<{ fichas: FichaCompras[]; historial_desde: string | null; historial_error: boolean }> {
+    if (skus.length === 0) return { fichas: [], historial_desde: null, historial_error: false };
     const [prov, precios, costos] = await Promise.all([
       trx.raw(`
         SELECT p.sku, s.name AS proveedor
@@ -423,6 +429,7 @@ export class CommercialLabelsService {
     ]);
     const porLlave = new Map<string, HistorialCosto[]>();
     let historialDesde: string | null = null;
+    let historialError = false;
     try {
       await trx.transaction(async (sp) => {
         const h = await sp.raw(`
@@ -441,9 +448,11 @@ export class CommercialLabelsService {
         const d = await sp.raw(`SELECT min(valid_from)::text AS desde FROM analytics.product_cost_history`);
         historialDesde = (d.rows[0]?.desde ?? null) as string | null;
       });
-    } catch {
+    } catch (e) {
       porLlave.clear();
       historialDesde = null;
+      historialError = true;
+      this.logger.warn(`No se pudo leer la historia del costo: ${(e as Error).message.slice(0, 200)}`);
     }
 
     const nombreProv = new Map<string, string | null>();
@@ -491,7 +500,7 @@ export class CommercialLabelsService {
       impuesto_pct: null,
       costos: [],
     });
-    return { fichas, historial_desde: historialDesde };
+    return { fichas, historial_desde: historialDesde, historial_error: historialError };
   }
 
   /**
