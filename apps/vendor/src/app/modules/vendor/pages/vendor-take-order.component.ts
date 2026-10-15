@@ -301,7 +301,7 @@ const foldText = (s: string | null | undefined): string =>
                   }
                 </div>
                 <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
-                @if (box && boxContentById().get(p.product_id); as bc) {
+                @if (box && contenidoCajaById().get(p.product_id); as bc) {
                   <div class="box-c">
                     <i class="pi pi-box" aria-hidden="true"></i>
                     <span>1 {{ bc.caja }} trae
@@ -309,6 +309,14 @@ const foldText = (s: string | null | undefined): string =>
                         <b>{{ pt.qty }}</b>&nbsp;{{ pt.unit }}@if (!last) {<span class="sep"> · </span>}
                       }
                     </span>
+                  </div>
+                }
+                <!-- [VTK.12] Con la caja elegida en el selector: cuántas piezas trae. En la búsqueda
+                     ya lo dice la línea de arriba, así que ahí no se repite. -->
+                @if (!(box && contenidoCajaById().get(p.product_id)) && cajaElegida(p); as ce) {
+                  <div class="box-sel">
+                    <i class="pi pi-box" aria-hidden="true"></i>
+                    <span>1 {{ ce.caja }} = <b>{{ ce.piezas }}</b>&nbsp;{{ ce.base }}@if (ce.enPedido) {<span class="sep"> · en el pedido <b>{{ ce.enPedido }}</b>&nbsp;{{ ce.base }}</span>}</span>
                   </div>
                 }
                 <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
@@ -582,6 +590,11 @@ const foldText = (s: string | null | undefined): string =>
       .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
       .prod .box-c i { font-size: 0.7rem; }
       .prod .box-c b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+      /* [VTK.12] Caja elegida en el selector. */
+      .prod .box-sel { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-main); }
+      .prod .box-sel i { font-size: 0.7rem; color: var(--action); }
+      .prod .box-sel b { font-family: var(--font-mono); font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
+      .prod .box-sel .sep { color: var(--text-muted); }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
       .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
@@ -1084,11 +1097,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /**
    * `[VTK.9]` Cuánto trae la caja de cada resultado de búsqueda (pedido de ruta, 2026-10-14: el
    * cliente pregunta «¿cuántas trae?» y la respuesta sólo vivía en el factor del selector).
-   * Sólo sobre los resultados (≤ SEARCH_CAP), no sobre el catálogo entero: se recalcula al teclear.
+   * `[VTK.12]` Se calcula una vez por catálogo (no al teclear) porque también lo usa la caja
+   * elegida en el selector, en cualquier lista. Son ~9,400 escaleras de 2–3 peldaños: milisegundos.
    */
-  readonly boxContentById = computed(() => {
+  readonly contenidoCajaById = computed(() => {
     const m = new Map<string, ContenidoCaja>();
-    for (const p of this.displayed()) {
+    for (const p of this.prices()) {
       const c = contenidoCaja(this.unitsOf(p), this.cajaDeclarada(p));
       if (c) m.set(p.product_id, c);
     }
@@ -1099,6 +1113,21 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    * La caja que declara la escalera de Kepler de la sucursal (peldaño `box`: CJA, BTO o CUB).
    * `null` = vino la escalera y no declara caja; `undefined` = no vino (se reconoce por rótulo).
    */
+  /**
+   * `[VTK.12]` Con la CAJA elegida en el selector, cuántas unidades base trae (y cuántas lleva ya
+   * el pedido). Pedido de ruta, 2026-10-15: «cuando seleccionen caja, que diga cuántas piezas
+   * tiene». Null si la unidad elegida no es la caja o el producto no declara caja: no se inventa.
+   * La unidad base es la del producto (PZA, KG, PAQ…), no siempre pieza.
+   */
+  cajaElegida(p: PriceRow): { caja: string; piezas: number; base: string; enPedido: number | null } | null {
+    const c = this.contenidoCajaById().get(p.product_id);
+    const su = this.selectedUnit(p);
+    if (!c || !su || su.unit !== c.caja) return null;
+    const base = c.partes[c.partes.length - 1];
+    const q = this.cartQty(p.product_id) || 0;
+    return { caja: c.caja, piezas: base.qty, base: base.unit, enPedido: q > 0 ? q : null };
+  }
+
   private cajaDeclarada(p: PriceRow): { unit: string; factor: number } | null | undefined {
     if (!p.rungs?.length) return undefined;
     const b = p.rungs.find((r) => r.rung === 'box');

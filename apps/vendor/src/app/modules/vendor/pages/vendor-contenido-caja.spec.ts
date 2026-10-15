@@ -89,6 +89,8 @@ function montar() {
     myStockSources: { sucursal: { id: 'w1', code: '02', name: 'La Piedad Abastos' }, camioneta: null },
     getCustomer: { id: 'c1', code: 'CLI-1', name: 'Super San Juan', credit_limit: 0, active: true, default_price_list_id: 'pl1' },
     catalogForCustomer: { priceListId: 'pl1', prices: [conCaja, sinCaja, bulto] },
+    // Cuando entre [VTK.11] (#415) la pantalla abre con catalogInstant; el doble responde a los dos.
+    catalogInstant: { priceListId: 'pl1', prices: [conCaja, sinCaja, bulto], origen: 'servidor', at: Date.now() },
     draftForCustomer: null,
     pendingForCustomer: [],
     frequentProducts: [],
@@ -121,7 +123,21 @@ function montar() {
     const c = fila?.querySelector('.box-c');
     return c ? (c.textContent || '').replace(/\s+/g, ' ').trim() : null;
   };
-  return { fixture, el, buscar, contenidoDe };
+  /** Elige la unidad en la fila del producto (como tocar el chip). */
+  const elegir = (nombre: string, unidad: string) => {
+    const cmp = fixture.componentInstance;
+    const p = cmp.prices().find((x) => x.product_name.includes(nombre));
+    if (!p) throw new Error('sin producto ' + nombre);
+    cmp.setUnit(p, unidad);
+    fixture.detectChanges();
+  };
+  /** Texto de la línea de la caja elegida en la fila de `nombre`, o null. */
+  const cajaElegidaDe = (nombre: string): string | null => {
+    const fila = Array.from(el.querySelectorAll('.prod')).find((f) => f.querySelector('.pn')?.textContent?.includes(nombre));
+    const c = fila?.querySelector('.box-sel');
+    return c ? (c.textContent || '').replace(/\s+/g, ' ').trim() : null;
+  };
+  return { fixture, el, buscar, contenidoDe, elegir, cajaElegidaDe };
 }
 
 describe('Tomar pedido · contenido de la caja al buscar', () => {
@@ -155,5 +171,49 @@ describe('Tomar pedido · contenido de la caja al buscar', () => {
     expect(el.querySelector('.box-c')).not.toBeNull();
     buscar('');
     expect(el.querySelector('.box-c')).toBeNull();
+  });
+});
+
+describe('[VTK.12] Tomar pedido · al elegir caja, cuántas piezas trae', () => {
+  it('⭐ sin buscar, al elegir CJA la fila dice cuántas piezas trae la caja', () => {
+    const { elegir, cajaElegidaDe } = montar();
+    // Prueba negativa: con la unidad por defecto (la más chica) no aparece.
+    expect(cajaElegidaDe('Paleta Payaso')).toBeNull();
+    elegir('Paleta Payaso', 'CJA');
+    expect(cajaElegidaDe('Paleta Payaso')).toBe('1 CJA = 144 PZA');
+  });
+
+  it('al volver a pieza o paquete desaparece', () => {
+    const { elegir, cajaElegidaDe } = montar();
+    elegir('Paleta Payaso', 'CJA');
+    elegir('Paleta Payaso', 'PAQ');
+    expect(cajaElegidaDe('Paleta Payaso')).toBeNull();
+  });
+
+  it('⭐ con cantidad en el pedido, dice también cuántas piezas lleva', () => {
+    const { fixture, elegir, cajaElegidaDe } = montar();
+    fixture.componentInstance.cartLines.set([{ product_id: 'p1', quantity: 288 } as never]);
+    elegir('Paleta Payaso', 'CJA');
+    expect(cajaElegidaDe('Paleta Payaso')).toBe('1 CJA = 144 PZA · en el pedido 288 PZA');
+  });
+
+  it('la unidad base es la del producto: un bulto dice kilos', () => {
+    const { elegir, cajaElegidaDe } = montar();
+    elegir('granel', 'BTO');
+    expect(cajaElegidaDe('granel')).toBe('1 BTO = 20 KG');
+  });
+
+  it('⭐ sin caja declarada, elegir el paquete más grande no inventa una caja', () => {
+    const { elegir, cajaElegidaDe } = montar();
+    elegir('Vero Mango', 'PAQ');
+    expect(cajaElegidaDe('Vero Mango')).toBeNull();
+  });
+
+  it('en la búsqueda no se repite: ahí ya está la línea de la caja', () => {
+    const { buscar, elegir, cajaElegidaDe, contenidoDe } = montar();
+    buscar('paleta payaso');
+    elegir('Paleta Payaso', 'CJA');
+    expect(contenidoDe('Paleta Payaso')).toBe('1 CJA trae 12 PAQ · 144 PZA');
+    expect(cajaElegidaDe('Paleta Payaso')).toBeNull();
   });
 });
