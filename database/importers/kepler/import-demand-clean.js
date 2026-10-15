@@ -20,6 +20,23 @@
  */
 
 const { Client } = require('pg');
+// `[RA.VA.6]` LATIDO PROPIO — este fact alimenta la DEMANDA del motor de compra y no declaraba
+// su edad. Medido el 2026-10-15 (VERDAD_ABSOLUTA §30.8): el único latido cercano es el del fact
+// del pedido, que corre DESPUÉS; si este paso falla, el de abajo reporta verde sobre una demanda
+// vieja. Lo que late es la ENTREGA de este fact (ADR-053).
+//
+// ⚠️ `product_demand.computed_at` NO sirve de frescura: el UPSERT es sin churn, así que dice
+// *cuándo cambió esa fila*, no cuándo se verificó. Misma trampa que el fact del pedido.
+//
+// ⛔ `--hb=<carril>` NO es opcional acá: `run-prod-feeds.js` corre este importer en DOS carriles
+// (`live` y `nightly`). La PK de `analytics.cron_runs` es `(tenant_id, job_key)` SIN host, así que
+// dos emisores sobre una llave se pisan el renglón y `hb.begin()` cierra como ERROR la corrida
+// que encuentre `running` → falsos "no reportó cierre" (medido en `import-sales-fact`: 304 en 7 días).
+const hb = require('../lib/cron-heartbeat');
+const HB_ARG = process.argv.find((a) => a.startsWith('--hb='));
+const HB_SUFIJO = HB_ARG ? HB_ARG.slice(5) : (process.env.DEMAND_HB_SUFIJO || '');
+const HB_KEY = 'fact_product_demand' + (HB_SUFIJO ? '_' + HB_SUFIJO : '');
+const HB_LABEL = `Demanda limpia (product_demand${HB_SUFIJO ? ", " + HB_SUFIJO : ""})`;
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -38,6 +55,8 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
     ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false,
   });
   await db.connect();
+  let hbStat = { status: 'ok', rows: null };
+  if (APPLY) await hb.begin(HB_KEY, HB_LABEL).catch((e) => console.warn(`[latido] begin ${HB_KEY}: ${e.message}`));
   try {
     console.log(`\n=== DEMANDA LIMPIA → analytics.product_demand (${APPLY ? 'APPLY' : 'DRY-RUN'}, ${DAYS}d) ===\n`);
 
@@ -81,7 +100,36 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
           JOIN wl ON wl.warehouse_id = sd.warehouse_id
          WHERE sd.tenant_id = $1
            AND sd.sale_date > wl.last_d - $2::int AND sd.sale_date <= wl.last_d
-           AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
+           -- [RA.VA.1] ⛔⛔ ACÁ SE EXCLUÍA channel = 'mayoreo', Y ERA UN FILTRO HUÉRFANO.
+           --
+           -- El comentario decía «=TI% traspaso interno CEDIS→suc, no es demanda de venta», y
+           -- describía una rama de mart.ventas_enriched que **K.3 retiró el 2026-09-08**
+           -- (ver database/importers/kepler/sql/mart_ventas_enriched.sql: *"la rama TI%→mayoreo
+           -- NUNCA se dispara con esta data… Ahora la ÚNICA vía a mayoreo es el doctype 8"*).
+           -- Doctype 8 = **U-D-8 Factura Telemarketing = MAYOREO**, decisión de Edgar del
+           -- 2026-09-02. O sea: el filtro dejó de tapar traspasos y pasó a tapar VENTA REAL, y
+           -- nadie lo notó porque el comentario seguía describiendo el mundo viejo.
+           --
+           -- Medido contra prod el 2026-10-15 — el canal despega justo cuando el filtro empieza
+           -- a doler, y no está en el CEDIS sino en tres sucursales que venden al público:
+           --     may-jun 2026: $0 (0.0%)   jul: $4.79M (8.8%)   ago: $7.47M (13.7%)
+           --     sep: $11.37M (20.6%)      oct (medio mes): $6.28M (23.6%)
+           --     Padre Hidalgo '01' 42.2% de su venta · Canindo '06' 47.7% · Morelia Abastos '08' 23.5%
+           --
+           -- Lo que el motor no veía: **$12.92M en 30 días**, repartidos en 3,546 pares
+           -- producto×almacén — y el **99.98 %** cae en productos que YA tienen fila en el fact,
+           -- así que no era un hueco de universo: la fila existía y su demanda salía corta.
+           -- Ejemplo: CANELS 4S BOLSA 1Kg en Canindo vendió 1,224 pz / $143,513 por este canal y
+           -- el motor veía 13.16 pz/día (≈395 en 30 d).
+           --
+           -- ⭐ ANTES/DESPUÉS del sugerido (cobertura 30 d, prod 2026-10-15), autorizado por Edgar:
+           --     $13,514,920  →  $19,482,427   (+$5,967,507, **+44.2 %**)
+           --     525 pares pasan de "no pedir" a "pedir" · 1,523 que ya pedían suben
+           --     '01' $4.03M→$6.24M · '06' $1.72M→$3.78M · '08' $3.06M→$4.76M
+           --
+           -- ⛔ NO se vuelve a poner un filtro por NOMBRE de canal sin medir qué doctype lo
+           -- alimenta HOY: ese es exactamente el error que se está corrigiendo acá. El canal
+           -- viaja CRUDO y su significado lo fija mart_ventas_enriched.sql, no este archivo.
          GROUP BY sd.product_id, sd.warehouse_id, wl.last_d, wl.first_d
       ),
       pf AS (
@@ -193,11 +241,14 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
                            WHERE s.warehouse_id = d.warehouse_id AND s.product_id = d.product_id)`, [M, DAYS]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
+    hbStat = { status: 'ok', rows: up.rowCount, note: `${up.rowCount} escritas, ${del.rowCount} borradas` };
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    hbStat = { status: 'error', error: e.message };
     process.exitCode = 1;
   } finally {
     await db.end();
+    if (APPLY) await hb.end(HB_KEY, hbStat).catch((e) => console.warn(`[latido] end ${HB_KEY}: ${e.message}`));
   }
 })();

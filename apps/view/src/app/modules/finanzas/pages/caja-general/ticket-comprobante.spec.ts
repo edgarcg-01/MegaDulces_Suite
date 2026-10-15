@@ -96,3 +96,28 @@ describe('cuerpoReporteDia — reporte diario de movimientos', () => {
     expect(cuerpoReporteDia(rep({ truncado: false }))).not.toContain('topada');
   });
 });
+
+// ── `[CGP-L.8]` El cambio devuelto va aparte ───────────────────────────────────────────────────────
+//
+// El detalle traía las dos pilas mezcladas y el ticket las imprimía todas como DESGLOSE: un cobro de
+// $380 pagado con $500 salía con $620 «recibidos». El cambio se imprime aparte, como lo que SALIÓ.
+describe('[CGP-L.8] el comprobante separa el cambio', () => {
+  it('con cambio, imprime CAMBIO aparte con sus piezas, y el total es el monto', () => {
+    const t = cuerpoComprobante(base({
+      monto: 380,
+      denominaciones: [{ denominacion: 500, piezas: 1 }],
+      devuelto: [{ denominacion: 100, piezas: 1 }, { denominacion: 20, piezas: 1 }],
+    }));
+    const [antes, despues] = t.split('CAMBIO');
+    expect(despues).toBeDefined();
+    expect(antes).toMatch(/500 x\s+1 =/);
+    expect(antes).not.toMatch(/100 x\s+1 =/);   // el cambio NO va en lo recibido
+    expect(despues).toMatch(/100 x\s+1 =/);
+    expect(despues).toMatch(/20 x\s+1 =/);
+    expect(t).toContain('$380.00');
+  });
+
+  it('⛔ [negativa] sin cambio no aparece la sección', () => {
+    expect(cuerpoComprobante(base())).not.toContain('CAMBIO');
+  });
+});

@@ -934,6 +934,26 @@ export interface VecinalPuente {
   sellout_hasta: string | null;
   /** Lo que no cierra. Se declara con su nombre; nunca se absorbe en otro renglón (ADR-056). */
   residuo: number;
+  /**
+   * `[VEC.14]` — **El otro eje de la conciliación: el IMPUESTO.**
+   *
+   * Pedido de Edgar: *"ellos no toman IEPS e IVA"*. Todo lo de arriba está en **bruto** — el
+   * precio del renglón de Kepler ya trae los impuestos (Σ`kdm2.c13` = `c16` en 99.84%). La cifra
+   * que se cita del otro lado es la neta, y mientras una superficie publique bruto y la otra
+   * neto, la diferencia se lee como descuadre.
+   *
+   * ⭐ Las dos tasas están **arbitradas por el dinero**, no tomadas del documento: medido contra
+   * prod en sep-2026, `c14/(c16−c14)` se pega a **0.1600–0.1602 en 646 documentos** (IVA 16%) y
+   * `c15/(c16−c14−c15)` a **exactamente 0.080 en 417** (IEPS 8%). Los valores menores son tickets
+   * MIXTOS (renglones gravados junto a tasa 0), y no hay **ningún** bucket por encima de 0.1602.
+   *
+   * ⛔ **El IEPS no se puede saltear dividiendo entre 1.16**: netear sólo por IVA deja
+   * **$69,251.27 adentro** en sep-2026, y **63% de los documentos lo llevan**.
+   */
+  iva: number;
+  ieps: number;
+  /** `pagina − iva − ieps`: la venta vecinal sin impuestos, al mismo grano que `pagina`. */
+  neto: number;
 }
 
 export interface VecinalConciliacion {
@@ -8539,7 +8559,10 @@ export class CommercialAnalyticsService {
              WHERE tenant_id = ?::uuid AND channel = 'preventa'
                AND business_date >= ?::date AND business_date <= ?::date),
           doc AS (
-            SELECT COALESCE(sum(total),0) AS pagina, count(*)::int AS docs
+            -- [VEC.14] impuesto (IVA) y ieps salen de la vista canónica, NO se re-derivan
+            -- acá: el que netea por su cuenta se queda corto por el IEPS sin enterarse.
+            SELECT COALESCE(sum(total),0) AS pagina, count(*)::int AS docs,
+                   COALESCE(sum(impuesto),0) AS iva, COALESCE(sum(ieps),0) AS ieps
               FROM analytics.v_kepler_vecinal_sales_docs
              WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
           lin AS (
@@ -8552,7 +8575,8 @@ export class CommercialAnalyticsService {
               FROM analytics.v_kepler_sales_lines
              WHERE tenant_id = ?::uuid AND es_vecinal
                AND business_date >= ?::date AND business_date <= ?::date)
-         SELECT doc.pagina, doc.docs AS pagina_docs, lin.ud10, lin.tele, lin.tele_docs,
+         SELECT doc.pagina, doc.docs AS pagina_docs, doc.iva, doc.ieps,
+                lin.ud10, lin.tele, lin.tele_docs,
                 lin.espejo, lin.espejo_docs, lin.por_refrescar, so.sellout,
                 to_char(so.hasta,'YYYY-MM-DD') AS sellout_hasta
            FROM doc, lin, so`,
@@ -8614,6 +8638,11 @@ export class CommercialAnalyticsService {
         sellout,
         sellout_hasta: (pu?.sellout_hasta as string | null) ?? null,
         residuo: r2(kepler_total - por_refrescar - sellout),
+        // `[VEC.14]` El eje del impuesto. `neto` se resta de `pagina` (bruto al grano de
+        // documento), que es el mismo grano en el que viajan `iva` e `ieps`.
+        iva: r2(Number(pu?.iva) || 0),
+        ieps: r2(Number(pu?.ieps) || 0),
+        neto: r2(pagina - (Number(pu?.iva) || 0) - (Number(pu?.ieps) || 0)),
       };
 
       return {

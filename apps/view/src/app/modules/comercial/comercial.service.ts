@@ -3304,6 +3304,14 @@ export interface VecinalPuente {
   sellout_hasta: string | null;
   /** Lo que no cierra. Se declara; nunca se absorbe en otro renglón. */
   residuo: number;
+  /**
+   * `[VEC.14]` El eje del IMPUESTO. Todo lo de arriba está en BRUTO (el precio del renglón de
+   * Kepler ya trae impuestos). El negocio cuenta en neto. Tasas arbitradas por el dinero:
+   * IVA 16% (`c14`), IEPS 8% (`c15`). Netear sólo por IVA deja el IEPS adentro.
+   */
+  iva: number;
+  ieps: number;
+  neto: number;
 }
 
 export interface VecinalConciliacion {

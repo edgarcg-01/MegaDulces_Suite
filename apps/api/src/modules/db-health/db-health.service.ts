@@ -1083,6 +1083,10 @@ export const CRON_JOBS: CronCfg[] = [
   // `cfg ? classify : 'ok'` y un cron parado se vería verde — que es justo el modo de falla que
   // este job existe para no repetir.
   { key: 'caja_fecha_futura',   label: 'Caja: movimientos fechados adelante', cadence: 'diario 07:15 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [CGP-L.10] El sensor del corte abierto corre cada hora: 2 h de aviso (una corrida perdida), 6 h
+  // de crítico. Sin este renglón un sensor parado se pinta verde, que es justo la falla que tuvo el
+  // corte del 12-oct: tres jornadas trabadas y ningún sistema lo dijo.
+  { key: 'caja_corte_abierto',  label: 'Caja: corte abierto y jornadas sin corte', cadence: 'cada hora (:20)', warnH: 2, critH: 6, maxRunH: 0.25 },
   // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
   { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
@@ -1170,6 +1174,23 @@ export const CRON_JOBS: CronCfg[] = [
   // vivo — un atraso de 2 h acá no significa lo mismo que en `cdc_reconcile`, que mira ventas.
   // ⚠️ Sin este renglón el sensor daría verde INCONDICIONAL (`cfg ? classify : 'ok'`, Fase VP).
   { key: 'cdc_reconcile_chicas', label: 'Reconciliador ODS --chicas (tablas sin fecha)', cadence: 'continuo ~30 min', warnH: 2, critH: 6 },
+  /**
+   * `[VEC.18]` — **El barrido ANCHO que sí repone.** Nace de un hueco medido: el 17-ago-2026 el
+   * ODS perdió 968 renglones de `kdm2` en las sucursales 02 y 05, y **sobrevivió 59 días**
+   * porque los dos reconciliadores que había no podían tocarlo — el que repone mira **3 días**
+   * (`cdc_reconcile`) y el que mira todo **no repone** (`cdc_reconcile_full`, es sólo-DELETE).
+   * Se encontró de casualidad, conciliando la venta vecinal contra sus propios renglones.
+   *
+   * Al barrer las 9 ramas × 5 tablas × 60 días aparecieron **3,505 filas ausentes en 7 de 9
+   * ramas** — `kdij` 1,300 (el kardex, que **valúa el inventario**) y `kdue` 867 (la **cartera**).
+   * ⭐ Y `04` y `07` estaban impecables en las cinco: eso es lo que lo vuelve defecto y no
+   * naturaleza del carril.
+   *
+   * Semanal, así que el umbral va en días y no en horas: `warn` a los 8 días, `crit` a los 10.
+   * ⚠️ Sin este renglón el sensor cae en `cfg ? classify : 'ok'` = **verde incondicional**, que es
+   * exactamente cómo este hueco se mantuvo invisible dos meses.
+   */
+  { key: 'cdc_reconcile_ancho', label: 'Reconciliador ODS ancho (repone 45 d)', cadence: 'semanal dom 03:30 MX', warnH: 192, critH: 240 },
   // [OBS.12] Dedup de las tablas contables `kdc2YYMM`. Existe porque `c2` esta en la PK y el ODS
   // trae DOS renderizados del mismo instante (+6 h hasta el 2026-09-23): un UPDATE de Kepler
   // aterriza como INSERT y conviven el ANTES y el DESPUES de la misma poliza, los dos sumando.

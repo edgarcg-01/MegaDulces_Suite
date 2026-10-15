@@ -74,6 +74,8 @@ describe('Tomar pedido sin IA', () => {
       myStockSources: { sucursal: { id: 'w1', code: '01', name: 'Padre Hidalgo' }, camioneta: null },
       getCustomer: cliente,
       catalogForCustomer: { priceListId: 'pl1', prices: [productoAltaRotacion] },
+      // [VTK.11] La pantalla abre con catalogInstant (copia guardada o servidor).
+      catalogInstant: { priceListId: 'pl1', prices: [productoAltaRotacion], origen: 'servidor', at: Date.now() },
       draftForCustomer: null,
       pendingForCustomer: [],
       frequentProducts: [],
@@ -112,7 +114,7 @@ describe('Tomar pedido sin IA', () => {
     expect(llamadas.filter((m) => METODOS_IA.includes(m))).toEqual([]);
     // Lo que sí debe pedir para pintar el pad.
     expect(llamadas).toEqual(
-      expect.arrayContaining(['myStockSources', 'getCustomer', 'catalogForCustomer', 'frequentProducts']),
+      expect.arrayContaining(['myStockSources', 'getCustomer', 'catalogInstant', 'frequentProducts']),
     );
     const texto = el.textContent || '';
     expect(texto).toContain('Catálogo · más vendidos');

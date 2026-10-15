@@ -1,3 +1,4 @@
+import { diaMxDeInstante } from '@megadulces/contracts';
 /**
  * `[CG.58]` — **El ingreso a la caja fuerte (CAOS) se casa con sus cobros de Kepler. Al 100%.**
  *
@@ -81,7 +82,10 @@ export type VeredictoDeposito =
 export const CAOS_EPSILON = 0.005;
 
 const r2 = (v: number): number => Math.round((Number(v) || 0) * 100) / 100;
-const dia = (iso: string): string => String(iso).slice(0, 10);
+// `[CGP-L.5]` El día de NEGOCIO (México) del depósito. Recortar el ISO daba el día en UTC: un depósito
+// a las 19:00 del 12-oct «era» del 13 y podía consumir un cobro del 13, que todavía no existía.
+// Sin instante legible, '' : no consume ningún cobro (todos tienen fecha mayor) y se declara sin respaldo.
+const dia = (iso: string): string => diaMxDeInstante(iso) ?? '';
 
 /**
  * Reparte los cobros disponibles entre los depósitos, **en orden cronológico y sin reusar nada**.

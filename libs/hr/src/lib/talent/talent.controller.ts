@@ -4,10 +4,12 @@ import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCasilleroDto, HrDocumentoNuevo, HrLigaCreadaDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
   HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
+  HrPedirDocumentos, HrPedirDocumentosResultadoDto,
 } from '@megadulces/contracts';
 import { HrTalentCandidatesService } from './talent-candidates.service';
 import { HrTalentJobsService } from './talent-jobs.service';
 import { HrTalentLinksService } from './talent-links.service';
+import { HrDocumentRequestService } from './bot/pedir-documentos.service';
 
 /**
  * Fase RH · `[RH.2.2]` — la API de reclutamiento para RH (con sesión). Lo público —el formulario
@@ -31,6 +33,7 @@ export class HrTalentController {
     private readonly candidates: HrTalentCandidatesService,
     private readonly jobs: HrTalentJobsService,
     private readonly links: HrTalentLinksService,
+    private readonly documentos: HrDocumentRequestService,
   ) {}
 
   // ── Candidatos: lectura ──────────────────────────────────────────────────────────────────
@@ -140,6 +143,14 @@ export class HrTalentController {
   @ApiOperation({ summary: 'RH — retirar un documento (con motivo). No se borra.' })
   retirarDocumento(@Param('id') id: string, @Body() b: { llave?: string; reason?: string }): Promise<HrCandidatoFichaDto> {
     return this.candidates.retirarDocumento(id, b);
+  }
+
+  @Post('candidates/:id/documents/request')
+  @RequirePermissions(Permission.HR_RECRUITMENT_GESTIONAR)
+  @ApiOperation({ summary: 'RH — pedirle sus documentos por WhatsApp (la lista queda registrada; el mensaje sale sólo dentro de la ventana de 24 h).' })
+  pedirDocumentos(@Param('id') id: string, @Body() b: HrPedirDocumentos): Promise<HrPedirDocumentosResultadoDto> {
+    const slots = Array.isArray(b?.slots) ? b.slots.filter((s): s is string => typeof s === 'string') : null;
+    return this.documentos.pedir(id, slots);
   }
 
   @Post('candidates/:id/links')
