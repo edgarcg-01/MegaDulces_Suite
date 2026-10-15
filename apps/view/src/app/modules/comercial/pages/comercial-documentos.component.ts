@@ -564,7 +564,7 @@ export class ComercialDocumentosComponent {
     const q = {
       from: f.desde, to: f.hasta, search: f.search || undefined,
       vendedor_code: f.vendedor || undefined,
-      cobro: f.cobro || undefined,
+      cobro: f.cobro.length ? f.cobro.join(',') : undefined,
       vencidas: f.soloVencidas ? 'true' : undefined,
       warehouse_codes: f.sucursal || undefined,
       sort: f.orden || undefined,
