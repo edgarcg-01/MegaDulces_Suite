@@ -9,7 +9,7 @@ import {
 } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
-import { hoyMx, jornadasSinCorte } from './caja-jornadas.query';
+import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
@@ -223,7 +223,9 @@ export class CashCutService {
     return trx('finance.cash_ledger')
       .where({ tenant_id: tenantId })
       .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
-      .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
+      // `[CGP-L.12]` La jornada es la del EFECTIVO, no la del papel. Una sola definición, compartida
+      // con `sueltosFuera()` y `jornadasSinCorte()`: ver `enJornadaLibro` en `caja-jornadas.query.ts`.
+      .modify((q: Knex.QueryBuilder) => { if (dia) enJornadaLibro(q, dia); })
       .whereNull('corte_id').whereNull('deleted_at');
   }
 
@@ -326,14 +328,16 @@ export class CashCutService {
       .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
       .whereNot('estado', 'cancelado')
-      .whereRaw('fecha <> ?::date', [dia])
+      // `[CGP-L.12]` La MISMA jornada que usa `sueltosDe()`: si acá se midiera por el día del papel,
+      // la pantalla declararía como «de otra jornada» justo los movimientos que el corte sí ató.
+      .whereRaw(`${JORNADA_LIBRO} <> ?::date`, [dia])
       .select(
-        trx.raw(`count(*) FILTER (WHERE fecha < ?::date)::int AS n_antes`, [dia]),
-        trx.raw(`coalesce(${neto} FILTER (WHERE fecha < ?::date), 0)::numeric AS neto_antes`, [dia]),
-        trx.raw(`count(*) FILTER (WHERE fecha > ?::date)::int AS n_despues`, [dia]),
-        trx.raw(`coalesce(${neto} FILTER (WHERE fecha > ?::date), 0)::numeric AS neto_despues`, [dia]),
-        trx.raw(`to_char(min(fecha),'YYYY-MM-DD') AS desde`),
-        trx.raw(`to_char(max(fecha),'YYYY-MM-DD') AS hasta`),
+        trx.raw(`count(*) FILTER (WHERE ${JORNADA_LIBRO} < ?::date)::int AS n_antes`, [dia]),
+        trx.raw(`coalesce(${neto} FILTER (WHERE ${JORNADA_LIBRO} < ?::date), 0)::numeric AS neto_antes`, [dia]),
+        trx.raw(`count(*) FILTER (WHERE ${JORNADA_LIBRO} > ?::date)::int AS n_despues`, [dia]),
+        trx.raw(`coalesce(${neto} FILTER (WHERE ${JORNADA_LIBRO} > ?::date), 0)::numeric AS neto_despues`, [dia]),
+        trx.raw(`to_char(min(${JORNADA_LIBRO}),'YYYY-MM-DD') AS desde`),
+        trx.raw(`to_char(max(${JORNADA_LIBRO}),'YYYY-MM-DD') AS hasta`),
       );
     const anteriores = { movimientos: Number(r?.n_antes ?? 0), neto: Number(r?.neto_antes ?? 0) };
     const posteriores = { movimientos: Number(r?.n_despues ?? 0), neto: Number(r?.neto_despues ?? 0) };
@@ -1109,10 +1113,23 @@ export class CashCutService {
     const dia: string = fecha == null
       ? (await trx.raw(
           `SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date,'YYYY-MM-DD') AS d`)).rows[0].d
-      // ⚠️ `String(unDate).slice(0,10)` da "Mon Oct 12 2026" — el mismo defecto que `[LC.16]`.
-      // Una columna `date` de pg llega como `Date` a la medianoche local, así que `toISOString()`
-      // es lo único que devuelve el día que se guardó.
-      : (fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha).slice(0, 10));
+      /**
+       * ⛔⛔ `[CGP-L.12]` **ACÁ SEGUÍA EL `toISOString()` QUE `[CGP-L.5]` YA HABÍA REFUTADO.**
+       *
+       * Decía que `toISOString()` «es lo único que devuelve el día que se guardó», y la línea 281
+       * de este mismo archivo dice lo contrario: *sólo funcionaba de casualidad*. Una columna
+       * `date` de pg llega como `Date` a la **medianoche local del proceso**, así que `toISOString`
+       * da el día correcto en UTC y en México, y **el ANTERIOR en Tokio** (medido en `[CGP-L.5]`).
+       *
+       * ⚠️ Es la pierna de la BÓVEDA: con el día corrido, el corte sumaba el dispensado y el
+       * depositado **de otra jornada**. En prod no se veía porque el contenedor corre en hora de
+       * México, y **ninguna prueba lo ejercía**: la suite no sembraba movimientos de CAOS. Lo
+       * destapó la primera que sí lo hace (`[CGP-L.12]`), corriendo con el proceso en Tokio.
+       *
+       * ⭐ El arreglo es usar el MISMO helper que el resto del corte. *Un helper compartido no
+       * sirve de nada en el sitio que no lo llama.*
+       */
+      : (this.diaDe(fecha) as string);
 
     const [r] = await trx('analytics.caos_cash_movements')
       .where('tenant_id', tenantId)

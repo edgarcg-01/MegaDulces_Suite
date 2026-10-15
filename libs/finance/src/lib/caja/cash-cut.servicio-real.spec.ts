@@ -82,11 +82,33 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
   });
 
   /** Un movimiento del libro, escrito directo: lo que se prueba acá es el CORTE, no la captura. */
-  async function movimiento(fecha: string, sucursal: string, tipo: 'ingreso' | 'gasto', monto: number) {
+  /**
+   * ⚠️ `[CGP-L.12]` **`created_at` se siembra, no se deja en `now()`.** La jornada de un movimiento
+   * es el día en que se movió el efectivo (`created_at` en hora de México), no el del papel. Estas
+   * pruebas fechan en años históricos, así que un `created_at` en el día de la corrida dejaría a
+   * TODOS sus movimientos fuera de su propio corte. Por omisión el efectivo se movió el día que dice
+   * `fecha` —que es el caso normal, capturar el mismo día—; `diaEfectivo` separa los dos a propósito.
+   * Se siembra a mediodía para no depender del desplazamiento horario (en años previos a 1922 la
+   * zona de México es LMT, −06:36:36).
+   */
+  async function movimiento(
+    fecha: string, sucursal: string, tipo: 'ingreso' | 'gasto', monto: number, diaEfectivo?: string,
+  ) {
     await tk.run((trx) => trx('finance.cash_ledger').insert({
       tenant_id: T, folio: `CGL-${ANIO}-${Date.now()}-${(n += 1)}`, tipo, fecha, sucursal,
       kepler_cuenta: '101-001', kepler_concepto: '001', glosa: 'Movimiento de prueba del servicio',
       monto, created_by: CAJERA.id,
+      created_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [diaEfectivo ?? fecha]),
+    }));
+  }
+
+  /** Una pierna del cajero (CAOS) en su jornada: `accounting_date` es el día FÍSICO. */
+  async function caos(accounting_date: string, typeId: number, total: number) {
+    await tk.run((trx) => trx('analytics.caos_cash_movements').insert({
+      tenant_id: T, device: 'CAOS-PRUEBA', external_id: Date.now() * 10 + (n += 1),
+      type_id: typeId, type_label: typeId === 4 ? 'Dispensar' : 'Deposito',
+      occurred_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [accounting_date]),
+      accounting_date, total, _row_hash: `prueba-${ANIO}-${CORRIDA}-${n}`,
     }));
   }
   const corte = (id: string) => tk.run((trx) => trx('finance.cash_ledger_cuts').where({ id }).first());
@@ -188,6 +210,43 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(Number(cerrado.esperado)).toBe(1300);      // el cierre mide el MISMO universo que el conteo
     const atados = await tk.run((trx) => trx('finance.cash_ledger').where({ corte_id: c.id }).count<{ n: string }[]>('* as n'));
     expect(Number(atados[0].n)).toBe(2);
+  });
+
+  /**
+   * ⛔⛔ `[CGP-L.12]` **LA JORNADA ES LA DEL EFECTIVO, Y SI NO LO ES SE INVENTA UN FALTANTE.**
+   *
+   * Edgar, 2026-10-15: *«al corte de Caja General no se le considera lo dispensado en CAOS, al menos
+   * en ingreso; si es egreso y existe un sobrante, se le carga a Caja General»*. El motor ya lo hace:
+   * la dispensación y su gasto **se cancelan**, y al cajón sólo le llega la morralla. Pero eso exige
+   * que las dos piernas caigan en la MISMA jornada.
+   *
+   * Acá se reproduce el caso real: un gasto pagado el día D con billetes que CAOS entregó el día D,
+   * con el papel de Kepler fechado D−3 (su rezago medido es de 3 días, `[CG.82]`).
+   *
+   * **Antes del arreglo** el corte filtraba el libro por `fecha` y el cajero por `accounting_date`:
+   * sumaba `+2,000` de dispensación **sin su gasto** y publicaba un faltante de $2,000 que nadie
+   * perdió. Mutación: devolver `sueltosDe()` a `.where('fecha', dia)` pone esta prueba en rojo.
+   */
+  it('`[CGP-L.12]` la dispensación y su gasto caen en el mismo corte aunque el papel sea de otro día', async () => {
+    const d = await diaDespuesDelUltimo('00');
+    const papel = `${String(Number(d.slice(0, 4))).padStart(4, '0')}-${d.slice(5, 7)}-01`; // el documento, de otro día
+    expect(papel).not.toBe(d);
+
+    // El gasto: el papel es del día `papel`, pero el efectivo salió del cajón el día `d`.
+    await movimiento(papel, '00', 'gasto', 2000, d);
+    // ⚠️ La bóveda se siembra DESPUÉS de abrir, no antes. Si `abrir` falla (la 00 es una sola para
+    // todas las corridas y un borrador viejo la traba), una dispensación huérfana queda en ese día
+    // y la levanta el corte de la corrida SIGUIENTE: medido, le sumó $2,000 al esperado de
+    // `[CG.160]` y lo dejó en 3,300. El corte ya existe cuando `contar` lee la bóveda.
+    const c = await svc.abrir({ fecha: d, sucursal: '00', fondo_inicial: 500 }, CAJERA);
+    // Los billetes con los que se pagó salieron de la bóveda ESE día.
+    await caos(d, 4 /* DISPENSAR */, 2000);
+    const sellado = await svc.contar(c.id, { conteo: conteo(['500', 500, 1]), morralla: 0 }, CAJERA);
+
+    // +2,000 de la bóveda − 2,000 del gasto = 0. En el cajón sólo quedó el fondo.
+    expect(sellado.totales).toMatchObject({ esperado: 500, contado: 500, veredicto: 'cuadra' });
+    expect(Number((await svc.cerrar(c.id, {}, CAJERA)).esperado)).toBe(500);
+    await svc.autorizar(c.id, AUTORIZA);
   });
 
   it('`[CGP-L.4]` un segundo corte de la misma sucursal y fecha: 400 que nombra el folio que ya existe', async () => {

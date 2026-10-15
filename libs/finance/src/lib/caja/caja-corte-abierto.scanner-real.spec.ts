@@ -80,6 +80,10 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
         tenant_id: T, folio: `CGS-${ANIO}-${Date.now()}-ancla`, tipo: 'gasto', fecha: ANCLA, sucursal: '00',
         kepler_cuenta: '601-001', kepler_concepto: '001', glosa: 'Movimiento del día que sí tiene corte',
         monto: 100, created_by: CAJERA,
+        // `[CGP-L.12]` La jornada de un movimiento es la del EFECTIVO (`created_at` en hora de
+        // México), no la del papel. Sin sembrarla, `now()` lo pondría en el día de la corrida y
+        // este movimiento no caería en el día que la prueba dice que tiene corte.
+        created_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [ANCLA]),
       });
       // Dos jornadas con movimientos (una de otra plaza: el cajón de la 00 la paga) y sin corte.
       for (const [i, fecha] of SIN_CORTE.entries()) {
@@ -87,6 +91,8 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
           tenant_id: T, folio: `CGS-${ANIO}-${Date.now()}-${i}`, tipo: 'gasto', fecha, sucursal: i ? '05' : '00',
           kepler_cuenta: '601-001', kepler_concepto: '001', glosa: 'Movimiento sin corte de la prueba',
           monto: 100, created_by: CAJERA,
+          // `[CGP-L.12]` idem: la jornada sin corte se mide por el día del efectivo.
+          created_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [fecha]),
         });
       }
       // El corte trabado: en borrador desde hace 75 horas, como el del 12-oct.
