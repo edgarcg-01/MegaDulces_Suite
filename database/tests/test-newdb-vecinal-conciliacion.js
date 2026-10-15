@@ -306,11 +306,25 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
     // Medido contra prod el 2026-10-15: julio **$0.06** (0 de 1,689 docs fallan) · septiembre
     // **$0.70** (1 de 2,553) · octubre **$0.02** (0 de 1,371). Eso es redondeo, no descuadre.
     //
-    // ⛔ **Agosto es la excepción, y NO es la fórmula**: 28 documentos ($26,016.13) del **17-ago**
-    // en las sucursales 02 y 05. Ese día la ingesta de `kdm2` llegó incompleta — y el hueco
-    // excede a la vecinal: **167 documentos de venta y $45,033.28** sin un solo renglón, de los
-    // que sólo el 54% es vecinal. Los días 15, 16, 18 y 19 tienen CERO. Se declara, no se absorbe.
-    const EXC = `(btrim(h.sucursal) IN ('02','05') AND h.c9::date = DATE '2026-08-17')`;
+    // ⭐ `[VEC.16]` **Agosto no cerraba, y la excepción se RETIRÓ porque el hueco se reparó.**
+    //
+    // Eran 28 documentos ($26,016.13) del **17-ago** en las sucursales 02 y 05: la ingesta de
+    // `kdm2` había llegado incompleta, y el hueco excedía a la vecinal — **167 documentos de
+    // venta y $45,033.28** sin un solo renglón, de los que sólo el 54% era vecinal.
+    //
+    // Investigado el 2026-10-15: **Kepler SÍ tenía las líneas** (la réplica de sucursal daba cero
+    // documentos sin renglones, con las cabeceras idénticas al centavo). Se repusieron **968
+    // filas** con `reconcile-ods-window --branch=02|05 --tables=kdm2 --days=60 --apply`, y
+    // verificado contra prod: el día pasó de 167 documentos sin renglones a **0**, y agosto de
+    // **$26,016.13** de residuo a **$0.05** con 0 documentos fallando.
+    //
+    // ⛔ **Por eso NO queda exclusión.** Una exclusión que sobrevive a su causa deja al candado
+    // ciego justo donde ya falló una vez.
+    //
+    // ⚠️ Lo que el incidente dejó abierto y este candado NO cubre: la ventana de reparación del
+    // ODS es de **3 días** (`--days=3` en el despliegue) y el barrido `--full` **no repone**, así
+    // que un hueco que no se detecte en 72 h vuelve a ser permanente. Este se encontró a los 59.
+    const EXC = 'false';
     const ident = (await db.raw(
       `WITH d AS (
          SELECT btrim(h.sucursal) s, h.c5::integer cj, btrim(h.c6) f,
