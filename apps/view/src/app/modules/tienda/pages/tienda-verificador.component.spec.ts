@@ -4,11 +4,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { Subject, of, throwError } from 'rxjs';
 import { signal } from '@angular/core';
+import { ConfirmationService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { EstadoSnapshot, ResultadoBusqueda, VerificadorService } from '../verificador.service';
 import { TiendaVerificadorComponent } from './tienda-verificador.component';
 import { StoreSocketService } from '../store-socket.service';
-import type { LabelPricesChanged } from '@megadulces/contracts';
+import { compactarTier, expandirTier, type LabelPricesChanged } from '@megadulces/contracts';
 // `[TDA.7]` El mock de IntersectionObserver vive en el setup (jsdom no lo trae) y expone el
 // interrogador: poder AFIRMAR que nadie intersectó es lo que hace válida la prueba del $0.00.
 import { nadieIntersecto } from '../../../../test-setup';
@@ -68,6 +69,8 @@ const TIER_PAQUETE = {
   etiqueta: 'paquete', desde: 3, palabra: 'paquetes',
   precio_con_iva: 65.11, ahorro_por_unidad: 5.01, ahorro_en_el_minimo: 15.03,
   descuento_pct: 7.1, realza: true, aplica_a: 'paquete' as const, unidad_monto: 'por paquete',
+  // `[VAC.H3]` 3 paquetes de 8 = 24 piezas.
+  equivale_a: '24 piezas',
 };
 const CON_MAYOREO = {
   codigo: '70001',
@@ -134,6 +137,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        ConfirmationService,
         { provide: VerificadorService, useValue: svc },
         { provide: StoreSocketService, useValue: sock },
         // La sucursal sale de la ficha del usuario: con warehouse_code no se ofrece elegir.
@@ -153,6 +157,51 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(html()).toContain('8 ESQUINAS');
     expect(fix.nativeElement.querySelector('p-select')).toBeNull();
     expect(fix.nativeElement.querySelector('input.vf-input')).toBeTruthy();
+  });
+
+  it('el entero va grande y los centavos chicos aparte: el punto no se lee como otro numero', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    const hero = fix.nativeElement.querySelector('.vf-precio');
+    // El texto completo sigue siendo la cifra de siempre (lector de pantalla y copiar/pegar)...
+    expect(hero?.textContent?.replace(/\s/g, '')).toBe('$62.99');
+    // ...pero dibujada en dos partes: los centavos y su punto viajan en su propio nodo.
+    expect(hero?.querySelector('.vf-cent')?.textContent).toBe('.99');
+  });
+
+  it('el mayoreo y las otras unidades parten su precio igual: entero grande, centavos chicos', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    const montos: HTMLElement[] = Array.from(fix.nativeElement.querySelectorAll('.vf-may-monto'));
+    const unidades: HTMLElement[] = Array.from(fix.nativeElement.querySelectorAll('.vf-u-precio'));
+    expect(montos.length).toBeGreaterThan(0);
+    expect(unidades.length).toBeGreaterThan(0);
+    for (const el of [...montos, ...unidades]) {
+      // Cada cifra sigue leyendose completa ($1,159.91)...
+      expect(el.textContent?.replace(/\s/g, '')).toMatch(/^\$\d{1,3}(,\d{3})*\.\d{2}$/);
+      // ...pero con los centavos y su punto en su propio nodo chico, no en la cifra grande.
+      expect(el.querySelector('.vf-cent')?.textContent).toMatch(/^\.\d{2}$/);
+    }
+  });
+
+  it('precioPartes acarrea bien el redondeo, agrupa miles y no inventa centavos sin precio', () => {
+    const c = fix.componentInstance;
+    const partes = (v: number | null) => {
+      svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: {
+        ...PRODUCTO, unidades: v == null ? [] : [{ ...PRODUCTO.unidades[0], precio_con_iva: v }],
+      } };
+      c.consultar('17083');
+      fix.detectChanges();
+      return c.precioPartes();
+    };
+    expect(partes(85.995)).toEqual({ entero: '86', centavos: '00' });     // acarreo: no "85" y "100"
+    expect(partes(1234.5)).toEqual({ entero: '1,234', centavos: '50' });  // miles agrupados, centavos a 2 dígitos
+    expect(partes(7)).toEqual({ entero: '7', centavos: '00' });
+    expect(partes(null)).toEqual({ entero: '—', centavos: '' });          // sin dato: ni 0 ni centavos dibujados
   });
 
   it('un precio en línea se pinta en grande y se rotula como en línea', () => {
@@ -252,8 +301,10 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
 
     const cifra = fix.nativeElement.querySelector('.vf-may-ahorro strong') as HTMLElement | null;
     expect(cifra).toBeTruthy();
-    expect(cifra!.textContent).toContain('6.60');
+    // La cifra principal es el ahorro POR UNIDAD ($0.66); el total ($6.60) va de apoyo.
+    expect(cifra!.textContent).toContain('0.66');
     expect(cifra!.textContent?.trim()).not.toBe('$0.00');
+    expect(fix.nativeElement.querySelector('.vf-may-total')?.textContent).toContain('$6.60 en total');
     // Y se afirma la premisa: nadie intersectó. Sin esto la prueba podría pasar por el camino
     // fácil y dejar el defecto vivo.
     expect(nadieIntersecto()).toBe(true);
@@ -300,6 +351,121 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     // El primero del DOM es el destacado: el orden lo decide la unidad leída, no el backend.
     const filas = fix.nativeElement.querySelectorAll('.vf-may-row');
     expect(filas[0].classList.contains('is-foco')).toBe(true);
+  });
+
+  /**
+   * `[VAC.H3]` Cada umbral es su propio bloque y el de paquete trae su equivalencia en piezas:
+   * "3 paquetes" y "10 piezas" no se pueden comparar a ojo.
+   */
+  it('el escalón de paquete dice a cuántas piezas equivale; el de pieza no', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: CON_MAYOREO, unidadEscaneada: 'PZA',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    const filas = fix.nativeElement.querySelectorAll('.vf-may-row') as NodeListOf<HTMLElement>;
+    expect(filas.length).toBe(2);
+    expect(filas[0].querySelector('.vf-may-eq')).toBeNull();                       // pieza: ya está en piezas
+    expect(filas[1].querySelector('.vf-may-eq')?.textContent).toContain('24 piezas'); // paquete
+  });
+
+  /** Un respaldo bajado antes de VAC.H3 no trae la equivalencia: no se inventa. */
+  it('sin equivale_a (respaldo viejo) no se pinta ninguna equivalencia', () => {
+    const sinEq = { ...CON_MAYOREO, mayoreo: [TIER_BASE, { ...TIER_PAQUETE, equivale_a: null }] };
+    svc.proximo = {
+      estado: 'encontrado', origen: 'respaldo', snapshotAl: null,
+      producto: sinEq, unidadEscaneada: 'PZA',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vf-may-eq')).toBeNull();
+  });
+
+  /** La codificación del cable conserva la equivalencia, y un respaldo viejo se lee sin ella. */
+  it('equivale_a sobrevive al snapshot compacto y su ausencia se lee como null', () => {
+    const ida = expandirTier(compactarTier(TIER_PAQUETE));
+    expect(ida.equivale_a).toBe('24 piezas');
+    const base = expandirTier(compactarTier(TIER_BASE));
+    expect(base.equivale_a).toBeNull();
+    // Respaldo anterior a VAC.H3: sin la clave `eq`.
+    const viejo = compactarTier(TIER_PAQUETE) as Record<string, unknown>;
+    delete viejo['eq'];
+    expect(expandirTier(viejo as never).equivale_a).toBeNull();
+  });
+
+  /** `[VAC.U4]` El logo que no carga se reemplaza por el nombre en texto, con estado y sin onerror. */
+  it('si el logo no carga, se muestra el nombre en texto', () => {
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('.vf-logo-txt')).toBeNull();
+    (el.querySelector('img.vf-logo') as HTMLImageElement).dispatchEvent(new Event('error'));
+    fix.detectChanges();
+    expect(el.querySelector('img.vf-logo')).toBeNull();
+    expect(el.querySelector('.vf-logo-txt')?.textContent).toContain('Mega');
+  });
+
+  /** `[VAC.U4]` Reiniciar el contador pregunta con el diálogo de la app y sólo borra si se acepta. */
+  it('reiniciar el contador pide confirmación y sólo reinicia al aceptar', () => {
+    const conf = TestBed.inject(ConfirmationService);
+    const espia = vi.spyOn(conf, 'confirm');
+    fix.componentInstance.contador.set(7);
+    fix.componentInstance.reiniciarContador();
+    expect(espia).toHaveBeenCalledTimes(1);
+    expect(fix.componentInstance.contador()).toBe(7);          // preguntó, aún no borró
+    espia.mock.calls[0][0].accept?.();
+    expect(fix.componentInstance.contador()).toBe(0);
+  });
+
+  /** `[VAC.U6]` Consultando sin tarjeta vigente: esqueleto; con tarjeta vigente: se conserva. */
+  it('mientras consulta muestra el esqueleto y no parpadea si ya hay una tarjeta', () => {
+    const el = fix.nativeElement as HTMLElement;
+    fix.componentInstance.buscando.set(true);
+    fix.detectChanges();
+    expect(el.querySelector('.vf-skel')).toBeTruthy();
+
+    fix.componentInstance.buscando.set(false);
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    expect(el.querySelector('.vf-card')).toBeTruthy();
+
+    fix.componentInstance.buscando.set(true);   // otro escaneo con la tarjeta anterior en pantalla
+    fix.detectChanges();
+    expect(el.querySelector('.vf-skel')).toBeNull();
+    expect(el.querySelector('.vf-card')).toBeTruthy();
+  });
+
+  /** `[VAC.L10]` El aviso dice la causa REAL de la caída al respaldo. */
+  it('un respaldo por falla del servidor NO dice "Sin conexión"', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'respaldo', snapshotAl: '2026-09-08T12:00:00.000Z',
+      producto: CON_MAYOREO, motivoRespaldo: 'servidor',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    const banner = (fix.nativeElement as HTMLElement).querySelector('.vf-banner')?.textContent ?? '';
+    expect(banner).toContain('El servidor falló');
+    expect(banner).not.toContain('Sin conexión');
+  });
+
+  it('sin respaldo y con falla del servidor la pantalla lo dice y no manda a revisar la red', () => {
+    svc.proximo = { estado: 'sin_datos', codigo: '70001', motivoRespaldo: 'servidor' } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    const err = (fix.nativeElement as HTMLElement).querySelector('.vf-err')?.textContent ?? '';
+    expect(err).toContain('EL SERVIDOR FALLÓ');
+    expect(err).not.toContain('Verifica la red');
+  });
+
+  it('el pie declara un respaldo de formato anterior', () => {
+    svc.snapshot.set({
+      sucursal: '03', total: 9479, generado: '2026-09-08T12:00:00.000Z',
+      descargadoAl: '2026-09-08T12:05:00.000Z', formatoAnterior: true,
+    });
+    fix.componentInstance.snapshot.set(svc.snapshot());
+    fix.detectChanges();
+    expect((fix.nativeElement as HTMLElement).querySelector('.vf-version')?.textContent).toContain('formato anterior');
   });
 
   /** La pastilla del ahorro no se duplica: una sola, la del escalón que aplica. */
@@ -378,6 +544,62 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(aviso).toBeTruthy();
     expect(aviso!.textContent).toContain('acaba de cambiar');
     expect(aviso!.textContent).toContain('62.99');
+  });
+
+  // ── Modo kiosco: sin información interna (decisión 0Sistemas, 2026-10-14) ─────────────────
+  // El kiosco lo mira el CLIENTE. La cámara del celular, el código interno con su rótulo de
+  // procedencia y el aviso de "acaba de cambiar" son de quien opera la caja: ocupaban el espacio
+  // que necesita el precio. Fuera del kiosco siguen donde estaban. Lo que NO se esconde: el
+  // banner de "sin conexión / precio de respaldo", que es el que declara la procedencia.
+  it('en kiosco se ocultan la cámara, el código interno y el aviso de cambio; el precio sigue', () => {
+    fix.componentInstance.kiosco.set(true);
+    const evento = conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next(evento);
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-scanbar')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-card-top')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeNull();
+    // El precio nuevo SÍ está: ocultar el aviso no es dejar la cifra vieja.
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('71.50');
+  });
+
+  it('fuera de kiosco la cámara, el código interno y el aviso de cambio siguen a la vista', () => {
+    fix.componentInstance.kiosco.set(false);
+    const evento = conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next(evento);
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-scanbar')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-card-top')?.textContent).toContain('17083');
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeTruthy();
+  });
+
+  it('en kiosco el precio de respaldo se sigue declarando (banner), aunque no haya rótulo en la tarjeta', () => {
+    fix.componentInstance.kiosco.set(true);
+    svc.proximo = { estado: 'encontrado', origen: 'respaldo', snapshotAl: '2026-10-14T06:12:00.000Z', producto: PRODUCTO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-card-top')).toBeNull();
+    const banner = fix.nativeElement.querySelector('.vf-banner.is-warn') as HTMLElement | null;
+    expect(banner?.textContent).toContain('respaldo');
+  });
+
+  it('el mayoreo va enmarcado con su título y el cuerpo se parte en dos columnas sólo cuando lo hay', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vf-cuerpo.con-mayoreo')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-mayoreo .vf-may-titulo')?.textContent).toContain('Precio por mayoreo');
+
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vf-cuerpo.con-mayoreo')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-mayoreo')).toBeNull();
   });
 
   it('un aviso de OTRO producto no toca la pantalla', () => {
@@ -578,7 +800,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
       await TestBed.resetTestingModule().configureTestingModule({
         imports: [TiendaVerificadorComponent],
         providers: [
-          provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+          provideRouter([]), provideHttpClient(), provideHttpClientTesting(), ConfirmationService,
           { provide: VerificadorService, useValue: svc2 },
           // `[TDA.8]` ngOnInit ahora tambien conecta el socket de etiquetas; sin stub, la
           // implementacion real pide `auth.token()` (que este AuthService minimo no tiene).

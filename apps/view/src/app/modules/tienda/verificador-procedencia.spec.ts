@@ -41,8 +41,11 @@ const DIRECTIVA = readFileSync(
 
 describe('verificador · de qué plaza salió el precio', () => {
   it('el endpoint acepta sucursal', () => {
-    expect(CTRL).toMatch(/getPrecio\(@Query\('q'\) q: string, @Query\('sucursal'\) sucursal\?: string\)/);
-    expect(SVC).toMatch(/async getPrecio\(q: string, sucursal\?: string\)/);
+    // [VAC.L6] La consulta ya no llega suelta: la valida el pipe con el esquema del contrato.
+    expect(CTRL).toMatch(/getPrecio\(@Query\(new ZodValidationPipe\(VerificadorPrecioQuery\)\) query: VerificadorPrecioQuery\)/);
+    expect(CTRL).toMatch(/this\.kpService\.getPrecio\(query\.q \?\? '', query\.sucursal\)/);
+    // [VAC.L1] Y la respuesta lleva el tipo del contrato, no `any`.
+    expect(SVC).toMatch(/async getPrecio\(q: string, sucursal\?: string\): Promise<VerificadorPrecioResponse>/);
   });
 
   // LA NEGATIVA DEL DEFECTO: si volviera el `LIMIT 1` sin orden por plaza, volvería el número
@@ -158,7 +161,10 @@ describe('verificador · el precio grande sigue al barcode escaneado', () => {
     expect(SVC).toMatch(/bu: bus/);
     expect(FRONT).toMatch(/indiceUnidad/);
     // Y un respaldo viejo (sin `bu`) degrada al comportamiento anterior, no a una unidad inventada.
-    expect(FRONT).toMatch(/bu\?: \(string \| null\)\[\]/);
+    // [VAC.L1] La forma del renglón vive ahora en el contrato (una sola definición), no en el front.
+    const CONTRATO_SNAP = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'contracts', 'src', 'http', 'store.contract.ts'), 'utf8');
+    expect(CONTRATO_SNAP).toMatch(/bu\?: \(string \| null\)\[\]/);
+    expect(FRONT).toMatch(/type SnapshotItem = VerificadorSnapshotItem/);
   });
 
   // LA NEGATIVA CENTRAL: si el hero volviera a ser `unidades[0]` fijo, volvería el defecto.
@@ -301,17 +307,87 @@ describe('verificador · el mayoreo', () => {
 
   it('el ahorro se muestra, que es lo que cierra la venta', () => {
     expect(SVC).toMatch(/ahorro_en_el_minimo: redondea\(\(o\.base - p\) \* nn\)/);
-    expect(PAGE).toMatch(/Te ahorras/);
+    // [VAC.H2] La cifra principal es el ahorro POR UNIDAD; el total del mínimo va de apoyo.
+    expect(SVC).toMatch(/ahorro_por_unidad: redondea\(o\.base - p\)/);
+    expect(PAGE).toMatch(/Ahorras/);
+    expect(PAGE).toMatch(/class="vf-may-total"/);
   });
 
-  // [CV.25-look] Excepción confirmada a DESIGN.md §O.3 (decisión 0Sistemas, 2026-09-12): esta
-  // pantalla clona el look de verificador.html y NO usa --action/--ok-* — usa su propia paleta
-  // cruda (--vf-naranja/--vf-verde), declarada UNA vez en :host con las mismas cifras hex del
-  // HTML original. Lo que se vigila ahora no es "cero hex" (ya no aplica acá), sino que el resto
-  // del bloque REUSE esa única fuente en vez de repetir un hex distinto a mano.
-  it('el color del mayoreo reusa la paleta declarada del componente (--vf-naranja/--vf-verde)', () => {
-    expect(PAGE).toMatch(/\.vf-may-n \{[\s\S]*?var\(--vf-naranja\)/);
-    expect(PAGE).toMatch(/\.vf-may-ahorro strong\s*\{[\s\S]*?var\(--vf-verde\)/);
+  // [VAC.U4/U5/U7/U9] Candados del bloque de interfaz: ninguno vuelve sin ponerse rojo.
+  it('sin plomería inline: ni onerror ni style= ni confirm() nativo ni versión escrita a mano', () => {
+    expect(PAGE).not.toMatch(/onerror=/);
+    expect(PAGE).not.toMatch(/\sstyle="/);
+    expect(PAGE).not.toMatch(/[^.\w]confirm\(/);
+    expect(PAGE).not.toMatch(/\bv1\.0\b/);
+  });
+
+  it('los controles del operador llegan a 44px en táctil y el Alto Contraste conserva el borde', () => {
+    expect(ESTILOS).toMatch(/@media \(pointer: coarse\)[^]*\.vf-icon-btn \{ min-width: 44px; min-height: 44px; \}/);
+    expect(ESTILOS).toMatch(/@media \(forced-colors: active\)/);
+    expect(ESTILOS).toMatch(/\.vf-mayoreo \{ border: 2px solid Highlight; \}/);
+  });
+
+  it('el esqueleto no usa animación en bucle (techo de movimiento) y el nombre largo se parte', () => {
+    const skel = /\.vf-skel \{([^}]*)\}/.exec(ESTILOS)?.[1] ?? '';
+    expect(skel).not.toMatch(/infinite/);
+    expect(ESTILOS).toMatch(/\.vf-nombre \{[^}]*overflow-wrap: anywhere/);
+  });
+
+  // [VAC.H4] La unidad se lee a 1-2 m: el rótulo de la cifra grande no puede volver a ser chico ni
+  // atenuado (era --fs-h3 en --text-muted: invisible a la distancia real de un kiosco).
+  it('el rótulo de unidad de la cifra grande es grande y de contraste pleno', () => {
+    const regla = /\.vf-unidad-lbl \{([^}]*)\}/.exec(PAGE)?.[1] ?? '';
+    // Token de la escala (--fs-h1 = 30px): el anterior era --fs-h3 (16px).
+    expect(regla).toMatch(/font-size:\s*var\(--fs-h1\)/);
+    expect(regla).toMatch(/color:\s*var\(--text-main\)/);
+    expect(regla).not.toMatch(/--text-muted/);
+    const cu = /\.vf-may-cu \{([^}]*)\}/.exec(PAGE)?.[1] ?? '';
+    expect(cu).toMatch(/color:\s*var\(--text-main\)/);
+  });
+
+  // [VAC.H3] El mínimo del escalón de paquete en la unidad base se calcula UNA vez, en el servidor.
+  it('la equivalencia en piezas del escalón de paquete la calcula el servidor, una vez', () => {
+    expect(SVC).toMatch(/equivale_a:/);
+    expect(SVC).toMatch(/en_base: paqueteReal/);
+    const CONTRATO = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'contracts', 'src', 'http', 'store.contract.ts'), 'utf8');
+    expect(CONTRATO).toMatch(/equivale_a\?: string \| null/);
+    expect(PAGE).toMatch(/t\.equivale_a/);
+    // La pantalla pinta lo que llega: no multiplica nada.
+    expect(PAGE).not.toMatch(/t\.desde\s*\*/);
+  });
+
+  // [VAC.U11/U12] Sin piel propia (decisión 0Sistemas, 2026-10-14). Hasta hoy este bloque
+  // vigilaba que el mayoreo reusara la paleta cruda `--vf-*` de la excepción de DESIGN.md §O.3;
+  // esa excepción se retiró. Ahora se vigila lo contrario: que los estilos de la pantalla NO
+  // traigan colores crudos, tipografía propia ni fondo propio, y por lo tanto sigan el tema
+  // claro/oscuro de la Suite como cualquier otra pantalla.
+  const ESTILOS = PAGE.slice(PAGE.indexOf('styles: [`'), PAGE.lastIndexOf('`],'));
+
+  it('los estilos no traen la paleta --vf-* ni colores hex crudos: siguen el tema', () => {
+    expect(ESTILOS.length).toBeGreaterThan(1000); // el recorte encontró el bloque de verdad
+    expect(ESTILOS).not.toMatch(/--vf-(naranja|verde|amarillo|oscuro|rojo|gris)/);
+    // #fff / #000 se permiten (DESIGN 12b: correctos en los dos temas, p. ej. texto sobre el velo
+    // negro de la cámara). Cualquier otro hex fijaría un color que no flipea en oscuro.
+    const hex = (ESTILOS.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []).filter((h) => !/^#(fff|ffffff|000|000000)$/i.test(h));
+    expect(hex).toEqual([]);
+  });
+
+  it('la tipografía es la del estándar: Hanken (texto) y Geist Mono (cifras), sin Sniglet ni Impact', () => {
+    expect(ESTILOS).not.toMatch(/Sniglet|Impact|Comic Sans/);
+    expect(ESTILOS).toMatch(/:host \{[^}]*font-family:\s*var\(--font-body\)/);
+    expect(ESTILOS).toMatch(/\.vf-precio \{[^}]*font-family:\s*var\(--font-mono\)/);
+    expect(ESTILOS).toMatch(/\.vf-precio \{[^}]*font-variant-numeric:\s*tabular-nums/);
+    // Toda familia declarada sale de un token: ninguna lista de fuentes escrita a mano.
+    expect(ESTILOS.match(/font-family:(?!\s*var\(--font-)[^;]+;/g) ?? []).toEqual([]);
+  });
+
+  it('sin fondo propio: ni patrón, ni degradado, y la tarjeta y el kiosco usan superficies del tema', () => {
+    expect(PAGE).not.toMatch(/vfDulces|class="vf-bg"|class="vf-top"/);
+    expect(ESTILOS).not.toMatch(/linear-gradient/);
+    expect(ESTILOS).toMatch(/\.vf-card \{[^}]*background:\s*var\(--card-bg\)/);
+    // En kiosco la pantalla sale del flujo (position: fixed) y ya no hereda el fondo del layout:
+    // sin superficie propia quedaría transparente sobre la app.
+    expect(ESTILOS).toMatch(/\.vf-page\.is-kiosco \{[^}]*background:\s*var\(--surface-ground\)/);
   });
 
   // Movimiento (tokens.css BINDING): sólo transform+opacity, con TOKEN de duración, y nunca sobre
@@ -367,7 +443,7 @@ describe('verificador · el mayoreo', () => {
    */
   it('el count-up sólo toca el ahorro, nunca un precio', () => {
     // Está, y usa la directiva COMPARTIDA (no una copia local).
-    expect(PAGE).toMatch(/\[appCountUp\]="t\.ahorro_en_el_minimo"/);
+    expect(PAGE).toMatch(/\[appCountUp\]="t\.ahorro_por_unidad"/);
     expect(PAGE).toMatch(/from '\.\.\/\.\.\/\.\.\/shared\/directives\/count-up\.directive'/);
     // Con centavos: los otros formatos de dinero de la directiva redondean, y $25.77 saldría
     // $26 — otro número que el de la fuente.
@@ -384,11 +460,17 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).not.toMatch(enHero);
     expect(PAGE).not.toMatch(enMayoreo);
     // Los dos precios siguen siendo interpolación directa: visibles en el primer fotograma.
-    // [CV.25-look] El hero separa el "$" en `.vf-peso` (calcado del HTML original) y usa
-    // `moneySinSigno()` en vez de `money()` para eso — sigue siendo interpolación directa,
-    // no una directiva de conteo.
-    expect(PAGE).toMatch(/class="vf-precio"><span class="vf-peso">\$<\/span>\{\{ moneySinSigno\(precioPrincipal\(\)\) \}\}/);
-    expect(PAGE).toMatch(/class="vf-may-monto">\{\{ money\(t\.precio_con_iva\) \}\}/);
+    // [VAC.U12] El hero separa el "$" (`.vf-peso`) y los centavos (`.vf-cent`) del entero grande,
+    // y las dos partes salen de `precioPartes()` — sigue siendo interpolación directa, no una
+    // directiva de conteo.
+    expect(PAGE).toMatch(/class="vf-precio"><span class="vf-peso">\$<\/span>\{\{ precioPartes\(\)\.entero \}\}/);
+    expect(PAGE).toMatch(/<span class="vf-cent">.*\{\{ precioPartes\(\)\.centavos \}\}<\/span>/);
+    // El mayoreo y las otras unidades parten su precio igual que el principal (entero grande,
+    // centavos chicos): una sola funcion, `partesPrecio`, para los tres.
+    expect(PAGE).toMatch(/class="vf-may-monto"><span class="vf-peso">\$<\/span>\{\{ pm\.entero \}\}/);
+    expect(PAGE).toMatch(/class="vf-u-precio"><span class="vf-peso">\$<\/span>\{\{ pu\.entero \}\}/);
+    expect(PAGE).toMatch(/@let pm = partes\(t\.precio_con_iva\)/);
+    expect(PAGE).toMatch(/@let pu = partes\(u\.precio_con_iva\)/);
   });
 
   /**

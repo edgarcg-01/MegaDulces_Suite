@@ -1,16 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
+import { type SucursalVerificador } from '@megadulces/contracts';
 import { pgRaw } from './pg-raw.util';
 
-export interface Sucursal {
-  codigo:    string;
-  nombre:    string;
-  direccion: string;
-  ciudad:    string;
-  almacenes: string[];
-  datos_al:  string | null;
-}
+/** `[VAC.L1]` Una sola definición: el contrato que también consume la pantalla. */
+export type Sucursal = SucursalVerificador;
 
 @Injectable()
 export class SucursalesService {
