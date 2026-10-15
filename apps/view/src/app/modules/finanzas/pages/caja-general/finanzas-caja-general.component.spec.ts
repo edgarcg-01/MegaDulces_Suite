@@ -33,6 +33,7 @@ import {
   type ArqueoDia, type RecurrentesResponse,
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
+import { PermissionsService } from '../../../../core/services/permissions.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
 import type { ContextoFirma, CorteRow, FirmaRecibida } from '@megadulces/contracts';
 import { todayMx } from '../../../../core/utils/mx-date';
@@ -4637,6 +4638,71 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       montar({ libro: vi.fn(() => of({ ...LIBRO, kpi: { ...LIBRO.kpi, cancelados: 1, monto_cancelado: 250 } })) });
       const sub = comp.kpis().find((k) => k.label === 'Movimientos')?.sub ?? '';
       expect(sub).toContain('$250.00');
+    });
+  });
+  // ── `[CGP-V.6]` Los botones dependen del permiso, y lo dicen ────────────────────────────────
+  //
+  // Quien sólo tenía VER veía «Rendir cuentas» y la fila del corte ofrecía «Autorizar» a quien no
+  // podía: el clic terminaba en un 403. Sin permisos cargados no se bloquea: decide el servidor.
+  describe('[CGP-V.6] los botones dependen del permiso', () => {
+    const permisos = (p: Record<string, boolean>) => TestBed.inject(PermissionsService).load(p, 'cajero', 'servidor');
+    const panel = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('.cg-conc')?.textContent ?? '';
+    const CERRADO = { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', sucursal: '00', estado: 'cerrado', closed_by: 'otro' };
+
+    it('⛔ sólo con VER no se ofrece rendir cuentas, y se dice qué permiso falta', () => {
+      const fx = montarJornada();
+      permisos({ FINANCE_CAJA_VER: true });
+      fx.detectChanges();
+      expect(comp.puedeGestionar()).toBe(false);
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+      expect(panel(fx)).toContain('Capturar en Caja General');
+      expect(panel(fx)).not.toContain('Cerrar jornada y rendir cuentas');
+    });
+
+    it('con GESTIONAR sí se rinde cuentas', () => {
+      montarJornada();
+      permisos({ FINANCE_CAJA_VER: true, FINANCE_CAJA_GESTIONAR: true });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).toHaveBeenCalledTimes(1);
+    });
+
+    it('⛔ sin AUTORIZAR, la fila del corte cerrado no ofrece autorizar y dice por qué', () => {
+      montar({ cortes: vi.fn(() => of({ rows: [CERRADO] })), autorizarCorte: vi.fn(() => of({})) });
+      permisos({ FINANCE_CAJA_VER: true, FINANCE_CAJA_GESTIONAR: true });
+      const g = comp.gateAutorizar(comp.cortes()[0]);
+      expect(g.ok).toBe(false);
+      expect(g.texto).toContain('Autorizar corte de Caja General');
+      comp.autorizar(comp.cortes()[0]);
+      expect(svc['autorizarCorte']).not.toHaveBeenCalled();
+    });
+
+    it('con AUTORIZAR, la fila ofrece autorizar', () => {
+      montar({ cortes: vi.fn(() => of({ rows: [CERRADO] })) });
+      permisos({ FINANCE_CAJA_VER: true, FINANCE_CAJA_AUTORIZAR: true });
+      expect(comp.gateAutorizar(comp.cortes()[0]).ok).toBe(true);
+    });
+
+    it('⛔ sólo con VER: no se abre la captura ni se confirma el lote, y la barra dice por qué', () => {
+      const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+      permisos({ FINANCE_CAJA_VER: true });
+      fx.detectChanges();
+      comp.capturaAbierta.set(false);   // puede llegar abierta por un borrador restaurado
+      comp.abrirCaptura();
+      expect(comp.capturaAbierta()).toBe(false);
+      comp.marcarTodas(true);
+      expect(comp.marcadas().length).toBe(2);   // que el freno sea el permiso, no una bandeja vacía
+      comp.confirmarLote();
+      expect(svc['confirmarLote']).not.toHaveBeenCalled();
+      const barra: string = fx.nativeElement.querySelector('.cg-bar')?.textContent ?? '';
+      expect(barra).toContain('Capturar en Caja General');
+      expect(barra).not.toContain('Registrar movimiento');
+    });
+
+    it('permisos sin cargar: no se bloquea nada (el candado es el servidor)', () => {
+      montar();
+      expect(comp.puedeGestionar()).toBe(true);
+      expect(comp.puedeAutorizarPorPermiso()).toBe(true);
     });
   });
 });

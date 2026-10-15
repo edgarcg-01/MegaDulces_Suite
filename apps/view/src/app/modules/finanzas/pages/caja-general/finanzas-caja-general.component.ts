@@ -45,6 +45,8 @@ import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type Autof
   type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
   type JornadasPendientes } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
+import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, cuerpoReporteDia, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
@@ -981,8 +983,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <span class="cg-jornada-res">{{ subtituloJornada() }}</span>
         </button>
 
-        <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
-                  (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
+        <!-- [CGP-V.6] Sin el permiso de captura el boton no se ofrece: se dice, una vez, aca arriba. -->
+        @if (puedeGestionar()) {
+          <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
+                    (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
+        } @else {
+          <small class="fin-hint-warn">Sólo lectura: capturar, confirmar y rendir cuentas necesitan el
+            permiso «Capturar en Caja General».</small>
+        }
       </header>
 
       <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
@@ -1078,7 +1086,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                a ciegas puede dejarlas sin poder cerrarse, y eso no se deshace desde aqui. -->
           <!-- [CGP-V.4] Mientras el saldo se mide el boton espera: Reintentar mandaria mas lecturas
                contra el mismo limite que la esta frenando. -->
-          @if (cierreSinMedir() && !cargandoSaldo()) {
+          <!-- [CGP-V.6] Sin el permiso no se ofrece el boton: se dice cual falta. -->
+          @if (!puedeGestionar()) {
+            <small class="fin-hint-warn">Rendir cuentas necesita el permiso «Capturar en Caja General»:
+              este usuario sólo puede ver.</small>
+          } @else if (cierreSinMedir() && !cargandoSaldo()) {
             <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
                       [text]="true" (onClick)="reintentarCierre()"></p-button>
           } @else {
@@ -2234,10 +2246,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    llamando al mismo metodo. DESIGN reserva el color de marca para la accion
                    obvia; cuando hay cuatro naranjas en pantalla ninguna lo es. Este queda
                    secundario: el CTA de registrar vive arriba, aca es una salida del vacio. -->
-              <p-button label="Registrar uno nuevo" icon="pi pi-plus" size="small"
-                        severity="secondary" [outlined]="true"
-                        [disabled]="!hayConceptos() && !coberturaSinMedir()"
-                        (onClick)="abrirCaptura()"></p-button>
+              @if (puedeGestionar()) {
+                <p-button label="Registrar uno nuevo" icon="pi pi-plus" size="small"
+                          severity="secondary" [outlined]="true"
+                          [disabled]="!hayConceptos() && !coberturaSinMedir()"
+                          (onClick)="abrirCaptura()"></p-button>
+              }
             </div>
           }
             </div>
@@ -2308,11 +2322,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                significa "apreta aca"; en el estado en el que arranca la pantalla -sin nada
                marcado- no hay donde apretar. Con algo marcado SI es la accion obvia de la
                bandeja y recupera el naranja, con su cuenta. -->
-          <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
-                    icon="pi pi-check" size="small"
-                    [severity]="marcadas().length ? undefined : 'secondary'"
-                    [loading]="confirmando()"
-                    [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
+          @if (puedeGestionar()) {
+            <p-button [label]="marcadas().length ? 'Confirmar ' + marcadas().length : 'Confirmar'"
+                      icon="pi pi-check" size="small"
+                      [severity]="marcadas().length ? undefined : 'secondary'"
+                      [loading]="confirmando()"
+                      [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
+          }
         </div>
 
         <!-- El recibo del lote va ARRIBA de la lista y FUERA de ella. Estaba adentro, así que al
@@ -3364,6 +3380,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private svc = inject(CashLedgerService);
   private auth = inject(AuthService);
+  private perms = inject(PermissionsService);
   private toast = inject(MessageService);
   private borrador = inject(CajaBorradorService);
   private caja = inject(CajaSocketService);
@@ -3479,7 +3496,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * El guardado de verdad sigue en `guardar()`, que el diálogo llama.
    */
   pedirConfirmacion(): void {
-    if (this.bloqueos().length || this.guardando()) return;
+    if (this.bloqueos().length || this.guardando() || !this.puedeGestionar()) return;
     this.abrirConFoco(this.confirmarGuardar);
   }
 
@@ -4974,8 +4991,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * valida. El candado real esta en la DB: esto solo evita el 403 sorpresa.
    */
   gateAutorizar(c: CorteCaja) {
+    // `[CGP-V.6]` Primero el permiso: sin él, el botón terminaba en un 403.
+    if (!this.puedeAutorizarPorPermiso()) {
+      return { ok: false, texto: 'Autorizar necesita el permiso «Autorizar corte de Caja General».' };
+    }
     return puedeAutorizarUI(c as unknown as CorteVista, this.auth.user()?.sub ?? null);
   }
+
+  // ── `[CGP-V.6]` Los botones dependen del permiso, y lo dicen ─────────────────────────────────
+  //
+  // Quien sólo tenía VER veía «Rendir cuentas», y la fila del corte ofrecía «Autorizar» a quien no
+  // podía: el clic terminaba en un 403. ⚠️ Sin permisos cargados NO se bloquea: «todavía no sé» no
+  // es «no tiene», y el candado de verdad es el servidor.
+  puedeGestionar = computed(() => {
+    const cargado = this.perms.cargado();
+    const tiene = this.perms.has(Permission.FINANCE_CAJA_GESTIONAR);
+    return !cargado || tiene;
+  });
+  puedeAutorizarPorPermiso = computed(() => {
+    const cargado = this.perms.cargado();
+    const tiene = this.perms.has(Permission.FINANCE_CAJA_AUTORIZAR);
+    return !cargado || tiene;
+  });
 
   autorizar(c: CorteCaja): void {
     if (!this.gateAutorizar(c).ok || this.autorizando()) return;
@@ -5039,7 +5076,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   cerrarJornada(): void {
     // `[CGP-V.4]` Con el saldo en vuelo no se sabe todavía si hay un corte abierto.
-    if (this.abriendo() || this.cargandoSaldo()) return;
+    if (this.abriendo() || this.cargandoSaldo() || !this.puedeGestionar()) return;
     if (this.corteAbierto()) { this.abrirCierre(); return; }
     /**
      * ⭐⭐ `[CG.90.1]` **EL FONDO DEJA DE PREGUNTARSE. NI SIQUIERA EL DIÁLOGO.**
@@ -5403,7 +5440,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cancelarApertura(): void { this.cerrarTrasAbrir.set(false); this.cerrarConFoco(this.aperturaAbierta); }
 
   abrirCorte(): void {
-    if (this.abriendo()) return;
+    if (this.abriendo() || !this.puedeGestionar()) return;
     this.errorApertura.set(null);
     /**
      * ⭐ `[CGP-V.3]` La jornada la decide `fechaParaAbrir()`, y se decide ACÁ y no en cada botón:
@@ -5719,6 +5756,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   abrirCaptura(): void {
+    // `[CGP-V.6]` Captura, confirmar y cerrar piden GESTIONAR en el servidor: acá también.
+    if (!this.puedeGestionar()) return;
     this.f.set(this.formVacio());
     this.conceptoSel = null;
     this.conceptoManual.set(false);
@@ -6379,7 +6418,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   confirmarLote(): void {
     const refs = this.marcadas();
-    if (!refs.length || this.confirmando()) return;
+    if (!refs.length || this.confirmando() || !this.puedeGestionar()) return;
     this.confirmando.set(true);
     // `[CG.48]` Sólo las referencias: el lote ESPEJA al ERP. Acá iba un `monto_contado` por fila
     // que entraba al libro sin un solo billete declarado detrás.
@@ -6857,7 +6896,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   guardar(): void {
-    if (this.bloqueos().length || this.guardando()) return;
+    if (this.bloqueos().length || this.guardando() || !this.puedeGestionar()) return;
     this.guardando.set(true);
     // `[CG.62]` La ventana se cierra ACA, al empezar: si fallara, el aviso de error tiene que
     // quedar a la vista y la captura abierta para reintentar, no detras de un modal.
