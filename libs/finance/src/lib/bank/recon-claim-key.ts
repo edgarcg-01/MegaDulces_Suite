@@ -1,5 +1,5 @@
 /**
- * `[CB.50]` — **La identidad de un documento de Kepler dentro de la conciliación bancaria.**
+ * `[CB.51]` — **La identidad de un documento de Kepler dentro de la conciliación bancaria.**
  *
  * El candado anti doble-cobro de `runMatchTreasury` marca como ya usados los documentos que
  * otra corrida (de otro periodo) se quedó. Para eso necesita saber *qué documento es cuál*, y
@@ -34,7 +34,7 @@
 
 /** Una reclamación leída de `finance.bank_recon_matches` (de OTRO periodo). */
 export interface ClaimRow {
-  /** `kepler_sucursal`. NULL en las filas anteriores a [CB.50]. */
+  /** `kepler_sucursal`. NULL en las filas anteriores a [CB.51]. */
   suc?: string | null;
   dt?: string | null;
   folio?: string | null;

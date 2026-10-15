@@ -1,0 +1,97 @@
+# ═══ [VEC.18] EL BARRIDO ANCHO QUE SÍ REPONE ══════════════════════════════════════════════
+#
+# ⛔ POR QUÉ EXISTE: había DOS reconciliadores y entre los dos quedaba un agujero.
+#
+#     carril                      ventana    ¿repone?
+#     cdc_reconcile (continuo)    3 días     SÍ
+#     cdc_reconcile_full (diario) todo       NO  <- `faltan = FULL ? [] : …`, es sólo-DELETE
+#
+# O sea que **un hueco que no se detectara en 72 h quedaba invisible para siempre**. No por
+# olvido: por diseño, y el comentario del script lo dice ("--full no repone, sería re-ship masivo").
+#
+# Lo que costó, medido el 2026-10-15: el **17-ago-2026** el ODS perdió **968 renglones de `kdm2`**
+# en las sucursales 02 y 05 — **167 documentos de venta, $45,033.28** sin un solo renglón. Kepler
+# los tenía (la réplica de sucursal daba cero faltantes, con las cabeceras idénticas al centavo).
+# **Sobrevivió 59 días** y se encontró de casualidad, conciliando la venta vecinal contra sus
+# propios renglones.
+#
+# Y al barrer las 9 ramas × 5 tablas × 60 días no era un día: **3,505 filas ausentes en 7 de 9
+# ramas** — `kdij` 1,300 (el kardex, que **valúa el inventario**) y `kdue` 867 (la **cartera**).
+# ⭐ `04` y `07` estaban impecables en las cinco tablas: eso es lo que convierte al resto en
+# defecto y no en "así es esto".
+#
+# ⛔ NO lleva `--delete-sobrantes`. Borrar es trabajo del carril diario, que ya lo hace con sus dos
+#    frenos anti-catástrofe. Este sólo REPONE: el radio de daño se mantiene en "traer lo que el
+#    ERP ya tiene".
+#
+# ⭐ VA POR RAMA, UNA A LA VEZ, y no es estilo — es el arreglo que `30-ods-reconcile-full` deja
+#    declarado en su propio comentario: *"trocear por rama bajaría el universo a ~560 k y la
+#    volvería insensible al crecimiento"*. Un barrido de las 9 ramas junto se come el heap: medido
+#    el 2026-10-15, `--tables=kdm1,kdm2,kdpord,kdue,kdij --days=60` sin `--branch` murió con
+#    `FATAL ERROR: Reached heap limit` a los 9 s.
+#
+# ⚠️ Y UN BARRIDO QUE SE QUEDA SIN MEMORIA **NO REPORTA CERO: NO REPORTA.** En el barrido a mano,
+#    `01/kdm2` imprimió "sin salida" y se leía como "no hay nada"; con el heap subido eran 1
+#    faltante y 39 sobrantes. Por eso el `|| echo` de abajo marca **REVISAR**, nunca 0.
+#
+# ⛔⛔ `NODE_OPTIONS` y `limits.memory` VAN JUNTOS ([OBS.14]): Node fija su heap en ~LA MITAD del
+#    límite del cgroup. Subir sólo `limits` deja a V8 en la mitad; subir sólo `NODE_OPTIONS` por
+#    encima del límite convierte el abort de V8 en un OOM del kernel.
+#
+# Domingo 03:30 MX: fuera de horario y **off** de los otros dos carriles (02:10 y 02:25), para no
+# pelear por la réplica ni por el sink.
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ods-reconcile-ancho
+  namespace: ingesta
+  labels:
+    carril: ods-reconcile-ancho
+    singleton: "true"
+spec:
+  schedule: "30 3 * * 0"
+  timeZone: "America/Mexico_City"   # ⚠️ sin esto corre en UTC = 21:30 MX, en pleno uso
+  concurrencyPolicy: Forbid         # ⛔ el default es Allow
+  startingDeadlineSeconds: 10800    # si el nodo estuvo caído, corre hasta las 06:30
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5         # ⭐ los logs de lo que falló SOBREVIVEN
+  jobTemplate:
+    spec:
+      backoffLimit: 0               # ⛔ el default es 6: un re-ship repetido no arregla nada
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: reconciliador
+              image: localhost:5000/trade-ingest:__COMMIT__
+              imagePullPolicy: IfNotPresent
+              # `sh -c` porque recorre ramas: una lista en `command:` no puede iterar.
+              command: ["sh", "-c"]
+              args:
+                - |
+                  rc=0
+                  for B in 00 01 02 03 04 05 06 07 08; do
+                    for T in kdm1 kdm2 kdij kdue kdpord; do
+                      echo "── rama $B · tabla $T ──"
+                      node database/importers/kepler/reconcile-ods-window.js \
+                        --branch=$B --tables=$T --days=45 --apply \
+                        || { echo "REVISAR: rama $B tabla $T terminó mal (código $?)"; rc=1; }
+                    done
+                  done
+                  exit $rc
+              envFrom:
+                - secretRef:
+                    name: ingest-env
+              env:
+                # ⛔ Clave PROPIA: sin ella pisa el renglón de otro carril en `analytics.cron_runs`
+                #    y los dos se leen mutuamente como si estuvieran vivos.
+                #    Su umbral está registrado en `CRON_JOBS` (db-health.service.ts) — sin esa fila
+                #    el sensor da VERDE INCONDICIONAL, que es cómo este hueco duró dos meses.
+                - name: ODS_RECONCILE_HB_KEY
+                  value: cdc_reconcile_ancho
+                - name: NODE_OPTIONS
+                  value: "--max-old-space-size=2048"
+              resources:
+                requests: { memory: "128Mi", cpu: "100m" }
+                limits:   { memory: "4Gi" }

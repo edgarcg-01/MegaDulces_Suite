@@ -228,6 +228,173 @@ const money = (v) => '$' + Number(v || 0).toLocaleString('es-MX', { minimumFract
     t('la venta de una ruta nunca excede lo vecinal de su caja', Number(excede.mal) === 0,
       `${excede.mal} filas donde la parte es mayor que el todo: el join de caja está mal`);
 
+    // ── 8c. `[VEC.14]` El NETO: el negocio cuenta sin IVA ni IEPS ──────────────────────────
+    //
+    // La vista publica `ieps` y `neto` porque `impuesto` sola (= `c14`) deja el IEPS adentro.
+    // Las tasas se arbitran con el DINERO, no con la documentación.
+    const cols = (await db.raw(
+      `SELECT count(*) FILTER (WHERE attname = 'ieps')::int AS tiene_ieps,
+              count(*) FILTER (WHERE attname = 'neto')::int AS tiene_neto
+         FROM pg_attribute
+        WHERE attrelid = 'analytics.v_kepler_vecinal_sales_docs'::regclass
+          AND attnum > 0 AND NOT attisdropped`)).rows[0];
+    t('la vista canónica publica `ieps` y `neto`',
+      Number(cols.tiene_ieps) === 1 && Number(cols.tiene_neto) === 1,
+      'sin esas columnas cada consumidor re-deriva el neto y el que netee sólo por IVA se queda corto');
+
+    if (Number(cols.tiene_ieps) !== 1) {
+      noMedido('el neto cuadra y el IEPS pesa', 'la migración [VEC.14] no está aplicada acá');
+    } else {
+      const imp = (await db.raw(
+        `SELECT round(sum(total),2) AS bruto, round(sum(impuesto),2) AS iva,
+                round(sum(ieps),2) AS ieps, round(sum(neto),2) AS neto,
+                count(*)::int AS docs, count(*) FILTER (WHERE ieps > 0)::int AS con_ieps
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 120`, [T])).rows[0];
+
+      // La identidad que la pantalla publica. Tolerancia $1 por el redondeo de presentación.
+      const esperado = Number(imp.bruto) - Number(imp.iva) - Number(imp.ieps);
+      t(`el neto es bruto − IVA − IEPS: ${Number(imp.neto).toFixed(2)} sobre ${Number(imp.bruto).toFixed(2)}`,
+        Math.abs(Number(imp.neto) - esperado) <= 1,
+        `la columna neto no reproduce la resta: ${imp.neto} contra ${esperado.toFixed(2)}`);
+
+      /**
+       * ⛔ **Prueba NEGATIVA — el atajo que esto existe para impedir.** Si bastara dividir entre
+       * 1.16, o netear sólo con `impuesto`, el IEPS sería despreciable. Se exige que NO lo sea.
+       * Medido 2026-10-15 sobre jul–oct: **$198,536.34 en 4,585 de 7,253 documentos (63%)**.
+       *
+       * ⚠️ Si algún período no tuviera IEPS, esto NO pasa a ✔: reporta NO MEDIDO. Un mes sin
+       * IEPS no prueba que el atajo sirva — prueba que no hubo con qué refutarlo.
+       */
+      if (!Number(imp.con_ieps)) {
+        noMedido('netear sólo por IVA deja el IEPS adentro (prueba negativa)',
+          'ningún documento del período lleva IEPS: no hay con qué distinguir');
+      } else {
+        const pct = (Number(imp.ieps) / Number(imp.bruto)) * 100;
+        t(`prueba negativa: el IEPS NO es despreciable — ${Number(imp.ieps).toFixed(2)} `
+          + `(${pct.toFixed(2)}% del bruto) en ${imp.con_ieps} de ${imp.docs} documentos`,
+          Number(imp.ieps) > 0 && pct > 0.5,
+          'el IEPS es ruido: netear sólo por IVA daría igual y la columna no aporta');
+      }
+
+      // ⭐ R2: la tasa se arbitra con el dinero. En los tickets de tasa ÚNICA el IVA tiene que
+      //    pegarse a 16% — si no se pega en ninguno, `c14` no es lo que creemos que es.
+      const tasa = (await db.raw(
+        `SELECT count(*)::int AS n
+           FROM analytics.v_kepler_vecinal_sales_docs
+          WHERE tenant_id = ? AND business_date >= current_date - 120
+            AND impuesto > 0
+            AND round(impuesto / NULLIF(total - impuesto, 0), 4) BETWEEN 0.1595 AND 0.1605`, [T])).rows[0];
+      t(`\`impuesto\` se comporta como IVA 16% en ${tasa.n} documentos de tasa única`,
+        Number(tasa.n) > 0,
+        'ningún documento se pega al 16%: la columna no es el IVA y el neto estaría mal');
+    }
+
+    // ── 8d. `[VEC.15]` La identidad CABECERA ↔ LÍNEAS, que cierra a centavos ───────────────
+    //
+    // Edgar: *"¿ya tenemos una conciliación que no haya ninguna diferencia?"*. La había, pero con
+    // un renglón sin nombre: la pantalla publica `kdm1.c16` y el sell-out suma `kdm2.c13`, y entre
+    // los dos quedaba una diferencia que se rotulaba «prorrateo del descuento» sin demostrarla.
+    //
+    // ⭐ **El patrón estaba en las filas incorrectas.** De los 22 documentos de sep-2026 que no
+    // cuadraban, en TODOS la diferencia excedía al descuento por un factor de 1.07–1.10. Eso es
+    // exactamente lo que `ERP_KEPLER` §2.6 ya había decodificado: **`c13` está SIN impuesto y el
+    // total está CON impuesto**. La identidad completa es:
+    //
+    //     Σ kdm2.c13  =  kdm1.c16  +  c13 × (1 + (c14+c15)/(c16−c14−c15))
+    //
+    // Medido contra prod el 2026-10-15: julio **$0.06** (0 de 1,689 docs fallan) · septiembre
+    // **$0.70** (1 de 2,553) · octubre **$0.02** (0 de 1,371). Eso es redondeo, no descuadre.
+    //
+    // ⭐ `[VEC.16]` **Agosto no cerraba, y la excepción se RETIRÓ porque el hueco se reparó.**
+    //
+    // Eran 28 documentos ($26,016.13) del **17-ago** en las sucursales 02 y 05: la ingesta de
+    // `kdm2` había llegado incompleta, y el hueco excedía a la vecinal — **167 documentos de
+    // venta y $45,033.28** sin un solo renglón, de los que sólo el 54% era vecinal.
+    //
+    // Investigado el 2026-10-15: **Kepler SÍ tenía las líneas** (la réplica de sucursal daba cero
+    // documentos sin renglones, con las cabeceras idénticas al centavo). Se repusieron **968
+    // filas** con `reconcile-ods-window --branch=02|05 --tables=kdm2 --days=60 --apply`, y
+    // verificado contra prod: el día pasó de 167 documentos sin renglones a **0**, y agosto de
+    // **$26,016.13** de residuo a **$0.05** con 0 documentos fallando.
+    //
+    // ⛔ **Por eso NO queda exclusión.** Una exclusión que sobrevive a su causa deja al candado
+    // ciego justo donde ya falló una vez.
+    //
+    // ⚠️ Lo que el incidente dejó abierto y este candado NO cubre: la ventana de reparación del
+    // ODS es de **3 días** (`--days=3` en el despliegue) y el barrido `--full` **no repone**, así
+    // que un hueco que no se detecte en 72 h vuelve a ser permanente. Este se encontró a los 59.
+    const EXC = 'false';
+    const ident = (await db.raw(
+      `WITH d AS (
+         SELECT btrim(h.sucursal) s, h.c5::integer cj, btrim(h.c6) f,
+                h.c16 total, COALESCE(h.c13,0) dd, COALESCE(h.c14,0) iva, COALESCE(h.c15,0) ieps
+           FROM kepler_ods.kdm1 h
+          WHERE h.c2='U' AND h.c3='D' AND h.c4::integer=10
+            AND btrim(COALESCE(h.c12,'')) ~ '^[0-9]V[0-9]'
+            AND btrim(COALESCE(h.c1,'')) = btrim(h.sucursal)
+            AND COALESCE(NULLIF(btrim(h.c43),''),'') <> 'C'
+            AND h.c9::date >= current_date - 60 AND h.c9::date < current_date
+            AND NOT ${EXC}),
+       l AS (
+         SELECT d.s, d.cj, d.f, sum(x.c13) lineas
+           FROM d JOIN kepler_ods.kdm2 x
+             ON btrim(x.sucursal)=d.s AND x.c2='U' AND x.c3='D' AND x.c4::integer=10
+            AND x.c5::integer=d.cj AND btrim(x.c6)=d.f AND btrim(x.c1)=d.s
+          GROUP BY 1,2,3)
+       SELECT count(*)::int AS docs,
+              round(sum(l.lineas - d.total
+                   - d.dd*(1+(d.iva+d.ieps)/NULLIF(d.total-d.iva-d.ieps,0))),2) AS residuo,
+              count(*) FILTER (WHERE abs(l.lineas - d.total
+                   - d.dd*(1+(d.iva+d.ieps)/NULLIF(d.total-d.iva-d.ieps,0))) > 0.02)::int AS fallan,
+              round(sum(d.dd),2) AS descuento_neto
+         FROM d JOIN l ON l.s=d.s AND l.cj=d.cj AND l.f=d.f`)).rows[0];
+
+    if (!Number(ident.docs)) {
+      noMedido('la identidad cabecera ↔ líneas cierra', 'no hay documentos vecinales en los 60 días');
+    } else {
+      // Tolerancia $5 sobre decenas de miles de documentos: lo medido es $0.02–$0.70 al mes.
+      t(`cabecera + descuento con impuesto = líneas en ${ident.docs - ident.fallan} de ${ident.docs} `
+        + `documentos · residuo ${Number(ident.residuo).toFixed(2)}`,
+        Math.abs(Number(ident.residuo)) <= 5,
+        `residuo ${ident.residuo}: la venta vecinal dejó de cuadrar contra sus propios renglones`);
+
+      /**
+       * ⛔ **Prueba NEGATIVA — el renglón que esto existe para no volver a dar por bueno.** Si
+       * bastara el descuento TAL CUAL (`c13`, sin impuesto), la identidad cerraría igual. Se
+       * exige que NO: con el descuento neto el residuo tiene que ser materialmente peor.
+       *
+       * ⚠️ Si en el período no hubo descuentos, esto NO pasa a ✔ — reporta NO MEDIDO. Un mes sin
+       * descuento no prueba que haya que brutearlo: prueba que no hubo con qué distinguirlo.
+       */
+      if (Math.abs(Number(ident.descuento_neto)) < 1) {
+        noMedido('el descuento hay que brutearlo (prueba negativa)',
+          'no hubo descuentos en el período: las dos fórmulas dan lo mismo');
+      } else {
+        const crudo = (await db.raw(
+          `WITH d AS (
+             SELECT btrim(h.sucursal) s, h.c5::integer cj, btrim(h.c6) f, h.c16 total, COALESCE(h.c13,0) dd
+               FROM kepler_ods.kdm1 h
+              WHERE h.c2='U' AND h.c3='D' AND h.c4::integer=10
+                AND btrim(COALESCE(h.c12,'')) ~ '^[0-9]V[0-9]'
+                AND btrim(COALESCE(h.c1,'')) = btrim(h.sucursal)
+                AND COALESCE(NULLIF(btrim(h.c43),''),'') <> 'C'
+                AND h.c9::date >= current_date - 60 AND h.c9::date < current_date
+                AND NOT ${EXC}),
+           l AS (
+             SELECT d.s, d.cj, d.f, sum(x.c13) lineas
+               FROM d JOIN kepler_ods.kdm2 x
+                 ON btrim(x.sucursal)=d.s AND x.c2='U' AND x.c3='D' AND x.c4::integer=10
+                AND x.c5::integer=d.cj AND btrim(x.c6)=d.f AND btrim(x.c1)=d.s
+              GROUP BY 1,2,3)
+           SELECT round(sum(l.lineas - d.total - d.dd),2) AS residuo
+             FROM d JOIN l ON l.s=d.s AND l.cj=d.cj AND l.f=d.f`)).rows[0];
+        t(`prueba negativa: con el descuento SIN impuesto el residuo salta a ${Number(crudo.residuo).toFixed(2)}`,
+          Math.abs(Number(crudo.residuo)) > 5,
+          'las dos fórmulas dan lo mismo: la corrección por impuesto no está probando nada');
+      }
+    }
+
     // ── 9. `[VEC.11]` El puente Kepler ↔ Suite CIERRA ──────────────────────────────────────
     //
     // El panel publica una resta: lo que muestra esta pantalla, más el prorrateo del descuento,
