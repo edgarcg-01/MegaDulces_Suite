@@ -9244,6 +9244,25 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   por ahí; la pantalla usa el mismo tipo (su copia decía `number` mientras llegaba texto). Prueba
   contra la base en rojo antes (`'500.00'`), 4 del contrato. De paso: el rango de años libres de las
   pruebas contra la base se agotó en un día de corridas, y se amplió.
+- [ ] 🧪 **`[CGP-E.1]`** El proceso de tres jornadas contra la base, con un **oráculo independiente**
+  (fondo + ingresos − gastos − depósitos escrito en la prueba): fondo declarado, tres tipos de
+  movimiento, conteo ciego que cuadra, cierre, doble llave; fondo heredado; faltante y reconteo con
+  motivo; dos jornadas cerradas en orden, cada una atando sólo lo suyo. Rompiendo la fórmula del
+  motor, el oráculo la atrapa. ⚠️ A nivel de servicio, no de HTTP: levantar la API en local está
+  prohibido; la capa HTTP queda para el CI (`[CGP-E.1b]`).
+- [ ] ⬜ `[CGP-E.1b]` / `[CGP-E.2]` El mismo escenario por HTTP y con Playwright: necesitan la API y la
+  pantalla levantadas **en el CI**. No se escribieron a ciegas.
+- [x] ✅ `[CGP-E.3]` Las suites de caja corren en el job `caja-db` del CI (servicio real, sensor,
+  detalle, y fechas en tres zonas). `run-all-tests.js` sólo corre scripts de Node: no se duplicó.
+- [ ] 🧪 **`[CGP-E.4]`** [`CAJA_GENERAL_LIBERACION`](RUNBOOKS/CAJA_GENERAL_LIBERACION.md): fusionar
+  `main`, CI, migraciones (la rama no trae; verificar `20261014212702`), humo, cambios a avisar y
+  vuelta atrás.
+- [ ] 🧪 **`[CGP-E.5]`** [`CAJA_GENERAL_OPERACION`](RUNBOOKS/CAJA_GENERAL_OPERACION.md): la guía de la
+  cajera y el supervisor (los pasos, qué hacer si algo sale mal). ⬜ Falta el contacto de soporte
+  (Edgar) y revisarla con una cajera frente a la pantalla.
+- [ ] 🧪 **`[CGP-E.6]`** Tres consultas de métricas (cortes del mismo día, horas en borrador,
+  movimientos anclados), probadas contra la base local; la de depósitos de ruta cita el método de
+  `FASE_CG`.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

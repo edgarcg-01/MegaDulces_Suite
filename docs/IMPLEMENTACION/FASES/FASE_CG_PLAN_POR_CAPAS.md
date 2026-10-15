@@ -841,6 +841,17 @@ Control), que **decide Edgar**. Todo lo demás de V.1–V.12 está 🧪 en local
 | CGP-E.5 | Runbook para cajera y supervisor: qué hacer si no puedo cerrar, cómo leer el motivo, a quién llamar |
 | CGP-E.6 | Métricas: cortes cerrados por día hábil, horas en borrador, % de movimientos conciliados, % de depósitos de ruta capturados (hoy 18 de 749) |
 
+### 8.1 Estado al 2026-10-15
+
+| Item | Estado | Qué quedó |
+|---|---|---|
+| **CGP-E.1** | 🧪 | El proceso de tres jornadas contra la base, con un **oráculo independiente** escrito en la prueba (`cash-cut.servicio-real.spec.ts`, describe `[CGP-E.1]`): fondo declarado, tres tipos de movimiento, conteo ciego que cuadra al centavo, cierre y doble llave; fondo heredado del contado; faltante y reconteo con motivo; jornadas 3 y 4 cerradas en orden, cada una atando sólo lo suyo, y un día anterior que ya no se abre. **Probado en rojo**: si el depósito suma en vez de restar, el oráculo lo atrapa. ⚠️ Va a nivel de servicio, no de HTTP: levantar la API en local está prohibido (CLAUDE.md). ⚠️ El fondo del primer día se declara: el arqueo de Control no existe en la base de prueba |
+| CGP-E.1b / E.2 | ⬜ | El mismo escenario por HTTP y con Playwright: necesitan la API y la pantalla levantadas **en el CI**. No se escribieron sin poder correrlos |
+| CGP-E.3 | ✅ | Las suites de caja corren en el job `caja-db`: servicio real, sensor, detalle (L.8) y «Fechas de caja en tres zonas» (L.5). `run-all-tests.js` sólo corre scripts de Node: no se duplicó |
+| CGP-E.4 | 🧪 | [`CAJA_GENERAL_LIBERACION`](../RUNBOOKS/CAJA_GENERAL_LIBERACION.md): fusionar `main` (la rama va 1 atrás), CI, migraciones (la rama no trae; verificar `20261014212702` con `soltar.sh --ver`), humo con las rutas verificadas en el controlador, cambios a avisar y vuelta atrás |
+| CGP-E.5 | 🧪 | [`CAJA_GENERAL_OPERACION`](../RUNBOOKS/CAJA_GENERAL_OPERACION.md): para la cajera y el supervisor, con los textos que muestra la pantalla. ⬜ Falta el contacto de soporte y revisarla con una cajera frente a la pantalla |
+| CGP-E.6 | 🧪 | Tres consultas (cortes cerrados y autorizados el mismo día, horas en borrador, movimientos anclados) en el runbook de liberación, probadas contra la base local. La de depósitos de ruta cita el método de `FASE_CG` |
+
 ---
 
 ## 9. Decisiones de negocio pendientes
