@@ -9,6 +9,7 @@ import {
   ventanaDeCobertura,
   type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
   SUCURSAL_CAJA_GENERAL,
+  diaDeFecha,
 } from '@megadulces/contracts';
 
 /**
@@ -2062,8 +2063,17 @@ export class CashLedgerService {
 
         const mov: any = await this.create({
           tipo: pend.tipo,
-          // La fecha del documento, no la de hoy: `fecha_valor` es cuándo Kepler fechó el hecho.
-          fecha: it.fecha || String(pend.fecha_valor).slice(0, 10),
+          /**
+           * La fecha del documento, no la de hoy: `fecha_valor` es cuándo Kepler fechó el hecho.
+           *
+           * ⛔ `[CG.162]` Acá decía `String(pend.fecha_valor).slice(0, 10)`, y `pend` sale de
+           * `finance.v_caja_movimientos_pendientes`, donde `fecha_valor` es una columna `date`:
+           * node-pg la entrega como objeto `Date` y el recorte daba `"Wed May 27"`. Cuando el
+           * llamador no manda `it.fecha` —el camino del `||`— eso se iba a **escribir** al libro.
+           * Es el mismo defecto que dejó 755 depósitos de CAOS declarados «sin respaldo», sobre
+           * la MISMA vista y la MISMA columna; se corrigió acá al recorrer la familia.
+           */
+          fecha: it.fecha || diaDeFecha(pend.fecha_valor) || '',
           sucursal: it.sucursal || pend.sucursal,
           kepler_cuenta: conCuenta.kepler_cuenta,
           kepler_concepto: conCuenta.kepler_concepto,
