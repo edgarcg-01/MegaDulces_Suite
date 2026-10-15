@@ -9195,6 +9195,11 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
 - [x] ✅ **Compuerta `primeng`** (2026-10-15): juzgaba `severity="error"` como retirado en cualquier
   etiqueta, pero `p-message` lo admite y no admite `danger`; seguirla rompía el tipado. Ahora va por
   componente, con `--self-test` (5 casos) y techo 1 → 0.
+- [ ] 🧪 **`[CGP-V.6]`** Los botones dependen del permiso que pide su endpoint, y la pantalla dice cuál
+  falta. Rendir cuentas, registrar, confirmar el lote y guardar piden «Capturar en Caja General»
+  (GESTIONAR); autorizar pide «Autorizar corte» (AUTORIZAR). Sin el permiso el botón no se ofrece y
+  se dice una vez; los métodos también frenan. Sin permisos cargados NO se bloquea (decide el
+  servidor). 6 pruebas; 6 mutaciones atrapadas.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

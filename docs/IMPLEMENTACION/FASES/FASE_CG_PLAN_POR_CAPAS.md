@@ -660,6 +660,26 @@ script; desde ahí las mutaciones se restauran con copia de bytes, no con git.
 **Pruebas:** 5 de la variante + 2 del componente; la de CG.115 pasa a la fecha en palabras.
 `caja-general` + `shared/util` + `core/utils`: 9 archivos, **426**.
 
+### 7.6 Estado al 2026-10-15: V.6 (🧪 probado en local)
+
+**`[CGP-V.6]` — cada botón pide el permiso de su endpoint, y la pantalla dice cuál falta.** Quien
+sólo tenía VER veía «Rendir cuentas», «Registrar movimiento» y «Confirmar N», y la fila del corte
+ofrecía «Autorizar» a quien no podía: el clic terminaba en un 403.
+
+- **El permiso de cada botón se leyó del controlador, no se supuso:** todas las escrituras de
+  captura y del corte piden GESTIONAR (`crear`, `lote`, `reglas`, `cortes`, `contar`,
+  `recontar`, `cerrar`, `cancelar`, `reclasificar`); sólo `autorizar` pide AUTORIZAR.
+- Sin GESTIONAR, la barra dice una vez «Sólo lectura: capturar, confirmar y rendir cuentas necesitan
+  el permiso «Capturar en Caja General»», y los botones de registrar, confirmar y rendir cuentas no
+  se ofrecen. Sin AUTORIZAR, la fila del corte dice qué permiso falta.
+- Los métodos también frenan (`abrirCaptura`, `pedirConfirmacion`, `guardar`, `confirmarLote`,
+  `cerrarJornada`, `abrirCorte`): un atajo nuevo no puede saltarse el permiso.
+- ⚠️ **Sin permisos cargados no se bloquea nada.** «Todavía no sé» no es «no tiene», y el candado de
+  verdad es el servidor.
+
+**Pruebas:** 6 del componente (con la bandeja de dos filas marcadas, para que el freno del lote sea
+el permiso y no una bandeja vacía); **6 mutaciones atrapadas**. Directorio `caja-general`: **378**.
+
 ---
 
 ## 8. Fase 4: E2E del proceso y operación
