@@ -42,7 +42,7 @@ export function nombreInicial(nombreReloj: string | null): string {
   imports: [DatePipe, FormsModule, TableModule, ButtonModule, InputTextModule, SelectModule, CheckboxModule, TagModule, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="sp-card" aria-label="Códigos sin persona">
+    <section class="sp-card dt-scope" aria-label="Códigos sin persona">
       <header class="sp-head">
         <h2>Códigos sin persona
           @if (datos(); as d) { @if (d.total) { <p-tag [value]="d.total + ''" severity="warn" /> } }
@@ -57,7 +57,7 @@ export function nombreInicial(nombreReloj: string | null): string {
                       emptyIcon="pi-check-circle" emptyTitle="Todos los códigos que checan tienen persona" (retry)="cargar()">
         <p-table [value]="filas()" dataKey="enrollment_id" size="small" [rowHover]="true" selectionMode="single"
                  [selection]="seleccion()" (selectionChange)="elegir($event)"
-                 class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first" [tableStyle]="{ 'min-width': '52rem' }">
+                 class="dt-stack surf-table surf-table--plain surf-table--sticky surf-table--frozen-first" [tableStyle]="{ 'min-width': '52rem' }">
           <ng-template #header>
             <tr>
               <th scope="col">Plaza</th><th scope="col">Código</th><th scope="col">Nombre en el reloj</th>
@@ -66,12 +66,12 @@ export function nombreInicial(nombreReloj: string | null): string {
           </ng-template>
           <ng-template #body let-f>
             <tr [pSelectableRow]="f">
-              <td>{{ f.site_name }}<small class="sp-sub">{{ f.device_label || f.serial_number }}</small></td>
-              <td class="mono">{{ f.codigo }}</td>
-              <td>{{ f.nombre_reloj || '—' }}</td>
-              <td>{{ f.ultima_checada ? (f.ultima_checada | date: 'd MMM HH:mm') : 'sin checadas' }}</td>
-              <td class="comm-num">{{ f.checadas_14d }}</td>
-              <td>
+              <td role="cell" data-label="Plaza">{{ f.site_name }}<small class="sp-sub">{{ f.device_label || f.serial_number }}</small></td>
+              <td role="cell" data-label="Código" class="mono">{{ f.codigo }}</td>
+              <td role="cell" data-label="Nombre en el reloj">{{ f.nombre_reloj || '—' }}</td>
+              <td role="cell" data-label="Última checada">{{ f.ultima_checada ? (f.ultima_checada | date: 'd MMM HH:mm') : 'sin checadas' }}</td>
+              <td role="cell" data-label="Checadas 14 d" class="comm-num">{{ f.checadas_14d }}</td>
+              <td role="cell" data-label="Sugerencia">
                 @if (sugerido(f); as s) { {{ s.nombre }} <p-tag [value]="motivo(s.motivo).texto" [severity]="motivo(s.motivo).severity" /> }
                 @else if (f.candidatos.length) { {{ f.candidatos.length }} posible(s) }
                 @else { <span class="sp-sub">sin candidatos</span> }
