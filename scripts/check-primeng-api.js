@@ -47,6 +47,53 @@ const RENOMBRADOS = [
   ['p-accordionTab', 'p-accordion-panel'],
 ];
 
+/**
+ * Severidades que la v22 no conoce, juzgadas POR COMPONENTE.
+ *
+ * ⛔ `[CGP-V.5]` (2026-10-15) La regla marcaba `severity="error"` en CUALQUIER etiqueta y mandaba a
+ * `danger`. Pero `p-message` SÍ lo admite y NO admite `danger` (`MessageSeverity` en primeng 22.0.0:
+ * success | info | warn | error | secondary | contrast). Seguir la sugerencia rompía el tipado de la
+ * plantilla — lo frenó `check-template-types` — y la única ocurrencia «heredada» bajo el techo
+ * (`portal-login`) era ese mismo falso positivo. Una compuerta que empuja a un error es peor que
+ * ninguna: por eso la excepción va con su prueba (`--self-test`).
+ */
+const SEVERIDAD_VALIDA = {
+  'p-message': new Set(['success', 'info', 'warn', 'error', 'secondary', 'contrast']),
+};
+
+function severidadesRetiradas(src) {
+  const out = [];
+  const sev = /severity=["'](warning|help|error)["']/g;
+  const mapa = { warning: 'warn', help: 'contrast', error: 'danger' };
+  let m;
+  while ((m = sev.exec(src))) {
+    const inicio = src.lastIndexOf('<', m.index);
+    const etiqueta = (/^<([\w-]+)/.exec(src.slice(inicio)) || [])[1];
+    if (etiqueta && SEVERIDAD_VALIDA[etiqueta] && SEVERIDAD_VALIDA[etiqueta].has(m[1])) continue;
+    out.push({ idx: m.index, que: `severity="${m[1]}"`, arreglo: `usar severity="${mapa[m[1]]}"` });
+  }
+  return out;
+}
+
+// Prueba negativa de la regla de severidad: lo que debe marcar, y lo que NO.
+if (process.argv.includes('--self-test')) {
+  const casos = [
+    ['<p-tag severity="error" value="x"></p-tag>', 1],
+    ['<p-button severity="warning" label="x"></p-button>', 1],
+    ['<p-message severity="warning">x</p-message>', 1],
+    ['<p-message severity="error">x</p-message>', 0],
+    ['<p-message\n  severity="error"\n  styleClass="a">x</p-message>', 0],
+  ];
+  let ok = true;
+  for (const [src, esperado] of casos) {
+    const bien = severidadesRetiradas(src).length === esperado;
+    ok = ok && bien;
+    console.log(`  ${bien ? '✔' : '✖'} ${esperado ? 'marca   ' : 'NO marca'}  ${src.replace(/\n\s*/g, ' ')}`);
+  }
+  console.log(ok ? '\n  ✔ la regla de severidad ve el rojo y no inventa' : '\n  ✖ CONTROL fallido');
+  process.exit(ok ? 0 : 1);
+}
+
 const hallazgos = [];
 
 function linea(src, idx) {
@@ -117,12 +164,8 @@ function revisar(archivo, src) {
   }
 
   // 4 · severity que la librería no conoce (usa el primer string y se queda gris)
-  const sev = /severity=["'](warning|help|error)["']/g;
-  let s;
-  while ((s = sev.exec(src))) {
-    const mapa = { warning: 'warn', help: 'contrast', error: 'danger' };
-    anotar(s.index, `severity="${s[1]}"`, `usar severity="${mapa[s[1]]}"`);
-  }
+  //    Juzgada por componente: ver `severidadesRetiradas` arriba.
+  for (const h of severidadesRetiradas(src)) anotar(h.idx, h.que, h.arreglo);
 
   // 5 · la directiva pButton no tiene label/icon: el botón sale VACÍO
   const btn = /<(?:button|a)\b[^>]*\bpButton\b[^>]*>/g;
@@ -221,7 +264,8 @@ const TECHO = {
   'styleClass p-inputnumber': 13,
   'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,
-  'severity retirado': 1,
+  // [CGP-V.5] 1 -> 0: la única era un falso positivo (p-message con severity="error", que es válido).
+  'severity retirado': 0,
 };
 
 function categoria(h) {
