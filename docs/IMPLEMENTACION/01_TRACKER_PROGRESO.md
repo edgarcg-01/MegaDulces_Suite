@@ -9140,6 +9140,10 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
 - [ ] 🧪 **`[CGP-L.6]`** (corte) los cinco métodos traducen las reglas de la base a frase.
   Local: 409 pruebas en `caja` en verde; cada capa del arqueo ciego probada sola por mutación.
 - [ ] ⬜ `[CGP-V.12]` Diálogo de cierre: ante el 409 de L.2, mostrar las dos cifras y confirmar.
+- [ ] 🧪 **`[CGP-L.10]`** Sensor `caja_corte_abierto` (cada hora): cortes en borrador > 26 h y
+  jornadas con movimientos sin corte; latido con umbral en `CRON_JOBS`; aviso por la campana sin
+  repetir (cambio o cada 6 h). 15 pruebas (12 puras + 3 contra la base), dos mutaciones en rojo.
+  `FinanceNotice.severity` ampliado a `'critical'` (lo usaba ya `caja_fecha_futura`).
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

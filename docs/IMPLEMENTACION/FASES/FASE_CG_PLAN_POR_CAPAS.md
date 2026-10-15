@@ -390,6 +390,17 @@ mutaciones de L.1, L.2 y L.11 están verificadas en rojo.
 | **CGP-L.2** | 🧪 | `esperadoCambio()`: si el esperado cambió desde el conteo, `cerrar()` responde **409** con `motivo`, `esperado_mostrado` y `esperado_actual`, y revierte lo atado. Quien ya vio el nuevo lo confirma con `esperado_visto`. Un corte sellado antes de que el esperado se guardara (CG.156) se **declara** (`contra: null`), no se bloquea |
 | **CGP-L.3** | 🧪 | `recontar()` exige un conteo previo (400 con frase) y lee sólo el desglose de **cierre** (el de apertura inflaba la constancia del primer conteo) |
 | **CGP-L.6** | 🧪 (corte) | `abrir`, `contar`, `recontar`, `cerrar` y `autorizar` pasan por `conFrase()`: una regla de la base violada llega como frase; lo desconocido sigue siendo un 500 ruidoso. Frase nueva para `ux_cash_cut_abierto`. Falta el resto del módulo (CLS, CAOS) |
+| **CGP-L.10** | 🧪 | **El sensor del corte abierto** (`caja_corte_abierto`, cada hora a los :20). Dos señales: cortes en **borrador** de más de 26 h (crítico a las 50 h) y **jornadas con movimientos y sin corte** del cajón (crítico con 2 o más: el 13 y el 14-oct). Una jornada cuenta recién cuando terminó hace más de 26 h, para no avisar cada madrugada. Deja su latido (universo en 0 = rojo) con umbral en `CRON_JOBS` (2 h / 6 h) y avisa por la campana con enlace a la pantalla. **No repite**: avisa cuando la situación cambia y la recuerda cada 6 h (el canal no agrupa). Se apaga con `ENABLE_CAJA_CORTE_SCAN=false` |
+
+**`[CGP-L.10]` pruebas:** 12 puras (umbrales, mensajes, la regla de no repetir) + 3 contra la base
+real (siembra un corte trabado de 75 h y dos jornadas sin corte; latido; no repite y recuerda),
+probadas en **rojo con dos mutaciones**. Una de ellas destapó que mi aserción «el día con corte no
+aparece» era **vacía** (ese día no tenía movimientos): se corrigió y ahora la mutación la pone roja.
+
+⚠️ **Al hacerlo se corrigió un contrato:** `FinanceNotice.severity` decía `'info' | 'warn'`, pero la
+campana ya admite `'critical'` y `caja_fecha_futura` ya lo mandaba; compilaba sólo porque `.bind()`
+devuelve `any` con el tsconfig no estricto. Se amplió a `'critical'` (aditivo; su único consumidor,
+el adaptador, lo pasa tal cual). `libs/contracts`: 661 pruebas en verde.
 
 **Pruebas:** `cash-cut.cierre.spec.ts` (13, puras) + el servicio real (8/8) + todo
 `libs/finance/src/lib/caja` en **20 archivos, 409 pruebas en verde**. Cada capa de defensa del
