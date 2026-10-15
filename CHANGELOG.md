@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Al buscar en Tomar pedido, cada producto dice cuánto trae la caja (VTK.9, 2026-10-14)
+- Mientras el vendedor busca, cada resultado muestra un renglón **«1 CJA trae 12 PAQ · 144 PZA»**: el cliente pregunta «¿cuántas trae?» y antes había que deducirlo del selector de medida. Pedido de ruta.
+- La caja es la que **declara la escalera de Kepler de la sucursal** (CJA, o BTO/CUB cuando la unidad mayor es bulto o cubeta: en La Piedad Abastos 8,396 CJA · 167 BTO · 3 CUB). Si la escalera no declara caja **no se pinta nada** (no se inventa con el paquete), y un paquete que no cabe exacto en la caja se omite en vez de mostrarse con decimales (1 de 382 SKUs). Sin escalera de sucursal se reconoce por rótulo.
+- **Al elegir CJA en el selector (VTK.12)**, en cualquier lista, la fila dice «1 CJA = 144 PZA» y, si ya hay cantidad, «· en el pedido 288 PZA». La unidad base es la del producto (un bulto dice kilos). En la búsqueda no se repite.
+- Sólo en los resultados de búsqueda; «Lo que suele pedir» y el catálogo no cambian. Helper puro `contenidoCaja` en `libs/ui-web` con su prueba. Sin migraciones ni permisos → sin re-login.
 ### Removed — La app del vendedor sin IA: menos peticiones al abrir un cliente y Mi ruta (VTK.8, 2026-10-14)
 - **Tomar pedido** ya no pide sugerencias a Thot (salía al abrir el cliente y otra vez tras cada ráfaga de +/−), ni tiene dictado por voz ni el «por qué ofrecerlo». Quedan «Lo que suele pedir» y «Catálogo · más vendidos»; la canasta sugerida se queda porque es una cuenta local sobre el historial, no IA.
 - **Mi ruta** ya no espera la consulta de «para reordenar» (`/intelligence/nba`) para pintar la lista, ni manda una señal al abrir la hoja de un cliente.
