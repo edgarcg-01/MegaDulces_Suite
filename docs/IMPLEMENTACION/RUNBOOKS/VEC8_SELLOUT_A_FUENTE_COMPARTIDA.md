@@ -336,18 +336,55 @@ detector, no la víctima.
 sell-out, los más vendidos, el margen. La cabecera sí está, así que los totales de venta están
 bien; lo que falta es el desglose.
 
-## 4. Cómo se repara (NO ejecutado — es escritura a prod)
+## 4. ✅ REPARADO — 968 renglones repuestos, verificado contra prod
 
-La herramienta existe y el modo con ventana **sí repone**:
+Autorizado por Edgar el 2026-10-15. Corrido **dentro del pod de ingesta** (`ods-reconcile`, que es
+donde vive `ODS_SOURCE_BASE`), no desde la máquina de trabajo.
+
+⚠️ `feeds-cron` **no sirve**: no tiene esa variable y el script aborta con un error que nombra
+`DATABASE_URL_NEW` — leerlo rápido hace pensar que falta el destino, cuando lo que falta es el
+ORIGEN.
+
+**Primero en seco**, que es inocuo y dimensiona:
+
+```
+suc 02 · kdm2 · 60d ──  local 141,212 · faltan 828 · sobran 0
+suc 05 · kdm2 · 60d ──  local  70,125 · faltan 140 · sobran 0
+```
+
+**Cero sobrantes**: no había nada que borrar, era puro faltante. Después con `--apply`:
 
 ```bash
 node database/importers/kepler/reconcile-ods-window.js --branch=02 --tables=kdm2 --days=60 --apply
 node database/importers/kepler/reconcile-ods-window.js --branch=05 --tables=kdm2 --days=60 --apply
 ```
 
-⚠️ **Va fuera de horario hábil y con autorización**: es un `--apply` contra prod y compara ~60 días
-de `kdm2` de esa rama. Correrlo antes en seco (sin `--apply`) dice cuántas filas repondría.
+→ **828 + 140 = 968 filas repuestas.**
 
-⛔ **Lo que queda abierto y no se midió**: por qué se perdieron ese día (el CDC, el shipper o un
-reinicio), y si el mismo hueco existe en tablas que esta fase no toca. El barrido de arriba cubre
-`U-D-10` en dos sucursales; **las otras seis ramas y los demás doctypes no se revisaron**.
+### La verificación, contra prod y no contra el reporte del script
+
+| | antes | después |
+|---|---:|---:|
+| documentos sin renglones el 17-ago | **167** | **0** |
+| venta sin renglones ese día | **$45,033.28** | **$0.00** |
+| residuo de la identidad en agosto | **$26,016.13** | **$0.05** |
+| documentos de agosto que no cierran | **4** | **0** |
+
+Control: septiembre quedó **idéntico** ($0.70 de residuo, 1 documento) — la reparación movió lo
+que debía y nada más.
+
+⛔ **Y se retiró la exclusión del candado.** `test-newdb-vecinal-conciliacion.js` excluía
+explícitamente ese día; ahora corre sin exclusión y pasa: **4,755 de 4,756 documentos, residuo
+$0.75**. *Una exclusión que sobrevive a su causa deja al candado ciego justo donde ya falló una vez.*
+
+## 5. ⛔ Lo que esto NO arregló
+
+La reparación cierra **este** hueco. No cierra el que lo hizo posible:
+
+- **La ventana de reparación del ODS sigue siendo de 3 días.** El modo que repone corre con
+  `--days=3`; el `--full` que mira todo **no repone**. Un hueco que no se detecte en 72 h vuelve a
+  ser permanente. Éste se encontró a los **59 días**, y por casualidad.
+- **No se estableció la causa**: por qué el 17-ago se perdieron esas 968 filas (el CDC, el shipper,
+  un reinicio). El latido de ese día no se revisó.
+- **Sólo se barrieron dos ramas y `U-D-10`.** Las otras seis ramas y los demás doctypes **no se
+  revisaron**, y con una ventana de 3 días cualquier hueco viejo que haya ahí es igual de invisible.
