@@ -241,6 +241,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
       abrirCorte: vi.fn(() => of({ id: 'c1', folio: 'CC-2026-00001' })),
+      // [CGP-V.3] Sin jornadas atrasadas: el caso de todos los días.
+      jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
       ...over,
     };
 
@@ -1461,6 +1463,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // toque tiene que estar acá o el montaje revienta con "is not a function".
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
+      jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -4217,4 +4220,122 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
     expect(comp.conflictoEsperado()).toBeNull();
   });
 });
+  // ── `[CGP-V.3]` Las jornadas atrasadas se cierran desde la pantalla, y en orden ─────────────────
+  //
+  // El 13 y el 14-oct no tenían camino: la pantalla SIEMPRE abría el corte de hoy, y abrir hoy
+  // primero deja huérfanos a los días de atrás — `[CGP-L.4]` rechaza abrir una jornada anterior a un
+  // corte que ya existe. El botón abre la atrasada más vieja y lo DICE en su etiqueta.
+  describe('[CGP-V.3] jornadas atrasadas', () => {
+    const pendientes = (jornadas: Array<{ fecha: string; movimientos: number }>, hoy = '2026-10-14') =>
+      vi.fn(() => of({ sucursal: '00', hoy, inicio_libro: '2026-10-12', jornadas, alcance: 'cajon' as const }));
+    const DOS = [{ fecha: '2026-10-12', movimientos: 3 }, { fecha: '2026-10-13', movimientos: 5 }];
+    const sinCorte = () => vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true }));
+    const fechaAbierta = () => (svc['abrirCorte'].mock.calls[0][0] as { fecha: string }).fecha;
+    const falla = (status: number) => vi.fn(() => throwError(() => ({ status, error: {} })));
+
+    it('⭐ con jornadas atrasadas, rendir cuentas abre la MÁS VIEJA, no la de hoy', () => {
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).toHaveBeenCalledTimes(1);
+      expect(fechaAbierta()).toBe('2026-10-12');
+      expect(comp.cierreAbierto()).toBe(true);   // y sigue derecho al conteo, como siempre
+    });
+
+    it('el botón lo dice, y el aviso nombra cada jornada y el orden', () => {
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      const panel: string = fx.nativeElement.querySelector('.cg-conc').textContent;
+      expect(panel).toContain('Rendir cuentas del 12-oct');
+      expect(panel).toContain('13-oct');
+      expect(panel).toContain('en orden');
+    });
+
+    it('el subtítulo avisa sin tener que abrir la ventana', () => {
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      expect(comp.subtituloJornada()).toContain('2 jornadas sin corte desde el 12-oct');
+    });
+
+    it('[negativa] sin atrasadas abre HOY, y el hoy es el del servidor', () => {
+      // Un día que no puede ser el del navegador: si saliera `todayMx()`, la prueba lo atrapa. El
+      // servidor rechaza una fecha futura con SU reloj, así que es el reloj que hay que usar.
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes([], '2031-01-15') });
+      comp.cerrarJornada();
+      expect(fechaAbierta()).toBe('2031-01-15');
+    });
+
+    it('⛔ [negativa] sin saber si hay atrasadas NO se abre el corte de hoy: se reintenta', () => {
+      // Abrir hoy a ciegas puede dejar huérfanas las de atrás, y eso no se deshace desde aquí.
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: falla(500) });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+      const panel: string = fx.nativeElement.querySelector('.cg-conc').textContent;
+      expect(panel).toContain('Reintentar');
+      expect(panel).not.toContain('rendir cuentas');
+
+      const antes = svc['jornadasPendientes'].mock.calls.length;
+      comp.reintentarCierre();
+      expect(svc['jornadasPendientes'].mock.calls.length).toBe(antes + 1);
+    });
+
+    it('[negativa] un servidor que no conoce la ruta (404) abre hoy, como antes', () => {
+      // Un API anterior a `[CGP-L.4]` no lista jornadas, pero tampoco tiene la regla que las deja
+      // huérfanas: abrir hoy ahí es lo que ya pasaba. Trabar el cierre por un 404 sería peor.
+      montar({ saldo: sinCorte(), jornadasPendientes: falla(404) });
+      comp.cerrarJornada();
+      expect(fechaAbierta()).toBe(todayMx());
+    });
+
+    it('con un corte atrasado ABIERTO va a ese corte, y el cierre dice de qué jornada es', () => {
+      const fx = montarJornada({
+        saldo: vi.fn(() => of({
+          ...SALDO, sin_corte_abierto: false,
+          corte_abierto: { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', fondo_inicial: 500, ya_reconto: false },
+        })),
+        jornadasPendientes: pendientes([]),
+      });
+      const panel: string = fx.nativeElement.querySelector('.cg-conc').textContent;
+      expect(panel).toContain('Rendir cuentas del 13-oct');
+
+      comp.cerrarJornada();
+      fx.detectChanges();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+      expect(comp.cierreAbierto()).toBe(true);
+      expect(document.body.textContent).toContain('CC-2026-00009 · jornada del 13-oct');
+    });
+
+    it('al cerrar un corte se vuelve a medir: así aparece la siguiente atrasada', () => {
+      montar({
+        saldo: vi.fn(() => of({
+          ...SALDO, sin_corte_abierto: false,
+          corte_abierto: {
+            id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-12', fondo_inicial: 500, ya_reconto: false,
+            conteo_sellado: { contado: 1500, esperado: 1500, diferencia: 0, veredicto: 'cuadra', ya_reconto: false },
+          },
+        } as unknown as SaldoResponse)),
+        jornadasPendientes: pendientes([{ fecha: '2026-10-13', movimientos: 5 }]),
+        cerrarCorte: vi.fn(() => of({ id: 'c9', estado: 'cerrado', totales: {} })),
+      });
+      const antes = svc['jornadasPendientes'].mock.calls.length;
+      comp.abrirCierre();
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).toHaveBeenCalled();
+      expect(svc['jornadasPendientes'].mock.calls.length).toBeGreaterThan(antes);
+    });
+    it('⛔ [negativa] la otra puerta — declarar el fondo — tampoco abre hoy por encima de una atrasada', () => {
+      // «Declarar con cuánto arrancó la caja» abre el corte desde su propio diálogo. Si esa puerta
+      // abriera hoy, dejaría huérfanas a las atrasadas igual que el botón principal.
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      comp.abrirApertura();
+      comp.fondoInicial.set(800);
+      comp.abrirCorte();
+      expect(fechaAbierta()).toBe('2026-10-12');
+    });
+
+    it('⛔ [negativa] por esa puerta, sin saber si hay atrasadas tampoco se abre nada', () => {
+      montar({ saldo: sinCorte(), jornadasPendientes: falla(500) });
+      comp.abrirApertura();
+      comp.fondoInicial.set(800);
+      comp.abrirCorte();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+  });
 });

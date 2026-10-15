@@ -314,6 +314,17 @@ export class CashLedgerService {
   }
 
   /**
+   * `[CGP-L.4]` Las jornadas del cajón con movimientos y SIN corte, de la más vieja a la más nueva.
+   * Es lo que la pantalla ofrece abrir, y en ese orden: el servidor rechaza abrir un día anterior a
+   * un corte que ya existe, así que abrir hoy primero deja huérfanos a los de atrás.
+   */
+  jornadasPendientes(sucursal: string): Observable<JornadasPendientes> {
+    return this.http.get<JornadasPendientes>(`${this.base}/cortes/jornadas-pendientes`, {
+      params: new HttpParams().set('sucursal', sucursal),
+    });
+  }
+
+  /**
    * CG.19 — SELLA el conteo y recién entonces revela. Era `previa`, que mostraba la diferencia
    * mientras se contaba: con eso el arqueo era una transcripción del esperado.
    */
@@ -648,6 +659,22 @@ export interface RevelacionCorte {
   conteo_previo_contado?: number;
 }
 
+/** `[CGP-L.4]` Lo que devuelve `GET cortes/jornadas-pendientes`. */
+export interface JornadasPendientes {
+  sucursal: string;
+  /** Hoy en México (`YYYY-MM-DD`): la jornada de hoy no se lista, todavía no termina. */
+  hoy: string;
+  /** El primer día con corte. Antes de eso no hay jornada que reclamar. */
+  inicio_libro: string | null;
+  /** De la más vieja a la más nueva. */
+  jornadas: Array<{ fecha: string; movimientos: number }>;
+  /**
+   * `solo_cajon`: la sucursal no es la del cajón (00) y no tiene jornadas. Se DECLARA para que la
+   * lista vacía no se lea como «todo al día».
+   */
+  alcance: 'cajon' | 'solo_cajon';
+}
+
 export interface SaldoResponse {
   sucursal: string;
   // ⛔ `[CG.153]` `fondo_inicial` es `number | null`, no `number`. El servidor manda `fondo(abierto)`
@@ -656,6 +683,12 @@ export interface SaldoResponse {
   // 228 líneas más abajo (`ArqueoDia`); acá mentía, y los consumidores ya guardan el null en runtime.
   corte_abierto: {
     id: string; folio: string; fondo_inicial: number | null; ya_reconto: boolean;
+    /**
+     * `[CGP-L.4]` La jornada del corte (`YYYY-MM-DD`). Con jornadas atrasadas, el corte abierto
+     * puede no ser el de hoy y el diálogo de cierre tiene que decirlo. Opcional: el API puede ir
+     * por detrás del front en un deploy parcial.
+     */
+    fecha?: string;
     /**
      * ⭐ `[CG.160]` **El conteo que YA está sellado en la base.** Lo publica `saldo()` desde
      * `[CG.156]` y acá no estaba declarado, así que la pantalla no podía leerlo: al recargar,

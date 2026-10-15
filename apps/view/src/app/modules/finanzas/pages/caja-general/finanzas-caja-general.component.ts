@@ -17,7 +17,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -40,7 +40,8 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
-  type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista } from '../../cash-ledger.service';
+  type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
+  type JornadasPendientes } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
@@ -1055,16 +1056,32 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                El mecanismo existia -- abrir corte, contar a ciegas, sellar, cerrar, autorizar --
                pero entraba por un boton "Abrir corte" gris y chico, en medio de una linea de
                texto. Nadie busca "corte" cuando quiere rendir cuentas del dia. -->
-          @if (saldoSinMedir()) {
+          <!-- [CGP-V.3] Tambien se reintenta cuando no se sabe si hay jornadas atrasadas: abrir hoy
+               a ciegas puede dejarlas sin poder cerrarse, y eso no se deshace desde aqui. -->
+          @if (cierreSinMedir()) {
             <p-button label="Reintentar" icon="pi pi-refresh" size="small" severity="secondary"
-                      [text]="true" (onClick)="cargarSaldo()"></p-button>
+                      [text]="true" (onClick)="reintentarCierre()"></p-button>
           } @else {
-            <p-button [label]="corteAbierto() ? 'Rendir cuentas del día' : 'Cerrar jornada y rendir cuentas'"
+            <p-button [label]="etiquetaCierre()"
                       icon="pi pi-lock" size="small"
-                      [loading]="abriendo()" [disabled]="abriendo()"
+                      [loading]="abriendo() || midiendoAtrasadas()" [disabled]="abriendo() || midiendoAtrasadas()"
                       (onClick)="cerrarJornada()"></p-button>
           }
         </div>
+
+        <!-- [CGP-V.3] LAS JORNADAS ATRASADAS, EN ORDEN. El boton de arriba ya abre la mas vieja y lo
+             dice en su etiqueta; esto dice cuales faltan y por que el orden importa.
+             (Sin acentos graves aca adentro: esto vive en un template literal.) -->
+        @if (atrasadas().length) {
+          <p-message severity="warn" class="cg-full">{{ textoAtrasadas() }} Se cierran en orden, de
+            la más vieja a la más nueva: si se abre primero el corte de hoy, las de atrás ya no se
+            pueden cerrar desde aquí.</p-message>
+        } @else if (cierreSinMedir() && !saldoSinMedir()) {
+          <small class="fin-hint-warn">No se pudo saber si hay jornadas sin corte antes de hoy.
+            Abrir el corte de hoy sin saberlo podría dejarlas sin poder cerrarse.</small>
+        } @else if (jornadasAtrasadas().estado === 'no_informa') {
+          <small class="fin-dim">Esta versión del servidor no informa las jornadas sin corte.</small>
+        }
 
         @if (cargandoArqueo()) {
           <small class="fin-dim">Midiendo la jornada...</small>
@@ -3116,6 +3133,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <!-- [CG.29] Se dice que esto NO termina acá: el gesto sigue en el conteo. Sin decirlo, la
              persona confirma y cree que ya rindió cuentas. -->
         <small class="fin-dim">Al confirmar seguís directo al conteo del efectivo.</small>
+        <!-- [CGP-V.3] Esta puerta tambien abre la atrasada mas vieja, y lo dice. -->
+        @if (aperturaAtrasada(); as dia) {
+          <small class="fin-hint-warn">Se abre el corte de la jornada del {{ dia }}: es la más
+            vieja sin corte, y las jornadas se cierran en orden.</small>
+        }
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
@@ -3129,6 +3151,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
               header="Cerrar corte — contá el efectivo" [draggable]="false">
       <div class="fin-form">
+        <!-- [CGP-V.3] De que jornada es el corte. Con atrasadas, el corte abierto puede no ser el
+             de hoy, y la persona tiene que saberlo antes de contar. -->
+        @if (rotuloCorte(); as rc) {
+          <small class="fin-dim">{{ rc }}</small>
+          @if (corteAtrasado()) {
+            <p-message severity="warn" class="cg-full">Este corte es de una jornada que ya pasó, no de hoy.</p-message>
+          }
+        }
         <!-- CG.19 Capa 1b: el arqueo es CIEGO. Acá se pintaba "Esperado / Diferencia" mientras la
              persona tecleaba, o sea que contaba hasta que la diferencia diera cero. Ahora sólo se
              ve lo que ella misma sumó; el resultado aparece al SELLAR. -->
@@ -4617,6 +4647,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.cargarCobertura();
     this.cargar();
     this.cargarSaldo();
+    this.cargarJornadasAtrasadas();
     this.cargarCortes();
     // CG.20/CG.21 — la bandeja y los frecuentes se piden al abrir: son la acción principal, no
     // algo que aparezca después de un clic.
@@ -4865,6 +4896,117 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Marca que la apertura vino de "rendir cuentas": al confirmarla se sigue al conteo. */
   private cerrarTrasAbrir = signal(false);
 
+  // ── `[CGP-V.3]` Las jornadas atrasadas ─────────────────────────────────────────────────────
+  //
+  // ⛔ El 13 y el 14-oct no tenían camino: la pantalla SIEMPRE abría el corte de hoy, y abrir hoy
+  // primero los deja huérfanos — `[CGP-L.4]` rechaza abrir una jornada anterior a un corte que ya
+  // existe. Ahora se cierran desde acá, de la más vieja a la más nueva.
+  //
+  // Cuatro estados y no dos, porque se resuelven distinto:
+  //   · `midiendo`   — todavía no se sabe: el botón espera;
+  //   · `medido`     — la lista del servidor (vacía = al día);
+  //   · `sin_medir`  — falló la consulta: NO se abre hoy a ciegas, se ofrece reintentar;
+  //   · `no_informa` — 404, un API anterior a `[CGP-L.4]`. No lista jornadas, pero tampoco tiene la
+  //     regla que las deja huérfanas: abrir hoy ahí es lo que ya pasaba. Trabar el cierre de caja por
+  //     un 404 sería peor que lo que evita.
+
+  jornadasAtrasadas = signal<
+    { estado: 'midiendo' | 'sin_medir' | 'no_informa' } | { estado: 'medido'; datos: JornadasPendientes }
+  >({ estado: 'midiendo' });
+
+  cargarJornadasAtrasadas(): void {
+    this.jornadasAtrasadas.set({ estado: 'midiendo' });
+    this.svc.jornadasPendientes(this.sucursalActiva).subscribe({
+      next: (datos) => this.jornadasAtrasadas.set({ estado: 'medido', datos }),
+      error: (e: { status?: number }) =>
+        this.jornadasAtrasadas.set({ estado: e?.status === 404 ? 'no_informa' : 'sin_medir' }),
+    });
+  }
+
+  /** El reintento re-mide las DOS cosas de las que depende abrir un corte. */
+  reintentarCierre(): void { this.cargarSaldo(); this.cargarJornadasAtrasadas(); }
+
+  /** Las atrasadas medidas, de la más vieja a la más nueva. Vacía también cuando no se midió. */
+  atrasadas = computed(() => {
+    const a = this.jornadasAtrasadas();
+    return a.estado === 'medido' ? a.datos.jornadas : [];
+  });
+
+  /**
+   * Hoy según el SERVIDOR cuando se pudo medir: es el reloj con el que rechaza una fecha futura.
+   * Sin la lista, el del navegador en hora de México.
+   */
+  hoyCaja = computed(() => {
+    const a = this.jornadasAtrasadas();
+    return a.estado === 'medido' ? a.datos.hoy : todayMx();
+  });
+
+  /**
+   * La jornada que abre un corte nuevo — por cualquiera de las dos puertas: la atrasada más vieja,
+   * o hoy. `null` = no se sabe, y entonces no se abre nada.
+   */
+  fechaParaAbrir = computed<string | null>(() => {
+    const a = this.jornadasAtrasadas();
+    if (a.estado === 'medido') return a.datos.jornadas[0]?.fecha ?? a.datos.hoy;
+    if (a.estado === 'no_informa') return todayMx();
+    return null;
+  });
+
+  /**
+   * Con corte abierto, la lista no hace falta: el botón va a ESE corte. Sin corte, no saber si hay
+   * atrasadas se trata como no saber si hay corte — se reintenta.
+   */
+  cierreSinMedir = computed(() => {
+    const saldo = this.saldoSinMedir();
+    const c = this.corteAbierto();
+    const estado = this.jornadasAtrasadas().estado;
+    return saldo || (!c && estado === 'sin_medir');
+  });
+
+  midiendoAtrasadas = computed(() => {
+    const c = this.corteAbierto();
+    const estado = this.jornadasAtrasadas().estado;
+    return !c && estado === 'midiendo';
+  });
+
+  /** La etiqueta nombra la jornada cuando no es la de hoy: el gesto no cambia, el día sí. */
+  etiquetaCierre = computed(() => {
+    const c = this.corteAbierto();
+    const hoy = this.hoyCaja();
+    const destino = this.fechaParaAbrir();
+    if (c) return c.fecha && c.fecha < hoy ? `Rendir cuentas del ${diaCorto(c.fecha)}` : 'Rendir cuentas del día';
+    return destino && destino < hoy ? `Rendir cuentas del ${diaCorto(destino)}` : 'Cerrar jornada y rendir cuentas';
+  });
+
+  textoAtrasadas = computed(() => {
+    const atr = this.atrasadas();
+    if (!atr.length) return '';
+    const lista = atr
+      .map((j) => `${diaCorto(j.fecha)} (${j.movimientos} ${j.movimientos === 1 ? 'movimiento' : 'movimientos'})`)
+      .join(', ');
+    return `${atr.length === 1 ? 'Hay una jornada sin corte' : `Hay ${atr.length} jornadas sin corte`}: ${lista}.`;
+  });
+
+  /** El diálogo de apertura lo dice cuando no abre la jornada de hoy. */
+  aperturaAtrasada = computed(() => {
+    const destino = this.fechaParaAbrir();
+    const hoy = this.hoyCaja();
+    return destino && destino < hoy ? diaCorto(destino) : null;
+  });
+
+  /** `Corte CC-… · jornada del 12-oct`. Sin fecha (API viejo), sólo el folio. */
+  rotuloCorte = computed(() => {
+    const c = this.corteAbierto();
+    if (!c) return null;
+    return c.fecha ? `Corte ${c.folio} · jornada del ${diaCorto(c.fecha)}` : `Corte ${c.folio}`;
+  });
+
+  corteAtrasado = computed(() => {
+    const c = this.corteAbierto();
+    const hoy = this.hoyCaja();
+    return !!c?.fecha && c.fecha < hoy;
+  });
+
   /**
    * `[CG.29]` El subtítulo de la página: el estado de HOY, no la cobertura del catálogo.
    *
@@ -4908,9 +5050,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
           : `${n(total)} por confirmar`;
     if (this.saldoSinMedir()) return `${trabajo} · no se pudo medir si hay corte abierto`;
     const c = this.corteAbierto();
-    return c
-      ? `${trabajo} · corte ${c.folio} abierto, falta rendir cuentas`
-      : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
+    // [CGP-V.3] Las atrasadas van acá: el subtítulo es lo único que se ve sin abrir la ventana.
+    const atr = this.atrasadas();
+    const atrasadas = atr.length
+      ? ` · ${atr.length === 1 ? 'una jornada' : `${atr.length} jornadas`} sin corte desde el ${diaCorto(atr[0].fecha)}`
+      : '';
+    if (c) return `${trabajo} · corte ${c.folio} abierto, falta rendir cuentas${atrasadas}`;
+    return atr.length ? `${trabajo}${atrasadas}` : `${trabajo} · todavía no rendiste cuentas de esta jornada`;
   });
 
   /**
@@ -5036,11 +5182,25 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   abrirCorte(): void {
     if (this.abriendo()) return;
+    /**
+     * ⭐ `[CGP-V.3]` La jornada la decide `fechaParaAbrir()`, y se decide ACÁ y no en cada botón:
+     * a este método llegan las dos puertas — «rendir cuentas» y «Declarar con cuánto arrancó la
+     * caja» —, y cualquiera de las dos que abriera hoy dejaría huérfanas a las atrasadas.
+     */
+    const fecha = this.fechaParaAbrir();
+    if (!fecha) {
+      this.cerrarTrasAbrir.set(false);
+      this.toast.add({
+        severity: 'warn', summary: 'No se abrió el corte', life: 7000,
+        detail: 'No se pudo saber si hay jornadas sin corte antes de hoy. Reintentá antes de abrir.',
+      });
+      return;
+    }
     this.abriendo.set(true);
     this.svc.abrirCorte({
-      // `todayMx()`, no `toISOString()`: después de las 18:00 hora de México el segundo ya
-      // devuelve MAÑANA, y el corte nacía con fecha de mañana.
-      fecha: todayMx(),
+      // La atrasada más vieja, o el hoy del SERVIDOR. Sin la lista (404), `todayMx()` — nunca
+      // `toISOString()`, que después de las 18:00 hora de México ya devuelve mañana.
+      fecha,
       sucursal: this.sucursalActiva,
       // `null` → `undefined`: es la forma exacta que `abrir()` traduce a `NULL` + `sin_medir`.
       // Mandar `null` NO sirve: el servicio compara contra `undefined`.
@@ -5053,7 +5213,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.avisarOk('Corte abierto', f == null
           ? 'Sin fondo inicial medido: el arqueo no va a poder decir si cuadra.'
           : `Fondo inicial ${money(f)}`);
-        this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo();
+        this.cargarSaldo(); this.cargarCortes(); this.cargarArqueo(); this.cargarJornadasAtrasadas();
         // [CG.29] Si la apertura vino de "rendir cuentas", se sigue DERECHO al conteo: el gesto
         // es uno solo. Sin esto la persona quedaba con el corte abierto y sin saber que le
         // faltaba un segundo clic en otro lado.
@@ -5164,7 +5324,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.cerrando.set(false);
         this.cierreAbierto.set(false); this.conflictoEsperado.set(null);
         this.avisarOk('Corte cerrado', 'Queda pendiente de autorizar por otra persona.');
-        this.cargarSaldo(); this.cargar(); this.cargarCortes();
+        this.cargarSaldo(); this.cargar(); this.cargarCortes(); this.cargarJornadasAtrasadas();
       },
       error: (e) => {
         this.cerrando.set(false);

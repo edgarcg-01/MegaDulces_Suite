@@ -16,6 +16,8 @@
  * crítico): una jornada se cierra el mismo día; 26 h deja holgura para cerrar al día siguiente.
  */
 
+import { diaCorto } from '@megadulces/contracts';
+
 export const UMBRAL_CORTE_ABIERTO_H = { aviso: 26, critico: 50 } as const;
 
 export interface CorteAbiertoFila { folio: string; fecha: string; horas: number }
@@ -36,14 +38,8 @@ export interface AvisoCorteAbierto {
   message: string;
 }
 
-const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-
-/** 'YYYY-MM-DD' → '12-oct'. Sin `Date`: una fecha de calendario no tiene zona horaria. */
-export function diaCorto(fecha: string): string {
-  const [, m, d] = String(fecha).slice(0, 10).split('-');
-  const mes = MESES[Number(m) - 1];
-  return mes ? `${Number(d)}-${mes}` : String(fecha);
-}
+/** `[CGP-L.4]` La copia única vive en `contracts`: la usa también la pantalla. */
+export { diaCorto };
 
 function cuanto(horas: number): string {
   return horas >= 48 ? `${Math.floor(horas / 24)} días` : `${Math.floor(horas)} h`;

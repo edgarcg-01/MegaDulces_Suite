@@ -135,6 +135,7 @@ export * from './finance/reapertura.contract';
 export * from './finance/ejercicio.contract';
 // `[GX.41]` el vale que Kepler asigna por la caja «Solicita» = un username nuestro.
 export * from './finance/vale-asignado.contract';
+export * from './finance/dia-corto.contract';
 export * from './finance/protocolo-gasto.contract';
 // `[GX.75]` La transferencia XD2601 que pagó el gasto: tercer número del expediente.
 export * from './finance/transferencia-gasto.contract';
