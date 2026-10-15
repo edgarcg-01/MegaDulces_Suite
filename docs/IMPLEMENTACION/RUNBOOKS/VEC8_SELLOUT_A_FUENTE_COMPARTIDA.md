@@ -437,3 +437,64 @@ perdieron esas 968 filas no se puede responder con lo que hay.
 
 ⭐ Eso cierra el círculo: **el hueco duró 59 días porque no había ni quién lo repusiera (ventana
 de 3 días) ni quién lo registrara (sin log).**
+
+---
+
+# `[VEC.19]` — Reposición completa: 3,494 filas, y el carril que impide que vuelva a pasar
+
+Autorizado por Edgar el 2026-10-15 («repongo todo ahora» + «carril semanal que repone»).
+
+## La reposición
+
+`reconcile-ods-window --branch=NN --tables=T --days=60 --apply`, rama por rama y tabla por tabla
+(⚠️ con `--max-old-space-size=2048`: las 9 ramas juntas mueren por heap a los 9 s).
+
+| suc | repuestas |
+|---|---:|
+| 00 | 637 |
+| 01 | 1,303 |
+| 02 | 39 |
+| 03 | 1,027 |
+| 05 | 197 |
+| 06 | 39 |
+| 07 | 2 |
+| 08 | 250 |
+| **Σ** | **3,494** |
+
+**Ni una falla, ni un «SIN SALIDA».** Cada renglón reportó `faltan N · repuestas N`.
+
+## La verificación, con su residuo declarado
+
+Barrido nuevo en seco: **3,505 → 36**. Los que quedan son de **1 a 14**, dispersos, donde antes
+eran bloques de 487/547/569.
+
+⚠️ **Y no se dio por transitorio: se midió.** Re-medición ~5 min después:
+
+| | antes | después |
+|---|---:|---:|
+| `01 · kdij` | 14 | **0** ✅ |
+| `02 · kdm1` | 2 | **1** |
+| `08 · kdm2` | 4 | **4** ⚠️ |
+
+Los dos primeros confirman la hipótesis —venta en vuelo que el carril continuo (`--days=3`,
+cada 15 min) alcanza solo—. **`08/kdm2` no se movió, y eso NO se puede llamar venta en vuelo.**
+Son 4 filas; quedan declaradas y el carril semanal nuevo las barre. *Un residuo que se explica a
+medias se declara a medias.*
+
+## El carril que cierra el agujero
+
+[`ops/k3s/31-ods-reconcile-ancho.cronjob.yaml`](../../../ops/k3s/31-ods-reconcile-ancho.cronjob.yaml)
+— domingo 03:30 MX, `--days=45 --apply`, rama por rama, latido propio `cdc_reconcile_ancho` con
+umbral registrado en `CRON_JOBS` (warn 8 d / crit 10 d).
+
+⛔ **Sin `--delete-sobrantes`**: borrar es del carril diario, que ya tiene sus frenos. Éste sólo
+repone — el radio de daño se queda en *traer lo que el ERP ya tiene*.
+
+⚠️ **Falta aplicarlo a k3s.** Está versionado, sin desplegar.
+
+## Lo que sigue abierto
+
+- **La causa del 17-ago no es establecible**: `cron_run_log` salta del 31-jul al 02-sep.
+- **El barrido cubre 5 tablas** (las que tienen fecha de negocio). Las que no la tienen las mira
+  `--chicas` cada 30 min, pero **con su propio universo acotado**, no con ventana ancha.
+- **La ventana del carril continuo sigue en 3 días.** El semanal la compensa; no la cambia.
