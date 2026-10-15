@@ -1836,9 +1836,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     });
     const caja: string = fx.nativeElement.querySelector('.cg-fuera').textContent;
     expect(caja).toContain('5 de días anteriores');
-    expect(caja).toContain('2026-09-25');
+    // [CGP-V.7] La fecha va en palabras, no ISO cruda: es una frase.
+    expect(caja).toContain('desde el 25-sep');
+    expect(caja).not.toContain('2026-09-25');
     expect(caja).toContain('3 con fecha posterior');
-    expect(caja).toContain('2026-12-10');
+    expect(caja).toContain('hasta el 10-dic');
     // El monto, no sólo el conteo: un pendiente sin cifra no se puede priorizar.
     expect(caja).toContain('121,775');
     // ⭐ Y dice que NO entran al corte — que es la razón de que el esperado ya no sea un disparate.
@@ -4619,6 +4621,22 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       fx.detectChanges();
       expect(comp.errorApertura()).toContain('CC-2026-00001');
       expect(panel(fx)).toContain('CC-2026-00001');
+    });
+  });
+  // ── `[CGP-V.7]` Lo no medido se dice, y las fechas no salen crudas ───────────────────────────
+  describe('[CGP-V.7] lo no medido se dice', () => {
+    it('⛔ cancelados sin monto medido: dice «sin medir», no $0.00', () => {
+      montar({ libro: vi.fn(() => of({ ...LIBRO, kpi: { ...LIBRO.kpi, cancelados: 2, monto_cancelado: null } })) });
+      const sub = comp.kpis().find((k) => k.label === 'Movimientos')?.sub ?? '';
+      expect(sub).toContain('2 cancelados');
+      expect(sub).toContain('sin medir');
+      expect(sub).not.toContain('$0.00');
+    });
+
+    it('cancelados con monto medido: el monto', () => {
+      montar({ libro: vi.fn(() => of({ ...LIBRO, kpi: { ...LIBRO.kpi, cancelados: 1, monto_cancelado: 250 } })) });
+      const sub = comp.kpis().find((k) => k.label === 'Movimientos')?.sub ?? '';
+      expect(sub).toContain('$250.00');
     });
   });
 });

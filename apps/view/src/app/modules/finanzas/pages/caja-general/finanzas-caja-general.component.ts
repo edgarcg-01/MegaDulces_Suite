@@ -40,6 +40,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { uuidV4 } from '../../../../core/utils/uuid';
+import { moneyOSinMedir } from '../../../../shared/util';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
   type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
   type JornadasPendientes } from '../../cash-ledger.service';
@@ -1096,7 +1097,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
         <!-- [CGP-V.5] Abrir desde rendir cuentas no pasa por un dialogo: el error va junto al boton. -->
         @if (errorApertura() && !aperturaAbierta()) {
-          <p-message severity="danger" class="cg-full">{{ errorApertura() }}</p-message>
+          <p-message severity="error" class="cg-full">{{ errorApertura() }}</p-message>
         }
 
         <!-- [CGP-V.3] LAS JORNADAS ATRASADAS, EN ORDEN. El boton de arriba ya abre la mas vieja y lo
@@ -1246,12 +1247,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     Fuera de esta jornada</strong>
                   @if (sf.anteriores.movimientos) {
                     <div class="cg-conc-row"><span>{{ sf.anteriores.movimientos }} de días anteriores
-                      <small class="fin-dim">(desde {{ sf.desde }}) — su jornada nunca se cerró</small></span>
+                      <small class="fin-dim">@if (sf.desde) {(desde el {{ diaCorto(sf.desde) }}) }— su jornada nunca se cerró</small></span>
                       <span class="mono">{{ money(sf.anteriores.neto) }}</span></div>
                   }
                   @if (sf.posteriores.movimientos) {
                     <div class="cg-conc-row"><span>{{ sf.posteriores.movimientos }} con fecha posterior
-                      <small class="fin-dim">(hasta {{ sf.hasta }}) — o es captura adelantada, o la fecha está mal</small></span>
+                      <small class="fin-dim">@if (sf.hasta) {(hasta el {{ diaCorto(sf.hasta) }}) }— o es captura adelantada, o la fecha está mal</small></span>
                       <span class="mono">{{ money(sf.posteriores.neto) }}</span></div>
                   }
                   <small class="fin-dim">No entran a este corte ni a su esperado. Siguen sueltos,
@@ -1529,7 +1530,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <div class="cg-caos-row">
                 <span class="cg-caos-tag">{{ g.pagable_label }}</span>
                 <span class="mono">{{ g.folio }}</span>
-                <span class="fin-dim">{{ g.fecha_valor }}</span>
+                <span class="fin-dim">{{ dmy(g.fecha_valor) }}</span>
                 <span class="cg-caos-ref">{{ g.beneficiario || 'sin beneficiario' }}
                   @if (g.concepto) { <small class="fin-dim">· {{ g.concepto }}</small> }
                 </span>
@@ -3173,7 +3174,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
         <!-- [CGP-V.5] Si abrir falla, se dice aca adentro. -->
         @if (errorApertura(); as er) {
-          <p-message severity="danger" class="cg-full">{{ er }}</p-message>
+          <p-message severity="error" class="cg-full">{{ er }}</p-message>
         }
       </div>
       <ng-template #footer>
@@ -3196,7 +3197,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              de hoy, y la persona tiene que saberlo antes de contar. -->
         <!-- [CGP-V.5] El error del servidor se queda aca, con su frase, hasta el siguiente intento. -->
         @if (errorCierre(); as er) {
-          <p-message severity="danger" class="cg-full">{{ er }}</p-message>
+          <p-message severity="error" class="cg-full">{{ er }}</p-message>
         }
         @if (rotuloCorte(); as rc) {
           <small class="fin-dim">{{ rc }}</small>
@@ -3494,6 +3495,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   readonly money = money;
   readonly dmy = dmy;
+  // `[CGP-V.7]` Para lo que puede no haberse medido: dice «sin medir» en vez de $0.00.
+  readonly moneyOSinMedir = moneyOSinMedir;
+  readonly diaCorto = diaCorto;
   /**
    * `[CG.38]` Lo que la caja cuenta: **cinco billetes y seis monedas**, del mayor al menor.
    * Salen del catálogo compartido, no de una lista de acá.
@@ -4768,7 +4772,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      */
     const canc = Number(k.cancelados ?? 0);
     const subCancelados = canc > 0
-      ? `incluye ${canc} cancelado${canc === 1 ? '' : 's'} por ${money(k.monto_cancelado ?? 0)}, fuera de los importes`
+      ? `incluye ${canc} cancelado${canc === 1 ? '' : 's'} por ${moneyOSinMedir(k.monto_cancelado)}, fuera de los importes`
       : undefined;
     return [
       { label: 'Movimientos', value: String(k.movimientos ?? 0), sub: subCancelados },
@@ -6922,7 +6926,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       next: (m) => {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
-        this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
+        this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${moneyOSinMedir(f.monto)}`);
         /**
          * ⛔ `[CG.81]` **ACÁ EL COMPROBANTE SALÍA SOLO A LA TÉRMICA, y se retiró.** Pedido de
          * Edgar: *"hay que dejar de mandar el imprimible del ticket y sólo almacenarlo como un
