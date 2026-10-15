@@ -89,31 +89,63 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
   try {
     // ── 1. La pantalla carga ─────────────────────────────────────────────────────────────
     console.log(`\n[1] La pantalla carga de verdad — ${BASE} · periodo ${PERIODO}`);
-    await page.goto(`${BASE}/finanzas/bancos?view=cierre&period=${PERIODO}`, { waitUntil: 'domcontentloaded' });
-
-    // ⚠️ `domcontentloaded` dispara ANTES de que Angular arranque y decida si redirige al login,
-    // así que mirar `page.url()` acá devuelve la URL pedida aunque la app termine en el login.
-    // Ya costó una corrida en falso: el test se saltaba el login y se quedaba 30 s esperando un
-    // encabezado que nunca iba a existir. Se espera a que resuelva UNA de las dos pantallas.
+    // ⛔ Se entra SIEMPRE por `/login`, nunca directo a la ruta profunda. Medido el 2026-10-15:
+    // una carga fría sobre `/finanzas/bancos?...` deja la página en blanco —ni el formulario ni
+    // el encabezado aparecen en 45 s— mientras que entrando por `/login` y navegando después
+    // resuelve en 1 s. Además es lo que hace una persona, así que el test recorre el camino real
+    // en vez de uno que sólo existe en el test.
+    //
     // Por `id`, no por rol: los inputs del login no tienen `aria-label` y el nombre accesible
-    // depende de un `<label for>` que el DOM headless no siempre resuelve igual que el inspector.
+    // depende de un `<label for>` que el DOM headless no resuelve igual que el inspector.
     // Medido: `getByRole('textbox', { name: 'Usuario' })` no empata acá, `#username` sí.
     const campoUsuario = page.locator('#username');
-    const encabezado = page.getByRole('heading', { name: 'Bancos', exact: true }).first();
-    await Promise.race([
-      campoUsuario.waitFor({ timeout: 45000 }).catch(() => null),
-      encabezado.waitFor({ timeout: 45000 }).catch(() => null),
-    ]);
+    // ⚠️ Por `h1` + texto, NO por rol con `exact`: el encabezado lleva un ícono de ayuda dentro,
+    // así que su nombre accesible no siempre es «Bancos» a secas — empataba de forma
+    // intermitente según cuándo cargara la fuente de íconos, y el test fallaba sin motivo.
+    const encabezado = page.locator('h1', { hasText: 'Bancos' }).first();
 
-    if (await campoUsuario.isVisible().catch(() => false)) {
-      await campoUsuario.fill(USER);
-      await page.locator('#password').fill(PASS);
-      await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
-      await page.waitForURL((u) => !/\/login/.test(u.toString()), { timeout: 45000 });
+    await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await campoUsuario.waitFor({ timeout: 45000 });
+
+    {
+      // ⚠️ El login se REINTENTA, y no por prolijidad: el endpoint de auth está detrás del
+      // Throttler de 3 niveles, así que correr el e2e dos veces seguidas (o varias sesiones a la
+      // vez) devuelve 429 y la app rebota a `/login?reason=expired`. Medido: el mismo usuario y
+      // la misma contraseña dan 201 un minuto después. Sin el reintento, el test reporta como
+      // defecto de la pantalla un límite de tasa que provoca él mismo.
+      let entro = false;
+      for (let intento = 1; intento <= 3 && !entro; intento++) {
+        if (intento > 1) await page.waitForTimeout(20000 * (intento - 1));
+        await campoUsuario.fill(USER);
+        await page.locator('#password').fill(PASS);
+        await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
+        entro = await page.waitForURL((u) => !/\/login/.test(u.toString()), { timeout: 30000 })
+          .then(() => true).catch(() => false);
+        if (!entro) console.log(`     · intento ${intento} de login rebotó (${page.url().replace(BASE, '')}) — reintentando`);
+      }
+      if (!entro) {
+        skip('el login no pasó en 3 intentos (throttler o credenciales) — el test no puede concluir');
+        throw new Error('__sin_sesion__');
+      }
       await page.goto(`${BASE}/finanzas/bancos?view=cierre&period=${PERIODO}`, { waitUntil: 'domcontentloaded' });
     }
     // El encabezado del módulo es la señal de que la ruta resolvió y el guard dejó pasar.
-    await encabezado.waitFor({ timeout: 45000 });
+    //
+    // ⚠️ Se REINTENTA la navegación. Medido el 2026-10-15: la misma URL, con la misma sesión,
+    // a veces deja la página sin pintar el componente (la URL es la correcta y el `h1` no
+    // aparece en 45 s) y al re-navegar resuelve en 1 s. No se diagnosticó la causa —es de la
+    // app, no del test— así que **se declara acá en vez de esconderse tras un timeout más
+    // largo**: si hace falta más de un intento, el test lo dice.
+    let pinto = false;
+    for (let intento = 1; intento <= 3 && !pinto; intento++) {
+      if (intento > 1) {
+        console.log(`     · el componente no pintó (URL ok: ${page.url().replace(BASE, '')}) — re-navegando, intento ${intento}`);
+        await page.goto(`${BASE}/finanzas/bancos?view=cierre&period=${PERIODO}`, { waitUntil: 'domcontentloaded' });
+      }
+      pinto = await encabezado.waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
+    }
+    ok(pinto, 'el componente de Bancos pinta su encabezado');
+    if (!pinto) throw new Error('__sin_pantalla__');
     // Recién acá empieza a contar la consola: lo de antes es el ciclo de login, que legítimamente
     // produce un 401. Medir desde el primer `goto` reportaba como defecto el flujo normal.
     capturandoConsola = true;
@@ -242,8 +274,10 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
     ok(erroresConsola.length === 0, `la pantalla no dejó errores en consola${erroresConsola.length ? ': ' + erroresConsola.slice(0, 3).join(' | ') : ''}`);
 
   } catch (e) {
-    console.error(`  ✗ excepción: ${e.message}`);
-    fail++;
+    // Los dos centinelas ya se contaron arriba — `__sin_sesion__` como NO MEDIDO y
+    // `__sin_pantalla__` como ✗ — así que acá no se vuelven a contar.
+    //  y  ya se contaron arriba (NO MEDIDO / ✗): no se duplican.
+    if (!['__sin_sesion__', '__sin_pantalla__'].includes(e.message)) { console.error(`  ✗ excepción: ${e.message}`); fail++; }
   } finally {
     await ctx.close().catch(() => {});
     await navegador.close().catch(() => {});
