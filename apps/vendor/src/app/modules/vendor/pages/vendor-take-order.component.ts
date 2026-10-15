@@ -570,10 +570,6 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may-hint b { color: var(--action); font-weight: 800; }
       .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
       .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
-      /* [VTK.11] Edad del catálogo cuando se abrió con la copia guardada. */
-      .cat-age { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-muted); }
-      .cat-age i { font-size: 0.7rem; }
-      .cat-age.warn { color: var(--warn-fg); }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
       .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
@@ -593,6 +589,10 @@ const foldText = (s: string | null | undefined): string =>
       .ss-warn i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       .ss-note { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--text-muted); }
       .ss-note i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
+      /* [VTK.11] Edad del catálogo cuando se abrió con la copia guardada. */
+      .cat-age { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-muted); }
+      .cat-age i { font-size: 0.7rem; }
+      .cat-age.warn { color: var(--warn-fg); }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
