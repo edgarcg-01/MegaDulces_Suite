@@ -183,7 +183,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                 apartarse de eso.
                 @if (!h.quienes.length) {
                   <br /><span class="pd-aviso">
-                    ⚠ Ese puesto está vacante, así que el escalamiento no llega a nadie.
+                    <i class="pi pi-exclamation-triangle" aria-label="Advertencia"></i> Ese puesto está vacante, así que el escalamiento no llega a nadie.
                   </span>
                 }
               </p>

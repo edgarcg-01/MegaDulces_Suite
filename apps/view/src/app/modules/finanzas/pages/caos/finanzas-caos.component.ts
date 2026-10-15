@@ -251,7 +251,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
              encabezado fijo, y el detalle por denominación se abría con un botón suelto. -->
         <p-table [value]="rows()" dataKey="id" [expandedRowKeys]="expandidas"
                  (onRowExpand)="alExpandir($event.data)"
-                 styleClass="p-datatable-sm cs-grid surf-table--sticky"
+                 size="small" class="cs-grid surf-table--sticky"
                  [scrollable]="true" scrollHeight="flex">
           <ng-template #caption>
             <span class="sr-only">Movimientos de la caja fuerte CAOS</span>

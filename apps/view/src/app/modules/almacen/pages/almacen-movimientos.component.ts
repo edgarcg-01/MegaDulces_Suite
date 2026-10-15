@@ -408,7 +408,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   </div>
                 </header>
                 <div class="dm-subacc">
-                  <div class="dm-subacc-card"><span class="dm-subacc-code">✔ Pareadas exactas</span><span class="dm-subacc-val">{{ dt.totals.n_exact | number }} <span class="dm-muted dm-subacc-n">pólizas</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code"><i class="pi pi-check" aria-hidden="true"></i> Pareadas exactas</span><span class="dm-subacc-val">{{ dt.totals.n_exact | number }} <span class="dm-muted dm-subacc-n">pólizas</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code">≈ Con dif. de costo</span><span class="dm-subacc-val">{{ dt.totals.cost.n | number }} <span class="dm-muted dm-subacc-n">pares · Δ {{ money(dt.totals.cost.diff_total) }}</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code up">Sin rastro · entradas</span><span class="dm-subacc-val up">{{ money(dt.totals.sin_rastro.amt_entrada) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_entrada }}</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code down">Sin rastro · salidas</span><span class="dm-subacc-val down">{{ money(dt.totals.sin_rastro.amt_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_salida }}</span></span></div>
@@ -512,7 +512,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                         <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
                         <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
                       </tr>
-                    } @empty { <tr><td colspan="9" class="dm-empty">No hay traspasos sin cuadrar en el rango. 🎉</td></tr> }
+                    } @empty { <tr><td colspan="9" class="dm-empty">No hay traspasos sin cuadrar en el rango.</td></tr> }
                   </tbody>
                 </table>
                 @if (ck.rows.length) {
@@ -693,7 +693,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
           @if (r.bucket === 'sin_rastro') {
             <div class="dm-cmp-side dm-cmp-none">
               <h4 class="dm-col-h">Contraparte</h4>
-              <p class="down dm-strong">⚠ Sin contraparte en Kepler</p>
+              <p class="down dm-strong"><i class="pi pi-exclamation-triangle" aria-label="Advertencia"></i> Sin contraparte en Kepler</p>
               <p class="dm-muted">No hay una póliza {{ r.kind === 'entrada' ? '515-002 (salida)' : '515-001 (entrada)' }} que cuadre con este importe (±{{ detail()?.tolerance_pct }}%) ni en la ventana de ±1 mes. Esto es lo que hay que localizar en Kepler.</p>
             </div>
           } @else {
