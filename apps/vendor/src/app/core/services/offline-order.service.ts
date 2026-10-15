@@ -3,6 +3,7 @@ import {
   OfflineDatabaseService,
   PedidoPendiente,
   OfflinePedidoLine,
+  type VendorCustomerCache,
 } from './offline-database.service';
 import { OfflineSyncService } from './offline-sync.service';
 import { AuthService } from './auth.service';
@@ -35,7 +36,7 @@ export class OfflineOrderService {
   }
 
   /** `[VTK.11]` Sólo el cliente (lista + habituales), cuando el catálogo ya estaba guardado. */
-  cacheCustomer(customerId: string, ctx: { customer: any; priceListId: string; frequent: any[] }): Promise<void> {
+  cacheCustomer(customerId: string, ctx: Pick<VendorCustomerCache, 'customer' | 'priceListId' | 'frequent'>): Promise<void> {
     return this.db.cacheVendorCustomer(customerId, ctx);
   }
 

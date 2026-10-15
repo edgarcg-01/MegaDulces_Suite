@@ -899,7 +899,7 @@ export class OfflineDatabaseService extends Dexie {
    */
   async cacheVendorCustomer(
     customerId: string,
-    ctx: { customer: any; priceListId: string; frequent: any[] },
+    ctx: Pick<VendorCustomerCache, 'customer' | 'priceListId' | 'frequent'>,
   ): Promise<void> {
     await this.vendorCustomerCache.put({
       id: customerId,
