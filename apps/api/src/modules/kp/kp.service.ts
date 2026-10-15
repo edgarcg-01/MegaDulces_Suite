@@ -1,18 +1,16 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { pgRaw } from './pg-raw.util';
 // `[TDA.4]` El tier y su codificación de cable viven en el vocabulario común: los entienden el
 // backend que los emite y la pantalla que los consume, en vivo y en el respaldo offline.
-import { type MayoreoTier, compactarTier } from '@megadulces/contracts';
+import {
+  type MayoreoTier, type UnidadPrecioVerificador, type VerificadorPrecioResponse,
+  type VerificadorSnapshot, type VerificadorSnapshotItem, VERIFICADOR_SNAPSHOT_FORMATO, compactarTier,
+} from '@megadulces/contracts';
 
-/** Una unidad de venta con su precio, para el verificador. */
-export interface UnidadPrecio {
-  u:              string;
-  precio_con_iva: number;
-  precio_sin_iva: number;
-  factor:         number;
-}
+/** Una unidad de venta con su precio, para el verificador. `[VAC.L1]` Una sola definición: el contrato. */
+export type UnidadPrecio = UnidadPrecioVerificador;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kepler guarda casi todo como texto, incluidos costos y cantidades, y hay
@@ -188,6 +186,8 @@ export class KpService {
       base: number;
       aplica_a: 'base' | 'paquete';
       unidad_monto: string;
+      /** `[VAC.H3]` Cuántas unidades BASE trae cada unidad del escalón (sólo el de paquete). */
+      en_base?: { factor: number; palabra: string };
     }): MayoreoTier | null => {
       const p = o.precio != null ? Number(o.precio) : NaN;
       const n = o.desde != null ? Number(o.desde) : NaN;
@@ -210,6 +210,10 @@ export class KpService {
         realza: desc >= MAYOREO_MIN_DESC,
         aplica_a: o.aplica_a,
         unidad_monto: o.unidad_monto,
+        equivale_a:
+          o.en_base && Number.isFinite(o.en_base.factor) && o.en_base.factor > 1
+            ? `${redondea(nn * o.en_base.factor)} ${o.en_base.palabra}`
+            : null,
       };
     };
 
@@ -265,6 +269,9 @@ export class KpService {
         base: paqueteReal ? packPrice : precioBase,
         aplica_a: paqueteReal ? 'paquete' : 'base',
         unidad_monto: paqueteReal ? 'por paquete' : 'c/u',
+        // Sólo cuando el escalón ES de paquete: ahí el umbral cuenta paquetes y el de la pieza
+        // cuenta piezas; la equivalencia es lo que los vuelve comparables.
+        en_base: paqueteReal ? { factor: packSize, palabra: palabraBase } : undefined,
       }),
     ].filter((x): x is MayoreoTier => x !== null);
 
@@ -437,7 +444,7 @@ export class KpService {
    * coinciden. Declararlo es el punto: un número inestable presentado como único es peor que un
    * número acompañado de "esto varía entre plazas".
    */
-  async getPrecio(q: string, sucursal?: string) {
+  async getPrecio(q: string, sucursal?: string): Promise<VerificadorPrecioResponse> {
     // Sólo alfanumérico: los códigos y los EAN lo son. Además va parametrizado.
     const code = String(q || '').replace(/[^0-9A-Za-z]/g, '');
     if (!code) return { ok: false, error: 'Sin código' };
@@ -585,10 +592,28 @@ export class KpService {
         plaza_pedida_sin_dato: plazaPedidaSinDato,
         origen_precio: origen,
       };
-    } catch (e: any) {
-      this.logger.error('getPrecio error: ' + e.message);
-      return { ok: false, error: e.message };
+    } catch (e: unknown) {
+      throw this.falloInterno('getPrecio', e);
     }
+  }
+
+  /**
+   * `[VAC.L3]` Un fallo de la base NO es "no encontrado" ni se le cuenta al cliente.
+   *
+   * Hasta acá el `catch` devolvía `200 { ok: false, error: e.message }`, y eso rompía dos cosas:
+   *  · **Fuga**: estos endpoints son `@Public()`, así que el mensaje de Postgres (nombres de
+   *    relación, host, sintaxis) salía hacia un kiosco anónimo.
+   *  · **Mentira**: el frontend lee `ok: false` como "el catálogo contestó que no está" y pinta
+   *    PRODUCTO NO ENCONTRADO — sin consultar el respaldo local, que sí tiene el precio. Un error
+   *    del servidor no puede leerse como un vacío (pre-vuelo 6: error ≠ empty).
+   *
+   * Ahora el detalle va sólo al log del servidor y el cliente recibe un 503 con un código estable.
+   * Un 5xx es lo que el frontend ya trata como "el servidor falló": cae al respaldo y lo declara.
+   * "No encontrado" sigue siendo `200 { ok: false }`: ESA sí es una respuesta.
+   */
+  private falloInterno(donde: string, e: unknown): ServiceUnavailableException {
+    this.logger.error(`${donde} falló`, e instanceof Error ? e.stack : String(e));
+    return new ServiceUnavailableException({ ok: false, codigo_error: 'error_interno' });
   }
 
   /**
@@ -600,7 +625,7 @@ export class KpService {
    * códigos tienen precio distinto entre plazas, así que el precio mostrado
    * cambiaría solo cada vez que una sucursal se re-sincroniza.
    */
-  async getPreciosTodos(sucursal?: string) {
+  async getPreciosTodos(sucursal?: string): Promise<VerificadorSnapshot> {
     // Sólo se aceptan códigos de dos dígitos; cualquier otra cosa se ignora.
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
 
@@ -618,7 +643,7 @@ export class KpService {
       const etiquetas = await this.mayoreoDeTodos(suc);
 
       const vistos = new Set<string>();
-      const items: any[] = [];
+      const items: VerificadorSnapshotItem[] = [];
 
       for (const r of rows) {
         if (vistos.has(r.codigo)) continue;
@@ -649,6 +674,7 @@ export class KpService {
         // El SKU sin ceros a la izquierda: `catalog.products.sku` no los lleva y `r.codigo` viene
         // con LPAD(5). Sin normalizar, el join en memoria fallaría para TODO el catálogo.
         const et = etiquetas.get(String(r.codigo).replace(/^0+/, ''));
+        const gramaje = et?.contenido ?? null;
 
         items.push({
           c: r.codigo,
@@ -660,20 +686,22 @@ export class KpService {
           // definición para los dos modos. Se OMITEN cuando no hay nada que decir: un array vacío
           // por producto son ~9,000 arrays vacíos en la descarga del kiosco.
           ...(et?.mayoreo.length ? { m: et.mayoreo.map(compactarTier) } : {}),
-          ...(et?.contenido ? { g: et.contenido } : {}),
+          ...(gramaje ? { g: gramaje } : {}),
         });
       }
 
       this.logger.log(`getPreciosTodos: ${items.length} productos${suc ? ' (sucursal ' + suc + ')' : ' (TODAS, precio no determinista)'}`);
       return {
+        v: VERIFICADOR_SNAPSHOT_FORMATO,
         total: items.length,
         sucursal: suc,
         generado: new Date().toISOString(),
         productos: items,
       };
-    } catch (e: any) {
-      this.logger.error('getPreciosTodos error: ' + e.message);
-      return { total: 0, generado: new Date().toISOString(), error: e.message, productos: [] };
+    } catch (e: unknown) {
+      // Antes: 200 con `productos: []` y el mensaje de Postgres, que el kiosco leía como "el
+      // catálogo llegó vacío". Ver `falloInterno`.
+      throw this.falloInterno('getPreciosTodos', e);
     }
   }
 
