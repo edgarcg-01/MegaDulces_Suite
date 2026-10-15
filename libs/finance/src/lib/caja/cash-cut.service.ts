@@ -10,6 +10,7 @@ import {
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
+import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-vecinal.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
@@ -444,6 +445,30 @@ export class CashCutService {
    * Sólo el cajón de la 00 tiene jornadas: es la Caja General (`[CG.98]`). Otra sucursal lo DECLARA
    * con `alcance`, en vez de responder una lista vacía que se leería como "todo al día".
    */
+  /**
+   * `[CGP-VEC.1]` Los cierres de ruta vecinal con arqueo conciliado que no están en el libro.
+   *
+   * ⚠️ `pendientes: null` significa **no se pudo medir** —el árbitro `v_vecinal_conciliacion` no
+   * está en este entorno—, y por eso viaja aparte de la lista: una lista vacía dice «no hay nada»,
+   * que es lo contrario (ADR-056). La pantalla tiene que poder decir cuál de las dos cosas es.
+   *
+   * La ventana por omisión es el arranque del libro, no una cantidad de días: antes del primer
+   * corte los cierres son historia de Control, no trabajo pendiente — el mismo criterio con el que
+   * `[CGP-L.13]` evitó que el sensor naciera rojo para siempre.
+   */
+  async vecinalPendientes(desde?: string): Promise<{
+    desde: string; medido: boolean; pendientes: CobroVecinalPendiente[] | null;
+  }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const inicio = desde || (await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId }).min({ d: 'fecha' }).first())?.d;
+      const ventana = inicio ? this.diaDe(inicio as string | Date) as string : await hoyMx(trx);
+      const pendientes = await cobrosVecinalesPendientes(trx, tenantId, ventana);
+      return { desde: ventana, medido: pendientes != null, pendientes };
+    });
+  }
+
   async jornadasPendientes(sucursal: string): Promise<JornadasPendientes> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {

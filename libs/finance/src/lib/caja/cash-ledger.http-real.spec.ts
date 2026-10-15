@@ -272,6 +272,25 @@ describe.skipIf(!URL)('[CGP-E.1b] el proceso del corte POR HTTP, contra Postgres
     await http().post(`/finance/cash-ledger/cortes/${ok.id ?? c.id}/autorizar`).send().expect(201);
   });
 
+  /**
+   * `[CGP-VEC.1]` El puente de la ruta vecinal al libro, por HTTP.
+   *
+   * ⛔ En esta base **no está `analytics.v_vecinal_conciliacion`** (el árbitro vive sobre el ODS de
+   * Kepler), así que lo que se ejerce acá es lo que importa que no se rompa: que el endpoint
+   * **declare que no midió** en vez de responder una lista vacía. Una lista vacía se lee como «no
+   * hay cierres pendientes» y es justo lo contrario (ADR-056).
+   *
+   * ⚠️ El camino poblado se validó contra **producción, `READ ONLY`**, el 2026-10-15: **19 cierres
+   * de ruta vecinal desde el 12-oct sin un solo movimiento en el libro**, en 6 sucursales.
+   */
+  it('`[CGP-VEC.1]` sin el árbitro, el endpoint DECLARA que no midió — no devuelve una lista vacía', async () => {
+    actual = SOLO_VE;   // es una lectura: basta con VER
+    const r = await http().get('/finance/cash-ledger/vecinal-pendientes').expect(200);
+    expect(r.body.medido).toBe(false);
+    expect(r.body.pendientes).toBeNull();
+    expect(typeof r.body.desde).toBe('string');
+  });
+
   it('⛔ quien sólo tiene VER no abre un corte: 403 que nombra el permiso que falta', async () => {
     actual = SOLO_VE;
     const dia = await diaLibre();
