@@ -52,7 +52,7 @@ import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
-  pasoDelCorte, textoPaso, type PasoCorte,
+  pasoDelCorte, textoPaso, type PasoCorte, textoDeError,
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 
@@ -1094,6 +1094,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         @if (pasoPagina(); as paso) {
           <app-caja-pasos [paso]="paso" [texto]="textoPasoPagina()" />
         }
+        <!-- [CGP-V.5] Abrir desde rendir cuentas no pasa por un dialogo: el error va junto al boton. -->
+        @if (errorApertura() && !aperturaAbierta()) {
+          <p-message severity="danger" class="cg-full">{{ errorApertura() }}</p-message>
+        }
 
         <!-- [CGP-V.3] LAS JORNADAS ATRASADAS, EN ORDEN. El boton de arriba ya abre la mas vieja y lo
              dice en su etiqueta; esto dice cuales faltan y por que el orden importa.
@@ -1789,6 +1793,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <p-button label="Autorizar" size="small" severity="secondary"
                             [loading]="autorizando()" [disabled]="autorizando()"
                             (onClick)="autorizar(c)"></p-button>
+                  @if (errorAutorizar()?.id === c.id) {
+                    <small class="fin-hint-warn" role="alert">{{ errorAutorizar()?.texto }}</small>
+                  }
                 } @else {
                   <!-- El porqué NO puede vivir en un [title] de un botón deshabilitado: ahí no lo
                        alcanza el teclado, ni el lector de pantalla, ni un dedo. Se dice. -->
@@ -3164,6 +3171,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <small class="fin-hint-warn">Se abre el corte de la jornada del {{ dia }}: es la más
             vieja sin corte, y las jornadas se cierran en orden.</small>
         }
+        <!-- [CGP-V.5] Si abrir falla, se dice aca adentro. -->
+        @if (errorApertura(); as er) {
+          <p-message severity="danger" class="cg-full">{{ er }}</p-message>
+        }
       </div>
       <ng-template #footer>
         <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cancelarApertura()"></p-button>
@@ -3183,6 +3194,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
         <!-- [CGP-V.3] De que jornada es el corte. Con atrasadas, el corte abierto puede no ser el
              de hoy, y la persona tiene que saberlo antes de contar. -->
+        <!-- [CGP-V.5] El error del servidor se queda aca, con su frase, hasta el siguiente intento. -->
+        @if (errorCierre(); as er) {
+          <p-message severity="danger" class="cg-full">{{ er }}</p-message>
+        }
         @if (rotuloCorte(); as rc) {
           <small class="fin-dim">{{ rc }}</small>
           @if (corteAtrasado()) {
@@ -4889,13 +4904,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // clic y no pasaba nada, indistinguible de un botón muerto. Tres de esas cinco ni siquiera
   // tenían rama `error`, así que el fallo no llegaba a ningún lado.
 
-  private textoError(e: unknown): string {
-    const err = e as { status?: number; error?: { message?: string } };
-    if (err?.status === 0) return 'No hay conexión con el servidor.';
-    if (err?.status === 403) return 'No tenés permiso para esta acción.';
-    if (err?.status === 409) return err?.error?.message || 'Ese movimiento ya estaba aplicado.';
-    return err?.error?.message || 'El servidor respondió con un error.';
-  }
+  // `[CGP-V.5]` La frase sale de una función pura con pruebas: un 403 con frase del servidor (la
+  // doble llave) se dice tal cual, y sólo el 403 genérico se traduce a «no tenés permiso».
+  private textoError(e: unknown): string { return textoDeError(e); }
+
+  /**
+   * `[CGP-V.5]` **El error se queda donde se hizo la acción, y no se va solo.** Antes todo salía en
+   * un aviso de 7 s: el diálogo de cierre no conservaba ningún error y la persona volvía a intentar
+   * sin saber qué había pasado. Cada uno se limpia al volver a intentar.
+   */
+  errorCierre = signal<string | null>(null);
+  /** El de abrir: dentro del diálogo de apertura si está abierto, si no junto al botón del cierre. */
+  errorApertura = signal<string | null>(null);
+  /** El de autorizar, en la fila de ESE corte. */
+  errorAutorizar = signal<{ id: string; texto: string } | null>(null);
 
   private avisarError(e: unknown, titulo: string): void {
     this.toast.add({ severity: 'error', summary: titulo, detail: this.textoError(e), life: 7000 });
@@ -4953,10 +4975,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   autorizar(c: CorteCaja): void {
     if (!this.gateAutorizar(c).ok || this.autorizando()) return;
-    this.autorizando.set(true);
+    this.autorizando.set(true); this.errorAutorizar.set(null);
     this.svc.autorizarCorte(c.id).subscribe({
       next: () => { this.autorizando.set(false); this.avisarOk('Corte autorizado', c.folio); this.cargarCortes(); },
-      error: (e) => { this.autorizando.set(false); this.avisarError(e, 'No se pudo autorizar el corte'); },
+      // `[CGP-V.5]` En la fila de ESE corte, con la frase (la doble llave), y hasta el siguiente intento.
+      error: (e) => { this.autorizando.set(false); this.errorAutorizar.set({ id: c.id, texto: this.textoError(e) }); },
     });
   }
 
@@ -5370,13 +5393,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.pedirPropuesta();
   }
 
-  abrirApertura(): void { this.fondoInicial.set(null); this.abrirConFoco(this.aperturaAbierta); }
+  abrirApertura(): void { this.fondoInicial.set(null); this.errorApertura.set(null); this.abrirConFoco(this.aperturaAbierta); }
 
   /** Si se cancela la apertura, la intención de cerrar NO queda colgada esperando. */
   cancelarApertura(): void { this.cerrarTrasAbrir.set(false); this.cerrarConFoco(this.aperturaAbierta); }
 
   abrirCorte(): void {
     if (this.abriendo()) return;
+    this.errorApertura.set(null);
     /**
      * ⭐ `[CGP-V.3]` La jornada la decide `fechaParaAbrir()`, y se decide ACÁ y no en cada botón:
      * a este método llegan las dos puertas — «rendir cuentas» y «Declarar con cuánto arrancó la
@@ -5389,19 +5413,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      */
     if (this.saldoSinMedir() || this.cargandoSaldo()) {
       this.cerrarTrasAbrir.set(false);
-      this.toast.add({
-        severity: 'warn', summary: 'No se abrió el corte', life: 7000,
-        detail: 'Todavía no se sabe si ya hay un corte abierto. Esperá a que termine de medir o reintentá.',
-      });
+      this.errorApertura.set('No se abrió el corte: todavía no se sabe si ya hay uno abierto. Esperá a que termine de medir o reintentá.');
       return;
     }
     const fecha = this.fechaParaAbrir();
     if (!fecha) {
       this.cerrarTrasAbrir.set(false);
-      this.toast.add({
-        severity: 'warn', summary: 'No se abrió el corte', life: 7000,
-        detail: 'No se pudo saber si hay jornadas sin corte antes de hoy. Reintentá antes de abrir.',
-      });
+      this.errorApertura.set('No se abrió el corte: no se pudo saber si hay jornadas sin corte antes de hoy. Reintentá antes de abrir.');
       return;
     }
     this.abriendo.set(true);
@@ -5447,7 +5465,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       error: (e) => {
         this.abriendo.set(false);
         this.cerrarTrasAbrir.set(false);
-        this.avisarError(e, 'No se pudo abrir el corte');
+        // `[CGP-V.5]` Con su frase y donde se intentó, no en un aviso de 7 s.
+        this.errorApertura.set(`No se pudo abrir el corte: ${this.textoError(e)}`);
       },
     });
   }
@@ -5459,6 +5478,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   abrirCierre(corte?: { id: string; folio: string; fecha?: string } | null): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
     this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
+    this.errorCierre.set(null);
     /**
      * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
      * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
@@ -5476,13 +5496,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** `[CGP-V.2]` Recontar es empezar de cero: la reja se abre vacía y pide motivo. */
   empezarReconteo(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
-    this.recontando.set(true);
+    this.recontando.set(true); this.errorCierre.set(null);
   }
 
   /** Vuelve al conteo sellado sin tocarlo: lo tecleado del reconteo se descarta. */
   cancelarReconteo(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
-    this.recontando.set(false);
+    this.recontando.set(false); this.errorCierre.set(null);
   }
 
   /** `[CGP-V.2]` Lo sellado en ese renglón. `0` y no `null`: un renglón sin piezas se contó en cero. */
@@ -5503,7 +5523,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     if (!c || this.sellando()) return;
     // Lo que se manda es lo que se guarda como sellado: se toma ANTES de la llamada.
     const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
-    this.sellando.set(true);
+    this.sellando.set(true); this.errorCierre.set(null);
     this.svc.contarCorte(c.id, conteo, morralla).subscribe({
       next: (r) => {
         this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: r.puede_recontar, conteo, morralla });
@@ -5512,7 +5532,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // `[CGP-V.1]` El estado sale del servidor: se vuelve a pedir después de cada acción.
         this.cargarSaldo();
       },
-      error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo sellar el conteo'); },
+      error: (e) => { this.sellando.set(false); this.errorCierre.set(`No se pudo sellar el conteo: ${this.textoError(e)}`); },
     });
   }
 
@@ -5521,7 +5541,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const c = this.corteEnCierre();
     if (!c || !this.recontando() || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando()) return;
     const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
-    this.sellando.set(true);
+    this.sellando.set(true); this.errorCierre.set(null);
     this.svc.recontarCorte(c.id, conteo, morralla, this.motivoReconteo().trim()).subscribe({
       next: (r) => {
         this.revelado.set({ corteId: c.id, totales: r.totales, puedeRecontar: false, conteo, morralla });
@@ -5529,7 +5549,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.avisarOk('Reconteo guardado');
         this.cargarSaldo();
       },
-      error: (e) => { this.sellando.set(false); this.avisarError(e, 'No se pudo recontar'); },
+      error: (e) => { this.sellando.set(false); this.errorCierre.set(`No se pudo recontar: ${this.textoError(e)}`); },
     });
   }
 
@@ -5557,7 +5577,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cerrarCorte(): void {
     const c = this.corteEnCierre();
     if (!c || this.recontando() || !this.gateCierre().ok || this.cerrando()) return;
-    this.cerrando.set(true);
+    this.cerrando.set(true); this.errorCierre.set(null);
     // [CGP-V.12] Con un conflicto a la vista, el botón confirma el esperado que la persona VIO.
     // ⭐ [CGP-V.2] La reja va VACÍA: lo que se firma es lo sellado, y el servidor lo usa cuando el
     // cuerpo no trae piezas ([CGP-L.1]; antes, el respaldo de [CG.159]). Mandar lo tecleado era
@@ -5576,7 +5596,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // con el botón, en vez de un aviso de 7 s sin salida. Cualquier otro error sigue al aviso.
         const cf = conflictoDeEsperado(e);
         if (cf) { this.conflictoEsperado.set(cf); return; }
-        this.avisarError(e, 'No se pudo cerrar el corte');
+        this.errorCierre.set(`No se pudo cerrar el corte: ${this.textoError(e)}`);
       },
     });
   }

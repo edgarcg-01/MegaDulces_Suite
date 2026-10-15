@@ -10,7 +10,7 @@ import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
-  conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE,
+  conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError,
   type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -539,5 +539,36 @@ describe('[CGP-V.1] pasoDelCorte', () => {
 
   it('cada paso tiene un texto de qué sigue', () => {
     for (const p of PASOS_CORTE) expect(textoPaso(p.paso).length).toBeGreaterThan(10);
+  });
+});
+
+// ── `[CGP-V.5]` El error dice lo que dijo el servidor ─────────────────────────────────────────────
+//
+// Un 403 se pintaba siempre «No tenés permiso»: la frase de la doble llave («Quien cerró el corte no
+// puede autorizarlo») se perdía, y la persona creía que le faltaba un permiso.
+describe('[CGP-V.5] textoDeError', () => {
+  it('⛔ un 403 con frase del servidor dice ESA frase (la doble llave)', () => {
+    const e = { status: 403, error: { message: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.' } };
+    expect(textoDeError(e)).toBe('Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.');
+  });
+
+  it('un 403 genérico del guardia de permisos se traduce', () => {
+    expect(textoDeError({ status: 403, error: { message: 'Forbidden resource' } })).toBe('No tenés permiso para esta acción.');
+    expect(textoDeError({ status: 403 })).toBe('No tenés permiso para esta acción.');
+  });
+
+  it('varias frases de validación se juntan, no se pierden', () => {
+    expect(textoDeError({ status: 400, error: { message: ['La fecha no es válida', 'Falta la sucursal'] } }))
+      .toBe('La fecha no es válida. Falta la sucursal.');
+  });
+
+  it('sin conexión y 429 se dicen en palabras', () => {
+    expect(textoDeError({ status: 0 })).toBe('No hay conexión con el servidor.');
+    expect(textoDeError({ status: 429 })).toContain('esperar');
+  });
+
+  it('⛔ sin frase no se inventa una: se dice que el servidor respondió con error', () => {
+    expect(textoDeError({ status: 500 })).toBe('El servidor respondió con un error.');
+    expect(textoDeError(null)).toBe('El servidor respondió con un error.');
   });
 });

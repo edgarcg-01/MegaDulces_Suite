@@ -4567,4 +4567,58 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(panel(fx)).toContain('Reintentar');
     });
   });
+  // ── `[CGP-V.5]` El error se queda donde se hizo la acción, con su frase ────────────────────────
+  //
+  // Antes todo salía en un aviso de 7 s, el diálogo de cierre no conservaba ningún error, y un 403
+  // se pintaba «No tenés permiso» aunque el servidor dijera que era la doble llave.
+  describe('[CGP-V.5] el error se queda donde se hizo la acción', () => {
+    const abierto = () => vi.fn(() => of({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id: 'c1', folio: 'CC-2026-00007', fecha: todayMx(), fondo_inicial: 500, ya_reconto: false, conteo_sellado: null },
+    } as unknown as SaldoResponse));
+    const falla = (status: number, message: string) => vi.fn(() => throwError(() => ({ status, error: { message } })));
+    const panel = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('.cg-conc')?.textContent ?? '';
+
+    it('sellar falla: la frase del servidor queda en el diálogo, que sigue abierto', () => {
+      montar({ saldo: abierto(), contarCorte: falla(400, 'La reja trae una denominación que no existe.') });
+      comp.abrirCierre();
+      comp.setPiezasCorte(comp.reja.find((d) => d.key === '500')!, 1);
+      comp.sellarConteo();
+      expect(comp.cierreAbierto()).toBe(true);
+      expect(comp.errorCierre()).toContain('La reja trae una denominación que no existe.');
+    });
+
+    it('reabrir el diálogo limpia el error viejo', () => {
+      montar({ saldo: abierto(), contarCorte: falla(400, 'La reja trae una denominación que no existe.') });
+      comp.abrirCierre();
+      comp.setPiezasCorte(comp.reja.find((d) => d.key === '500')!, 1);
+      comp.sellarConteo();
+      comp.abrirCierre();
+      expect(comp.errorCierre()).toBeNull();
+    });
+
+    it('⛔ autorizar con el 403 de la doble llave: SU frase, en la fila de ese corte', () => {
+      montar({
+        cortes: vi.fn(() => of({ rows: [
+          { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', sucursal: '00', estado: 'cerrado', closed_by: null },
+        ] })),
+        autorizarCorte: falla(403, 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.'),
+      });
+      comp.autorizar(comp.cortes()[0]);
+      expect(comp.errorAutorizar()).toEqual({
+        id: 'c9', texto: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+      });
+    });
+
+    it('abrir desde «rendir cuentas» falla: la frase queda junto al botón del cierre', () => {
+      const fx = montarJornada({
+        saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
+        abrirCorte: falla(400, 'El 12-oct ya tiene su corte: CC-2026-00001.'),
+      });
+      comp.cerrarJornada();
+      fx.detectChanges();
+      expect(comp.errorApertura()).toContain('CC-2026-00001');
+      expect(panel(fx)).toContain('CC-2026-00001');
+    });
+  });
 });

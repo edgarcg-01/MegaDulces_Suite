@@ -609,3 +609,29 @@ export function textoPaso(p: PasoCorte, folio?: string | null): string {
     case 'autorizar': return `${folio ? `El corte ${folio} quedó cerrado: falta` : 'Falta'} que lo autorice otra persona, porque quien cierra no autoriza.`;
   }
 }
+
+// ── `[CGP-V.5]` El error dice lo que dijo el servidor ─────────────────────────────────────────────
+
+/** Lo que Nest manda cuando el guardia de permisos frena: no dice nada de la regla de negocio. */
+const FORBIDDEN_GENERICO = 'Forbidden resource';
+
+/**
+ * El texto de un error del servidor, para mostrarlo donde la persona lo va a leer.
+ *
+ * ⛔ Un 403 se pintaba siempre «No tenés permiso». Pero el 403 de autorizar trae la frase de la
+ * doble llave («Quien cerró el corte no puede autorizarlo»), y taparla hacía creer que faltaba un
+ * permiso. Sólo el 403 genérico del guardia (sin frase, o con la de Nest en inglés) se traduce.
+ * Las frases de validación pueden venir en lista: se juntan, no se pierde ninguna.
+ */
+export function textoDeError(e: unknown): string {
+  const err = e as { status?: number; error?: { message?: unknown } } | null;
+  const crudo = err?.error?.message;
+  const frase = Array.isArray(crudo)
+    ? crudo.map((m) => String(m).trim().replace(/\.$/, '')).filter(Boolean).join('. ') + '.'
+    : typeof crudo === 'string' ? crudo.trim() : '';
+  if (err?.status === 0) return 'No hay conexión con el servidor.';
+  if (err?.status === 429) return 'El servidor pidió esperar: hubo demasiadas peticiones a la vez. Reintentá en unos segundos.';
+  if (err?.status === 403) return frase && frase !== FORBIDDEN_GENERICO ? frase : 'No tenés permiso para esta acción.';
+  if (err?.status === 409) return frase || 'Ese movimiento ya estaba aplicado.';
+  return frase || 'El servidor respondió con un error.';
+}
