@@ -161,7 +161,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <td class="num">{{ l.expected_qty | number }}</td>
             <td class="rsd-unit" [class.rsd-unit-amb]="l.expected_unit === 'ambigua'">
               @if (l.expected_unit === 'ambigua') {
-                <span title="El vale trae este producto con más de una unidad: confirma cuál corresponde">⚠ ambigua</span>
+                <span title="El vale trae este producto con más de una unidad: confirma cuál corresponde"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> ambigua</span>
               } @else { {{ l.expected_unit || '—' }} }
             </td>
             <td class="num rsd-rec">
@@ -195,7 +195,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
                     <span class="pi pi-check" aria-hidden="true"></span>
                   </button>
                 }
-                <p-select [options]="markOptions" [ngModel]="null" (onChange)="mark(l, $event.value)" placeholder="⚑" styleClass="rsd-mark" [showClear]="false"></p-select>
+                <p-select [options]="markOptions" [ngModel]="null" (onChange)="mark(l, $event.value)" placeholder="Marcar" styleClass="rsd-mark" [showClear]="false"></p-select>
               }
             </td>
           </tr>
