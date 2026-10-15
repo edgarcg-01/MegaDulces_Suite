@@ -86,6 +86,14 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
   await page.exposeFunction('__e2eClick', (t) => clicks.push(t)).catch(() => null);
 
   let knex = null;
+  /** Una sola conexión, perezosa: la comparten el bloque 4 y el 7. Devuelve null si no hay URL. */
+  const knexDe = () => {
+    if (knex) return knex;
+    const u = process.env.PROD_DB_URL || process.env.DATABASE_URL_NEW;
+    if (!u) return null;
+    knex = require('knex')({ client: 'pg', connection: u, pool: { min: 0, max: 2 } });
+    return knex;
+  };
   try {
     // ── 1. La pantalla carga ─────────────────────────────────────────────────────────────
     console.log(`\n[1] La pantalla carga de verdad — ${BASE} · periodo ${PERIODO}`);
@@ -228,7 +236,7 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
     if (!url) {
       skip('sin PROD_DB_URL/DATABASE_URL_NEW no se puede leer qué tiene casado la base');
     } else {
-      knex = require('knex')({ client: 'pg', connection: url, pool: { min: 0, max: 2 } });
+      knexDe();
       await knex.raw(`SET statement_timeout='120s'`);
       const cuentas = await knex('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
@@ -280,10 +288,81 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
       }
     }
 
+    // ── 6. La cobertura no puede pasar de 100 % ──────────────────────────────────────────
+    // `[CB.52]` — el chip decía **«Conciliado 160 %»**. Un porcentaje por encima de 100 no es
+    // una cifra alta: es un numerador que no cabe en su denominador. Medido en prod el
+    // 2026-10-15 sobre 2026-10: numerador $51,208,666.76 (948 retiros + **812 depósitos**),
+    // denominador $32,068,777.39 (**sólo retiros**) → 159.7 %.
+    // Resto del motor viejo: `runMatch` sobre el 102 casaba sólo retiros; desde `[CB.27]` el de
+    // tesorería casa las dos direcciones y el denominador se quedó donde estaba.
+    console.log('\n[6] La cobertura conciliada es un porcentaje, no una opinión');
+    const est = await page.evaluate(async (p) => {
+      const tk = localStorage.getItem('auth_token');
+      const r = await fetch(`/api/finance/bank/diagnostico?period=${p}`, { headers: { Authorization: 'Bearer ' + tk } });
+      return r.ok ? (await r.json()).recon_estado : { __err: r.status };
+    }, PERIODO);
+    if (!est) {
+      skip(`${PERIODO} no tiene conciliación corrida: no hay cobertura que medir`);
+    } else if (est.__err) {
+      skip(`/diagnostico devolvió HTTP ${est.__err}`);
+    } else {
+      ok(est.pct >= 0 && est.pct <= 100,
+        `la cobertura cae en 0–100 % (dice ${est.pct} %: ${nm(est.bank_matched_amount ?? 0)} casado de ${nm(est.bank_amount)})`);
+      // Prueba de que el rango no se cumple por casualidad: numerador y denominador tienen que
+      // salir de la MISMA columna. Si alguien vuelve a mezclar importes de Kepler con importes
+      // de banco, el numerador deja de estar contenido y esto lo caza.
+      if (est.bank_matched_amount != null) {
+        ok(est.bank_matched_amount <= est.bank_amount + 0.01,
+          'el monto casado está CONTENIDO en el monto total del banco (misma columna arriba y abajo)');
+      } else {
+        skip('el despliegue no expone `bank_matched_amount` — no trae CB.52, no se puede verificar la contención');
+      }
+    }
+
+    // ── 7. Conciliar de verdad ───────────────────────────────────────────────────────────
+    // ⛔ **ESTE BLOQUE ESCRIBE EN PRODUCCIÓN** y por eso es OPT-IN: sólo corre con
+    // `E2E_CONCILIAR=1`. Presiona el botón REAL de la pestaña Conciliación —no llama a la API
+    // por atrás— porque el reclamo original era que los movimientos no se conciliaban, y eso se
+    // comprueba apretando lo que aprieta una persona. `runMatch` borra y reconstruye los pareos
+    // del periodo, así que re-correrlo es idempotente, pero sigue siendo una escritura.
+    if (process.env.E2E_CONCILIAR !== '1') {
+      skip('Conciliar NO se ejecutó (escribe en prod). Para ejercerlo: E2E_CONCILIAR=1');
+    } else {
+      console.log(`\n[7] Conciliar — ejercido desde el botón, periodo ${PERIODO}`);
+      const casadosDe = async () => knexDe()('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', PERIODO).whereNull('bm.deleted_at').where('bm.recon_status', 'matched')
+        .count({ n: '*' }).first().then((r) => Number(r.n) || 0);
+      const antes = await casadosDe();
+
+      await page.goto(`${BASE}/finanzas/bancos?view=conciliacion&period=${PERIODO}`, { waitUntil: 'domcontentloaded' });
+      const boton = page.getByRole('button', { name: 'Conciliar', exact: true }).first();
+      await boton.waitFor({ timeout: 45000 });
+      clicks.push('Conciliar');  // queda registrado: este test SÍ operó, y se declara
+      await boton.click();
+
+      // El botón dispara un job asíncrono (202 + WS), así que no alcanza con esperar la red:
+      // se espera a que la BASE cambie, que es el único hecho que importa.
+      let despues = antes, esperado = 0;
+      for (let s = 0; s < 60 && despues === antes; s++) { await page.waitForTimeout(2000); despues = await casadosDe(); esperado = s; }
+      ok(despues > 0, `Conciliar dejó movimientos casados en la base: ${antes} → ${despues} (tardó ~${esperado * 2}s)`);
+      if (despues === antes && antes > 0) {
+        skip('el conteo no se movió, pero ya venía casado: re-conciliar es idempotente y no prueba nada nuevo');
+      }
+      const errorVisible = await page.getByText(/delete from|error/i).first().isVisible().catch(() => false);
+      ok(!errorVisible, 'Conciliar no dejó un error en pantalla');
+    }
+
     // ── 0. El candado del propio test: no tocó nada ──────────────────────────────────────
     console.log('\n[0] El test no operó la pantalla');
-    const prohibidosTocados = clicks.filter((c) => SELECTORES_PROHIBIDOS.some((p) => String(c).includes(p)));
-    ok(prohibidosTocados.length === 0, `no se presionó ningún botón que escriba (${SELECTORES_PROHIBIDOS.join(' · ')})`);
+    // `Conciliar` deja de estar prohibido SÓLO si se pidió explícitamente con `E2E_CONCILIAR=1`.
+    // Lo demás sigue vedado incluso entonces: autorizar una escritura no autoriza las otras.
+    const vedados = SELECTORES_PROHIBIDOS.filter((p) => !(p === 'Conciliar' && process.env.E2E_CONCILIAR === '1'));
+    const prohibidosTocados = clicks.filter((c) => vedados.some((p) => String(c).includes(p)));
+    ok(prohibidosTocados.length === 0,
+      process.env.E2E_CONCILIAR === '1'
+        ? `sólo se operó Conciliar, que se pidió a propósito; nada más (${vedados.join(' · ')})`
+        : `no se presionó ningún botón que escriba (${vedados.join(' · ')})`);
     ok(erroresConsola.length === 0, `la pantalla no dejó errores en consola${erroresConsola.length ? ': ' + erroresConsola.slice(0, 3).join(' | ') : ''}`);
 
   } catch (e) {
