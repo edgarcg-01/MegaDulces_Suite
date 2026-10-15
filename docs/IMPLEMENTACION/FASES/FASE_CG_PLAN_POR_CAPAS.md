@@ -532,6 +532,39 @@ corridas** sobre la misma base local, y la prueba nueva de L.7 chocaba con la su
 (con las jornadas en orden, L.3 ya no podía abrir un día anterior). Rango ampliado (1100–2019 para el
 servicio, 1200–1989 para el sensor, sin tocar las anclas de 100–1019) y sucursal propia.
 
+### 6.6 Estado al 2026-10-15: el resto de L.6 (🧪 probado en local)
+
+**`[CGP-L.6]` en el libro y en CAOS.** Lo del corte ya estaba (`conFrase`); faltaban los dos puntos que
+el diagnóstico nombraba fuera de él, y el segundo resultó más grave que lo escrito.
+
+- **`clasificarGranos` nunca escribió un grano.** Medido contra la base como `app_runtime` (el rol de
+  prod): escribía con la conexión cruda en `finance.caos_deposito_grano`, que tiene **RLS forzado**,
+  sin fijar el tenant. La política rechazaba cada fila («new row violates row-level security
+  policy»), el `catch` se lo tragaba con un `warn` y **el latido publicaba «0 clasificados»**: un
+  carril que no escribe nada se veía igual que uno sin trabajo. ⚠️ **Hipótesis sin medir en prod**:
+  lleva escribiendo cero desde que se desplegó. Se confirma leyendo `finance.caos_deposito_grano`.
+- **Y su lectura tampoco veía nada.** El `NOT EXISTS` contra la tabla de granos, por la conexión cruda,
+  la veía vacía: una vez arreglada la escritura, la segunda corrida volvía a elegir depósitos ya
+  clasificados y chocaba contra `cdg_un_deposito`. **Lo destapó correr la prueba dos veces.** Ahora lee
+  y escribe en UNA transacción con el tenant fijado; el día del depósito es el de México (L.5); y el
+  error ya no se traga: va al latido, con estado `error`, sin tumbar la atribución de cobros.
+- **Los dos `catch` vacíos del libro** (leer `analytics.v_caos_link_patterns` «a ver si existe»): dentro
+  de una transacción, el error la deja **abortada (`25P02`)** y la consulta siguiente revienta
+  —`frescuraCaos` en una ruta, `marcarClientesCredito` en la bandeja—. Probado contra Postgres real.
+  Ahora se pregunta antes con `relacionExiste()` (`to_regclass`, el patrón que el repo ya usaba), y
+  cualquier otro error se ve.
+- **La base de prueba**: el preparador suma la tabla de granos y la vista de patrones (lo que el
+  servicio lee y escribe), crea el rol `dev_ro` (sin login; las migraciones le dan GRANT) y ahora
+  encuentra las migraciones que escriben `CREATE TABLE finance.${TABLA}`. Probado armando una base
+  **desde cero** (19 migraciones, ninguna saltada) y corriendo encima caja y CAOS: **512 pruebas**.
+
+**Pruebas:** 2 del grano contra la base (en rojo antes, con el mensaje del RLS; la segunda, la de
+correrlo dos veces) y 3 del mecanismo de la transacción abortada. Las tres entran al job `caja-db`.
+
+⛔ **No tocado:** los demás `catch` del libro (avisos, hallazgos, `caos_cash_links`) no dejan una
+consulta después dentro de la misma transacción, o son escrituras de observabilidad que no deben
+tumbar la captura. Quedan como están.
+
 ⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
 archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los

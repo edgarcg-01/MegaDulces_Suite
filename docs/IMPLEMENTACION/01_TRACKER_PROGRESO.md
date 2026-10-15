@@ -9263,6 +9263,15 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
 - [ ] 🧪 **`[CGP-E.6]`** Tres consultas de métricas (cortes del mismo día, horas en borrador,
   movimientos anclados), probadas contra la base local; la de depósitos de ruta cita el método de
   `FASE_CG`.
+- [ ] 🧪 **`[CGP-L.6]` (resto: libro y CAOS)** ⛔ **`clasificarGranos` nunca escribió un grano**, medido
+  contra la base como `app_runtime`: escribía con la conexión cruda en una tabla con RLS FORZADO (la
+  política rechazaba cada fila), y el `catch` se lo tragaba y el latido publicaba «0 clasificados».
+  Además su LECTURA tampoco veía lo ya clasificado y, una vez arreglada la escritura, chocaba contra la
+  llave única. Ahora lee y escribe en una transacción con tenant, el día es el de México, y el error
+  va al latido. Los dos `catch` vacíos del libro que abortaban la transacción (`25P02`, probado contra
+  Postgres) pasan a `relacionExiste()`. El preparador de la base de prueba suma la tabla de granos y
+  la vista de patrones (y el rol `dev_ro`), y sabe encontrar `CREATE TABLE finance.${TABLA}`. Hipótesis
+  sin medir en prod: el carril de granos lleva escribiendo cero desde que se desplegó.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
