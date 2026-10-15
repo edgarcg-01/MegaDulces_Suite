@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
-import type { Freshness } from '@megadulces/contracts';
+import { SUCURSAL_CAJA_GENERAL, type Freshness } from '@megadulces/contracts';
 import { casarPorImporte, canonBank, escapaLike, type MovCuadre } from './caja-cuadre.engine';
 import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
 
@@ -156,7 +156,7 @@ export class CajaGeneralService {
   private keplerSucursal(code: unknown): string | null {
     const c = String(code ?? '').trim();
     if (!c) return null;
-    const nm = c === '00' ? 'Oficinas' : branchName(c);
+    const nm = c === SUCURSAL_CAJA_GENERAL ? 'Oficinas' : branchName(c);
     return nm === c ? c : `${nm} (${c})`;
   }
 

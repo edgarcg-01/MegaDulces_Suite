@@ -1,7 +1,5 @@
 import type { Knex } from 'knex';
-
-/** El cajón: la Caja General es UNA y su corte es el de la 00 (`[CG.98]`). */
-export const SUCURSAL_DEL_CAJERO = '00';
+import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
 
 export interface JornadaSinCorte { fecha: string; movimientos: number }
 
@@ -36,7 +34,7 @@ export async function jornadasSinCorte(
          SELECT 1 FROM finance.cash_ledger_cuts c
           WHERE c.tenant_id = l.tenant_id AND c.sucursal = ? AND c.fecha = l.fecha)
      GROUP BY l.fecha
-     ORDER BY l.fecha`, [tenantId, tenantId, terminadaHaceH, SUCURSAL_DEL_CAJERO]);
+     ORDER BY l.fecha`, [tenantId, tenantId, terminadaHaceH, SUCURSAL_CAJA_GENERAL]);
   return {
     inicio: inicio.rows[0]?.d ?? null,
     jornadas: r.rows.map((x: { fecha: string; movimientos: number }) => ({ fecha: x.fecha, movimientos: Number(x.movimientos) })),

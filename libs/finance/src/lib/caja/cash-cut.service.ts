@@ -3,10 +3,10 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { denomKeyDeValor, type JornadasPendientes } from '@megadulces/contracts';
+import { denomKeyDeValor, SUCURSAL_CAJA_GENERAL, type JornadasPendientes } from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
-import { SUCURSAL_DEL_CAJERO, hoyMx, jornadasSinCorte } from './caja-jornadas.query';
+import { hoyMx, jornadasSinCorte } from './caja-jornadas.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
@@ -57,7 +57,7 @@ import {
 // `[CGP-L.4]` La constante del cajón vive en un solo lugar (`caja-jornadas.query.ts`): la usan
 // también el sensor y la consulta de jornadas pendientes, y dos copias del mismo '00' divergen.
 function aplicarAlcanceCaja(qb: any, sucursal: string): any {
-  return sucursal === SUCURSAL_DEL_CAJERO ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
+  return sucursal === SUCURSAL_CAJA_GENERAL ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
 }
 
 function fondo(c: { fondo_inicial?: number | string | null } | null | undefined): number | null {
@@ -441,7 +441,7 @@ export class CashCutService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const hoy = await hoyMx(trx);
-      if (sucursal !== SUCURSAL_DEL_CAJERO) {
+      if (sucursal !== SUCURSAL_CAJA_GENERAL) {
         return { sucursal, hoy, inicio_libro: null, jornadas: [], alcance: 'solo_cajon' as const };
       }
       const r = await jornadasSinCorte(trx, tenantId, 0);
@@ -1075,7 +1075,7 @@ export class CashCutService {
    * ⚠️ `abs(total)`: una dispensación puede venir con `total` negativo — acá interesa la MAGNITUD movida.
    */
   private async conciliacionCajero(trx: any, tenantId: string, sucursal: string, fecha: string | Date | null) {
-    if (sucursal !== '00') return null;
+    if (sucursal !== SUCURSAL_CAJA_GENERAL) return null;
     const existe = await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`);
     if (!existe.rows?.[0]?.t) return null; // el feed del cajero puede no estar en este entorno
 
@@ -1437,7 +1437,7 @@ export class CashCutService {
       const hayCaos = (await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`))
         .rows?.[0]?.t;
       let cajero: Record<string, unknown> | null = null;
-      if (hayCaos && sucursal === '00') {
+      if (hayCaos && sucursal === SUCURSAL_CAJA_GENERAL) {
         const porTipo = await trx('analytics.caos_cash_movements')
           .where({ tenant_id: tenantId, accounting_date: dia })
           .groupBy('type_id', 'type_label')
@@ -1505,7 +1505,7 @@ export class CashCutService {
 
       if (!hayCaos) {
         no_medido.push('El feed del cajero (CAOS) no está en este entorno: del día sólo se puede cuadrar la caja general.');
-      } else if (sucursal !== '00') {
+      } else if (sucursal !== SUCURSAL_CAJA_GENERAL) {
         limites.push(`El cajero (CAOS) es un único dispositivo en oficinas: la sucursal ${sucursal} no tiene cajero que cuadrar.`);
       } else {
         limites.push('Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.');

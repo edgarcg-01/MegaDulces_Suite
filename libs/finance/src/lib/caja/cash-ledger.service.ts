@@ -8,6 +8,7 @@ import {
   type FinanceFindingsSinkPort, type Freshness,
   ventanaDeCobertura,
   type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
+  SUCURSAL_CAJA_GENERAL,
 } from '@megadulces/contracts';
 
 /**
@@ -512,7 +513,7 @@ export class CashLedgerService {
     return this.tk.run(async (trx) => {
       // El par tiene que existir en el catálogo VIVO, igual que al registrar un movimiento: una
       // regla que apunta a una cuenta inexistente clasificaría hacia la nada, y en lote.
-      await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
+      await this.resolveConcept(trx, tenantId, String(input.sucursal ?? SUCURSAL_CAJA_GENERAL), cuenta, concepto);
 
       const patron = `^${beneficiario.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
 
@@ -849,7 +850,7 @@ export class CashLedgerService {
         if (!cuenta || !concepto) {
           throw new BadRequestException('Para cambiar la cuenta hay que mandar la cuenta Y el concepto.');
         }
-        await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
+        await this.resolveConcept(trx, tenantId, String(input.sucursal ?? SUCURSAL_CAJA_GENERAL), cuenta, concepto);
         patch['kepler_cuenta'] = cuenta;
         patch['kepler_concepto'] = concepto;
       }
@@ -1481,7 +1482,7 @@ export class CashLedgerService {
         type_label: m.type_label,
         occurred_at: m.occurred_at,
         fecha_valor: ymd(m.occurred_at) || '',
-        sucursal: '00', // CAOS es un solo dispositivo en OFICINAS (sucursal 00, CS.0); no hay columna sucursal.
+        sucursal: SUCURSAL_CAJA_GENERAL, // CAOS es un solo dispositivo en OFICINAS (sucursal 00, CS.0); no hay columna sucursal.
         user_external: m.user_external,
         ref: m.ref,
         monto: Number(m.total),
@@ -1559,7 +1560,7 @@ export class CashLedgerService {
       const candidatos: CaosCand[] = movs.map((m: any) => ({
         origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
         type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
-        sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+        sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
         denominaciones: porMov.get(m.id) || [],
       }));
 
@@ -1624,7 +1625,7 @@ export class CashLedgerService {
     const cand = movs.map((m: any) => ({
       origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
       type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
-      sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+      sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
       denominaciones: porMov.get(m.id) || [], type_id: Number(m.type_id),
     }));
     let aprendido: Map<string, PatronAprendido> | undefined;
@@ -1643,7 +1644,7 @@ export class CashLedgerService {
       const pool = cand.filter((c: any) => c.type_id === typeId && !usados.has(c.origen_ref));
       const g: CaosGastoCtx = {
         monto: Number(r.monto), fecha: ymd(r.fecha_valor) || '',
-        beneficiario: r.beneficiario, concepto: r.concepto, sucursal: '00',
+        beneficiario: r.beneficiario, concepto: r.concepto, sucursal: SUCURSAL_CAJA_GENERAL,
       };
       const best = rankearCaos(g, pool as any, aprendido)[0];
       if (best && best.confianza !== 'baja') {

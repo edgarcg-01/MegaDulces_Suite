@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
 import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
@@ -325,7 +326,7 @@ export class CashLedgerController {
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'CG.26 — Cierre de jornada: el dia en caja general y en el cajero (CAOS), con los SEIS tipos del cajero y lo que no se puede afirmar declarado. `fecha` por default = hoy en Mexico; la jornada del cajero sale de su propio `accounting_date`.' })
   arqueoDia(@Query('fecha') fecha?: string, @Query('sucursal') sucursal?: string) {
-    return this.cortes.arqueoDelDia(fecha, sucursal || '00');
+    return this.cortes.arqueoDelDia(fecha, sucursal || SUCURSAL_CAJA_GENERAL);
   }
 
   @Get('cortes')
@@ -346,7 +347,7 @@ export class CashLedgerController {
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Con qué arrancaría la caja: el cierre del corte anterior, o "sin medir".' })
   fondoSugerido(@Query('sucursal') sucursal?: string) {
-    return this.cortes.sugerirFondo(sucursal || '00');
+    return this.cortes.sugerirFondo(sucursal || SUCURSAL_CAJA_GENERAL);
   }
 
   /**
@@ -357,7 +358,7 @@ export class CashLedgerController {
   @RequirePermissions(Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'CGP-L.4: jornadas del cajón con movimientos y sin corte, en orden. La misma consulta que el sensor del corte abierto.' })
   jornadasPendientes(@Query('sucursal') sucursal?: string): ReturnType<CashCutService['jornadasPendientes']> {
-    return this.cortes.jornadasPendientes(sucursal || '00');
+    return this.cortes.jornadasPendientes(sucursal || SUCURSAL_CAJA_GENERAL);
   }
 
   @Post('cortes')

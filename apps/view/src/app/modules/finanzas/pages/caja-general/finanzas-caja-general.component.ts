@@ -18,7 +18,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -4680,7 +4680,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Las sucursales que el propio censo de cobertura ya mide, con sus conceptos usables. */
   opcionesSucursal = computed(() => {
     const rows = this.cobertura().filter((r) => r.sucursal);
-    if (!rows.length) return [{ label: '00 · CEDIS', value: '00' }];
+    // [CGP-L.9] Kepler '00' es OFICINAS (ERP_KEPLER §2.3; el servidor lo corrige igual en keplerSucursal).
+    if (!rows.length) return [{ label: SUCURSAL_CAJA_GENERAL + ' · Oficinas', value: SUCURSAL_CAJA_GENERAL }];
     return rows
       .slice()
       .sort((a, b) => String(a.sucursal).localeCompare(String(b.sucursal)))
@@ -5056,7 +5057,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /** Sucursal del corte. Por ahora fija; cuando haya selector de corte, sale de ahí. */
-  private sucursalActiva = '00';
+  private sucursalActiva = SUCURSAL_CAJA_GENERAL;
 
   cargarSaldo(): void {
     // `[CGP-V.4]` El servicio ya reintenta solo un 429; esto marca que la lectura está en vuelo.
