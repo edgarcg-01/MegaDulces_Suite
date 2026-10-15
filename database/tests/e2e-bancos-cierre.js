@@ -83,7 +83,7 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
   });
   /** Registro de clics, para poder DEMOSTRAR que no se disparó nada. */
   const clicks = [];
-  await page.exposeFunction('__e2eClick', (t) => clicks.push(t)).catch(() => {});
+  await page.exposeFunction('__e2eClick', (t) => clicks.push(t)).catch(() => null);
 
   let knex = null;
   try {
@@ -139,7 +139,20 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
     let pinto = false;
     for (let intento = 1; intento <= 3 && !pinto; intento++) {
       if (intento > 1) {
-        console.log(`     · el componente no pintó (URL ok: ${page.url().replace(BASE, '')}) — re-navegando, intento ${intento}`);
+        // ⚠️ Hay DOS motivos distintos para no ver el encabezado y confundirlos manda a
+        // diagnosticar lo que no es: o la sesión se cayó (la app rebotó a `/login`, típicamente
+        // por el throttler de auth tras varias corridas seguidas) o el componente no pintó con
+        // la URL correcta. El primero se arregla volviendo a entrar; el segundo, re-navegando.
+        const reboto = /\/login/.test(page.url());
+        console.log(`     · ${reboto ? 'la sesión se cayó' : 'el componente no pintó'} (${page.url().replace(BASE, '')}) — ${reboto ? 're-autenticando' : 're-navegando'}, intento ${intento}`);
+        if (reboto) {
+          await page.waitForTimeout(20000 * (intento - 1));
+          await campoUsuario.waitFor({ timeout: 30000 }).catch(() => null);
+          await campoUsuario.fill(USER);
+          await page.locator('#password').fill(PASS);
+          await page.getByRole('button', { name: 'Iniciar Sesión' }).click();
+          await page.waitForURL((u) => !/\/login/.test(u.toString()), { timeout: 30000 }).catch(() => null);
+        }
         await page.goto(`${BASE}/finanzas/bancos?view=cierre&period=${PERIODO}`, { waitUntil: 'domcontentloaded' });
       }
       pinto = await encabezado.waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
@@ -279,9 +292,9 @@ const nm = (v) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', cu
     //  y  ya se contaron arriba (NO MEDIDO / ✗): no se duplican.
     if (!['__sin_sesion__', '__sin_pantalla__'].includes(e.message)) { console.error(`  ✗ excepción: ${e.message}`); fail++; }
   } finally {
-    await ctx.close().catch(() => {});
-    await navegador.close().catch(() => {});
-    if (knex) await knex.destroy().catch(() => {});
+    await ctx.close().catch(() => null);
+    await navegador.close().catch(() => null);
+    if (knex) await knex.destroy().catch(() => null);
   }
 
   console.log(`\n[CB.51.2] ${pass} ✓ / ${fail} ✗${nomedido ? ` / ${nomedido} no medidos` : ''}`);
