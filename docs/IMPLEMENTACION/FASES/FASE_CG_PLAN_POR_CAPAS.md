@@ -240,18 +240,48 @@ lugar donde probarlo que no sea producción.
 
 **Salida:** el job `caja-db` verde en CI, con sus negativas, y una mutación verificada.
 
-### 5.1 Estado al 2026-10-14 (🔨 en código, sin correr)
+### 5.1 Estado al 2026-10-14 (🧪 probado en local contra Postgres 18.4)
 
-Lo hecho en esta entrega. **Nada corrió todavía contra una base:** esta máquina no tiene Docker
-ni `node_modules`, y la regla del proyecto es que lo compile y lo pruebe el CI. Solo se verificó la
-sintaxis (`node --check`) y que la marca de la migración no colisiona (sin el ledger de prod).
+**Primera corrida del CI (38678099685, PR #413): ❌ en el arranque de la base.**
+`dev:bootstrap-vacia` se detuvo en `20261007180000` (una migración de rutas que lee
+`runner.existencias_ruta`) por su tope de 120 migraciones saltadas: desde su frontera analítica
+entraron 815. Las suites no llegaron a correr. Decisión de Edgar: **no arreglar ese script, hacer
+una base propia para caja desde cero** (`[CGP-D.1.1]`).
+
+**`database/tests/caja/preparar-base-caja.js`** arma la base del corte:
+- aplica las migraciones REALES que **crean o alteran** el corte (12), más la del tenant y la que
+  crea el schema `finance` (donde vive su `GRANT USAGE`);
+- crea vacías, con la forma del snapshot de prod, las tablas ajenas que pidan (hoy una:
+  `analytics.erp_collections`);
+- **nunca salta una migración**: si algo no se resuelve, se detiene y lo dice.
+
+Medido en local (PostgreSQL 18.4 portátil en `C:/tmp`, `knex`/`pg` del lockfile):
+
+| Qué | Resultado |
+|---|---|
+| Preparador | 14 migraciones, **0 saltadas**, 1 tabla ajena vacía |
+| `test-newdb-caja-invariantes.js` | **28 ✓ / 0 ✗**, como `app_runtime`, con las mutaciones en rojo cuando se apaga cada regla |
+| `test-newdb-cash-ledger-cuts.js` | **43 ✓ / 0 ✗ / 4 NO MEDIDO** (los 4 piden datos reales o HTTP; ya venían declarados) |
+| Prevuelo de la migración (negativas) | aborta y nombra el folio si un corte ya viola una regla; aborta como NO MEDIDO si el rol no salta RLS; no deja nada a medias |
+| Preparador (negativas) | se niega a un destino no local (clasificó `192.168.0.222` como prod) y a una base con historia |
+
+⭐ **La suite encontró algo en el camino:** la primera base armada no tenía el `USAGE` de
+`finance` para `app_runtime` (en prod lo da la migración de Maat que creó el schema). Todas las
+escrituras del rol de prod fallaban. Sin la sección de permisos se habría probado como superusuario
+y pasado en verde.
+
+⚠️ **Lo que esta base NO prueba:** si prod tiene cambios aplicados a mano fuera de las migraciones.
+El snapshot de columnas de prod **no trae las tablas del corte** (comparar contra él daba un verde
+falso: un lado vacío no prueba nada). La comprobación de que el criterio no dejó fuera una
+migración que altere el corte se hizo por otro camino: las 11 excluidas solo crean tablas satélite
+con llave foránea hacia el corte.
 
 | Item | Estado | Qué quedó |
 |---|---|---|
-| CGP-D.1 | 🔨 | Job `caja-db` en `ci.yml`: Postgres `pgvector:pg18` de servicio → `dev:bootstrap-vacia` → las tres suites de caja. **No** entra al `needs` de `sellar`: mide, no frena, hasta tener historia |
-| CGP-D.2 | 🔨 | `test-newdb-cash-ledger.js` y `test-newdb-cash-ledger-cuts.js` con `denom_key`. La de cortes sella el conteo antes de recontar: registraba un reconteo sobre un corte que nadie había contado |
-| CGP-D.3 | 🔨 | Migración `20261014212702_finance_cash_cut_invariantes.js` + suite `test-newdb-caja-invariantes.js` (registrada en `run-all-tests.js`) + las frases de las reglas en `caja-errores.ts`, con su prueba |
-| CGP-D.5 | 🔨 | La suite verifica `USAGE` y cada privilegio de `app_runtime` **por separado**: con una lista separada por comas, `has_table_privilege` devuelve verdadero si el rol tiene cualquiera |
+| CGP-D.1 | 🧪 | Job `caja-db` con el preparador propio + las dos suites del corte. **No** entra al `needs` de `sellar`. Falta su primera corrida verde en el CI |
+| CGP-D.2 | 🧪 | `test-newdb-cash-ledger-cuts.js` reparada y en verde. `test-newdb-cash-ledger.js` reparada (`denom_key`) pero **fuera de esta base** (`[CGP-D.2b]`): prueba el autollenado y el mapa de conceptos de Kepler, que piden ocho vistas de analytics ajenas al corte |
+| CGP-D.3 | 🧪 | Migración `20261014212702` + suite + frases en `caja-errores.ts`. **En `main` (PR #413) y SIN aplicar en prod** |
+| CGP-D.5 | 🧪 | Cada privilegio de `app_runtime` se verifica por separado, y el `USAGE` del schema aparte |
 | CGP-D.4, D.6 | ⬜ | Decisiones pendientes (índice de CAOS; tablas sin escritor). La regla del fondo (D2 de §2.1) va en su propia migración, porque corregirla puede volver intocable un corte viejo y eso se mide antes |
 
 **Las reglas que la base hace cumplir desde la migración `20261014212702`:**

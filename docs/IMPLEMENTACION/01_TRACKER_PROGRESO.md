@@ -9113,15 +9113,19 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
 - [ ] ⬜ `[CGP-0.2]`–`[CGP-0.7]` Verificar en prod con `app_runtime`, decidir el conteo del 12-oct
   ($3,340.00 de Control contra $3,653.50 sellado el 14 a las 09:40), cerrar y autorizar, medir la
   causa del 13-oct hora por hora, decidir el 13 y el 14, revisión diaria de cortes abiertos.
-- [ ] 🔨 **`[CGP-D.1]`** Job `caja-db` en el CI (Postgres de servicio + `dev:bootstrap-vacia` +
-  suites de caja). No entra al `needs` de `sellar`. **Sin correr todavía.**
-- [ ] 🔨 **`[CGP-D.2]`** Suites `cash-ledger` y `cash-ledger-cuts` reparadas (`denom_key`).
-- [ ] 🔨 **`[CGP-D.3]`** Migración `20261014212702`: conteo sellado inmutable salvo reconteo con
-  constancia, desglose = contado (diferida), aritmética exacta, corte firmado inmutable, un corte por
-  sucursal y fecha, con prevuelo que aborta si un corte de hoy ya viola algo. Suite
-  `test-newdb-caja-invariantes.js` con negativas por nombre de regla y mutaciones.
-  **Sin aplicar en prod; se aplica ANTES de soltar el código que la nombra.**
-- [ ] 🔨 `[CGP-D.5]` Privilegios de `app_runtime` verificados uno por uno en la suite.
+- [ ] 🧪 **`[CGP-D.1]`** Job `caja-db` en el CI. La 1ª corrida (38678099685) murió en
+  `dev:bootstrap-vacia` (tope de 120 saltos, en una migración de rutas). **`[CGP-D.1.1]`** lo
+  reemplaza por un preparador propio, `database/tests/caja/preparar-base-caja.js`: migraciones
+  REALES del corte, tablas ajenas vacías desde el snapshot, **cero saltadas**. Local (PG 18.4):
+  14 migraciones aplicadas. Falta su primera corrida verde en el CI.
+- [ ] 🧪 **`[CGP-D.2]`** `cash-ledger-cuts` reparada: 43 ✓ / 0 ✗ / 4 NO MEDIDO en local.
+  `cash-ledger` reparada pero fuera de la base del corte (**`[CGP-D.2b]`**, declarada).
+- [ ] 🧪 **`[CGP-D.3]`** Migración `20261014212702` + suite `test-newdb-caja-invariantes.js`:
+  **28 ✓ / 0 ✗** en local como `app_runtime`, mutaciones en rojo, prevuelo probado en negativo.
+  **En `main` (PR #413, mergeado antes de que corriera el CI) y SIN aplicar en prod; se aplica ANTES
+  de soltar el código que la nombra.**
+- [ ] 🧪 `[CGP-D.5]` Privilegios de `app_runtime` verificados uno por uno. La suite encontró que la
+  base armada no tenía el `USAGE` de `finance` (lo da en prod la migración de Maat).
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
