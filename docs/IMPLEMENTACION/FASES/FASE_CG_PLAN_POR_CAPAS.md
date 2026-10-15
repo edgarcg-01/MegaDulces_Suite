@@ -389,6 +389,7 @@ mutaciones de L.1, L.2 y L.11 están verificadas en rojo.
 | **CGP-L.1** | 🧪 | `decidirConteoDelCierre()` (motor puro): con conteo sellado, una reja vacía o con el mismo desglose usa el sellado; cualquier otra cosa —aunque sume lo mismo, o cambie sólo la morralla— es **400** con lo sellado, lo tecleado y cómo se corrige. Se decide **antes de atar un solo movimiento** |
 | **CGP-L.2** | 🧪 | `esperadoCambio()`: si el esperado cambió desde el conteo, `cerrar()` responde **409** con `motivo`, `esperado_mostrado` y `esperado_actual`, y revierte lo atado. Quien ya vio el nuevo lo confirma con `esperado_visto`. Un corte sellado antes de que el esperado se guardara (CG.156) se **declara** (`contra: null`), no se bloquea |
 | **CGP-L.3** | 🧪 | `recontar()` exige un conteo previo (400 con frase) y lee sólo el desglose de **cierre** (el de apertura inflaba la constancia del primer conteo) |
+| **CGP-L.4** | 🧪 | `puedeAbrirCorte()` (motor puro) rechaza con frase la fecha que no es fecha, la que todavía no pasa (el hoy lo da la **base**, en hora de México), el día que ya tiene corte (nombra el folio) y el día **anterior** a un corte que ya existe: las jornadas se cierran en orden, porque el posterior heredó su fondo sin ese día y un corte firmado no se corrige. La fecha se valida antes de consultar con ella. El fondo heredado sale del último cierre **anterior** a la fecha. `GET cortes/jornadas-pendientes` lista los días del cajón con movimientos y sin corte (la consulta la comparte el sensor). `saldo()` publica la fecha del corte abierto. ⚠️ La regla de orden choca con `[CGP-0.6]`: si se decide capturar en la Suite el 7–10 oct, se relaja con una excepción explícita |
 | **CGP-L.6** | 🧪 (corte) | `abrir`, `contar`, `recontar`, `cerrar` y `autorizar` pasan por `conFrase()`: una regla de la base violada llega como frase; lo desconocido sigue siendo un 500 ruidoso. Frase nueva para `ux_cash_cut_abierto`. Falta el resto del módulo (CLS, CAOS) |
 | **CGP-L.10** | 🧪 | **El sensor del corte abierto** (`caja_corte_abierto`, cada hora a los :20). Dos señales: cortes en **borrador** de más de 26 h (crítico a las 50 h) y **jornadas con movimientos y sin corte** del cajón (crítico con 2 o más: el 13 y el 14-oct). Una jornada cuenta recién cuando terminó hace más de 26 h, para no avisar cada madrugada. Deja su latido (universo en 0 = rojo) con umbral en `CRON_JOBS` (2 h / 6 h) y avisa por la campana con enlace a la pantalla. **No repite**: avisa cuando la situación cambia y la recuerda cada 6 h (el canal no agrupa). Se apaga con `ENABLE_CAJA_CORTE_SCAN=false` |
 
@@ -428,8 +429,9 @@ cero fallas nuevas). `check:templates`: verde.
 «Confirmar $1,800.00 y cerrar» en el pie del diálogo de 40rem en pantalla angosta, y si el aviso
 queda mejor arriba del bloque de la revelación que abajo.
 
-⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da 21 errores `TS1272`, **todos en
-archivos que no se tocaron** (forma de importar tipos en firmas con decoradores) y ninguno en los
+⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
+archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
+decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
 cinco tocados. No es como tipa el CI; lo confirma `Build & typecheck`.
 
 ---
@@ -466,6 +468,48 @@ correrlo al terminar (ninguna falla nueva).
 
 **Salida:** `check:pantalla` sin fallas nuevas, specs verdes y validación visual con la cajera, con
 checklist. Si no se pudo ver la pantalla, se declara.
+
+### 7.1 Estado al 2026-10-14 (🧪 probado en local)
+
+**`[CGP-V.12]`** está en §6.1, junto a L.2, porque son un solo lote.
+
+**`[CGP-V.3]` — las jornadas atrasadas se cierran desde la pantalla.** El 13 y el 14-oct no tenían
+camino: la pantalla abría **siempre** el corte de hoy, y abrir hoy primero los deja huérfanos (L.4
+rechaza abrir un día anterior a un corte que ya existe).
+
+- **Un solo botón, no dos.** «Rendir cuentas» abre la atrasada **más vieja** y lo dice en su
+  etiqueta («Rendir cuentas del 12-oct»). Un segundo botón «abrir hoy» al lado habría ofrecido
+  justo el gesto que deja huérfanas a las de atrás.
+- **Las dos puertas comparten la decisión.** «Declarar con cuánto arrancó la caja» abre el corte
+  desde su propio diálogo; si abriera hoy, rompía lo mismo. La fecha se decide dentro de
+  `abrirCorte()`, adonde llegan las dos, y ese diálogo también la nombra.
+- **Cuatro estados de la lista, no dos.** `medido` (vacía = al día), `midiendo` (el botón espera),
+  `sin_medir` (no se abre nada a ciegas: «Reintentar» re-mide el saldo y la lista) y `no_informa`
+  (404: un API anterior a L.4 no lista jornadas, pero tampoco tiene la regla que las deja
+  huérfanas, así que abrir hoy es lo que ya pasaba; trabar el cierre de caja por un 404 sería peor).
+- **El hoy es el del servidor**, que es el reloj con el que rechaza una fecha futura.
+- Se vuelve a medir después de abrir y de cerrar: así aparece la siguiente.
+- El subtítulo de «Tu jornada» las nombra («2 jornadas sin corte desde el 12-oct»): es lo único que
+  se ve sin abrir la ventana. El diálogo de cierre dice «Corte CC-… · jornada del 12-oct», y avisa
+  si es de un día que ya pasó.
+- `diaCorto` pasa a `libs/contracts`: la campana del sensor y la pantalla nombran el día igual.
+
+**Pruebas:** 10 del componente (contra el servicio simulado) + 4 del formateador. **5 mutaciones,
+las 5 atrapadas**, cada una por la prueba hecha para ella: ignorar las atrasadas, abrir hoy sin
+saber, no re-medir al cerrar, tratar el 404 como falla y usar el hoy del navegador. Directorio
+`caja-general`: 4 archivos, **330 pruebas**. `check:pantalla -- caja-general`: **igual a la línea
+base** (tipa sin errores). `check:templates` y `reactividad`: verdes.
+
+⚠️ `primeng` (306 contra techo 305) y `sin emojis` (142 contra techo 75) fallan en esta rama **con
+y sin estos cambios**, y ninguna línea es de caja: deuda de la base de la rama, no de V.3.
+
+⛔ **Declarado, no decidido:** qué efectivo se cuenta para cerrar una jornada que ya pasó (el cajón
+de hoy no es el del 12-oct). La pantalla sólo dice que el corte es de otro día; el procedimiento es
+de Edgar y Contabilidad, igual que `[CGP-0.2]`–`[CGP-0.7]`.
+
+⚠️ **Sin validación visual.** Lo más probable de ajustar: el largo del aviso de atrasadas en el bloque
+de cierre, y si el aviso «Este corte es de una jornada que ya pasó» sobra junto al rótulo con la
+fecha.
 
 ---
 

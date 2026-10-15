@@ -9147,6 +9147,19 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   jornadas con movimientos sin corte; latido con umbral en `CRON_JOBS`; aviso por la campana sin
   repetir (cambio o cada 6 h). 15 pruebas (12 puras + 3 contra la base), dos mutaciones en rojo.
   `FinanceNotice.severity` ampliado a `'critical'` (lo usaba ya `caja_fecha_futura`).
+- [ ] 🧪 **`[CGP-L.4]`** Abrir una jornada atrasada: `puedeAbrirCorte()` rechaza con frase la fecha
+  futura (el hoy lo da la base), el día que ya tiene corte (nombra el folio) y el día anterior a un
+  corte que ya existe (las jornadas se cierran en orden). El fondo heredado sale del último cierre
+  ANTERIOR a la fecha. `GET cortes/jornadas-pendientes` comparte la consulta con el sensor. 6 puras +
+  5 del servicio real. ⚠️ La regla de orden choca con `[CGP-0.6]` (7–10 oct): se relaja con una
+  excepción explícita si se decide capturarlos.
+- [ ] 🧪 **`[CGP-V.3]`** La pantalla cierra las jornadas atrasadas. «Rendir cuentas» y «Declarar con
+  cuánto arrancó la caja» abren la MÁS VIEJA, no hoy, y lo dicen en la etiqueta; aviso con cada
+  jornada y el orden; el subtítulo las nombra; el diálogo de cierre dice de qué jornada es el corte.
+  Sin saber si hay atrasadas no se abre nada (se reintenta); un API viejo (404) abre hoy como antes.
+  `diaCorto` pasa a `libs/contracts` (lo comparten la campana y la pantalla). 10 pruebas del
+  componente + 4 del formateador, 5 mutaciones atrapadas; `check:pantalla` igual a la línea base.
+  Sin validación visual.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---
