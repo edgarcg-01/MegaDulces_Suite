@@ -121,10 +121,12 @@ const corte = (over = {}) => ({
         total_ingresos: 1000, total_gastos: 0, total_depositos: 200,
         esperado, contado, diferencia: contado - esperado,
       });
+      // `[CGP-D.2]` `denom_key` es NOT NULL desde `20261006124500` (el billete de $20 y la moneda
+      // de $20 son renglones distintos): sin él este insert daba 23502 y la suite moría acá.
       await trx('finance.cash_ledger_cut_denominations').insert([
-        { tenant_id: T, cut_id: abierto.id, denominacion: 1000, piezas: 1 },
-        { tenant_id: T, cut_id: abierto.id, denominacion: 200, piezas: 1 },
-        { tenant_id: T, cut_id: abierto.id, denominacion: 100, piezas: 1 },
+        { tenant_id: T, cut_id: abierto.id, denom_key: '1000', denominacion: 1000, piezas: 1 },
+        { tenant_id: T, cut_id: abierto.id, denom_key: '200', denominacion: 200, piezas: 1 },
+        { tenant_id: T, cut_id: abierto.id, denom_key: '100', denominacion: 100, piezas: 1 },
       ]);
       const cerrado = await trx('finance.cash_ledger_cuts').where({ id: abierto.id }).first();
       ok(Number(cerrado.esperado) === 1300, `esperado = 500 + 1000 − 200 = 1300 (dio ${cerrado.esperado})`);
@@ -269,7 +271,11 @@ const corte = (over = {}) => ({
     // -- 10. CG.19 Capa 1b: el reconteo deja rastro o no existe ------------------------------
     console.log('\n-- 10. CG.19 Capa 1b - reconteo con rastro --');
     await knex.transaction(async (trx) => {
-      const [c] = await trx('finance.cash_ledger_cuts').insert(corte()).returning('*');
+      // `[CGP-D.3]` El corte nace YA CONTADO: un reconteo sólo existe si antes hubo un conteo, y
+      // la base lo exige (`cut_reconteo_constancia_chk`). Antes esta sección registraba un
+      // reconteo sobre un corte que nadie había contado — justo el caso que la regla nueva frena.
+      const [c] = await trx('finance.cash_ledger_cuts')
+        .insert(corte({ contado: 100, esperado: 100, diferencia: 0 })).returning('*');
 
       // El primer conteo guardado SIN razon no se distingue de un ajuste: la DB lo frena.
       const sinMotivo = await violation(trx, () => trx('finance.cash_ledger_cuts')
