@@ -8,6 +8,7 @@ import {
   type FinanceFindingsSinkPort, type Freshness,
   ventanaDeCobertura,
   type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
+  SUCURSAL_CAJA_GENERAL,
 } from '@megadulces/contracts';
 
 /**
@@ -22,7 +23,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
 import {
-  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, rankearFrecuentes,
+  esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
@@ -30,6 +31,7 @@ import {
 import { revisarFirma } from './caja-firma.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { conciliacion } from './caja-conciliacion.engine';
+import { relacionExiste } from './caja-db.util';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
@@ -512,7 +514,7 @@ export class CashLedgerService {
     return this.tk.run(async (trx) => {
       // El par tiene que existir en el catálogo VIVO, igual que al registrar un movimiento: una
       // regla que apunta a una cuenta inexistente clasificaría hacia la nada, y en lote.
-      await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
+      await this.resolveConcept(trx, tenantId, String(input.sucursal ?? SUCURSAL_CAJA_GENERAL), cuenta, concepto);
 
       const patron = `^${beneficiario.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
 
@@ -849,7 +851,7 @@ export class CashLedgerService {
         if (!cuenta || !concepto) {
           throw new BadRequestException('Para cambiar la cuenta hay que mandar la cuenta Y el concepto.');
         }
-        await this.resolveConcept(trx, tenantId, String(input.sucursal ?? '00'), cuenta, concepto);
+        await this.resolveConcept(trx, tenantId, String(input.sucursal ?? SUCURSAL_CAJA_GENERAL), cuenta, concepto);
         patch['kepler_cuenta'] = cuenta;
         patch['kepler_concepto'] = concepto;
       }
@@ -1481,7 +1483,7 @@ export class CashLedgerService {
         type_label: m.type_label,
         occurred_at: m.occurred_at,
         fecha_valor: ymd(m.occurred_at) || '',
-        sucursal: '00', // CAOS es un solo dispositivo en OFICINAS (sucursal 00, CS.0); no hay columna sucursal.
+        sucursal: SUCURSAL_CAJA_GENERAL, // CAOS es un solo dispositivo en OFICINAS (sucursal 00, CS.0); no hay columna sucursal.
         user_external: m.user_external,
         ref: m.ref,
         monto: Number(m.total),
@@ -1559,20 +1561,22 @@ export class CashLedgerService {
       const candidatos: CaosCand[] = movs.map((m: any) => ({
         origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
         type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
-        sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+        sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
         denominaciones: porMov.get(m.id) || [],
       }));
 
       // Lo APRENDIDO: si la vista aún no existe (deploy por delante de la migración), se sigue sin ella.
+      // ⛔ `[CGP-L.6]` Se PREGUNTA antes de leer. Era un `try/catch` vacío: dentro de la transacción el
+      // error la dejaba abortada (25P02) y `frescuraCaos`, la consulta siguiente, tumbaba la respuesta.
       let aprendido: Map<string, PatronAprendido> | undefined;
-      try {
+      if (await relacionExiste(trx, 'analytics.v_caos_link_patterns')) {
         const pat = await trx('analytics.v_caos_link_patterns').where('tenant_id', tenantId)
           .select('ref_norm', 'casos', 'cuenta_tipica', 'concepto_tipico', 'beneficiario_tipico');
         aprendido = new Map(pat.map((p: any) => [p.ref_norm, {
           ref_norm: p.ref_norm, casos: Number(p.casos), cuenta_tipica: p.cuenta_tipica,
           concepto_tipico: p.concepto_tipico, beneficiario_tipico: p.beneficiario_tipico,
         }]));
-      } catch { aprendido = undefined; }
+      }
 
       const g: CaosGastoCtx = {
         monto: q.monto != null ? Number(q.monto) : null, fecha,
@@ -1624,18 +1628,20 @@ export class CashLedgerService {
     const cand = movs.map((m: any) => ({
       origen_ref: `${m.device}|${m.external_id}`, external_id: Number(m.external_id), device: m.device,
       type_label: m.type_label, fecha_valor: ymd(m.accounting_date || m.occurred_at) || '',
-      sucursal: '00', user_external: m.user_external, ref: m.ref, monto: Number(m.total),
+      sucursal: SUCURSAL_CAJA_GENERAL, user_external: m.user_external, ref: m.ref, monto: Number(m.total),
       denominaciones: porMov.get(m.id) || [], type_id: Number(m.type_id),
     }));
+    // ⛔ `[CGP-L.6]` Se pregunta antes de leer: el `catch` vacío abortaba la transacción y
+    // `marcarClientesCredito`, la consulta siguiente de la bandeja, reventaba con 25P02.
     let aprendido: Map<string, PatronAprendido> | undefined;
-    try {
+    if (await relacionExiste(trx, 'analytics.v_caos_link_patterns')) {
       const pat = await trx('analytics.v_caos_link_patterns').where('tenant_id', tenantId)
         .select('ref_norm', 'casos', 'cuenta_tipica', 'concepto_tipico', 'beneficiario_tipico');
       aprendido = new Map(pat.map((p: any) => [p.ref_norm, {
         ref_norm: p.ref_norm, casos: Number(p.casos), cuenta_tipica: p.cuenta_tipica,
         concepto_tipico: p.concepto_tipico, beneficiario_tipico: p.beneficiario_tipico,
       }]));
-    } catch { /* sin aprendido: cold-start */ }
+    } // sin la vista: sin aprendido (cold-start)
     // Un CAOS se ofrece a UN solo pendiente (greedy por orden de la bandeja): no se une a dos.
     const usados = new Set<string>();
     return rows.map((r: any) => {
@@ -1643,7 +1649,7 @@ export class CashLedgerService {
       const pool = cand.filter((c: any) => c.type_id === typeId && !usados.has(c.origen_ref));
       const g: CaosGastoCtx = {
         monto: Number(r.monto), fecha: ymd(r.fecha_valor) || '',
-        beneficiario: r.beneficiario, concepto: r.concepto, sucursal: '00',
+        beneficiario: r.beneficiario, concepto: r.concepto, sucursal: SUCURSAL_CAJA_GENERAL,
       };
       const best = rankearCaos(g, pool as any, aprendido)[0];
       if (best && best.confianza !== 'baja') {
@@ -2496,9 +2502,10 @@ export class CashLedgerService {
       const denominaciones = await trx('finance.cash_ledger_denominations')
         .where({ tenant_id: tenantId, cash_ledger_id: id })
         .orderBy('denominacion', 'desc')
-        .select('denominacion', 'piezas');
-      const desglosado = denominaciones.reduce((a: number, d: any) => a + Number(d.denominacion) * Number(d.piezas), 0)
-        + Number(mov.morralla || 0);
+        // `[CGP-L.8]` Con su `flujo`: el comprobante tiene que poder decir qué fue cambio.
+        .select('denominacion', 'piezas', 'flujo');
+      // Neto (recibido − devuelto): sumarlo todo publicaba un descuadre que no existía.
+      const desglosado = desgloseNeto(denominaciones, mov.morralla);
       return {
         ...mov,
         denominaciones,

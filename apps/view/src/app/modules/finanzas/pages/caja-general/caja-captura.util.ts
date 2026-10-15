@@ -532,3 +532,126 @@ export function textoSaldo(
    */
   return `Esperado en caja: ${m} (corte ${r.corte_abierto?.folio ?? '—'}).`;
 }
+
+/**
+ * `[CGP-V.12]` El 409 de `cerrar()` cuando el esperado cambió desde que se contó (`[CGP-L.2]`).
+ *
+ * Si entró un movimiento de la jornada después de contar, el servidor ya no firma en silencio otro
+ * esperado: responde 409 con las dos cifras. Esto las lee para que el diálogo de cierre las MUESTRE
+ * y ofrezca confirmar la nueva; sin esto el 409 caía en un aviso de 7 s sin salida — un callejón.
+ *
+ * ⚠️ Sin las dos cifras numéricas devuelve `null`: no se ofrece confirmar un número que no llegó, y
+ * el error sigue por el aviso normal.
+ */
+export interface ConflictoEsperado { mostrado: number; actual: number; mensaje: string }
+
+export function conflictoDeEsperado(e: unknown): ConflictoEsperado | null {
+  const err = e as {
+    status?: number;
+    error?: { motivo?: string; message?: unknown; esperado_mostrado?: unknown; esperado_actual?: unknown };
+  } | null;
+  if (!err || err.status !== 409 || err.error?.motivo !== 'esperado_cambio') return null;
+  const mostrado = Number(err.error.esperado_mostrado);
+  const actual = Number(err.error.esperado_actual);
+  if (!Number.isFinite(mostrado) || !Number.isFinite(actual)) return null;
+  return { mostrado, actual, mensaje: String(err.error.message ?? '') };
+}
+
+// ── `[CGP-V.1]` En qué paso va el corte ──────────────────────────────────────────────────────────
+
+/**
+ * Los pasos de un corte, en el orden de la jornada. Revisar la diferencia va aparte de cerrar
+ * porque son dos decisiones: si hay diferencia se puede recontar una vez, y después ya no.
+ */
+export type PasoCorte = 'abrir' | 'contar' | 'revisar' | 'cerrar' | 'autorizar';
+
+export const PASOS_CORTE: ReadonlyArray<{ paso: PasoCorte; label: string }> = [
+  { paso: 'abrir', label: 'Abrir' },
+  { paso: 'contar', label: 'Contar a ciegas' },
+  { paso: 'revisar', label: 'Revisar la diferencia' },
+  { paso: 'cerrar', label: 'Cerrar' },
+  { paso: 'autorizar', label: 'Autorizar' },
+];
+
+/** Lo que hace falta saber para decir el paso. Todo sale del servidor. */
+export interface EstadoParaPaso {
+  /** `null` = el saldo no se pudo medir: no se sabe si hay corte abierto. */
+  corteAbierto: boolean | null;
+  /** El conteo sellado del corte abierto; `null` mientras nadie contó. */
+  sellado: { ofreceRecontar: boolean } | null;
+  /** El esperado cambió desde el conteo (el 409 de `[CGP-L.2]`). */
+  conflicto: boolean;
+  /** Sin corte abierto, el último corte quedó cerrado y nadie lo autorizó todavía. */
+  porAutorizar: boolean;
+  /** La persona eligió recontar: la reja vuelve a abrirse. */
+  recontando: boolean;
+}
+
+/**
+ * ⛔ Devuelve `null` cuando no se sabe si hay corte: afirmar «abrir» ahí invitaría a abrir un
+ * segundo corte encima de uno vivo, que es justo lo que ese «sin medir» protege.
+ */
+export function pasoDelCorte(e: EstadoParaPaso): PasoCorte | null {
+  if (e.corteAbierto === null) return null;
+  if (!e.corteAbierto) return e.porAutorizar ? 'autorizar' : 'abrir';
+  if (!e.sellado || e.recontando) return 'contar';
+  if (e.conflicto || e.sellado.ofreceRecontar) return 'revisar';
+  return 'cerrar';
+}
+
+/** Qué sigue, en una frase. El folio sólo se usa para nombrar el corte que falta autorizar. */
+export function textoPaso(p: PasoCorte, folio?: string | null): string {
+  switch (p) {
+    case 'abrir': return 'No hay corte abierto: sigue abrir el de la jornada.';
+    case 'contar': return 'Sigue contar el efectivo sin ver el esperado. Al guardar el conteo se revela la diferencia.';
+    case 'revisar': return 'Revisá la diferencia: se puede recontar una sola vez, con motivo, o cerrar con ella.';
+    case 'cerrar': return 'Sigue cerrar el corte. Después lo autoriza otra persona.';
+    case 'autorizar': return `${folio ? `El corte ${folio} quedó cerrado: falta` : 'Falta'} que lo autorice otra persona, porque quien cierra no autoriza.`;
+  }
+}
+
+// ── `[CGP-V.5]` El error dice lo que dijo el servidor ─────────────────────────────────────────────
+
+/** Lo que Nest manda cuando el guardia de permisos frena: no dice nada de la regla de negocio. */
+const FORBIDDEN_GENERICO = 'Forbidden resource';
+
+/**
+ * El texto de un error del servidor, para mostrarlo donde la persona lo va a leer.
+ *
+ * ⛔ Un 403 se pintaba siempre «No tenés permiso». Pero el 403 de autorizar trae la frase de la
+ * doble llave («Quien cerró el corte no puede autorizarlo»), y taparla hacía creer que faltaba un
+ * permiso. Sólo el 403 genérico del guardia (sin frase, o con la de Nest en inglés) se traduce.
+ * Las frases de validación pueden venir en lista: se juntan, no se pierde ninguna.
+ */
+export function textoDeError(e: unknown): string {
+  const err = e as { status?: number; error?: { message?: unknown } } | null;
+  const crudo = err?.error?.message;
+  const frase = Array.isArray(crudo)
+    ? crudo.map((m) => String(m).trim().replace(/\.$/, '')).filter(Boolean).join('. ') + '.'
+    : typeof crudo === 'string' ? crudo.trim() : '';
+  if (err?.status === 0) return 'No hay conexión con el servidor.';
+  if (err?.status === 429) return 'El servidor pidió esperar: hubo demasiadas peticiones a la vez. Reintentá en unos segundos.';
+  if (err?.status === 403) return frase && frase !== FORBIDDEN_GENERICO ? frase : 'No tenés permiso para esta acción.';
+  if (err?.status === 409) return frase || 'Ese movimiento ya estaba aplicado.';
+  return frase || 'El servidor respondió con un error.';
+}
+
+// ── `[CGP-L.8]` Las dos pilas del detalle ──────────────────────────────────────────────────────
+
+/**
+ * Separa lo que entró del cambio que salió. El detalle del servidor trae las dos pilas en una lista
+ * con su `flujo`; sin separarlas, el comprobante imprimía el cambio como recibido. Un renglón sin
+ * `flujo` (un movimiento anterior a `[CG.38]`) es lo recibido. Las cifras llegan como texto (el
+ * `numeric` de Postgres): se convierten.
+ */
+export function separarPorFlujo(
+  dens: ReadonlyArray<{ denominacion: number | string; piezas: number | string; flujo?: string | null }> | null | undefined,
+): { recibido: Array<{ denominacion: number; piezas: number }>; devuelto: Array<{ denominacion: number; piezas: number }> } {
+  const recibido: Array<{ denominacion: number; piezas: number }> = [];
+  const devuelto: Array<{ denominacion: number; piezas: number }> = [];
+  for (const d of dens ?? []) {
+    const r = { denominacion: Number(d.denominacion), piezas: Number(d.piezas) };
+    (d.flujo === 'devuelto' ? devuelto : recibido).push(r);
+  }
+  return { recibido, devuelto };
+}

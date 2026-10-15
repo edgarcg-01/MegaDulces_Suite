@@ -23,7 +23,8 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, forkJoin, from, of, switchMap, catchError, map } from 'rxjs';
 import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
-import { VendorService, VendorCustomer, VendorOrder, FrequentProduct } from '../vendor.service';
+import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type CatalogoAlAbrir } from '../vendor.service';
+import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -38,6 +39,8 @@ import {
   factorDe,
   rotuloCrudo,
   subirEscalon,
+  contenidoCaja,
+  type ContenidoCaja,
   // `[COT.1b]` Se mudó a `libs/ui-web` (con su spec) para que la pantalla de cotizaciones
   // pueda usar la MISMA aritmética: una app Nx no importa de otra app. Acá no cambia nada
   // de comportamiento — es la misma función, en una casa donde dos apps la alcanzan.
@@ -214,6 +217,10 @@ const foldText = (s: string | null | undefined): string =>
               <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traés en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
             }
           }
+          <!-- [VTK.11] Se abrió con el catálogo guardado: se dice de cuándo es mientras llega el nuevo. -->
+          @if (catalogoAviso(); as av) {
+            <p class="cat-age" [class.warn]="av.fallo" role="status"><i class="pi pi-clock" aria-hidden="true"></i> {{ av.texto }}</p>
+          }
           <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Catálogo -->
           @if (searchTerm().trim()) {
             <div class="list-head">
@@ -228,7 +235,7 @@ const foldText = (s: string | null | undefined): string =>
                 </div>
               }
               @for (p of displayed(); track trackProduct($index, p)) {
-                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p, box: true }"></ng-container>
               }
             </div>
           } @else {
@@ -270,7 +277,7 @@ const foldText = (s: string | null | undefined): string =>
             }
           }
           <!-- Fila de producto (reusada en búsqueda / habituales / catálogo) -->
-          <ng-template #prodRow let-p>
+          <ng-template #prodRow let-p let-box="box">
             <!-- [VTK.6] Fila compacta: sin el ícono de caja (le gana ancho al nombre) y las
                  unidades en el mismo renglón que el precio. -->
             <div class="prod" [class.in]="cartQty(p.product_id) > 0">
@@ -298,6 +305,25 @@ const foldText = (s: string | null | undefined): string =>
                     <span class="rot"><i class="pi pi-bolt"></i> Alta rotación</span>
                   }
                 </div>
+                <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
+                @if (box && contenidoCajaById().get(p.product_id); as bc) {
+                  <div class="box-c">
+                    <i class="pi pi-box" aria-hidden="true"></i>
+                    <span>1 {{ bc.caja }} trae
+                      @for (pt of bc.partes; track pt.unit; let last = $last) {
+                        <b>{{ pt.qty }}</b>&nbsp;{{ pt.unit }}@if (!last) {<span class="sep"> · </span>}
+                      }
+                    </span>
+                  </div>
+                }
+                <!-- [VTK.12] Con la caja elegida en el selector: cuántas piezas trae. En la búsqueda
+                     ya lo dice la línea de arriba, así que ahí no se repite. -->
+                @if (!(box && contenidoCajaById().get(p.product_id)) && cajaElegida(p); as ce) {
+                  <div class="box-sel">
+                    <i class="pi pi-box" aria-hidden="true"></i>
+                    <span>1 {{ ce.caja }} = <b>{{ ce.piezas }}</b>&nbsp;{{ ce.base }}@if (ce.enPedido) {<span class="sep"> · en el pedido <b>{{ ce.enPedido }}</b>&nbsp;{{ ce.base }}</span>}</span>
+                  </div>
+                }
                 <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
                 @if (mayoreoHint(p); as mh) {
                   <div class="may-hint" [class.reached]="mh.reached">
@@ -565,6 +591,15 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may-hint b { color: var(--action); font-weight: 800; }
       .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
       .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
+      /* [VTK.9] Contenido de la caja en los resultados de búsqueda. */
+      .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
+      .prod .box-c i { font-size: 0.7rem; }
+      .prod .box-c b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+      /* [VTK.12] Caja elegida en el selector. */
+      .prod .box-sel { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-main); }
+      .prod .box-sel i { font-size: 0.7rem; color: var(--action); }
+      .prod .box-sel b { font-family: var(--font-mono); font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
+      .prod .box-sel .sep { color: var(--text-muted); }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
       .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
@@ -584,6 +619,10 @@ const foldText = (s: string | null | undefined): string =>
       .ss-warn i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       .ss-note { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--text-muted); }
       .ss-note i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
+      /* [VTK.11] Edad del catálogo cuando se abrió con la copia guardada. */
+      .cat-age { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-muted); }
+      .cat-age i { font-size: 0.7rem; }
+      .cat-age.warn { color: var(--warn-fg); }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -821,6 +860,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly loadError = signal(false);
   readonly customer = signal<VendorCustomer | null>(null);
   readonly prices = signal<PriceRow[]>([]);
+  /** `[VTK.11]` De dónde salió el catálogo que se ve y de cuándo es. */
+  readonly catalogo = signal<{ origen: OrigenCatalogo; at: number } | null>(null);
+  /** `[VTK.11]` Bajando el catálogo nuevo detrás de la copia que se muestra. */
+  readonly catalogoRefrescando = signal(false);
+  /** `[VTK.11]` La recarga de fondo falló: se sigue con la copia y se dice. */
+  readonly catalogoFallo = signal(false);
+  /**
+   * `[VTK.11]` El aviso de la edad del catálogo (ADR-056). Null cuando lo que se ve acaba de
+   * bajar del servidor: ahí no hay nada que declarar.
+   */
+  readonly catalogoAviso = computed(() => {
+    const c = this.catalogo();
+    const refrescando = this.catalogoRefrescando();
+    const fallo = this.catalogoFallo();
+    if (!c || c.origen === 'servidor') return null;
+    const edad = edadCatalogo(Date.now() - c.at);
+    if (refrescando) return { texto: `Precios y existencia de ${edad} · actualizando…`, fallo: false };
+    if (fallo) return { texto: `Precios y existencia de ${edad} · no se pudo actualizar`, fallo: true };
+    return { texto: `Precios y existencia de ${edad}`, fallo: false };
+  });
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
   /**
@@ -1064,6 +1123,46 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     return [] as PriceRow[];
   });
 
+  /**
+   * `[VTK.9]` Cuánto trae la caja de cada resultado de búsqueda (pedido de ruta, 2026-10-14: el
+   * cliente pregunta «¿cuántas trae?» y la respuesta sólo vivía en el factor del selector).
+   * `[VTK.12]` Se calcula una vez por catálogo (no al teclear) porque también lo usa la caja
+   * elegida en el selector, en cualquier lista. Son ~9,400 escaleras de 2–3 peldaños: milisegundos.
+   */
+  readonly contenidoCajaById = computed(() => {
+    const m = new Map<string, ContenidoCaja>();
+    for (const p of this.prices()) {
+      const c = contenidoCaja(this.unitsOf(p), this.cajaDeclarada(p));
+      if (c) m.set(p.product_id, c);
+    }
+    return m;
+  });
+
+  /**
+   * La caja que declara la escalera de Kepler de la sucursal (peldaño `box`: CJA, BTO o CUB).
+   * `null` = vino la escalera y no declara caja; `undefined` = no vino (se reconoce por rótulo).
+   */
+  /**
+   * `[VTK.12]` Con la CAJA elegida en el selector, cuántas unidades base trae (y cuántas lleva ya
+   * el pedido). Pedido de ruta, 2026-10-15: «cuando seleccionen caja, que diga cuántas piezas
+   * tiene». Null si la unidad elegida no es la caja o el producto no declara caja: no se inventa.
+   * La unidad base es la del producto (PZA, KG, PAQ…), no siempre pieza.
+   */
+  cajaElegida(p: PriceRow): { caja: string; piezas: number; base: string; enPedido: number | null } | null {
+    const c = this.contenidoCajaById().get(p.product_id);
+    const su = this.selectedUnit(p);
+    if (!c || !su || su.unit !== c.caja) return null;
+    const base = c.partes[c.partes.length - 1];
+    const q = this.cartQty(p.product_id) || 0;
+    return { caja: c.caja, piezas: base.qty, base: base.unit, enPedido: q > 0 ? q : null };
+  }
+
+  private cajaDeclarada(p: PriceRow): { unit: string; factor: number } | null | undefined {
+    if (!p.rungs?.length) return undefined;
+    const b = p.rungs.find((r) => r.rung === 'box');
+    return b ? { unit: b.unit, factor: b.factor } : null;
+  }
+
   readonly cartUnitsTotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.quantity), 0));
   readonly cartSubtotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.line_subtotal), 0));
   readonly cartTaxTotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.line_tax), 0));
@@ -1175,9 +1274,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             warehouseId: of(warehouseId),
             // catalog/draft con fallback: un 403/red en ellos ya no deja la
             // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
+            // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
             catalog: this.api
-              .catalogForCustomer(customer, warehouseId || undefined)
-              .pipe(catchError(() => of({ priceListId: '', prices: [] as PriceRow[] }))),
+              .catalogInstant(customer, warehouseId || undefined)
+              .pipe(
+                catchError(() =>
+                  of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
+                ),
+              ),
             // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
             // el borrador suelto del cliente, como siempre.
             existingDraft: this.editingOrderId()
@@ -1209,16 +1313,24 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.loading.set(false);
           // Cachear el contexto (best-effort) para poder armar el pedido sin red
           // en una próxima visita a este cliente.
+          // [VTK.11] El catálogo sólo se reescribe cuando llegó del servidor; si se abrió con la
+          // copia guardada, se guarda sólo el cliente (reescribir ~10 MB iguales es trabajo de más).
+          this.catalogo.set({ origen: catalog.origen, at: catalog.at });
+          this.catalogoFallo.set(false);
           if (catalog.priceListId) {
-            void this.offlineApi
-              .cacheContext(customerId, {
-                customer,
-                priceListId: catalog.priceListId,
-                warehouseId: warehouseId || '',
-                prices: catalog.prices,
-                frequent,
-              })
-              .catch(() => void 0);
+            const guardar = catalog.origen === 'servidor'
+              ? this.offlineApi.cacheContext(customerId, {
+                  customer,
+                  priceListId: catalog.priceListId,
+                  warehouseId: warehouseId || '',
+                  prices: catalog.prices,
+                  frequent,
+                })
+              : this.offlineApi.cacheCustomer(customerId, { customer, priceListId: catalog.priceListId, frequent });
+            void guardar.catch(() => void 0);
+            if (hayQueRefrescar(catalog.origen, catalog.at, Date.now())) {
+              this.refrescarCatalogo(customer, warehouseId || '', customerId, frequent);
+            }
           }
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
@@ -1284,6 +1396,42 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.stockLoading.set(false);
         },
         error: () => this.stockLoading.set(false),
+      });
+  }
+
+  /**
+   * `[VTK.11]` Baja el catálogo nuevo detrás de la copia con la que se abrió y la reemplaza.
+   * Si mientras tanto el vendedor cambió a ver la camioneta, NO se pisa esa vista: el catálogo
+   * nuevo igual queda guardado para la próxima apertura.
+   */
+  private refrescarCatalogo(
+    customer: VendorCustomer,
+    warehouseId: string,
+    customerId: string,
+    frequent: FrequentProduct[],
+  ): void {
+    this.catalogoRefrescando.set(true);
+    this.api
+      .catalogForCustomer(customer, warehouseId || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fresh) => {
+          this.catalogoRefrescando.set(false);
+          if (!fresh.priceListId || !fresh.prices.length) {
+            this.catalogoFallo.set(true);
+            return;
+          }
+          void this.offlineApi
+            .cacheContext(customerId, { customer, priceListId: fresh.priceListId, warehouseId, prices: fresh.prices, frequent })
+            .catch(() => void 0);
+          if (this.stockView() !== 'sucursal' || this.stockWarehouseId() !== warehouseId) return;
+          this.prices.set(fresh.prices);
+          this.catalogo.set({ origen: 'servidor', at: Date.now() });
+        },
+        error: () => {
+          this.catalogoRefrescando.set(false);
+          this.catalogoFallo.set(true);
+        },
       });
   }
 
