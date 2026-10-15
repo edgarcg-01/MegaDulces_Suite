@@ -674,7 +674,7 @@ const MES: Record<string, string> = {
                         {{ arqSinMedir() }} todavía sin arqueo, fuera de la cuenta.
                       }
                     </p>
-                    <p-table [value]="arqDias()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
+                    <p-table [value]="arqDias()" size="small" class="surf-table" [scrollable]="true" scrollHeight="46vh">
                       <ng-template #header>
                         <tr>
                           <th scope="col">Día</th>
@@ -751,7 +751,7 @@ const MES: Record<string, string> = {
                     </p>
                   }
 
-                  <p-table [value]="depDepositos()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="46vh">
+                  <p-table [value]="depDepositos()" size="small" class="surf-table" [scrollable]="true" scrollHeight="46vh">
                     <ng-template #header><tr>
                       <th scope="col">Depósito</th>
                       <th scope="col">Cuándo</th>
