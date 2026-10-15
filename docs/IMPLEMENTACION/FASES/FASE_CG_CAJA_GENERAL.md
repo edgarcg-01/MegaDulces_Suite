@@ -3435,10 +3435,66 @@ el libro, la jornada se mide por `created_at`; para CAOS, por `accounting_date`�
 `arqueoDelDia`; **no** es lo que hace el corte. *Dos implementaciones del mismo cuadre divergieron, y
 la que firma es la que se apartó del plan.*
 
-⇒ **No se cierra con una decisión de software.** Antes de mover el filtro hay que decidir **qué es la
-jornada de Caja General** (ver las preguntas abiertas abajo), porque mover el reloj cambia a qué corte
-pertenece cada movimiento ya capturado. Hasta entonces: ningún corte con movimientos `fechados_otro_dia`
-debería firmarse sin declararlo — y el corte hoy ni siquiera los cuenta.
+⇒ **No se cierra con una decisión de software.** Mover el reloj cambia a qué corte pertenece cada
+movimiento todavía suelto.
+
+#### ✅ DECIDIDO por Edgar el 2026-10-15: la jornada es **el día en que se movió el efectivo**
+
+> **Pregunta:** ¿a qué día pertenece un movimiento del corte — al del efectivo o al del documento?
+> **Respuesta:** *«el día en que se movió el efectivo»*.
+
+Y sobre el sobrante de una dispensación, la segunda respuesta del mismo día: *«depende, se puede
+devolver a CAOS o se queda en caja; **es por eso que se carga a Caja General**, y si lo sube a CAOS se
+concilia el movimiento con el ingreso a CAOS»*.
+
+⭐ **Eso confirma que el motor ya está bien y no hay que tocarlo:** las dos piernas brutas resuelven
+los dos casos solas — si el sobrante vuelve a la máquina aparece su depósito y el neto es cero; si se
+queda, el arqueo lo encuentra. **No hace falta enlazar cada dispensación con su egreso**, que es lo
+que `[CG.96]` ya había decidido. Lo único fuera de lugar es **el reloj del libro**.
+
+#### `[CGP-L.12]` ⬜ El libro del corte se mide por el día del EFECTIVO
+
+**Alcance exacto — una sola función.** Gracias al extracto de `[CG.160]`, `sueltosDe()` es la única
+puerta: la usan `contar` (761), `recontar` (797), el atado de `cerrar` (922) y `saldo` (1231). Se
+cambia **un predicado**:
+
+```diff
+- .modify((q) => { if (dia) q.where('fecha', dia); })
++ .modify((q) => { if (dia) q
++     .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
++     .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia]); })
+```
+
+⚠️ **Rango sobre la columna, nunca `created_at::date`** — envolverla la saca del índice (`[LC.9]`:
+un `to_char(fecha)` convirtió una consulta en un seq scan de 167k filas). Es la misma forma que ya usa
+`arqueoDelDia`.
+
+**Lo que NO cambia, y es lo que lo vuelve seguro:** `sueltosDe()` filtra `whereNull('corte_id')`.
+**Ningún movimiento ya atado a un corte firmado se mueve de lugar.** El cambio sólo decide en qué
+jornada cae lo que todavía está suelto.
+
+**Lo que hay que tocar con él, o volverán a divergir:** `sueltosFuera()` (los sueltos de otros días
+que la pantalla declara), la consulta de `jornadas-pendientes` de `[CGP-L.4]` y el sensor de
+`[CGP-L.10]`, que comparten la pregunta «qué días tienen movimientos y no tienen corte».
+
+**Aceptación (prueba en rojo primero, contra la base del job `caja-db`):** un gasto con
+`fecha` = D−3 y `created_at` = D, y su dispensación de CAOS con `accounting_date` = D. Hoy el corte
+de D suma `+dispensado` sin su gasto y publica un **faltante** del tamaño del gasto; con el arreglo
+el corte de D los cancela y sólo queda la morralla. Mutación: volver a `.where('fecha', dia)` pone la
+prueba en rojo. ⛔ Es además la prueba que le falta al hueco nº 1 de abajo: **ejerce las dos piernas
+de CAOS contra Postgres**, que hoy no las ejerce nadie.
+
+⚠️ **Y lo que esto NO resuelve, declarado:** `created_at` es **cuándo se tecleó**, no cuándo se movió
+el efectivo. Coinciden cuando la captura es del mismo día. **El libro no tiene columna para el día del
+efectivo** — sólo `fecha` (documento) y `created_at` (captura); `occurred_at` es de la máquina, no del
+libro. Una captura tardía vuelve a separar las piernas, con el mismo efecto y más chico. El arreglo
+robusto es una columna propia del día del efectivo (por omisión, el de captura), y queda como deuda
+con nombre. ⛔ **Cuánto pasa hoy no se puede medir desde acá**: lo mide `CGP-0.5` leyendo prod, y
+`arqueoDelDia` ya publica `fechados_otro_dia` para eso.
+
+⚠️ Merece **ADR propio** («la jornada de Caja General es el día del efectivo»): no se escribió todavía
+porque `02_DECISIONES_ARQUITECTURA.md` tiene cambios sin commitear de otra sesión en el árbol
+compartido.
 
 ### ⛔ 1. La fórmula del esperado tiene cinco términos; contra base real se ejercen tres
 
