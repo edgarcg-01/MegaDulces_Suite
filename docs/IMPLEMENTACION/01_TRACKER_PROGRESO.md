@@ -9230,6 +9230,14 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   como recibido. `desgloseNeto()` en el motor (una sola cuenta para el candado y el detalle);
   `detail()` devuelve el `flujo`; el ticket imprime CAMBIO aparte. Prueba nueva contra la base, en el
   job `caja-db`. 3 mutaciones atrapadas.
+- [ ] 🧪 **`[CGP-L.5]`** Un solo helper de fechas (`libs/contracts`): `diaDeFecha` para columnas `date`
+  (componentes locales: así las arma node-pg) y `diaMxDeInstante` para instantes (el día de negocio en
+  México). Defecto vivo que cerró: la conciliación de ingresos de CAOS tomaba el día del depósito en
+  UTC, y un depósito a las 19:00 del 12-oct consumía un cobro del 13. También `diaDe` del corte, el
+  mes por omisión de la caja general y la ventana del autollenado. Medido con el parser de pg en tres
+  zonas: `toISOString` da el día anterior al este de UTC. Suite de caja verde en UTC, México y Tokio;
+  paso nuevo en `caja-db` que la corre en México y Tokio. ⚠️ `ymd()` del emparejador de CAOS sirve a
+  `date` y `timestamptz` a la vez: no se tocó, queda declarado.
 - [ ] ⬜ `[CGP-D.4]`, `[CGP-D.6]`, regla del fondo (D2): decisiones pendientes.
 
 ---

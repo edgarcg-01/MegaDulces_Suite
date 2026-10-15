@@ -477,6 +477,40 @@ renglón sin `flujo` es lo recibido. `detail()` devuelve el `flujo`; la pantalla
 (el cambio vuelve a sumarse, el ticket no lo imprime, la pantalla mezcla las pilas).
 `libs/finance/src/lib/caja`: 26 archivos, **448**; `caja-general`: **388**.
 
+### 6.4 Estado al 2026-10-15: L.5 (🧪 probado en local, en tres zonas horarias)
+
+**`[CGP-L.5]` — un solo helper de fechas, y las dos preguntas separadas.** La caja se hace dos
+preguntas de fecha que no son la misma, y mezclarlas era el defecto:
+
+- **¿Qué día es esta columna `date`?** → `diaDeFecha`. node-pg arma un `date` como medianoche LOCAL
+  del proceso (el repo no fija `setTypeParser`). **Medido con el propio parser de pg en tres zonas:**
+  `toISOString().slice(0,10)` da el día correcto en UTC y en México, y **el anterior en Tokio**; los
+  componentes locales dan el correcto en las tres. `String(Date).slice(0,10)` da «Tue Oct 13».
+- **¿Qué día de NEGOCIO fue este instante?** → `diaMxDeInstante` (zona de México).
+
+Los dos viven en `libs/contracts` (sin dependencias: los comparten servidor y pantalla). Se aplican:
+
+- **El defecto vivo:** la conciliación de ingresos de CAOS (`occurred_at` es `timestamptz`) tomaba el
+  día del depósito en UTC. Un depósito a las 19:00 del 12-oct «era» del 13 y **consumía un cobro del
+  13**, dinero que todavía no existía. Prueba en rojo antes del arreglo.
+- `diaDe` del corte (su nota decía que el `date` llega a medianoche UTC: era falso, y funcionaba de
+  casualidad), el `ymd` y el mes por omisión de la caja general (con `toISOString` el último día
+  después de las 18:00 ya era el mes siguiente), y la ventana del autollenado.
+
+**Pruebas:** 6 del helper y 2 del motor de CAOS. **La suite de caja completa (450, con las de la base)
+pasa con el proceso en UTC, México y Tokio.** 2 mutaciones atrapadas: `diaDe` con `toISOString`
+rompe 6 pruebas en Tokio, y el depósito con el día UTC rompe la suya. Paso nuevo en el job `caja-db`:
+la suite en México y en Tokio.
+
+⚠️ **Lo que encontré midiendo:** en Git Bash, `TZ=Asia/Tokyo` **no llega a Node** (se queda en la zona
+de la máquina): la primera corrida «en tres zonas» en realidad cubrió dos. Se repitió desde PowerShell,
+preguntándole a Node qué zona usaba. Y las mutaciones sobre la prueba de la 00 vuelven a dejar un
+borrador abierto en la base local: hay un limpiador para eso.
+
+⛔ **Declarado, no tocado:** `ymd()` del emparejador de CAOS (`caja-caos-match.engine`) sirve a la vez a
+columnas `date` y `timestamptz`, y usa `toISOString`. Cuál de las dos preguntas corresponde depende de
+cada llamador; ninguna prueba lo ejerce en Tokio.
+
 ⚠️ Verificación de tipos: `tsc --noEmit` sobre `libs/finance` da errores `TS1272`, **todos en
 archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin los cambios; el «21» que
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
