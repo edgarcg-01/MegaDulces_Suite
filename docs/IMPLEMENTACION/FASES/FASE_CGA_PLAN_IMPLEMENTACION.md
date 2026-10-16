@@ -473,3 +473,106 @@ lo mira **no filtra nada**; lo único que defiende es el veredicto `dia_en_curso
 - ⚠️ **Y una advertencia sobre el propio método:** mi escéptico marcaba `refutado=true` tanto si el
   número estaba mal como si la conclusión no se seguía. **El conteo 43/46 no significa nada**;
   cada veredicto hubo que leerlo. Si alguien repite este montaje, que separe los dos campos.
+
+---
+
+## 10. ⛔⛔ OBJETIVO PERMANENTE DE LA FASE: que un cobro NUNCA vuelva a volverse invisible
+
+> Pedido de Edgar el 2026-10-16, dos veces y con estas palabras: *«necesito que documentes esto y me
+> des una **solución general, no parches**, y que jamás vuelva a ocurrir»*.
+> **Esta sección es un objetivo de la fase, no una tarea cerrable: `CGA` no se da por entregada
+> mientras A.10–A.13 no estén ✅.**
+
+### 10.1 Qué pasó, en una pantalla
+
+El 16-oct se cablearon cuatro camionetas al push de cobros. Edgar capturó el cobro de la ruta 28 y
+**el de la ruta 22 desapareció de la bandeja**:
+
+```
+01-006  ruta_28  U-A-5 0000013  $13,699.00  ← capturado
+01-002  ruta_22  U-A-5 0000013  $15,321.00  ← INVISIBLE
+```
+
+El descuento anti-duplicado de `movimientosPendientes()` (`[CG.85]`) preguntaba
+`yac.glosa LIKE doc_tipo || ' ' || folio || '%'`. **El folio de camioneta es consecutivo por unidad,
+no global**, así que cada captura tapaba a todos sus homónimos de otras sucursales.
+
+| | movimientos | importe |
+|---|---:|---:|
+| Escondidos por el defecto | **157** | **$1,325,687.43** |
+| Recuperados por `[CGA-A.9]` (acotar el descuento a `origen_tipo='caos'`) | **141** | **$1,114,139.29** |
+| **Hueco que queda abierto** (capturas CAOS que chocan entre sí) | **16** | **$211,548.14** |
+
+⛔ **El modo de fallar es el peor posible: el dinero no se pierde ni se duplica — se vuelve
+invisible.** La fila sigue en la vista, con su importe correcto, y la pantalla no la ofrece. No hay
+error, no hay log, no hay descuadre. Es **indistinguible de «ese día no hubo cobro»**. Mismo patrón
+que `GOTCHAS` §83 (corpus ausente ≡ producto inexistente) y que el arqueo de 8 días en cero.
+
+⚠️ **Y no fue un incidente aislado: fue el cuarto parche del día sobre el mismo carril** — el bloque
+de cobros que no estaba en ninguna plantilla, el host equivocado, el `connect_timeout`, y este
+filtro. **Cuatro síntomas, dos causas de fondo**, y son las que atacan A.10–A.13.
+
+### 10.2 Causa raíz 1 — se identifica un documento por PROSA
+
+`finance.cash_ledger.glosa` es texto libre para que lo lea un humano. Que hoy empiece con
+`doc_tipo folio` es **una coincidencia de formato, no un contrato**. Y la llave buena ya existe:
+
+- `origen_ref` lleva la identidad completa (`sucursal|doc_tipo|folio` para Kepler,
+  `device|external_id` para CAOS) y está protegida por el candado único
+  `ux_cash_ledger_origen_vivo (origen_tipo, origen_ref)`.
+- La vista `finance.v_caja_movimientos_pendientes` **ya excluye lo capturado por `origen_ref`**, que
+  es exacto. El `LIKE` nunca debió mirar esas filas.
+
+El `LIKE` existía por **un solo caso**: la captura desde CAOS no tiene `origen_ref` del documento de
+Kepler —el suyo es `device|external_id`—, así que *declaraba* el documento **escribiéndolo en la
+prosa**. Ese es el defecto de diseño, y es lo que A.10 elimina.
+
+### 10.3 Causa raíz 2 — cada camioneta es un archivo suelto que nadie valida
+
+El `.cmd` de cada unidad se pega a mano, máquina por máquina. No hay plantilla única, no hay quién
+compare lo desplegado contra lo esperado, y **un bloque faltante o un host mal escrito no produce
+rojo: produce silencio**. De ahí salieron los otros tres parches del día. Lo ataca A.12/A.13.
+
+### 10.4 La solución general — cuatro items, en orden
+
+| # | Item | Qué hace | Estado |
+|---|---|---|---|
+| **A.9** | **Acotar el descuento a `origen_tipo='caos'`** | Quita el `LIKE` de encima de todo lo que ya tiene llave exacta. Recupera 141 movimientos | ✅ commiteado (`2d3ba49b1`) · ⚠️ **sin desplegar** |
+| **A.10** | ⭐⭐ **Matar el `LIKE`: la captura CAOS declara el documento en una COLUMNA** | Columna nueva `declared_doc_ref` en `finance.cash_ledger` (`sucursal\|doc_tipo\|folio`), que la pantalla llena al elegir el documento. El descuento pasa a ser **igualdad sobre la llave**, en los dos lados. **El `LIKE` desaparece del código.** Cierra los 16 / $211,548.14 | ⬜ |
+| **A.11** | **Compuerta estática: prohibido un `LIKE` sobre `glosa` dentro de un `NOT EXISTS`** | `check:dedup-por-llave` recorre `libs/finance/**` y falla si un descuento anti-duplicado compara texto libre. Con prueba negativa | ⬜ |
+| **A.12** | **Una sola plantilla versionada para el `.cmd` de camioneta** | El archivo se **genera** desde `database/importers/kepler/route-push/`, no se pega. Fin de las variantes por máquina | ⬜ |
+| **A.13** | **`check:camioneta-sin-cobro`** | Compara `route_push_heartbeat` (11 unidades) contra `route_collections_heartbeat` (4): toda unidad que empuja ventas y no empuja cobros sale nombrada. Cierra G2 | ⬜ |
+
+#### Cómo se migra A.10 sin apagar nada
+
+1. Migración **aditiva**: `declared_doc_ref text NULL` + índice parcial. Nada se rompe.
+2. La pantalla de captura CAOS la llena **al elegir el documento** (el dato ya está en la mano —
+   es la fila que el operador tocó). Se sigue escribiendo la glosa, para el humano.
+3. El descuento queda **en dos ramas declaradas**: igualdad por `declared_doc_ref` cuando lo hay;
+   el `LIKE` acotado sólo para `declared_doc_ref IS NULL`, es decir **lo histórico**.
+4. `check:cobro-escondido` cuenta las filas que siguen cayendo en la rama vieja. **Cuando llegue a
+   cero, el `LIKE` se borra** — y hasta entonces el hueco tiene número, no adjetivo (ADR-056).
+
+### 10.5 Las tres reglas que quedan, más allá de esta fase
+
+1. ⛔ **Un descuento anti-duplicado se hace por LLAVE, nunca por TEXTO.** Si el origen no trae la
+   llave, el defecto es del origen: se arregla ahí, no se compensa con un `LIKE`.
+2. ⛔ **Un `LIKE` sobre texto libre dentro de un `NOT EXISTS` es un filtro que BORRA filas sin dejar
+   rastro.** Antes de escribir uno: ¿qué pasa si dos filas distintas producen el mismo prefijo?
+3. ⭐ **Todo filtro que QUITA filas de una bandeja necesita su propio detector que las cuente.** No
+   alcanza con probar que el filtro funciona: hay que medir **cuánto se lleva puesto**.
+
+Las tres quedan asentadas en [`docs/GOTCHAS.md` §86](../../GOTCHAS.md).
+
+### 10.6 Lo que vigila hoy, mientras A.10 no esté
+
+`npm run check:cobro-escondido` — compara **lo que la vista publica** contra **lo que la bandeja
+deja pasar** y nombra la diferencia.
+⭐ **Es la única compuerta de esta familia que sale con `exit 1` cuando ENCUENTRA algo**: un cobro
+escondido no es una decisión de negocio pendiente, es dinero que nadie puede ver.
+Su prueba negativa (`--self-test`) corre el descuento sin acotar y exige que esconda MÁS —
+`16` contra `157`—; si los dos dan igual, **lo declara no medido** en vez de darlo por bueno.
+
+⚠️ **Y lo que todavía NO está hecho, dicho con todas las letras:** `[CGA-A.9]` está **commiteado y
+sin empujar ni desplegar**. En producción el defecto sigue vivo. Verifiqué la consulta **leyendo
+prod**, no ejerciendo el endpoint — o sea que, según la regla 13 del proyecto, **no está probado**.
