@@ -1783,6 +1783,45 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // tablet, esas siete explicaciones no existian. Las definiciones NO se inventaron aca: se
   // subieron tal cual de `etiquetaVeredicto`, `etiquetaCosto`, `tipCosto`, `tipDias` y
   // `tipMarkup` del propio componente, que es donde ya vivian.
+  // `[CAT-COSTO.7]` Los tres costos de Kepler. Definiciones de Compras (2026-10-14/15), verificadas
+  // contra el ERP en `analytics.mv_kepler_costos` (mig 20261015115146). Lo de «última entrada» se
+  // escribe porque la documentación anterior la llamaba promedio, y no lo es.
+  'costos-kepler': {
+    title: 'Costos — los tres costos de Kepler',
+    intro: 'Kepler maneja tres costos distintos para el mismo producto, y cada uno contesta una pregunta distinta. Esta pantalla los pone lado a lado, en la unidad base del catálogo y sin impuesto. No corrige nada: los costos se corrigen en Kepler.',
+    groups: [
+      {
+        heading: 'Los tres costos',
+        entries: [
+          { term: 'Costo estándar', def: 'El del catálogo de productos de Kepler. Sobre él se aplica el margen para sacar el precio, así que si queda viejo, el precio queda armado sobre un costo que ya no existe. Sólo cambia cuando alguien edita la ficha.' },
+          { term: 'Último costo', def: 'Lo que costó la última compra, tomado de la XA2001 «Aplica Orden Entrada». Los traspasos entre sucursales y los ajustes de inventario NO lo mueven: no son compras. Si la sucursal nunca compró ese producto, se muestra la última compra de otra sucursal y se dice de cuál.' },
+          { term: 'Costo promedio', def: 'El que Kepler recalcula con cada entrada de mercancía y le pone a cada venta. Es contra el que Kepler mide la utilidad.' },
+          { term: 'Costo de la última entrada', def: 'Lo que costó la última mercancía que entró, sea compra, traspaso o ajuste. Es el que muestra Kepler en la valuación y el que la Suite usaba como «promedio»; no lo es. Aquí sólo es referencia.' },
+        ],
+      },
+      {
+        heading: 'Cómo leer «Contra último costo»',
+        entries: [
+          { term: 'Estándar abajo del último', def: 'La última compra costó más que el estándar (más de 1 %). El precio se armó con un costo menor al que hoy se paga: el margen planeado sale más alto que el real. Es lo primero que hay que revisar, sobre todo si la compra es reciente.' },
+          { term: 'Estándar arriba del último', def: 'La última compra costó menos que el estándar. Puede ser una compra con descuento o un estándar que no se bajó.' },
+          { term: 'Unidad no clara', def: 'La compra está registrada en una unidad que la ficha del catálogo no declara (por ejemplo, la ficha dice pieza y la compra dice paquete, sin decir cuántas piezas trae). No se puede comparar sin adivinar: va a la lista a depurar del catálogo.' },
+          { term: 'Sin compra', def: 'No hay ninguna XA2001 de ese producto en toda la red: no hay con qué comparar el estándar.' },
+          { term: 'Antigüedad', def: 'Qué tan vieja es la última compra. Una diferencia con compra de los últimos 90 días es una señal fresca; con una compra de hace más de 180 días, el último costo puede ya no ser lo que se paga hoy.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Qué hacer con «Estándar abajo del último»',
+        kind: 'fix',
+        steps: [
+          'Abrí el producto: el historial muestra cuándo cambió el estándar y cuándo cada compra.',
+          'Si la compra reciente es el precio nuevo del proveedor, actualizá el costo estándar en la ficha de Kepler.',
+          'Ojo: en Kepler, cambiar el costo estándar casi siempre cambia el precio de venta (pasó en 3 de cada 4 cambios). Es una decisión de precio, no un ajuste de datos.',
+        ],
+      },
+    ],
+  },
   'comisiones-rd': {
     title: 'Comisiones de Ruta Directa — guía',
     intro: 'La quincena de 14 días, ruta por ruta. La comisión se calcula sobre el SUBTOTAL (sin IVA, que es la base del costo) y la compuerta que decide si paga se abre con la VENTA TOTAL. Son dos cifras distintas a propósito: usar la venta como base inflaría el porcentaje ~16 puntos sin que nada se vea raro.',

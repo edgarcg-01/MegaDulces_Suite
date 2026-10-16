@@ -103,6 +103,8 @@ export * from './http/budget-result.contract';
 export * from './http/budget-income-forecast.contract';
 // [PU.14] La propuesta de capacidad de pago (por default desde el estimado de ingresos).
 export * from './http/budget-capacity-proposal.contract';
+// [CAT-COSTO.6–7] Los tres costos de Kepler (estándar · último · promedio) y la vista «Contra último costo».
+export * from './http/kepler-costos.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
