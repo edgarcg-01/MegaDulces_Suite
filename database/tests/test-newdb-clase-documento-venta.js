@@ -106,7 +106,17 @@ async function main() {
     sinMedir('no hay documentos espejo en esta base');
   }
 
-  // 6 — ⛔ PRUEBA NEGATIVA: se rompe la compuerta a propósito y se exige el rojo.
+  /**
+   * 6 — ⛔ PRUEBA NEGATIVA: se rompe la compuerta a propósito y se exige el rojo.
+   *
+   * ⚠️ Necesita una credencial que ESCRIBA. Desde el puesto de trabajo se lee prod en
+   * `default_transaction_read_only`, así que ahí esto no se puede ejercer — y eso se DECLARA
+   * `NO MEDIDO`, no se reporta verde ni se revienta la corrida. Para ejercerla de verdad va
+   * desde dentro del pod de `api`, que es donde vive la credencial de escritura:
+   *
+   *   kubectl exec -n prod $API -c api -- sh -c \
+   *     'PROD_DB_URL="$DATABASE_URL_NEW" node /app/database/tests/test-newdb-clase-documento-venta.js'
+   */
   await c.query('BEGIN');
   try {
     const antes = await c.query(`SELECT count(*)::int n FROM analytics.v_vecinal_route_doc_coverage
@@ -125,8 +135,15 @@ async function main() {
       mal('prueba negativa FALLIDA: se quitó la clase de UD1301 y la vista no lo declaró. ' +
           'La compuerta del bloque 2 no está midiendo nada.');
     }
+  } catch (e) {
+    if (/read-only/i.test(e.message)) {
+      sinMedir('prueba negativa: esta credencial es de sólo lectura. Correrla desde el pod de ' +
+               'api para ejercerla (ver el comentario del bloque 6)');
+    } else {
+      mal('prueba negativa: error inesperado — ' + e.message);
+    }
   } finally {
-    await c.query('ROLLBACK');
+    await c.query('ROLLBACK').catch(() => {});
   }
 
   await c.end();
