@@ -636,6 +636,48 @@ conciliación con la máquina prácticamente no se usa.
 
 ---
 
+### 6.9 ⛔⛔ 2026-10-16 — `[CGP-L.12]` NO SE SUELTA. Medido en prod: mueve $175,695.71 en un día
+
+> **Lo que lo destapó.** Edgar pidió aplicar a mano el cobro de la ruta 2V005 (venta del 7-oct,
+> arqueo folio 25, depósito CAOS op 1594) **con fecha 14-oct**, y después: *«debe ser o salir
+> capturado el 14»*. Se aplicó como `CI-2026-00045` el **16-oct**. Con eso quedó un caso real para
+> comparar los dos relojes sobre la misma jornada:
+>
+> | Jornada 14-oct, según | Movs | Neto | ¿Incluye `CI-2026-00045`? |
+> |---|---:|---:|:--:|
+> | el código **desplegado** (`fecha`) | **42** | **−$41,865.05** | **sí** |
+> | **`[CGP-L.12]`** (`created_at`) | 12 | +$133,830.66 | **no** |
+>
+> **30 movimientos y $175,695.71 de diferencia, en un solo día.**
+
+⛔ **El movimiento que se acaba de aplicar es, él mismo, el caso que rompe el cambio.** Tiene
+`fecha = 14-oct` y `created_at = 16-oct`; con `[CGP-L.12]` se iría al corte del 16. Y no es raro: la
+jornada del 14 tiene movimientos capturados **el 14 (10), el 15 (31) y el 16 (1)**.
+
+⭐⭐ **Y mide un error de método mío, no sólo del código.** `[CGP-L.12]` se cerró con 456 pruebas en
+tres zonas horarias y **dos mutaciones en rojo**. Todo eso era cierto y **no servía para esto**: las
+pruebas demuestran el MECANISMO —que el predicado filtra por el día del efectivo— pero no podían
+mostrar que **en prod los dos relojes discrepan para 30 de 42 movimientos del mismo día**. *Un
+cambio que redefine un universo no se valida con pruebas del mecanismo: se valida midiendo el
+universo que redefine, contra los datos reales, antes de escribirlo.* La medición que faltaba es de
+una sola consulta y nunca la hice.
+
+⚠️ **El diagnóstico sigue siendo correcto y el defecto sigue vivo:** las dos piernas del cajero
+caen en jornadas distintas y eso inventa faltantes. Lo que estaba mal era **la solución**. `fecha`
+es la del documento, `created_at` es la de captura, y **ninguna de las dos es el día del efectivo**.
+
+⇒ **Lo que sigue, en este orden:**
+1. **No soltar `[CGP-L.12]`.** El commit `003a190e8` dice 🧪 y hay que leerlo como ⚠️ **BLOQUEADO**.
+   Si se despliega tal cual, cada jornada del libro cambia de contenido en silencio.
+2. La **columna propia del día del efectivo** (por omisión el día de captura, editable al capturar
+   tarde) deja de ser deuda y pasa a ser **requisito** de este ítem. Sin ella no hay reloj correcto.
+3. Recién entonces el predicado de `sueltosDe()` apunta a esa columna, y ahí sí las dos piernas
+   caen juntas.
+4. ⚠️ Y hay que decidir qué pasa con lo ya capturado: 30 movimientos de una sola jornada tienen hoy
+   los dos relojes en desacuerdo.
+
+---
+
 ### 6.7 Estado al 2026-10-15: `[CGP-L.12]`, la jornada del corte (🧪 probado contra base real)
 
 **`[CGP-L.12]` — el corte mide el libro por el día del EFECTIVO.** Ítem nuevo, nacido del review de
