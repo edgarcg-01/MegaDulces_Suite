@@ -100,6 +100,17 @@ spec:
             - { name: WORKER,                 value: "true" }
             - { name: ENABLE_WORKER_QUEUE,    value: "true" }
             - { name: RUN_MIGRATIONS_ON_BOOT, value: "0" }
+            # ⚠️ [K.VEC.2] DECLARADO PERO NO APLICADO EN EL CLUSTER (2026-10-16 08:30). El pod
+            #   vivo sigue con el default de 200/tick; entra con el proximo `kubectl apply` de
+            #   este archivo. Si lees esto y el drenado va lento, eso es lo que falta.
+            #
+            # [K.VEC.1] 2026-10-16 - el corpus vectorial se recrea desde cero (pg-rag quedo vacio
+            #   en la mudanza a md del 22-sep). Con el default de 200/tick el drenado de
+            #   ~25k productos tardaba ~19 h y el vendedor sale a ruta con "sin match".
+            #   5000/tick = 50 requests de Voyage por corpus por tick (~2 min), drena en 3 ticks.
+            #   Bajarlo a 200 cuando el corpus este completo no es urgente: en regimen
+            #   estacionario solo procesa los stale, que son pocos.
+            - { name: VECTOR_SYNC_TICK_BATCH,  value: "5000" }
           resources:
             requests: { memory: "256Mi", cpu: "100m" }
             limits:   { memory: "2Gi" }

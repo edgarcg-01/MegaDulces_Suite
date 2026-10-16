@@ -91,21 +91,34 @@ export class EmbeddingSyncService implements OnModuleInit {
     }
     this.isRunning = true;
     try {
-      const r = await this.syncBatch();
-      if (r.processed > 0 || r.deleted > 0) {
-        this.logger.log(
-          `tick(): catalog ${r.processed} embebidos, ${r.deleted} borrados, ${r.failed} fallidos, ${r.pending} pendientes.`,
-        );
+      // [K.VEC.1] Los dos corpus son INDEPENDIENTES y se aíslan a propósito.
+      // Antes compartían un solo try: `syncBatch()` (catalog) corre primero, y
+      // su excepción abortaba el tick ANTES de llegar a `syncActiveBatch()`.
+      // Medido el 2026-10-16: `product_embeddings` arrastraba un
+      // `column "in_planogram" does not exist` y eso bastaba para que el corpus
+      // del TICKET DEL VENDEDOR —que no tiene nada que ver con el planograma—
+      // no se llenara nunca. Un corpus roto no puede secuestrar al otro.
+      try {
+        const r = await this.syncBatch();
+        if (r.processed > 0 || r.deleted > 0) {
+          this.logger.log(
+            `tick(): catalog ${r.processed} embebidos, ${r.deleted} borrados, ${r.failed} fallidos, ${r.pending} pendientes.`,
+          );
+        }
+      } catch (e: any) {
+        this.logger.error(`tick() catalog falló: ${e.message}`);
       }
       // Corpus activo ERP (inventory.products_active) para el ticket del vendedor.
-      const ra = await this.syncActiveBatch();
-      if (ra.processed > 0 || ra.deleted > 0) {
-        this.logger.log(
-          `tick(): active ${ra.processed} embebidos, ${ra.deleted} borrados, ${ra.failed} fallidos, ${ra.pending} pendientes.`,
-        );
+      try {
+        const ra = await this.syncActiveBatch();
+        if (ra.processed > 0 || ra.deleted > 0) {
+          this.logger.log(
+            `tick(): active ${ra.processed} embebidos, ${ra.deleted} borrados, ${ra.failed} fallidos, ${ra.pending} pendientes.`,
+          );
+        }
+      } catch (e: any) {
+        this.logger.error(`tick() active falló: ${e.message}`);
       }
-    } catch (e: any) {
-      this.logger.error(`tick() falló: ${e.message}`);
     } finally {
       this.isRunning = false;
     }
@@ -133,6 +146,18 @@ export class EmbeddingSyncService implements OnModuleInit {
     }
 
     // 1) Productos activos de la fuente.
+    //
+    // [K.VEC.1] `catalog.products` CALIFICADO, no `products` a secas. Esto es
+    // ENDURECIMIENTO, no un arreglo: hoy funciona igual, porque el search_path
+    // de prod es `identity, catalog, trade, commercial, logistics, public` y
+    // `catalog` gana antes de llegar a `public`. Lo que se saca de la ecuación
+    // es la DEPENDENCIA de ese orden — existe una vista compat
+    // `public.products` que es passthrough de esta tabla pero **no expone
+    // `in_planogram`**, que es justo lo que este SELECT pide. El día que algo
+    // reordene el search_path, sin calificar esto se cae con
+    // `column "in_planogram" does not exist` y el corpus deja de llenarse en
+    // silencio. Verificado que no mueve filas: vista y tabla dan 14,906 las dos
+    // y la vista no tiene WHERE (medido en prod, 2026-10-16).
     const active: {
       id: string;
       tenant_id: string | null;
@@ -140,8 +165,8 @@ export class EmbeddingSyncService implements OnModuleInit {
       product_name: string;
       brand_name: string | null;
       in_planogram: boolean;
-    }[] = await this.knex('products as p')
-      .leftJoin('brands as b', 'b.id', 'p.brand_id')
+    }[] = await this.knex('catalog.products as p')
+      .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
       .where('p.activo', true)
       .select(
         'p.id',
