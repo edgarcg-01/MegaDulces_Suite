@@ -152,7 +152,7 @@ const REPROGRAM_REASON_OPTS: { label: string; value: ReprogramReason }[] = [
                 <td><button pButton type="button" class="p-button-sm p-button-text" title="Agregar sola a este día" (click)="quickAdd(o)"><span class="pi pi-plus"></span></button></td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="5" class="cal-empty">Sin obligaciones disponibles con estos filtros.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="5" class="cal-empty">Sin obligaciones disponibles con estos filtros. Las facturas de proveedor llegan aquí cuando Finanzas acepta una entrega en <a routerLink="/compras/obligaciones" [queryParams]="{ tab: 'entregas' }">Entregas de Compras</a>, por el saldo que tienen pendiente en Kepler.</td></tr></ng-template>
           </p-table>
           @if (selected().length > 0) {
             <div class="cal-selbar">

@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Added — Calendario de Pagos: lo que Finanzas acepta en «Entregas» ya se puede programar (TP.15, 2026-10-16)
+- El Calendario **nunca tuvo un renglón**: 0 obligaciones de proveedor y 0 días armados en toda su historia, con $2.15M de capacidad autorizada el día que se midió. La factura sólo entraba capturándola a mano en `/compras/obligaciones`, una pestaña que Finanzas ni ve. Aceptar el papel en «Entregas» dejaba la constancia y nada que pagar.
+- Ahora, al confirmar una entrega, cada factura aceptada aparece sola en «Obligaciones disponibles», **por el saldo pendiente en Kepler** y no por el importe de la entrega. Medido: de 38 aceptadas, **21 ($370k) ya no tenían saldo** (pagadas o de contado) y 2 tenían saldo menor; copiar el importe las habría ofrecido para pagar otra vez.
+- Al asignar una factura a un día y otra vez al ejecutar el pago se vuelve a medir el saldo en Kepler: si se pagó por fuera, no deja programarla ni pagarla.
+- El aviso al confirmar dice cuántas pasaron, cuántas no tienen saldo y cuántas tienen el proveedor fuera del catálogo. Si leer Kepler falla, la entrega queda confirmada igual y el fallo se declara.
+- Al aplicar la migración entran las ya aceptadas con saldo: **17 facturas · $1,587,690.31**.
+
 ### Fixed — Caja Fuerte (CAOS): la pantalla acusaba de $18.5 M de efectivo «sin respaldo» por un defecto nuestro (CG.162/CG.163, 2026-10-15)
 - El panel de atribución publicaba **«Sin respaldo (ningún cobro lo explica): $18,500,100 · 757 depósitos»**, y el carril automático latía en `error` **cada hora** desde hacía días. No era un problema del efectivo ni de la gente: el servicio leía la fecha de cada cobro con `String(fecha_valor).slice(0,10)` sobre una columna `date`, que el driver entrega como objeto `Date` → `"Wed May 27"`. Como cualquier letra ordena después de `"2026-…"`, el motor descartaba **todos** los cobros en la primera comparación. **Tras el arreglo, contra las filas reales: 758 depósitos, 758 cubiertos, 0 sin respaldo.**
 - Ahora el motor **se niega** ante una fecha ilegible en vez de degradar a «sin respaldo»: un error de lectura ya no puede publicarse como un veredicto de negocio. Prueba nueva contra el driver real (sólo-lectura), además de las que ya existían con datos literales — que estaban las 12 en verde mientras producción estaba rota.

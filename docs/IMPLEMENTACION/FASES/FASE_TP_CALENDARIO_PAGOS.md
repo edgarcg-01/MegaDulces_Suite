@@ -300,6 +300,29 @@ que se resuelve con `purchase_zone`/`is_purchase_hub`.
 Maqueta navegable (simulador por puesto y lugar + matriz):
 [`prototipos/piramide-accesos-obligaciones.html`](prototipos/piramide-accesos-obligaciones.html).
 
+## TP.15 — De la entrega aceptada al Calendario (2026-10-16)
+
+**Cómo se cargan las facturas para pago, hoy:** Compras arma la entrega en `/compras/obligaciones`
+→ «Entregar»; Finanzas la confirma en «Entregas». Cada renglón **aceptado** aparece solo en
+«Obligaciones disponibles» del Calendario, con el **saldo pendiente en Kepler** de esa entrada (no
+el importe de la entrega) y el vencimiento de Kepler. Lo que Kepler ya no debe no aparece, y el
+aviso al confirmar lo cuenta. Al asignarla a un día **y al ejecutar el pago** se vuelve a medir el
+saldo de Kepler.
+
+- Mig `20261016002604_tp15_obligacion_desde_entrega_aceptada.js`: `purchase_delivery_line_id` (FK +
+  único parcial) y la llave del documento `kepler_sucursal/doc_tipo/doc_sub/folio`; backfill de lo
+  ya aceptado (medido: 17 facturas · $1,587,690.31).
+- `PurchaseDeliveriesService.toCalendar()` (en un savepoint: si Kepler falla, la entrega queda
+  confirmada y el fallo se declara) y `PaymentCalendarService.assertKeplerBalance()`.
+- `authorized_by` = quien aceptó el renglón: aceptar el papel es la autorización para programarlo.
+- **Deuda declarada (revisión independiente):** el tope no sabe qué pagos del Calendario ya
+  registró Kepler (pago ejecutado aquí + NC posterior → tope mayor que la deuda; restar también lo
+  pagado bloquearía toda parcialidad); «sin saldo» mezcla pagada y «no casó»; `reprogram` no
+  re-mide (lo cubre `execute`); heredado: la misma obligación dos veces en un pago.
+- **Falta:** aplicar la mig en prod, prueba de escritura contra base real, reintento para
+  aceptaciones cuya lectura de Kepler falló, y la opción B (elegir desde la deuda de Kepler lo que
+  no pasa por Entregas: servicios, fletes).
+
 ## Deferred / declarado (no inventado)
 
 - **Ejecución real vs Caja General**: `cash_register_text` es texto libre hoy, no una cuenta de caja
