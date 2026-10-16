@@ -31,6 +31,8 @@
     "check:pantalla:self": "node scripts/check-pantalla.js --self-test",
     "check:estilos": "node scripts/check-estilos.js",
     "check:spec-vivo": "node scripts/check-spec-vivo.js",
+    "check:throttle-names": "node scripts/check-throttle-names.js",
+    "check:throttle-names:self": "node scripts/check-throttle-names.js --self-test",
     "check:spec-vivo:self": "node scripts/check-spec-vivo.js --self-test",
     "check:estilos:self": "node scripts/check-estilos.js --self-test",
     "check:tokens:self": "node scripts/check-css-tokens.js --self-test",

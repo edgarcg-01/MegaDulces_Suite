@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
+- `POST /commercial/analytics/sell-out/ask` (el chat «Pregúntale al Sell-Out») y `sales-by-route/promo` (+ `.xlsx` y `.pdf`) declaraban 15 y 20 por minuto con `@Throttle({ default })`, pero los tiers del servidor se llaman `short/medium/long` y el guard ignora cualquier otro nombre **sin avisar**: nunca limitaron. Ahora el tope existe (tier `long`).
+- **Cambio de comportamiento:** desde un mismo origen, la petición 16.ª (chat) o 21.ª (incentivo de ruta) en un minuto responde **429**. Antes, nada. El chat llama a un LLM de pago por uso.
+- Internal: compuerta `check:throttle-names` (en el pre-push y en el CI, con su `:self`): todo `@Throttle`/`@SkipThrottle` del repo usa un tier configurado. Deja **declarada** una deuda con ratchet: `@SkipThrottle()` a secas (equivale a `{ default: true }`) en los dos controladores de ingesta de checadas de `libs/hr`, que tampoco salta nada.
 ### Fixed — Caja General: el total contado ahora se anuncia, y la fila abierta se ve en Alto Contraste (CG.183–CG.186, 2026-10-16)
 - Auditoría **front-end** de `/finanzas/caja-general` (no de diseño: la pantalla ya usa el sistema — 78 `comm-num`, 40 `p-table`, 16 `app-load-state`, `OnPush` + 103 signals, cero `any` — y el auditor de contrato le marca **una sola** advertencia contra una línea base de 247 pantallas con falla). Lo corregido son defectos de **comportamiento**.
 - **La cifra que la pantalla existe para producir no se decía.** Había **una sola** región viva en 2,462 líneas de template. El bloque «CONTADO» cambia con cada tecla de la reja de denominaciones: quien usa lector de pantalla tecleaba once renglones y nunca se enteraba del total ni del veredicto. Y la cola de «por confirmar» **la mueve el socket**: entraban movimientos nuevos mientras la persona contaba efectivo del otro lado de la pantalla, en silencio. Ahora el total viaja con su veredicto («$460.00 contado, cuadra con el documento») y la cuenta de la cola se anuncia sola.

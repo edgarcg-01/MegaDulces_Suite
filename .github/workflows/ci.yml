@@ -681,6 +681,9 @@ jobs:
           node scripts/check-branch-catalog.js
           node scripts/check-set-bind-param.js
           node scripts/check-adr-duplicados.js
+          # `[THR.1]` el nombre de tier de cada @Throttle/@SkipThrottle existe (sin eso el tope no existe, y no avisa)
+          node scripts/check-throttle-names.js --self-test
+          node scripts/check-throttle-names.js
           # `--solo-git` porque el modo completo LEE el ledger de migraciones de prod para saber
           # cuáles ya se aplicaron, y el runner no alcanza `192.168.0.222`. Sin esa lectura el
           # candado se niega a reportar verde —y hace bien, es ADR-056— así que acá corre su
