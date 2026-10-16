@@ -1789,7 +1789,10 @@ export class CashLedgerService {
     for (const r of rows) {
       const cc = contra.get(this.claveDoc(r));
       if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
-        paresCuenta.set(`${r.sucursal}|${cc.contra_cuenta}`, { sucursal: String(r.sucursal), cuenta: cc.contra_cuenta });
+        // `[CG.189]` La llave del catálogo de conceptos usa la sucursal BASE: `v_kepler_conceptos`
+        // tampoco tiene compuestas. Se normaliza acá Y al leer, para que no puedan divergir.
+        const sucCat = this.sucursalBase(r.sucursal);
+        paresCuenta.set(`${sucCat}|${cc.contra_cuenta}`, { sucursal: sucCat, cuenta: cc.contra_cuenta });
       }
     }
     const conceptos = await this.conceptosDeCuenta(trx, tenantId, [...paresCuenta.values()]);
@@ -1810,7 +1813,8 @@ export class CashLedgerService {
       // Piso CS.3.1b — la contra del propio documento, cuando regla/ruta no alcanzaron.
       const cc = contra.get(this.claveDoc(r));
       if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
-        const cs = conceptos.get(`${r.sucursal}|${cc.contra_cuenta}`) ?? [];
+        // `[CG.189]` Misma normalización que al construir `paresCuenta`. Ver `sucursalBase()`.
+        const cs = conceptos.get(`${this.sucursalBase(r.sucursal)}|${cc.contra_cuenta}`) ?? [];
         if (cs.length === 1) {
           return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: cs[0].concepto,
             kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
@@ -1891,9 +1895,48 @@ export class CashLedgerService {
     return String(r.rows[0].d);
   }
 
+  /**
+   * ⛔⛔ `[CG.189]` **LA SUCURSAL COMPUESTA DEJABA SIN RESOLVER TODO EL INGRESO DE PADRE HIDALGO.**
+   *
+   * `finance.v_caja_movimientos_pendientes` trae la sucursal del documento, y en Padre Hidalgo
+   * viene **compuesta** (`01-001`, `01-002`, `01-004`, `01-005`) — los códigos que nacieron del
+   * corte del 1-oct. Pero `analytics.v_caja_doc_contracuenta` y `analytics.v_kepler_conceptos`
+   * están indexadas por la sucursal **base** (`01`): medido en prod, **ninguna de las dos tiene
+   * una sola fila con sucursal compuesta** (9 sucursales, `00`…`08`, cero con guion).
+   *
+   * Resultado: el piso de resolución de `CS.3.1b` no encontraba NADA para esas filas y caían a
+   * `sin_mapa`, que se lee como *«falta declarar la ruta»* cuando en realidad **la póliza del
+   * propio documento ya traía la cuenta**. Medido sobre el alcance vigente (desde el 10-oct):
+   * eran **3 de los 7 ingresos pendientes, $32,083.89**, y sobre la bandeja completa **29
+   * movimientos / $527,631.59**.
+   *
+   * ⭐ Es exactamente la misma trampa que el contrato `CajaCobertura` ya había documentado para el
+   * DENOMINADOR (*«`sucursal` se normaliza con `split_part(sucursal,'-',1)` en LOS DOS lados»*) —
+   * sólo que acá nadie la había aplicado, y del lado que decide **a qué cuenta va el dinero**.
+   *
+   * ── Por qué normalizar es SEGURO, medido y con control ──────────────────────────────────────
+   *  · `v_caja_doc_contracuenta`: 0 filas con sucursal compuesta → no hay fila más específica que
+   *    normalizar pueda tapar.
+   *  · Unicidad verificada: las 8 llaves `(base, tipo_pol, folio)` de las compuestas resuelven a
+   *    **exactamente 1 fila** cada una (0 con varias, 0 sin fila). Si alguna hubiera devuelto 2,
+   *    normalizar habría elegido una al azar y esto no se podría hacer.
+   *  · Las 4 sub-sucursales **comparten folio** (`U-A-5 0000008` existe en `01-001`, `01-002` y
+   *    `01-005` con montos distintos) — por eso esto normaliza **sólo la búsqueda de la cuenta**.
+   *    La identidad del movimiento sigue siendo `origen_ref`, que SÍ lleva la sub-sucursal
+   *    (`01-001|U-A-5|0000008|0011`), y `cash_ledger.sucursal` sigue guardando el valor CRUDO: es
+   *    la plaza del documento (regla 1 de `CGP` §1.4), no la llave del catálogo contable.
+   *
+   * ⚠️ Si mañana alguna de las dos vistas empieza a traer sucursales compuestas, esto hay que
+   * revisarlo: pasaría a tapar la fila específica con la general. El candado que lo detecta está
+   * en `database/tests/test-newdb-caja-autollenado.js`.
+   */
+  private sucursalBase(sucursal: unknown): string {
+    return String(sucursal ?? '').split('-')[0];
+  }
+
   /** CS.3.1b — Llave del documento de caja = la misma que la póliza usa (doc_tipo COMPACTO). */
   private claveDoc(r: { sucursal: any; doc_tipo: any; folio: any }): string {
-    return `${r.sucursal}|${this.tipoPolCompacto(r.doc_tipo)}|${r.folio}`;
+    return `${this.sucursalBase(r.sucursal)}|${this.tipoPolCompacto(r.doc_tipo)}|${r.folio}`;
   }
 
   /**
@@ -1915,7 +1958,9 @@ export class CashLedgerService {
   private async contraDeDocumentos(trx: any, tenantId: string, rows: any[]) {
     const m = new Map<string, { contra_n: number; contra_cuenta: string; contra_cuenta_nombre: string | null }>();
     const tuplas = rows
-      .map((r) => [String(r.sucursal), this.tipoPolCompacto(r.doc_tipo), String(r.folio)] as [string, string, string])
+      // `[CG.189]` La sucursal va NORMALIZADA, igual que en `claveDoc()`: la vista está indexada
+      // por la base (`01`) y la bandeja trae compuestas (`01-001`). Ver `sucursalBase()`.
+      .map((r) => [this.sucursalBase(r.sucursal), this.tipoPolCompacto(r.doc_tipo), String(r.folio)] as [string, string, string])
       .filter((t) => t[1]);
     if (!tuplas.length) return m;
     const filas = await trx('analytics.v_caja_doc_contracuenta')

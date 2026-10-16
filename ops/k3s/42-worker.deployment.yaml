@@ -100,6 +100,27 @@ spec:
             - { name: WORKER,                 value: "true" }
             - { name: ENABLE_WORKER_QUEUE,    value: "true" }
             - { name: RUN_MIGRATIONS_ON_BOOT, value: "0" }
+            # ═══ [CG.190] El autollenado de Caja General ═══
+            #
+            # ⛔⛔ APAGADO A PROPÓSITO. Es el único @Cron del worker que ESCRIBE DINERO en el
+            #   libro sin que nadie mire, así que su default en código también es apagado y
+            #   acá queda explícito para que la perilla se VEA. Prenderlo es decisión de
+            #   Edgar, no efecto colateral de un despliegue.
+            #
+            # ── Antes de ponerlo en "true", las tres cosas que tienen que estar ────────────
+            #   1. La migración `20261016105305` APLICADA (la cuenta de servicio
+            #      `svc_caja_autollenado`). Sin ella cada movimiento automático queda firmado
+            #      por un UUID que la pantalla no resuelve a un nombre.
+            #   2. Una corrida en SIMULACIÓN mirada por alguien:
+            #      `POST /finance/cash-ledger/autollenado/correr` (sin `?aplicar=1`) —
+            #      contesta qué haría sin escribir una fila.
+            #   3. Una corrida real acotada, y `node database/tests/test-newdb-caja-autollenado.js`
+            #      en verde (sus aserciones [6], [7] y [8] sólo se ejercen cuando ya escribió).
+            #
+            # ⚠️ Al prenderlo, `analytics.cron_runs` → `caja_autollenado` empieza a latir cada
+            #   15 min; su umbral ya está declarado en `CRON_JOBS` (warn 1 h, crit 6 h). Si el
+            #   renglón no aparece, el cron NO está corriendo acá.
+            - { name: ENABLE_CAJA_AUTOLLENADO, value: "false" }
             # [K.VEC.2] 2026-10-16 - el corpus vectorial se recreo desde cero (pg-rag quedo
             #   vacio en la mudanza a md del 22-sep; ver GOTCHAS §83). Aplicado en el cluster
             #   por Edgar a las 09:57 con `kubectl set env`; este valor es el mismo, para que
