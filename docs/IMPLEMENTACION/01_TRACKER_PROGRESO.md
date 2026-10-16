@@ -7981,6 +7981,89 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   [`prototipos/piramide-accesos-obligaciones.html`](FASES/prototipos/piramide-accesos-obligaciones.html).
   Antes de construir: quitar `superadmin` a los 3 Gerentes de Zona, corregir el rol de Facturación,
   asignar lugar a 13 personas y responder 4 preguntas abiertas.
+- [ ] 🚀 **TP.15** — 2026-10-16: **Lo que Finanzas acepta en «Entregas» llega solo al Calendario.**
+  **En prod (#420, mig aplicada el 16-oct):** medido después — 17 obligaciones · $1,587,690.31
+  (exacto al SELECT previo), y ya en uso: $1,307,709.59 reservados en pagos del 16, 26, 27-oct y
+  3-nov. ⚠️ El camino `receive()` (aceptar una entrega NUEVA) aún no se ejerce en prod: las 17
+  vienen del backfill (`created_by = mig:tp15`).
+  Francisco: «no le encuentro cómo cargo las notas para pago». Medido en prod: el Calendario mostraba
+  **0 obligaciones disponibles** con $2.15M de capacidad del día; `supplier_payment_obligations` = 0,
+  lotes = 0 desde siempre. Aceptar en Entregas (RE.32) no creaba nada que pagar. Ahora, al aceptar,
+  nace la obligación **por el pendiente vivo de Kepler** (`analytics.v_supplier_payables`, sucursal +
+  proveedor + folio de la entrada), no por el importe de la entrega: de 38 aceptadas, **21 ($370k) ya
+  no tenían saldo** (pagadas/contado) y 2 tenían saldo menor — copiar el importe las habría ofrecido
+  para pagar otra vez. Al asignar al día **y al ejecutar** se re-mide el saldo de Kepler (candado
+  contra doble pago); la lectura en la aceptación lleva tope de 15 s en su savepoint.
+  Mig `20261016002604` (5 columnas NULL + índice único + backfill **17 facturas · $1,587,690.31**,
+  SELECT validado contra prod RO). ⚠️ **Sin medir**: los INSERT (usuario RO, Docker apagado) y el
+  build (CI). Deudas con nombre: (a) una aceptación cuya lectura de Kepler falla queda sin
+  obligación y no hay reintento (se declara en el aviso); (b) el tope no sabe qué pagos del
+  Calendario ya registró Kepler — pago ejecutado aquí + NC posterior deja un tope mayor a la deuda;
+  (c) «sin saldo» no separa pagada de «no casó»; (d) `reprogram` no re-mide (lo cubre `execute`);
+  (e) heredado: un pago con la misma obligación dos veces pasa el disponible.
+- [ ] 🔨 **TP.16** — 2026-10-16: **La semana completa y «Ordenar y pagar».** Francisco (con maqueta en
+  Excel): la fecha de arriba pasa a ser el **rango de la semana**; 7 columnas (lun→dom) con
+  presupuesto / comprometido / disponible y los documentos de cada día; cada día abre **«Ordenar y
+  pagar»**: orden, método, **cuenta de ORIGEN** (`finance.bank_accounts`, 19 elegibles) y **DESTINO**
+  (catálogo del proveedor o CLABE capturada). **Dos firmas** (decisión de Francisco): Tesorería
+  ordena y prepara, Gerencia/Dirección autoriza, Caja General dispersa.
+  Medido antes: los 8 pagos asignados en prod tenían **0 preparados** (sin método, origen ni
+  destino); el catálogo de cuentas de proveedor tiene **0 filas** y **Kepler no guarda CLABE** de
+  proveedores (ninguna columna de `kdxd` con 18 dígitos). Cambios: `GET weeks/:date` (compone los
+  resolvedores del día, en serie) y `GET origin-accounts`; `prepare()` exige origen (y destino en
+  transferencia — antes bastaba UNO cualquiera) y valida el dígito de control de la CLABE
+  (`clabeValida`, prueba con mutación: 6 ✗ al romperla); `releaseLot()` se niega con pagos sin
+  preparar; el PDF de Caja General gana «Cuenta origen» y su total vuelve DENTRO de la tabla (estaba
+  como `<tr>` suelto tras `</table>`). Contrato `payment-calendar.contract.ts`. `check:pantalla`:
+  2 → 1 falla (ahora con `LoadState`). Sin migración. ⚠️ **Sin validación visual** ni escritura
+  ejercida. **Siguiente etapa (aparte): layouts de dispersión BBVA · Banorte · Santander · BanBajío.**
+  Deuda: dar de alta una cuenta de proveedor exige `COMPRAS_OBLIGACIONES_GESTIONAR`, que Tesorería no
+  tiene; el catálogo se lee con `COMPRAS_OBLIGACIONES_VER` (sólo María de la Paz y Julio por TP.13).
+  La revisión independiente encontró 4 defectos y se corrigieron: efectivo/cheque guardaba la cuenta
+  del proveedor como destino; «preparado» = método + origen + destino según el método (`isPrepared`,
+  misma regla en front y back, mutación → rojo); respuestas de semana fuera de orden; CLABE con
+  dígitos pegados o de 17/19. **TP.16.1** (prueba en pantalla de Francisco, `localhost:4200`): la
+  página quedaba tan alta que la navegación de semana salía de vista al bajar; tarjetas vacías de
+  media pantalla; obligaciones en 3 renglones con barra horizontal; cifras del día repetidas en
+  grande; importe dos veces en la tabla; acciones sólo con ícono. Eligió «semana arriba, día al
+  lado»: franja compacta de 7 días (disponible + barra de uso + pagos), totales de la SEMANA en la
+  tira de KPIs, y abajo obligaciones | «Ordenar y pagar» lado a lado; botón «Preparar» con texto;
+  «Autorizar día» dice qué falta. `execute()` ahora exige el día autorizado (antes se podía marcar
+  pagado sin la segunda firma). **TP.16.2**: obligaciones disponibles **agrupadas por proveedor**
+  (encabezado con facturas, total y primer vencimiento; plegable; «Pagar juntas» arma un solo pago
+  con todas). La clave lleva la clasificación: el mismo nombre como gasto y como proveedor no se
+  mezcla. Lógica pura en `calendario-pagos-grupos.ts` (6 ✓, mutada → 2 ✗). Quitar un pago del día ya
+  regresaba la factura a la lista (`cancelAllocation` recalcula lo reservado). **TP.16.3** (Francisco):
+  sin check en la lista (el + y «Pagar juntas» bastan); la lista gana ancho (2/5) y la tabla interna
+  de PrimeNG por fin toma el ancho fijo (el selector anterior no aplicaba: de ahí el scroll lateral);
+  proveedor con una factura = un renglón. ⭐ **Regla de negocio: un pago = UN beneficiario y UNA
+  sucursal** (cada pago entra al centro de costo de su almacén; un proveedor con operación en 3
+  sucursales se paga junto sólo dentro del mismo almacén). Grupos por proveedor + sucursal en la
+  pantalla, y `paymentGroupKey()` lo hace cumplir en `createAllocation`/`addItem` (mutación → rojo).
+  Medido antes en prod: los 3 pagos agrupados existentes ya eran de 1 proveedor y 1 sucursal (no se
+  rompe nada). Sucursal sólo existe en factura de proveedor (`kepler_sucursal`); gastos (312) y
+  compromisos no la traen → «sin sucursal». **TP.16.4** (Francisco revisó la regla en una maqueta con
+  datos de ejemplo): «Sugerir armado» del día (lo vencido o que vence ese día, un pago por proveedor
+  + sucursal, lo más viejo primero, hasta el disponible; se destilda y se aplica); +, «Pagar juntas»
+  y el armado **se suman** al pago pendiente del mismo proveedor y sucursal en vez de crear otro;
+  casillas en la tabla del día → «Preparar seleccionados» (mismo método y origen, destino por pago;
+  uno que falla no detiene a los demás). Hueco cerrado: `addItem` dejaba sumar facturas a un pago
+  de un día ya AUTORIZADO. Lógica pura en `calendario-pagos-grupos.ts` (13 ✓, mutada → rojo).
+  **TP.16.6 — las escrituras, EJERCIDAS contra Postgres real** (regla 13): `payment-calendar.it.spec.ts`
+  corre el código real de `PurchaseDeliveriesService` + `PaymentCalendarService` contra la base local
+  de Docker (`TP_IT_DB`, se niega si no es localhost o si el `system_identifier` es el de prod),
+  TODO dentro de una transacción revertida (hasta las migraciones que le faltan). Escenario de
+  Francisco: Gonac 3 facturas en 08, 2 en 01, 1 en 06 + 1 pagada. **12 ✓**: aceptar crea 6 (la pagada
+  no) · junta 08+08 · rechaza 08+01 · suma misma sucursal y rechaza otra · candado de Kepler tras un
+  abono · autorizar exige orden y preparado · CLABE (control y 17 dígitos) · folio `300115-01` · ya
+  autorizado no admite sumar ni crear · ejecutar → pagado · semana con origen y sucursal. **Mutadas 3
+  reglas del servicio → 9 ✗.** Base local verificada intacta después. Sin `TP_IT_DB` se salta (12
+  skipped), no se pinta verde. Como `finance` no puede depender de `commercial`, el paso «aceptar la
+  entrega» va en `libs/commercial/.../purchase-deliveries.it.spec.ts` (**4 ✓**: sólo el destinatario
+  confirma; 4 creadas, 1 sin saldo, 1 sin proveedor, la rechazada fuera; la de abono nace por
+  17,455.80 y no por 27,455.80; **mutado a «importe de la entrega» → 2 ✗**). Correr ambas:
+  `TP_IT_DB=<conexión a la base local de Docker> npx vitest run <spec> --config libs/<lib>/vitest.config.ts`. Deuda: `weekView` son 21 transacciones en serie y cada guardado recarga
+  la semana entera; `todayIso` no se actualiza si la pantalla queda abierta tras medianoche.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
@@ -9747,6 +9830,84 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   negativas) · matriz 8/8 (3 negativas; **mutada para nunca decir «sin dato» → rojo**) · contenedor 5/5 ·
   Compras **479 ✔** · costos 35 ✔. `check:pantalla` matriz 10/10 y contra-último 10/10; el contenedor baja de
   3 a 2 fallas heredadas. **Sin validación visual ni tiempo medido**: la historia no existe en prod todavía.
+
+- [x] **[CAT-PRECIO.1]** 🧪 **Mantenimiento · Diferencias entre sucursales: la ficha de venta completa** (2026-10-16) —
+  pedido de Francisco. ⚠️ Nació como vista de Precios y **se mudó a la pestaña nueva Mantenimiento** el mismo día
+  (Compras: «Precios es nuestro catálogo de precios; lo que hay que corregir va en Mantenimiento»). **Reemplaza en
+  pantalla a `[CAT.3]`**. Compara la ficha «Productos POS» de Kepler campo por campo entre las sucursales que venden al
+  público: precio de cada unidad (al centavo, con impuestos), precio por volumen nivel 0, unidades y factores,
+  IVA/IEPS, línea/tipo/grupo, descripción y códigos de barras. Fuente `kepler_ods.kdii` + `kdig`/`kdie`/`kdif` +
+  `kdpv_prod_util`, leída en la consulta (**sin migración ni tabla nueva**); columnas verificadas contra la ficha
+  02073 en pantalla de Kepler. Regla pura `compararFicha` (mayoría por igualdad exacta; empate = `sin_mayoria`, no
+  elige). «Cambió al último» por plaza desde la bitácora (`kdpv_bitacora_precios`, índice parcial, ~0.5 s).
+  ⚠️ **La referencia es la MAYORÍA y es provisional**: Compras decidió que manda el **Sistema Concentrador**, y su
+  base **no está en el ODS** (`pv_suc_ip` lo lista como `SC` sin host). Se declara en pantalla y en el contrato
+  (`referencia: 'mayoria'`). Caso que lo justifica: 02073, la 03 con el precio nuevo y las otras 7 con el viejo.
+  **Antes/después medido en prod:** la pantalla vieja pedía 300 filas y su contador se quedaba en 300 con **486
+  reales** (+56 «revisar unidad»); la nueva publica `total` real y pagina en el servidor: **1,422 de 9,684**
+  productos con algún campo distinto (precio base 596 · unidad 2 630 · unidad 3 195 · volumen 738 · unidades 91 ·
+  IEPS 3 · línea 41 · tipo 64 · grupo 92 · descripción 8 · códigos 121; 210 campos sin mayoría). Morelia Madero
+  (07) se sale en 602 productos, el doble que cualquier otra. Consulta completa ~3–4 s. Frescura declarada con
+  `_sync_status` de `kdii`. Pruebas: regla 21/21 (5 negativas; **mutada para que un empate elija ganador → 2
+  rojas**) · módulo 186 ✔ · la regla corrida sobre las 1,422 filas reales de prod (0 descartadas, coincide con la
+  consulta). `check:pantalla` Diferencias **10/10**; el contenedor baja de 3 a 2 fallas (las mismas que el de
+  Costos). `lint:boundary`, `check:templates`, `templates-types`, tokens y estilos en verde. **Prueba visual
+  hecha (2026-10-16, API y vista locales contra prod RO, superoot):** endpoint por HTTP con los 1,422; claro,
+  oscuro, 500 px y teléfono 390 px. Ajustes que salieron: en el detalle, cada tramo de un valor compuesto va en
+  su renglón y se subraya SÓLO el tramo distinto (Kinder Delice: la caja de la 07, $1,664.89 contra $1,685.86);
+  la tabla se apila en angosto (`dt-scope` + `dt-stack` + `data-label`). ⚠️ **Deuda con nombre `[CAT-PRECIO.1.1]`:**
+  las reglas viejas de `styles.css` para `p-datatable` en pantalla chica (≤48rem fija la última celda
+  `sticky` + `table-cell`, ≤30rem **esconde de la 4.ª celda en adelante**, todo `!important`) le ganan a
+  `dt-stack`; aquí se neutralizan en el componente, pero el arreglo de fondo va en `dense-table.css` (afecta a
+  «Contra último costo» de Costos y a toda tabla apilada) — no se tocó a ciegas porque ese archivo declara el
+  presupuesto de bundle al límite y no se puede compilar local. `price-discrepancies` (CAT.3) queda en el
+  backend sin consumidor en pantalla.
+- [ ] **[CAT-PRECIO.0]** ⚠️ **Traer el Sistema Concentrador al ODS** — sin él, Diferencias compara contra la
+  mayoría. Decisión de Edgar (fuente nueva + credenciales). Falta: host, puerto y usuario RO de su base.
+- [x] **[CAT-PRECIO.2]** 🧪 **Precios: el catálogo de precios de una sucursal** (2026-10-16) — `/compras/catalogo/precios`,
+  armado sobre la hoja de Compras (70001 MAZAPÁN: unidad base, 2 y 3 con su precio y debajo «cambio automático»).
+  Decisiones de Francisco el mismo día: **sucursal obligatoria** recortada al alcance (`ScopeService`; con una sola
+  no hay selector; pedir otra = 403); **margen visible en pantalla y es el de Kepler** (ganancia sobre costo estándar
+  `c77` × factor, con el precio sin impuestos; tasa negativa = incluida); **el costo no viaja al front**; **PDF para
+  cliente sin margen ni costo** (prueba negativa); precios con impuestos; línea/tipo/grupo como filtros y orden
+  (artículo · línea · tipo · grupo, que también agrupa el PDF); códigos de barras e **conversión de unidades
+  debajo de su unidad** («PAQ = 10 PZA · CJA = 14 PAQ = 140 PZA»; `c81`/`c84` vienen en unidades base, medido 2,992
+  de 2,993 fichas con unidad 3 en la 03; la 3 se dice en la 2 sólo si da entero). Fuente `kepler_ods.kdii` + catálogos
+  + `kdpv_prod_util` nivel 0, **sin migración**. Medido: lista completa de una sucursal 0.3 s (9,679 productos).
+  **Margen verificado** contra el «%Margen» guardado en la ficha (`c87/c88/c89`): casa en 85 % (base), 85 % (unidad 2)
+  y 97.6 % (unidad 3); el resto es ese campo guardado que quedó viejo — se calcula con el precio y costo de hoy y la
+  pantalla lo declara. ⛔ Lección: la primera prueba visual dio **500** — el regex del costo llevaba `?` y knex
+  convierte cada uno en `$n`; por `pg` directo pasaba. Prueba que bloquea `?` en estos SQL (mutada → rojo).
+- [x] **[CAT-PRECIO.3]** 🧪 **«Sólo los que cambiaron»** (2026-10-16) — dentro de Precios (decisión de Compras: no es
+  pestaña aparte): los productos que movieron precio un día en esa sucursal, contra el anterior y con % de ajuste;
+  neto del día si cambió varias veces; se ocultan los de un centavo (mismo piso que Etiquetas › Cambios) y se
+  cuentan. Fecha por defecto = último día que llegó la bitácora, no «hoy». Tira con cuántos suben y bajan.
+- [x] **[CAT-PRECIO.4]** 🧪 **La historia de cada precio, al dar clic** (2026-10-16) — producto × unidad × sucursal desde
+  `analytics.v_label_price_changes`: fecha, precio, % contra el anterior (incremento / bajó), gráfica en **escalera**
+  (un precio no pasa en diagonal) y los **meses sin registro** de la bitácora de esa sucursal declarados (abril 2025
+  vacío). Ejemplo real: 70001 PAQ en la 01 tiene 25 cambios. 79 ms.
+- [x] **[CAT-PRECIO.5]** 🧪 **Mantenimiento · Sin clasificar** (2026-10-16) — productos sin línea, tipo o grupo en NINGUNA
+  sucursal que vende al público (vacío o `00001` = NO APLICA). Medido: **5,597** productos (5,504 sin tipo, 5,547 sin
+  grupo, 54 sin línea), 1,620 con venta en 30 días; ordenado por venta. Si alguna sucursal ya lo tiene asignado, va
+  a Diferencias. 0.45 s.
+  **Pruebas de CAT-PRECIO.2–5:** regla de precios 32/32 (margen, conversión, cambios del día, búsqueda/orden, SQL sin
+  `?`; 9 negativas) · PDF 6/6 (el margen nunca llega al cliente) · historia 4/4 (escalera, no diagonal) · tabs ·
+  módulo `commercial-products` 218 ✔ · Compras 497 ✔. `check:pantalla` Precios, Diferencias, Sin clasificar e
+  Historia **10/10**; el contenedor de Mantenimiento con las 2 fallas heredadas del patrón contenedor (igual que
+  Costos). Las 8 consultas ejercidas **por knex** contra prod RO. Prueba visual de Precios hecha por Francisco (PDF).
+  **Revisión independiente antes del PR (11 hallazgos):** corregidos — alcance con área `compras` (`[ZN.8]`); piso
+  del centavo en centavos enteros (con flotantes fallaba en ~18 % de los cambios de un centavo) y el neto cero ya no
+  se cuenta como «centavo»; la barra de filtros ya no se desmonta en cada carga (`linkedSignal`, mismo patrón que
+  Productos nuevos); un `?suc=` fuera de alcance tiene salida («Reintentar» suelta la sucursal); «sólo los que
+  cambiaron» se deshabilita sin bitácora y se apaga al cambiar de sucursal; línea y su nombre salen de la misma
+  ficha en Sin clasificar; fichas con SKU vacío fuera (5,598 → 5,597; comparados 9,684 → 9,683; diferencias igual).
+  **Medido y declarado, sin cambio de código:** horas de la bitácora siempre `HH:MM` (0 de 609,143 fuera) y 0 NULL en
+  las columnas comparadas de `kdii`. **Por diseño:** Diferencias y Sin clasificar ven toda la red (comparar entre
+  plazas lo exige) — no aplican alcance por sucursal. ⚠️ **Decisión de Francisco (2026-10-16), tomada a sabiendas:**
+  con precio, impuestos, factor y margen se puede despejar el costo estándar; quien tiene Catálogo sin el permiso de
+  costo (crédito y cobranza, facturación, marketing, telemarketing según `MATRIZ_ACCESOS`) podría calcularlo. Se le
+  ofreció mostrar el margen sólo con `COMPRAS_COSTO_ESTANDAR_VER` y eligió **margen visible para todos** los que ven el
+  catálogo (el propósito es que el vendedor lo entienda). Si se revierte, es un cambio de una línea en el servicio.
 
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
