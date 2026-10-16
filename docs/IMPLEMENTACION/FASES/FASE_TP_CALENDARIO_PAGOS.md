@@ -381,3 +381,205 @@ propio y se captura una vez.
 
 Ver también [`FASE_PP_PROGRAMA_PAGOS.md`](FASE_PP_PROGRAMA_PAGOS.md) (bitácora retrospectiva del mismo
 Excel) y [`FASE_CXP_PAGOS.md`](FASE_CXP_PAGOS.md) (hallazgos/acciones sobre pagos ya hechos).
+
+---
+
+# TP.17 – TP.20 — Unificación del ciclo de pagos (plan, 2026-10-16)
+
+```
+OBJETIVO: que las cuatro pantallas de Pagos sean un solo ciclo — la deuda que se ve es la que se
+          puede programar, el descuento que vence se puede accionar, y el pago se lee de la factura
+          al comprobante sin reconstruirlo a mano.
+MÉTRICA:  % de la deuda de proveedor que el Calendario puede programar
+          HOY: 2.0 % ($2,738,088 de $136,322,731 · 37 de 2,960 docs · medido 2026-10-16)
+          META: ≥ 95 % para <fecha a comprometer por el dueño>
+CAPA TOPE: C3
+ÁREA:      Finanzas
+DUEÑO:     <a asignar — sin dueño y fecha no pasa a 🔨>
+ESTADO:    ⬜ (plan listo; abrir requiere cupo de §3 y que Fase 0 lo permita)
+```
+
+⛔ **Esto NO es una fase nueva.** Es la continuación de TP, que ya tiene fila en el roadmap — a
+propósito, porque §7 del método cierra la apertura de fases nuevas hasta terminar la campaña de
+aterrizaje, y porque un doc de fase sin fila es justamente lo que 0.3 viene a limpiar.
+
+⭐ **La pieza C0 no se inventa acá: TP.15 ya la dejó escrita como pendiente** — *«la opción B
+(elegir desde la deuda de Kepler lo que no pasa por Entregas: servicios, fletes)»*. Este plan le
+pone tamaño, árbitro y orden.
+
+---
+
+## 1. Qué problema resuelve — lo medido el 2026-10-16 (prod, sólo lectura)
+
+| Hecho | Valor |
+|---|---:|
+| Deuda real de proveedor (`analytics.v_supplier_payables`) | 2,960 docs · **$136,322,731** · 377 proveedores |
+| Lo que el Calendario puede programar hoy | 37 obligaciones · **$2,738,088** (todas creadas el 16-oct por TP.15) |
+| **Cobertura** | **2.0 %** |
+| Beneficio de pronto pago **todavía dentro de ventana** | 552 docs · $40.7 M → **$2,420,559** |
+| Acciones disponibles en la pantalla de Pronto pago | **ninguna** (no tiene un solo botón) |
+| Descuento efectivamente ganado (12 m, `kdm1.c84`) | **$17,696,765** en 2,433 de 5,653 pagos |
+| Hallazgos de descuento no capturado, sin triar | 98 · $5,363,294 (detector parado desde 2026-08-29) |
+| Días del calendario autorizados en toda la historia | **0** (5 lotes, todos `draft`) |
+| Pagos ejecutados ligados a su folio de Kepler | **0** — la columna no existe |
+| Gastos autorizados que el calendario puede consumir | **0** (312 en `propuesta`) · compromisos financieros: **0 filas** |
+| Libro de Tesorería (`finance.payment_program`) | 2,716 filas · cubre 2026-01…**2026-08** · último write **2026-08-08** |
+
+**El costo de que no estén unidas:** la deuda tiene dos respuestas que difieren 50×; el descuento
+que vence se mira pero no se puede accionar; y un pago ejecutado desaparece del calendario y
+reaparece en Kepler como un evento sin origen.
+
+---
+
+## 2. Qué NO incluye
+
+- **No escribe en Kepler.** El pago se sigue capturando en el ERP (ADR-040: integrar, no construir).
+  Este plan planea y audita; no asienta.
+- **No genera la autorización.** Si nadie libera un día, nada cambia: los 312 gastos en `propuesta`
+  y los 0 compromisos son un bloqueo **de proceso**, con dueño en §5, no de software.
+- **No reconstruye autorización retroactiva** del histórico del Excel — el `Deferred` de TP lo
+  rechazó y sigue rechazado. Acá se deriva **deuda viva con saldo > 0**, que es otra cosa: no
+  requiere inventar quién autorizó un pago ya hecho.
+- **No incluye los layouts de dispersión bancaria** (BBVA / Banorte / Santander / BanBajío):
+  TP.16 ya los declaró como etapa aparte, con archivo real de cada banco. Se consume su salida, no
+  se construye acá.
+- **No revive el detector `descuento_no_capturado`** ni triará sus 98 hallazgos: se declara como
+  bloqueo con dueño (§5).
+- **No toca nómina ni gasto operativo.** `payment_program` y `analytics.expense_entries` son
+  universos distintos y cruzarlos ya produjo un reporte falso una vez.
+
+---
+
+## 3. Los objetivos, y qué sprint los cumple
+
+| # | Objetivo | Número que lo mide (HOY → META) | Sprints |
+|---|---|---|---|
+| **O1** | La deuda que se ve es la que se puede programar | cobertura **2.0 % → ≥95 %** | TP.17 · TP.18 |
+| **O2** | El descuento que vence se puede accionar | acciones en Pronto pago **0 → 1 (programar)**; cola accionable **$2,420,559** | TP.18.3 · TP.20.1 |
+| **O3** | Un pago se lee de punta a punta | pagos ejecutados ligados a Kepler **0 % → 100 %** | TP.19.3 · TP.20.2 |
+| **O4** | El libro de Tesorería deja de teclearse | meses del libro derivados del calendario **0 → el mes en curso** | TP.19.4 · TP.20.4 |
+| **O5** | Una sola puerta a Pagos | renglones de menú **4 → 1 entrada con 4 pestañas**; pantallas en `FINANZAS_TABS` **2/4 → 4/4** | TP.20.3 |
+
+---
+
+## 4. Las capas
+
+### C0 · Dato — TP.17
+
+| # | Item | Estado | Verificado contra |
+|---|---|---|---|
+| TP.17.1 | Vista `derive-no-copy` de la **deuda pagable completa** sobre `analytics.v_supplier_payables` (que ya deriva de `kepler_ods`), con las cuatro llaves que `assertKeplerBalance` ya usa: `sucursal · folio · doc_tipo · doc_sub` + `proveedor` | ⬜ | Estado de cuenta de acreedores (`/finanzas/estado-cuenta-acreedores`, ECA.2) y la cuenta **201** de Kepler, al mismo grano y mismo corte |
+| TP.17.2 | **Dedupe** contra `commercial.supplier_payment_obligations`: una factura que ya entró por Entregas (TP.15) no puede aparecer dos veces. Llave: las mismas cuatro columnas `kepler_*` que la mig `20261016002604` ya dejó en la tabla | ⬜ | Conteo: derivadas + capturadas − solapadas = docs con `pendiente > 0` |
+| TP.17.3 | Declarar lo que **no se puede programar y por qué**: sin fecha, sin proveedor resoluble, o proveedor no dado de alta. Nunca se dibuja en cero (ADR-056) | ⬜ | Los 1,969 docs / $74.3 M hoy sin ventana medible deben quedar **nombrados**, no desaparecidos |
+| TP.17.4 | **Medir el costo de la lista**: hoy devuelve 37 filas, pasaría a ~2,960. Regla dura: <500 ms | ⬜ | `EXPLAIN ANALYZE` de la consulta REAL del servicio, no de una parecida |
+
+⛔ Sin importer. Unidad probada de ambos lados (el `pendiente` de Kepler es el mismo peso que el
+`original_amount` de la obligación). Lo que no se verifique **se declara**.
+
+### C1 · Dominio — TP.18
+
+| # | Item | Estado | Prueba que lo ejerce |
+|---|---|---|---|
+| TP.18.1 | Cuarto `obligation_source: 'kepler_payable'` en el motor polimórfico. **La reserva no cambia de lugar**: sigue en `payment_allocation_items`. Para el origen derivado, disponible = `pendiente`(Kepler) − reservado(items) — exactamente la cuenta que `assertKeplerBalance` ya hace | ⬜ | Spec: dos pagos sobre la misma factura derivada no pueden exceder el pendiente; una factura derivada y la misma capturada **no se reservan dos veces** |
+| TP.18.2 | `recalcObligation` **saltea el write** para el origen derivado (no hay tabla propia que actualizar) sin romper los tres orígenes existentes | ⬜ | Spec de regresión de los 3 orígenes actuales |
+| TP.18.3 | La **fecha límite de pronto pago** viaja como atributo de la obligación derivada, leída de `analytics.mv_supplier_prompt_discount` (no se recalcula ni se redefine) | ⬜ | Cruce contra lo que publica hoy la pantalla de Pronto pago: mismo doc → misma fecha |
+| TP.18.4 | `paymentGroupKey` para el nuevo origen: beneficiario = proveedor, sucursal = la de la factura (`kepler_sucursal`) — la regla de TP.16.3 no se reescribe, se extiende | ⬜ | Spec: no se agrupan dos sucursales ni dos proveedores |
+
+⛔ **La decisión fina (→ ADR, §5):** TP.15 resolvió que *«aceptar el papel es la autorización para
+programarlo»* y puso `authorized_by` = quien aceptó. Una factura derivada **no tiene ese acto**.
+Hay que decidir y escribir quién autoriza ahí — sin eso, el origen derivado contradice ADR-064.
+
+### C2 · API — TP.19
+
+| # | Item | Estado | ¿Escribe? | Prueba contra base real |
+|---|---|---|---|---|
+| TP.19.1 | `GET /finance/payment-calendar/obligations` incluye el origen derivado, con filtros y paginación (la lista pasa de 37 a ~2,960) | ⬜ | no | medición de latencia con el payload de la pantalla |
+| TP.19.2 | **Programar desde Pronto pago reusa `POST /allocations`** — no hay endpoint nuevo: el front manda `obligation_source: 'kepler_payable'` + la fecha sugerida. Menos superficie que inventar una ruta | ⬜ | **sí** (vía el endpoint existente) | ⛔ obligatoria, payload exacto de la pantalla de Pronto pago |
+| TP.19.3 | Columna `kepler_payment_*` (sucursal · doc_prefix · folio) en `payment_allocations`, poblada **al ejecutar**. Migración **aditiva e idempotente** (`hasColumn`), aplicada una por una | ⬜ | **sí** | ⛔ obligatoria. Además: recorrer **todos** los caminos que insertan en `payment_allocations` (regla de la columna NOT NULL — acá es nullable, pero el barrido se hace igual) |
+| TP.19.4 | **El libro derivado**: endpoint que arma, desde el calendario ejecutado, lo que hoy se teclea en el Excel (fecha, banco, método, folios cubiertos, beneficiario) | ⬜ | no | cuadre contra `finance.payment_program` en un mes cargado (ej. 2026-07) antes de proponer el reemplazo |
+
+⚠️ TP.19.3 también cierra tres de las deudas que **TP.15 declaró**: el tope que no sabe qué pagos
+ya registró Kepler, el «sin saldo» que mezcla *pagada* con *no casó*, y el pago ejecutado que no se
+puede reencontrar.
+
+### C3 · UI — TP.20
+
+| # | Item | Estado | `check:pantalla` antes → después |
+|---|---|---|---|
+| TP.20.1 | **Pronto pago gana «Programar pago»** con la fecha sugerida que conserva el descuento. Deja de ser un informe | ⬜ | N → N, sin fallas nuevas |
+| TP.20.2 | **Pagos a proveedor muestra el origen** del pago: día autorizado + folio de lote, cuando exista | ⬜ | N → N |
+| TP.20.3 | **Una entrada «Pagos» con 4 pestañas**, molde `GX.80` ya en prod: shell + `pagos-tabs.ts` + entry guard que lleva a la primera pestaña visible. Las URLs **no cambian**. Hoy sólo 2 de las 4 están en `FINANZAS_TABS` | ⬜ | N → N |
+| TP.20.4 | **Programa de pagos** contrasta el Excel contra lo derivado del calendario y **dice de dónde viene cada mes** | ⬜ | N → N |
+
+⛔ Skill `diseno` cargada **antes** de tocar el primer archivo. `npm run check:pantalla -- finanzas`
+antes y después. Carga <500 ms. El spec `finanzas-tabs.spec.ts` ya vigila la paridad
+sidebar↔pestañas: hay que extenderlo a las cuatro, **y romperlo a propósito una vez**.
+
+---
+
+## 5. Decisiones (→ ADR)
+
+| # | Decisión | ADR | Fecha |
+|---|---|---|---|
+| D1 | **Quién autoriza una obligación derivada de Kepler.** TP.15 ancló la autorización en el acto de aceptar la entrega; la deuda derivada no tiene ese acto. Opciones: (a) la autorización es el **acto de liberar el día** (el calendario ya la exige y la registra); (b) un paso de aceptación propio para lo que no pasa por Entregas. ⛔ Sin esto escrito, el origen derivado contradice ADR-064 | nuevo | ⬜ |
+| D2 | **La obligación capturada no se retira.** Convive con la derivada: aporta fecha negociada, crítico y acuerdos, que la vista no tiene. El dedupe decide cuál manda (TP.17.2) | nuevo o anexo a ADR-064 | ⬜ |
+| D3 | **El Excel de Tesorería pasa de captura a contraste**, y sólo se propone retirarlo cuando el libro derivado cuadre contra un mes ya cargado (TP.19.4) | anexo a Fase PP | ⬜ |
+
+---
+
+## 6. Riesgos y bloqueos
+
+| Bloqueo | Dueño | Causa | Qué lo destraba |
+|---|---|---|---|
+| **Ningún día autorizado jamás** (5 lotes `draft`, 0 folios emitidos) | Gerencia de Finanzas / Dirección | nadie con `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` ha liberado un día | liberar **un** día real, aunque sea de un pago. Hasta que eso pase, el ciclo no se probó de punta a punta |
+| **312 gastos en `propuesta`, 0 autorizados**; 0 compromisos financieros | Finanzas (Presupuestos) | proceso: nadie firma la propuesta | autorizar el primer lote de gastos; es prerequisito de O1 para el 7 % no-mercancía |
+| **Libro de Tesorería congelado** desde 2026-08-08 (faltan sep y oct) | Tesorería | `import-payment-program.js` corre a mano, sin agenda ni latido (**PP.8**, abierto) | PP.8: subida web del libro o carril agendado con `cron-heartbeat` |
+| **Detector `descuento_no_capturado` parado** desde 2026-08-29; 98 hallazgos sin triar | Finanzas / Plataforma | el scanner no tiene latido: su silencio es invisible | latido en `cron_runs` + triage de los 98 |
+| **La lista de obligaciones ×80** (37 → ~2,960 filas) | dev de la fase | el calendario nunca cargó ese volumen | TP.17.4 **antes** de C3: medir la consulta real, paginar |
+| `analytics.*` **no tiene RLS** | dev de la fase | el alcance lo da el JOIN con `tenant_id` | mismo patrón que `ProntoPagoService` ya usa: filtro explícito, nunca confiar en la vista |
+| **Migración en prod** | quien la aplique | hay **dos** `knex_migrations` | `apply-one-migration-prod.js`, una por una. Nunca `migrate:latest` |
+
+⛔ Un bloqueo sin dueño no es un bloqueo, es un item olvidado: los dos primeros necesitan nombre
+antes de que la fase pase a 🔨.
+
+---
+
+## 7. Orden de ejecución (y por qué este y no otro)
+
+```
+TP.17 (C0) ──► TP.18 (C1) ──► TP.19 (C2) ──► TP.20 (C3)
+  deuda          motor           API            pantallas
+  completa       acepta          + liga a        + acciones
+                 lo derivado     Kepler          + una puerta
+```
+
+- **C0 primero, sin excepción.** Es la regla de la capa: si la deuda derivada no está arbitrada
+  contra el ECA y la 201, no se escribe pantalla. Los 330 items 🧪 del tracker son exactamente lo
+  que pasa cuando se invierte este orden.
+- **TP.20.3 (las pestañas) va al final a propósito.** Es lo más visible y lo más barato, y hacerlo
+  primero daría sensación de integración sin mover un peso: seguirían siendo cuatro pantallas que
+  no se hablan, sólo que más juntas.
+- **O2 depende de O1.** El botón «Programar» de Pronto pago no tiene a dónde mandar la factura
+  mientras el calendario no la conozca.
+
+---
+
+## 8. Definición de Terminado
+
+- [ ] 1. Cobertura **remedida** con la misma consulta; antes/después publicado (2.0 % → ?)
+- [ ] 2. Cada capa verificada **o declarada NO MEDIDA**; los docs sin ventana medible, nombrados
+- [ ] 3. `POST /allocations` con el payload real de Pronto pago y el `ejecutar` con la liga a
+      Kepler, **ejercidos contra base real** — no doubles de Knex, no smoke por regex
+- [ ] 4. El spec de paridad sidebar↔pestañas **roto a propósito**, rojo verificado
+- [ ] 5. Si el dedupe o la frescura resultan genéricos, viven en `libs/` **o** quedan como deuda
+      con nombre
+- [ ] 6. Tracker + `03_LOG_REVISIONES.md` + fila TP del roadmap al día; D1–D3 con su ADR
+- [ ] 7. En prod, o escrito **por qué no** y qué falta
+
+---
+
+## 9. Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | Plan escrito sobre medición de prod (sólo lectura). Sin dueño ni fecha: no pasa a 🔨 | Claude |
