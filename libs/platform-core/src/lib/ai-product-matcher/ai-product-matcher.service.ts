@@ -212,9 +212,9 @@ export class AiProductMatcherService {
         );
         filas = r.rows.length;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.error(
-        `[K.VEC.1] corpus '${source}' ILEGIBLE (${tabla}): ${err?.message}. ` +
+        `[K.VEC.1] corpus '${source}' ILEGIBLE (${tabla}): ${(err as Error)?.message}. ` +
           `Se responde 503 en vez de devolver no_match silencioso.`,
       );
       throw new ServiceUnavailableException(
