@@ -1204,9 +1204,44 @@ jobs:
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           set -e
 
+      # ⭐⭐ `[TP.18]` Las pruebas de INTEGRACION que corren el codigo real del service contra esta
+      # misma base (`*.it.spec.ts`). Son vitest, asi que `nx affected -t test` ya las "corre" —
+      # pero se AUTO-SALTAN sin su variable de entorno, y un spec saltado se lee igual que uno
+      # verde. Aca si tienen base, asi que aca es donde de verdad se ejercen.
+      #
+      # ⛔ Por que importa, medido el 2026-10-16: corriendo esta suite contra una base real
+      # aparecieron TRES defectos que los specs puros daban por buenos — un `ReferenceError` que
+      # rompia la lista entera del Calendario (vitest usa esbuild y NO tipa), un CHECK que
+      # rechazaba el origen nuevo (la pantalla habria listado 2,892 facturas imposibles de
+      # programar, con 500 al apretar el boton) y un NULL que se colaba al optimizar una consulta.
+      # Es el mismo patron que dejo el arqueo de caja sin poder cerrarse 8 dias.
+      #
+      # `TP_IT_DB` se fija ACA, nunca se hereda: el spec exige `localhost` y compara el
+      # `system_identifier` contra el de produccion antes de escribir una sola fila.
+      - name: Pruebas de integración (service real contra Postgres)
+        id: integracion
+        if: ${{ !cancelled() }}
+        env:
+          TP_IT_DB: postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform
+        run: |
+          set +e
+          # ⛔ El filtro es una SUBCADENA del path, no un glob: `'src/lib/**/*.it.spec.ts'`
+          # devuelve «No test files found» y **exit 0** — un verde que no corrió nada. Probado
+          # en la máquina de trabajo antes de cablearlo (2026-10-16).
+          npx vitest run --root libs/finance it.spec 2>&1 | tee integracion.log
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          # Una suite que no encontró archivos NO es una suite verde.
+          grep -q "No test files found" integracion.log && \
+            echo "::warning title=Integración::el filtro no encontró ningún .it.spec" || true
+
       - name: Publicar el total
         if: ${{ !cancelled() }}
         run: |
+          IT=$(grep -coE 'NO MEDIDO' integracion.log || true)
+          if [ "$IT" -gt 0 ]; then
+            echo "::warning title=Integración::alguna suite .it.spec se SALTO por falta de base (no es verde)"
+          fi
           OK=$(grep -coE '^\s*(PASS|✔|✅)' suites.log || true)
           BAD=$(grep -coE '^\s*(FAIL|✖|❌|⛔)' suites.log || true)
           echo "::notice title=Pruebas contra Postgres::verdes=$OK rojas=$BAD (medicion, no bloquea)"
