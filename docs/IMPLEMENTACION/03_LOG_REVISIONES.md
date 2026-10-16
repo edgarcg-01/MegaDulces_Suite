@@ -214,6 +214,20 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — `[TP.15]` El Calendario de Pagos no tenía por dónde recibir una factura
+
+- **Síntoma:** Francisco no encontraba cómo cargar notas para pago. No era un botón escondido: el
+  Calendario nunca tuvo un renglón (0 obligaciones de proveedor, 0 lotes en toda su historia).
+- **Causa:** la obligación a proveedor sólo nacía por captura manual en `/compras/obligaciones`;
+  aceptar el papel en Entregas (RE.32) no la creaba.
+- **Lo que cambió el diseño al medir:** 21 de 38 facturas aceptadas ya no tenían saldo en Kepler.
+  La obligación nace con el **pendiente de Kepler** y se re-mide al programar.
+- **Verificado:** SELECT del backfill contra prod RO (17 · $1,587,690.31, igual a lo medido a mano);
+  candado de saldo contra 2 casos reales (saldo menor 193,839.04 · factura pagada → sin saldo);
+  `check:pantalla` sin fallas nuevas en las 2 pantallas; `check:templates`; `lint:boundary`;
+  `tsc --noEmit` sin errores en los archivos tocados.
+- **NO MEDIDO:** los INSERT (sin base escribible), build y prueba visual.
+
 ## 2026-10-15 — `[U.VA]` Verdad absoluta de las UNIDADES: son tres, no una, y el 2.2 % que no cierra mueve $8.73M
 
 **Pedido de Edgar:** *"necesito que agregues una verdad absoluta con las unidades de medida"*.

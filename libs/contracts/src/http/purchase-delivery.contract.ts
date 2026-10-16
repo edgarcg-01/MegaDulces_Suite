@@ -115,4 +115,28 @@ export interface PurchaseDeliverySummary {
 
 export interface PurchaseDeliveryDetail extends PurchaseDeliverySummary {
   lines: PurchaseDeliveryLine[];
+  /** `[TP.15]` Sólo en la respuesta de `recibir`: qué pasó al Calendario de Pagos. */
+  calendar?: DeliveryCalendarResult;
+}
+
+/**
+ * `[TP.15]` Lo aceptado de una entrega pasa al Calendario de Pagos por el **pendiente vivo de
+ * Kepler**, no por el importe de la entrega. Lo que no pasa se cuenta y se DECLARA.
+ */
+export interface DeliveryCalendarResult {
+  /** `false` = falta la migración TP.15: no se creó nada y se dice (no es «0 creadas»). */
+  schema_ready: boolean;
+  /** Obligaciones creadas ahora (o ya existentes de este renglón). */
+  created: number;
+  amount: number;
+  /**
+   * Aceptados sin saldo ABIERTO en Kepler: pagados, de contado, o sin documento que case por
+   * sucursal+folio (la vista sólo publica saldos abiertos, así que esos casos no se distinguen).
+   * No se ofrecen para pagar.
+   */
+  without_balance: number;
+  /** Aceptados cuyo proveedor no está en el catálogo: no se pueden programar. */
+  without_supplier: number;
+  /** Leer Kepler falló: la entrega SÍ quedó confirmada, pero nada pasó al calendario. */
+  error?: string;
 }
