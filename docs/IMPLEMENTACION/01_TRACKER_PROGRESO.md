@@ -9588,6 +9588,30 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   **Sin validación visual** (necesita la mig aplicada y el primer refresco). **NO MEDIDO: el tiempo de la
   consulta contra la matview** (no existe en prod todavía).
 
+- [x] **[CAT-COSTO.7.1]** 🔨 **Lo que encontró la exploración visual** (2026-10-15) — recorrido con Playwright
+  en `localhost:4200` contra la API real; sólo la llamada `contra-ultimo` se sirvió con datos reales generados
+  por el mismo SQL + la misma regla empaquetada (la matview no existe en prod). (1) **«Unidad no clara» no decía
+  qué corregir** → `FilaContraUltimo.ultimo_unidad` + «La compra vino en PZA y la ficha está en KG, sin decir
+  cuántas KG trae una PZA». (2) **En celular no se veía ninguna cifra**: una regla GLOBAL de `styles.css`
+  (`@media max-width 30rem`) oculta toda columna `n+4` de cualquier `p-datatable` salvo la última, que queda
+  fija a la derecha → orden nuevo (Producto con sucursal/unidad/proveedor · Estándar · Último · Diferencia ·
+  …) + etiqueta corta en angosto. (3) **Defecto del estilo COMPARTIDO** `.surf-table--frozen-first`: el hover
+  de la columna fija se declaraba «opaco» con `color-mix(--table-hover, --card-bg)`, pero `--table-hover` es
+  rgba con alfa y el color-mix promedia el alfa → translúcido, se veía la columna de la derecha encima del
+  nombre en TODAS las tablas con primera columna fija → `linear-gradient(hover) sobre --card-bg`. (4) El
+  **Historial por producto arranca en el mes en curso** (preset compartido «Este mes», pedido de Compras) y
+  deja de usar `toISOString()`, que después de las 18:00 MX daba la fecha de mañana. (5) **Las 6 columnas
+  vacías de rutas** (`01-001…01-006`) en «Entre sucursales»: las rutas tienen `kepler_code` pero no ficha en
+  `kdii` → la lista de sucursales de las tres vistas se limita a `^[0-9]{2}$`. Pruebas: componente 7/7, Compras
+  472 ✔, costos 28 ✔.
+
+- [x] **[CAT-COSTO.5.1]** 🔨 **El Historial por producto respondía 500** (2026-10-15) — tardaba 60 s y caía
+  por el `statement_timeout`. Medido contra prod (70056): escalera 47 ms · muestras 210 ms · entradas 976 ms,
+  y **entradas unidas a `analytics.v_erp_goods_receipt_origin` > 90 s** (Postgres no le pasa el filtro a la
+  vista y la calcula entera). Ahora el origen se pide APARTE sólo para los folios encontrados
+  (`unnest(sucursal[], folio[])`): **~1 s**, 115 de 115 folios con origen. Si un folio trae más de una fila de
+  origen se toma la primera (antes multiplicaba la entrada). **Sin probar con la API reiniciada.**
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

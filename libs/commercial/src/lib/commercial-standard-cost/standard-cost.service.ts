@@ -92,6 +92,7 @@ interface FilaCrudaContraUltimo {
   ultimo_proveedor: string | null;
   ultimo_origen: 'propia' | 'red' | null;
   ultimo_sucursal: string | null;
+  ultimo_unidad: string | null;
   costo_promedio: string | null;
   venta_30d: string | null;
 }
@@ -663,6 +664,7 @@ export class StandardCostService {
           .from('commercial.warehouses')
           .whereRaw('tenant_id = current_tenant_id()')
           .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
           .whereNot('kepler_code', '00')
           .whereNull('deleted_at')
           .select('kepler_code')
@@ -761,6 +763,7 @@ export class StandardCostService {
           .from('commercial.warehouses')
           .whereRaw('tenant_id = current_tenant_id()')
           .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
           .whereNull('deleted_at')
           .select('kepler_code')
           .min({ nombre: 'name' })
@@ -823,6 +826,7 @@ export class StandardCostService {
           'c.ultimo_proveedor',
           'c.ultimo_origen',
           'c.ultimo_sucursal',
+          'c.ultimo_unidad',
           'c.costo_promedio',
           trx.raw('COALESCE(a.venta_bruta, 0) AS venta_30d'),
         );
@@ -851,6 +855,7 @@ export class StandardCostService {
           ultimo_proveedor: r.ultimo_proveedor,
           ultimo_origen: r.ultimo_origen,
           ultimo_sucursal: r.ultimo_sucursal,
+          ultimo_unidad: r.ultimo_unidad,
           antiguedad: costo_ultimo !== null ? antiguedadUltimo(r.ultimo_fecha, meta.hoy) : null,
           costo_promedio: num(r.costo_promedio),
           diferencia_pct: c.diferencia_pct,
@@ -960,17 +965,11 @@ export class StandardCostService {
                   NULLIF(btrim(ap.c32::text), '')        AS proveedor,
                   NULLIF(upper(btrim(l.c11::text)), '')  AS unidad,
                   ${NUM('l.c9')}                         AS cantidad,
-                  ${NUM('l.c12')}                        AS costo,
-                  og.origen_veredicto,
-                  og.origen_warehouse_name               AS origen_nombre,
-                  wo.kepler_code                         AS origen_kepler
+                  ${NUM('l.c12')}                        AS costo
              FROM kepler_ods.kdm2 l
              JOIN kepler_ods.kdm1 ap
                ON ap.sucursal = l.sucursal AND ap.c1 = l.c1 AND ap.c2 = l.c2 AND ap.c3 = l.c3
               AND ap.c4 = l.c4 AND ap.c6 = l.c6
-             LEFT JOIN analytics.v_erp_goods_receipt_origin og
-               ON og.sucursal = ap.sucursal AND og.folio = btrim(ap.c6::text)
-             LEFT JOIN commercial.warehouses wo ON wo.id = og.origen_warehouse_id
             WHERE btrim(l.c8) = ?
               AND l.c2 = 'X' AND l.c3 = 'A' AND btrim(l.c4::text) = '20'
               AND btrim(ap.c1::text) = ap.sucursal::text
@@ -991,6 +990,7 @@ export class StandardCostService {
           .from('commercial.warehouses')
           .whereRaw('tenant_id = current_tenant_id()')
           .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
           .whereNot('kepler_code', '00')
           .whereNull('deleted_at')
           .select('kepler_code')
@@ -1021,12 +1021,40 @@ export class StandardCostService {
         unidad: string | null;
         cantidad: string | null;
         costo: string | null;
+      };
+      type FilaOrigen = {
+        sucursal: string;
+        folio: string;
         origen_veredicto: string | null;
         origen_nombre: string | null;
         origen_kepler: string | null;
       };
+      // `[CAT-COSTO.5.1]` El origen (qué plaza recibió) se pide APARTE y sólo para los folios
+      // encontrados. Unido en la misma consulta, Postgres no le pasaba el filtro a
+      // `v_erp_goods_receipt_origin` y la calculaba entera: medido en prod el 2026-10-15, 70056
+      // pasaba de 90 s (el historial respondía 500 por el límite de 60 s); así, ~1 s.
+      // Si un folio trae más de una fila de origen se toma la primera (antes multiplicaba la entrada).
+      const filasEntrada = entradasCrudas.rows as FilaEntrada[];
+      const claves = [...new Map(filasEntrada.map((r) => [`${r.sucursal_registro}|${r.folio}`, r])).values()];
+      const origenes = claves.length
+        ? ((
+            await trx.raw(
+              `SELECT og.sucursal::text AS sucursal, og.folio::text AS folio, og.origen_veredicto,
+                      og.origen_warehouse_name AS origen_nombre, wo.kepler_code AS origen_kepler
+                 FROM unnest(?::text[], ?::text[]) AS x(s, f)
+                 JOIN analytics.v_erp_goods_receipt_origin og ON og.sucursal = x.s AND og.folio = x.f
+                 LEFT JOIN commercial.warehouses wo ON wo.id = og.origen_warehouse_id`,
+              [claves.map((r) => r.sucursal_registro), claves.map((r) => r.folio)],
+            )
+          ).rows as FilaOrigen[])
+        : [];
+      const origenDe = new Map<string, FilaOrigen>();
+      for (const o of origenes) if (!origenDe.has(`${o.sucursal}|${o.folio}`)) origenDe.set(`${o.sucursal}|${o.folio}`, o);
+
       const nombrePlaza = new Map<string, string>();
-      const entradas: EntradaCruda[] = (entradasCrudas.rows as FilaEntrada[]).map((r) => {
+      const entradas: EntradaCruda[] = filasEntrada.map((fila) => {
+        const o = origenDe.get(`${fila.sucursal_registro}|${fila.folio}`);
+        const r = { ...fila, origen_veredicto: o?.origen_veredicto ?? null, origen_nombre: o?.origen_nombre ?? null, origen_kepler: o?.origen_kepler ?? null };
         // De qué plaza es: la que recibió, aunque se haya registrado en el CEDIS (DM.19).
         const plaza =
           r.origen_veredicto === 'otra_plaza'

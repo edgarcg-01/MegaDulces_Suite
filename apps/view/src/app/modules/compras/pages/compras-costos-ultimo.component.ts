@@ -40,6 +40,15 @@ const SEVERIDAD: Record<VeredictoContraUltimo, 'danger' | 'info' | 'warn' | 'sec
   igual: 'success',
 };
 
+const ETIQUETA_CORTA: Record<VeredictoContraUltimo, string> = {
+  estandar_abajo: 'Abajo',
+  estandar_arriba: 'Arriba',
+  unidad_no_clara: 'Unidad',
+  sin_compra: 'Sin compra',
+  sin_estandar: 'Sin estándar',
+  igual: 'Igual',
+};
+
 /** La fuente se recalcula de noche: pasado un día y poco, ya no es de hoy. */
 const UN_DIA_Y_POCO = 26 * 3600;
 
@@ -129,14 +138,14 @@ const UN_DIA_Y_POCO = 26 * 3600;
                    [rowsPerPageOptions]="[50, 100, 200]" (onLazyLoad)="onPagina($event)"
                    size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
             <ng-template #header>
+              <!-- El orden importa en angosto: la regla global de tablas oculta desde la 4a columna
+                   (salvo la ultima) en celular, asi que lo que hay que leer va primero. -->
               <tr>
                 <th scope="col">Producto</th>
-                <th scope="col">Sucursal</th>
-                <th scope="col">Unidad</th>
                 <th scope="col" class="comm-num">Estándar</th>
                 <th scope="col" class="comm-num">Último costo</th>
-                <th scope="col">Última compra</th>
                 <th scope="col" class="comm-num">Diferencia</th>
+                <th scope="col">Última compra</th>
                 <th scope="col" class="comm-num">Promedio</th>
                 <th scope="col" class="comm-num">Venta 30 d</th>
                 <th scope="col">Resultado</th>
@@ -147,12 +156,12 @@ const UN_DIA_Y_POCO = 26 * 3600;
                 <td>
                   <button type="button" class="cu-prod" (click)="skuElegido.emit(f.sku)"
                           [attr.aria-label]="'Ver historial de costos de ' + (f.nombre || f.sku)">{{ f.nombre || 'Sin nombre en catálogo' }}</button>
-                  <div class="cu-meta"><span class="cu-mono">{{ f.sku }}</span> · {{ f.proveedor || 'sin proveedor' }}</div>
+                  <div class="cu-suc">{{ nombreSucursal(f.sucursal) }}</div>
+                  <div class="cu-meta"><span class="cu-mono">{{ f.sku }}</span> · {{ f.unidad_base || 'sin rótulo' }} · {{ f.proveedor || 'sin proveedor' }}</div>
                 </td>
-                <td>{{ nombreSucursal(f.sucursal) }}</td>
-                <td class="cu-unidad">{{ f.unidad_base || 'sin rótulo' }}</td>
                 <td class="comm-num cu-mono">{{ dineroONada(f.costo_estandar) }}</td>
                 <td class="comm-num cu-mono cu-fuerte">{{ dineroONada(f.costo_ultimo) }}</td>
+                <td class="comm-num cu-mono" [class.cu-mal]="f.veredicto === 'estandar_abajo'">{{ pct(f.diferencia_pct) }}</td>
                 <td class="cu-compra">
                   @if (f.ultimo_fecha) {
                     <span class="cu-mono">{{ f.ultimo_fecha }}</span>
@@ -160,18 +169,23 @@ const UN_DIA_Y_POCO = 26 * 3600;
                       XA2001-{{ f.ultimo_folio }}
                       @if (f.ultimo_origen === 'red') { · compra de {{ nombreSucursal(f.ultimo_sucursal) }} }
                     </div>
+                    @if (f.veredicto === 'unidad_no_clara') {
+                      <div class="cu-aviso">{{ textoUnidad(f) }}</div>
+                    }
                   } @else {
                     <span class="cu-sin">{{ textoMotivo(f) }}</span>
                   }
                 </td>
-                <td class="comm-num cu-mono" [class.cu-mal]="f.veredicto === 'estandar_abajo'">{{ pct(f.diferencia_pct) }}</td>
                 <td class="comm-num cu-mono">{{ dineroONada(f.costo_promedio) }}</td>
                 <td class="comm-num cu-mono">{{ f.venta_30d > 0 ? dinero(f.venta_30d) : '—' }}</td>
-                <td><p-tag [value]="etiqueta(f.veredicto)" [severity]="severidad(f.veredicto)" /></td>
+                <td>
+                  <p-tag class="cu-tag-largo" [value]="etiqueta(f.veredicto)" [severity]="severidad(f.veredicto)" />
+                  <p-tag class="cu-tag-corto" [value]="etiquetaCorta(f.veredicto)" [severity]="severidad(f.veredicto)" />
+                </td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="10" class="cu-vacio">{{ cargando() ? 'Cargando…' : 'Ningún producto coincide con los filtros.' }}</td></tr>
+              <tr><td colspan="8" class="cu-vacio">{{ cargando() ? 'Cargando…' : 'Ningún producto coincide con los filtros.' }}</td></tr>
             </ng-template>
           </p-table>
         </div>
@@ -218,15 +232,27 @@ const UN_DIA_Y_POCO = 26 * 3600;
     .cu-prod:hover { text-decoration-color: var(--c-text-2); }
     .cu-prod:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .cu-meta { font-size: var(--fs-xs); color: var(--c-text-3); }
-    .cu-unidad { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .cu-suc { font-size: var(--fs-sm); color: var(--c-text-2); }
     .cu-compra { white-space: nowrap; }
     .cu-sin { font-size: var(--fs-xs); color: var(--c-text-3); }
+    .cu-aviso { font-size: var(--fs-xs); color: var(--warn-fg); white-space: normal; max-width: 16rem; }
     .cu-vacio { text-align: center; padding: 1.5rem; color: var(--c-text-2); }
     .cu-notas { margin-top: 1rem; font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5; }
     .cu-notas p { margin: 0 0 .35rem; max-width: 60rem; }
     @container (max-width: 48rem) {
       .cu-f input, .cu-sel { width: 100%; min-width: 0; }
       .cu-f { flex: 1 1 100%; }
+      /* La primera columna es fija: con nombres largos ocupaba todo el ancho y no dejaba ver
+         ninguna cifra. Se acota para que asomen el estándar y el último costo. */
+      .cu-tabla td:first-child, .cu-tabla th:first-child { max-width: 9.5rem; min-width: 9.5rem; white-space: normal; }
+      .cu-prod { font-size: var(--fs-xs); }
+    }
+    /* La ultima columna queda fija a la derecha en angosto (regla global de tablas): con la
+       etiqueta larga tapaba las cifras. En angosto va la corta. */
+    .cu-tag-corto { display: none; }
+    @container (max-width: 30rem) {
+      .cu-tag-largo { display: none; }
+      .cu-tag-corto { display: inline-flex; }
     }
   `],
 })
@@ -353,6 +379,10 @@ export class ComprasCostosUltimoComponent {
   etiqueta(v: VeredictoContraUltimo): string {
     return ETIQUETA_VEREDICTO_CONTRA_ULTIMO[v];
   }
+  /** Para pantallas angostas: la misma clasificación, en una palabra. */
+  etiquetaCorta(v: VeredictoContraUltimo): string {
+    return ETIQUETA_CORTA[v];
+  }
   severidad(v: VeredictoContraUltimo): 'danger' | 'info' | 'warn' | 'secondary' | 'success' {
     return SEVERIDAD[v];
   }
@@ -363,6 +393,14 @@ export class ComprasCostosUltimoComponent {
       case 'sin_compra': return 'Sin compra en la red';
       default: return f.veredicto === 'sin_estandar' ? 'Sin estándar' : '—';
     }
+  }
+
+  /** Para el analista de catálogo: en qué unidad vino la compra contra la de la ficha. */
+  textoUnidad(f: FilaContraUltimo): string {
+    if (f.motivo === 'inverosimil') return 'El costo de la compra está fuera de proporción con el estándar';
+    const compra = f.ultimo_unidad || 'sin rótulo';
+    const ficha = f.unidad_base || 'sin rótulo';
+    return `La compra vino en ${compra} y la ficha está en ${ficha}, sin decir cuántas ${ficha} trae una ${compra}`;
   }
 
   nombreSucursal(codigo: string | null): string {

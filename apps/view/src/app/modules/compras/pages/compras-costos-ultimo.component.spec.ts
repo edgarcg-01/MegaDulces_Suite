@@ -24,6 +24,7 @@ const fila = (over: Partial<FilaContraUltimo>): FilaContraUltimo => ({
   ultimo_proveedor: 'DULCES DE LA ROSA',
   ultimo_origen: 'propia',
   ultimo_sucursal: '01',
+  ultimo_unidad: 'PAQ',
   antiguedad: 'hasta_90',
   costo_promedio: 69.75,
   diferencia_pct: 5.2,
@@ -54,7 +55,7 @@ const R: RespuestaContraUltimo = {
     fila({}),
     fila({
       sucursal: '07', sku: '96087', nombre: 'PRODUCTO SIN UNIDAD', costo_ultimo: null, ultimo_fecha: null,
-      ultimo_folio: null, ultimo_origen: null, antiguedad: null, diferencia_pct: null, venta_30d: 50,
+      ultimo_folio: null, ultimo_origen: null, ultimo_unidad: null, antiguedad: null, diferencia_pct: null, venta_30d: 50,
       veredicto: 'unidad_no_clara', motivo: 'unidad_no_resuelta',
     }),
   ],
@@ -101,6 +102,13 @@ describe('[CAT-COSTO.7] ComprasCostosUltimoComponent', () => {
     const txt = el.querySelector('p-table')?.textContent ?? '';
     expect(txt).toContain('Compra en una unidad que la ficha no declara');
     expect(txt).toContain('Unidad no clara');
+  });
+
+  it('unidad no clara CON compra: dice en qué unidad vino la compra y en cuál está la ficha', async () => {
+    const el = await montar(of({ ...R, filas: [fila({ unidad_base: 'KG', ultimo_unidad: 'PAQ', costo_ultimo: null, diferencia_pct: null, veredicto: 'unidad_no_clara', motivo: 'unidad_no_resuelta' })] }));
+    const txt = el.querySelector('p-table')?.textContent ?? '';
+    expect(txt).toContain('La compra vino en PAQ y la ficha está en KG');
+    expect(txt).toContain('XA2001-0000687');
   });
 
   it('NEGATIVA: con la fuente sin calcular NO hay tabla con ceros: hay un vacío que lo explica', async () => {

@@ -96,6 +96,8 @@ export interface FilaContraUltimo {
   ultimo_origen: 'propia' | 'red' | null;
   /** Sucursal que hizo la compra. */
   ultimo_sucursal: string | null;
+  /** Unidad en la que vino el renglón de la compra (para «unidad no clara»: contra `unidad_base`). */
+  ultimo_unidad: string | null;
   antiguedad: AntiguedadUltimo | null;
   costo_promedio: number | null;
   /** `(último − estándar) / estándar`, en %, 1 decimal. `null` si no hay con qué comparar. */

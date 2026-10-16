@@ -8,7 +8,7 @@ import { map } from 'rxjs/operators';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { CheckboxModule } from 'primeng/checkbox';
-import { makeDebouncedSearch } from '../../../shared/util';
+import { datePresetRange, isoLocalDate, makeDebouncedSearch } from '../../../shared/util';
 import { CostoEstandarService } from '../costo-estandar.service';
 import { FiltroTipo, eventosTrazabilidad, graficaHistorial } from '../costos-historial.util';
 
@@ -256,8 +256,13 @@ export class ComprasCostosHistorialComponent {
   readonly proveedor = signal<string | null>(null);
   readonly tipo = signal<FiltroTipo>('ambos');
   readonly incluirSinCambio = signal(false);
-  readonly hasta = signal(new Date().toISOString().slice(0, 10));
-  readonly desde = signal(new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10));
+  // [CAT-COSTO.8] Por defecto, el MES EN CURSO (pedido de Compras, 2026-10-15), con el preset
+  // compartido «Este mes». Antes eran 365 días con `toISOString()`, que da la fecha UTC: después de
+  // las 18:00 en México «hasta» ya marcaba mañana. El servidor sigue trayendo el año previo a
+  // `desde` para saber qué estándar había al empezar.
+  private readonly mesEnCurso = datePresetRange('mes')!;
+  readonly hasta = signal(isoLocalDate(this.mesEnCurso.to));
+  readonly desde = signal(isoLocalDate(this.mesEnCurso.from));
 
   readonly opcionesTipo = [
     { label: 'Estándar y entrada', value: 'ambos' },
