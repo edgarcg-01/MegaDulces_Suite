@@ -360,10 +360,58 @@ misma bandeja**.
 |---|---|---|---|---|
 | **B.1** | ⛔ **decisión** | **Dónde vive `CGP-VEC.1`.** Es código vivo en `main` sin destino. O va a `CSU` (cortes de sucursal, que es donde se cuenta esa caja) o se declara deuda con nombre | ADR-056: un primitivo huérfano no cierra la fase. Queda escrito en el tracker | B.2 |
 | **B.2** | **C0** | **El interruptor por ruta, si el puente llegara a conectarse.** Un cierre es proponible **sólo si ninguna de sus rutas tiene cuenta por cobrar en Kepler que reciba efectivo**. La identidad es `kdm1.c10`, que la bandeja ya expone. Medido: **414 cierres ($4.80 M) de rutas SIN cuenta por cobrar** | ⛔ **No es un pareo.** El importe **arbitra**, no llavea: para Padre Hidalgo, 107 de 166 pares (ruta, día) coinciden al centavo. **No reconstruyas el pareo por importe** — refutado con placebo (3.0 % vs 3.1 %) | — |
-| **B.3** | **C0** | **Arreglar `contado_en_cero`: 7 de 8 SÍ contaron.** Tienen el desglose por denominación poblado ($109,637.03) y 3 cuadran al centavo. `esProponible()` los descarta por `monto>0` → **$91,087.74 desaparece sin dejar rastro** | El caso del 2026-07-31 (2,620 + 6.53 = 2,626.53 = esperado) deja de perderse. Es el modo de fallar que ADR-056 prohíbe | — |
+| **B.3** | **C0** | ⚠️ **RE-MEDIDA: el arreglo que yo iba a hacer está PROHIBIDO por el control.** `contado_en_cero` mezcla dos cosas y hay que **partirlo y declararlo**, no rellenarlo — ver abajo. ⛔ **Cambia el vocabulario de `veredicto`: es breaking para sus consumidores** | Los dos veredictos nuevos se distinguen en pantalla y **ninguno entra solo al libro**. Exige actualizar `app-vecinal-recon` antes de aplicar | B.1 |
 | **B.4** | **C0** | **Latido para el árbitro.** `analytics.cash_cuts` (4,497 filas) la alimenta un sync con **cero jobs en `cron_runs`** | **Prueba negativa:** apagar el sync y verificar el rojo. Hoy, si se cae, los días nuevos llegan con `cortes IS NULL` → `sin_arqueo` → `esProponible()` da `false` → **la bandeja se vacía en silencio** | — |
 | **B.5** | **C0** | **Sacar la sucursal `03`.** Sus 4 día-caja «vecinales» tienen **1 solo ticket cada uno** y la venta vecinal es 0.3–3.1 % del cajón: son falsos positivos | Un ticket no hace una jornada de ruta. La `08` sí entra, pero su historia arranca el 26-sep | — |
 | **B.6** | ⛔ **medición** | **Por dónde llega a caja general el efectivo de `02`/`03`/`04`/`05`.** No tienen **un solo `U-A-5` en 6 meses**, y los `U-D-10` **no aparecen** en la bandeja (0 filas en `mv_caja_movimientos`) | Es el hueco H2 de verdad: para esas plazas no hay depósito contra el cual chocar, así que la pregunta no es el doble conteo — es **dónde está el dinero** | — |
+
+### ⛔⛔ B.3 re-medida — iba a reconstruir una hipótesis que el repo ya había matado
+
+**Lo que iba a hacer:** usar `arqueo_billetes + arqueo_monedas` como respaldo cuando
+`efectivo_contado = 0`. **El control lo prohíbe, y `[VEC.10]` ya lo había medido:**
+
+| Control — donde `efectivo_contado > 0`, ¿el desglose lo reproduce? | |
+|---|---:|
+| Cortes | 4,456 |
+| Cuadran al peso | **1,102 — 24.7 %** |
+| Peor brecha | **$415,476.05** |
+
+**No se puede rellenar `efectivo_contado` con el desglose.** Punto.
+
+⭐ **Pero hay una pregunta distinta, y ésa sí tiene señal.** En vez de *«¿el desglose es el
+contado?»* (no), la pregunta es *«en los cortes que dicen contado = 0, ¿hay evidencia de que
+alguien contó?»*. Con control de placebo:
+
+| Grupo | n | El desglose reproduce el **esperado** |
+|---|---:|---:|
+| **REAL** — `contado = 0` con desglose | 31 | **19 · 61.3 %** |
+| **PLACEBO** — `contado > 0` con desglose | 4,234 | 1,021 · **24.1 %** |
+
+**2.5× la tasa base.** Eso no sale del pozo denso.
+
+**El alcance es mayor que vecinal:** en todo `analytics.cash_cuts` hay **43 cortes con
+`efectivo_contado = 0` y esperado > 0**, y **31 de ellos tienen desglose poblado** —
+**$302,806.65 contados que el sistema reporta como cero**. En vecinal son 8 (7 con desglose,
+$109,637.03, con $91,087.74 de venta en juego).
+
+Casos que lo muestran solos: **2026-07-31** billetes 2,620.00 + monedas 6.53 = **2,626.53 =
+el esperado al centavo**; **2026-08-15**, 26,636.00 contra 26,635.93 → **$0.07**. Y el único sin
+desglose —`01` caja 4 del 2026-07-25— ése sí es «nadie contó».
+
+**Lo que corresponde hacer, entonces, no es rellenar: es PARTIR EL VEREDICTO.**
+
+| Hoy | Debería ser |
+|---|---|
+| `contado_en_cero` (8 vecinal / 43 total) | **`sin_contar`** — contado 0 **y** desglose 0 → nadie contó |
+| | **`contado_sin_capturar`** — contado 0 **pero** desglose > 0 → hay un conteo que no llegó al campo |
+
+⚠️ **Ninguno de los dos entra solo al libro.** El desglose se **muestra como declaración** («hay
+un conteo de $X que no se capturó»), que es información, no un número inventado — y 19 de 31 no
+es 31 de 31, así que afirmar «los 31 contaron» sería pasarse de lo medido.
+
+⛔ **Es un cambio BREAKING del vocabulario de `veredicto`**, que hoy consume el panel
+`app-vecinal-recon` en `/comercial/ventas-por-ruta`. Por eso no lo mandé como migración sorpresa:
+va junto con su consumidor, y después de **B.1**.
 
 ⚠️ **Y una defensa que es un no-op:** `cerrado` se escribe literal `true` en el `INSERT` y se fuerza
 otra vez en el `ON CONFLICT` — las 4,497 filas lo tienen `true`. El candado de `esProponible()` que
