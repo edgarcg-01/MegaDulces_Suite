@@ -636,6 +636,48 @@ conciliación con la máquina prácticamente no se usa.
 
 ---
 
+### 6.9 ⛔⛔ 2026-10-16 — `[CGP-L.12]` NO SE SUELTA. Medido en prod: mueve $175,695.71 en un día
+
+> **Lo que lo destapó.** Edgar pidió aplicar a mano el cobro de la ruta 2V005 (venta del 7-oct,
+> arqueo folio 25, depósito CAOS op 1594) **con fecha 14-oct**, y después: *«debe ser o salir
+> capturado el 14»*. Se aplicó como `CI-2026-00045` el **16-oct**. Con eso quedó un caso real para
+> comparar los dos relojes sobre la misma jornada:
+>
+> | Jornada 14-oct, según | Movs | Neto | ¿Incluye `CI-2026-00045`? |
+> |---|---:|---:|:--:|
+> | el código **desplegado** (`fecha`) | **42** | **−$41,865.05** | **sí** |
+> | **`[CGP-L.12]`** (`created_at`) | 12 | +$133,830.66 | **no** |
+>
+> **30 movimientos y $175,695.71 de diferencia, en un solo día.**
+
+⛔ **El movimiento que se acaba de aplicar es, él mismo, el caso que rompe el cambio.** Tiene
+`fecha = 14-oct` y `created_at = 16-oct`; con `[CGP-L.12]` se iría al corte del 16. Y no es raro: la
+jornada del 14 tiene movimientos capturados **el 14 (10), el 15 (31) y el 16 (1)**.
+
+⭐⭐ **Y mide un error de método mío, no sólo del código.** `[CGP-L.12]` se cerró con 456 pruebas en
+tres zonas horarias y **dos mutaciones en rojo**. Todo eso era cierto y **no servía para esto**: las
+pruebas demuestran el MECANISMO —que el predicado filtra por el día del efectivo— pero no podían
+mostrar que **en prod los dos relojes discrepan para 30 de 42 movimientos del mismo día**. *Un
+cambio que redefine un universo no se valida con pruebas del mecanismo: se valida midiendo el
+universo que redefine, contra los datos reales, antes de escribirlo.* La medición que faltaba es de
+una sola consulta y nunca la hice.
+
+⚠️ **El diagnóstico sigue siendo correcto y el defecto sigue vivo:** las dos piernas del cajero
+caen en jornadas distintas y eso inventa faltantes. Lo que estaba mal era **la solución**. `fecha`
+es la del documento, `created_at` es la de captura, y **ninguna de las dos es el día del efectivo**.
+
+⇒ **Lo que sigue, en este orden:**
+1. **No soltar `[CGP-L.12]`.** El commit `003a190e8` dice 🧪 y hay que leerlo como ⚠️ **BLOQUEADO**.
+   Si se despliega tal cual, cada jornada del libro cambia de contenido en silencio.
+2. La **columna propia del día del efectivo** (por omisión el día de captura, editable al capturar
+   tarde) deja de ser deuda y pasa a ser **requisito** de este ítem. Sin ella no hay reloj correcto.
+3. Recién entonces el predicado de `sueltosDe()` apunta a esa columna, y ahí sí las dos piernas
+   caen juntas.
+4. ⚠️ Y hay que decidir qué pasa con lo ya capturado: 30 movimientos de una sola jornada tienen hoy
+   los dos relojes en desacuerdo.
+
+---
+
 ### 6.7 Estado al 2026-10-15: `[CGP-L.12]`, la jornada del corte (🧪 probado contra base real)
 
 **`[CGP-L.12]` — el corte mide el libro por el día del EFECTIVO.** Ítem nuevo, nacido del review de
@@ -698,6 +740,51 @@ es de la máquina). **Deuda con nombre:** una columna propia, por omisión la de
 ⚠️ **Y una trampa del andamio, para el próximo:** el preparador de la base de prueba reconoce qué
 remediar **leyendo el mensaje de error de Postgres en inglés**. En un servidor en español se detiene
 en la primera tabla ajena. Se destraba con `ALTER DATABASE <base> SET lc_messages='C'`.
+
+---
+
+### 6.10 ⛔⛔ 2026-10-16 — `[CGP-L.14]` El conteo entra al corte EQUIVOCADO, y un corte cerrado no se puede corregir
+
+**Medido en prod, los dos únicos cortes de toda la historia.** Edgar mandó las fotos del propio
+diálogo de cierre: *«este de 3653.5 es del día martes y 3340 del día lunes»*. El **2026-10-12 es
+lunes**.
+
+| Día | Conteo real | Lo que quedó guardado |
+| --- | ---: | --- |
+| lunes 12-oct | **$3,340.00** | `CC-2026-00001` → $3,653.50 (el del martes) |
+| martes 13-oct | **$3,653.50** | `CC-2026-00002` → $57,571.00 (el arqueo del jueves 15) |
+| miércoles 14-oct | $14,128.50 (arqueo `A23648`) | — sin corte |
+| jueves 15-oct | $57,571.00 (arqueo `A23655`) | — sin corte |
+
+⭐ **No son dos errores sueltos: es el mismo, tres veces.** La pantalla ofrece siempre *el día
+pendiente más viejo* mientras la persona está contando el cajón **de hoy**, así que el conteo
+correcto se teclea en el corte equivocado y arrastra la cadena entera — el `fondo_origen =
+'cierre_anterior'` del día siguiente hereda la cifra corrida.
+
+**Cómo se probó que `CC-2026-00002` trae el arqueo del jueves** (no por el importe, que sería un
+cruce sin control): las **10 denominaciones coinciden pieza por pieza** con `A23655`
+(500×81, 200×38, 100×10, 50×45, 20×35, 10×247, 5×423, 2×173, 1×577, 0.50×26), y el corte se creó
+el 15-oct **18:02:15** contra el arqueo de las **17:55:21** — siete minutos.
+
+⛔ **Y no hay salida.** `puedeRecontar` exige `estado === 'borrador'`
+([`cash-cut.engine.ts:597`](../../../libs/finance/src/lib/caja/cash-cut.engine.ts)) y los dos están
+`cerrado`; `cut_estado_chk` sólo admite `borrador|cerrado|autorizado` —**no existe `cancelado`**— y
+la tabla **no tiene `deleted_at`**. Un corte cerrado con el número equivocado es **permanente por
+diseño**. Eso es el fondo del *«no puedo arquear mi dinero de caja»*: el callejón no está antes de
+cerrar, está después.
+
+⚠️ **Deuda con nombre, `[CGP-L.14]`:** (1) la pantalla debe abrir el corte del **día que se está
+contando**, no el pendiente más viejo, o al menos decir con todas las letras qué día va a firmar;
+(2) hace falta un camino soportado para corregir un corte cerrado — reapertura con doble llave, o
+un `cancelado` con contra-asiento. Mientras no exista, cada corrección es un `UPDATE` a mano sobre
+un documento firmado.
+
+**Lo que el corte del martes SÍ está diciendo bien:** con el fondo corregido, su esperado da
+**−$150,228.82** — el 13-oct entraron **$351,440 a la bóveda CAOS** contra **$273,258** de ingreso
+capturado en el libro. ⭐ **Un esperado negativo es la firma de ingreso sin capturar**, no un error
+de cálculo (se reprodujo exacto: `3,340 + 273,258 − 154,846.82 + 79,460 − 351,440`). Es el punto 1
+de Edgar —*«existen movimientos que no salen»*— apareciendo en el corte en una forma que nadie puede
+leer. El corte del lunes, en cambio, **cuadra**: esperado $3,402.45 contra $3,340.00 = **−$62.45**.
 
 ---
 

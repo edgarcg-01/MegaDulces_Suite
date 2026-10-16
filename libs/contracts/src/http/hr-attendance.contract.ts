@@ -519,3 +519,73 @@ export interface HrOrdenesResponse {
   relojes: Array<{ id: string; serial_number: string; label: string | null }>;
   ordenes: HrOrdenDto[];
 }
+
+// ── `[RH.1.12]` Códigos sin persona: la bandeja para ligarlos ───────────────────────────────────────────────
+
+/** Por qué la Suite propone a esa persona (el mismo motor de la carga de personas). */
+export type HrMotivoCandidato = 'mismo_codigo' | 'mismo_nombre' | 'nombre_parecido';
+
+export interface HrCandidatoPersonaDto {
+  user_id: string;
+  nombre: string;
+  status: string | null;
+  motivo: HrMotivoCandidato;
+  /** Lo que el motor elegiría solo. RH confirma igual: nunca se liga automático. */
+  sugerido: boolean;
+}
+
+/** Un código que checa y no está ligado a ninguna persona: sin persona no genera faltas ni entra al reporte. */
+export interface HrSinPersonaDto {
+  enrollment_id: string;
+  site_code: string;
+  site_name: string;
+  device_label: string | null;
+  serial_number: string;
+  codigo: string;
+  nombre_reloj: string | null;
+  ultima_checada: string | null;
+  checadas_14d: number;
+  /** La ficha de esa plaza, si ya existe (sección del reporte y casilla de promotora). */
+  seccion: string | null;
+  promotora: boolean;
+  candidatos: HrCandidatoPersonaDto[];
+}
+
+/** `GET /hr/attendance/enrollments/unlinked`. `secciones`: las que ya existen, para elegir al dar de alta. */
+export interface HrSinPersonaResponse {
+  filas: HrSinPersonaDto[];
+  total: number;
+  secciones: string[];
+}
+
+/** Ligar un código a una persona que ya existe. `reemplazar`: si ya estaba ligado a OTRA persona (se exige decirlo). */
+export interface HrLigarBody {
+  user_id: string;
+  reemplazar?: boolean;
+}
+
+export interface HrDesligarBody {
+  motivo: string;
+}
+
+/** Dar de alta a la persona (sin contraseña ni acceso) y ligarle el código. */
+export interface HrAltaPersonaBody {
+  nombre: string;
+  seccion: string;
+  promotora?: boolean;
+}
+
+export interface HrLigarResultadoDto {
+  user_id: string;
+  nombre: string;
+  /** Cuántos enrolamientos quedaron ligados (el mismo código en los relojes de la plaza). */
+  enrolamientos: number;
+}
+
+/** `GET /hr/attendance/enrollments/people?q=` — buscar a mano a quién ligar. */
+export interface HrPersonaBuscadaDto {
+  user_id: string;
+  nombre: string;
+  status: string | null;
+  warehouse_code: string | null;
+}

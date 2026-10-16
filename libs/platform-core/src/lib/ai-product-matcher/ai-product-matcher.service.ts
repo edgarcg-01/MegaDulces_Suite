@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from '../database/database.module';
@@ -129,6 +130,13 @@ const NO_CATALOG_RAW_THRESHOLD = 0.25;
 export class AiProductMatcherService {
   private readonly logger = new Logger(AiProductMatcherService.name);
   private readonly maxItems: number;
+  /**
+   * `[K.VEC.1]` Cache SOLO del positivo: una vez que el corpus tuvo filas, no
+   * volvemos a sondear en cada request. El negativo NO se cachea a propósito —
+   * así el primer tick del sync que llena la tabla destraba el match sin
+   * reiniciar el pod.
+   */
+  private readonly corpusListo = new Set<'catalog' | 'active'>();
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
@@ -146,6 +154,87 @@ export class AiProductMatcherService {
         'Matcher usa la fuente legacy (products.embedding). Setear VECTOR_DATABASE_URL para la DB dedicada.',
       );
     }
+  }
+
+  /**
+   * `[K.VEC.1]` **Un corpus vectorial ausente se DECLARA, no se disfraza de
+   * "sin match"** (ADR-056).
+   *
+   * Medido el 2026-10-16, con el vendedor en la calle: las dos tablas del
+   * vector store NO EXISTÍAN en prod. El corpus se había construido el
+   * 2026-06-04 con un script one-shot (`embed-active-products.js`) contra la
+   * DB vector de Railway; cuando prod se mudó a `md` el 2026-09-22, `pg-rag`
+   * nació vacío y el one-shot nunca se re-corrió. El KNN tiraba
+   * `relation "active_product_embeddings" does not exist`, el catch POR ITEM
+   * de `matchExtractedItems()` lo convertía en `no_match`, y el vendedor leía
+   * las 9 líneas de su ticket como «— sin match —».
+   *
+   * ⭐ Lo caro no fue el bug: fue que **un defecto de infraestructura y "este
+   * producto no está en el catálogo" se veían IDÉNTICOS en pantalla**, y así
+   * estuvieron 24 días. Nadie podía distinguirlos sin abrir los logs del pod.
+   *
+   * Esta sonda los separa: corpus ausente o vacío → **503 con la causa**, no
+   * 200 con ceros. Corre ANTES de embeber (Voyage se cobra; no se paga por
+   * una consulta que no tiene contra qué correr).
+   */
+  private async assertCorpusReady(source: 'catalog' | 'active'): Promise<void> {
+    if (this.corpusListo.has(source)) return;
+
+    const tabla =
+      source === 'active'
+        ? 'active_product_embeddings'
+        : this.vectorDb
+          ? 'product_embeddings'
+          : 'products (legacy, products.embedding)';
+
+    if (source === 'active' && !this.vectorDb) {
+      throw new ServiceUnavailableException(
+        'El corpus del ticket (active_product_embeddings) necesita la DB vector dedicada y ' +
+          'VECTOR_DATABASE_URL no está configurada. No hay contra qué matchear.',
+      );
+    }
+
+    let filas = 0;
+    try {
+      if (source === 'active') {
+        const r = await this.vectorDb!.raw(
+          'SELECT 1 FROM active_product_embeddings LIMIT 1',
+        );
+        filas = r.rows.length;
+      } else if (this.vectorDb) {
+        const r = await this.vectorDb.raw(
+          'SELECT 1 FROM product_embeddings WHERE in_planogram = true LIMIT 1',
+        );
+        filas = r.rows.length;
+      } else {
+        const r = await this.knex.raw(
+          'SELECT 1 FROM products WHERE activo = true AND embedding IS NOT NULL AND in_planogram = true LIMIT 1',
+        );
+        filas = r.rows.length;
+      }
+    } catch (err: unknown) {
+      this.logger.error(
+        `[K.VEC.1] corpus '${source}' ILEGIBLE (${tabla}): ${(err as Error)?.message}. ` +
+          `Se responde 503 en vez de devolver no_match silencioso.`,
+      );
+      throw new ServiceUnavailableException(
+        `El catálogo de búsqueda AI no está disponible (corpus '${source}' ilegible). ` +
+          `Avisá a sistemas: ${(err as Error)?.message}`,
+      );
+    }
+
+    if (filas === 0) {
+      this.logger.error(
+        `[K.VEC.1] corpus '${source}' VACÍO (${tabla}, 0 filas). ` +
+          `Correr el sync (POST /api/ai/products/sync${source === 'active' ? '-active' : ''}-now) o esperar al tick del worker.`,
+      );
+      throw new ServiceUnavailableException(
+        `El catálogo de búsqueda AI está vacío (corpus '${source}'). Todavía se está ` +
+          `construyendo — reintentá en unos minutos. No es que tus productos no existan.`,
+      );
+    }
+
+    this.corpusListo.add(source);
   }
 
   /**
@@ -283,6 +372,12 @@ export class AiProductMatcherService {
           `Divide la lista en varios envíos.`,
       );
     }
+
+    // 1.5) [K.VEC.1] El corpus tiene que EXISTIR y tener filas antes de embeber.
+    //      Si no, el KNN falla por item, el catch de abajo lo vuelve `no_match`
+    //      y el vendedor lee «— sin match —» en vez de enterarse de que el
+    //      catálogo no está. Acá se declara, y se declara ANTES de gastar Voyage.
+    await this.assertCorpusReady(source);
 
     // 2) Embed batch los normalizados con input_type='query' (Voyage optimiza
     //    diferente vs documentos del corpus).

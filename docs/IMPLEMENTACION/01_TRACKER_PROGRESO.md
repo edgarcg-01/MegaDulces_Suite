@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1707 KB, 10804 líneas, 72 secciones.
+> **Índice navegable** — 1751 KB, 11254 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -32,53 +32,53 @@
 | 5208 | 5250 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
 | 5251 | 5328 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
 | 5329 | 5422 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5423 | 5494 | 8 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 5495 | 5511 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 5512 | 5557 | 83 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 5558 | 5625 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 5626 | 5878 | 20 | Fase CH — Checadores / Control de asistencia |
-| 5879 | 5944 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 5945 | 5972 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 5973 | 6139 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6140 | 6440 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 6441 | 6503 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6504 | 6589 | 21 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 6590 | 6652 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 6653 | 6813 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 6814 | 6884 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 6885 | 6933 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 6934 | 6966 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 6967 | 7356 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7357 | 7488 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7489 | 7533 | 19 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 7534 | 7573 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 7574 | 7626 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 7627 | 7693 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 7694 | 7856 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 7857 | 7949 | 7 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 7950 | 8117 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8118 | 9465 | 97 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 9466 | 9474 | 1 | Fase RR — Ventas por ruta |
-| 9475 | 9575 | 8 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 9576 | 9586 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 9587 | 9607 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 9608 | 9618 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 9619 | 9630 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 9631 | 9690 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 9691 | 10118 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 10119 | 10133 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 10134 | 10175 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 10176 | 10317 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 10318 | 10348 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 10349 | 10396 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 10397 | 10409 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 10410 | 10439 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 10446 | 10455 | 1 | 📝 Convenciones |
-| 10456 | 10492 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 10493 | 10511 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 10512 | 10564 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 10565 | 10867 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 10868 | 10888 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 5423 | 5535 | 11 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 5536 | 5552 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 5553 | 5598 | 83 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 5599 | 5666 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 5667 | 5919 | 20 | Fase CH — Checadores / Control de asistencia |
+| 5920 | 5985 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 5986 | 6013 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6014 | 6180 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6181 | 6481 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6482 | 6544 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 6545 | 6630 | 21 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 6631 | 6693 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 6694 | 6854 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 6855 | 6925 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 6926 | 6974 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 6975 | 7007 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7008 | 7397 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7398 | 7529 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 7530 | 7574 | 19 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7575 | 7614 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 7615 | 7667 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 7668 | 7734 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 7735 | 7897 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 7898 | 8073 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8074 | 8241 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8242 | 9720 | 109 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 9721 | 9729 | 1 | Fase RR — Ventas por ruta |
+| 9730 | 10025 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 10026 | 10036 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 10037 | 10057 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 10058 | 10068 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 10069 | 10080 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 10081 | 10140 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 10141 | 10568 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 10569 | 10583 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 10584 | 10625 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 10626 | 10767 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 10768 | 10798 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 10799 | 10846 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 10847 | 10859 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 10860 | 10889 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 10896 | 10905 | 1 | 📝 Convenciones |
+| 10906 | 10942 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 10943 | 10961 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 10962 | 11014 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 11015 | 11317 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 11318 | 11338 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -363,6 +363,8 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[RH.1.4]** 🧪 Personas (2026-10-12): carga única `database/scripts/rh/carga-personas-mega-talento.js` (ensayo por omisión) del padrón de Mega Talento a `identity.users` + liga de `hr.device_enrollments.user_id`. Una persona por ficha `(sitio, código)`; reusa lo ya ligado (idempotente); liga a una cuenta existente sólo con nombre completo único en el mismo almacén; lo ambiguo NO se crea ni se liga (lista «por decidir» para RH); crea `invited`/`terminated` sin contraseña, rol `sin_acceso`. Mig `20261012094356`: la regla de contraseña acepta `terminated` (las ~565 bajas no cabían), rol `sin_acceso` vacío con alcance `none`, y departamento `promotoria_marca` — ⛔ la propuesta de mapeos mandaba a las 101 promotoras a «Tienda», y la asistencia reconoce a la promotora por «promotor» en el departamento: les habría salido falta todos los días. Mapeos versionados en `mapeo-personas-mega-talento.json` (todos `validado:false`: RH no contestó). Pruebas: 14 puras (con mutación: 2 rojas) + 2 contra Postgres (crea/liga/reusa/ambiguo + **negativa**: sin la migración una baja sin contraseña da 23514); `libs/hr` 148 verdes 3 corridas seguidas. **Ensayo con datos reales (12-oct, local, deshecho): 1,057 fichas → 1,038 personas (470 invited + 568 terminated), 16 ligadas a cuentas existentes, 3 por decidir, 115 promotoras, enrolamientos activos ligados 988 de 1,004 (antes 0).** Falta: validación de mapeos por RH (queda «ZONA TEMPORAL» sin mapear y 21 posibles repetidas) y que Edgar confirme el rol `sin_acceso` (D1). Plan en [`FASE_RH_PLAN_DE_TRABAJO`](FASES/FASE_RH_PLAN_DE_TRABAJO.md) §5.
 - [ ] **[RH.1.10]** 🧪 Horas extra de Mega Talento en la Suite (2026-10-12, traslado de `ee4ff38` + `1a28f6e`): horas extra **ganadas** por día (bloques de 30 min después de su salida, reponiendo antes retardo y exceso de desayuno/comida, tope 6 h, sólo horario asignado o deducido fijo de jornada completa); **banco** = ganadas − usadas + ajustes desde el 24-sep (`HR_OVERTIME_SINCE`), `GET /hr/attendance/overtime` + ajustes con anulación (`hr.overtime_adjustments`, mig `20261012122707`, RLS, sin DELETE; ajustar = `HR_ATTENDANCE_GESTIONAR`); tipos nuevos **desayuno_distinto / comida_distinta / cambio_descanso**; un día con incidencia se mide aunque no haya checado. Pantalla: pestaña **Horas extra** (`/rh/asistencia/horas-extra`), columna «H. extra» en el reporte semanal/PDF/Excel, captura de los tipos nuevos y saldo al capturar un uso. **Paridad con datos reales contra el código actual de Mega Talento (24-sep..12-oct): 72 cálculos, 1,467 personas, 5,094 días, 0 diferencias, nadie de más ni de menos; alertas 3,279 iguales; 12,300 min ganados y 1,710 usados ejercidos.** Negativa: con las horas extra apagadas, 343 diferencias. La simulación de personas de la paridad usaba la regla de promotora anterior a 3938723 (corregida). ⚠️ Desayuno/comida distintos y cambio de descanso: 0 casos reales todavía → probados sólo con unitarias (13 de lógica). `libs/hr` 173, vista 3,065. Propuesta: congelar la lógica de asistencia de Mega Talento del 31-oct al corte.
 - [ ] **[RH.1.6b]** 🧪 Nadie a prenómina sin identificar (Mega Talento 64ae212, 2026-10-12): si alguien checó en la semana sin ficha (código sin persona ligada), sin nombre completo o sin departamento, `POST /closures` responde **409 con la lista**; con `force` + `reason` (≥5 letras) cierra igual y lo anota en el resumen (`sinIdentificar`, `motivoSinIdentificar`, `codigosSinIdentificar`). No cuentan promotoras de marca, la cuenta «Admin» ni los códigos `ignorado`. La pantalla de Incidencias muestra quiénes son y pide el motivo. ⚠️ «Sin nombre completo» = nombre de menos de 2 palabras (la Suite no tiene la columna `nombre_completo` de Mega Talento: aproximación declarada en FASE_RH §5.5). Pruebas: 5 puras + cierre contra Postgres (409/400/cierre anotado) + 2 de pantalla; mutación de compuerta y pantalla → rojo; `libs/hr` 153, vista RH 113. **No portado aún:** alta desde el portal con el siguiente número libre y la conciliación promotora/departamento al guardar la ficha (van con la pantalla de personas).
+- [ ] **[RH.1.11]** 🧪 Motor de personas en `libs/hr/.../logic/personas.ts` (+ `candidatosPara`); el guion conserva su copia JS (el pod no trae `libs/`) y `personas.spec.ts` exige que decidan igual.
+- [ ] **[RH.1.12]** 🧪 Ligar códigos de reloj a personas desde la Suite: bandeja «Códigos sin persona» en `/rh/relojes` (candidatos del mismo motor; RH confirma, nunca automático), ligar en toda la plaza sin pisar otro enlace sin `reemplazar`, desligar con motivo, alta sin acceso con sección. Asientos en `identity.user_events`. Clave `HR_DEVICES_GESTIONAR` (ya repartida): sin migración. 7 mutaciones a rojo. Pendiente: `[RH.1.13]` alta antes del reloj, `[RH.1.14]` umbral en Salud BD.
 - [ ] **[RH.1.8]** 🔨 Preparación del corte de asistencia: carga única `database/scripts/rh/carga-unica-mega-talento.js` (ensayo por omisión, cuadre al registro: 214,792 checadas + 3 basura, 1,540 enrolamientos, 99 incidencias, 10,429 alertas, 25 s) y **paridad con datos reales contra el código de Mega Talento**: 72 cálculos, 1,464 personas, 5,464 días, **0 diferencias**; alertas 4,296 con 3 diferencias explicadas. Destapó y corrigió: padrón = lo ligado a una persona; lápida de depurado sólo sin ficha activa; huella del agente sin el día (defecto de MT: un día que cierra sin datos no se revisaba). Hallazgo para RH: la cola de alertas tiene **10,429 y cero decididas**. ✅ **Duplicados con el histórico resuelto (2026-10-07):** el «~129 mil de CH en prod» era falso (CH cargó en la base dedicada `hr` de `.245`; `[CH.0.9]` nunca se aplicó). El riesgo real: un lector sin marca de agua (`[RH.1.3]`) reenvía el buffer de años con su serie, y la ingesta portada NO traía el puente que Mega Talento sí tiene. Puesto en los dos lados (ingesta + carga, prueba negativa ejercida); con datos reales, reenviar 83,512 checadas históricas de 3 sitios mete **0**. Ensayo de la carga 41 s. Ver FASE_RH §5.2. **Pre-vuelo + carga a prod (`--destino-prod`) + runbook** [`RH_CORTE_ASISTENCIA`](RUNBOOKS/RH_CORTE_ASISTENCIA.md) (2026-10-07): pre-vuelo de sólo lectura para correr en el pod; candado de que los guiones no se desfasan (en CI). ⛔ Destapó que **`[RH.1.4]` es prerrequisito del corte**: la paridad se midió con personas ligadas; tras la carga real hay 991 enrolamientos y 0 ligados → BLOQUEA. Ver FASE_RH §5.4.
 - [ ] **[RH.1]** ⬜ Asistencia en la Suite (`hr.*`, ingesta con llave, agente en `md`, personas, horarios y alertas, incidencias, cierre semanal, pantallas, corte).
 - [ ] **[RH.2]** 🔨 Reclutamiento (`talent.*`, API, pantallas, portal público con token firmado). Alcance recortado a lo que se usa: requisiciones y evaluaciones tienen 0 filas en Mega Talento y no se portan.
@@ -5491,6 +5493,47 @@ Dos pedidos del usuario sobre el módulo ya construido, los dos de una línea y 
 - **[K.6]** Telemetry persistido `ai_match_telemetry` para tuning de threshold.
 - **[K.7]** AI vision: foto del exhibidor → identifica productos sin texto.
 
+### Sprint K.VEC — 🔨 El corpus vectorial no existía en prod (incidente 2026-10-16)
+
+> **Reportado por Edgar con la foto de la app:** el ticket se lee bien (9 líneas, texto crudo
+> visible) y las 9 salen **«— sin match —»**. `0 de 9 confirmados`.
+> Trampa completa en [`docs/GOTCHAS.md` §83](../../docs/GOTCHAS.md).
+
+**Causa raíz:** las dos tablas del vector store **no existían** en `pg-rag/railway`
+(`to_regclass` NULL en ambas; cluster entero = 7.9 MB). El corpus se construyó el 2026-06-04 con
+un script **one-shot** contra la DB vector de Railway; en la mudanza a `md` del **2026-09-22**
+`pg-rag` nació vacío y nunca se re-corrió. **24 días con todo match AI en `no_match`** — no sólo
+el ticket: también el catalog corpus que usan captures, planograma y la foto de exhibidor.
+
+- [x] **[K.VEC.1a]** ✅ `product_embeddings` + `active_product_embeddings` + HNSW creadas en
+      `pg-rag/railway` (prod, 2026-10-16 08:1x). Reproducido antes el error exacto
+      (`relation "active_product_embeddings" does not exist`) y verificado el verde después.
+- [x] **[K.VEC.1b]** ✅ `in_planogram` agregada a `product_embeddings`. **La descubrió el tick
+      siguiente**, no la revisión: `CREATE TABLE IF NOT EXISTS` no agrega columnas a una tabla
+      que ya existe, y `init-vector-db.js` venía sin esa columna desde que el servicio la sumó.
+      Script arreglado con `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + índice parcial.
+- [x] **[K.VEC.1c]** ✅ `assertCorpusReady()` en `AiProductMatcherService`: corpus ausente o
+      vacío → **503 con causa** antes de embeber, en vez de `no_match` por item (ADR-056).
+      Prueba negativa en `ai-product-matcher.corpus.spec.ts` — 5/5, 3 de ellos el rojo.
+      El frontend ya trata 503 como transitorio: conserva la foto y difiere el OCR al sync.
+- [x] **[K.VEC.1d]** ✅ `tick()` aísla los dos corpus en `try` separados. Antes la excepción de
+      `syncBatch()` (catalog) abortaba el tick **antes** de `syncActiveBatch()`, así que un
+      corpus roto secuestraba al del ticket del vendedor.
+- [x] **[K.VEC.1e]** ✅ Endurecimiento: `catalog.products` calificado en el sync. ⚠️ **No era el
+      bug** — el `search_path` de prod pone `catalog` antes de `public`, así que ya resolvía a la
+      tabla real. Saca la dependencia del orden del `search_path`.
+- [ ] **[K.VEC.2]** 🔨 Backfill del corpus — drena solo a 200/tick cada 15 min (~19 h para los
+      ~21k). **Se intentó subir `VECTOR_SYNC_TICK_BATCH` a 5000** (declarado en
+      `ops/k3s/42-worker.deployment.yaml`) **y quedó sin aplicar**: el cambio de deployment
+      necesita autorización. Sin eso el drenado es lento pero ocurre.
+- [ ] **[K.VEC.3]** ⬜ Desplegar los cambios de código (c/d/e + script). **El arreglo del
+      incidente NO los necesita** —las tablas ya están en prod y el cron deployado las llena—;
+      son la red para que no vuelva a pasar en silencio.
+- [ ] **[K.VEC.4]** ⬜ El corpus al runbook de restauración. Hoy depende de que alguien recuerde
+      un one-shot de junio: no está en una migración, no lo recrea el deploy, no lo restaura
+      `ops/prod/RUNBOOK-despliegue.md`. Es lo que hizo que una mudanza de servidor lo borrara.
+
+
 ---
 
 ## 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08)
@@ -8204,6 +8247,136 @@ TP.6-TP.8+TP.10".
 **ADR-070** · Plan completo, medición y decisiones abiertas en
 [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
 
+> ### 🧪 2026-10-16 — auditoría FRONT-END de `/finanzas/caja-general`: 4 corregidos, 2 como deuda
+>
+> Pedido de Edgar: *"no te enfoques estrictamente en el diseño UI/UX… audítala desde el ámbito
+> front-end"*. ⭐ **El encuadre importa: esta pantalla NO es deuda de diseño.** Medido antes de
+> opinar — usa el repertorio compartido (78 `comm-num`, 40 `p-table`, 16 `app-load-state`, 8
+> `app-freshness-pill`), `OnPush` + 103 signals + 57 computed, **0 `any`**, 0 `innerHTML`, y
+> `check:pantalla` le marca **una sola** advertencia contra una línea base de 247 pantallas con
+> falla. Lo que quedó es específico, y son defectos de **comportamiento**, no de apariencia.
+>
+> ⛔ **Dos hipótesis mías se cayeron al verificarlas, y conviene que queden escritas para que nadie
+> las reconstruya:** (1) *"los `input[type=number]` de la reja no tienen guarda de rueda"* — **falso**,
+> `installNumberWheelGuard` está instalada global en [`apps/view/src/main.ts:9`](../../apps/view/src/main.ts);
+> mi primer grep buscó el nombre equivocado. (2) *"bajar con ↓ decrementa el fajo recién tecleado"* —
+> **falso**, `moverFoco` hace `preventDefault()` antes de mover, y en el orden correcto.
+>
+> - [x] **[CG.183]** 🧪 ⛔ **Una lectura que contesta tarde escribía en la pantalla ya cerrada.**
+>       De 30 `.subscribe()` sólo **5** tenían `takeUntilDestroyed` (los 4 del socket). Las 11
+>       peticiones que dispara `ngOnInit` salían sin guarda: salir con vuelo en curso dejaba el
+>       `next` escribiendo signals de un componente destruido.
+>       ⭐ **La guarda va sólo en las 18 LECTURAS, y las 8 ESCRITURAS quedan fuera a propósito** —
+>       cancelar la suscripción NO cancela lo que el servidor ya hizo, sólo descarta la respuesta, y
+>       ahí el handler hace trabajo que TIENE que aterrizar: `confirmarLote` borra el borrador de
+>       `localStorage` (cancelarlo deja un borrador de movimientos ya confirmados) y `guardar`
+>       encadena `declararCuenta`. Blanquear las 26 habría metido un defecto peor que el arreglado.
+>       Fuera quedan: `autorizarCorte`, `abrir`, `contarCorte`, `recontarCorte`, `cerrarCorte`,
+>       `confirmarLote`, `guardar`, `declararRegla`.
+> - [x] **[CG.184]** 🧪 ⛔ **El `setTimeout` del autollenado no lo cubre `takeUntilDestroyed`.**
+>       La guarda vive en la suscripción, y a los 350 ms del debounce todavía no hay suscripción:
+>       hay un temporizador que dispara `pedirPropuesta()` **después** y recién ahí emite. `ngOnDestroy`
+>       hacía sólo `caja.disconnect()`. Se cancela el temporizador, que es donde está el pendiente.
+> - [x] **[CG.185]** 🧪 ⛔⛔ **La cifra que la pantalla existe para producir no se anunciaba.**
+>       Una sola región viva en **2,462 líneas** de template. El bloque `CONTADO` cambia en CADA
+>       tecla de la reja: quien usa lector de pantalla teclea once renglones de denominación y
+>       nunca se entera del total ni del veredicto. Y la cola **la mueve el socket** (`change$`):
+>       entran movimientos mientras la persona cuenta efectivo del otro lado de la pantalla.
+>       Dos regiones `polite` + `atomic` — el total con su veredicto, y la cuenta de la cola **sobre
+>       el `cg-lead` que ya existía**, no en un `sr-only` duplicado. ⚠️ No hace ruido en el repaso de
+>       60 s: `polite` con texto idéntico no se re-anuncia.
+> - [x] **[CG.186]** 🧪 ⛔⛔ **Dos fallas de accesibilidad que el color escondía, en una flota Windows.**
+>       (a) **`.cg-fila-abierta` desaparecía en Alto Contraste**: se señalaba con `box-shadow` —que
+>       forced-colors **no dibuja**, lo documenta el propio [`forced-colors.css`](../../libs/ui-web/src/forced-colors.css)—
+>       más un color que el sistema sustituye. Las dos señales se caían juntas. La hermana
+>       `.cg-fila-marcada` se salvaba por su glifo de palomita; ésta no tenía redundante. Ahora el
+>       galón **gira** (forma, no color) y un bloque `forced-colors` rehace la banda con `border`.
+>       (b) **El folio fallaba AA en TODAS las filas, no sólo en las trabadas.** Medido sobre las 4
+>       superficies × 2 temas: `--text-faint` da **2.33–4.12** contra el piso de 4.5; `--text-muted`
+>       da 6.91–7.73. ⭐ El 4.12 que me dio `--text-muted` al 78 % **reproduce el 4.10 que `[CG.33]`
+>       había medido por su cuenta** — dos mediciones independientes que concuerdan, así que no es
+>       una cuenta nueva: es la misma regla aplicada a la celda que quedó afuera. Y no es "se ve
+>       tenue": el folio es el identificador con el que se coteja el renglón contra el documento del
+>       ERP, el dato que se lee carácter por carácter, y estaba en el color más claro de la escala.
+>       Folio y fecha de la ficha pasan a `--text-muted`, y el folio sale de la atenuación de
+>       `.cg-trabada` — tercera exclusión por la misma razón que `[CG.33]` excluyó el motivo, y pesa
+>       más que las otras dos: **~74 % de la cola es fila trabada**, o sea que atenuado es el estado
+>       NORMAL del folio.
+>
+> **Candado:** 4 pruebas nuevas en `finanzas-caja-general.component.spec.ts` (292 en verde, antes
+> 288). ⭐ Las 4 con **prueba negativa ejecutada**: se rompió cada arreglo a propósito, una a una, y
+> se verificó que SU prueba se pone roja. Sin eso un candado es una intención.
+>
+> ⬜ **Lo que NO se arregló, declarado con nombre:**
+> - **[CG.187]** ⬜ **`--text-faint` no pasa AA en ningún fondo de la app** (2.33 claro / 3.67
+>   oscuro sobre `card-bg`) y lo usan **112 archivos** de `apps/view`. Repuntar el token es
+>   decisión de Edgar, no de esta pantalla. Acá sólo se sacó de los dos lugares donde vestía
+>   **texto que hay que leer**; los decorativos (el galón, el guion de celda vacía) se quedan.
+> - **[CG.188]** ⬜ **Cero `@defer`** en el componente más grande de `apps/view` (428 KB, 7,091
+>   líneas, template de 2,462): los 5 `p-dialog`, el canvas de firma y el QR viajan en el chunk
+>   inicial de la ruta. Mitigado por `compression` (`main.ts:269`) y el service worker, así que es
+>   costo de **primera visita y de parse**, no de cada carga. En toda `apps/view` sólo 2 archivos
+>   usan `@defer`.
+> - ⚠️ **NO MEDIDO:** el tiempo real de carga. Son **11 peticiones en `ngOnInit`**, ninguna
+>   coalescida, pero no se midió latencia — no se compila ni se levanta nada en local (regla dura) y
+>   no se abrió un navegador contra prod. Por `megadulcessuite.com` hay HTTP/2 y el tope de 6
+>   conexiones no aplica; por el camino LAN `:30080` (HTTP plano) sí, y esas 11 salen en dos tandas.
+>   **Sin medición no se afirma que incumpla el piso de >500 ms.**
+> - ⚠️ `finanzas-caja-firma` —la pantalla del QR, parte de este mismo flujo— **falla 3 reglas**
+>   (`Q.1` answer-first, `§2` matriz de estados, `§9` frescura). Es la única rota del trío y queda
+>   fuera del alcance de esta auditoría.
+
+> ### 🧪 2026-10-15 — auditoría de `/finanzas/caos` (Caja Fuerte): 7 hallazgos, todos corregidos
+>
+> Medidos contra prod (`system_identifier 7688376744939610156`), commit desplegado `7d7c85a02`.
+> Detalle del mecanismo en [`docs/GOTCHAS.md` §82](../GOTCHAS.md).
+>
+> - [x] **[CG.162]** 🧪 ⛔⛔ **La atribución acusaba a la gente de $18.5 M por un defecto nuestro.**
+>       `caos_ingreso_conciliar` latía en `error` cada hora y `finance.caos_ingreso_atribucion`
+>       seguía en **0 filas**: *«755 depósito(s) sin respaldo y ninguno cubierto»*, publicado en
+>       pantalla como *«ningún cobro lo explica: $18,500,100»*. Causa:
+>       `String(r.fecha_valor).slice(0,10)` sobre una columna `date` → node-pg entrega `Date` →
+>       `"Wed May 27"`, que ordena después de cualquier `"2026-…"`, así que el corte
+>       `if (c.fecha > corte) break` disparaba en el **primer** cobro de los 755.
+>       **Arreglo:** `diaDeFecha()` en el servicio + el motor **tira** `CaosFechaIlegibleError`
+>       en vez de degradar a «sin respaldo» (antes devolvía `''`, menor que toda fecha).
+>       **Medido tras el arreglo, contra las filas reales de prod:** `758 depósitos · 758
+>       cubiertos · 0 sin respaldo · $18,513,100 respaldados al 100%`. La ley de `[CG.58]` estaba
+>       intacta: el saldo corrido nunca se va a negativo (peor saldo **+$18,726**).
+>       Prueba nueva contra el DRIVER (no contra literales): `caos-ingreso-recon.reparto-real.spec.ts`
+>       (sólo-lectura, se salta y lo declara sin `CAOS_REAL_DB_URL`). Rojo a propósito verificado.
+>       ⚠️ Al recorrer la familia apareció el MISMO defecto sobre la MISMA vista y columna en
+>       `cash-ledger.service.ts`, y ahí es un camino que **escribe** al libro: corregido también.
+> - [x] **[CG.163]** 🧪 **El resto de la auditoría, en un solo paso.**
+>       · ⛔ `/finance/caos/resumen` devolvía **500 en prod** (`42803`): `positionBindings` de knex
+>         convierte todo `?` final en `$n`, incluido el del `(?:` de la regex, y el `GROUP BY`
+>         dejaba de cubrir al `SELECT`. Escaparlo **no alcanzaba**: con el `?` escapado, el
+>         `(\d+)` glotón publicaba **19 rutas inventadas** (`ruta22240926`) por $328,520 y dejaba
+>         a la ruta 22 en 4 depósitos. **La regex se fue**: el panel deriva de
+>         `finance.caos_deposito_grano` (`[CG.58.6]`, que ya tenía sus pruebas). Ruta 22 recupera
+>         sus **21 depósitos / $335,240**, Canindo se declara `plaza`, la vecinal se separa de
+>         «no declara nada», y la consulta pasa de **500 a 7 ms**.
+>       · ⛔ Un 500 se pintaba como «no hubo nada» (`error: () => set(null)` dejaba encabezados y
+>         cero filas): así vivió oculto el 500 anterior. Cada panel declara su fallo con reintento.
+>       · ⛔ El KPI «Balance» corría sobre **2 de los 7 tipos** sin decirlo — 37 movimientos /
+>         $4,870,730 quedaban fuera del dinero pero dentro del contador. Ahora se llama
+>         «Depósitos − dispensado» y lo excluido se publica aparte y declarado (ADR-056); no se
+>         suma, porque el signo de `Dotar`/`Vaciar Stocks` no está decodificado.
+>       · ⛔ Los paneles plegados consultaban al entrar y **cada 60 s**; el cuadre tarda 800–950 ms
+>         y toca ~535 MB de buffers. Ahora cargan al abrirse: la pantalla abre en **8 ms**.
+>       · Combo de tipos derivado de los datos (eran 4 a mano, en prod hay **7**); desglose por
+>         denominación declara su suma y avisa cuando no cuadra con el total (prod: `Vaciar
+>         Stocks` ext. 1478 declara $20.00 y suma $86,220); `shift_id` fuera (100 % NULL);
+>         ventana por omisión en **día de México** (era UTC y se corría un día después de las
+>         18:00); rejilla a `p-table` con botón nativo; píldora de frescura; y la jerga
+>         («sin respaldo», «grano», «cobertura») al diccionario versionado.
+>       **Gate de diseño:** `finanzas-caos` pasa **las 10 reglas** y tipa con 0 errores (antes
+>       fallaba §9 y O.4).
+>
+> ⬜ **Deuda que queda con nombre, NO cerrada:** `analytics.kepler_bank_movements` es una vista
+> sin índices sobre `kepler_ods.kdm1`; el cuadre tarda ~1 s aunque ya no se repita. Indexarla es
+> una escritura pesada sobre el ODS y va fuera de horario hábil, con medición antes/después.
+
 > **2026-10-14 — dos investigaciones hermanas, medidas contra prod y SIN código:**
 > [`FASE_CG_CIRCUITO_DEL_EFECTIVO.md`](FASES/FASE_CG_CIRCUITO_DEL_EFECTIVO.md) (por dónde entra y
 > sale el efectivo, medido contra el espejo del Access + CAOS) y
@@ -9483,6 +9656,7 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   por ahí; la pantalla usa el mismo tipo (su copia decía `number` mientras llegaba texto). Prueba
   contra la base en rojo antes (`'500.00'`), 4 del contrato. De paso: el rango de años libres de las
   pruebas contra la base se agotó en un día de corridas, y se amplió.
+- [ ] ⚠️ **`[CGP-L.12]`** ⛔⛔ **BLOQUEADO el 2026-10-16: NO SE SUELTA.** Medido en prod sobre la jornada del 14-oct: con el código desplegado son **42 movimientos / −$41,865.05**; con este cambio, **12 / +$133,830.66**. **30 movimientos y $175,695.71 de diferencia en un solo día** — no es un ajuste de reloj, redefine todas las jornadas. El diagnóstico sigue bien y el defecto sigue vivo; lo que estaba mal es la solución: ni `fecha` (documento) ni `created_at` (captura) son el día del efectivo. ⭐ Y mide un error de método: 456 pruebas en tres zonas y dos mutaciones en rojo demuestran el MECANISMO, no el universo que el cambio redefine — esa medición es de una consulta y no la hice. La columna propia del día del efectivo pasa de deuda a **requisito**. Ver §6.9 del plan. Lo de abajo es el detalle original:
 - [ ] 🧪 **`[CGP-L.12]`** ⛔⛔ **La jornada del corte es la del EFECTIVO, no la del papel.** Decisión
   de Edgar (2026-10-15): *«el día en que se movió el efectivo»*. El motor ya cancelaba bien la
   dispensación contra su gasto (`[CG.95]`/`[CG.96]`); el **reloj** era el que estaba mal: el corte
