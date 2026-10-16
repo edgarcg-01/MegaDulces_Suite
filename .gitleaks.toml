@@ -50,4 +50,10 @@ regexes = [
   # `generic-api-key` lee «api:» + una ruta larga como si fuera una llave. No lleva credencial ni puede llevarla
   # (la regla exige el esquema http(s), el host `api` y el puerto exacto, sin usuario ni arroba).
   '''https?:\/\/api:10000\/api\/[A-Za-z0-9\/_-]*''',
+  # [CGA-A.12] El GENERADOR del `.cmd` de camioneta emite la cadena con un MARCADOR en lugar de
+  # la clave: `postgresql://postgres:<CLAVE_LOCAL>@...`. No es una credencial y no puede serlo —
+  # la excepción exige literalmente `<CLAVE_...>` entre ángulos, así que en el momento en que
+  # alguien escriba una clave de verdad ahí, vuelve a marcarse. Que el archivo generado se llene
+  # a mano EN LA MÁQUINA, fuera del repo, es justo el diseño (`armar-push-camioneta.js`).
+  '''postgres(?:ql)?:\/\/[^:@\/\s]+:<CLAVE_[A-Z_]+>@''',
 ]

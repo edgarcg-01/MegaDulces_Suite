@@ -1,5 +1,74 @@
 # Camionetas que no mandan los cobros — lista de trabajo
 
+> ⭐⭐ **ACTUALIZADO el 2026-10-16 por la tarde, DESPUÉS de cablear cuatro.** Lo de abajo del
+> separador quedó como estaba a media mañana; esta cabecera es lo vigente y **gana por fecha**.
+
+**Esta lista ya no se mantiene a mano. La imprime una compuerta:**
+
+```
+npm run check:camioneta-sin-cobro          # exit 1 si alguna manda venta y no manda cobro
+npm run check:camioneta-sin-cobro:self     # su prueba negativa
+```
+
+Cruza **dos latidos** del runner —`route_push_heartbeat` (venta) contra
+`route_collections_heartbeat` (cobro)—, y ésa es la gracia: **la venta es el testigo
+independiente.** Si una unidad mandó venta hoy, estuvo prendida, con red y con su Kepler vivo,
+así que la ausencia del cobro **no es la camioneta: es el `.cmd`.**
+
+## Censo del 2026-10-16, 17:10
+
+| camión | venta | cobro | estado |
+|---|---|---|---|
+| `ruta_22` `ruta_23` `ruta_27` `ruta_28` | fresca | fresca | ✓ **cableadas hoy** |
+| **`ruta_21`** (`192.168.10.239`) | **12 min** | 4 d | ⛔ carril caído |
+| **`ruta_26`** (`192.168.10.253`) | **27 min** | 4 d | ⛔ carril caído |
+| **`ruta_501`–`ruta_504`** (`192.168.50.18/20/21/22`) | fresca | **nunca** | ⛔ sin cablear |
+| `ruta_505` | 32 d | nunca | ·  dormida — no se juzga (ADR-056) |
+
+⚠️ **Corrección a lo que se dijo antes:** `ruta_21` y `ruta_26` **NO están apagadas.** Las dos
+mandaron venta hoy, con minutos de diferencia. Lo que les falta es el bloque, igual que a las
+cuatro que se cablearon.
+
+## Cómo se cablea ahora — `[CGA-A.12]`
+
+⛔ **Ya no se pega un snippet.** `push-cobros.snippet.cmd` y `push-ruta.v2.template.cmd` quedaron
+**RETIRADOS**: a la plantilla le faltaba el bloque de cobros, y de ahí copiaba todo el mundo.
+
+```bat
+REM 1. Generar el archivo completo (tres carriles) para esa unidad
+node database/importers/kepler/route-push/armar-push-camioneta.js ^
+     --truck ruta_21 --serie UD1001 --salida push-ruta.cmd
+
+REM 2. Llenar SOLO <CLAVE_LOCAL>, <CLAVE_RUNNER> y <DB_LOCAL> en la máquina
+
+REM 3. Verificar lo que quedó desplegado — esta es la mitad que vale
+node database/importers/kepler/route-push/armar-push-camioneta.js ^
+     --verificar C:\KeplerPush\push-ruta.cmd
+```
+
+El verificador revisa **siete reglas**, y cada una costó algo:
+
+| regla | qué duele si falta |
+|---|---|
+| manda VENTAS / EXISTENCIA / COBROS | el carril ausente se ve igual que «no hubo» |
+| el bloque de cobros filtra por **almacén propio** | manda 16,641 cobros del CEDIS, y duplicados |
+| **toda variable de conexión usada está definida** | `%SRC%` pegado en una máquina que define `%LOCAL_CONN%`: `psql` con cadena vacía **no grita** |
+| el runner es `192.168.0.222`, no `.249` | `.249` sobrevive como reenvío TCP → la van mal dada de alta **funciona** |
+| las cadenas llevan `connect_timeout` | «tiempo de espera agotado» (le pasó a `ruta_23`) |
+
+Probado contra un archivo real: `push-ruta.v2.template.cmd` **falla «manda COBROS»**, que es
+exactamente el defecto que repartió.
+
+## Las 5 de Canindo (`501`–`505`)
+
+Siguen bloqueadas por otra cosa, no por el `.cmd`: `almacen_erp` viene **NULL** en
+`analytics.v_rd_route_identity`. El mapa está medido y es 1:1 (`501→06-001` … `505→06-005`),
+falta cargarlo. Sin almacén, el filtro obligatorio del bloque de cobros no se puede escribir.
+
+---
+
+# Camionetas que no mandan los cobros — lista de trabajo
+
 **Medido contra el runner (`md:5433/kepler_consolidado`) y prod el 2026-10-16.**
 Para: quien entra a cada camioneta. Una fila = una máquina.
 
