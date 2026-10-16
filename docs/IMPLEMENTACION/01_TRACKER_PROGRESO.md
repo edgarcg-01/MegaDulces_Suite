@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1727 KB, 11013 líneas, 72 secciones.
+> **Índice navegable** — 1728 KB, 11014 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -57,28 +57,28 @@
 | 7735 | 7897 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
 | 7898 | 7990 | 7 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
 | 7991 | 8158 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8159 | 9557 | 101 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 9558 | 9566 | 1 | Fase RR — Ventas por ruta |
-| 9567 | 9784 | 22 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 9785 | 9795 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 9796 | 9816 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 9817 | 9827 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 9828 | 9839 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 9840 | 9899 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 9900 | 10327 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 10328 | 10342 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 10343 | 10384 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 10385 | 10526 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 10527 | 10557 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 10558 | 10605 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 10606 | 10618 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 10619 | 10648 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 10655 | 10664 | 1 | 📝 Convenciones |
-| 10665 | 10701 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 10702 | 10720 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 10721 | 10773 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 10774 | 11076 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 11077 | 11097 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8159 | 9558 | 102 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 9559 | 9567 | 1 | Fase RR — Ventas por ruta |
+| 9568 | 9785 | 22 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 9786 | 9796 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 9797 | 9817 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 9818 | 9828 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 9829 | 9840 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 9841 | 9900 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 9901 | 10328 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 10329 | 10343 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 10344 | 10385 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 10386 | 10527 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 10528 | 10558 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 10559 | 10606 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 10607 | 10619 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 10620 | 10649 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 10656 | 10665 | 1 | 📝 Convenciones |
+| 10666 | 10702 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 10703 | 10721 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 10722 | 10774 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 10775 | 11077 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 11078 | 11098 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9491,6 +9491,7 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   por ahí; la pantalla usa el mismo tipo (su copia decía `number` mientras llegaba texto). Prueba
   contra la base en rojo antes (`'500.00'`), 4 del contrato. De paso: el rango de años libres de las
   pruebas contra la base se agotó en un día de corridas, y se amplió.
+- [ ] ⚠️ **`[CGP-L.12]`** ⛔⛔ **BLOQUEADO el 2026-10-16: NO SE SUELTA.** Medido en prod sobre la jornada del 14-oct: con el código desplegado son **42 movimientos / −$41,865.05**; con este cambio, **12 / +$133,830.66**. **30 movimientos y $175,695.71 de diferencia en un solo día** — no es un ajuste de reloj, redefine todas las jornadas. El diagnóstico sigue bien y el defecto sigue vivo; lo que estaba mal es la solución: ni `fecha` (documento) ni `created_at` (captura) son el día del efectivo. ⭐ Y mide un error de método: 456 pruebas en tres zonas y dos mutaciones en rojo demuestran el MECANISMO, no el universo que el cambio redefine — esa medición es de una consulta y no la hice. La columna propia del día del efectivo pasa de deuda a **requisito**. Ver §6.9 del plan. Lo de abajo es el detalle original:
 - [ ] 🧪 **`[CGP-L.12]`** ⛔⛔ **La jornada del corte es la del EFECTIVO, no la del papel.** Decisión
   de Edgar (2026-10-15): *«el día en que se movió el efectivo»*. El motor ya cancelaba bien la
   dispensación contra su gasto (`[CG.95]`/`[CG.96]`); el **reloj** era el que estaba mal: el corte
