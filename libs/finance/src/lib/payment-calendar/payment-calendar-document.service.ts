@@ -97,13 +97,15 @@ export class PaymentCalendarDocumentService {
           <td>${beneficiarios || '—'}</td>
           <td>${CLASSIFICATION_LABEL[a.classification] || esc(a.classification)}</td>
           <td>${a.payment_method ? METHOD_LABEL[a.payment_method] || esc(a.payment_method) : '<em>sin preparar</em>'}</td>
+          <td>${esc(a.bank_account_label || (a.payment_method === 'efectivo' ? 'Caja' : '—'))}</td>
           <td>${esc(cuenta)}</td>
           <td class="r">${money(a.amount_assigned)}</td>
         </tr>`;
       }).join('');
     return `<table>
-      <thead><tr><th>${opts.conFolio ? 'Folio' : 'Orden'}</th><th>Beneficiario</th><th>Clasificación</th><th>Método</th><th>Cuenta / referencia</th><th class="r">Importe</th></tr></thead>
+      <thead><tr><th>${opts.conFolio ? 'Folio' : 'Orden'}</th><th>Beneficiario</th><th>Clasificación</th><th>Método</th><th>Cuenta origen</th><th>Cuenta destino / referencia</th><th class="r">Importe</th></tr></thead>
       <tbody>${rows}</tbody>
+      <tfoot><tr class="total-row"><td colspan="6">Total</td><td class="r">${money(this.filaTotal(allocations))}</td></tr></tfoot>
     </table>`;
   }
 
@@ -141,7 +143,6 @@ export class PaymentCalendarDocumentService {
       <h1>Programación de Pagos — Preliminar para autorización</h1>
       <p class="sub">Fecha de pago: <b>${fechaLarga(date)}</b> · Folio del lote: <b>${esc(lot?.folio || 'sin asignar (se genera al autorizar)')}</b> · Capacidad autorizada: <b>${summary.capacity_defined ? money(summary.authorized_amount) : 'NO DEFINIDA'}</b> · Total propuesto: <b>${money(total)}</b></p>
       ${this.tablaPagos(allocations, { conFolio: false })}
-      <tr class="total-row"><td colspan="5">Total</td><td class="r">${money(total)}</td></tr>
       <div class="leyenda">
         <b>Control interno — tramo de autorización</b>
         Este documento es un PRELIMINAR y NO autoriza pago alguno por sí mismo. Requiere la firma de
@@ -168,7 +169,6 @@ export class PaymentCalendarDocumentService {
       <h1>Instrucción de Ejecución — Caja General</h1>
       <p class="sub">Fecha de pago: <b>${fechaLarga(date)}</b> · Folio del lote: <b>${esc(lot.folio)}</b> · Autorizado por <b>${esc(lot.released_by || '—')}</b> el <b>${lot.released_at ? new Date(lot.released_at).toISOString().slice(0, 16).replace('T', ' ') : '—'}</b> · Total: <b>${money(total)}</b></p>
       ${this.tablaPagos(allocations, { conFolio: true })}
-      <tr class="total-row"><td colspan="5">Total</td><td class="r">${money(total)}</td></tr>
       <div class="leyenda">
         <b>Instrucción a Caja General</b>
         Ejecutar los pagos anteriores exactamente por el método y la cuenta/caja indicados en cada

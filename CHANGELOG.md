@@ -9,6 +9,21 @@
 ---
 
 ## [Unreleased]
+### Changed — Calendario de Pagos: la semana completa y «Ordenar y pagar» (TP.16, 2026-10-16)
+- La fecha de arriba ahora es el **rango de la semana**. Se ven los 7 días (lunes a domingo), cada uno con presupuesto, comprometido, disponible y sus documentos, como la maqueta en Excel de Tesorería.
+- Cada día tiene **«Ordenar y pagar»**: orden de pago, método, **cuenta de origen** (de cuál cuenta de Mega Dulces sale) y **cuenta destino** (catálogo del proveedor o CLABE capturada), más los pasos que faltan para que Caja General disperse.
+- **Dos firmas:** Tesorería ordena y prepara; Gerencia o Dirección autoriza. No se puede autorizar un día con pagos sin preparar.
+- Una transferencia ya no se acepta con sólo una de las dos cuentas: pide origen y destino. La CLABE tecleada se valida con su dígito de control.
+- La instrucción impresa para Caja General muestra la cuenta de origen, y su total ya sale dentro de la tabla.
+- Medido antes: los 8 pagos asignados en prod tenían 0 preparados.
+- Tras la primera prueba en pantalla, todo cabe en una vista: franja compacta de la semana arriba (disponible y barra de uso por día), totales de la semana, y abajo las obligaciones junto a «Ordenar y pagar». «Preparar» es un botón con texto y «Autorizar día» dice qué le falta.
+- Un pago ya no se puede marcar como pagado si el día no está autorizado.
+- **Un pago = un proveedor y una sucursal**: cada pago entra al centro de costo de su almacén. Las obligaciones disponibles se agrupan por proveedor y sucursal; «Pagar juntas» arma un pago con todas las facturas del grupo, y el sistema rechaza juntar sucursales o proveedores distintos.
+- **«Sugerir armado»** propone los pagos del día: lo vencido o que vence ese día, un pago por proveedor y sucursal, primero lo más viejo, hasta el disponible.
+- Agregar una factura de un proveedor y sucursal que ya tiene pago ese día la **suma a ese pago** en vez de crear otro.
+- **Preparar seleccionados**: varios pagos a la vez con el mismo método y cuenta de origen.
+- La lista de obligaciones ya no tiene casillas ni desplazamiento lateral.
+
 ### Added — Calendario de Pagos: lo que Finanzas acepta en «Entregas» ya se puede programar (TP.15, 2026-10-16)
 - El Calendario **nunca tuvo un renglón**: 0 obligaciones de proveedor y 0 días armados en toda su historia, con $2.15M de capacidad autorizada el día que se midió. La factura sólo entraba capturándola a mano en `/compras/obligaciones`, una pestaña que Finanzas ni ve. Aceptar el papel en «Entregas» dejaba la constancia y nada que pagar.
 - Ahora, al confirmar una entrega, cada factura aceptada aparece sola en «Obligaciones disponibles», **por el saldo pendiente en Kepler** y no por el importe de la entrega. Medido: de 38 aceptadas, **21 ($370k) ya no tenían saldo** (pagadas o de contado) y 2 tenían saldo menor; copiar el importe las habría ofrecido para pagar otra vez.
