@@ -67,7 +67,7 @@ import { WarehouseFreeze } from '../../bin-location.service';
       } @else if (!abierto()) {
         <div class="cg-go">
           <p class="cg-sal">
-            Podés <b>cancelar</b> el conteo: se abandona sin aplicar ningún ajuste y el
+            Puedes <b>cancelar</b> el conteo: se abandona sin aplicar ningún ajuste y el
             almacén queda libre para recibir. No se toca la existencia.
           </p>
           <button pButton type="button" severity="danger" [outlined]="true" class="cg-btn"

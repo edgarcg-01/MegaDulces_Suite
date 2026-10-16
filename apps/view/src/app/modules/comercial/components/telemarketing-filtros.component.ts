@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnDestroy, Output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
@@ -12,7 +13,13 @@ export interface TmFiltros {
   vendedor: string | null;
   desde: string;
   hasta: string;
-  cobro: string | null;
+  /**
+   * Estado de cobro: **varios a la vez** (Edgar, 2026-10-15). La razon esta en la pantalla:
+   * lo que se sale a cobrar es "pendiente + abono parcial", y con un solo valor habia que
+   * mirar dos listas separadas y no se podia armar UNA guia con las dos.
+   * `[]` = sin filtro, o sea todos los estados — es el mismo default que el `null` de antes.
+   */
+  cobro: string[];
   soloVencidas: boolean;
   /** Código de sucursal (2 dígitos). `null` = todas las que el usuario alcanza. */
   sucursal: string | null;
@@ -34,7 +41,7 @@ export function tmFiltrosIniciales(): TmFiltros {
     vendedor: null,
     desde: new Date(hoy.getTime() - (DIAS_VENTANA - 1) * 864e5).toISOString().slice(0, 10),
     hasta: hoy.toISOString().slice(0, 10),
-    cobro: null,
+    cobro: [],
     soloVencidas: false,
     sucursal: null,
     orden: 'fecha_desc',
@@ -61,7 +68,10 @@ let seq = 0;
 @Component({
   selector: 'app-telemarketing-filtros',
   standalone: true,
-  imports: [FormsModule, SelectModule, InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TooltipModule],
+  imports: [
+    FormsModule, SelectModule, MultiSelectModule, InputTextModule, IconFieldModule, InputIconModule,
+    CheckboxModule, TooltipModule,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="tmf card-premium card-flat">
@@ -103,10 +113,15 @@ let seq = 0;
                (ngModelChange)="emit({ hasta: $event })" aria-label="Hasta" />
       </div>
 
-      <p-select [ngModel]="value.cobro" (ngModelChange)="emit({ cobro: $event })"
-                [options]="COBRO" optionLabel="label" optionValue="value"
-                placeholder="Estado de cobro" [showClear]="true"
-                styleClass="tmf-sel" ariaLabel="Estado de cobro" />
+      <!-- Varios estados a la vez. Se muestran como chips porque de esta barra sale lo que
+           se imprime en la guia: con el resumen de texto ("2 seleccionados") hay que abrir el
+           panel para saber cual seleccion estas mirando. Sin filtro de texto: son 4 opciones.
+           NO PONER ACENTOS GRAVES ACA: cierran el template literal de TS. -->
+      <p-multiselect [ngModel]="value.cobro" (ngModelChange)="emit({ cobro: $event ?? [] })"
+                     [options]="COBRO" optionLabel="label" optionValue="value"
+                     placeholder="Estado de cobro" [showClear]="true" display="chip"
+                     [filter]="false" [maxSelectedLabels]="2" selectedItemsLabel="{0} estados"
+                     styleClass="tmf-sel tmf-multi" ariaLabel="Estado de cobro" />
 
       <p-select [ngModel]="value.orden" (ngModelChange)="emit({ orden: $event })"
                 [options]="ORDEN" optionLabel="label" optionValue="value"
@@ -153,8 +168,14 @@ let seq = 0;
     /* El item flex es el <p-select>, NO el div que recibe styleClass: dimensionar por
        .tmf-sel no movia el ancho. El host se estiliza directo (sin ::ng-deep: esta en
        nuestro template); .tmf-sel queda solo para lo de adentro. */
-    .tmf p-select { flex: 0 1 11rem; min-width: 9rem; }
+    .tmf p-select, .tmf p-multiselect { flex: 0 1 11rem; min-width: 9rem; }
     :host ::ng-deep .tmf-sel { width: 100%; font-size: var(--fs-sm); }
+    /* Los chips de la seleccion crecen hacia abajo, no hacia los lados: el control conserva su
+       ancho en la hilera y la barra no se reacomoda sola al palomear un estado mas. */
+    :host ::ng-deep .tmf-multi .p-multiselect-label {
+      display: flex; flex-wrap: wrap; gap: .2rem; padding-block: .2rem;
+    }
+    :host ::ng-deep .tmf-multi .p-multiselect-chip { font-size: var(--fs-xs); }
     :host ::ng-deep .tmf input { font-size: var(--fs-sm); }
 
     /* Tablet / panel angosto: el buscador toma el renglón completo y el resto se acomoda
@@ -163,14 +184,14 @@ let seq = 0;
       .tmf .f-search { flex: 1 1 100%; }
       .f-fecha { flex: 1 1 100%; }
       .f-fecha input { flex: 1 1 0; width: auto; }
-      .tmf p-select { flex: 1 1 10rem; }
+      .tmf p-select, .tmf p-multiselect { flex: 1 1 10rem; }
     }
 
     /* Teléfono: cada control en su renglón. Con 22rem de ancho, dos selects lado a lado
        entran a 8rem cada uno y el placeholder "Estado de cobro" queda cortado a la mitad. */
     @container (max-width: 30rem) {
       .tmf { gap: .45rem; }
-      .tmf p-select { flex: 1 1 100%; }
+      .tmf p-select, .tmf p-multiselect { flex: 1 1 100%; }
       .f-check { flex: 1 1 100%; min-height: var(--tap-min, 44px); }
     }
   `],

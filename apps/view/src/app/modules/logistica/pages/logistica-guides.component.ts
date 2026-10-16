@@ -49,7 +49,7 @@ interface GuideRow extends DeliveryGuide {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Guías de entrega</h1>
-          <p class="surf-page-sub">Listado global de todas las guías. Para crear una, abrí el embarque correspondiente.</p>
+          <p class="surf-page-sub">Listado global de todas las guías. Para crear una, abre el embarque correspondiente.</p>
         </div>
       </header>
     

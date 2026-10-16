@@ -54,7 +54,7 @@ export class CommercialSalesDocumentsController {
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance. Acepta los nombres viejos (warehouse_id, sucursal, branch…) y valores en código o uuid.' })
-  @ApiOperation({ summary: 'Facturas de telemarketing (U/D/8) con KPIs de cobranza, ACOTADAS a tu alcance de sucursales. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_codes, doc_tipo, cliente_code, vendedor_code, min, vencidas (venció Y debe), cobro (pagada|parcial|pendiente|sin_cartera), search (cliente/RFC/folio/monto).' })
+  @ApiOperation({ summary: 'Facturas de telemarketing (U/D/8) con KPIs de cobranza, ACOTADAS a tu alcance de sucursales. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_codes, doc_tipo, cliente_code, vendedor_code, min, vencidas (venció Y debe), cobro (pagada|parcial|pendiente|sin_cartera; acepta varios por coma: cobro=pendiente,parcial), search (cliente/RFC/folio/monto).' })
   async list(@Query() raw: Record<string, string>): ReturnType<CommercialSalesDocumentsService['list']> {
     return this.svc.list({ ...this.q(raw), warehouse_codes: await this.alcance(raw, 'list') });
   }

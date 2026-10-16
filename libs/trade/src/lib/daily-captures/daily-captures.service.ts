@@ -280,7 +280,7 @@ export class DailyCapturesService {
       }
     } else if (dto.sync_uuid && !hasSyncUuid) {
       this.logger.warn(
-        `sync_uuid recibido pero la columna no existe en daily_captures. Corré la migration 20260529_add_sync_uuid_to_daily_captures. Procesando sin idempotencia.`,
+        `sync_uuid recibido pero la columna no existe en daily_captures. Corre la migration 20260529_add_sync_uuid_to_daily_captures. Procesando sin idempotencia.`,
       );
     }
 
@@ -300,7 +300,7 @@ export class DailyCapturesService {
         `Rechazada captura folio=${dto.folio} por GPS inválido lat=${latitud} lng=${longitud}`,
       );
       throw new BadRequestException(
-        'Captura sin GPS válido. Reactivá la ubicación en el dispositivo e inténtalo de nuevo.',
+        'Captura sin GPS válido. Reactiva la ubicación en el dispositivo e inténtalo de nuevo.',
       );
     }
 

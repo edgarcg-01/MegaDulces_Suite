@@ -277,7 +277,7 @@ export class ComprasEntradasAjustesComponent {
       error: (e) => {
         this.saving.set(false);
         // El server valida rangos: su mensaje dice exactamente qué campo y con qué límites.
-        this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Revisá los valores' });
+        this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Revisa los valores' });
       },
     });
   }

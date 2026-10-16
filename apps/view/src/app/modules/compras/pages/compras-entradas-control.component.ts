@@ -61,7 +61,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
           <p class="surf-page-sub">
             Cada sucursal responde por lo suyo. Esto es lectura:
             @if (canManage() || canValidate()) {
-              para subir o validar, entrá por el renglón.
+              para subir o validar, entra por el renglón.
             } @else {
               la captura y la revisión las hace cada sucursal.
             }
@@ -132,7 +132,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
           } @else {
             <app-load-state [isEmpty]="true" emptyIcon="pi-calendar"
                             [emptyTitle]="'Sin órdenes de entrada ' + periodoFrase()"
-                            emptyHint="Puede ser que todavía no se reciba nada. Ampliá el periodo: si con «Desde el arranque» tampoco aparece nada, entonces sí es tu alcance de datos."
+                            emptyHint="Puede ser que todavía no se reciba nada. Amplía el periodo: si con «Desde el arranque» tampoco aparece nada, entonces sí es tu alcance de datos."
                             emptyCta="Ver este mes" emptyCtaIcon="pi pi-calendar" (cta)="setPeriodo('mes')" />
           }
         } @else {
@@ -516,7 +516,7 @@ export class ComprasEntradasControlComponent {
     if (!t.entradas) {
       return this.periodo() === 'arranque'
         ? 'Sin órdenes de entrada desde el arranque del proceso.'
-        : `Todavía no hay órdenes de entrada ${this.periodoFrase()}. Ampliá el periodo para ver lo anterior.`;
+        : `Todavía no hay órdenes de entrada ${this.periodoFrase()}. Amplía el periodo para ver lo anterior.`;
     }
     const falta = t.entradas - t.con_evidencia;
     const huerfanas = this.sinResponsable().length;

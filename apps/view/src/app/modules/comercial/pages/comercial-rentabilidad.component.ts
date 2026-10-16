@@ -303,7 +303,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               {{ o.overlap_risk.suppliers }} proveedores dan pronto pago por nota de crédito
               <b>y</b> por descuento al pagar. Es el {{ o.overlap_risk.pct_of_levers | number:'1.1-1' }}% de lo negociado —
               el máximo que podría duplicarse, no una certeza.
-              <a routerLink="/compras/descuentos">Verificalo en Descuentos</a>.
+              <a routerLink="/compras/descuentos">Verifícalo en Descuentos</a>.
             </p>
           }
 
@@ -622,7 +622,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <p class="rp-lv-warn">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                 Este proveedor da pronto pago por <b>nota de crédito y por descuento al pagar</b>.
-                Puede ser el mismo descuento contado dos veces — verificalo en
+                Puede ser el mismo descuento contado dos veces — verifícalo en
                 <a routerLink="/compras/descuentos">Descuentos</a>, que lo marca como canal “ambos”.
               </p>
             }

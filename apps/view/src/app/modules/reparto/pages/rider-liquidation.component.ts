@@ -60,7 +60,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
           <div class="liq-field">
             <label for="rider">Repartidor</label>
             <p-select inputId="rider" [options]="riders()" [(ngModel)]="riderUserId" optionLabel="full_name" optionValue="rider_user_id"
-                      appendTo="body" styleClass="liq-full" placeholder="Elegí repartidor"
+                      appendTo="body" styleClass="liq-full" placeholder="Elige repartidor"
                       [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'" />
           </div>
           <div class="liq-field liq-action">

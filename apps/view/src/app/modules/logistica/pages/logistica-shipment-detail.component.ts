@@ -219,7 +219,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <article class="cell cell-span-12 is-flush shd-cta-cell">
                 <span class="comm-muted is-small">
                   @if (canAddGuide()) {
-                    Elegí chofer, ayudantes y horario: la comisión y los viáticos se calculan solos.
+                    Elige chofer, ayudantes y horario: la comisión y los viáticos se calculan solos.
                   } @else {
                     La guía nace al tomar el viaje de Kepler. Lo que Kepler no tiene (ayudantes, horario) se completa aquí.
                   }
@@ -280,7 +280,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <div class="comm-empty">
                         <div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div>
                         <h3>Sin guías</h3>
-                        <p>Agregá una guía para asignar chofer + destinatarios.</p>
+                        <p>Agrega una guía para asignar chofer + destinatarios.</p>
                         @if (canAddGuide()) {
                           <button type="button" pButton severity="primary" size="small" (click)="openCreateGuide()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva guía</span></button>
                         }
@@ -341,7 +341,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     }
                     @if (!e.stops.length) {
                       <p class="comm-muted is-small">
-                        Sin paradas con orden + ubicación. Corré "Optimizar ruta" y captura lat/lng de los clientes.
+                        Sin paradas con orden + ubicación. Corre "Optimizar ruta" y captura lat/lng de los clientes.
                       </p>
                     }
                   </div>

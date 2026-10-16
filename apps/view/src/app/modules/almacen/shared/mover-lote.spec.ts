@@ -76,7 +76,7 @@ describe('validarMovimiento', () => {
   it('no se puede mover más de lo que hay, y lo dice con los dos números', () => {
     const v = mov({ cantidad: 50, disponible: 36 });
     expect(v.puede).toBe(false);
-    expect(v.aviso).toBe('En R-04 hay 36: no podés mover 50.');
+    expect(v.aviso).toBe('En R-04 hay 36: no puedes mover 50.');
     expect(v.esProblema).toBe(true);
   });
 
@@ -90,7 +90,7 @@ describe('validarMovimiento', () => {
 
   it('cantidad en cero o negativa se frena', () => {
     expect(mov({ cantidad: 0 }).puede).toBe(false);
-    expect(mov({ cantidad: -3 }).aviso).toBe('Escribí cuánto vas a mover.');
+    expect(mov({ cantidad: -3 }).aviso).toBe('Escribe cuánto vas a mover.');
   });
 
   it('una cantidad que no es número se frena en vez de mandarse', () => {

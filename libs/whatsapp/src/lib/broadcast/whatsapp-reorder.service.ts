@@ -47,7 +47,7 @@ export class WhatsAppReorderService {
     const first = (c.name || '').trim().split(/\s+/)[0] || '';
     const hi = first ? `Hola ${first} 👋` : 'Hola 👋';
     const prod = c.top_product ? ` tu ${c.top_product}` : ' tu pedido habitual';
-    return `${hi} Somos de Mega Dulces 🍬 Notamos que quizá ya se te está acabando${prod}. ¿Te reabastecemos? Respondé este mensaje y armamos tu pedido a domicilio.`;
+    return `${hi} Somos de Mega Dulces 🍬 Notamos que quizá ya se te está acabando${prod}. ¿Te reabastecemos? Responde este mensaje y armamos tu pedido a domicilio.`;
   }
 
   /**

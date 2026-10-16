@@ -32,7 +32,7 @@ interface Opt { label: string; value: string; }
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Equipos por pasillo</h1>
-          <p class="surf-page-sub">1 supervisor por pasillo + contadores repartidos parejo. Auto-generá y ajustá a mano.</p>
+          <p class="surf-page-sub">1 supervisor por pasillo + contadores repartidos parejo. Auto-genera y ajusta a mano.</p>
         </div>
         <div class="tm-head-actions">
           <button pButton [text]="true" severity="secondary" size="small" [routerLink]="['/almacen/inventory/sessions', countId]"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver al folio</span></button>
@@ -58,7 +58,7 @@ interface Opt { label: string; value: string; }
         <div class="tm-empty">
           <i class="pi pi-th-large"></i>
           <p>Este almacén no tiene pasillos.</p>
-          <small>Definilos primero en <a [routerLink]="['/almacen/inventory/aisles']">Pasillos</a>, después armá los equipos acá.</small>
+          <small>Definilos primero en <a [routerLink]="['/almacen/inventory/aisles']">Pasillos</a>, después arma los equipos acá.</small>
         </div>
       } @else {
         <div class="tm-body">

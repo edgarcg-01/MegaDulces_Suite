@@ -94,7 +94,7 @@ describe('[IC.25] el estado vacío no manda a tocar lo que no arregla nada', () 
     const enMarkup = (frase: string) =>
       new RegExp(`<(p|h3)>[^<]*${frase}`, 'i').test(SRC);
     expect(enMarkup('Elegi un almacen')).toBe(false);
-    expect(enMarkup('Elegí un almacén')).toBe(false);
+    expect(enMarkup('Elige un almacén')).toBe(false);
   });
 
   it('dice que el vacío NO prueba que no haya clasificados', () => {

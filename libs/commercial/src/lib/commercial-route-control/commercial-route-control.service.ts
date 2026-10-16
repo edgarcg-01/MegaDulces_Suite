@@ -72,7 +72,7 @@ export class CommercialRouteControlService {
         () =>
           reject(
             new GatewayTimeoutException(
-              'La lectura del ticket tardó demasiado. Revisá tu conexión y reintentá.',
+              'La lectura del ticket tardó demasiado. Revisa tu conexión y reintenta.',
             ),
           ),
         PROCESAR_DEADLINE_MS,
@@ -303,8 +303,8 @@ export class CommercialRouteControlService {
     if (!route.matched || !route.code) {
       throw new BadRequestException(
         dto.ticket_type === 'combustible'
-          ? 'No pudimos determinar tu ruta para el combustible. Subí primero tu corte de venta o carga de hoy.'
-          : 'No pudimos determinar tu ruta: el ticket no trae ruta legible (formato MOVIL) y no encontramos tu asignación del día. Pedile a tu supervisor que te asigne ruta e intentá de nuevo.',
+          ? 'No pudimos determinar tu ruta para el combustible. Sube primero tu corte de venta o carga de hoy.'
+          : 'No pudimos determinar tu ruta: el ticket no trae ruta legible (formato MOVIL) y no encontramos tu asignación del día. Pedile a tu supervisor que te asigne ruta e intenta de nuevo.',
       );
     }
     const canonicalRouteCode = route.code;

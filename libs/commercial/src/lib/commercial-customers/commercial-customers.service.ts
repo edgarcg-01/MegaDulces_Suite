@@ -288,7 +288,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
           throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
         }
         if (userRow.customer_id !== id) {
-          throw new ForbiddenException('No tenés acceso a este customer');
+          throw new ForbiddenException('No tienes acceso a este customer');
         }
       }
 
@@ -622,7 +622,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
         .first();
       if (!user) {
         throw new NotFoundException(
-          'Este cliente no tiene acceso al Portal B2B. Usá "Crear acceso" primero.',
+          'Este cliente no tiene acceso al Portal B2B. Usa "Crear acceso" primero.',
         );
       }
 

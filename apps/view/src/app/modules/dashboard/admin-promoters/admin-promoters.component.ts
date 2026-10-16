@@ -28,7 +28,7 @@ import { ComercialService } from '../../comercial/comercial.service';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Promotores de marca</h1>
-          <p class="surf-page-sub">Asigná marcas a un usuario — solo verá esos SKUs en Control de Caducidades</p>
+          <p class="surf-page-sub">Asigna marcas a un usuario — solo verá esos SKUs en Control de Caducidades</p>
         </div>
       </header>
 
@@ -37,13 +37,13 @@ import { ComercialService } from '../../comercial/comercial.service';
           <label class="ap-field">
             <span class="ap-lbl">Usuario (promotor)</span>
             <p-select [options]="users()" [(ngModel)]="selUser" optionLabel="label" optionValue="value"
-              [filter]="true" filterBy="label" placeholder="Elegí un usuario" appendTo="body" styleClass="ap-full"
+              [filter]="true" filterBy="label" placeholder="Elige un usuario" appendTo="body" styleClass="ap-full"
               (onChange)="onUserPick()"></p-select>
           </label>
           <label class="ap-field ap-col-2">
             <span class="ap-lbl">Marcas</span>
             <p-multiselect [options]="brands()" [(ngModel)]="selBrands" optionLabel="nombre" optionValue="id"
-              [filter]="true" filterBy="nombre" placeholder="Elegí una o más marcas" appendTo="body" styleClass="ap-full"
+              [filter]="true" filterBy="nombre" placeholder="Elige una o más marcas" appendTo="body" styleClass="ap-full"
               display="chip"></p-multiselect>
           </label>
         </div>
@@ -71,7 +71,7 @@ import { ComercialService } from '../../comercial/comercial.service';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div><h3>Sin promotores</h3><p>Asigná marcas a un usuario arriba.</p></div></td></tr>
+          <tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div><h3>Sin promotores</h3><p>Asigna marcas a un usuario arriba.</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>

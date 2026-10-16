@@ -29,8 +29,8 @@ import { AppErrorService, AppError } from './app-error.service';
             <h2 class="ae-title" id="ae-t">Hay una actualización lista</h2>
             <p class="ae-lead" id="ae-d">
               Se publicó una versión mientras tenías esta pestaña abierta, así que
-              esta pantalla quedó a medias. Recargá para seguir trabajando; no
-              perdés nada de lo que ya se guardó.
+              esta pantalla quedó a medias. Recarga para seguir trabajando; no
+              pierdes nada de lo que ya se guardó.
             </p>
             <button type="button" class="ae-btn" (click)="reload()">
               <i class="pi pi-refresh" aria-hidden="true"></i> Recargar ahora
@@ -42,7 +42,7 @@ import { AppErrorService, AppError } from './app-error.service';
           <i class="pi pi-refresh ae-toast-ico" aria-hidden="true"></i>
           <div class="ae-toast-txt">
             <p class="ae-toast-t">Hay una versión nueva</p>
-            <p class="ae-toast-s">Podés entrar igual; recargá cuando quieras.</p>
+            <p class="ae-toast-s">Puedes entrar igual; recarga cuando quieras.</p>
           </div>
           <button type="button" class="ae-toast-a" (click)="reload()">Recargar</button>
           <button type="button" class="ae-toast-x" (click)="dismiss()" aria-label="Descartar aviso">
@@ -55,7 +55,7 @@ import { AppErrorService, AppError } from './app-error.service';
           <div class="ae-toast-txt">
             <p class="ae-toast-t">Algo falló en esta pantalla</p>
             <p class="ae-toast-s">
-              Si se repite, reportá el código <code>{{ e.id }}</code>.
+              Si se repite, reporta el código <code>{{ e.id }}</code>.
               <button type="button" class="ae-toast-copy" (click)="copy(e)">
                 {{ copied() ? 'Copiado' : 'Copiar detalle' }}
               </button>

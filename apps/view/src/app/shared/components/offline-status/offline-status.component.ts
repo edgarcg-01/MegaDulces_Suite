@@ -134,7 +134,7 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
       const elapsed = Math.round(this.syncService.getSyncElapsedMs() / 1000);
       this.showNotification(
         this.isSyncStuck
-          ? `Sincronización lleva ${elapsed}s. Usá "Reiniciar" si crees que está colgada.`
+          ? `Sincronización lleva ${elapsed}s. Usa "Reiniciar" si crees que está colgada.`
           : `Sincronización en progreso (${elapsed}s)…`,
         'info',
       );

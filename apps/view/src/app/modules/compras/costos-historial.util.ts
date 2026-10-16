@@ -6,8 +6,9 @@ import { RespuestaHistorial, VeredictoEntrada } from './costo-estandar.service';
  * para que la plantilla sólo pinte.
  */
 
-export type TipoEvento = 'estandar' | 'entrada' | 'primera' | 'entrada_igual';
-export type FiltroTipo = 'ambos' | 'estandar' | 'entrada';
+export type TipoEvento = 'estandar' | 'promedio' | 'entrada' | 'primera' | 'entrada_igual';
+/** [CAT-COSTO.11] Los tres costos de Kepler: estándar, promedio y último (= las entradas XA2001). */
+export type FiltroTipo = 'todos' | 'estandar' | 'promedio' | 'ultimo';
 
 export interface FiltrosHistorial {
   sucursal: string | null;
@@ -40,7 +41,7 @@ const MOTIVO: Record<string, string> = {
 export function eventosTrazabilidad(r: RespuestaHistorial, f: FiltrosHistorial): EventoTrazabilidad[] {
   const out: EventoTrazabilidad[] = [];
 
-  if (f.tipo !== 'entrada') {
+  if (f.tipo === 'todos' || f.tipo === 'estandar') {
     for (const c of r.cambios_estandar) {
       if (f.sucursal && c.sucursal !== f.sucursal) continue;
       out.push({
@@ -61,7 +62,27 @@ export function eventosTrazabilidad(r: RespuestaHistorial, f: FiltrosHistorial):
     }
   }
 
-  if (f.tipo !== 'estandar') {
+  if (f.tipo === 'todos' || f.tipo === 'promedio') {
+    for (const c of r.cambios_promedio ?? []) {
+      if (f.sucursal && c.sucursal !== f.sucursal) continue;
+      out.push({
+        fecha: c.fecha,
+        sucursal: c.sucursal,
+        tipo: 'promedio',
+        antes: c.antes,
+        despues: c.despues,
+        cambio_pct: c.cambio_pct,
+        documento: 'Kardex de Kepler',
+        nota: 'promedio de las salidas del día',
+        proveedor: null,
+        vs_estandar_pct: null,
+        veredicto: null,
+        motivo: null,
+      });
+    }
+  }
+
+  if (f.tipo === 'todos' || f.tipo === 'ultimo') {
     for (const e of r.entradas) {
       if (f.sucursal && e.plaza !== f.sucursal) continue;
       if (f.proveedor && e.proveedor !== f.proveedor) continue;
@@ -84,11 +105,12 @@ export function eventosTrazabilidad(r: RespuestaHistorial, f: FiltrosHistorial):
     }
   }
 
-  // Lo más reciente arriba; el mismo día, el estándar antes que la entrada.
+  // Lo más reciente arriba; el mismo día: estándar, promedio y luego la entrada.
+  const rango = (t: TipoEvento) => (t === 'estandar' ? 0 : t === 'promedio' ? 1 : 2);
   return out.sort(
     (a, b) =>
       b.fecha.localeCompare(a.fecha) ||
-      (a.tipo === 'estandar' ? -1 : 0) - (b.tipo === 'estandar' ? -1 : 0) ||
+      rango(a.tipo) - rango(b.tipo) ||
       (a.sucursal ?? '').localeCompare(b.sucursal ?? ''),
   );
 }
@@ -112,13 +134,18 @@ export function graficaHistorial(r: RespuestaHistorial, f: FiltrosHistorial): Gr
   const t1 = Date.parse(`${r.hasta}T00:00:00Z`);
   const x = (iso: string) => X0 + Math.max(0, Math.min(1, (Date.parse(`${iso}T00:00:00Z`) - t0) / Math.max(1, t1 - t0))) * (W - X0);
 
-  const suc = f.sucursal ?? r.estandar_hoy[0]?.sucursal ?? null;
-  const cambios = r.cambios_estandar.filter((c) => c.sucursal === suc);
-  const hoy = r.estandar_hoy.find((e) => e.sucursal === suc)?.costo ?? null;
-  const inicio = (suc ? r.estandar_al_inicio[suc] : null) ?? cambios[0]?.antes ?? hoy;
+  // La línea escalonada es el promedio cuando se mira el promedio; si no, el estándar.
+  const esProm = f.tipo === 'promedio';
+  const suc = f.sucursal ?? (esProm ? r.cambios_promedio?.[0]?.sucursal : null) ?? r.estandar_hoy[0]?.sucursal ?? null;
+  const cambios = (esProm ? (r.cambios_promedio ?? []) : r.cambios_estandar).filter((c) => c.sucursal === suc);
+  const hoy = esProm ? (cambios[cambios.length - 1]?.despues ?? (suc ? r.promedio_al_inicio?.[suc] : null) ?? null) : (r.estandar_hoy.find((e) => e.sucursal === suc)?.costo ?? null);
+  const inicio = (suc ? (esProm ? r.promedio_al_inicio?.[suc] : r.estandar_al_inicio[suc]) : null) ?? cambios[0]?.antes ?? hoy;
 
+  // Los puntos son las compras (último costo): sólo cuando se miran.
+  const conPuntos = f.tipo === 'todos' || f.tipo === 'ultimo';
   const entradas = r.entradas.filter(
-    (e) => e.costo_base !== null && e.costo_base > 0 && (!f.sucursal || e.plaza === f.sucursal) && (!f.proveedor || e.proveedor === f.proveedor),
+    (e) =>
+      conPuntos && e.costo_base !== null && e.costo_base > 0 && (!f.sucursal || e.plaza === f.sucursal) && (!f.proveedor || e.proveedor === f.proveedor),
   );
   const valores = [inicio, hoy, ...cambios.map((c) => c.despues), ...entradas.map((e) => e.costo_base as number)].filter(
     (v): v is number => v !== null && v > 0,

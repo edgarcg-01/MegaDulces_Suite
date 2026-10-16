@@ -229,7 +229,7 @@ export class RuleCalibrationService {
     const updated = await q
       .update({ manual_override: override, updated_at: this.knex.fn.now() })
       .returning('*');
-    if (!updated.length) throw new NotFoundException('Regla sin estadística aún (corré la calibración primero)');
+    if (!updated.length) throw new NotFoundException('Regla sin estadística aún (corre la calibración primero)');
     return updated[0];
   }
 }

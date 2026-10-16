@@ -65,7 +65,7 @@ export class PortalAiOrderService {
     if (catalog.length === 0) {
       return {
         assistant_message:
-          'No encontré productos en tu lista de precios. Avisá a tu administrador para que active tu catálogo.',
+          'No encontré productos en tu lista de precios. Avisa a tu administrador para que active tu catálogo.',
         suggestions: [],
       };
     }
@@ -165,14 +165,14 @@ CATÁLOGO DISPONIBLE PARA ESTE CLIENTE (JSON, máximo ${MAX_CATALOG_ITEMS} items
 ${JSON.stringify(catalogJson)}
 
 REGLAS ESTRICTAS:
-1. SOLO podés sugerir productos cuyo "id" esté EXACTAMENTE en el catálogo de arriba. No inventes IDs.
+1. SOLO puedes sugerir productos cuyo "id" esté EXACTAMENTE en el catálogo de arriba. No inventes IDs.
 2. La cantidad sugerida debe ser ≥ min_qty del producto.
-3. Si el cliente pide algo que no está en su catálogo (ej. "Coca Cola" cuando solo tenés dulces), aclaralo en assistant_message y sugerí alternativas que sí tengas.
-4. Sé conciso y útil. Hablá en español mexicano informal pero profesional.
-5. Si el mensaje es ambiguo, hacé preguntas aclaratorias en assistant_message Y dejá suggestions vacío o con pocos items tentativos.
-6. Si el cliente pide modificar/quitar items, ajustá la sugerencia.
+3. Si el cliente pide algo que no está en su catálogo (ej. "Coca Cola" cuando solo tienes dulces), acláralo en assistant_message y sugerí alternativas que sí tengas.
+4. Sé conciso y útil. Habla en español mexicano informal pero profesional.
+5. Si el mensaje es ambiguo, haz preguntas aclaratorias en assistant_message Y deja suggestions vacío o con pocos items tentativos.
+6. Si el cliente pide modificar/quitar items, ajusta la sugerencia.
 
-Devolvé tu respuesta SIEMPRE invocando la tool "suggest_order".`;
+Devuelve tu respuesta SIEMPRE invocando la tool "suggest_order".`;
 
     const messages: ChatMessage[] = [
       ...history.slice(-10),
@@ -283,7 +283,7 @@ Devolvé tu respuesta SIEMPRE invocando la tool "suggest_order".`;
       }));
 
     const msg = top.length
-      ? `Encontré ${top.length} producto(s) que podrían interesarte. Decime si querés ajustar cantidades.`
+      ? `Encontré ${top.length} producto(s) que podrían interesarte. Decime si quieres ajustar cantidades.`
       : 'No encontré coincidencias claras. ¿Podrías ser más específico (marca, tipo de dulce, gramaje)?';
     return { assistant_message: msg, suggestions: top };
   }

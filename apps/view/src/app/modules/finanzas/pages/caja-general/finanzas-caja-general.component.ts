@@ -1039,7 +1039,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       @if (coberturaSinMedir()) {
         <p-message severity="warn" class="cg-full">No se pudo medir la cobertura del catálogo de conceptos. No es "no hay conceptos": es que no sabemos. Se puede capturar, pero si la cuenta no existe el servidor la va a rechazar.</p-message>
       } @else if (!hayConceptos()) {
-        <p-message severity="warn" class="cg-full">No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir.</p-message>
+        <p-message severity="warn" class="cg-full">No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisa el carril del ODS antes de seguir.</p-message>
       }
 
       <!-- ⭐ [CG.26] EL CIERRE DE LA JORNADA: como quedo el dia en caja general y en el cajero.
@@ -1718,7 +1718,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       <app-load-state [loading]="cargando()" [error]="errLibro()" [isEmpty]="!rows().length"
                       errorTitle="No se pudo leer el libro de caja"
                       emptyIcon="pi-book" emptyTitle="Sin movimientos en el periodo"
-                      emptyHint="Probá con otro rango de fechas o quitá el filtro de tipo."
+                      emptyHint="Prueba con otro rango de fechas o quita el filtro de tipo."
                       (retry)="cargar()">
       <p-table [value]="rows()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
                [scrollable]="true" scrollHeight="flex">
@@ -1928,7 +1928,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <span class="cg-ficha-pie">según el documento del ERP</span>
                 } @else {
                   <strong class="mono cg-ficha-monto cg-ficha-libre">{{ money(f().monto) }}</strong>
-                  <span class="cg-ficha-pie">lo que llevás contado — no hay documento contra qué cuadrar</span>
+                  <span class="cg-ficha-pie">lo que llevas contado — no hay documento contra qué cuadrar</span>
                 }
               </div>
             </div>
@@ -1976,7 +1976,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                   (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
                                   (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
                                   [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
+                                  placeholder="Busca por cliente, folio o ruta — o déjalo vacío y captura a mano"></p-autocomplete>
                   @if (cobroElegido(); as c) {
                     <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
                          BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
@@ -2047,7 +2047,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    persona) -- aca solo se decide si la oferta corresponde. -->
               @if (!fichaSolaLectura() && !cobroElegido() && frecuentes().length) {
                 <div class="fin-row fin-row-col">
-                  <label id="cg-frec-lbl">Lo que más repetís en {{ f().sucursal | sucursal }}</label>
+                  <label id="cg-frec-lbl">Lo que más repites en {{ f().sucursal | sucursal }}</label>
                   <!-- ⭐ [CG.98] role="toolbar" + roving tabindex (installToolbarNav, global en
                        main.ts). Son ACCIONES, no una elección: por eso toolbar y no radiogroup
                        -- un lector de pantalla anunciaría "no seleccionado" sobre un botón que
@@ -2109,7 +2109,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                 (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
                                 optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
                                 [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
-                                placeholder="Buscá por nombre, cuenta o código" appendTo="body"
+                                placeholder="Busca por nombre, cuenta o código" appendTo="body"
                                 class="cg-full"></p-autocomplete>
                 <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
                   {{ etiquetaConcepto().texto }}
@@ -2139,7 +2139,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                   (onClear)="soltarCorte()" optionLabel="label" [delay]="250"
                                   [minQueryLength]="0" [dropdown]="true" [showClear]="true"
                                   appendTo="body" class="cg-full"
-                                  placeholder="Últimos 7 días de esta sucursal — buscá por caja, plaza o fecha"></p-autocomplete>
+                                  placeholder="Últimos 7 días de esta sucursal — busca por caja, plaza o fecha"></p-autocomplete>
                   <!-- ⛔ Cuatro estados. "Vacio" y "no se pudo leer" son ausencias distintas, y la
                        de hoy tiene dueno distinto: el rezago de carga no lo resuelve quien captura. -->
                   @if (cortesAviso(); as av) {
@@ -2479,7 +2479,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          desc, salen SIEMPRE primero. Se marcan para que nadie los confirme creyendo
                          que son de hoy. -->
                     @if (esFutura(p.fecha_valor)) {
-                      <small class="fin-hint-warn d-block">fecha posterior a hoy — revisá el documento</small>
+                      <small class="fin-hint-warn d-block">fecha posterior a hoy — revisa el documento</small>
                     }
                   </td>
                   <td class="ta-c">
@@ -2544,7 +2544,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <p class="fin-dim cg-rezago">
               Se muestran las primeras <strong>{{ pendientes().length }}</strong>
               @if (totalPend(); as t) { de <strong>{{ t.toLocaleString('es-MX') }}</strong> }
-              de esta ventana. Acotá por signo o por caja, o achicá la ventana, para verlas todas.
+              de esta ventana. Acota por signo o por caja, o achica la ventana, para verlas todas.
             </p>
           }
         </app-load-state>
@@ -2582,7 +2582,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <div class="cg-ap-head">
             <span class="cg-ap-n" aria-hidden="true">2</span>
             <h2 class="cg-ap-t" id="cg-ap2-t">El arqueo</h2>
-            <span class="cg-ap-hint">contá el efectivo, pieza por pieza</span>
+            <span class="cg-ap-hint">cuenta el efectivo, pieza por pieza</span>
             <!-- ⭐ [CG.62] EL ATAJO SE ESCRIBE. D.5 lo exige -- "un atajo que nadie sabe que
                  existe no existe" -- y la navegacion por flechas de la reja llevaba varios commits
                  funcionando SIN que nada la anunciara: medido, CERO aria-keyshortcuts en esta
@@ -2724,13 +2724,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
               <div class="cg-arqueo">
                 <div class="cg-arqueo-head">
-                  <strong>{{ hayCajero() ? 'La diferencia, a mano' : 'Contá el efectivo' }}</strong>
+                  <strong>{{ hayCajero() ? 'La diferencia, a mano' : 'Cuenta el efectivo' }}</strong>
                   <!-- ⛔ [CG.54] Acá decía "El documento dice $144.00". Lo dice el bloque del número,
                        tres renglones abajo y PEGADO a la cifra con la que se compara, que es donde
                        sirve. Repetirlo arriba no agrega el dato: agrega una segunda cifra en pantalla
                        que hay que verificar que sea la misma. -->
                   @if (hayCajero()) {
-                    <span class="fin-dim">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
+                    <span class="fin-dim">El cajero ya aportó {{ money(aporteCajero()) }} — cuenta acá sólo lo que falta o la morralla (arranca en cero).</span>
                   }
                 </div>
                 <!-- ⛔ Los INPUTS de esta reja se quedan nativos con pInputText, y es una decision
@@ -2999,9 +2999,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        dictando en voz alta cuando el telefono no puede escanear. -->
                   <div class="cg-firma-codigo">
                     <div class="cg-firma-cod-txt">
-                      <span class="cg-lbl-micro">Escaneá el QR con el teléfono</span>
+                      <span class="cg-lbl-micro">Escanea el QR con el teléfono</span>
                       <strong class="mono cg-firma-cod">{{ cod }}</strong>
-                      <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'o entrá a ' + rutaFirmaCorta() + ' y escribí el código' }}</small>
+                      <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'o entra a ' + rutaFirmaCorta() + ' y escribe el código' }}</small>
                       <p-button label="Cancelar" size="small" severity="secondary" [text]="true"
                                 (onClick)="firmaCerrarRemota()"></p-button>
                     </div>
@@ -3017,7 +3017,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                               [loading]="firmaPidiendo()"
                               [disabled]="firmaPidiendo() || !socketVivo()"
                               (onClick)="firmaPedirEnTelefono()"></p-button>
-                    <span class="fin-dim">o firmá acá abajo</span>
+                    <span class="fin-dim">o firma acá abajo</span>
                     @if (!socketVivo()) {
                       <!-- ⚠️ Se DICE por que no se puede, en vez de dejar un boton apagado sin
                            motivo: sin conexion en vivo el emparejamiento no existe. -->
@@ -3076,7 +3076,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <div class="cg-ap-nada">
               <i class="pi pi-calculator" aria-hidden="true"></i>
               <strong>Nada que contar todavía</strong>
-              <p>El arqueo se abre con el movimiento. Elegí uno de la cola y acá vas a contar el
+              <p>El arqueo se abre con el movimiento. Elige uno de la cola y acá vas a contar el
                  efectivo, pieza por pieza, contra lo que dice su documento.</p>
             </div>
           }
@@ -3098,7 +3098,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
          querria volver al conteo en vez de seguir. -->
     <p-dialog [visible]="confirmarGuardar()" (visibleChange)="$event ? null : cerrarConFoco(confirmarGuardar)"
               [modal]="true" [style]="{ width: '26rem', maxWidth: '96vw' }"
-              header="¿Guardás este movimiento?" [draggable]="false">
+              header="¿Guardas este movimiento?" [draggable]="false">
       <!-- ⚠️ Clase propia y NO fin-form: el candado de O.1 ("la captura no vive en un modal")
            busca .fin-form dentro de cualquier p-dialog. Con fin-form aca, el dia que alguien
            abra esta ventana en una prueba el candado se pondria rojo por el motivo equivocado --
@@ -3184,7 +3184,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
         <!-- [CG.29] Se dice que esto NO termina acá: el gesto sigue en el conteo. Sin decirlo, la
              persona confirma y cree que ya rindió cuentas. -->
-        <small class="fin-dim">Al confirmar seguís directo al conteo del efectivo.</small>
+        <small class="fin-dim">Al confirmar sigues directo al conteo del efectivo.</small>
         <!-- [CGP-V.3] Esta puerta tambien abre la atrasada mas vieja, y lo dice. -->
         @if (aperturaAtrasada(); as dia) {
           <small class="fin-hint-warn">Se abre el corte de la jornada del {{ dia }}: es la más
@@ -3205,7 +3205,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
     <p-dialog [visible]="cierreAbierto()" (visibleChange)="$event ? null : cerrarConFoco(cierreAbierto)"
               [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
-              header="Cerrar corte — contá el efectivo" [draggable]="false">
+              header="Cerrar corte — cuenta el efectivo" [draggable]="false">
       <div class="fin-form">
         <!-- [CGP-V.1] Los pasos, sin texto: el dialogo ya dice que sigue en sus propios avisos. -->
         @if (pasoCorte(); as paso) {
@@ -3253,7 +3253,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           }
         } @else {
           <!-- [CGP-V.2] Un solo Contado: lo que se lleva sumado es el total de la reja, abajo. -->
-          <p-message severity="info" class="cg-full">Contá sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
+          <p-message severity="info" class="cg-full">Cuenta sin ver el esperado. Al guardar el conteo se revela la diferencia — y a partir de ahí sólo se puede recontar UNA vez, con motivo.</p-message>
         }
         <!-- CG.23 - La misma reja que la captura, por el mismo motivo: se cuentan piezas, los
              importes se calculan, y las flechas bajan por la columna en vez de incrementar el
@@ -3354,7 +3354,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    class="cg-full"
                    placeholder="Por qué se vuelve a contar — queda guardado junto al primer conteo" />
           </div>
-          <small class="fin-hint-warn">Contá todo otra vez, desde cero. Este reconteo es el último y
+          <small class="fin-hint-warn">Cuenta todo otra vez, desde cero. Este reconteo es el último y
             reemplaza al primero, que queda guardado con su motivo.</small>
         } @else {
           <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
@@ -4320,11 +4320,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Traduce el fallo del canal a algo que se pueda leer y actuar. */
   textoFalloFirma(e: string): string {
     switch (e) {
-      case 'sin_conexion': return 'Sin conexión en vivo con el servidor: firmá en esta pantalla.';
-      case 'sin_respuesta': return 'El servidor no contestó. Probá de nuevo o firmá acá.';
+      case 'sin_conexion': return 'Sin conexión en vivo con el servidor: firma en esta pantalla.';
+      case 'sin_respuesta': return 'El servidor no contestó. Prueba de nuevo o firma acá.';
       case 'sin_permiso': return 'Tu usuario no puede pedir firma remota (hace falta gestionar la caja).';
-      case 'sin_codigo_libre': return 'No se pudo generar un código. Probá de nuevo.';
-      default: return 'No se pudo pedir la firma al teléfono. Firmá en esta pantalla.';
+      case 'sin_codigo_libre': return 'No se pudo generar un código. Prueba de nuevo.';
+      default: return 'No se pudo pedir la firma al teléfono. Firma en esta pantalla.';
     }
   }
   aperturaAbierta = signal(false);
@@ -4590,7 +4590,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // `[CG.160]` `revelacion()`, no `revelado()`: un conteo sellado en una sesión anterior es
     // tan firme como el de ésta — más, porque ya no se puede retocar sin dejar rastro.
     const r = this.revelacion();
-    if (!r) return { ok: false, texto: 'Guardá el conteo primero: el resultado se revela al sellarlo.' };
+    if (!r) return { ok: false, texto: 'Guarda el conteo primero: el resultado se revela al sellarlo.' };
     return puedeCerrarUI(this.corteVista(), r.veredicto ?? 'sin_contar');
   });
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
@@ -4946,7 +4946,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       if (e.codigo !== this.firmaCodigo()) return;
       this.firmaCerrarRemota();
       // ⚠️ Se avisa: si no, el cajero se queda mirando un codigo que ya no sirve.
-      this.firmaAviso.set('Se cortó la conexión con el teléfono. Pedí un código nuevo o firmá acá.');
+      this.firmaAviso.set('Se cortó la conexión con el teléfono. Pide un código nuevo o firma acá.');
     });
   }
 
@@ -5486,13 +5486,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      */
     if (this.saldoSinMedir() || this.cargandoSaldo()) {
       this.cerrarTrasAbrir.set(false);
-      this.errorApertura.set('No se abrió el corte: todavía no se sabe si ya hay uno abierto. Esperá a que termine de medir o reintentá.');
+      this.errorApertura.set('No se abrió el corte: todavía no se sabe si ya hay uno abierto. Espera a que termine de medir o reintenta.');
       return;
     }
     const fecha = this.fechaParaAbrir();
     if (!fecha) {
       this.cerrarTrasAbrir.set(false);
-      this.errorApertura.set('No se abrió el corte: no se pudo saber si hay jornadas sin corte antes de hoy. Reintentá antes de abrir.');
+      this.errorApertura.set('No se abrió el corte: no se pudo saber si hay jornadas sin corte antes de hoy. Reintenta antes de abrir.');
       return;
     }
     this.abriendo.set(true);
@@ -6215,7 +6215,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const d = this.ventanaSrv()?.dias ?? this.ventanaDias();
     if (d) partes.push(`últimos ${d} día${d === 1 ? '' : 's'}`);
     const filtro = partes.length ? ` (${partes.join(', ')})` : '';
-    return `Kepler no registró movimientos de esta caja en el corte elegido${filtro}. Ampliá la ventana o cambiá el signo.`;
+    return `Kepler no registró movimientos de esta caja en el corte elegido${filtro}. Amplía la ventana o cambia el signo.`;
   }
 
   /**

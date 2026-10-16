@@ -28,7 +28,7 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1 style="display:inline-flex;align-items:center;gap:.4rem;color:var(--text-main)">Ventas generales <app-context-help topic="ventas-generales" /></h1>
-          <p class="surf-page-sub">Consultá la venta global de la red y desglosala como quieras — por canal, marca, categoría, sucursal, producto, cliente o su histórico. Venta real (no pedidos B2B), últimos 30 días.</p>
+          <p class="surf-page-sub">Consulta la venta global de la red y desglosala como quieras — por canal, marca, categoría, sucursal, producto, cliente o su histórico. Venta real (no pedidos B2B), últimos 30 días.</p>
         </div>
         <div class="vg-head-actions">
           <button pButton type="button" class="p-button-sm p-button-outlined" (click)="rebuild()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
@@ -42,7 +42,7 @@ import { VentasGeneralesService, VgMetric, VgDimension, VgFilterOptions, METRIC_
       <form class="vg-ask" (ngSubmit)="askAi()">
         <i class="pi pi-sparkles vg-ask-ic" aria-hidden="true"></i>
         <input pInputText [ngModel]="question()" (ngModelChange)="question.set($event)" name="q" [disabled]="asking()"
-               placeholder="Preguntá lo que sea de ventas… ej: «márgenes por marca» o «centro de control de ventas»" aria-label="Preguntar a Thot" />
+               placeholder="Pregunta lo que sea de ventas… ej: «márgenes por marca» o «centro de control de ventas»" aria-label="Preguntar a Thot" />
         <button pButton type="submit" class="p-button-sm" [loading]="asking()" [disabled]="!question().trim()"><span class="p-button-label">Preguntar</span></button>
       </form>
       @if (aiError()) { <p class="vg-ai-err" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ aiError() }}</p> }
@@ -268,7 +268,7 @@ export class VentasGeneralesComponent implements OnInit {
         this.spec.set({ title: r.spec?.title, blocks: this.applyScope(r.spec?.blocks || []) });
         if (r.source === 'no_api_key') this.aiError.set('El asistente no está configurado (falta ANTHROPIC_API_KEY); te muestro un tablero por default.');
       },
-      error: () => { this.asking.set(false); this.aiError.set('No se pudo componer el tablero. Probá de nuevo.'); },
+      error: () => { this.asking.set(false); this.aiError.set('No se pudo componer el tablero. Prueba de nuevo.'); },
     });
   }
 

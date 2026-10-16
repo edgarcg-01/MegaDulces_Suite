@@ -235,7 +235,7 @@ describe('etiquetaProcedencia — un campo propuesto NUNCA se pinta como un hech
   it('[negativa] un motivo desconocido se declara, no se inventa una explicación', () => {
     const e = etiquetaProcedencia({ value: null, source: null, confidence: null, reason: 'motivo_que_no_existe' });
     expect(e.tono).toBe('vacio');
-    expect(e.texto).toBe('Sin propuesta: capturalo a mano.');
+    expect(e.texto).toBe('Sin propuesta: captúralo a mano.');
   });
 
   it('null/undefined no revientan la pantalla', () => {
@@ -553,8 +553,8 @@ describe('[CGP-V.5] textoDeError', () => {
   });
 
   it('un 403 genérico del guardia de permisos se traduce', () => {
-    expect(textoDeError({ status: 403, error: { message: 'Forbidden resource' } })).toBe('No tenés permiso para esta acción.');
-    expect(textoDeError({ status: 403 })).toBe('No tenés permiso para esta acción.');
+    expect(textoDeError({ status: 403, error: { message: 'Forbidden resource' } })).toBe('No tienes permiso para esta acción.');
+    expect(textoDeError({ status: 403 })).toBe('No tienes permiso para esta acción.');
   });
 
   it('varias frases de validación se juntan, no se pierden', () => {

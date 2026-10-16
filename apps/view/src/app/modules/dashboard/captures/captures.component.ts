@@ -519,8 +519,8 @@ export class CapturesComponent implements OnInit, OnDestroy {
     if (this.needsRoute()) {
       this.toast.add({
         severity: 'warn',
-        summary: 'Elegí tu ruta',
-        detail: '¿En qué ruta estás hoy? Seleccioná una ruta antes de iniciar la visita.',
+        summary: 'Elige tu ruta',
+        detail: '¿En qué ruta estás hoy? Selecciona una ruta antes de iniciar la visita.',
       });
       return;
     }
@@ -787,7 +787,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
             summary: 'Fotos no subidas',
             detail:
               `${fotos.fallidas} de ${fotos.requeridas} fotos fallaron al subir. ` +
-              `La visita quedó guardada sin esa evidencia. Revisá tu conexión.`,
+              `La visita quedó guardada sin esa evidencia. Revisa tu conexión.`,
             life: 8000,
           });
         }
@@ -1029,7 +1029,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'warn',
           summary: 'Foto requerida',
-          detail: 'Tomá la foto del exhibidor antes de continuar.',
+          detail: 'Toma la foto del exhibidor antes de continuar.',
         });
         return;
       }
@@ -1471,7 +1471,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
     this.toast.add({
       severity: 'info',
       summary: 'Ticket guardado (sin red)',
-      detail: 'Se analizará automáticamente al volver la conexión. Tocá Finalizar.',
+      detail: 'Se analizará automáticamente al volver la conexión. Toca Finalizar.',
       life: 4500,
     });
   }
@@ -1537,7 +1537,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         summary: newItems.length ? `${newItems.length} líneas detectadas` : 'Ticket ilegible',
         detail: newItems.length
           ? `${total} productos en el ticket · ${this.ticketConfirmed().size} confirmados`
-          : 'No se reconocieron productos. Tomá la foto con mejor luz.',
+          : 'No se reconocieron productos. Toma la foto con mejor luz.',
         life: 2500,
       });
     } catch (err: any) {
@@ -1564,7 +1564,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'error',
           summary: 'Error',
-          detail: detail || 'No se pudo procesar el ticket. Intentá con otra foto.',
+          detail: detail || 'No se pudo procesar el ticket. Intenta con otra foto.',
         });
       }
     } finally {
@@ -1659,7 +1659,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
   skipTicket(): void {
     this.confirmSvc.confirm({
       message:
-        '¿Saltar el paso del ticket? La visita se guardará solo con la foto del exhibidor. Asegurate de que la foto sea clara.',
+        '¿Saltar el paso del ticket? La visita se guardará solo con la foto del exhibidor. Asegúrate de que la foto sea clara.',
       header: 'Saltar ticket',
       icon: 'pi pi-exclamation-triangle',
       acceptLabel: 'Sí, saltar',
@@ -1675,7 +1675,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'info',
           summary: 'Ticket saltado',
-          detail: 'Tocá Finalizar para guardar la visita con la foto del exhibidor.',
+          detail: 'Toca Finalizar para guardar la visita con la foto del exhibidor.',
           life: 4000,
         });
       },
@@ -1778,7 +1778,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         severity: 'error',
         summary: isHeic ? 'Formato HEIC no soportado' : 'Error al procesar la imagen',
         detail: isHeic
-          ? 'En este dispositivo tu foto no se puede decodificar. Cambiá el formato a "Más compatible" en Ajustes → Cámara → Formatos, o tomá la foto de nuevo.'
+          ? 'En este dispositivo tu foto no se puede decodificar. Cambia el formato a "Más compatible" en Ajustes → Cámara → Formatos, o toma la foto de nuevo.'
           : 'Intenta con otra foto.',
         life: 6000,
       });
@@ -1986,7 +1986,7 @@ export class CapturesComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'warn',
           summary: 'Falta el ticket',
-          detail: 'Tomá la foto del ticket o tocá "Saltar ticket" antes de finalizar.',
+          detail: 'Toma la foto del ticket o toca "Saltar ticket" antes de finalizar.',
         });
         this.wizardStep = 7;
         return;
@@ -2008,9 +2008,9 @@ export class CapturesComponent implements OnInit, OnDestroy {
         if (hasMatchable && markedCount === 0) {
           this.toast.add({
             severity: 'warn',
-            summary: 'Confirmá productos',
+            summary: 'Confirma productos',
             detail:
-              'El ticket tiene productos detectados. Marcá al menos uno antes de finalizar.',
+              'El ticket tiene productos detectados. Marca al menos uno antes de finalizar.',
           });
           this.wizardStep = 7;
           return;

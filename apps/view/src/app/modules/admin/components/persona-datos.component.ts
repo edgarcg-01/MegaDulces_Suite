@@ -128,7 +128,7 @@ interface Dimension {
             <p-multiselect [options]="d.dim.universe" [ngModel]="valores(d.code)"
                            (ngModelChange)="setValores(d.code, $event)" optionLabel="label"
                            optionValue="value" appendTo="body" [filter]="true" display="chip"
-                           [disabled]="!puedeEscribir" placeholder="Elegí cuáles"
+                           [disabled]="!puedeEscribir" placeholder="Elige cuáles"
                            [attr.aria-label]="'Valores de ' + etiqueta(d.code)"></p-multiselect>
             @if (!d.dim.universe.length) {
               <p class="ps-aviso">
@@ -142,7 +142,7 @@ interface Dimension {
               Tiene guardado <strong>{{ d.dim.valuesFueraDelUniverso.length }}</strong> valor(es)
               que ya <strong>no existen</strong> en {{ etiqueta(d.code) | lowercase }}: se borraron,
               o nunca debieron poder elegirse. Mientras sigan ahí <strong>filtra por algo que no
-              está</strong>, o sea que no ve nada por ese lado. Elegí de nuevo y guardá.
+              está</strong>, o sea que no ve nada por ese lado. Elige de nuevo y guarda.
             </p>
           }
 
@@ -202,7 +202,7 @@ interface Dimension {
                     <p-multiselect [options]="d.dim.universe" [ngModel]="n.values"
                                    (ngModelChange)="setExc(d.code, { values: $event })"
                                    optionLabel="label" optionValue="value" appendTo="body"
-                                   [filter]="true" display="chip" placeholder="Elegí cuáles"
+                                   [filter]="true" display="chip" placeholder="Elige cuáles"
                                    ariaLabel="Valores de la excepcion" />
                   }
                   <textarea pTextarea [ngModel]="n.nota" (ngModelChange)="setExc(d.code, { nota: $event })"

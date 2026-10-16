@@ -140,7 +140,7 @@ const ZOOMS = [50, 75, 100, 125, 150, 200, 300, 400] as const;
           <div class="dv-empty">
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
             <p class="dv-empty-t">No se pudo abrir la hoja</p>
-            <p class="dv-empty-s">El enlace pudo haber vencido. Recargá la pantalla, o abrila en una pestaña.</p>
+            <p class="dv-empty-s">El enlace pudo haber vencido. Recarga la pantalla, o ábrela en una pestaña.</p>
             <a class="dv-empty-a" [href]="actual()!.url" target="_blank" rel="noopener">Abrir en pestaña</a>
           </div>
         } @else if (esImagen()) {
@@ -284,7 +284,7 @@ export class DocViewerComponent {
   /** Hoja visible. `model` para que la pantalla pueda dirigirlo (ej. "mostrame la factura"). */
   readonly idx = model(0);
   readonly emptyTitle = input('Sin hoja para mostrar');
-  readonly emptyHint = input('Elegí una hoja del expediente para verla acá.');
+  readonly emptyHint = input('Elige una hoja del expediente para verla acá.');
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly host = inject(ElementRef<HTMLElement>);

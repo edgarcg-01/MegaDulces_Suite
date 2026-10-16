@@ -83,7 +83,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
         <button type="button" class="fb-status-chip" [class.warn]="reconStale() || (reconciledPct() != null && reconciledPct()! < 80)"
                 (click)="view.set('conciliacion')"
                 [attr.aria-label]="reconStale() ? 'Ir a Conciliación: el estado de cuenta se re-importó después de la última conciliación' : 'Ir a Conciliación contra Kepler'"
-                [title]="reconStale() ? 'El estado de cuenta se re-importó después de la última conciliación (' + (diagnostico()?.recon_estado?.last_match_at | date:'dd/MM HH:mm') + '): los movimientos nuevos están sin conciliar. Corré «Conciliar» de nuevo.' : 'Ir a Conciliación — contra Kepler'">
+                [title]="reconStale() ? 'El estado de cuenta se re-importó después de la última conciliación (' + (diagnostico()?.recon_estado?.last_match_at | date:'dd/MM HH:mm') + '): los movimientos nuevos están sin conciliar. Corre «Conciliar» de nuevo.' : 'Ir a Conciliación — contra Kepler'">
           <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b>
           @if (reconStale()) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <span class="fb-chip-note">desactualizado</span> }</button>
         @if (sheetCfg(); as sc) {

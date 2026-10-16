@@ -199,17 +199,17 @@ export class ThotToolsService implements ThotToolProvider {
       {
         name: 'thot_incentivo',
         description:
-          'Calcula el PAGO de una MECÁNICA DE INCENTIVO/PROMO al equipo de campo, sobre venta real. Úsala cuando el usuario describe una promo con reglas del tipo: "$X por cada venta/pieza/cliente del producto Y". Vos (el asistente) interpretás el enunciado y pasás los parámetros; esta tool hace SOLO la aritmética determinista sobre la venta real. Reglas de interpretación:\n' +
+          'Calcula el PAGO de una MECÁNICA DE INCENTIVO/PROMO al equipo de campo, sobre venta real. Úsala cuando el usuario describe una promo con reglas del tipo: "$X por cada venta/pieza/cliente del producto Y". Tú (el asistente) interpretas el enunciado y pasas los parámetros; esta tool hace SOLO la aritmética determinista sobre la venta real. Reglas de interpretación:\n' +
           '• "clientes distintos a los que se vendió una o más piezas" / "por cliente que compre" → metric=clientes_distintos, min_qty=1 (cada cliente cuenta UNA vez sin importar piezas).\n' +
           '• "por cada pieza/unidad vendida" → metric=piezas. "por ticket/venta" → metric=tickets. "% o $ sobre venta" → metric=monto.\n' +
           '• RD / reparto / venta a bordo → canal=ruta. Mayoreo/crédito → canal=mayoreo. Mostrador → canal=mostrador. Preventa/vecinal → canal=preventa. Si no dice canal → canal=todos.\n' +
-          '• dimension = cómo desglosar el pago: por "vendedor" (default, es a quien se le paga), "ruta", "sucursal" o "canal" — elegila según lo que pida el enunciado.\n' +
-          'Resolvé el producto a SKU con thot_resolve_entity ANTES si el enunciado lo menciona por nombre; pasá ese sku. Devuelve el pago por dimensión + total.',
+          '• dimension = cómo desglosar el pago: por "vendedor" (default, es a quien se le paga), "ruta", "sucursal" o "canal" — elígela según lo que pida el enunciado.\n' +
+          'Resuelve el producto a SKU con thot_resolve_entity ANTES si el enunciado lo menciona por nombre; pasa ese sku. Devuelve el pago por dimensión + total.',
         input_schema: {
           type: 'object',
           properties: {
             sku: { type: 'string', description: 'SKU exacto del producto de la promo (resolvelo antes con thot_resolve_entity si viene por nombre).' },
-            producto_texto: { type: 'string', description: 'Nombre del producto si no tenés el SKU (se resuelve por catálogo). Preferí sku.' },
+            producto_texto: { type: 'string', description: 'Nombre del producto si no tienes el SKU (se resuelve por catálogo). Prefiere sku.' },
             metric: { type: 'string', enum: ['clientes_distintos', 'piezas', 'tickets', 'monto'], description: 'Qué se paga.' },
             rate: { type: 'number', description: 'Monto en pesos por cada unidad de la métrica (ej $6.00 → 6).' },
             min_qty: { type: 'number', description: 'Piezas mínimas por cliente para calificar (default 1). Solo aplica a clientes_distintos.' },
@@ -224,12 +224,12 @@ export class ThotToolsService implements ThotToolProvider {
       {
         name: 'thot_reorder_policy',
         description:
-          'Política de reabastecimiento por SKU: MÍNIMO, punto de reorden y MÁXIMO por almacén (en piezas) + existencia disponible actual + clase ABC/XYZ. Para "cuál es el máximo del SKU X", "punto de orden", "cuánto debo tener de Y". Pasá sku (exacto) o query (nombre); opcional filtrar por almacén.',
+          'Política de reabastecimiento por SKU: MÍNIMO, punto de reorden y MÁXIMO por almacén (en piezas) + existencia disponible actual + clase ABC/XYZ. Para "cuál es el máximo del SKU X", "punto de orden", "cuánto debo tener de Y". Pasa sku (exacto) o query (nombre); opcional filtrar por almacén.',
         input_schema: {
           type: 'object',
           properties: {
             sku: { type: 'string', description: 'SKU exacto del producto.' },
-            query: { type: 'string', description: 'Nombre (o parte) del producto, si no tenés el SKU.' },
+            query: { type: 'string', description: 'Nombre (o parte) del producto, si no tienes el SKU.' },
             warehouse: { type: 'string', description: 'Código o nombre de almacén. Opcional (default: todos).' },
           },
         },
@@ -251,7 +251,7 @@ export class ThotToolsService implements ThotToolProvider {
       },
       {
         name: 'thot_top_customers',
-        description: 'PIPELINE B2B de la app: clientes top por revenue de pedidos levantados en la app. NO es la venta real del ERP (para eso usá thot_erp_customers).',
+        description: 'PIPELINE B2B de la app: clientes top por revenue de pedidos levantados en la app. NO es la venta real del ERP (para eso usa thot_erp_customers).',
         input_schema: { type: 'object', properties: { ...dateRange, limit: { type: 'number', description: 'Default 10, máx 100.' } } },
       },
       {
@@ -261,7 +261,7 @@ export class ThotToolsService implements ThotToolProvider {
       },
       {
         name: 'thot_sales_by_brand',
-        description: 'PIPELINE B2B de la app: revenue y share % por marca de pedidos de la app. Para marca sobre VENTA REAL usá thot_flexible_aggregate (metric=revenue, group_by=brand).',
+        description: 'PIPELINE B2B de la app: revenue y share % por marca de pedidos de la app. Para marca sobre VENTA REAL usa thot_flexible_aggregate (metric=revenue, group_by=brand).',
         input_schema: { type: 'object', properties: { ...dateRange } },
       },
       {
@@ -272,12 +272,12 @@ export class ThotToolsService implements ThotToolProvider {
       {
         name: 'thot_remember',
         description:
-          'Guarda un HECHO durable que el usuario te enseña, para RECORDARLO en futuras conversaciones (ej: "Candelares Salgado es vendedora vecinal de la ruta PH 01"). Usalo cuando el usuario te dé un dato de negocio que deberías retener (quién es alguien, cómo se llama algo, una convención interna). title = clave corta; body = el hecho. Si el title ya existe, lo actualiza.',
+          'Guarda un HECHO durable que el usuario te enseña, para RECORDARLO en futuras conversaciones (ej: "Candelares Salgado es vendedora vecinal de la ruta PH 01"). Úsalo cuando el usuario te dé un dato de negocio que deberías retener (quién es alguien, cómo se llama algo, una convención interna). title = clave corta; body = el hecho. Si el title ya existe, lo actualiza.',
         input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Clave corta del hecho (ej: "Vendedora Candelares Salgado").' }, body: { type: 'string', description: 'El hecho completo, en texto.' } }, required: ['title', 'body'] },
       },
       {
         name: 'thot_forget',
-        description: 'Olvida (borra) un hecho que habías guardado con thot_remember. Pasá el title exacto de la nota.',
+        description: 'Olvida (borra) un hecho que habías guardado con thot_remember. Pasa el title exacto de la nota.',
         input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Title exacto de la nota a olvidar.' } }, required: ['title'] },
       },
     ];
@@ -331,7 +331,7 @@ export class ThotToolsService implements ThotToolProvider {
         case 'thot_erp_customers':
           return await this.analytics.erpCustomers({ search: args.search, limit: args.limit });
         case 'thot_customer_products':
-          if (!args.erp_code) return { error: 'Falta erp_code. Usá thot_erp_customers o thot_resolve_entity para obtenerlo.' };
+          if (!args.erp_code) return { error: 'Falta erp_code. Usa thot_erp_customers o thot_resolve_entity para obtenerlo.' };
           return await this.analytics.erpCustomerProducts(String(args.erp_code));
         case 'thot_get_sales_overview':
           return await this.analytics.overview({ from: args.from, to: args.to });
@@ -353,7 +353,7 @@ export class ThotToolsService implements ThotToolProvider {
       }
     } catch (e: any) {
       this.logger.warn(`Tool ${name} falló: ${e?.message || e}`);
-      return { error: `La tool ${name} falló: ${e?.message || 'error'}. Probá con otros parámetros o decí que no hay datos.` };
+      return { error: `La tool ${name} falló: ${e?.message || 'error'}. Prueba con otros parámetros o di que no hay datos.` };
     }
   }
 
@@ -562,14 +562,14 @@ export class ThotToolsService implements ThotToolProvider {
     const sku = String(args.sku || '').trim();
     const query = String(args.query || '').trim();
     const wh = String(args.warehouse || '').trim();
-    if (!sku && !query) return { error: 'Indicá un SKU (sku) o un texto de búsqueda (query) del producto.' };
+    if (!sku && !query) return { error: 'Indica un SKU (sku) o un texto de búsqueda (query) del producto.' };
     return this.tk.run(async (trx) => {
       let prodQ = trx('catalog.products as p').where('p.tenant_id', tenantId).whereNull('p.deleted_at');
       if (sku) prodQ = prodQ.where('p.sku', sku);
       else prodQ = prodQ.andWhere((w: any) => w.whereRaw('p.nombre ILIKE ?', [`%${query}%`]).orWhereRaw('p.sku ILIKE ?', [`%${query}%`]));
       const prods = await prodQ.select('p.id', 'p.sku', 'p.nombre').limit(8);
       if (!prods.length) return { error: `No encontré producto con ${sku ? 'SKU ' + sku : 'texto "' + query + '"'}.` };
-      if (prods.length > 1 && !sku) return { disambiguate: prods, note: 'Varios productos coinciden; pasá el SKU exacto.' };
+      if (prods.length > 1 && !sku) return { disambiguate: prods, note: 'Varios productos coinciden; pasa el SKU exacto.' };
       const ids = prods.map((p: any) => p.id);
       let rpQ = trx('commercial.reorder_policy as rp')
         .join('catalog.products as p', 'p.id', 'rp.product_id')

@@ -196,20 +196,20 @@ export const MOTIVO_SIN_DOC_MIN = 12;
 
 /** Texto que ve el capturista. Dice QUÉ falta, no "formulario inválido". */
 export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
-  falta_tipo: 'Elegí el tipo de movimiento.',
+  falta_tipo: 'Elige el tipo de movimiento.',
   falta_fecha: 'Falta la fecha.',
-  fecha_futura: 'Esa fecha es posterior a hoy. Poné el día en que se movió el efectivo: fechado adelante, '
+  fecha_futura: 'Esa fecha es posterior a hoy. Pon el día en que se movió el efectivo: fechado adelante, '
     + 'el movimiento desaparece del libro hasta que llegue ese mes.',
   falta_sucursal: 'Falta la sucursal.',
   falta_concepto: 'Falta la cuenta y el concepto de Kepler: sin eso el movimiento no se puede contabilizar.',
-  falta_concepto_de_cuenta: 'Falta el concepto de Kepler de esa cuenta: elegilo para poder contabilizar.',
-  glosa_corta: `Contá qué pasó, con al menos ${GLOSA_MIN} caracteres. El concepto dice a qué cuenta va; esto dice qué pasó.`,
+  falta_concepto_de_cuenta: 'Falta el concepto de Kepler de esa cuenta: elígelo para poder contabilizar.',
+  glosa_corta: `Cuenta qué pasó, con al menos ${GLOSA_MIN} caracteres. El concepto dice a qué cuenta va; esto dice qué pasó.`,
   monto_invalido: 'El monto tiene que ser mayor a cero.',
-  falta_desglose: 'Contá el efectivo por denominación: el desglose es obligatorio, y de ahí sale el monto.',
+  falta_desglose: 'Cuenta el efectivo por denominación: el desglose es obligatorio, y de ahí sale el monto.',
   arqueo_no_cuadra: 'El desglose por denominación no cuadra con el monto.',
   falta_motivo_sin_documento:
     `Este movimiento no está enlazado a un documento de Kepler ni a uno del cajero. `
-    + `Decí por qué, con al menos ${MOTIVO_SIN_DOC_MIN} caracteres `
+    + `Di por qué, con al menos ${MOTIVO_SIN_DOC_MIN} caracteres `
     + `(por ejemplo: cobranza de ruta que nadie registró en Kepler).`,
 };
 
@@ -310,7 +310,7 @@ export interface EtiquetaProcedencia {
 
 /** Lo eligió la persona. No hay procedencia que declarar más que esa. */
 export function etiquetaManual(): EtiquetaProcedencia {
-  return { tono: 'manual', texto: 'Elegido a mano por vos.' };
+  return { tono: 'manual', texto: 'Elegido a mano por ti.' };
 }
 
 const TEXTO_FUENTE: Record<string, string> = {
@@ -358,7 +358,7 @@ export function etiquetaProcedencia(
     }
     const motivo = p?.reason ? TEXTO_MOTIVO[p.reason] : undefined;
     // Un vacío sin motivo conocido se declara como tal; NO se inventa una explicación.
-    return { tono: 'vacio', texto: motivo ?? 'Sin propuesta: capturalo a mano.' };
+    return { tono: 'vacio', texto: motivo ?? 'Sin propuesta: captúralo a mano.' };
   }
   const fuente = TEXTO_FUENTE[p.source ?? ''] ?? 'de origen no declarado';
   if (p.support && p.supportRatio) {
@@ -377,7 +377,7 @@ export function textoCobertura(filas: Array<{ usables: number; filas_origen: num
   const usables = filas.reduce((a, r) => a + Number(r.usables || 0), 0);
   const origen = filas.reduce((a, r) => a + Number(r.filas_origen || 0), 0);
   const sinSub = filas.reduce((a, r) => a + Number(r.sin_subcuenta || 0), 0);
-  if (usables === 0) return `Catálogo de conceptos VACÍO (${origen} filas en el origen). Revisá el carril del ODS antes de capturar.`;
+  if (usables === 0) return `Catálogo de conceptos VACÍO (${origen} filas en el origen). Revisa el carril del ODS antes de capturar.`;
   const cola = sinSub > 0 ? ` · ${sinSub} sin subcuenta, fuera del catálogo` : '';
   return `${usables.toLocaleString('es-MX')} conceptos de ${origen.toLocaleString('es-MX')}${cola}.`;
 }
@@ -441,7 +441,7 @@ export function puedeAutorizarUI(
   }
   if (c.estado !== 'cerrado') return { ok: false, texto: 'Primero hay que cerrar el corte.' };
   if (c.closed_by && c.closed_by === userId) {
-    return { ok: false, texto: 'Vos cerraste este corte: tiene que autorizarlo otra persona.' };
+    return { ok: false, texto: 'Tú cerraste este corte: tiene que autorizarlo otra persona.' };
   }
   return { ok: true, texto: `Cerrado por ${c.closed_by_username ?? 'el capturista'} — listo para autorizar.` };
 }
@@ -449,7 +449,7 @@ export function puedeAutorizarUI(
 export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): { ok: boolean; texto: string } {
   if (!c) return { ok: false, texto: 'No hay corte abierto.' };
   if (c.estado !== 'borrador') return { ok: false, texto: 'Este corte ya está cerrado.' };
-  if (veredicto === 'sin_contar') return { ok: false, texto: 'Contá el efectivo antes de cerrar.' };
+  if (veredicto === 'sin_contar') return { ok: false, texto: 'Cuenta el efectivo antes de cerrar.' };
   // Se puede cerrar aunque NO cuadre: un faltante se registra, no se esconde.
   //
   // ⛔ `[CG.42]` `sin_base` NO cae en "no cuadra". Sin saber con cuánto arrancó la caja, la
@@ -604,7 +604,7 @@ export function textoPaso(p: PasoCorte, folio?: string | null): string {
   switch (p) {
     case 'abrir': return 'No hay corte abierto: sigue abrir el de la jornada.';
     case 'contar': return 'Sigue contar el efectivo sin ver el esperado. Al guardar el conteo se revela la diferencia.';
-    case 'revisar': return 'Revisá la diferencia: se puede recontar una sola vez, con motivo, o cerrar con ella.';
+    case 'revisar': return 'Revisa la diferencia: se puede recontar una sola vez, con motivo, o cerrar con ella.';
     case 'cerrar': return 'Sigue cerrar el corte. Después lo autoriza otra persona.';
     case 'autorizar': return `${folio ? `El corte ${folio} quedó cerrado: falta` : 'Falta'} que lo autorice otra persona, porque quien cierra no autoriza.`;
   }
@@ -630,8 +630,8 @@ export function textoDeError(e: unknown): string {
     ? crudo.map((m) => String(m).trim().replace(/\.$/, '')).filter(Boolean).join('. ') + '.'
     : typeof crudo === 'string' ? crudo.trim() : '';
   if (err?.status === 0) return 'No hay conexión con el servidor.';
-  if (err?.status === 429) return 'El servidor pidió esperar: hubo demasiadas peticiones a la vez. Reintentá en unos segundos.';
-  if (err?.status === 403) return frase && frase !== FORBIDDEN_GENERICO ? frase : 'No tenés permiso para esta acción.';
+  if (err?.status === 429) return 'El servidor pidió esperar: hubo demasiadas peticiones a la vez. Reintenta en unos segundos.';
+  if (err?.status === 403) return frase && frase !== FORBIDDEN_GENERICO ? frase : 'No tienes permiso para esta acción.';
   if (err?.status === 409) return frase || 'Ese movimiento ya estaba aplicado.';
   return frase || 'El servidor respondió con un error.';
 }

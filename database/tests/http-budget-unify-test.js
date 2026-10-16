@@ -63,7 +63,7 @@ async function login(username, password) {
   const db = new Client({ connectionString: DST });
   await db.connect();
   const q = async (s, p) => (await db.query(s, p)).rows;
-  const ids = { budget: null, lineA: null, lineB: null, o1: null, o2: null, o3: null, obl: [] };
+  const ids = { budget: null, lineA: null, lineB: null, o1: null, o2: null, o3: null, obl: [], capDate: null };
 
   const limpiar = async () => {
     if (ids.obl.length) {
@@ -86,6 +86,11 @@ async function login(username, password) {
       await q('DELETE FROM budget.budget_lines WHERE budget_id = $1', [ids.budget]);
       await q('DELETE FROM budget.budgets WHERE id = $1', [ids.budget]);
     }
+    // Sólo la capacidad que ESTA prueba sembró (si el día ya tenía, no se tocó).
+    if (ids.capDate) {
+      await q('DELETE FROM budget.daily_capacity_history WHERE tenant_id = $1 AND capacity_date = $2', [M, ids.capDate]);
+      await q('DELETE FROM budget.daily_capacity WHERE tenant_id = $1 AND capacity_date = $2', [M, ids.capDate]);
+    }
     await q('DELETE FROM identity.users WHERE tenant_id = $1 AND username = $2', [M, USER]);
     await q('DELETE FROM identity.role_permissions WHERE tenant_id = $1 AND role_name = $2', [M, ROL]);
   };
@@ -104,7 +109,8 @@ async function login(username, password) {
     }
 
     // ── Siembra (pg) ──────────────────────────────────────────────────────────
-    const perms = { PRESUPUESTOS_VER: true, PRESUPUESTOS_GESTIONAR: true, FINANCE_PAYMENTS_VER: true, FINANCE_PAYMENTS_GESTIONAR: true };
+    // `[TP.16]` + AUTORIZAR: ejecutar un pago exige el día autorizado (dos firmas).
+    const perms = { PRESUPUESTOS_VER: true, PRESUPUESTOS_GESTIONAR: true, FINANCE_PAYMENTS_VER: true, FINANCE_PAYMENTS_GESTIONAR: true, FINANCE_PAYMENT_CALENDAR_AUTORIZAR: true };
     await q(`INSERT INTO identity.role_permissions (tenant_id, role_name, permissions) VALUES ($1,$2,$3::jsonb)`, [M, ROL, JSON.stringify(perms)]);
     const hash = await require('bcryptjs').hash(CLAVE, 10);
     await q(`INSERT INTO identity.users (tenant_id, username, nombre, password_hash, role_name, department_code, kind, status, must_change_password)
@@ -149,6 +155,18 @@ async function login(username, password) {
     if (allocId) {
       const rPrep = await req('POST', `/finance/payment-calendar/allocations/${allocId}/preparar`, tok, { payment_method: 'efectivo', cash_register_text: 'CAJA-UNIFY' });
       check('preparar pago responde 2xx', rPrep.status >= 200 && rPrep.status < 300, `status ${rPrep.status}`);
+      // `[TP.16]` Dos firmas: sin autorizar el día, ejecutar se niega. Primero la negativa, luego el camino completo.
+      const rEarly = await req('POST', `/finance/payment-calendar/allocations/${allocId}/ejecutar`, tok, {});
+      check('ejecutar SIN autorizar el día responde 400', rEarly.status === 400, `status ${rEarly.status}`);
+      const [hadCap] = await q('SELECT 1 FROM budget.daily_capacity WHERE tenant_id = $1 AND capacity_date = $2', [M, fecha]);
+      if (!hadCap) {
+        await q(`INSERT INTO budget.daily_capacity (tenant_id, capacity_date, authorized_amount, note, created_by, updated_by) VALUES ($1,$2,1000000,'unify smoke','seed','seed')`, [M, fecha]);
+        ids.capDate = fecha;
+      }
+      const rOrd = await req('POST', `/finance/payment-calendar/allocations/${allocId}/orden`, tok, { priority_rank: 1 });
+      check('ordenar pago responde 2xx', rOrd.status >= 200 && rOrd.status < 300, `status ${rOrd.status}`);
+      const rRel = await req('POST', `/finance/payment-calendar/days/${fecha}/liberar`, tok, {});
+      check('autorizar el día responde 2xx', rRel.status >= 200 && rRel.status < 300, `status ${rRel.status} ${JSON.stringify(rRel.json?.message ?? '')}`);
       const rExec = await req('POST', `/finance/payment-calendar/allocations/${allocId}/ejecutar`, tok, {});
       check('ejecutar pago responde 2xx', rExec.status >= 200 && rExec.status < 300, `status ${rExec.status}`);
       const a3 = await line(ids.lineA);

@@ -122,7 +122,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                       emptyIcon="pi-check-circle"
                       [emptyTitle]="filtered() ? 'Ningún reclamo con estos filtros' : 'Sin reclamos'"
                       [emptyHint]="filtered()
-                        ? 'Probá con el estado en Todos, o limpiá la búsqueda.'
+                        ? 'Prueba con el estado en Todos, o limpia la búsqueda.'
                         : 'Los reclamos se levantan solos al cerrar un vale con faltante, dañado o producto incorrecto en el Andén.'"
                       [emptyCta]="filtered() ? 'Limpiar filtros' : null"
                       emptyCtaIcon="pi pi-filter-slash"
@@ -217,7 +217,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <div class="rc-qty">
                   <p class="rc-hint">
                     Un <strong>{{ kindLabel(c.kind).toLowerCase() }}</strong> no trae cantidad desde el andén
-                    (nadie iba a contar tarima dañada con el camión esperando). Capturala acá:
+                    (nadie iba a contar tarima dañada con el camión esperando). Captúrala acá:
                   </p>
                   <div class="rc-qty-row">
                     <input pInputText type="number" min="0.01" [max]="maxQty(c)" step="1" [(ngModel)]="qtyInput"
@@ -255,7 +255,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <p class="rc-hint">
                     El nombre de arriba es <strong>el que trae el documento</strong>, no una sucursal deducida: el
                     mismo código del ERP aparece con nombres distintos, así que traducirlo sería inventarlo.
-                    @if (canMapOrigin()) { Elegí una vez a quién pertenece <code>{{ c.responsible_code }}</code> y se asignan todos sus reclamos. }
+                    @if (canMapOrigin()) { Elige una vez a quién pertenece <code>{{ c.responsible_code }}</code> y se asignan todos sus reclamos. }
                     @else { Quien administra almacenes tiene que capturar a quién pertenece <code>{{ c.responsible_code }}</code>. }
                   </p>
                   @if (canMapOrigin()) {
@@ -590,7 +590,7 @@ export class ComprasReclamosComponent implements OnInit {
       },
       error: (e) => {
         this.loading.set(false);
-        this.error.set(e?.status === 403 ? 'No tenés permiso para ver la bandeja de reclamos.' : (e?.error?.message || 'Error de red'));
+        this.error.set(e?.status === 403 ? 'No tienes permiso para ver la bandeja de reclamos.' : (e?.error?.message || 'Error de red'));
       },
     });
   }

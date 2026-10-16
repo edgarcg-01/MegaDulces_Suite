@@ -579,12 +579,12 @@ export class UsersService {
 
     if (pideForzarNo && ttlResultante == null) {
       throw new BadRequestException(
-        'Una cuenta que no fuerza el cambio de contraseña es una credencial de dispositivo: declará su duración de sesión (token_ttl_days). Si es una persona, la contraseña la eligió el admin y el dueño tiene que cambiarla.',
+        'Una cuenta que no fuerza el cambio de contraseña es una credencial de dispositivo: declara su duración de sesión (token_ttl_days). Si es una persona, la contraseña la eligió el admin y el dueño tiene que cambiarla.',
       );
     }
     if (pideQuitarTtl && forzarResultante === false) {
       throw new BadRequestException(
-        'No se puede quitar la sesión larga sin devolver el cambio de contraseña forzado: quedaría una contraseña que nadie eligió y que nadie está obligado a cambiar. Mandá must_change_password: true en el mismo request.',
+        'No se puede quitar la sesión larga sin devolver el cambio de contraseña forzado: quedaría una contraseña que nadie eligió y que nadie está obligado a cambiar. Manda must_change_password: true en el mismo request.',
       );
     }
   }
@@ -772,12 +772,12 @@ export class UsersService {
       throw new BadRequestException(
         `El puesto "${desvio.position_code}" no propone ningún perfil, así que "${desvio.elegido}" ` +
           `es una elección a dedo y no hay contra qué contrastarla. Se puede, pero hay que decir ` +
-          `por qué: enviá "motivo_desvio". (Lo que lo cierra de raíz es darle un perfil al puesto.)`,
+          `por qué: envía "motivo_desvio". (Lo que lo cierra de raíz es darle un perfil al puesto.)`,
       );
     }
     throw new BadRequestException(
       `El puesto "${desvio.position_code}" propone el perfil "${desvio.propone}" y se eligió ` +
-        `"${desvio.elegido}". Apartarse está permitido, pero hay que decir por qué: enviá ` +
+        `"${desvio.elegido}". Apartarse está permitido, pero hay que decir por qué: envía ` +
         `"motivo_desvio".`,
     );
   }
@@ -2186,7 +2186,7 @@ export class UsersService {
     const values = dto.mode === 'listed' ? (dto.values ?? []).map(String).filter(Boolean) : null;
     if (dto.mode === 'listed' && !values?.length) {
       // El CHECK de la DB también lo rechaza, pero acá el mensaje es útil.
-      throw new BadRequestException('Un alcance "listed" sin valores dejaría al usuario sin ver nada. Elegí valores o usá "none".');
+      throw new BadRequestException('Un alcance "listed" sin valores dejaría al usuario sin ver nada. Elige valores o usa "none".');
     }
 
     // `[ZN.6]` ⛔ **Nada contrastaba `values` contra la realidad.** El endpoint recibe `@Body()`
@@ -2326,7 +2326,7 @@ export class UsersService {
     }
     if (desviados.length && !(dto.motivo_desvio ?? '').trim()) {
       const ejemplos = desviados.slice(0, 3).map((d) => `${d.username} (${d.elegido})`).join(', ');
-      const cola = `${desviados.length > 3 ? '…' : ''}. Se puede, pero hay que decir por qué: enviá "motivo_desvio".`;
+      const cola = `${desviados.length > 3 ? '…' : ''}. Se puede, pero hay que decir por qué: envía "motivo_desvio".`;
       throw new BadRequestException(
         desviados[0].propone === null
           ? `El puesto "${dto.position_code}" no propone ningún perfil, así que los ${desviados.length} ` +
@@ -2507,7 +2507,7 @@ export class UsersService {
           const sinTener = claves.filter((k) => propios?.[k] !== true);
           if (sinTener.length) {
             throw new ForbiddenException(
-              `No puedes otorgar el rol "${rol}": incluye permisos que no tenés (${sinTener
+              `No puedes otorgar el rol "${rol}": incluye permisos que no tienes (${sinTener
                 .slice(0, 5)
                 .join(', ')}${sinTener.length > 5 ? '…' : ''}).`,
             );
@@ -3516,7 +3516,7 @@ export class UsersService {
       const sinTener = otorgando.filter((k) => propios?.[k] !== true);
       if (sinTener.length) {
         throw new ForbiddenException(
-          `No puedes otorgar permisos que no tenés: ${sinTener.join(', ')}.`,
+          `No puedes otorgar permisos que no tienes: ${sinTener.join(', ')}.`,
         );
       }
     }

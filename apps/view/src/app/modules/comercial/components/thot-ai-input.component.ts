@@ -444,7 +444,7 @@ export class ThotAiInputComponent implements OnInit {
         },
       });
     } catch {
-      this.flashSttError('No pude acceder al micrófono (revisá permisos).');
+      this.flashSttError('No pude acceder al micrófono (revisa permisos).');
       return;
     }
     const mime = this.pickMime();
@@ -537,7 +537,7 @@ export class ThotAiInputComponent implements OnInit {
     const blob = new Blob(this.chunks, { type });
     this.chunks = [];
     this.recorder = null;
-    if (!blob.size) { this.flashSttError('No grabé audio. Probá de nuevo.'); return; }
+    if (!blob.size) { this.flashSttError('No grabé audio. Prueba de nuevo.'); return; }
     this.zone.run(() => this.transcribing.set(true));
     const reader = new FileReader();
     reader.onload = () => {
@@ -558,7 +558,7 @@ export class ThotAiInputComponent implements OnInit {
               // Dictado → auto-enviar (estilo modo voz de ChatGPT).
               this.submit();
             } else {
-              this.flashSttError('No te entendí, probá de nuevo.');
+              this.flashSttError('No te entendí, prueba de nuevo.');
             }
           },
           error: () => { this.transcribing.set(false); this.flashSttError('No se pudo transcribir.'); },

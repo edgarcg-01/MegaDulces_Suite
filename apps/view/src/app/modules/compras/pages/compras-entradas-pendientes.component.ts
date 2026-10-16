@@ -126,7 +126,7 @@ interface Hoja {
         <div class="surf-page-head-text">
           <h1>Captura de facturas de entrada</h1>
           <p class="surf-page-sub">
-            Arrastrá el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
+            Arrastra el <strong>PDF de la factura</strong> sobre su orden. Leo el total, lo comparo
             contra Kepler y te digo si cuadra antes de guardar. Lo más reciente va primero.
           </p>
         </div>
@@ -158,7 +158,7 @@ interface Hoja {
           <div>
             <p class="ep-block-t">Tu usuario no tiene sucursal asignada</p>
             <p class="ep-block-s">Sin sucursal no hay entradas que mostrarte. Pedile a Sistemas que te
-              configure el alcance de sucursal y volvé a entrar.</p>
+              configure el alcance de sucursal y vuelve a entrar.</p>
           </div>
         </div>
       } @else {
@@ -309,7 +309,7 @@ interface Hoja {
             } @else if (rows().length === 0) {
               <app-load-state [isEmpty]="true" emptyIcon="pi-check-circle"
                               [emptyTitle]="estado() === 'pendiente' ? 'No te falta ninguna factura' : 'Sin entradas en este filtro'"
-                              [emptyHint]="estado() === 'pendiente' ? 'Cuando el ERP registre una orden nueva, aparece acá sola.' : 'Probá con otro estado o quitá el buscador.'"
+                              [emptyHint]="estado() === 'pendiente' ? 'Cuando el ERP registre una orden nueva, aparece acá sola.' : 'Prueba con otro estado o quita el buscador.'"
                               [emptyCta]="estado() === 'pendiente' ? null : 'Ver lo que falta subir'"
                               emptyCtaIcon="pi pi-list" (cta)="setEstado('pendiente')" />
             } @else {
@@ -395,7 +395,7 @@ interface Hoja {
                             {{ motivoDescarteLabel(c.descarte_motivo) || 'Fuera del proceso' }}
                           </span>
                         } @else if (dragFila() === clave(c)) {
-                          <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Soltá acá el PDF</b>
+                          <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Suelta acá el PDF</b>
                         } @else if (c.deposit_status === 'validado') {
                           <span class="ep-ok"><i class="pi pi-check" aria-hidden="true"></i> Validada</span>
                         } @else if (c.deposit_status === 'recibido') {
@@ -451,7 +451,7 @@ interface Hoja {
               <div class="ep-dropveil" aria-hidden="true">
                 <div>
                   <i class="pi pi-download" aria-hidden="true"></i>
-                  <b>Soltá los PDFs</b>
+                  <b>Suelta los PDFs</b>
                   <em>los enlazo por el folio que traigan</em>
                 </div>
               </div>
@@ -464,8 +464,8 @@ interface Hoja {
           <!-- El lote dejó de ser una pantalla: soltar N archivos ES el lote. Se dice acá porque
                nadie descubre solo una interacción que no está escrita. -->
           <p class="ep-lote-hint">
-            <b>¿Muchas de una vez?</b> Soltá <b>varios PDFs</b> en cualquier parte de la tabla: los
-            enlazo por folio y sólo confirmás. Hasta {{ tope() }} por vez.
+            <b>¿Muchas de una vez?</b> Suelta <b>varios PDFs</b> en cualquier parte de la tabla: los
+            enlazo por folio y sólo confirmas. Hasta {{ tope() }} por vez.
           </p>
         }
       }
@@ -531,7 +531,7 @@ interface Hoja {
           <p class="ep-det-none">
             <i class="pi pi-clone" aria-hidden="true"></i>
             Oficinas capturó esta misma recepción como
-            <b class="mono">00/{{ d.cedis_twins![0].folio }}</b>. Subís la factura una sola vez, acá.
+            <b class="mono">00/{{ d.cedis_twins![0].folio }}</b>. Subes la factura una sola vez, acá.
           </p>
         }
 
@@ -657,7 +657,7 @@ interface Hoja {
                 @if (h.porMonto) {
                   <p class="ep-an-msg">
                     <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
-                    La enlacé por <b>importe</b>, no por folio (la factura no traía uno legible). Verificá que la entrada sea la correcta.
+                    La enlacé por <b>importe</b>, no por folio (la factura no traía uno legible). Verifica que la entrada sea la correcta.
                   </p>
                 }
                 @if (h.entrada!.gemela_monto != null && h.entrada!.gemela_delta) {
@@ -698,7 +698,7 @@ interface Hoja {
                   <div class="ep-an-doc">
                     <app-doc-viewer [files]="archivoDe(h)"
                                     emptyTitle="No se pudo previsualizar"
-                                    emptyHint="El archivo se va a enviar igual; abrilo desde tu carpeta si querés revisarlo." />
+                                    emptyHint="El archivo se va a enviar igual; ábrelo desde tu carpeta si quieres revisarlo." />
                   </div>
                 }
               }
@@ -706,8 +706,8 @@ interface Hoja {
                 <!-- ambigua / sin_match: la decisión es del humano, con los candidatos a la
                      vista y un buscador por folio. -->
                 <p class="ep-an-msg">
-                  @if (h.estado === 'ambigua') { Hay más de una orden que le queda a <b>{{ h.name }}</b>. Elegí cuál: }
-                  @else { No encontré la orden de <b>{{ h.name }}</b>. Buscala por folio o proveedor: }
+                  @if (h.estado === 'ambigua') { Hay más de una orden que le queda a <b>{{ h.name }}</b>. Elige cuál: }
+                  @else { No encontré la orden de <b>{{ h.name }}</b>. Búscala por folio o proveedor: }
                   @if (h.total != null) { <em>(leí {{ money(h.total) }}@if (h.folioOcr) { · folio {{ h.folioOcr }} })</em> }
                 </p>
                 <div class="ep-find">
@@ -756,7 +756,7 @@ interface Hoja {
                     {{ c.label }}
                     @if (c.ok && c.via === 'auto') {
                       <em>lo reconoció el lector{{ c.page ? ' (pág. ' + c.page + ')' : '' }}</em>
-                    } @else if (c.ok) { <em>lo declaraste vos</em> }
+                    } @else if (c.ok) { <em>lo declaraste tú</em> }
                     @else if (c.optional) { <em>opcional</em> }
                   </li>
                 }
@@ -1711,7 +1711,7 @@ export class ComprasEntradasPendientesComponent {
       this.toast.add({
         severity: 'warn',
         summary: `La bandeja llegó al tope de ${this.tope()}`,
-        detail: 'Enviá lo que hay y seguí con el resto.',
+        detail: 'Envía lo que hay y sigue con el resto.',
       });
       return;
     }
@@ -1731,7 +1731,7 @@ export class ComprasEntradasPendientesComponent {
       // El mensaje dice la SALIDA, no sólo el "no".
       const esPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
       if (!esPdf) {
-        this.capError.set(`${f.name} no es PDF. Escaneá la factura a PDF y volvé a soltarla.`);
+        this.capError.set(`${f.name} no es PDF. Escanea la factura a PDF y vuelve a soltarla.`);
         continue;
       }
       let dataUri: string;

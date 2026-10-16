@@ -139,7 +139,7 @@ import { PERMISSION_META } from '../../../core/constants/permission-meta';
                         @if (cambia(k)) {
                           <span class="pt-dif" [class.pt-dif-quita]="!valores()[k]">{{ signo(k) }}</span>
                         }
-                        @if (frenada(k)) { <span class="pt-bloq">no podés otorgarlo</span> }
+                        @if (frenada(k)) { <span class="pt-bloq">no puedes otorgarlo</span> }
                       </label>
                     }
                     @if (!clavesMod(m).length) {

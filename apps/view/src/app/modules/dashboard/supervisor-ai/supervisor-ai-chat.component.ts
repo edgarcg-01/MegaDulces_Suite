@@ -58,7 +58,7 @@ const SUGGESTIONS = [
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pregúntale a Horus</h1>
-          <p class="surf-page-sub">Preguntá en lenguaje natural sobre la ejecución del equipo: capturas, tiendas, integridad, coaching. Los números salen del motor.</p>
+          <p class="surf-page-sub">Pregunta en lenguaje natural sobre la ejecución del equipo: capturas, tiendas, integridad, coaching. Los números salen del motor.</p>
         </div>
         <div class="tc-head-actions">
           <a pButton [text]="true" severity="secondary" size="small" routerLink="/dashboard/supervisor-ai"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Tablero</span></a>
@@ -72,8 +72,8 @@ const SUGGESTIONS = [
         @if (messages().length === 0) {
           <div class="tc-empty">
             <div class="tc-empty-icon"><i class="pi pi-eye" aria-hidden="true"></i></div>
-            <h3>¿Qué querés saber de tu equipo?</h3>
-            <p>Probá con una de estas:</p>
+            <h3>¿Qué quieres saber de tu equipo?</h3>
+            <p>Prueba con una de estas:</p>
             <div class="tc-suggest">
               @for (s of suggestions; track s; let si = $index) {
                 <button class="tc-chip" (click)="send(s)" [style.animation-delay.ms]="220 + si * 45">
@@ -434,7 +434,7 @@ export class SupervisorAiChatComponent implements OnInit {
           this.scroll();
         },
         error: () => {
-          this.replacePending({ role: 'assistant', content: 'No pude responder en este momento. Probá de nuevo.', error: true });
+          this.replacePending({ role: 'assistant', content: 'No pude responder en este momento. Prueba de nuevo.', error: true });
           this.loading.set(false);
           this.scroll();
         },

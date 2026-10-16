@@ -1509,7 +1509,7 @@ export class PickingService {
         // [GP.2] Dos sesiones armando la ola del mismo pedido a la vez: la segunda choca con
         // `ux_wo_order_viva`. Es un 409 con mensaje, no un 500 con el texto de Postgres.
         if ((e as { code?: string }).code === '23505')
-          throw new ConflictException('Otro usuario acaba de meter alguno de estos pedidos a una ola. Recargá el pool.');
+          throw new ConflictException('Otro usuario acaba de meter alguno de estos pedidos a una ola. Recarga el pool.');
         throw e;
       }
 
@@ -1910,7 +1910,7 @@ export class PickingService {
       const sinTocar = Number(pend?.n ?? 0);
       if (sinTocar > 0)
         throw new ConflictException(
-          `Faltan ${sinTocar} renglón(es) sin tocar. Marcá cada uno —aunque sea en 0— antes de cerrar: ` +
+          `Faltan ${sinTocar} renglón(es) sin tocar. Marca cada uno —aunque sea en 0— antes de cerrar: ` +
             'un renglón sin tocar no es lo mismo que uno agotado.',
         );
 
@@ -1923,7 +1923,7 @@ export class PickingService {
       if (cambios.length && !tieneCongelado)
         throw new ConflictException(
           `El pedido cambió en Kepler después de arrancar el surtido: ${cambios.join('; ')}. ` +
-            'Cancelá la ola y volvé a armarla con el pedido actual.',
+            'Cancela la ola y vuelve a armarla con el pedido actual.',
         );
 
       const [upd] = await trx('commercial.picking_waves')
@@ -2118,7 +2118,7 @@ export class PickingService {
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
       if (wave.status !== 'surtida')
         throw new ConflictException(
-          `Sólo se verifica una ola ya surtida (está en '${wave.status}'). Terminá el recorrido primero.`,
+          `Sólo se verifica una ola ya surtida (está en '${wave.status}'). Termina el recorrido primero.`,
         );
 
       const wo = await trx('commercial.wave_orders')

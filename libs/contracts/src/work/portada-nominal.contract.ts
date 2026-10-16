@@ -39,4 +39,4 @@ export const DEPARTAMENTOS_SIN_TRABAJO_NOMINAL: readonly string[] = ['sistemas']
 /** El motivo que la pantalla imprime cuando el bloque está apagado. Vive con la política. */
 export const MOTIVO_SIN_TRABAJO_NOMINAL =
   'El trabajo a tu nombre está oculto por decisión de Dirección, hasta nuevo aviso. No se borró ' +
-  'nada: las tareas siguen asignadas y las abrís desde su pantalla.';
+  'nada: las tareas siguen asignadas y las abres desde su pantalla.';

@@ -145,7 +145,7 @@ import { egresChartOptions, egresChartSeries } from '../../comercial/pages/egres
                 El canal abre a su sucursal, ruta o repartidor; ése a sus días; el día a sus folios;
                 y cada folio a los depósitos que se casaron contra él.
               } @else {
-                Con este grano el árbol llega hasta el período. Para bajar a folio y a depósito, poné Día.
+                Con este grano el árbol llega hasta el período. Para bajar a folio y a depósito, pon Día.
               }
             </span>
           </div>

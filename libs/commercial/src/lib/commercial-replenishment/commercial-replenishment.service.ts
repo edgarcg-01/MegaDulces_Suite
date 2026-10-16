@@ -542,7 +542,7 @@ export class CommercialReplenishmentService {
       this.claimsReady = !!r.rows[0]?.t;
     } catch { this.claimsReady = false; }
     if (!this.claimsReady)
-      this.logger.warn('WMS-REC.8: falta commercial.receiving_claims — el fill rate sigue midiéndose sólo con OCs (aplicá la migración 20260908150000).');
+      this.logger.warn('WMS-REC.8: falta commercial.receiving_claims — el fill rate sigue midiéndose sólo con OCs (aplica la migración 20260908150000).');
     return this.claimsReady;
   }
 
@@ -637,7 +637,7 @@ export class CommercialReplenishmentService {
       this.erpFillOk = !!r.rows[0]?.t;
     } catch { this.erpFillOk = false; }
     if (!this.erpFillOk)
-      this.logger.warn('[RA-DYN.U7] falta analytics.mv_supplier_fill_rate — el pedido NO corrige por cumplimiento del proveedor (aplicá la migración 20261002190000).');
+      this.logger.warn('[RA-DYN.U7] falta analytics.mv_supplier_fill_rate — el pedido NO corrige por cumplimiento del proveedor (aplica la migración 20261002190000).');
     return this.erpFillOk;
   }
 
@@ -4268,7 +4268,7 @@ export class CommercialReplenishmentService {
     const vig = await this.tk.run(async (trx) => (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null);
     if (vig && vig.vigente === false) {
       throw new BadRequestException(
-        `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales). Usá "Recalcular" y volvé a aprobar.`);
+        `${vig.movidos} de ${vig.medibles} renglones ya no tienen el costo de hoy (${this.pesos(vig.monto_capturado)} capturados contra ${this.pesos(vig.monto_hoy)} actuales). Usa "Recalcular" y vuelve a aprobar.`);
     }
     const r = await this.setEstado(id, 'pending_approval', 'approved');
     // `[KR.5]` El empuje cuelga de aprobar. `empujar:false` lo apaga para el lote (ver bulkEstado).

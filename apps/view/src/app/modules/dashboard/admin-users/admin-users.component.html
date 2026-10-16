@@ -266,7 +266,7 @@
                   [disabled]="isEditing() || !puedeEmitirSesionLarga()"
                   [title]="puedeEmitirSesionLarga()
                     ? 'Una pantalla que se queda prendida'
-                    : 'Sólo un superadmin puede emitir una sesión de dispositivo. Pedilo a Sistemas.'">
+                    : 'Sólo un superadmin puede emitir una sesión de dispositivo. Pídelo a Sistemas.'">
             <i class="pi pi-desktop" aria-hidden="true"></i> Dispositivo
           </button>
         </div>
@@ -328,7 +328,7 @@
                 placeholder="Sin puesto" [showClear]="true" [filter]="true" filterBy="name,orgText"
                 optionLabel="name" optionValue="code" appendTo="body" styleClass="w-full"></p-select>
       @if (userForm.get('position_code')?.invalid && userForm.get('position_code')?.touched) {
-        <small class="au-err">Elegí el puesto: de él salen el departamento, el nivel de acceso y qué se te pregunta después.</small>
+        <small class="au-err">Elige el puesto: de él salen el departamento, el nivel de acceso y qué se te pregunta después.</small>
       } @else if (selectedPositionOrg(); as org) {
         <small class="au-hint">En el organigrama aparece como <b>{{ org }}</b>. De acá salen el departamento y el nivel de acceso.</small>
       } @else {
@@ -370,7 +370,7 @@
         @if (perfilBaseEsTarea()) {
           <!-- [ID.14] El caso de los 22 de captura_gastos: su "rol" es una tarea de
                1 permiso. La pantalla lo dice en vez de esconderlo. -->
-          <small class="au-err">Este rol es una <b>tarea</b>, no un puesto. Elegí el perfil que corresponde al puesto y sumá la tarea como complemento.</small>
+          <small class="au-err">Este rol es una <b>tarea</b>, no un puesto. Elige el perfil que corresponde al puesto y suma la tarea como complemento.</small>
         } @else if (puestoSinPerfil()) {
           <small class="au-err">El puesto elegido todavía no tiene un nivel de acceso definido: hay que elegirlo a mano.</small>
         } @else {
@@ -406,11 +406,11 @@
           @if (puestoSinPropuesta()) {
             Este puesto <b>no propone ningún perfil</b>, así que
             <b class="mono">{{ userForm.get('role_name')?.value }}</b> es una elección a dedo y no
-            hay contra qué contrastarla. Escribí por qué: queda en la bitácora de la persona.
+            hay contra qué contrastarla. Escribe por qué: queda en la bitácora de la persona.
             Lo que lo cierra de raíz es darle un perfil al puesto en Puestos.
           } @else {
             El puesto propone <b class="mono">{{ perfilPropuesto() }}</b> y elegiste
-            <b class="mono">{{ userForm.get('role_name')?.value }}</b>. Escribí por qué: queda
+            <b class="mono">{{ userForm.get('role_name')?.value }}</b>. Escribe por qué: queda
             en la bitácora de la persona.
           }
         </small>
@@ -580,12 +580,12 @@
               } @empty {
                 <li class="au-hint au-perms-note">
                   @if (permisoFiltro()) { Ningún permiso coincide con «{{ permisoFiltro() }}». }
-                  @else { Su puesto no le da ningún permiso todavía. Buscá arriba para concederle alguno. }
+                  @else { Su puesto no le da ningún permiso todavía. Busca arriba para concederle alguno. }
                 </li>
               }
             </ul>
             @if (!permisoFiltro()) {
-              <small class="au-hint">Se listan los permisos que ya tiene. Para darle uno nuevo, buscalo arriba.</small>
+              <small class="au-hint">Se listan los permisos que ya tiene. Para darle uno nuevo, búscalo arriba.</small>
             }
           }
         }
@@ -653,12 +653,12 @@
                   <p-multiselect [options]="d.universo"
                                  [ngModel]="d.values" (ngModelChange)="setAlcanceValores(d.code, $event)"
                                  [ngModelOptions]="{ standalone: true }"
-                                 placeholder="Elegí cuáles" [filter]="true"
+                                 placeholder="Elige cuáles" [filter]="true"
                                  optionLabel="label" optionValue="value" [maxSelectedLabels]="4"
                                  selectedItemsLabel="{0} seleccionadas"
                                  appendTo="body" styleClass="w-full"></p-multiselect>
                   @if (!d.values.length) {
-                    <small class="au-err">Sin ninguna marcada no ve nada. Si es lo que querés, usá «Nada».</small>
+                    <small class="au-err">Sin ninguna marcada no ve nada. Si es lo que quieres, usa «Nada».</small>
                   }
                 }
 
@@ -743,7 +743,7 @@
       @if (esDispositivo()) {
         <small class="au-hint">
           Se teclea una sola vez, en el kiosco, a veces leyéndola de un papel escrito a mano:
-          la generada no trae caracteres ambiguos (no hay 0/O ni 1/l/I). <b>Anotala antes de
+          la generada no trae caracteres ambiguos (no hay 0/O ni 1/l/I). <b>Anótala antes de
           guardar</b> — después queda hasheada y no se puede volver a ver.
         </small>
       }

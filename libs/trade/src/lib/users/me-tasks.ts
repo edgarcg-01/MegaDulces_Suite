@@ -256,7 +256,7 @@ export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
      */
     fuente: 'trade.daily_assignments',
     label: 'Tu ruta de hoy',
-    detalle: 'la ruta que tenés asignada para el día',
+    detalle: 'la ruta que tienes asignada para el día',
     ruta: '/dashboard/daily-assignments',
     icono: 'pi pi-map',
     anyOf: [Permission.TRADE_ROUTE_PLAN_VER],

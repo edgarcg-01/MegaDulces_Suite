@@ -543,7 +543,7 @@ export class CustomerReportService {
    */
   private aviso(f: ReporteFiltros, n: number, topado: boolean): string | null {
     const partes: string[] = [];
-    if (topado) partes.push(`Se muestran los primeros ${LIMITE} documentos: acotá el periodo para verlos todos.`);
+    if (topado) partes.push(`Se muestran los primeros ${LIMITE} documentos: acota el periodo para verlos todos.`);
     if (f.supplier_id) {
       partes.push('El filtro de proveedor sólo alcanza a 9,483 de 11,260 productos (84.2%): '
         + 'los 1,777 sin proveedor en el catálogo no aparecen bajo ningún proveedor.');

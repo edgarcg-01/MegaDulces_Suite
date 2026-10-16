@@ -86,8 +86,8 @@ import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/d
         <button class="nrow" (click)="goCarga()">
           <span class="nic warn"><i class="pi pi-truck"></i></span>
           <span class="nb">
-            <span class="nt">Cargá {{ carga().length }} {{ carga().length === 1 ? 'pedido' : 'pedidos' }} para {{ cargaLabel }}</span>
-            <span class="nd">Verificá lo que subís al camión antes de salir.</span>
+            <span class="nt">Carga {{ carga().length }} {{ carga().length === 1 ? 'pedido' : 'pedidos' }} para {{ cargaLabel }}</span>
+            <span class="nd">Verifica lo que subes al camión antes de salir.</span>
           </span>
           <i class="pi pi-chevron-right go"></i>
         </button>
@@ -99,7 +99,7 @@ import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/d
             <span class="nic warn"><i class="pi pi-inbox"></i></span>
             <span class="nb">
               <span class="nt">Nueva preventa · {{ p.name }}</span>
-              <span class="nd">Pidió {{ fmtMoney(p.pending_total) }} por el Portal. Revisá y aprobá.</span>
+              <span class="nd">Pidió {{ fmtMoney(p.pending_total) }} por el Portal. Revisa y aprueba.</span>
             </span>
             <i class="pi pi-chevron-right go"></i>
           </button>
@@ -122,7 +122,7 @@ import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/d
             <span class="nic warn"><i [class]="taskIcon(t.task_type)"></i></span>
             <span class="nb">
               <span class="nt">{{ t.title }}</span>
-              <span class="nd">Tarea de campo · tocá para marcar hecha</span>
+              <span class="nd">Tarea de campo · toca para marcar hecha</span>
             </span>
             <span class="ack">Hecho</span>
           </button>

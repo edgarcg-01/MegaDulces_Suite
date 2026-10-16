@@ -85,7 +85,7 @@ export class UsersController {
   @ApiQuery({
     name: 'incluir_bajas',
     required: false,
-    description: 'Por defecto el padrón NO trae las cuentas con `deleted_at`. Ponelo en true para auditarlas.',
+    description: 'Por defecto el padrón NO trae las cuentas con `deleted_at`. Ponlo en true para auditarlas.',
   })
   findAll(
     @ReqUser() user: AuthUser,

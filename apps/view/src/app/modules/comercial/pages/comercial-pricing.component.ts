@@ -332,7 +332,7 @@ const STALE_DAYS = 14;
           } @else {
             <div class="pl-blank">
               <i class="pi pi-tags" aria-hidden="true"></i>
-              <p>Elegí una lista para ver y editar sus precios.</p>
+              <p>Elige una lista para ver y editar sus precios.</p>
             </div>
           }
         </section>

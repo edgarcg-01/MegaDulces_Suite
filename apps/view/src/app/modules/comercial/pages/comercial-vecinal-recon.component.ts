@@ -61,7 +61,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="!filas().length"
                           [skeletonRows]="8" emptyIcon="pi-wallet"
                           emptyTitle="Ninguna ruta vecinal vendió en estas fechas"
-                          emptyHint="La vecinal sólo aparece en las sucursales que la operan. Ampliá el rango."
+                          emptyHint="La vecinal sólo aparece en las sucursales que la operan. Amplía el rango."
                           (retry)="reload()">
             @if (data(); as d) {
               <!-- Q.1 answer-first: primero el veredicto, después la rejilla. -->

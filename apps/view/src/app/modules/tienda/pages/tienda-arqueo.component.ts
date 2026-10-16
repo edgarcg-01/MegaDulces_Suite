@@ -148,7 +148,7 @@ interface CortesPersona {
               <div>
                 <strong>{{ v.titulo }}</strong>
                 <p class="muted">{{ v.detalle }}</p>
-                <p class="muted">Contá igual: tu conteo queda guardado con la hora y a tu nombre, y se compara contra el corte cuando el dato llegue. Avisale a sistemas.</p>
+                <p class="muted">Cuenta igual: tu conteo queda guardado con la hora y a tu nombre, y se compara contra el corte cuando el dato llegue. Avísale a sistemas.</p>
               </div>
             </div>
           }
@@ -215,7 +215,7 @@ interface CortesPersona {
                          todavía está en el cajón. Antes este chip sólo salía con la
                          caja cerrada y la pantalla se leía como "esperá el cierre". -->
                     @if (i === 0) {
-                      <span class="arq-pide">{{ t.abierto ? 'Podés arquear ahora' : 'Te toca arquear' }}</span>
+                      <span class="arq-pide">{{ t.abierto ? 'Puedes arquear ahora' : 'Te toca arquear' }}</span>
                     }
                   </button>
                 }
@@ -1812,21 +1812,21 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       return {
         icono: 'pi pi-arrow-circle-up', urge: true, tipo: 'retiro', cta: 'Contar el retiro',
         titulo: `Tu caja llegó a su límite${t.cash_limit ? ' de ' + this.money(t.cash_limit) : ''} — toca hacer un retiro.`,
-        detalle: 'Contá lo que sacás del cajón y guardalo como retiro. Sin eso, al cerrar el turno ese dinero aparece como faltante tuyo.',
+        detalle: 'Cuenta lo que sacas del cajón y guárdalo como retiro. Sin eso, al cerrar el turno ese dinero aparece como faltante tuyo.',
       };
     }
     if (t.retiro_sin_contar && actual !== 'retiro') {
       return {
         icono: 'pi pi-exclamation-circle', urge: true, tipo: 'retiro', cta: 'Contar el retiro',
         titulo: 'Hay retiros de este turno sin contar.',
-        detalle: 'Kepler los registró pero nadie los contó. Contalos antes del cierre: es lo que permite que el turno cuadre.',
+        detalle: 'Kepler los registró pero nadie los contó. Cuéntalos antes del cierre: es lo que permite que el turno cuadre.',
       };
     }
     if (t.pide_cierre && actual !== 'cierre') {
       return {
         icono: 'pi pi-flag', urge: false, tipo: 'cierre', cta: 'Hacer el corte',
         titulo: t.abierto ? 'Se acerca el corte de tu turno.' : 'Kepler cerró tu caja. Te toca el corte.',
-        detalle: 'Contá lo que queda en el cajón. Con eso y tus retiros, el turno cierra completo.',
+        detalle: 'Cuenta lo que queda en el cajón. Con eso y tus retiros, el turno cierra completo.',
       };
     }
     return null;
@@ -1892,7 +1892,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private avisarImpresion() {
     this.toast.add({
       severity: 'warn', summary: 'No se pudo imprimir el ticket',
-      detail: 'El conteo YA quedó guardado. Usá el botón Imprimir ticket para reintentar.',
+      detail: 'El conteo YA quedó guardado. Usa el botón Imprimir ticket para reintentar.',
       life: 8000,
     });
   }

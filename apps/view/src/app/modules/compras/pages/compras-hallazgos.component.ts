@@ -46,7 +46,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                que lo explicara: se puede leer como que estan todos y que hay que scrollear. Medido
                en prod 2026-09-17: 21,726 abiertos contra un tope de 500 = el 97.7% no se lista.
                Mismo patron que ya usan otras 17 pantallas (p.ej. finanzas-cartera:168). -->
-          <span class="hz-trunc">listando {{ rows().length | number }} — afiná el filtro para ver el resto</span>
+          <span class="hz-trunc">listando {{ rows().length | number }} — afina el filtro para ver el resto</span>
         }
       </div>
 

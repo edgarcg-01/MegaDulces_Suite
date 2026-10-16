@@ -434,7 +434,7 @@ export class ScopeService {
     if (!this.canRead(scope, dim, v)) {
       throw new ForbiddenException(
         `Tu alcance no incluye ${UNIVERSO_SQL[dim].label.toLowerCase()} "${v}". ` +
-          `Pedile a un administrador que te la asigne si la necesitás.`,
+          `Pedile a un administrador que te la asigne si la necesitas.`,
       );
     }
   }

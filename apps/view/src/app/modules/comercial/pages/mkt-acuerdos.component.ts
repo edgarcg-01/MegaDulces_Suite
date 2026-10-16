@@ -209,11 +209,11 @@ import {
             <!-- Se DECLARA por qué no hay nada, en vez de mostrar una tabla vacía que se lee
                  como "no hay acuerdos para tu plaza". -->
             <p>Tu usuario no tiene una sucursal asignada, así que no se puede saber qué expediente
-               te toca. Pediselo a quien administra los accesos.</p>
+               te toca. Pídeselo a quien administra los accesos.</p>
           </div>
         } @else {
           <p class="ac-plaza-head">
-            Acuerdos que corren en <strong>{{ miPlaza() }}</strong> — subí la foto de la exhibición
+            Acuerdos que corren en <strong>{{ miPlaza() }}</strong> — sube la foto de la exhibición
             armada para cerrar tu expediente.
           </p>
           <p-table [value]="mios()" [loading]="cargando()" styleClass="p-datatable-sm surf-table"

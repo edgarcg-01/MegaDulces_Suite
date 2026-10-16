@@ -1,4 +1,4 @@
-import { diaMxDeInstante } from '@megadulces/contracts';
+import { diaDeFecha, diaMxDeInstante } from '@megadulces/contracts';
 /**
  * `[CG.58]` — **El ingreso a la caja fuerte (CAOS) se casa con sus cobros de Kepler. Al 100%.**
  *
@@ -43,8 +43,14 @@ import { diaMxDeInstante } from '@megadulces/contracts';
 /** Un cobro de Kepler disponible para respaldar depósitos. Ya ordenado NO: ordena el motor. */
 export interface CobroDisponible {
   origen_ref: string;
-  /** Fecha del cobro (YYYY-MM-DD). La ley es que ésta sea <= la del depósito. */
-  fecha: string;
+  /**
+   * Fecha del cobro. La ley es que ésta sea <= la del depósito.
+   *
+   * ⚠️ `[CG.162]` Acepta `YYYY-MM-DD` **o** el `Date` que node-pg devuelve para una columna
+   * `date`, porque el motor la normaliza con `diaDeFecha`. Lo que NO acepta es un string con
+   * cualquier otra forma: tira `CaosFechaIlegibleError` en vez de degradar a «sin respaldo».
+   */
+  fecha: string | Date;
   monto: number;
   /** Lo ya consumido por depósitos anteriores. 0 si está intacto. */
   consumido?: number;
@@ -82,10 +88,71 @@ export type VeredictoDeposito =
 export const CAOS_EPSILON = 0.005;
 
 const r2 = (v: number): number => Math.round((Number(v) || 0) * 100) / 100;
-// `[CGP-L.5]` El día de NEGOCIO (México) del depósito. Recortar el ISO daba el día en UTC: un depósito
-// a las 19:00 del 12-oct «era» del 13 y podía consumir un cobro del 13, que todavía no existía.
-// Sin instante legible, '' : no consume ningún cobro (todos tienen fecha mayor) y se declara sin respaldo.
-const dia = (iso: string): string => diaMxDeInstante(iso) ?? '';
+
+/**
+ * ⛔⛔ `[CG.162]` **UN `Date` DE node-pg SE LEÍA COMO `"Wed May 27"` Y ACUSÓ A LA GENTE DE $18.5 M.**
+ *
+ * Medido en producción el 2026-10-15. El cron `caos_ingreso_conciliar` llevaba horas latiendo en
+ * `error` con el mismo motivo, y `finance.caos_ingreso_atribucion` seguía en **cero filas**:
+ *
+ *     755 depósito(s) sin respaldo y ninguno cubierto en esta corrida
+ *
+ * El servicio armaba cada cobro con `String(r.fecha_valor).slice(0, 10)`. `fecha_valor` es una
+ * columna `date`, y **node-pg la devuelve como objeto `Date`**, no como string:
+ *
+ *     String(v)             = "Wed May 27 2026 00:00:00 GMT-0600 (hora estándar central)"
+ *     String(v).slice(0,10) = "Wed May 27"      ← lo que el motor comparaba
+ *     corte del depósito    = "2026-05-27"
+ *     "Wed May 27" > "2026-05-27"  →  true  →  break en el PRIMER cobro
+ *
+ * Toda fecha de cobro empieza con letra de día (`W`,`M`,`T`,`F`,`S`), que ordena **después** de
+ * cualquier `"2026-…"`. El `break` disparaba en la primera vuelta de los 755 depósitos ⇒ cero
+ * aplicaciones ⇒ los 755 declarados «sin respaldo».
+ *
+ * ⭐ **La ley del proceso estaba intacta**: el saldo corrido con las fechas bien leídas nunca se
+ * va a negativo (peor saldo **+$18,726**), igual que midió `[CG.58]` el 7-oct. No había ningún
+ * hallazgo de negocio — había un adaptador mal leído publicando una acusación.
+ *
+ * ⚠️ **Por qué la prueba no lo vio**: `caja-caos-ingreso.engine.spec.ts` alimenta
+ * `fecha: '2026-09-09'`, strings ya limpios. Verde con datos de laboratorio, roto contra el
+ * driver — la misma lección que «un doble de Knex no ejecuta SQL».
+ *
+ * ⭐ Por eso el motor ya **no confía en el llamador**: normaliza con `diaDeFecha` (que sí entiende
+ * un `Date`) y **grita** si no puede. Un cobro con fecha ilegible no puede volver a degradarse en
+ * silencio a «este dinero no tiene respaldo»: eso es declarar, no dibujar (ADR-056).
+ */
+export class CaosFechaIlegibleError extends Error {
+  constructor(public readonly detalle: string) {
+    super(`[CG.162] fecha ilegible en el reparto de CAOS — ${detalle}. `
+      + 'Una columna `date` de node-pg llega como objeto Date: normalizá con `diaDeFecha`, '
+      + 'nunca con `String(v).slice(0, 10)`.');
+    this.name = 'CaosFechaIlegibleError';
+  }
+}
+
+const RX_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** El día de un cobro (`date` de Postgres, `Date` o `YYYY-MM-DD`). Tira si no es ninguno. */
+function diaDeCobro(v: unknown, origen_ref: string): string {
+  const d = diaDeFecha(v);
+  if (d && RX_DIA.test(d)) return d;
+  throw new CaosFechaIlegibleError(`cobro ${origen_ref} trae fecha ${JSON.stringify(v)}`);
+}
+
+/**
+ * `[CGP-L.5]` El día de NEGOCIO (México) del depósito. Recortar el ISO daba el día en UTC: un
+ * depósito a las 19:00 del 12-oct «era» del 13 y podía consumir un cobro del 13, que todavía no
+ * existía.
+ *
+ * ⛔ `[CG.162]` Antes devolvía `''` ante un instante ilegible, y `''` es menor que cualquier fecha:
+ * el depósito no consumía NADA y salía «sin respaldo». Un error de lectura se publicaba como un
+ * hallazgo de negocio. Ahora tira.
+ */
+function diaDeDeposito(iso: string, external_id: number): string {
+  const d = diaMxDeInstante(iso);
+  if (d && RX_DIA.test(d)) return d;
+  throw new CaosFechaIlegibleError(`depósito ${external_id} trae occurred_at ${JSON.stringify(iso)}`);
+}
 
 /**
  * Reparte los cobros disponibles entre los depósitos, **en orden cronológico y sin reusar nada**.
@@ -112,7 +179,15 @@ export function repartirIngresosCaos(
   // Copia mutable y ORDENADA. El `origen_ref` desempata para que dos cobros del mismo día no
   // dependan del orden en que los devolvió la base.
   const pool = cobros
-    .map((c) => ({ ...c, disponible: r2(c.monto - (c.consumido ?? 0)) }))
+    .map((c) => ({
+      origen_ref: c.origen_ref,
+      // `[CG.162]` Normalizado ACÁ y una sola vez: de acá en más `fecha` es `YYYY-MM-DD` y las
+      // comparaciones de string son comparaciones de fecha. Antes el motor comparaba contra lo
+      // que el llamador hubiera puesto, y lo que puso fue "Wed May 27".
+      fecha: diaDeCobro(c.fecha, c.origen_ref),
+      monto: c.monto,
+      disponible: r2(c.monto - (c.consumido ?? 0)),
+    }))
     .filter((c) => c.disponible > CAOS_EPSILON)
     .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1
       : a.origen_ref < b.origen_ref ? -1 : a.origen_ref > b.origen_ref ? 1 : 0));
@@ -122,7 +197,7 @@ export function repartirIngresosCaos(
       : a.external_id - b.external_id));
 
   const resultados = ordenados.map((deposito) => {
-    const corte = dia(deposito.occurred_at);
+    const corte = diaDeDeposito(deposito.occurred_at, deposito.external_id);
     let falta = r2(deposito.total);
     const aplicaciones: Aplicacion[] = [];
 

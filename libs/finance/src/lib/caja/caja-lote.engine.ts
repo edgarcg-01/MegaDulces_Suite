@@ -55,12 +55,12 @@ export type MotivoNoConfirmable =
 
 export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_mapa: 'Esta ruta todavía no está declarada. Se captura a mano hasta que alguien la dé de alta.',
-  sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confirmala antes de aplicarle dinero.',
+  sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confírmala antes de aplicarle dinero.',
   sin_cuenta: 'Falta declarar con qué cuenta contable entra esta ruta.',
   sin_monto: 'El documento del ERP no trae importe: no hay nada que confirmar.',
   sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario. Se captura a mano.',
   fecha_futura: 'Este documento viene fechado después de hoy: su fecha es un error de captura del ERP. '
-    + 'Capturalo a mano y corregí la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
+    + 'Captúralo a mano y corrige la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
 };
 
 /**

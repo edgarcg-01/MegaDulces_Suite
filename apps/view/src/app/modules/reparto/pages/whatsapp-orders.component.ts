@@ -139,7 +139,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                 <button pButton severity="danger" [outlined]="true" [disabled]="acting()" (click)="openReject(o)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
               </div>
             } @else {
-              <div class="wo-pick"><i class="pi pi-arrow-left"></i> Elegí un pedido de la lista para revisarlo.</div>
+              <div class="wo-pick"><i class="pi pi-arrow-left"></i> Elige un pedido de la lista para revisarlo.</div>
             }
           </div>
         </div>
@@ -217,7 +217,7 @@ export class WhatsAppOrdersComponent implements OnInit {
     this.svc.confirm(o.thread_id).subscribe({
       next: (r) => {
         this.acting.set(false);
-        this.toast.add({ severity: 'success', summary: `Pedido ${r.code} confirmado`, detail: 'Ya podés asignarlo a un repartidor.' });
+        this.toast.add({ severity: 'success', summary: `Pedido ${r.code} confirmado`, detail: 'Ya puedes asignarlo a un repartidor.' });
         this.removeAndReselect(o.thread_id);
       },
       error: (e) => { this.acting.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo confirmar', detail: e?.error?.message }); },

@@ -138,7 +138,7 @@ export class CameraShotComponent {
     this.error.set(null);
     const md = navigator.mediaDevices;
     if (!md?.getUserMedia) {
-      this.error.set('Este navegador no deja usar la cámara desde la página. Usá el botón de abajo.');
+      this.error.set('Este navegador no deja usar la cámara desde la página. Usa el botón de abajo.');
       return;
     }
     this.abierto.set(true);
@@ -157,8 +157,8 @@ export class CameraShotComponent {
       this.arrancando.set(false);
       const negado = e?.name === 'NotAllowedError' || e?.name === 'SecurityError';
       this.error.set(negado
-        ? 'No nos diste permiso de usar la cámara. Podés darlo en los ajustes del navegador, o usar el botón de abajo.'
-        : 'No se pudo abrir la cámara. Usá el botón de abajo.');
+        ? 'No nos diste permiso de usar la cámara. Puedes darlo en los ajustes del navegador, o usar el botón de abajo.'
+        : 'No se pudo abrir la cámara. Usa el botón de abajo.');
     }
   }
 

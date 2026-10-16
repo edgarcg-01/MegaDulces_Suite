@@ -1,45 +1,46 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 308 KB, 4638 líneas, 33 secciones.
+> **Índice navegable** — 321 KB, 4856 líneas, 34 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 46 | 61 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 62 | 78 | 1 | 0. Qué es este documento, y qué NO es |
-| 79 | 187 | 6 | 1. Las siete reglas |
-| 188 | 221 | 8 | 2. El estado, en una tabla |
-| 222 | 384 | 10 | 3. Existencia |
-| 385 | 609 | 12 | 4. Ventas y unidades |
-| 610 | 641 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 642 | 718 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 719 | 789 | 5 | 6. Las trampas que ya cobraron |
-| 790 | 847 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 848 | 892 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 893 | 1094 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1095 | 1200 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1201 | 1401 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1402 | 1707 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1708 | 1727 | 2 | 10. Cómo se verifica |
-| 1728 | 1750 | 1 | 11. Lo que este documento no cubre |
-| 1751 | 1826 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1827 | 1986 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 1987 | 2370 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2371 | 2611 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2612 | 2804 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2805 | 2847 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2848 | 2946 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2947 | 3420 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3421 | 3528 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3529 | 3683 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3684 | 3835 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3836 | 4041 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4042 | 4131 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4132 | 4321 | 10 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4322 | 4390 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4391 | 4683 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 47 | 62 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 63 | 79 | 1 | 0. Qué es este documento, y qué NO es |
+| 80 | 188 | 6 | 1. Las siete reglas |
+| 189 | 222 | 8 | 2. El estado, en una tabla |
+| 223 | 385 | 10 | 3. Existencia |
+| 386 | 610 | 12 | 4. Ventas y unidades |
+| 611 | 642 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 643 | 719 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 720 | 790 | 5 | 6. Las trampas que ya cobraron |
+| 791 | 848 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 849 | 893 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 894 | 1095 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1096 | 1201 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1202 | 1402 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1403 | 1708 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1709 | 1728 | 2 | 10. Cómo se verifica |
+| 1729 | 1751 | 1 | 11. Lo que este documento no cubre |
+| 1752 | 1827 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1828 | 1987 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 1988 | 2371 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2372 | 2612 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2613 | 2805 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2806 | 2848 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2849 | 2947 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2948 | 3421 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3422 | 3529 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3530 | 3684 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3685 | 3836 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3837 | 4042 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4043 | 4132 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4133 | 4322 | 10 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4323 | 4391 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4392 | 4686 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4687 | 4902 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -626,7 +627,7 @@ divergir.
 | unidad/peldaño del renglón de venta | `analytics.v_erp_sales_line_units` | inferirlo del rótulo |
 | factor de caja por producto | `analytics.v_product_box_factor` | `kdii.c84` crudo |
 | factor de caja por almacén × producto | `analytics.v_warehouse_box_factor` | un factor por producto |
-| la unidad resuelta, con testigo | `analytics.v_unit_truth` (+ `_coverage`) | — |
+| ⭐⭐ **la unidad resuelta, con testigo** (¿quién confirmó este factor?) | `analytics.v_unit_truth` (+ `_coverage`) — 91.4 % medible, cobertura total por almacén | derivar la unidad de `catalog.product_barcodes.factor` (acierta **9.8 %**) ni de `factor_sale` (100 % de sus productos marcados sospechosos) · tratar `box_factor = 1` como un factor: en 2,283 productos es **ausencia de dato**. §31 |
 | sell-out Kepler a grano día | `analytics.mv_kepler_sales_daily` | `analytics.sales_daily` para sell-out |
 | ⭐ **el CANAL de una fila de sell-out** (de negocio, no el crudo del ERP) | `analytics.sellout_channel_map` (+ `v_sellout_channel_coverage`) | enumerar canales a mano en el service o en el front: el universo publica SEIS crudos y las listas literales tenían CUATRO — `mayoreo` (U-D-8 telemarketing, $21.4M/90 d) y `contado_nf` quedaban sin rótulo, sin filtro y **sin hoja en el árbol**, que es lo que los tiraba. ⚠️ `wincaja:credito` (caja 70 «Mayoreo a credito») y `kepler:mayoreo` son EL MISMO canal a los dos lados del cutover. VSO.1 · §15 |
 | ⭐ **desde cuándo manda Kepler en una sucursal** (y hasta cuándo Wincaja) | `analytics.v_branch_erp_cutover` | escribir la fecha como literal en una vista (se copió 3 veces y divergió — SB.1), o **inferirla** de `last_movement_date`: es una DECISIÓN, y en La Piedad las dos piernas se traslapan 9 meses. La fecha correcta es el **traspaso real** del POS, no un fin de mes. VSO.3 · §15 |
@@ -4680,3 +4681,221 @@ definiciones en prod). O sea:
 
 **Reproducible:** las consultas de esta sección son read-only sobre `pg-prod`; ninguna necesita el
 backend levantado.
+
+---
+
+## 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mueve $8.73M (U.VA, 2026-10-15)
+
+**Pedido de Edgar (2026-10-15):** *"necesito que agregues una verdad absoluta con las unidades de
+medida"*.
+
+⛔ **Esta sección NO repite [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md)** (19 secciones, la
+investigación de fondo: el decode, los 8 orígenes, el 73.6 % de discrepancia catálogo↔ERP). Acá va
+la otra pregunta, la de este documento: **¿con qué se comprueba que la unidad está bien, cuánto de
+ella aguanta esa comprobación, y qué queda declarado sin testigo?** Todo medido read-only contra
+`pg-prod` el 2026-10-15.
+
+### 31.1. La regla de una línea: son TRES unidades distintas, y conviven en la misma fila
+
+El error que vuelve una y otra vez no es leer mal un factor: es **creer que hay un solo factor**.
+
+| unidad | qué cuenta | resolvedor | dónde manda |
+|---|---|---|---|
+| **de VENTA** (base de Kepler) | el divisor de la **demanda** | `analytics.v_product_box_factor` → `bf` | "Venta 30 d", el pedido sugerido |
+| **de EXISTENCIA** (nativa del almacén) | el divisor de todo lo que sale del **censo** | `analytics.v_warehouse_box_factor` → `display_bf` (ADR-055) | "Exist.", Reorden, Máx, el inmovilizado |
+| **de COMPRA** (la que declara el documento) | lo que el **proveedor** empaca | `erp_purchase_doc_lines.unidades_por_caja` | "En camino", el costo de caja |
+
+⭐ **No son intercambiables y la diferencia está medida.** Confundir las dos primeras ya costó:
+con un único factor por producto, la existencia de MD-30/MD-32/00 salía ~10× más chica y el motor
+pedía de más — **$866,756 de sobre-pedido y $2.68M de inventario que no se veía** (ADR-055).
+Confundir la tercera con las otras dos mal-convierte **$143.6M** de líneas de compra (§31.6-H2).
+
+⚠️ **Dónde todavía se mezclan, hoy, a propósito:** la cobertura en días (`exis × 30 ÷ vta`, "Días
+inv.", el chip de sobrestock) divide una existencia medida en `display_bf` por una venta medida en
+`bf`. Es correcto sólo cuando los dos coinciden — **1.02 % de las filas del fact del pedido tienen
+`display_bf ≠ bf`** (520 de 51,228; 69 con existencia y venta a la vez). Está acotado y declarado,
+no resuelto.
+
+### 31.2. El árbitro y su veredicto: `analytics.v_unit_truth`, 249,040 celdas
+
+Es el resolvedor con **testigo**: no dice sólo qué factor usar, dice **si alguien lo confirmó**.
+
+| veredicto | celdas | medibles | % |
+|---|---:|---:|---:|
+| **`verificado`** | **177,496** | 177,496 | **71.27 %** |
+| `no_aplica` | 50,226 | 50,226 | 20.17 % |
+| ⚠️ `sin_testigo` | 18,810 | **0** | 7.55 % |
+| ⚠️ `en_disputa` | 2,486 | **0** | 1.00 % |
+| ⚠️ `disputa_granel` | 22 | **0** | 0.01 % |
+
+⇒ **91.44 % medible · 8.56 % DECLARADO sin medir.** Eso es ADR-056 funcionando: las 21,318 celdas
+sin testigo no se dibujan como verdes ni como cero, se marcan `medible = false`.
+
+⭐ **La cobertura por almacén es total: `v_unit_truth_coverage` no devuelve NI UN almacén sin
+cubrir.** Las 20 sucursales y rutas con venta tienen sus 11,320 celdas, 10,350 medibles cada una
+(91.4 %, el mismo piso en todas). Es raro y vale decirlo: la unidad es de las pocas verdades de
+este repo que **no** tiene un agujero de cobertura, sólo de testigo.
+
+### 31.3. De dónde sale el factor — y cuál de las fuentes tiene testigo
+
+| `factor_source` | celdas | con testigo de **pago** | con testigo del **ERP** |
+|---|---:|---:|---:|
+| `etiquetera` | **79,321** | 78,108 (98.5 %) | ⛔ **0** |
+| `wincaja_factor_venta` | 60,620 | 54,591 (90.1 %) | 17,096 (28.2 %) |
+| ⚠️ `default` | **43,752** | **12,998 (29.7 %)** | ⛔ **0** |
+| ⭐ `kepler_c84` | 39,894 | **39,879 (100.0 %)** | **39,804 (99.8 %)** |
+| ⚠️ `factor_sale` | 14,836 | 3,156 (21.3 %) | ⛔ 0 |
+| `kepler_unidad_unica` | 5,843 | 5,762 (98.6 %) | 0 |
+| `override` | 4,362 | 4,340 (99.5 %) | 3,225 (73.9 %) |
+
+Tres lecturas que cambian decisiones:
+
+1. ⭐ **`kepler_c84` es la única fuente con los DOS testigos** (~100 % en ambos). Cuando el ERP
+   declara el factor, está arbitrado por partida doble. Es el peldaño a preferir siempre.
+2. ⛔ **`etiquetera` es la fuente MÁS GRANDE (79,321 celdas) y tiene CERO testigo del ERP.** Lo
+   único que la sostiene es el pago. No es un error —el pago es un testigo legítimo e
+   independiente— pero **una fuente con un solo testigo no se puede arbitrar contra sí misma**: si
+   la etiquetera y el pago se equivocan juntos, nada lo detecta.
+3. ⚠️ **`default` son 43,752 celdas (17.6 %) con factor 1 y testigo en el 29.7 %.** "Factor 1" no
+   es un dato: es la ausencia de uno. Por producto son **2,283 productos, los 2,283 con
+   `box_factor = 1`**. Y `factor_sale` es peor: **973 de 973 productos marcados
+   `is_master_suspect`** — el 100 %.
+
+### 31.4. ⭐⭐ Lo que cuesta un error de unidad, medido hoy: **$8.73M en 484 celdas**
+
+`analytics.v_unit_rung_audit` arbitra el peldaño contra lo que se **pagó** (`arbitro =
+kepler_compra`, 22,001 celdas — su alcance es donde hay existencia y costo de compra).
+
+| veredicto | celdas | valor publicado | valor arbitrado | brecha |
+|---|---:|---:|---:|---:|
+| `ok` | 21,517 | $65,929,376 | $66,936,197 | −$1,006,820 (1.5 %) |
+| ⛔ **`x2_deflactada`** | **433** | **$1,049,208** | **$9,691,414** | **−$8,642,206** |
+| ⛔ `x1_inflada` | 51 | $141,534 | $49,107 | +$92,427 |
+
+⭐ **El 2.2 % de las celdas concentra el 89.6 % de la brecha.** No está repartida: está
+**concentrada**, que es justo lo que hace que un promedio no la vea.
+
+⭐ **Y la dirección es asimétrica**: casi todo es **sub-valuación** — 433 celdas publican $1.05M de
+inventario que vale $9.69M, o sea **9.2× menos**. Un error de unidad en este repo no infla el
+inventario, lo **esconde**. (Mismo signo que midió §3.2 por el otro lado.)
+
+✅ **Y la pantalla NO las dibuja**: `/compras/pedido` deja **Pedido y Valor en blanco** en esas
+celdas y muestra la existencia nativa con su rótulo (§30.7). Ahora sabemos cuánto protege esa
+decisión: **$8.73M**. `/almacen/existencia` publica la misma verdad con sus palabras:
+*"no valen cero: no se están midiendo… por lo que se pagó valdrían ~$X, cifra de referencia para
+revisar — no publicable"*.
+
+#### ⚠️ 31.4-bis. Estas cifras son VIVAS. No las cites como constantes
+
+Las dos vistas que las producen (`v_unit_rung_audit` y `v_erp_stock_on_hand`) se recalculan sobre
+existencia y costos que se mueven. **Medido el mismo día, con una hora de diferencia:**
+
+| | 11:3x | 12:1x | lo que mostraba la pantalla |
+|---|---:|---:|---:|
+| celdas sin valuar | 484 | **493** | 484 |
+| productos | 159 | **163** | 159 |
+| valor arbitrado | $9,740,521 | **$9,753,343** | ~$9,740,520 |
+
+⇒ **Ni la pantalla ni este documento están mal: el número es una MEDICIÓN, no un hecho.** Si
+alguien compara una captura con esta sección y no coinciden al peso, eso es lo esperado. Lo que
+tiene que coincidir es el **orden de magnitud y el signo**, no el dígito.
+
+⚠️ **Y declará el universo cuando cites el conteo** (§1): `/almacen/existencia` cuenta sólo celdas
+**con existencia** (~31,033), este documento a veces cuenta **todas** las celdas del árbitro
+(249,040). Por eso "`default` = 43,752 celdas / 2,283 productos" (§31.3) y "1,833 celdas / 358
+productos" (la pantalla) **no se contradicen**: son el mismo hecho sobre dos universos. El error
+sería restarlos.
+
+#### ⭐⭐ 31.4-ter. El segundo balde: "ninguna fuente respalda el divisor" nombraba mal la causa en 3 de 4
+
+Junto al balde de arriba, `/almacen/existencia` publica otro: las celdas que **sí suman** al total
+de cajas pero con un divisor que no es comparable — marcadas con **°**, su cifra es la cantidad
+suelta. El banner decía *"un divisor que ninguna fuente respalda"*. **Medido el 2026-10-15 sobre
+las celdas con existencia, eso era falso para el 73 %:**
+
+| causa | celdas | productos | se arregla |
+|---|---:|---:|---|
+| ⭐ **el producto se mide en PESO** (el divisor cuenta piezas por caja) | **1,335 (73 %)** | 231 | vendiéndolo por kilo |
+| falta el factor: ninguna fuente lo declara | 498 (27 %) | 127 | que alguien lo declare |
+| **total** | **1,833** | 358 | — |
+
+⛔ **Lo que lo volvía invisible es que la pantalla YA sabía la diferencia**: cada celda lleva
+`nf: 'peso' | 'sin_factor'` con **dos tooltips distintos**. Se perdía al totalizar — o sea justo
+en la única frase que se lee **sin pasar el mouse**.
+
+⇒ **Regla:** un agregado que colapsa dos causas manda a la gente a arreglar la equivocada. Si las
+celdas distinguen, **el total también tiene que distinguir**. Corregido en `[U.VA.1]`, con prueba
+negativa (`existencia-agregado.spec.ts`: si el desglose se vuelve a colapsar, se pone rojo —
+verificado rompiéndolo a propósito).
+
+### 31.5. El ERP se contradice a sí mismo en el 2.91 % de los SKUs — que es el 11.92 % del dinero
+
+`analytics.mv_kepler_unit_ladder` marca `ambiguo` cuando el **mismo SKU** viaja con factores
+distintos entre renglones del propio Kepler.
+
+| | SKUs | importe |
+|---|---:|---:|
+| total | 8,086 | $94,796,054 |
+| ⛔ **ambiguos** | **235 (2.91 %)** | **$11,298,713 (11.92 %)** |
+
+⇒ **La ambigüedad pesa 4× más en dinero que en conteo.** Se concentra en los SKUs caros, que son
+exactamente los que mueven las decisiones. Además **434 SKUs** tienen al menos un renglón donde la
+identidad `c9 = c56 × c58` no cuadra (§4.2).
+
+⛔ **Corolario:** "el ERP lo declara" no alcanza como argumento sin mirar `ambiguo`. En 235 SKUs el
+ERP declara **dos cosas distintas**, y elegir una sin decirlo es inventar.
+
+### 31.6. Los tres huecos que `UNIDADES_DE_MEDIDA.md` §9 declaró sin investigar — ahora MEDIDOS
+
+**H1 · SKUs sólo-Wincaja (su factor no tiene contra qué contrastarse).** Eran "4,925 artículos";
+hoy son **5,774 productos / 40,418 celdas** sin escalera en el ODS, y **15,764 celdas (39.0 %) sin
+NINGÚN testigo** —ni de pago ni del ERP—. Es el hueco más grande que queda y **no se cierra solo**:
+mientras esos SKUs no pasen por un documento de Kepler, no hay con qué arbitrarlos.
+
+**H2 · La unidad de la línea de COMPRA.** De 99,907 líneas de OC con factor declarado, **43,487
+(43.5 %) contradicen al resolvedor canónico**, por $144.8M. ⛔ **Pero leerlo como "43.5 % está mal"
+sería el error** — la forma de la discrepancia lo desmiente:
+
+| la razón `unidades_por_caja ÷ box_factor` | líneas | pesos |
+|---|---:|---:|
+| ⭐ **submúltiplo ENTERO exacto** (1/12, 1/20, 1/24, 1/10, 1/100…) | **43,259 (99.5 %)** | $143,633,687 |
+| múltiplo entero (2× a 4×) | 29 | $89,645 |
+| ⚠️ **no entero — ni peldaño ni factor limpio** | **199 (0.46 %)** | **$1,065,936** |
+
+⇒ **No es ruido: es OTRO PELDAÑO de la misma escalera.** El documento de compra cuenta en una
+unidad más chica que nuestra caja, en razones enteras limpias. ⭐ **El hueco real son 199 líneas /
+$1,065,936** — el 0.46 %, no el 43.5 %. Por eso el fact del pedido no cree al documento a ciegas:
+acepta su caja sólo si **cuadra por dinero** (±15 % de `real_cost × bf`) y si no, infiere la unidad
+por costo. Esa guarda estaba bien puesta.
+
+**H3 · `catalog.product_barcodes.factor` NO es fuente de unidad.** 12,866 códigos sobre 8,009
+productos: **4,756 sin factor**, **7,719 con factor 1**, y de los 389 que declaran un factor > 1,
+**351 contradicen al resolvedor y sólo 38 cuadran (9.8 %)**. ⛔ **Queda prohibido derivar la unidad
+de ahí**: acierta menos de 1 de cada 10 veces que opina.
+
+### 31.7. Las reglas que se desprenden
+
+1. ⛔ **Nombrá cuál de las tres unidades estás usando** antes de multiplicar o dividir. Si el
+   código no lo dice, el que lo lea el mes que viene va a elegir la que recuerde.
+2. ⛔ **Nunca derives la unidad de `product_barcodes.factor`** (9.8 % de acierto) ni la supongas
+   desde `factor_sale` (100 % de sus productos marcados sospechosos).
+3. ⭐ **Preferí `kepler_c84`**: es la única fuente con dos testigos independientes.
+4. ⚠️ **`box_factor = 1` no es "sin caja": es "sin dato"** en 2,283 productos. Tratarlo como un
+   factor real es dividir por la ausencia de información.
+5. ⛔ **Antes de citar "el ERP lo declara", mirá `ambiguo`** — 235 SKUs ($11.3M) declaran dos cosas.
+6. ⭐ **Una unidad se audita prestándole un precio.** Es lo que hace `v_unit_rung_audit`
+   (`arbitro = kepler_compra`) y es lo que destapó los $8.73M: la cantidad sola no tiene con qué
+   contradecirse.
+7. ⭐ **Un error de unidad acá ESCONDE inventario, no lo infla** (9.2× menos en las 433 celdas
+   deflactadas). Buscá hacia abajo, no hacia arriba.
+
+### 31.8. Lo que sigue sin medirse — declarado
+
+- **Las 15,764 celdas sin ningún testigo** de H1. Hay cobertura (el árbitro opina) pero no hay con
+  qué arbitrarla; es el hueco con nombre más grande de esta sección.
+- **Las 199 líneas de compra con razón no entera** ($1,065,936): ni peldaño ni factor limpio.
+- **Las 2,486 celdas `en_disputa` + 22 `disputa_granel`**: los dos testigos existen y **no se ponen
+  de acuerdo**. Es el caso que más merece una mirada humana, y el más chico (1.01 %).
+- ⚠️ **`etiquetera` sin segundo testigo** (79,321 celdas): no es un defecto medido, es una
+  **fragilidad estructural**. Si algún día el ERP empieza a declarar factor para esos SKUs, hay que
+  cruzarlos antes de celebrar la coincidencia.

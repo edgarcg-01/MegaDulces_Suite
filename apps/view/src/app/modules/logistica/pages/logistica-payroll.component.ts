@@ -244,7 +244,7 @@ function severityLiq(s: LiquidationStatus): Severity {
           <p class="derived-note">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             Bonos y deducciones se calculan desde los <strong>ajustes de nómina</strong>. Para moverlos,
-            registrá un ajuste en la pestaña de abajo — así queda el tipo, el monto y el motivo.
+            registra un ajuste en la pestaña de abajo — así queda el tipo, el monto y el motivo.
           </p>
           <label><span>Estado</span>
           <p-select formControlName="status" [options]="liqStatusOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>

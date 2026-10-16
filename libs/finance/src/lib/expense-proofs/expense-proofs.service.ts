@@ -435,11 +435,11 @@ function motivoDeAlmacenamiento(e: unknown): string {
   const http = Number(err.$metadata?.httpStatusCode || err.statusCode || 0);
 
   if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|socket hang up|fetch failed/i.test(code + ' ' + msg)) {
-    return 'no se pudo conectar con el almacenamiento. Avisá a Sistemas: no se arregla reintentando.';
+    return 'no se pudo conectar con el almacenamiento. Avisa a Sistemas: no se arregla reintentando.';
   }
-  if (/NoSuchBucket/i.test(code)) return 'el bucket de archivos no existe. Es configuración: avisá a Sistemas.';
+  if (/NoSuchBucket/i.test(code)) return 'el bucket de archivos no existe. Es configuración: avisa a Sistemas.';
   if (/InvalidAccessKeyId|SignatureDoesNotMatch|AccessDenied/i.test(code) || http === 403) {
-    return 'el almacenamiento rechazó las credenciales. Es configuración: avisá a Sistemas.';
+    return 'el almacenamiento rechazó las credenciales. Es configuración: avisa a Sistemas.';
   }
   if (/EntityTooLarge/i.test(code) || http === 413) return 'el archivo es demasiado grande para el almacenamiento.';
   // Lo que no se reconoce se DECLARA con su nombre tecnico, que es mas que nada (ADR-056).
@@ -555,7 +555,7 @@ export class ExpenseProofsService {
   async solicitarReapertura(id: string, actor: string, motivo: string): Promise<SolicitudReaperturaCreada> {
     const tenantId = this.tenantCtx.requireTenantId();
     const razon = String(motivo || '').trim();
-    if (razon.length < 10) throw new BadRequestException('Contá en una frase qué vas a agregar: quien autoriza decide con eso.');
+    if (razon.length < 10) throw new BadRequestException('Cuenta en una frase qué vas a agregar: quien autoriza decide con eso.');
     return this.tk.run(async (trx) => {
       const vale = await this.valeParaReabrir(trx, id);
       const v = puedePedirReapertura(vale, actor);
@@ -656,7 +656,7 @@ export class ExpenseProofsService {
         severity: aprueba ? 'info' : 'warn',
         title: aprueba ? 'Te reabrieron el vale' : 'No te reabrieron el vale',
         message: aprueba
-          ? 'Agregá la evidencia y mandalo otra vez: hay que autorizarlo de nuevo.'
+          ? 'Agrega la evidencia y mándalo otra vez: hay que autorizarlo de nuevo.'
           : (String(nota || '').trim() || 'Sin motivo declarado.'),
         route: '/finanzas/gastos',
         para_usuario: String(sol.created_by || ''),

@@ -73,7 +73,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <div class="surf-page-head-text">
           <h1>Empuje dirigido <span class="td-thot">· Thot</span></h1>
           <p class="surf-page-sub">
-            Definí qué empujar (marca del mes, lanzamiento, liquidación). El motor lo sube en
+            Define qué empujar (marca del mes, lanzamiento, liquidación). El motor lo sube en
             "Para impulsar" del vendedor.
           </p>
         </div>
@@ -134,7 +134,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin directrices</h3>
-                    <p>Creá una directriz para empezar a empujar una marca foco en la app del vendedor.</p>
+                    <p>Crea una directriz para empezar a empujar una marca foco en la app del vendedor.</p>
                     <button pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva directriz</span></button>
                   </div>
                 </td>

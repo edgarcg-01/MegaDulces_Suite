@@ -387,7 +387,7 @@ export function construirResumen(datos: DatosRegistro): string {
 // ── Comandos ─────────────────────────────────────────────────────────────────────────────
 
 const RELLENO_COMANDO = new Set([
-  'hola', 'oye', 'ver', 'veo', 'mostrar', 'muestrame', 'muestreme', 'dime', 'digame',
+  'hola', 'oye', 'ver', 'veo', 'mostrar', 'muéstrame', 'muestreme', 'dime', 'digame',
   'quiero', 'saber', 'busco', 'que', 'cuales', 'cual', 'donde', 'hay', 'tienen', 'tiene',
   'son', 'estan', 'esta', 'el', 'la', 'las', 'los', 'sus', 'de', 'del', 'mas', 'disponibles',
   'disponible', 'abiertas', 'abiertos', 'actuales', 'por', 'favor', 'porfa', 'porfavor',

@@ -41,7 +41,7 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
         <p-skeleton height="5rem" styleClass="mb-3" />
         <p-skeleton height="18rem" />
       } @else if (!sim() || sim()!.before.length === 0) {
-        <div class="card empty">Sin rutas asignadas para este día. Asigná rutas a vendedores (plan de ruta) para poder balancear.</div>
+        <div class="card empty">Sin rutas asignadas para este día. Asigna rutas a vendedores (plan de ruta) para poder balancear.</div>
       } @else {
         @if (sim()!.metrics; as m) {
           <div class="kpis">

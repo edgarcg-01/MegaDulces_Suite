@@ -3335,9 +3335,12 @@ El 13 no cierra: **el cajón bajó $32,438.29 ese día arrancando con $3,653.50*
 > cajón del 13 **no está establecida**: es lo que mide `CGP-0.5`, y hasta entonces se declara, no se
 > afirma.
 >
-> ⚠️ Y los tres saldos del 13-oct que circulan en esta fase —**−$28,784.79**, **−$29,110.79** y el
-> **−$32,438.29** de arriba— no están conciliados entre sí (§11.3 del plan por capas). Ninguno se
-> cita como «el saldo del 13» hasta que una sola lectura los explique.
+> ⚠️ Y las cifras del 13-oct que circulan en esta fase no están conciliadas entre sí (§11.3 del plan
+> por capas): **−$28,784.79** y **−$29,110.79** son dos saldos distintos del mismo día, y los
+> **$32,438.29** de arriba son una **caída**, no un saldo — mezclarlos en una sola lista es parte del
+> enredo. ⛔ El plan cita además un tercer saldo, **−$11,938.37**, que **no existe en ningún otro
+> archivo del repo** (`git log -S` lo rastrea sólo al commit que introdujo el plan). Ninguna de estas
+> cifras se cita como «el saldo del 13» hasta que una sola lectura las explique.
 
 ### Pendiente
 
@@ -3370,7 +3373,7 @@ El 13 no cierra: **el cajón bajó $32,438.29 ese día arrancando con $3,653.50*
 |---|---|---|
 | 1 | `CG.160` contradice `VA §28.5`/`§28.10` | ✅ **cierto y corregido**: los $165,410 eran 3 dispensaciones **con dueño**; la nota los daba por no capturados. Queda escrita como refutada |
 | 2 | conteo del 12-oct: $3,340.00 contra $3,653.50 | ✅ cierto. **No se resuelve sin `CGP-0.3`** (decisión + lectura de prod); los dos documentos ya apuntan a la decisión en vez de afirmar cada uno el suyo |
-| 3 | tres saldos distintos del 13-oct | ✅ cierto: **−$28,784.79**, **−$29,110.79**, **−$32,438.29**. Declarado en `CG.160`; lo concilia `CGP-0.5` |
+| 3 | tres saldos distintos del 13-oct | ⚠️ **a medias.** Dos son reales y están en esta fase (**−$28,784.79**, **−$29,110.79**); el tercero que cita el plan, **−$11,938.37**, **no existe en ningún otro archivo del repo**. Y los **$32,438.29** que circulan al lado son una **caída**, no un saldo. Declarado en `CG.160`; lo concilia `CGP-0.5` |
 | 4 | tres estados de despliegue | ✅ cierto y **cerrado por medición**: prod sirve `ab0b06655` (2026-10-15 11:45 MX). Corregidos `§37.5` y `VA §28.9`; el resolvedor es `/api/health`, no la prosa |
 | 5 | números duplicados **y SHAs que no existen** | ⚠️ **a medias.** Duplicados: **ciertos** — `CG.98` es a la vez los chips con teclado y «el cajón es UNO»; `CG.130` es a la vez el fondo no declarado y la lección del rol. `CG.160` tiene **una sola** definición. ⛔ **Los «SHAs que no existen» son FALSOS**: de los 42 citados en los cuatro docs de CG, **todos existen**; los 12 que un grep marca ausentes son **códigos de cuenta contable** (`41000000`…) y un folio (`0000024`) con la misma forma que un SHA corto |
 | 6 | tracker sin `CG > 42`; CHANGELOG sin `CG.115` ni `CG.152–160` | ✅ cierto, medido: el tracker llega a **CG.42** (más un `CG.117` suelto) y el CHANGELOG a **CG.150**, mientras `FASE_CG` documenta hasta **CG.180**. ⬜ **No se reparó acá**: #416 ya agrega 171 renglones al tracker |
@@ -3379,3 +3382,183 @@ El 13 no cierra: **el cajón bajó $32,438.29 ese día arrancando con $3,653.50*
 ⭐ **Lo que deja esta pasada:** de los 7 renglones, **uno estaba mal** (el 5) y nadie lo había
 comprobado — *una lista de «documentación a corregir» también es documentación, y también envejece
 sin que nadie la mida.*
+
+---
+
+## Review del plan por capas — dos huecos medidos el 2026-10-15
+
+> ⚠️ Misma salvedad que arriba: **se fusionan en `FASE_CG_PLAN_POR_CAPAS` (§8.1 y §6.1) cuando el PR
+> #416 aterrice.** Ninguno de los dos invalida lo construido; los dos quedan **dentro** de lo que el
+> plan ya declara como pendiente, pero sin nombre y sin dueño.
+
+### ⛔⛔ 0 (P0). Las dos piernas del cajero se cancelan — pero cada una cae en una jornada distinta
+
+**Lo pidió Edgar el 2026-10-15, por enésima vez:** *«al corte de Caja General no se le considera lo
+dispensado en CAOS, al menos en ingreso; si [es] egreso y existe un sobrante, se le carga a Caja
+General»*. **El motor ya lo hace** (`[CG.95]`/`[CG.96]`): la dispensación (+) y el gasto (−) se
+anulan, y al cajón sólo le queda la **morralla o el sobrante**. Lo que estaba mal era lo **escrito**:
+el plan §1.3, `VERDAD_ABSOLUTA §28.6` y `CAOS_CASH_SYSTEM.md` publican `+ dispensado` como término
+suelto, que se lee como «la dispensación es un ingreso del cajón». *Por eso hubo que repetirlo: el
+código tenía razón y la documentación seguía diciendo lo contrario.*
+
+⛔ **Pero la cancelación depende de que las dos piernas caigan en la misma jornada, y en el corte no
+caen.** Medido en el código de la rama:
+
+| | Reloj del **libro** | Reloj de **CAOS** |
+|---|---|---|
+| `arqueoDelDia` (el cuadre del día, `[CG.82]`/`[CG.139]`) | **`created_at`** — el día físico en MX | `accounting_date` |
+| **`contar` · `cerrar` · `saldo`** (lo que se **FIRMA**) | **`cash_ledger.fecha`** — la fecha del **documento de Kepler** | `accounting_date` |
+
+- `sueltosDe()` filtra `.where('fecha', dia)`; `fecha` nace del documento (`input.fecha`, y la bandeja
+  propone `fecha_valor`).
+- `[CG.82]` ya midió el rezago: **mediana de 3 días**, y en prod **2 de 5** movimientos vivos tenían
+  la fecha del papel distinta del día en que se registraron — uno fechado **10-dic** y registrado el
+  **28-sep**.
+- El propio `arqueoDelDia` publica `fechados_otro_dia` para no leer la jornada como un corte contable.
+  **El corte no publica nada de eso, y además es el que firma.**
+
+⇒ **Qué produce.** Un gasto pagado el 12-oct con billetes dispensados el 12-oct, pero con documento
+fechado el 9-oct:
+
+```text
+corte del 12-oct : + dispensado $X   (sin su gasto)  -> pide contar $X que ya se gastaron  = FALTANTE
+corte del  9-oct : − gasto      $X   (sin su pierna) -> esperado $X más bajo                = SOBRANTE
+```
+
+⭐ **Es un faltante inventado del mismo tamaño que un sobrante inventado, en dos jornadas distintas**
+— y explica los saldos imposibles del 13-oct mucho mejor que la hipótesis de los $165,410, que
+`VERDAD_ABSOLUTA §28.5` ya refutó. ⚠️ También quiere decir que **el `−$39,486` de `[CG.160]` no era el
+último faltante inventado de este módulo**: era el del eje *plaza*, y éste es el del eje *tiempo*.
+
+⛔ **Y el plan declara la regla correcta y nadie la comparó con el código:** §1.4 regla 2 dice *«para
+el libro, la jornada se mide por `created_at`; para CAOS, por `accounting_date`»*. Eso es lo que hace
+`arqueoDelDia`; **no** es lo que hace el corte. *Dos implementaciones del mismo cuadre divergieron, y
+la que firma es la que se apartó del plan.*
+
+⇒ **No se cierra con una decisión de software.** Mover el reloj cambia a qué corte pertenece cada
+movimiento todavía suelto.
+
+#### ✅ DECIDIDO por Edgar el 2026-10-15: la jornada es **el día en que se movió el efectivo**
+
+> **Pregunta:** ¿a qué día pertenece un movimiento del corte — al del efectivo o al del documento?
+> **Respuesta:** *«el día en que se movió el efectivo»*.
+
+Y sobre el sobrante de una dispensación, la segunda respuesta del mismo día: *«depende, se puede
+devolver a CAOS o se queda en caja; **es por eso que se carga a Caja General**, y si lo sube a CAOS se
+concilia el movimiento con el ingreso a CAOS»*.
+
+⭐ **Eso confirma que el motor ya está bien y no hay que tocarlo:** las dos piernas brutas resuelven
+los dos casos solas — si el sobrante vuelve a la máquina aparece su depósito y el neto es cero; si se
+queda, el arqueo lo encuentra. **No hace falta enlazar cada dispensación con su egreso**, que es lo
+que `[CG.96]` ya había decidido. Lo único fuera de lugar es **el reloj del libro**.
+
+#### `[CGP-L.12]` 🧪 El libro del corte se mide por el día del EFECTIVO
+
+> ✅ **HECHO el 2026-10-15** (`003a190e8`), probado contra PostgreSQL real como `app_runtime`:
+> **456/456** en México, Tokio y UTC, con las **dos mutaciones en rojo** (la del reloj devuelve el
+> faltante fantasma de **$2,000**; la del `toISOString`, 2 rojas en Tokio). El estado completo, con
+> lo que quedó NO MEDIDO, está en **§6.7 de
+> [`FASE_CG_PLAN_POR_CAPAS`](FASE_CG_PLAN_POR_CAPAS.md)** — ahí vive ahora, porque el #416 ya
+> aterrizó y el plan se puede editar sin conflicto.
+>
+> ⭐ **Y destapó un defecto preexistente:** `conciliacionCajero` sacaba el día de la bóveda con
+> `toISOString()` —lo que `[CGP-L.5]` ya había refutado—, así que con el proceso al este de UTC el
+> corte sumaba las piernas **de otra jornada**. Ninguna prueba podía verlo: la suite no sembraba un
+> solo movimiento de CAOS. *El hueco nº 1 de este review no era teórico.*
+
+**Alcance exacto — una sola función.** Gracias al extracto de `[CG.160]`, `sueltosDe()` es la única
+puerta: la usan `contar` (761), `recontar` (797), el atado de `cerrar` (922) y `saldo` (1231). Se
+cambia **un predicado**:
+
+```diff
+- .modify((q) => { if (dia) q.where('fecha', dia); })
++ .modify((q) => { if (dia) q
++     .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
++     .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia]); })
+```
+
+⚠️ **Rango sobre la columna, nunca `created_at::date`** — envolverla la saca del índice (`[LC.9]`:
+un `to_char(fecha)` convirtió una consulta en un seq scan de 167k filas). Es la misma forma que ya usa
+`arqueoDelDia`.
+
+**Lo que NO cambia, y es lo que lo vuelve seguro:** `sueltosDe()` filtra `whereNull('corte_id')`.
+**Ningún movimiento ya atado a un corte firmado se mueve de lugar.** El cambio sólo decide en qué
+jornada cae lo que todavía está suelto.
+
+**Lo que hay que tocar con él, o volverán a divergir:** `sueltosFuera()` (los sueltos de otros días
+que la pantalla declara), la consulta de `jornadas-pendientes` de `[CGP-L.4]` y el sensor de
+`[CGP-L.10]`, que comparten la pregunta «qué días tienen movimientos y no tienen corte».
+
+**Aceptación (prueba en rojo primero, contra la base del job `caja-db`):** un gasto con
+`fecha` = D−3 y `created_at` = D, y su dispensación de CAOS con `accounting_date` = D. Hoy el corte
+de D suma `+dispensado` sin su gasto y publica un **faltante** del tamaño del gasto; con el arreglo
+el corte de D los cancela y sólo queda la morralla. Mutación: volver a `.where('fecha', dia)` pone la
+prueba en rojo. ⛔ Es además la prueba que le falta al hueco nº 1 de abajo: **ejerce las dos piernas
+de CAOS contra Postgres**, que hoy no las ejerce nadie.
+
+⚠️ **Y lo que esto NO resuelve, declarado:** `created_at` es **cuándo se tecleó**, no cuándo se movió
+el efectivo. Coinciden cuando la captura es del mismo día. **El libro no tiene columna para el día del
+efectivo** — sólo `fecha` (documento) y `created_at` (captura); `occurred_at` es de la máquina, no del
+libro. Una captura tardía vuelve a separar las piernas, con el mismo efecto y más chico. El arreglo
+robusto es una columna propia del día del efectivo (por omisión, el de captura), y queda como deuda
+con nombre. ⛔ **Cuánto pasa hoy no se puede medir desde acá**: lo mide `CGP-0.5` leyendo prod, y
+`arqueoDelDia` ya publica `fechados_otro_dia` para eso.
+
+⚠️ Merece **ADR propio** («la jornada de Caja General es el día del efectivo»): no se escribió todavía
+porque `02_DECISIONES_ARQUITECTURA.md` tiene cambios sin commitear de otra sesión en el árbol
+compartido.
+
+### ⛔ 1. La fórmula del esperado tiene cinco términos; contra base real se ejercen tres
+
+`esperado = fondo + ingresos − gastos + dispensado(CAOS) − depositado(CAOS)` (§1.3 del plan,
+`VERDAD_ABSOLUTA §28.6`). El oráculo de `[CGP-E.1]` **sí** es independiente —la fórmula está escrita
+en la prueba, no llama al motor, o sea que R5 se cumplió—, pero corre en una sucursal que **no es la
+`00`** y lo declara: *«en una plaza que no es la 00 no hay bóveda ni cajero, así que la fórmula es
+exacta»*. Verificado en la rama:
+
+- las **dos piernas de CAOS no entran** en ninguna prueba del corte contra Postgres: el único
+  `INSERT` a `analytics.caos_cash_movements` en toda la rama está en
+  `caos-ingreso-cron.granos-real.spec.ts`, que prueba `[CGP-L.6]`, no el esperado;
+- sí están cubiertas en el **motor puro** (`cash-cut.engine.spec.ts`), que valida la aritmética *una
+  vez que los números llegaron*.
+
+⛔ **Lo que nadie ejerce es cómo llegan**: un `sum(abs(total)) FILTER (WHERE type_id = …)` agrupado
+por `accounting_date`, detrás de un `to_regclass` que, si la tabla falta, devuelve **cero sin fallar**
+— un cero que es indistinguible de «no hubo bóveda ese día». ⭐ Y es exactamente la familia del
+defecto que `[CGP-L.5]` ya encontró vivo (el depósito de las 19:00 que caía en el día siguiente) y del
+que `[CGP-L.8]` arregló (un signo invertido). *El término que más riesgo demostró es el único que no
+se prueba contra la base.*
+
+⇒ **Cierra con una prueba**, no con una decisión: sembrar en la `00` una dispensación y un depósito
+con su `accounting_date`, y afirmar que el esperado los usa **con su signo** y en **su** jornada. Es
+el escenario que §6 del plan ya pedía («dispensación y depósito de CAOS») y que E.1 no ejecutó.
+
+### ⚠️ 2. «Lo firmado = lo revelado» se hace cumplir en vuelo, pero no deja constancia
+
+`[CGP-L.2]` es correcto donde actúa: `esperadoCambio()` exige que `esperado_visto` **sea igual** al
+esperado de ese momento (mandar cualquier otro número sigue dando 409), así que no hay forma de
+saltar el control desde el cliente. Verificado en el motor.
+
+⚠️ Pero el `UPDATE` del cierre guarda `esperado: t.esperado` —el valor **nuevo**— y nada más. Después
+del hecho, **un corte que se firmó confirmando un esperado que había cambiado es idéntico a uno donde
+nunca cambió nada**: no queda el número que se reveló, ni que hubo confirmación, ni quién la hizo.
+
+⭐ Para el módulo cuya tesis es *lo firmado es lo revelado*, eso deja la tesis sin testigo justo en el
+caso que la pone a prueba — y es la misma pregunta que el propio plan abrió en §2.6.2 («qué instante
+mide el conteo sellado»). ADR-056 pide que el número **declare con qué se calculó**.
+
+⇒ Es **aditivo** y no bloquea liberar: una columna con el esperado revelado (o el motivo de la
+confirmación) en `cash_ledger_cuts`, y el cierre la escribe cuando hubo 409 confirmado.
+
+### ✅ Lo que el review comprobó y está bien
+
+- **El oráculo de E.1 no es un espejo** (R5 respetado): fórmula propia en la prueba.
+- **`[CGP-L.9]`**: **cero** `'00'` escritos a mano fuera de comentarios en `libs/finance/src/lib/caja`.
+- **La regla de congelamiento (§3.1) se respetó.** Los commits de familias congeladas (`CG.58.7`,
+  `CG.183`) son de las 13:58–14:33 del 14-oct y el plan se declaró a las **21:48**. Desde entonces,
+  **21 de 21** commits de caja son `CGP-*`.
+- **La migración `20261014212702` no usa `NOT VALID`** como decía §5, y está **mejor así**: un
+  prevuelo que aborta nombrando folios es más fuerte que diferir la validación. La divergencia entre
+  el texto del plan y lo construido no estaba anotada.
+- **`CGP-D.1` ya tuvo su primera corrida verde en el CI** (el plan todavía dice que falta): corrida
+  `38775800522`, job sin `continue-on-error`, con las negativas disparando restricciones reales.

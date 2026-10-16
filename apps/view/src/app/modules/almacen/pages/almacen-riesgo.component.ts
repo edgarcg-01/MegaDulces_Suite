@@ -72,7 +72,7 @@ import { RiesgoService, RiskRow } from '../riesgo.service';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-chart-bar" aria-hidden="true"></i></div><h3>Sin índice</h3><p>Recalculá para poblar el índice desde los expedientes y el monitoreo (ventana 90 días).</p></div></td></tr>
+          <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-chart-bar" aria-hidden="true"></i></div><h3>Sin índice</h3><p>Recalcula para poblar el índice desde los expedientes y el monitoreo (ventana 90 días).</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>

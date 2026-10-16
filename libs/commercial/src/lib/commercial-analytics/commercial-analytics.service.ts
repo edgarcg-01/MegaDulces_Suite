@@ -981,6 +981,68 @@ export interface VecinalConciliacion {
   filas: VecinalConciliacionFila[];
 }
 
+// ── `[VEC.21]` La venta a CRÉDITO de la ruta, y el dinero que la saldó ──
+/**
+ * Un abono aplicado a la factura: el cobro, con **dónde entró el dinero**.
+ *
+ * ⚠️ `medio` y `cuenta` llegan `null` cuando el cobro no está en `analytics.erp_collections`.
+ * Eso NO es «entró en efectivo»: es que no se pudo resolver, y se declara (ADR-056).
+ */
+export interface RouteCreditAbono {
+  folio: string;
+  monto: number;
+  /** Doctype del abono en Kepler: `5` cobro · `7` cobro CFDI · `21`/`35` nota de crédito… */
+  tipo: string;
+  medio: string | null;
+  cuenta: string | null;
+  fecha: string | null;
+}
+
+/** CUATRO estados. `sin_vencimiento` no es `vigente`: es que no hay con qué juzgarlo. */
+export type RouteCreditCobranza = 'cobrada' | 'vigente' | 'vencida' | 'sin_vencimiento';
+
+export interface RouteCreditSaleRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  route_no: string;
+  route_name: string | null;
+  folio: string;
+  fecha: string;
+  vence: string | null;
+  cliente_code: string | null;
+  importe: number;
+  /** Sin IVA ni IEPS — el negocio cuenta en neto (`[VEC.14]`). */
+  neto: number;
+  cobrado: number;
+  saldo: number;
+  cobranza: RouteCreditCobranza;
+  /** `null` sin vencimiento. Nunca 0: un 0 diría «vence hoy». */
+  dias_vencida: number | null;
+  abonos: RouteCreditAbono[];
+}
+
+export interface RouteCreditSales {
+  period: { from: string; to: string };
+  summary: {
+    facturas: number;
+    facturado: number;
+    neto: number;
+    cobrado: number;
+    saldo: number;
+    /** Lo vencido es el número que mueve a alguien: va aparte del saldo total. */
+    vencido: number;
+    facturas_vencidas: number;
+    por_estado: Record<string, number>;
+    /**
+     * ⭐ Cobertura de la liga con tesorería: cuántos abonos dicen en qué cuenta entró el dinero.
+     * Se publica porque sin esto «0 abonos con cuenta» y «no hay abonos» se leen igual.
+     */
+    abonos: number;
+    abonos_con_cuenta: number;
+  };
+  filas: RouteCreditSaleRow[];
+}
+
 // ── Fase T — Traspasos / movimientos que NO son venta ──
 export type TransferKind = 'salida_cedis' | 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
 
@@ -8665,6 +8727,95 @@ export class CommercialAnalyticsService {
           telemarketing_docs: Number(ns?.telemarketing_docs) || 0,
         },
         puente,
+        filas,
+      };
+    });
+  }
+
+  /**
+   * `[VEC.21]` — **La venta a crédito de la ruta, con su cobro y la cuenta donde entró el dinero.**
+   *
+   * Lee `analytics.v_route_credit_sales`, que resuelve la cadena
+   * `kdm1 U-D-8 → kdue UD0801 → kdm5 → erp_collections` una sola vez. No se re-deriva acá.
+   *
+   * ⚠️ El rango por omisión son **90 días**, no 45 como la conciliación de efectivo: una factura
+   * a crédito vive mientras no se cobre, y recortarla a mes y medio escondería justo las viejas,
+   * que son las que importan.
+   */
+  async routeCreditSales(fromArg?: string, toArg?: string, routeArg?: string): Promise<RouteCreditSales> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const to = toArg && dRx.test(toArg) ? toArg : today;
+    const defFrom = new Date(new Date(`${to}T00:00:00Z`).getTime() - 90 * 86400000).toISOString().slice(0, 10);
+    const from = fromArg && dRx.test(fromArg) ? fromArg : defFrom;
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    // Misma validación de FORMA que `vecinalConciliacion`: un código inexistente devuelve cero
+    // filas, que se lee bien; lo que no puede entrar a la consulta es texto libre.
+    const route = /^[0-9]V[0-9]{1,4}$/i.test(String(routeArg ?? '').trim())
+      ? String(routeArg).trim().toUpperCase()
+      : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    type Cruda = {
+      warehouse_code: string; warehouse_name: string; route_no: string; route_name: string | null;
+      folio: string; fecha: string; vence: string | null; cliente_code: string | null;
+      importe: string | number; neto: string | number; cobrado: string | number; saldo: string | number;
+      cobranza: RouteCreditCobranza; dias_vencida: number | null; cobros: RouteCreditAbono[] | null;
+    };
+
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT v.warehouse_code, COALESCE(w.name, v.warehouse_code) AS warehouse_name,
+                v.route_no, v.route_name, v.folio,
+                to_char(v.fecha,'YYYY-MM-DD') AS fecha,
+                to_char(v.vence,'YYYY-MM-DD') AS vence,
+                v.cliente_code, v.importe, v.neto, v.cobrado, v.saldo,
+                v.cobranza, v.dias_vencida, v.cobros
+           FROM analytics.v_route_credit_sales v
+           LEFT JOIN commercial.warehouses w
+             ON w.tenant_id = v.tenant_id AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+          WHERE v.tenant_id = ?::uuid AND v.fecha >= ?::date AND v.fecha <= ?::date
+            ${route ? 'AND upper(v.route_no) = ?::text' : ''}
+          ORDER BY v.fecha DESC, v.warehouse_code, v.route_no, v.folio`,
+        route ? [tenantId, from, to, route] : [tenantId, from, to]);
+
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const filas: RouteCreditSaleRow[] = (rows as Cruda[]).map((r) => ({
+        warehouse_code: r.warehouse_code,
+        warehouse_name: r.warehouse_name,
+        route_no: r.route_no,
+        route_name: r.route_name,
+        folio: r.folio,
+        fecha: r.fecha,
+        vence: r.vence,
+        cliente_code: r.cliente_code,
+        importe: Number(r.importe) || 0,
+        neto: Number(r.neto) || 0,
+        cobrado: Number(r.cobrado) || 0,
+        saldo: Number(r.saldo) || 0,
+        cobranza: r.cobranza,
+        // ⚠️ `?? null`, no `|| 0`: sin vencimiento no hay días, y un 0 diría «vence hoy».
+        dias_vencida: r.dias_vencida ?? null,
+        abonos: r.cobros ?? [],
+      }));
+
+      const por_estado: Record<string, number> = {};
+      let facturado = 0, neto = 0, cobrado = 0, saldo = 0, vencido = 0, facturas_vencidas = 0;
+      let abonos = 0, abonos_con_cuenta = 0;
+      for (const f of filas) {
+        por_estado[f.cobranza] = (por_estado[f.cobranza] ?? 0) + 1;
+        facturado += f.importe; neto += f.neto; cobrado += f.cobrado; saldo += f.saldo;
+        if (f.cobranza === 'vencida') { vencido += f.saldo; facturas_vencidas++; }
+        for (const a of f.abonos) { abonos++; if (a.cuenta) abonos_con_cuenta++; }
+      }
+
+      return {
+        period: { from, to },
+        summary: {
+          facturas: filas.length,
+          facturado: r2(facturado), neto: r2(neto), cobrado: r2(cobrado), saldo: r2(saldo),
+          vencido: r2(vencido), facturas_vencidas, por_estado, abonos, abonos_con_cuenta,
+        },
         filas,
       };
     });

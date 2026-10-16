@@ -121,7 +121,13 @@ export interface SalesDocsQuery {
   search?: string;         // cliente / RFC / folio / monto
   vencidas?: string;       // 'true' → sólo las vencidas QUE AÚN DEBEN (ver base())
   canceladas?: string;     // 'true' → incluir las canceladas en Kepler (por defecto NO)
-  cobro?: string;          // pagada | parcial | pendiente | sin_cartera
+  /**
+   * Estado de cobranza. Acepta **uno o varios** separados por coma (`?cobro=pendiente,parcial`):
+   * la pantalla arma la guia con lo que todavia se debe, y eso son DOS estados, no uno.
+   * Un valor fuera de la lista no se ignora: filtra y devuelve cero filas (un estado inventado
+   * no debe leerse como "sin filtro" y mostrar todo).
+   */
+  cobro?: string;          // pagada | parcial | pendiente | sin_cartera (CSV)
   /** Orden de la tabla. Lista blanca — ver ORDENES. Default: lo más reciente primero. */
   sort?: string;
   min?: string;            // importe mínimo
@@ -177,7 +183,9 @@ export class CommercialSalesDocumentsService {
       b.andWhere('i.vencimiento', '<', trx.raw('current_date'))
         .whereIn('i.estatus_cobro', ['pendiente', 'parcial']);
     }
-    if (q.cobro) b.andWhere('i.estatus_cobro', q.cobro.trim());
+    // CSV: `whereIn` con un solo valor emite el mismo plan que `=`, asi que no hay dos caminos.
+    const cobros = String(q.cobro ?? '').split(',').map((c) => c.trim()).filter(Boolean);
+    if (cobros.length) b.whereIn('i.estatus_cobro', [...new Set(cobros)]);
 
     applySmartSearch(b, q.search, {
       columns: ['i.cliente_nombre', 'i.cliente_code', 'i.cliente_rfc', 'i.folio', 'i.folio_digital', 'i.vendedor_nombre'],

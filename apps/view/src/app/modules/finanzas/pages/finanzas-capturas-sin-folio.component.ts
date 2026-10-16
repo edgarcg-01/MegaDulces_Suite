@@ -236,7 +236,7 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
             </div>
           </div>
         } @empty {
-          <p class="cf-lk-empty">Todavía no hay links. Emití uno con el nombre de la persona.</p>
+          <p class="cf-lk-empty">Todavía no hay links. Emite uno con el nombre de la persona.</p>
         }
       </div>
     </p-dialog>

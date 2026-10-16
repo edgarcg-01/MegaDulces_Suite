@@ -88,10 +88,10 @@ type Condition = 'bueno' | 'regular' | 'malo';
             @if (ctx(); as c) {
               @switch (c.mode) {
                 @case ('none') { Tu usuario no tiene sucursal asignada }
-                @case ('own') { {{ c.warehouse?.name }} — registrá lo que ves en el anaquel }
-                @default { Elegí la sucursal y registrá lo que ves en el anaquel }
+                @case ('own') { {{ c.warehouse?.name }} — registra lo que ves en el anaquel }
+                @default { Elige la sucursal y registra lo que ves en el anaquel }
               }
-            } @else { Registrá lo que ves en el anaquel }
+            } @else { Registra lo que ves en el anaquel }
           </p>
         </div>
 
@@ -106,7 +106,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
           } @else if (puedeElegirSucursal()) {
             <p-select
               [options]="ctx()?.options || []" [ngModel]="warehouseId()" (ngModelChange)="warehouseId.set($event)"
-              optionLabel="name" optionValue="id" placeholder="Elegí la sucursal"
+              optionLabel="name" optionValue="id" placeholder="Elige la sucursal"
               [filter]="(ctx()?.options?.length || 0) > 8" filterBy="name,code"
               styleClass="cad-suc-pick" appendTo="body"
               (onChange)="onSucursalChange()"></p-select>
@@ -167,14 +167,14 @@ type Condition = 'bueno' | 'regular' | 'malo';
               } @else {
                 <app-product-scan-field
                   [valor]="codigo()" [ocupado]="resolviendo()" [refocoTick]="refoco()"
-                  etiqueta="Escaneá el código (pistola, cámara) o escribilo"
+                  etiqueta="Escanea el código (pistola, cámara) o escríbelo"
                   (valorChange)="codigo.set($event)"
                   (buscar)="resolverCodigo($event)"
                   (sinCamara)="aviso($event)"></app-product-scan-field>
 
                 @if (candidatos().length) {
                   <div class="cad-cands">
-                    <span class="cad-cands-lbl">Ese código coincide con {{ candidatos().length }} productos — elegí:</span>
+                    <span class="cad-cands-lbl">Ese código coincide con {{ candidatos().length }} productos — elige:</span>
                     @for (c of candidatos(); track c.id) {
                       <button type="button" class="cad-cand" (click)="elegirCandidato(c)">
                         <strong>{{ c.nombre }}</strong>
@@ -194,7 +194,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
                   </div>
                 }
 
-                <div class="cad-or"><span>o buscalo por nombre</span></div>
+                <div class="cad-or"><span>o búscalo por nombre</span></div>
                 <app-product-search
                   placeholder="Nombre del producto…"
                   [fetch]="buscarProducto"
@@ -216,7 +216,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
                 [ngModel]="fechaRaw()" (ngModelChange)="onFecha($event)"
                 placeholder="DD/MM/AAAA" maxlength="10" aria-describedby="cad-vence-help" />
               <small class="cad-hint" id="cad-vence-help">
-                Tecleá sólo números y la diagonal se pone sola: <strong>15032027</strong> → 15/03/2027.
+                Teclea sólo números y la diagonal se pone sola: <strong>15032027</strong> → 15/03/2027.
                 Si el empaque no trae día, <strong>0327</strong> = marzo 2027 (último día del mes).
               </small>
 
@@ -231,7 +231,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
               } @else if (fechaRaw().trim() && !fechaIso()) {
                 <div class="cad-plazo" data-p="riesgoso">
                   <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                  <strong>Fecha incompleta</strong><span>seguí escribiendo: 4, 6 u 8 dígitos</span>
+                  <strong>Fecha incompleta</strong><span>sigue escribiendo: 4, 6 u 8 dígitos</span>
                 </div>
               }
             </div>
@@ -851,7 +851,7 @@ export class TiendaCaducidadesComponent {
           if (c.mode === 'own') this.warehouseId.set(c.warehouse?.id || '');
           else if (c.mode === 'many') this.warehouseId.set(c.options[0]?.id || '');
         },
-        error: () => this.toast.add({ severity: 'error', summary: 'No se pudo resolver tu sucursal', detail: 'Recargá la página; si sigue, avisá a sistemas.' }),
+        error: () => this.toast.add({ severity: 'error', summary: 'No se pudo resolver tu sucursal', detail: 'Recarga la página; si sigue, avisa a sistemas.' }),
       });
 
     if (this.puedeCapturar()) this.cargarMias();
@@ -911,12 +911,12 @@ export class TiendaCaducidadesComponent {
           }
           if (r.candidates?.length) { this.candidatos.set(r.candidates); return; }
           this.avisoCodigo.set(r.out_of_scope
-            ? 'Ese código es de una marca que no llevás. Avisale al encargado.'
-            : 'Ese código no está en el catálogo. Buscalo por nombre, o registralo con el código tal cual.');
+            ? 'Ese código es de una marca que no llevas. Avísale al encargado.'
+            : 'Ese código no está en el catálogo. Búscalo por nombre, o regístralo con el código tal cual.');
         },
         error: () => {
           this.resolviendo.set(false);
-          this.avisoCodigo.set('No se pudo consultar el código. Revisá la conexión y disparalo de nuevo.');
+          this.avisoCodigo.set('No se pudo consultar el código. Revisa la conexión y dispáralo de nuevo.');
         },
       });
   }
@@ -930,7 +930,7 @@ export class TiendaCaducidadesComponent {
     if (!p) { this.limpiarProducto(); return; }
     this.fijarProducto({ id: p.id, nombre: p.label, sku: p.sku, brand: p.brand, raw: null });
     // Elegido por nombre: el catálogo no dice en qué unidad está en el anaquel.
-    if (!this.unidadTocada) { this.unidad.set('pieza'); this.unidadSugerida.set('Sin código escaneado se asume pieza — cambialo si es caja.'); }
+    if (!this.unidadTocada) { this.unidad.set('pieza'); this.unidadSugerida.set('Sin código escaneado se asume pieza — cámbialo si es caja.'); }
   }
 
   /** El código no existe en el catálogo pero el producto SÍ está en el anaquel. */
@@ -1074,7 +1074,7 @@ export class TiendaCaducidadesComponent {
         this.toast.add({
           severity: 'error',
           summary: editId ? 'No se pudo corregir' : 'No se pudo registrar',
-          detail: err?.error?.message || 'Intentá de nuevo; si sigue, avisá a sistemas.',
+          detail: err?.error?.message || 'Intenta de nuevo; si sigue, avisa a sistemas.',
           life: 7000,
         });
       },
@@ -1153,7 +1153,7 @@ export class TiendaCaducidadesComponent {
             error: (err) => this.toast.add({
               severity: 'error',
               summary: 'No se pudo borrar',
-              detail: err?.error?.message || 'Intentá de nuevo.',
+              detail: err?.error?.message || 'Intenta de nuevo.',
               life: 8000,
             }),
           });

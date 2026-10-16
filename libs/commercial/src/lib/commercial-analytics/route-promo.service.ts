@@ -264,22 +264,22 @@ export class RoutePromoService {
       input_schema: {
         type: 'object',
         properties: {
-          canal: { type: 'string', enum: ['ruta', 'todos'], description: 'RD / reparto / ruta / venta a bordo → "ruta". Si no se menciona canal → "todos". (Heredado: para varios canales usá "canales".)' },
+          canal: { type: 'string', enum: ['ruta', 'todos'], description: 'RD / reparto / ruta / venta a bordo → "ruta". Si no se menciona canal → "todos". (Heredado: para varios canales usa "canales".)' },
           canales: {
             type: 'array', items: { type: 'string', enum: ['ruta', 'vecinal', 'mayoreo', 'mostrador'] },
-            description: 'Canales cuyos VENDEDORES participan, del renglón "Participan:". Mapeo: "RD"/"reparto"/"venta a bordo"/"ruta" → "ruta"; "ruta vecinal"/"vecinal"/"preventa" → "vecinal"; "mayoreo"/"crédito" → "mayoreo"; "mostrador"/"piso"/"tienda" → "mostrador". Ej "vendedores de RD, de ruta vecinal y de mayoreo" → ["ruta","vecinal","mayoreo"]. Si el enunciado no dice quién participa, dejá el arreglo vacío.',
+            description: 'Canales cuyos VENDEDORES participan, del renglón "Participan:". Mapeo: "RD"/"reparto"/"venta a bordo"/"ruta" → "ruta"; "ruta vecinal"/"vecinal"/"preventa" → "vecinal"; "mayoreo"/"crédito" → "mayoreo"; "mostrador"/"piso"/"tienda" → "mostrador". Ej "vendedores de RD, de ruta vecinal y de mayoreo" → ["ruta","vecinal","mayoreo"]. Si el enunciado no dice quién participa, deja el arreglo vacío.',
           },
-          alcance: { type: 'string', enum: ['sku', 'marca'], description: '"sku" si la promo es de UN producto concreto. "marca" si aplica a TODA la mercancía de un proveedor/marca/línea (ej "Proveedor: vidis", "mercancía de Vidis", "productos Ricolino") — en ese caso llená marca_texto y dejá sku/producto_texto en null.' },
+          alcance: { type: 'string', enum: ['sku', 'marca'], description: '"sku" si la promo es de UN producto concreto. "marca" si aplica a TODA la mercancía de un proveedor/marca/línea (ej "Proveedor: vidis", "mercancía de Vidis", "productos Ricolino") — en ese caso llena marca_texto y deja sku/producto_texto en null.' },
           marca_texto: { type: ['string', 'null'], description: 'Nombre de la marca o proveedor tal como se menciona (ej "vidis"). Sólo cuando alcance="marca"; si no, null.' },
           sku: { type: ['string', 'null'], description: 'Código del producto si aparece (ej "cód:97192", "clave 97192" → "97192"). Si no hay código → null.' },
           producto_texto: { type: ['string', 'null'], description: 'Nombre del producto como se menciona (ej "choyitas 14 gr/40"), para resolverlo por catálogo si no hay código. null si no aplica.' },
           metric: { type: 'string', enum: ['clientes_distintos', 'piezas', 'tickets', 'monto'], description: '"clientes_distintos" si el pago es por CLIENTE/cuenta distinta que compró el producto (aunque compre varias piezas, cuenta una vez). "piezas" si es por cada pieza/unidad. "tickets" por ticket/venta. "monto" si es $/% sobre el importe vendido.' },
           rate: { type: 'number', description: 'Monto en pesos por cada unidad de la métrica (ej $6.00 → 6).' },
-          min_qty: { type: 'number', description: 'Cantidad mínima por cliente para calificar (ej "una o más piezas" → 1). Default 1. Si el umbral está en DINERO, dejá 1 acá y usá min_importe.' },
+          min_qty: { type: 'number', description: 'Cantidad mínima por cliente para calificar (ej "una o más piezas" → 1). Default 1. Si el umbral está en DINERO, deja 1 acá y usa min_importe.' },
           min_importe: { type: 'number', description: 'Umbral en PESOS por cliente para calificar, cuando la mecánica lo pide en dinero (ej "al que se le venda $500 de mercancía" → 500). 0 si el enunciado no pone un umbral de dinero. Es acumulado del cliente en todo el periodo.' },
           descripcion: { type: 'string', description: 'La regla reformulada, clara, en una línea.' },
           supuestos: { type: 'string', description: 'Ambigüedades o supuestos que tomaste; "" si ninguno.' },
-          date_from: { type: ['string', 'null'], description: 'Inicio de la VIGENCIA de la promo en YYYY-MM-DD, si el enunciado la menciona (ej "del 1 al 15 de agosto", "vigencia agosto", "primera quincena de septiembre", "esta semana"). Resolvé el año con la fecha de HOY que se te da. null si el enunciado NO menciona periodo.' },
+          date_from: { type: ['string', 'null'], description: 'Inicio de la VIGENCIA de la promo en YYYY-MM-DD, si el enunciado la menciona (ej "del 1 al 15 de agosto", "vigencia agosto", "primera quincena de septiembre", "esta semana"). Resuelve el año con la fecha de HOY que se te da. null si el enunciado NO menciona periodo.' },
           date_to: { type: ['string', 'null'], description: 'Fin (INCLUSIVE) de la vigencia en YYYY-MM-DD. Mes completo ("agosto") → último día del mes. "primera quincena" → día 15; "segunda quincena" → fin de mes. null si no hay periodo.' },
           periodo_texto: { type: ['string', 'null'], description: 'El periodo tal como se menciona, en texto corto para mostrar (ej "1–15 de agosto 2026", "Agosto 2026"). null si no aplica.' },
         },
@@ -297,7 +297,7 @@ export class RoutePromoService {
       '"canales". No inventes datos: si el enunciado no lo dice, usa los defaults y anótalo en supuestos. ' +
       `Hoy es ${hoy} (zona horaria de México). Si el enunciado indica una vigencia o periodo (fechas, mes, ` +
       'quincena, "esta semana"), extraela en date_from/date_to (YYYY-MM-DD, resolviendo el año con la fecha de hoy); ' +
-      'si NO menciona periodo, dejá date_from/date_to en null. Responde SOLO llamando la herramienta.';
+      'si NO menciona periodo, deja date_from/date_to en null. Responde SOLO llamando la herramienta.';
 
     const resp = await this.anthropic.messages({
       model: PROMO_MODEL,
@@ -665,10 +665,10 @@ export class RoutePromoService {
           rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
           total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
           note: candidates?.length
-            ? 'El producto es ambiguo — elegí el SKU correcto y recalculá.'
+            ? 'El producto es ambiguo — elige el SKU correcto y recalcula.'
             : rule.alcance === 'marca'
-              ? `No se encontró la marca/proveedor "${rule.marca_texto || ''}" en el catálogo. Verificá el nombre.`
-              : 'No se encontró el producto del enunciado (SKU o nombre). Verificá el código.',
+              ? `No se encontró la marca/proveedor "${rule.marca_texto || ''}" en el catálogo. Verifica el nombre.`
+              : 'No se encontró el producto del enunciado (SKU o nombre). Verifica el código.',
           generated_at: new Date().toISOString(),
           freshness: FRESHNESS_UNKNOWN, // [VP.2.2] sin producto resuelto no se consultó ninguna fuente
         };
@@ -865,9 +865,9 @@ export class RoutePromoService {
           : sinEscalera
             ? `El alcance no está en el maestro del ERP: no hay escalera de unidades con qué normalizar la cantidad.`
             : isWeight
-              ? `El alcance incluye mercancía a GRANEL: la cuenta por unidades no aplica; usá clientes, tickets o monto.`
+              ? `El alcance incluye mercancía a GRANEL: la cuenta por unidades no aplica; usa clientes, tickets o monto.`
               : unidadMixta
-                ? `El alcance mezcla ${unitBases.length} unidades base distintas (${unitBases.join(', ')}): sumar cantidades entre ellas no significa nada. Usá clientes, tickets o un umbral en dinero.`
+                ? `El alcance mezcla ${unitBases.length} unidades base distintas (${unitBases.join(', ')}): sumar cantidades entre ellas no significa nada. Usa clientes, tickets o un umbral en dinero.`
                 : linUnres > 0
                   ? `${linUnres} línea(s) por ${this.money(impUnres)} (${pctUnres.toFixed(2)}% del importe) no se pudieron ubicar en ningún peldaño de precio del ERP: no se sumaron a las unidades.`
                   : `Cantidad normalizada a ${lad.unit_base || 'la unidad base del ERP'}: todas las líneas se ubicaron en un peldaño de precio del ERP.`,
