@@ -739,3 +739,59 @@ cobros, y de ahí copiaba todo el mundo**. Comprobado con el verificador: falla 
 | **A.12b** | Regenerar y verificar el `.cmd` de `ruta_21` y `ruta_26` (están vivas) | quien entre a la máquina |
 | **A.12c** | `501`–`505`: cargar `almacen_erp` en `analytics.v_rd_route_identity` (mapa medido 1:1, `501→06-001`…`505→06-005`). **Sin almacén no se puede escribir el filtro obligatorio del bloque de cobros** | C0 |
 | **A.3** | El importer sigue **sin agendar** en ningún crontab | ops |
+
+### 10.10 A.3 — el importer entra al cron, y una compuerta busca a los demás huérfanos
+
+**El carril, agendado.** `ops/vl/crontab.feeds` lleva desde hoy:
+
+```
+4,14,24,34,44,54 * * * * /app/ops/vl/run-feed.sh route-collections "node /app/database/importers/kepler/import-route-collections.js --apply"
+```
+
+Minutos terminados en **4** porque es el único hueco libre: `prices` toma 2,32; `publish-tienda`
+7…57; `contpaqi-cfdis` cae en 3 y 8; `contpaqi-cfdis-emit` en 1 y 6; `stock` en 5,20,35,50.
+Cada 10 min y no más fino: las camionetas empujan al reconectar, así que muestrear más seguido
+sólo multiplica corridas vacías. El UPSERT es por `(tenant_id, truck, cobro_folio, folio_corte)`:
+**una corrida repetida no duplica dinero.**
+
+**`npm run check:importer-sin-agenda`** — la generalización. Todo archivo que **late** en
+`analytics.cron_runs` tiene que tener **quién lo dispare**: una línea de crontab, una mención en
+`ops/`, un padre agendado (un salto, que es como entran los ~50 pasos de `run-prod-feeds.js`), o
+una entrada declarada con dueño.
+
+⭐ **La pregunta no es «¿corrió?» sino «¿hay algo que lo corra?»** — y ésa se contesta leyendo el
+repo, sin red. Porque un carril que nunca corrió **no escribe un latido en rojo: no escribe
+nada**, y una tabla de latidos sin la fila es indistinguible de un carril que todavía no existe.
+
+⚠️ Su primera versión reusaba el recorrido que filtra por extensión, y **`ops/vl/crontab.feeds`
+no termina en `.js/.sh/.cmd`**: declaró huérfanos a 16 carriles que sí estaban agendados,
+incluido el que la funda. Una compuerta con 16 falsos en 22 hallazgos se apaga el primer día.
+
+**⛔⛔ Lo que encontró en su primer barrido limpio — un segundo carril en el mismo estado:**
+
+> **`import-route-stock.js`** (`[RD.32]`, la foto de existencia del camión) **no llega a prod.**
+> Medido el 2026-10-16: el runner tiene **30,146 renglones de 10 camionetas, frescos de hoy**;
+> `commercial.route_counts` con `source='kepler'` tiene **UNA fila, del 2026-10-06** — el día que
+> alguien lo corrió a mano. **Diez días sin ancla de saldo de ruta.**
+>
+> **No lo agendo por mi cuenta:** activarlo cambia el ancla del saldo de 10 camionetas, y eso es
+> alcance de negocio. Queda **declarado como deuda medida** en la compuerta, que lo imprime en
+> cada corrida sin ponerse roja por él. Decide Edgar.
+
+### 10.11 ⛔⛔ TRES COSAS ESPERAN EL MISMO DESPLIEGUE
+
+Verificado **dentro del contenedor** `feeds-cron` el 2026-10-16 17:35 — la imagen es anterior a
+los arreglos de hoy:
+
+| | repo | imagen desplegada |
+|---|---|---|
+| latido de cobros (`[CGA-A.2]`, `47461372e`) | usa el helper `cron-heartbeat` | todavía `finished_at` → **el latido no se escribe** |
+| línea de cron `route-collections` (`[CGA-A.3]`) | presente | **no existe** |
+
+El `crontab` va **horneado en la imagen** (`ops/ingest/Dockerfile` lo copia,
+`26-feeds-cron.deployment.yaml` lo instala al arrancar), así que **agregar la línea al repo no
+agenda nada hasta reconstruir y desplegar `ingesta`**. Que la línea exista y que el carril corra
+son dos hechos distintos.
+
+Y por el lado de la suite, lo de §10.8: la migración `20261016170505` va **antes** del deploy del
+código, porque el servicio ya lee `declared_doc_ref`.
