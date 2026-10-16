@@ -1,0 +1,4302 @@
+{
+  "generated_at": "2026-10-16T22:22:56.298Z",
+  "corpus": "Z:/Kepler/K95_Dev/temp",
+  "forms_scanned": 94,
+  "forms_with_confirmed_binding": 8,
+  "bindings": 103,
+  "distinct_columns": 70,
+  "tables": [
+    "kdcp",
+    "kdii",
+    "kdm_rutas",
+    "kdud",
+    "kdudent",
+    "kduv"
+  ],
+  "conflicting_labels": 0,
+  "unlabeled_bindings": 0,
+  "skipped": 86,
+  "entries": [
+    {
+      "table": "kdcp",
+      "column": "c2",
+      "ordinal": 2,
+      "field_id": "descripcion",
+      "label": "Descripción",
+      "type": "string",
+      "decimals": "2",
+      "max_len": "40",
+      "widget": "inp",
+      "form": "conCatProPag.kpl",
+      "form_title": "Catálogo de proyectos",
+      "declared_fields": "a1...a2,a5,a13...a15",
+      "aliases": {
+        "a": "kdcp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdcp",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "status",
+      "label": "Estatus",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "conCatProPag.kpl",
+      "form_title": "Catálogo de proyectos",
+      "declared_fields": "a1...a2,a5,a13...a15",
+      "aliases": {
+        "a": "kdcp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c2",
+      "ordinal": 2,
+      "field_id": "desc",
+      "label": "Descripción",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "linea",
+      "label": "Línea",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c4",
+      "ordinal": 4,
+      "field_id": "tipo",
+      "label": "Tipo",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "grupo",
+      "label": "Grupo",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c25",
+      "ordinal": 25,
+      "field_id": "subs",
+      "label": "Producto substituto",
+      "type": "string",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c26",
+      "ordinal": 26,
+      "field_id": "equiv",
+      "label": "Producto equivalente",
+      "type": "string",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "edt",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c14",
+      "ordinal": 14,
+      "field_id": "precio",
+      "label": "Precios de ventas",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "15",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c15",
+      "ordinal": 15,
+      "field_id": "precio2",
+      "label": "Precios de ventas",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "15",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c16",
+      "ordinal": 16,
+      "field_id": "precio3",
+      "label": "Precios de ventas",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "15",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c17",
+      "ordinal": 17,
+      "field_id": "precio4",
+      "label": "Precios de ventas",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "15",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c18",
+      "ordinal": 18,
+      "field_id": "iva",
+      "label": "IVA",
+      "type": "number",
+      "decimals": null,
+      "max_len": null,
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c19",
+      "ordinal": 19,
+      "field_id": "ieps",
+      "label": "IEPS",
+      "type": "number",
+      "decimals": null,
+      "max_len": null,
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c20",
+      "ordinal": 20,
+      "field_id": "moneda",
+      "label": "Moneda",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c33",
+      "ordinal": 33,
+      "field_id": "invMin",
+      "label": "Minimo",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "13",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c34",
+      "ordinal": 34,
+      "field_id": "PR",
+      "label": "Punto reorden",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "13",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c35",
+      "ordinal": 35,
+      "field_id": "invMax",
+      "label": "Máximo",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "13",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "cvePrv",
+      "label": "Código del proveedor",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c8",
+      "ordinal": 8,
+      "field_id": "prov",
+      "label": "Proveedor",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "edt",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c9",
+      "ordinal": 9,
+      "field_id": "prov2",
+      "label": "Proveedor secundario",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "edt",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c23",
+      "ordinal": 23,
+      "field_id": "precioP",
+      "label": "Precio lista proveedor",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "17",
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c24",
+      "ordinal": 24,
+      "field_id": "descP",
+      "label": "Descuento proveedor",
+      "type": "number",
+      "decimals": null,
+      "max_len": null,
+      "widget": "inp",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c31",
+      "ordinal": 31,
+      "field_id": "monedaC",
+      "label": "Moneda compra",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "invcatprdpag.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "nombre",
+      "label": "Nombre",
+      "type": "string",
+      "decimals": null,
+      "max_len": "100",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c4",
+      "ordinal": 4,
+      "field_id": "direccion",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "colonia",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "poblacion",
+      "label": "Estado",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c27",
+      "ordinal": 27,
+      "field_id": "cp",
+      "label": "Código postal",
+      "type": "number",
+      "decimals": null,
+      "max_len": "5",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c7",
+      "ordinal": 7,
+      "field_id": "tel1",
+      "label": "Tel .1",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c8",
+      "ordinal": 8,
+      "field_id": "tel2",
+      "label": "Tel .2",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c9",
+      "ordinal": 9,
+      "field_id": "fax",
+      "label": "Tel .3",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c30",
+      "ordinal": 30,
+      "field_id": "curp",
+      "label": "CURP",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "20",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c11",
+      "ordinal": 11,
+      "field_id": "internet",
+      "label": "Email",
+      "type": "string",
+      "decimals": null,
+      "max_len": "60",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c12",
+      "ordinal": 12,
+      "field_id": "vendedor",
+      "label": "Vendedor",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c13",
+      "ordinal": 13,
+      "field_id": "grupo",
+      "label": "Grupo",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c14",
+      "ordinal": 14,
+      "field_id": "zona",
+      "label": "Zona",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c15",
+      "ordinal": 15,
+      "field_id": "limcredito",
+      "label": "Límite de crédito",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "15",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c16",
+      "ordinal": 16,
+      "field_id": "plazo",
+      "label": "Plazo",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c17",
+      "ordinal": 17,
+      "field_id": "desc1",
+      "label": "Descuentos (1)",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c18",
+      "ordinal": 18,
+      "field_id": "desc2",
+      "label": "Descuentos (2)",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c19",
+      "ordinal": 19,
+      "field_id": "desc3",
+      "label": "Descuentos (3)",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c28",
+      "ordinal": 28,
+      "field_id": "sventa",
+      "label": "Comisiones: S/Venta",
+      "type": "number",
+      "decimals": "4",
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c29",
+      "ordinal": 29,
+      "field_id": "scobro",
+      "label": "Comisiones: S/Cobro",
+      "type": "number",
+      "decimals": "4",
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cat_cli.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "nombre",
+      "label": "Nombre",
+      "type": "string",
+      "decimals": null,
+      "max_len": "100",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c4",
+      "ordinal": 4,
+      "field_id": "direccion",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "colonia",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "poblacion",
+      "label": "Estado",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c27",
+      "ordinal": 27,
+      "field_id": "cp",
+      "label": "Código postal",
+      "type": "number",
+      "decimals": null,
+      "max_len": "5",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c7",
+      "ordinal": 7,
+      "field_id": "tel1",
+      "label": "Tel .1",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c8",
+      "ordinal": 8,
+      "field_id": "tel2",
+      "label": "Tel .2",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c9",
+      "ordinal": 9,
+      "field_id": "fax",
+      "label": "Tel .3",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c30",
+      "ordinal": 30,
+      "field_id": "curp",
+      "label": "CURP",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "20",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c11",
+      "ordinal": 11,
+      "field_id": "internet",
+      "label": "Email",
+      "type": "string",
+      "decimals": null,
+      "max_len": "60",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c12",
+      "ordinal": 12,
+      "field_id": "vendedor",
+      "label": "Vendedor",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c13",
+      "ordinal": 13,
+      "field_id": "grupo",
+      "label": "Grupo",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c14",
+      "ordinal": 14,
+      "field_id": "zona",
+      "label": "Zona",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c15",
+      "ordinal": 15,
+      "field_id": "limcredito",
+      "label": "Límite de crédito",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "15",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c16",
+      "ordinal": 16,
+      "field_id": "plazo",
+      "label": "Plazo",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c17",
+      "ordinal": 17,
+      "field_id": "desc1",
+      "label": "Descuentos (1)",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c18",
+      "ordinal": 18,
+      "field_id": "desc2",
+      "label": "Descuentos (2)",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c19",
+      "ordinal": 19,
+      "field_id": "desc3",
+      "label": "Descuentos (3)",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "4",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c28",
+      "ordinal": 28,
+      "field_id": "sventa",
+      "label": "Comisiones: S/Venta",
+      "type": "number",
+      "decimals": "4",
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdud",
+      "column": "c29",
+      "ordinal": 29,
+      "field_id": "scobro",
+      "label": "Comisiones: S/Cobro",
+      "type": "number",
+      "decimals": "4",
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cat_cli_sc.kpl",
+      "form_title": "Catálogo de clientes",
+      "declared_fields": "a2...a30",
+      "aliases": {
+        "a": "kdud",
+        "d": "kdud",
+        "v": "kduv",
+        "j": "kduj",
+        "k": "kduk",
+        "e": "kdue",
+        "s": "kdms",
+        "f": "kdfedir",
+        "t": "kdudent",
+        "w": "kdlogmov",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdm_rutas",
+      "column": "c2",
+      "ordinal": 2,
+      "field_id": "C2",
+      "label": "Descripción de la Ruta",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "80",
+      "widget": "inp",
+      "form": "MD_cat_rutas.kpl",
+      "form_title": "Catálogo de KDM_RUTAS",
+      "declared_fields": "a1...a2",
+      "aliases": {
+        "a": "kdm_rutas",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "C3",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "90",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "C5",
+      "label": "Ciudad",
+      "type": "string",
+      "decimals": null,
+      "max_len": "90",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "C6",
+      "label": "Teléfono",
+      "type": "string",
+      "decimals": null,
+      "max_len": "30",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c7",
+      "ordinal": 7,
+      "field_id": "C7",
+      "label": "Teléfono 2",
+      "type": "string",
+      "decimals": null,
+      "max_len": "30",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c8",
+      "ordinal": 8,
+      "field_id": "C8",
+      "label": "Contacto",
+      "type": "string",
+      "decimals": null,
+      "max_len": "90",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c9",
+      "ordinal": 9,
+      "field_id": "C9",
+      "label": "Correo",
+      "type": "string",
+      "decimals": null,
+      "max_len": "90",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c13",
+      "ordinal": 13,
+      "field_id": "C13",
+      "label": "Ruta Asignada",
+      "type": "string",
+      "decimals": null,
+      "max_len": null,
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdudent",
+      "column": "c10",
+      "ordinal": 10,
+      "field_id": "C10",
+      "label": "Comentarios",
+      "type": "string",
+      "decimals": null,
+      "max_len": "500",
+      "widget": "inp",
+      "form": "md_crmembentpag.kpl",
+      "form_title": "Direcciones de entrega",
+      "declared_fields": "a1...a13",
+      "aliases": {
+        "a": "kdudent",
+        "u": "kdud",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kduv",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "nombre",
+      "label": "Nombre del vendedor",
+      "type": "string",
+      "decimals": null,
+      "max_len": "30",
+      "widget": "inp",
+      "form": "md_cxccatvenpag.kpl",
+      "form_title": "Catálogo de vendedores",
+      "declared_fields": "a2...a7,s2",
+      "aliases": {
+        "a": "kduv",
+        "d": "kdud",
+        "p": "kdudp",
+        "w": "kdlogmov",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kduv",
+      "column": "c4",
+      "ordinal": 4,
+      "field_id": "sventa",
+      "label": "Comisión sobre ventas",
+      "type": "number",
+      "decimals": null,
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cxccatvenpag.kpl",
+      "form_title": "Catálogo de vendedores",
+      "declared_fields": "a2...a7,s2",
+      "aliases": {
+        "a": "kduv",
+        "d": "kdud",
+        "p": "kdudp",
+        "w": "kdlogmov",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kduv",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "scobro",
+      "label": "Comisión sobre cobros",
+      "type": "number",
+      "decimals": null,
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cxccatvenpag.kpl",
+      "form_title": "Catálogo de vendedores",
+      "declared_fields": "a2...a7,s2",
+      "aliases": {
+        "a": "kduv",
+        "d": "kdud",
+        "p": "kdudp",
+        "w": "kdlogmov",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kduv",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "sutilidad",
+      "label": "Comisión sobre utilidad",
+      "type": "number",
+      "decimals": null,
+      "max_len": "7",
+      "widget": "inp",
+      "form": "md_cxccatvenpag.kpl",
+      "form_title": "Catálogo de vendedores",
+      "declared_fields": "a2...a7,s2",
+      "aliases": {
+        "a": "kduv",
+        "d": "kdud",
+        "p": "kdudp",
+        "w": "kdlogmov",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c2",
+      "ordinal": 2,
+      "field_id": "desc",
+      "label": "Descripción",
+      "type": "string",
+      "decimals": null,
+      "max_len": "100",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "linea",
+      "label": "Línea",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c4",
+      "ordinal": 4,
+      "field_id": "tipo",
+      "label": "Tipo",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "grupo",
+      "label": "Grupo",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c99",
+      "ordinal": 99,
+      "field_id": "obs",
+      "label": "Obsoleto?",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "chck",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c101",
+      "ordinal": 101,
+      "field_id": "c101",
+      "label": "Días de Caducidad",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "5",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c7",
+      "ordinal": 7,
+      "field_id": "cBarras",
+      "label": "1",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c93",
+      "ordinal": 93,
+      "field_id": "cb12",
+      "label": "1",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c102",
+      "ordinal": 102,
+      "field_id": "cb13",
+      "label": "1",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c81",
+      "ordinal": 81,
+      "field_id": "fac2",
+      "label": "Unidad Dos",
+      "type": "number",
+      "decimals": null,
+      "max_len": "13",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c82",
+      "ordinal": 82,
+      "field_id": "cb2",
+      "label": "Unidad Dos",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c95",
+      "ordinal": 95,
+      "field_id": "cb22",
+      "label": "Unidad Dos",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c96",
+      "ordinal": 96,
+      "field_id": "cb23",
+      "label": "Unidad Dos",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c84",
+      "ordinal": 84,
+      "field_id": "fac3",
+      "label": "Unidad Tres",
+      "type": "number",
+      "decimals": null,
+      "max_len": "13",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c85",
+      "ordinal": 85,
+      "field_id": "cb3",
+      "label": "Unidad Tres",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c97",
+      "ordinal": 97,
+      "field_id": "cb32",
+      "label": "Unidad Tres",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c98",
+      "ordinal": 98,
+      "field_id": "cb33",
+      "label": "Unidad Tres",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c18",
+      "ordinal": 18,
+      "field_id": "iva",
+      "label": "IVA",
+      "type": "number",
+      "decimals": null,
+      "max_len": null,
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c19",
+      "ordinal": 19,
+      "field_id": "ieps",
+      "label": "IEPS",
+      "type": "number",
+      "decimals": null,
+      "max_len": null,
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c33",
+      "ordinal": 33,
+      "field_id": "invMin",
+      "label": "Minimo",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "13",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c34",
+      "ordinal": 34,
+      "field_id": "PR",
+      "label": "Punto reorden",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "13",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c35",
+      "ordinal": 35,
+      "field_id": "invMax",
+      "label": "Máximo",
+      "type": "number",
+      "decimals": "0",
+      "max_len": "13",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "cvePrv",
+      "label": "Código del proveedor",
+      "type": "capital",
+      "decimals": null,
+      "max_len": "18",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c8",
+      "ordinal": 8,
+      "field_id": "prov",
+      "label": "Proveedor",
+      "type": "capital",
+      "decimals": null,
+      "max_len": null,
+      "widget": "edt",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c23",
+      "ordinal": 23,
+      "field_id": "precioP",
+      "label": "Precio lista proveedor",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "17",
+      "widget": "inp",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdii",
+      "column": "c31",
+      "ordinal": 31,
+      "field_id": "monedaC",
+      "label": "Moneda compra",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "pv_cat_prod_pos.kpl",
+      "form_title": "Catálogo de productos",
+      "declared_fields": "a1...a36,a39...a41,a43,a48,a67,a70...a103,b2...b6,z1,z2,z3",
+      "aliases": {
+        "a": "kdii",
+        "e": "kdie",
+        "f": "kdif",
+        "g": "kdig",
+        "u": "kdid",
+        "v": "kdid",
+        "y": "kdmy",
+        "w": "kdfe33relum",
+        "j": "kdij",
+        "h": "kdlogmov",
+        "k": "kdik",
+        "b": "kdfe33relprd",
+        "c": "kdfe33satum",
+        "p": "kdfe33satprd",
+        "m": "kdfe33cefracaran",
+        "n": "kdpv_prod_util",
+        "r": "kdfe33ceunimed",
+        "z": "kdfe33cefracaraprod",
+        "o": "kdfe33satobjimp",
+        "s": "kdms",
+        "x": "pv_suc_ip"
+      },
+      "evidence": "observed:kpl-source"
+    }
+  ],
+  "columns": [
+    {
+      "table": "kdcp",
+      "column": "c2",
+      "labels": [
+        "Descripción"
+      ],
+      "forms": [
+        "conCatProPag.kpl"
+      ]
+    },
+    {
+      "table": "kdcp",
+      "column": "c5",
+      "labels": [
+        "Estatus"
+      ],
+      "forms": [
+        "conCatProPag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c2",
+      "labels": [
+        "Descripción"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c3",
+      "labels": [
+        "Línea"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c4",
+      "labels": [
+        "Tipo"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c5",
+      "labels": [
+        "Grupo"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c6",
+      "labels": [
+        "Código del proveedor"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c7",
+      "labels": [
+        "1"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c8",
+      "labels": [
+        "Proveedor"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c9",
+      "labels": [
+        "Proveedor secundario"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c14",
+      "labels": [
+        "Precios de ventas"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c15",
+      "labels": [
+        "Precios de ventas"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c16",
+      "labels": [
+        "Precios de ventas"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c17",
+      "labels": [
+        "Precios de ventas"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c18",
+      "labels": [
+        "IVA"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c19",
+      "labels": [
+        "IEPS"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c20",
+      "labels": [
+        "Moneda"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c23",
+      "labels": [
+        "Precio lista proveedor"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c24",
+      "labels": [
+        "Descuento proveedor"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c25",
+      "labels": [
+        "Producto substituto"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c26",
+      "labels": [
+        "Producto equivalente"
+      ],
+      "forms": [
+        "invcatprdpag.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c31",
+      "labels": [
+        "Moneda compra"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c33",
+      "labels": [
+        "Minimo"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c34",
+      "labels": [
+        "Punto reorden"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c35",
+      "labels": [
+        "Máximo"
+      ],
+      "forms": [
+        "invcatprdpag.kpl",
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c81",
+      "labels": [
+        "Unidad Dos"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c82",
+      "labels": [
+        "Unidad Dos"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c84",
+      "labels": [
+        "Unidad Tres"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c85",
+      "labels": [
+        "Unidad Tres"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c93",
+      "labels": [
+        "1"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c95",
+      "labels": [
+        "Unidad Dos"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c96",
+      "labels": [
+        "Unidad Dos"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c97",
+      "labels": [
+        "Unidad Tres"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c98",
+      "labels": [
+        "Unidad Tres"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c99",
+      "labels": [
+        "Obsoleto?"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c101",
+      "labels": [
+        "Días de Caducidad"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdii",
+      "column": "c102",
+      "labels": [
+        "1"
+      ],
+      "forms": [
+        "pv_cat_prod_pos.kpl"
+      ]
+    },
+    {
+      "table": "kdm_rutas",
+      "column": "c2",
+      "labels": [
+        "Descripción de la Ruta"
+      ],
+      "forms": [
+        "MD_cat_rutas.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c3",
+      "labels": [
+        "Nombre"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c4",
+      "labels": [
+        "Dirección"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c5",
+      "labels": [
+        "Dirección"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c6",
+      "labels": [
+        "Estado"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c7",
+      "labels": [
+        "Tel .1"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c8",
+      "labels": [
+        "Tel .2"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c9",
+      "labels": [
+        "Tel .3"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c11",
+      "labels": [
+        "Email"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c12",
+      "labels": [
+        "Vendedor"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c13",
+      "labels": [
+        "Grupo"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c14",
+      "labels": [
+        "Zona"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c15",
+      "labels": [
+        "Límite de crédito"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c16",
+      "labels": [
+        "Plazo"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c17",
+      "labels": [
+        "Descuentos (1)"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c18",
+      "labels": [
+        "Descuentos (2)"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c19",
+      "labels": [
+        "Descuentos (3)"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c27",
+      "labels": [
+        "Código postal"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c28",
+      "labels": [
+        "Comisiones: S/Venta"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c29",
+      "labels": [
+        "Comisiones: S/Cobro"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdud",
+      "column": "c30",
+      "labels": [
+        "CURP"
+      ],
+      "forms": [
+        "md_cat_cli.kpl",
+        "md_cat_cli_sc.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c3",
+      "labels": [
+        "Dirección"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c5",
+      "labels": [
+        "Ciudad"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c6",
+      "labels": [
+        "Teléfono"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c7",
+      "labels": [
+        "Teléfono 2"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c8",
+      "labels": [
+        "Contacto"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c9",
+      "labels": [
+        "Correo"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c10",
+      "labels": [
+        "Comentarios"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kdudent",
+      "column": "c13",
+      "labels": [
+        "Ruta Asignada"
+      ],
+      "forms": [
+        "md_crmembentpag.kpl"
+      ]
+    },
+    {
+      "table": "kduv",
+      "column": "c3",
+      "labels": [
+        "Nombre del vendedor"
+      ],
+      "forms": [
+        "md_cxccatvenpag.kpl"
+      ]
+    },
+    {
+      "table": "kduv",
+      "column": "c4",
+      "labels": [
+        "Comisión sobre ventas"
+      ],
+      "forms": [
+        "md_cxccatvenpag.kpl"
+      ]
+    },
+    {
+      "table": "kduv",
+      "column": "c5",
+      "labels": [
+        "Comisión sobre utilidad"
+      ],
+      "forms": [
+        "md_cxccatvenpag.kpl"
+      ]
+    },
+    {
+      "table": "kduv",
+      "column": "c6",
+      "labels": [
+        "Comisión sobre cobros"
+      ],
+      "forms": [
+        "md_cxccatvenpag.kpl"
+      ]
+    }
+  ],
+  "not_measured": {
+    "skipped": [
+      {
+        "form": "00.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "anuncios.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "busqueda.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "busqueda_k80.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "cobro.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "conPolizaDoc_Consulta.kpl",
+        "reason": "sin `fun Cambio`",
+        "fields": 1
+      },
+      {
+        "form": "conpolizafto2.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "conpolizapag.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "ConsDocumentos.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "crmembentbus.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "css.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "cssRep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "cxccatclibus.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "cxccatvenbus.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "cxpcatprobus.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "cxpcatpropag.kpl",
+        "reason": "`Cambio` no escribe contra el alias `a`",
+        "fields": 17
+      },
+      {
+        "form": "doc_consulta.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "doc_consulta2.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "FE33libPr.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "helpdesk.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "index.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invcatprdbus.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invconpanapr.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invconpanecrrep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invconpanespr.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "InvRepDmoRep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invrepdmorepF.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invrepectrep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invrepectrepF.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invrepmopFto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invrepmoprep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invSalidaFto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "invSalidaPag.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "libGeneral.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "libKepler.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "libRep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_AOE.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "Md_asigna_trans.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "Md_bus_transporte.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_cap_inv_fis.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_cxc_ped.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_dev.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_doc_consulta.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_doc_prv.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "Md_doc_prv_emb.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_doc_prv_kdbx.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_embarque.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "Md_etiq_emb_fto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_exis_sucs.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_fac.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_fac_fto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_fac_nf.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_Gastos.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "Md_guia.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_guia_fto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_invFisicoFto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_invrepexsrep.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_invrepexsrepF.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_lib.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_oc.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_OE.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_oe_fto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_ped_tk_fto.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_rep_pedxsur.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_rutas_orden.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MD_tras_suc.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "md_venopesaldarpag.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "MG_verificador.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_aut_cambios.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_bus_prod_x_prov.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "PV_gerentes.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_lib.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_no_valida.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_sc_lib.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_TK.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_tk_tel_emb.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "pv_usuarios.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "recSearch.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "recSearchSys.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "sysConfDashRole.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "sysCProfile.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "sysCRole.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "utilsendmail.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "venopevenayu.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "VenRepCtePag.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      },
+      {
+        "form": "vor_css.kpl",
+        "reason": "sin campos con Cambio(N,..)"
+      }
+    ],
+    "conflicting": [],
+    "unlabeled": []
+  }
+}

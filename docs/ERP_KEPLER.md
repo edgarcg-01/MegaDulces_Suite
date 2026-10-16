@@ -1,3 +1,47 @@
+<!-- INDICE-AUTO:INICIO -->
+
+> **Índice navegable** — 100 KB, 1541 líneas, 32 secciones.
+> ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
+> Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
+> Lo genera `npm run docs:indices` — no lo edites a mano.
+
+| Desde | Hasta | KB | Sección |
+|---:|---:|---:|---|
+| 45 | 64 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
+| 65 | 87 | 1 | 1. Qué es Kepler y por qué duele |
+| 88 | 111 | 5 | 2. Tablas clave decodificadas |
+| 112 | 229 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
+| 230 | 245 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
+| 246 | 299 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
+| 300 | 348 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
+| 349 | 368 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
+| 369 | 405 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
+| 406 | 467 | 4 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 468 | 507 | 2 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 508 | 546 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 547 | 697 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 698 | 812 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 813 | 867 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 868 | 905 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 906 | 935 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 936 | 989 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 990 | 1036 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1037 | 1068 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1069 | 1129 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1130 | 1241 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1242 | 1272 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1273 | 1320 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1321 | 1348 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1349 | 1405 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1406 | 1456 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1457 | 1482 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1483 | 1547 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1548 | 1567 | 1 | 6. Importers / feeds relevantes |
+| 1568 | 1575 | 1 | 7. Conexiones y credenciales |
+| 1576 | 1585 | 1 | 8. Para profundizar |
+
+<!-- INDICE-AUTO:FIN -->
+
 # ERP Kepler — decode y flujo hacia la plataforma
 
 > Guía para devs que van a tocar feeds, importers, finanzas, compras o analytics.
@@ -418,6 +462,46 @@ derivable y la decisión se revisa.
 ⚠️ **Lo que NO se probó:** si el nivel lo fija el **vendedor**, la **ruta** o el **canal**. Se
 descartaron cliente, grupo, cantidad y renglón; esos tres quedan abiertos y son la primera piedra
 si alguien retoma el decode.
+
+---
+
+### 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16)
+
+Las formas del cliente atan cada campo de pantalla a su columna: `OnChange="Cambio(N,campo)"` →
+`tabla.cN`, contra el alias que fija `kdb.open("a," & tabla_base)`. El mecanismo y su verificación
+(3 decodes conocidos reproducidos) están en [`KEPLER_CLIENTE.md`](KEPLER_CLIENTE.md) §5. El extractor
+es `scripts/kepler/kpl-decode.mjs`; el volcado completo (103 bindings, 70 columnas, 6 tablas),
+en [`IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json`](IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json).
+
+> ⛔ **La etiqueta es el RÓTULO DE PANTALLA, no la semántica verificada del dato.** No sustituye la
+> prueba de unidad de §5 regla 0. `kdii.c7` sale como "1" (etiqueta inútil que el parser conserva
+> como vino). Úsalo como pista de *qué mira esa casilla*, y verificá contra el dato antes de
+> publicar un número.
+
+**Columnas nuevas de más valor** (no estaban en este doc; rótulo tal cual la pantalla):
+
+| Columna | Rótulo | Para qué |
+|---|---|---|
+| `kdii.c23` · `c24` | Precio lista proveedor · Descuento proveedor | escalera de costos (ADR-051) |
+| `kdii.c95`–`c98` | Unidad Dos · Unidad Tres | [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md) |
+| `kdii.c101` | Días de Caducidad | FEFO |
+| `kdii.c25` · `c26` | Producto substituto · equivalente | FLT |
+| `kdii.c99` | Obsoleto? | catálogo |
+| `kduv.c4` · `c5` · `c6` | Comisión s/ventas · s/utilidad · s/cobros | comisiones de vendedor |
+| `kdud.c28` · `c29` | Comisiones S/Venta · S/Cobro | cartera (⚠️ ver abajo) |
+| `kdudent.*` | Dirección · Ciudad · Teléfono · Contacto · Correo · Ruta Asignada | sucursales de entrega del cliente |
+
+**⚠️ Tres choques con el decode curado — se declaran, NO se sobrescriben** (el rótulo contradice lo
+medido; resolver con prueba de unidad antes de tocar §2):
+
+| Columna | Este doc (medido) | Rótulo de la forma | Qué hacer |
+|---|---|---|---|
+| `kdii.c8` | "clave familia" | **"Proveedor"** | reconciliar: ¿familia o proveedor? |
+| `kdii.c84` | "piezas por caja (regla 5)" | **"Unidad Tres"** | ¿es el factor del 3er peldaño de la escalera? probar unidad |
+| `kdud.c29` | "`0.0000` en el 100%, muerto" | **"Comisiones: S/Cobro"** | el campo existe con esa intención pero está vacío en los datos: ambas son ciertas |
+
+Reproducir: `node scripts/kepler/kpl-decode.mjs "Z:/Kepler/K95_Dev/temp" salida.json` y
+`node scripts/kepler/kpl-compare.mjs salida.json` (compara contra todos los `.md` del repo).
 
 ---
 
