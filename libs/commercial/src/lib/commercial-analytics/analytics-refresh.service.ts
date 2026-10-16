@@ -184,6 +184,10 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
  */
 const AJUSTES_REFRESCO: Readonly<Record<string, readonly string[]>> = {
   'analytics.mv_new_products': ['SET LOCAL jit = off', "SET LOCAL statement_timeout = '180s'"],
+  // `[CAT-COSTO.9]` Antes de refrescar la historia de costos, la foto del costo estándar de hoy
+  // (Kepler no guarda la historia de la ficha). Va en la MISMA transacción: si el REFRESH falla, la
+  // foto tampoco queda, y la matview nunca lee una foto que no se pudo historiar.
+  'analytics.mv_kepler_costos_cambios': ['SELECT analytics.fn_kepler_estandar_foto()'],
 };
 
 @Injectable()
@@ -565,6 +569,15 @@ export class AnalyticsRefreshService {
        */
       ['analytics.mv_kepler_costos', 'analytics_refresh_kepler_costos',
         'Refresh MV tres costos de Kepler (nightly)', []],
+      /**
+       * `[CAT-COSTO.9]` La historia por día de los tres costos (puntos de cambio con vigencia).
+       * Paso previo en `AJUSTES_REFRESCO`: la foto del estándar de hoy. Sale del ODS + esa foto →
+       * `deps` vacío. Medido: ~35 s el cuerpo completo. ⚠️ Umbral en `CRON_JOBS`
+       * (`analytics_refresh_kepler_costos_cambios`): sin él una MV parada se ve VERDE, y aquí eso
+       * sería además una foto de la ficha que dejó de tomarse.
+       */
+      ['analytics.mv_kepler_costos_cambios', 'analytics_refresh_kepler_costos_cambios',
+        'Refresh MV historia de costos de Kepler (nightly)', []],
       /**
        * ⛔ `[PR.S2.1]` La cascada agregada al grano (sucursal, sku). **Se materializó el
        * 2026-09-30 y quedó fuera de este array** — el mismo defecto que el comentario de arriba

@@ -9612,6 +9612,29 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   (`unnest(sucursal[], folio[])`): **~1 s**, 115 de 115 folios con origen. Si un folio trae más de una fila de
   origen se toma la primera (antes multiplicaba la entrada). **Sin probar con la API reiniciada.**
 
+- [x] **[CAT-COSTO.9]** 🔨 **La historia por día de los tres costos** (2026-10-15) — pedido de Compras: una matriz
+  por tipo de costo (estándar · promedio · último) con selector ‹ día ›, reconstruida hacia atrás; coincidencia
+  contra la mayoría; «Contra último costo» se queda (decisiones de Francisco, 2026-10-15). Mig
+  `20261015214044`: (1) `analytics.kepler_costo_estandar_foto` = **foto nocturna de la ficha** (`kdii.c77`), la
+  única historia que Kepler NO guarda; un renglón sólo cuando cambia (probado: misma corrida dos veces → 0
+  renglones; un cambio → 1). RLS **sin FORCE** a propósito (el refresco es el dueño; con FORCE la matview que la
+  lee se poblaría vacía — `[MR.8.2]`). (2) `analytics.fn_kepler_estandar_foto()`, que corre como **paso previo
+  del REFRESH en la misma transacción** (`AJUSTES_REFRESCO`), así no nace un proceso agendado aparte. (3)
+  `analytics.mv_kepler_costos_cambios`: puntos de cambio con vigencia `desde ≤ D < hasta` — **último** = cada
+  XA2001 (historia completa) · **promedio** = el kardex de cada día con salida · **estándar** = la foto; antes de
+  la primera foto, deducido de la venta (`c62/c58`) y declarado (`fuente`). **Medido: el promedio NO se puede
+  comprimir «cuando cambia»** — el kardex guarda cada salida a centavos y el costo por pieza baila según el
+  tamaño de la salida: 344,784 «cambios» a 4 decimales, 166,426 a 2 (95,193 de UN centavo), y un umbral relativo
+  acumula deriva (99.4 %) → un renglón por día con salida, exacto. Total ~948 mil renglones; cuerpo ~35–45 s →
+  nocturno con umbral en `CRON_JOBS`. **Existencia por día, medido para `[CAT-COSTO.11]`**: la suma con signo
+  del kardex = `kdil` en **100 %** en 01–07, 99.9 % en 08, 79 % en 00; el kardex empieza el día que cada almacén
+  pasó a Kepler (01 27-jun-26 · 06 14-ago · 07 7-sep · 08 18-sep…), antes es «sin dato». Candado
+  `test-newdb-kepler-costos-historia.js` **18 ✔ / 0 ✗ / 1 no medido** contra prod: hoy = `mv_kepler_costos`
+  (último 21,601/21,601 · promedio 29,881/29,897), 14 fechas pasadas recalculadas en JS desde XA2001/kardex
+  crudos, vigencias sin traslape ni hueco (78,778 series), último sólo de compras; **mutado para tomar la
+  `X-A-40` → rojo**. Migración probada en Docker local (up ×2 · función · REFRESH · CONCURRENTLY · down,
+  revertido).
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran
