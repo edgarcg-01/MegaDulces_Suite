@@ -122,11 +122,27 @@ export interface ExpedienteDiaRow {
   riesgosos: number;
 }
 
+/**
+ * La última vez que una sucursal subió hojas, SIN importar la ventana pedida. Existe porque hay
+ * sucursales que no capturan a diario (el CEDIS `00` captura «al menos cada mes»): para ellas la
+ * pregunta no es «¿qué días faltó?» sino «¿cuánto lleva sin capturar?», y eso no cabe en 7 días.
+ */
+export interface ExpedienteUltimaRow {
+  sucursal: string;
+  warehouse_name: string;
+  /** `YYYY-MM-DD`, o `null` si en el sistema esa sucursal nunca ha subido una hoja. */
+  ultima: string | null;
+}
+
 export interface ExpedienteDiasResult {
   /** Ventana que usó el server (su `hoy`, no el del navegador). */
   from: string;
   to: string;
+  /** El «hoy» del server (`America/Mexico_City` en `pg-prod`): contra él se mide la antigüedad. */
+  hoy: string;
   data: ExpedienteDiaRow[];
+  /** Una fila por sucursal del alcance (también las que nunca han capturado), respetando `sucursal`. */
+  ultimas: ExpedienteUltimaRow[];
 }
 
 export interface ListReviewsQuery {
@@ -1252,10 +1268,11 @@ export class CommercialExpiryReviewsService {
       const [win] = (
         await trx.raw(
           `SELECT COALESCE(?::date, CURRENT_DATE)::text AS "to",
-                  COALESCE(?::date, COALESCE(?::date, CURRENT_DATE) - (?::int - 1))::text AS "from"`,
+                  COALESCE(?::date, COALESCE(?::date, CURRENT_DATE) - (?::int - 1))::text AS "from",
+                  CURRENT_DATE::text AS "hoy"`,
           [q.to || null, q.from || null, q.to || null, dias],
         )
-      ).rows as { from: string; to: string }[];
+      ).rows as { from: string; to: string; hoy: string }[];
 
       const span = Math.round((Date.parse(win.to) - Date.parse(win.from)) / 86_400_000);
       if (span < 0) throw new BadRequestException('«desde» no puede ser posterior a «hasta»');
@@ -1293,7 +1310,28 @@ export class CommercialExpiryReviewsService {
         .orderBy('fecha', 'desc')
         .orderBy('sucursal', 'asc');
 
-      return { from: win.from, to: win.to, data: data as ExpedienteDiaRow[] };
+      // La última captura de CADA sucursal del alcance, sin ventana. LEFT JOIN: una sucursal que
+      // nunca ha subido nada también sale (con `ultima: null`) — un hueco mudo se leería como «al día».
+      let qu = trx('commercial.warehouses as w')
+        .leftJoin('commercial.expiry_reviews as r', 'r.warehouse_id', 'w.id')
+        .leftJoin('commercial.expiry_review_lines as l', 'l.review_id', 'r.id')
+        .whereRaw(branchKeyFilterSql('w'))
+        .whereNull('w.deleted_at');
+      if (scopeIds) qu = qu.whereIn('w.id', scopeIds);
+      if (q.sucursal) qu = qu.whereRaw(`(${branchKeySql('w')}) = ?`, [q.sucursal]);
+      const ultimas = await qu
+        // `groupByRaw` y no `groupBy(raw, 'w.name')`: con un `raw` en primera posición Knex ignora
+        // los demás argumentos y el SQL pierde `w.name` del GROUP BY (42803).
+        .groupByRaw(`${branchKeySql('w')}, w.name`)
+        .select(
+          trx.raw(`(${branchKeySql('w')}) AS sucursal`),
+          'w.name as warehouse_name',
+          // Sólo cuenta una hoja con renglones: una cabecera vacía no es una captura.
+          trx.raw(`to_char(MAX(r.review_date) FILTER (WHERE l.id IS NOT NULL), 'YYYY-MM-DD') AS ultima`),
+        )
+        .orderBy('sucursal', 'asc');
+
+      return { from: win.from, to: win.to, hoy: win.hoy, data: data as ExpedienteDiaRow[], ultimas: ultimas as ExpedienteUltimaRow[] };
     });
   }
 

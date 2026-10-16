@@ -4,9 +4,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
-import { ComercialService, ExpedienteDia } from '../../comercial/comercial.service';
+import { ComercialService, ExpedienteDia, ExpedienteUltima } from '../../comercial/comercial.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
-import { TiendaCaducidadesDiasComponent } from './tienda-caducidades-dias.component';
+import { CAPTURA_MENSUAL, LIMITE_MENSUAL_DIAS, TiendaCaducidadesDiasComponent } from './tienda-caducidades-dias.component';
 
 if (typeof (globalThis as any).ResizeObserver === 'undefined') {
   (globalThis as any).ResizeObserver = class { observe(): void { /* jsdom */ } unobserve(): void { /* jsdom */ } disconnect(): void { /* jsdom */ } };
@@ -53,7 +53,7 @@ describe('TiendaCaducidadesDiasComponent · qué es un hueco', () => {
     fix.detectChanges();
   };
 
-  async function montar(opts: { alcance?: ScopeOption[] | null; datos?: ExpedienteDia[]; falla?: boolean } = {}): Promise<void> {
+  async function montar(opts: { alcance?: ScopeOption[] | null; datos?: ExpedienteDia[]; falla?: boolean; ultimas?: ExpedienteUltima[]; hoy?: string | null } = {}): Promise<void> {
     llamadas = [];
     const alcance = opts.alcance === undefined ? SUC : opts.alcance;
     await TestBed.configureTestingModule({
@@ -67,7 +67,7 @@ describe('TiendaCaducidadesDiasComponent · qué es un hueco', () => {
               llamadas.push(o);
               if (opts.falla) return throwError(() => ({ error: { message: 'boom' } }));
               const filtrados = (opts.datos ?? DATOS).filter((d) => !o.sucursal || d.sucursal === o.sucursal);
-              return of({ from: '2026-10-10', to: '2026-10-16', data: filtrados });
+              return of({ from: '2026-10-10', to: '2026-10-16', hoy: opts.hoy === undefined ? '2026-10-16' : (opts.hoy as string), data: filtrados, ultimas: opts.ultimas ?? [] });
             },
           },
         },
@@ -167,6 +167,76 @@ describe('TiendaCaducidadesDiasComponent · qué es un hueco', () => {
     await montar({ falla: true });
     expect(cmp.error()).toBe('boom');
     expect(cmp.kpis()).toEqual([]);
+  });
+
+  // ── el CEDIS captura «al menos cada mes»: no es un hueco diario ──────────────────────────
+  const CEDIS: ScopeOption = { value: '00', label: 'CEDIS' };
+  const dias = (hoy: string, ultima: string): number => Math.round((Date.parse(hoy) - Date.parse(ultima)) / 86_400_000);
+  const ult = (ultima: string | null): ExpedienteUltima[] => [{ sucursal: '00', warehouse_name: 'CEDIS', ultima }];
+
+  it('⭐ el CEDIS NO cuenta como hueco diario: con las tres sucursales de diario completas, el día es «completo» aunque el CEDIS no suba', async () => {
+    await montar({ alcance: [CEDIS, ...SUC], ultimas: ult('2026-10-05') });
+    expect(CAPTURA_MENSUAL.has('00')).toBe(true);
+    const f15 = cmp.filas().find((f) => f.fecha === '2026-10-15')!;
+    expect(f15.faltan).toEqual([]);                 // 00 no está en `faltan`
+    expect(cmp.estadoDe(f15)).toBe('completo');
+    expect(cmp.filas().every((f) => !(f.faltan ?? []).includes('00'))).toBe(true);
+    expect(cmp.totalSucursales()).toBe(3);          // «n de 3», no «n de 4»
+  });
+
+  it('si el CEDIS SÍ sube un día, aparece entre quienes subieron pero no cambia el veredicto de las de diario', async () => {
+    await montar({ alcance: [CEDIS, ...SUC], datos: [...DATOS, dia('2026-10-14', '00')], ultimas: ult('2026-10-14') });
+    const f14 = cmp.filas().find((f) => f.fecha === '2026-10-14')!;
+    expect(f14.sucursales).toContain('00');
+    expect(f14.subieronDiarias).toBe(2);            // 01 y 03; la 02 sigue faltando
+    expect(f14.faltan).toEqual(['02']);
+    expect(cmp.estadoDe(f14)).toBe('parcial');
+  });
+
+  it('⭐ el panel mensual mide la antigüedad de la última captura contra el límite, en sus dos bordes', async () => {
+    const casos: Array<[string | null, string, number | null]> = [
+      ['2026-10-05', 'alcorriente', 11],
+      ['2026-09-15', 'alcorriente', LIMITE_MENSUAL_DIAS],        // 31 días exactos: todavía al corriente
+      ['2026-09-14', 'atrasada', LIMITE_MENSUAL_DIAS + 1],       // 32: atrasada
+      ['2026-06-01', 'atrasada', dias('2026-10-16', '2026-06-01')],
+      [null, 'sinregistro', null],                                // nunca: se DECLARA, no se inventa una edad
+    ];
+    for (const [ultima, estado, edad] of casos) {
+      TestBed.resetTestingModule();
+      await montar({ alcance: [CEDIS, ...SUC], ultimas: ult(ultima) });
+      expect(cmp.mensuales()).toEqual([{ sucursal: '00', nombre: 'CEDIS', ultima, dias: edad, estado }]);
+    }
+  });
+
+  it('⛔ sin el «hoy» del server NO se afirma si el CEDIS va al corriente: no hay panel', async () => {
+    await montar({ alcance: [CEDIS, ...SUC], ultimas: ult('2026-10-05'), hoy: null });
+    expect(cmp.mensuales()).toEqual([]);
+  });
+
+  it('el panel se pinta con su estado (y no aparece si no hay ninguna sucursal mensual a la vista)', async () => {
+    await montar({ alcance: [CEDIS, ...SUC], ultimas: ult('2026-09-01') });
+    const txt = (fix.nativeElement as HTMLElement).textContent ?? '';
+    expect(txt).toContain('Captura mensual');
+    expect(txt).toContain('Atrasada');
+    TestBed.resetTestingModule();
+    await montar();                                  // sólo 01, 02, 03
+    expect((fix.nativeElement as HTMLElement).textContent).not.toContain('Captura mensual');
+  });
+
+  it('⭐ mirando SÓLO el CEDIS, un día sin hojas no es hueco ni «completo»: no hay nada diario que comparar', async () => {
+    await montar({ alcance: [CEDIS, ...SUC], datos: [dia('2026-10-14', '00')], ultimas: ult('2026-10-14') });
+    cmp.vista.set('huecos');
+    cmp.cambiarSucursal('00');                       // al elegir el CEDIS, el filtro «huecos» ya no aplica
+    await tick();
+    expect(cmp.vista()).toBe('todos');
+    expect(cmp.hayDiarias()).toBe(false);
+    const e = Object.fromEntries(cmp.filas().map((f) => [f.fecha.slice(8), cmp.estadoDe(f)]));
+    expect(e['14']).toBe('capturas');
+    expect(e['13']).toBe('nodiaria');
+    expect(Object.values(e)).not.toContain('vacio');
+    expect(Object.values(e)).not.toContain('completo');
+    expect(cmp.kpis().find((k) => k.label === 'Días con huecos')).toBeUndefined();
+    expect(cmp.mensuales().map((m) => m.estado)).toEqual(['alcorriente']);
   });
 
   it('⭐ [candado] cada fila tiene tantas celdas como encabezados — un `display:flex` en el td las desalineó una vez', async () => {
