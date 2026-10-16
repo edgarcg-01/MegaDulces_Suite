@@ -639,3 +639,100 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(texto).not.toContain('$500');
   });
 });
+
+/**
+ * `[ARQ-RUTA.1]` — Con RD/RV la ruta se elige JUNTO A LA CAJA: en el renglón del turno, o en el
+ * encabezado en modo manual. El viejo selector suelto de abajo ya no existe.
+ */
+describe('TiendaArqueoComponent · [ARQ-RUTA.1] la ruta junto a la caja', () => {
+  let fix: ComponentFixture<TiendaArqueoComponent>;
+  let cmp: TiendaArqueoComponent;
+  let svc: ArqueoStub;
+
+  const raiz = (): HTMLElement => fix.nativeElement as HTMLElement;
+  const tick = async (): Promise<void> => {
+    await fix.whenStable();
+    await new Promise((r) => setTimeout(r, 0));
+    fix.detectChanges();
+  };
+  const selectorDeRutaEn = (sel: string): boolean =>
+    !!raiz().querySelector(`${sel} p-select[styleclass*="arq-fld-ruta"], ${sel} p-select.arq-fld-ruta, ${sel} .arq-fld-ruta`);
+
+  beforeEach(async () => {
+    svc = new ArqueoStub();
+    svc.rutas = () => of({
+      warehouse_code: '01',
+      rd: [{ route_code: '1D001', label: 'RUTA 21', zona: null, tipo: 'rd' as const }],
+      rv: [],
+    });
+    await TestBed.configureTestingModule({
+      imports: [TiendaArqueoComponent],
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        MessageService,
+        { provide: ArqueoService, useValue: svc },
+        {
+          provide: AuthService,
+          useValue: {
+            user: () => ({
+              username: 'encargada', warehouse_code: '01', role_name: 'encargado_tienda',
+              permissions: { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true, STORE_ARQUEO_RUTA_CAPTURAR: true },
+            }),
+            token: () => null,
+          },
+        },
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
+        { provide: DataScopeService, useValue: { warehouses: () => of([{ value: '01', label: 'PADRE HIDALGO' }]) } },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(TiendaArqueoComponent);
+    cmp = fix.componentInstance;
+  });
+
+  it('con un turno elegido, la ruta va en el renglón de la caja y no abajo', async () => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    fix.detectChanges();
+    await tick();
+    cmp.elegirTipo('rd');
+    await tick();
+
+    expect(cmp.turnoSel()?.caja).toBe('2');
+    expect(selectorDeRutaEn('.arq-turno-linea')).toBe(true);
+    expect(raiz().querySelector('.arq-block .arq-fld-ruta, label.arq-block p-select')).toBeNull();
+  });
+
+  it('en modo manual, la ruta va en el encabezado junto a Caja', async () => {
+    svc.resp = { turnos: [], aviso: null };
+    fix.detectChanges();
+    await tick();
+    cmp.manual.set(true);
+    cmp.elegirTipo('rd');
+    await tick();
+
+    expect(selectorDeRutaEn('.arq-head')).toBe(true);
+  });
+
+  it('⛔ con varios turnos y ninguno elegido no hay formulario: no queda un selector suelto', async () => {
+    svc.resp = { turnos: [turno(), turno({ folio: '88', caja: '3' })], aviso: null };
+    fix.detectChanges();
+    await tick();
+    cmp.turnoFolio.set('');
+    cmp.elegirTipo('rd');
+    await tick();
+
+    expect(cmp.puedeContar()).toBe(false);
+    expect(raiz().querySelector('.arq-fld-ruta')).toBeNull();
+    expect(raiz().textContent ?? '').not.toContain('Ruta que entrega');
+  });
+
+  it('fuera de RD/RV no aparece ningún selector de ruta', async () => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    fix.detectChanges();
+    await tick();
+    cmp.elegirTipo('cierre');
+    await tick();
+    expect(raiz().querySelector('.arq-fld-ruta')).toBeNull();
+  });
+});
