@@ -9538,6 +9538,123 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   sin ver datos no se sabe si `c12` trae IVA/descuento ni si `f3` cuenta desde la base. **NO MEDIDO contra
   prod** (cifras ni tiempo).
 
+- [x] **[CAT-COSTO.6]** 🔨 **Los tres costos de Kepler en una sola fuente** (2026-10-15) —
+  `analytics.mv_kepler_costos` (mig `20261015115146`, `WITH NO DATA`, refresco nocturno
+  `analytics_refresh_kepler_costos` con umbral en `CRON_JOBS`). Una fila por sucursal × producto
+  (87,070 fichas, 00–08), todo en la unidad BASE de la ficha. **Definiciones de Compras (Francisco,
+  2026-10-14/15), verificadas contra el ERP:** **estándar** = `kdii.c77` (el del catálogo, lleva el
+  margen) · **último** = renglón de la última **XA2001 Aplica Orden Entrada**, y nada más (ni traspaso,
+  ni ajuste, ni la entrada física `X-A-40`); `c13/c9`, fecha `c68`, sin canceladas, documento de su
+  sucursal; si la sucursal no compró, la red y se declara (`ultimo_origen`) · **promedio** = costo del
+  kardex en la última salida (venta o traspaso): es contra el que Kepler mide la utilidad · `kdik.c16`
+  = costo de la **última entrada** (compra, traspaso o ajuste), sólo de referencia. ⛔ **Esto refuta a
+  la documentación**, que llamaba a `c16` «promedio ponderado» (`VERDAD_ABSOLUTA` §3.4, `ERP_KEPLER`
+  §2.1, la retractación de `FASE_CE`): en las 12,972 filas donde las dos hipótesis difieren, `c16`
+  sigue a la última entrada en **98.57 %** y al promedio acumulado `c8/c5` en **0.02 %** (el 61 % que
+  se citaba eran las filas donde los dos coinciden). Medido además: el promedio del kardex no se mueve
+  sin una entrada (99.7 % de 148,741 pares de días) y tras una compra queda entre el anterior y el de la
+  compra (89 %); el renglón XA2001 coincide con la `X-A-40` al 0.5 % en el 80 % (mediana 1.000) → `c12`
+  es unitario y SIN impuesto (cierra la duda que frenaba la Etapa 2b). Lo que falta se **declara** en
+  `*_motivo`: `sin_compra` 32,661 · `unidad_no_resuelta` 1,847 (la unidad base que se contradice entre
+  compra y catálogo — **la lista a depurar del analista de catálogo**) · `inverosimil` 660. Sin JOIN a
+  tablas con RLS (lección `[MR.9.1]`). Ensayo contra prod: 11 s el cuerpo completo; control `70001`/01 =
+  estándar 66.52 · último 69.98 · promedio 69.75 · última entrada 69.98. Migración probada en Docker
+  local (up · idempotente · REFRESH · CONCURRENTLY · down, revertido). **Candado
+  `test-newdb-kepler-costos.js` 31 ✔ / 0 ✗ / 1 no medido** contra prod: segunda implementación en JS
+  (12 fichas), folios de último = XA2001, ningún hueco sin motivo, unidad (medianas 1.0002 / 1.0000), no
+  es espejo (56.7 %) y **vigilancia de la premisa** (`c16` = última entrada 99.1 %, `c8/c5` 0.0 %);
+  **mutado para aceptar traspasos `U-A-50` como último costo → 8 ✗**. Pendiente: aplicar la mig en prod +
+  primer refresco; las pantallas que la consumen son `[CAT-COSTO.7]` en adelante.
+
+- [x] **[CAT-COSTO.7]** 🔨 **Costos · Etapa 2b: «Contra último costo»** (2026-10-15) — tercera vista de
+  `/compras/catalogo/costos` (`?vista=ultimo`): el costo estándar de cada sucursal × producto contra su
+  último costo de compra (XA2001), con el promedio al lado. Endpoint `GET commercial/standard-cost/contra-ultimo`
+  (antes de `:sku`, `COMPRAS_COSTO_ESTANDAR_VER`, sin permiso nuevo) sobre `analytics.mv_kepler_costos`;
+  contrato `libs/contracts/http/kepler-costos.contract.ts` (las cuatro definiciones en UN lugar, tipos,
+  etiquetas, orden); regla pura `clasificarContraUltimo` (±1 %; `sin_compra` / `unidad_no_clara` /
+  `sin_estandar` se DECLARAN, nunca como «igual»; un último costo en 0 es ausente) + `antiguedadUltimo`
+  (90 / 180 días). Resumen y chips sobre el MISMO universo que la tabla, sin veredicto ni antigüedad
+  (criterio `[CE.9]`); por defecto sólo sucursal × producto con venta en 30 d. Si la matview no está poblada
+  responde `disponible:false` y la pantalla lo dice en vez de pintar ceros. Pantalla
+  `compras-costos-ultimo.component.ts`: titular + `app-metric-strip` (venta con estándar abajo, la parte
+  con compra de 90 días, iguales, no comparables) · chips · filtros (texto, proveedor, sucursal, antigüedad
+  con `app-segmented`, con/sin venta) · `p-table` con folio XA2001 y «compra de otra sucursal» declarado ·
+  `app-load-state` · `app-freshness-pill` del cálculo nocturno · `app-context-help` con el tema nuevo
+  `costos-kepler`. **`check:pantalla` 10/10**; la pantalla padre pasa de 4 a **3** fallas (se quitó D.4c:
+  el selector de vistas era un `role=tablist` sin panel → `app-segmented`). Pruebas: regla 9/9 (2 negativas)
+  · componente 6/6 (2 negativas; **mutada para no mostrar el vacío → rojo**) · directorio de Compras
+  96 ✔. Compuertas: templates · templates-types · tokens · estilos · primeng · reactividad · tables ·
+  teclado · búsqueda · wiring · boundary en verde (la de emojis ya estaba roja por `portal`/`vendor`).
+  **Sin validación visual** (necesita la mig aplicada y el primer refresco). **NO MEDIDO: el tiempo de la
+  consulta contra la matview** (no existe en prod todavía).
+
+- [x] **[CAT-COSTO.7.1]** 🔨 **Lo que encontró la exploración visual** (2026-10-15) — recorrido con Playwright
+  en `localhost:4200` contra la API real; sólo la llamada `contra-ultimo` se sirvió con datos reales generados
+  por el mismo SQL + la misma regla empaquetada (la matview no existe en prod). (1) **«Unidad no clara» no decía
+  qué corregir** → `FilaContraUltimo.ultimo_unidad` + «La compra vino en PZA y la ficha está en KG, sin decir
+  cuántas KG trae una PZA». (2) **En celular no se veía ninguna cifra**: una regla GLOBAL de `styles.css`
+  (`@media max-width 30rem`) oculta toda columna `n+4` de cualquier `p-datatable` salvo la última, que queda
+  fija a la derecha → orden nuevo (Producto con sucursal/unidad/proveedor · Estándar · Último · Diferencia ·
+  …) + etiqueta corta en angosto. (3) **Defecto del estilo COMPARTIDO** `.surf-table--frozen-first`: el hover
+  de la columna fija se declaraba «opaco» con `color-mix(--table-hover, --card-bg)`, pero `--table-hover` es
+  rgba con alfa y el color-mix promedia el alfa → translúcido, se veía la columna de la derecha encima del
+  nombre en TODAS las tablas con primera columna fija → `linear-gradient(hover) sobre --card-bg`. (4) El
+  **Historial por producto arranca en el mes en curso** (preset compartido «Este mes», pedido de Compras) y
+  deja de usar `toISOString()`, que después de las 18:00 MX daba la fecha de mañana. (5) **Las 6 columnas
+  vacías de rutas** (`01-001…01-006`) en «Entre sucursales»: las rutas tienen `kepler_code` pero no ficha en
+  `kdii` → la lista de sucursales de las tres vistas se limita a `^[0-9]{2}$`. Pruebas: componente 7/7, Compras
+  472 ✔, costos 28 ✔.
+
+- [x] **[CAT-COSTO.5.1]** 🔨 **El Historial por producto respondía 500** (2026-10-15) — tardaba 60 s y caía
+  por el `statement_timeout`. Medido contra prod (70056): escalera 47 ms · muestras 210 ms · entradas 976 ms,
+  y **entradas unidas a `analytics.v_erp_goods_receipt_origin` > 90 s** (Postgres no le pasa el filtro a la
+  vista y la calcula entera). Ahora el origen se pide APARTE sólo para los folios encontrados
+  (`unnest(sucursal[], folio[])`): **~1 s**, 115 de 115 folios con origen. Si un folio trae más de una fila de
+  origen se toma la primera (antes multiplicaba la entrada). **Sin probar con la API reiniciada.**
+
+- [x] **[CAT-COSTO.9]** 🔨 **La historia por día de los tres costos** (2026-10-15) — pedido de Compras: una matriz
+  por tipo de costo (estándar · promedio · último) con selector ‹ día ›, reconstruida hacia atrás; coincidencia
+  contra la mayoría; «Contra último costo» se queda (decisiones de Francisco, 2026-10-15). Mig
+  `20261015214044`: (1) `analytics.kepler_costo_estandar_foto` = **foto nocturna de la ficha** (`kdii.c77`), la
+  única historia que Kepler NO guarda; un renglón sólo cuando cambia (probado: misma corrida dos veces → 0
+  renglones; un cambio → 1). RLS **sin FORCE** a propósito (el refresco es el dueño; con FORCE la matview que la
+  lee se poblaría vacía — `[MR.8.2]`). (2) `analytics.fn_kepler_estandar_foto()`, que corre como **paso previo
+  del REFRESH en la misma transacción** (`AJUSTES_REFRESCO`), así no nace un proceso agendado aparte. (3)
+  `analytics.mv_kepler_costos_cambios`: puntos de cambio con vigencia `desde ≤ D < hasta` — **último** = cada
+  XA2001 (historia completa) · **promedio** = el kardex de cada día con salida · **estándar** = la foto; antes de
+  la primera foto, deducido de la venta (`c62/c58`) y declarado (`fuente`). **Medido: el promedio NO se puede
+  comprimir «cuando cambia»** — el kardex guarda cada salida a centavos y el costo por pieza baila según el
+  tamaño de la salida: 344,784 «cambios» a 4 decimales, 166,426 a 2 (95,193 de UN centavo), y un umbral relativo
+  acumula deriva (99.4 %) → un renglón por día con salida, exacto. Total ~948 mil renglones; cuerpo ~35–45 s →
+  nocturno con umbral en `CRON_JOBS`. **Existencia por día, medido para `[CAT-COSTO.11]`**: la suma con signo
+  del kardex = `kdil` en **100 %** en 01–07, 99.9 % en 08, 79 % en 00; el kardex empieza el día que cada almacén
+  pasó a Kepler (01 27-jun-26 · 06 14-ago · 07 7-sep · 08 18-sep…), antes es «sin dato». Candado
+  `test-newdb-kepler-costos-historia.js` **18 ✔ / 0 ✗ / 1 no medido** contra prod: hoy = `mv_kepler_costos`
+  (último 21,601/21,601 · promedio 29,881/29,897), 14 fechas pasadas recalculadas en JS desde XA2001/kardex
+  crudos, vigencias sin traslape ni hueco (78,778 series), último sólo de compras; **mutado para tomar la
+  `X-A-40` → rojo**. Migración probada en Docker local (up ×2 · función · REFRESH · CONCURRENTLY · down,
+  revertido).
+
+- [x] **[CAT-COSTO.10]** 🔨 **Las tres matrices de costo, día por día** (2026-10-15) — la hoja de Compras: producto ×
+- [x] **[CAT-COSTO.10.1]** 🔨 **Lo que encontró la prueba visual de las matrices** (2026-10-15) — (1) en modo oscuro las celdas «sin dato» y el chip seleccionado salían blancos: `--c-surface-2` no se redeclara en el tema oscuro → en Costos se usa `--hover-bg` (el token global queda como hallazgo: 137 usos); (2) el «sin dato» del 00 decía «todavía no estaba en Kepler» y la causa real es otra (el estándar antes de la foto se deduce de la venta y el CEDIS no vende) → motivo por caso; (3) la etiqueta «Un almacén se sale» salía con 3 almacenes fuera → **«Fuera de la mayoría»**; (4) escribir la fecha a mano no movía la tabla (`onSelect` sólo escucha el clic en el calendario) → `ngModelChange`; (5) **pedido de Francisco: menos pantalla en menús y KPI, más bandeja** → la tira de 5 KPIs repetía los conteos de los chips: queda compacta en el renglón del titular sólo con lo que los chips no dicen (% iguales, un solo almacén), y chips + filtros en un renglón sin caja. La tabla sube de ~670 px a 488 px en 1440×900. Compuertas templates/tokens/pantalla verdes; 20 pruebas. Sin validar contra datos reales del endpoint (respuestas generadas desde prod).
+- [x] **[CAT-COSTO.11]** 🔨 **El historial abre en el costo de la pestaña** (2026-10-15) — pedido de Francisco: el clic en un producto mandaba al historial sin el filtro de la pestaña. Ahora la URL lleva `costo` (estandar/promedio/ultimo) y el historial abre filtrado en ese costo; desde «Contra último costo» abre con los tres. El historial gana el **costo promedio**: se lee de la misma historia por día que las matrices (`mv_kepler_costos_cambios`, tipo promedio) y se comprime a sus cambios con la tolerancia de 0.5 % **contra el último valor reportado** (no contra el día anterior: una deriva lenta de +0.3 %/día sí es un cambio; prueba de mutación en rojo). Mientras esa historia no esté calculada se declara «sin medir» (`promedio_disponible:false`), no «sin cambios». La «entrada» se rotula **Último costo** (es la compra XA2001). En promedio la gráfica escalona el promedio y no pinta compras. Sin el 00 (el historial lo excluye para los tres). Pruebas: 487 Compras (view) + 39 del servidor; sin fallas nuevas en check:pantalla. ⚠️ Sin probar contra el endpoint real: la API local no se ha reiniciado y la matview no está en prod.
+  almacén (00 CEDIS–08) con el costo de ESE día, mayoría y **coincidencia**, y selector ‹ día › (flechas +
+  calendario, sin días futuros ni anteriores a la historia). Endpoint `GET commercial/standard-cost/matriz?tipo=
+  estandar|promedio|ultimo&fecha=` sobre `mv_kepler_costos_cambios` (`desde ≤ fecha < hasta`); regla pura
+  `filaMatriz` que NO reimplementa la comparación: envuelve a `clasificarEntreSucursales` (mayoría a centavos,
+  ±0.5 %, se declaran sin mayoría / unidad distinta / un solo almacén) y agrega la coincidencia = parte de los
+  almacenes comparados con el costo de la mayoría. Un almacén cuya historia empieza después del día pedido
+  estaba en Wincaja: su columna dice **«sin dato»**, nunca cero. El estándar deducido de la venta va en cursiva.
+  **«Entre sucursales» pasa a ser la pestaña «Costo estándar»** (es la misma comparación, ahora con el CEDIS y
+  con fecha); vistas: Costo estándar · Costo promedio · Último costo · Contra último costo · Historial por
+  producto. El padre queda como contenedor; cada vista con su componente y su prueba. Ajustes de paso: la
+  tabla de «Contra último costo» usa la salida estándar en angosto (`dt-scope` + `dt-stack` + `data-label`) en
+  lugar de los parches a mano de `[CAT-COSTO.7.1]`; la matriz se marca `dt-matrix-ok` (pivote); las dos vistas
+  ya no pintan titular ni conteos si la fuente viene `disponible:false`. Pruebas: `filaMatriz` 7/7 (3
+  negativas) · matriz 8/8 (3 negativas; **mutada para nunca decir «sin dato» → rojo**) · contenedor 5/5 ·
+  Compras **479 ✔** · costos 35 ✔. `check:pantalla` matriz 10/10 y contra-último 10/10; el contenedor baja de
+  3 a 2 fallas heredadas. **Sin validación visual ni tiempo medido**: la historia no existe en prod todavía.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

@@ -2947,9 +2947,14 @@ code.comm-code,
 .surf-table--frozen-first.surf-table--sticky thead > tr > th:first-child {
   z-index: 3;
 }
-/* Columna congelada en hover: opaca (mezcla hover+card) para tapar lo que scrollea debajo. */
+/* Columna congelada en hover: opaca para tapar lo que scrollea debajo.
+ * ⛔ [CAT-COSTO.7] Antes era `color-mix(in srgb, var(--table-hover), var(--card-bg))`, y NO era
+ * opaca: `--table-hover` es `--overlay-hover`, un rgba con alfa, y color-mix promedia también el
+ * alfa → la celda quedaba translúcida y en la fila bajo el cursor se veía la columna de la
+ * derecha encima del nombre (visto 2026-10-15 en Costos a 390 px). El hover se pinta ENCIMA de
+ * la card, que sí es opaca. */
 .surf-table--frozen-first tbody > tr:hover > td:first-child {
-  background: color-mix(in srgb, var(--table-hover), var(--card-bg));
+  background: linear-gradient(var(--table-hover), var(--table-hover)), var(--card-bg);
 }
 
 /* Densidad compacta opt-in (~32px). Default = p-datatable-sm. */

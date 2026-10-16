@@ -2,6 +2,41 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type {
+  AntiguedadUltimo,
+  RespuestaContraUltimo,
+  RespuestaMatrizCostos,
+  TipoCostoKepler,
+  VeredictoContraUltimo,
+  VeredictoMatrizCostos,
+} from '@megadulces/contracts';
+
+/** `[CAT-COSTO.10]` Filtros de la matriz de costos. */
+export interface ConsultaMatrizCostos {
+  tipo: TipoCostoKepler;
+  /** `YYYY-MM-DD`; sin fecha el servidor usa hoy. */
+  fecha?: string;
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoMatrizCostos;
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+/** `[CAT-COSTO.7]` Filtros de la vista «Contra último costo». */
+export interface ConsultaContraUltimo {
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoContraUltimo;
+  antiguedad?: AntiguedadUltimo;
+  /** Por defecto el servidor usa `true`. */
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
 
 /**
  * `[CE.5]` — Costo estándar de Kepler por producto.
@@ -197,6 +232,41 @@ export class CostoEstandarService {
   }
 
   /**
+   * `[CAT-COSTO.10]` La matriz de un costo (estándar, promedio o último) el día pedido: producto ×
+   * almacén con la coincidencia contra la mayoría. El servidor decide todo; la pantalla pinta.
+   */
+  matriz(q: ConsultaMatrizCostos): Observable<RespuestaMatrizCostos> {
+    let p = new HttpParams().set('tipo', q.tipo);
+    if (q.fecha) p = p.set('fecha', q.fecha);
+    if (q.q?.trim()) p = p.set('q', q.q.trim());
+    if (q.proveedor_id) p = p.set('proveedor_id', q.proveedor_id);
+    if (q.sucursal) p = p.set('sucursal', q.sucursal);
+    if (q.veredicto) p = p.set('veredicto', q.veredicto);
+    if (q.solo_con_venta) p = p.set('solo_con_venta', 'true');
+    if (q.limite) p = p.set('limite', String(q.limite));
+    if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
+    return this.http.get<RespuestaMatrizCostos>(`${this.base}/matriz`, { params: p });
+  }
+
+  /**
+   * `[CAT-COSTO.7]` Costo estándar contra el último costo de compra (XA2001). Todo lo decide el
+   * servidor (`clasificarContraUltimo`); la pantalla sólo pinta. Por defecto el servidor muestra
+   * sólo sucursal × producto con venta en 30 días: `solo_con_venta=false` lo abre a todas las fichas.
+   */
+  contraUltimo(q: ConsultaContraUltimo = {}): Observable<RespuestaContraUltimo> {
+    let p = new HttpParams();
+    if (q.q?.trim()) p = p.set('q', q.q.trim());
+    if (q.proveedor_id) p = p.set('proveedor_id', q.proveedor_id);
+    if (q.sucursal) p = p.set('sucursal', q.sucursal);
+    if (q.veredicto) p = p.set('veredicto', q.veredicto);
+    if (q.antiguedad) p = p.set('antiguedad', q.antiguedad);
+    if (q.solo_con_venta === false) p = p.set('solo_con_venta', 'false');
+    if (q.limite) p = p.set('limite', String(q.limite));
+    if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
+    return this.http.get<RespuestaContraUltimo>(`${this.base}/contra-ultimo`, { params: p });
+  }
+
+  /**
    * `[CAT-COSTO.5]` Trazabilidad de un producto. El servidor sólo acota el periodo; sucursal,
    * proveedor y tipo de cambio se filtran en la pantalla (son pocas filas).
    */
@@ -251,6 +321,10 @@ export interface RespuestaHistorial {
   estandar_al_inicio: Record<string, number | null>;
   cambios_estandar: CambioEstandar[];
   entradas: EntradaTrazada[];
+  /** [CAT-COSTO.11] false mientras la historia por día no esté calculada: se declara, no se pinta vacía. */
+  promedio_disponible: boolean;
+  promedio_al_inicio: Record<string, number | null>;
+  cambios_promedio: CambioEstandar[];
 }
 
 export type VeredictoEntreSucursales = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';
