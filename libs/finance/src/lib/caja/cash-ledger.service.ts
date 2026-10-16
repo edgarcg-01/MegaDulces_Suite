@@ -1283,12 +1283,40 @@ export class CashLedgerService {
          *
          * ⚠️ Límite abierto: mientras declarar el documento desde CAOS sea opcional, lo que no se
          * declare vuelve a duplicarse. Eso se cierra haciéndolo obligatorio, y va aparte.
+         *
+         * ⛔⛔ `[CGA-A.9]` **EL `AND yac.origen_tipo = 'caos'` NO ES COSMÉTICO: SIN ÉL, ESTE
+         * FILTRO ESCONDE DINERO DE OTRA CAMIONETA.**
+         *
+         * Medido en prod el 2026-10-16, con las camionetas recién cableadas:
+         *
+         *     01-006 ruta_28  U-A-5 0000013  $13,699.00  ← capturado, glosa "U-A-5 0000013 · CONTADO"
+         *     01-002 ruta_22  U-A-5 0000013  $15,321.00  ← DESAPARECIÓ de la bandeja
+         *
+         * ⭐ **`doc_tipo + folio` NO IDENTIFICA UN COBRO.** El folio de la camioneta es
+         * consecutivo **por unidad**, no global: que dos coincidan el mismo día es lo normal, no
+         * la excepción. Con 4 camionetas ya colisionan; con las 11 del censo sería diario. La
+         * identidad completa lleva la **sucursal** (`01-002` vs `01-006`), y está en `origen_ref`.
+         *
+         * ⚠️ Y el modo de fallar es el peor de todos: **el dinero no se pierde, se vuelve
+         * invisible**. La fila sigue en la vista, correcta, y la pantalla no la ofrece — así que
+         * nadie la captura y nadie se entera. $15,321.00 así.
+         *
+         * **Por qué acotar a `caos` es la corrección correcta y no un parche:** este descuento
+         * existe SÓLO para lo capturado desde la otra fuente (CAOS), que declara el documento en
+         * la glosa porque no tiene `origen_ref` propio. Un movimiento con `origen_tipo` de Kepler
+         * YA lo excluye la vista por `origen_ref`, que es exacto. O sea que el `LIKE` sobre la
+         * glosa nunca debió mirar esas filas.
+         *
+         * ⚠️ **Lo que NO cierra, declarado:** una captura desde CAOS que declare `U-A-5 0000013`
+         * sigue pudiendo tapar a otra sucursal con el mismo folio. Se cierra escribiendo la
+         * sucursal en la glosa al capturar — va aparte, y hasta entonces el hueco tiene nombre.
          */
         return x.whereNotExists((sub: any) => sub
           .select(trx.raw('1'))
           .from('finance.cash_ledger as yac')
           .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
              AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
+             AND yac.origen_tipo = 'caos'
              AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
                                 || ' ' || v_caja_movimientos_pendientes.folio || '%'`));
       };
@@ -2445,6 +2473,7 @@ export class CashLedgerService {
         .from('finance.cash_ledger as yac')
         .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
            AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
+           AND yac.origen_tipo = 'caos'
            AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
                               || ' ' || v_caja_movimientos_pendientes.folio || '%'`);
 
