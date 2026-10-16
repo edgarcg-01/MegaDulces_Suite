@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
   FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt,
 } from '../shared/freshness';
@@ -165,7 +165,32 @@ const barcodeFmt = (v: unknown): string | null => {
 export class CommercialLabelsService {
   private readonly logger = new Logger(CommercialLabelsService.name);
 
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * ⛔ `[ETQ-CAMBIOS.11.1]` El COSTO no sale hacia un CLIENTE.
+   *
+   * Edgar decidió que el costo lo vea "todo el que usa etiquetas", y esa decisión se respeta:
+   * los 13 roles internos la conservan. Lo que esa decisión no evaluó es a quién MÁS se lo
+   * entrega: el endpoint está gateado por `STORE_LABELS_VER`, y ese permiso lo tienen CATORCE
+   * roles sin permiso de costo -- ~57 usuarios activos, medido en prod el 2026-10-16 -- entre
+   * ellos `customer_b2b`, que es un CLIENTE EXTERNO con 3 usuarios activos.
+   *
+   * Acá no se filtra un margen del que se despeja el costo (eso fue [CAT-PRECIO.5.1]): se
+   * publica el COSTO DE COMPRA directo, en dos columnas y con su historia. Dárselo a un
+   * cliente es entregarle lo que le pagamos a nuestros proveedores.
+   *
+   * Se vacía `costos`, que NO es un estado inventado: la propia lista ya lo produce para el
+   * código sin costo y la pantalla lo pinta como «sin dato». El precio, el UXC y el mayoreo
+   * siguen viajando: son precios de venta, no cuestan nada que el cliente los vea.
+   */
+  private sinCostoParaCliente(fichas: FichaCompras[]): FichaCompras[] {
+    if (this.tenantCtx.get()?.roleName !== 'customer_b2b') return fichas;
+    return fichas.map((f) => ({ ...f, costos: [], impuesto_pct: null }));
+  }
 
   /**
    * ¿Existe `catalog.product_barcodes` (barcodes por unidad, 1 SKU→N)? Se consulta antes de usarla
@@ -500,7 +525,7 @@ export class CommercialLabelsService {
       impuesto_pct: null,
       costos: [],
     });
-    return { fichas, historial_desde: historialDesde, historial_error: historialError };
+    return { fichas: this.sinCostoParaCliente(fichas), historial_desde: historialDesde, historial_error: historialError };
   }
 
   /**
