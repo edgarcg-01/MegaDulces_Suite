@@ -5,7 +5,12 @@
  * nombre en contratos, más la semana completa y las cuentas de ORIGEN (`finance.bank_accounts`).
  */
 
-export type PaymentObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable';
+/**
+ * `[TP.18]` `kepler_payable` es la deuda viva de Kepler que NO pasó por Entregas de Compras
+ * (servicios, fletes, toda factura sin capturar). No tiene tabla propia: se deriva de
+ * `analytics.v_supplier_payables` y su `obligation_id` es un uuid determinístico (ADR-094).
+ */
+export type PaymentObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 export type PaymentMethod = 'transferencia' | 'cheque' | 'efectivo' | 'cargo_automatico';
 
 export interface PaymentCalendarDaySummary {
