@@ -35,7 +35,7 @@ export type TipoCostoKepler = 'estandar' | 'promedio' | 'ultimo';
 export type VeredictoMatrizCostos = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';
 
 export const ETIQUETA_VEREDICTO_MATRIZ: Record<VeredictoMatrizCostos, string> = {
-  distinto: 'Un almacén se sale',
+  distinto: 'Fuera de la mayoría',
   sin_mayoria: 'Sin mayoría',
   unidad_distinta: 'Unidad distinta',
   igual: 'Iguales',

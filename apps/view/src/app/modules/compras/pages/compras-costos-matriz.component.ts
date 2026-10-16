@@ -78,7 +78,7 @@ function sumarDias(fecha: string, dias: number): string {
         <div class="cm-dia" role="group" aria-label="Día que se está viendo">
           <button type="button" class="cm-flecha" (click)="moverDia(-1)" [disabled]="!puedeAtras()"
                   aria-label="Día anterior"><i class="pi pi-chevron-left" aria-hidden="true"></i></button>
-          <p-datepicker [ngModel]="fechaComoFecha()" (onSelect)="onFecha($event)" dateFormat="dd/mm/yy"
+          <p-datepicker [ngModel]="fechaComoFecha()" (ngModelChange)="onFecha($event)" dateFormat="dd/mm/yy"
                         [maxDate]="hoyComoFecha" [minDate]="minimaComoFecha()" appendTo="body"
                         ariaLabel="Día" inputStyleClass="cm-dp" />
           <button type="button" class="cm-flecha" (click)="moverDia(1)" [disabled]="!puedeAdelante()"
@@ -87,6 +87,13 @@ function sumarDias(fecha: string, dias: number): string {
             <button type="button" class="cm-hoy" (click)="irAHoy()">Hoy</button>
           }
         </div>
+        @if (datosDisponibles(); as d) {
+          <p class="cm-titular" [title]="queEs()">
+            {{ n(d.resumen.distinto) }} productos tienen un almacén con {{ nombreCosto().toLowerCase() }} distinto al de la mayoría
+            el {{ fechaLarga(d.fecha) }}
+          </p>
+          <app-metric-strip [items]="kpis()" mode="strip" density="compact" [ariaLabel]="'Coincidencia de ' + nombreCosto()" />
+        }
         <div class="cm-cabeza-der">
           @if (datos()?.disponible) {
             <app-freshness-pill measures="data" [since]="datos()?.calculado_al ?? null" [staleAfterSec]="unDia" label="costos" />
@@ -98,14 +105,8 @@ function sumarDias(fecha: string, dias: number): string {
       <app-load-state [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="noDisponible()"
                       emptyIcon="pi-clock" emptyTitle="La historia de costos todavía no se ha calculado"
                       emptyHint="Se calcula cada noche desde Kepler. Vuelve a entrar mañana." (retry)="recargar()">
+        <section class="cm-barra" aria-label="Filtros">
         @if (datosDisponibles(); as d) {
-          <p class="cm-titular">
-            {{ n(d.resumen.distinto) }} productos tienen un almacén con {{ nombreCosto().toLowerCase() }} distinto al de la mayoría
-            el {{ fechaLarga(d.fecha) }}.
-          </p>
-          <p class="cm-sub">{{ queEs() }} Tolerancia {{ d.tolerancia_pct }} %.</p>
-          <app-metric-strip [items]="kpis()" mode="strip" [ariaLabel]="'Coincidencia de ' + nombreCosto()" />
-
           <div class="cm-chips" role="group" aria-label="Filtrar por resultado">
             @for (ch of chips; track ch.id) {
               <button type="button" [class]="'cm-chip cm-tono-' + ch.tono"
@@ -118,28 +119,27 @@ function sumarDias(fecha: string, dias: number): string {
           </div>
         }
 
-        <section class="cm-filtros" aria-label="Filtros">
           <label class="cm-f">
-            <span>Buscar producto</span>
+            <span class="sr-only">Buscar producto</span>
             <input type="search" [value]="busqueda" (input)="onBuscar($any($event.target).value)"
-                   placeholder="SKU o nombre" autocomplete="off" spellcheck="false" />
+                   placeholder="Buscar SKU o nombre" autocomplete="off" spellcheck="false" />
           </label>
           <label class="cm-f">
-            <span>Proveedor</span>
+            <span class="sr-only">Proveedor</span>
             <p-select [options]="opcionesProveedor()" optionLabel="label" optionValue="value"
                       [ngModel]="proveedor()" (onChange)="onProveedor($event.value)"
-                      [filter]="true" filterBy="label" [showClear]="true" placeholder="Todos"
+                      [filter]="true" filterBy="label" [showClear]="true" placeholder="Todos los proveedores"
                       appendTo="body" ariaLabel="Proveedor" class="cm-sel" />
           </label>
           <label class="cm-f">
-            <span>Almacén que se sale</span>
+            <span class="sr-only">Almacén que se sale</span>
             <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value"
                       [ngModel]="sucursal()" (onChange)="onSucursal($event.value)"
-                      [showClear]="true" placeholder="Cualquiera" appendTo="body" ariaLabel="Almacén" class="cm-sel" />
+                      [showClear]="true" placeholder="Almacén que se sale" appendTo="body" ariaLabel="Almacén" class="cm-sel" />
           </label>
           <label class="cm-chk">
             <p-checkbox [binary]="true" [inputId]="'cm-venta-' + tipo()" [ngModel]="soloConVenta()" (ngModelChange)="onSoloConVenta($event)" />
-            <span>Comparar sólo almacenes con venta en 30 días</span>
+            <span>Sólo almacenes con venta 30 d</span>
           </label>
         </section>
 
@@ -172,14 +172,14 @@ function sumarDias(fecha: string, dias: number): string {
                     <td class="comm-num cm-mono cm-celda" [class.is-fuera]="c.fuera" [class.is-deducido]="c.fuente === 'venta'"
                         [pTooltip]="tipCelda(c)" tooltipPosition="top">{{ dinero(c.costo) }}</td>
                   } @else if (sinDatoEse(s.desde)) {
-                    <td class="comm-num cm-vacia" pTooltip="Ese día este almacén todavía no estaba en Kepler">sin dato</td>
+                    <td class="comm-num cm-vacia" [pTooltip]="porQueSinDato(s.desde)">sin dato</td>
                   } @else {
                     <td class="comm-num cm-vacia" [pTooltip]="'Sin ' + nombreCosto().toLowerCase() + ' en este almacén ese día'">—</td>
                   }
                 }
                 <td class="comm-num cm-mono cm-fuerte">{{ f.mayoria === null ? '—' : dinero(f.mayoria) }}</td>
                 <td class="comm-num cm-mono">{{ f.coincidencia_pct === null ? '—' : f.coincidencia_pct + ' %' }}</td>
-                <td><p-tag [value]="etiqueta(f.veredicto)" [severity]="severidad(f.veredicto)" /></td>
+                <td class="cm-res"><p-tag [value]="etiqueta(f.veredicto)" [severity]="severidad(f.veredicto)" /></td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
@@ -193,45 +193,46 @@ function sumarDias(fecha: string, dias: number): string {
         <footer class="cm-notas">
           <p>{{ nota() }}</p>
           <p>Celda en ámbar: ese almacén se sale de la mayoría. Celda en cursiva: estándar deducido de la venta (antes de que
-            se empezara a guardar la foto de la ficha). «sin dato»: ese día el almacén todavía estaba en Wincaja.
-            La venta de 30 días es la de hoy.</p>
+            se empezara a guardar la foto de la ficha). «sin dato»: ese día no hay historia de ese costo en ese almacén
+            (todavía estaba en Wincaja, o no vende); el motivo está al pasar el cursor. Dos costos se cuentan iguales si
+            difieren menos de {{ datos()?.tolerancia_pct ?? 0.5 }} %. La venta de 30 días es la de hoy.</p>
         </footer>
       </app-load-state>
     </div>
   `,
   styles: [`
     :host { display: block; }
-    .cm { display: flex; flex-direction: column; gap: 1rem; container-type: inline-size; }
-    .cm-cabeza { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+    .cm { display: flex; flex-direction: column; gap: .625rem; container-type: inline-size; }
+    .cm-cabeza { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+    .cm-cabeza .cm-titular { flex: 1 1 24rem; }
     .cm-cabeza-der { display: flex; align-items: center; gap: .5rem; }
     .cm-dia { display: inline-flex; align-items: center; gap: .35rem; }
     .cm-flecha, .cm-hoy { min-height: 2.25rem; min-width: 2.25rem; padding: 0 .6rem; border: 1px solid var(--c-divider);
       border-radius: 8px; background: var(--c-surface-1); color: var(--c-text-1); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
-    .cm-flecha:hover:not(:disabled), .cm-hoy:hover { background: var(--c-surface-2); }
+    .cm-flecha:hover:not(:disabled), .cm-hoy:hover { background: var(--hover-bg); }
     .cm-flecha:disabled { opacity: .4; cursor: default; }
     .cm-flecha:focus-visible, .cm-hoy:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .cm-titular { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--c-text-1); line-height: 1.3; }
-    .cm-sub { margin: .35rem 0 .75rem; font-size: var(--fs-sm); color: var(--c-text-2); }
-    .cm-chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
-    .cm-chip { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.25rem; padding: 0 .75rem;
+    .cm-titular { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); color: var(--c-text-1); line-height: 1.3; }
+    .cm-barra { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    .cm-chips { display: flex; flex-wrap: wrap; gap: .375rem; margin-right: auto; }
+    .cm-chip { display: inline-flex; align-items: center; gap: .5rem; min-height: 2rem; padding: 0 .625rem;
       border: 1px solid var(--c-divider); border-radius: 999px; background: var(--c-surface-1);
       color: var(--c-text-1); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
-    .cm-chip:hover { background: var(--c-surface-2); }
+    .cm-chip:hover { background: var(--hover-bg); }
     .cm-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .cm-chip.is-sel { border-color: var(--action); background: var(--c-surface-2); font-weight: var(--fw-bold); }
+    .cm-chip.is-sel { border-color: var(--action); background: var(--hover-bg); font-weight: var(--fw-bold); }
     .cm-chip-n { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--c-text-2); }
     .cm-tono-bad .cm-chip-n { color: var(--bad-fg); }
     .cm-tono-warn .cm-chip-n { color: var(--warn-fg); }
     .cm-tono-ok .cm-chip-n { color: var(--ok-fg); }
-    .cm-filtros { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-end; margin-top: 1rem;
-      background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 10px; padding: .625rem .875rem; }
-    .cm-f { display: flex; flex-direction: column; gap: .2rem; font-size: var(--fs-xs); color: var(--c-text-2); }
-    .cm-f input { height: 2.25rem; width: 16rem; max-width: 100%; border: 1px solid var(--c-divider); border-radius: 8px;
+    .cm-f { display: flex; flex-direction: column; font-size: var(--fs-xs); color: var(--c-text-2); }
+    .cm-f input { height: 2.25rem; width: 13rem; max-width: 100%; border: 1px solid var(--c-divider); border-radius: 8px;
       padding: 0 .6rem; font: inherit; font-size: var(--fs-sm); background: var(--c-surface-1); color: var(--c-text-1); }
     .cm-f input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-    .cm-sel { min-width: 14rem; }
+    .cm-sel { min-width: 12rem; }
     .cm-chk { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.25rem; font-size: var(--fs-sm); color: var(--c-text-1); }
-    .cm-tabla { margin-top: 1rem; background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 10px; overflow-x: auto; }
+    .cm-tabla { background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 10px; overflow-x: auto; }
+    .cm-tabla td:first-child, .cm-tabla th:first-child { min-width: 22rem; }
     .cm-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .cm-fuerte { font-weight: var(--fw-bold); }
     .cm-prod { font-weight: var(--fw-bold); color: var(--c-text-1); background: none; border: none; padding: 0; font: inherit;
@@ -241,7 +242,8 @@ function sumarDias(fecha: string, dias: number): string {
     .cm-meta { font-size: var(--fs-xs); color: var(--c-text-3); }
     .cm-celda.is-fuera { background: var(--warn-soft-bg); color: var(--c-text-1); font-weight: var(--fw-bold); }
     .cm-celda.is-deducido { font-style: italic; color: var(--c-text-2); }
-    .cm-vacia { color: var(--c-text-3); background: var(--c-surface-2); font-size: var(--fs-xs); }
+    .cm-vacia { color: var(--c-text-3); background: var(--hover-bg); font-size: var(--fs-xs); white-space: nowrap; }
+    .cm-res { white-space: nowrap; }
     .cm-sin-hist { color: var(--c-text-3); }
     .cm-vacio { text-align: center; padding: 1.5rem; color: var(--c-text-2); }
     .cm-notas { margin-top: 1rem; font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5; }
@@ -333,19 +335,19 @@ export class ComprasCostosMatrizComponent {
   });
   readonly puedeAdelante = computed(() => this.fecha() < this.hoy);
 
+  /**
+   * Los conteos por resultado ya van en los chips; la tira (compacta, en el renglón del titular) sólo lleva
+   * lo que los chips no dicen: la proporción de iguales y los productos de un solo almacén.
+   */
   readonly kpis = computed<MetricStripItem[]>(() => {
-    const d = this.datos();
-    if (!d) return [];
-    const r = d.resumen;
+    const r = this.datos()?.resumen;
+    if (!r) return [];
     const comparables = r.distinto + r.igual;
     return [
-      { label: 'Productos iguales', value: comparables ? Math.round((100 * r.igual) / comparables) : 0, format: 'percent', tone: 'ok',
-        sub: `${this.n(r.igual)} de ${this.n(comparables)} comparables`,
+      { label: 'iguales', value: comparables ? Math.round((1000 * r.igual) / comparables) / 10 : 0, format: 'percent', tone: 'ok',
+        sub: `${this.n(r.igual)} de ${this.n(comparables)}`,
         ...(comparables ? {} : { state: 'no_medido' as const, stateNote: 'no hay productos comparables con estos filtros' }) },
-      { label: 'Un almacén se sale', value: r.distinto, format: 'number', tone: 'bad', sub: 'productos' },
-      { label: 'Sin mayoría', value: r.sin_mayoria, format: 'number', tone: 'warn', sub: 'empate entre almacenes' },
-      { label: 'Unidad distinta', value: r.unidad_distinta, format: 'number', tone: 'default', sub: 'no se comparan' },
-      { label: 'Un solo almacén', value: r.una_plaza, format: 'number', tone: 'muted', sub: 'sin con qué comparar' },
+      { label: 'en un solo almacén', value: r.una_plaza, format: 'number', tone: 'muted', sub: 'sin con qué comparar' },
     ];
   });
 
@@ -402,8 +404,19 @@ export class ComprasCostosMatrizComponent {
   }
   tipColumna(s: { codigo: string; nombre: string | null; desde: string | null }): string {
     const nombre = s.nombre || s.codigo;
-    if (!s.desde) return `${nombre}: sin historia de este costo`;
+    if (!s.desde) return `${nombre}: ${this.porQueSinDato(null)}`;
     return this.sinDatoEse(s.desde) ? `${nombre}: con dato desde el ${this.fechaLarga(s.desde)}` : nombre;
+  }
+  /**
+   * Por qué una columna no tiene dato. Son dos ausencias distintas y no se pintan igual:
+   * el almacén no tiene NINGUNA historia de este costo, o su historia empieza después de ese día.
+   */
+  porQueSinDato(desde: string | null): string {
+    if (desde) return `La historia de este costo en este almacén empieza el ${this.fechaLarga(desde)}`;
+    if (this.tipo() === 'estandar') {
+      return 'Sin historia del costo estándar: antes de la foto nocturna de la ficha se deduce de la venta, y este almacén no vende';
+    }
+    return 'Este almacén no tiene historia de este costo';
   }
   tipCelda(c: CeldaMatrizCostos): string {
     const partes = [`desde el ${this.fechaLarga(c.desde)}`];

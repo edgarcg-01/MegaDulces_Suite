@@ -194,9 +194,9 @@ const UN_DIA_Y_POCO = 26 * 3600;
     .cu-chip { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.25rem; padding: 0 .75rem;
       border: 1px solid var(--c-divider); border-radius: 999px; background: var(--c-surface-1);
       color: var(--c-text-1); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
-    .cu-chip:hover { background: var(--c-surface-2); }
+    .cu-chip:hover { background: var(--hover-bg); }
     .cu-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .cu-chip.is-sel { border-color: var(--action); background: var(--c-surface-2); font-weight: var(--fw-bold); }
+    .cu-chip.is-sel { border-color: var(--action); background: var(--hover-bg); font-weight: var(--fw-bold); }
     .cu-chip-n { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--c-text-2); }
     .cu-tono-bad .cu-chip-n { color: var(--bad-fg); }
     .cu-tono-warn .cu-chip-n { color: var(--warn-fg); }
