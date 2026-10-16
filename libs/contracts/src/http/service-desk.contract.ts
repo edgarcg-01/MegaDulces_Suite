@@ -194,6 +194,22 @@ export interface SdCatalogResponse {
   impacts: readonly SdImpact[];
 }
 
+/** `[MS.DICTADO]` Dictado de la descripción: audio → texto. Sólo se transcribe para un área NO confidencial. */
+export interface SdTranscribeDto {
+  /** El área en la que se está levantando la solicitud: el servidor decide por ella si se puede dictar. */
+  queue_id: string;
+  /** Audio crudo en base64, sin el prefijo `data:`. */
+  audio: string;
+  /** Tipo que reportó `MediaRecorder` (webm/mp4/ogg según el navegador). */
+  mime?: string;
+}
+
+export interface SdTranscribeResult {
+  text: string;
+  /** `no_key` = el servicio de voz no está configurado en este entorno; `too_big` = audio de más de ~10 MB. */
+  error?: 'no_key' | 'too_big' | 'stt_failed' | 'stt_error';
+}
+
 // ── Solicitudes ─────────────────────────────────────────────────────────────────────────────────
 
 export interface SdAttachmentInput {

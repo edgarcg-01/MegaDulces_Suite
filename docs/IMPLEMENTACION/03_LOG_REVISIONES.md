@@ -225,6 +225,48 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — Revisión de pendientes de `[PRV.2]` y `[MS.DICTADO]` (#389 mergeado, #406 abierto)
+
+**Qué se pidió.** Revisar los pendientes de este ciclo y documentar lo que falte. Se midió cada uno en vez de repetir la lista; **cuatro hallazgos, uno de ellos un defecto mío**.
+
+1. ⛔⛔ **El tope de 20/min del dictado no limitaba nada.** `@Throttle({ default: … })` guarda `THROTTLER:LIMITdefault`; el guard (`@nestjs/throttler` 6.5, `throttler.guard.js:77`) lee `THROTTLER:LIMIT`+nombre **sólo de los tiers configurados** (`short`/`medium`/`long`, `app.module.ts`), así que `default` se ignora **sin error y sin aviso**. Sobre un servicio de pago por uso sólo valía el global de 200/min por IP, y la descripción de #406 decía «20 por minuto». Corregido a `long`; candado `dictado-throttle.spec.ts` (mutado: con `default` fallan 2). ⚠️ **Latente en otro módulo, NO tocado:** `commercial-analytics.controller.ts` líneas 929 (15/min), 1444, 1457 y 1468 (20/min) usan la misma forma y tampoco limitan. Ver GOTCHAS §84.
+2. ⛔ **#406 estaba 97 commits atrás y en CONFLICTO.** Se mergeó el 14-oct con un CI verde que ya describía un `main` viejo: `CLAUDE.md` y `ONBOARDING.md` chocaban porque `main` ya tenía los puntos 14–25 del protocolo y mis «14 y 15» colisionaban con otros textos (el 14 ya era «carga la skill `diseno`», el 16 ya cubría los scripts de edición). Se resolvió **por bloque**: se tomó la versión de `main` y se re-agregaron mis dos puntos como **26 y 27**, el 26 reescrito como complemento del 16 (qué herramienta ≠ cuándo se abre el archivo). El CHANGELOG, el log y el tracker se renumeraron. Lección del punto 2 del protocolo, otra vez: **la ventana entre abrir y mergear también cuenta** — un PR abierto 2 días en una semana de 97 commits se revisa contra `main` otra vez antes de pedir el merge.
+3. ⚠️ **PRV.2 incumple la regla 13 de `CLAUDE.md` (un endpoint que escribe no está probado hasta que una prueba lo ejerció).** El smoke de base (38/0) inserta **directo a la tabla**, nunca llama a `create()`; el bloque 36 del E2E HTTP sigue sin correrse, y `run-all-tests.js` no corre en ningún lado automáticamente (deuda VP.5). Lo que SÍ se verificó ahora, sin base: el `INSERT … ON CONFLICT (tenant_id, notice_id, user_id) DO NOTHING` que genera knex coincide con la restricción `privacy_acceptances_uk` (se imprimió el SQL real). **Sigue sin ejercerse** el camino completo (trigger de aceptación, RLS como `app_runtime`, la misma transacción del ticket). No urge —ninguna cola exige aviso hasta MSH.4— pero **es condición para abrir RH**.
+4. ⚠️ **`check:pantalla` cuenta un widget como «pantalla».** Antes/después sobre `servicio`: 6 pantallas con 22 fallas → 7 con 25; las 3 nuevas (Q.1, §2, §9, más una advertencia #9) son de `sd-dictado`, un botón con su estado, sin tabla ni dato volátil: **falsos positivos**, no deuda real (el widget sí separa grabando / escribiendo / error). Mejora pendiente en el auditor: reconocer componentes que no son página (por ruta, o con una marca explícita) en vez de exigirles métricas.
+
+**No se pudo verificar (declarado, no dibujado como ✔):**
+- Si las migraciones `20261008160900` (MSH.1) y `20261012081459` (PRV.2) están aplicadas en prod: esta sesión no tiene `PROD_DB_URL` ni acceso a `md`, y desde el cambio a k3s el despliegue **ya no es automático** (`CLAUDE.md`, «Datos del entorno»): hay que confirmar con quien despliega, y que la migración vaya **antes** del código.
+- Si prod tiene `GROQ_API_KEY` (el dictado ya funcionaba para Caducidades y RH; sin ella dice «no está configurado»).
+- El dictado con un micrófono real, y la validación visual de la casilla de PRV.2 y del botón.
+
+**Estado de las compuertas tras fusionar `main`:** `service-desk` 273 ✅ · `view` 3479 ✅ · tipos de plantillas ✅ (api, portal, vendor, view) · `lint-boundary-gate` ✅. `check:voseo` marca 12 usos, **ninguno en archivos de este PR** (los de `comercial-documentos`, `comercial-route-credit`, `context-help.dictionary` y `commercial-analytics.service` son de `main`).
+
+**Mejoras que quedan (con dueño sugerido):**
+- `[THR.1]` Corregir los 4 `@Throttle({ default` de `commercial-analytics` (cambiar a `long`/`short`) y agregar un candado repo-wide `check:throttle-names` (los nombres usados ⊆ los tiers de `app.module.ts`) — el spec de dictado ya tiene la lógica, falta generalizarla. **Requiere decisión de Edgar:** hoy esos 4 endpoints no tienen tope y ponerlo cambia su comportamiento.
+- Ejercer `create()` de PRV.2 contra una base de pruebas **en CI** (no en la laptop) antes de abrir RH.
+- `check:pantalla`: distinguir widgets de pantallas.
+- Tras el merge de #406: borrar la rama `feat/ms-dictado-voz` y el worktree `C:/tmp/wt-ms2` (**mirando antes el enlace de `node_modules`**; `CLAUDE.md` ya no admite ramas ni worktrees de feature fuera de un PR).
+
+---
+
+## 2026-10-14 — `[PRV.2]` y `[MS.DICTADO]`: el consentimiento del aviso de privacidad y el dictado por voz de la Mesa de Servicio
+
+**Qué se hizo.** `[PRV.2]` (#389, mergeado con CI verde): una cola puede exigir el aviso de privacidad; la casilla bloquea el envío y el servidor lo repite; la evidencia no se reescribe. `[MS.DICTADO]`: botón «Dictar» en «Cuéntanos qué pasa» → audio → texto con el Groq Whisper que ya usaban Caducidades y RH (`POST /service-desk/transcribe`, 20/min); el texto se agrega para revisarlo. El audio no se guarda.
+
+**La decisión que no estaba en el pedido.** El dictado **no se ofrece en áreas confidenciales**: el audio sale a un proveedor externo y lo que se cuenta en RH no debe viajar a un tercero sin que legal lo apruebe. Lo impone el servidor (403; sin área, fail-closed), no sólo la pantalla; y se probó apagando la regla (2 pruebas del servidor y 2 de la pantalla se ponen en rojo). Queda como pregunta para legal en `FASE_MSH_PRIVACIDAD_Y_RETENCION` §9.
+
+**Lo que se aprendió, y cada punto costó:**
+
+1. ⛔ **`open(ruta,'wb').write(f(x))` vacía el archivo ANTES de evaluar `f`.** Un script mío dejó el plan legal en 0 bytes cuando una ancla no existía; el índice de git lo salvó. Calcular primero, escribir después, y `git diff --stat` al terminar (protocolo, punto 30).
+2. ⚠️ **Una entrada de CHANGELOG pegada a la entrada vecina queda en una sección vieja.** Las de PRV.2 y MS.DICTADO se habían archivado bajo «Mesa de Servicio, capa 3 (2026-10-02)», no bajo `[Unreleased]`: nadie las habría encontrado leyendo «qué cambió esta semana». Se reubicaron.
+3. ⭐ **Probar un componente que usa el micrófono sin micrófono:** el entorno del navegador (`getUserMedia`, `MediaRecorder`) entra por una interfaz pequeña y se sustituye; así el grabador (10 pruebas) y el componente (9, seis negativas) corren en jsdom. Quedan 3 copias más de grabación en el front sin esa costura (deuda declarada).
+4. ℹ️ **Contar pruebas contra `main` actual:** tras fusionar, `service-desk` marcó 264 y no 283 — no se perdió nada: `main` había retirado un spec ajeno (`attachment-signature`, 19 pruebas). Un conteo de la descripción sin esa explicación parece una pérdida.
+
+**Pendiente.** `GROQ_API_KEY` en prod · probarlo con micrófono real · decisión de legal sobre Groq y RH · migrar las otras 3 grabaciones a `shared/voz`.
+
+**Observaciones de PM:** ninguna registrada: #389 se mergeó sin comentarios ni reseñas. Los puntos 30–31 del protocolo salen de lo que costó este ciclo, y así se declaran.
+
+---
 ## 2026-10-16 — `[K.VEC.1]` Incidente prod: el corpus vectorial no existía, y «sin match» lo tapó 24 días
 
 **Reportado por Edgar con una foto de la app del vendedor:** el ticket se lee bien —las 9 líneas

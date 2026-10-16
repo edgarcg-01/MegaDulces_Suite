@@ -9,6 +9,7 @@
  * Orden: las rutas literales (`mine`, `inbox`, `stats`) van ANTES de `:id`, o `:id` se las traga.
  */
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   type SdAgentDto,
@@ -32,6 +33,8 @@ import {
   type SdMarkTestDto,
   type SdTransferDto,
   type SdTransferResult,
+  type SdTranscribeDto,
+  type SdTranscribeResult,
   type SdUpsertFieldDto,
   type SdUpsertQueueMemberDto,
   type SdUpsertZoneDto,
@@ -49,6 +52,7 @@ import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from
 import { ServiceDeskActorsService } from './actors.service';
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskConfigAdminService } from './config-admin.service';
+import { ServiceDeskDictationService } from './dictado.service';
 import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
 import { ServiceDeskQueueMembersService } from './queue-members.service';
@@ -80,6 +84,7 @@ export class ServiceDeskController {
     private readonly requesters: ServiceDeskRequestersService,
     private readonly sla: ServiceDeskSlaService,
     private readonly actors: ServiceDeskActorsService,
+    private readonly dictation: ServiceDeskDictationService,
   ) {}
 
   @Get('catalog')
@@ -87,6 +92,19 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Colas, categorías e impactos para la pantalla «Nueva solicitud».' })
   catalog(@Req() req: AuthedRequest): Promise<SdCatalogResponse> {
     return this.config.catalog(actorDesdeRequest(req).userId);
+  }
+
+  /**
+   * `[MS.DICTADO]` Dictar la descripción: audio → texto. Lo pide quien levanta la solicitud (`SERVICIO_REPORTAR`, lo
+   * tiene todo el mundo), por eso la regla que importa no es el permiso sino el ÁREA: en una confidencial se rechaza.
+   * El audio no se guarda. Con tope por minuto: es un servicio de pago por uso.
+   */
+  @Post('transcribe')
+  @RequirePermissions(Permission.SERVICIO_REPORTAR)
+  @Throttle({ long: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Dictado: audio base64 → texto (Groq Whisper, es). No disponible en áreas confidenciales.' })
+  transcribe(@Body() body: SdTranscribeDto): Promise<SdTranscribeResult> {
+    return this.dictation.transcribir(body);
   }
 
   @Get('agents')

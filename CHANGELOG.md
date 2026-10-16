@@ -9,6 +9,17 @@
 ---
 
 ## [Unreleased]
+### Added — Dictar la descripción de una solicitud (MS.DICTADO, 2026-10-14)
+- En «Nueva solicitud» aparece el botón **Dictar** bajo «Cuéntanos qué pasa»: se habla, se transcribe y el texto se **agrega** a lo escrito para revisarlo antes de enviar. El audio no se guarda.
+- **No aparece en áreas confidenciales (RH):** el audio saldría a un proveedor externo. Lo exige el servidor (403; sin área tampoco transcribe), no sólo la pantalla.
+- Requiere `GROQ_API_KEY` en el servidor; sin ella el botón avisa que el dictado no está configurado y escribir sigue sirviendo. Sin migración ni permisos nuevos.
+- Internal: `shared/voz/grabador-voz.ts` (grabación probable sin micrófono). Quedan 3 copias más de esa lógica en el front (`thot-ai-input`, `media-capture`, `vendor-assistant`) como deuda declarada.
+
+### Added — Consentimiento del aviso de privacidad (PRV.2, 2026-10-12)
+- Una cola de la Mesa de Servicio puede exigir que quien levanta una solicitud acepte el aviso de privacidad vigente: casilla que bloquea el envío, regla repetida en el servidor y evidencia (quién, qué versión, cuándo) que no se puede reescribir. Quien atiende no consiente por otra persona. **Ninguna cola lo exige todavía** (la de RH es MSH.4; el texto lo publica legal): TI y Mantenimiento no cambian. *(Antes estaba archivado por error bajo la sección del 2026-10-02.)*
+
+### Internal — Protocolo previo al PR: puntos 30 y 31 (2026-10-16)
+- `ONBOARDING.md` §8.0b y la plantilla del PR: **(30)** un script que edita archivos calcula el contenido nuevo ANTES de abrir el archivo para escribir, y se revisa `git diff --stat` después; **(31)** si una función manda contenido de personas a un proveedor externo, la regla de quién queda fuera vive en el servidor, se prueba apagándola, y el PR dice qué sale, a quién y qué se excluye.
 ### Fixed — Caja General: el total contado ahora se anuncia, y la fila abierta se ve en Alto Contraste (CG.183–CG.186, 2026-10-16)
 - Auditoría **front-end** de `/finanzas/caja-general` (no de diseño: la pantalla ya usa el sistema — 78 `comm-num`, 40 `p-table`, 16 `app-load-state`, `OnPush` + 103 signals, cero `any` — y el auditor de contrato le marca **una sola** advertencia contra una línea base de 247 pantallas con falla). Lo corregido son defectos de **comportamiento**.
 - **La cifra que la pantalla existe para producir no se decía.** Había **una sola** región viva en 2,462 líneas de template. El bloque «CONTADO» cambia con cada tecla de la reja de denominaciones: quien usa lector de pantalla tecleaba once renglones y nunca se enteraba del total ni del veredicto. Y la cola de «por confirmar» **la mueve el socket**: entraban movimientos nuevos mientras la persona contaba efectivo del otro lado de la pantalla, en silencio. Ahora el total viaja con su veredicto («$460.00 contado, cuadra con el documento») y la cuenta de la cola se anuncia sola.
@@ -914,8 +925,6 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **Verificación punta a punta de la Mesa multi-área (MS.7.19):** prueba automática del ciclo completo con TI y Mantenimiento reales (levantar, asignar, poner en espera, resolver, cerrar, trasladar y volver) y del acceso cruzado entre áreas, más la guía de despliegue con el orden exacto de las migraciones. **Nada aplicado a prod.**
 
 **Solicitudes de prueba (MS.7.12):** la coordinación puede marcar una solicitud como «de prueba» (también si ya está cerrada o cancelada): deja de contar en reportes, tablero, carga de trabajo, «Mi trabajo» y avisos, y queda registrado en el historial. Sigue apareciendo en la bandeja con la etiqueta «Prueba» para poder quitarle la marca. **Nada aplicado a prod** (migración `20261007340000`).
-
-**Consentimiento del aviso de privacidad (PRV.2, interno):** una cola de la Mesa de Servicio puede exigir que quien levanta una solicitud lea y acepte el aviso de privacidad vigente; el formulario muestra el aviso con una casilla que bloquea el envío, el servidor lo vuelve a exigir y queda registrado quién aceptó, qué versión y cuándo, sin posibilidad de reescribirlo. Quien atiende no puede consentir por otra persona. **Ninguna cola lo exige todavía** (la de RH es MSH.4, y el texto del aviso lo publica legal): TI y Mantenimiento no cambian.
 
 **Pantalla de la cola confidencial de RH (MSH.3, interno):** al reportar a un área confidencial, la Mesa avisa antes de escribir que la solicitud será confidencial y no hace preguntas de prioridad donde no se usa; las listas y fichas no muestran prioridad ni plazos en esas áreas; el administrador ve de una solicitud confidencial sólo el folio, el área, el estado y las fechas; Configuración permite marcar una cola como confidencial, sin prioridad o sin plazos y fijar el mínimo de casos de su reporte; y un reporte con pocos casos no muestra cifras. **Ninguna cola es confidencial todavía** (la siembra es MSH.4): TI y Mantenimiento no cambian.
 

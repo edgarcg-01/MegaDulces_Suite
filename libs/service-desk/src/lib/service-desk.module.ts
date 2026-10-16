@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { BITACORA_PORT } from '@megadulces/contracts';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { CloudinaryModule, SpeechToTextService } from '@megadulces/platform-core';
 import { ServiceDeskActorsService } from './actors.service';
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskAttachmentsService } from './attachments.service';
+import { ServiceDeskDictationService } from './dictado.service';
 import { ServiceDeskConfigService } from './service-desk-config.service';
 import { ServiceDeskConfigAdminService } from './config-admin.service';
 import { NullBitacoraAdapter } from './null-bitacora.adapter';
@@ -30,6 +31,9 @@ import { ServiceDeskSlaService } from './sla.service';
   providers: [
     ServiceDeskConfigService,
     ServiceDeskAttachmentsService,
+    // `[MS.DICTADO]` audio → texto de la descripción (proveedor compartido de platform-core; no en áreas confidenciales).
+    ServiceDeskDictationService,
+    SpeechToTextService,
     ServiceDeskActorsService,
     ServiceDeskAgentsService,
     ServiceDeskNotificationsService,

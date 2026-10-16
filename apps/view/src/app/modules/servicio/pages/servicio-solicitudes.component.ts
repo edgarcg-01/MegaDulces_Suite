@@ -16,6 +16,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { IMPACT_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { SdRequestDetailComponent, MAX_ARCHIVOS } from '../sd-request-detail.component';
+import { SdDictadoComponent } from '../sd-dictado.component';
+import { unirDictado } from '../../../shared/voz/grabador-voz';
 
 const TIPOS_OK = /^(image\/(jpeg|png|webp|gif|heic|heif)|application\/pdf)$/i;
 
@@ -40,7 +42,7 @@ function dataUri(f: File): Promise<string> {
 @Component({
   selector: 'app-servicio-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, TextareaModule, SdRequestDetailComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, TextareaModule, SdRequestDetailComponent, SdDictadoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ss-page" [class.con-ficha]="panel()">
@@ -171,6 +173,10 @@ function dataUri(f: File): Promise<string> {
                   <input pInputText [(ngModel)]="form.title" maxlength="200" placeholder="Ej. No me abre el sistema de caja" /></label>
                 <label class="ss-field"><span>Cuéntanos qué pasa</span>
                   <textarea pTextarea rows="5" [(ngModel)]="form.description" placeholder="Qué intentabas hacer, qué mensaje te salió, desde cuándo."></textarea></label>
+                <!-- [MS.DICTADO] Dictar en lugar de escribir. Nunca en un área confidencial: el audio lo procesa un servicio externo (lo exige también el servidor). -->
+                @if (puedeDictar()) {
+                  <sd-dictado [queueId]="colaElegida()?.id ?? null" (texto)="agregarDictado($event)" />
+                }
 
                 <!-- [MS.3.17] Siempre visible: detrás de un enlace («Indicar ubicación (opcional)») quien levantaba la solicitud no la veía,
                      y «A toda mi sucursal» no tiene sentido sin saber cuál es. -->
@@ -446,12 +452,14 @@ export class ServicioSolicitudesComponent implements OnInit {
   /** `[MS.7.4]` Lo contestado en los campos propios `{ codigo: valor }`. Plano porque `ngModel` escribe ahí. */
   extraForm: Record<string, unknown> = {};
   /** `[MSH.3]` La cola de la categoría elegida (lo dice la cola, no su nombre). */
-  private readonly colaElegida = computed(() => {
+  readonly colaElegida = computed(() => {
     const c = this.catalogo();
     const cat = c?.categories.find((k) => k.id === this.categoriaId());
     return cat ? c?.queues.find((q) => q.id === cat.queue_id) ?? null : null;
   });
   readonly confidencial = computed(() => this.colaElegida()?.confidential === true);
+  /** `[MS.DICTADO]` Hay área elegida y NO es confidencial. */
+  readonly puedeDictar = computed(() => this.colaElegida() !== null && !this.confidencial());
   /** `[PRV.2]` ¿La cola exige aviso de privacidad? y ¿cuál es la versión vigente (o `null`: aún no está publicada)? */
   readonly privacidadRequerida = computed(() => this.colaElegida()?.privacy_required === true);
   readonly avisoPrivacidad = computed(() => this.colaElegida()?.privacy_notice ?? null);
@@ -473,6 +481,11 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly prefsError = signal<string | null>(null);
   readonly prefsGuardando = signal(false);
   pForm = { email: '', phone: '', email_enabled: true, whatsapp_enabled: false };
+
+  /** `[MS.DICTADO]` Lo transcrito se AGREGA a lo que ya estaba escrito; la persona lo revisa antes de enviar (el tope de 5000 caracteres lo valida el servidor al enviar). */
+  agregarDictado(texto: string): void {
+    this.form.description = unirDictado(this.form.description ?? '', texto);
+  }
 
   private formVacio() {
     return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null, safety_risk: null as boolean | null, zone_code: null as string | null, acepta_aviso: false };

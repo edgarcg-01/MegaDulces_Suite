@@ -186,6 +186,7 @@ Procedimiento mínimo a definir en PRV.3: quién decide que hubo vulneración, p
 | Sólo **dos personas** (Lesly y Tania) concentran todo el acceso | Revisión trimestral de miembros; designar suplente con la misma restricción; registro de consultas (PRV.6) |
 | Un superusuario de la base puede leer todo | Declararlo; evaluar cifrado de contenido o separación de funciones (PRV.6) |
 | El texto libre contiene datos de **terceros** (el acusado, un testigo) | El aviso lo menciona; el acceso ARCO excluye datos de terceros |
+| El **dictado por voz** manda el audio a un proveedor externo (Groq) | Desde `[MS.DICTADO]` (2026-10-14) **no se ofrece en áreas confidenciales** y el servidor lo rechaza (403). Antes de habilitarlo en RH, legal debe decidir si el proveedor puede ser encargado del tratamiento y si el aviso lo declara (transferencia fuera del país) |
 
 ---
 
