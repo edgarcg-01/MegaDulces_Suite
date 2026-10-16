@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 100 KB, 1541 líneas, 32 secciones.
+> **Índice navegable** — 100 KB, 1548 líneas, 32 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -17,28 +17,28 @@
 | 349 | 368 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
 | 369 | 405 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
 | 406 | 467 | 4 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
-| 468 | 507 | 2 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 508 | 546 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 547 | 697 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 698 | 812 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 813 | 867 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 868 | 905 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 906 | 935 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 936 | 989 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 990 | 1036 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1037 | 1068 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1069 | 1129 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1130 | 1241 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1242 | 1272 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1273 | 1320 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1321 | 1348 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1349 | 1405 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1406 | 1456 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1457 | 1482 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1483 | 1547 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1548 | 1567 | 1 | 6. Importers / feeds relevantes |
-| 1568 | 1575 | 1 | 7. Conexiones y credenciales |
-| 1576 | 1585 | 1 | 8. Para profundizar |
+| 468 | 514 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 515 | 553 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 554 | 704 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 705 | 819 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 820 | 874 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 875 | 912 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 913 | 942 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 943 | 996 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 997 | 1043 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1044 | 1075 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1076 | 1136 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1137 | 1248 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1249 | 1279 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1280 | 1327 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1328 | 1355 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1356 | 1412 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1413 | 1463 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1464 | 1489 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1490 | 1554 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1555 | 1574 | 1 | 6. Importers / feeds relevantes |
+| 1575 | 1582 | 1 | 7. Conexiones y credenciales |
+| 1583 | 1592 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -470,8 +470,14 @@ si alguien retoma el decode.
 Las formas del cliente atan cada campo de pantalla a su columna: `OnChange="Cambio(N,campo)"` →
 `tabla.cN`, contra el alias que fija `kdb.open("a," & tabla_base)`. El mecanismo y su verificación
 (3 decodes conocidos reproducidos) están en [`KEPLER_CLIENTE.md`](KEPLER_CLIENTE.md) §5. El extractor
-es `scripts/kepler/kpl-decode.mjs`; el volcado completo (103 bindings, 70 columnas, 6 tablas),
+es `scripts/kepler/kpl-decode.mjs`; el volcado completo (120 bindings, **87 columnas, 7 tablas**:
+kdii, kdud, kdudent, kduv, kdcp, kdm_rutas, kdxd),
 en [`IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json`](IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json).
+
+El extractor reconoce **dos convenciones** del mismo `fun Cambio(numero_campo,...)`: la de alias
+(`"datos,a,1,"` con `kdb.open("a," & tabla_base)`) y la directa (`tabla_base & ",1,"`, p.ej.
+`cxpcatpropag` → `kdxd`). Cada columna guarda su `aliases` map, que revela el clúster de tablas
+relacionadas de la forma (p.ej. proveedores: `kdxd`+`kdxv`/`kdxk`/`kdxj`/`kdxe`).
 
 > ⛔ **La etiqueta es el RÓTULO DE PANTALLA, no la semántica verificada del dato.** No sustituye la
 > prueba de unidad de §5 regla 0. `kdii.c7` sale como "1" (etiqueta inútil que el parser conserva
@@ -490,6 +496,7 @@ en [`IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json`](IMPLEMENTACION/KEPLER_DICCI
 | `kduv.c4` · `c5` · `c6` | Comisión s/ventas · s/utilidad · s/cobros | comisiones de vendedor |
 | `kdud.c28` · `c29` | Comisiones S/Venta · S/Cobro | cartera (⚠️ ver abajo) |
 | `kdudent.*` | Dirección · Ciudad · Teléfono · Contacto · Correo · Ruta Asignada | sucursales de entrega del cliente |
+| `kdxd.c17` · `c18` · `c19` | Descuento 1 · 2 · 3 (del **proveedor**) | escalera de costos (ADR-051), CXP/ECA |
 
 **⚠️ Tres choques con el decode curado — se declaran, NO se sobrescriben** (el rótulo contradice lo
 medido; resolver con prueba de unidad antes de tocar §2):
