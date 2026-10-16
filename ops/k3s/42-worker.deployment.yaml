@@ -100,6 +100,45 @@ spec:
             - { name: WORKER,                 value: "true" }
             - { name: ENABLE_WORKER_QUEUE,    value: "true" }
             - { name: RUN_MIGRATIONS_ON_BOOT, value: "0" }
+            # ═══ [CG.190] El autollenado de Caja General ═══
+            #
+            # ⛔⛔ APAGADO A PROPÓSITO. Es el único @Cron del worker que ESCRIBE DINERO en el
+            #   libro sin que nadie mire, así que su default en código también es apagado y
+            #   acá queda explícito para que la perilla se VEA. Prenderlo es decisión de
+            #   Edgar, no efecto colateral de un despliegue.
+            #
+            # ── Antes de ponerlo en "true", las tres cosas que tienen que estar ────────────
+            #   1. La migración `20261016105305` APLICADA (la cuenta de servicio
+            #      `svc_caja_autollenado`). Sin ella cada movimiento automático queda firmado
+            #      por un UUID que la pantalla no resuelve a un nombre.
+            #   2. Una corrida en SIMULACIÓN mirada por alguien:
+            #      `POST /finance/cash-ledger/autollenado/correr` (sin `?aplicar=1`) —
+            #      contesta qué haría sin escribir una fila.
+            #   3. Una corrida real acotada, y `node database/tests/test-newdb-caja-autollenado.js`
+            #      en verde (sus aserciones [6], [7] y [8] sólo se ejercen cuando ya escribió).
+            #
+            # ⚠️ Al prenderlo, `analytics.cron_runs` → `caja_autollenado` empieza a latir cada
+            #   15 min; su umbral ya está declarado en `CRON_JOBS` (warn 1 h, crit 6 h). Si el
+            #   renglón no aparece, el cron NO está corriendo acá.
+            - { name: ENABLE_CAJA_AUTOLLENADO, value: "false" }
+            # [K.VEC.2] 2026-10-16 - el corpus vectorial se recreo desde cero (pg-rag quedo
+            #   vacio en la mudanza a md del 22-sep; ver GOTCHAS §83). Aplicado en el cluster
+            #   por Edgar a las 09:57 con `kubectl set env`; este valor es el mismo, para que
+            #   el proximo `kubectl apply` no lo baje en silencio.
+            #
+            # ⭐ Por que 11000 y no 200: el limitador NUNCA fue el trabajo, era el calendario.
+            #   Medido en el tick de las 08:30: 400 embeddings en 8.9 s y despues 891 s de
+            #   espera -- el worker ocupado el 1% del tiempo, y 13 h de reloj para ~8 min de
+            #   computo. Peor, cada tick relee las ~11,000 filas de la fuente ANTES de embeber
+            #   sus 200: a batch chico ese escaneo se repite 55 veces para el mismo resultado.
+            #   Con 11000 el arranque en frio entra en UN tick.
+            #
+            # ⚠️ Esto es tamano de ARRANQUE EN FRIO, no de regimen. En estado estacionario el
+            #   tick solo procesa los stale (un punado de altas y renombres), asi que el valor
+            #   alto no cuesta nada: `staleAll` ya viene casi vacio y no se llama a Voyage.
+            #   El guard `isRunning` cubre el unico riesgo real (que un tick largo se solape
+            #   con el siguiente): el segundo se saltea, no se encima.
+            - { name: VECTOR_SYNC_TICK_BATCH,  value: "11000" }
           resources:
             requests: { memory: "256Mi", cpu: "100m" }
             limits:   { memory: "2Gi" }

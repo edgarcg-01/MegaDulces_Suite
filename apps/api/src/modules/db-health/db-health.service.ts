@@ -1087,6 +1087,13 @@ export const CRON_JOBS: CronCfg[] = [
   // de crítico. Sin este renglón un sensor parado se pinta verde, que es justo la falla que tuvo el
   // corte del 12-oct: tres jornadas trabadas y ningún sistema lo dijo.
   { key: 'caja_corte_abierto',  label: 'Caja: corte abierto y jornadas sin corte', cadence: 'cada hora (:20)', warnH: 2, critH: 6, maxRunH: 0.25 },
+  // [CG.190] El autollenado del libro de caja. Sin este renglón el sensor cae en el
+  // `cfg ? classify : 'ok'` y un autollenado parado se pinta VERDE — y un autollenado parado no
+  // se nota: la bandeja simplemente deja de vaciarse, que es indistinguible de «no hubo
+  // movimientos». Cada 15 min → 1 h de aviso (4 corridas perdidas), 6 h de crítico.
+  // ⚠️ Entregar CERO es normal (la cola vacía es el estado al que aspira) y lo declara
+  // `motivoCeroOk`, que a propósito NO lo declara cuando quedaron filas sin resolver.
+  { key: 'caja_autollenado',    label: 'Caja General: el libro se llena solo (autollenado)', cadence: 'cada 15 min', warnH: 1, critH: 6, maxRunH: 0.25 },
   // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
   { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
@@ -1145,6 +1152,9 @@ export const CRON_JOBS: CronCfg[] = [
   // [PF.6] La foto de "Para cuidar hoy" (Productos). Si se para, la pantalla cae al cálculo en vivo (~3 s) y
   // lo dice; sin este umbral el sensor la daría verde aunque nadie la calcule (OBS.1).
   { key: 'product_flow_watch',  label: 'Foto de Para cuidar hoy (Productos)', cadence: 'cada 1 min', warnH: 0.1, critH: 0.5, maxRunH: 0.05 },
+  // [ETQ-CAMBIOS.11] La foto diaria del costo (alimenta el «costo anterior» de Cambios de precio). Kepler no
+  // guarda esa historia: si la foto se para, el anterior se queda viejo sin avisar — sin este umbral, verde.
+  { key: 'product_cost_history', label: 'Foto diaria del costo (Cambios de precio)', cadence: 'diario 04:30 MX', warnH: 26, critH: 50, maxRunH: 0.5 },
   // [VL.4b] El carril de PRECIOS. Corría fuera del runner (`C:\KeplerRunner\run-prices.cmd` llamaba a
   // los dos importers directo), así que no latía y no tenía entrada acá — o sea que el carril que
   // publica el precio de venta era el único sin forma de avisar. Es EL carril del incidente que

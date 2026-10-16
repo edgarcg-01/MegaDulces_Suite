@@ -266,3 +266,82 @@ ssh superoot@192.168.0.222 'crontab -l | sed "s|^#PAUSADO ||" | crontab -'
   sólo lo ve quien abra Salud BD.
 - **La caché de construcción crece sola** (65 GB medidos el 2026-09-24, 55 reclamables) y el
   carril construye en cada cambio. `docker builder prune` cuando apriete el disco.
+
+---
+
+## 7. ⛔⛔ El corpus vectorial (`pg-rag`) NO lo restaura nada — hay que llenarlo a mano
+
+**Qué es:** el vector store del matcher de productos. Base `railway` en el pod **`pg-rag`**
+(ClusterIP `pg-rag:5432`), a donde apunta `VECTOR_DATABASE_URL`. Dos tablas:
+
+| Tabla | Clave | Quién la usa |
+|---|---|---|
+| `product_embeddings` | `product_id` UUID | captures, planograma, route-control, foto de exhibidor (corpus `catalog`; el KNN filtra `WHERE in_planogram = true`) |
+| `active_product_embeddings` | `sku` | **sólo** el ticket del vendedor, `/ai/ticket/extract` (corpus `active`) |
+
+⛔ **No están en ninguna migración, no las recrea el deploy, y hasta el 2026-10-16 no estaban
+acá.** Se llenaron una vez en junio con un script one-shot contra la DB vector de Railway. Al
+mudar prod a `md` el 22-sep, `pg-rag` nació vacío, nadie re-corrió el script, y **todo match AI
+de producto devolvió `no_match` durante 24 días** — el vendedor veía su ticket entero como
+«— sin match —», indistinguible de un catálogo incompleto. Detalle en
+[`docs/GOTCHAS.md` §83](../../docs/GOTCHAS.md).
+
+### Verificar (10 segundos, read-only)
+
+```bash
+kubectl -n prod exec deploy/pg-rag -- psql -U postgres -d railway -c \
+  "select to_regclass('public.active_product_embeddings') activo,
+          to_regclass('public.product_embeddings')        catalogo,
+          (select count(*) from active_product_embeddings) n_activo,
+          (select count(*) from product_embeddings)        n_catalogo"
+```
+
+`NULL` en cualquiera de las dos, o conteos en 0 = **el matcher está muerto**. Sano ronda
+~10,000 y ~11,000. Un cluster de **~8 MB es vacío**; con corpus pesa cientos de MB.
+
+⚠️ **No te fíes de «cero clientes conectados»** para decidir si esta base importa: el pool de la
+app es `pool.min = 0`, así que sin tráfico en ese instante **no hay ninguna conexión abierta**.
+Esa medición es exactamente la que convirtió a `pg-rag` en el «canario desechable» de la
+migración a k3s (ver la cabecera de [`ops/k3s/50-pg-rag.deployment.yaml`](../k3s/50-pg-rag.deployment.yaml),
+que todavía dice «ESTE VA PRIMERO PORQUE NO IMPORTA»).
+
+### Restaurar
+
+```bash
+# 1) Crear las tablas + índices HNSW (idempotente, incluye el ALTER de in_planogram)
+VECTOR_DATABASE_URL='postgres://…pg-rag…/railway' node database/scripts/init-vector-db.js
+
+# 2) Llenarlas: el cron del WORKER lo hace solo cada 15 min, no hace falta script.
+#    Para un arranque en frío subí el batch primero — si no, tarda ~13 h de reloj
+#    para ~8 min de cómputo (ver §7.1).
+kubectl -n prod set env deployment/worker VECTOR_SYNC_TICK_BATCH=11000
+
+# 3) Mirar el drenado
+kubectl -n prod logs -l app=worker --since=20m | grep 'tick()'
+#   tick(): catalog N embebidos, … M pendientes.
+#   tick(): active  N embebidos, … M pendientes.
+```
+
+Fuente de los dos corpus (en `pg-prod`, intacta): `catalog.products` e
+`inventory.products_active`. También hay empuje manual con
+`POST /api/ai/products/sync-now` y `/sync-active-now` (permiso `PLANOGRAMAS_GESTIONAR`).
+
+### 7.1 Por qué el batch, y por qué volver a bajarlo no urge
+
+⭐ **El limitador no es el trabajo, es el calendario.** Medido el 2026-10-16: un tick embebió
+**400 vectores en 8.9 s** y después esperó **891 s** — el worker ocupado el **1 %** del tiempo.
+Peor, cada tick **relee la fuente entera (~11,000 filas) antes** de embeber su lote, así que a
+200/tick ese escaneo se repite 55 veces para el mismo resultado.
+
+`VECTOR_SYNC_TICK_BATCH=11000` es tamaño de **arranque en frío**. En régimen estacionario no
+cuesta nada: el tick sólo procesa los *stale* (altas y renombres del día), así que el lote sale
+casi vacío y Voyage ni se llama. El `isRunning` cubre el único riesgo real —que un tick largo se
+solape con el siguiente—: el segundo se saltea, no se encima.
+
+### 7.2 La regla que deja esto escrito
+
+**Si un servicio depende de una tabla que un script de un solo uso llenó alguna vez, esa tabla
+no está respaldada por nada.** Sobrevive mientras nadie mueva el servidor. O entra al
+procedimiento de restauración —como acaba de entrar ésta— o el servicio declara en voz alta que
+le falta. Desde `[K.VEC.1]` el matcher hace lo segundo: corpus ausente o vacío responde **503
+con la causa**, ya no `no_match` en silencio.

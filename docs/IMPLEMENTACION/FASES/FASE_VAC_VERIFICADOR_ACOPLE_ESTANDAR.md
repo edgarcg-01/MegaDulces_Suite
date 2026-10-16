@@ -260,7 +260,7 @@ grep -rln "KpService\|kp.service" apps libs --include=*.spec.ts                 
 
 ## 12. Estado tras el merge (2026-10-16)
 
-**#414 se fusionó el 2026-10-15 (`1cb1f8dd2`) y tiró el arranque de la API en producción** (parámetro decorado tipado con el nombre del esquema Zod; ver [`GOTCHAS.md` §81](../../GOTCHAS.md)). Lo arregló `[VAC.FIX]` (`e5fa64ec8`); prod responde `200` y sirve `11d37aa77`, que lo incluye. Post-mortem en [`03_LOG_REVISIONES.md`](../03_LOG_REVISIONES.md) (2026-10-16). Esto corrige dos afirmaciones de §10 y de las notas L1/L7 de arriba: «los tipos del backend los comprueba el CI» era cierto —y **insuficiente**: el CI no levanta la API—, y la prueba del pipe en `kp.controller.spec.ts` era un regex sobre el texto fuente (su «mutación» sólo quitaba ese texto) y **ciega al defecto de arranque**.
+**#414 se fusionó el 2026-10-15 (`1cb1f8dd2`) y tiró el arranque de la API en producción** (parámetro decorado tipado con el nombre del esquema Zod; ver [`GOTCHAS.md` §84](../../GOTCHAS.md)). Lo arregló `[VAC.FIX]` (`e5fa64ec8`); prod responde `200` y sirve `11d37aa77`, que lo incluye. Post-mortem en [`03_LOG_REVISIONES.md`](../03_LOG_REVISIONES.md) (2026-10-16). Esto corrige dos afirmaciones de §10 y de las notas L1/L7 de arriba: «los tipos del backend los comprueba el CI» era cierto —y **insuficiente**: el CI no levanta la API—, y la prueba del pipe en `kp.controller.spec.ts` era un regex sobre el texto fuente (su «mutación» sólo quitaba ese texto) y **ciega al defecto de arranque**.
 
 **Contra la Definición de Terminado de [`METODO_DE_TRABAJO`](../../METODO_DE_TRABAJO.md) §5:**
 
@@ -271,7 +271,7 @@ grep -rln "KpService\|kp.service" apps libs --include=*.spec.ts                 
 | 3 | Endpoints que escriben, ejercidos | N/A: la fase sólo lee. |
 | 4 | Compuertas nuevas rotas a propósito | No se creó ninguna compuerta; se agregaron candados (probados por mutación, salvo el matiz de arriba). |
 | 5 | Primitivos en `libs/` | ✅ El contrato tipado y los esquemas de consulta viven en `libs/contracts`. Deuda con nombre: `mapear()` puro (L9) y `money.util` (L12). |
-| 6 | Tracker, log y roadmap reflejan el estado real | ✅ con este cierre (tracker, log, changelog, CV.24, GOTCHAS §81, ONBOARDING puntos 30–31). |
+| 6 | Tracker, log y roadmap reflejan el estado real | ✅ con este cierre (tracker, log, changelog, CV.24, GOTCHAS §84, ONBOARDING puntos 30–31). |
 | 7 | En prod | ✅ **Desde el 2026-10-15** (commit `11d37aa77` verificado hoy). |
 
 **Conclusión: no se marca ✅** hasta tener (a) la **validación visual en el monitor real** (lector, cámara, pantalla completa y datos reales) y (b) H1 llevado a Precios/Comercial con cifras de prod. Mientras tanto la fase queda **🧪** y **no libera cupo** (método §3).

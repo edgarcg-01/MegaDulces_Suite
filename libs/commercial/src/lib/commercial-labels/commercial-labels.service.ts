@@ -1,12 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
   FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt,
 } from '../shared/freshness';
 // `[ETQ-PRES.2]` La forma la define el contrato, no este archivo (ADR-056: un primitivo vive en
 // `libs/` o no existe). `PresentacionPrecio` extiende al `QtyUnitLabel` de VU.0 al PRECIO.
 import type { Knex } from 'knex';
-import type { PresentacionPrecio, PriceChangeRow } from '@megadulces/contracts';
+import { elegirAnterior } from '@megadulces/contracts';
+import type {
+  CostoPresentacion, FichaCompras, HistorialCosto, PresentacionPrecio, PriceChangeRow,
+} from '@megadulces/contracts';
 
 export interface LabelModel {
   code: string;                       // el código con el que se pidió (sku o barcode)
@@ -160,7 +163,34 @@ const barcodeFmt = (v: unknown): string | null => {
  */
 @Injectable()
 export class CommercialLabelsService {
-  constructor(private readonly tk: TenantKnexService) {}
+  private readonly logger = new Logger(CommercialLabelsService.name);
+
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * ⛔ `[ETQ-CAMBIOS.11.1]` El COSTO no sale hacia un CLIENTE.
+   *
+   * Edgar decidió que el costo lo vea "todo el que usa etiquetas", y esa decisión se respeta:
+   * los 13 roles internos la conservan. Lo que esa decisión no evaluó es a quién MÁS se lo
+   * entrega: el endpoint está gateado por `STORE_LABELS_VER`, y ese permiso lo tienen CATORCE
+   * roles sin permiso de costo -- ~57 usuarios activos, medido en prod el 2026-10-16 -- entre
+   * ellos `customer_b2b`, que es un CLIENTE EXTERNO con 3 usuarios activos.
+   *
+   * Acá no se filtra un margen del que se despeja el costo (eso fue [CAT-PRECIO.5.1]): se
+   * publica el COSTO DE COMPRA directo, en dos columnas y con su historia. Dárselo a un
+   * cliente es entregarle lo que le pagamos a nuestros proveedores.
+   *
+   * Se vacía `costos`, que NO es un estado inventado: la propia lista ya lo produce para el
+   * código sin costo y la pantalla lo pinta como «sin dato». El precio, el UXC y el mayoreo
+   * siguen viajando: son precios de venta, no cuestan nada que el cliente los vea.
+   */
+  private sinCostoParaCliente(fichas: FichaCompras[]): FichaCompras[] {
+    if (this.tenantCtx.get()?.roleName !== 'customer_b2b') return fichas;
+    return fichas.map((f) => ({ ...f, costos: [], impuesto_pct: null }));
+  }
 
   /**
    * ¿Existe `catalog.product_barcodes` (barcodes por unidad, 1 SKU→N)? Se consulta antes de usarla
@@ -345,6 +375,12 @@ export class CommercialLabelsService {
     items: LabelPriceChange[]; fecha: string; truncado: boolean; fuente_al: string | null;
     ocultos_centavo: number; productos_del_dia: number; tope_productos: number;
     freshness: LabelsFreshness;
+    /** `[ETQ-CAMBIOS.11]` Lo que Compras pidió ver junto al precio (un renglón por código de la lista). */
+    fichas: FichaCompras[];
+    /** Desde cuándo existe la foto diaria del costo. `null` = todavía no hay ninguna: no hay «anterior» para nadie. */
+    costo_historial_desde: string | null;
+    /** `true` = la historia NO se pudo leer (error). Distinto de `costo_historial_desde: null` (todavía no hay foto): error ≠ vacío. */
+    costo_historial_error: boolean;
   }> {
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(fecha ?? '')) ? String(fecha) : CommercialLabelsService.ayer();
@@ -353,7 +389,8 @@ export class CommercialLabelsService {
       // Sin plaza no hay nada que mostrar: la bitácora es por tienda y mezclarlas diría que
       // cambió algo que en TU tienda no cambió.
       if (!suc) return { items: [], fecha: dia, truncado: false, fuente_al: null, ocultos_centavo: 0,
-        productos_del_dia: 0, tope_productos: CommercialLabelsService.TOPE_CAMBIOS, freshness };
+        productos_del_dia: 0, tope_productos: CommercialLabelsService.TOPE_CAMBIOS, freshness,
+        fichas: [], costo_historial_desde: null, costo_historial_error: false };
       const r = await trx.raw(CommercialLabelsService.SQL_CAMBIOS,
         [suc, dia, CommercialLabelsService.TOPE_CAMBIOS, suc]);
       const row = r?.rows?.[0] ?? {};
@@ -364,6 +401,7 @@ export class CommercialLabelsService {
       // varias unidades). Deducirlo del largo diría "truncado" en días completos.
       const productosDelDia = Number(row.productos_del_dia ?? 0);
       const truncado = productosDelDia > CommercialLabelsService.TOPE_CAMBIOS;
+      const { fichas, historial_desde, historial_error } = await this.fichasCompras(trx, suc, [...new Set(filas.map((f) => String(f.sku)))]);
       return {
         items: filas,
         fecha: dia,
@@ -373,8 +411,121 @@ export class CommercialLabelsService {
         productos_del_dia: productosDelDia,
         tope_productos: CommercialLabelsService.TOPE_CAMBIOS,
         freshness,
+        fichas,
+        costo_historial_desde: historial_desde,
+        costo_historial_error: historial_error,
       };
     });
+  }
+
+  /**
+   * `[ETQ-CAMBIOS.11]` Proveedor, UXC, mayoreo (precio de la CAJA) y costos de los códigos de la lista, para
+   * que «Cambios de precio» traiga lo que trae el PDF de Compras.
+   *
+   *  · proveedor ← `catalog.products.supplier_id` (el comodín «PRODUCTOS SIN…» cuenta como sin proveedor);
+   *  · UXC y mayoreo ← la presentación CAJA de la ficha de ESTA plaza (`analytics.v_label_prices`): los dos
+   *    salen de la misma fila, así que el precio y las unidades que lo componen no pueden contradecirse;
+   *  · costo actual e impuesto ← `analytics.v_kepler_standard_cost` (sin impuesto; la tasa es la observada);
+   *  · costo anterior ← la foto diaria `analytics.product_cost_history`.
+   *
+   * ⚠️ La historia va en un SAVEPOINT: si la migración todavía no está aplicada, esa consulta falla y SIN el
+   * savepoint Postgres abortaría la transacción entera y se caería también la lista de cambios. Se degrada a
+   * «sin anterior» y se AVISA con `historial_error: true` (error ≠ vacío: «todavía no hay foto» y «no se pudo
+   * leer» son cosas distintas y la pantalla las dice por separado).
+   */
+  private async fichasCompras(
+    trx: Knex.Transaction, suc: string, skus: string[],
+  ): Promise<{ fichas: FichaCompras[]; historial_desde: string | null; historial_error: boolean }> {
+    if (skus.length === 0) return { fichas: [], historial_desde: null, historial_error: false };
+    const [prov, precios, costos] = await Promise.all([
+      trx.raw(`
+        SELECT p.sku, s.name AS proveedor
+          FROM catalog.products p
+          LEFT JOIN catalog.suppliers s ON s.id = p.supplier_id
+         WHERE p.tenant_id = public.current_tenant_id() AND p.deleted_at IS NULL AND p.sku = ANY(?)`, [skus]),
+      trx.raw(`
+        SELECT sku, box_size, box_price FROM analytics.v_label_prices
+         WHERE sucursal = ? AND sku = ANY(?)`, [suc, skus]),
+      trx.raw(`
+        SELECT sku, unidad_base, unidad_dos, unidad_tres,
+               costo_estandar, costo_estandar_u2, costo_estandar_u3, impuesto_pct
+          FROM analytics.v_kepler_standard_cost
+         WHERE sucursal = ? AND sku = ANY(?)`, [suc, skus]),
+    ]);
+    const porLlave = new Map<string, HistorialCosto[]>();
+    let historialDesde: string | null = null;
+    let historialError = false;
+    try {
+      await trx.transaction(async (sp) => {
+        const h = await sp.raw(`
+          SELECT sku, unidad, costo_sin_impuesto::float8 AS costo, valid_from::text AS desde
+            FROM (SELECT h.*, row_number() OVER (PARTITION BY sku, unidad ORDER BY valid_from DESC) AS rn
+                    FROM analytics.product_cost_history h
+                   WHERE sucursal = ? AND sku = ANY(?)) t
+           WHERE rn <= 2
+           ORDER BY sku, unidad, desde DESC`, [suc, skus]);
+        for (const r of h.rows as { sku: string; unidad: string; costo: number; desde: string }[]) {
+          const k = `${r.sku}|${r.unidad}`;
+          const l = porLlave.get(k);
+          const fila = { costo: Number(r.costo), desde: r.desde };
+          if (l) l.push(fila); else porLlave.set(k, [fila]);
+        }
+        const d = await sp.raw(`SELECT min(valid_from)::text AS desde FROM analytics.product_cost_history`);
+        historialDesde = (d.rows[0]?.desde ?? null) as string | null;
+      });
+    } catch (e) {
+      porLlave.clear();
+      historialDesde = null;
+      historialError = true;
+      this.logger.warn(`No se pudo leer la historia del costo: ${(e as Error).message.slice(0, 200)}`);
+    }
+
+    const nombreProv = new Map<string, string | null>();
+    for (const r of prov.rows as { sku: string; proveedor: string | null }[]) {
+      const nombre = r.proveedor && !/^PRODUCTOS SIN/i.test(r.proveedor.trim()) ? r.proveedor.trim() : null;
+      nombreProv.set(String(r.sku), nombre);
+    }
+    const caja = new Map<string, { uxc: number | null; mayoreo: number | null }>();
+    for (const r of precios.rows as { sku: string; box_size: unknown; box_price: unknown }[]) {
+      const mayoreo = n(r.box_price);
+      caja.set(String(r.sku), { uxc: n(r.box_size), mayoreo: mayoreo != null && mayoreo > 0 ? mayoreo : null });
+    }
+    const fichaDeCosto = new Map<string, FichaCompras>();
+    for (const r of costos.rows as {
+      sku: string; unidad_base: string | null; unidad_dos: string | null; unidad_tres: string | null;
+      costo_estandar: unknown; costo_estandar_u2: unknown; costo_estandar_u3: unknown; impuesto_pct: unknown;
+    }[]) {
+      const sku = String(r.sku);
+      const lista: CostoPresentacion[] = [];
+      const agrega = (unidad: string | null, c: unknown): void => {
+        const v = n(c);
+        if (!unidad || v == null || v <= 0) return;
+        const a = elegirAnterior(porLlave.get(`${sku}|${unidad}`) ?? [], v);
+        lista.push({ unidad, costo_actual: v, ...a });
+      };
+      agrega(r.unidad_base, r.costo_estandar);
+      agrega(r.unidad_dos, r.costo_estandar_u2);
+      agrega(r.unidad_tres, r.costo_estandar_u3);
+      const c = caja.get(sku);
+      fichaDeCosto.set(sku, {
+        sku,
+        proveedor: nombreProv.get(sku) ?? null,
+        uxc: c?.uxc ?? null,
+        mayoreo_caja: c?.mayoreo ?? null,
+        impuesto_pct: n(r.impuesto_pct),
+        costos: lista,
+      });
+    }
+    // Todo código de la lista sale con ficha, aunque no tenga costo: «sin dato» es una respuesta, la ausencia no.
+    const fichas = skus.map((sku) => fichaDeCosto.get(sku) ?? {
+      sku,
+      proveedor: nombreProv.get(sku) ?? null,
+      uxc: caja.get(sku)?.uxc ?? null,
+      mayoreo_caja: caja.get(sku)?.mayoreo ?? null,
+      impuesto_pct: null,
+      costos: [],
+    });
+    return { fichas: this.sinCostoParaCliente(fichas), historial_desde: historialDesde, historial_error: historialError };
   }
 
   /**

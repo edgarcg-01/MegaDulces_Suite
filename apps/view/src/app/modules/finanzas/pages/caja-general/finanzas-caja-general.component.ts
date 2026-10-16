@@ -422,7 +422,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 padding-bottom:var(--sp-2); border-bottom:1px solid var(--border-color); }
     .cg-ficha-top { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
     .cg-ficha-doc { font-size:var(--fs-xs); color:var(--text-muted); }
-    .cg-ficha-fecha { font-size:var(--fs-xs); color:var(--text-faint); }
+    /* Misma cuenta que .cg-fila-doc: --text-faint no pasa AA en NINGUNA de las cuatro superficies
+       de esta pantalla, en ninguno de los dos temas (2.33 claro / 3.67 oscuro sobre card-bg,
+       contra el piso de 4.5). Y esto es la FECHA DE VALOR del movimiento que se esta capturando:
+       se lee, no se decora. --text-muted da 7.73 en claro y 6.91 en oscuro. */
+    .cg-ficha-fecha { font-size:var(--fs-xs); color:var(--text-muted); }
     .cg-ficha-nombre { margin:0; font-size:var(--fs-h3); font-weight:700; letter-spacing:-.02em;
                        line-height:1.25; overflow-wrap:anywhere; }
     .cg-ficha-cifra { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
@@ -481,6 +485,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        .78 de la fila, --text-muted cae a 4.10 y deja de pasar AA") nunca se aplicó, y lo mismo
        el tamaño y el margen de la marca. ⚠️ El repo tiene 99 p-tag con styleClass: todos inertes. */
     .cg-trabada .cg-motivo-tag { opacity:1; }
+    /* ⭐ TERCERA exclusion, por la MISMA cuenta de [CG.33] y la misma razon: el folio. Es el
+       identificador con el que se coteja la fila contra el documento del ERP, y con el .78 encima
+       su --text-muted cae a 4.12 -- el mismo 4.10 que [CG.33] midio y que lo decidio a excluir el
+       motivo. ⚠️ Y pesa aca mas que en ningun lado: medido abajo, ~74% de la cola es fila trabada,
+       asi que "atenuado" es el estado NORMAL del folio, no la excepcion. */
+    .cg-trabada .cg-fila-doc { opacity:1; }
     /* ⭐⭐ [CG.77] LA FILA TRABADA OCUPA MENOS ALTO. Pedido de Edgar el 2026-10-09: "lo que no es
        seleccionable hacerlo mas pequeño, visible pero que no quite espacio".
 
@@ -527,7 +537,24 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        Queda delineado (ver la plantilla) y la celda le da aire para que el borde no se recorte. */
     .cg-th-abrir, .cg-td-abrir { width:2.75rem; text-align:center; padding:0 var(--sp-1); }
     .cg-fila-nom { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .cg-fila-doc { color:var(--text-faint); font-size:var(--fs-nano); }
+    /* ⛔⛔ EL FOLIO FALLABA AA EN TODAS LAS FILAS, no solo en las trabadas. Medido sobre el
+       MISMO fondo que midio [CG.33] --rgb(244,244,245), el del DOM vivo de prod-- contra el piso
+       AA de 4.5 para texto chico:
+         --text-faint (#A1A1AA)  2.33  FALLA   (y dentro de .cg-trabada, al 78%: 1.89)
+         --text-muted (#52525B)  7.03  pasa    (al 78%: 4.12, FALLA)
+       El 4.12 de --text-muted al 78% reproduce el 4.10 que [CG.33] ya habia medido por su cuenta,
+       o sea que las dos mediciones concuerdan y esta no es una cuenta nueva: es la MISMA regla
+       aplicada a la celda que quedo afuera.
+       ⭐ Y esto NO es "el folio se ve tenue": el folio es el identificador con el que se coteja
+       el renglon contra el documento del ERP (X-D-26 0000346). Es el dato que se va a leer
+       caracter por caracter, y estaba en el color mas claro de la escala.
+       Pasa a --text-muted (7.03) Y sale de la atenuacion de .cg-trabada, que es exactamente lo
+       que [CG.33] hizo con .fin-hint-warn y .cg-motivo-tag por la misma razon. Sigue siendo
+       terciario: lo subordina el TAMANO, no un color que no se lee.
+       ⚠️ Queda DECLARADO lo que no se arregla aca: --text-faint da 2.33 y lo usan 112 archivos de
+       apps/view. Repuntar el token es decision de Edgar, no de esta pantalla. Y --fs-nano (10px)
+       para un folio que se transcribe sigue siendo chico aunque ahora contraste. */
+    .cg-fila-doc { color:var(--text-muted); font-size:var(--fs-nano); }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
        Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
        p-highlight ni del contraste de un fondo solo. */
@@ -550,7 +577,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        estoy trabajando" y la otra "esto entra al lote". El galon en --action y el borde dicen
        cual esta abierta; el fondo y la barra izquierda, cual esta marcada. */
     .cg-fila-abierta > td { box-shadow:inset 0 -1px 0 0 var(--action), inset 0 1px 0 0 var(--action); }
-    .cg-fila-abierta .cg-td-abrir > i { color:var(--action); transform:translateX(2px); }
+    /* ⭐ EL GALON GIRA, no se corre. Era translateX(2px): 2 pixeles de desplazamiento con el MISMO
+       color que ya tiene el hover, o sea que "abierta" se distinguia de "el mouse esta encima"
+       por nada. Apuntando hacia abajo la diferencia es de FORMA, que es la unica que sobrevive a
+       los tres modos -- y de paso dice lo que hace: lo de abajo se desplego. */
+    .cg-fila-abierta .cg-td-abrir > i { color:var(--action); transform:rotate(90deg); }
+    /* ⛔⛔ EN ALTO CONTRASTE DE WINDOWS, "abierta" DESAPARECIA. La flota es Windows y
+       forced-colors es el tercer modo (DESIGN.md), no un extra: ahi el box-shadow de arriba
+       NO SE DIBUJA --lo documenta libs/ui-web/src/forced-colors.css, que por eso rehace el anillo
+       de foco con outline-- y el color de la familia action del galon lo sustituye el sistema.
+       Las dos senales de la fila abierta se caian juntas y quedaba identica a las otras.
+       La hermana no tenia el problema: .cg-fila-marcada ademas pinta un icono de palomita en su
+       celda, que es un GLIFO y se ve en cualquier modo. Esta no tenia redundante.
+       El borde SI se dibuja en forced-colors, asi que reconstruye la misma banda de arriba y
+       abajo que el box-shadow pinta en los otros dos modos. Mismo mensaje, otra propiedad. */
+    @media (forced-colors: active) {
+      .cg-fila-abierta > td { border-top:2px solid Highlight; border-bottom:2px solid Highlight; }
+    }
 
     /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
        es una de las dos, nunca las dos. */
@@ -2272,7 +2315,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                Ahora: la cifra accionable primero y con peso, el resto subordinado, y la EDAD
                del dato en su píldora -- que es la que se pone ámbar sola. Como prosa gris,
                "hace 3 min" y "hace 9 horas" se veían idénticos. -->
-          <span class="cg-lead">{{ confirmables() }} <span class="cg-lead-sub">de {{ pendientes().length }} se confirman de un clic</span></span>
+          <!-- ⭐ LA COLA LA MUEVE EL SOCKET, ASÍ QUE SU CIFRA SE ANUNCIA. El canal change$ recarga la
+               bandeja sin que nadie toque nada: entran movimientos nuevos mientras la persona está
+               contando efectivo del otro lado de la pantalla. Sin región viva eso es invisible para
+               un lector de pantalla, y con él la única forma de enterarse es volver a pasar por acá.
+
+               Va SOBRE el cg-lead que ya existe, no en un sr-only aparte: el texto del span ya
+               es la frase completa ("18 de 19 se confirman de un clic"), así que duplicarlo sólo
+               lograría que quien navega hasta acá lo escuche dos veces.
+
+               ⚠️ No hace ruido en el repaso de 60 s: polite con texto IDÉNTICO no se re-anuncia
+               —la AT compara el contenido—, así que una recarga que no cambió la cuenta es muda.
+               Y atomic porque "18" suelto, sin "de 19", no es un dato. -->
+          <span class="cg-lead" aria-live="polite" aria-atomic="true">{{ confirmables() }} <span class="cg-lead-sub">de {{ pendientes().length }} se confirman de un clic</span></span>
           <span class="fin-dim">{{ textoAlcance() }}</span>
           <!-- §9 + inventario: la frescura es un COMPONENTE, no una frase. measures="data" es
                honesto: datos_al lo manda el servidor, no es el reloj del navegador. -->
@@ -2869,6 +2924,25 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       queda como hallazgo a nombre de quien confirma.
                     </p>
                   }
+
+                  <!-- ⭐ LA CIFRA SE DICE, NO SÓLO SE PINTA. El bloque de arriba es la única salida
+                       del conteo y cambia en CADA tecla de la reja; sin región viva, quien usa lector
+                       de pantalla teclea once renglones de denominación y nunca se entera del total
+                       ni del veredicto — tiene que irse a buscarlos.
+
+                       · polite y no assertive: el lector lo dice cuando la persona deja de
+                         teclear, en vez de interrumpir cada dígito. El coalescing lo hace la AT.
+                       · atomic: la cifra sin su veredicto ("$460.00") no dice nada; el par
+                         ("$460.00 contado, cuadra con el documento") sí. Se lee entero o no se lee.
+                       · Va DENTRO del bloque condicional, y es seguro: arqueoVeredicto() nunca
+                         devuelve null —siempre cae en alguno de los cinco estados—, así que la
+                         región existe en el DOM desde antes del primer cambio, que es lo que exige
+                         que se anuncie.
+                       · sr-only y no aria-label sobre el bloque: el rótulo describiría el
+                         contenedor, no anunciaría su cambio. Son dos mecanismos distintos. -->
+                  <p class="sr-only" aria-live="polite" aria-atomic="true">
+                    {{ money(f().monto) }} contado. {{ textoVeredicto(v) }}
+                  </p>
                 }
 
                 <!-- ⭐ [CG.38] EL CAMBIO QUE SE DEVUELVE. Hasta hoy no había dónde registrarlo: si te
@@ -4873,7 +4947,15 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.enVivo();
   }
 
+  /**
+   * ⚠️ El debounce del autofill NO lo cubre `takeUntilDestroyed`: la guarda vive en la
+   * suscripción, y acá todavía no hay suscripción — hay un `setTimeout` pendiente que, si la
+   * persona sale de la pantalla dentro de los 350 ms de haber tecleado, dispara `pedirPropuesta()`
+   * sobre un componente ya destruido y recién ahí emite la petición. Se cancela el temporizador,
+   * que es donde está el pendiente de verdad.
+   */
   ngOnDestroy(): void {
+    clearTimeout(this.debounce);
     this.caja.disconnect();
   }
 
@@ -4981,7 +5063,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   cargarCobertura(): void {
-    this.svc.cobertura().subscribe({
+    this.svc.cobertura().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => {
         this.cobertura.set(c.catalogo ?? []);
         // `[CG.180]` Se copia tal cual, incluido el `undefined`: el campo ausente dice "esta
@@ -5000,7 +5082,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargarCortes(): void {
     this.cargandoCortes.set(true);
-    this.svc.cortes({ from: this.from, to: this.to, limit: 50 }).subscribe({
+    this.svc.cortes({ from: this.from, to: this.to, limit: 50 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.cortes.set(r.rows ?? []); this.errCortes.set(null); this.cargandoCortes.set(false); },
       error: (e) => { this.cortes.set([]); this.errCortes.set(this.textoError(e)); this.cargandoCortes.set(false); },
     });
@@ -5062,7 +5144,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cargarSaldo(): void {
     // `[CGP-V.4]` El servicio ya reintenta solo un 429; esto marca que la lectura está en vuelo.
     this.cargandoSaldo.set(true);
-    this.svc.saldo(this.sucursalActiva).subscribe({
+    this.svc.saldo(this.sucursalActiva).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.saldoResp.set(r); this.cargandoSaldo.set(false); },
       // Un error de red NO es "saldo 0": se declara como sin medir. Y la barra de arriba ya NO
       // pinta "Abrir corte" en ese caso — no sabemos si hay uno abierto.
@@ -5085,7 +5167,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargarArqueo(): void {
     this.cargandoArqueo.set(true);
-    this.svc.arqueoDia({ fecha: this.arqueoFecha(), sucursal: this.sucursalActiva }).subscribe({
+    this.svc.arqueoDia({ fecha: this.arqueoFecha(), sucursal: this.sucursalActiva }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.arqueo.set(r); this.cargandoArqueo.set(false); },
       error: () => { this.arqueo.set(null); this.cargandoArqueo.set(false); },
     });
@@ -5159,7 +5241,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargarJornadasAtrasadas(): void {
     this.jornadasAtrasadas.set({ estado: 'midiendo' });
-    this.svc.jornadasPendientes(this.sucursalActiva).subscribe({
+    this.svc.jornadasPendientes(this.sucursalActiva).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (datos) => this.jornadasAtrasadas.set({ estado: 'medido', datos }),
       error: (e: { status?: number }) =>
         this.jornadasAtrasadas.set({ estado: e?.status === 404 ? 'no_informa' : 'sin_medir' }),
@@ -5414,7 +5496,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   recAbierto = signal(false);
 
   cargarRecurrentes(): void {
-    this.svc.recurrentesSinRegla().subscribe({
+    this.svc.recurrentesSinRegla().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       // `null` NO es "no hay ninguno": la cabecera lo declara como sin medir.
       next: (r) => this.recurrentes.set(r),
       error: () => this.recurrentes.set(null),
@@ -5694,7 +5776,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // quién es "yo" desde el token de la petición. Mandar el id desde acá volvería "los míos"
       // en "los de cualquiera que yo escriba".
       mios: this.soloMios() ? '1' : undefined })
-      .subscribe({
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi);
           this.errLibro.set(null); this.cargando.set(false);
@@ -5762,7 +5844,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   private armarReporte(usar: (r: ReporteDia) => void): void {
     this.imprimiendoReporte.set(true);
     this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined, limit: 500 })
-      .subscribe({
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.imprimiendoReporte.set(false);
           const rep: ReporteDia = {
@@ -5897,7 +5979,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       sucursal: this.f().sucursal || undefined,
       search: (e.query || '').trim() || undefined,
       limit: 40,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.cobros.set((r.rows ?? []).map((c) => ({ ...c, label: this.cobroLabel(c) }))),
       // ⚠️ El comentario que estaba acá decía "se deja la lista como estaba" y el código hacía
       // exactamente lo contrario: la vaciaba. Ahora sí se conserva, y el fallo se AVISA en vez de
@@ -6035,7 +6117,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       tipo: this.f().tipo === 'gasto' ? 'gasto' : 'ingreso',
       search: (e.query || '').trim() || undefined,
       limit: 40,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.caosOpciones.set((r.rows ?? []).map((m) => ({ ...m, label: this.caosLabel(m) }))),
       error: (err) => this.avisarError(err, 'No se pudieron buscar movimientos de la caja fuerte (CAOS)'),
     });
@@ -6135,7 +6217,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       beneficiario: f.beneficiario || undefined,
       concepto: f.glosa || undefined,
       sucursal: f.sucursal || undefined,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         const ya = new Set(this.caosVinculados().map((v) => v.external_id));
         this.caosSugeridos.set((r.rows ?? []).filter((c) => !ya.has(c.external_id)));
@@ -6189,7 +6271,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // El conteo de cada caja es "documentos EN LA VENTANA", así que se vuelve a pedir cuando la
     // ventana cambia. Antes se pedía una sola vez en ngOnInit y los números entre paréntesis
     // quedaban congelados, contradiciendo a la lista de abajo.
-    this.svc.cajas(this.ventanaDias() || undefined).subscribe({
+    this.svc.cajas(this.ventanaDias() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.cajas.set(r.rows ?? []),
       error: () => { /* se conserva lo último conocido; el computed cae a la CAJA GENERAL */ },
     });
@@ -6251,7 +6333,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // CS.3.9 — el buscador universal de «por confirmar»: folio de Kepler, concepto, beneficiario, doc.
       search: this.searchPend() || undefined,
       limit: 100,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
         // `[CG.93]` Lo único que tiene que hacer la persona es CONTAR. Ver `avanzarAlSiguiente()`.
@@ -6508,7 +6590,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // pares de los GASTOS de esa persona. Pedir con el tipo en curso es la misma corrección que
     // ya se hizo con la sucursal: el catálogo se pide con lo que se está capturando, no con una
     // constante. Se recarga en `onTipo` por la misma razón que en `onSucursal`.
-    this.svc.frecuentes({ tipo: this.f().tipo, sucursal: this.f().sucursal, limit: 10 }).subscribe({
+    this.svc.frecuentes({ tipo: this.f().tipo, sucursal: this.f().sucursal, limit: 10 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.frecuentes.set(r.rows ?? []),
       // ⛔ [CG.181] ACÁ SE VACIABA LA LISTA, y un 429 se veía igual que "esta persona no repite
       // nada". Medido en producción: esta petición sale dos veces al cargar y la segunda rebota.
@@ -6602,7 +6684,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     d.setDate(d.getDate() - (this.CORTES_DIAS - 1));
     const desde = toMxDateKey(d);
     this.cortesEstado.set('cargando');
-    this.svc.cortesDeCaja(desde, hasta).subscribe({
+    this.svc.cortesDeCaja(desde, hasta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         // Acotado a la sucursal que se está capturando: la mediana por sucursal son ~20 cortes
         // en 7 días, y la lista plana de la red son 195 — inusable.
@@ -6686,7 +6768,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       }));
       return;
     }
-    this.svc.conceptos(this.f().sucursal || undefined, e.query || '', 30).subscribe({
+    this.svc.conceptos(this.f().sucursal || undefined, e.query || '', 30).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       // `label` es lo que el autocomplete pinta: la vista no arma texto en la plantilla.
       next: (r) => this.conceptos.set((r.rows ?? []).map((c) => ({ ...c, label: this.conceptoLabel(c) }))),
       error: (err) => this.avisarError(err, 'No se pudo buscar el concepto'),
@@ -6732,7 +6814,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // `[CG.109]` El tercero abre el Nivel 0.5: la regla de la entidad, que cubre lo que el
       // documento no resuelve (cajas chicas, tarjetas, cobros de ruta).
       entidad_code: c?.entidad_code || undefined,
-    }).subscribe({
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.propuesta.set(r);
         const v = r.concepto?.value;
@@ -6928,7 +7010,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * firma). Se usa desde la lista; al guardar se imprime solo con lo recién enviado.
    */
   imprimirComprobante(m: MovimientoCaja): void {
-    this.svc.detalle(m.id).subscribe({
+    this.svc.detalle(m.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         if (!imprimirTicketComprobante(this.comprobanteDeDetalle(d))) {
           this.avisarError(null, 'El navegador no dejó abrir la impresión del comprobante');

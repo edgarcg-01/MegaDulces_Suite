@@ -8,6 +8,7 @@ import { CashCutService } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaCorteAbiertoScannerService } from './caja-corte-abierto-scanner.service';
 import { CajaAutofillRefreshService } from './caja-autofill-refresh.service';
+import { CajaAutollenadoService } from './caja-autollenado.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
 import { CajaControlService } from './caja-control.service';
 import { CajaControlController } from './caja-control.controller';
@@ -34,9 +35,15 @@ import { CajaControlController } from './caja-control.controller';
   // matvista lee una vista filtrada por `current_tenant_id()` — refrescarla así la VACÍA, que
   // es exactamente como nació.
   // [CGP-L.10] El sensor del corte abierto: el del 12-oct estuvo trabado tres jornadas y nadie avisó.
+  // [CG.190] El autollenado sin supervisión: confirma solo lo que el resolvedor ya resuelve, por
+  // el MISMO `crearLote()` de la pantalla. Va acá porque corre por `@Cron`, sin request — con su
+  // propio scope de tenant (RLS forzado) y su cuenta de servicio. ⛔ Arranca APAGADO:
+  // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService],
+    CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
+    CajaAutollenadoService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
-    CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService],
+    CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
+    CajaAutollenadoService],
 })
 export class FinanceCajaGeneralModule {}

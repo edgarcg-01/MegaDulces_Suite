@@ -16,6 +16,7 @@ Documentos hermanos: [`FASE_ETIQUETAS_ANAQUEL`](FASE_ETIQUETAS_ANAQUEL.md) (la e
 | **Se confirma qué precio lleva la etiqueta** (Todos / Pieza / Paquete / Caja) antes de imprimir | Quien reimprime | #349 | ✅ en `main` |
 | **Un clic en un producto lo manda a la etiquetera**, con ese precio elegido | Quien reimprime | #349 | ✅ en `main` |
 | **Cambios de precio gana ~170 px de alto**: el selector de día pasa a la fila de las pestañas, las 4 tarjetas a una línea y se quita el título repetido (no se pierde ninguna información) | Quien reimprime | #407 | 🧪 PR abierto, sin validación visual |
+| **Cambios de precio trae las columnas del PDF de Compras**: proveedor, UXC, costo anterior/actual con impuesto, mayoreo (precio de la caja) y tipo N/S. El «anterior» sale de una **foto diaria** del costo (Kepler no guarda la historia) | Compras y quien usa etiquetas | #417 | 🧪 en código · migración antes del código · SQL sin ejecutar · sin validación visual |
 | **La etiquetera dice POR QUÉ un producto no tiene precio**: no existe en Kepler / existe pero no en esa tienda / precio 0 | Quien carga códigos | #351 | ✅ en `main` (2026-10-12) |
 | **Aviso en la campana** a cada sucursal cuando hay cambios de precio (07:30 resume ayer, 14:00 lo de hoy); al tocarlo entra a Cambios de precio de su tienda | Encargados y quien usa la etiquetera | #350 | ✅ en `main` (2026-10-12) · migraciones por confirmar en prod |
 | **Compras puede avisar a una o varias sucursales** con una nota (permiso propio) | Compras | #350 | ✅ en `main` · el permiso necesita su migración y re-login |
@@ -162,6 +163,10 @@ Este PR traía «Descargar CSV». **Edgar pidió quitarlo: no se acepta ningún 
 | 6 | **Decisión:** ¿hace falta un **PDF** de la lista? (no se construyó) | Edgar |
 | 7 | Una plaza **sin nadie con tienda asignada** no tiene a quién avisar: el aviso lo ve quien tiene alcance total y el diálogo de Compartir lo **declara** (`destinatarios = 0`). Es la limitación D5, no un arreglo: se resuelve asignando tienda a las personas | Edgar / RH |
 | 8 | ~~Hacer que el `pre-push` corra el `Boundary type gate`~~ — **hecho en el PR #390** (prueba negativa y medición en su descripción); falta fusionarlo | Edgar |
+| 10 | **`ETQ-CAMBIOS.11` — aplicar la mig `20261015131321` a prod ANTES del código** y correr `node database/scripts/verificar-cambios-compras.js <plaza> [día]` (sólo lectura): confirma la tabla, la foto simulada y que el rótulo de la bitácora casa con el de la ficha (≥ 90 %). Si casa menos, las columnas de costo dirán «sin dato» | Quien tenga acceso a prod |
+| 11 | `ETQ-CAMBIOS.11` — **validación visual** de las 10 columnas (alineación de las líneas de costo con las de «Qué cambió», ancho de la tabla) y confirmar con Compras que «mayoreo = precio de la caja» es lo que esperan (el PDF lo trae por unidad) | Edgar / Compras |
+| 13 | `ETQ-CAMBIOS.11` — **no se midió la coherencia de la escalera de precios** (punto 18 del protocolo): si el precio de caja por unidad es peor que el de pieza/paquete. El «mayoreo» ya dice su unidad, pero no se comprobó que convenga | Precios / Comercial |
+| 12 | `ETQ-CAMBIOS.11` — el «costo anterior» aparece desde el día 2 de la foto; de un cambio previo a la primera foto no hay dato. Si Compras necesita el pasado, hay que reconstruirlo de las compras (`X-A-40`), que es otra medición | Compras |
 | 9 | Borrar las ramas remotas que ya cumplieron (el proyecto pide borrarlas al fusionar): `feat/etq-estado-1-v2` (#351), `docs/protocolo-pr-lecciones-etq` (#361) y `feat/etq-estado-1-motivo-sin-precio` (obsoleta, la reemplazó #351). La de #349 ya no existe | Cualquiera, con visto bueno |
 
 ---
@@ -212,3 +217,4 @@ Llevar los tres PR a verde dejó seis lecciones, ya en el protocolo previo a env
 | 2026-10-12 | #351 y #361 fusionados; Edgar fusiona `main` en #350 y lo fusiona | `1726a2bb8` / #350 |
 | 2026-10-13 | Prod sirve `a5223868` (tip de `main`); migraciones de #350 sin poder confirmarse desde aquí | `/api/health` |
 | 2026-10-14 | Barra superior compacta de Cambios de precio (`ETQ-CAMBIOS.10`); `app-metric-strip` gana densidad compacta | #407 |
+| 2026-10-15 | Columnas del PDF de Compras en Cambios de precio y foto diaria del costo (`ETQ-CAMBIOS.11`) | #417 |

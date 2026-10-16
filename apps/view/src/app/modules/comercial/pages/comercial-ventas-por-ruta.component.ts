@@ -1515,13 +1515,22 @@ export class ComercialVentasPorRutaComponent {
     this.arqError.set(null);
     this.creditoError.set(null);
     /**
+     * `[VEC.24]` La ruta que se está pidiendo, sellada antes de salir. Tirar el estado al abrir
+     * la ruta cierra el camino de ida; **esto cierra el de vuelta**: dos peticiones en vuelo no
+     * vuelven en orden, y la de la ruta vieja aterrizando después pinta lo mismo que el defecto
+     * que se acaba de arreglar. No alcanza con comparar al llegar y ya: se compara contra la
+     * ruta que la pantalla tiene ABIERTA en ese momento.
+     */
+    const rutaPedida = this.rutaAbierta();
+    const sigueSiendoMia = () => this.rutaAbierta() === rutaPedida;
+    /**
      * `[VEC.21]` La venta a CRÉDITO de la misma ruta y el mismo rango, en paralelo.
      *
      * ⛔ Va en su propia suscripción y **no encadenada** al arqueo: si la vista de crédito no
      * está (la migración puede no estar aplicada) el arqueo tiene que seguir viéndose igual.
      * Son dos preguntas; una que falla no puede apagar a la otra.
      */
-    this.svc.routeCreditSales(desde, hasta, this.rutaAbierta())
+    this.svc.routeCreditSales(desde, hasta, rutaPedida)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         /**
          * ⛔ Se comprueba la FORMA, no sólo el `next`. Medido el 2026-10-15: el endpoint no
@@ -1530,19 +1539,27 @@ export class ComercialVentasPorRutaComponent {
          * octubre. Un cuerpo que no trae `filas` es una falla, no un cero (ADR-056).
          */
         next: (r) => {
+          if (!sigueSiendoMia()) return;
           if (!r || !Array.isArray(r.filas)) {
             this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.');
             return;
           }
           this.creditoData.set(r);
         },
-        error: () => this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.'),
+        error: () => {
+          if (!sigueSiendoMia()) return;
+          this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.');
+        },
       });
     // `[VEC.12.1]` La ruta viaja al servidor: sin ella la fila sólo trae el total de la CAJA, y
     // mostrarlo en el detalle de una ruta es lo que hacía mentir a esta pestaña.
-    this.svc.vecinalConciliacion(desde, hasta, this.rutaAbierta()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.arqData.set(r); this.arqCargando.set(false); },
+    this.svc.vecinalConciliacion(desde, hasta, rutaPedida).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        if (!sigueSiendoMia()) return;
+        this.arqData.set(r); this.arqCargando.set(false);
+      },
       error: () => {
+        if (!sigueSiendoMia()) return;
         this.arqError.set('No se pudo leer el arqueo de las cajas.');
         this.arqCargando.set(false);
       },
@@ -1765,6 +1782,32 @@ export class ComercialVentasPorRutaComponent {
     this.peekRow.set(row);
     this.depReporte.set(null);
     this.depError.set(null);
+    /**
+     * `[VEC.24]` ⛔ **El arqueo de la ruta anterior también se tira.** Se tiraba `depReporte` por
+     * este mismo motivo y estos dos quedaron fuera — y acá el defecto no se nota, se publica:
+     *
+     *   1. `setTab('deposito')` sólo pide si `!arqData()`, así que con la respuesta vieja en mano
+     *      la ruta nueva **no vuelve a preguntar**.
+     *   2. `arqFilas` filtra por PERTENENCIA a `rutas`, y en PH las cajas son compartidas todos
+     *      los días — así que las filas de la ruta anterior **pasan el filtro enteras**, con su
+     *      `vecinal_ruta` adentro.
+     *
+     * Medido en prod el 2026-10-16: abrir 1V002 y después 1V001 publicaba los 13 días de octubre
+     * de 1V002 bajo el título «Ruta 1V001». El 03-oct decía $7,498 donde 1V001 vendió
+     * **$22,903.59**; el 02-oct, $6,953 contra $25,141.97. Las dos rutas timbran en la caja 4.
+     */
+    this.arqData.set(null);
+    this.arqError.set(null);
+    this.creditoData.set(null);
+    this.creditoError.set(null);
+    /**
+     * ⚠️ `arqCargando` también se baja, y no es cosmético: `setTab('deposito')` pide sólo si
+     * `!arqData() && !arqCargando()`. Cambiar de ruta con la petición anterior EN VUELO dejaba
+     * la bandera levantada para siempre —su respuesta ya se descarta por no ser de esta ruta—,
+     * y la pestaña se quedaba cargando sin que nadie volviera a preguntar. Lo destapó la
+     * segunda prueba de `[VEC.24]`, no la pantalla.
+     */
+    this.arqCargando.set(false);
     this.detailLoading.set(true);
     this.peekOpen.set(true);
     // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.
