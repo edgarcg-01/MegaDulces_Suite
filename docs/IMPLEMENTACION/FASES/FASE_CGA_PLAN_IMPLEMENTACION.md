@@ -684,3 +684,58 @@ sucursales** (`00`, `01-001` … `01-006`), que suman **$136,385.41**. Una captu
 500. Verificado por simulación que, con la columna en `NULL`, el predicado nuevo devuelve
 **exactamente lo mismo** que el vigente (13,361 = 13,361): el cambio es un no-op hasta que haya
 declaraciones.
+
+### 10.9 A.12 y A.13 — el `.cmd` de la camioneta deja de ser un archivo suelto
+
+**A.13 · `npm run check:camioneta-sin-cobro`** — cruza los **dos latidos** del runner:
+`route_push_heartbeat` (venta) contra `route_collections_heartbeat` (cobro). Exit 1 cuando una
+unidad con venta fresca lleva su cobro atrasado o ausente.
+
+⭐ **La venta es el testigo independiente.** Si una unidad mandó venta hoy, estuvo prendida, con
+red y con su Kepler vivo — así que la ausencia del cobro **no es la camioneta, es el `.cmd`**.
+Es el mismo razonamiento de `check-route-stock-push.js` (`[RD.32]`), que ya lo hacía para la
+existencia. Prueba negativa: degrada el `LEFT JOIN` a `INNER` —el error natural de quien escribe
+esa consulta— y exige que encuentre menos: **11 unidades y 6 problemas contra 6 y 2**. Las 5 que
+se pierden son justo las que **nunca** mandaron un cobro.
+
+**Censo del 2026-10-16 17:10:**
+
+| camión | venta | cobro | estado |
+|---|---|---|---|
+| `ruta_22` `ruta_23` `ruta_27` `ruta_28` | fresca | fresca | ✓ cableadas hoy |
+| **`ruta_21`** · **`ruta_26`** | **12 y 27 min** | 4 d | ⛔ carril caído |
+| `ruta_501`–`ruta_504` | fresca | nunca | ⛔ sin cablear |
+| `ruta_505` | 32 d | nunca | · dormida, no se juzga (ADR-056) |
+
+⚠️ **Corrección a lo que reporté antes:** dije que `ruta_21` y `ruta_26` llevaban días sin
+empujar ventas y que las máquinas podían estar apagadas. **Es falso: las dos mandaron venta hoy**,
+con minutos de diferencia. Están vivas y les falta el bloque, como a las otras cuatro.
+
+**A.12 · `npm run camioneta:armar`** — el archivo se **genera** y se **verifica**.
+
+- `--truck ruta_21 --serie UD1001 --salida push-ruta.cmd` escribe el archivo completo, con los
+  **tres carriles adentro**. Nunca imprime una credencial: salen `<CLAVE_LOCAL>` / `<CLAVE_RUNNER>`.
+- `--verificar C:\KeplerPush\push-ruta.cmd` recibe el archivo **real de una máquina** y dice qué
+  le falta. ⭐ **Ésta es la mitad que vale**: lo desplegado ya existe y nadie lo puede mirar desde
+  el repo; suponer que es igual a la plantilla es justo lo que falló.
+
+Siete reglas, cada una con su costo medido. La que cierra el incidente del día: **toda variable
+de conexión usada tiene que estar definida en el mismo archivo** — un bloque pegado del repo usa
+`%SRC%`/`%DST%` y la máquina vieja define `%LOCAL_CONN%`/`%RUNNER_CONN%`; **`psql` con una
+variable vacía no grita**, así que el bloque «corre» y no manda nada.
+
+Prueba negativa: cinco mutaciones de la plantilla propia, **cada una tiene que disparar su regla
+y no otra**. ⚠️ Y su primera versión salió **roja sobre su propio archivo**: el `REM` que explica
+por qué el runner no es `.249` *contiene* `192.168.0.249`. Las reglas que buscan algo prohibido
+miran el **código**, no los comentarios — un archivo correcto marcado como malo se apaga el
+primer día.
+
+**Retirados** con banner, no borrados: `push-cobros.snippet.cmd` (existía para pegarse a mano, y
+ese mecanismo *es* el defecto) y `push-ruta.v2.template.cmd` — **al que le faltaba el bloque de
+cobros, y de ahí copiaba todo el mundo**. Comprobado con el verificador: falla «manda COBROS».
+
+| # | lo que falta | quién |
+|---|---|---|
+| **A.12b** | Regenerar y verificar el `.cmd` de `ruta_21` y `ruta_26` (están vivas) | quien entre a la máquina |
+| **A.12c** | `501`–`505`: cargar `almacen_erp` en `analytics.v_rd_route_identity` (mapa medido 1:1, `501→06-001`…`505→06-005`). **Sin almacén no se puede escribir el filtro obligatorio del bloque de cobros** | C0 |
+| **A.3** | El importer sigue **sin agendar** en ningún crontab | ops |
