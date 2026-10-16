@@ -105,8 +105,8 @@ export class EmbeddingSyncService implements OnModuleInit {
             `tick(): catalog ${r.processed} embebidos, ${r.deleted} borrados, ${r.failed} fallidos, ${r.pending} pendientes.`,
           );
         }
-      } catch (e: any) {
-        this.logger.error(`tick() catalog falló: ${e.message}`);
+      } catch (e: unknown) {
+        this.logger.error(`tick() catalog falló: ${(e as Error)?.message}`);
       }
       // Corpus activo ERP (inventory.products_active) para el ticket del vendedor.
       try {
@@ -116,8 +116,8 @@ export class EmbeddingSyncService implements OnModuleInit {
             `tick(): active ${ra.processed} embebidos, ${ra.deleted} borrados, ${ra.failed} fallidos, ${ra.pending} pendientes.`,
           );
         }
-      } catch (e: any) {
-        this.logger.error(`tick() active falló: ${e.message}`);
+      } catch (e: unknown) {
+        this.logger.error(`tick() active falló: ${(e as Error)?.message}`);
       }
     } finally {
       this.isRunning = false;
