@@ -717,3 +717,84 @@ cupo de §3 del método y por un dueño con fecha.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | D1 decidida (liberar el día = autorización) → ADR-094. C0 cerrada: dedupe 37/37 sin migración, lista 325–377 ms paginada, y el hallazgo del `uuid` resuelto con llave determinística. Cero código de producción escrito | Edgar (decisión) · Claude (medición) |
+
+---
+
+## 12. TP.18 (C1) — el motor acepta la deuda derivada (2026-10-16)
+
+**Qué se construyó** — cuarto `obligation_source: 'kepler_payable'` en el motor polimórfico, según
+ADR-094. ⛔ **Sin migración y sin tabla nueva**: el origen es la vista que ya existía.
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| `keplerPayableId()` + `KEPLER_PAYABLE_ID` | `payment-calendar.service.ts` | la llave determinística, en TS y en SQL — **la misma cuenta en los dos lados** |
+| `loadObligationRow()` | ídem | una obligación venga de donde venga: tabla para los tres de siempre, vista + items para el derivado |
+| 4.ª pata del `UNION ALL` | `listObligations()` | la deuda viva con sus tres recortes: sin `TI*`, sin duplicados, reserva desde los items |
+| `TABLE_BY_SOURCE` → `string \| null` | ídem | **el tipo obliga** a preguntar si hay tabla antes de tocarla |
+| `recalcObligation()` | ídem | no escribe para el derivado: no hay dónde, y no hay nada que desincronizar |
+| `assertKeplerBalance()` · `paymentGroupKey()` · orden sugerido · etiquetas del día · ejecutar | ídem | los dos orígenes de factura se tratan igual |
+| espejo del agrupador | `calendario-pagos-grupos.ts` | el front agrupa igual que el backend — el archivo mismo pide que si cambia una, cambie la otra |
+
+### Lo que se probó, y con qué
+
+- `payment-calendar-kepler-payable.spec.ts` — **16 casos**, 7 de ellos negativos (cambiar sucursal,
+  folio, tipo, subtipo; y que `01|31|1` no colisione con `01|3|11`). Verde junto con los specs que
+  ya existían: **35 pasan** en `payment-calendar`, **17** en el agrupador del front.
+- ⭐ **Cruce de las dos implementaciones de la llave** (TS vs SQL de Postgres) contra prod:
+  **5 de 5 documentos reales coinciden**, más el vector fijo que quedó anclado en el spec. Si
+  alguien cambia el formato de un lado, el test se pone rojo.
+- ⭐ **El SQL se ejerció contra prod** (sólo lectura): la pata devuelve **2,892 filas ·
+  $133,209,074**. No es una prueba de escritura — es la comprobación de que el builder de knex
+  produce SQL válido, que es donde un `joinRaw`/`whereNotExists` falla sin que ningún test puro lo note.
+- ⛔ **Un bug real que atrapó el test, y vale escribirlo:** el comentario SQL que agregué al orden
+  sugerido llevaba **acentos graves** dentro de un *template literal* de JS — el backtick cierra el
+  string. No es un error de SQL ni de tipos: el archivo entero dejaba de parsear. Lo cazó `vitest`
+  en la primera corrida. (Mismo patrón que `[feedback_no_backticks_in_css_comments]`.)
+
+### ⚠️ Deuda con nombre — TP.18.5: la lista NO cumple los 500 ms de forma confiable
+
+Medido con 6 corridas sobre prod, `ORDER BY vencimiento + LIMIT 200`:
+
+| | |
+|---|---:|
+| corridas (ms) | 441 · 445 · 454 · 456 · 522 · 558 |
+| **mediana** | **456 ms** |
+| **p90** | **558 ms** |
+
+⛔ **No se declara verde.** Roza el límite y lo pasa en el p90. ⭐ Y el `EXPLAIN` dice dónde está
+el costo, que **no es la pata nueva**: adentro de `analytics.v_supplier_payables` hay un
+**Seq Scan de `kdxe` (24,523 filas)** y un **sort de `kdxf` (34,769)** que se rehacen en cada
+consulta. O sea que el costo ya lo paga hoy **Pronto pago**, y lo paga `assertKeplerBalance` en
+cada asignación y cada ejecución.
+
+Salidas posibles, **ninguna hecha**: materializar la vista (legítimo por costo — `GOTCHAS §32`
+permite materializar lo caro, lo que prohíbe es materializar un valor inventado) con su refresco, o
+índices sobre `kdxe`/`kdxf`. ⚠️ Un `CREATE MATERIALIZED VIEW` va **fuera de horario hábil**: uno ya
+sostuvo el candado de migraciones 22 minutos.
+
+### Lo que sigue SIN probar, dicho sin maquillaje
+
+⛔ **Ninguna escritura se ejerció.** `createAllocation`, `addItem` y `ejecutar` con el origen
+derivado **no corrieron contra una base real** — el DoD punto 3 no está cumplido. Lo que falta es
+extender `database/tests/test-newdb-payment-calendar.js` (hoy 50 casos) con el cuarto origen y
+correrlo contra una base de pruebas. No se hizo acá porque ejercer escrituras contra **producción**
+está prohibido y levantar el backend local también.
+
+⛔ **No se compiló**: lo compila el CI (`Build & typecheck`), que es además quien sella `ci-green`.
+El `boundary-gate` sí corrió: verde.
+
+### Estado
+
+| # | Item | Estado |
+|---|---|---|
+| TP.18.1 | Cuarto origen en el motor | 🔨 escrito, specs verdes, **sin prueba de escritura** |
+| TP.18.2 | `recalcObligation` saltea el derivado sin romper los otros 3 | 🔨 ídem |
+| TP.18.3 | Fecha límite de pronto pago como atributo | ⬜ no empezado |
+| TP.18.4 | `paymentGroupKey` extendido + espejo en el front | ✅ con specs a ambos lados |
+| TP.18.5 | **Latencia: mediana 456 ms / p90 558 ms** | ⚠️ **deuda declarada** |
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | TP.18 escrito: 4.º origen derivado, llave determinística cruzada TS↔SQL (5/5), SQL ejercido en lectura contra prod (2,892 filas / $133.2 M), 16 specs nuevos con 7 negativos. Declarado: cero pruebas de escritura y latencia p90 558 ms sobre el límite | Claude |
