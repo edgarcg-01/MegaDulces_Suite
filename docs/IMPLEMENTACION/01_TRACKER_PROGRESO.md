@@ -7940,6 +7940,22 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   [`prototipos/piramide-accesos-obligaciones.html`](FASES/prototipos/piramide-accesos-obligaciones.html).
   Antes de construir: quitar `superadmin` a los 3 Gerentes de Zona, corregir el rol de Facturación,
   asignar lugar a 13 personas y responder 4 preguntas abiertas.
+- [ ] 🔨 **TP.15** — 2026-10-16: **Lo que Finanzas acepta en «Entregas» llega solo al Calendario.**
+  Francisco: «no le encuentro cómo cargo las notas para pago». Medido en prod: el Calendario mostraba
+  **0 obligaciones disponibles** con $2.15M de capacidad del día; `supplier_payment_obligations` = 0,
+  lotes = 0 desde siempre. Aceptar en Entregas (RE.32) no creaba nada que pagar. Ahora, al aceptar,
+  nace la obligación **por el pendiente vivo de Kepler** (`analytics.v_supplier_payables`, sucursal +
+  proveedor + folio de la entrada), no por el importe de la entrega: de 38 aceptadas, **21 ($370k) ya
+  no tenían saldo** (pagadas/contado) y 2 tenían saldo menor — copiar el importe las habría ofrecido
+  para pagar otra vez. Al asignar al día **y al ejecutar** se re-mide el saldo de Kepler (candado
+  contra doble pago); la lectura en la aceptación lleva tope de 15 s en su savepoint.
+  Mig `20261016002604` (5 columnas NULL + índice único + backfill **17 facturas · $1,587,690.31**,
+  SELECT validado contra prod RO). ⚠️ **Sin medir**: los INSERT (usuario RO, Docker apagado) y el
+  build (CI). Deudas con nombre: (a) una aceptación cuya lectura de Kepler falla queda sin
+  obligación y no hay reintento (se declara en el aviso); (b) el tope no sabe qué pagos del
+  Calendario ya registró Kepler — pago ejecutado aquí + NC posterior deja un tope mayor a la deuda;
+  (c) «sin saldo» no separa pagada de «no casó»; (d) `reprogram` no re-mide (lo cubre `execute`);
+  (e) heredado: un pago con la misma obligación dos veces pasa el disponible.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión

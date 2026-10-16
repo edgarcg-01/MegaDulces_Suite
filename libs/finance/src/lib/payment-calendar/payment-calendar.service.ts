@@ -34,6 +34,12 @@ export interface PrepareAllocationDto {
   cash_register_text?: string | null; reference_text?: string | null;
   supplier_payment_account_id?: string | null;
 }
+/** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
+interface KeplerLinkedRow {
+  supplier_id?: string; reserved_amount: number | string;
+  kepler_sucursal?: string | null; kepler_folio?: string | null;
+  kepler_doc_tipo?: number | string | null; kepler_doc_sub?: number | string | null;
+}
 export type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 export const REPROGRAM_REASONS: ReprogramReason[] = ['cuenta_erronea', 'falla_sistema_banco', 'pago_devuelto', 'presupuesto_recortado', 'otro'];
 // TP.6 — un lote AUTORIZADO (o más adelante) ya cerró su alcance: no admite nuevos pagos.
@@ -92,6 +98,35 @@ export class PaymentCalendarService {
   private async recalcAllocationTotal(trx: Knex.Transaction, allocationId: string) {
     const [{ total }] = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId }).sum({ total: 'applied_amount' });
     await trx('finance.payment_allocations').where({ id: allocationId }).update({ amount_assigned: total ?? 0, updated_at: trx.fn.now() });
+  }
+
+  /**
+   * `[TP.15]` Una obligación nacida de una entrega guarda la llave de su documento en Kepler: al
+   * asignarla se vuelve a medir el pendiente VIVO, porque Kepler pudo registrar un pago o una NC
+   * después de que Finanzas aceptó el papel. Tope = pendiente de Kepler − lo ya reservado aquí
+   * (lo reservado todavía no se paga, así que Kepler no lo descuenta). Lo ya ejecutado no se resta
+   * dos veces: el disponible propio (`original − reservado − pagado`) ya lo limita.
+   * Sin llave (capturada a mano, o mig TP.15 sin aplicar) no hay contra qué medir: no limita.
+   * ⚠️ Deuda declarada: un pago ya EJECUTADO aquí que Kepler aún no registra, sumado a una NC
+   * posterior, deja un tope más alto que la deuda real. Restar también `paid` bloquearía toda
+   * parcialidad una vez que Kepler sí registra el pago; sin saber qué pagos ya reflejó Kepler, no
+   * hay tope exacto.
+   * `alreadyReserved`: al asignar, lo reservado por otros pagos; al ejecutar, 0 (este pago ES la reserva).
+   */
+  private async assertKeplerBalance(trx: Knex.Transaction, source: ObligationSource, row: KeplerLinkedRow, applied: number,
+    alreadyReserved = Number(row.reserved_amount)) {
+    if (source !== 'supplier_payable' || !row.kepler_folio) return;
+    const [doc] = await trx('analytics.v_supplier_payables')
+      .where({ sucursal: row.kepler_sucursal, folio: row.kepler_folio, doc_tipo: row.kepler_doc_tipo, doc_sub: row.kepler_doc_sub })
+      .whereIn('proveedor', trx('catalog.suppliers').select('code').where({ id: row.supplier_id }))
+      .sum({ pendiente: 'pendiente' });
+    const pendiente = Number(doc?.pendiente ?? 0);
+    const tope = pendiente - alreadyReserved;
+    if (applied > tope + 0.005) {
+      throw new BadRequestException(pendiente <= 0
+        ? 'Kepler ya no tiene saldo pendiente de esta factura (¿se pagó por fuera o tiene nota de crédito?). No se programa ni se ejecuta.'
+        : `Excede el saldo pendiente en Kepler (pendiente: ${pendiente.toFixed(2)}, ya reservado en otros pagos: ${alreadyReserved.toFixed(2)}).`);
+    }
   }
 
   private async getOrCreateLot(trx: Knex.Transaction, tenantId: string, date: string) {
@@ -252,6 +287,7 @@ export class PaymentCalendarService {
         if (row.status === 'cancelled') throw new BadRequestException('La obligación está cancelada');
         const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
         if (Number(it.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
+        await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount));
         classifications.add(CLASSIFICATION_BY_SOURCE[it.obligation_source]);
       }
       if (classifications.size > 1) throw new BadRequestException('Un mismo pago no puede mezclar clasificaciones distintas (compromiso financiero / gasto / proveedor) — crea pagos separados.');
@@ -286,6 +322,7 @@ export class PaymentCalendarService {
       if (!row) throw new NotFoundException('Obligación no encontrada');
       const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
       if (Number(item.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
+      await this.assertKeplerBalance(trx, item.obligation_source, row, Number(item.applied_amount));
       await trx('finance.payment_allocation_items').insert({
         tenant_id: tenantId, allocation_id: allocationId, obligation_source: item.obligation_source,
         obligation_id: item.obligation_id, applied_amount: item.applied_amount,
@@ -399,6 +436,12 @@ export class PaymentCalendarService {
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se ejecuta un pago pendiente');
       if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar (Caja General lo necesita)');
+      // `[TP.15]` Entre asignar y ejecutar pueden pasar días: si Kepler ya no debe la factura, no se paga.
+      for (const it of (await trx('finance.payment_allocation_items').where({ allocation_id: allocationId })) as AllocationItemRow[]) {
+        if (it.obligation_source !== 'supplier_payable') continue;
+        const row = await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id: it.obligation_id }).first();
+        if (row) await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount), 0);
+      }
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
         .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now() }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });

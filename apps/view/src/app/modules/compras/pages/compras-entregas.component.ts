@@ -11,7 +11,7 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import type { PurchaseDeliveryDetail, PurchaseDeliveryStatus, PurchaseDeliverySummary } from '@megadulces/contracts';
+import type { DeliveryCalendarResult, PurchaseDeliveryDetail, PurchaseDeliveryStatus, PurchaseDeliverySummary } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { Permission } from '../../../core/constants/permissions';
 import { AuthService } from '../../../core/services/auth.service';
@@ -285,10 +285,26 @@ export class ComprasEntregasComponent implements OnInit {
         this.det.set(r);
         this.rej.set(new Map());
         this.toast.add({ severity: 'success', summary: `${r.code} confirmada`, detail: rejections.length ? `${rejections.length} renglón(es) regresan a Compras.` : 'Todo aceptado.' });
+        this.toastCalendar(r.calendar);
         this.load();
       },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'No se confirmó', detail: e?.error?.message || 'Error al confirmar.' }); },
     });
+  }
+
+  /** `[TP.15]` Qué pasó al Calendario de Pagos. Lo que no pasó se dice, no se calla. */
+  private toastCalendar(c: DeliveryCalendarResult | undefined): void {
+    if (!c) return;
+    if (!c.schema_ready) {
+      this.toast.add({ severity: 'warn', summary: 'Calendario de pagos', detail: 'Todavía no está activo el paso al calendario (migración pendiente). La entrega sí quedó confirmada.' });
+      return;
+    }
+    if (c.error) { this.toast.add({ severity: 'warn', summary: 'Calendario de pagos', detail: c.error, life: 8000 }); return; }
+    const partes: string[] = [];
+    if (c.created) partes.push(`${c.created} factura(s) por ${c.amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} ya se pueden programar`);
+    if (c.without_balance) partes.push(`${c.without_balance} sin saldo abierto en Kepler (pagadas, de contado o sin documento que case)`);
+    if (c.without_supplier) partes.push(`${c.without_supplier} con proveedor fuera del catálogo`);
+    if (partes.length) this.toast.add({ severity: c.created ? 'info' : 'warn', summary: 'Calendario de pagos', detail: partes.join(' · ') + '.', life: 8000 });
   }
 
   cancel(d: PurchaseDeliveryDetail): void {
