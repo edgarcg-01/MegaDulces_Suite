@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1728 KB, 11014 líneas, 72 secciones.
+> **Índice navegable** — 1751 KB, 11254 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -55,30 +55,30 @@
 | 7615 | 7667 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
 | 7668 | 7734 | 20 | Fase WMS-BI — Análisis BI de Almacén |
 | 7735 | 7897 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 7898 | 7990 | 7 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 7991 | 8158 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8159 | 9558 | 102 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 9559 | 9567 | 1 | Fase RR — Ventas por ruta |
-| 9568 | 9785 | 22 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 9786 | 9796 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 9797 | 9817 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 9818 | 9828 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 9829 | 9840 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 9841 | 9900 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 9901 | 10328 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 10329 | 10343 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 10344 | 10385 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 10386 | 10527 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 10528 | 10558 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 10559 | 10606 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 10607 | 10619 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 10620 | 10649 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 10656 | 10665 | 1 | 📝 Convenciones |
-| 10666 | 10702 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 10703 | 10721 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 10722 | 10774 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 10775 | 11077 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 11078 | 11098 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 7898 | 8073 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8074 | 8241 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8242 | 9720 | 109 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 9721 | 9729 | 1 | Fase RR — Ventas por ruta |
+| 9730 | 10025 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 10026 | 10036 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 10037 | 10057 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 10058 | 10068 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 10069 | 10080 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 10081 | 10140 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 10141 | 10568 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 10569 | 10583 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 10584 | 10625 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 10626 | 10767 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 10768 | 10798 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 10799 | 10846 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 10847 | 10859 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 10860 | 10889 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 10896 | 10905 | 1 | 📝 Convenciones |
+| 10906 | 10942 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 10943 | 10961 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 10962 | 11014 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 11015 | 11317 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 11318 | 11338 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -8243,6 +8243,85 @@ TP.6-TP.8+TP.10".
 
 **ADR-070** · Plan completo, medición y decisiones abiertas en
 [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
+
+> ### 🧪 2026-10-16 — auditoría FRONT-END de `/finanzas/caja-general`: 4 corregidos, 2 como deuda
+>
+> Pedido de Edgar: *"no te enfoques estrictamente en el diseño UI/UX… audítala desde el ámbito
+> front-end"*. ⭐ **El encuadre importa: esta pantalla NO es deuda de diseño.** Medido antes de
+> opinar — usa el repertorio compartido (78 `comm-num`, 40 `p-table`, 16 `app-load-state`, 8
+> `app-freshness-pill`), `OnPush` + 103 signals + 57 computed, **0 `any`**, 0 `innerHTML`, y
+> `check:pantalla` le marca **una sola** advertencia contra una línea base de 247 pantallas con
+> falla. Lo que quedó es específico, y son defectos de **comportamiento**, no de apariencia.
+>
+> ⛔ **Dos hipótesis mías se cayeron al verificarlas, y conviene que queden escritas para que nadie
+> las reconstruya:** (1) *"los `input[type=number]` de la reja no tienen guarda de rueda"* — **falso**,
+> `installNumberWheelGuard` está instalada global en [`apps/view/src/main.ts:9`](../../apps/view/src/main.ts);
+> mi primer grep buscó el nombre equivocado. (2) *"bajar con ↓ decrementa el fajo recién tecleado"* —
+> **falso**, `moverFoco` hace `preventDefault()` antes de mover, y en el orden correcto.
+>
+> - [x] **[CG.183]** 🧪 ⛔ **Una lectura que contesta tarde escribía en la pantalla ya cerrada.**
+>       De 30 `.subscribe()` sólo **5** tenían `takeUntilDestroyed` (los 4 del socket). Las 11
+>       peticiones que dispara `ngOnInit` salían sin guarda: salir con vuelo en curso dejaba el
+>       `next` escribiendo signals de un componente destruido.
+>       ⭐ **La guarda va sólo en las 18 LECTURAS, y las 8 ESCRITURAS quedan fuera a propósito** —
+>       cancelar la suscripción NO cancela lo que el servidor ya hizo, sólo descarta la respuesta, y
+>       ahí el handler hace trabajo que TIENE que aterrizar: `confirmarLote` borra el borrador de
+>       `localStorage` (cancelarlo deja un borrador de movimientos ya confirmados) y `guardar`
+>       encadena `declararCuenta`. Blanquear las 26 habría metido un defecto peor que el arreglado.
+>       Fuera quedan: `autorizarCorte`, `abrir`, `contarCorte`, `recontarCorte`, `cerrarCorte`,
+>       `confirmarLote`, `guardar`, `declararRegla`.
+> - [x] **[CG.184]** 🧪 ⛔ **El `setTimeout` del autollenado no lo cubre `takeUntilDestroyed`.**
+>       La guarda vive en la suscripción, y a los 350 ms del debounce todavía no hay suscripción:
+>       hay un temporizador que dispara `pedirPropuesta()` **después** y recién ahí emite. `ngOnDestroy`
+>       hacía sólo `caja.disconnect()`. Se cancela el temporizador, que es donde está el pendiente.
+> - [x] **[CG.185]** 🧪 ⛔⛔ **La cifra que la pantalla existe para producir no se anunciaba.**
+>       Una sola región viva en **2,462 líneas** de template. El bloque `CONTADO` cambia en CADA
+>       tecla de la reja: quien usa lector de pantalla teclea once renglones de denominación y
+>       nunca se entera del total ni del veredicto. Y la cola **la mueve el socket** (`change$`):
+>       entran movimientos mientras la persona cuenta efectivo del otro lado de la pantalla.
+>       Dos regiones `polite` + `atomic` — el total con su veredicto, y la cuenta de la cola **sobre
+>       el `cg-lead` que ya existía**, no en un `sr-only` duplicado. ⚠️ No hace ruido en el repaso de
+>       60 s: `polite` con texto idéntico no se re-anuncia.
+> - [x] **[CG.186]** 🧪 ⛔⛔ **Dos fallas de accesibilidad que el color escondía, en una flota Windows.**
+>       (a) **`.cg-fila-abierta` desaparecía en Alto Contraste**: se señalaba con `box-shadow` —que
+>       forced-colors **no dibuja**, lo documenta el propio [`forced-colors.css`](../../libs/ui-web/src/forced-colors.css)—
+>       más un color que el sistema sustituye. Las dos señales se caían juntas. La hermana
+>       `.cg-fila-marcada` se salvaba por su glifo de palomita; ésta no tenía redundante. Ahora el
+>       galón **gira** (forma, no color) y un bloque `forced-colors` rehace la banda con `border`.
+>       (b) **El folio fallaba AA en TODAS las filas, no sólo en las trabadas.** Medido sobre las 4
+>       superficies × 2 temas: `--text-faint` da **2.33–4.12** contra el piso de 4.5; `--text-muted`
+>       da 6.91–7.73. ⭐ El 4.12 que me dio `--text-muted` al 78 % **reproduce el 4.10 que `[CG.33]`
+>       había medido por su cuenta** — dos mediciones independientes que concuerdan, así que no es
+>       una cuenta nueva: es la misma regla aplicada a la celda que quedó afuera. Y no es "se ve
+>       tenue": el folio es el identificador con el que se coteja el renglón contra el documento del
+>       ERP, el dato que se lee carácter por carácter, y estaba en el color más claro de la escala.
+>       Folio y fecha de la ficha pasan a `--text-muted`, y el folio sale de la atenuación de
+>       `.cg-trabada` — tercera exclusión por la misma razón que `[CG.33]` excluyó el motivo, y pesa
+>       más que las otras dos: **~74 % de la cola es fila trabada**, o sea que atenuado es el estado
+>       NORMAL del folio.
+>
+> **Candado:** 4 pruebas nuevas en `finanzas-caja-general.component.spec.ts` (292 en verde, antes
+> 288). ⭐ Las 4 con **prueba negativa ejecutada**: se rompió cada arreglo a propósito, una a una, y
+> se verificó que SU prueba se pone roja. Sin eso un candado es una intención.
+>
+> ⬜ **Lo que NO se arregló, declarado con nombre:**
+> - **[CG.187]** ⬜ **`--text-faint` no pasa AA en ningún fondo de la app** (2.33 claro / 3.67
+>   oscuro sobre `card-bg`) y lo usan **112 archivos** de `apps/view`. Repuntar el token es
+>   decisión de Edgar, no de esta pantalla. Acá sólo se sacó de los dos lugares donde vestía
+>   **texto que hay que leer**; los decorativos (el galón, el guion de celda vacía) se quedan.
+> - **[CG.188]** ⬜ **Cero `@defer`** en el componente más grande de `apps/view` (428 KB, 7,091
+>   líneas, template de 2,462): los 5 `p-dialog`, el canvas de firma y el QR viajan en el chunk
+>   inicial de la ruta. Mitigado por `compression` (`main.ts:269`) y el service worker, así que es
+>   costo de **primera visita y de parse**, no de cada carga. En toda `apps/view` sólo 2 archivos
+>   usan `@defer`.
+> - ⚠️ **NO MEDIDO:** el tiempo real de carga. Son **11 peticiones en `ngOnInit`**, ninguna
+>   coalescida, pero no se midió latencia — no se compila ni se levanta nada en local (regla dura) y
+>   no se abrió un navegador contra prod. Por `megadulcessuite.com` hay HTTP/2 y el tope de 6
+>   conexiones no aplica; por el camino LAN `:30080` (HTTP plano) sí, y esas 11 salen en dos tandas.
+>   **Sin medición no se afirma que incumpla el piso de >500 ms.**
+> - ⚠️ `finanzas-caja-firma` —la pantalla del QR, parte de este mismo flujo— **falla 3 reglas**
+>   (`Q.1` answer-first, `§2` matriz de estados, `§9` frescura). Es la única rota del trío y queda
+>   fuera del alcance de esta auditoría.
 
 > ### 🧪 2026-10-15 — auditoría de `/finanzas/caos` (Caja Fuerte): 7 hallazgos, todos corregidos
 >
