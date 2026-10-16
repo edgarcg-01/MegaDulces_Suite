@@ -27,6 +27,31 @@ import type { Knex } from 'knex';
  * es el mismo criterio que `[CGP-L.13]` usa para la bandeja: lo de hoy es trabajo, no un olvido.
  */
 
+/**
+ * ⛔⛔ **HIPÓTESIS REFUTADA — no la reconstruyas: parear venta ↔ depósito POR IMPORTE no sirve.**
+ *
+ * **2026-10-15.** Buscando cómo evitar que el mismo dinero entre dos veces (una por este puente y
+ * otra por el `U-A-5` «DEPOSITO EFECTIVO CAJA GENERAL» que Kepler captura días después), encontré
+ * **tres coincidencias al centavo** y parecían concluyentes:
+ *
+ *     $30,883.14 = 2V003 del 3-oct · $8,351.72 = 2V001 del 5-oct · $5,224.23 = 2V001 del 3-oct
+ *
+ * Medido con **control de placebo** sobre 270 ruta-día desde el 1-sep, ventana `día..día+10`:
+ *
+ *     real    (el importe de ESE día)            8 de 270 = 3.0 %
+ *     placebo (el importe del día SIGUIENTE)     8 de 256 = 3.1 %
+ *
+ * ⭐ **Idénticos.** El cruce no reconoce *esa* venta: reconoce que el depósito es **alguna** venta
+ * vecinal — y lo es, porque los depósitos del período *son* importes de ventas de días cercanos.
+ * Las tres coincidencias al centavo estaban dentro de lo que produce ese pozo. *Un importe que
+ * calza al centavo convence; por eso el placebo no es opcional.*
+ *
+ * ⚠️ Y de paso quedó medido que **sólo 8 de 270 ruta-día tienen siquiera un depósito que calce**:
+ * la mayoría de las ventas vecinales no tienen documento de depósito en Kepler en los 10 días
+ * siguientes, así que el doble conteo es raro — pero sigue sin resolverse, y por eso este puente
+ * **todavía no se conecta a la pantalla**.
+ */
+
 /** Un día de ruta vecinal, ya conciliado contra su arqueo, listo para entrar al libro. */
 export interface CobroVecinalPendiente {
   sucursal: string;
