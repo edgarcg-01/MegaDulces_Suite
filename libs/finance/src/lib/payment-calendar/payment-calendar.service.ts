@@ -286,7 +286,9 @@ export class PaymentCalendarService {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;
   }) {
-    this.tenantCtx.requireTenantId();
+    // `[TP.18]` El tenant se NOMBRA acá: las tres patas con tabla van por RLS, pero la cuarta lee
+    // `analytics.*`, que **no tiene RLS** — su alcance lo da este filtro explícito y nada más.
+    const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const cols = [
         'obligation_source', 'obligation_id', 'beneficiary', 'concept', 'classification', 'subtype',
@@ -341,13 +343,18 @@ export class PaymentCalendarService {
        */
       const legKepler = trx('analytics.v_supplier_payables as v')
         .leftJoin('catalog.suppliers as s', 's.code', 'v.proveedor')
-        .joinRaw(`LEFT JOIN LATERAL (
-          SELECT coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0) AS reserved,
+        // `[TP.18.5]` Lo reservado se agrega **una vez** y se une por id. Era un LATERAL, que es
+        // lo natural de escribir y costaba 2,892 evaluaciones para leer un puñado de filas:
+        // medido contra prod, 476 ms de mediana contra 399 así (−16 %).
+        .joinRaw(`LEFT JOIN (
+          SELECT i.obligation_id,
+                 coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0) AS reserved,
                  coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'executed'), 0) AS paid
             FROM finance.payment_allocation_items i
             JOIN finance.payment_allocations a ON a.id = i.allocation_id
-           WHERE i.obligation_source = 'kepler_payable' AND i.obligation_id = ${KEPLER_PAYABLE_ID}
-        ) r ON true`)
+           WHERE i.obligation_source = 'kepler_payable'
+           GROUP BY i.obligation_id
+        ) r ON r.obligation_id = ${KEPLER_PAYABLE_ID}`)
         .where('v.tenant_id', tenantId)
         .whereRaw(`v.proveedor NOT LIKE 'TI%'`)
         .whereNotExists(function () {
@@ -363,8 +370,11 @@ export class PaymentCalendarService {
           trx.raw(`'proveedor_mercancia'::text AS classification`), trx.raw(`'mercancia'::text AS subtype`),
           trx.raw('v.proveedor AS area_code'), trx.raw('v.vencimiento AS original_due_date'),
           trx.raw('NULL::date AS negotiated_date'), trx.raw('v.pendiente AS original_amount'),
-          trx.raw('r.reserved AS reserved_amount'), trx.raw('r.paid AS paid_amount'),
-          trx.raw('(v.pendiente - r.reserved - r.paid) AS available_amount'),
+          // ⚠️ `coalesce` acá y no dentro del agregado: con LEFT JOIN, una factura SIN reserva no
+          // trae fila de `r`, así que `r.reserved` es NULL y `pendiente - NULL` sería NULL — el
+          // disponible desaparecería justo en las ~2,890 facturas que nadie programó todavía.
+          trx.raw('coalesce(r.reserved, 0) AS reserved_amount'), trx.raw('coalesce(r.paid, 0) AS paid_amount'),
+          trx.raw('(v.pendiente - coalesce(r.reserved, 0) - coalesce(r.paid, 0)) AS available_amount'),
           trx.raw('coalesce(s.is_critical, false) AS is_critical'), trx.raw('s.critical_reason'),
           // ⛔ `authorized_by` NULL y es correcto: a esta factura nadie la aceptó en una bandeja.
           // La autorización es LIBERAR EL DÍA, no un acto por documento (ADR-094 §2).

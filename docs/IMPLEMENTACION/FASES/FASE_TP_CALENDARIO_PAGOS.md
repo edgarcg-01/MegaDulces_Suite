@@ -798,3 +798,77 @@ El `boundary-gate` sí corrió: verde.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | TP.18 escrito: 4.º origen derivado, llave determinística cruzada TS↔SQL (5/5), SQL ejercido en lectura contra prod (2,892 filas / $133.2 M), 16 specs nuevos con 7 negativos. Declarado: cero pruebas de escritura y latencia p90 558 ms sobre el límite | Claude |
+
+---
+
+## 13. TP.18 — la prueba de escritura, y lo que encontró (2026-10-16)
+
+**20 de 20 verde** en `payment-calendar.it.spec.ts`: el **código real** del service contra un
+Postgres de verdad, todo dentro de una transacción que se revierte. Ocho casos nuevos para el
+origen derivado, incluido el **camino completo de escritura**: programar → agrupar con una
+capturada → ordenar → preparar → **autorizar** → **ejecutar**.
+
+⭐ **Lo que la prueba encontró y ningún test puro podía ver:**
+
+| # | Defecto | Qué habría pasado en prod |
+|---|---|---|
+| 1 | **`ReferenceError: tenantId is not defined`** en `listObligations` | ⛔ **La lista entera del Calendario reventaba**, no sólo la pata nueva. `vitest` usa esbuild y **no tipa**, así que los specs puros pasaban en verde |
+| 2 | **`violates check constraint payment_allocation_items_obligation_source_check`** | La pantalla habría listado 2,892 facturas **imposibles de programar**: el botón daría 500 y la lista se vería perfecta. **Es el defecto del arqueo de caja otra vez** (columna nueva + un camino que nadie recorrió) |
+| 3 | `available_amount` **NULL** en las ~2,890 facturas sin reservar | Lo introduje yo al optimizar: con `LEFT JOIN`, sin fila en `r`, `pendiente − NULL` es NULL. El disponible desaparecía justo donde más se usa |
+
+⛔ El defecto 2 **exigió una migración**: `20261016171340_tp18_allocation_items_origen_kepler_payable.js`
+(generada con `scripts/nueva-migracion.js`, idempotente, `down` que se **niega** si ya hay renglones
+del origen nuevo). La prueba la aplica sola donde falte, así que también corre en CI.
+
+### TP.18.5 — la latencia, medida otra vez
+
+| | antes | ahora |
+|---|---:|---:|
+| mediana | 476 ms | **432 ms** |
+| p90 | 558 ms | **555 ms** |
+
+El cambio: el agregado de reservas se calcula **una vez** y se une por id, en vez de un `LATERAL`
+evaluado 2,892 veces. ⛔ **No se declara resuelto.** La mediana entra bajo los 500 ms; **el p90 no**.
+
+⭐ **Y el techo no está en esta consulta.** Medido: `analytics.v_supplier_payables` **sola** cuesta
+**321 ms** (Seq Scan de `kdxe`, 24,523 filas + `GroupAggregate` sobre un sort de `kdxf`, 34,773).
+Ese piso ya lo paga hoy **Pronto pago** y cada validación de saldo del Calendario.
+
+**Lo que falta para bajarlo de verdad, y por qué no se hizo:** un índice sobre
+`kepler_ods.kdxf (sucursal, c7, c8, btrim(c9))` convertiría ese sort en un scan ordenado —
+**estimado** (del plan, no medido) un ahorro de ~150–200 ms. Es **DDL sobre producción**: va con
+autorización explícita y **fuera de horario hábil**, por la misma regla que el
+`CREATE MATERIALIZED VIEW` que sostuvo el candado de migraciones 22 minutos.
+
+### ⚠️ La base local quedó parchada — declarado para que nadie la confunda con una sana
+
+Levantar una base de pruebas costó tres rondas y **no llegó entera**: Docker Desktop está caído
+(API 500) y el Postgres local de Windows **no tiene pgvector**. Quedó registrado en
+`public._dev_bootstrap_log` de esa base:
+
+- `20260527120000_enable_pgvector…` **marcada aplicada sin ejecutarse** (la extensión no existe).
+- `catalog.products.embedding` creada como **`text`** en lugar de `vector(N)` — sustituto para
+  desbloquear las migraciones que la leen.
+- El bootstrap se detuvo en `20261007182945_rd_route_count_permiso_piso.js` por **roles que son
+  datos de prod** (`encargado_tienda`, `prevencion`, …). Llegó a **1,037 de ~1,084**, suficiente
+  para esta prueba.
+
+⛔ **Esa base NO sirve para nada vectorial ni para medir datos del ERP.** Lo correcto a futuro es
+el job `pruebas-db` del CI, que levanta Postgres de servicio con la imagen adecuada.
+
+### Estado de TP.18
+
+| # | Item | Estado |
+|---|---|---|
+| TP.18.1 | Cuarto origen en el motor | ✅ **ejercido contra base real** (DoD 3 cumplido) |
+| TP.18.2 | `recalcObligation` saltea el derivado | ✅ con los otros 3 orígenes verdes |
+| TP.18.3 | Fecha límite de pronto pago como atributo | ⬜ no empezado |
+| TP.18.4 | `paymentGroupKey` + espejo en el front | ✅ |
+| TP.18.5 | Latencia | ⚠️ mediana **432 ms** (entra) · p90 **555 ms** (no entra) — **abierto** |
+| TP.18.6 | Migración del CHECK **aplicada a prod** | ⬜ **pendiente de autorización** |
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | Prueba de escritura 20/20 contra Postgres real. Encontró 3 defectos: `tenantId` sin definir (rompía toda la lista), el CHECK que rechazaba el origen nuevo (→ migración) y un NULL que introduje al optimizar. Latencia 476→432 ms de mediana; p90 555 sigue sobre el límite | Claude |
