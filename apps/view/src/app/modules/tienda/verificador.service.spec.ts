@@ -340,4 +340,48 @@ describe('VerificadorService · en vivo primero, respaldo después, y se dice cu
     expect(offline.guardado.has('03')).toBe(true);
     expect(svc.snapshot()?.total).toBe(2);
   });
+
+  describe('[MOS.1] el buscador del mostrador sobre el respaldo', () => {
+    const CON_PROVEEDOR = {
+      ...SNAPSHOT,
+      pr: ['RICOLINO'],
+      productos: [
+        { c: '17083', b: ['7501030459736'], n: 'PALETA PAYASO', pv: 0,
+          u: [{ u: 'PZA', p: 18.5, s: 15.95, f: 1 }, { u: 'CJA', p: 400, s: 344.83, f: 24 }] },
+        { c: '00042', b: [], n: 'GOMITA ENCHILADA', u: [{ u: 'PZA', p: 5, s: 4.31, f: 1 }] },
+      ],
+    };
+
+    it('encuentra por proveedor y entrega el proveedor y el factor de cada presentación', async () => {
+      await offline.guardarSnapshotPrecios('03', CON_PROVEEDOR, CON_PROVEEDOR.generado);
+      const r = await svc.buscarEnCatalogo('03', 'ricolino');
+      expect(r).toHaveLength(1);
+      expect(r![0]).toMatchObject({ codigo: '17083', proveedor: 'RICOLINO', por: 'proveedor' });
+      expect(r![0].unidades.map((x) => [x.u, x.factor])).toEqual([['PZA', 1], ['CJA', 24]]);
+    });
+
+    it('sin respaldo dice "no puedo buscar" (null), no "no hay resultados"', async () => {
+      expect(await svc.buscarEnCatalogo('03', 'paleta')).toBeNull();
+    });
+
+    it('un respaldo de formato anterior (sin f ni pv) sigue buscando por nombre, sin inventar proveedor', async () => {
+      await sembrarRespaldo();
+      const r = await svc.buscarEnCatalogo('03', 'paleta');
+      expect(r![0]).toMatchObject({ codigo: '17083', proveedor: null, por: 'nombre' });
+      expect(r![0].unidades[0].factor).toBe(1);
+    });
+
+    it('el respaldo por código también trae el proveedor y el factor', async () => {
+      await offline.guardarSnapshotPrecios('03', CON_PROVEEDOR, CON_PROVEEDOR.generado);
+      let r: ResultadoBusqueda | undefined;
+      svc.buscar('7501030459736', '03').subscribe((x) => (r = x));
+      http.expectOne((rq) => rq.url.endsWith('/kp/precio')).error(new ProgressEvent('offline'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(r!.estado).toBe('encontrado');
+      if (r!.estado !== 'encontrado') return;
+      expect(r!.producto.proveedor).toBe('RICOLINO');
+      expect(r!.producto.unidades[1].factor).toBe(24);
+    });
+  });
 });
