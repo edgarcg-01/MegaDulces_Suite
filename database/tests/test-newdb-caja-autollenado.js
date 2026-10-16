@@ -217,6 +217,70 @@ const TIPO_POL = `split_part(p.doc_tipo,'-',1) || split_part(p.doc_tipo,'-',2)
     check(sv.sin_vinculo === 0, `${sv.sin_vinculo} movimientos automáticos sin origen_ref`);
   }
 
+  // ── 9. `[CG.193]` El ESCRITOR acepta lo mismo que el RESOLVEDOR da por confirmable ───────
+  //
+  // ⛔ Lo destapó el canario: de 120 confirmables, `create()` aceptaba 20. 97 morían con
+  // «El par 201/201 no existe … para la sucursal 08» porque el catálogo de esa plaza viene
+  // recortado y `conceptosDeCuenta()` había prestado el concepto de otra (regla [CS.3.11]),
+  // regla que `resolveConcept()` no conocía. Dos verdades para la misma pregunta.
+  //
+  // Esto afirma la REGLA, no la cifra: «si la plaza no tiene la cuenta y el código es unánime
+  // entre las plazas que sí la tienen, el par vale; si no, no».
+  console.log('\n[9] [CG.193] El escritor conoce la regla del catálogo recortado');
+  const regla = async (suc, cuenta, concepto) => {
+    const b = String(suc).split('-')[0];
+    const { rows: [ex] } = await c.query(
+      `SELECT 1 FROM analytics.v_kepler_conceptos
+        WHERE tenant_id=$1 AND sucursal=$2 AND cuenta=$3 AND concepto=$4 LIMIT 1`, [TENANT, b, cuenta, concepto]);
+    if (ex) return 'exacto';
+    const { rows: [tiene] } = await c.query(
+      `SELECT 1 FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND sucursal=$2 AND cuenta=$3 LIMIT 1`,
+      [TENANT, b, cuenta]);
+    if (tiene) return 'rechaza';
+    const { rows: [u] } = await c.query(
+      `SELECT count(DISTINCT concepto)::int codigos, min(concepto) concepto
+         FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND cuenta=$2 GROUP BY cuenta`, [TENANT, cuenta]);
+    return (u && Number(u.codigos) === 1 && String(u.concepto) === String(concepto)) ? 'respaldo' : 'rechaza';
+  };
+
+  // La cuenta que lo motivó tiene que SEGUIR siendo unánime: si mañana otra plaza le da otro
+  // código, el respaldo deja de aplicar y esta prueba lo dice antes de que escriba mal.
+  const { rows: [u201] } = await c.query(
+    `SELECT count(DISTINCT concepto)::int codigos, count(DISTINCT sucursal)::int plazas
+       FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND cuenta='201' GROUP BY cuenta`, [TENANT]);
+  check(u201 && Number(u201.codigos) === 1,
+    `la cuenta 201 sigue siendo unánime: ${u201?.codigos} código(s) en ${u201?.plazas} plaza(s)`,
+    'si deja de serlo, el respaldo de [CG.193] ya no debe aplicarle y hay que revisar el caso');
+
+  const casos = [
+    ['08', '201', '201', 'respaldo', 'plaza con catálogo recortado + código unánime'],
+    ['01', '201', '201', 'respaldo', 'idem, la plaza del canario'],
+    // ⛔ PRUEBAS NEGATIVAS: lo que NO debe aceptar nunca.
+    ['08', '201', '999', 'rechaza', 'concepto inventado sobre una cuenta que la plaza no tiene'],
+    ['08', 'ZZZZ', '001', 'rechaza', 'cuenta que no existe en ninguna plaza'],
+  ];
+  for (const [suc, cuenta, concepto, esperado, por] of casos) {
+    const v = await regla(suc, cuenta, concepto);
+    const bien = esperado === 'rechaza' ? v === 'rechaza' : v !== 'rechaza';
+    check(bien, `suc ${suc} · ${cuenta}/${concepto} → ${v} (esperado: ${esperado}) — ${por}`);
+  }
+
+  // ⭐ Y la propiedad que de verdad importa: resolvedor y escritor NO pueden discrepar.
+  // Se mide sobre la cola real; si vuelven a divergir, esto se pone rojo con el número.
+  const { rows: compuestasOK } = await c.query(`
+    SELECT DISTINCT split_part(p.sucursal,'-',1) AS suc
+      FROM finance.v_caja_movimientos_pendientes p
+     WHERE p.tenant_id=$1 AND p.sucursal LIKE '%-%'`, [TENANT]);
+  let divergen = 0;
+  for (const { suc } of compuestasOK) {
+    const { rows: [x] } = await c.query(
+      `SELECT 1 FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND sucursal=$2 LIMIT 1`, [TENANT, suc]);
+    if (!x) divergen++;
+  }
+  check(divergen === 0,
+    `la sucursal base de toda fila compuesta existe en el catálogo (${compuestasOK.length} base(s) revisada(s))`,
+    'si una base no está en el catálogo, [CG.189] la vuelve confirmable y [CG.193] no la puede escribir');
+
   await c.end();
   console.log(`\n${ok} ✓ · ${fail} ✗ · ${nomedido} no medidos`);
   process.exit(fail ? 1 : 0);
