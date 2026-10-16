@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — El mostrador busca por nombre, proveedor, SKU o código, y lo que Kepler no tiene llega solo a Compras (MOS.1–MOS.3, 2026-10-16)
+- **«¿Te pidieron algo?»** (arqueo de caja y Faltantes) busca por nombre, proveedor, SKU o código de barras y dice por qué salió cada resultado. Cada uno trae todas sus presentaciones con precio —la caja en paquetes cuando divide exacto— y el mayoreo por unidad, en la presentación en que Kepler lo tiene.
+- **Catálogo › No registrados**: los códigos que se escanearon y Kepler no tiene en esa sucursal, con sucursal, proveedor y búsqueda. Salen solos en cuanto se dan de alta en Kepler. Sin tabla nueva ni migración.
+### Fixed — Un código de otra sucursal ya no muestra el precio de la otra plaza (MOS.2, 2026-10-16)
+- Si un código existía en otra sucursal pero no en ésta, el mostrador mostraba el precio de la otra plaza como si fuera de aquí. Ahora avisa que falta el alta y lo anota en No registrados.
 ### Fixed — La API no arrancaba en producción tras #414 (VAC.FIX, 2026-10-15; documentado 2026-10-16)
 - `/kp/precio` y `/kp/precios-todos` tipaban un parámetro decorado con `VerificadorPrecioQuery`, que es a la vez el esquema Zod y su tipo: `emitDecoratorMetadata` emitía **el objeto Zod** y `@nestjs/swagger` moría al arrancar (**CrashLoopBackOff en prod**, con los checks requeridos del CI en verde: ningún job levanta la API, deuda `VP.5`). Arreglado con alias de sólo tipo y una prueba que lee `design:paramtypes` (`kp.controller.spec.ts`). Producción responde `200` y sirve un commit que lo incluye.
 - **Protocolo previo al PR** (`ONBOARDING.md` §8.0b, puntos **30 y 31**; `GOTCHAS.md` §84): al tocar decoradores o firmas inyectadas, probar la **metadata** y, si no se puede demostrar el arranque, declararlo; y una compuerta roja por causa ajena **no es «ajena»: para tu cambio es NO MEDIDA**.

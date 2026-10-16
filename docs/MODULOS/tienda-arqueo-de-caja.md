@@ -1,3 +1,46 @@
+# Tienda › Arqueo de caja — «¿Te pidieron algo?» busca por nombre, proveedor, SKU o código y muestra todas las presentaciones (MOS.1–MOS.3)
+
+## Problema
+
+El buscador del arqueo sólo encontraba por nombre (o por el código exacto con Enter) y mostraba un solo precio, el de la
+pieza. El cliente pregunta «¿y por caja?» o «¿cuánto de mayoreo?» y la respuesta no estaba. Además, un código que
+existía en otra sucursal pero no en ésta mostraba **el precio de la otra plaza como si fuera de aquí**, y un código que
+Kepler no tiene sólo daba un aviso: nadie se enteraba en Compras.
+
+## Solución
+
+- Busca desde 3 caracteres por **nombre, proveedor, SKU o código de barras**, y cada renglón dice por qué salió.
+- Cada resultado trae **todas sus presentaciones con precio**; la caja se cuenta **en paquetes** cuando el producto tiene
+  paquete y la división es exacta (si no, en piezas).
+- El **mayoreo** se muestra en la presentación en que Kepler lo captura, por unidad (`$120.00 c/paquete`), y la ventana
+  del producto muestra la escalera: precio normal debajo del mínimo y precio de mayoreo desde el mínimo.
+- Un código que Kepler no tiene, o que no está dado de alta en esta sucursal, **se anota solo** en Catálogo › No
+  registrados. La cajera puede escribir qué es (opcional) o quitarlo si fue un error.
+
+## Cómo se implementó
+
+- `mostrador-catalogo.ts` (lógica pura, con su spec): búsqueda por cuatro campos sobre el respaldo local con
+  `normalizarBusqueda`/`tokensDeBusqueda` de `@megadulces/ui-web`; presentaciones con lo que trae cada una; escalones de
+  mayoreo.
+- El respaldo del verificador (`/kp/precios-todos`) sube a **formato 3**: factor por presentación (`u[].f`) y proveedor
+  como índice en un diccionario (`pv` + `pr`). `/kp/precio` publica `proveedor`. El proveedor sale de
+  `catalog.suppliers` (el mismo que ve Compras).
+- `faltante-express.component.ts`: la lista y la ventana nuevas; el Enter con sólo números y sin flechas sigue yendo
+  contra Kepler (la pistola). Lo elegido de la lista se refresca en vivo y la procedencia lo dice.
+- Pruebas: `mostrador-catalogo.spec.ts` (18), `faltante-express.component.spec.ts` (7, con una mutación verificada),
+  casos nuevos en `verificador.service.spec.ts` y `kp.service.spec.ts`.
+
+## Por qué así
+
+- **El factor de la caja cuenta desde la base**, no desde el paquete (`costo_peldaño = costo_base × factor` cuadra en
+  98.5 % de la Unidad Tres, `ERP_KEPLER.md` §2.1.1). Por eso paquetes por caja = piezas de la caja ÷ piezas del paquete,
+  y si no divide exacto se dicen las piezas en lugar de inventar un empaque.
+- **El mayoreo no se convierte a pieza**: el precio de un escalón de paquete es el de un paquete (mediana 0.93 contra el
+  precio del paquete y 8.99 contra el de la pieza). Convertirlo sería cotizar algo que la caja no cobra.
+- **Sin red no se anota nada**: el «no está» del respaldo puede ser viejo; sólo Kepler en vivo es autoritativo.
+
+---
+
 # Tienda › Arqueo de caja — la confirmación del corte desglosa pieza por pieza (SM.44)
 
 ## Problema

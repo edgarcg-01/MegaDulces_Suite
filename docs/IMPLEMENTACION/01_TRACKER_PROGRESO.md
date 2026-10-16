@@ -185,6 +185,14 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
+### Fase MOS — Buscador de mostrador y productos no registrados · 2026-10-16 · rama `feat/mostrador-buscador-no-registrados`
+
+- [x] **[MOS.1]** 🧪 «¿Te pidieron algo?» (arqueo y Faltantes) busca por **nombre, proveedor, SKU o código de barras** y dice por qué salió cada renglón; cada resultado trae **todas sus presentaciones** con precio (la caja en **paquetes** cuando divide exacto; si no, en piezas) y el **mayoreo por unidad en la presentación en que Kepler lo captura**. Respaldo del verificador a **formato 3** (`u[].f` + `pv`/`pr`); `/kp/precio` publica `proveedor` (de `catalog.suppliers`). Lo elegido de la lista se refresca en vivo y la procedencia lo dice.
+- [x] **[MOS.2]** 🧪 **Catálogo › No registrados** (`/compras/catalogo/no-registrados`, `COMMERCIAL_PRODUCTS_VER`): lo escaneado que Kepler no tiene en esa sucursal, **sin tabla nueva** (lee `commercial.floor_stockouts`, motivos `no_en_catalogo`/`no_en_sucursal`) y **sale solo** en cuanto aparece en `kepler_ods.kdii` de esa sucursal. El mostrador lo anota solo; un código de otra sucursal ya no muestra el precio de la otra plaza.
+- [x] **[MOS.3]** 🧪 La cajera puede escribir qué es un código que Kepler no tiene (`PATCH :id/descripcion`, sólo recién escaneado, no suma reporte).
+- [ ] ⚠️ **Sin medir en prod:** tiempo de `GET /no-registrados` (gate <1 s) y del lote con proveedores; cuántos códigos no registrados llegan por semana. **Sin validación visual** (no se levanta la app en local).
+- [ ] ⏸️ **Diferido:** contador en la pestaña; que la bandeja de Faltantes de Compras también los dé por resueltos al aparecer en Kepler (hoy sólo la lista nueva lo deriva).
+
 ### Fase VAC — Acople del verificador de precios al estándar · 2026-10-14 · **PR #414 fusionado el 2026-10-15 · ⛔ tiró el arranque de la API en prod, arreglado en `[VAC.FIX]`** · plan en [`FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR`](FASES/FASE_VAC_VERIFICADOR_ACOPLE_ESTANDAR.md)
 
 - [x] **[VAC.U11/U12]** 🧪 Piel del estándar sin excepción (hex 69 → 2, `::ng-deep` 3 → 0, sigue el tema), centavos pequeños en todo precio, ancho fluido con `@container`, kiosco sin información interna, mayoreo protagonista.
