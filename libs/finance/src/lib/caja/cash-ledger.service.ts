@@ -159,6 +159,20 @@ export interface CreateMovementInput {
   origen_tipo?: string;
   origen_ref?: string;
   origen_uuid?: string;
+  /**
+   * ⭐⭐ `[CGA-A.10]` **El documento que esta captura DECLARA estar pagando, por LLAVE.**
+   * Misma forma que `origen_ref` del lado de Kepler: `sucursal|doc_tipo|folio|clave_banco`.
+   *
+   * Sólo tiene sentido cuando el movimiento NO nace del documento (típicamente `origen_tipo =
+   * 'caos'`, cuyo `origen_ref` es `device|external_id`). Antes esa declaración vivía en la
+   * **prosa de la glosa**, y comparar prosa escondió **157 movimientos · $1,325,687.43**
+   * porque el folio de camioneta es consecutivo **por unidad**: `GOTCHAS` §86.
+   *
+   * ⚠️ Mientras la pantalla no lo mande (`[CGA-A.10b]`), llega `undefined` y el descuento cae
+   * en la rama vieja del `LIKE`. Eso es lo que mantiene vivo el hueco de **16 movimientos ·
+   * $211,548.14** — lo cuenta `npm run check:cobro-escondido`.
+   */
+  declared_doc_ref?: string;
   autofill?: Record<string, unknown>;
   client_uuid?: string;
   legacy_cuenta_access?: string;
@@ -1085,6 +1099,10 @@ export class CashLedgerService {
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
         origen_uuid: input.origen_uuid ?? null,
+        // `[CGA-A.10]` La declaración por LLAVE. Se normaliza el vacío a NULL: una cadena vacía
+        // haría casar `declared_doc_ref = origen_ref` con nada y, peor, apagaría la rama del
+        // `LIKE` — una captura dejaría de descontar sin que nadie lo pidiera.
+        declared_doc_ref: input.declared_doc_ref?.trim() || null,
         /**
          * `[CG.124]` Sólo se guarda cuando de verdad explicó algo: si el movimiento quedó
          * enlazado, el motivo sobra y escribirlo ensuciaría la columna que sirve para ENCONTRAR
@@ -1307,9 +1325,18 @@ export class CashLedgerService {
          * YA lo excluye la vista por `origen_ref`, que es exacto. O sea que el `LIKE` sobre la
          * glosa nunca debió mirar esas filas.
          *
-         * ⚠️ **Lo que NO cierra, declarado:** una captura desde CAOS que declare `U-A-5 0000013`
-         * sigue pudiendo tapar a otra sucursal con el mismo folio. Se cierra escribiendo la
-         * sucursal en la glosa al capturar — va aparte, y hasta entonces el hueco tiene nombre.
+         * ⭐⭐ `[CGA-A.10]` **EL HUECO QUE A.9 DEJÓ ABIERTO SE CIERRA ACÁ: por LLAVE.**
+         * La captura desde CAOS ahora puede declarar el documento en una **columna**,
+         * `declared_doc_ref`, con la misma forma que `origen_ref` del lado de Kepler
+         * (`01-005|U-A-5|0000015|0011`). Donde hay llave, se compara la llave — y la sucursal
+         * deja de poder confundirse.
+         *
+         * ⚠️ **La rama del `LIKE` sigue viva SÓLO para lo histórico** (`declared_doc_ref IS
+         * NULL`): las capturas que declararon el documento en la prosa antes de que existiera
+         * la columna. Medido al migrar: **12 capturas declaran documento; 7 se resolvieron
+         * solas y 5 ($80,541.00) quedaron ambiguas** y las tiene que decir una persona.
+         * **Cuando ese resto llegue a cero, este `OR` se borra** — y con él la última
+         * comparación por texto del módulo. Lo cuenta `npm run check:cobro-escondido`.
          */
         return x.whereNotExists((sub: any) => sub
           .select(trx.raw('1'))
@@ -1317,8 +1344,12 @@ export class CashLedgerService {
           .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
              AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
              AND yac.origen_tipo = 'caos'
-             AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                                || ' ' || v_caja_movimientos_pendientes.folio || '%'`));
+             AND (
+               yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
+               OR (yac.declared_doc_ref IS NULL
+                   AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                                      || ' ' || v_caja_movimientos_pendientes.folio || '%')
+             )`));
       };
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
@@ -2468,14 +2499,21 @@ export class CashLedgerService {
     }
 
     try {
+      // ⭐ `[CGA-A.10]` Misma regla que en `movimientosPendientes()`: por LLAVE donde la hay,
+      // y el `LIKE` sólo para lo histórico sin `declared_doc_ref`. **Las dos tienen que decir
+      // lo mismo**: si una se cambia y la otra no, la cobertura mide contra otra cola.
       const yaCapturado = (sub: Knex.QueryBuilder) => sub
         .select(trx.raw('1'))
         .from('finance.cash_ledger as yac')
         .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
            AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
            AND yac.origen_tipo = 'caos'
-           AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                              || ' ' || v_caja_movimientos_pendientes.folio || '%'`);
+           AND (
+             yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
+             OR (yac.declared_doc_ref IS NULL
+                 AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                                    || ' ' || v_caja_movimientos_pendientes.folio || '%')
+           )`);
 
       let qb = trx('finance.v_caja_movimientos_pendientes')
         .where('tenant_id', tenantId)

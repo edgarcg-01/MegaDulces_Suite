@@ -621,3 +621,66 @@ que miente es el importe.
 **Lo que falta para que no vuelva** (va dentro de A.10): que la pantalla **re-contraste el importe
 contra la fuente al mostrar el movimiento**, en vez de confiar en la copia. Mientras eso no exista,
 el detector es lo único que lo encuentra — y hay que correrlo, no esperar a que avise.
+
+### 10.8 A.10 y A.11 — entregadas el 2026-10-16, y qué mueven de verdad
+
+**A.11 · `npm run check:dedup-por-llave`** — compuerta estática: marca todo `LIKE` sobre una
+columna de prosa (`glosa`, `concepto`, `referencia`, `notas`…) que viva dentro de una existencia
+**negada**. Ese es el caso peligroso: un `LIKE` en un `WHERE` normal trae filas de más y se ven;
+dentro de un `NOT EXISTS` **quita** filas, y eso no deja rastro. Lleva un **trinquete**: la deuda
+que ya existe va declarada con motivo y salida, contada; la compuerta no se pone roja por ella
+—eso la apagaría el primer día— **pero sí por la siguiente**, y también avisa si quedan menos de
+las declaradas, para que nadie deje el permiso puesto después de arreglarlo.
+
+⭐⭐ **Lo que encontró en su primer barrido es el hallazgo del día: las dos pruebas de `[CG.85]`
+replicaban el descuento en vez de ejercer el servicio, y por eso llevaban el defecto adentro.**
+
+| | movimientos | monto |
+|---|---:|---:|
+| Denominador de cobertura **roto** (sin acotar) | 13,222 | $162,111,454.69 |
+| Denominador **bueno** (acotado a `caos`) | 13,361 | $163,188,930.98 |
+| **Diferencia que la cobertura daba por hecha** | **139** | **$1,077,476.29** |
+
+Y la negativa de `cola-sin-duplicados` no podía verlo: apagaba la exclusión **entera**, comparando
+filtro contra nada, con las dos ramas mal. Se le agregó una tercera rama `'roto'` que reproduce el
+defecto a propósito y exige que esconda más — ejercida contra prod: **49 movimientos más** en la
+ventana de 45 días. Si deja de distinguir, lo **declara no medido**.
+
+> ⭐ **La lección general: una prueba que REPLICA la consulta hereda sus defectos y después los
+> certifica.** Lo que vale es ejercer el servicio.
+
+**A.10 · `finance.cash_ledger.declared_doc_ref`** (migración `20261016170505`) — la captura declara
+el documento en una **columna** con la forma de `origen_ref` (`01-005|U-A-5|0000015|0011`), y el
+descuento pasa a ser **igualdad por llave**, con el `LIKE` degradado a rama histórica
+(`declared_doc_ref IS NULL`).
+
+El relleno **no adivina**. Medido en prod antes de escribirlo, sobre las 12 capturas de CAOS que
+declaran documento:
+
+| candidatos en la cola | capturas | monto | qué hace |
+|---:|---:|---:|---|
+| 1 | 7 | $56,185.00 | **se rellena** |
+| 2 | 4 | $57,865.00 | queda `NULL` |
+| 7 | 1 | $22,676.00 | queda `NULL` |
+
+⚠️ **Y acá va la medición honesta del efecto: la migración mueve la cola en CERO.** Simulado
+contra prod con la columna rellenada, la cola sigue en **13,361 · $163,188,930.98** — idéntica.
+Es esperable: los casos de un solo candidato **nunca fueron el problema**. Lo que A.10 instala es
+el **mecanismo**; la recuperación llega cuando la pantalla haga declarar el documento.
+
+**Lo que sigue abierto es exactamente el hueco de §10.1, y ahora tiene cara.** Los **16
+movimientos · $211,548.14** salen de un puñado de capturas ambiguas; la más cara es una de
+**$22,676.00** cuya glosa dice `U-A-5 0000007` — y ese folio existe el **mismo día en siete
+sucursales** (`00`, `01-001` … `01-006`), que suman **$136,385.41**. Una captura tapa las siete.
+
+| # | lo que falta | quién |
+|---|---|---|
+| **A.10b** | La pantalla de captura manda `declared_doc_ref` al elegir el documento | frontend |
+| **A.10c** | Resolver a mano las **5 capturas ambiguas** ($80,541.00) desde esa pantalla | Finanzas |
+| **A.10d** | Cuando `check:cobro-escondido` llegue a **0**, borrar la rama del `LIKE` y bajar el trinquete de `check:dedup-por-llave` a cero | quien cierre |
+
+⛔⛔ **ORDEN DE DESPLIEGUE, no negociable:** el servicio ya **lee** `declared_doc_ref`. La migración
+`20261016170505` va **ANTES** del deploy del código; al revés, la cola de Caja General responde
+500. Verificado por simulación que, con la columna en `NULL`, el predicado nuevo devuelve
+**exactamente lo mismo** que el vigente (13,361 = 13,361): el cambio es un no-op hasta que haya
+declaraciones.
