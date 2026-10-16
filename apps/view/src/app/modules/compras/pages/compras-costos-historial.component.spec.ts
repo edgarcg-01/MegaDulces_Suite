@@ -46,6 +46,9 @@ const R: RespuestaHistorial = {
       costo_base: 69.9, estandar_vigente: 69.9, vs_estandar_pct: 0, veredicto: 'apegada',
     }),
   ],
+  promedio_disponible: true,
+  promedio_al_inicio: { '01': 68 },
+  cambios_promedio: [{ sucursal: '01', fecha: '2026-08-20', antes: 68, despues: 70.4, cambio_pct: 3.53 }],
 };
 
 describe('[CAT-COSTO.5] ComprasCostosHistorialComponent', () => {
@@ -75,16 +78,44 @@ describe('[CAT-COSTO.5] ComprasCostosHistorialComponent', () => {
     expect(el.textContent).toContain('Busca un producto');
   });
 
-  it('con producto: pinta los dos tipos de cambio con su sucursal y su documento', async () => {
+  it('con producto: pinta los tres costos con su sucursal y su documento', async () => {
     const el = await montar('70001');
     expect(api.historial).toHaveBeenCalledWith('70001', expect.any(String), expect.any(String));
     const filas = Array.from(el.querySelectorAll('tbody tr')).map((tr) => tr.textContent?.replace(/\s+/g, ' ') ?? '');
-    expect(filas).toHaveLength(3);
-    expect(filas[0]).toContain('Costo de entrada');
+    expect(filas).toHaveLength(4); // estándar + promedio + 2 compras
+    expect(filas[0]).toContain('Último costo');
     expect(filas[0]).toContain('XA2001-0004312');
     expect(filas[0]).toContain('arriba +5.2 %');
     expect(filas.some((f) => f.includes('Costo estándar') && f.includes('Ficha de Kepler'))).toBe(true);
-    expect(filas.some((f) => f.includes('Primera entrada'))).toBe(true);
+    expect(filas.some((f) => f.includes('Primera compra'))).toBe(true);
+  });
+
+  // [CAT-COSTO.11] Abierto desde una pestaña, muestra sólo la historia de ESE costo.
+  it('abierto desde la pestaña de promedio, sólo pinta el promedio', async () => {
+    await montar(null);
+    fix.componentRef.setInput('costo', 'promedio');
+    fix.componentRef.setInput('sku', '70001');
+    fix.detectChanges();
+    await fix.whenStable();
+    await new Promise((r) => setTimeout(r, 0));
+    fix.detectChanges();
+    const filas = Array.from((fix.nativeElement as HTMLElement).querySelectorAll('tbody tr')).map((tr) => tr.textContent ?? '');
+    expect(filas).toHaveLength(1);
+    expect(filas[0]).toContain('Costo promedio');
+    expect(filas[0]).toContain('Kardex de Kepler');
+  });
+
+  it('NEGATIVA: sin historia de promedio calculada se declara «sin medir», no cero', async () => {
+    await montar(null, of({ ...R, promedio_disponible: false, cambios_promedio: [] }));
+    fix.componentRef.setInput('costo', 'promedio');
+    fix.componentRef.setInput('sku', '70001');
+    fix.detectChanges();
+    await fix.whenStable();
+    await new Promise((r) => setTimeout(r, 0));
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('.ch-kpis')?.textContent).toContain('sin medir');
+    expect(el.textContent).toContain('todavía no se ha calculado');
   });
 
   it('cuenta las entradas arriba del estándar en la cabecera', async () => {
