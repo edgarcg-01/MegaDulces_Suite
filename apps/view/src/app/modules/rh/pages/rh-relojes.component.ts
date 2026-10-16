@@ -12,6 +12,7 @@ import { RhMarcoComponent } from '../components/rh-marco.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RhService, rhError } from '../rh.service';
 import { RhRelojesFranjaComponent } from '../components/rh-relojes-franja.component';
+import { RhSinPersonaComponent } from '../components/rh-sin-persona.component';
 
 /**
  * Fase RH · `[RH.1.7]` — Relojes checadores (`/rh/relojes`). Antes: el semáforo, el padrón de relojes, los lotes
@@ -30,7 +31,7 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
 @Component({
   selector: 'app-rh-relojes',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent, RhMarcoComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent, RhMarcoComponent, RhSinPersonaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rr-page">
@@ -48,6 +49,8 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
         <app-rh-relojes-franja [relojes]="estado()" [sitios]="sitios()" [abiertaAlInicio]="true" [detalle]="true"
                                [editable]="gestiona()" (editar)="editar($event)" />
       </app-load-state>
+
+      <app-rh-sin-persona [gestiona]="gestiona()" />
 
       @if (lotes().length) {
         <section class="rr-card" aria-label="Lotes sin aplicar">
