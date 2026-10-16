@@ -11,12 +11,31 @@ import {
 } from './entre-sucursales';
 
 import {
+  AntiguedadUltimo,
+  ConteoContraUltimo,
+  FilaContraUltimo,
+  MotivoSinCosto,
+  ORDEN_VEREDICTO_CONTRA_ULTIMO,
+  RespuestaContraUltimo,
+  RespuestaMatrizCostos,
+  FilaMatrizCostos,
+  TipoCostoKepler,
+  TOLERANCIA_CONTRA_ULTIMO,
+  VeredictoContraUltimo,
+  VeredictoMatrizCostos,
+} from '@megadulces/contracts';
+import { antiguedadUltimo, clasificarContraUltimo } from './contra-ultimo';
+import { CeldaCruda, filaMatriz } from './matriz-costos';
+
+import {
   CambioEstandar,
   EntradaCruda,
   EntradaTrazada,
   MuestraEstandar,
   cambiosEstandar,
+  cambiosPromedio,
   estandarEn,
+  promedioEn,
   trazarEntradas,
 } from './historial-costos';
 
@@ -43,6 +62,14 @@ export interface RespuestaHistorial {
   estandar_al_inicio: Record<string, number | null>;
   cambios_estandar: CambioEstandar[];
   entradas: (EntradaTrazada & { plaza_sin_kepler: string | null })[];
+  /**
+   * `[CAT-COSTO.11]` El costo promedio del kardex, de la misma historia por día que las matrices
+   * (`mv_kepler_costos_cambios`). `false` mientras esa historia no esté calculada: la pantalla lo
+   * declara, no lo pinta como «sin cambios».
+   */
+  promedio_disponible: boolean;
+  promedio_al_inicio: Record<string, number | null>;
+  cambios_promedio: CambioEstandar[];
 }
 
 const esFecha = (s?: string): boolean => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -51,6 +78,62 @@ const restarDias = (iso: string, dias: number): string => {
   d.setUTCDate(d.getUTCDate() - dias);
   return d.toISOString().slice(0, 10);
 };
+
+export interface FiltrosMatrizCostos {
+  tipo?: string;
+  /** `YYYY-MM-DD`; por defecto hoy (México). Una fecha futura se trata como hoy. */
+  fecha?: string;
+  q?: string;
+  proveedor_id?: string;
+  /** Sólo los productos donde ESTE almacén se sale de la mayoría. */
+  sucursal?: string;
+  veredicto?: VeredictoMatrizCostos;
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+interface FilaCrudaMatriz {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  venta_30d: string | number;
+  celdas: CeldaCruda[] | string;
+}
+
+export interface FiltrosContraUltimo {
+  /** SKU o nombre. */
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoContraUltimo;
+  antiguedad?: AntiguedadUltimo;
+  /** Por defecto `true`: sólo sucursal × producto con venta en 30 días. */
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+interface FilaCrudaContraUltimo {
+  sucursal: string;
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  unidad_base: string | null;
+  costo_estandar: string | null;
+  costo_ultimo: string | null;
+  ultimo_motivo: MotivoSinCosto | null;
+  ultimo_fecha: string | null;
+  ultimo_folio: string | null;
+  ultimo_proveedor: string | null;
+  ultimo_origen: 'propia' | 'red' | null;
+  ultimo_sucursal: string | null;
+  ultimo_unidad: string | null;
+  costo_promedio: string | null;
+  venta_30d: string | null;
+}
 
 export interface FiltrosEntreSucursales {
   /** SKU o nombre. */
@@ -619,6 +702,7 @@ export class StandardCostService {
           .from('commercial.warehouses')
           .whereRaw('tenant_id = current_tenant_id()')
           .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
           .whereNot('kepler_code', '00')
           .whereNull('deleted_at')
           .select('kepler_code')
@@ -686,6 +770,351 @@ export class StandardCostService {
   }
 
   /**
+   * `[CAT-COSTO.10]` **La matriz de un costo ese día**: producto × almacén (00–08), con la coincidencia
+   * contra la mayoría. Lee la historia `analytics.mv_kepler_costos_cambios` (`[CAT-COSTO.9]`): el costo
+   * de cada celda es el vigente ese día (`desde <= fecha < hasta`). La comparación es la MISMA regla de
+   * «Entre sucursales» (`filaMatriz` → `clasificarEntreSucursales`).
+   *
+   * Un almacén cuya historia de ese costo empieza después de `fecha` estaba en Wincaja ese día: se
+   * devuelve su `desde` para que la pantalla declare la columna «sin dato», nunca en cero.
+   * La venta de 30 días es la de HOY (sirve para ordenar y para «sólo con venta»), y se declara.
+   */
+  async matriz(f: FiltrosMatrizCostos): Promise<RespuestaMatrizCostos> {
+    const limite = Math.min(Math.max(Number(f.limite) || 100, 1), 500);
+    const desplazamiento = Math.max(Number(f.desplazamiento) || 0, 0);
+    const tipo: TipoCostoKepler = (['estandar', 'promedio', 'ultimo'] as const).includes(f.tipo as TipoCostoKepler)
+      ? (f.tipo as TipoCostoKepler)
+      : 'estandar';
+
+    return this.tk.run(async (trx) => {
+      const { rows: [meta] } = await trx.raw(`
+        SELECT (SELECT relispopulated FROM pg_class WHERE oid = to_regclass('analytics.mv_kepler_costos_cambios')) AS poblada,
+               to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD') AS hoy`);
+      const fecha = f.fecha && esFecha(f.fecha) && f.fecha <= meta.hoy ? f.fecha : meta.hoy;
+      const [sucs, corrida] = await Promise.all([
+        trx
+          .from('commercial.warehouses')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
+          .whereNull('deleted_at')
+          .select('kepler_code')
+          .min({ nombre: 'name' })
+          .groupBy('kepler_code')
+          .orderBy('kepler_code'),
+        trx
+          .from('analytics.cron_runs')
+          .where({ job_key: 'analytics_refresh_kepler_costos_cambios', status: 'ok' })
+          .max({ al: 'last_finish' })
+          .first(),
+      ]);
+      const calculadoAl = (corrida as { al: Date | string | null } | undefined)?.al ?? null;
+      const base: RespuestaMatrizCostos = {
+        disponible: false,
+        tipo,
+        fecha,
+        primera_fecha: null,
+        calculado_al: calculadoAl ? new Date(calculadoAl).toISOString() : null,
+        tolerancia_pct: TOLERANCIA_ENTRE_SUCURSALES * 100,
+        sucursales: (sucs as { kepler_code: string; nombre: string | null }[]).map((s) => ({
+          codigo: s.kepler_code,
+          nombre: s.nombre,
+          desde: null,
+        })),
+        resumen: Object.fromEntries(ORDEN_VEREDICTO_SUCURSALES.map((v) => [v, 0])) as Record<VeredictoMatrizCostos, number>,
+        proveedores: [],
+        total: 0,
+        filas: [],
+      };
+      if (!meta?.poblada) {
+        this.logger.warn('[CAT-COSTO.10] analytics.mv_kepler_costos_cambios no está poblada: disponible=false');
+        return base;
+      }
+
+      const [inicios, crudo] = await Promise.all([
+        trx.raw(
+          `SELECT sucursal, to_char(min(desde), 'YYYY-MM-DD') AS desde
+             FROM analytics.mv_kepler_costos_cambios
+            WHERE tenant_id = current_tenant_id() AND tipo = ?
+            GROUP BY 1`,
+          [tipo],
+        ),
+        (() => {
+          const qb = trx
+            .from(
+              trx.raw(
+                `(
+              SELECT h.sku,
+                     max(cp.nombre)                AS nombre,
+                     max(cp.supplier_id::text)     AS proveedor_id,
+                     max(sup.name)                 AS proveedor,
+                     COALESCE(sum(a.venta_bruta), 0)::numeric AS venta_30d,
+                     jsonb_agg(jsonb_build_object(
+                       'sucursal',   h.sucursal,
+                       'costo',      h.costo,
+                       'desde',      to_char(h.desde, 'YYYY-MM-DD'),
+                       'fuente',     h.fuente,
+                       'referencia', h.referencia,
+                       'unidad',     k.unidad_base,
+                       'vende',      COALESCE(a.venta_bruta, 0) > 0
+                     ) ORDER BY h.sucursal) AS celdas
+                FROM analytics.mv_kepler_costos_cambios h
+                LEFT JOIN analytics.mv_kepler_costos k
+                       ON k.tenant_id = h.tenant_id AND k.sucursal = h.sucursal AND k.sku = h.sku
+                LEFT JOIN analytics.mv_kepler_standard_cost_activity a
+                       ON btrim(a.sucursal::text) = h.sucursal AND a.sku = h.sku
+                LEFT JOIN catalog.products cp
+                       ON cp.sku = h.sku AND cp.deleted_at IS NULL AND cp.tenant_id = current_tenant_id()
+                LEFT JOIN catalog.suppliers sup
+                       ON sup.id = cp.supplier_id AND sup.tenant_id = cp.tenant_id
+               WHERE h.tenant_id = current_tenant_id() AND h.tipo = ?
+                 AND h.desde <= ?::date AND (h.hasta IS NULL OR h.hasta > ?::date)
+               GROUP BY h.sku
+            ) AS x`,
+                [tipo, fecha, fecha],
+              ),
+            )
+            .select('x.sku', 'x.nombre', 'x.proveedor_id', 'x.proveedor', 'x.venta_30d', 'x.celdas');
+          applySmartSearch(qb, f.q, { columns: ['x.sku', 'x.nombre'] });
+          if (f.proveedor_id) qb.where('x.proveedor_id', f.proveedor_id);
+          return qb as unknown as Promise<FilaCrudaMatriz[]>;
+        })(),
+      ]);
+
+      const desdeDe = new Map((inicios.rows as { sucursal: string; desde: string }[]).map((r) => [r.sucursal, r.desde]));
+      const filas: FilaMatrizCostos[] = crudo.map((r) => {
+        const celdas = (typeof r.celdas === 'string' ? JSON.parse(r.celdas) : r.celdas) as CeldaCruda[];
+        const m = filaMatriz(
+          celdas.map((c) => ({ ...c, costo: Number(c.costo) })),
+          { soloConVenta: f.solo_con_venta },
+        );
+        return {
+          sku: r.sku,
+          nombre: r.nombre,
+          proveedor_id: r.proveedor_id,
+          proveedor: r.proveedor,
+          venta_30d: Number(r.venta_30d) || 0,
+          ...m,
+        };
+      });
+
+      const resumen = { ...base.resumen };
+      const proveedores = new Map<string, { id: string; nombre: string; productos: number }>();
+      for (const x of filas) {
+        resumen[x.veredicto]++;
+        if (x.proveedor_id) {
+          const p = proveedores.get(x.proveedor_id) ?? { id: x.proveedor_id, nombre: x.proveedor ?? x.proveedor_id, productos: 0 };
+          p.productos++;
+          proveedores.set(x.proveedor_id, p);
+        }
+      }
+      const visibles = filas
+        .filter((x) => !f.veredicto || x.veredicto === f.veredicto)
+        .filter((x) => !f.sucursal || x.celdas.some((c) => c.sucursal === f.sucursal && c.fuera))
+        .sort(
+          (a, b) =>
+            ORDEN_VEREDICTO_SUCURSALES.indexOf(a.veredicto) - ORDEN_VEREDICTO_SUCURSALES.indexOf(b.veredicto) ||
+            b.venta_30d - a.venta_30d ||
+            (b.diferencia_pct ?? 0) - (a.diferencia_pct ?? 0) ||
+            a.sku.localeCompare(b.sku),
+        );
+      const primera = [...desdeDe.values()].sort()[0] ?? null;
+
+      return {
+        ...base,
+        disponible: true,
+        primera_fecha: primera,
+        sucursales: base.sucursales.map((s) => ({ ...s, desde: desdeDe.get(s.codigo) ?? null })),
+        resumen,
+        proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+        total: visibles.length,
+        filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
+    });
+  }
+
+  /**
+   * `[CAT-COSTO.7]` **Contra último costo** (la Etapa 2b de Costos): el costo estándar de cada
+   * sucursal × producto contra lo que costó su última compra (XA2001).
+   *
+   * Lee `analytics.mv_kepler_costos` (`[CAT-COSTO.6]`), donde los costos ya vienen en la unidad base
+   * de la ficha; la regla de comparación es la función pura `clasificarContraUltimo`. El universo se
+   * trae una vez y se clasifica aquí — el resumen, los chips y la tabla cuentan EXACTAMENTE lo mismo.
+   *
+   * El **resumen NO filtra por veredicto ni por antigüedad**, a propósito: los chips son el selector
+   * de veredicto y tienen que mostrar el reparto completo (mismo criterio que `[CE.9]`).
+   *
+   * Si la matview nunca se calculó, responde `disponible: false` sin filas: una tabla vacía con
+   * conteos en cero se leería como «no hay diferencias».
+   */
+  async contraUltimo(f: FiltrosContraUltimo = {}): Promise<RespuestaContraUltimo> {
+    const limite = Math.min(Math.max(Number(f.limite) || 100, 1), 500);
+    const desplazamiento = Math.max(Number(f.desplazamiento) || 0, 0);
+    const soloConVenta = f.solo_con_venta ?? true;
+
+    const ceros = <K extends string>(ks: readonly K[]): Record<K, ConteoContraUltimo> =>
+      Object.fromEntries(ks.map((k) => [k, { filas: 0, venta_30d: 0 }])) as Record<K, ConteoContraUltimo>;
+    const ANTIGUEDADES: readonly AntiguedadUltimo[] = ['hasta_90', 'de_90_a_180', 'mas_de_180'];
+
+    return this.tk.run(async (trx) => {
+      const [{ rows: [meta] }, sucs, corrida, actividad] = await Promise.all([
+        trx.raw(`
+          SELECT (SELECT relispopulated FROM pg_class WHERE oid = to_regclass('analytics.mv_kepler_costos')) AS poblada,
+                 to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD')               AS hoy`),
+        trx
+          .from('commercial.warehouses')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
+          .whereNull('deleted_at')
+          .select('kepler_code')
+          .min({ nombre: 'name' })
+          .groupBy('kepler_code')
+          .orderBy('kepler_code'),
+        trx
+          .from('analytics.cron_runs')
+          .where({ job_key: 'analytics_refresh_kepler_costos', status: 'ok' })
+          .max({ al: 'last_finish' })
+          .first(),
+        trx.from('analytics.mv_kepler_standard_cost_activity').max({ al: 'ventana_hasta' }).first(),
+      ]);
+      const sucursales = (sucs as { kepler_code: string; nombre: string | null }[]).map((s) => ({
+        codigo: s.kepler_code,
+        nombre: s.nombre,
+      }));
+      const calculadoAl = (corrida as { al: Date | string | null } | undefined)?.al ?? null;
+      const ventaAl = (actividad as { al: Date | string | null } | undefined)?.al ?? null;
+      const base: RespuestaContraUltimo = {
+        disponible: false,
+        calculado_al: calculadoAl ? new Date(calculadoAl).toISOString() : null,
+        venta_al: ventaAl ? new Date(ventaAl).toISOString().slice(0, 10) : null,
+        tolerancia_pct: TOLERANCIA_CONTRA_ULTIMO * 100,
+        resumen: ceros(ORDEN_VEREDICTO_CONTRA_ULTIMO),
+        abajo_por_antiguedad: ceros(ANTIGUEDADES),
+        sucursales,
+        proveedores: [],
+        total: 0,
+        filas: [],
+      };
+      if (!meta?.poblada) {
+        this.logger.warn('[CAT-COSTO.7] analytics.mv_kepler_costos no está poblada: se responde disponible=false');
+        return base;
+      }
+
+      const qb = trx
+        .from('analytics.mv_kepler_costos as c')
+        .joinRaw(
+          'LEFT JOIN analytics.mv_kepler_standard_cost_activity a ON btrim(a.sucursal::text) = c.sucursal AND a.sku = c.sku',
+        )
+        .leftJoin('catalog.products as cp', function () {
+          this.on('cp.sku', '=', 'c.sku').andOnNull('cp.deleted_at').andOn(trx.raw('cp.tenant_id = current_tenant_id()'));
+        })
+        .leftJoin('catalog.suppliers as sup', function () {
+          this.on('sup.id', '=', 'cp.supplier_id').andOn('sup.tenant_id', '=', 'cp.tenant_id');
+        })
+        .whereRaw('c.tenant_id = current_tenant_id()')
+        .select(
+          'c.sucursal',
+          'c.sku',
+          'cp.nombre',
+          trx.raw('cp.supplier_id::text AS proveedor_id'),
+          'sup.name as proveedor',
+          'c.unidad_base',
+          'c.costo_estandar',
+          'c.costo_ultimo',
+          'c.ultimo_motivo',
+          trx.raw(`to_char(c.ultimo_fecha, 'YYYY-MM-DD') AS ultimo_fecha`),
+          'c.ultimo_folio',
+          'c.ultimo_proveedor',
+          'c.ultimo_origen',
+          'c.ultimo_sucursal',
+          'c.ultimo_unidad',
+          'c.costo_promedio',
+          trx.raw('COALESCE(a.venta_bruta, 0) AS venta_30d'),
+        );
+      applySmartSearch(qb, f.q, { columns: ['c.sku', 'cp.nombre'] });
+      if (f.proveedor_id) qb.where('cp.supplier_id', f.proveedor_id);
+      if (f.sucursal) qb.where('c.sucursal', f.sucursal);
+      if (soloConVenta) qb.where('a.venta_bruta', '>', 0);
+
+      const crudo = (await qb) as FilaCrudaContraUltimo[];
+      const num = (v: string | null): number | null => (v === null || v === undefined ? null : Number(v));
+      const filas: FilaContraUltimo[] = crudo.map((r) => {
+        const costo_estandar = num(r.costo_estandar);
+        const costo_ultimo = num(r.costo_ultimo);
+        const c = clasificarContraUltimo({ costo_estandar, costo_ultimo, ultimo_motivo: r.ultimo_motivo });
+        return {
+          sucursal: r.sucursal,
+          sku: r.sku,
+          nombre: r.nombre,
+          proveedor_id: r.proveedor_id,
+          proveedor: r.proveedor,
+          unidad_base: r.unidad_base,
+          costo_estandar,
+          costo_ultimo,
+          ultimo_fecha: r.ultimo_fecha,
+          ultimo_folio: r.ultimo_folio,
+          ultimo_proveedor: r.ultimo_proveedor,
+          ultimo_origen: r.ultimo_origen,
+          ultimo_sucursal: r.ultimo_sucursal,
+          ultimo_unidad: r.ultimo_unidad,
+          antiguedad: costo_ultimo !== null ? antiguedadUltimo(r.ultimo_fecha, meta.hoy) : null,
+          costo_promedio: num(r.costo_promedio),
+          diferencia_pct: c.diferencia_pct,
+          venta_30d: Number(r.venta_30d) || 0,
+          veredicto: c.veredicto,
+          motivo: costo_ultimo === null ? r.ultimo_motivo : null,
+        };
+      });
+
+      // El tablero: el universo completo de los filtros de texto/proveedor/sucursal/venta.
+      const resumen = ceros(ORDEN_VEREDICTO_CONTRA_ULTIMO);
+      const abajo = ceros(ANTIGUEDADES);
+      const proveedores = new Map<string, { id: string; nombre: string; productos: number }>();
+      for (const x of filas) {
+        resumen[x.veredicto].filas++;
+        resumen[x.veredicto].venta_30d += x.venta_30d;
+        if (x.veredicto === 'estandar_abajo' && (x.diferencia_pct ?? 0) > 5 && x.antiguedad) {
+          abajo[x.antiguedad].filas++;
+          abajo[x.antiguedad].venta_30d += x.venta_30d;
+        }
+        if (x.proveedor_id) {
+          const p = proveedores.get(x.proveedor_id) ?? { id: x.proveedor_id, nombre: x.proveedor ?? x.proveedor_id, productos: 0 };
+          p.productos++;
+          proveedores.set(x.proveedor_id, p);
+        }
+      }
+      const redondea = (r: Record<string, ConteoContraUltimo>) => {
+        for (const k of Object.keys(r)) r[k].venta_30d = Math.round(r[k].venta_30d * 100) / 100;
+      };
+      redondea(resumen);
+      redondea(abajo);
+
+      const visibles = filas
+        .filter((x) => !f.veredicto || x.veredicto === f.veredicto)
+        .filter((x) => !f.antiguedad || x.antiguedad === f.antiguedad)
+        .sort(
+          (a, b) =>
+            ORDEN_VEREDICTO_CONTRA_ULTIMO.indexOf(a.veredicto) - ORDEN_VEREDICTO_CONTRA_ULTIMO.indexOf(b.veredicto) ||
+            b.venta_30d - a.venta_30d ||
+            Math.abs(b.diferencia_pct ?? 0) - Math.abs(a.diferencia_pct ?? 0) ||
+            a.sku.localeCompare(b.sku) ||
+            a.sucursal.localeCompare(b.sucursal),
+        );
+
+      return {
+        ...base,
+        disponible: true,
+        resumen,
+        abajo_por_antiguedad: abajo,
+        proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+        total: visibles.length,
+        filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
+    });
+  }
+
+  /**
    * `[CAT-COSTO.5]` **Trazabilidad de UN producto**: cambios de costo estándar y de costo de entrada,
    * sucursal por sucursal. Todo es de un solo SKU, así que va por el índice `kdm2 (btrim(c8))` y no
    * recorre el ODS.
@@ -738,17 +1167,11 @@ export class StandardCostService {
                   NULLIF(btrim(ap.c32::text), '')        AS proveedor,
                   NULLIF(upper(btrim(l.c11::text)), '')  AS unidad,
                   ${NUM('l.c9')}                         AS cantidad,
-                  ${NUM('l.c12')}                        AS costo,
-                  og.origen_veredicto,
-                  og.origen_warehouse_name               AS origen_nombre,
-                  wo.kepler_code                         AS origen_kepler
+                  ${NUM('l.c12')}                        AS costo
              FROM kepler_ods.kdm2 l
              JOIN kepler_ods.kdm1 ap
                ON ap.sucursal = l.sucursal AND ap.c1 = l.c1 AND ap.c2 = l.c2 AND ap.c3 = l.c3
               AND ap.c4 = l.c4 AND ap.c6 = l.c6
-             LEFT JOIN analytics.v_erp_goods_receipt_origin og
-               ON og.sucursal = ap.sucursal AND og.folio = btrim(ap.c6::text)
-             LEFT JOIN commercial.warehouses wo ON wo.id = og.origen_warehouse_id
             WHERE btrim(l.c8) = ?
               AND l.c2 = 'X' AND l.c3 = 'A' AND btrim(l.c4::text) = '20'
               AND btrim(ap.c1::text) = ap.sucursal::text
@@ -769,6 +1192,7 @@ export class StandardCostService {
           .from('commercial.warehouses')
           .whereRaw('tenant_id = current_tenant_id()')
           .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
           .whereNot('kepler_code', '00')
           .whereNull('deleted_at')
           .select('kepler_code')
@@ -799,12 +1223,40 @@ export class StandardCostService {
         unidad: string | null;
         cantidad: string | null;
         costo: string | null;
+      };
+      type FilaOrigen = {
+        sucursal: string;
+        folio: string;
         origen_veredicto: string | null;
         origen_nombre: string | null;
         origen_kepler: string | null;
       };
+      // `[CAT-COSTO.5.1]` El origen (qué plaza recibió) se pide APARTE y sólo para los folios
+      // encontrados. Unido en la misma consulta, Postgres no le pasaba el filtro a
+      // `v_erp_goods_receipt_origin` y la calculaba entera: medido en prod el 2026-10-15, 70056
+      // pasaba de 90 s (el historial respondía 500 por el límite de 60 s); así, ~1 s.
+      // Si un folio trae más de una fila de origen se toma la primera (antes multiplicaba la entrada).
+      const filasEntrada = entradasCrudas.rows as FilaEntrada[];
+      const claves = [...new Map(filasEntrada.map((r) => [`${r.sucursal_registro}|${r.folio}`, r])).values()];
+      const origenes = claves.length
+        ? ((
+            await trx.raw(
+              `SELECT og.sucursal::text AS sucursal, og.folio::text AS folio, og.origen_veredicto,
+                      og.origen_warehouse_name AS origen_nombre, wo.kepler_code AS origen_kepler
+                 FROM unnest(?::text[], ?::text[]) AS x(s, f)
+                 JOIN analytics.v_erp_goods_receipt_origin og ON og.sucursal = x.s AND og.folio = x.f
+                 LEFT JOIN commercial.warehouses wo ON wo.id = og.origen_warehouse_id`,
+              [claves.map((r) => r.sucursal_registro), claves.map((r) => r.folio)],
+            )
+          ).rows as FilaOrigen[])
+        : [];
+      const origenDe = new Map<string, FilaOrigen>();
+      for (const o of origenes) if (!origenDe.has(`${o.sucursal}|${o.folio}`)) origenDe.set(`${o.sucursal}|${o.folio}`, o);
+
       const nombrePlaza = new Map<string, string>();
-      const entradas: EntradaCruda[] = (entradasCrudas.rows as FilaEntrada[]).map((r) => {
+      const entradas: EntradaCruda[] = filasEntrada.map((fila) => {
+        const o = origenDe.get(`${fila.sucursal_registro}|${fila.folio}`);
+        const r = { ...fila, origen_veredicto: o?.origen_veredicto ?? null, origen_nombre: o?.origen_nombre ?? null, origen_kepler: o?.origen_kepler ?? null };
         // De qué plaza es: la que recibió, aunque se haya registrado en el CEDIS (DM.19).
         const plaza =
           r.origen_veredicto === 'otra_plaza'
@@ -831,6 +1283,25 @@ export class StandardCostService {
         codigo: s.kepler_code,
         nombre: s.nombre,
       }));
+      // [CAT-COSTO.11] El promedio: del año previo (para saber el vigente al empezar) hasta `hasta`.
+      const { rows: [hist] } = await trx.raw(
+        `SELECT (SELECT relispopulated FROM pg_class WHERE oid = to_regclass('analytics.mv_kepler_costos_cambios')) AS poblada`,
+      );
+      const muestrasPromedio: MuestraEstandar[] = hist?.poblada
+        ? (
+            (
+              await trx.raw(
+                `SELECT sucursal, to_char(desde, 'YYYY-MM-DD') AS fecha, costo::float AS costo
+                   FROM analytics.mv_kepler_costos_cambios
+                  WHERE tenant_id = current_tenant_id() AND tipo = 'promedio' AND sku = ?
+                    AND desde BETWEEN ?::date AND ?::date
+                    AND sucursal <> '00'`,
+                [sku, desdeMuestras, hasta],
+              )
+            ).rows as { sucursal: string; fecha: string; costo: number }[]
+          ).map((r) => ({ sucursal: r.sucursal, fecha: r.fecha, costo: Number(r.costo) }))
+        : [];
+
       const trazadas = trazarEntradas(entradas, muestras).map((x) => ({
         ...x,
         // Plaza que no es de Kepler (era Wincaja): se nombra para que se vea POR QUÉ no se compara.
@@ -851,6 +1322,9 @@ export class StandardCostService {
         estandar_al_inicio: Object.fromEntries(sucursales.map((s) => [s.codigo, estandarEn(muestras, s.codigo, desde)])),
         cambios_estandar: cambiosEstandar(muestras).filter((c) => c.fecha >= desde && c.fecha <= hasta),
         entradas: trazadas,
+        promedio_disponible: !!hist?.poblada,
+        promedio_al_inicio: Object.fromEntries(sucursales.map((s) => [s.codigo, promedioEn(muestrasPromedio, s.codigo, desde)])),
+        cambios_promedio: cambiosPromedio(muestrasPromedio).filter((c) => c.fecha >= desde && c.fecha <= hasta),
       };
     });
   }

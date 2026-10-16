@@ -1480,6 +1480,10 @@ export const CRON_JOBS: CronCfg[] = [
   // ficha porque c62 viene vacío. Si se queda vieja, v_margin_standard_daily publica el mayoreo
   // reciente como «sin costo» — se ve como cobertura baja, no como falla. Por eso el umbral.
   { key: 'analytics_refresh_erp_margin_ficha', label: 'Refresh MV costo estándar de mayoreo (MR.9.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [CAT-COSTO.6] La fuente única de los tres costos (Compras › Catálogo › Costos).
+  { key: 'analytics_refresh_kepler_costos', label: 'Refresh MV tres costos de Kepler (CAT-COSTO.6)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [CAT-COSTO.9] La historia por día de los costos + la foto nocturna del estándar (que Kepler no guarda).
+  { key: 'analytics_refresh_kepler_costos_cambios', label: 'Refresh MV historia de costos de Kepler (CAT-COSTO.9)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // ⛔ [PR.S2.1] La cascada de precio se materializó el 2026-09-30 y nació SIN carril que la
   // refrescara ni umbral que lo notara — el mismo defecto que la fila de arriba documenta, y que
   // se repitió igual. Una MV que nadie refresca no se ve rota: se ve idéntica, publicando el
