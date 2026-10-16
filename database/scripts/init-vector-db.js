@@ -45,10 +45,21 @@ const db = knex({
         product_name   text NOT NULL,
         source_text    text NOT NULL,
         embedding      vector(${EMBED_DIM}) NOT NULL,
+        in_planogram   boolean NOT NULL DEFAULT false,
         updated_at     timestamptz NOT NULL DEFAULT now()
       )
     `);
-    console.log('✓ tabla product_embeddings');
+    // [K.VEC.1] `in_planogram` se agregó al servicio DESPUÉS de este script y acá
+    // faltaba. Un `CREATE TABLE IF NOT EXISTS` sobre una tabla vieja no agrega
+    // columnas, así que el desfase sobrevive a re-correr el script: medido el
+    // 2026-10-16 en prod, el tick del sync murió con `column "in_planogram" does
+    // not exist` justo después de crear la tabla con este mismo archivo.
+    // El ALTER es la parte que hace al script realmente idempotente.
+    await db.raw(`
+      ALTER TABLE product_embeddings
+        ADD COLUMN IF NOT EXISTS in_planogram boolean NOT NULL DEFAULT false
+    `);
+    console.log('✓ tabla product_embeddings (+ in_planogram)');
 
     // HNSW para KNN coseno — el operador del matcher es `<=>` (cosine distance).
     await db.raw(`
@@ -63,6 +74,13 @@ const db = knex({
         ON product_embeddings (tenant_id)
     `);
     console.log('✓ índice tenant');
+
+    // El KNN del corpus catalog filtra `WHERE in_planogram = true`.
+    await db.raw(`
+      CREATE INDEX IF NOT EXISTS idx_product_embeddings_planograma
+        ON product_embeddings (in_planogram) WHERE in_planogram
+    `);
+    console.log('✓ índice planograma');
 
     // ── Corpus ACTIVO ERP (inventory.products_active) — keyed por SKU ──────
     // Tabla SEPARADA del catalog (product_embeddings). La usa SOLO el matcher

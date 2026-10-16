@@ -4,6 +4,8 @@ import { AnthropicService, CloudinaryModule, SpeechToTextService, jwtVerifyOptio
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
+import { HrAttendanceEnrollmentsController } from './attendance/attendance-enrollments.controller';
+import { HrAttendanceEnrollmentsService } from './attendance/attendance-enrollments.service';
 import { HrAttendanceIngestService } from './attendance/attendance-ingest.service';
 import { HrIngestGuard } from './attendance/hr-ingest.guard';
 import { HrAttendanceController } from './attendance/attendance.controller';
@@ -50,11 +52,11 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrTalentController, HrTalentPublicController],
+  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrAttendanceEnrollmentsController, HrTalentController, HrTalentPublicController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
-    HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
+    HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService, HrAttendanceEnrollmentsService,
     HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService,
     // `[RH.3.2.1]` la IA del registro por WhatsApp, sobre el cliente compartido de Anthropic (infra leaf: cada módulo
     // que lo usa lo pone en sus providers). Sin `ANTHROPIC_API_KEY` no consulta nada y el registro sigue igual.
