@@ -280,11 +280,21 @@ const STEPS = {
     // catálogo — RELLENO de precio base + recálculo de is_promo. Degradado a --gap-fill-only 2026-08-24:
     // el precio de venta lo lleva `normalizeSalePrice` (ods-derived) AL MOMENTO vía hop-2, porque leer
     // `kdii.c90` como "precio pieza" es un decode equivocado (c90 es el precio de la UNIDAD BASE) y
-    // kdii carga 219 tripletas de plantilla que afectan 1,667 SKUs. Este paso ya NO toca precios
-    // existentes; sólo rellena huecos y mantiene is_promo.
+    // kdii carga 219 tripletas de plantilla que afectan 1,667 SKUs.
+    // ⛔ `[VPR.3.1]` Este paso NO escribe precio: corre en `--solo-promo`. Lo único que todavía
+    //    le pertenece es `is_promo` (es su ÚNICO escritor; `ods-derived` sólo lo lee), por eso
+    //    el paso no se borra del carril.
+    // ⚠️ Acá decía `--gap-fill-only` y era un apagado FALSO. La cabecera del script lo dice con
+    //    todas las letras: con ese flag seguiría inyectando el precio CONFIGURADO a los 1,508
+    //    productos sin precio en ninguna lista, deshaciendo los rechazos de `ods-derived`.
+    //    Medido 2026-10-16: fallaba en 391 corridas seguidas desde el 7-oct 19:32 (cada 30 min,
+    //    8 dias) y el carril lo publicaba como `2/3 pasos OK`, status `ok` -- una falla PARCIAL
+    //    no pone el lote en error, a proposito. La deteccion existia (`cron_run_log`); lo que no
+    //    sale del edificio es la alarma (OBS.0.2, sin SMTP_*). Costo real: `is_promo` sin
+    //    recalcular 8 dias -- medido, 2 productos pendientes (1 por costo, 1 por "= GRATIS").
     // NO agregar acá un feed de precio: nada derivado del ODS se refresca por cron.
     // Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md y feedback_ods_derived_realtime_no_batch_lag.
-    [path.join(K, 'repoint-catalog-prices.js'), '--gap-fill-only'],
+    [path.join(K, 'repoint-catalog-prices.js'), '--solo-promo'],
     path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
@@ -485,12 +495,14 @@ function killTree(proc) {
 }
 
 // Una entrada de la lista puede ser una ruta o `[ruta, ...flags]` cuando el script necesita un
-// modo distinto del default (ej. repoint-catalog-prices en --gap-fill-only, porque el sync de
-// precio lo tomó repoint-prices-from-bitacora).
+// modo distinto del default (ej. repoint-catalog-prices en --solo-promo: el precio lo escribe
+// `ods-derived`, VPR.3).
 const pathOf = (entry) => (Array.isArray(entry) ? entry[0] : entry);
 // Identidad del paso DENTRO del carril, para la bitácora. Lleva las banderas a propósito:
-// `repoint-catalog-prices.js` corre en `nightly` con --gap-fill-only y en `prices` con --sync,
-// y son operaciones distintas. Medido: ningún carril repite un paso, así que esta llave es única.
+// `repoint-catalog-prices.js` corre en `--solo-promo` en los DOS carriles desde `[VPR.3.1]`
+// (2026-10-16): el precio lo escribe `ods-derived` y acá sólo queda `is_promo`. Antes `nightly`
+// decía --gap-fill-only, que la cabecera del script declara apagado FALSO.
+// Medido: ningún carril repite un paso, así que esta llave es única.
 const stepKeyOf = (entry) => (Array.isArray(entry)
   ? [path.basename(entry[0]), ...entry.slice(1)].join(' ')
   : path.basename(entry));

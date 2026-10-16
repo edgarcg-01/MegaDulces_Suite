@@ -111,9 +111,17 @@ const SOLO_PROMO = process.argv.includes('--solo-promo');
     await dst.query(`SET LOCAL app.tenant_id = '${M}'`);
     // `[VPR.3]` En `--solo-promo` el staging NO se arma: son 9,420 filas empujadas por la red para
     // alimentar un INSERT que ya no corre. `is_promo` sale de `catalog.products` directo.
+    // ⛔ `[VPR.3.1]` `BATCH` se declara ACA, fuera del `if`, porque lo usan los DOS pases: el
+    //    staging del precio (abajo, solo sin `--solo-promo`) y el de `is_promo` (siempre).
+    //    Vivia dentro del `if (!SOLO_PROMO)` desde que `[VPR.3]` apago el precio el 2026-10-05,
+    //    asi que en `--solo-promo` nunca se declaraba y el pase de promo moria con
+    //    `ReferenceError: BATCH is not defined`. O sea: el modo que creo el apagado NUNCA
+    //    funciono. Medido 2026-10-16 en el pod `feeds-cron` de k3s: 391 corridas seguidas en
+    //    rojo desde el 7-oct, en `prices` y en `nightly`, y el carril las publicaba como
+    //    `2/3 pasos OK` porque una falla PARCIAL no pone el lote en error (a proposito).
+    const BATCH = 1000;
     if (!SOLO_PROMO) {
       await dst.query(`CREATE TEMP TABLE stg_price (sku text, precio numeric) ON COMMIT DROP`);
-      const BATCH = 1000;
       for (let i = 0; i < rows.length; i += BATCH) {
         const chunk = rows.slice(i, i + BATCH);
         const vals = chunk.map((_, ri) => `($${ri * 2 + 1},$${ri * 2 + 2})`);
