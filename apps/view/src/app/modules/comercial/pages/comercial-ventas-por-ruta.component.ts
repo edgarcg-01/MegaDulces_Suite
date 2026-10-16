@@ -696,7 +696,12 @@ const MES: Record<string, string> = {
                       <ng-template #header>
                         <tr>
                           <th scope="col">Día</th>
-                          <th scope="col" class="comm-num">Contado</th>
+                          <!-- ⛔ Decía «Contado» y pinta venta_ruta: la VENTA de la ruta, no el
+                               efectivo contado en el arqueo (ese es «Depósito»). Con el nombre
+                               viejo la fila se leía como un cuadre entre dos cifras que no se
+                               comparan — 12,764 contra 24,005 con Δ 0 — y la Δ es del ARQUEO
+                               DE LA CAJA, no de estas dos columnas. -->
+                          <th scope="col" class="comm-num">Venta de la ruta</th>
                           <th scope="col" class="comm-num">Depósito</th>
                           <th scope="col" class="comm-num">Δ</th>
                           <th scope="col">Cuadre</th>
@@ -711,7 +716,7 @@ const MES: Record<string, string> = {
                       <ng-template #body let-d>
                         <tr>
                           <td class="rr-mono" role="cell" data-label="Día">{{ d.date }}</td>
-                          <td class="comm-num rr-mono rr-strong" role="cell" data-label="Contado">{{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <td class="comm-num rr-mono rr-strong" role="cell" data-label="Venta de la ruta">{{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                           <!-- El deposito SE MUESTRA SIEMPRE: es un hecho de la caja y existe
                                aunque no se pueda atribuir a esta ruta sola. -->
                           <td class="comm-num rr-mono" role="cell" data-label="Depósito">
@@ -781,10 +786,13 @@ const MES: Record<string, string> = {
                     <p class="rr-dep-sub rr-tenue">
                       «Depósito» es el efectivo que se <strong>contó en el arqueo</strong> de la
                       caja donde se timbró la ruta — Kepler no registra el depósito por ruta
-                      (<span class="rr-mono">cash_cuts</span> va por sucursal, caja y turno). Δ
-                      positiva = falta efectivo; negativa = sobra. Cuando la caja cuadra, el dinero
-                      de esta ruta está dentro; cuando no, el faltante es <strong>de la caja</strong>
-                      y no se puede atribuir a una ruta sola.
+                      (<span class="rr-mono">cash_cuts</span> va por sucursal, caja y turno).
+                      ⛔ La <strong>Δ es la del arqueo de esa caja</strong> —lo contado contra lo
+                      que la caja debía tener—, <strong>no</strong> «Depósito menos Venta de la
+                      ruta»: esas dos no se restan, porque en la misma caja cobran otras rutas y
+                      el mostrador. Δ positiva = falta efectivo; negativa = sobra. Cuando la caja
+                      cuadra, el dinero de esta ruta está dentro; cuando no, el faltante es
+                      <strong>de la caja</strong> y no se puede atribuir a una ruta sola.
                     </p>
                   }
                 </app-load-state>
@@ -1515,7 +1523,19 @@ export class ComercialVentasPorRutaComponent {
      */
     this.svc.routeCreditSales(desde, hasta, this.rutaAbierta())
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => this.creditoData.set(r),
+        /**
+         * ⛔ Se comprueba la FORMA, no sólo el `next`. Medido el 2026-10-15: el endpoint no
+         * está desplegado (404) y las tres columnas salían en blanco **sin aviso**, que se lee
+         * como «esta ruta no vendió a crédito» — y 1V001 facturó $59,475 en 6 documentos de
+         * octubre. Un cuerpo que no trae `filas` es una falla, no un cero (ADR-056).
+         */
+        next: (r) => {
+          if (!r || !Array.isArray(r.filas)) {
+            this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.');
+            return;
+          }
+          this.creditoData.set(r);
+        },
         error: () => this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.'),
       });
     // `[VEC.12.1]` La ruta viaja al servidor: sin ella la fila sólo trae el total de la CAJA, y
