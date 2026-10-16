@@ -7,6 +7,7 @@ import { CajaAutofillService, type AutofillInput } from './caja-autofill.service
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 import type { PorReclasificar } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
+import { CajaAutollenadoService, type CorridaAutollenado, type EstadoAutollenado } from './caja-autollenado.service';
 
 interface AuthedRequest {
   user?: {
@@ -35,6 +36,7 @@ export class CashLedgerController {
     private readonly autofill: CajaAutofillService,
     private readonly cortes: CashCutService,
     private readonly fechaFutura: CajaFechaFuturaScannerService,
+    private readonly autollenado: CajaAutollenadoService,
   ) {}
 
   /** El JWT trae el id con nombres distintos según el emisor; se toma el primero que exista. */
@@ -214,6 +216,45 @@ export class CashLedgerController {
     // `[CG.154]` `createTraducido` y no `create`: las reglas de la tabla (glosa corta, monto en
     // cero, uuid mal formado) salían como **500 Internal server error** con el SQL adentro.
     return this.svc.createTraducido(body, this.user(req));
+  }
+
+  /**
+   * `[CG.190]` — **Corre el autollenado. SIMULA salvo que se pida aplicar.** Va ANTES de
+   * `@Get(':id')` como el resto del archivo.
+   *
+   * · `POST /autollenado/correr` → contesta **qué haría**: cuántos movimientos registraría, por
+   *   cuánto, y qué dejaría fuera con el motivo de cada exclusión. **No escribe una sola fila.**
+   * · `POST /autollenado/correr?aplicar=1` → lo hace.
+   *
+   * ⛔ El default es simular, y no es una cortesía: esto escribe dinero en el libro, y el camino
+   * caro de equivocarse no es un 500 sino movimientos que después hay que cancelar de a uno. La
+   * simulación corre el resolvedor REAL sobre la cola REAL —lo único que no hace es el `INSERT`—
+   * así que su plan es el plan, no una estimación.
+   *
+   * ⛔ Pide `FINANCE_CAJA_GESTIONAR`, el mismo permiso que confirmar un lote, y no uno nuevo: lo
+   * que hace es exactamente eso. Inventarle un permiso propio lo dejaría repartido en 0 roles el
+   * día del estreno, que es como `[ETQ-AVISOS.3]` se quedó sin nadie.
+   */
+  @Post('autollenado/correr')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[CG.190] Autollenado: registra en el libro los documentos pendientes de Kepler, dentro del alcance, cuya cuenta el resolvedor ya resuelve sin que nadie elija. SIMULA por default (no escribe); con ?aplicar=1 escribe. Idempotente: lo ya capturado vuelve como duplicado. Devuelve qué registró/registraría y qué dejó fuera con su motivo (mal fechado en Kepler · sin resolver · fuera de alcance).' })
+  correrAutollenado(@Query('aplicar') aplicar?: string): Promise<CorridaAutollenado> {
+    return this.autollenado.correr({ aplicar: aplicar === '1' || aplicar === 'true' });
+  }
+
+  /**
+   * `[CG.190]` — Qué dejó la última corrida. Va ANTES de `@Get(':id')` como el resto.
+   *
+   * ⚠️ Es el estado **de este proceso**, no el histórico: con varias réplicas de la API cada una
+   * contesta por la suya, y `ultima.aplicado = false` significa que fue una simulación — sus
+   * cifras son lo que haría, no lo que hizo. El histórico real vive en `analytics.cron_runs`
+   * (`caja_autollenado`), que es compartido y es lo que mira el tablero de salud.
+   */
+  @Get('autollenado/estado')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CG.190] Estado del autollenado: piso de alcance, si el cron está prendido, y el resumen de la última corrida DE ESTE PROCESO (null = todavía no corrió acá; aplicado:false = fue simulación). El histórico está en analytics.cron_runs.' })
+  estadoAutollenado(): EstadoAutollenado {
+    return this.autollenado.estado();
   }
 
   /**
