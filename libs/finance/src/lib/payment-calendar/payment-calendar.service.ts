@@ -536,7 +536,7 @@ export class PaymentCalendarService {
       // terminaba impresa como destino en la instrucción a Caja General.
       const usesDestination = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico';
       let destinationText = usesDestination ? dto.destination_account_text ?? null : null;
-      let accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
+      const accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
       if (accountId) {
         const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
         if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
