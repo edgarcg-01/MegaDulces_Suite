@@ -583,3 +583,63 @@ TP.17 (C0) ──► TP.18 (C1) ──► TP.19 (C2) ──► TP.20 (C3)
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | Plan escrito sobre medición de prod (sólo lectura). Sin dueño ni fecha: no pasa a 🔨 | Claude |
+
+---
+
+## 10. TP.17.1 — Resultado del arbitraje C0 (2026-10-16, prod sólo lectura)
+
+**Qué se arbitró:** `analytics.v_supplier_payables` (el origen que alimentaría el calendario, y que
+hoy ya alimenta Pronto pago y el tope de `assertKeplerBalance`) contra **la regla del Estado de
+Cuenta de Acreedores** (`[ECA.7]`), que es el testigo independiente del mismo ERP y el mismo grano:
+excluye el documento cancelado (`kdm1.c43='C'`) **y** la aplicación cuyo abono está cancelado.
+
+| Medición | docs | pendiente |
+|---|---:|---:|
+| Recálculo con la regla del ECA | 2,992 | **$136,683,665** |
+| `v_supplier_payables` (lo que se publica hoy) | 2,969 | **$136,511,778** |
+| **Desviación** | **30 docs · 15 proveedores** | **$172,180 — 0.13 %** |
+
+✅ **La vista queda arbitrada**: sirve como origen C0 con una desviación conocida, acotada y
+nombrada. ⛔ Esos 30 documentos **se declaran**, no se redondean: la vista **subestima** la deuda
+ahí, porque resta aplicaciones cuyo abono Kepler canceló.
+
+### Hipótesis refutada (se registra para que nadie la reconstruya)
+
+⛔ **«La vista publica deuda cancelada como viva» — FALSO, y por dos órdenes de magnitud.** Medido:
+**3 documentos · $293 · 1 proveedor**. El riesgo real va en el **sentido contrario**: hay 467
+aplicaciones por **$13,944,150** que provienen de un abono cancelado, pero casi todas caen sobre
+documentos ya saldados, así que sólo $172,180 tocan deuda viva.
+
+### El universo, descompuesto (lo que exige declarar el denominador antes que el número)
+
+| Tipo de acreedor | docs | pendiente | ¿va al Calendario? |
+|---|---:|---:|---|
+| **Mercancía** (`C*`) | 1,695 | $90,529,615 | sí — origen `supplier_payable` |
+| **Financieros** (`AB*`, `AE*`, `AR*`, `TC*`, factoraje) | 41 | **$38,012,268** | sí — pero son **compromisos financieros**, no facturas |
+| **Servicios** (`G*`) | 1,175 | $6,814,734 | sí — hoy no entran por Entregas |
+| **Internos** (`TI*` = sucursales) | 58 | $1,155,161 | ⛔ **no**: traspaso entre sucursales, no es deuda |
+| **Universo pagable** (sin internos) | 2,911 | **$135,356,617** | denominador de la métrica O1 |
+
+⭐ **Hallazgo que modifica el plan:** los $38 M financieros son créditos BBVA / BanBajío, préstamos
+de personas físicas y tarjetas — es decir, **el tercer origen del calendario
+(`finance.financial_commitments`, hoy con 0 filas) también es derivable de Kepler**, con la misma
+mecánica que las facturas. Se había dado por hecho que ese origen dependía de captura manual.
+
+### Qué queda de TP.17 después de esto
+
+| # | Item | Estado |
+|---|---|---|
+| TP.17.1 | Arbitraje contra testigo independiente | ✅ **hecho** — 0.13 % de desviación, declarada |
+| TP.17.1b | **Nuevo:** derivar también los compromisos financieros (`AB*/AE*/AR*/TC*`) | ⬜ |
+| TP.17.2 | Dedupe contra lo capturado por Entregas | ⬜ |
+| TP.17.3 | Declarar lo no programable (incluye **excluir `TI*`**: no es deuda) | 🔨 parcial — el universo ya está descompuesto arriba |
+| TP.17.4 | Costo de la lista con ~2,900 filas | ⬜ — las consultas base corren en 315–719 ms, pero **falta medir la consulta REAL del servicio**, no una parecida |
+
+⛔ **No se escribió una sola línea de código**: C0 se arbitra antes de construir, y D1 (quién
+autoriza una obligación derivada) sigue abierta — bloquea C1 en adelante, no a esta medición.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | TP.17.1 arbitrado contra la regla del ECA: desviación 0.13 % ($172,180 / 30 docs), declarada. Hipótesis de deuda cancelada refutada ($293). Universo descompuesto: $135,356,617 pagables sin internos. Hallazgo: los compromisos financieros también son derivables | Claude |
