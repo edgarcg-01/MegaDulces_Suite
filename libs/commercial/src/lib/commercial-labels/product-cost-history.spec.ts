@@ -69,7 +69,7 @@ describe('[ETQ-CAMBIOS.11] la foto diaria del costo', () => {
 
 describe('[ETQ-CAMBIOS.11] las fichas de Compras de la lista de cambios', () => {
   type Fila = Record<string, unknown>;
-  function montarFichas(opts: { historia?: Fila[] | 'sin_tabla'; costos?: Fila[] }) {
+  function montarFichas(opts: { historia?: Fila[] | 'sin_tabla'; costos?: Fila[]; rol?: string }) {
     const trx: Record<string, unknown> = {
       raw: vi.fn(async (sql: string) => {
         if (sql.includes('FROM catalog.products')) return { rows: [{ sku: '91059', proveedor: 'MONDELEZ MEXICO' }, { sku: '95459', proveedor: 'PRODUCTOS SIN PROVEEDOR' }] };
@@ -86,7 +86,11 @@ describe('[ETQ-CAMBIOS.11] las fichas de Compras de la lista de cambios', () => 
         return { rows: opts.historia ?? [] };
       },
     });
-    const svc = new CommercialLabelsService({} as never);
+    // ⛔ `[ETQ-CAMBIOS.11.1]` El servicio exige el contexto para saber si quien pregunta es un
+    //    CLIENTE. El doble devuelve un rol INTERNO por defecto, que es lo que estas pruebas
+    //    miden; la prueba del cliente lo pasa como 'customer_b2b'.
+    const rol = opts.rol ?? 'admin';
+    const svc = new CommercialLabelsService({} as never, { get: () => ({ roleName: rol }) } as never);
     const f = (svc as unknown as { fichasCompras: (t: unknown, s: string, k: string[]) => Promise<{ fichas: Array<Record<string, unknown>>; historial_desde: string | null }> })
       .fichasCompras.bind(svc);
     return () => f(trx, '01', ['91059', '95459', '77777']);
@@ -95,6 +99,31 @@ describe('[ETQ-CAMBIOS.11] las fichas de Compras de la lista de cambios', () => 
     sku: '91059', unidad_base: 'PZA', unidad_dos: null, unidad_tres: 'CJA',
     costo_estandar: '10', costo_estandar_u2: null, costo_estandar_u3: '120', impuesto_pct: '16',
   };
+
+  /**
+   * ⛔ `[ETQ-CAMBIOS.11.1]` La prueba negativa del candado. Edgar decidió que el costo lo vea
+   * "todo el que usa etiquetas"; lo que no se evaluó es que `STORE_LABELS_VER` lo tienen 14
+   * roles sin permiso de costo, incluido `customer_b2b` -- un CLIENTE EXTERNO (3 usuarios
+   * activos en prod, 2026-10-16). Acá no se filtra un margen del que se despeja el costo: se
+   * publica el COSTO DE COMPRA directo.
+   *
+   * ⚠️ El candado NO usa `?.`: si el contexto faltara, un `this.tenantCtx?.get()` lo dejaría
+   * abierto en silencio. Un candado que falla ABIERTO es peor que no tenerlo.
+   */
+  it('⛔ [negativa] a un customer_b2b NO le viaja el costo, pero sí el precio y el mayoreo', async () => {
+    const r = await montarFichas({ costos: [COSTO], rol: 'customer_b2b' })();
+    const f = r.fichas.find((x) => x.sku === '91059')!;
+    expect(f.costos).toEqual([]);
+    expect(f.impuesto_pct).toBeNull();
+    // El precio de venta SÍ viaja: no cuesta nada que el cliente lo vea.
+    expect(f).toMatchObject({ uxc: 12, mayoreo_caja: 6378.26 });
+  });
+
+  it('un rol interno SÍ ve el costo (el mismo caso, sin el candado)', async () => {
+    const r = await montarFichas({ costos: [COSTO] })();
+    const f = r.fichas.find((x) => x.sku === '91059')!;
+    expect((f.costos as unknown[]).length).toBeGreaterThan(0);
+  });
 
   it('⭐ trae proveedor, UXC y mayoreo (precio de la caja) y elige el costo anterior de la historia', async () => {
     const run = montarFichas({
