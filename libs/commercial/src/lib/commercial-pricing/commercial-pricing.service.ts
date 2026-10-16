@@ -9,7 +9,8 @@ import {
 import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
-import { QuotePricingService } from '../commercial-quotes/quote-pricing.service';
+import { QuotePricingService, type Ladder } from '../commercial-quotes/quote-pricing.service';
+import { FotoSwr } from '../shared/foto-swr';
 
 // ─────────── DTOs ───────────
 
@@ -125,6 +126,47 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export class CommercialPricingService {
   private readonly logger = new Logger(CommercialPricingService.name);
 
+  /**
+   * `[VTK.10]` Las dos piezas caras del catálogo del vendedor, servidas como FOTO.
+   *
+   * Medido en prod el 2026-10-15 (sucursal 02, lista BASE, 9,429 productos con precio): abrir un
+   * cliente en Tomar pedido tardaba **13–19 s** y el resto de la pantalla, <0.6 s. Del lado del
+   * servidor, `analytics.product_volume_tiers` costaba **9.4 s**: es una vista que saca la moda de
+   * `kdii` y `kdpv_prod_util` de TODA la red más el costo estándar, así que filtrar por producto no
+   * la abarata — se calculaba entera en cada apertura de cada vendedor. La escalera de la sucursal
+   * (`v_label_prices` + `v_label_presentations`) sumaba ~1.5 s más.
+   *
+   * Ninguna de las dos cambia por cliente: son de la red (mayoreo) o de la sucursal (escalera).
+   * El pedido NO se cobra con esta foto: el renglón lo tarifa el motor al agregarlo, con su propia
+   * lectura. Lo que se sirve de aquí es lo que el vendedor VE, y su edad viaja en `freshness`.
+   */
+  private readonly fotoMayoreo = new FotoSwr<Map<string, Array<{ min_qty: number; price: number }>>>({
+    recargarMs: 2 * 60_000,
+    venceMs: 15 * 60_000,
+    alFallar: (clave, e) => this.logger.warn(`recarga del mayoreo (${clave}) falló: ${String((e as Error)?.message ?? e)}`),
+  });
+  private readonly fotoEscaleras = new FotoSwr<Map<string, Ladder>>({
+    recargarMs: 60_000,
+    venceMs: 5 * 60_000,
+    alFallar: (clave, e) => this.logger.warn(`recarga de la escalera (${clave}) falló: ${String((e as Error)?.message ?? e)}`),
+  });
+
+  /** `[VTK.10]` Todos los quiebres de mayoreo del tenant, por producto (la vista es de toda la red). */
+  private armarMayoreo(tenantId: string): Promise<Map<string, Array<{ min_qty: number; price: number }>>> {
+    return this.tk.run(tenantId, async (trx) => {
+      const filas = (await trx('analytics.product_volume_tiers')
+        .select('product_id', 'min_qty', 'price')
+        .orderBy(['product_id', 'min_qty'])) as Array<{ product_id: string; min_qty: number; price: number }>;
+      const porProducto = new Map<string, Array<{ min_qty: number; price: number }>>();
+      for (const t of filas) {
+        const arr = porProducto.get(t.product_id) ?? [];
+        arr.push({ min_qty: Number(t.min_qty), price: Number(t.price) });
+        porProducto.set(t.product_id, arr);
+      }
+      return porProducto;
+    });
+  }
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -148,7 +190,7 @@ export class CommercialPricingService {
       this.priceTruthOk = !!r.rows[0]?.t;
     } catch { this.priceTruthOk = false; }
     if (!this.priceTruthOk)
-      this.logger.warn('[VPR.2] falta analytics.v_price_truth — el catálogo publica el precio de RED, no el de la plaza (aplicá la migración 20261003190000).');
+      this.logger.warn('[VPR.2] falta analytics.v_price_truth — el catálogo publica el precio de RED, no el de la plaza (aplica la migración 20261003190000).');
     return this.priceTruthOk;
   }
 
@@ -238,7 +280,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(id)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
       const row = await trx('commercial.price_lists')
         .where({ id })
@@ -371,7 +413,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(priceListId)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
       // `[VPR.2]` El precio por plaza sólo entra si el almacén se conoce Y la vista existe.
       const porPlaza = !!warehouseId && (await this.priceTruthReady(trx));
@@ -559,19 +601,17 @@ export class CommercialPricingService {
       // falla o no existe, el catálogo sigue vivo (solo se pierde el nudge, nunca
       // el pedido). Solo emite descuentos reales (min_qty>1 AND price<BASE).
       const productIds = rows.map((r: any) => r.product_id).filter(Boolean);
+      // `[VTK.10]` Edad de cada foto (null = no se sirvió de foto).
+      let tiersAt: number | null = null;
+      let laddersAt: number | null = null;
       if (productIds.length) {
         try {
-          const tierRows = await trx('analytics.product_volume_tiers')
-            .whereIn('product_id', productIds)
-            .select('product_id', 'min_qty', 'price')
-            .orderBy(['product_id', 'min_qty']);
-          const byProduct = new Map<string, Array<{ min_qty: number; price: number }>>();
-          for (const t of tierRows as Array<{ product_id: string; min_qty: number; price: number }>) {
-            const arr = byProduct.get(t.product_id) ?? [];
-            arr.push({ min_qty: Number(t.min_qty), price: Number(t.price) });
-            byProduct.set(t.product_id, arr);
-          }
-          for (const r of rows as any[]) r.tiers = byProduct.get(r.product_id) ?? [];
+          // `[VTK.10]` De la foto del tenant (ver `fotoMayoreo`), no de la vista en cada apertura.
+          const tenantId = this.tenantCtx.requireTenantId();
+          const foto = await this.fotoMayoreo.obtener(tenantId, () => this.armarMayoreo(tenantId));
+          tiersAt = foto.at;
+          for (const r of rows as unknown as Array<{ product_id: string; tiers?: Array<{ min_qty: number; price: number }> }>)
+            r.tiers = foto.valor.get(r.product_id) ?? [];
         } catch (err) {
           this.logger.warn(
             `product_volume_tiers no disponible para el catálogo; filas sin nudge de mayoreo. ${String((err as Error)?.message ?? err)}`,
@@ -617,8 +657,20 @@ export class CommercialPricingService {
             if (branch) {
               const filas = rows as FilaCatalogoConEscalera[];
               const skus = filas.map((r) => String(r.sku ?? '').trim()).filter(Boolean);
-              // Con muchas filas se lee la sucursal completa (~0.3 s) en vez de una lista enorme de IN.
-              const leds = await this.quotePricing.ladders(trx, branch, skus.length > 500 ? null : skus);
+              // Con muchas filas se lee la sucursal completa en vez de una lista enorme de IN, y
+              // `[VTK.10]` esa lectura (~1.5 s) se sirve como foto de la sucursal. Con pocas filas
+              // (búsqueda puntual) se lee en vivo, como antes.
+              let leds: Map<string, Ladder>;
+              if (skus.length > 500) {
+                const tenantId = this.tenantCtx.requireTenantId();
+                const foto = await this.fotoEscaleras.obtener(`${tenantId}:${branch}`, () =>
+                  this.tk.run(tenantId, (t) => this.quotePricing.ladders(t, branch, null)),
+                );
+                leds = foto.valor;
+                laddersAt = foto.at;
+              } else {
+                leds = await this.quotePricing.ladders(trx, branch, skus);
+              }
               for (const r of filas) {
                 const led = leds.get(String(r.sku ?? '').trim());
                 if (!led) continue;
@@ -664,6 +716,11 @@ export class CommercialPricingService {
           total: totalNum,
           pageCount: Math.ceil(totalNum / pageSize) || 0,
         },
+        // `[VTK.10]` De cuándo es lo que viene de foto (ADR-056): null = leído en vivo o no aplica.
+        freshness: {
+          tiers_at: tiersAt != null ? new Date(tiersAt).toISOString() : null,
+          ladders_at: laddersAt != null ? new Date(laddersAt).toISOString() : null,
+        },
       };
     });
   }
@@ -681,7 +738,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(priceListId)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
       const base = () =>
         trx('catalog.products as p')
@@ -796,7 +853,7 @@ export class CommercialPricingService {
     return this.tk.run(async (trx) => {
       const allowed = await this.allowedPriceListIdsForCtx(trx);
       if (allowed !== null && !allowed.includes(priceListId)) {
-        throw new ForbiddenException('No tenés acceso a esta price list');
+        throw new ForbiddenException('No tienes acceso a esta price list');
       }
 
       // INNER JOIN con product_prices: solo devolvemos top sellers que tienen

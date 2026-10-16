@@ -43,9 +43,22 @@ const R: RespuestaHistorial = {
     base({ fecha: '2026-07-04', folio: 'D', plaza: '03', antes: undefined, cambio: true, proveedor: 'Proveedor J', costo_base: 72 }),
     base({ fecha: '2026-08-01', folio: 'E', plaza: null, antes: undefined, cambio: true, costo_base: 70, veredicto: 'no_comparable', motivo: 'sin_plaza', plaza_sin_kepler: 'MORELIA ABASTOS' }),
   ],
+  promedio_disponible: true,
+  promedio_al_inicio: {},
+  cambios_promedio: [],
 };
 
-const F: FiltrosHistorial = { sucursal: null, proveedor: null, tipo: 'ambos', incluirSinCambio: false };
+// [CAT-COSTO.11] La misma respuesta con historia de promedio.
+const RP: RespuestaHistorial = {
+  ...R,
+  promedio_al_inicio: { '01': 65, '03': null },
+  cambios_promedio: [
+    { sucursal: '01', fecha: '2026-04-02', antes: 65, despues: 67.5, cambio_pct: 3.85 },
+    { sucursal: '01', fecha: '2026-07-02', antes: 67.5, despues: 70.1, cambio_pct: 3.85 },
+  ],
+};
+
+const F: FiltrosHistorial = { sucursal: null, proveedor: null, tipo: 'todos', incluirSinCambio: false };
 
 describe('[CAT-COSTO.5] eventosTrazabilidad', () => {
   it('mezcla las dos historias, lo más reciente arriba, y esconde las entradas sin cambio', () => {
@@ -80,7 +93,7 @@ describe('[CAT-COSTO.5] eventosTrazabilidad', () => {
 
   it('por tipo: sólo estándar o sólo entrada', () => {
     expect(eventosTrazabilidad(R, { ...F, tipo: 'estandar' }).every((e) => e.tipo === 'estandar')).toBe(true);
-    expect(eventosTrazabilidad(R, { ...F, tipo: 'entrada' }).some((e) => e.tipo === 'estandar')).toBe(false);
+    expect(eventosTrazabilidad(R, { ...F, tipo: 'ultimo' }).some((e) => e.tipo === 'estandar')).toBe(false);
   });
 
   it('la primera entrada de una plaza se rotula como primera, y lo no comparable lleva su motivo con la plaza', () => {
@@ -108,5 +121,25 @@ describe('[CAT-COSTO.5] graficaHistorial', () => {
   it('cada entrada con costo es un punto, filtrado igual que la tabla', () => {
     expect(graficaHistorial(R, F).puntos).toHaveLength(5);
     expect(graficaHistorial(R, { ...F, sucursal: '03' }).puntos).toHaveLength(1);
+  });
+});
+
+
+describe('[CAT-COSTO.11] el filtro es el costo de la pestaña', () => {
+  const tipos = (t: FiltrosHistorial['tipo']) => [...new Set(eventosTrazabilidad(RP, { ...F, tipo: t }).map((e) => e.tipo))].sort();
+  it('cada costo muestra sólo su historia', () => {
+    expect(tipos('estandar')).toEqual(['estandar']);
+    expect(tipos('promedio')).toEqual(['promedio']);
+    expect(tipos('ultimo').every((t) => ['entrada', 'primera'].includes(t))).toBe(true);
+    expect(tipos('todos')).toEqual(expect.arrayContaining(['estandar', 'promedio', 'entrada']));
+  });
+  it('en promedio la línea es el promedio y no hay puntos de compras', () => {
+    const g = graficaHistorial(RP, { ...F, tipo: 'promedio', sucursal: '01' });
+    expect(g.puntos).toHaveLength(0);
+    expect(g.lineaPlana).toBe(false);
+    expect(g.ejeY[3].t).toBe('$72.20'); // 70.1 × 1.03: la escala la pone el promedio, no el estándar (71.84)
+  });
+  it('en estándar no se dibujan las compras', () => {
+    expect(graficaHistorial(RP, { ...F, tipo: 'estandar' }).puntos).toHaveLength(0);
   });
 });

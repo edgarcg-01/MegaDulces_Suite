@@ -122,7 +122,7 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQ
   if (!dep) {
     return { ...base, tone: 'muted', icon: 'pi-paperclip',
       titulo: 'Falta la remisión del proveedor',
-      lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
+      lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjúntalo para cerrar la recepción.` };
   }
   // `[RE.35.6]` El CFDI ligado de forma exacta cuadra con Kepler: va para adelante, diga lo que
   // diga el OCR (que puede no haber leído el total, o haberlo leído mal).
@@ -160,7 +160,7 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQ
   const pista = Math.abs(dif - lineas * IVA) <= EPS
     ? ' La diferencia es exactamente el IVA de los renglones — probablemente uno de los dos importes va sin impuesto.'
     : hayAjustes
-      ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
+      ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mira "¿Por qué no cuadra?" más abajo.'
       : '';
   return { ...base, tone: 'bad', icon: 'pi-exclamation-triangle',
     titulo: `${sentido} ${money(dif)}`,
@@ -194,7 +194,7 @@ export const MOTIVOS_DESCARTE: { code: MotivoDescarte; label: string; pista: str
   { code: 'cancelada_erp', label: 'Cancelada o capturada por error', pista: 'El documento no debía existir; quedó en Kepler.' },
   { code: 'duplicada', label: 'Ya está capturada en otra orden', pista: 'La misma recepción entró dos veces con folios distintos.' },
   { code: 'sin_costo', label: 'Entrada sin costo ($0)', pista: 'Muestra, bonificación o corrección: no genera factura.' },
-  { code: 'otro', label: 'Otro (explicar)', pista: 'Escribí por qué: el descarte saca la fila del número que se vigila.' },
+  { code: 'otro', label: 'Otro (explicar)', pista: 'Escribe por qué: el descarte saca la fila del número que se vigila.' },
 ];
 
 export function motivoDescarteLabel(code?: string | null): string {

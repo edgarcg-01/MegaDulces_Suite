@@ -1494,7 +1494,7 @@ export class GoodsReceiptProofsService {
     // Mismo criterio que `uploadFile`: si no se va a poder guardar, no se gasta una llamada
     // a Claude leyéndolo. El mensaje dice la salida, no sólo el "no".
     if (mediaType !== 'application/pdf') {
-      throw new BadRequestException('Solo se aceptan PDF. Escaneá la factura a PDF y volvé a subirla.');
+      throw new BadRequestException('Solo se aceptan PDF. Escanea la factura a PDF y vuelve a subirla.');
     }
     const sha256 = createHash('sha256').update(base64).digest('hex');
     let fields: RemisionFields;
@@ -1607,8 +1607,8 @@ export class GoodsReceiptProofsService {
       if (dup?.vigente) {
         throw new BadRequestException(
           dup.reason === 'file'
-            ? `Una de las hojas ya se había subido (entrada ${dup.sucursal}/${dup.folio}). Quitala.`
-            : `El folio ${f.ocr_folio} ya se subió (entrada ${dup.sucursal}/${dup.folio}${dup.proveedor ? ' · ' + dup.proveedor : ''}). Quitá esa hoja.`,
+            ? `Una de las hojas ya se había subido (entrada ${dup.sucursal}/${dup.folio}). Quítala.`
+            : `El folio ${f.ocr_folio} ya se subió (entrada ${dup.sucursal}/${dup.folio}${dup.proveedor ? ' · ' + dup.proveedor : ''}). Quita esa hoja.`,
         );
       }
     }
@@ -2319,7 +2319,7 @@ export class GoodsReceiptProofsService {
       await this.exigirAlcance(prev.sucursal);
       if (prev.status === 'validado') throw new BadRequestException('esta evidencia ya está validada');
       if (this.mismaPersona(prev.created_by, actor)) {
-        throw new ForbiddenException('No podés validar la evidencia que vos mismo subiste — que la revise otra persona.');
+        throw new ForbiddenException('No puedes validar la evidencia que tú mismo subiste — que la revise otra persona.');
       }
       const [row] = await trx('finance.goods_receipt_proofs').where({ id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
@@ -2356,7 +2356,7 @@ export class GoodsReceiptProofsService {
     }
     const texto = (motivo || '').trim();
     if ((!code || code === 'otro') && !texto) {
-      throw new BadRequestException('hace falta el motivo: elegí uno del catálogo o escribilo.');
+      throw new BadRequestException('hace falta el motivo: elige uno del catálogo o escríbelo.');
     }
     return this.tk.run(async (trx) => {
       const prev = await trx('finance.goods_receipt_proofs').where({ id })
@@ -2436,7 +2436,7 @@ export class GoodsReceiptProofsService {
       const conEvidencia = await trx('finance.goods_receipt_proofs')
         .where({ sucursal: suc, folio: fol }).first('id');
       if (conEvidencia) {
-        throw new BadRequestException('esta entrada ya tiene factura subida: validala o devolvela, no la descartes.');
+        throw new BadRequestException('esta entrada ya tiene factura subida: valídala o devuélvela, no la descartes.');
       }
 
       const [row] = await trx('finance.goods_receipt_discards')
@@ -2619,7 +2619,7 @@ export class GoodsReceiptProofsService {
                   : 'el total no cuadra y ningún ajuste ligado lo explica — se revisa a mano');
             }
           }
-          if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste vos');
+          if (this.mismaPersona(prev.created_by, actor)) throw new BadRequestException('la subiste tú');
           const [row] = await trx('finance.goods_receipt_proofs').where({ id }).where('status', 'recibido')
             .update({ status: 'validado', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: null, updated_at: trx.fn.now() })
             .returning(['id']);

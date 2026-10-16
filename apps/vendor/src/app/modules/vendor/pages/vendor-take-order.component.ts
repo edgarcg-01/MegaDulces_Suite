@@ -10,7 +10,6 @@ import {
   effect,
   inject,
   signal,
-  untracked,
   DOCUMENT
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -24,7 +23,8 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Observable, forkJoin, from, of, switchMap, catchError, map } from 'rxjs';
 import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
-import { VendorService, VendorCustomer, VendorOrder, ThotSuggestion, FrequentProduct, AiSuggestion } from '../vendor.service';
+import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type CatalogoAlAbrir } from '../vendor.service';
+import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
@@ -39,6 +39,8 @@ import {
   factorDe,
   rotuloCrudo,
   subirEscalon,
+  contenidoCaja,
+  type ContenidoCaja,
   // `[COT.1b]` Se mudó a `libs/ui-web` (con su spec) para que la pantalla de cotizaciones
   // pueda usar la MISMA aritmética: una app Nx no importa de otra app. Acá no cambia nada
   // de comportamiento — es la misma función, en una casa donde dos apps la alcanzan.
@@ -182,7 +184,7 @@ const foldText = (s: string | null | undefined): string =>
             <i class="pi pi-bolt"></i>
             <div class="pn-body">
               <b>Pedido sugerido cargado</b>
-              <span>Según lo que suele pedir. Ajustá cantidades y confirmá.</span>
+              <span>Según lo que suele pedir. Ajusta cantidades y confirma.</span>
             </div>
             <button (click)="clearOrder()">Vaciar</button>
           </div>
@@ -192,45 +194,34 @@ const foldText = (s: string | null | undefined): string =>
         @if (isEditing()) {
           <div class="edit-banner">
             <i class="pi pi-pencil"></i>
-            <span>Estás corrigiendo <b>{{ editingCode() || 'un pedido agendado' }}</b>. Guardá al terminar para volver a agendarlo.</span>
+            <span>Estás corrigiendo <b>{{ editingCode() || 'un pedido agendado' }}</b>. Guarda al terminar para volver a agendarlo.</span>
           </div>
         }
-        <!-- Search + dictar pedido. [VTK.6] Fijo arriba al desplazarse. -->
+        <!-- Search. [VTK.6] Fijo arriba al desplazarse. -->
         <div class="search sticky">
           <i class="pi pi-search"></i>
           <input pInputText type="search" placeholder="Buscar producto o código"
             [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
-            @if (voiceSupported && !offlineMode()) {
-              <button class="mic" [class.on]="listening()"
-                (click)="listening() ? stopVoice() : startVoice()"
-                [attr.aria-label]="listening() ? 'Detener dictado' : 'Dictar pedido por voz'">
-                <i class="pi" [ngClass]="listening() ? 'pi-stop-circle' : 'pi-microphone'"></i>
-              </button>
-            }
           </div>
           <!-- Avisos de la fuente de existencia (el selector vive en la tira de arriba, [VTK.6]) -->
           @if (stockSources().sucursal && !offlineMode()) {
             @if (stockSources().sucursal?.assigned === false) {
-              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tenés sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
+              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tienes sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
             }
             <!-- Mirar la camioneta es consulta, no surtido: el pedido es preventa y se
                  reparte desde la sucursal. Si no se dice, el vendedor cree que está
                  pidiendo de lo que trae hoy. -->
             @if (stockView() === 'camioneta') {
-              <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traés en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
+              <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traes en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
             }
           }
-          <!-- Banner de escucha (transcripción en vivo) -->
-          @if (listening()) {
-            <div class="voice-live" (click)="stopVoice()">
-              <span class="dot"></span>
-              <span class="vt">{{ voiceTranscript() || 'Escuchando… nombrá producto y cantidad' }}</span>
-              <button (click)="stopVoice(); $event.stopPropagation()">Listo</button>
-            </div>
+          <!-- [VTK.11] Se abrió con el catálogo guardado: se dice de cuándo es mientras llega el nuevo. -->
+          @if (catalogoAviso(); as av) {
+            <p class="cat-age" [class.warn]="av.fallo" role="status"><i class="pi pi-clock" aria-hidden="true"></i> {{ av.texto }}</p>
           }
-          <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Sugeridos -->
+          <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Catálogo -->
           @if (searchTerm().trim()) {
             <div class="list-head">
               <span class="lh-t">{{ displayed().length }}{{ searchCapped() ? '+' : '' }} resultado{{ displayed().length === 1 ? '' : 's' }}</span>
@@ -244,7 +235,7 @@ const foldText = (s: string | null | undefined): string =>
                 </div>
               }
               @for (p of displayed(); track trackProduct($index, p)) {
-                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p, box: true }"></ng-container>
               }
             </div>
           } @else {
@@ -252,22 +243,10 @@ const foldText = (s: string | null | undefined): string =>
             @if (habitualRows().length) {
               <div class="list-head">
                 <span class="lh-t"><i class="pi pi-history"></i> Lo que suele pedir</span>
-                <span class="lh-s">{{ habitualRows().length }} · escribí cantidades</span>
+                <span class="lh-s">{{ habitualRows().length }} · escribe cantidades</span>
               </div>
               <div class="catalog">
                 @for (p of habitualRows(); track trackProduct($index, p)) {
-                  <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
-                }
-              </div>
-            }
-            <!-- Sugeridos (Thot / motor) -->
-            @if (suggestRows().length) {
-              <div class="list-head sug">
-                <span class="lh-t"><i class="pi pi-sparkles"></i> Sugeridos</span>
-                <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }}</span>
-              </div>
-              <div class="catalog">
-                @for (p of suggestRows(); track trackProduct($index, p)) {
                   <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
                 }
               </div>
@@ -276,7 +255,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (browseRows().length) {
               <div class="list-head">
                 <span class="lh-t"><i class="pi pi-chart-bar"></i> Catálogo · más vendidos</span>
-                <span class="lh-s">buscá para ver los {{ pricedCount() }}</span>
+                <span class="lh-s">busca para ver los {{ pricedCount() }}</span>
               </div>
               <div class="catalog">
                 @for (p of browseRows(); track trackProduct($index, p)) {
@@ -284,10 +263,10 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
             }
-            @if (!habitualRows().length && !suggestRows().length && !browseRows().length) {
+            @if (!habitualRows().length && !browseRows().length) {
               <div class="no-res">
                 <i class="pi pi-search"></i>
-                <p>Buscá un producto para empezar el pedido.</p>
+                <p>Busca un producto para empezar el pedido.</p>
               </div>
             }
             @if (unpricedCount() > 0) {
@@ -297,25 +276,14 @@ const foldText = (s: string | null | undefined): string =>
               </p>
             }
           }
-          <!-- Fila de producto (reusada en búsqueda / habituales / sugeridos) -->
-          <ng-template #prodRow let-p>
+          <!-- Fila de producto (reusada en búsqueda / habituales / catálogo) -->
+          <ng-template #prodRow let-p let-box="box">
             <!-- [VTK.6] Fila compacta: sin el ícono de caja (le gana ancho al nombre) y las
                  unidades en el mismo renglón que el precio. -->
             <div class="prod" [class.in]="cartQty(p.product_id) > 0">
-              <div
-                class="pb"
-                [class.tappable]="hasPitch(p)"
-                [attr.role]="hasPitch(p) ? 'button' : null"
-                [attr.tabindex]="hasPitch(p) ? 0 : null"
-                (click)="hasPitch(p) && openPitch(p)"
-                (keydown.enter)="hasPitch(p) && openPitch(p)"
-                (keydown.space)="hasPitch(p) && openPitch(p); hasPitch(p) && $event.preventDefault()"
-                >
+              <div class="pb">
                 <div class="pn">{{ p.product_name }}</div>
                 <div class="pm">
-                  @if (!searchTerm().trim() && reasonFor(p.product_id); as rsn) {
-                    <span class="rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
-                  }
                   <span class="pr">{{ fmtMoney(unitPriceDisplay(p)) }}@if (selectedUnit(p); as su) {<span class="pr-u">/{{ su.unit }}</span>}</span>
                   <!-- Selector de medida (de menor a mayor): solo si el SKU ofrece más de una. -->
                   @if (hasUnitChoice(p)) {
@@ -333,13 +301,29 @@ const foldText = (s: string | null | undefined): string =>
                   @if (p.stock_available != null) {
                     <span class="stk" [ngClass]="stockClass(p)">{{ stockLabel(p) }}</span>
                   }
-                  @if (p.rotation_tier === 'alta' && !reasonFor(p.product_id)) {
+                  @if (p.rotation_tier === 'alta') {
                     <span class="rot"><i class="pi pi-bolt"></i> Alta rotación</span>
                   }
-                  @if (hasPitch(p)) {
-                    <span class="why"><i class="pi pi-comment"></i> por qué</span>
-                  }
                 </div>
+                <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
+                @if (box && contenidoCajaById().get(p.product_id); as bc) {
+                  <div class="box-c">
+                    <i class="pi pi-box" aria-hidden="true"></i>
+                    <span>1 {{ bc.caja }} trae
+                      @for (pt of bc.partes; track pt.unit; let last = $last) {
+                        <b>{{ pt.qty }}</b>&nbsp;{{ pt.unit }}@if (!last) {<span class="sep"> · </span>}
+                      }
+                    </span>
+                  </div>
+                }
+                <!-- [VTK.12] Con la caja elegida en el selector: cuántas piezas trae. En la búsqueda
+                     ya lo dice la línea de arriba, así que ahí no se repite. -->
+                @if (!(box && contenidoCajaById().get(p.product_id)) && cajaElegida(p); as ce) {
+                  <div class="box-sel">
+                    <i class="pi pi-box" aria-hidden="true"></i>
+                    <span>1 {{ ce.caja }} = <b>{{ ce.piezas }}</b>&nbsp;{{ ce.base }}@if (ce.enPedido) {<span class="sep"> · en el pedido <b>{{ ce.enPedido }}</b>&nbsp;{{ ce.base }}</span>}</span>
+                  </div>
+                }
                 <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
                 @if (mayoreoHint(p); as mh) {
                   <div class="may-hint" [class.reached]="mh.reached">
@@ -377,7 +361,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (cartLines().length === 0) {
               <div class="empty-cart">
                 <i class="pi pi-shopping-cart"></i>
-                <p>Tocá <b>+</b> en un producto para empezar el pedido.</p>
+                <p>Toca <b>+</b> en un producto para empezar el pedido.</p>
               </div>
             }
           </div>
@@ -461,98 +445,6 @@ const foldText = (s: string | null | undefined): string =>
               </div>
             </section>
           }
-          <!-- Sheet "por qué ofrecerlo": speech para el vendedor -->
-          @if (pitch()) {
-            <div class="sheet-backdrop" (click)="pitch.set(null)"></div>
-          }
-          @if (pitch(); as pp) {
-            <section class="pitch-sheet" role="dialog" aria-modal="true" aria-labelledby="pitch-sheet-title" tabindex="-1">
-              <div class="sh-head">
-                <div class="sh-title"><h2 id="pitch-sheet-title">Por qué ofrecerlo</h2><span>{{ pp.product_name }}</span></div>
-                <button class="sh-x" (click)="pitch.set(null)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-              </div>
-              <ul class="pitch-lines">
-                @for (l of pitchLines(pp); track l) {
-                  <li><i class="pi pi-check"></i><span>{{ l }}</span></li>
-                }
-              </ul>
-              <div class="pitch-phrase">
-                <span class="pp-lbl"><i class="pi pi-comment"></i> Decile al cliente</span>
-                <p>{{ pitchPhrase(pp) }}</p>
-              </div>
-              <button class="sh-go" (click)="addFromPitch(pp)"><i class="pi pi-plus"></i> Agregar al pedido</button>
-            </section>
-          }
-          <!-- Sheet de confirmación del pedido por voz -->
-          @if (voiceOpen()) {
-            <div class="sheet-backdrop" (click)="closeVoice()"></div>
-          }
-          @if (voiceOpen()) {
-            <section class="cart-sheet voice-sheet" role="dialog" aria-modal="true" aria-labelledby="voice-sheet-title" tabindex="-1">
-              <div class="sh-head">
-                <div class="sh-title">
-                  <h2 id="voice-sheet-title">Lo que entendí</h2>
-                  @if (!voiceLoading()) {
-                    <span>{{ voiceItems().length }} producto{{ voiceItems().length === 1 ? '' : 's' }}</span>
-                  }
-                </div>
-                <button class="sh-x" (click)="closeVoice()" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-              </div>
-              @if (voiceTranscript()) {
-                <div class="voice-transcript"><i class="pi pi-comment"></i> "{{ voiceTranscript() }}"</div>
-              }
-              @if (voiceLoading()) {
-                <div class="voice-state"><i class="pi pi-spin pi-spinner"></i> Interpretando el dictado…</div>
-              }
-              @if (voiceError()) {
-                <div class="voice-state err"><i class="pi pi-exclamation-circle"></i> {{ voiceError() }}</div>
-              }
-              @if (!voiceLoading()) {
-                @if (voiceMsg() && !voiceItems().length) {
-                  <p class="voice-msg">{{ voiceMsg() }}</p>
-                }
-                @if (voiceItems().length) {
-                  <div class="sh-lines">
-                    @for (it of voiceItems(); track trackVoice($index, it)) {
-                      <div class="cline">
-                        <div class="cl-info">
-                          <div class="cl-n">{{ it.product_name }}</div>
-                          <div class="cl-t">{{ fmtMoney(it.unit_price) }} c/u@if (it.min_qty > 1) {
-                            <span> · min {{ it.min_qty }}</span>
-                          }</div>
-                        </div>
-                        <div class="stepper">
-                          <button (click)="voiceDec(it)" aria-label="Menos">−</button>
-                          <input class="qin" type="number" inputmode="numeric" min="0" step="1"
-                            [ngModel]="it.qty" (change)="voiceSetQty(it, $any($event.target).value)" aria-label="Cantidad" />
-                            <button (click)="voiceInc(it)" aria-label="Más">+</button>
-                          </div>
-                          <button class="rm" (click)="voiceRemove(it)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
-                        </div>
-                      }
-                    </div>
-                  }
-                  @if (voiceItems().length) {
-                    <div class="sh-foot">
-                      <div class="totals"><div class="row total"><span>Subtotal</span><b>{{ fmtMoney(voiceTotal()) }}</b></div></div>
-                      <button class="sh-go" [disabled]="voiceLoading()" (click)="applyVoiceItems()"><i class="pi pi-check"></i> Agregar al pedido</button>
-                      @if (voiceSupported) {
-                        <button class="cancel" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
-                      }
-                    </div>
-                  }
-                  @if (!voiceItems().length && !voiceError()) {
-                    <div class="voice-empty">
-                      <i class="pi pi-microphone"></i>
-                      <p>No entendí productos. Nombrá producto y cantidad, ej. «cinco cajas de paleta payaso».</p>
-                      @if (voiceSupported) {
-                        <button class="sh-go" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
-                      }
-                    </div>
-                  }
-                }
-              </section>
-            }
             <!-- Sheet de acciones de la visita (···) -->
             @if (actionsOpen()) {
               <div class="sheet-backdrop" (click)="actionsOpen.set(false)"></div>
@@ -587,7 +479,7 @@ const foldText = (s: string | null | undefined): string =>
                 </button>
                 <button class="fin-opt" [class.on]="finishOutcome() === 'no_venta'" (click)="finishOutcome.set('no_venta')">
                   <i class="pi pi-times-circle"></i>
-                  <span class="lbl">No compró <small>Elegí el motivo</small></span>
+                  <span class="lbl">No compró <small>Elige el motivo</small></span>
                 </button>
                 @if (finishOutcome() === 'no_venta') {
                   <div class="reasons">
@@ -660,15 +552,6 @@ const foldText = (s: string | null | undefined): string =>
       .search i { color: var(--text-muted); }
       .search input { flex: 1; border: none; background: none; outline: none; height: 2.7rem; font-family: var(--font-body); font-size: 0.95rem; color: var(--text-main); }
       .search input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-      .search .mic { width: 2.4rem; height: 2.4rem; flex-shrink: 0; border: none; border-radius: 999px; background: var(--action); color: #fff; display: grid; place-items: center; font-size: 1rem; transition: transform 0.07s var(--ease, ease); }
-      .search .mic:active { transform: scale(0.92); }
-      .search .mic.on { background: var(--bad-fg); animation: micpulse 1.2s ease-in-out infinite; }
-      @keyframes micpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad-fg) 45%, transparent); } 50% { box-shadow: 0 0 0 0.5rem transparent; } }
-
-      .voice-live { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 0.875rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ember-soft); border: 1px solid var(--ember-border); }
-      .voice-live .dot { width: 0.6rem; height: 0.6rem; border-radius: 999px; background: var(--bad-fg); flex-shrink: 0; animation: micpulse 1.2s ease-in-out infinite; }
-      .voice-live .vt { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--text-main); line-height: 1.25; }
-      .voice-live button { flex-shrink: 0; border: none; background: var(--action); color: #fff; border-radius: var(--r-pill, 999px); font-weight: 700; font-size: 0.78rem; padding: 0.35rem 0.85rem; }
 
       .prefill-note { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.875rem; padding: 0.6rem 0.8rem; border-radius: var(--r-md, 12px); background: var(--ember-soft); border: 1px solid var(--ember-border); }
       .prefill-note > i { color: var(--action); font-size: 1rem; flex-shrink: 0; }
@@ -708,6 +591,15 @@ const foldText = (s: string | null | undefined): string =>
       .prod .may-hint b { color: var(--action); font-weight: 800; }
       .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
       .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
+      /* [VTK.9] Contenido de la caja en los resultados de búsqueda. */
+      .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
+      .prod .box-c i { font-size: 0.7rem; }
+      .prod .box-c b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+      /* [VTK.12] Caja elegida en el selector. */
+      .prod .box-sel { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-main); }
+      .prod .box-sel i { font-size: 0.7rem; color: var(--action); }
+      .prod .box-sel b { font-family: var(--font-mono); font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
+      .prod .box-sel .sep { color: var(--text-muted); }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
       .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
@@ -727,10 +619,12 @@ const foldText = (s: string | null | undefined): string =>
       .ss-warn i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       .ss-note { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--text-muted); }
       .ss-note i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
+      /* [VTK.11] Edad del catálogo cuando se abrió con la copia guardada. */
+      .cat-age { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-muted); }
+      .cat-age i { font-size: 0.7rem; }
+      .cat-age.warn { color: var(--warn-fg); }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
-      .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
-      .prod .pm .rsn i { font-size: 0.6rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
       .add:active { transform: scale(0.92); } .add:disabled { opacity: 0.5; }
       /* Stepper en la fila del catálogo (cuando el producto ya está en el carrito) */
@@ -749,7 +643,6 @@ const foldText = (s: string | null | undefined): string =>
       .prod .row-stepper .qin { width: 2.7rem; height: 2.55rem; border: none; background: transparent; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; }
       .prod .row-stepper .qin:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
       .prod .row-stepper .qin::placeholder { color: var(--text-faint); font-weight: 600; }
-      .list-head.sug { margin-top: 1.1rem; }
 
       .cline { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); }
       .cl-info { flex: 1; min-width: 0; }
@@ -818,39 +711,9 @@ const foldText = (s: string | null | undefined): string =>
       @keyframes shfade { from { opacity: 0; } to { opacity: 1; } }
       @keyframes shslide { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
-      /* Hoja de voz (reusa el chrome de .cart-sheet) */
-      .voice-sheet .voice-transcript { font-size: 0.88rem; color: var(--text-main); font-style: italic; background: var(--surface-ground); border-radius: var(--r-md, 12px); padding: 0.55rem 0.7rem; margin-bottom: 0.6rem; display: flex; gap: 0.45rem; align-items: flex-start; }
-      .voice-sheet .voice-transcript i { color: var(--action); font-size: 0.8rem; margin-top: 0.15rem; flex-shrink: 0; }
-      .voice-sheet .voice-state { display: flex; align-items: center; gap: 0.5rem; padding: 0.8rem 0.2rem; color: var(--text-muted); font-size: 0.9rem; }
-      .voice-sheet .voice-state.err { color: var(--bad-fg); }
-      .voice-sheet .voice-msg { font-size: 0.9rem; color: var(--text-main); line-height: 1.4; padding: 0.2rem 0.2rem 0.6rem; }
-      .voice-sheet .voice-empty { text-align: center; padding: 1.5rem 1rem; color: var(--text-muted); }
-      .voice-sheet .voice-empty i { font-size: 2rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
-      .voice-sheet .voice-empty p { font-size: 0.88rem; line-height: 1.4; margin-bottom: 0.9rem; }
-      .voice-sheet .voice-empty .sh-go { max-width: 16rem; margin: 0 auto; }
-      /* Input tecleable dentro del stepper (carrito + voz) */
+      /* Input tecleable dentro del stepper (carrito) */
       .stepper .qin { width: 2.1rem; text-align: center; border: none; background: transparent; font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; }
       .stepper .qin:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-
-      /* Fila tocable + hint "por qué" */
-      .prod .pb.tappable { cursor: pointer; }
-      .prod .pm .why { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--text-muted); font-weight: 600; }
-      .prod .pm .why i { font-size: 0.62rem; }
-
-      /* Sheet "por qué ofrecerlo" */
-      .pitch-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 51; display: flex; flex-direction: column; gap: 0.7rem; max-height: 82vh; overflow-y: auto; background: var(--card-bg); border-radius: 20px 20px 0 0; box-shadow: 0 -12px 32px -8px rgba(0,0,0,0.35); padding: 0 1rem calc(1.1rem + env(safe-area-inset-bottom)); animation: shslide 0.2s var(--ease, ease); }
-      .pitch-sheet::before { content: ''; width: 2.5rem; height: 0.28rem; border-radius: 999px; background: var(--border-color); margin: 0.5rem auto 0.2rem; flex-shrink: 0; }
-      .pitch-sheet .sh-head { display: flex; align-items: flex-start; justify-content: space-between; }
-      .pitch-sheet .sh-title h2 { font-size: 1.1rem; font-weight: 800; color: var(--text-main); }
-      .pitch-sheet .sh-title span { display: block; font-size: 0.82rem; color: var(--text-muted); margin-top: 0.1rem; }
-      .pitch-sheet .sh-x { width: 2.25rem; height: 2.25rem; border: none; border-radius: 12px; background: var(--surface-ground); color: var(--text-muted); display: grid; place-items: center; flex-shrink: 0; }
-      .pitch-lines { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; margin: 0; padding: 0; }
-      .pitch-lines li { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.93rem; line-height: 1.35; color: var(--text-main); }
-      .pitch-lines li i { color: var(--ok-fg); font-size: 0.85rem; margin-top: 0.2rem; flex-shrink: 0; }
-      .pitch-phrase { background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0.7rem 0.8rem; }
-      .pitch-phrase .pp-lbl { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
-      .pitch-phrase p { margin: 0.3rem 0 0; font-size: 0.98rem; font-style: italic; color: var(--text-main); line-height: 1.4; }
-      .pitch-sheet .sh-go { width: 100%; height: 3rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 800; font-size: 0.98rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
 
       /* Botón ··· del header */
       .to-head .more { width: 2.25rem; height: 2.25rem; border-radius: 12px; border: none; background: var(--surface-ground); color: var(--text-muted); display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0; }
@@ -941,35 +804,22 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         this.sheetPrevFocus = null;
       }
     });
-
-    // Memoria de posición de Sugeridos: append-only. Lee suggestBase (que NO
-    // depende de suggestOrder), así que no hay ciclo con suggestRows.
-    effect(() => {
-      const ids = this.suggestBase().map((p) => p.product_id);
-      const orden = untracked(() => this.suggestOrder());
-      const faltan = ids.filter((id) => !orden.includes(id));
-      if (faltan.length) this.suggestOrder.set([...orden, ...faltan]);
-    });
   }
 
   ngOnDestroy(): void {
     this.doc.body.style.removeProperty('overflow');
-    this.stopVoice();
     if (this.qtyFlushTimer) clearTimeout(this.qtyFlushTimer);
-    if (this.suggestTimer) clearTimeout(this.suggestTimer);
   }
 
-  /** ¿Hay algún bottom-sheet abierto? (carrito / pitch / acciones / finalizar / voz). */
+  /** ¿Hay algún bottom-sheet abierto? (carrito / acciones / finalizar). */
   readonly anySheetOpen = computed(
-    () => this.cartOpen() || !!this.pitch() || this.actionsOpen() || this.finishOpen() || this.voiceOpen(),
+    () => this.cartOpen() || this.actionsOpen() || this.finishOpen(),
   );
   private sheetPrevFocus: HTMLElement | null = null;
 
   /** Cierra el sheet superior (no hay "back" del browser en la PWA instalada). */
   private closeTopSheet(): void {
-    if (this.voiceOpen()) this.closeVoice();
-    else if (this.pitch()) this.pitch.set(null);
-    else if (this.finishOpen()) this.finishOpen.set(false);
+    if (this.finishOpen()) this.finishOpen.set(false);
     else if (this.actionsOpen()) this.actionsOpen.set(false);
     else if (this.cartOpen()) this.cartOpen.set(false);
   }
@@ -1010,6 +860,26 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly loadError = signal(false);
   readonly customer = signal<VendorCustomer | null>(null);
   readonly prices = signal<PriceRow[]>([]);
+  /** `[VTK.11]` De dónde salió el catálogo que se ve y de cuándo es. */
+  readonly catalogo = signal<{ origen: OrigenCatalogo; at: number } | null>(null);
+  /** `[VTK.11]` Bajando el catálogo nuevo detrás de la copia que se muestra. */
+  readonly catalogoRefrescando = signal(false);
+  /** `[VTK.11]` La recarga de fondo falló: se sigue con la copia y se dice. */
+  readonly catalogoFallo = signal(false);
+  /**
+   * `[VTK.11]` El aviso de la edad del catálogo (ADR-056). Null cuando lo que se ve acaba de
+   * bajar del servidor: ahí no hay nada que declarar.
+   */
+  readonly catalogoAviso = computed(() => {
+    const c = this.catalogo();
+    const refrescando = this.catalogoRefrescando();
+    const fallo = this.catalogoFallo();
+    if (!c || c.origen === 'servidor') return null;
+    const edad = edadCatalogo(Date.now() - c.at);
+    if (refrescando) return { texto: `Precios y existencia de ${edad} · actualizando…`, fallo: false };
+    if (fallo) return { texto: `Precios y existencia de ${edad} · no se pudo actualizar`, fallo: true };
+    return { texto: `Precios y existencia de ${edad}`, fallo: false };
+  });
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
   /**
@@ -1095,26 +965,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   private readonly pendingQty = signal<Map<string, number>>(new Map());
   private qtyFlushTimer: ReturnType<typeof setTimeout> | null = null;
-  private suggestTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // ─── Pedido por voz (dictado → IA → confirmar → pad) ───
-  /** ¿el navegador soporta dictado? (Web Speech API). */
-  readonly voiceSupported = !!(
-    (typeof window !== 'undefined') &&
-    ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
-  );
-  private recognition: any = null;
-  readonly listening = signal(false);
-  readonly voiceOpen = signal(false);
-  readonly voiceTranscript = signal('');
-  readonly voiceLoading = signal(false);
-  readonly voiceError = signal<string | null>(null);
-  readonly voiceMsg = signal('');
-  /** Items entendidos por la IA, editables antes de cargar al pedido. */
-  readonly voiceItems = signal<AiSuggestion[]>([]);
-  readonly voiceTotal = computed(() =>
-    this.voiceItems().reduce((s, it) => s + Number(it.unit_price) * Number(it.qty), 0),
-  );
 
   stockClass(p: PriceRow): 'ok' | 'warn' | 'bad' {
     const s = Number(p.stock_available ?? 0);
@@ -1145,15 +995,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /**
    * Catálogo navegable por default (sin buscar): TODO lo pedible ordenado de más
    * vendido a menos vendido (el backend ya lo ordena por ranking real), quitando lo
-   * que ya está en habituales/sugeridos. Cap para no pintar miles de filas — el
-   * resto se alcanza por búsqueda.
+   * que ya está en habituales. Cap para no pintar miles de filas — el resto se
+   * alcanza por búsqueda.
    */
   private readonly BROWSE_CAP = 120;
   readonly browseRows = computed(() => {
-    const skip = new Set<string>([
-      ...this.habitualRows().map((p) => p.product_id),
-      ...this.suggestRows().map((p) => p.product_id),
-    ]);
+    const skip = new Set<string>(this.habitualRows().map((p) => p.product_id));
     const out: PriceRow[] = [];
     for (const p of this.prices()) {
       if (p.price == null || Number(p.price) <= 0) continue;
@@ -1164,22 +1011,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     return out;
   });
 
-  /** Sugerencias del motor Thot (server-side: rotación·margen·afinidad·zona). */
-  readonly suggestions = signal<ThotSuggestion[]>([]);
-  /** product_id → razón ("Va con lo que llevas", "Se vende en tu zona", …). */
-  readonly reasonMap = computed(
-    () => new Map(this.suggestions().map((s) => [s.product_id, s.reason_label] as const)),
-  );
   /** Índice product_id → PriceRow del catálogo cargado (1 vez por cambio de catálogo). */
   private readonly byIdMap = computed(() => new Map(this.prices().map((p) => [p.product_id, p])));
-
-  /** Sugerencias de Thot mapeadas a las filas del catálogo cargado (para reusar la card). */
-  readonly thotRows = computed(() => {
-    const byId = this.byIdMap();
-    return this.suggestions()
-      .map((s) => byId.get(s.product_id))
-      .filter((p): p is PriceRow => !!p);
-  });
 
   /** VQ: productos habituales del cliente (order pad — sección "Lo que suele pedir"). */
   readonly frequent = signal<FrequentProduct[]>([]);
@@ -1191,13 +1024,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /**
    * Order pad — grupo "Lo que suele pedir": los habituales del cliente con precio,
    * EN SU ORDEN (que se carga una vez y no se mueve), más lo que entró al pedido y
-   * no es habitual ni está en Sugeridos, pegado al final.
+   * no es habitual, pegado al final.
    *
    * Antes esto arrancaba recorriendo cartLines(), así que cada producto agregado
    * SALTABA al tope de la sección ~500 ms después del toque, cuando volvía el
    * reloadCart. Ese salto —con la lista moviéndose bajo el dedo que ya iba al
-   * siguiente renglón— es la mitad del reporte de "poca fluidez". La otra mitad es
-   * el re-ranqueo de Thot, que se estabiliza en suggestRows.
+   * siguiente renglón— era parte del reporte de "poca fluidez".
    */
   readonly habitualRows = computed(() => {
     const byId = this.byIdMap();
@@ -1208,47 +1040,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       const p = byId.get(f.product_id);
       if (p && p.price != null && Number(p.price) > 0) { seen.add(f.product_id); out.push(p); }
     }
-    const enSugeridos = new Set(this.suggestBase().map((p) => p.product_id));
     for (const l of this.cartLines()) {
-      if (seen.has(l.product_id) || enSugeridos.has(l.product_id)) continue;
+      if (seen.has(l.product_id)) continue;
       const p = byId.get(l.product_id);
       if (p) { seen.add(l.product_id); out.push(p); }
     }
     return out;
-  });
-
-  /**
-   * Sugeridos ANTES de estabilizar: lo que mandó el motor (o el respaldo local)
-   * menos los habituales. Se excluye por HABITUAL, no por "está en el carrito":
-   * agregar una sugerencia no la debe hacer desaparecer de donde el vendedor la
-   * está mirando.
-   */
-  private readonly suggestBase = computed(() => {
-    const inFreq = new Set(this.frequent().map((f) => f.product_id));
-    const thot = this.thotRows().filter((p) => !inFreq.has(p.product_id));
-    if (thot.length) return thot;
-    return this.impulsarLocal().filter((p) => !inFreq.has(p.product_id));
-  });
-
-  /** Orden ya mostrado de Sugeridos: lo que se pintó una vez no se reacomoda. */
-  private readonly suggestOrder = signal<string[]>([]);
-
-  /**
-   * Order pad — grupo "Sugeridos", con la posición CONGELADA para lo que ya está en
-   * pantalla. Thot vuelve a ranquear después de cada cambio del pedido (es
-   * cart-aware, y eso se conserva: lo nuevo entra), pero lo que el vendedor ya
-   * tiene a la vista no se mueve de lugar.
-   */
-  readonly suggestRows = computed(() => {
-    const base = this.suggestBase();
-    const orden = this.suggestOrder();
-    if (!orden.length) return base;
-    const pos = new Map(orden.map((id, i) => [id, i] as const));
-    const conocidos: PriceRow[] = [];
-    const nuevos: PriceRow[] = [];
-    for (const p of base) (pos.has(p.product_id) ? conocidos : nuevos).push(p);
-    conocidos.sort((a, b) => (pos.get(a.product_id) ?? 0) - (pos.get(b.product_id) ?? 0));
-    return [...conocidos, ...nuevos];
   });
 
   /** ¿el pedido se pre-cargó con la canasta predicha? (para el banner + "Vaciar"). */
@@ -1291,27 +1088,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Fallback LOCAL (margen × rotación) si Thot aún no responde (API sin reiniciar
-   * / feature store vacío). El motor server-side (Thot) es la fuente primaria.
-   */
-  readonly impulsarLocal = computed(() => {
-    const w = (t?: string | null) =>
-      t === 'alta' ? 1 : t === 'media' ? 0.6 : t === 'baja' ? 0.2 : 0.1;
-    return this.prices()
-      .filter((p) => p.price != null && Number(p.price) > 0)
-      .map((p) => ({ p, score: (this.marginPct(p) ?? 0) * w(p.rotation_tier) }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 40)
-      .map((x) => x.p);
-  });
-
-  /** ¿la lista por default viene de Thot (server) o del fallback local? */
-  readonly usingThot = computed(() => !this.searchTerm().trim() && this.thotRows().length > 0);
-
-  /**
-   * Lista mostrada: con término → TODO el catálogo filtrado (nombre/SKU); sin
-   * término → Thot (server) y, si no hay, fallback local; y si tampoco, el catálogo.
+   * Lista mostrada en búsqueda: con término → TODO el catálogo filtrado (nombre/SKU).
+   * Sin término la plantilla pinta Habituales + Catálogo y esta lista queda vacía.
    */
   /** Tope de resultados renderizados en búsqueda → la lista nunca pinta miles
    *  de filas, así cada tecla responde instantáneo. */
@@ -1341,74 +1119,48 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       }
       return out;
     }
-    // Sin búsqueda: fijar arriba lo que YA está en el carrito (con su stepper)
-    // para poder ajustar cantidades desde el menú, y debajo las sugerencias.
-    const byId = new Map(this.prices().map((p) => [p.product_id, p]));
-    const seen = new Set<string>();
-    const cartRows: PriceRow[] = [];
-    for (const l of this.cartLines()) {
-      if (seen.has(l.product_id)) continue;
-      seen.add(l.product_id);
-      const p = byId.get(l.product_id);
-      if (p) cartRows.push(p);
-    }
-    const thot = this.thotRows();
-    if (thot.length) return [...cartRows, ...thot.filter((p) => !seen.has(p.product_id))];
-    const local = this.impulsarLocal().filter((p) => !seen.has(p.product_id));
-    if (local.length) return [...cartRows, ...local];
-    return [...cartRows, ...this.prices().filter((p) => !seen.has(p.product_id))];
+    // Sin búsqueda la plantilla no usa esta lista (pinta Habituales + Catálogo).
+    return [] as PriceRow[];
   });
 
-  reasonFor(productId: string): string | null {
-    return this.reasonMap().get(productId) ?? null;
+  /**
+   * `[VTK.9]` Cuánto trae la caja de cada resultado de búsqueda (pedido de ruta, 2026-10-14: el
+   * cliente pregunta «¿cuántas trae?» y la respuesta sólo vivía en el factor del selector).
+   * `[VTK.12]` Se calcula una vez por catálogo (no al teclear) porque también lo usa la caja
+   * elegida en el selector, en cualquier lista. Son ~9,400 escaleras de 2–3 peldaños: milisegundos.
+   */
+  readonly contenidoCajaById = computed(() => {
+    const m = new Map<string, ContenidoCaja>();
+    for (const p of this.prices()) {
+      const c = contenidoCaja(this.unitsOf(p), this.cajaDeclarada(p));
+      if (c) m.set(p.product_id, c);
+    }
+    return m;
+  });
+
+  /**
+   * La caja que declara la escalera de Kepler de la sucursal (peldaño `box`: CJA, BTO o CUB).
+   * `null` = vino la escalera y no declara caja; `undefined` = no vino (se reconoce por rótulo).
+   */
+  /**
+   * `[VTK.12]` Con la CAJA elegida en el selector, cuántas unidades base trae (y cuántas lleva ya
+   * el pedido). Pedido de ruta, 2026-10-15: «cuando seleccionen caja, que diga cuántas piezas
+   * tiene». Null si la unidad elegida no es la caja o el producto no declara caja: no se inventa.
+   * La unidad base es la del producto (PZA, KG, PAQ…), no siempre pieza.
+   */
+  cajaElegida(p: PriceRow): { caja: string; piezas: number; base: string; enPedido: number | null } | null {
+    const c = this.contenidoCajaById().get(p.product_id);
+    const su = this.selectedUnit(p);
+    if (!c || !su || su.unit !== c.caja) return null;
+    const base = c.partes[c.partes.length - 1];
+    const q = this.cartQty(p.product_id) || 0;
+    return { caja: c.caja, piezas: base.qty, base: base.unit, enPedido: q > 0 ? q : null };
   }
 
-  // ─── Speech "por qué ofrecerlo" (argumentos para el vendedor) ───
-
-  /** Producto cuyo pitch está abierto (sheet). */
-  readonly pitch = signal<PriceRow | null>(null);
-  /** Hay historia que contar: alta rotación o una razón del motor (Thot). */
-  hasPitch(p: PriceRow): boolean {
-    return p.rotation_tier === 'alta' || !!this.reasonFor(p.product_id);
-  }
-  openPitch(p: PriceRow): void {
-    this.pitch.set(p);
-  }
-  /** Argumentos de venta (orientados al CLIENTE, no al margen del vendedor). */
-  pitchLines(p: PriceRow): string[] {
-    const lines: string[] = [];
-    if (p.rotation_tier === 'alta') {
-      const u = Number(p.sales_units_30d) || 0;
-      lines.push(
-        u > 0
-          ? `Es de alta rotación: se mueve ~${u} piezas al mes. Se vende solo, no se queda en bodega.`
-          : 'Es de alta rotación: de los que más se mueven. Se vende solo, no se queda en bodega.',
-      );
-    } else if (p.rotation_tier === 'media') {
-      lines.push('Rotación media: salida constante, pedido seguro.');
-    }
-    const reason = this.reasonFor(p.product_id);
-    if (reason) {
-      const r = foldText(reason);
-      if (r.includes('mes')) lines.push('Es la marca que estamos impulsando este mes — buena oportunidad.');
-      else if (r.includes('zona')) lines.push('En su zona es de los productos más pedidos.');
-      else if (r.includes('llev') || r.includes('canasta') || r.includes('va con') || r.includes('compl'))
-        lines.push('Combina con lo que ya se lleva — fácil de sumar al pedido.');
-      else if (r.includes('nuevo') || r.includes('lanz')) lines.push('Es novedad y la gente lo está buscando.');
-      else lines.push(reason);
-    }
-    if (!lines.length) lines.push('Buen complemento para su surtido.');
-    return lines;
-  }
-  /** Frase lista para decirle al cliente. */
-  pitchPhrase(p: PriceRow): string {
-    const qty = p.min_qty && p.min_qty > 1 ? `${p.min_qty}` : 'unas';
-    return `«Le dejo ${qty} piezas de ${p.product_name}, que se está vendiendo muy bien. ¿Se las anoto?»`;
-  }
-  /** Agregar desde el pitch y cerrar el sheet. */
-  addFromPitch(p: PriceRow): void {
-    this.addToCart(p);
-    this.pitch.set(null);
+  private cajaDeclarada(p: PriceRow): { unit: string; factor: number } | null | undefined {
+    if (!p.rungs?.length) return undefined;
+    const b = p.rungs.find((r) => r.rung === 'box');
+    return b ? { unit: b.unit, factor: b.factor } : null;
   }
 
   readonly cartUnitsTotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.quantity), 0));
@@ -1522,9 +1274,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             warehouseId: of(warehouseId),
             // catalog/draft con fallback: un 403/red en ellos ya no deja la
             // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
+            // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
             catalog: this.api
-              .catalogForCustomer(customer, warehouseId || undefined)
-              .pipe(catchError(() => of({ priceListId: '', prices: [] as PriceRow[] }))),
+              .catalogInstant(customer, warehouseId || undefined)
+              .pipe(
+                catchError(() =>
+                  of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
+                ),
+              ),
             // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
             // el borrador suelto del cliente, como siempre.
             existingDraft: this.editingOrderId()
@@ -1556,16 +1313,24 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.loading.set(false);
           // Cachear el contexto (best-effort) para poder armar el pedido sin red
           // en una próxima visita a este cliente.
+          // [VTK.11] El catálogo sólo se reescribe cuando llegó del servidor; si se abrió con la
+          // copia guardada, se guarda sólo el cliente (reescribir ~10 MB iguales es trabajo de más).
+          this.catalogo.set({ origen: catalog.origen, at: catalog.at });
+          this.catalogoFallo.set(false);
           if (catalog.priceListId) {
-            void this.offlineApi
-              .cacheContext(customerId, {
-                customer,
-                priceListId: catalog.priceListId,
-                warehouseId: warehouseId || '',
-                prices: catalog.prices,
-                frequent,
-              })
-              .catch(() => void 0);
+            const guardar = catalog.origen === 'servidor'
+              ? this.offlineApi.cacheContext(customerId, {
+                  customer,
+                  priceListId: catalog.priceListId,
+                  warehouseId: warehouseId || '',
+                  prices: catalog.prices,
+                  frequent,
+                })
+              : this.offlineApi.cacheCustomer(customerId, { customer, priceListId: catalog.priceListId, frequent });
+            void guardar.catch(() => void 0);
+            if (hayQueRefrescar(catalog.origen, catalog.at, Date.now())) {
+              this.refrescarCatalogo(customer, warehouseId || '', customerId, frequent);
+            }
           }
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
@@ -1583,22 +1348,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             // trae, así que ahí sí hay que ir a buscarlas.
             if (existingDraft.lines) {
               this.cartLines.set(existingDraft.lines);
-              this.loadSuggestions();
             } else {
               this.api.orderById(existingDraft.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-                next: (full) => {
-                  this.cartLines.set(full.lines || []);
-                  this.loadSuggestions(); // cart-aware una vez que cargan las líneas
-                },
-                error: () => this.loadSuggestions(),
+                next: (full) => this.cartLines.set(full.lines || []),
+                error: () => void 0,
               });
             }
-          } else {
-            // Pedido nuevo: NO auto-armamos la canasta predicha (evitar agendar de
-            // más sin querer). Se ofrece como CTA opt-in (banner) y mostramos las
-            // sugerencias del motor en el pad.
-            this.loadSuggestions();
           }
+          // Pedido nuevo: NO auto-armamos la canasta predicha (evitar agendar de
+          // más sin querer). Se ofrece como CTA opt-in (chip "Sugerido · Cargar").
         },
         error: (e) => {
           // El customer (crítico) falló: marcamos error → el template muestra el
@@ -1641,6 +1399,42 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       });
   }
 
+  /**
+   * `[VTK.11]` Baja el catálogo nuevo detrás de la copia con la que se abrió y la reemplaza.
+   * Si mientras tanto el vendedor cambió a ver la camioneta, NO se pisa esa vista: el catálogo
+   * nuevo igual queda guardado para la próxima apertura.
+   */
+  private refrescarCatalogo(
+    customer: VendorCustomer,
+    warehouseId: string,
+    customerId: string,
+    frequent: FrequentProduct[],
+  ): void {
+    this.catalogoRefrescando.set(true);
+    this.api
+      .catalogForCustomer(customer, warehouseId || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fresh) => {
+          this.catalogoRefrescando.set(false);
+          if (!fresh.priceListId || !fresh.prices.length) {
+            this.catalogoFallo.set(true);
+            return;
+          }
+          void this.offlineApi
+            .cacheContext(customerId, { customer, priceListId: fresh.priceListId, warehouseId, prices: fresh.prices, frequent })
+            .catch(() => void 0);
+          if (this.stockView() !== 'sucursal' || this.stockWarehouseId() !== warehouseId) return;
+          this.prices.set(fresh.prices);
+          this.catalogo.set({ origen: 'servidor', at: Date.now() });
+        },
+        error: () => {
+          this.catalogoRefrescando.set(false);
+          this.catalogoFallo.set(true);
+        },
+      });
+  }
+
   /** Reintenta la carga (botón del estado de error). */
   reload(): void {
     if (!this.customerId) { this.back(); return; }
@@ -1661,7 +1455,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.toast.add({
             severity: 'warn',
             summary: 'Sin datos offline',
-            detail: 'Este cliente no se cargó con conexión antes. Abrilo una vez con señal.',
+            detail: 'Este cliente no se cargó con conexión antes. Ábrelo una vez con señal.',
             life: 6000,
           });
           return;
@@ -1733,14 +1527,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     else if (base > 0) this.createLine(p, base); // nuevo → crear inmediato
   }
 
-  /** Agregar desde el pitch — mismo escalón que el "+" de la fila (antes subía 1
-   *  unidad base, así que el mismo gesto daba dos resultados distintos). */
-  addToCart(p: PriceRow): void {
-    const cur = this.cartQty(p.product_id);
-    if (cur > 0) { this.bumpQty(p.product_id, subirEscalon(cur, this.unitFactor(p))); return; }
-    this.createLine(p, this.suggestedQty(p));
-  }
-
   /** Crea la línea (asegurando draft) con la cantidad dada, en rejilla y sobre el mínimo. */
   private createLine(p: PriceRow, qty: number): void {
     const c = this.customer();
@@ -1791,12 +1577,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         next: () => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           // reload primero; con el renglón ya en el carrito, el flush manda lo que el vendedor
-          // haya tocado mientras se creaba (si quedó igual, no manda nada). Después, re-rankear
-          // cart-aware (debounced — fuera del tap).
-          this.reloadCart(() => {
-            this.scheduleQtyFlush();
-            this.loadSuggestionsDebounced();
-          });
+          // haya tocado mientras se creaba (si quedó igual, no manda nada).
+          this.reloadCart(() => this.scheduleQtyFlush());
         },
         error: (err) => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
@@ -1836,8 +1618,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     if (this.qtyFlushTimer) clearTimeout(this.qtyFlushTimer);
     this.qtyFlushTimer = setTimeout(() => {
       this.flushQty().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        // Offline: applyLocalBatch ya actualizó cartLines → no recargar ni Thot.
-        next: () => { if (!this.offlineMode()) this.reloadCart(() => this.loadSuggestionsDebounced()); },
+        // Offline: applyLocalBatch ya actualizó cartLines → no recargar.
+        next: () => { if (!this.offlineMode()) this.reloadCart(); },
         error: (err) => {
           this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message });
           if (!this.offlineMode()) this.reloadCart(); // reconciliar con el server tras el fallo
@@ -1921,38 +1703,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.cartLines.set(this.offlineApi.toOrderLines({ ...draft, lines }));
   }
 
-  /** Refresca sugerencias Thot fuera del camino caliente (cada add/remove). */
-  private loadSuggestionsDebounced(): void {
-    if (this.suggestTimer) clearTimeout(this.suggestTimer);
-    this.suggestTimer = setTimeout(() => this.loadSuggestions(), 1200);
-  }
-
   removeLine(line: OrderLine): void {
     const orderId = this.cartOrderId();
     if (!orderId) return;
     this.pendingQty.update((m) => { const n = new Map(m); n.delete(line.product_id); return n; });
     if (this.offlineMode()) { void this.setLocalQty(line.product_id, 0); return; }
     this.api.removeLine(orderId, line.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.reloadCart(() => this.loadSuggestionsDebounced()),
+      next: () => this.reloadCart(),
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message }),
     });
-  }
-
-  /** Trae las sugerencias de Thot (cart-aware). Best-effort: si falla, queda el fallback local. */
-  private loadSuggestions(): void {
-    // Offline: Thot necesita red; suggestRows() cae solo a impulsarLocal (local).
-    if (this.offlineMode()) return;
-    if (!this.customerId) return;
-    const cartIds = this.cartLines().map((l) => l.product_id);
-    this.api
-      .thotSuggest(this.customerId, cartIds, 40)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (s) => this.suggestions.set(s),
-        error: () => {
-          /* best-effort: el motor/feature store puede no estar; cae al fallback local */
-        },
-      });
   }
 
   // ─── Pedido sugerido (pre-cargado) ───
@@ -1966,7 +1725,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private prefillPredicted(): void {
     const lines = this.predictedLines();
     const c = this.customer();
-    if (!lines.length || !c || !this.orderWarehouseId()) { this.loadSuggestions(); return; }
+    if (!lines.length || !c || !this.orderWarehouseId()) return;
     if (this.offlineMode()) {
       const orderId = this.cartOrderId();
       if (!orderId) return;
@@ -1997,12 +1756,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         next: () => {
           this.prefilling.set(false);
           this.prefilled.set(true);
-          this.reloadCart(() => this.loadSuggestions());
+          this.reloadCart();
         },
         error: () => {
-          // best-effort: si falla, queda el pad vacío (habituales/sugeridos) sin romper.
+          // best-effort: si falla, queda el pad vacío (habituales/catálogo) sin romper.
           this.prefilling.set(false);
-          this.loadSuggestions();
         },
       });
   }
@@ -2024,155 +1782,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           return;
         }
         this.api.replaceLines(orderId, []).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-          next: () => { this.prefilled.set(false); this.reloadCart(() => this.loadSuggestions()); },
+          next: () => { this.prefilled.set(false); this.reloadCart(); },
           error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message }),
         });
       },
     });
-  }
-
-  // ─── Pedido por voz ───
-
-  /** Inicia el dictado (Web Speech API, es-MX). Acumula y al terminar manda a la IA. */
-  startVoice(): void {
-    if (!this.voiceSupported || this.listening()) return;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const rec = new SR();
-    this.recognition = rec;
-    rec.lang = 'es-MX';
-    rec.continuous = true;
-    rec.interimResults = true;
-    let finalText = '';
-    this.voiceError.set(null);
-    this.voiceTranscript.set('');
-    this.listening.set(true);
-    this.haptic.selection();
-    rec.onresult = (e: any) => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t + ' ';
-        else interim += t;
-      }
-      this.voiceTranscript.set((finalText + interim).trim());
-    };
-    rec.onerror = (e: any) => {
-      this.listening.set(false);
-      if (e.error !== 'aborted' && e.error !== 'no-speech') {
-        this.voiceError.set(
-          e.error === 'not-allowed' ? 'Permití el micrófono para dictar.' : 'No se pudo escuchar. Probá de nuevo.',
-        );
-        this.voiceOpen.set(true);
-      }
-    };
-    rec.onend = () => {
-      this.listening.set(false);
-      this.recognition = null;
-      const text = (finalText || this.voiceTranscript()).trim();
-      if (text) this.parseVoice(text);
-    };
-    try { rec.start(); } catch { this.listening.set(false); }
-  }
-
-  /** Detiene el dictado (dispara onend → parse). */
-  stopVoice(): void {
-    if (this.recognition) { try { this.recognition.stop(); } catch { /* noop */ } }
-    this.listening.set(false);
-  }
-
-  /** Cierra la hoja de voz (y corta el dictado si seguía). */
-  closeVoice(): void {
-    this.stopVoice();
-    this.voiceOpen.set(false);
-  }
-
-  /** Vuelve a dictar (desde la hoja de confirmación). */
-  retryVoice(): void {
-    this.voiceOpen.set(false);
-    this.startVoice();
-  }
-
-  /** Manda la transcripción a la IA y abre la hoja de confirmación. */
-  private parseVoice(text: string): void {
-    this.voiceTranscript.set(text);
-    this.voiceItems.set([]);
-    this.voiceMsg.set('');
-    this.voiceError.set(null);
-    this.voiceLoading.set(true);
-    this.voiceOpen.set(true);
-    this.api
-      .aiOrderSuggest(text, this.customerId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => {
-          this.voiceLoading.set(false);
-          this.voiceItems.set(r.suggestions || []);
-          this.voiceMsg.set(r.assistant_message || '');
-          this.haptic.notification(r.suggestions?.length ? 'success' : 'warning');
-        },
-        error: (err) => {
-          this.voiceLoading.set(false);
-          this.voiceError.set(err?.error?.message || 'No se pudo interpretar el dictado.');
-        },
-      });
-  }
-
-  voiceInc(it: AiSuggestion): void { this.voiceSetQty(it, it.qty + 1); }
-  voiceDec(it: AiSuggestion): void { this.voiceSetQty(it, it.qty - 1); }
-  voiceSetQty(it: AiSuggestion, qty: number | string): void {
-    const n = Math.floor(Number(qty) || 0);
-    this.voiceItems.update((items) =>
-      n <= 0
-        ? items.filter((x) => x.product_id !== it.product_id)
-        : items.map((x) => (x.product_id === it.product_id ? { ...x, qty: n } : x)),
-    );
-  }
-  voiceRemove(it: AiSuggestion): void {
-    this.voiceItems.update((items) => items.filter((x) => x.product_id !== it.product_id));
-  }
-  trackVoice(_: number, it: AiSuggestion): string { return it.product_id; }
-
-  /** Carga los items entendidos al pedido (merge: la voz fija la cantidad por producto). */
-  applyVoiceItems(): void {
-    const items = this.voiceItems().filter((x) => x.qty > 0);
-    const c = this.customer();
-    if (!items.length || !c || !this.orderWarehouseId()) { this.voiceOpen.set(false); return; }
-    this.voiceLoading.set(true);
-    const ensure$ = this.cartOrderId()
-      ? of({ id: this.cartOrderId()! } as any)
-      : this.api.ensureDraftForCustomer(c.id, this.orderWarehouseId(), 'route');
-    ensure$
-      .pipe(
-        switchMap((draft) => {
-          this.cartOrderId.set(draft.id);
-          // Merge con lo ya cargado y reemplazo en 1 request (no pisa lo previo).
-          const byProduct = new Map<string, number>();
-          for (const l of this.cartLines()) byProduct.set(l.product_id, Number(l.quantity));
-          for (const it of items) byProduct.set(it.product_id, it.qty);
-          const lines = Array.from(byProduct, ([product_id, quantity]) => ({ product_id, quantity }));
-          return this.api.replaceLines(draft.id, lines);
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: (res) => {
-          this.voiceLoading.set(false);
-          this.voiceOpen.set(false);
-          this.voiceItems.set([]);
-          this.haptic.notification('success');
-          const skipped = res?.skipped?.length || 0;
-          this.toast.add({
-            severity: 'success',
-            summary: 'Pedido actualizado',
-            detail: skipped ? `${skipped} sin precio se omitieron.` : 'Productos cargados por voz.',
-          });
-          this.reloadCart(() => this.loadSuggestions());
-        },
-        error: (err) => {
-          this.voiceLoading.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message });
-        },
-      });
   }
 
   /**
@@ -2193,7 +1807,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const orderId = this.cartOrderId();
     if (!orderId || this.submitting() || this.settling()) return;
     if (!this.requestedDate) {
-      this.toast.add({ severity: 'warn', summary: 'Elegí la fecha de entrega' });
+      this.toast.add({ severity: 'warn', summary: 'Elige la fecha de entrega' });
       return;
     }
     // Sin ajustes en vuelo, el total ya es el del servidor → se pregunta directo.
@@ -2352,7 +1966,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private onError(err: any): void {
     this.submitting.set(false);
     this.haptic.notification('error');
-    this.toast.add({ severity: 'error', summary: 'No se pudo completar', detail: err?.error?.message || err?.message || 'Intentá de nuevo.' });
+    this.toast.add({ severity: 'error', summary: 'No se pudo completar', detail: err?.error?.message || err?.message || 'Intenta de nuevo.' });
   }
 
   cancelDraft(): void {
@@ -2407,14 +2021,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const p = this.prices().find((x) => x.product_id === id);
     return p ? this.netCost(p) : null;
   }
-  /** Margen real por producto: (precio − costo neto) / precio. Null si falta costo/precio. */
-  marginPct(p: PriceRow): number | null {
-    const price = Number(p.price);
-    const cost = this.netCost(p);
-    if (!price || cost == null) return null;
-    return Math.round(((price - cost) / price) * 100);
-  }
-
   /** Precio base (lista del cliente, min 1) del producto según el catálogo cargado. */
   private basePriceById(productId: string): number | null {
     const p = this.byIdMap().get(productId);

@@ -135,12 +135,12 @@ function problemaDe(
   // Un movimiento normal: no se puede devolver más de lo que entró.
   if (neto < -CAMBIO_EPSILON) {
     return 'Estás devolviendo ' + Math.abs(neto).toFixed(2) + ' más de lo que entró. ' +
-      'Si lo que querías era un canje, marcalo como canje.';
+      'Si lo que querías era un canje, márcalo como canje.';
   }
   // ⚠️ Neto exactamente cero en un movimiento normal: no es un error de captura, es un canje
   // sin marcar. Se dice, porque guardarlo con monto 0 lo deja fuera de todo cuadre.
   if (sale > 0 && Math.abs(neto) <= CAMBIO_EPSILON) {
-    return 'Entró y salió lo mismo. Eso es un canje, no un movimiento: marcalo como canje.';
+    return 'Entró y salió lo mismo. Eso es un canje, no un movimiento: márcalo como canje.';
   }
   return null;
 }

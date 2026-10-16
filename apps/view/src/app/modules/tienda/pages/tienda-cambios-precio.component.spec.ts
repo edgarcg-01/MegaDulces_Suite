@@ -175,4 +175,27 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
     const opciones = Array.from(root().querySelectorAll('.seg-btn')).map((b) => b.textContent?.trim());
     expect(opciones).toEqual(['Todos los precios', 'Pieza', 'Paquete', 'Caja']);
   });
+  describe('barra superior compacta (ETQ-CAMBIOS.10)', () => {
+    it('⭐ el selector de día vive en la fila de las pestañas, no en una fila aparte', () => {
+      const top = root().querySelector('.cpr-top');
+      expect(top).not.toBeNull();
+      expect(top!.querySelector('input[type=date]')).not.toBeNull();
+      // Antes el día tenía su propia fila (.cpr-bar): ya no debe haber un selector de día fuera de .cpr-top.
+      expect(root().querySelectorAll('input[type=date]')).toHaveLength(1);
+    });
+
+    it('el resumen sigue teniendo los CUATRO números, en versión compacta', () => {
+      const ms = root().querySelector('app-metric-strip .ms');
+      expect(ms?.classList.contains('ms--compact')).toBe(true);
+      const t = ms?.textContent ?? '';
+      for (const l of ['Para reimprimir', 'Subieron', 'Bajaron', 'Sin precio']) expect(t).toContain(l);
+    });
+
+    it('la instrucción de uso se conserva (no se perdió al quitar el encabezado) y el título queda para lector de pantalla', () => {
+      expect(root().querySelector('.cpr-ayuda')?.textContent).toContain('Haz clic en un producto para imprimir su etiqueta');
+      const h1 = root().querySelector('h1');
+      expect(h1?.textContent?.trim()).toBe('Cambios de precio');
+      expect(h1?.classList.contains('cpr-sr')).toBe(true);
+    });
+  });
 });

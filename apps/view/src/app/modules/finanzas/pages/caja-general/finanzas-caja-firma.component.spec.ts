@@ -64,12 +64,12 @@ describe('FinanzasCajaFirmaComponent · el canal tiene TRES estados', () => {
   it('1 · mientras el canal abre dice que esta abriendo, y NO acusa a la red', () => {
     const { fx } = montar('conectando');
     expect(txt(fx)).toContain('Abriendo el canal');
-    expect(txt(fx)).not.toContain('Revisá la red');
+    expect(txt(fx)).not.toContain('Revisa la red');
   });
 
   it('2 · con el canal caido SI acusa a la red, y deja de decir que esta abriendo', () => {
     const { fx } = montar('caido');
-    expect(txt(fx)).toContain('Revisá la red');
+    expect(txt(fx)).toContain('Revisa la red');
     expect(txt(fx)).not.toContain('Abriendo el canal');
   });
 

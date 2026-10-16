@@ -299,7 +299,7 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaDocumento, DiaClienteRef, Cl
                         } @empty {
                           <!-- No puede pasar: los días y las facturas salen de las mismas filas. Pero
                                un drill vacío en silencio se leería como "no debe nadie". -->
-                          <tr><td colspan="8" class="cd-empty">Este día tiene {{ money(t.monto) }} pero ningún cliente en el desglose. Es una inconsistencia del dato, no un día sin deuda: avisá a Sistemas.</td></tr>
+                          <tr><td colspan="8" class="cd-empty">Este día tiene {{ money(t.monto) }} pero ningún cliente en el desglose. Es una inconsistencia del dato, no un día sin deuda: avisa a Sistemas.</td></tr>
                         }
                       </tbody>
                     </table>
@@ -308,7 +308,7 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaDocumento, DiaClienteRef, Cl
               } @empty {
                 <tr><td colspan="7" class="cd-empty">
                   @if (lado()) { Ningún día de este lado del eje con el filtro puesto. <button type="button" class="cd-link-btn" (click)="verTodo()">Ver todos los días</button> }
-                  @else { Sin cartera para el filtro. Ajustá sucursal, vendedor o búsqueda. }
+                  @else { Sin cartera para el filtro. Ajusta sucursal, vendedor o búsqueda. }
                 </td></tr>
               }
             </tbody>

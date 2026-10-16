@@ -10,7 +10,8 @@ import {
   sumaDesglose, redondea, estadoArqueo, motivosDeBloqueo, puedeGuardar,
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
-  type FormularioCaja, type CorteVista,
+  conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError, separarPorFlujo,
+  type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
 
@@ -234,7 +235,7 @@ describe('etiquetaProcedencia — un campo propuesto NUNCA se pinta como un hech
   it('[negativa] un motivo desconocido se declara, no se inventa una explicación', () => {
     const e = etiquetaProcedencia({ value: null, source: null, confidence: null, reason: 'motivo_que_no_existe' });
     expect(e.tono).toBe('vacio');
-    expect(e.texto).toBe('Sin propuesta: capturalo a mano.');
+    expect(e.texto).toBe('Sin propuesta: captúralo a mano.');
   });
 
   it('null/undefined no revientan la pantalla', () => {
@@ -448,5 +449,144 @@ describe('[CG.160] sin documento, hay que decir por qué', () => {
   it('el texto dice QUÉ hacer, y nombra el mínimo que el servidor va a exigir', () => {
     expect(TEXTO_BLOQUEO.falta_motivo_sin_documento).toContain(String(MOTIVO_SIN_DOC_MIN));
     expect(TEXTO_BLOQUEO.falta_motivo_sin_documento.toLowerCase()).toContain('kepler');
+  });
+});
+
+describe('[CGP-V.12] conflictoDeEsperado — el 409 del cierre se lee para poder confirmarlo', () => {
+  const conflicto = {
+    status: 409,
+    error: {
+      motivo: 'esperado_cambio', esperado_mostrado: 1500, esperado_actual: 1800,
+      message: 'El esperado cambió desde que se contó: se mostró $1,500.00 y ahora da $1,800.00.',
+    },
+  };
+
+  it('lee las dos cifras y la frase del servidor', () => {
+    expect(conflictoDeEsperado(conflicto)).toEqual({
+      mostrado: 1500, actual: 1800, mensaje: conflicto.error.message,
+    });
+  });
+
+  it('las cifras que llegan como texto (numeric de Postgres) se convierten a número', () => {
+    const r = conflictoDeEsperado({ ...conflicto, error: { ...conflicto.error, esperado_actual: '1800.00' } });
+    expect(r?.actual).toBe(1800);
+  });
+
+  it('⛔ otro 409 no es este conflicto: no se ofrece confirmar nada', () => {
+    expect(conflictoDeEsperado({ status: 409, error: { motivo: 'otra_cosa' } })).toBeNull();
+  });
+
+  it('⛔ un 400 (la reja tecleada, L.1) no es este conflicto', () => {
+    expect(conflictoDeEsperado({ ...conflicto, status: 400 })).toBeNull();
+  });
+
+  it('⛔ sin las dos cifras no se ofrece confirmar un número que no llegó', () => {
+    expect(conflictoDeEsperado({ status: 409, error: { motivo: 'esperado_cambio', esperado_mostrado: 1500 } })).toBeNull();
+    expect(conflictoDeEsperado(null)).toBeNull();
+    expect(conflictoDeEsperado(new Error('red caída'))).toBeNull();
+  });
+});
+
+// ── `[CGP-V.1]` En qué paso va el corte ──────────────────────────────────────────────────────────
+//
+// La pantalla tiene que decir siempre en qué paso está el corte y qué sigue. El paso se DERIVA de lo
+// que dice el servidor (corte abierto, conteo sellado, corte por autorizar), nunca de lo que la
+// persona hizo en esta pestaña.
+describe('[CGP-V.1] pasoDelCorte', () => {
+  const base: EstadoParaPaso = { corteAbierto: true, sellado: null, conflicto: false, porAutorizar: false, recontando: false };
+
+  it('los cinco pasos, en el orden de la jornada', () => {
+    expect(PASOS_CORTE.map((p) => p.paso)).toEqual(['abrir', 'contar', 'revisar', 'cerrar', 'autorizar']);
+  });
+
+  it('⛔ [negativa] sin saber si hay corte (el saldo no se midió) no se afirma ningún paso', () => {
+    expect(pasoDelCorte({ ...base, corteAbierto: null })).toBeNull();
+  });
+
+  it('sin corte abierto y nada por autorizar: sigue abrir', () => {
+    expect(pasoDelCorte({ ...base, corteAbierto: false })).toBe('abrir');
+  });
+
+  it('sin corte abierto y uno cerrado sin autorizar: sigue autorizar', () => {
+    expect(pasoDelCorte({ ...base, corteAbierto: false, porAutorizar: true })).toBe('autorizar');
+  });
+
+  it('corte abierto sin conteo sellado: sigue contar a ciegas', () => {
+    expect(pasoDelCorte(base)).toBe('contar');
+  });
+
+  it('conteo sellado sin nada que decidir: sigue cerrar', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: false } })).toBe('cerrar');
+  });
+
+  it('conteo sellado con diferencia y el reconteo sin usar: sigue revisar la diferencia', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: true } })).toBe('revisar');
+  });
+
+  it('⛔ el esperado cambió desde el conteo: se vuelve a revisar aunque cuadrara', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: false }, conflicto: true })).toBe('revisar');
+  });
+
+  it('recontando: se vuelve a contar', () => {
+    expect(pasoDelCorte({ ...base, sellado: { ofreceRecontar: true }, recontando: true })).toBe('contar');
+  });
+
+  it('el texto de autorizar nombra el folio y dice que es otra persona', () => {
+    const t = textoPaso('autorizar', 'CC-2026-00009');
+    expect(t).toContain('CC-2026-00009');
+    expect(t).toContain('otra persona');
+  });
+
+  it('cada paso tiene un texto de qué sigue', () => {
+    for (const p of PASOS_CORTE) expect(textoPaso(p.paso).length).toBeGreaterThan(10);
+  });
+});
+
+// ── `[CGP-V.5]` El error dice lo que dijo el servidor ─────────────────────────────────────────────
+//
+// Un 403 se pintaba siempre «No tenés permiso»: la frase de la doble llave («Quien cerró el corte no
+// puede autorizarlo») se perdía, y la persona creía que le faltaba un permiso.
+describe('[CGP-V.5] textoDeError', () => {
+  it('⛔ un 403 con frase del servidor dice ESA frase (la doble llave)', () => {
+    const e = { status: 403, error: { message: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.' } };
+    expect(textoDeError(e)).toBe('Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.');
+  });
+
+  it('un 403 genérico del guardia de permisos se traduce', () => {
+    expect(textoDeError({ status: 403, error: { message: 'Forbidden resource' } })).toBe('No tienes permiso para esta acción.');
+    expect(textoDeError({ status: 403 })).toBe('No tienes permiso para esta acción.');
+  });
+
+  it('varias frases de validación se juntan, no se pierden', () => {
+    expect(textoDeError({ status: 400, error: { message: ['La fecha no es válida', 'Falta la sucursal'] } }))
+      .toBe('La fecha no es válida. Falta la sucursal.');
+  });
+
+  it('sin conexión y 429 se dicen en palabras', () => {
+    expect(textoDeError({ status: 0 })).toBe('No hay conexión con el servidor.');
+    expect(textoDeError({ status: 429 })).toContain('esperar');
+  });
+
+  it('⛔ sin frase no se inventa una: se dice que el servidor respondió con error', () => {
+    expect(textoDeError({ status: 500 })).toBe('El servidor respondió con un error.');
+    expect(textoDeError(null)).toBe('El servidor respondió con un error.');
+  });
+});
+
+// ── `[CGP-L.8]` Las dos pilas del detalle ──────────────────────────────────────────────────────────
+describe('[CGP-L.8] separarPorFlujo', () => {
+  it('separa lo recibido del cambio; sin flujo, es lo recibido', () => {
+    const r = separarPorFlujo([
+      { denominacion: 500, piezas: 1, flujo: 'recibido' },
+      { denominacion: 100, piezas: 1, flujo: 'devuelto' },
+      { denominacion: 50, piezas: 2 },
+    ]);
+    expect(r.recibido).toEqual([{ denominacion: 500, piezas: 1 }, { denominacion: 50, piezas: 2 }]);
+    expect(r.devuelto).toEqual([{ denominacion: 100, piezas: 1 }]);
+  });
+
+  it('el numeric de Postgres llega como texto: se convierte', () => {
+    const r = separarPorFlujo([{ denominacion: '500.00' as unknown as number, piezas: '2' as unknown as number }]);
+    expect(r.recibido).toEqual([{ denominacion: 500, piezas: 2 }]);
   });
 });

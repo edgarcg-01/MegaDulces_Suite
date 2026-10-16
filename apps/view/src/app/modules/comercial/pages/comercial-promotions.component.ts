@@ -208,7 +208,7 @@ interface ProductOption {
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin promociones</h3>
-                    <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Creá tu primera promoción para incentivar pedidos.' }}</p>
+                    <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Crea tu primera promoción para incentivar pedidos.' }}</p>
                     <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva promoción</span></button>
                   </div>
                 </td>

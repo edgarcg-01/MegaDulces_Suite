@@ -43,10 +43,10 @@ import { ErpOrderMatch } from '../../receiving-session.service';
           BUSCAR
         </button>
       </div>
-      <p class="af-hint">Escaneá el papel o tecleá el folio y buscá</p>
+      <p class="af-hint">Escanea el papel o teclea el folio y busca</p>
 
       @if (candidatos().length > 1) {
-        <p class="af-multi">{{ candidatos().length }} vales coinciden. Elegí cuál:</p>
+        <p class="af-multi">{{ candidatos().length }} vales coinciden. Elige cuál:</p>
         <div class="af-list">
           @for (c of candidatos(); track c.sucursal + c.folio) {
             <button type="button" class="af-cand" (click)="elegir.emit(c)">

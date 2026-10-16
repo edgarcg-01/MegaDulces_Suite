@@ -96,7 +96,7 @@ type Paso = 'pool' | 'recorrido' | 'avisos' | 'faltantes';
         <div class="surf-page-head-text">
           <h1>Surtido</h1>
           <p class="surf-page-sub">
-            Juntá varios pedidos en un solo recorrido del almacén, en vez de una vuelta por pedido
+            Junta varios pedidos en un solo recorrido del almacén, en vez de una vuelta por pedido
           </p>
         </div>
         <div class="su-head-actions">
@@ -118,7 +118,7 @@ type Paso = 'pool' | 'recorrido' | 'avisos' | 'faltantes';
       @if (!warehouseId) {
         <div class="comm-empty">
           <div class="comm-empty-icon"><i class="pi pi-warehouse" aria-hidden="true"></i></div>
-          <h3>Elegí un almacén</h3>
+          <h3>Elige un almacén</h3>
           <p>El surtido se organiza por almacén: una ola es un recorrido, y no se pueden recorrer dos a la vez.</p>
         </div>
       } @else {
@@ -208,7 +208,7 @@ type Paso = 'pool' | 'recorrido' | 'avisos' | 'faltantes';
                  hoy" se lee idéntico a "hay 9 que nadie pudo clasificar". -->
             @if (poolSinTipo() > 0 && !filtroTipo().length) {
               <p-message severity="warn" class="su-msg">
-                {{ poolSinTipo() }} de {{ pool().length }} pedidos no tienen tipo de ruta. Si filtrás
+                {{ poolSinTipo() }} de {{ pool().length }} pedidos no tienen tipo de ruta. Si filtras
                 por tipo, esos no van a aparecer en ninguna lista.
               </p-message>
             }
@@ -263,7 +263,7 @@ type Paso = 'pool' | 'recorrido' | 'avisos' | 'faltantes';
                   @if (filtroTipo().length) {
                     <div class="comm-empty">
                       <h3>Ningún pedido de ese tipo de ruta</h3>
-                      <p>Hay pedidos esperando, pero no de {{ filtroTipo().length === 1 ? 'ese tipo' : 'esos tipos' }}. Quitá el filtro para verlos todos.</p>
+                      <p>Hay pedidos esperando, pero no de {{ filtroTipo().length === 1 ? 'ese tipo' : 'esos tipos' }}. Quita el filtro para verlos todos.</p>
                       <button pButton size="small" [text]="true" (click)="cambiarFiltroTipo([])">Ver todos</button>
                     </div>
                   } @else {
@@ -661,7 +661,7 @@ type Paso = 'pool' | 'recorrido' | 'avisos' | 'faltantes';
             </label>
             <p class="su-note su-note-sm">
               <i class="pi pi-info-circle" aria-hidden="true"></i>
-              Si falta algo, marcalo y seguí: nadie se detiene. El faltante se resuelve aparte.
+              Si falta algo, márcalo y sigue: nadie se detiene. El faltante se resuelve aparte.
             </p>
           </div>
         }

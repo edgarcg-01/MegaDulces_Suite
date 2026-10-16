@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map, of, switchMap, forkJoin } from 'rxjs';
+import { Observable, map, of, switchMap, forkJoin, from } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   PortalService,
@@ -9,6 +9,17 @@ import {
   OrderLine,
 } from '../portal/portal.service';
 import { AuthService } from '../../core/services/auth.service';
+import { OfflineDatabaseService } from '../../core/services/offline-database.service';
+import { type OrigenCatalogo, sirveCopia } from './catalogo-al-abrir';
+
+/** `[VTK.11]` El catálogo con el que se abre un cliente, y de dónde salió. */
+export interface CatalogoAlAbrir {
+  priceListId: string;
+  prices: PriceRow[];
+  origen: OrigenCatalogo;
+  /** Epoch ms en que se bajó del servidor. */
+  at: number;
+}
 
 /** Subconjunto de `AddressJsonb` (platform-core) que la app muestra. */
 export interface VendorAddress {
@@ -144,22 +155,6 @@ export interface SetLocationResult {
   longitude?: number;
 }
 
-/** Sugerencia de Thot (motor de inteligencia) para take-order. */
-export interface ThotSuggestion {
-  product_id: string;
-  product_name: string;
-  price: number;
-  tax_rate: number;
-  min_qty: number;
-  rotation_tier: string | null;
-  margin_pct: number | null;
-  aff_lift: number;
-  zona_index: number;
-  score: number;
-  reason: 'affinity' | 'zona' | 'rotacion' | 'margen' | 'demanda';
-  reason_label: string;
-}
-
 /** TC-V — chat del vendedor. */
 export interface VendorThotToolTrace { name: string; input: any; result: any; }
 export interface VendorThotChatResult {
@@ -180,17 +175,6 @@ export interface FrequentProduct {
   total_qty: number;
   avg_qty: number;
   last_ordered_at: string;
-}
-
-/** VQ-voz: producto sugerido por la IA a partir del dictado/texto libre. */
-export interface AiSuggestion {
-  product_id: string;
-  product_name: string;
-  brand_name: string | null;
-  qty: number;
-  unit_price: number;
-  min_qty: number;
-  reason: string;
 }
 
 /** Cliente due-for-reorder según el motor de inteligencia (Fase M). */
@@ -291,7 +275,14 @@ export class VendorService {
   private readonly http = inject(HttpClient);
   private readonly portal = inject(PortalService);
   private readonly auth = inject(AuthService);
+  private readonly offlineDb = inject(OfflineDatabaseService);
   private readonly base = environment.apiUrl + '/commercial';
+
+  /**
+   * `[VTK.11]` El último catálogo bajado en esta sesión, por lista + almacén. Al pasar de un
+   * cliente a otro de la misma ruta se abre desde aquí sin tocar la red.
+   */
+  private readonly catalogosEnMemoria = new Map<string, { prices: PriceRow[]; at: number }>();
 
   /** sub del JWT del vendedor logueado. Lo usamos para scoping de drafts / "Mi día". */
   private get vendorUserId(): string | null {
@@ -390,10 +381,7 @@ export class VendorService {
   ): Observable<{ priceListId: string; prices: PriceRow[] }> {
     return this.portal.listPriceLists().pipe(
       switchMap((priceLists) => {
-        const list =
-          (customer.default_price_list_id &&
-            priceLists.find((p: any) => p.id === customer.default_price_list_id)) ||
-          priceLists.find((p: any) => p.is_default);
+        const list = this.listaDelCliente(customer, priceLists);
         if (!list) return of({ priceListId: '', prices: [] as PriceRow[] });
         // priced_only: el catálogo del vendedor = solo lo pedible (con precio),
         // completo. Sin esto el backend capa a 500 productos. Devolvemos el
@@ -401,7 +389,57 @@ export class VendorService {
         // sort=sales: más vendido → menos vendido (ranking real) arriba.
         return this.portal
           .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales' })
-          .pipe(map((prices) => ({ priceListId: list.id, prices })));
+          .pipe(
+            map((prices) => {
+              // [VTK.11] Queda en memoria para el siguiente cliente de la ruta.
+              this.catalogosEnMemoria.set(`${list.id}|${warehouseId || ''}`, { prices, at: Date.now() });
+              return { priceListId: list.id, prices };
+            }),
+          );
+      }),
+    );
+  }
+
+  /** La lista de precios del cliente: la suya, o la de la empresa por defecto. */
+  private listaDelCliente(
+    customer: VendorCustomer,
+    priceLists: Array<{ id: string; is_default?: boolean }>,
+  ): { id: string } | undefined {
+    return (
+      (customer.default_price_list_id && priceLists.find((p) => p.id === customer.default_price_list_id)) ||
+      priceLists.find((p) => p.is_default)
+    );
+  }
+
+  /**
+   * `[VTK.11]` El catálogo para ABRIR un cliente sin esperar la descarga: primero el de esta
+   * sesión, luego el guardado en el celular, y sólo si no hay copia que sirva, el servidor.
+   * La copia sirve si es de la misma sucursal y tiene menos de un día (`sirveCopia`). Quien la
+   * use debe refrescarla detrás (`hayQueRefrescar`) y decir su edad.
+   */
+  catalogInstant(customer: VendorCustomer, warehouseId?: string): Observable<CatalogoAlAbrir> {
+    const wh = warehouseId || '';
+    return this.portal.listPriceLists().pipe(
+      switchMap((priceLists) => {
+        const list = this.listaDelCliente(customer, priceLists);
+        if (!list) return of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() });
+        const mem = this.catalogosEnMemoria.get(`${list.id}|${wh}`);
+        if (mem && sirveCopia({ warehouseId: wh, at: mem.at }, wh, Date.now())) {
+          return of<CatalogoAlAbrir>({ priceListId: list.id, prices: mem.prices, origen: 'memoria', at: mem.at });
+        }
+        return from(this.offlineDb.getVendorCatalog(list.id).catch(() => undefined)).pipe(
+          switchMap((guardado) => {
+            const at = guardado ? Date.parse(guardado.cachedAt) : Number.NaN;
+            const prices = (guardado?.prices ?? []) as PriceRow[];
+            if (guardado && prices.length && sirveCopia({ warehouseId: guardado.warehouseId, at }, wh, Date.now())) {
+              this.catalogosEnMemoria.set(`${list.id}|${wh}`, { prices, at });
+              return of<CatalogoAlAbrir>({ priceListId: list.id, prices, origen: 'telefono', at });
+            }
+            return this.catalogForCustomer(customer, warehouseId).pipe(
+              map((c): CatalogoAlAbrir => ({ ...c, origen: 'servidor', at: Date.now() })),
+            );
+          }),
+        );
       }),
     );
   }
@@ -643,20 +681,6 @@ export class VendorService {
     return this.http.get<NbaDue[]>(`${this.base}/intelligence/nba`);
   }
 
-  /**
-   * Thot — qué ofrecerle a este cliente (producto-first: rotación·margen·afinidad·zona).
-   * Si pasás `cartProductIds`, las sugerencias se vuelven cart-aware ("completá la canasta").
-   * Best-effort: si el motor/feature store no está, el caller cae a su lista local.
-   */
-  thotSuggest(customerId: string, cartProductIds: string[] = [], limit = 40): Observable<ThotSuggestion[]> {
-    let p = new HttpParams().set('limit', String(limit));
-    if (cartProductIds.length) p = p.set('cart', cartProductIds.join(','));
-    return this.http.get<ThotSuggestion[]>(
-      `${this.base}/intelligence/thot/suggest/${customerId}`,
-      { params: p },
-    );
-  }
-
   /** TC-V — Copiloto conversacional del vendedor (scoped a su cartera, stock PH). */
   thotChat(history: { role: 'user' | 'assistant'; content: string }[], message: string): Observable<VendorThotChatResult> {
     return this.http.post<VendorThotChatResult>(`${this.base}/intelligence/vendor/thot/chat`, { history, message });
@@ -667,26 +691,11 @@ export class VendorService {
 
   /**
    * VQ: productos habituales del cliente (order pad). Best-effort: si el endpoint
-   * no está (api sin desplegar), el caller cae a [] y muestra solo sugeridos.
+   * no está (api sin desplegar), el caller cae a [] y muestra solo el catálogo.
    */
   frequentProducts(customerId: string, days = 120, limit = 50): Observable<FrequentProduct[]> {
     const p = new HttpParams().set('days', String(days)).set('limit', String(limit));
     return this.http.get<FrequentProduct[]>(`${this.base}/orders/frequent/${customerId}`, { params: p });
-  }
-
-  /**
-   * VQ-voz: convierte texto libre / dictado ("5 cajas de paleta payaso, 3 de
-   * bubaloo") en productos + cantidades del catálogo del cliente (Claude Haiku,
-   * con fallback heurístico server-side). customerId = el cliente visitado.
-   */
-  aiOrderSuggest(
-    message: string,
-    customerId: string,
-  ): Observable<{ assistant_message: string; suggestions: AiSuggestion[] }> {
-    return this.http.post<{ assistant_message: string; suggestions: AiSuggestion[] }>(
-      `${this.base}/ai-order/suggest`,
-      { message, customer_id: customerId },
-    );
   }
 
   /** VQ: reemplaza TODAS las líneas del draft en 1 request (order pad bulk). */
@@ -698,15 +707,6 @@ export class VendorService {
       `${this.base}/orders/${orderId}/lines`,
       { lines },
     );
-  }
-
-  /** Registra una señal del feedback loop (Fase M, best-effort en el caller). */
-  recordSignal(customerId: string, signalType: string, channel = 'vendor'): Observable<{ id: string }> {
-    return this.http.post<{ id: string }>(`${this.base}/intelligence/signals`, {
-      customer_id: customerId,
-      signal_type: signalType,
-      channel,
-    });
   }
 
   /** Autoventa: entrega inmediata en un paso (draft/pending/confirmed → fulfilled). */

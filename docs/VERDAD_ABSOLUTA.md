@@ -1,3 +1,49 @@
+<!-- INDICE-AUTO:INICIO -->
+
+> **Índice navegable** — 321 KB, 4856 líneas, 34 secciones.
+> ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
+> Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
+> Lo genera `npm run docs:indices` — no lo edites a mano.
+
+| Desde | Hasta | KB | Sección |
+|---:|---:|---:|---|
+| 47 | 62 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 63 | 79 | 1 | 0. Qué es este documento, y qué NO es |
+| 80 | 188 | 6 | 1. Las siete reglas |
+| 189 | 222 | 8 | 2. El estado, en una tabla |
+| 223 | 385 | 10 | 3. Existencia |
+| 386 | 610 | 12 | 4. Ventas y unidades |
+| 611 | 642 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 643 | 719 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 720 | 790 | 5 | 6. Las trampas que ya cobraron |
+| 791 | 848 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 849 | 893 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 894 | 1095 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1096 | 1201 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1202 | 1402 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1403 | 1708 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1709 | 1728 | 2 | 10. Cómo se verifica |
+| 1729 | 1751 | 1 | 11. Lo que este documento no cubre |
+| 1752 | 1827 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1828 | 1987 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 1988 | 2371 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2372 | 2612 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2613 | 2805 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2806 | 2848 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2849 | 2947 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2948 | 3421 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3422 | 3529 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3530 | 3684 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3685 | 3836 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3837 | 4042 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4043 | 4132 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4133 | 4322 | 10 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4323 | 4391 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4392 | 4686 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4687 | 4902 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+
+<!-- INDICE-AUTO:FIN -->
+
 # La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara
 
 > **Fuente principal de razón del sistema.** Pedido de Edgar (2026-09-08): *"necesitamos verdad
@@ -581,7 +627,7 @@ divergir.
 | unidad/peldaño del renglón de venta | `analytics.v_erp_sales_line_units` | inferirlo del rótulo |
 | factor de caja por producto | `analytics.v_product_box_factor` | `kdii.c84` crudo |
 | factor de caja por almacén × producto | `analytics.v_warehouse_box_factor` | un factor por producto |
-| la unidad resuelta, con testigo | `analytics.v_unit_truth` (+ `_coverage`) | — |
+| ⭐⭐ **la unidad resuelta, con testigo** (¿quién confirmó este factor?) | `analytics.v_unit_truth` (+ `_coverage`) — 91.4 % medible, cobertura total por almacén | derivar la unidad de `catalog.product_barcodes.factor` (acierta **9.8 %**) ni de `factor_sale` (100 % de sus productos marcados sospechosos) · tratar `box_factor = 1` como un factor: en 2,283 productos es **ausencia de dato**. §31 |
 | sell-out Kepler a grano día | `analytics.mv_kepler_sales_daily` | `analytics.sales_daily` para sell-out |
 | ⭐ **el CANAL de una fila de sell-out** (de negocio, no el crudo del ERP) | `analytics.sellout_channel_map` (+ `v_sellout_channel_coverage`) | enumerar canales a mano en el service o en el front: el universo publica SEIS crudos y las listas literales tenían CUATRO — `mayoreo` (U-D-8 telemarketing, $21.4M/90 d) y `contado_nf` quedaban sin rótulo, sin filtro y **sin hoja en el árbol**, que es lo que los tiraba. ⚠️ `wincaja:credito` (caja 70 «Mayoreo a credito») y `kepler:mayoreo` son EL MISMO canal a los dos lados del cutover. VSO.1 · §15 |
 | ⭐ **desde cuándo manda Kepler en una sucursal** (y hasta cuándo Wincaja) | `analytics.v_branch_erp_cutover` | escribir la fecha como literal en una vista (se copió 3 veces y divergió — SB.1), o **inferirla** de `last_movement_date`: es una DECISIÓN, y en La Piedad las dos piernas se traslapan 9 meses. La fecha correcta es el **traspaso real** del POS, no un fin de mes. VSO.3 · §15 |
@@ -4228,19 +4274,33 @@ movimiento, y el libro más las dos piernas de CAOS. Coinciden al centavo.
 | **saldo de la bóveda** | — | ⛔ **límite de la fuente**: CAOS no lo publica |
 | faltante del arqueo del 12-oct | $62.45 | operación |
 
-### 28.9 ⛔⛔ El corte del 12-oct NO se puede sellar con el código desplegado
+### 28.9 El corte del 12-oct no se podía sellar con el código desplegado — ⭐ el impedimento de CÓDIGO se levantó el 2026-10-15
 
-La API de prod corre `1e9b7788`, **anterior a `[CG.115]`**. Con ese código, `cerrar()` barre
-**todo** lo que tenga `corte_id IS NULL` sin mirar la fecha: medido el 2026-10-13, son **58
-movimientos del 25-sep al 10-dic**, y el esperado que publica es **−$85,818.37** (reproducido al
-centavo contra prod).
+**Lo que pasaba (2026-10-13).** La API de prod corría `1e9b7788`, **anterior a `[CG.115]`**. Con ese
+código, `cerrar()` barre **todo** lo que tenga `corte_id IS NULL` sin mirar la fecha: medido ese día,
+son **58 movimientos del 25-sep al 10-dic**, y el esperado que publica es **−$85,818.37** (reproducido
+al centavo contra prod).
 
 ⛔ Sellar así no sólo firmaría un número imposible: **ataría al corte del 12-oct los $130,000 del
 25-sep y todo lo del 13**, y esos días ya no podrían cuadrarse nunca — un movimiento atado a un
 corte deja de estar suelto.
 
-**El corte del 12-oct se sella DESPUÉS de desplegar `[CG.115]`.** Con el arreglo, el mismo corte
-publica **$3,402.45** sobre 23 movimientos de su jornada.
+**⭐ Medido el 2026-10-15 11:45 (MX):** `GET /api/health` de prod devuelve **`ab0b06655`** (= `ci-green`
+= `prod-release`, arrancado minutos antes), y ese commit **contiene** `2e0437aef`
+(`[CG.112/113/114/115/116]`) y los dos arreglos de `[CG.160]` (`e5a438abc`, `9e77b3ba5`). O sea: **el
+impedimento de código ya no aplica**, y con él se levanta también lo que `CGP-0.1` pedía.
+
+⚠️ **Lo que esto NO dice.** Que el commit desplegado traiga el arreglo **no es** haber comprobado el
+número: falta la lectura de prod de `CGP-0.2` (transacción `READ ONLY`, rol `app_runtime`) que
+reproduzca el esperado **$3,402.45** sobre los 23 movimientos de la jornada del 12. Hasta esa lectura,
+el $3,402.45 sigue siendo la derivación de §28.6, no una medición del endpoint. Y **con qué conteo se
+sella** sigue siendo la decisión abierta `CGP-0.3` (§28.6: $3,340.00 contado contra el $3,653.50 que
+`FASE_CG` reporta sellado el 14-oct).
+
+⛔ **Un SHA escrito en prosa envejece el mismo día en que se escribe** — esta sección ya cargó dos
+(`1e9b7788`, y `62fb99896` en `FASE_CG §37.5`). El resolvedor de «qué corre en prod» es
+`curl http://192.168.0.222:30080/api/health`; lo que se escribe acá es la medición **con su fecha y
+hora**, nunca el estado presente.
 
 ### 28.10 Las trampas que cobraron escribiendo esta sección
 
@@ -4257,3 +4317,585 @@ publica **$3,402.45** sobre 23 movimientos de su jornada.
    `btrim(numeric)` no existe: todo va por `nullif(btrim(x::text),'')::numeric`.
 
 **Medición reproducible:** 14 consultas read-only contra `pg-prod` el 2026-10-13.
+
+---
+
+## 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-14)
+
+**`kepler_ods.kdm1.c1` lleva sucursal + RUTA.** Los valores compuestos (`01-001`…`01-006`) son rutas
+con su repartidor, confirmado por Edgar. El filtro canónico `btrim(c1) = sucursal` —correcto para
+atajar la réplica cruzada entre plazas— **los descarta a todos**.
+
+| tabla | filas | pasa | **RUTA descartada** | réplica real |
+|---|---|---|---|---|
+| **`kdm1`** | 302,492 | 295,260 | **7,229** | **3** |
+| `kdm5` | 68,543 | 67,408 | 0 | 1,135 |
+| `kdxe` | 52,535 | 51,797 | 0 | 738 |
+
+⭐ **En `kdm1` descarta 2,410 rutas por cada réplica real.** En `kdm5` y `kdxe` acierta. **No es una
+política global: es UNA TABLA.** Lo perdido en 90 días: **$5,869,974.50** — `U-D-10` $4,385,771.68 ·
+`U-D-23` $1,049,130.53 · `U-A-50` $316,478.71 · `U-A-5` $117,972.97.
+
+### Lo que cambia es la MEZCLA, no la magnitud
+
+    mes    filas   monto         ticket prom.   rutas   U-D-23   U-A-5
+    jun       59   $  169,873       $2,879        2       —        —
+    ago    1,280   $  890,231       $  695        6       —        —
+    sep    4,036   $2,629,148       $  651        6       0        0
+    oct    1,913   $2,350,596       $1,229        6      61        6    ← medio mes
+
+⛔ **Leer ese salto de $651 a $1,229 como «rutas de ticket más grande» es un error, y lo cometimos.**
+El ticket de ruta está **plano**: `U-D-10` septiembre **$611.59** contra octubre **$613.16**, y las
+rutas son las mismas **seis**. El salto lo producen enteros los `U-D-23` a **$17,198.86** y los
+`U-A-5` a **$19,662.16**, los dos apareciendo en octubre **desde cero**.
+
+⇒ Es **comparar un promedio entre dos meses cuya composición no es la misma** — la misma familia que
+«declarar el universo, no sólo el número».
+
+### ⚠️ La alarma NO es el monto: es la LISTA DE DOCTYPES
+
+**El agujero no crece: se mueve hacia donde estamos mirando.** Arrancó sólo con tickets; desde
+octubre las rutas emiten también **su corte y su cobro** con código compuesto — justamente
+`U-D-23` y `U-A-5`, **los dos documentos que cierran el circuito venta → corte → cobro**, o sea el
+rastro que la Fase CG fue a buscar. El filtro empezó a tragárselos el mismo mes.
+
+⇒ **La señal de que esto se extendió otra vez es un DOCTYPE NUEVO en la lista de `c1` compuesto, no
+un número más grande.** Vigilar el monto no alcanza: cada tipo que se suma es otra vista del ODS
+perdiendo filas en silencio, sin que nada avise.
+
+### Los objetos, y la regla para tocarlos
+
+**Afectados** (leen `kdm1`): `analytics.kepler_bank_movements` · `mv_new_products` ·
+**`mv_product_margins_30d`** (publica MARGEN) · `v_erp_sales_line_units` · `expense_documents` ·
+`mv_caja_autofill_entidad`. **No afectados**: las 11 vistas de compras y pagos (`kdm5`/`kdxe`).
+
+⛔⛔ **NO relajar el filtro en bloque.** En `kepler_bank_movements`, cambiarlo a
+`split_part(c1,'-',1) = sucursal` **DUPLICA $118k**: **52,548 filas para 52,542 llaves únicas**,
+porque esos documentos entran también por la otra pierna de la vista. En los tickets **no duplica
+nada**. ⇒ **Se mide por VISTA, no por tabla**, con su propio control de duplicados **antes** de
+tocar el filtro: dos vistas sobre `kdm1` pueden necesitar decisiones opuestas.
+
+### Dos cabos con nombre
+
+- **`RD027`** vende **$209,325.35 en 30 días** y **no existe en `kduv`** (0 filas). Se declara sin
+  resolver; **nunca** se cae al nombre genérico de otra plaza — `kduv` está replicado por plaza
+  (400 filas / 83 códigos) y el mismo código significa cosas distintas: `20001` es
+  `SUC MORELIA MADERO PISO` en 00–07 y `VENTA PISO MORELIA ABASTOS` en 08.
+- **645 tickets / $310,060 sin vendedor** (`c12` vacío), concentrados en `01-005`.
+
+**Medición reproducible:** consultas read-only contra `pg-prod` el 2026-10-14, reproducidas
+independientemente por una segunda sesión. Decode del campo en
+[`ERP_KEPLER.md` §3.z.3](ERP_KEPLER.md).
+
+---
+
+## 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía CINCO censos y DOS costos (RA.VA, 2026-10-15)
+
+**Pedido de Edgar (2026-10-15):** *"necesito que tengamos una verdad absoluta de cada dato de
+/compras/pedido… no enfocándonos a dato por dato, sino revisar la fuente de información y validar
+que no haya descuadres de lo que dice uno y de lo que dice el otro"*.
+
+**Medido read-only contra `pg-prod` (`192.168.0.222:5434`) el 2026-10-15, 09:30–10:20 MX.** El
+hallazgo no es que una fuente esté mal: es que **la pantalla publica ocho paneles que leen cinco
+censos de existencia y dos costos distintos**, y nada en la interfaz dice cuál está mirando el
+comprador.
+
+### 30.1. El mapa de fuentes — qué lee cada panel
+
+El fact `analytics.replenishment_plan` (51,228 filas, 6,401 productos × 20 almacenes) es el que
+sostiene la grilla y casi todo lo demás. **Lo escribe un importer**
+(`database/importers/kepler/import-replenishment-plan.js`, carriles `stock` @15 min y `nightly`) —
+o sea que `/compras/pedido` **no** cumple la regla principal de "todo dato del ODS por VISTA":
+está a un salto de distancia, y ese salto es lo que se mide abajo.
+
+| Panel / columna | endpoint | lo que lee |
+|---|---|---|
+| **Grilla** (Venta 30 d · Exist. · Pedido · En camino · Costo/Cja · Máx · Reorden) | `GET /commercial/replenishment/workbook` | `analytics.replenishment_plan` + `reorder_policy` + `v_supplier_cost_ladder` (unidades) + `demand_acceleration` |
+| **Compra sugerida** | `…/purchase-suggestion` | el **mismo** fact + `v_abc_class` |
+| **Traspaso / Sobrestock** | `…/transfer-suggestion` · `…/overstock` | el **mismo** fact |
+| **Inmovilizado** | `…/sobrante` | el **mismo** fact + `analytics.stock_movements` |
+| **Venta por mes** (se abre desde la celda) | `…/workbook/:id/monthly` | ⛔ **`analytics.sales_daily` directo** |
+| **En camino** (folios) | `…/in-transit/:id` | ⛔ **`erp_purchase_orders` + `erp_purchase_doc_lines` directo** |
+| **Ciclo** | `…/worklist` | ⛔ **`commercial.stock`** + ⛔ **`catalog.products.cost_with_tax`** |
+| **Stock muerto** | `…/dead-stock` | `v_erp_stock_on_hand` + ⛔ `cost_with_tax` + ⛔ `analytics.product_sales_daily` |
+| **Flujo** | `…/purchase-flow` | `commercial.purchase_requisitions` + `analytics.erp_purchase_docs`/`doc_lines` |
+| **Post-mortem** | `…/postmortem` | `analytics.mv_purchase_postmortem` |
+| **Deuda por proveedor** | `/finance/creditor-statements/por-proveedor` | otro dominio (Finanzas) |
+
+Y las primitivas del fact, hasta el ODS:
+
+| columna del fact | de dónde sale | origen último |
+|---|---|---|
+| `stock_pz` | `analytics.v_erp_stock_on_hand` | `kepler_ods` + `wincaja.articulos`, arbitrado por `v_branch_erp_cutover` |
+| `daily_pieces` · `revenue30` | `analytics.product_demand` | `analytics.sales_daily` **sin canal `mayoreo`**, ventana por almacén |
+| `transit_cajas` · `transit_eff_cajas` | `erp_purchase_orders` + `erp_purchase_doc_lines` | `kepler_ods.kdm1`/`kdm2`, doctype `XA3501`, pesado por `oc_survival_curve` |
+| `bf` | `analytics.v_product_box_factor` | override > `kdii` (c84) > etiquetera > `factor_sale` |
+| `display_bf` | `analytics.v_warehouse_box_factor` | ADR-055 — unidad **nativa de ese almacén** |
+| `caja_cost` | `analytics.v_supplier_cost_ladder.box_cost` | `kepler_ods.kdpv_prov_prod.c4` ("Costo Uni Mayor") |
+| `lead_days` | mediana OC → entrada por proveedor | `kdm1` (XA35 → XA40, 240 d) |
+| `reorder_point` · `max_stock` | `commercial.reorder_policy` | se deriva de `analytics.inventory_health` |
+
+### 30.2. ⛔⛔ Lo más grande: la celda "Venta 30 d" y el gráfico que se abre al hacerle clic dicen cosas distintas
+
+El tooltip de la celda dice *"Venta 30 d: N cajas · Clic para ver la venta por mes"*. El clic abre
+`monthlySales`. **Los dos dicen "venta 30 d", en cajas, y no es el mismo número.**
+
+| | cajas 30 d (red) | productos que difieren > 5 % |
+|---|---:|---:|
+| **celda de la grilla** (`daily_pieces × 30 ÷ suf·bf`) | **118,453** | — |
+| **drill mensual** (`units × rung_factor ÷ suf·bf`) | **168,144** | **2,664 de 6,482** |
+| drill, quitándole el canal `mayoreo` | 128,495 | 1,479 |
+
+⭐ **+42 % de diferencia, y dos causas independientes:**
+
+1. **El canal — y acá no había una decisión, había un FILTRO HUÉRFANO (ver §30.2bis).**
+   `import-demand-clean.js` excluía `channel = 'mayoreo'` con el comentario *"=TI% traspaso
+   interno CEDIS→suc, no es demanda de venta"* — **$12.9 M en 30 días**. `monthlySales` no filtra
+   ningún canal. **Ese comentario describía una rama que K.3 retiró el 2026-09-08**: hoy lo único
+   que entra a `mayoreo` es venta real.
+2. **La ventana y la unidad.** La demanda usa una ventana **por almacén anclada a la última venta
+   de ese almacén** (y deja en 0 al que lleva > 21 días sin vender), y reconstruye las piezas
+   como `revenue ÷ precio_pieza`; el drill usa `CURRENT_DATE-30` fijo y `units × rung_factor`.
+   Eso es el **8.5 % que sobra** después de descontar mayoreo, y **sí es deliberado**: son dos
+   medidas distintas (demanda contra venta) y el diálogo ya publica las dos lado a lado.
+
+⚠️ **1,603 productos tienen fila en la grilla y el drill les sale vacío.** Para el comprador eso se
+lee como "no vendió", y lo que pasó es que la ventana del drill no los alcanza.
+
+### 30.2bis. ⛔⛔ La causa raíz: el motor de compra no veía un CANAL ENTERO — $12.92 M en 30 días
+
+**El filtro de arriba dejó de hacer lo que su comentario decía, y nadie lo notó durante cinco
+semanas, porque lo que cambió no fue el filtro: fue el significado del canal.**
+
+`mart_ventas_enriched.sql` deriva el canal del doctype de Kepler. **K.3, el 2026-09-08, retiró la
+rama `TI% → mayoreo`** dejándolo escrito: *"la rama TI%→mayoreo NUNCA se dispara con esta data…
+Ahora la ÚNICA vía a `mayoreo` es el doctype 8"*. Y **doctype 8 = `U-D-8` Factura Telemarketing =
+MAYOREO**, decisión de Edgar del 2026-09-02, confirmada de forma independiente por la migración
+`20260928190000_sellout_channel_map` (*"kepler:mayoreo (U-D-8 Factura Telemarketing)"*).
+
+⇒ **El filtro pasó de tapar traspasos a tapar VENTA REAL**, y el comentario siguió describiendo el
+mundo viejo. No está en el CEDIS: está en tres sucursales que venden al público.
+
+| mes | `mayoreo` | % de la venta total |
+|---|---:|---:|
+| may–jun 2026 | $0 | 0.0 % |
+| **jul** | $4,788,384 | **8.8 %** |
+| **ago** | $7,469,272 | **13.7 %** |
+| **sep** | $11,366,049 | **20.6 %** |
+| **oct** (medio mes) | $6,280,317 | **23.6 %** |
+
+| sucursal | mayoreo 30 d | % de SU venta | pares afectados |
+|---|---:|---:|---:|
+| `01` Padre Hidalgo | $4,627,763 | **42.2 %** | 1,305 |
+| `06` Canindo | $4,445,397 | **47.7 %** | 995 |
+| `08` Morelia Abastos | $3,851,480 | **23.5 %** | 1,246 |
+
+⭐ **El 99.98 % de ese dinero cae en productos que YA tienen fila en el fact**: no era un hueco de
+universo, la fila existía y su demanda salía corta. *CANELS 4S BOLSA 1Kg* en Canindo vendió
+**1,224 pz / $143,513** por este canal y el motor veía **13.16 pz/día** (≈395 en 30 d).
+
+⚠️ **Pesaba DOBLE**: el mismo filtro estaba en `import-inventory-health.js`, de donde salen
+`avg_daily_units` → `reorder_policy` → el **Reorden** y el **Máx** de la grilla *y* el objetivo del
+panel «Ciclo». Los umbrales de esas tres sucursales estaban dimensionados contra una demanda
+recortada ~23 %.
+
+**Antes/después del sugerido** (cobertura 30 d, prod 2026-10-15), autorizado por Edgar:
+
+| | hoy | con el canal contado |
+|---|---:|---:|
+| **red** | **$13,514,920** | **$19,482,427** (+$5,967,507, **+44.2 %**) |
+| `01` | $4,026,596 | $6,235,884 |
+| `06` | $1,721,482 | $3,782,386 |
+| `08` | $3,062,783 | $4,760,097 |
+
+525 pares pasan de "no pedir" a "pedir"; 1,523 que ya pedían suben.
+
+⛔ **La lección, que es más grande que este filtro:** *un filtro por NOMBRE de canal es una bomba de
+tiempo, porque el canal viaja CRUDO y su significado lo fija otro archivo* (`mart_ventas_enriched.sql`,
+y el resolvedor `analytics.sellout_channel_map`). Cuando ese otro archivo cambia, el filtro sigue
+compilando, sigue corriendo y sigue verde — sólo empieza a tapar otra cosa. **Lo que detectó esto
+no fue un test: fue cruzar dos superficies que debían decir el mismo número y no lo decían.**
+
+### 30.3. ⛔ DOS costos: la grilla valúa con Kepler y dos paneles con el catálogo (+11.62 %)
+
+La grilla, el pedido y el Excel usan `caja_cost` — el costo de caja **leído** de Kepler
+(RA-PRO.46: *"leerlo sacó $1.1 M de costo inventado del catálogo"*). **«Ciclo»** y
+**"Stock muerto"** usan `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`, que es justamente el costo
+del catálogo que esa fase retiró — y "Stock muerto" además lo multiplica por `box_factor`, que es
+la reconstrucción `real_cost × bf` que RA-PRO.46 midió fallando **por los dos lados**.
+
+| | suma de costo/pieza, 6,401 productos |
+|---|---:|
+| `catalog.products.cost_with_tax` (Ciclo · Stock muerto) | **$315,617.32** |
+| `caja_cost ÷ bf` (Kepler — grilla y pedido) | **$282,757.11** |
+| **sesgo** | **+11.62 %** |
+
+**4,802 de 6,401 productos (75.0 %) se separan más del 5 %.** El mismo inventario vale un 11.6 %
+más en el panel de abajo que en la grilla de arriba, sin un solo error de cálculo.
+
+### 30.4. ⛔ CINCO censos de existencia en la misma pantalla
+
+| censo | quién lo usa | contra el fact |
+|---|---|---|
+| `analytics.v_erp_stock_on_hand` (**el bueno**, ADR-055) | el importer del fact · Stock muerto | — |
+| `replenishment_plan.stock_pz` | grilla · sugerida · traspaso · sobrestock · inmovilizado | **186 pares / 4,592 pz sobre 2.91 M = 0.16 %** ✔ |
+| `commercial.stock` (la copia) | **Ciclo** | **2,663,275 pz contra 2,855,692 → −192,417 pz (−6.7 %)**, 316,169 de error absoluto |
+| `analytics.inventory_health.on_hand` | de ahí salen **Reorden** y **Máx** de la grilla | **1,807 pares difieren · 34,865 pz**; hay filas con `computed_at` del **31-jul** |
+| `analytics.stock_movements` | Inmovilizado (últ. compra/salida) · Stock muerto | sólo fechas |
+
+⭐ **El fact está limpio: 0 filas con existencia fantasma** (ningún par con `stock_pz > 0` que la
+vista viva ya no tenga). Las 20,154 filas que el fact tiene de más son todas con existencia 0 — las
+conserva porque tienen demanda o tránsito.
+
+⛔ **La copia `commercial.stock` sigue viva y la lee una pestaña de esta pantalla.** ADR-055 la
+retiró del motor por medición (la vista acierta 100 %, la copia 91 %); `worklist` nunca se mudó.
+El efecto en el trabajo: **21,771 productos "bajo reorden" según el Ciclo contra 21,718 según el
+fact** — la lista de qué comprar hoy no es la misma lista.
+
+### 30.5. ⛔ DOS facts de venta, y el que decide "muerto" es el chico
+
+| | piezas, últimos 30 d | última fecha |
+|---|---:|---|
+| `analytics.sales_daily` | **2,099,736** | 2026-10-15 |
+| `analytics.product_sales_daily` (**Stock muerto**) | **1,438,302** (−31.5 %) | 2026-10-14 |
+
+"Stock muerto" declara muerto un producto por su `MAX(sale_date)` en el fact que trae **dos tercios**
+de la venta. Un producto que sólo vende por el canal que ese fact no cubre se ve muerto sin estarlo
+— y se valúa, además, con el costo de catálogo de §30.3.
+
+### 30.6. Lo que SÍ cuadra (y por eso no hay que volver a revisarlo)
+
+| cruce | resultado |
+|---|---|
+| `fact.supplier_id` vs `catalog.products.supplier_id` | **0 de 51,228** difieren |
+| `fact.display_bf` vs `v_warehouse_box_factor` | **0 de 51,228** difieren |
+| `v_warehouse_box_factor` vs su `mv_` (la grilla lee la mv) | **0** filas de diferencia, 249,040 cada una |
+| `fact.bf` vs `v_product_box_factor` | 12 de 6,401 (0.19 %) |
+| `fact.caja_cost` vs `v_supplier_cost_ladder` viva | 7 de 6,401, **$346** en total; 58 productos sin escalera |
+| `fact.stock_pz` vs la vista viva | 0.16 % |
+| existencia fantasma en el fact | **0** |
+
+### 30.7. Lo que la pantalla DECLARA en vez de dibujar (está bien, no se toca)
+
+- **460 filas (0.9 %)** con `rung_veredicto` en `x1_inflada`/`x2_deflactada`: la grilla deja
+  **Pedido y Valor en blanco** y muestra la existencia nativa con su etiqueta. Son **$1,189,895**
+  de inventario declarado "sin valuar" en vez de valuado mal. Es ADR-056 funcionando.
+- **Tránsito**: la política vigente (`transito.ts`, Edgar 2026-10-08) es **no descontarlo** del
+  pedido; se **muestra** crudo. El diálogo publica `fact_cajas` junto a su propio total, así que la
+  diferencia de fórmula entre los dos es visible en pantalla y no silenciosa.
+
+### 30.7bis. ⚠️ Tránsito: lo que se verificó, y lo que quedó **NO MEDIDO**
+
+**Verificado:** las **264 OC abiertas** (≤ 120 d, `estatus NOT IN ('F','C','R')`) cruzan **todas**
+con `commercial.warehouses` — **cero tránsito perdido por mapeo de sucursal**. Reparto: `00` 152 ·
+`01` 95 · `08` 10 · `03` 4 · `04`/`06`/`07` 1 cada una, que confirma la centralización de compra
+que RA-PRO.42 corrige repartiendo el tránsito por el árbol de abasto. **62 OC más llevan abiertas
++120 días**: salen del tránsito del fact y siguen listadas en la bandeja de OC abiertas, con
+`prob = 0`. Es deliberado.
+
+⛔ **NO MEDIDO — el fact contra su propio diálogo "En camino".** Por **lectura de código** las dos
+fórmulas difieren: el fact, cuando la caja del documento no cuadra por dinero, infiere la unidad
+con `LEAST(costo_unitario / real_cost, bf)`; el diálogo cae directo a `cantidad / bf`. En las
+líneas que caen al respaldo, los dos números **no pueden** coincidir. Cuantificarlo exige unir
+`erp_purchase_doc_lines` (vista sobre `kepler_ods.kdm2`) con las OC abiertas, y esa consulta
+**excedió 15 minutos** contra prod en dos intentos: se declara sin medir, no se estima.
+
+### 30.8. Latidos — qué tan viejo puede estar lo que se ve
+
+- `fact_replenishment_plan_stock` **ok**, hace 13 min · `fact_replenishment_plan_nightly` **ok**, 03:36 MX.
+- ⚠️ `fact_replenishment_plan` (la llave **sin sufijo**) quedó clavada en **2026-10-09**: es una
+  llave retirada que sigue reportando verde. Ruido en el tablero de frescura.
+- ⚠️ `kepler_sales_fact_full` lleva **6.5 h en `running`** (desde las 09:00) — o corre, o quedó
+  huérfana; el latido no distingue.
+- ⛔ **`replenishment_plan.computed_at` NO es frescura** y no hay que leerlo así: el UPSERT es sin
+  churn, así que dice *cuándo cambió esa fila*. Hoy: 423 sellos, 34 % de las filas con más de un
+  día y la más vieja del 3-sep — **todas correctas**.
+
+### 30.9. ✅ Qué se CORRIGIÓ (2026-10-15, autorizado por Edgar) — con su antes/después
+
+Todo medido contra `pg-prod` antes de tocar nada; ningún cambio llega a prod hasta que se
+despliegue (la app en `trade-api`/`trade-view`, los importers en la imagen **`trade-ingest`**).
+
+| # | qué | dónde | antes → después |
+|---|---|---|---|
+| **1** | El motor cuenta el canal de telemarketing | `import-demand-clean.js` · `import-inventory-health.js` | sugerido **$13.51 M → $19.48 M** (+44.2 %) · `01` ×1.55 · `06` ×2.20 · `08` ×1.55 |
+| **2** | «Ciclo» deja de leer la copia `commercial.stock` | `worklist` | **−192,417 pz** de error (−6.7 %) · bajo reorden 21,781 → 21,729 |
+| **3** | «Ciclo» valúa con el costo de Kepler | `worklist` | sugerido **$48.57 M → $42.76 M** (−12.0 %) |
+| **4** | «Stock muerto» valúa con **`analytics.v_erp_unit_cost`**, el resolvedor canónico de §5 | `deadStock` | inmovilizado **$2,328,954 → $1,716,337** (−26.3 %), **cobertura 100 %** |
+| **5** | «Stock muerto» mira los DOS facts de venta | `deadStock` | **38,960 pares** dejan de publicarse como "sin actividad" teniendo venta |
+| **6** | El diálogo deja de atribuir la diferencia a "suavizado" | `compras-pedido-real` | sólo texto: nombra las tres causas reales |
+
+⭐ **Control de placebo** (regla del §1): el join nuevo a `v_supplier_cost_ladder` en «Stock muerto»
+**no multiplica filas** — 9,700 skus únicos sobre 9,700 filas, y el universo queda en **53,691
+pares antes y después**. El `reserved_quantity` que «Ciclo» deja de restar es **1 fila / 15 piezas**
+en toda la base: se cambian 316,169 piezas de error por 15 de reserva.
+
+**Lo que NO se tocó, y por qué:**
+
+- **La ventana y la unidad de la demanda** (el 8.5 % residual del §30.2). Son dos medidas
+  distintas a propósito y el diálogo ya publica las dos; forzar la igualdad escondería una, no
+  arreglaría nada.
+- **`costUnit()`**, que sigue con costo de catálogo: lo lee `criticalStock`, que **esta pantalla no
+  llama**. Cambiarlo acá sería tocar otra superficie sin medirla.
+- ✅ **El latido de `inventory_health` YA NO es deuda** (`[RA.VA.6]`, mismo turno): el importer
+  emite `fact_inventory_health`, y de paso se le dio el suyo a `import-demand-clean.js`
+  (`fact_product_demand`), que tampoco lo tenía **y es el que alimenta la demanda del motor**.
+  ⛔ Ése corre en **DOS carriles** (`live` y `nightly`), así que `run-prod-feeds.js` le pasa
+  `--hb=live` / `--hb=nightly`: la PK de `cron_runs` no lleva host y dos emisores sobre una llave
+  se pisan el renglón (medido en `import-sales-fact`: 304 falsos "no reportó cierre" en 7 días).
+  ⚠️ Lo que **no** arregla: `computed_at` de esas tablas sigue sin ser frescura — el UPSERT es
+  sin churn, así que dice *cuándo cambió la fila*. Por eso el latido va por llave propia.
+- **El tránsito del fact contra su propio diálogo**: sigue **NO MEDIDO** (§30.7bis).
+
+⛔ **Al desplegar el punto 1, re-medir.** El sugerido sube 44 % **a propósito**, pero el número que
+hay que mirar no es ése: es si `01`, `06` y `08` dejan de quedarse cortas. La comparación correcta
+es contra la venta perdida de esas tres sucursales, no contra el sugerido viejo.
+
+### 30.10. ⭐⭐ Choques con los `.md` del repo — qué documento hay que corregir y cuál me corrigió a mí
+
+Barrido de los `.md` del repo contra lo que esta sección afirma y lo que el código ahora hace.
+**De los siete choques, uno corrigió el código en vez del documento** — está primero porque es el
+que vale la pena leer.
+
+| # | Documento | Qué afirma | Choque | Resolución |
+|---|---|---|---|---|
+| **1** | **`VERDAD_ABSOLUTA.md` §5** (resolvedores) | *costo unitario para VALUAR → `analytics.v_erp_unit_cost`*, **nunca** el catálogo; y de la escalera del proveedor: *"NO sirve de árbitro del costo de la ficha: es un ESPEJO"* | **ALTO, contra MI PRIMERA VERSIÓN.** Arreglé «Stock muerto» con `v_supplier_cost_ladder` "para ser consistente con la grilla", y son dos preguntas distintas: *cuánto me cobran* ≠ *cuánto vale*. | **Ganó el documento.** `deadStock` pasa a `v_erp_unit_cost`: **$1,716,337** con **cobertura 100 %** contra $1,677,210 con 14 huecos. ⭐ Y resultó que `/comercial/dead-stock` **ya lo usaba** (`[KE.3]`): mi versión habría creado un **tercer** costo. |
+| **2** | **`CHANGELOG.md`** · K.3, 2026-09-09 | *"Knock-on: la demanda de los SKUs de telemarketing **sube** y con ella el sugerido de compra en `/compras`… queda avisado antes de que las sugerencias se muevan solas"* | **ALTO — pasó lo contrario, y el culpable fue ese mismo commit.** K.3 agregó `U-D-8` al fact **y** lo mandó al canal `mayoreo`, que `import-demand-clean` filtra. La demanda **no subió** en cinco semanas. | **Gana la medición.** Entrada corregida en el CHANGELOG con la fecha. Es el caso testigo de *"un filtro por NOMBRE de canal es una bomba de tiempo"*. |
+| **3** | **`CHANGELOG.md`** · stock muerto, 2026-07-15 | *"de 2,327 activos con existencia sin política, **0 tienen demanda** (100 % stock muerto)"* | **MEDIO — caducó.** Hoy **51 de 1,695** vendieron en 90 d por **$101,521**, y **27 se ven sólo en `sales_daily`**. | **Gana la medición.** Enmendado con fecha, no borrado. Los 27 son exactamente lo que destapa el arreglo #5. |
+| **4** | `CHANGELOG.md` 7347 + `commercial-analytics.service.ts` | Existe **otro** «Stock muerto» (`/comercial/dead-stock`) con **otra definición**: `product_sales_stats.units_90d = 0`, no "sin política de reorden" | **MEDIO.** Dos pantallas con el mismo nombre, dos universos y dos facts de venta. | **DECLARADO, no resuelto.** Con #1 las dos ya comparten el costo; **siguen difiriendo en qué es "muerto"**. Unificar la definición es una fase aparte. |
+| **5** | `AUDITORIA_KDMM_HOMOLOGACION.md` §3.5 | *"En `04` el embarque de telemarketing se contabiliza como **traspaso interno** de mercancía"* | **NINGUNO — pero había que probarlo.** Si el telemarketing fuera traspaso, contarlo como demanda lo **duplicaría**. | **Verificado:** eso es `U-D-41` (embarque) y `mart.ventas` sólo ingiere **8/10/12** (`mart_refresh_ventas.sql`). `U-D-6` ya se excluye por duplicar. Sin doble conteo. |
+| **6** | `02_DECISIONES_ARQUITECTURA.md` ADR-051 + el comentario en `deadStock` | *"el costo correcto por unidad de stock es `v_supplier_cost_ladder.box_cost / display_box_factor`… arreglarlo es de la **Fase MR**"* | **BAJO, pero la receta estaba mal.** La deuda era real; la receta que dejó escrita apuntaba al resolvedor equivocado (ver #1). | Deuda **saldada** antes que la Fase MR, con `v_erp_unit_cost`. La nota del código quedó enmendada. **Avisar a MR que su alcance bajó.** |
+| **7** | `VERDAD_ABSOLUTA.md` §3.2 | el inventario se valuaba con el catálogo; el árbitro es `kdik.c16` al grano sucursal × SKU | **NINGUNO — coincide**, y es la razón de #1. | De paso medido: el `valor_exis` del fact (que usa la escalera) difiere del resolvedor **sólo 1.1 %** — $66,072,279 contra $66,823,226, **0 pares sin dato**. **Declarado, no se toca.** |
+
+### ⚠️ Acoplamiento con la auditoría de `c16` que corre en paralelo
+
+`v_erp_unit_cost` → `v_kepler_unit_cost` → **`kepler_ods.kdik.c16`** (verificado leyendo las dos
+definiciones en prod). O sea:
+
+- **Si se redefine qué es `c16`, se mueven LAS DOS pantallas de «Stock muerto» a la vez** — ahora
+  que las dos leen el mismo resolvedor. Eso es lo que se quería, pero hay que saberlo antes.
+- ⭐ **En la otra dirección hay una buena noticia:** este cambio **retira dos consumidores** de
+  `catalog.products.cost_with_tax` / `cost_base` de `/compras/pedido` («Ciclo» y «Stock muerto»).
+  La decisión sobre qué alimenta `cost_base` tiene, desde hoy, **menos superficie que mover**.
+
+
+**Reproducible:** las consultas de esta sección son read-only sobre `pg-prod`; ninguna necesita el
+backend levantado.
+
+---
+
+## 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mueve $8.73M (U.VA, 2026-10-15)
+
+**Pedido de Edgar (2026-10-15):** *"necesito que agregues una verdad absoluta con las unidades de
+medida"*.
+
+⛔ **Esta sección NO repite [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md)** (19 secciones, la
+investigación de fondo: el decode, los 8 orígenes, el 73.6 % de discrepancia catálogo↔ERP). Acá va
+la otra pregunta, la de este documento: **¿con qué se comprueba que la unidad está bien, cuánto de
+ella aguanta esa comprobación, y qué queda declarado sin testigo?** Todo medido read-only contra
+`pg-prod` el 2026-10-15.
+
+### 31.1. La regla de una línea: son TRES unidades distintas, y conviven en la misma fila
+
+El error que vuelve una y otra vez no es leer mal un factor: es **creer que hay un solo factor**.
+
+| unidad | qué cuenta | resolvedor | dónde manda |
+|---|---|---|---|
+| **de VENTA** (base de Kepler) | el divisor de la **demanda** | `analytics.v_product_box_factor` → `bf` | "Venta 30 d", el pedido sugerido |
+| **de EXISTENCIA** (nativa del almacén) | el divisor de todo lo que sale del **censo** | `analytics.v_warehouse_box_factor` → `display_bf` (ADR-055) | "Exist.", Reorden, Máx, el inmovilizado |
+| **de COMPRA** (la que declara el documento) | lo que el **proveedor** empaca | `erp_purchase_doc_lines.unidades_por_caja` | "En camino", el costo de caja |
+
+⭐ **No son intercambiables y la diferencia está medida.** Confundir las dos primeras ya costó:
+con un único factor por producto, la existencia de MD-30/MD-32/00 salía ~10× más chica y el motor
+pedía de más — **$866,756 de sobre-pedido y $2.68M de inventario que no se veía** (ADR-055).
+Confundir la tercera con las otras dos mal-convierte **$143.6M** de líneas de compra (§31.6-H2).
+
+⚠️ **Dónde todavía se mezclan, hoy, a propósito:** la cobertura en días (`exis × 30 ÷ vta`, "Días
+inv.", el chip de sobrestock) divide una existencia medida en `display_bf` por una venta medida en
+`bf`. Es correcto sólo cuando los dos coinciden — **1.02 % de las filas del fact del pedido tienen
+`display_bf ≠ bf`** (520 de 51,228; 69 con existencia y venta a la vez). Está acotado y declarado,
+no resuelto.
+
+### 31.2. El árbitro y su veredicto: `analytics.v_unit_truth`, 249,040 celdas
+
+Es el resolvedor con **testigo**: no dice sólo qué factor usar, dice **si alguien lo confirmó**.
+
+| veredicto | celdas | medibles | % |
+|---|---:|---:|---:|
+| **`verificado`** | **177,496** | 177,496 | **71.27 %** |
+| `no_aplica` | 50,226 | 50,226 | 20.17 % |
+| ⚠️ `sin_testigo` | 18,810 | **0** | 7.55 % |
+| ⚠️ `en_disputa` | 2,486 | **0** | 1.00 % |
+| ⚠️ `disputa_granel` | 22 | **0** | 0.01 % |
+
+⇒ **91.44 % medible · 8.56 % DECLARADO sin medir.** Eso es ADR-056 funcionando: las 21,318 celdas
+sin testigo no se dibujan como verdes ni como cero, se marcan `medible = false`.
+
+⭐ **La cobertura por almacén es total: `v_unit_truth_coverage` no devuelve NI UN almacén sin
+cubrir.** Las 20 sucursales y rutas con venta tienen sus 11,320 celdas, 10,350 medibles cada una
+(91.4 %, el mismo piso en todas). Es raro y vale decirlo: la unidad es de las pocas verdades de
+este repo que **no** tiene un agujero de cobertura, sólo de testigo.
+
+### 31.3. De dónde sale el factor — y cuál de las fuentes tiene testigo
+
+| `factor_source` | celdas | con testigo de **pago** | con testigo del **ERP** |
+|---|---:|---:|---:|
+| `etiquetera` | **79,321** | 78,108 (98.5 %) | ⛔ **0** |
+| `wincaja_factor_venta` | 60,620 | 54,591 (90.1 %) | 17,096 (28.2 %) |
+| ⚠️ `default` | **43,752** | **12,998 (29.7 %)** | ⛔ **0** |
+| ⭐ `kepler_c84` | 39,894 | **39,879 (100.0 %)** | **39,804 (99.8 %)** |
+| ⚠️ `factor_sale` | 14,836 | 3,156 (21.3 %) | ⛔ 0 |
+| `kepler_unidad_unica` | 5,843 | 5,762 (98.6 %) | 0 |
+| `override` | 4,362 | 4,340 (99.5 %) | 3,225 (73.9 %) |
+
+Tres lecturas que cambian decisiones:
+
+1. ⭐ **`kepler_c84` es la única fuente con los DOS testigos** (~100 % en ambos). Cuando el ERP
+   declara el factor, está arbitrado por partida doble. Es el peldaño a preferir siempre.
+2. ⛔ **`etiquetera` es la fuente MÁS GRANDE (79,321 celdas) y tiene CERO testigo del ERP.** Lo
+   único que la sostiene es el pago. No es un error —el pago es un testigo legítimo e
+   independiente— pero **una fuente con un solo testigo no se puede arbitrar contra sí misma**: si
+   la etiquetera y el pago se equivocan juntos, nada lo detecta.
+3. ⚠️ **`default` son 43,752 celdas (17.6 %) con factor 1 y testigo en el 29.7 %.** "Factor 1" no
+   es un dato: es la ausencia de uno. Por producto son **2,283 productos, los 2,283 con
+   `box_factor = 1`**. Y `factor_sale` es peor: **973 de 973 productos marcados
+   `is_master_suspect`** — el 100 %.
+
+### 31.4. ⭐⭐ Lo que cuesta un error de unidad, medido hoy: **$8.73M en 484 celdas**
+
+`analytics.v_unit_rung_audit` arbitra el peldaño contra lo que se **pagó** (`arbitro =
+kepler_compra`, 22,001 celdas — su alcance es donde hay existencia y costo de compra).
+
+| veredicto | celdas | valor publicado | valor arbitrado | brecha |
+|---|---:|---:|---:|---:|
+| `ok` | 21,517 | $65,929,376 | $66,936,197 | −$1,006,820 (1.5 %) |
+| ⛔ **`x2_deflactada`** | **433** | **$1,049,208** | **$9,691,414** | **−$8,642,206** |
+| ⛔ `x1_inflada` | 51 | $141,534 | $49,107 | +$92,427 |
+
+⭐ **El 2.2 % de las celdas concentra el 89.6 % de la brecha.** No está repartida: está
+**concentrada**, que es justo lo que hace que un promedio no la vea.
+
+⭐ **Y la dirección es asimétrica**: casi todo es **sub-valuación** — 433 celdas publican $1.05M de
+inventario que vale $9.69M, o sea **9.2× menos**. Un error de unidad en este repo no infla el
+inventario, lo **esconde**. (Mismo signo que midió §3.2 por el otro lado.)
+
+✅ **Y la pantalla NO las dibuja**: `/compras/pedido` deja **Pedido y Valor en blanco** en esas
+celdas y muestra la existencia nativa con su rótulo (§30.7). Ahora sabemos cuánto protege esa
+decisión: **$8.73M**. `/almacen/existencia` publica la misma verdad con sus palabras:
+*"no valen cero: no se están midiendo… por lo que se pagó valdrían ~$X, cifra de referencia para
+revisar — no publicable"*.
+
+#### ⚠️ 31.4-bis. Estas cifras son VIVAS. No las cites como constantes
+
+Las dos vistas que las producen (`v_unit_rung_audit` y `v_erp_stock_on_hand`) se recalculan sobre
+existencia y costos que se mueven. **Medido el mismo día, con una hora de diferencia:**
+
+| | 11:3x | 12:1x | lo que mostraba la pantalla |
+|---|---:|---:|---:|
+| celdas sin valuar | 484 | **493** | 484 |
+| productos | 159 | **163** | 159 |
+| valor arbitrado | $9,740,521 | **$9,753,343** | ~$9,740,520 |
+
+⇒ **Ni la pantalla ni este documento están mal: el número es una MEDICIÓN, no un hecho.** Si
+alguien compara una captura con esta sección y no coinciden al peso, eso es lo esperado. Lo que
+tiene que coincidir es el **orden de magnitud y el signo**, no el dígito.
+
+⚠️ **Y declará el universo cuando cites el conteo** (§1): `/almacen/existencia` cuenta sólo celdas
+**con existencia** (~31,033), este documento a veces cuenta **todas** las celdas del árbitro
+(249,040). Por eso "`default` = 43,752 celdas / 2,283 productos" (§31.3) y "1,833 celdas / 358
+productos" (la pantalla) **no se contradicen**: son el mismo hecho sobre dos universos. El error
+sería restarlos.
+
+#### ⭐⭐ 31.4-ter. El segundo balde: "ninguna fuente respalda el divisor" nombraba mal la causa en 3 de 4
+
+Junto al balde de arriba, `/almacen/existencia` publica otro: las celdas que **sí suman** al total
+de cajas pero con un divisor que no es comparable — marcadas con **°**, su cifra es la cantidad
+suelta. El banner decía *"un divisor que ninguna fuente respalda"*. **Medido el 2026-10-15 sobre
+las celdas con existencia, eso era falso para el 73 %:**
+
+| causa | celdas | productos | se arregla |
+|---|---:|---:|---|
+| ⭐ **el producto se mide en PESO** (el divisor cuenta piezas por caja) | **1,335 (73 %)** | 231 | vendiéndolo por kilo |
+| falta el factor: ninguna fuente lo declara | 498 (27 %) | 127 | que alguien lo declare |
+| **total** | **1,833** | 358 | — |
+
+⛔ **Lo que lo volvía invisible es que la pantalla YA sabía la diferencia**: cada celda lleva
+`nf: 'peso' | 'sin_factor'` con **dos tooltips distintos**. Se perdía al totalizar — o sea justo
+en la única frase que se lee **sin pasar el mouse**.
+
+⇒ **Regla:** un agregado que colapsa dos causas manda a la gente a arreglar la equivocada. Si las
+celdas distinguen, **el total también tiene que distinguir**. Corregido en `[U.VA.1]`, con prueba
+negativa (`existencia-agregado.spec.ts`: si el desglose se vuelve a colapsar, se pone rojo —
+verificado rompiéndolo a propósito).
+
+### 31.5. El ERP se contradice a sí mismo en el 2.91 % de los SKUs — que es el 11.92 % del dinero
+
+`analytics.mv_kepler_unit_ladder` marca `ambiguo` cuando el **mismo SKU** viaja con factores
+distintos entre renglones del propio Kepler.
+
+| | SKUs | importe |
+|---|---:|---:|
+| total | 8,086 | $94,796,054 |
+| ⛔ **ambiguos** | **235 (2.91 %)** | **$11,298,713 (11.92 %)** |
+
+⇒ **La ambigüedad pesa 4× más en dinero que en conteo.** Se concentra en los SKUs caros, que son
+exactamente los que mueven las decisiones. Además **434 SKUs** tienen al menos un renglón donde la
+identidad `c9 = c56 × c58` no cuadra (§4.2).
+
+⛔ **Corolario:** "el ERP lo declara" no alcanza como argumento sin mirar `ambiguo`. En 235 SKUs el
+ERP declara **dos cosas distintas**, y elegir una sin decirlo es inventar.
+
+### 31.6. Los tres huecos que `UNIDADES_DE_MEDIDA.md` §9 declaró sin investigar — ahora MEDIDOS
+
+**H1 · SKUs sólo-Wincaja (su factor no tiene contra qué contrastarse).** Eran "4,925 artículos";
+hoy son **5,774 productos / 40,418 celdas** sin escalera en el ODS, y **15,764 celdas (39.0 %) sin
+NINGÚN testigo** —ni de pago ni del ERP—. Es el hueco más grande que queda y **no se cierra solo**:
+mientras esos SKUs no pasen por un documento de Kepler, no hay con qué arbitrarlos.
+
+**H2 · La unidad de la línea de COMPRA.** De 99,907 líneas de OC con factor declarado, **43,487
+(43.5 %) contradicen al resolvedor canónico**, por $144.8M. ⛔ **Pero leerlo como "43.5 % está mal"
+sería el error** — la forma de la discrepancia lo desmiente:
+
+| la razón `unidades_por_caja ÷ box_factor` | líneas | pesos |
+|---|---:|---:|
+| ⭐ **submúltiplo ENTERO exacto** (1/12, 1/20, 1/24, 1/10, 1/100…) | **43,259 (99.5 %)** | $143,633,687 |
+| múltiplo entero (2× a 4×) | 29 | $89,645 |
+| ⚠️ **no entero — ni peldaño ni factor limpio** | **199 (0.46 %)** | **$1,065,936** |
+
+⇒ **No es ruido: es OTRO PELDAÑO de la misma escalera.** El documento de compra cuenta en una
+unidad más chica que nuestra caja, en razones enteras limpias. ⭐ **El hueco real son 199 líneas /
+$1,065,936** — el 0.46 %, no el 43.5 %. Por eso el fact del pedido no cree al documento a ciegas:
+acepta su caja sólo si **cuadra por dinero** (±15 % de `real_cost × bf`) y si no, infiere la unidad
+por costo. Esa guarda estaba bien puesta.
+
+**H3 · `catalog.product_barcodes.factor` NO es fuente de unidad.** 12,866 códigos sobre 8,009
+productos: **4,756 sin factor**, **7,719 con factor 1**, y de los 389 que declaran un factor > 1,
+**351 contradicen al resolvedor y sólo 38 cuadran (9.8 %)**. ⛔ **Queda prohibido derivar la unidad
+de ahí**: acierta menos de 1 de cada 10 veces que opina.
+
+### 31.7. Las reglas que se desprenden
+
+1. ⛔ **Nombrá cuál de las tres unidades estás usando** antes de multiplicar o dividir. Si el
+   código no lo dice, el que lo lea el mes que viene va a elegir la que recuerde.
+2. ⛔ **Nunca derives la unidad de `product_barcodes.factor`** (9.8 % de acierto) ni la supongas
+   desde `factor_sale` (100 % de sus productos marcados sospechosos).
+3. ⭐ **Preferí `kepler_c84`**: es la única fuente con dos testigos independientes.
+4. ⚠️ **`box_factor = 1` no es "sin caja": es "sin dato"** en 2,283 productos. Tratarlo como un
+   factor real es dividir por la ausencia de información.
+5. ⛔ **Antes de citar "el ERP lo declara", mirá `ambiguo`** — 235 SKUs ($11.3M) declaran dos cosas.
+6. ⭐ **Una unidad se audita prestándole un precio.** Es lo que hace `v_unit_rung_audit`
+   (`arbitro = kepler_compra`) y es lo que destapó los $8.73M: la cantidad sola no tiene con qué
+   contradecirse.
+7. ⭐ **Un error de unidad acá ESCONDE inventario, no lo infla** (9.2× menos en las 433 celdas
+   deflactadas). Buscá hacia abajo, no hacia arriba.
+
+### 31.8. Lo que sigue sin medirse — declarado
+
+- **Las 15,764 celdas sin ningún testigo** de H1. Hay cobertura (el árbitro opina) pero no hay con
+  qué arbitrarla; es el hueco con nombre más grande de esta sección.
+- **Las 199 líneas de compra con razón no entera** ($1,065,936): ni peldaño ni factor limpio.
+- **Las 2,486 celdas `en_disputa` + 22 `disputa_granel`**: los dos testigos existen y **no se ponen
+  de acuerdo**. Es el caso que más merece una mirada humana, y el más chico (1.01 %).
+- ⚠️ **`etiquetera` sin segundo testigo** (79,321 celdas): no es un defecto medido, es una
+  **fragilidad estructural**. Si algún día el ERP empieza a declarar factor para esos SKUs, hay que
+  cruzarlos antes de celebrar la coincidencia.

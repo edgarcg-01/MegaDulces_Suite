@@ -1,3 +1,34 @@
+<!-- INDICE-AUTO:INICIO -->
+
+> **Índice navegable** — 61 KB, 1052 líneas, 19 secciones.
+> ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
+> Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/UNIDADES_DE_MEDIDA.md`.
+> Lo genera `npm run docs:indices` — no lo edites a mano.
+
+| Desde | Hasta | KB | Sección |
+|---:|---:|---:|---|
+| 32 | 43 | 1 | Unidades de medida — investigación |
+| 44 | 66 | 1 | 1. El tamaño del problema |
+| 67 | 99 | 1 | 2. El catálogo y el ERP no se ponen de acuerdo — 73.6% |
+| 100 | 110 | 1 | 3. El vocabulario está sucio en las dos puntas |
+| 111 | 163 | 2 | 4. ⭐ El resolvedor canónico devuelve dos unidades en la misma columna |
+| 164 | 196 | 2 | 5. El 40% de la venta resuelve su caja sin ancla |
+| 197 | 219 | 1 | 6. La prueba del dinero: en qué unidad está el fact |
+| 220 | 242 | 5 | 7. Reglas que salen de esto |
+| 243 | 277 | 2 | 8. Defectos concretos, accionables |
+| 278 | 329 | 3 | 8bis. El rótulo esconde la mezcla *dentro de sí mismo* (RR-PROMO.1, 2026-09-02) |
+| 330 | 380 | 3 | 8ter. Wincaja contra Kepler: la unidad no se hereda entre capas (ADR-055, 2026-09-03) |
+| 381 | 437 | 3 | 8quater. ¿En qué peldaño está `cost_with_tax`? (U.0, 2026-09-03) |
+| 438 | 478 | 2 | 8quinquies. Por qué la VENTA sí se convierte a cajas y la EXISTENCIA no (U.2b, 2026-09-03) |
+| 479 | 634 | 10 | 8sexies. El resolvedor con VEREDICTO y MÉTODO (U.4–U.7, 2026-09-07 · ADR-057) |
+| 635 | 830 | 10 | 8septies. El peldaño COBRADO como testigo del factor — en una sola dirección (KX, 2026-09-09) |
+| 831 | 958 | 6 | 8octies. ⭐⭐ LA MEDIDA QUE KEPLER HACE — reproducir en vez de arbitrar (VK.1, 2026-09-12 · ADR-063) |
+| 959 | 1061 | 6 | 8nonies. ⭐ La unidad es de la CELDA, no de la fila (SO.U / EC.U, 2026-09-12) |
+| 1062 | 1076 | 2 | 9. Lo que NO se investigó |
+| 1077 | 1083 | 1 | Referencias |
+
+<!-- INDICE-AUTO:FIN -->
+
 # Unidades de medida — investigación
 
 > **Fecha:** 2026-08-29 · **Medido contra prod** (`trolley`), ventana de 365 días.
@@ -1030,9 +1061,16 @@ el backend manda: eso es validación visual y queda **pendiente**.
 
 ## 9. Lo que NO se investigó
 
+> ⭐⭐ **LOS TRES SE MIDIERON el 2026-10-15** — ver [`VERDAD_ABSOLUTA.md` §31.6](VERDAD_ABSOLUTA.md).
+> Este apartado se conserva porque nombra bien los huecos; lo que cambió es que **ya no son
+> desconocidos, son cifras**. Si una medición y este texto se contradicen, gana la medición.
+
 - **Unidad de los SKUs sólo-Wincaja**: 4,925 artículos de la sucursal 30 no existen en la escalera del ODS, así que su `factor_venta` no tiene contra qué contrastarse (mismo problema del §5: factor sin ancla).
+  - ⭐ **MEDIDO:** hoy son **5,774 productos / 40,418 celdas**, y **15,764 (39.0 %) sin NINGÚN testigo** (ni de pago ni del ERP). **Sigue abierto** y no se cierra solo: mientras esos SKUs no pasen por un documento de Kepler no hay con qué arbitrarlos. Es el hueco con nombre más grande de las unidades.
 - **Unidades de compra** (`unit_purchase` / `factor_purchase` / `erp_purchase_doc_lines.unidades_por_caja`): la línea de OC tiene su propia regla ([[reference_kepler_oc_line_units]]) y no entró en esta pasada.
+  - ⭐ **MEDIDO, y el resultado desarma la alarma:** 43,487 de 99,907 líneas (43.5 %, $144.8M) "contradicen" al resolvedor, **pero el 99.5 % de esa discrepancia son submúltiplos ENTEROS exactos** (1/12, 1/20, 1/24, 1/10, 1/100…). No es ruido: **es otro peldaño de la misma escalera**. El hueco real son **199 líneas / $1,065,936** (0.46 %) con razón no entera. ⇒ Confirma que la unidad de COMPRA es una tercera unidad, distinta de la de venta y la de existencia.
 - **`catalog.product_barcodes.factor`**: un SKU tiene N códigos de barras, uno por unidad. No se contrastó contra la escalera.
+  - ⛔ **MEDIDO, y queda PROHIBIDO como fuente de unidad:** de 12,866 códigos (8,009 productos), 4,756 sin factor y 7,719 con factor 1; de los **389** que declaran factor > 1, **351 contradicen al resolvedor y sólo 38 cuadran (9.8 %)**. Acierta menos de 1 de cada 10 veces que opina.
 
 ---
 

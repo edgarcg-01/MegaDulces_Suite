@@ -50,7 +50,7 @@ import { money } from '../../../shared/util';
       <app-load-state [loading]="loading()" [error]="error()"
                       [isEmpty]="!loading() && !error() && !rows().length"
                       emptyTitle="Nada vence en esta ventana"
-                      emptyHint="Ampliá el rango para ver más adelante.">
+                      emptyHint="Amplía el rango para ver más adelante.">
         @if (report(); as r) {
           <!-- Answer-first: el veredicto antes de la tabla. -->
           <p class="cv-verdict">{{ veredicto() }}</p>

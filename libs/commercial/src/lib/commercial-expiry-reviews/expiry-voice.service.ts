@@ -114,7 +114,7 @@ export class ExpiryVoiceService {
       // la pantalla sigue sirviendo por escaneo/teclado (el camino no se bloquea).
       this.logger.warn('ANTHROPIC_API_KEY ausente — asistente de voz degradado.');
       return {
-        reply: 'El asistente de voz no está configurado en este servidor (falta ANTHROPIC_API_KEY). Podés capturar escaneando o escribiendo.',
+        reply: 'El asistente de voz no está configurado en este servidor (falta ANTHROPIC_API_KEY). Puedes capturar escaneando o escribiendo.',
         slots: prev,
         candidates: [],
         missing: this.missingOf(prev),
@@ -130,7 +130,7 @@ export class ExpiryVoiceService {
     } catch (e: any) {
       this.logger.warn(`extract() falló: ${e?.message || e}`);
       return {
-        reply: 'No te entendí bien, ¿me lo repetís?',
+        reply: 'No te entendí bien, ¿me lo repites?',
         slots: prev,
         candidates: [],
         missing: this.missingOf(prev),
@@ -188,7 +188,7 @@ export class ExpiryVoiceService {
 
   private async extract(transcript: string, prev: VoiceSlots, history: VoiceTurn[]) {
     const hoy = todayMx();
-    const system = `Sos el asistente de Control de Caducidades de Mega Dulces (distribuidora de dulces en México). Un encargado de tienda te habla mientras revisa el anaquel y quiere dar de alta un producto próximo a vencer o ya vencido.
+    const system = `Eres el asistente de Control de Caducidades de Mega Dulces (distribuidora de dulces en México). Un encargado de tienda te habla mientras revisa el anaquel y quiere dar de alta un producto próximo a vencer o ya vencido.
 
 HOY ES ${hoy} (America/Mexico_City). Zona: México.
 
@@ -199,23 +199,23 @@ CAMPOS:
 - presentation: la presentación si la dijo ("bolsa de 24", "caja", "granel", "de 500 gramos").
 - quantity: número.
 - unit: una de caja | pieza | bulto | kg. "cajas"→caja, "piezas"/"sueltas"→pieza, "bultos"/"costales"→bulto, "kilos"→kg.
-- expiry_date: la caducidad en formato YYYY-MM-DD. Convertí lo que diga a fecha absoluta usando HOY. Si sólo dijo mes y año ("octubre del 26"), usá el ÚLTIMO día de ese mes. Si no dijo año, elegí el próximo que caiga en el futuro.
+- expiry_date: la caducidad en formato YYYY-MM-DD. Convierte lo que diga a fecha absoluta usando HOY. Si sólo dijo mes y año ("octubre del 26"), usa el ÚLTIMO día de ese mes. Si no dijo año, elige el próximo que caiga en el futuro.
 - condition: bueno | regular | malo — SOLO si habló del estado FÍSICO (roto, húmedo, aplastado). El estado NO se deduce de la fecha.
 - location: dónde está ("anaquel 3", "bodega", "exhibidor de caja").
 - observations: cualquier detalle suelto ("las bolsas están grasosas").
 - action: qué hacer ("retirar", "promocionar", "devolver a proveedor").
 
 REGLAS:
-1. Devolvé SOLO los campos que el operador dijo en ESTE mensaje. Lo que no dijo, omitilo — no lo rellenes con suposiciones ni lo repitas de antes.
+1. Devuelve SOLO los campos que el operador dijo en ESTE mensaje. Lo que no dijo, omítelo — no lo rellenes con suposiciones ni lo repitas de antes.
 2. Nunca inventes un producto que no nombró.
 3. ESENCIALES para el renglón: producto, cantidad y caducidad. Si falta alguno, tu "reply" pide EL QUE FALTA, uno por vez, en una frase corta.
-4. Hablás español mexicano, directo y amable. Frases de una línea: esto se escucha, no se lee.
-5. Si el mensaje no tiene nada que ver con dar de alta caducidades, respondé eso en "reply" y no llenes campos.
+4. Hablas español mexicano, directo y amable. Frases de una línea: esto se escucha, no se lee.
+5. Si el mensaje no tiene nada que ver con dar de alta caducidades, responde eso en "reply" y no llenes campos.
 
 Ya reunido de turnos anteriores (contexto, NO lo repitas en tu salida):
 ${JSON.stringify(this.publicSlots(prev))}
 
-Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
+Responde SIEMPRE invocando la tool "capturar_caducidad".`;
 
     const messages = [
       ...history.slice(-8).map((t) => ({ role: t.role, content: t.content })),
@@ -235,7 +235,7 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
             input_schema: {
               type: 'object',
               properties: {
-                reply: { type: 'string', description: 'Lo que le decís al operador. Una frase corta, hablada.' },
+                reply: { type: 'string', description: 'Lo que le dices al operador. Una frase corta, hablada.' },
                 product_query: { type: 'string', description: 'Nombre del producto tal como lo dijo.' },
                 presentation: { type: 'string' },
                 quantity: { type: 'number' },
@@ -485,12 +485,12 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
       return `No lo tengo exacto. ¿Es ${refs.join(', ')}${cola}?`;
     }
     if (!slots.product_id && slots.product_query)
-      return `No encontré nada parecido a "${slots.product_query}". Escaneá el código, o decímelo con otra palabra.`;
+      return `No encontré nada parecido a "${slots.product_query}". Escanea el código, o dímelo con otra palabra.`;
     if (missing.includes('producto')) return llmReply || '¿Qué producto es?';
     if (missing.includes('cantidad')) return `¿Cuántas ${slots.unit ? this.plural(slots.unit) : 'piezas'} de ${slots.product_name}?`;
     if (missing.includes('caducidad')) return `¿Qué fecha de caducidad marca el ${slots.product_name}?`;
     const qty = `${slots.quantity} ${this.plural(slots.unit || 'pieza')}`;
-    return `Listo: ${qty} de ${slots.product_name}, caduca ${this.human(slots.expiry_date!)}. Revisalo y agregá el renglón.`;
+    return `Listo: ${qty} de ${slots.product_name}, caduca ${this.human(slots.expiry_date!)}. Revísalo y agrega el renglón.`;
   }
 
   private plural(u: LineUnit): string {

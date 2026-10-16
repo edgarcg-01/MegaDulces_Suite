@@ -179,7 +179,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                 } @else {
                 <div class="qt-det">
                   <div class="qt-det-bar">
-                    <span class="qt-basis-lbl">Objetivo: <strong>{{ basisLabel(fBasis()) }}</strong> <span class="qt-muted">(cambialo en el filtro de arriba)</span></span>
+                    <span class="qt-basis-lbl">Objetivo: <strong>{{ basisLabel(fBasis()) }}</strong> <span class="qt-muted">(cámbialo en el filtro de arriba)</span></span>
                     @if (st.hist; as h) {
                       <div class="qt-hist" [pTooltip]="histTip(h)" tooltipPosition="left">
                         <i class="pi pi-history"></i>

@@ -11,6 +11,7 @@ import {
   type RouteCountSheet,
   type RouteCountSheetRow,
   type RouteDayBreakdown,
+  type RouteCreditSales,
   type VecinalConciliacion,
 } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
@@ -1378,6 +1379,24 @@ export class CommercialAnalyticsController {
     return this.service.routeClosureReconciliation(from?.trim() || undefined, to?.trim() || undefined);
   }
 
+  @Get('sales-by-route/credit')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      '[VEC.21] — La venta a CRÉDITO de la ruta (U-D-8 = UD0801 "Factura Telemarketing", que '
+      + 'Kepler registra como cargo en cartera) con su cargo, su cobro aplicado y la CUENTA DE '
+      + 'TESORERÍA donde entró el dinero. Params: from, to (YYYY-MM-DD; por omisión 90 días), '
+      + 'route (p.ej. 1V001). ⛔ U-D-12 NO entra: en estas rutas es espejo del mismo ticket.',
+  })
+  routeCreditSales(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('route') route?: string,
+  ): Promise<RouteCreditSales> {
+    return this.service.routeCreditSales(
+      from?.trim() || undefined, to?.trim() || undefined, route?.trim() || undefined);
+  }
+
   @Get('sales-by-route/vecinal-reconciliation')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({
@@ -1386,10 +1405,18 @@ export class CommercialAnalyticsController {
       + 'Grano (sucursal, caja, día): el arqueo es por caja y una caja mezcla rutas y mostrador, '
       + 'así que el descuadre NO se puede atribuir a una ruta (mirar vecinal_pct). Declara aparte, '
       + 'sin sumarlos, U-D-12 (re-factura: el arqueo la ignora) y U-D-8 (telemarketing). '
-      + 'Params: from, to (YYYY-MM-DD; por omisión los últimos 45 días).',
+      + 'Params: from, to (YYYY-MM-DD; por omisión los últimos 45 días), route (p.ej. 1V001). '
+      + 'Con route, cada fila trae además vecinal_ruta = lo que ESA ruta vendió en esa caja ese '
+      + 'día; sin route llega null (el panel global no pregunta por una ruta). vecinal sigue '
+      + 'siendo el total de la caja — en el 42% de los día-caja la comparten 2-3 rutas.',
   })
-  vecinalConciliacion(@Query('from') from?: string, @Query('to') to?: string): Promise<VecinalConciliacion> {
-    return this.service.vecinalConciliacion(from?.trim() || undefined, to?.trim() || undefined);
+  vecinalConciliacion(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('route') route?: string,
+  ): Promise<VecinalConciliacion> {
+    return this.service.vecinalConciliacion(
+      from?.trim() || undefined, to?.trim() || undefined, route?.trim() || undefined);
   }
 
   @Get('sales-by-route')

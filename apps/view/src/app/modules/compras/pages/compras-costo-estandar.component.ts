@@ -265,7 +265,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
                 <th class="num ce-w-pct" [title]="def('Desviación')">Desv.</th>
                 <th class="num ce-w-money" [title]="def('Impacto 30 d')">Impacto 30 d</th>
                 <th class="num ce-w-pct" title="Si el precio NO se mueve, éste es el margen que de verdad estás sacando hoy, contra el costo real del ERP. En rojo, el producto pierde dinero en cada venta.">Margen real hoy</th>
-                <th class="num ce-w-precio" title="Si capturás el costo nuevo, Kepler conserva el margen y recalcula el precio a esto. Es un cambio de precio al público.">Precio si capturás</th>
+                <th class="num ce-w-precio" title="Si capturas el costo nuevo, Kepler conserva el margen y recalcula el precio a esto. Es un cambio de precio al público.">Precio si capturas</th>
                 <th class="ce-w-ver">Veredicto</th>
               </tr>
             </ng-template>
@@ -307,8 +307,8 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
                     @if (f.vende_bajo_costo) { <span class="sr-only">vende bajo costo</span> }
                   } @else { <span class="ce-nd">—</span> }
                 </td>
-                <td class="num dt-num" role="cell" data-label="Precio si capturás"
-                    [attr.aria-label]="f.precio_si_conserva_margen !== null ? 'Precio si capturás ' + money(f.precio_si_conserva_margen) : 'Precio si capturás sin medir'">
+                <td class="num dt-num" role="cell" data-label="Precio si capturas"
+                    [attr.aria-label]="f.precio_si_conserva_margen !== null ? 'Precio si capturas ' + money(f.precio_si_conserva_margen) : 'Precio si capturas sin medir'">
                   <!-- La flecha sólo si LLEVA a algún lado. Medido sobre 4,000 filas reales, la
                        peor cadena era "$1,523.93 → $1,523.93": el MISMO precio de los dos lados,
                        164 px dentro de una columna de 128 px con nowrap. El panel de detalle ya
@@ -462,7 +462,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
                 <!-- [CE.9] La decisión, con sus dos salidas. Capturar el costo nuevo NO es
                      higiene de datos: Kepler conserva el margen y recalcula el precio (medido,
                      74 % de 6,501 cambios reales). -->
-                <h3 class="ce-det-h3">Si capturás el costo nuevo</h3>
+                <h3 class="ce-det-h3">Si capturas el costo nuevo</h3>
                 <p class="ce-decision">
                   <span class="ce-decision-a">
                     <strong>A ·</strong> Kepler conserva el margen y el precio pasa de
@@ -470,7 +470,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
                     Es un cambio de precio al público.
                   </span>
                   <span class="ce-decision-b">
-                    <strong>B ·</strong> Si dejás el precio, el margen real es
+                    <strong>B ·</strong> Si dejas el precio, el margen real es
                     <strong [class.ce-neg]="d.vende_bajo_costo">{{ pct(d.margen_real_pct) }}</strong>
                     @if (d.vende_bajo_costo) { — este producto <strong>pierde dinero en cada venta</strong>. }
                   </span>

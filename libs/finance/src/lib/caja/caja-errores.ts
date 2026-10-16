@@ -36,15 +36,26 @@ const POR_CONSTRAINT: Record<string, string> = {
     'El motivo de «sin documento» es muy corto: necesita al menos 12 caracteres.',
   cash_ledger_origen_chk: 'El origen del movimiento no es uno de los válidos.',
   cash_ledger_firma_estado_chk: 'El estado de la firma no es coherente con el movimiento.',
-  cut_denom_piezas_chk: 'Una denominación con cero piezas no se guarda: quitala del conteo.',
+  cut_denom_piezas_chk: 'Una denominación con cero piezas no se guarda: quítala del conteo.',
   cut_denom_par_chk: 'La denominación no coincide con su llave (por ejemplo, $20 billete contra $20 moneda).',
   cut_denom_momento_chk: 'El momento del desglose sólo puede ser apertura o cierre.',
+  // `[CGP-D.3]` Las reglas del corte que viven en la base (migración 20261014212702).
+  cut_aritmetica_chk: 'La diferencia del corte no coincide con el contado menos el esperado.',
+  cut_conteo_sellado_chk:
+    'El conteo de este corte ya está sellado. Para cambiarlo hay que recontar, y el reconteo pide motivo.',
+  cut_reconteo_constancia_chk:
+    'Un reconteo sólo existe si antes hubo un conteo, y tiene que conservar el conteo que reemplaza.',
+  cut_firmado_inmutable_chk: 'Este corte ya está cerrado: no se reabre y sus cifras ya no cambian.',
+  cut_desglose_cuadra_chk: 'El desglose por denominación no suma lo que dice el contado.',
+  ux_cash_cut_sucursal_fecha: 'Ya existe un corte de esta sucursal para esa fecha.',
+  // La carrera de dos aperturas a la vez: el servicio ya lo revisa antes, esto es lo que queda.
+  ux_cash_cut_abierto: 'Esta sucursal ya tiene un corte abierto: hay que cerrarlo antes de abrir otro.',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */
 const CODIGOS_DEL_CLIENTE: Record<string, string> = {
   // `invalid_text_representation` — p. ej. un `client_uuid` que no es un UUID.
-  '22P02': 'Alguno de los datos no tiene el formato que se espera (revisá el identificador).',
+  '22P02': 'Alguno de los datos no tiene el formato que se espera (revisa el identificador).',
   // `not_null_violation` — falta un campo obligatorio.
   '23502': 'Falta un dato obligatorio del movimiento.',
 };
@@ -68,7 +79,7 @@ export function traducirErrorDeCaja(e: unknown): never {
   // tenemos una frase escrita para ella.
   if (pg?.code === '23514') {
     throw new BadRequestException(
-      'El movimiento no cumple una de las reglas del libro de caja. Revisá los datos y volvé a intentar.',
+      'El movimiento no cumple una de las reglas del libro de caja. Revisa los datos y vuelve a intentar.',
     );
   }
 

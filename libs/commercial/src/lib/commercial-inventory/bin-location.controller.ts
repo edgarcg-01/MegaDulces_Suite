@@ -144,7 +144,7 @@ export class BinLocationController {
   // en cuatro racks distintos.
   @Get('pick-suggestion')
   @RequireAnyPermission(Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR)
-  @ApiOperation({ summary: 'FEFO físico: bins de un producto ordenados por caducidad (surtí primero el 1º)' })
+  @ApiOperation({ summary: 'FEFO físico: bins de un producto ordenados por caducidad (surte primero el 1º)' })
   pickSuggestion(@Query('warehouse_id') warehouseId: string, @Query('product_id') productId: string) {
     return this.service.pickSuggestion(warehouseId, productId);
   }

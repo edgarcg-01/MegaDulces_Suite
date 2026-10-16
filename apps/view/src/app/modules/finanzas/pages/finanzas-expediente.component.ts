@@ -295,7 +295,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                 <p class="exp-msg">Esta persona no tiene vales.</p>
               }
             } @else {
-              <p class="exp-msg">Elegí una persona del panel izquierdo.</p>
+              <p class="exp-msg">Elige una persona del panel izquierdo.</p>
             }
           </section>
         </div>

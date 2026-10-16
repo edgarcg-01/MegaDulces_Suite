@@ -45,7 +45,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
     <section class="section">
       <header class="section-header">
         <h1>Cola priorizada</h1>
-        <p>Clientes ordenados por urgencia. Reservá uno para empezar a trabajarlo (TTL 30 min).</p>
+        <p>Clientes ordenados por urgencia. Reserva uno para empezar a trabajarlo (TTL 30 min).</p>
       </header>
     
       @if (loading()) {
@@ -108,7 +108,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
             <div class="empty">
               <i class="pi pi-check-circle" aria-hidden="true"></i>
               <p>No hay clientes pendientes en este momento.</p>
-              <small>Revisá tus callbacks programados o esperá nuevos leads.</small>
+              <small>Revisa tus callbacks programados o espera nuevos leads.</small>
             </div>
           }
           @if (queue().length > 0) {

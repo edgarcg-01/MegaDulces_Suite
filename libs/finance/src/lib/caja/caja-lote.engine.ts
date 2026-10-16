@@ -55,12 +55,12 @@ export type MotivoNoConfirmable =
 
 export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_mapa: 'Esta ruta todavía no está declarada. Se captura a mano hasta que alguien la dé de alta.',
-  sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confirmala antes de aplicarle dinero.',
+  sin_confirmar: 'La identidad de esta ruta es una propuesta sin firmar. Confírmala antes de aplicarle dinero.',
   sin_cuenta: 'Falta declarar con qué cuenta contable entra esta ruta.',
   sin_monto: 'El documento del ERP no trae importe: no hay nada que confirmar.',
   sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario. Se captura a mano.',
   fecha_futura: 'Este documento viene fechado después de hoy: su fecha es un error de captura del ERP. '
-    + 'Capturalo a mano y corregí la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
+    + 'Captúralo a mano y corrige la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
 };
 
 /**
@@ -436,6 +436,24 @@ export function evaluarDescuadre(
 export interface RenglonArqueo {
   denominacion: number | string;
   piezas: number | string;
+  /** `[CGP-L.8]` De qué lado del acto: lo que entró, o el cambio que salió. Sin él, lo recibido. */
+  flujo?: 'recibido' | 'devuelto' | null;
+}
+
+/**
+ * `[CGP-L.8]` **Lo que de verdad quedó en la caja por este acto: recibido − devuelto + morralla.**
+ *
+ * La pantalla manda las dos pilas con su `flujo` y cuadra `recibido − devuelto = monto`; acá se
+ * SUMABAN. Un cobro de $380 pagado con $500 y $120 de cambio daba $620: el servidor lo rechazaba por
+ * «no cuadra» y el detalle publicaba un descuadre de +$240 que no existía. Una sola función para el
+ * candado del arqueo y para el detalle, así no pueden volver a contar distinto.
+ */
+export function desgloseNeto(dens: readonly RenglonArqueo[] | null | undefined, morralla: number | string | null | undefined): number {
+  const neto = (dens ?? []).reduce((a, d) => {
+    const importe = Number(d.denominacion) * Number(d.piezas);
+    return d.flujo === 'devuelto' ? a - importe : a + importe;
+  }, 0);
+  return redondea2(neto + Number(morralla || 0));
 }
 
 export type VeredictoArqueo =
@@ -483,9 +501,8 @@ export function evaluarArqueo(
   if (hayConteo && !hayDesglose && credito <= 0) return { ok: false, motivo: 'conteo_sin_desglose' };
   if (!hayDesglose && credito <= 0) return { ok: true, motivo: 'sin_arqueo' };
 
-  const suma = redondea2(
-    (dens ?? []).reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + metal + credito,
-  );
+  // `[CGP-L.8]` Neto: el cambio devuelto RESTA. Sumarlo rechazaba toda captura con cambio.
+  const suma = redondea2(desgloseNeto(dens, metal) + credito);
   const diferencia = redondea2(suma - Number(monto));
   return Math.abs(diferencia) > epsilon
     ? { ok: false, motivo: 'no_cuadra', suma, diferencia }

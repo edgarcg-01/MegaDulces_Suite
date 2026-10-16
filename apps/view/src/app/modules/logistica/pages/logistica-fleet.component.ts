@@ -654,7 +654,7 @@ function severityForDriverStatus(s: string): Severity {
           <label>
             <span>Cuenta del sistema <em class="fc-opt">(opcional)</em></span>
             <p-select formControlName="user_id" [options]="linkable()" optionLabel="nombre" optionValue="id"
-              [filter]="true" [showClear]="true" [editable]="false" filterPlaceholder="Escribí 2+ letras"
+              [filter]="true" [showClear]="true" [editable]="false" filterPlaceholder="Escribe 2+ letras"
               placeholder="Sin cuenta — sólo ficha" appendTo="body"
               (onFilter)="buscarUsuarios($event)" [emptyFilterMessage]="linkableMsg()">
               <ng-template let-u #item>
@@ -900,7 +900,7 @@ export class LogisticaFleetComponent {
   assignmentDialog = false;
   /** Cuentas encontradas para vincular a la ficha (lookup por búsqueda). */
   readonly linkable = signal<LinkableUser[]>([]);
-  readonly linkableMsg = signal('Escribí al menos 2 letras');
+  readonly linkableMsg = signal('Escribe al menos 2 letras');
   /**
    * Desde qué campo se abrió "agregar colaborador": al guardarlo, la ficha
    * nueva queda SELECCIONADA ahí y el diálogo de origen se reabre. Sin esto el
@@ -1389,7 +1389,7 @@ export class LogisticaFleetComponent {
 
   buscarUsuarios(ev: { filter: string }) {
     const q = (ev?.filter || '').trim();
-    if (q.length < 2) { this.linkable.set([]); this.linkableMsg.set('Escribí al menos 2 letras'); return; }
+    if (q.length < 2) { this.linkable.set([]); this.linkableMsg.set('Escribe al menos 2 letras'); return; }
     this.api.linkableUsers(q).subscribe({
       next: (r) => {
         this.linkable.set(r || []);

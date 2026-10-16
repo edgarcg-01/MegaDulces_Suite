@@ -33,6 +33,7 @@ import {
   type ArqueoDia, type RecurrentesResponse,
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
+import { PermissionsService } from '../../../../core/services/permissions.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
 import type { ContextoFirma, CorteRow, FirmaRecibida } from '@megadulces/contracts';
 import { todayMx } from '../../../../core/utils/mx-date';
@@ -241,6 +242,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
       abrirCorte: vi.fn(() => of({ id: 'c1', folio: 'CC-2026-00001' })),
+      // [CGP-V.3] Sin jornadas atrasadas: el caso de todos los días.
+      jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
       ...over,
     };
 
@@ -392,11 +395,23 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('el arqueo OCULTO no imprime un monto: $0.00 se leería como "cuadra a cero"', () => {
-    const fixture = montar();
-    comp.revelado.set({
-      ingresos: 0, gastos: 0, depositos: 0, contado: 900, movimientos: 3, cancelados: 0,
-      ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null, oculto: true,
+    // [CGP-V.2] Lo sellado en la sesión va atado a SU corte: se monta uno abierto y se abre el diálogo.
+    const fixture = montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, sin_corte_abierto: false,
+        corte_abierto: { id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 500, ya_reconto: false, conteo_sellado: null },
+      } as unknown as SaldoResponse)),
     });
+    comp.abrirCierre();
+    comp.revelado.set({
+      corteId: 'c1', puedeRecontar: false, conteo: [], morralla: 0,
+      totales: {
+        ingresos: 0, gastos: 0, depositos: 0, contado: 900, movimientos: 3, cancelados: 0,
+        ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null, oculto: true,
+      },
+    });
+    // Que la prueba ejerza el caso: la revelación oculta tiene que estar vigente.
+    expect(comp.revelacion()?.oculto).toBe(true);
     comp.cuadreAbierto.set(true);
     fixture.detectChanges();
 
@@ -1461,6 +1476,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       // toque tiene que estar acá o el montaje revienta con "is not a function".
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
+      jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -1821,9 +1837,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     });
     const caja: string = fx.nativeElement.querySelector('.cg-fuera').textContent;
     expect(caja).toContain('5 de días anteriores');
-    expect(caja).toContain('2026-09-25');
+    // [CGP-V.7] La fecha va en palabras, no ISO cruda: es una frase.
+    expect(caja).toContain('desde el 25-sep');
+    expect(caja).not.toContain('2026-09-25');
     expect(caja).toContain('3 con fecha posterior');
-    expect(caja).toContain('2026-12-10');
+    expect(caja).toContain('hasta el 10-dic');
     // El monto, no sólo el conteo: un pendiente sin cifra no se puede priorizar.
     expect(caja).toContain('121,775');
     // ⭐ Y dice que NO entran al corte — que es la razón de que el esperado ya no sea un disparate.
@@ -4070,6 +4088,706 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     it('el servidor diciendo `cajon: null` (sin cajero) manda sobre los planos', () => {
       montar({ arqueoDia: conCajon({ cajon: null, en_el_cajon: 120.5, a_la_boveda: 900 }) });
       expect(comp.cajon()).toBeNull();
+    });
+  });
+
+/**
+ * ⭐⭐ `[CG.160]` — EL CORTE QUE NO SE PODÍA CERRAR, TRES JORNADAS SEGUIDAS.
+ *
+ * Medido en producción el 2026-10-14: `CC-2026-00001` (12-oct, sucursal 00) tenía su conteo
+ * SELLADO —`contado = 3,653.50`, seis renglones de denominación en la base— y seguía en
+ * `borrador`. `abrirCierre()` ponía `revelado()` en `null` incondicionalmente, así que después
+ * de recargar la pestaña el diálogo sólo ofrecía «Guardar conteo», el servidor contestaba
+ * *«este corte ya tiene un conteo sellado»*, y «Cerrar corte» no se pintaba NUNCA.
+ *
+ * Y no afectaba a un día: `ux_cash_cut_abierto` admite un solo borrador por sucursal, así que
+ * el corte trabado trancó también el del 13 y el del 14. **Un corte que no cierra tranca todos
+ * los que vienen detrás.**
+ *
+ * ⚠️ Estas pruebas afirman la PROPIEDAD («con conteo sellado se puede cerrar»), no la cifra:
+ * un literal `3653.50` envejece con los datos y además pasaría igual si alguien reintrodujera
+ * el defecto de un modo que hoy dé casualmente lo mismo.
+ */
+describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
+  /** El saldo tal como lo manda `saldo()` para un corte abierto con conteo sellado. */
+  function conSellado(sellado: unknown) {
+    return vi.fn(() => of({
+      ...SALDO,
+      sin_corte_abierto: false,
+      corte_abierto: {
+        id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 3327.5, ya_reconto: false,
+        conteo_sellado: sellado,
+      },
+    } as unknown as SaldoResponse));
+  }
+
+  it('⛔ el conteo sellado del servidor HABILITA cerrar tras recargar', () => {
+    montar({
+      saldo: conSellado({
+        contado: 3653.5, esperado: null, diferencia: null,
+        veredicto: 'sin_medir', ya_reconto: false,
+      }),
+    });
+    comp.abrirCierre();
+    // La revelación existe aunque nadie selló NADA en esta sesión: `revelado()` sigue en null.
+    expect(comp.revelado()).toBeNull();
+    expect(comp.revelacion()).not.toBeNull();
+    expect(comp.revelacion()!.contado).toBe(3653.5);
+    // Y es lo único que importa: el botón «Cerrar corte» cuelga de este gate.
+    expect(comp.gateCierre().ok).toBe(true);
+  });
+
+  it('⛔ [negativa] sin conteo sellado NO se puede cerrar — el arqueo ciego sigue entero', () => {
+    // El caso normal, que es el que más vale proteger: si esto se pusiera verde, el arreglo
+    // habría abierto «Cerrar corte» sobre un corte que nadie contó.
+    montar({ saldo: conSellado(null) });
+    comp.abrirCierre();
+    expect(comp.revelacion()).toBeNull();
+    expect(comp.gateCierre().ok).toBe(false);
+  });
+
+  it('⛔ [negativa] un API viejo que no manda el campo se lee como «nada sellado», no como sellado', () => {
+    montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, sin_corte_abierto: false,
+        corte_abierto: { id: 'c1', folio: 'CC-2026-00001', fondo_inicial: 3327.5, ya_reconto: false },
+      } as unknown as SaldoResponse)),
+    });
+    comp.abrirCierre();
+    expect(comp.revelacion()).toBeNull();
+    expect(comp.gateCierre().ok).toBe(false);
+  });
+
+  it('un conteo ya recontado NO vuelve a ofrecer recontar', () => {
+    montar({
+      saldo: conSellado({
+        contado: 3653.5, esperado: 3700, diferencia: -46.5,
+        veredicto: 'falta', ya_reconto: true,
+      }),
+    });
+    comp.abrirCierre();
+    expect(comp.puedeRecontar()).toBe(false);
+    // Se cierra igual: un faltante se registra, no se esconde.
+    expect(comp.gateCierre().ok).toBe(true);
+  });
+
+  it('`sin_medir` tiene etiqueta propia — no cae al crudo ni a «no cuadra»', () => {
+    montar();
+    const t = comp.etiquetaVeredicto('sin_medir');
+    expect(t).not.toBe('sin_medir');
+    expect(t.toLowerCase()).not.toContain('no cuadra');
+  });
+
+  // ── `[CGP-V.12]` El esperado cambió desde el conteo (el 409 de `[CGP-L.2]`) ──────────────────
+  //
+  // Si entra un movimiento de la jornada después de contar, el servidor ya no firma otro esperado
+  // en silencio: responde 409. Sin esto la pantalla lo mostraba en un aviso de 7 s y no había forma
+  // de confirmar — un callejón nuevo, el mismo tipo de defecto que trabó el 12-oct.
+  const conflicto409 = () => throwError(() => ({
+    status: 409,
+    error: {
+      motivo: 'esperado_cambio', esperado_mostrado: 1500, esperado_actual: 1800,
+      message: 'El esperado cambió desde que se contó: se mostró $1,500.00 y ahora da $1,800.00.',
+    },
+  }));
+  const sellado1500 = { contado: 1500, esperado: 1500, diferencia: 0, veredicto: 'cuadra', ya_reconto: false };
+
+  it('⛔ [CGP-V.12] si el esperado cambió, el diálogo lo MUESTRA con las dos cifras y no se cierra', () => {
+    montar({ saldo: conSellado(sellado1500), cerrarCorte: vi.fn(conflicto409) });
+    comp.abrirCierre();
+    comp.cerrarCorte();
+    expect(comp.conflictoEsperado()).toMatchObject({ mostrado: 1500, actual: 1800 });
+    expect(comp.cierreAbierto()).toBe(true);
+    // El primer intento va SIN confirmación: nadie vio todavía el esperado nuevo.
+    expect(svc['cerrarCorte'].mock.calls[0][4]).toBeUndefined();
+  });
+
+  it('[CGP-V.12] confirmar reenvía el esperado que la persona VIO, y cierra', () => {
+    const cerrar = vi.fn()
+      .mockImplementationOnce(conflicto409)
+      .mockImplementationOnce(() => of({ id: 'c1', estado: 'cerrado', totales: {} }));
+    montar({ saldo: conSellado(sellado1500), cerrarCorte: cerrar });
+    comp.abrirCierre();
+    comp.cerrarCorte();     // 409: aparece el conflicto
+    comp.cerrarCorte();     // la persona confirma
+    expect(cerrar).toHaveBeenCalledTimes(2);
+    expect(cerrar.mock.calls[1][4]).toBe(1800);
+    expect(comp.conflictoEsperado()).toBeNull();
+    expect(comp.cierreAbierto()).toBe(false);
+  });
+
+  it('⛔ [CGP-V.12] otro error NO se confunde con el conflicto: sigue yendo al aviso', () => {
+    montar({
+      saldo: conSellado(sellado1500),
+      cerrarCorte: vi.fn(() => throwError(() => ({ status: 400, error: { message: 'El conteo de este corte ya está sellado.' } }))),
+    });
+    comp.abrirCierre();
+    comp.cerrarCorte();
+    expect(comp.conflictoEsperado()).toBeNull();
+  });
+
+  it('[CGP-V.12] reabrir el diálogo limpia un conflicto viejo', () => {
+    montar({ saldo: conSellado(sellado1500), cerrarCorte: vi.fn(conflicto409) });
+    comp.abrirCierre();
+    comp.cerrarCorte();
+    expect(comp.conflictoEsperado()).not.toBeNull();
+    comp.abrirCierre();
+    expect(comp.conflictoEsperado()).toBeNull();
+  });
+});
+  // ── `[CGP-V.3]` Las jornadas atrasadas se cierran desde la pantalla, y en orden ─────────────────
+  //
+  // El 13 y el 14-oct no tenían camino: la pantalla SIEMPRE abría el corte de hoy, y abrir hoy
+  // primero deja huérfanos a los días de atrás — `[CGP-L.4]` rechaza abrir una jornada anterior a un
+  // corte que ya existe. El botón abre la atrasada más vieja y lo DICE en su etiqueta.
+  describe('[CGP-V.3] jornadas atrasadas', () => {
+    const pendientes = (jornadas: Array<{ fecha: string; movimientos: number }>, hoy = '2026-10-14') =>
+      vi.fn(() => of({ sucursal: '00', hoy, inicio_libro: '2026-10-12', jornadas, alcance: 'cajon' as const }));
+    const DOS = [{ fecha: '2026-10-12', movimientos: 3 }, { fecha: '2026-10-13', movimientos: 5 }];
+    const sinCorte = () => vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true }));
+    const fechaAbierta = () => (svc['abrirCorte'].mock.calls[0][0] as { fecha: string }).fecha;
+    const falla = (status: number) => vi.fn(() => throwError(() => ({ status, error: {} })));
+
+    it('⭐ con jornadas atrasadas, rendir cuentas abre la MÁS VIEJA, no la de hoy', () => {
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).toHaveBeenCalledTimes(1);
+      expect(fechaAbierta()).toBe('2026-10-12');
+      expect(comp.cierreAbierto()).toBe(true);   // y sigue derecho al conteo, como siempre
+    });
+
+    it('el botón lo dice, y el aviso nombra cada jornada y el orden', () => {
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      const panel: string = fx.nativeElement.querySelector('.cg-conc').textContent;
+      expect(panel).toContain('Rendir cuentas del 12-oct');
+      expect(panel).toContain('13-oct');
+      expect(panel).toContain('en orden');
+    });
+
+    it('el subtítulo avisa sin tener que abrir la ventana', () => {
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      expect(comp.subtituloJornada()).toContain('2 jornadas sin corte desde el 12-oct');
+    });
+
+    it('[negativa] sin atrasadas abre HOY, y el hoy es el del servidor', () => {
+      // Un día que no puede ser el del navegador: si saliera `todayMx()`, la prueba lo atrapa. El
+      // servidor rechaza una fecha futura con SU reloj, así que es el reloj que hay que usar.
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes([], '2031-01-15') });
+      comp.cerrarJornada();
+      expect(fechaAbierta()).toBe('2031-01-15');
+    });
+
+    it('⛔ [negativa] sin saber si hay atrasadas NO se abre el corte de hoy: se reintenta', () => {
+      // Abrir hoy a ciegas puede dejar huérfanas las de atrás, y eso no se deshace desde aquí.
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: falla(500) });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+      const panel: string = fx.nativeElement.querySelector('.cg-conc').textContent;
+      expect(panel).toContain('Reintentar');
+      expect(panel).not.toContain('rendir cuentas');
+
+      const antes = svc['jornadasPendientes'].mock.calls.length;
+      comp.reintentarCierre();
+      expect(svc['jornadasPendientes'].mock.calls.length).toBe(antes + 1);
+    });
+
+    it('[negativa] un servidor que no conoce la ruta (404) abre hoy, como antes', () => {
+      // Un API anterior a `[CGP-L.4]` no lista jornadas, pero tampoco tiene la regla que las deja
+      // huérfanas: abrir hoy ahí es lo que ya pasaba. Trabar el cierre por un 404 sería peor.
+      montar({ saldo: sinCorte(), jornadasPendientes: falla(404) });
+      comp.cerrarJornada();
+      expect(fechaAbierta()).toBe(todayMx());
+    });
+
+    it('con un corte atrasado ABIERTO va a ese corte, y el cierre dice de qué jornada es', () => {
+      const fx = montarJornada({
+        saldo: vi.fn(() => of({
+          ...SALDO, sin_corte_abierto: false,
+          corte_abierto: { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', fondo_inicial: 500, ya_reconto: false },
+        })),
+        jornadasPendientes: pendientes([]),
+      });
+      const panel: string = fx.nativeElement.querySelector('.cg-conc').textContent;
+      expect(panel).toContain('Rendir cuentas del 13-oct');
+
+      comp.cerrarJornada();
+      fx.detectChanges();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+      expect(comp.cierreAbierto()).toBe(true);
+      expect(document.body.textContent).toContain('CC-2026-00009 · jornada del 13-oct');
+    });
+
+    it('al cerrar un corte se vuelve a medir: así aparece la siguiente atrasada', () => {
+      montar({
+        saldo: vi.fn(() => of({
+          ...SALDO, sin_corte_abierto: false,
+          corte_abierto: {
+            id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-12', fondo_inicial: 500, ya_reconto: false,
+            conteo_sellado: { contado: 1500, esperado: 1500, diferencia: 0, veredicto: 'cuadra', ya_reconto: false },
+          },
+        } as unknown as SaldoResponse)),
+        jornadasPendientes: pendientes([{ fecha: '2026-10-13', movimientos: 5 }]),
+        cerrarCorte: vi.fn(() => of({ id: 'c9', estado: 'cerrado', totales: {} })),
+      });
+      const antes = svc['jornadasPendientes'].mock.calls.length;
+      comp.abrirCierre();
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).toHaveBeenCalled();
+      expect(svc['jornadasPendientes'].mock.calls.length).toBeGreaterThan(antes);
+    });
+    it('⛔ [negativa] la otra puerta — declarar el fondo — tampoco abre hoy por encima de una atrasada', () => {
+      // «Declarar con cuánto arrancó la caja» abre el corte desde su propio diálogo. Si esa puerta
+      // abriera hoy, dejaría huérfanas a las atrasadas igual que el botón principal.
+      montar({ saldo: sinCorte(), jornadasPendientes: pendientes(DOS) });
+      comp.abrirApertura();
+      comp.fondoInicial.set(800);
+      comp.abrirCorte();
+      expect(fechaAbierta()).toBe('2026-10-12');
+    });
+
+    it('⛔ [negativa] por esa puerta, sin saber si hay atrasadas tampoco se abre nada', () => {
+      montar({ saldo: sinCorte(), jornadasPendientes: falla(500) });
+      comp.abrirApertura();
+      comp.fondoInicial.set(800);
+      comp.abrirCorte();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+  });
+  // ── `[CGP-V.1]` + `[CGP-V.2]` Los pasos del corte, y la reja después de revelar ─────────────────
+  //
+  // V2 (diagnóstico): el callejón de CG.160 seguía siendo posible SIN recargar. Después de sellar no
+  // se volvía a pedir el saldo y `abrirCierre()` borraba lo sellado en la sesión, así que cerrar el
+  // diálogo y reabrirlo volvía a ofrecer «Guardar conteo» (400). V1: la reja seguía editable después
+  // de revelar y «Cerrar corte» mandaba lo tecleado.
+  describe('[CGP-V.1][CGP-V.2] el corte paso a paso', () => {
+    const abierto = (conteo_sellado: unknown = null) => ({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id: 'c1', folio: 'CC-2026-00007', fecha: todayMx(), fondo_inicial: 500, ya_reconto: false, conteo_sellado },
+    } as unknown as SaldoResponse);
+    const TOTALES_CUADRA = {
+      ingresos: 1000, gastos: 0, depositos: 0, esperado: 1500, contado: 1500, diferencia: 0, veredicto: 'cuadra',
+      movimientos: 1, cancelados: 0, ingresos_anclados: 0, ingresos_capturados: 1000, cobertura_ingreso: 0,
+    };
+    const SELLADO_FALTA = {
+      contado: 1400, esperado: 1500, diferencia: -100, veredicto: 'falta', ya_reconto: false,
+      desglose: [{ denom_key: '500', denominacion: 500, piezas: 2 }, { denom_key: '200', denominacion: 200, piezas: 2 }],
+      morralla: 0,
+    };
+    const den = (key: string) => comp.reja.find((d) => d.key === key)!;
+    const contar = () => vi.fn(() => of({ corte_id: 'c1', totales: TOTALES_CUADRA, puede_recontar: false }));
+    const cerrado = () => vi.fn(() => of({ id: 'c1', estado: 'cerrado', totales: {} }));
+
+    it('⛔ V2: sellar, cerrar el diálogo y reabrirlo NO vuelve a ofrecer «Guardar conteo»', () => {
+      // El saldo sigue diciendo «sin sellar»: es justo el caso en que no se volvió a pedir.
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cierreAbierto.set(false);
+      comp.abrirCierre();
+      expect(comp.revelacion()?.contado).toBe(1500);
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.gateCierre().ok).toBe(true);
+    });
+
+    it('después de sellar se vuelve a pedir el saldo: el estado sale del servidor', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
+      comp.abrirCierre();
+      const antes = svc['saldo'].mock.calls.length;
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      expect(svc['saldo'].mock.calls.length).toBe(antes + 1);
+    });
+
+    it('revelado, la reja muestra LO SELLADO por el servidor y deja de teclearse', () => {
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.piezasSelladasDe(den('500'))).toBe(2);
+      expect(comp.piezasSelladasDe(den('200'))).toBe(2);
+      expect(comp.piezasSelladasDe(den('100'))).toBe(0);
+    });
+
+    it('⛔ cerrar después de revelar manda la reja VACÍA: lo que se firma es lo sellado', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
+      expect(svc['cerrarCorte'].mock.calls[0][1]).toEqual([]);
+      expect(svc['cerrarCorte'].mock.calls[0][2]).toBe(0);
+    });
+
+    it('⛔ si la relectura del saldo falla después de sellar, el corte del diálogo se puede cerrar igual', () => {
+      let falla = false;
+      const saldo = vi.fn(() => (falla ? throwError(() => ({ status: 500, error: {} })) : of(abierto(null))));
+      montar({ saldo, contarCorte: contar(), cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(den('500'), 3);
+      falla = true;
+      comp.sellarConteo();
+      expect(comp.saldoResp()).toBeNull();     // la relectura falló de verdad
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
+      expect(svc['cerrarCorte'].mock.calls[0][0]).toBe('c1');
+    });
+
+    it('Recontar abre la reja VACÍA, pide motivo, y mientras tanto no se cierra', () => {
+      const recontarCorte = vi.fn(() => of({ corte_id: 'c1', totales: TOTALES_CUADRA, puede_recontar: false }));
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))), recontarCorte, cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      expect(comp.ofreceRecontar()).toBe(true);
+      comp.empezarReconteo();
+      expect(comp.rejaEditable()).toBe(true);
+      expect(comp.conteoCorte()).toEqual([]);
+
+      comp.cerrarCorte();
+      expect(svc['cerrarCorte']).not.toHaveBeenCalled();   // a mitad del reconteo firmaría el primero
+
+      comp.setPiezasCorte(den('500'), 3);
+      comp.recontar();
+      expect(recontarCorte).not.toHaveBeenCalled();         // sin motivo no hay reconteo
+      comp.motivoReconteo.set('Faltó contar el billete de 500');
+      comp.recontar();
+      expect(recontarCorte).toHaveBeenCalledTimes(1);
+      expect(comp.recontando()).toBe(false);
+      expect(comp.puedeRecontar()).toBe(false);             // era el único
+      expect(comp.revelacion()?.contado).toBe(1500);
+    });
+
+    it('«Volver al conteo sellado» descarta lo tecleado y vuelve a la reja de sólo lectura', () => {
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
+      comp.abrirCierre();
+      comp.empezarReconteo();
+      comp.setPiezasCorte(den('100'), 3);
+      comp.cancelarReconteo();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.conteoCorte()).toEqual([]);
+    });
+
+    it('⛔ un API que no manda el desglose: la reja NO se pinta en blanco, se declara', () => {
+      const { desglose: _d, morralla: _m, ...sinDesglose } = SELLADO_FALTA;
+      montar({ saldo: vi.fn(() => of(abierto(sinDesglose))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.desgloseSellado()).toBeNull();
+    });
+
+    it('⛔ un desglose con una pieza que la reja no tiene ($1,000) se declara, no se pinta a medias', () => {
+      // La reja de sólo lectura no tendría dónde ponerla, y lo que se ve no sumaría lo sellado.
+      montar({ saldo: vi.fn(() => of(abierto({
+        ...SELLADO_FALTA, contado: 1400,
+        desglose: [{ denom_key: '1000', denominacion: 1000, piezas: 1 }, { denom_key: '200', denominacion: 200, piezas: 2 }],
+      }))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.desgloseSellado()).toBeNull();
+    });
+
+    it('abrir desde «rendir cuentas»: el diálogo ya sabe qué corte es aunque el saldo no haya vuelto', () => {
+      // El saldo no trae el corte recién abierto (todavía no volvió): sale de la respuesta de abrir.
+      montar({ saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })) });
+      comp.cerrarJornada();
+      expect(comp.cierreAbierto()).toBe(true);
+      expect(comp.rotuloCorte()).toContain('CC-2026-00001');
+    });
+
+    // V.1 — el paso, en la página.
+    it('el paso de la página sin corte abierto es abrir', () => {
+      montar();
+      expect(comp.pasoPagina()).toBe('abrir');
+    });
+
+    it('el paso de la página con el corte abierto y sin sellar es contar', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))) });
+      expect(comp.pasoPagina()).toBe('contar');
+    });
+
+    it('el paso de la página con un conteo sellado que cuadra es cerrar', () => {
+      montar({ saldo: vi.fn(() => of(abierto({ ...SELLADO_FALTA, veredicto: 'cuadra', diferencia: 0, esperado: 1400 }))) });
+      expect(comp.pasoPagina()).toBe('cerrar');
+    });
+
+    it('con diferencia y el reconteo sin usar, el paso es revisar la diferencia', () => {
+      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
+      expect(comp.pasoPagina()).toBe('revisar');
+    });
+
+    it('cerrado y sin autorizar: el paso es autorizar, y nombra el folio', () => {
+      montar({
+        cortes: vi.fn(() => of({ rows: [
+          { id: 'c0', folio: 'CC-2026-00006', fecha: '2026-10-12', sucursal: '00', estado: 'autorizado' },
+          { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', sucursal: '00', estado: 'cerrado' },
+        ] })),
+      });
+      expect(comp.pasoPagina()).toBe('autorizar');
+      expect(comp.textoPasoPagina()).toContain('CC-2026-00009');
+    });
+
+    it('⛔ [negativa] sin saldo medido la página no afirma ningún paso', () => {
+      montar({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+      expect(comp.pasoPagina()).toBeNull();
+    });
+  });
+  // ── `[CGP-V.4]` Midiendo no es «sin medir» ───────────────────────────────────────────────────
+  //
+  // Mientras el saldo cargaba, la pantalla decía «Corte sin medir» y ofrecía «Reintentar»: y
+  // reintentar mandaba MÁS lecturas contra el mismo límite de 10 por segundo que la frenaba.
+  describe('[CGP-V.4] el saldo midiendo', () => {
+    const enVuelo = () => vi.fn(() => new Subject());
+    const falla500 = () => vi.fn(() => throwError(() => ({ status: 500, error: {} })));
+    const panel = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('.cg-conc')?.textContent ?? '';
+
+    it('mientras el saldo mide no dice «sin medir» ni ofrece «Reintentar»: el botón espera', () => {
+      const fx = montarJornada({ saldo: enVuelo() });
+      expect(comp.cargandoSaldo()).toBe(true);
+      expect(comp.textoSaldoUI()).toContain('midiendo');
+      expect(comp.subtituloJornada()).toContain('midiendo si hay corte abierto');
+      expect(panel(fx)).not.toContain('Corte sin medir');
+      expect(panel(fx)).not.toContain('Reintentar');
+    });
+
+    it('⛔ con el saldo en vuelo, rendir cuentas no abre nada', () => {
+      montarJornada({ saldo: enVuelo() });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+
+    it('⛔ la otra puerta tampoco: declarar el fondo sin saldo medido no abre', () => {
+      montarJornada({ saldo: falla500() });
+      comp.abrirApertura();
+      comp.fondoInicial.set(800);
+      comp.abrirCorte();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+    });
+
+    it('si el saldo FALLA, entonces sí: sin medir y «Reintentar»', () => {
+      const fx = montarJornada({ saldo: falla500() });
+      expect(comp.cargandoSaldo()).toBe(false);
+      expect(comp.saldoSinMedir()).toBe(true);
+      expect(panel(fx)).toContain('Corte sin medir');
+      expect(panel(fx)).toContain('Reintentar');
+    });
+  });
+  // ── `[CGP-V.5]` El error se queda donde se hizo la acción, con su frase ────────────────────────
+  //
+  // Antes todo salía en un aviso de 7 s, el diálogo de cierre no conservaba ningún error, y un 403
+  // se pintaba «No tenés permiso» aunque el servidor dijera que era la doble llave.
+  describe('[CGP-V.5] el error se queda donde se hizo la acción', () => {
+    const abierto = () => vi.fn(() => of({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id: 'c1', folio: 'CC-2026-00007', fecha: todayMx(), fondo_inicial: 500, ya_reconto: false, conteo_sellado: null },
+    } as unknown as SaldoResponse));
+    const falla = (status: number, message: string) => vi.fn(() => throwError(() => ({ status, error: { message } })));
+    const panel = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('.cg-conc')?.textContent ?? '';
+
+    it('sellar falla: la frase del servidor queda en el diálogo, que sigue abierto', () => {
+      montar({ saldo: abierto(), contarCorte: falla(400, 'La reja trae una denominación que no existe.') });
+      comp.abrirCierre();
+      comp.setPiezasCorte(comp.reja.find((d) => d.key === '500')!, 1);
+      comp.sellarConteo();
+      expect(comp.cierreAbierto()).toBe(true);
+      expect(comp.errorCierre()).toContain('La reja trae una denominación que no existe.');
+    });
+
+    it('reabrir el diálogo limpia el error viejo', () => {
+      montar({ saldo: abierto(), contarCorte: falla(400, 'La reja trae una denominación que no existe.') });
+      comp.abrirCierre();
+      comp.setPiezasCorte(comp.reja.find((d) => d.key === '500')!, 1);
+      comp.sellarConteo();
+      comp.abrirCierre();
+      expect(comp.errorCierre()).toBeNull();
+    });
+
+    it('⛔ autorizar con el 403 de la doble llave: SU frase, en la fila de ese corte', () => {
+      montar({
+        cortes: vi.fn(() => of({ rows: [
+          { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', sucursal: '00', estado: 'cerrado', closed_by: null },
+        ] })),
+        autorizarCorte: falla(403, 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.'),
+      });
+      comp.autorizar(comp.cortes()[0]);
+      expect(comp.errorAutorizar()).toEqual({
+        id: 'c9', texto: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+      });
+    });
+
+    it('abrir desde «rendir cuentas» falla: la frase queda junto al botón del cierre', () => {
+      const fx = montarJornada({
+        saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
+        abrirCorte: falla(400, 'El 12-oct ya tiene su corte: CC-2026-00001.'),
+      });
+      comp.cerrarJornada();
+      fx.detectChanges();
+      expect(comp.errorApertura()).toContain('CC-2026-00001');
+      expect(panel(fx)).toContain('CC-2026-00001');
+    });
+  });
+  // ── `[CGP-V.7]` Lo no medido se dice, y las fechas no salen crudas ───────────────────────────
+  describe('[CGP-V.7] lo no medido se dice', () => {
+    it('⛔ cancelados sin monto medido: dice «sin medir», no $0.00', () => {
+      montar({ libro: vi.fn(() => of({ ...LIBRO, kpi: { ...LIBRO.kpi, cancelados: 2, monto_cancelado: null } })) });
+      const sub = comp.kpis().find((k) => k.label === 'Movimientos')?.sub ?? '';
+      expect(sub).toContain('2 cancelados');
+      expect(sub).toContain('sin medir');
+      expect(sub).not.toContain('$0.00');
+    });
+
+    it('cancelados con monto medido: el monto', () => {
+      montar({ libro: vi.fn(() => of({ ...LIBRO, kpi: { ...LIBRO.kpi, cancelados: 1, monto_cancelado: 250 } })) });
+      const sub = comp.kpis().find((k) => k.label === 'Movimientos')?.sub ?? '';
+      expect(sub).toContain('$250.00');
+    });
+  });
+  // ── `[CGP-V.6]` Los botones dependen del permiso, y lo dicen ────────────────────────────────
+  //
+  // Quien sólo tenía VER veía «Rendir cuentas» y la fila del corte ofrecía «Autorizar» a quien no
+  // podía: el clic terminaba en un 403. Sin permisos cargados no se bloquea: decide el servidor.
+  describe('[CGP-V.6] los botones dependen del permiso', () => {
+    const permisos = (p: Record<string, boolean>) => TestBed.inject(PermissionsService).load(p, 'cajero', 'servidor');
+    const panel = (fx: { nativeElement: HTMLElement }) => fx.nativeElement.querySelector('.cg-conc')?.textContent ?? '';
+    const CERRADO = { id: 'c9', folio: 'CC-2026-00009', fecha: '2026-10-13', sucursal: '00', estado: 'cerrado', closed_by: 'otro' };
+
+    it('⛔ sólo con VER no se ofrece rendir cuentas, y se dice qué permiso falta', () => {
+      const fx = montarJornada();
+      permisos({ FINANCE_CAJA_VER: true });
+      fx.detectChanges();
+      expect(comp.puedeGestionar()).toBe(false);
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).not.toHaveBeenCalled();
+      expect(panel(fx)).toContain('Capturar en Caja General');
+      expect(panel(fx)).not.toContain('Cerrar jornada y rendir cuentas');
+    });
+
+    it('con GESTIONAR sí se rinde cuentas', () => {
+      montarJornada();
+      permisos({ FINANCE_CAJA_VER: true, FINANCE_CAJA_GESTIONAR: true });
+      comp.cerrarJornada();
+      expect(svc['abrirCorte']).toHaveBeenCalledTimes(1);
+    });
+
+    it('⛔ sin AUTORIZAR, la fila del corte cerrado no ofrece autorizar y dice por qué', () => {
+      montar({ cortes: vi.fn(() => of({ rows: [CERRADO] })), autorizarCorte: vi.fn(() => of({})) });
+      permisos({ FINANCE_CAJA_VER: true, FINANCE_CAJA_GESTIONAR: true });
+      const g = comp.gateAutorizar(comp.cortes()[0]);
+      expect(g.ok).toBe(false);
+      expect(g.texto).toContain('Autorizar corte de Caja General');
+      comp.autorizar(comp.cortes()[0]);
+      expect(svc['autorizarCorte']).not.toHaveBeenCalled();
+    });
+
+    it('con AUTORIZAR, la fila ofrece autorizar', () => {
+      montar({ cortes: vi.fn(() => of({ rows: [CERRADO] })) });
+      permisos({ FINANCE_CAJA_VER: true, FINANCE_CAJA_AUTORIZAR: true });
+      expect(comp.gateAutorizar(comp.cortes()[0]).ok).toBe(true);
+    });
+
+    it('⛔ sólo con VER: no se abre la captura ni se confirma el lote, y la barra dice por qué', () => {
+      const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+      permisos({ FINANCE_CAJA_VER: true });
+      fx.detectChanges();
+      comp.capturaAbierta.set(false);   // puede llegar abierta por un borrador restaurado
+      comp.abrirCaptura();
+      expect(comp.capturaAbierta()).toBe(false);
+      comp.marcarTodas(true);
+      expect(comp.marcadas().length).toBe(2);   // que el freno sea el permiso, no una bandeja vacía
+      comp.confirmarLote();
+      expect(svc['confirmarLote']).not.toHaveBeenCalled();
+      const barra: string = fx.nativeElement.querySelector('.cg-bar')?.textContent ?? '';
+      expect(barra).toContain('Capturar en Caja General');
+      expect(barra).not.toContain('Registrar movimiento');
+    });
+
+    it('permisos sin cargar: no se bloquea nada (el candado es el servidor)', () => {
+      montar();
+      expect(comp.puedeGestionar()).toBe(true);
+      expect(comp.puedeAutorizarPorPermiso()).toBe(true);
+    });
+  });
+  // ── `[CGP-V.9]` Contar cero con confirmación explícita ───────────────────────────────────────
+  //
+  // Con la caja en $0, «Guardar conteo» quedaba deshabilitado sin explicación y ese corte no se podía
+  // cerrar nunca. «No se contó» y «se contó y no hay efectivo» son dos hechos: el segundo se declara.
+  describe('[CGP-V.9] contar cero con confirmación', () => {
+    const abierto = () => vi.fn(() => of({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id: 'c1', folio: 'CC-2026-00007', fecha: todayMx(), fondo_inicial: 0, ya_reconto: false, conteo_sellado: null },
+    } as unknown as SaldoResponse));
+    const contarCero = () => vi.fn(() => of({
+      corte_id: 'c1', puede_recontar: false,
+      totales: {
+        ingresos: 0, gastos: 0, depositos: 0, esperado: 0, contado: 0, diferencia: 0, veredicto: 'cuadra',
+        movimientos: 0, cancelados: 0, ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null,
+      },
+    }));
+    const den = (key: string) => comp.reja.find((d) => d.key === key)!;
+    const texto = (fx: { nativeElement: HTMLElement }) => document.body.textContent + fx.nativeElement.textContent;
+
+    it('⛔ con la reja en cero y sin declarar no se sella, y la pantalla dice cómo se hace', () => {
+      const fx = montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      fx.detectChanges();
+      expect(comp.puedeSellar()).toBe(false);
+      comp.sellarConteo();
+      expect(svc['contarCorte']).not.toHaveBeenCalled();
+      expect(texto(fx)).toContain('Conté y no hay efectivo');
+    });
+
+    it('declarando «conté y no hay efectivo» se sella en cero, y viaja la declaración', () => {
+      montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      comp.ceroDeclarado.set(true);
+      expect(comp.puedeSellar()).toBe(true);
+      comp.sellarConteo();
+      expect(svc['contarCorte'].mock.calls[0][3]).toBe(true);
+      expect(comp.revelacion()?.contado).toBe(0);
+    });
+
+    it('⛔ si después se teclea una pieza, la declaración de cero deja de valer', () => {
+      montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      comp.ceroDeclarado.set(true);
+      comp.setPiezasCorte(den('500'), 1);
+      expect(comp.ceroVigente()).toBe(false);
+      comp.sellarConteo();
+      expect(svc['contarCorte'].mock.calls[0][3]).toBe(false);
+    });
+
+    it('reabrir el diálogo olvida la declaración: se confirma cada vez', () => {
+      montar({ saldo: abierto(), contarCorte: contarCero() });
+      comp.abrirCierre();
+      comp.ceroDeclarado.set(true);
+      comp.abrirCierre();
+      expect(comp.ceroDeclarado()).toBe(false);
+    });
+  });
+  // ── `[CGP-V.11]` Deuda de diseño ──────────────────────────────────────────────────────────────
+  describe('[CGP-V.11] deuda de diseño', () => {
+    it('el motivo de «sin documento» es un pTextarea con su etiqueta, no un textarea crudo', () => {
+      const fx = montar();
+      comp.abrirCaptura();
+      fx.detectChanges();
+      const ta = (document.querySelector('#cg-sin-doc') ?? fx.nativeElement.querySelector('#cg-sin-doc')) as HTMLElement | null;
+      expect(ta).not.toBeNull();
+      expect(ta!.classList.contains('p-textarea')).toBe(true);
+      expect(document.querySelector('label[for="cg-sin-doc"]') ?? fx.nativeElement.querySelector('label[for="cg-sin-doc"]')).not.toBeNull();
+    });
+  });
+  describe('[CGP-L.8] el comprobante del detalle', () => {
+    it('lo recibido va al desglose y el cambio a su sección', () => {
+      montar();
+      const c = comp.comprobanteDeDetalle({
+        id: 'm1', folio: 'ING-2026-00042', tipo: 'ingreso', fecha: '2026-10-12', sucursal: '00', monto: 380,
+        denominaciones: [
+          { denominacion: 500, piezas: 1, flujo: 'recibido' },
+          { denominacion: 100, piezas: 1, flujo: 'devuelto' },
+          { denominacion: 20, piezas: 1, flujo: 'devuelto' },
+        ],
+      } as never);
+      expect(c.denominaciones).toEqual([{ denominacion: 500, piezas: 1 }]);
+      expect(c.devuelto).toEqual([{ denominacion: 100, piezas: 1 }, { denominacion: 20, piezas: 1 }]);
+      expect(c.monto).toBe(380);
     });
   });
 });

@@ -111,7 +111,7 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="mt-disc-head">
             <div>
               <h3 class="mt-disc-title">Proveedores</h3>
-              <p class="mt-disc-sub">Explorá por riesgo (lista negra → baja recepción → monto) o busca por nombre. Clic en uno arma su expediente — no necesitas teclear el RFC.</p>
+              <p class="mt-disc-sub">Explora por riesgo (lista negra → baja recepción → monto) o busca por nombre. Clic en uno arma su expediente — no necesitas teclear el RFC.</p>
             </div>
             <div class="mt-disc-filters">
               <p-iconfield iconPosition="left" styleClass="mt-disc-search">
@@ -121,7 +121,7 @@ import { Permission } from '../../../core/constants/permissions';
               <p-selectbutton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
             </div>
           </div>
-          @if (searched() && !dossier()) { <div class="mt-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}. Elegí uno de la lista.</div> }
+          @if (searched() && !dossier()) { <div class="mt-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}. Elige uno de la lista.</div> }
           <p-table [value]="providers()" styleClass="p-datatable-sm mt-disc-table" [rowHover]="true" [loading]="provLoading()" [scrollable]="true" scrollHeight="480px" [paginator]="providers().length > 50" [rows]="50">
             <ng-template #header>
               <tr>

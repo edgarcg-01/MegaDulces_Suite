@@ -112,6 +112,14 @@ interface Agg {
   n_almacenes: number;
   sin_valuar: number;
   sin_factor: number;
+  // `[U.VA.1]` El balde "sin factor" tiene DOS causas y el total las perdía.
+  // Medido contra prod el 2026-10-15 sobre las celdas con existencia: de 1,833 celdas,
+  // **1,335 (73 %) son de PESO** y sólo 498 son "ninguna fuente declara el factor". El banner
+  // publicaba la segunda redacción para las dos, o sea nombraba mal la causa en 3 de cada 4.
+  // La celda SÍ las distinguía (`nf: 'peso' | 'sin_factor'`, con dos tooltips distintos); se
+  // perdía justo en la frase que todo el mundo lee. Son problemas distintos y se arreglan
+  // distinto: el de peso necesita vender por kilo, el otro necesita que alguien declare el factor.
+  sin_factor_peso: number;
   sin_costo_erp: number;
   costo_invertido: number;
   arbitrado: number | null;
@@ -137,7 +145,7 @@ export function armarMatriz(celdas: ExistenciaCelda[], f: ExistenciaFiltrosMem) 
     if (!a) {
       a = {
         product_id: c.product_id, sku: c.sku, nombre: c.nombre, valor: null, total_cajas: null,
-        hay_existencia: false, n_almacenes: 0, sin_valuar: 0, sin_factor: 0, sin_costo_erp: 0,
+        hay_existencia: false, n_almacenes: 0, sin_valuar: 0, sin_factor: 0, sin_factor_peso: 0, sin_costo_erp: 0,
         costo_invertido: 0, arbitrado: null, buckets: new Set(), celdas: [],
       };
       porProducto.set(c.product_id, a);
@@ -158,7 +166,7 @@ export function armarMatriz(celdas: ExistenciaCelda[], f: ExistenciaFiltrosMem) 
       if (c.cu_source !== 'erp') a.sin_costo_erp++;
       if (c.cu_source === 'catalogo_columnas_invertidas') a.costo_invertido++;
     }
-    if (sinFactor(c)) a.sin_factor++;
+    if (sinFactor(c)) { a.sin_factor++; if (c.is_weight) a.sin_factor_peso++; }
     if (c.bucket) a.buckets.add(c.bucket);
     a.celdas.push(c);
   }
@@ -174,16 +182,19 @@ export function armarMatriz(celdas: ExistenciaCelda[], f: ExistenciaFiltrosMem) 
   let valor: number | null = null;
   let arbitrado: number | null = null;
   let celdasSinValuar = 0, celdasSinFactor = 0, celdasSinCostoErp = 0, celdasCostoInvertido = 0;
+  let celdasSinFactorPeso = 0, skusSinFactorPeso = 0;
   let skusSinValuar = 0, skusSinFactor = 0;
   for (const a of agg) {
     if (a.valor != null) valor = (valor ?? 0) + a.valor;
     if (a.arbitrado != null) arbitrado = (arbitrado ?? 0) + a.arbitrado;
     celdasSinValuar += a.sin_valuar;
     celdasSinFactor += a.sin_factor;
+    celdasSinFactorPeso += a.sin_factor_peso;
     celdasSinCostoErp += a.sin_costo_erp;
     celdasCostoInvertido += a.costo_invertido;
     if (a.sin_valuar > 0) skusSinValuar++;
     if (a.sin_factor > 0) skusSinFactor++;
+    if (a.sin_factor_peso > 0) skusSinFactorPeso++;
   }
 
   // ── PASO 3 — orden + página. NULLS LAST en las dos direcciones, desempate por SKU.
@@ -273,6 +284,9 @@ export function armarMatriz(celdas: ExistenciaCelda[], f: ExistenciaFiltrosMem) 
       skus_sin_valuar: skusSinValuar,
       celdas_sin_factor: celdasSinFactor,
       skus_sin_factor: skusSinFactor,
+      // [U.VA.1] el desglose por CAUSA: lo de PESO es el 73 % y no es "falta el factor".
+      celdas_sin_factor_peso: celdasSinFactorPeso,
+      skus_sin_factor_peso: skusSinFactorPeso,
       celdas_sin_costo_erp: celdasSinCostoErp,
       celdas_costo_invertido: celdasCostoInvertido,
       arbitrado: arbitrado == null ? null : r2(arbitrado),

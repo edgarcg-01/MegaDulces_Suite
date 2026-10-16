@@ -115,7 +115,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
           <div class="rsd-scan-grid">
             <label class="rsd-f">
               <span>Escanear código de barras / SKU</span>
-              <input pInputText [(ngModel)]="scanCode" (keyup.enter)="onScan()" placeholder="Escaneá o tecleá y Enter" autofocus [disabled]="scanning()" class="rsd-code" />
+              <input pInputText [(ngModel)]="scanCode" (keyup.enter)="onScan()" placeholder="Escanea o teclea y Enter" autofocus [disabled]="scanning()" class="rsd-code" />
             </label>
             <label class="rsd-f">
               <span>Cantidad</span>
@@ -161,7 +161,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <td class="num">{{ l.expected_qty | number }}</td>
             <td class="rsd-unit" [class.rsd-unit-amb]="l.expected_unit === 'ambigua'">
               @if (l.expected_unit === 'ambigua') {
-                <span title="El vale trae este producto con más de una unidad: confirmá cuál corresponde">⚠ ambigua</span>
+                <span title="El vale trae este producto con más de una unidad: confirma cuál corresponde"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> ambigua</span>
               } @else { {{ l.expected_unit || '—' }} }
             </td>
             <td class="num rsd-rec">
@@ -195,13 +195,13 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
                     <span class="pi pi-check" aria-hidden="true"></span>
                   </button>
                 }
-                <p-select [options]="markOptions" [ngModel]="null" (onChange)="mark(l, $event.value)" placeholder="⚑" styleClass="rsd-mark" [showClear]="false"></p-select>
+                <p-select [options]="markOptions" [ngModel]="null" (onChange)="mark(l, $event.value)" placeholder="Marcar" styleClass="rsd-mark" [showClear]="false"></p-select>
               }
             </td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><h3>Sin líneas</h3><p>Escaneá productos o agregá líneas esperadas.</p></div></td></tr>
+          <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><h3>Sin líneas</h3><p>Escanea productos o agrega líneas esperadas.</p></div></td></tr>
         </ng-template>
       </p-table>
 
@@ -223,7 +223,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <section class="rlp-form">
               <h3>Agregar lote</h3>
               <label class="rlp-f">
-                <span>Foto de la caducidad <em>(opcional — el OCR propone, vos confirmás)</em></span>
+                <span>Foto de la caducidad <em>(opcional — el OCR propone, tú confirmas)</em></span>
                 <!-- El input nativo muestra "Choose File / No file chosen" en el idioma del
                      navegador (no se puede traducir). Se oculta y se dispara desde un label
                      estilado, que además da un target táctil decente en la rampa. -->
@@ -656,7 +656,7 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
         },
         error: () => {
           this.ocrBusy.set(false);
-          this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se pudo leer la etiqueta — capturá a mano' });
+          this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se pudo leer la etiqueta — captura a mano' });
         },
       });
     };

@@ -118,7 +118,7 @@ const ETIQUETAS: Record<string, string> = {
               @if (d.failed) {
                 <div class="ep-broken">
                   <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                  <span>No se pudo cargar el archivo. El enlace se firma al abrir y expira; cerrá y volvé a abrir. Si sigue, hay que volver a subirlo.</span>
+                  <span>No se pudo cargar el archivo. El enlace se firma al abrir y expira; cierra y vuelve a abrir. Si sigue, hay que volver a subirlo.</span>
                 </div>
               } @else if (d.isPdf) {
                 <iframe [src]="d.safeUrl" [title]="d.label" class="ep-frame"></iframe>
@@ -132,7 +132,7 @@ const ETIQUETAS: Record<string, string> = {
           <div class="ep-broken">
             <i class="pi pi-inbox" aria-hidden="true"></i>
             <span>
-              @if (proof()?.storage_ok === false) { Hay adjuntos pero el almacenamiento no está configurado en el servidor — avisá a sistemas. }
+              @if (proof()?.storage_ok === false) { Hay adjuntos pero el almacenamiento no está configurado en el servidor — avisa a sistemas. }
               @else if (!proof()) { Esta solicitud todavía no se captura. }
               @else if (necesitaEvidencia()) { La evidencia la sube el capturista después de aprobar, desde «Capturar gasto». }
               @else { Gasto no comprobable: no lleva evidencia. }
@@ -196,7 +196,7 @@ const ETIQUETAS: Record<string, string> = {
 
     <p-dialog [visible]="showReject()" (visibleChange)="showReject.set($event)" [modal]="true"
               [style]="{ width: '26rem' }" [draggable]="false" header="Marcar como NO validado">
-      <p class="ep-dlg-hint">El motivo lo lee quien capturó, así que decí qué corregir.</p>
+      <p class="ep-dlg-hint">El motivo lo lee quien capturó, así que di qué corregir.</p>
       <textarea pTextarea [(ngModel)]="motivo" rows="3" class="ep-dlg-txt"
                 placeholder="Ej. comprobante ilegible, no corresponde a la solicitud…"></textarea>
       <ng-template #footer>
@@ -360,12 +360,12 @@ export class ExpenseEvidencePeekComponent {
       error: (e: HttpErrorResponse) => {
         this.loading.set(false);
         if (e?.status === 403) {
-          this.errorMsg.set(String(e.error?.message || 'No tenés permiso para abrir este expediente.'));
+          this.errorMsg.set(String(e.error?.message || 'No tienes permiso para abrir este expediente.'));
           return;
         }
         // 404 tampoco es la conexión: el expediente no está, y reintentar no lo va a traer.
         if (e?.status === 404) { this.errorMsg.set('Este expediente ya no está.'); return; }
-        this.errorMsg.set('No se pudo traer el expediente. Puede ser la conexión — reintentá.');
+        this.errorMsg.set('No se pudo traer el expediente. Puede ser la conexión — reintenta.');
       },
     });
   }
@@ -446,8 +446,8 @@ export class ExpenseEvidencePeekComponent {
     if (!p) return `La solicitud ${s?.folio} pide ${sol} y todavía no tiene comprobante adjunto.`;
     if (p.status === 'rechazada') return 'Se pidió corregir el comprobante. Hasta que se vuelva a subir, la solicitud queda sin respaldo válido.';
     if (p.monto_match === true) return `Claude Vision leyó ${money(p.monto_ocr ?? 0)} y la solicitud ${s?.folio} pide ${sol}.`;
-    if (p.monto_ocr == null) return `No hay lectura automática. Revisá la foto a ojo contra los ${sol} de la solicitud ${s?.folio}.`;
-    return `La solicitud ${s?.folio} pide ${sol} y el comprobante dice ${money(p.monto_ocr)}. Revisá antes de validar.`;
+    if (p.monto_ocr == null) return `No hay lectura automática. Revisa la foto a ojo contra los ${sol} de la solicitud ${s?.folio}.`;
+    return `La solicitud ${s?.folio} pide ${sol} y el comprobante dice ${money(p.monto_ocr)}. Revisa antes de validar.`;
   });
   /** Catálogo SAT c_FormaPago, sólo los que aparecen en el dato. */
   formaPago(c: string): string {

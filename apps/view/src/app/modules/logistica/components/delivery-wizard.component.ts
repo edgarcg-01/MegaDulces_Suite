@@ -101,7 +101,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <!-- ──────────── STEP 1: Checklist Salida ──────────── -->
         @if (currentStepIdx() === 0) {
           <h4><i class="pi pi-clipboard-check"></i> Checklist de inspección — Salida</h4>
-          <p class="muted">Marcá cada item como OK o Issue. Los items con * son obligatorios.</p>
+          <p class="muted">Marca cada item como OK o Issue. Los items con * son obligatorios.</p>
           @for (item of templateSalida()?.items || []; track item) {
             <div class="item-row">
               <div class="item-label">
@@ -138,7 +138,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <h4><i class="pi pi-send"></i> En tránsito</h4>
             <div class="transit-card">
               <i class="pi pi-truck transit-icon"></i>
-              <p>Dirigite al destino. Cuando llegues, marcá como entregado.</p>
+              <p>Dirigite al destino. Cuando llegues, marca como entregado.</p>
               @if (shipment()?.destination) {
                 <p class="muted">Destino: <strong>{{ shipment()?.destination }}</strong></p>
               }
@@ -154,7 +154,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <!-- ──────────── STEP 3: Llegada + Fotos ──────────── -->
           @if (currentStepIdx() === 2) {
             <h4><i class="pi pi-camera"></i> Fotos de entrega</h4>
-            <p class="muted">Capturá fotos de la entrega (firma, evidencia, INE receptor). Mínimo 1.</p>
+            <p class="muted">Captura fotos de la entrega (firma, evidencia, INE receptor). Mínimo 1.</p>
             <div class="photo-actions">
               <button pButton severity="secondary" (click)="takePhoto()" [loading]="capturingPhoto()"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Tomar foto (cámara)</span></button>
               <input type="file" accept="image/*" (change)="onFileSelected($event)" #fileInput hidden />

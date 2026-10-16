@@ -98,7 +98,7 @@ export class CommissionRecalcService {
           anio: p.anio, period_no: p.period_no, run_status: p.run_status,
           motivo: p.run_status === 'pagado'
             ? 'ya esta pagada: es un deposito que ocurrio, no un calculo. La diferencia va como ajuste en la siguiente.'
-            : 'ya esta aprobada: lleva una firma. Anulala a mano y vuelve a correr esto.',
+            : 'ya esta aprobada: lleva una firma. Anúlala a mano y vuelve a correr esto.',
         });
         continue;
       }

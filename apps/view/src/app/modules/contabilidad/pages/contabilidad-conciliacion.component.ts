@@ -257,7 +257,7 @@ export class ContabilidadConciliacionComponent implements OnInit {
   emptyMsg(): string {
     if (this.loading()) return 'Cargando…';
     if (this.errored()) return 'No se pudo cargar la conciliación.';
-    if (this.hasFilters()) return 'Sin resultados para este filtro. Ampliá el rango de fechas o quitá el RFC.';
+    if (this.hasFilters()) return 'Sin resultados para este filtro. Amplía el rango de fechas o quita el RFC.';
     return 'Sin resultados. Se llena al correr la descarga masiva de CFDI del SAT.';
   }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }

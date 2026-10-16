@@ -63,7 +63,7 @@ import { Permission } from '../../../core/constants/permissions';
             <span>
               Éste es el <b>libro interno</b> de la app: lleva el apartado y es lo que escriben los
               ajustes. Su cantidad se desvía del punto de venta cerca del <b>9%</b>.
-              Para saber <b>qué hay físicamente</b>, usá
+              Para saber <b>qué hay físicamente</b>, usa
               <a routerLink="/almacen/inventory/existencia">Existencia</a>, que sale del ERP.
             </span>
           </p>

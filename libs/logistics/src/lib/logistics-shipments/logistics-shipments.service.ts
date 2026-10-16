@@ -599,28 +599,28 @@ export class LogisticsShipmentsService {
       const checks = [
         { key: 'vehicle', label: 'Unidad asignada',
           status: st(!!shipment.vehicle_id),
-          detail: shipment.vehicle_id ? 'Asignada' : 'Asigná una unidad al embarque' },
+          detail: shipment.vehicle_id ? 'Asignada' : 'Asigna una unidad al embarque' },
         { key: 'guides', label: 'Guía creada',
           status: st(guides.length > 0),
-          detail: guides.length ? `${guides.length} guía(s)` : 'Creá al menos una guía' },
+          detail: guides.length ? `${guides.length} guía(s)` : 'Crea al menos una guía' },
         { key: 'driver', label: 'Chofer en la guía',
           status: st(driverIds.length > 0),
-          detail: driverIds.length ? `${driverIds.length} chofer(es)` : 'Asigná chofer a la guía (comisiones + Carta Porte)' },
+          detail: driverIds.length ? `${driverIds.length} chofer(es)` : 'Asigna chofer a la guía (comisiones + Carta Porte)' },
         { key: 'recipients', label: 'Destinatarios',
           status: st(total > 0),
-          detail: total ? `${total} destinatario(s)` : 'Agregá destinatarios a la guía' },
+          detail: total ? `${total} destinatario(s)` : 'Agrega destinatarios a la guía' },
         { key: 'geolocated', label: 'Destinatarios geolocalizados',
           status: st(total > 0 && located === total, located > 0),
           detail: total ? `${located}/${total} con ubicación` : 'Sin destinatarios' },
         { key: 'optimized', label: 'Ruta optimizada',
           status: st(located > 0 && sequenced > 0, false),
-          detail: sequenced ? `${sequenced} parada(s) en secuencia` : 'Corré "Optimizar ruta"' },
+          detail: sequenced ? `${sequenced} parada(s) en secuencia` : 'Corre "Optimizar ruta"' },
         { key: 'live_tracking', label: 'Rastreo en vivo disponible',
           status: st(driversWithUser > 0, false),
           detail: driversWithUser ? 'Chofer con usuario (emite GPS)' : 'El chofer no tiene usuario vinculado' },
         { key: 'expenses', label: 'Costos capturados',
           status: st(hasExpenses, false),
-          detail: hasExpenses ? 'Registrados' : 'Capturá los costos del viaje' },
+          detail: hasExpenses ? 'Registrados' : 'Captura los costos del viaje' },
       ];
 
       const blocking = checks.filter((c) => ['vehicle', 'guides', 'driver', 'recipients'].includes(c.key) && c.status === 'pending');
@@ -956,7 +956,7 @@ export class LogisticsShipmentsService {
     if (ocupada) {
       throw new ConflictException(
         `Unidad ${v.plate} ya está comprometida en el embarque ${ocupada.folio} (${ocupada.status}). ` +
-          `Cerralo o cancelalo antes de reasignarla.`,
+          `Ciérralo o cancélalo antes de reasignarla.`,
       );
     }
   }

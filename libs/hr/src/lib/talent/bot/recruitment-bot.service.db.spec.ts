@@ -15,7 +15,7 @@ import { siguiente as siguientePregunta } from './solicitud';
 const URL = process.env['HR_DB_TEST_URL'];
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const ROLLBACK = new Error('rollback-intencional');
-const MIGS = ['20261012155411_talent_reclutamiento_datos', '20261012172246_talent_fusion_y_motivo_papelera', '20261013150116_talent_bot_conversaciones', '20261014083512_talent_bot_solicitud']
+const MIGS = ['20261012155411_talent_reclutamiento_datos', '20261012172246_talent_fusion_y_motivo_papelera', '20261013150116_talent_bot_conversaciones', '20261014083512_talent_bot_solicitud', '20261014141356_talent_bot_documentos']
   .map((n) => require(path.resolve(__dirname, '../../../../../../database/migrations-newdb', `${n}.js`)));
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;
@@ -284,7 +284,7 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(r['armadoFin']).toEqual(['revisando_cv', true, true, ['text', 'document', 'text']]);
     expect(r['armadoDoc']).toMatchObject({ kind: 'document', mime: 'application/pdf', base64: Buffer.from('%PDF-1.4 cv armado').toString('base64') });
     expect(r['armadoHtml']).toEqual([true, true]);
-    expect(String(r['armadoSube'])).toContain('Subí tu *currículum*');
+    expect(String(r['armadoSube'])).toContain('Sube tu *currículum*');
     expect(r['armadoCand']).toEqual(['Rosa María Prueba Luna', 'armado_por_bot', true, ['cv']]);
     expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
     expect(r['buenos']).toEqual(['sin error', 'sin error']);

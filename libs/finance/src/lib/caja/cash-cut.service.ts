@@ -1,14 +1,23 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
+} from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { denomKeyDeValor } from '@megadulces/contracts';
+import {
+  denomKeyDeValor, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
+  type JornadasPendientes, type CorteCajaDto,
+} from '@megadulces/contracts';
 import { fondoSugerido } from './cash-opening.engine';
+import { traducirErrorDeCaja } from './caja-errores';
+import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
+import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-vecinal.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
   proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
   filasDenominacion, DenominacionFueraDeCatalogo, veredictoDe,
-  type ConteoDenominacion, type MovimientoDelCorte, type TotalesCorte,
+  decidirConteoDelCierre, esperadoCambio, textoConteoDistinto, textoEsperadoCambio, puedeAbrirCorte,
+  type ConteoDenominacion, type ConteoSellado, type MovimientoDelCorte, type TotalesCorte,
 } from './cash-cut.engine';
 
 /**
@@ -49,9 +58,10 @@ import {
  * y hay que acotar por caja de verdad. Hoy no existe: medido, 27 de 27 movimientos son `0011` o
  * captura manual desde esta misma pantalla.
  */
-const SUCURSAL_DEL_CAJERO = '00';
+// `[CGP-L.4]` La constante del cajón vive en un solo lugar (`caja-jornadas.query.ts`): la usan
+// también el sensor y la consulta de jornadas pendientes, y dos copias del mismo '00' divergen.
 function aplicarAlcanceCaja(qb: any, sucursal: string): any {
-  return sucursal === SUCURSAL_DEL_CAJERO ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
+  return sucursal === SUCURSAL_CAJA_GENERAL ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
 }
 
 function fondo(c: { fondo_inicial?: number | string | null } | null | undefined): number | null {
@@ -83,7 +93,33 @@ export interface AbrirCorteInput {
   apertura?: Array<{ denom_key: string; denominacion: number; piezas: number }>;
   nota?: string;
 }
-export interface CerrarCorteInput { conteo?: ConteoDenominacion[]; morralla?: number; nota?: string }
+export interface CerrarCorteInput {
+  conteo?: ConteoDenominacion[];
+  morralla?: number;
+  nota?: string;
+  /**
+   * `[CGP-L.2]` El esperado que la persona VIO al cerrar. Si el esperado cambió desde que se contó
+   * (un movimiento tardío), `cerrar()` responde 409 en vez de firmar otro número; quien ya vio el
+   * nuevo lo confirma mandándolo acá.
+   */
+  esperado_visto?: number;
+  /**
+   * `[CGP-V.9]` «Conté y no hay efectivo»: sella un conteo en cero. Sin esto una reja vacía es «no
+   * se contó». Con piezas o morralla en el cuerpo es una contradicción y se rechaza con frase.
+   */
+  cero_declarado?: boolean;
+}
+
+/** `[CGP-V.9]` Declarar cero con piezas en la reja: o se cuenta, o se declara cero, no las dos. */
+function rechazarCeroContradictorio(input: CerrarCorteInput): void {
+  if (input.cero_declarado !== true) return;
+  const piezas = (input.conteo ?? []).some((d) => d && Number(d.piezas) > 0);
+  if (piezas || Number(input.morralla || 0) > 0) {
+    throw new BadRequestException(
+      'Marcaste que no hay efectivo, pero la reja trae piezas. O se cuenta lo que hay, o se declara que no hay nada.',
+    );
+  }
+}
 
 interface Usuario { id?: string; username?: string }
 
@@ -167,12 +203,37 @@ export class CashCutService {
    * hecho de Kepler y qué parte la tecleó una persona. **No cambia la aritmética**: cambia lo que
    * el corte puede DECIR de sí mismo (`cobertura_ingreso`).
    */
+  /**
+   * ⭐⭐ `[CG.160]` **EL ÚNICO lugar que define QUÉ MOVIMIENTOS SON DE UN CORTE.**
+   *
+   * Lo que se SUMA (`movimientosSueltos`) y lo que se ATA (`cerrar`) tienen que ser el mismo
+   * conjunto, y hasta hoy eso era cierto sólo en el eje FECHA (`[CG.115]`) y falso en el de la
+   * PLAZA: el cierre acotaba a `sucursal = '00'` mientras el conteo veía todas las plazas por
+   * `aplicarAlcanceCaja`. Dos funciones hermanas midiendo universos distintos, y ninguna capaz de
+   * contradecir a la otra porque nadie las comparó.
+   *
+   * Costaba, medido al centavo sobre `CC-2026-00001`: un **faltante inventado de $39,486.00**
+   * donde el arqueo real daba un sobrante de $251.05 (ver el bloque de `cerrar()`).
+   *
+   * ⛔ Por eso el predicado vive acá y NO se copia: un invariante que depende de que dos lugares
+   * digan lo mismo se rompe en cuanto alguien toca uno. Acá no pueden divergir.
+   */
+  private sueltosDe(
+    trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null,
+  ): Knex.QueryBuilder {
+    return trx('finance.cash_ledger')
+      .where({ tenant_id: tenantId })
+      .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
+      // `[CGP-L.12]` La jornada es la del EFECTIVO, no la del papel. Una sola definición, compartida
+      // con `sueltosFuera()` y `jornadasSinCorte()`: ver `enJornadaLibro` en `caja-jornadas.query.ts`.
+      .modify((q: Knex.QueryBuilder) => { if (dia) enJornadaLibro(q, dia); })
+      .whereNull('corte_id').whereNull('deleted_at');
+  }
+
   private async movimientosSueltos(
     trx: Knex.Transaction, tenantId: string, sucursal: string, dia: string | null,
   ): Promise<MovimientoDelCorte[]> {
-    const rows = await trx('finance.cash_ledger')
-      .where({ tenant_id: tenantId })
-      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
+    const rows = await this.sueltosDe(trx, tenantId, sucursal, dia)
       /**
        * ⛔⛔ `[CG.115]` **ACÁ NO HABÍA NINGÚN FILTRO DE FECHA, y por eso el saldo salía en
        * −$206,008.34.** Medido en prod el 2026-10-13 sobre el corte `CC-2026-00001`, que es del
@@ -194,8 +255,6 @@ export class CashCutService {
        * simétrico. Se cuentan aparte en `sueltosFuera()` y la pantalla los declara: siguen vivos,
        * esperando el corte de SU jornada.
        */
-      .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
-      .whereNull('corte_id').whereNull('deleted_at')
       .select('tipo', 'monto', 'estado', 'origen_tipo')
       /**
        * `[CG.95]` Cuánto de cada movimiento nunca pasó por el cajón. DOS vías, y hacen falta las
@@ -220,14 +279,14 @@ export class CashCutService {
   /**
    * `[CG.115]` **La jornada de un corte, como string `YYYY-MM-DD`.**
    *
-   * ⚠️ `String(unDate).slice(0,10)` da `"Mon Oct 12"` y `unDate.toISOString()` es lo único que
-   * devuelve el día que se guardó: una columna `date` de pg llega como `Date` a la medianoche
-   * **UTC**, y renderizarla en hora de México la corre un día para atrás. Es el mismo defecto que
-   * `[LC.16]`, y acá decidiría **qué movimientos entran a un corte de dinero**.
+   * ⚠️ `String(unDate).slice(0,10)` da `"Mon Oct 12"`. Y `toISOString()` sólo funcionaba de casualidad:
+   * node-pg arma un `date` como medianoche LOCAL del proceso (no UTC, como decía esta nota), así que
+   * con el servidor en UTC o en México da el día correcto y al este de UTC da el ANTERIOR — medido
+   * con el parser de pg en tres zonas (`[CGP-L.5]`). `diaDeFecha` lee los componentes locales: da el
+   * día que se guardó en cualquier zona. Acá decide **qué movimientos entran a un corte de dinero**.
    */
   private diaDe(fecha: string | Date | null | undefined): string | null {
-    if (fecha == null) return null;
-    return fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha).slice(0, 10);
+    return diaDeFecha(fecha);
   }
 
   /**
@@ -270,14 +329,16 @@ export class CashCutService {
       .where((b: Knex.QueryBuilder) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
       .whereNot('estado', 'cancelado')
-      .whereRaw('fecha <> ?::date', [dia])
+      // `[CGP-L.12]` La MISMA jornada que usa `sueltosDe()`: si acá se midiera por el día del papel,
+      // la pantalla declararía como «de otra jornada» justo los movimientos que el corte sí ató.
+      .whereRaw(`${JORNADA_LIBRO} <> ?::date`, [dia])
       .select(
-        trx.raw(`count(*) FILTER (WHERE fecha < ?::date)::int AS n_antes`, [dia]),
-        trx.raw(`coalesce(${neto} FILTER (WHERE fecha < ?::date), 0)::numeric AS neto_antes`, [dia]),
-        trx.raw(`count(*) FILTER (WHERE fecha > ?::date)::int AS n_despues`, [dia]),
-        trx.raw(`coalesce(${neto} FILTER (WHERE fecha > ?::date), 0)::numeric AS neto_despues`, [dia]),
-        trx.raw(`to_char(min(fecha),'YYYY-MM-DD') AS desde`),
-        trx.raw(`to_char(max(fecha),'YYYY-MM-DD') AS hasta`),
+        trx.raw(`count(*) FILTER (WHERE ${JORNADA_LIBRO} < ?::date)::int AS n_antes`, [dia]),
+        trx.raw(`coalesce(${neto} FILTER (WHERE ${JORNADA_LIBRO} < ?::date), 0)::numeric AS neto_antes`, [dia]),
+        trx.raw(`count(*) FILTER (WHERE ${JORNADA_LIBRO} > ?::date)::int AS n_despues`, [dia]),
+        trx.raw(`coalesce(${neto} FILTER (WHERE ${JORNADA_LIBRO} > ?::date), 0)::numeric AS neto_despues`, [dia]),
+        trx.raw(`to_char(min(${JORNADA_LIBRO}),'YYYY-MM-DD') AS desde`),
+        trx.raw(`to_char(max(${JORNADA_LIBRO}),'YYYY-MM-DD') AS hasta`),
       );
     const anteriores = { movimientos: Number(r?.n_antes ?? 0), neto: Number(r?.neto_antes ?? 0) };
     const posteriores = { movimientos: Number(r?.n_despues ?? 0), neto: Number(r?.neto_despues ?? 0) };
@@ -376,6 +437,50 @@ export class CashCutService {
     };
   }
 
+  /**
+   * `[CGP-L.4]` Las jornadas del cajón con movimientos y SIN corte, de la más vieja a la más nueva:
+   * lo que la pantalla ofrece cerrar, en orden. Es la MISMA consulta que usa el sensor del corte
+   * abierto (`[CGP-L.10]`), con 0 h de margen: todo día que ya pasó.
+   *
+   * Sólo el cajón de la 00 tiene jornadas: es la Caja General (`[CG.98]`). Otra sucursal lo DECLARA
+   * con `alcance`, en vez de responder una lista vacía que se leería como "todo al día".
+   */
+  /**
+   * `[CGP-VEC.1]` Los cierres de ruta vecinal con arqueo conciliado que no están en el libro.
+   *
+   * ⚠️ `pendientes: null` significa **no se pudo medir** —el árbitro `v_vecinal_conciliacion` no
+   * está en este entorno—, y por eso viaja aparte de la lista: una lista vacía dice «no hay nada»,
+   * que es lo contrario (ADR-056). La pantalla tiene que poder decir cuál de las dos cosas es.
+   *
+   * La ventana por omisión es el arranque del libro, no una cantidad de días: antes del primer
+   * corte los cierres son historia de Control, no trabajo pendiente — el mismo criterio con el que
+   * `[CGP-L.13]` evitó que el sensor naciera rojo para siempre.
+   */
+  async vecinalPendientes(desde?: string): Promise<{
+    desde: string; medido: boolean; pendientes: CobroVecinalPendiente[] | null;
+  }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const inicio = desde || (await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId }).min({ d: 'fecha' }).first())?.d;
+      const ventana = inicio ? this.diaDe(inicio as string | Date) as string : await hoyMx(trx);
+      const pendientes = await cobrosVecinalesPendientes(trx, tenantId, ventana);
+      return { desde: ventana, medido: pendientes != null, pendientes };
+    });
+  }
+
+  async jornadasPendientes(sucursal: string): Promise<JornadasPendientes> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const hoy = await hoyMx(trx);
+      if (sucursal !== SUCURSAL_CAJA_GENERAL) {
+        return { sucursal, hoy, inicio_libro: null, jornadas: [], alcance: 'solo_cajon' as const };
+      }
+      const r = await jornadasSinCorte(trx, tenantId, 0);
+      return { sucursal, hoy, inicio_libro: r.inicio, jornadas: r.jornadas, alcance: 'cajon' as const };
+    });
+  }
+
   async sugerirFondo(sucursal: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -430,16 +535,50 @@ export class CashCutService {
     });
   }
 
-  async abrir(input: AbrirCorteInput, user: Usuario) {
+  /**
+   * `[CGP-L.6]` Una regla de la base violada llega como frase, no como un 500 con el SQL adentro.
+   * La traducción va por NOMBRE de la regla (`caja-errores.ts`); lo que no reconoce se relanza tal
+   * cual, para que siga siendo un 500 ruidoso y alguien lo mire.
+   */
+  private conFrase<T>(p: Promise<T>): Promise<T> {
+    return p.catch((e: unknown) => traducirErrorDeCaja(e));
+  }
+
+  // `[CGP-L.7]` Las cuatro respuestas del corte salen por el contrato: dinero como número, fecha como día.
+  async abrir(input: AbrirCorteInput, user: Usuario): Promise<CorteCajaDto> {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    return this.conFrase(this.tk.run(async (trx) => {
       const abierto = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, sucursal: input.sucursal, estado: 'borrador' }).first();
       if (abierto) {
         throw new BadRequestException(
-          `La sucursal ${input.sucursal} ya tiene el corte ${abierto.folio} abierto. Cerralo antes de abrir otro.`);
+          `La sucursal ${input.sucursal} ya tiene el corte ${abierto.folio} abierto. Ciérralo antes de abrir otro.`);
       }
+
+      /**
+       * ⛔ `[CGP-L.4]` **LA FECHA SE MIRA.** La pantalla abría siempre el de HOY y esto aceptaba
+       * cualquier fecha. Ponerse al día con jornadas atrasadas exige abrir fechas pasadas, y eso
+       * trae lo que no tiene vuelta atrás: una fecha que todavía no pasa, o un día ANTERIOR a un
+       * corte que ya existe (el posterior heredó su fondo sin ese día; un corte firmado no se
+       * corrige). Primero se valida que sea fecha: consultar con "ayer" sería un error de la base.
+       */
+      const hoy = await hoyMx(trx);
+      const formato = puedeAbrirCorte({ fecha: String(input.fecha ?? ''), hoy, mismoDia: null, posterior: null });
+      if (!formato.ok) throw new BadRequestException(formato.texto);
+      const mismoDia = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, sucursal: input.sucursal, fecha: input.fecha }).first('folio');
+      const posterior = await trx('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, sucursal: input.sucursal })
+        .where('fecha', '>', input.fecha)
+        .orderBy('fecha', 'desc')
+        .first('folio', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`));
+      const gate = puedeAbrirCorte({
+        fecha: input.fecha, hoy,
+        mismoDia: mismoDia ? { folio: mismoDia.folio } : null,
+        posterior: posterior ? { folio: posterior.folio, fecha: posterior.fecha } : null,
+      });
+      if (!gate.ok) throw new BadRequestException(gate.texto);
 
       /**
        * ⛔ `[CG.39]` ACÁ ESTABA `fondo_inicial: input.fondo_inicial ?? 0`.
@@ -486,6 +625,9 @@ export class CashCutService {
           .where({ tenant_id: tenantId, sucursal: input.sucursal })
           .whereIn('estado', ['cerrado', 'autorizado'])
           .whereNotNull('contado')
+          // `[CGP-L.4]` El fondo hereda del último cierre ANTERIOR a esta fecha. La regla de orden de
+          // arriba ya impide que exista uno posterior; esto lo deja dicho en la consulta misma.
+          .where('fecha', '<', input.fecha)
           .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
           .first('folio', 'contado', 'fecha');
         if (prev && Number(prev.contado) >= 0) {
@@ -507,8 +649,8 @@ export class CashCutService {
       // caja no lo trae, el insert viola `NOT NULL` y la apertura devuelve 500 — el mismo defecto
       // que tiró `contar` y después `cerrar`, esperando su turno en el tercer camino.
       await this.guardarDenominaciones(trx, tenantId, c.id, 'apertura', input.apertura);
-      return c;
-    });
+      return aCorteCajaDto(c);
+    }));
   }
 
   /**
@@ -631,13 +773,15 @@ export class CashCutService {
   async contar(id: string, input: CerrarCorteInput, user: Usuario) {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    return this.conFrase(this.tk.run(async (trx) => {
       const c = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
       if (c.estado !== 'borrador') throw new BadRequestException(TEXTO_NO_CIERRA['no_es_borrador']);
       // Sellar dos veces sin motivo sería recontar por la puerta de atrás.
-      if (Number(c.contado ?? 0) > 0 || c.conteo_previo != null) {
+      // `[CGP-V.9]` `!= null` y no `> 0`: un cero sellado también es un conteo, y con `> 0` se podía
+      // volver a sellar por la puerta de atrás, sin reconteo ni motivo.
+      if (c.contado != null || c.conteo_previo != null) {
         throw new BadRequestException(
           'Este corte ya tiene un conteo sellado. Para cambiarlo hay que recontar, y el reconteo pide motivo.',
         );
@@ -647,16 +791,17 @@ export class CashCutService {
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
+      rechazarCeroContradictorio(input);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo: input.conteo, morralla: input.morralla ?? 0,
+        conteo: input.conteo, morralla: input.morralla ?? 0, ceroDeclarado: input.cero_declarado === true,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
 
       await this.sellarConteo(trx, tenantId, id, totales, input);
       // Recién acá se revela: el conteo ya está escrito y no se puede retocar en silencio.
       return { corte_id: id, sellado_por: u.username ?? u.id, totales, puede_recontar: totales.veredicto !== 'cuadra' };
-    });
+    }));
   }
 
   /**
@@ -668,20 +813,30 @@ export class CashCutService {
   async recontar(id: string, input: CerrarCorteInput & { motivo?: string }, user: Usuario) {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    return this.conFrase(this.tk.run(async (trx) => {
       const c = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
+      // `[CGP-L.3]` Un reconteo sin conteo previo no existe. Antes pasaba el gate (un corte sin contar
+      // no "cuadra") y lo frenaba recién la base, con un error crudo.
+      if (c.estado === 'borrador' && c.contado == null) {
+        throw new BadRequestException(TEXTO_NO_RECUENTA['sin_conteo_previo']);
+      }
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal, this.diaDe(c.fecha));
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
+      // `[CGP-L.3]` Sólo el desglose de CIERRE: el de apertura (el fondo contado al abrir) no es el
+      // conteo que se reemplaza, y sumarlo inflaba el "primer conteo" que queda de constancia.
       const previos = await trx('finance.cash_ledger_cut_denominations')
-        .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
+        .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' })
+        .select('denom_key', 'denominacion', 'piezas');
       const totalesPrevios = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
+        // `[CGP-V.9]` Un primer conteo sellado en cero fue un conteo, no «sin contar».
+        ceroDeclarado: c.contado != null && Number(c.contado) === 0,
       });
 
       const gate = puedeRecontar(c, totalesPrevios, input.motivo);
@@ -697,15 +852,16 @@ export class CashCutService {
         updated_at: trx.fn.now(),
       });
 
+      rechazarCeroContradictorio(input);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo: input.conteo, morralla: input.morralla ?? 0,
+        conteo: input.conteo, morralla: input.morralla ?? 0, ceroDeclarado: input.cero_declarado === true,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
       await this.sellarConteo(trx, tenantId, id, totales, input);
 
       return { corte_id: id, totales, conteo_previo_contado: Number(c.contado ?? 0), puede_recontar: false };
-    });
+    }));
   }
 
   /**
@@ -725,12 +881,32 @@ export class CashCutService {
   async cerrar(id: string, input: CerrarCorteInput, user: Usuario) {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    return this.conFrase(this.tk.run(async (trx) => {
       // `forUpdate` sobre el CORTE: dos cierres simultáneos del mismo corte se serializan acá.
       const c = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
       if (c.estado !== 'borrador') throw new BadRequestException(TEXTO_NO_CIERRA['no_es_borrador']);
+
+      /**
+       * ⛔ `[CGP-L.1]` **CON QUÉ CONTEO SE CIERRA, decidido ANTES de escribir nada.**
+       *
+       * Un conteo sellado no se cambia al cerrar. `[CG.159]` reusaba el sellado sólo si el cuerpo
+       * venía vacío, y si traía OTRA cifra la usaba y reescribía el desglose sellado: contar, ver el
+       * esperado, teclear otra cosa y cerrar saltaba el arqueo ciego sin recontar y sin motivo.
+       * Desde `[CGP-D.3]` la base lo frena con un error crudo; acá se decide antes de atar un solo
+       * movimiento, y la persona recibe qué está sellado, qué tecleó y cómo se corrige.
+       */
+      const sellado = c.contado != null ? await this.leerSellado(trx, tenantId, id, c.morralla) : null;
+      const decision = decidirConteoDelCierre(sellado, { conteo: input.conteo, morralla: input.morralla });
+      if (decision.usar === 'rechazo') {
+        throw new BadRequestException(textoConteoDistinto(decision.sellado, decision.tecleado));
+      }
+      const conteo = decision.usar === 'sellado' && sellado ? sellado.conteo : input.conteo;
+      const morralla = decision.usar === 'sellado' && sellado ? sellado.morralla : (input.morralla ?? 0);
+      if (decision.usar === 'sellado') {
+        this.logger.log(`cierre del corte ${id}: se usa el conteo ya sellado (${conteo?.length ?? 0} renglones).`);
+      }
 
       /**
        * ⛔⛔ `[CG.115]` **EL `.where('fecha', dia)` ES LA MITAD QUE FALTABA.** `movimientosSueltos`
@@ -743,10 +919,36 @@ export class CashCutService {
        * y su propia jornada ya no podría cuadrarse nunca.
        */
       const dia = this.diaDe(c.fecha);
-      const base = () => trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal: c.sucursal })
-        .modify((q: Knex.QueryBuilder) => { if (dia) q.where('fecha', dia); })
-        .whereNull('corte_id').whereNull('deleted_at');
+      /**
+       * ⛔⛔ `[CG.160]` **ACÁ DECÍA `.where({ tenant_id, sucursal: c.sucursal })`, Y ESA ES LA
+       * OTRA MITAD DEL INVARIANTE — la del EJE SUCURSAL.**
+       *
+       * `[CG.115]` arregló el eje FECHA ("el conjunto atado y el sumado son el mismo por
+       * construcción") y dejó el de la plaza al revés: `contar()`, `recontar()` y `saldo()` leen
+       * por `movimientosSueltos()`, que aplica `aplicarAlcanceCaja` —el cajón de oficinas es UNO
+       * y ve todas las plazas, `[CG.98]`—, mientras **cerrar() ataba y sumaba sólo la `00`**.
+       *
+       * O sea que el conteo se selló contra un universo y el cierre lo iba a juzgar contra otro.
+       * Es el espejo de ADR-059 aplicado a dos funciones hermanas: ninguna podía contradecir a la
+       * otra porque nadie las comparó.
+       *
+       * ⭐ Medido en prod el 2026-10-14 sobre `CC-2026-00001` (12-oct), al centavo:
+       *
+       *     gastos de la 00 .................. $18,973.00
+       *     gastos de 01/05/06/07/08 ......... $39,737.05   <- quedaban fuera
+       *
+       *     esperado que iba a firmar ....  $43,139.50  ->  diferencia  −$39,486.00  (faltante)
+       *     esperado real ................   $3,402.45  ->  diferencia     +$251.05  (sobrante)
+       *
+       * El faltante de casi cuarenta mil pesos **no existe**: es exactamente la nómina y los
+       * gastos que otras plazas pagaron desde este mismo cajón, que `cash_ledger.sucursal`
+       * etiqueta con la plaza del DOCUMENTO y no con dónde estaba el efectivo. Cerrar sin esto
+       * dejaba firmado, y sin vuelta atrás, un arqueo que acusa a Carmen de un faltante inventado.
+       *
+       * ⚠️ El día que una plaza tenga su propio cajón, `aplicarAlcanceCaja` ya la acota a lo suyo
+       * — es la misma advertencia que lleva esa función desde `[CG.98]`.
+       */
+      const base = () => this.sueltosDe(trx, tenantId, c.sucursal, dia);
 
       // ⛔ Un movimiento CANCELADO entra al corte (se audita que se canceló) pero CONSERVA su
       // estado. Antes el UPDATE le pisaba `estado` a `'en_corte'`, y eso lo resucitaba: volvía a
@@ -770,55 +972,56 @@ export class CashCutService {
       // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
       const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
 
-      /**
-       * ⭐⭐ `[CG.159]` **CERRAR USA EL CONTEO YA SELLADO. No se vuelve a pedir lo que ya está
-       * escrito y no se puede cambiar.**
-       *
-       * `cerrar()` exigía el conteo otra vez en el cuerpo. Con `[CG.156]` eso dejaba a
-       * `CC-2026-00001` —el único corte que existió en la vida del módulo— en un callejón: su
-       * conteo está sellado en la base (6 renglones, \$3,653.50) pero la pantalla ya no lo tiene en
-       * memoria después de recargar, así que mandaba el cuerpo vacío y el corte cerraba con
-       * `contado = 0`, declarando un faltante de todo el efectivo contado.
-       *
-       * ⛔ **Esto NO afloja nada**, y la razón es la que hace al conteo ciego: una vez sellado, el
-       * conteo **no se puede cambiar sin `recontar()`**, que exige motivo y conserva el primero.
-       * O sea que el conteo guardado es el único válido. Reusarlo no abre una puerta — cerrarse a
-       * él obligaba a re-teclear lo que ya es inmutable, con el riesgo de teclearlo distinto.
-       *
-       * ⚠️ El cuerpo manda cuando trae algo: quien cuenta y cierra en un solo paso sigue
-       * funcionando igual. El respaldo entra **sólo** si el cuerpo viene vacío y la base tiene un
-       * conteo sellado — y si no hay ninguno de los dos, `calcularCorte()` devuelve `sin_contar` y
-       * el gate frena, que es lo correcto.
-       */
-      let conteo = input.conteo;
-      let morralla = input.morralla;
-      const vieneVacio = !(conteo ?? []).some((d) => Number(d?.piezas) > 0);
-      if (vieneVacio && Number(c.contado ?? 0) > 0) {
-        const sellado = await trx('finance.cash_ledger_cut_denominations')
-          .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' })
-          .select('denom_key', 'denominacion', 'piezas');
-        conteo = sellado.map((d: { denom_key: string; denominacion: string | number; piezas: string | number }) => ({
-          denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: Number(d.piezas),
-        }));
-        // La morralla sellada vive en la columna del corte, no en el desglose.
-        morralla = Number(c.morralla ?? 0);
-        this.logger.log(`cierre del corte ${id}: se reusa el conteo ya sellado (${conteo.length} renglones).`);
-      }
-
+      // El conteo y la morralla salen de la decisión de `[CGP-L.1]`, arriba: el sellado cuando lo hay
+      // (`[CG.159]`: la pantalla después de recargar manda el cuerpo vacío), el del cuerpo sólo en un
+      // corte que nunca se contó.
+      // `[CGP-V.9]` Un conteo sellado en cero se firma como cero; sin sellar, el cuerpo lo declara.
+      if (decision.usar !== 'sellado') rechazarCeroContradictorio(input);
+      const ceroDeclarado = decision.usar === 'sellado'
+        ? Number(c.contado) === 0
+        : input.cero_declarado === true;
       const t = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
-        conteo, morralla: morralla ?? 0,
+        conteo, morralla, ceroDeclarado,
       });
 
       const gate = puedeCerrar(c, u.id, t);
       if (!gate.ok) throw new BadRequestException(TEXTO_NO_CIERRA[gate.motivo!]);
+
+      /**
+       * ⛔ `[CGP-L.2]` **LO QUE SE FIRMA ES LO QUE SE REVELÓ.** El esperado se recalcula con el
+       * universo de ESTE momento; si entró un movimiento de la jornada después de contar, antes se
+       * firmaba el número nuevo sin decirlo. Ahora es un 409 con las dos cifras, y quien ya vio el
+       * nuevo lo confirma con `esperado_visto`. Lanzarlo acá revierte también lo que se acaba de atar.
+       */
+      const cambio = esperadoCambio(c.esperado == null ? null : Number(c.esperado), t.esperado, input.esperado_visto);
+      if (cambio.cambio && cambio.contra != null) {
+        // Con DATOS y no sólo texto: la pantalla los necesita para ofrecer "confirmar el esperado
+        // nuevo y cerrar" sin recalcular nada por su cuenta (dos cálculos de lo mismo divergen).
+        throw new ConflictException({
+          message: textoEsperadoCambio(cambio.contra, t.esperado),
+          motivo: 'esperado_cambio',
+          esperado_mostrado: cambio.contra,
+          esperado_actual: t.esperado,
+        });
+      }
 
       const [cerrado] = await trx('finance.cash_ledger_cuts').where({ id }).update({
         estado: 'cerrado',
         closed_by: u.id, closed_by_username: u.username ?? null, closed_at: trx.fn.now(),
         total_ingresos: t.ingresos, total_gastos: t.gastos, total_depositos: t.depositos,
         esperado: t.esperado, contado: t.contado, diferencia: t.diferencia,
-        morralla: input.morralla ?? 0, nota: input.nota ?? c.nota, updated_at: trx.fn.now(),
+        /**
+         * ⛔ `[CG.160]` **`morralla`, NO `input.morralla ?? 0`.** Con el respaldo de `[CG.159]` el
+         * cuerpo puede venir vacío, y entonces esto PISABA con `0` la morralla sellada — mientras
+         * `calcularCorte()` acababa de usar la verdadera. El corte quedaba firmado con un
+         * `contado` que incluye la morralla y una columna `morralla` que dice que no hubo: dos
+         * campos del mismo hecho contradiciéndose, y la contradicción no la ve ningún CHECK.
+         *
+         * Es el mismo defecto que el `guardarDenominaciones` de doce líneas abajo ya tenía
+         * anotado, esperando en la columna de al lado.
+         */
+        morralla: morralla ?? 0, nota: input.nota ?? c.nota, updated_at: trx.fn.now(),
       }).returning('*');
 
       // `[CG.155]` Por la única puerta. Acá vivía la tercera copia de esta escritura —sin
@@ -831,14 +1034,14 @@ export class CashCutService {
       // `[CG.155]` cerró; reaparece por otra puerta en cuanto el origen del conteo deja de ser uno.
       await this.guardarDenominaciones(trx, tenantId, id, 'cierre', conteo);
 
-      return { ...cerrado, totales: t };
-    });
+      return { ...aCorteCajaDto(cerrado), totales: t };
+    }));
   }
 
-  async autorizar(id: string, user: Usuario) {
+  async autorizar(id: string, user: Usuario): Promise<CorteCajaDto> {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
+    return this.conFrase(this.tk.run(async (trx) => {
       // ⛔ `[CG.42]` `forUpdate`, igual que `cerrar()`. Sin el bloqueo, dos autorizaciones
       // simultáneas del mismo corte **pasan las dos** por `puedeAutorizar` —las dos leen
       // `estado='cerrado'`— y las dos escriben: gana la última y `authorized_by` termina diciendo
@@ -863,11 +1066,11 @@ export class CashCutService {
         authorized_by: u.id, authorized_by_username: u.username ?? null, authorized_at: trx.fn.now(),
         updated_at: trx.fn.now(),
       }).returning('*');
-      return aut;
-    });
+      return aCorteCajaDto(aut);
+    }));
   }
 
-  async listar(q: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number }) {
+  async listar(q: { from?: string; to?: string; sucursal?: string; estado?: string; limit?: number }): Promise<{ rows: CorteCajaDto[]; limit: number }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 200);
     return this.tk.run(async (trx) => {
@@ -877,7 +1080,7 @@ export class CashCutService {
       if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
       if (q.estado) qb = qb.where('estado', q.estado);
       const rows = await qb.orderBy('fecha', 'desc').orderBy('folio', 'desc').limit(limit);
-      return { rows, limit };
+      return { rows: rows.map(aCorteCajaDto), limit };
     });
   }
 
@@ -905,7 +1108,7 @@ export class CashCutService {
    * ⚠️ `abs(total)`: una dispensación puede venir con `total` negativo — acá interesa la MAGNITUD movida.
    */
   private async conciliacionCajero(trx: any, tenantId: string, sucursal: string, fecha: string | Date | null) {
-    if (sucursal !== '00') return null;
+    if (sucursal !== SUCURSAL_CAJA_GENERAL) return null;
     const existe = await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`);
     if (!existe.rows?.[0]?.t) return null; // el feed del cajero puede no estar en este entorno
 
@@ -935,10 +1138,23 @@ export class CashCutService {
     const dia: string = fecha == null
       ? (await trx.raw(
           `SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date,'YYYY-MM-DD') AS d`)).rows[0].d
-      // ⚠️ `String(unDate).slice(0,10)` da "Mon Oct 12 2026" — el mismo defecto que `[LC.16]`.
-      // Una columna `date` de pg llega como `Date` a la medianoche local, así que `toISOString()`
-      // es lo único que devuelve el día que se guardó.
-      : (fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha).slice(0, 10));
+      /**
+       * ⛔⛔ `[CGP-L.12]` **ACÁ SEGUÍA EL `toISOString()` QUE `[CGP-L.5]` YA HABÍA REFUTADO.**
+       *
+       * Decía que `toISOString()` «es lo único que devuelve el día que se guardó», y la línea 281
+       * de este mismo archivo dice lo contrario: *sólo funcionaba de casualidad*. Una columna
+       * `date` de pg llega como `Date` a la **medianoche local del proceso**, así que `toISOString`
+       * da el día correcto en UTC y en México, y **el ANTERIOR en Tokio** (medido en `[CGP-L.5]`).
+       *
+       * ⚠️ Es la pierna de la BÓVEDA: con el día corrido, el corte sumaba el dispensado y el
+       * depositado **de otra jornada**. En prod no se veía porque el contenedor corre en hora de
+       * México, y **ninguna prueba lo ejercía**: la suite no sembraba movimientos de CAOS. Lo
+       * destapó la primera que sí lo hace (`[CGP-L.12]`), corriendo con el proceso en Tokio.
+       *
+       * ⭐ El arreglo es usar el MISMO helper que el resto del corte. *Un helper compartido no
+       * sirve de nada en el sitio que no lo llama.*
+       */
+      : (this.diaDe(fecha) as string);
 
     const [r] = await trx('analytics.caos_cash_movements')
       .where('tenant_id', tenantId)
@@ -994,10 +1210,15 @@ export class CashCutService {
    * `veredicto: 'sin_medir'` en vez de recalcularlos — recalcular hoy daría el juicio de HOY sobre
    * un conteo de ayer, que es otra cosa y nadie podría distinguirla.
    */
-  private conteoSellado(c: { contado?: unknown; esperado?: unknown; diferencia?: unknown; fondo_inicial?: unknown; conteo_previo?: unknown } | null | undefined) {
+  private conteoSellado(
+    c: { contado?: unknown; esperado?: unknown; diferencia?: unknown; fondo_inicial?: unknown; conteo_previo?: unknown } | null | undefined,
+    desglose?: ConteoSellado | null,
+  ) {
     if (!c) return null;
     const contado = c.contado == null ? null : Number(c.contado);
-    if (contado == null || contado <= 0) return null;
+    // `[CGP-V.9]` Sólo `null` es «nadie contó». Un cero sellado se publica: si no, la pantalla volvía
+    // a ofrecer «Guardar conteo» sobre un corte que ya tiene conteo, y el servidor lo rechazaba.
+    if (contado == null) return null;
     const esperado = c.esperado == null ? null : Number(c.esperado);
     const diferencia = c.diferencia == null ? null : Number(c.diferencia);
     return {
@@ -1009,6 +1230,31 @@ export class CashCutService {
         ? ('sin_medir' as const)
         : veredictoDe({ huboConteo: true, fondoSinMedir: c.fondo_inicial == null, diferencia }),
       ya_reconto: c.conteo_previo != null,
+      /**
+       * `[CGP-V.2]` Lo que se selló, pieza por pieza. Sin esto la pantalla sólo tenía el total: al
+       * reabrir el diálogo la reja salía en blanco junto a un «Contado» con cifra, y quedaba abierta
+       * para teclear otra cosa. Con el desglose la reja muestra lo sellado, de sólo lectura.
+       * Opcional: el resumen de la jornada (`arqueoDia`) no lo pide.
+       */
+      ...(desglose ? { desglose: desglose.conteo, morralla: desglose.morralla } : {}),
+    };
+  }
+
+  /**
+   * El conteo sellado de un corte, pieza por pieza: el desglose del CIERRE (el de apertura ya pasó)
+   * y la morralla, que vive en el corte. Lo leen `cerrar()`, para decidir qué se firma, y `saldo()`,
+   * para que la pantalla lo muestre. Una sola lectura para las dos, así no pueden divergir.
+   */
+  private async leerSellado(trx: Knex.Transaction, tenantId: string, cutId: string, morralla: unknown): Promise<ConteoSellado> {
+    const filas = await trx('finance.cash_ledger_cut_denominations')
+      .where({ tenant_id: tenantId, cut_id: cutId, momento: 'cierre' })
+      .orderBy('denominacion', 'desc')
+      .select('denom_key', 'denominacion', 'piezas');
+    return {
+      conteo: filas.map((d: { denom_key: string; denominacion: string | number; piezas: string | number }) => ({
+        denom_key: d.denom_key, denominacion: Number(d.denominacion), piezas: Number(d.piezas),
+      })),
+      morralla: Number(morralla ?? 0),
     };
   }
 
@@ -1028,11 +1274,16 @@ export class CashCutService {
       const fuera = await this.sueltosFuera(trx, tenantId, sucursal, dia);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.fecha ?? null);
       const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
+      // `[CGP-V.2]` El desglose sólo cuando hay conteo: sin sellar no hay nada que mostrar.
+      const desglose = abierto?.contado != null
+        ? await this.leerSellado(trx, tenantId, abierto.id, abierto.morralla) : null;
       return {
         sucursal,
         corte_abierto: abierto
           ? {
             id: abierto.id, folio: abierto.folio, fondo_inicial: fondo(abierto),
+            // `[CGP-L.4]` Qué jornada es: con cortes atrasados, el diálogo de cierre tiene que decirlo.
+            fecha: this.diaDe(abierto.fecha),
             // Que ya se recontó NO es secreto: no revela el esperado y la pantalla necesita
             // saberlo para apagar el botón antes de que el usuario lo intente.
             ya_reconto: abierto.conteo_previo != null,
@@ -1040,7 +1291,7 @@ export class CashCutService {
              * `[CG.156]` ⭐ El conteo YA sellado, para que recargar no borre la revelación.
              * `null` mientras nadie contó — y ahí el `esperado` sigue oculto por `revela`.
              */
-            conteo_sellado: this.conteoSellado(abierto),
+            conteo_sellado: this.conteoSellado(abierto, desglose),
           }
           : null,
         // Sin corte abierto el "saldo" no tiene punto de partida: se declara, no se dibuja en 0.
@@ -1232,7 +1483,7 @@ export class CashCutService {
       const hayCaos = (await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`))
         .rows?.[0]?.t;
       let cajero: Record<string, unknown> | null = null;
-      if (hayCaos && sucursal === '00') {
+      if (hayCaos && sucursal === SUCURSAL_CAJA_GENERAL) {
         const porTipo = await trx('analytics.caos_cash_movements')
           .where({ tenant_id: tenantId, accounting_date: dia })
           .groupBy('type_id', 'type_label')
@@ -1300,7 +1551,7 @@ export class CashCutService {
 
       if (!hayCaos) {
         no_medido.push('El feed del cajero (CAOS) no está en este entorno: del día sólo se puede cuadrar la caja general.');
-      } else if (sucursal !== '00') {
+      } else if (sucursal !== SUCURSAL_CAJA_GENERAL) {
         limites.push(`El cajero (CAOS) es un único dispositivo en oficinas: la sucursal ${sucursal} no tiene cajero que cuadrar.`);
       } else {
         limites.push('Del cajero se cuadra el FLUJO del día, no su contenido: CAOS no publica cuánto efectivo tiene adentro.');
@@ -1611,7 +1862,7 @@ export class CashCutService {
     const m0 = String(motivo ?? '').trim();
     if (m0.length < 12) {
       throw new BadRequestException(
-        'Explicá por qué se reclasifica, con al menos 12 caracteres. Una corrección sin razón '
+        'Explica por qué se reclasifica, con al menos 12 caracteres. Una corrección sin razón '
         + 'escrita es indistinguible de un ajuste para que cuadre.');
     }
     return this.tk.run(async (trx) => {
@@ -1624,7 +1875,7 @@ export class CashCutService {
       if (m.corte_id) {
         throw new BadRequestException(
           'Este movimiento ya entró a un corte: no se reclasifica sin mover un cuadre que alguien '
-          + 'firmó. Registrá un movimiento que lo corrija.');
+          + 'firmó. Registra un movimiento que lo corrija.');
       }
 
       const a = await trx('analytics.v_caja_contracuenta_cobro')
@@ -1680,7 +1931,7 @@ export class CashCutService {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     if (!motivoCancelacionValido(motivo)) {
-      throw new BadRequestException('Explicá por qué se cancela, con al menos 5 caracteres.');
+      throw new BadRequestException('Explica por qué se cancela, con al menos 5 caracteres.');
     }
     return this.tk.run(async (trx) => {
       // ⛔ `[CG.42]` `forUpdate` sobre el MOVIMIENTO, y es lo que hace cierto al freno de abajo.
@@ -1712,7 +1963,7 @@ export class CashCutService {
         throw new BadRequestException(
           m.estado === 'cancelado'
             ? 'Este movimiento ya está cancelado.'
-            : 'Este movimiento ya entró a un corte cerrado: no se puede cancelar sin mover un cuadre que alguien firmó. Registrá un movimiento que lo corrija.');
+            : 'Este movimiento ya entró a un corte cerrado: no se puede cancelar sin mover un cuadre que alguien firmó. Registra un movimiento que lo corrija.');
       }
       const [cancelado] = await trx('finance.cash_ledger').where({ id }).update({
         estado: 'cancelado', cancel_reason: motivo.trim(),

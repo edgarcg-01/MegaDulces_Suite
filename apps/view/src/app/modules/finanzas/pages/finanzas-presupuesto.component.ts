@@ -19,7 +19,8 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
-  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement, ExpenseConcentration }
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement, ExpenseConcentration,
+  CapacityProposal, CapacityProposalItem, CapacityConfirmResult }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 // `[PVI.9]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
@@ -225,6 +226,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
           <span class="pres-nav-sep">¿Alcanza el dinero?</span>
           <a class="p-button p-button-sm p-button-text pres-nav-link" routerLink="/presupuesto/tesoreria">Diagnóstico</a>
+          <a class="p-button p-button-sm p-button-text pres-nav-link" routerLink="/presupuesto/ingresos">Ingresos</a>
           <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="¿Alcanza el dinero?" />
         </div>
       </header>
@@ -364,7 +366,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                  publica $74,850,066.62, exactamente lo mismo que el real. Si no se dice, se lee
                  como presupuesto. -->
             @if (b.is_test) {
-              <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <strong>Este es un ejercicio de PRUEBA.</strong> Sus cifras no son presupuesto: el autopiloto no lo toca y no cuenta como el ejercicio del año. <span class="pres-muted">Elegí otro arriba para ver el que manda.</span></p>
+              <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <strong>Este es un ejercicio de PRUEBA.</strong> Sus cifras no son presupuesto: el autopiloto no lo toca y no cuenta como el ejercicio del año. <span class="pres-muted">Elige otro arriba para ver el que manda.</span></p>
             }
             <div class="pres-detail-bar">
               <span class="pres-summary-title">@if (b.is_test) { <p-tag value="PRUEBA" severity="danger" styleClass="pres-tag" />&nbsp; }{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
@@ -574,7 +576,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                      quien acababa de crear un ejercicio. El boton de rayo de arriba corre la MISMA
                      pasada ahora mismo; omitirlo convertia un clic en un dia de espera. -->
                 Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) — no se capturan a mano.
-                Si acabás de crear este ejercicio, dale al botón <span class="pi pi-bolt"></span> <strong>Re-armar ahora</strong> de arriba y las arma en el momento; si no, entran solas en la pasada de la mañana.
+                Si acabas de crear este ejercicio, dale al botón <span class="pi pi-bolt"></span> <strong>Re-armar ahora</strong> de arriba y las arma en el momento; si no, entran solas en la pasada de la mañana.
                 @if (autopilot(); as a) {
                   @if (a.status === 'error') {
                     <div class="pres-empty-diag bad"><span class="pi pi-times-circle"></span> La pasada <strong>falló</strong>{{ a.last_start ? ' (' + (a.last_start | date:'dd/MM HH:mm') + ')' : '' }}: {{ a.error || 'sin detalle' }}</div>
@@ -769,13 +771,13 @@ const VISTA_DEFAULT: PresView = 'direccion';
                   <td class="ta-r pres-mono">{{ money(r.anual) }}</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin presupuesto de gastos propuesto. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer gastos del año» para armarlo desde los egresos de Kepler. }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin presupuesto de gastos propuesto. @if (b.status === 'borrador' || b.status === 'en_revision') { Usa «Proponer gastos del año» para armarlo desde los egresos de Kepler. }</td></tr></ng-template>
             </p-table>
             @if (expenseByAccount().length) {
               <p class="pres-hint"><span class="pi pi-calculator"></span> Total propuesto (año): <strong class="pres-mono">{{ money(expenseTotal()) }}</strong> · grano <strong>cuenta mayor × mes</strong> (base del año anterior × crecimiento; relleno por recurrencia). Al <strong>aprobar</strong> el ejercicio, esta propuesta se materializa en las partidas del libro de 5 estados (arriba).</p>
             }
           } @else {
-            <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
+            <p class="pres-muted">Elige un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
           }
         </section>
       }
@@ -797,7 +799,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
             (proposePlan)="runProposePlan()" (loadComparison)="loadSalesComparison()" (projectTargets)="projectTargets()" />
         } @else {
           <section class="pres-section">
-            <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
+            <p class="pres-muted">Elige un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
           </section>
         }
       }
@@ -907,7 +909,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
               <p class="pres-muted">Calculando resultado…</p>
             }
           } @else {
-            <p class="pres-muted">Elegí un ejercicio en «Ejercicio» para ver su resultado presupuestado.</p>
+            <p class="pres-muted">Elige un ejercicio en «Ejercicio» para ver su resultado presupuestado.</p>
           }
 
           <div class="pres-section-head" style="margin-top:1.4rem">
@@ -1030,7 +1032,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
           } @else if (loadingCashflow()) {
             <p class="pres-muted">Cargando flujo…</p>
           } @else {
-            <p class="pres-hint"><span class="pi pi-info-circle"></span> El flujo de caja consulta la cartera CXC en vivo (unos segundos). Pulsá <strong>«Actualizar»</strong> para calcularlo.</p>
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> El flujo de caja consulta la cartera CXC en vivo (unos segundos). Pulsa <strong>«Actualizar»</strong> para calcularlo.</p>
           }
         </section>
       }
@@ -1145,24 +1147,61 @@ const VISTA_DEFAULT: PresView = 'direccion';
             @if (!p.available) {
               <p class="pres-nodata"><span class="pi pi-info-circle"></span> {{ p.reason || 'Sin cartera CXC para proponer capacidad.' }}</p>
             } @else {
+              <!-- [PU.14] Si no hubo estimado de ingresos para el rango, la propuesta cayo a la cartera: se dice. -->
+              @if (p.respaldo_de) {
+                <p class="pres-nodata"><span class="pi pi-exclamation-triangle"></span> Se usó la cartera de clientes porque {{ p.respaldo_de }}</p>
+              }
               <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ p.note }} · <strong>{{ p.items.length }}</strong> días · total <strong class="pres-mono">{{ money(capProposalTotal()) }}</strong>.
                 <button pButton type="button" class="p-button-sm" (click)="confirmCapacity()" [loading]="confirmingCap()">Confirmar capacidad propuesta</button></p>
-              <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
-                <ng-template #header><tr><th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Cobranza de la semana</th></tr></ng-template>
-                <ng-template #body let-it>
-                  <tr><td class="pres-mono">{{ it.date }}</td><td class="ta-r pres-mono">{{ money(it.amount) }}</td><td class="ta-r pres-mono">{{ dash(it.cobros_week) }}</td></tr>
-                </ng-template>
-              </p-table>
+              @if (p.sin_estimado?.length) {
+                <p class="pres-nodata"><span class="pi pi-info-circle"></span> Sin estimado ni real (no se proponen en cero): {{ p.sin_estimado!.join(', ') }}</p>
+              }
+              @if (capPorIngreso(p)) {
+                <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
+                  <ng-template #header><tr>
+                    <th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Ingreso del día</th>
+                    <th class="ta-r">Fin de semana / feriado</th><th>Origen</th><th>Pagos</th>
+                  </tr></ng-template>
+                  <ng-template #body let-it>
+                    <tr>
+                      <td class="pres-mono">{{ it.date }}</td>
+                      <td class="ta-r pres-mono">{{ money(it.amount) }}</td>
+                      <td class="ta-r pres-mono">{{ dash(it.ingreso_dia) }}</td>
+                      <td class="ta-r pres-mono">{{ it.arrastre ? money(it.arrastre) : '—' }}</td>
+                      <td>{{ it.origen === 'real' ? 'Ya entró' : it.origen === 'mixto' ? 'Real y estimado' : 'Estimado' }}</td>
+                      <td>@if (it.bloqueado) { <p-tag severity="secondary" value="Ya en Pagos" /> } @else { — }</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              } @else {
+                <p-table [value]="p.items" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="16rem">
+                  <ng-template #header><tr><th>Día</th><th class="ta-r">Capacidad propuesta</th><th class="ta-r">Cobranza de la semana</th></tr></ng-template>
+                  <ng-template #body let-it>
+                    <tr><td class="pres-mono">{{ it.date }}</td><td class="ta-r pres-mono">{{ money(it.amount) }}</td><td class="ta-r pres-mono">{{ dash(it.cobros_week) }}</td></tr>
+                  </ng-template>
+                </p-table>
+              }
             }
           }
 
-          <h3 style="margin-top:1.4rem">Ajuste manual de un día</h3>
+          <h3 style="margin-top:1.4rem">Ajuste manual del día (antes de pasar a Pagos)</h3>
+          <p class="pres-nodata"><span class="pi pi-info-circle"></span>
+            El ajuste se hace el día anterior. Un día que ya pasó a Pagos (liberado, en ejecución o cerrado) no se puede cambiar.</p>
           <div class="pres-cap-form">
             <input type="date" [(ngModel)]="capDate" (change)="loadCapacity()" class="pres-date" aria-label="Fecha" />
-            <input pInputText type="number" [(ngModel)]="capAmount" placeholder="Importe autorizado" class="pres-amt" />
-            <input pInputText type="text" [(ngModel)]="capReason" placeholder="Motivo del cambio" class="pres-reason" />
-            <button pButton type="button" (click)="saveCapacity()" [loading]="savingCap()">Guardar</button>
+            <input pInputText type="number" [(ngModel)]="capAmount" placeholder="Importe autorizado" class="pres-amt" [disabled]="!!capDayBloqueado()" />
+            <input pInputText type="text" [(ngModel)]="capReason" placeholder="Motivo del cambio" class="pres-reason" [disabled]="!!capDayBloqueado()" />
+            <button pButton type="button" (click)="saveCapacity()" [loading]="savingCap()" [disabled]="!!capDayBloqueado()">Guardar</button>
           </div>
+          @if (capDayEstimate(); as e) {
+            <p class="pres-current">
+              Estimado de ingresos para el {{ capDate }}: <strong class="pres-mono">{{ money(e.amount) }}</strong>
+              ({{ e.origen === 'real' ? 'ya entró' : e.origen === 'mixto' ? 'parte ya entró' : 'estimado' }}@if (e.arrastre) {, incluye {{ money(e.arrastre) }} del fin de semana o feriado}).
+              @if (capDayBloqueado()) { <p-tag severity="secondary" value="Ya en Pagos" /> }
+            </p>
+          } @else if (capDayBloqueado()) {
+            <p class="pres-current"><p-tag severity="secondary" value="Ya en Pagos" /> Este día ya pasó a Pagos: su capacidad no se puede cambiar.</p>
+          }
           @if (currentCapacity(); as c) {
             <p class="pres-current">Capacidad actual del {{ capDate }}: <strong class="pres-mono">{{ money(c.authorized_amount) }}</strong> · actualizado por {{ c.updated_by || '—' }}</p>
           } @else {
@@ -1212,7 +1251,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
             <strong>Esta lista no distingue el ejercicio de prueba.</strong> La obligación no trae
             de qué presupuesto viene, así que si hay un ejercicio marcado como prueba sus
             obligaciones aparecen acá mezcladas — y autorizar una la mete al Calendario.
-            Verificá el ejercicio antes de autorizar.
+            Verifica el ejercicio antes de autorizar.
           </p>
           <p-table [value]="expenses()" [loading]="loadingExpenses()" styleClass="p-datatable-sm surf-table pres-table">
             <ng-template #header>
@@ -1230,7 +1269,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                 <td>@if (e.status === 'pending' || e.status === 'propuesta') { <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="cancelExpense(e)" title="Cancelar" aria-label="Cancelar obligación"><span class="pi pi-times"></span></button> }</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin obligaciones. Usá «Generar del plan» para crear las recurrentes del plan de gastos.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin obligaciones. Usa «Generar del plan» para crear las recurrentes del plan de gastos.</td></tr></ng-template>
           </p-table>
         </section>
       }
@@ -1601,7 +1640,10 @@ export class FinanzasPresupuestoComponent implements OnInit {
   margenInput: number | null = null;
 
   // ── Capacidad (TP) ──
-  capDate = new Date().toISOString().slice(0, 10);
+  // [PU.14] Arranca en MAÑANA: el ajuste manual se hace el día anterior, antes de pasar a Pagos.
+  // En hora LOCAL: con toISOString (UTC), en México después de las 18:00 salía pasado mañana.
+  capDate = ((d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)(
+    new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 1));
   capAmount: number | null = null;
   capReason = '';
   savingCap = signal(false);
@@ -1781,7 +1823,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
           const matErr = resp?.materialization?.error;
           this.http.post(`${this.base}/budgets/${b.id}/sales-plan/project-targets`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => { /* silencioso */ }, error: () => { /* no bloquea */ } });
           if (matErr) {
-            this.toast.add({ severity: 'warn', summary: 'Aprobado, pero SIN materializar', detail: `Las partidas NO se materializaron: ${matErr}. Corregí y usá "Re-materializar".`, life: 8000 });
+            this.toast.add({ severity: 'warn', summary: 'Aprobado, pero SIN materializar', detail: `Las partidas NO se materializaron: ${matErr}. Corrige y usa "Re-materializar".`, life: 8000 });
           } else {
             this.toast.add({ severity: 'success', summary: 'Ejercicio aprobado', detail: 'Partidas materializadas del plan y metas proyectadas a Análisis.' });
           }
@@ -2220,7 +2262,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   confirmGenPlan(): void {
     const b = this.selected(); if (!b) return;
     const g = Number(this.genGrowthPct);
-    if (!Number.isFinite(g)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresá el crecimiento objetivo.' }); return; }
+    if (!Number.isFinite(g)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresa el crecimiento objetivo.' }); return; }
     this.savingGen.set(true);
     this.http.post<{ generated: number; entities_with_base: number; prior_year: number }>(`${this.base}/budgets/${b.id}/sales-plan/generate`,
       { growth_pct: g / 100, overwrite_manual: this.genOverwriteManual }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -2232,7 +2274,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   openMetaEdit(r: SalesRow): void { this.metaEditRow.set(r); this.metaEditAmount = r.meta; this.metaEditVisible = true; }
   confirmMetaEdit(): void {
     const b = this.selected(); const r = this.metaEditRow(); if (!b || !r || !r.entity_key) return;
-    if (!(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresá una meta válida (≥ 0).' }); return; }
+    if (!(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresa una meta válida (≥ 0).' }); return; }
     this.savingMeta.set(true);
     this.http.post(`${this.base}/budgets/${b.id}/sales-plan/line`, { entity_key: r.entity_key, period_no: this.salesPeriod, meta_amount: Number(this.metaEditAmount) }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.savingMeta.set(false); this.metaEditVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Guardada', detail: 'Meta capturada.' }); },
@@ -2321,9 +2363,9 @@ export class FinanzasPresupuestoComponent implements OnInit {
           // otro ejercicio. Mandarlas al mismo toast haría que alguien intente capturar metas en la
           // copia de prueba porque la pantalla le dijo que faltaban (ADR-056).
           if (r.note === 'ejercicio de prueba') {
-            this.toast.add({ severity: 'warn', summary: 'No se proyecta', detail: 'Este ejercicio está marcado como PRUEBA. Sus metas no se publican al «vs objetivo» de Análisis, que es con lo que se mide a un vendedor. Elegí el ejercicio real.' });
+            this.toast.add({ severity: 'warn', summary: 'No se proyecta', detail: 'Este ejercicio está marcado como PRUEBA. Sus metas no se publican al «vs objetivo» de Análisis, que es con lo que se mide a un vendedor. Elige el ejercicio real.' });
           } else if (r.note === 'plan vacío' || !r.lines) {
-            this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Armá el plan primero.' });
+            this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Arma el plan primero.' });
           } else {
             this.toast.add({ severity: 'success', summary: 'Proyectado a Análisis', detail: `${r.projected} metas mensuales (scope×mes) desde ${r.lines} celdas del plan · ${r.months} meses. Ya se ve en el «vs objetivo» de Análisis.` });
           }
@@ -2555,6 +2597,30 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const fuera = cc && cc.vencido_fuera > 0
       ? `${this.money(cc.vencido_fuera)} de cartera vencida no sostiene esta propuesta: es exigible, pero sin fecha`
       : undefined;
+    // [PU.14] Base por default: el estimado de ingresos. Lo que sostiene la propuesta es lo que entra
+    // (real si ya está cargado), no la cartera.
+    // Sin propuesta en curso (p. ej. recién confirmada) también rige la base por default: el ingreso.
+    if (!p || (p.available && this.capPorIngreso(p))) {
+      const real = p ? p.items.filter((i) => i.origen === 'real').reduce((s, i) => s + Number(i.amount), 0) : 0;
+      const sinPropuesta = 'Todavía no se propuso capacidad para un rango';
+      return [
+        p
+          ? { label: 'Capacidad propuesta', value: total, format: 'currency-short', state: 'derivado',
+              method: 'Ingreso de cada día hábil (real si ya entró, si no el estimado) + fines de semana y feriados anteriores' }
+          : { label: 'Capacidad propuesta', value: '—', format: 'text', state: 'no_medido', stateNote: sinPropuesta },
+        p && dias > 0
+          ? { label: 'Por día hábil', value: total / dias, format: 'currency-short', state: 'derivado', method: `Promedio de ${dias} días hábiles` }
+          : { label: 'Por día hábil', value: '—', format: 'text', state: 'no_medido', stateNote: p ? 'Sin días hábiles en el rango' : sinPropuesta },
+        p
+          ? { label: 'De lo que ya entró', value: real, format: 'currency-short', state: 'medido', stateNote: 'El resto de la propuesta es estimado' }
+          : { label: 'De lo que ya entró', value: '—', format: 'text', state: 'no_medido', stateNote: sinPropuesta },
+        cur
+          ? { label: `Autorizado el ${this.capDate}`, value: cur.authorized_amount, format: 'currency-short', state: 'medido',
+              stateNote: `Tope autorizado por ${cur.updated_by || 'alguien sin registrar'} — es un permiso, no un saldo` }
+          : { label: `Autorizado el ${this.capDate}`, value: '—', format: 'text', state: 'no_medido',
+              stateNote: 'Sin fila para ese día: capacidad NO DEFINIDA, que no es lo mismo que cero' },
+      ];
+    }
     return [
       p?.available
         ? { label: 'Capacidad propuesta', value: total, format: 'currency-short', state: 'parcial', stateNote: fuera }
@@ -2621,16 +2687,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
    * capacidad desde el 11.8% de la cartera sin decirlo es el mismo defecto que `[CXC.22]`
    * corrigió del lado del flujo.
    */
-  capProposal = signal<{
-    available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>;
-    note?: string; reason?: string; base?: string; as_of?: string | null;
-    cobranza_cobertura?: { en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number; total: number; pct_en_ventana: number | null };
-  } | null>(null);
+  // [PU.14] El tipo sale del contrato: la propuesta ahora tiene DOS bases (ingreso estimado / cartera).
+  capProposal = signal<CapacityProposal | null>(null);
+  /** [PU.14] ¿La propuesta salió del estimado de ingresos (la base por default)? */
+  capPorIngreso(p: CapacityProposal | null): boolean { return p?.basis === 'ingreso_estimado'; }
+  /** [PU.14] El ingreso estimado del día que se va a ajustar a mano (o null si no hay). */
+  capDayEstimate = signal<CapacityProposalItem | null>(null);
+  /** [PU.14] Estado del lote si el día del ajuste ya pasó a Pagos (con cualquier base de propuesta). */
+  capDayBloqueado = signal<string | null>(null);
   loadingCapProp = signal(false); confirmingCap = signal(false);
   proposeCapacity(): void {
-    if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elegí desde y hasta.' }); return; }
+    if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elige desde y hasta.' }); return; }
     this.loadingCapProp.set(true);
-    this.http.get<NonNullable<ReturnType<typeof this.capProposal>>>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<CapacityProposal>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.capProposal.set(r); this.loadingCapProp.set(false); },
       error: (e) => { this.loadingCapProp.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer la capacidad.' }); },
     });
@@ -2639,8 +2708,18 @@ export class FinanzasPresupuestoComponent implements OnInit {
   confirmCapacity(): void {
     const p = this.capProposal(); if (!p || !p.available || !p.items.length) return;
     this.confirmingCap.set(true);
-    this.http.post<{ written: number }>(`${this.base}/capacity/confirm`, { items: p.items.map((i) => ({ date: i.date, amount: i.amount })), reason: 'Capacidad propuesta desde el flujo' }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.confirmingCap.set(false); this.capProposal.set(null); this.toast.add({ severity: 'success', summary: 'Capacidad confirmada', detail: `${r.written} días escritos.` }); this.loadCapacity(); },
+    // [PU.14] El motivo dice de qué base salió; los días que ya pasaron a Pagos el servidor los salta y los devuelve.
+    const reason = this.capPorIngreso(p) ? 'Capacidad desde el estimado de ingresos' : 'Capacidad propuesta desde el flujo';
+    this.http.post<CapacityConfirmResult>(`${this.base}/capacity/confirm`, { items: p.items.map((i) => ({ date: i.date, amount: i.amount })), reason }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.confirmingCap.set(false); this.capProposal.set(null);
+        this.toast.add({ severity: 'success', summary: 'Capacidad confirmada', detail: `${r.written} días escritos.` });
+        if (r.omitidos?.length) {
+          this.toast.add({ severity: 'warn', summary: 'Días ya en Pagos', sticky: true,
+            detail: `No se cambiaron ${r.omitidos.length} día(s) que ya pasaron a Pagos: ${r.omitidos.map((o) => o.date).join(', ')}.` });
+        }
+        this.loadCapacity();
+      },
       error: (e) => { this.confirmingCap.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo confirmar la capacidad.' }); },
     });
   }
@@ -2652,7 +2731,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   isObligSel(id: string): boolean { return this.obligSelected.has(id); }
   toggleOblig(id: string): void { if (this.obligSelected.has(id)) this.obligSelected.delete(id); else this.obligSelected.add(id); }
   generateObligFromPlan(): void {
-    const b = this.selected(); if (!b) { this.toast.add({ severity: 'warn', summary: 'Ejercicio', detail: 'Elegí un ejercicio en «Ejercicio».' }); return; }
+    const b = this.selected(); if (!b) { this.toast.add({ severity: 'warn', summary: 'Ejercicio', detail: 'Elige un ejercicio en «Ejercicio».' }); return; }
     this.generatingOblig.set(true);
     this.http.post<{ generated: number; updated: number; skipped: number; accounts_recurrent: number }>(`${this.base}/expenses/from-plan`, { budget_id: b.id }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.generatingOblig.set(false); this.toast.add({ severity: 'success', summary: 'Obligaciones generadas', detail: `${r.generated} nuevas · ${r.updated} actualizadas · ${r.skipped} sin cambio (${r.accounts_recurrent} cuentas recurrentes).` }); this.loadExpenses(); },
@@ -2660,7 +2739,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
   authorizeOblig(): void {
-    const ids = [...this.obligSelected]; if (!ids.length) { this.toast.add({ severity: 'warn', summary: 'Selección', detail: 'Seleccioná obligaciones en estado propuesta.' }); return; }
+    const ids = [...this.obligSelected]; if (!ids.length) { this.toast.add({ severity: 'warn', summary: 'Selección', detail: 'Selecciona obligaciones en estado propuesta.' }); return; }
     this.authorizingOblig.set(true);
     this.http.post<{ authorized: number; skipped: number }>(`${this.base}/expenses/authorize`, { ids }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.authorizingOblig.set(false); this.obligSelected.clear(); this.toast.add({ severity: 'success', summary: 'Autorizadas', detail: `${r.authorized} obligaciones autorizadas (entran al Calendario).` }); this.loadExpenses(); },
@@ -2967,6 +3046,21 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
     this.http.get<CapacityHistoryRow[]>(`${this.base}/capacity/history`, { params: { date: this.capDate } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (h) => this.history.set(h), error: () => this.history.set([]),
+    });
+    // [PU.14] Lo que el estimado de ingresos propone para ESE día, para ajustarlo con algo enfrente,
+    // y si ya pasó a Pagos (entonces no se puede tocar).
+    this.capDayEstimate.set(null);
+    this.capDayBloqueado.set(null);
+    const dia = this.capDate;
+    this.http.get<CapacityProposal>(`${this.base}/capacity/propose`, { params: { from: dia, to: dia } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        // Si mientras viajaba se eligió otro día, esta respuesta ya no es de la fecha en pantalla.
+        if (dia !== this.capDate) return;
+        this.capDayEstimate.set(this.capPorIngreso(p) ? (p.items[0] ?? null) : null);
+        // El candado vale con cualquier base (también si la propuesta cayó a cartera).
+        this.capDayBloqueado.set(p.items[0]?.bloqueado ?? null);
+      },
+      error: () => { if (dia === this.capDate) { this.capDayEstimate.set(null); this.capDayBloqueado.set(null); } },
     });
   }
   saveCapacity(): void {

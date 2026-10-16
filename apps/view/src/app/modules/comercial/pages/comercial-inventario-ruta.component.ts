@@ -84,7 +84,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
         cada una manda su existencia y eso es lo que se publica. Lo que la sucursal le cargó y lo
         que vendió se usan para <em>contrastarla</em>, no para calcularla.
         <strong>Kepler no guarda el saldo de un camión</strong> — por eso el saldo lo pone el
-        camión y el papel lo audita. Para ver todo su historial, abrí la ruta.
+        camión y el papel lo audita. Para ver todo su historial, abre la ruta.
       </p>
     </div>
     <app-context-help topic="inventario-de-ruta" />
@@ -116,7 +116,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
   <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="!filas().length"
                   [skeletonRows]="11" emptyIcon="pi-truck"
                   emptyTitle="Ningún camión cargó ni vendió en estas fechas"
-                  emptyHint="Quitá el filtro de fechas: el primer embarque documentado es del 15-jul en Padre Hidalgo y del 14-ago en Canindo."
+                  emptyHint="Quita el filtro de fechas: el primer embarque documentado es del 15-jul en Padre Hidalgo y del 14-ago en Canindo."
                   (retry)="cargar()">
     @if (data(); as d) {
       <p class="ir-veredicto" [class]="'ir-v-' + veredicto().tono">
@@ -472,7 +472,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
             que ya traía. Las tres cifras en pesos van en la
             <strong>{{ metrica() === 'costo' ? 'misma valuación: el costo del embarque' : 'misma valuación: el precio al cliente' }}</strong>,
             para que restarlas signifique algo; las unidades van en su propia columna.
-            <strong>Tocá un día</strong> para ver qué productos entraron y cuáles salieron.
+            <strong>Toca un día</strong> para ver qué productos entraron y cuáles salieron.
           </p>
 
           <!-- Filtros de la serie. Client-side: narran lo ya traído, sin volver al servidor. -->
@@ -584,7 +584,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
             </app-load-state>
           } @else {
             <p class="ir-nota">
-              Cada embarque que la sucursal le mandó al camión. Abrí uno para ver
+              Cada embarque que la sucursal le mandó al camión. Abre uno para ver
               <strong>a qué costo se le cargó cada producto</strong>.
             </p>
             <div class="dt-scope">

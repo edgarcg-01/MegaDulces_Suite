@@ -86,7 +86,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
         <!-- ── [IC.6] El programa: los tres ritmos en un lugar ────────────────────── -->
         <section class="inv-var-prog">
           @if (!warehouseFilter) {
-            <p class="inv-var-note">Elegí un almacén para ver qué le toca este mes.</p>
+            <p class="inv-var-note">Elige un almacén para ver qué le toca este mes.</p>
           } @else {
             @if (plan(); as pl) {
               <div class="surf-grid inv-var-kpis">
@@ -173,7 +173,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
         <section class="inv-var-prog">
           <div class="inv-var-filters">
             <p-select [options]="rfOpciones()" optionLabel="label" optionValue="value"
-              [ngModel]="rfSel()" (ngModelChange)="rfSel.set($event)" (onChange)="loadRf()" placeholder="Elegí un período"
+              [ngModel]="rfSel()" (ngModelChange)="rfSel.set($event)" (onChange)="loadRf()" placeholder="Elige un período"
               styleClass="inv-var-wh" [filter]="true"></p-select>
             <p-select [options]="rfVeredictos" optionLabel="label" optionValue="value"
               [(ngModel)]="rfVeredicto" (onChange)="loadRf()" placeholder="Todos"
@@ -292,7 +292,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
               </ng-template>
             </p-table>
           } @else if (!rfSel()) {
-            <p class="inv-var-note">Elegí un período para ver a dónde se fue la mercancía.</p>
+            <p class="inv-var-note">Elige un período para ver a dónde se fue la mercancía.</p>
           }
 
           <!-- ⛔ Los almacenes que NO se pueden conciliar van EN PANTALLA: uno ausente de un
@@ -322,7 +322,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
         <section class="inv-var-prog">
           @if (!warehouseFilter) {
             <p class="inv-var-note">
-              Sin almacén elegido se consultan todos y tarda cerca del doble. Elegí uno arriba
+              Sin almacén elegido se consultan todos y tarda cerca del doble. Elige uno arriba
               para que responda en ~0.65 s.
             </p>
           }
@@ -1161,7 +1161,7 @@ export class ComercialInventoryVarianceComponent {
   /** Lo que la fila significa en una línea, que es lo que la persona necesita leer. */
   lectura(i: InventoryReincidenciaItem): string {
     if (i.forma === 'evento_aislado' && i.patron !== 'se_compensa')
-      return 'Un solo conteo explica casi todo: revisá ESA captura, no el anaquel';
+      return 'Un solo conteo explica casi todo: revisa ESA captura, no el anaquel';
     if (i.patron === 'se_compensa') return 'Entra y sale: huele a unidad o a captura, no a faltante';
     if (i.patron === 'merma') return 'Falta siempre y no vuelve — el caso que hay que ir a ver';
     if (i.patron === 'sobra') return 'Sobra siempre: entradas sin registrar o unidad mal declarada';
@@ -1384,7 +1384,7 @@ export class ComercialInventoryVarianceComponent {
       // ⛔ Un error NO se muestra como expediente vacío: eso se leería como «no hay nada».
       error: () => {
         this.exp.set({ encontrado: false,
-          motivo: 'No se pudo reunir el expediente. Volvé a intentarlo; si sigue, avisá a Sistemas.' });
+          motivo: 'No se pudo reunir el expediente. Vuelve a intentarlo; si sigue, avisa a Sistemas.' });
         this.loadingExp.set(false);
       },
     });

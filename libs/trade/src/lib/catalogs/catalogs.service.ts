@@ -318,7 +318,7 @@ export class CatalogsService {
     const lista = puestos.map((p) => `${p.code} (${p.como})`).join(', ');
     throw new ConflictException(
       `No se puede ${verbo} el rol "${roleName}": ${puestos.length} puesto(s) lo proponen — ${lista}. ` +
-        `Cambiá la propuesta del puesto antes de ${verbo}lo, o quien lo ocupe se queda sin perfil sugerido.`,
+        `Cambia la propuesta del puesto antes de ${verbo}lo, o quien lo ocupe se queda sin perfil sugerido.`,
     );
   }
 

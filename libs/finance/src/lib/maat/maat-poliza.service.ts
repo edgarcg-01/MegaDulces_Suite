@@ -56,7 +56,7 @@ export class MaatPolizaService {
         severity: (Math.abs(neto) >= 1000 ? 'critical' : 'warn') as 'critical' | 'warn',
         score: Math.min(1, Math.abs(neto) / 10000),
         titulo: `Póliza descuadrada ${r.tipo_pol}/${r.folio} — Δ ${money(neto)}`,
-        resumen: `Póliza ${r.tipo_pol}/${r.folio}${suc} (${r.anio_mes}, ${r.source}): cargos ${money(Number(r.cargos))} vs abonos ${money(Number(r.abonos))} → descuadre de ${money(neto)}. Una póliza SIEMPRE debe cuadrar (partida doble); revisá que no falte o sobre una pata.`,
+        resumen: `Póliza ${r.tipo_pol}/${r.folio}${suc} (${r.anio_mes}, ${r.source}): cargos ${money(Number(r.cargos))} vs abonos ${money(Number(r.abonos))} → descuadre de ${money(neto)}. Una póliza SIEMPRE debe cuadrar (partida doble); revisa que no falte o sobre una pata.`,
         entity: { source: r.source, sucursal: r.sucursal, ejercicio: r.ejercicio, periodo: r.periodo, tipo_pol: r.tipo_pol, folio: r.folio },
         periodo: r.anio_mes, importe: Math.abs(neto),
         evidencia: { cargos: Number(r.cargos), abonos: Number(r.abonos), neto, num_lines: r.num_lines, concepto: r.concepto },

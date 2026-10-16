@@ -138,7 +138,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             } @else if (sucursalesPermitidas().length === 0) {
               <span class="suc-sin" role="alert">
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                Sin sucursal asignada: pedí a un administrador que te asigne tu sucursal para poder cotizar.
+                Sin sucursal asignada: pide a un administrador que te asigne tu sucursal para poder cotizar.
               </span>
             } @else if (sucursalesPermitidas().length === 1) {
               <span class="suc-label"><i class="pi pi-building" aria-hidden="true"></i> Sucursal:</span>
@@ -156,7 +156,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 [disabled]="guardando()"
               >
                 @if (!sucursal()) {
-                  <option value="" disabled>Elegí la sucursal…</option>
+                  <option value="" disabled>Elige la sucursal…</option>
                 }
                 @for (s of sucursalesPermitidas(); track s.code) {
                   <option [value]="s.code">
@@ -364,7 +364,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
                 (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
                 (keydown.enter)="$event.preventDefault(); elegirResaltado()"
-                [placeholder]="sucursal() ? 'Escaneá el código de barras o escribí SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir' : 'Primero elegí la sucursal'"
+                [placeholder]="sucursal() ? 'Escanea el código de barras o escribe SKU / nombre (palabras en cualquier orden) · ↑↓ y Enter para elegir' : 'Primero elige la sucursal'"
                 autocorrect="off"
                 spellcheck="false"
                 [disabled]="guardando() || !sucursal()"
@@ -641,7 +641,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
             <div class="empty-bandeja">
               <i class="pi pi-shopping-cart empty-icon" aria-hidden="true"></i>
               <p class="empty-title">La bandeja está vacía</p>
-              <p class="empty-hint">Buscá productos en el paso 2 y agregalos uno a uno.</p>
+              <p class="empty-hint">Busca productos en el paso 2 y agrégalos uno a uno.</p>
             </div>
           } @else {
             <div class="table-wrap">
@@ -795,7 +795,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 class="input textarea"
                 rows="3"
                 [(ngModel)]="listaCruda"
-                placeholder="Pegá acá el correo o WhatsApp recibido. Se guarda como evidencia..."
+                placeholder="Pega acá el correo o WhatsApp recibido. Se guarda como evidencia..."
                 [disabled]="guardando()"
                 aria-label="Mensaje original o lista del cliente"
               ></textarea>
@@ -2193,7 +2193,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       this.toast.add({
         severity: 'warn',
         summary: 'Bandeja vacía',
-        detail: 'Agregá al menos un artículo a la bandeja para exportar el entregable en Excel.',
+        detail: 'Agrega al menos un artículo a la bandeja para exportar el entregable en Excel.',
       });
       return;
     }
@@ -2226,7 +2226,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       this.toast.add({
         severity: 'warn',
         summary: 'Bandeja vacía',
-        detail: 'Agregá al menos un artículo a la bandeja para exportar el entregable en PDF.',
+        detail: 'Agrega al menos un artículo a la bandeja para exportar el entregable en PDF.',
       });
       return;
     }

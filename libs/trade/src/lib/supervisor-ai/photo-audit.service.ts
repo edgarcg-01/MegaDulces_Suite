@@ -320,7 +320,7 @@ export class PhotoAuditService {
             {
               name: 'audit_exhibition_photo',
               description:
-                'Audita la foto de una exhibición de dulces en una tienda. Devolvé SOLO lo que REALMENTE ves en la imagen; no inventes ni asumas.',
+                'Audita la foto de una exhibición de dulces en una tienda. Devuelve SOLO lo que REALMENTE ves en la imagen; no inventes ni asumas.',
               input_schema: {
                 type: 'object',
                 properties: {
@@ -365,7 +365,7 @@ export class PhotoAuditService {
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
               {
                 type: 'text',
-                text: 'Sos un supervisor de trade marketing auditando la ejecución en punto de venta. Analizá esta foto de una exhibición de dulces y completá la herramienta audit_exhibition_photo con lo que REALMENTE ves.',
+                text: 'Eres un supervisor de trade marketing auditando la ejecución en punto de venta. Analiza esta foto de una exhibición de dulces y completa la herramienta audit_exhibition_photo con lo que REALMENTE ves.',
               },
             ],
           },

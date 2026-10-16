@@ -9,6 +9,7 @@
  */
 import {
   repartirIngresosCaos, resumirReparto,
+  CaosFechaIlegibleError,
   type CobroDisponible, type DepositoCaos,
 } from './caja-caos-ingreso.engine';
 
@@ -123,5 +124,91 @@ describe('repartirIngresosCaos — el ingreso se cubre con cobros ANTERIORES', (
     const v = r.resultados[0].veredicto;
     expect(v.estado).toBe('sin_respaldo');
     expect(v.cubierto).toBe(0);
+  });
+});
+
+// ── `[CGP-L.5]` El día del depósito es el día de NEGOCIO en México ─────────────────────────────────
+//
+// El servicio manda `occurred_at` como ISO en UTC. Recortarlo daba el día en UTC: un depósito a las
+// 19:00 del 12-oct «era» del 13, y podía consumir un cobro del 13 — dinero que todavía no existía.
+describe('[CGP-L.5] el corte del depósito usa el día de México', () => {
+  it('⛔ un depósito a las 19:00 del 12-oct NO consume un cobro del 13', () => {
+    const { resultados } = repartirIngresosCaos(
+      [dep(1, '2026-10-13T01:00:00.000Z', 500)],               // 19:00 del 12-oct en México
+      [
+        { origen_ref: 'A', fecha: '2026-10-12', monto: 300 },
+        { origen_ref: 'B', fecha: '2026-10-13', monto: 500 },
+      ],
+    );
+    const v = resultados[0].veredicto;
+    expect(v.aplicaciones.map((a) => a.fecha)).toEqual(['2026-10-12']);
+    expect(v).toMatchObject({ estado: 'sin_respaldo', cubierto: 300, faltante: 200 });
+  });
+
+  it('a mediodía del 13 sí lo consume', () => {
+    const { resultados } = repartirIngresosCaos(
+      [dep(1, '2026-10-13T18:00:00.000Z', 500)],
+      [
+        { origen_ref: 'A', fecha: '2026-10-12', monto: 300 },
+        { origen_ref: 'B', fecha: '2026-10-13', monto: 500 },
+      ],
+    );
+    expect(resultados[0].veredicto).toMatchObject({ estado: 'cubierto', cubierto: 500 });
+  });
+});
+
+/**
+ * ⛔⛔ `[CG.162]` — **El `Date` que devuelve node-pg para una columna `date`.**
+ *
+ * Estas pruebas existen porque las de arriba son verdes y el motor estuvo roto en producción:
+ * todas alimentan `fecha: '2026-09-09'`, strings ya limpios, y el defecto vivía en el paso que
+ * convierte la fila del driver en ese string. Medido el 2026-10-15: 755 depósitos / $18,500,100
+ * declarados «sin respaldo» porque `String(fecha_valor).slice(0,10)` daba `"Wed May 27"`.
+ *
+ * La primera es la prueba de REGRESIÓN (el valor real del driver tiene que funcionar); la segunda
+ * y la tercera son las NEGATIVAS: una fecha que no se entiende tiene que GRITAR, nunca volver a
+ * degradarse en silencio a «este dinero no tiene respaldo».
+ */
+describe('[CG.162] fecha ilegible: grita, no acusa', () => {
+  it('un `Date` de node-pg (columna `date`) se lee como su día, no como "Wed May 27"', () => {
+    // Exactamente lo que devuelve el driver: medianoche LOCAL del día de la columna.
+    const fechaDelDriver = new Date(2026, 8, 9); // 2026-09-09 00:00 local
+    const { resultados } = repartirIngresosCaos(
+      [dep(1, '2026-09-10T18:00:00Z', 5000)],
+      [{ origen_ref: 'a', fecha: fechaDelDriver, monto: 5000 }],
+    );
+    const v = resultados[0].veredicto;
+    expect(v).toMatchObject({ estado: 'cubierto', cubierto: 5000 });
+    expect(v.aplicaciones[0].fecha).toBe('2026-09-09');
+  });
+
+  it('⛔ el defecto exacto de prod: "Wed May 27" ya NO puede pasar por fecha', () => {
+    expect(() => repartirIngresosCaos(
+      [dep(1, '2026-09-10T18:00:00Z', 5000)],
+      [{ origen_ref: 'a', fecha: 'Wed May 27', monto: 5000 }],
+    )).toThrow(CaosFechaIlegibleError);
+  });
+
+  it('⛔ y el mensaje dice con qué reemplazarlo, no sólo que falló', () => {
+    expect(() => repartirIngresosCaos(
+      [dep(1, '2026-09-10T18:00:00Z', 5000)],
+      [{ origen_ref: 'cobro-X', fecha: 'Wed May 27', monto: 5000 }],
+    )).toThrow(/cobro-X.*diaDeFecha/s);
+  });
+
+  it('⛔ un depósito con instante ilegible tampoco se degrada a «sin respaldo»', () => {
+    expect(() => repartirIngresosCaos(
+      [{ device: 'AST700-19758', external_id: 9, occurred_at: 'no-es-una-fecha', total: 100 }],
+      [{ origen_ref: 'a', fecha: '2026-09-09', monto: 5000 }],
+    )).toThrow(CaosFechaIlegibleError);
+  });
+
+  it('la ley medida en prod se mantiene: cobros anteriores cubren el depósito al 100%', () => {
+    // Saldo corrido real (2026-10-15): nunca negativo, peor saldo +$18,726.
+    const { resultados } = repartirIngresosCaos(
+      [dep(1, '2026-05-27T20:00:00Z', 18726)],
+      [{ origen_ref: 'a', fecha: new Date(2026, 4, 27), monto: 18726 }],
+    );
+    expect(resultados[0].veredicto.estado).toBe('cubierto');
   });
 });

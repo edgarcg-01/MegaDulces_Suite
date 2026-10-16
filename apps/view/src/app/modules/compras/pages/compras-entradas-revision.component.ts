@@ -102,7 +102,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                     {{ r.kpis.por_validar_atrasadas }} ya pasaron los {{ r.settings.sla_review_days }} días.
                   </b>
                 }
-                @if (decididasHoy() > 0) { <em>Llevás {{ decididasHoy() }} decididas.</em> }
+                @if (decididasHoy() > 0) { <em>Llevas {{ decididasHoy() }} decididas.</em> }
               }
             </p>
           }
@@ -214,9 +214,9 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
             } @else if (detail()) {
               <app-doc-viewer [files]="hojas()" [(idx)]="hojaIdx"
                               emptyTitle="Sin hoja adjunta"
-                              emptyHint="Esta entrada no tiene documento del proveedor. Devolvela con el motivo «falta una hoja» o pedile a la sucursal que la suba." />
+                              emptyHint="Esta entrada no tiene documento del proveedor. Devuélvela con el motivo «falta una hoja» o pedile a la sucursal que la suba." />
             } @else {
-              <div class="rv-doc-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Elegí una factura de la cola.</span></div>
+              <div class="rv-doc-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Elige una factura de la cola.</span></div>
             }
           </section>
 
@@ -357,8 +357,8 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                           @if (ex.dias_despues && ex.dias_despues > 0) {
                             <em>Llegó <b>{{ ex.dias_despues }} {{ ex.dias_despues === 1 ? 'día' : 'días' }} después</b> de recibir: cuando se calculó el cuadre todavía no existía.</em>
                           }
-                          @if (ex.confianza === 'ambigua') { <em>Hay más de un candidato: confirmá cuál.</em> }
-                          @else if (ex.confianza === 'media') { <em>Kepler no liga la nota a esta recepción — casa por monto, confirmalo.</em> }
+                          @if (ex.confianza === 'ambigua') { <em>Hay más de un candidato: confirma cuál.</em> }
+                          @else if (ex.confianza === 'media') { <em>Kepler no liga la nota a esta recepción — casa por monto, confírmalo.</em> }
                           @else if (ex.confianza === 'alta') { <em>Kepler lo liga a esta entrada: se puede aprobar en lote.</em> }
                         } @else {
                           El hueco es de <strong>{{ money(ex.delta) }}</strong> y <b>ninguno de estos ajustes lo explica</b>.
@@ -451,7 +451,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                     @if (bloqueoPropio(); as quien) {
                       <p class="rv-block">
                         <i class="pi pi-user-minus" aria-hidden="true"></i>
-                        Esta evidencia la subió <strong>{{ quien }}</strong> — que sos vos. Tiene que revisarla otra persona.
+                        Esta evidencia la subió <strong>{{ quien }}</strong> — que eres tú. Tiene que revisarla otra persona.
                       </p>
                     } @else {
                       <div class="rv-act-btns">
@@ -466,7 +466,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                       </div>
                     }
                   } @else {
-                    <p class="rv-block"><i class="pi pi-lock" aria-hidden="true"></i> No tenés permiso para validar evidencia.</p>
+                    <p class="rv-block"><i class="pi pi-lock" aria-hidden="true"></i> No tienes permiso para validar evidencia.</p>
                   }
                   <div class="rv-act-nav">
                     <span class="rv-pos">{{ idx() + 1 }} de {{ cola().length }}</span>
@@ -480,7 +480,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                 </footer>
               }
             } @else {
-              <div class="rv-doc-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Elegí una de la cola.</span></div>
+              <div class="rv-doc-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Elige una de la cola.</span></div>
             }
           </aside>
         </div>
@@ -569,11 +569,11 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
             <p>
               Se van a aprobar <strong>{{ loteObjetivo().length }}</strong> facturas
               @if (sel().size) {
-                de tu selección. El servidor revisa cada una: las que no cuadren o hayas subido vos
+                de tu selección. El servidor revisa cada una: las que no cuadren o hayas subido tú
                 se quedan en la cola y te dice cuáles.
               } @else {
                 cuyo total coincide con Kepler dentro de la tolerancia de
-                <strong>{{ money(report()?.settings?.match_tolerance ?? 1) }}</strong> y que no subiste vos.
+                <strong>{{ money(report()?.settings?.match_tolerance ?? 1) }}</strong> y que no subiste tú.
                 Las que no cuadran quedan en la cola para revisarlas a mano.
               }
             </p>

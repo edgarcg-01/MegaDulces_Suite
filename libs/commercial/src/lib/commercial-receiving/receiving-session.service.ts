@@ -296,7 +296,7 @@ export class ReceivingSessionService {
         const only = distinct.filter((r: any) => r.sku === bcSkus[0]);
         if (only.length === 1) return only[0] as { id: string; sku: string | null; nombre: string | null };
       }
-      throw new ConflictException(`Código '${c}' ambiguo: coincide con ${distinct.length} productos. Escaneá el código de barras específico o usá product_id.`);
+      throw new ConflictException(`Código '${c}' ambiguo: coincide con ${distinct.length} productos. Escanea el código de barras específico o usa product_id.`);
     }
     return distinct[0] as { id: string; sku: string | null; nombre: string | null };
   }
@@ -417,8 +417,8 @@ export class ReceivingSessionService {
             message:
               `${docLabel} ya se recibió en el vale ${previo.folio} (${previo.status}). ` +
               (previo.status === 'closed'
-                ? 'Revisalo antes de volver a recibirlo; si de verdad llegó otra vez, recibilo de nuevo a propósito.'
-                : 'Revisalo antes de volver a recibirlo; si de verdad hay que rehacerlo, cancelá el anterior.'),
+                ? 'Revísalo antes de volver a recibirlo; si de verdad llegó otra vez, recíbelo de nuevo a propósito.'
+                : 'Revísalo antes de volver a recibirlo; si de verdad hay que rehacerlo, cancela el anterior.'),
             previous: {
               id: previo.id,
               folio: previo.folio,
@@ -435,7 +435,7 @@ export class ReceivingSessionService {
         (erpHeader ? await this.resolveWarehouse(trx, erpHeader) : embarque ? embarque.warehouse_id : null);
       if (!warehouseId)
         throw new BadRequestException(
-          'No pude determinar el almacén de destino: configurá el mapa sucursal→almacén ("Almacenes×sucursal")',
+          'No pude determinar el almacén de destino: configura el mapa sucursal→almacén ("Almacenes×sucursal")',
         );
 
       const year = new Date().getFullYear();
@@ -1279,7 +1279,7 @@ export class ReceivingSessionService {
 
   async searchErpOrders(folio: string, limit = 20) {
     const f = String(folio || '').trim();
-    if (!/^\d{1,}$/.test(f)) throw new BadRequestException('Escribí el folio (solo dígitos)');
+    if (!/^\d{1,}$/.test(f)) throw new BadRequestException('Escribe el folio (solo dígitos)');
     const tenantId = this.tenantCtx.get()?.tenantId || null;
 
     return this.tk.run(async (trx) => {
@@ -1540,7 +1540,7 @@ export class ReceivingSessionService {
       const heldCount = Number((held as any)?.n || 0);
       if (heldCount > 0)
         throw new ConflictException(
-          `El vale tiene ${heldCount} captura(s) de lote pendientes de autorización: autorizá o rechazá antes de cerrar`,
+          `El vale tiene ${heldCount} captura(s) de lote pendientes de autorización: autoriza o rechaza antes de cerrar`,
         );
 
       const userId = this.tenantCtx.get()?.userId || null;

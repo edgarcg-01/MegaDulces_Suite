@@ -91,7 +91,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
       @if (tab() === 'focos') {
         <div class="cd-note">
           <i class="pi pi-bullseye"></i>
-          <span>Dónde apuntar primero. Ranking por faltante + señales de riesgo, con la <strong>palanca recomendada</strong> para cada foco. Atacá de arriba hacia abajo.</span>
+          <span>Dónde apuntar primero. Ranking por faltante + señales de riesgo, con la <strong>palanca recomendada</strong> para cada foco. Ataca de arriba hacia abajo.</span>
         </div>
         <div class="cd-filters">
           <div class="cd-seg">
@@ -248,7 +248,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
       @if (tab() === 'arqueo') {
         <div class="cd-note">
           <i class="pi pi-eye-slash"></i>
-          <span>Contá el efectivo físico por denominación <strong>sin ver el esperado</strong>. Al guardar, el sistema revela la diferencia <strong>real</strong> — que el arqueo de Kepler (73% cuadra exacto) suele ocultar.</span>
+          <span>Cuenta el efectivo físico por denominación <strong>sin ver el esperado</strong>. Al guardar, el sistema revela la diferencia <strong>real</strong> — que el arqueo de Kepler (73% cuadra exacto) suele ocultar.</span>
         </div>
         <div class="cd-2col">
           <div class="card-premium card-flat cd-panel">
@@ -344,7 +344,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 </td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin acciones. Creá una desde Focos.' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin acciones. Crea una desde Focos.' }}</td></tr></ng-template>
           </p-table>
         </div>
       }

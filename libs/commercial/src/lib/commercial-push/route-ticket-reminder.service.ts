@@ -97,7 +97,7 @@ export class RouteTicketReminderService {
 
         const res = await this.push.sendToUser(v.id, {
           title: 'Cierre de ruta pendiente',
-          body: `Aún no subís tu ${missing.join(' y ')} de hoy. Tocá para subirlo.`,
+          body: `Aún no subes tu ${missing.join(' y ')} de hoy. Toca para subirlo.`,
           url: '/vendor/close-route',
           tag: 'ticket-reminder',
         });

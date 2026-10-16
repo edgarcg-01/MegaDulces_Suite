@@ -74,10 +74,10 @@ describe('PromotionFormDialogComponent · abrir ya es crear', () => {
     expect(c).toBeTruthy();
   });
 
-  it('⭐ NEGATIVA: ya NO existe la antesala "Elegí el tipo"', () => {
+  it('⭐ NEGATIVA: ya NO existe la antesala "Elige el tipo"', () => {
     montar();
     // El texto de la antesala era literalmente éste. Si vuelve, volvió el paso muerto.
-    expect(texto()).not.toContain('Elegí el tipo de promoción');
+    expect(texto()).not.toContain('Elige el tipo de promoción');
   });
 
   it('⭐ al abrir para crear se ve el FORMULARIO, no un selector a pantalla completa', () => {

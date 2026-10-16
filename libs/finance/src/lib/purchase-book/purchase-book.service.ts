@@ -794,7 +794,7 @@ export class PurchaseBookService {
         if (rows.length) {
           throw new BadRequestException(
             `ContPAQi ya tiene el folio ${folio} del Diario en ${anioMes} `
-            + `(${rows[0].patas} renglones por ${rows[0].cargos}). Elegí otro folio.`,
+            + `(${rows[0].patas} renglones por ${rows[0].cargos}). Elige otro folio.`,
           );
         }
       }
@@ -954,7 +954,7 @@ export class PurchaseBookService {
     if (tipo === 'libro') {
       throw new BadRequestException(
         'el libro completo del mes ya no se genera: arrastra facturas que ContPAQi ya tiene asociadas y las duplicaría. '
-        + 'Usá "Movimientos no asociados"; si el mes no tiene póliza, cambiale el folio a 1 en la carátula.',
+        + 'Usa "Movimientos no asociados"; si el mes no tiene póliza, cámbiale el folio a 1 en la carátula.',
       );
     }
     const { facturas, resumen, bloqueantes } = await this.getMes(anioMes, tipo);
@@ -1025,7 +1025,7 @@ export class PurchaseBookService {
       if (ocupado.length) {
         throw new BadRequestException(
           `ContPAQi ya tiene el folio ${run.folio_poliza} del Diario en ${anioMes} `
-          + `(${ocupado[0].patas} renglones por ${ocupado[0].cargos}). Cambiá el folio de la carátula antes de generar.`,
+          + `(${ocupado[0].patas} renglones por ${ocupado[0].cargos}). Cambia el folio de la carátula antes de generar.`,
         );
       }
 

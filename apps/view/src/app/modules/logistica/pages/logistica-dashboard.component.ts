@@ -43,7 +43,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Dashboard Operativo</h1>
-          <p class="surf-page-sub">Vista en tiempo real del período. Refrescá si querés data actualizada.</p>
+          <p class="surf-page-sub">Vista en tiempo real del período. Refresca si quieres data actualizada.</p>
         </div>
         <div class="filter-bar">
           <div class="filter-daterange" role="group" aria-label="Rango de fechas">
@@ -164,7 +164,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                     <a pButton size="small" [routerLink]="['/logistica/shipments']" [queryParams]="{ route_id: r.route_id }" pTooltip="Crear embarque para esta ruta"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Embarque</span></a>
                   }
                   @if (!r.route_id) {
-                    <span class="comm-muted is-small">Asigná ruta al cliente</span>
+                    <span class="comm-muted is-small">Asigna ruta al cliente</span>
                   }
                 </td>
               </tr>
@@ -206,7 +206,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="6" class="comm-muted logd-empty">Sin embarques cerrados en este rango. Probá ampliar las fechas.</td></tr>
+                <tr><td colspan="6" class="comm-muted logd-empty">Sin embarques cerrados en este rango. Prueba ampliar las fechas.</td></tr>
               </ng-template>
             </p-table>
           </div>

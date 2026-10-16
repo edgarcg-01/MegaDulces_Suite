@@ -23,6 +23,7 @@ export * from './ports/service-desk-channels.port';
 export * from './http/command-center.contract';
 // [VP.2.1] Procedencia (ADR-056): con qué se calculó el número que se publica.
 export * from './http/provenance.contract';
+export * from './http/caja-cobertura.contract';
 // [VU.0] La unidad viaja CON la cantidad al escribir. Censo 2026-09-12: 22 tablas con una
 // columna de cantidad y ninguna de unidad al lado. Leer el contrato antes de agregar otra.
 export * from './http/quantity-unit.contract';
@@ -56,6 +57,8 @@ export * from './http/identity-org.contract';
 export * from './http/supplier-credit-terms.contract';
 // [RE.32] Entrega de compras recibidas a Finanzas (folio ENT-YYYY-NNNNN, quién entrega y quién recibe).
 export * from './http/purchase-delivery.contract';
+// [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
+export * from './http/payment-calendar.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
 // (recon_tasks, supervisor_tasks, inventory_count_assignments, daily_assignments) y ninguna subió a
 // libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
@@ -90,6 +93,7 @@ export * from './http/warehouse-locations.contract';
 export * from './http/warehouse-picking-kepler.contract';
 // [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
 export * from './http/warehouse-presale.contract';
+export * from './http/presale-picking.contract';
 // [MCP.5] Guías de carga de preventa: el repartidor pesca sus pedidos y la cajera imprime la guía.
 export * from './http/presale-load-guide.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
@@ -97,6 +101,16 @@ export * from './http/presale-load-guide.contract';
 export * from './http/budget-expense-plan.contract';
 export * from './http/budget-direccion.contract';
 export * from './http/budget-result.contract';
+// [PU.13] El estimado de ingresos por día (bancos y caja general), con lo real al lado.
+export * from './http/budget-income-forecast.contract';
+// [PU.14] La propuesta de capacidad de pago (por default desde el estimado de ingresos).
+export * from './http/budget-capacity-proposal.contract';
+// [CAT-COSTO.6–7] Los tres costos de Kepler (estándar · último · promedio) y la vista «Contra último costo».
+export * from './http/kepler-costos.contract';
+// [CAT-PRECIO.1] Precios › Diferencias entre sucursales: la ficha de venta campo por campo.
+export * from './http/precios-sucursales.contract';
+// [CAT-PRECIO.2–5] Precios (catálogo por sucursal + historia) y Mantenimiento › Sin clasificar.
+export * from './http/precios-catalogo.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
@@ -129,6 +143,11 @@ export * from './finance/reapertura.contract';
 export * from './finance/ejercicio.contract';
 // `[GX.41]` el vale que Kepler asigna por la caja «Solicita» = un username nuestro.
 export * from './finance/vale-asignado.contract';
+export * from './finance/dia-corto.contract';
+export * from './finance/jornadas-pendientes.contract';
+export * from './finance/caja-sucursal.contract';
+export * from './finance/dia-negocio.contract';
+export * from './finance/corte-caja.contract';
 export * from './finance/protocolo-gasto.contract';
 // `[GX.75]` La transferencia XD2601 que pagó el gasto: tercer número del expediente.
 export * from './finance/transferencia-gasto.contract';

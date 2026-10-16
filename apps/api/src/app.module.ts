@@ -82,7 +82,7 @@ import { CommercialPaymentsModule } from '@megadulces/commercial';
 import { CommercialHomeDeliveryModule } from '@megadulces/commercial';
 // Fase LM.5 — corte de caja del repartidor (arqueo)
 import { CommercialRiderLiquidationModule } from '@megadulces/commercial';
-import { CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule } from '@megadulces/commercial';
+import { CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule, PresalePickingModule } from '@megadulces/commercial';
 import { CommercialCargaModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
@@ -159,6 +159,7 @@ import { WhatsAppModule } from '@megadulces/whatsapp';
 import { CommerceConversationBindingModule } from './composition/commerce-conversation.binding.module';
 import { BankCaptureBindingModule } from './composition/bank-capture.binding.module';
 import { RecruitmentBotBindingModule } from './composition/recruitment-bot.binding.module';
+import { RecruitmentOutboundBindingModule } from './composition/recruitment-outbound.binding.module';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
 import { MailerBindingModule } from './composition/mailer.binding.module';
@@ -222,6 +223,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       WarehouseLocationsModule,
       // [MCP.1] Mesa de Control de Preventa.
       PresaleControlModule,
+      PresalePickingModule,
       CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialReplenishmentModule,
@@ -336,6 +338,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       BankCaptureBindingModule,
       // [RH.3.1] binding del bot de reclutamiento (RECRUITMENT_BOT_PORT): el número de RH va a libs/hr.
       RecruitmentBotBindingModule,
+      // [RH.3.3.4b] la salida inversa (RECRUITMENT_OUTBOUND_PORT): RH le escribe primero a un candidato.
+      RecruitmentOutboundBindingModule,
       WhatsAppModule,
     ]
   : [];

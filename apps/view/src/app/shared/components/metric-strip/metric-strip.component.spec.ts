@@ -102,3 +102,43 @@ describe('MetricStripComponent · estado de medicion (VP.MS)', () => {
     expect(c.stateTitle(it_({ state: 'parcial', stateNote: 've el 11.8%' }))).toBe('ve el 11.8%');
   });
 });
+
+/**
+ * `[ETQ-CAMBIOS.10]` Densidad compacta: cada métrica en UNA línea. Es ADITIVA — el default no
+ * puede cambiar nada para las pantallas que ya usan el organismo, y la versión compacta no puede
+ * perder ninguna métrica (ahorrar alto no es quitar información).
+ */
+describe('MetricStripComponent · densidad compacta (ETQ-CAMBIOS.10)', () => {
+  const items: MetricStripItem[] = [
+    { label: 'Para reimprimir', value: 101, format: 'number', sub: 'etiquetas' },
+    { label: 'Subieron', value: 90, format: 'number', tone: 'bad' },
+    { label: 'Bajaron', value: 10, format: 'number', tone: 'ok' },
+    { label: 'Sin precio', value: 1, format: 'number', tone: 'warn', sub: 'el ERP se lo quitó' },
+  ];
+  const montar = (density?: 'normal' | 'compact') => {
+    TestBed.configureTestingModule({});
+    const fix = TestBed.createComponent(MetricStripComponent);
+    fix.componentRef.setInput('items', items);
+    if (density) fix.componentRef.setInput('density', density);
+    fix.detectChanges();
+    return fix.nativeElement as HTMLElement;
+  };
+
+  it('el default NO es compacto: las pantallas que ya lo usan no cambian', () => {
+    expect(montar().querySelector('.ms')?.classList.contains('ms--compact')).toBe(false);
+  });
+
+  it('compact marca el contenedor, sin quitar el modo', () => {
+    const ms = montar('compact').querySelector('.ms')!;
+    expect(ms.classList.contains('ms--compact')).toBe(true);
+    expect(ms.classList.contains('ms--strip')).toBe(true);
+  });
+
+  it('NEGATIVA: compactar no pierde ninguna métrica ni su nota', () => {
+    const el = montar('compact');
+    expect(el.querySelectorAll('.ms-item')).toHaveLength(4);
+    const t = el.textContent ?? '';
+    for (const l of ['Para reimprimir', 'Subieron', 'Bajaron', 'Sin precio']) expect(t).toContain(l);
+    expect(t).toContain('el ERP se lo quitó');
+  });
+});

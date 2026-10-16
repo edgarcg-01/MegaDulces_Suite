@@ -196,7 +196,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <i class="pi pi-history" aria-hidden="true"></i>
             <p>Recuperé tu pedido a medio capturar: <strong>{{ b.n }}</strong>
               {{ b.n === 1 ? 'cantidad escrita' : 'cantidades escritas' }} de <strong>{{ borradorHora(b.at) }}</strong>.
-              <span class="pr-borrador-sub">Las marcas de los productos no se guardan — marcá y armá como siempre.</span></p>
+              <span class="pr-borrador-sub">Las marcas de los productos no se guardan — marca y arma como siempre.</span></p>
             <button type="button" class="pr-zlink" (click)="descartarBorrador()">Descartar y empezar de cero</button>
           </div>
         }
@@ -325,7 +325,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
-                  <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mirá esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
+                  <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
                   <th class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
@@ -481,9 +481,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   <th>Sucursal</th>
                                   <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal ÷ su MÁXIMO (política de reorden), en CAJAS. Clic en la cifra para ver la venta por mes de 12 meses contra el año anterior. Ordena la lista dentro de cada zona: la que más vende, arriba.">V30d / Máx</th>
                                   <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
-                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia). ⛔ NO resta lo que viene en camino: revisá esa columna aparte. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · ← → restan o suman uno (también Alt + ↑ ↓) · escribí para reemplazar. En celular y tableta: botones − y +, mantener presionado repite.">Pedido ✎</th>
+                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia). ⛔ NO resta lo que viene en camino: revisa esa columna aparte. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · ← → restan o suman uno (también Alt + ↑ ↓) · escribe para reemplazar. En celular y tableta: botones − y +, mantener presionado repite.">Pedido ✎</th>
                                   <th class="pr-r" title="En qué unidad estás capturando ESTE renglón. Sólo cambia cómo se escribe: el pedido, los días y el valor siempre se calculan en cajas.">Unidad</th>
-                                  <th class="pr-r" title="Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ (venta 30d ÷ 30.4). Se mueve mientras escribís.">Días inv.</th>
+                                  <th class="pr-r" title="Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ (venta 30d ÷ 30.4). Se mueve mientras escribes.">Días inv.</th>
                                   <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS (que después baja la mercancía por traspaso).">Entrega</th>
                                   <th class="pr-r pr-val" title="Pedido × costo de caja DE ESA SUCURSAL.">Valor</th>
                                 </tr></thead>
@@ -503,7 +503,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                   [title]="'Toda la zona se entrega en el CEDIS principal ' + mainCedis()!.code + ' ' + mainCedis()!.name + ', y de ahí baja por traspaso a cada sucursal.'">todo a {{ mainCedis()!.code }}</button>
                                         }
                                       } @else {
-                                        <span class="pr-zhub pr-rung">sin CEDIS asignado — configuralo en el almacén</span>
+                                        <span class="pr-zhub pr-rung">sin CEDIS asignado — configúralo en el almacén</span>
                                       }
                                     </td>
                                   </tr>
@@ -727,7 +727,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto, en <strong>cajas</strong>. <strong>Exist. red</strong> = existencia sumada de las sucursales · <strong>Σ Ped.</strong> = lo que se va a pedir, suma viva del desglose (arranca en el sugerido: venta diaria × <strong>estación</strong> × cobertura − existencia). La columna <strong>Est.</strong> muestra la razón estacional que ya lleva puesta; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas. <strong>⛔ El sugerido NO descuenta lo que viene en camino</strong>, a propósito: en Kepler la OC se captura al RECIBIR, así que una orden puede llevar meses abierta sin que exista mercancía en viaje, y restarla dejaría de pedir lo que sí hace falta. Lo que elijas se <strong>suma</strong> a esa columna. La venta de las <strong>rutas</strong> cuenta en su sucursal madre. <em>Clic en una fila para abrir su desglose por sucursal — podés abrir varias a la vez.</em></p>
+          <p class="pr-foot">Una fila por producto, en <strong>cajas</strong>. <strong>Exist. red</strong> = existencia sumada de las sucursales · <strong>Σ Ped.</strong> = lo que se va a pedir, suma viva del desglose (arranca en el sugerido: venta diaria × <strong>estación</strong> × cobertura − existencia). La columna <strong>Est.</strong> muestra la razón estacional que ya lleva puesta; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas. <strong>⛔ El sugerido NO descuenta lo que viene en camino</strong>, a propósito: en Kepler la OC se captura al RECIBIR, así que una orden puede llevar meses abierta sin que exista mercancía en viaje, y restarla dejaría de pedir lo que sí hace falta. Lo que elijas se <strong>suma</strong> a esa columna. La venta de las <strong>rutas</strong> cuenta en su sucursal madre. <em>Clic en una fila para abrir su desglose por sucursal — puedes abrir varias a la vez.</em></p>
         }
 
         @if (wbRows().length) {
@@ -757,7 +757,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 </span>
               }
             } @else if (totCajas() > 0) {
-              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>marcá los productos para armar la requisición</em></span>
+              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>marca los productos para armar la requisición</em></span>
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
@@ -848,7 +848,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
              «Requisiciones (50)» contando PRODUCTOS marcados, no documentos: nadie podía saber
              si iban a salir 6 o 117. Medido: promedio 8.2, mediana 6, peor 117. -->
         <p-dialog [(visible)]="planVisible" [modal]="true" [style]="{ width: '40rem' }" [dismissableMask]="!saving()"
-                  header="Revisá lo que se va a generar">
+                  header="Revisa lo que se va a generar">
           @if (planResumen(); as p) {
             <div class="pr-plan">
               <p class="pr-plan-tit">Vas a generar <strong>{{ p.total }}</strong> documento{{ p.total === 1 ? '' : 's' }}
@@ -1221,7 +1221,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <td class="dt-id" role="cell"><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
               <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code | sucursal }}</td>
               <td class="pr-r pr-muted dt-num" role="cell" data-label="Existencia (cajas)" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
-              <td class="pr-r pr-muted dt-num" role="cell" data-label="Costo" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
+              <td class="pr-r pr-muted dt-num" role="cell" data-label="Costo" [title]="deadCostTitle(r)">{{ money(r.caja_cost) }}@if (deadCostoDebil(r)) {*}</td>
               <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Inmovilizado">{{ money(r.dead_value) }}</td>
               <td class="pr-muted" role="cell" data-label="Última actividad">{{ r.last_activity ? (r.last_activity | date:'dd/MM/yy') : 'sin actividad' }}</td>
               <td class="pr-supp" role="cell" data-label="Proveedor">{{ r.supplier_name || '—' }}</td>
@@ -1287,10 +1287,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               </div>
               @if (m.data.window; as w) {
                 <dl class="pr-mo-kv">
-                  <dt title="La venta REAL de los últimos 30 días, sumada día por día. No es el mismo número que la columna V30d de la tabla, que es la demanda diaria del motor × 30 (suavizada). Son dos medidas distintas a propósito; por eso se muestran las dos.">Últimos 30 días (venta real)</dt>
+                  <dt title="La venta REAL de los últimos 30 días naturales, sumada día por día, de TODOS los canales. No es el mismo número que la columna V30d de la tabla: ésa es la demanda del motor, que mide una ventana propia por sucursal (anclada a su última venta) y reconstruye las piezas por precio en vez de contarlas. Son dos medidas distintas a propósito; por eso se muestran las dos.">Últimos 30 días (venta real)</dt>
                   <dd>{{ w.v30_cajas | number:'1.0-1' }} cj@if (w.v30_parcial) {*}</dd>
                   @if (m.vta != null) {
-                    <dt title="Lo que muestra la columna V30d: la demanda diaria que calcula el motor, por 30. Suaviza los picos, así que casi nunca es idéntica a la venta real de arriba.">V30d de la tabla (demanda × 30)</dt>
+                    <dt title="Lo que muestra la columna V30d: la demanda diaria que calcula el motor, por 30. Difiere de la venta real de arriba por tres cosas, todas a propósito: mide una ventana de 30 días propia de cada sucursal (anclada a su última venta, no al calendario), reconstruye las piezas dividiendo el importe por el precio unitario, y aplica el freno de fin de pico. Hasta el 2026-10-15 difería además por un canal entero (telemarketing) que el motor no contaba: eso ya se corrigió.">V30d de la tabla (demanda × 30)</dt>
                     <dd>{{ m.vta | number:'1.0-1' }} cj</dd>
                   }
                   <dt>Próximos 30 días, año anterior</dt>
@@ -2337,7 +2337,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     partes.push('⛔ El sugerido NO lo descuenta, a propósito: una requisición pendiente no es mercancía comprometida '
       + '—puede no aprobarse nunca— y restarla dejaría de pedir lo que sí hace falta. ⛔ Hoy el motor TAMPOCO descuenta '
       + 'las órdenes de compra abiertas (columna "En camino"), por el mismo motivo: en Kepler la OC se captura al recibir. '
-      + 'Las dos columnas se SUMAN a lo que pidas; revisalas antes de armar.');
+      + 'Las dos columnas se SUMAN a lo que pidas; revísalas antes de armar.');
     return partes.join(' ');
   }
 
@@ -2943,7 +2943,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const fin = (ok: boolean) => {
       this.selAllBusy.set(false);
       if (!ok) {
-        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo traer la consulta completa. Intentá de nuevo.' });
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo traer la consulta completa. Intenta de nuevo.' });
         return;
       }
       this.rowCache.update((m) => { const n = new Map(m); for (const r of acc) n.set(r.product_id, r); return n; });
@@ -3223,6 +3223,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const u = (r.base_label || '').trim() || 'u';
     const n = Math.round(Number(r.on_hand) || 0).toLocaleString('es-MX');
     return bf > 1 ? `${n} ${u} sueltas · ${bf} ${u} por caja` : `${n} ${u} — sin factor de caja`;
+  }
+  /**
+   * `[RA.VA.4]` ¿el costo de esta fila tiene TESTIGO? — ADR-056: lo débil se DECLARA.
+   *
+   * El costo sale del resolvedor canónico `analytics.v_erp_unit_cost` (VERDAD_ABSOLUTA §5), que
+   * publica su propia procedencia. `kepler_kdik` y `wincaja_costo_promedio` están arbitrados
+   * contra el ERP; lo que cae al CATÁLOGO o se queda sin costo no lo está — y el catálogo es
+   * justo el que inflaba el inmovilizado un 26 %. Esas filas llevan asterisco.
+   */
+  private static readonly DEAD_COSTO_CON_TESTIGO = ['kepler_kdik', 'wincaja_costo_promedio'];
+  deadCostoDebil(r: { cost_source?: string }): boolean {
+    return !ComprasPedidoRealComponent.DEAD_COSTO_CON_TESTIGO.includes(r.cost_source || '');
+  }
+  deadCostTitle(r: { unit_cost: number; base_label?: string; box_factor?: number; cost_source?: string; cost_veredicto?: string | null }): string {
+    const u = (r.base_label || '').trim() || 'u';
+    const base = `Costo de una caja (${(Number(r.unit_cost) || 0).toFixed(2)} por ${u} × ${Number(r.box_factor) || 1})`;
+    const origen = `Origen: ${r.cost_source || 'sin_costo'}${r.cost_veredicto ? ` · ${r.cost_veredicto}` : ''}.`;
+    return this.deadCostoDebil(r)
+      ? `${base}. ${origen} * Sin testigo del ERP: el costo viene del catálogo o falta, y el catálogo suele venir inflado.`
+      : `${base}. ${origen}`;
   }
   /** Factor cajas→unidad elegida: pieza=uxc(pz/caja), paquete=packs/caja, caja=1. */
   unitFactor(pid: string): number {
@@ -4475,7 +4495,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // vez de perderla en silencio (pasaría si /filters falló y los lookups quedaron vacíos).
     if (sinWh) {
       this.toast.add({ severity: 'warn', life: 8000, summary: 'Sucursales sin identificar',
-        detail: `${sinWh} renglón(es) quedan fuera: no se pudo resolver su almacén. Recargá la página.` });
+        detail: `${sinWh} renglón(es) quedan fuera: no se pudo resolver su almacén. Recarga la página.` });
     }
 
     const dtos: CreateRequisitionDto[] = [];
@@ -4635,13 +4655,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const out: string[] = [];
     if (d.length > ComprasPedidoRealComponent.MAX_DOCS) {
       out.push(`Son ${d.length} documentos y el máximo por lote es ${ComprasPedidoRealComponent.MAX_DOCS}. `
-        + 'Marcá menos productos (o filtrá por proveedor) y armá en dos tandas.');
+        + 'Marca menos productos (o filtra por proveedor) y arma en dos tandas.');
     }
     const codigo = (id?: string | null) => (id && this.whCode().get(id)) || id || '—';
     d.forEach((x, i) => {
       const quien = `documento ${i + 1} (${x.source_type === 'branch' ? 'traspaso' : 'compra'} en ${codigo(x.warehouse_id)})`;
       const lineas = (x.lines || []).filter((l) => Number(l.final_qty) > 0);
-      if (!x.warehouse_id) out.push(`El ${quien} no tiene almacén resuelto. Recargá la página.`);
+      if (!x.warehouse_id) out.push(`El ${quien} no tiene almacén resuelto. Recarga la página.`);
       if (!lineas.length) out.push(`El ${quien} se queda sin renglones con cantidad > 0.`);
       // El servidor exige UN proveedor por requisición de compra y UN origen por traspaso: si el
       // agrupado del front se rompiera, acá se ve antes de que tire el lote entero.
@@ -4684,7 +4704,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.toast.add({
           severity: 'success', life: 12000,
           summary: `${nombre}: ${r.compras} compra(s) + ${r.traspasos} traspaso(s)`,
-          detail: 'Quedan ESPERANDO APROBACIÓN. Abrí Compras › Requisiciones para aprobar el lote completo — hasta entonces no se le pide nada a nadie.',
+          detail: 'Quedan ESPERANDO APROBACIÓN. Abre Compras › Requisiciones para aprobar el lote completo — hasta entonces no se le pide nada a nadie.',
         });
         this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook();
       },

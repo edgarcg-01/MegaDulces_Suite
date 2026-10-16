@@ -315,7 +315,7 @@ export class WhatsAppIngestService implements OnModuleInit {
           to: p.phone,
           thread_id: threadId,
           kind: 'text',
-          body: 'Listo, no te enviaremos más promociones. Si querés volver a recibirlas, escribinos. 🙌',
+          body: 'Listo, no te enviaremos más promociones. Si quieres volver a recibirlas, escríbenos. 🙌',
         });
         return;
       }
@@ -449,5 +449,19 @@ export class WhatsAppIngestService implements OnModuleInit {
    */
   private async enqueueOut(tenantId: string, payload: OutJobPayload): Promise<void> {
     await this.queue.enqueue({ dir: 'out', tenant_id: tenantId, payload });
+  }
+
+  /**
+   * `[RH.3.3.4b]` Un texto de reclutamiento por iniciativa de RH (no responde a ningún mensaje): sale por el número de
+   * reclutamiento del tenant (`phone_number_tenant_map.flow = 'recruitment'`), por la MISMA cola (reintentos) y al
+   * mismo libro que las respuestas del bot. La ventana de 24 h de Meta la decide quien llama. Implementa
+   * `RecruitmentOutboundPort` (el binding vive en el composition root).
+   */
+  async sendRecruitmentText(tenantId: string, to: string, body: string): Promise<{ encolado: boolean; motivo?: 'sin_numero' }> {
+    const row = await this.knex('whatsapp.phone_number_tenant_map')
+      .where({ tenant_id: tenantId, flow: 'recruitment' }).orderBy('created_at').first('phone_number_id');
+    if (!row?.phone_number_id) return { encolado: false, motivo: 'sin_numero' };
+    await this.enqueueOut(tenantId, { to, thread_id: null, from: String(row.phone_number_id), flow: 'recruitment', kind: 'text', body });
+    return { encolado: true };
   }
 }

@@ -38,6 +38,14 @@ export const appRoutes: Routes = [
       },
       { path: 'new-order', redirectTo: 'route-home', pathMatch: 'full' },
       {
+        // [MCP.8] El avance de los pedidos de preventa: tomado por el surtidor, surtido, cobrado.
+        path: 'mis-pedidos',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-mis-pedidos.component').then(
+            (m) => m.VendorMisPedidosComponent,
+          ),
+      },
+      {
         path: 'pending',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-pending.component').then(

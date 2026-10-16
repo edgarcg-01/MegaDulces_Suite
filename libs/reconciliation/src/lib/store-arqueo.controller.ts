@@ -382,7 +382,7 @@ export class StoreArqueoController {
   @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
   @ApiQuery({ name: 'from', required: false, description: "Desde (ISO 'YYYY-MM-DD')." })
   @ApiQuery({ name: 'to', required: false, description: "Hasta (ISO 'YYYY-MM-DD')." })
-  @ApiQuery({ name: 'cajero', required: false, description: 'Código de cajera. Ignorado si sos cajera (siempre vos).' })
+  @ApiQuery({ name: 'cajero', required: false, description: 'Código de cajera. Ignorado si eres cajera (siempre tú).' })
   @ApiQuery({ name: 'sin_validar', required: false, description: '`true` = solo los que faltan firmar.' })
   @ApiOperation({ summary: 'Tienda — historial de arqueos por cajera, con quién lo capturó y quién lo validó.' })
   async historial(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {

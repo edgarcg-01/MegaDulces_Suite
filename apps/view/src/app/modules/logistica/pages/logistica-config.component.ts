@@ -101,7 +101,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                         <td colspan="6" class="comm-empty-cell">
                           <div class="comm-empty">
                             <i class="pi pi-map comm-empty-icon"></i>
-                            <span>Sin rutas. Corré <code>logistics_baseline.js</code> para cargar 96 destinos reales.</span>
+                            <span>Sin rutas. Corre <code>logistics_baseline.js</code> para cargar 96 destinos reales.</span>
                           </div>
                         </td>
                       </tr>
@@ -149,7 +149,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                           <td colspan="6" class="comm-empty-cell">
                             <div class="comm-empty">
                               <i class="pi pi-sliders-h comm-empty-icon"></i>
-                              <span>Sin items en esta categoría. Creá uno con el botón de arriba.</span>
+                              <span>Sin items en esta categoría. Crea uno con el botón de arriba.</span>
                             </div>
                           </td>
                         </tr>

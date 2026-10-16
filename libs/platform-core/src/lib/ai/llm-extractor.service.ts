@@ -790,20 +790,20 @@ export class LlmExtractorService implements OnModuleInit {
                 'tienda mexicana. El surtido típico incluye: chocolates, chicles, gomitas, paletas, ' +
                 'malvaviscos, tamarindos, cueritos, mazapán, obleas, cacahuates, botanas, caramelos macizos ' +
                 'y dulce a granel. Un item por producto DISTINTO. ' +
-                'Sé EXHAUSTIVO: listá cada producto que distingas, no solo los más grandes ni los del frente. ' +
+                'Sé EXHAUSTIVO: lista cada producto que distingas, no solo los más grandes ni los del frente. ' +
                 '\n\nMUY IMPORTANTE — el exhibidor tiene tiras/etiquetas amarillas de la DISTRIBUIDORA que ' +
                 'dicen "Mega Dulces" / "De Los Altos": eso es la MARCA DE LA TIENDA, NO el nombre ni la marca ' +
                 'del producto. NUNCA incluyas "Mega Dulces" ni "De Los Altos" en `raw` ni en `normalized`. ' +
                 'Las etiquetas SÍ suelen nombrar el producto en el espacio (ej "Mazapán Grande", "Kisses", ' +
-                '"Pulparindo", "Bon Bon", "Pelón Pelo Rico") — usá ESE nombre del producto, o la marca del ' +
+                '"Pulparindo", "Bon Bon", "Pelón Pelo Rico") — usa ESE nombre del producto, o la marca del ' +
                 'empaque real (Snickers, Hershey\'s, Trident, Halls, Carlos V, Suizo de la Rosa). ' +
                 '\n\nPara cada uno: `raw` = nombre del producto tal como se lee (SIN "Mega Dulces"); ' +
-                'si NO hay marca legible (dulce a granel), describí el TIPO (ej "gomitas de oso", ' +
+                'si NO hay marca legible (dulce a granel), describe el TIPO (ej "gomitas de oso", ' +
                 '"tamarindo enchilado", "cacahuate japonés"). `normalized` = nombre limpio en minúsculas ' +
                 'para matchear con catálogo (marca/tipo + variante, sin precios, códigos, ni "mega dulces"). ' +
                 'NO confundas categorías: un chicle es chicle (no gomita), una paleta no es caramelo macizo. ' +
                 '`quantity` = cuántas piezas/caras del MISMO producto se ven (entero, default 1). ' +
-                'Reportá SOLO lo que REALMENTE se ve; no inventes ni completes de memoria. ' +
+                'Reporta SOLO lo que REALMENTE se ve; no inventes ni completes de memoria. ' +
                 'Si la imagen NO es un anaquel de productos (selfie, recibo, persona) o es totalmente ilegible, ' +
                 'devuelve items vacíos.',
               input_schema: {
@@ -826,9 +826,9 @@ export class LlmExtractorService implements OnModuleInit {
                     description:
                       'ESPACIOS VACÍOS: cada charola/compartimento que tiene su ETIQUETA de anaquel (la tira ' +
                       'amarilla que nombra el producto, ej "Kisses", "Pulparindo", "Bon Bon") pero NO tiene ' +
-                      'producto físico (o casi nada) en ese espacio = quiebre de stock. Poné el NOMBRE DEL ' +
-                      'PRODUCTO que dice la etiqueta del espacio vacío. Solo incluí espacios claramente vacíos ' +
-                      'con etiqueta legible; si dudás, no lo incluyas. Vacío si no ves ninguno.',
+                      'producto físico (o casi nada) en ese espacio = quiebre de stock. Pon el NOMBRE DEL ' +
+                      'PRODUCTO que dice la etiqueta del espacio vacío. Solo incluye espacios claramente vacíos ' +
+                      'con etiqueta legible; si dudas, no lo incluyas. Vacío si no ves ninguno.',
                     items: { type: 'string' },
                   },
                 },
@@ -845,10 +845,10 @@ export class LlmExtractorService implements OnModuleInit {
                 type: 'text',
                 text:
                   'Esta es una foto de una exhibición de dulces en una tiendita mexicana (surtido de la ' +
-                  'distribuidora Mega Dulces). (1) Listá TODOS los productos que se VEN —marca y tipo—, ' +
-                  'incluyendo el dulce a granel sin marca (describilo por tipo). (2) Además, reportá en ' +
+                  'distribuidora Mega Dulces). (1) Lista TODOS los productos que se VEN —marca y tipo—, ' +
+                  'incluyendo el dulce a granel sin marca (describilo por tipo). (2) Además, reporta en ' +
                   'empty_slots los ESPACIOS con etiqueta de anaquel pero SIN producto (quiebre de stock). ' +
-                  'Sé exhaustivo. Usá la herramienta read_shelf_products.',
+                  'Sé exhaustivo. Usa la herramienta read_shelf_products.',
               },
             ],
           },
@@ -1320,12 +1320,12 @@ export class LlmExtractorService implements OnModuleInit {
                 documents_present: {
                   type: 'array',
                   description: 'TODOS los documentos que aparecen en este archivo (un PDF escaneado puede traer VARIOS documentos juntos, uno por página o varios por página). ' +
-                    'Para CADA documento reconocido devolvé un objeto {type, page, evidence}. ' +
+                    'Para CADA documento reconocido devuelve un objeto {type, page, evidence}. ' +
                     'Tipos: "aplica_orden_entrada" = documento interno "Aplica Orden Entrada"/orden de entrada de Kepler; ' +
                     '"factura" = factura fiscal del proveedor (con folio fiscal/UUID/timbre SAT); ' +
                     '"remision" = remisión o nota de entrega del proveedor SIN timbre fiscal; ' +
                     '"ticket" = ticket de compra/recepción de Wincaja; "orden_recepcion" = orden de recepción de Wincaja; ' +
-                    '"vale" = vale de recepción interno; "otro" = cualquier otra hoja. [] si no reconocés ninguno. NO inventes documentos que no ves.',
+                    '"vale" = vale de recepción interno; "otro" = cualquier otra hoja. [] si no reconoces ninguno. NO inventes documentos que no ves.',
                   items: {
                     type: 'object',
                     properties: {
@@ -1340,8 +1340,8 @@ export class LlmExtractorService implements OnModuleInit {
                   type: 'array',
                   description: 'TODOS los renglones de producto del documento fiscal principal (factura/remisión), en el ORDEN en que aparecen. ' +
                     'Un renglón = una línea de la tabla de productos (código/descripción/cantidad/unidad/precio/importe). ' +
-                    'Copiá la descripción TAL CUAL la escribe el proveedor (no la traduzcas ni la normalices). ' +
-                    'Ignorá renglones que NO son producto (subtotales, IVA, totales, leyendas, "GRACIAS POR SU COMPRA"). ' +
+                    'Copia la descripción TAL CUAL la escribe el proveedor (no la traduzcas ni la normalices). ' +
+                    'Ignora renglones que NO son producto (subtotales, IVA, totales, leyendas, "GRACIAS POR SU COMPRA"). ' +
                     '[] si el documento no tiene tabla de productos legible. NO inventes renglones ni cantidades que no ves.',
                   items: {
                     type: 'object',
@@ -1367,7 +1367,7 @@ export class LlmExtractorService implements OnModuleInit {
             role: 'user',
             content: [
               fileBlock,
-              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Revisá TODAS las páginas. Con extract_remision: en documents_present listá CADA documento que veas con {type, page (1-based), evidence (su folio/título)}, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal. Además: el folio fiscal (UUID) si es factura, y si el papel trae el SELLO de recibido y la FIRMA de quien recibió (son la prueba de la entrega).' },
+              { type: 'text', text: 'Este archivo documenta la recepción de mercancía de un proveedor. Puede ser UN documento o un PAQUETE con varias hojas escaneadas juntas (orden de entrada, factura, remisión, ticket, orden de recepción). Revisa TODAS las páginas. Con extract_remision: en documents_present lista CADA documento que veas con {type, page (1-based), evidence (su folio/título)}, y extrae los campos (folio/fecha/proveedor/total…) del documento fiscal principal. Además: el folio fiscal (UUID) si es factura, y si el papel trae el SELLO de recibido y la FIRMA de quien recibió (son la prueba de la entrega).' },
             ],
           },
         ],
@@ -1466,7 +1466,7 @@ export class LlmExtractorService implements OnModuleInit {
             name: 'extract_gastos',
             description:
               'Extrae los datos del documento "Gastos" de Kepler (ERP mexicano; encabezado "Gastos" con "Documento XA1001-NNNN"). ' +
-              'Es un GASTO INTERNO (caja chica / viáticos / servicios), NO una factura de proveedor externo. Copiá los valores tal cual. ' +
+              'Es un GASTO INTERNO (caja chica / viáticos / servicios), NO una factura de proveedor externo. Copia los valores tal cual. ' +
               'Usa null para lo que no se distinga. NO inventes.',
             input_schema: {
               type: 'object',

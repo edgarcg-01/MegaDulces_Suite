@@ -20,7 +20,7 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
     question: '¿Qué porcentaje representan las ventas en ruta?',
     tools: ['thot_flexible_aggregate'],
     answer:
-      'En la venta real del ERP **no hay un canal etiquetado "ruta"**. El desglose por canal es **Tienda (mayoría)**, Crédito y Mayoreo (usá los share_pct de la tool). Si "ruta" te importa como métrica, hoy no está tagueada por separado (probablemente se registra como mostrador); se podría derivar por zona/vendedor.',
+      'En la venta real del ERP **no hay un canal etiquetado "ruta"**. El desglose por canal es **Tienda (mayoría)**, Crédito y Mayoreo (usa los share_pct de la tool). Si "ruta" te importa como métrica, hoy no está tagueada por separado (probablemente se registra como mostrador); se podría derivar por zona/vendedor.',
     note: 'No rajarse: probar flexible_aggregate por channel; si no existe el corte, mostrar lo que sí hay y aclarar. % de share_pct, no calculados.',
   },
   {
@@ -28,14 +28,14 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
     question: 'Margen por categoría del último trimestre',
     tools: ['thot_margin_by_category'],
     answer:
-      'Arrancá con la categoría más rentable en **negrita** y su margen %, luego las demás. Cerrá con una acción (ej: revisar precio/mezcla de la de menor margen). Citá período y fuente.',
+      'Arranca con la categoría más rentable en **negrita** y su margen %, luego las demás. Cierra con una acción (ej: revisar precio/mezcla de la de menor margen). Cita período y fuente.',
   },
   {
     profile: 'admin',
     question: '¿Cómo va la marca Kinder?',
     tools: ['thot_resolve_entity', 'thot_flexible_aggregate'],
     answer:
-      'Para una marca difusa primero resolvé la entidad y luego agregá revenue por marca (o top_products). Reportá su venta y participación (share_pct).',
+      'Para una marca difusa primero resuelve la entidad y luego agrega revenue por marca (o top_products). Reporta su venta y participación (share_pct).',
     note: 'Entidad difusa → resolve_entity antes de consultar.',
   },
   {
@@ -43,21 +43,21 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
     question: '¿A quién le ofrezco y qué?',
     tools: ['thot_find_customer', 'thot_suggest_for_customer'],
     answer:
-      'Resolvé el cliente en la cartera y traé los sugeridos del motor con su razón (rotación/whitespace/promo). Corto y accionable para la calle.',
+      'Resuelve el cliente en la cartera y trae los sugeridos del motor con su razón (rotación/whitespace/promo). Corto y accionable para la calle.',
   },
   {
     profile: 'portal',
     question: '¿Qué me conviene pedir?',
     tools: ['thot_my_recommendations'],
     answer:
-      'Mostrá 4-5 sugeridos con su precio, cálido y breve, invitando a agregarlos al pedido. Nunca menciones márgenes ni otros clientes.',
+      'Muestra 4-5 sugeridos con su precio, cálido y breve, invitando a agregarlos al pedido. Nunca menciones márgenes ni otros clientes.',
   },
   {
     profile: 'admin',
     question: 'Top 10 productos más vendidos del mes',
     tools: ['thot_top_products'],
     answer:
-      'Listá el ranking con unidades/revenue (negrita el #1). Aclarar período y que es venta real ERP. Cerrá con una lectura (concentración, marca dominante).',
+      'Lista el ranking con unidades/revenue (negrita el #1). Aclarar período y que es venta real ERP. Cierra con una lectura (concentración, marca dominante).',
     note: 'Venta real → top_products (ERP), no el pipeline B2B.',
   },
   {
@@ -65,14 +65,14 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
     question: '¿Qué clientes están inactivos / dejaron de comprar?',
     tools: ['thot_inactive_customers'],
     answer:
-      'Listá los clientes y sus días sin comprar; ordená por más críticos. Cerrá con acción (priorizar recuperación de los de mayor valor).',
+      'Lista los clientes y sus días sin comprar; ordena por más críticos. Cierra con acción (priorizar recuperación de los de mayor valor).',
   },
   {
     profile: 'admin',
     question: '¿Cuánto capital tengo parado en stock muerto?',
     tools: ['thot_dead_stock'],
     answer:
-      'Arrancá con el **total de capital parado** y # de SKUs. Si hay desglose por almacén, mostralo. Acción: liquidar/dejar de surtir lo de mayor capital.',
+      'Arranca con el **total de capital parado** y # de SKUs. Si hay desglose por almacén, muéstralo. Acción: liquidar/dejar de surtir lo de mayor capital.',
   },
   {
     profile: 'admin',
@@ -83,10 +83,10 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
   },
   {
     profile: 'admin',
-    question: 'Comparame las ventas de este mes contra el mes pasado',
+    question: 'Compárame las ventas de este mes contra el mes pasado',
     tools: ['thot_flexible_aggregate'],
     answer:
-      'Usá una TABLA de comparación (período A vs B, variación %). Arrancá con el veredicto (subió/bajó X%). % desde la tool, no calculados.',
+      'Usa una TABLA de comparación (período A vs B, variación %). Arranca con el veredicto (subió/bajó X%). % desde la tool, no calculados.',
     note: 'Comparaciones → tabla; el contraste se lee mejor así.',
   },
   {
@@ -94,21 +94,21 @@ export const THOT_SEED_EXAMPLES: ThotExample[] = [
     question: 'Dame la clasificación ABC / qué productos son clase A',
     tools: ['thot_product_ranking', 'thot_flexible_aggregate'],
     answer:
-      'Explicá A/B/C por participación de revenue y listá los A. Cerrá con foco (cuidar disponibilidad de los A).',
+      'Explica A/B/C por participación de revenue y lista los A. Cierra con foco (cuidar disponibilidad de los A).',
   },
   {
     profile: 'vendor',
     question: '¿A quién no le he vendido / quién está inactivo en mi ruta?',
     tools: ['thot_inactive_customers'],
     answer:
-      'Listá los clientes de TU cartera sin compra reciente, los más críticos primero. Corto, para visitar hoy.',
+      'Lista los clientes de TU cartera sin compra reciente, los más críticos primero. Corto, para visitar hoy.',
   },
   {
     profile: 'vendor',
     question: '¿Hay stock de tal producto para surtir?',
     tools: ['thot_product_stock'],
     answer:
-      'Resolvé el producto y dá el disponible en PH (sí/no + cantidad). No prometas lo que no hay en PH.',
+      'Resuelve el producto y dá el disponible en PH (sí/no + cantidad). No prometas lo que no hay en PH.',
   },
 ];
 
@@ -150,5 +150,5 @@ export function formatExamples(examples: ThotExample[]): string {
     if (e.note) lines.push(`- Nota: ${e.note}`);
     return lines.join('\n');
   });
-  return `EJEMPLOS DE REFERENCIA (cómo resolver preguntas parecidas — adaptá a los datos reales que devuelvan las tools, no copies cifras):\n${blocks.join('\n\n')}`;
+  return `EJEMPLOS DE REFERENCIA (cómo resolver preguntas parecidas — adapta a los datos reales que devuelvan las tools, no copies cifras):\n${blocks.join('\n\n')}`;
 }

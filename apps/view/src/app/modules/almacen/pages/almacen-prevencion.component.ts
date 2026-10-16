@@ -68,7 +68,7 @@ import { MonitoreoService } from '../monitoreo.service';
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-shield" aria-hidden="true"></i></div><h3>Sin expedientes</h3><p>Importá las diferencias de un folio de conteo reconciliado o abrí uno manual.</p></div></td></tr>
+              <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-shield" aria-hidden="true"></i></div><h3>Sin expedientes</h3><p>Importa las diferencias de un folio de conteo reconciliado o abre uno manual.</p></div></td></tr>
             </ng-template>
           </p-table>
         </section>
@@ -126,7 +126,7 @@ import { MonitoreoService } from '../monitoreo.service';
               </p-table>
             </div>
           } @else {
-            <div class="surf-card pv-placeholder"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-arrow-left" aria-hidden="true"></i></div><h3>Elegí un expediente</h3><p>Seleccioná una diferencia para investigar su línea de tiempo y clasificar la causa.</p></div></div>
+            <div class="surf-card pv-placeholder"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-arrow-left" aria-hidden="true"></i></div><h3>Elige un expediente</h3><p>Selecciona una diferencia para investigar su línea de tiempo y clasificar la causa.</p></div></div>
           }
         </section>
       </div>
@@ -135,7 +135,7 @@ import { MonitoreoService } from '../monitoreo.service';
       <p-dialog [visible]="manualOpen()" (visibleChange)="manualOpen.set($event)" [modal]="true" [style]="{ width: '520px' }" header="Abrir expediente manual" [dismissableMask]="true">
         <div class="pv-form">
           <label class="pv-field"><span>Almacén *</span>
-            <p-select [options]="warehouseOptions()" [(ngModel)]="mWarehouse" optionLabel="label" optionValue="value" placeholder="Elegí" styleClass="pv-cause"></p-select>
+            <p-select [options]="warehouseOptions()" [(ngModel)]="mWarehouse" optionLabel="label" optionValue="value" placeholder="Elige" styleClass="pv-cause"></p-select>
           </label>
           <label class="pv-field"><span>Producto *</span><app-product-search (productSelected)="mProduct = $event"></app-product-search></label>
           <div class="pv-row">

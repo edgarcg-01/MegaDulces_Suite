@@ -135,7 +135,7 @@ export class WarehouseAislesService {
         .whereNotIn('c.status', ['reconciled', 'cancelled'])
         .first();
       if (inUse)
-        throw new ConflictException('No se puede borrar: un folio de conteo abierto usa este pasillo. Cerralo o cancelalo primero.');
+        throw new ConflictException('No se puede borrar: un folio de conteo abierto usa este pasillo. Ciérralo o cancélalo primero.');
       const n = await trx('commercial.warehouse_aisles').where({ id }).del();
       if (!n) throw new NotFoundException('Pasillo no encontrado');
       return { ok: true };
@@ -150,7 +150,7 @@ export class WarehouseAislesService {
     const hasFilter = (Array.isArray(f.product_ids) && f.product_ids.length) || f.brand_id || f.abc_class
       || (f.sku_from && f.sku_to) || f.only_unassigned;
     if (!hasFilter)
-      throw new BadRequestException('Especificá un filtro (product_ids / brand_id / abc_class / rango SKU / only_unassigned).');
+      throw new BadRequestException('Especifica un filtro (product_ids / brand_id / abc_class / rango SKU / only_unassigned).');
     return this.tk.run(async (trx) => {
       if (dto.aisle_id) {
         const aisle = await trx('commercial.warehouse_aisles')

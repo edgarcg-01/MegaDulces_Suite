@@ -107,6 +107,45 @@ export function cambiosEstandar(muestras: MuestraEstandar[], tol = TOLERANCIA_HI
   return cambios.sort((x, y) => x.fecha.localeCompare(y.fecha) || x.sucursal.localeCompare(y.sucursal));
 }
 
+/**
+ * `[CAT-COSTO.11]` Los cambios del **costo promedio** por sucursal. La muestra es el promedio que el
+ * kardex le puso a las salidas de cada día (`mv_kepler_costos_cambios`, tipo `promedio`), que se mueve
+ * un poco con cada entrada. Se reporta un cambio cuando se aparta más de la tolerancia del **último
+ * valor reportado** (no del día anterior): comparar día contra día dejaría pasar una deriva lenta
+ * que, sumada, sí es un cambio. Sin `limpiarPicos`: aquí no hay renglones contradichos, es el kardex.
+ */
+export function cambiosPromedio(muestras: MuestraEstandar[], tol = TOLERANCIA_HISTORIAL): CambioEstandar[] {
+  const porSucursal = new Map<string, MuestraEstandar[]>();
+  for (const m of muestras) {
+    if (!(m.costo > 0)) continue;
+    const lista = porSucursal.get(m.sucursal) ?? [];
+    lista.push(m);
+    porSucursal.set(m.sucursal, lista);
+  }
+  const cambios: CambioEstandar[] = [];
+  for (const [sucursal, lista] of porSucursal) {
+    const serie = [...lista].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    let ancla = serie[0]?.costo;
+    for (let i = 1; i < serie.length; i++) {
+      const b = serie[i].costo;
+      if (distinto(ancla, b, tol)) {
+        cambios.push({ sucursal, fecha: serie[i].fecha, antes: r2(ancla), despues: r2(b), cambio_pct: r2((b / ancla - 1) * 100) });
+        ancla = b;
+      }
+    }
+  }
+  return cambios.sort((x, y) => x.fecha.localeCompare(y.fecha) || x.sucursal.localeCompare(y.sucursal));
+}
+
+/** El último valor reportado por `cambiosPromedio` en o antes de `fecha` (o la primera muestra). */
+export function promedioEn(muestras: MuestraEstandar[], sucursal: string, fecha: string, tol = TOLERANCIA_HISTORIAL): number | null {
+  const serie = muestras.filter((m) => m.sucursal === sucursal && m.costo > 0 && m.fecha <= fecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  if (!serie.length) return null;
+  let ancla = serie[0].costo;
+  for (const m of serie) if (distinto(ancla, m.costo, tol)) ancla = m.costo;
+  return r2(ancla);
+}
+
 /** El estándar de la plaza en una fecha: el de la última venta en o antes de ese día. */
 export function estandarEn(muestras: MuestraEstandar[], sucursal: string, fecha: string, tol = TOLERANCIA_HISTORIAL): number | null {
   const serie = limpiarPicos(

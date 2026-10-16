@@ -172,18 +172,65 @@ concretos, en orden de valor:
 4. **Trazabilidad del efectivo del CEDIS/tesorería** que hoy no vive en Kepler ni en Wincaja: es un
    circuito propio de la caja fuerte.
 
-### ✅ Anclaje de negocio (respondido por el usuario 2026-09-25)
+### ⛔ Anclaje de negocio — SUPERADO el 2026-10-15. Son DOS cajas, no una
 
-**CAOS ES la Caja General de OFICINAS (sucursal `00`).** El efectivo físico que mueve CAOS es el
-mismo que ya representan (a) la contabilidad de Kepler (`kdm1`, `c45 = 0011` CAJA GENERAL / EFECTIVO)
-y (b) el libro nuevo `finance.cash_ledger`. Son **tres vistas del mismo dinero**; CAOS es la única
-con el **conteo físico por denominación de la máquina**.
+> **Lo que decía este bloque (respuesta del usuario, 2026-09-25):** *«CAOS **ES** la Caja General de
+> OFICINAS (sucursal `00`)… son tres vistas del mismo dinero»*, y de ahí *«como CAOS* es *la Caja
+> General, sus movimientos NO se agregan como asientos nuevos al libro — eso sería doble conteo»*.
+> Se deja escrito porque la frase se citó para decidir, y borrarla deja el razonamiento sin origen.
 
-⛔ **Consecuencia de diseño:** como CAOS *es* la Caja General, sus movimientos **NO se agregan como
-asientos nuevos** al libro — eso sería doble conteo. El valor de CAOS es ser el **árbitro**: su
-conteo de máquina se **cruza** contra la contabilidad (Kepler `0011` / `cash_ledger`) y las
-diferencias se levantan como hallazgo. Esto redefine las capas: CS.3/CS.4/CS.5 son, en el fondo, un
-**único matcher CAOS (máquina) ↔ Kepler caja 0011 (contabilidad)**.
+**El modelo vigente son dos cajas** (`VERDAD_ABSOLUTA §28`, `FASE_CG_PLAN_POR_CAPAS §1.1`):
+
+- **el cajón** — el efectivo de oficina, que **se cuenta a mano** por denominación; y
+- **la bóveda CAOS** — la máquina, que **publica flujos y nunca el saldo**.
+
+⭐ **El propio documento ya lo había medido tres párrafos más abajo y la cabecera no se actualizó:**
+por CAOS pasa **~40%** del efectivo de la Caja General, sin llave común con la contabilidad. Un
+subconjunto del 40% no *es* el conjunto. *Una conclusión medida que no sube al encabezado deja la
+afirmación vieja gobernando a quien sólo lee el encabezado.*
+
+✅ **Lo que sobrevive, y por qué:** los movimientos de CAOS **no se agregan como asientos nuevos** al
+libro — pero no porque CAOS sea la Caja General, sino porque son las **dos piernas** que mueven
+efectivo **entre** las dos cajas.
+
+### ⛔⛔ Una dispensación NO es un ingreso de Caja General. Lo que llega es la DIFERENCIA
+
+> ⛔ **Corrección del 2026-10-15, de Edgar, repetida varias veces y escrita acá para que no haya que
+> repetirla más:** *«al corte de Caja General no se le considera lo dispensado en CAOS, al menos en
+> ingreso; si [es] egreso y existe un sobrante, se le carga a Caja General»*. Y en `[CG.96]`, con las
+> mismas palabras: *«si sobra se regresa a CAOS, si no se carga al arqueo de caja general»*.
+>
+> ⚠️ **Acá mismo decía lo contrario** (*«dispensado SUMA al cajón»*, con la fórmula suelta), que es la
+> lectura que convierte la dispensación en un ingreso. **El modelo correcto es el de abajo.**
+
+**La máquina sólo mueve BILLETES. El cajón pone y recibe la MORRALLA.** Todos los montos de CAOS son
+múltiplos de 20; monedas no maneja, en ninguna dirección. De ahí sale todo lo demás:
+
+| Lo que pasa | Pierna CAOS | Pierna libro | **Lo que llega al cajón** |
+|---|---|---|---|
+| Gasto financiado con una dispensación | dispensó $32,220 | nómina $32,237 | **−$17** (la morralla la puso el cajón) |
+| Gasto con dispensación de más, no devuelta | dispensó $14,000 | gasto $13,803.05 | **+$196.95** de **sobrante**, que *se le carga a Caja General* |
+| Cobro de ruta depositado en la máquina | tragó $15,510 | ingreso $15,542 | **+$32** (sólo las monedas) |
+| Gasto pagado con dispensación, **devuelto el sobrante** | dispensó y recibió | el gasto | **$0** |
+
+⭐ **La dispensación y su egreso se cancelan.** Por eso el cajón no «recibe» los $32,220: recibe
+−$17. La fórmula del motor (`cash-cut.engine.ts`, `[CG.95]`/`[CG.96]`) es
+`fondo + ingresos − gastos − depósitos + dispensado − depositado`, pero **el término bruto no es el
+resultado**: su par del libro lo anula, y lo único que sobrevive es la diferencia. Leer `+ dispensado`
+suelto —como hacía este archivo, y como todavía hacen el plan por capas §1.3 y `VERDAD_ABSOLUTA §28.6`—
+es leer medio renglón.
+
+⛔⛔ **Y esa cancelación tiene una condición que hoy NO se cumple en el corte: las dos piernas tienen
+que caer en la MISMA jornada.** El corte filtra el libro por `cash_ledger.fecha`, que es **la fecha
+del documento de Kepler** (`[CG.82]`: el ERP captura con una mediana de **3 días** de rezago), y a
+CAOS por `accounting_date`, que es el **día físico**. Cuando difieren, la dispensación cae en un corte
+y su egreso en otro: el primero pide contar efectivo que ya se gastó (**faltante inventado**) y el
+segundo sobra por el mismo monto. Detalle y medición en
+[`FASE_CG_CAJA_GENERAL`](IMPLEMENTACION/FASES/FASE_CG_CAJA_GENERAL.md), «Review del plan por capas».
+
+⛔ **Lo que NO sobrevive:** «CAOS es el árbitro de la contabilidad». La medición del 2026-09-25 (abajo)
+refutó el matcher 1:1 **y** el árbitro por totales. El árbitro del arqueo es `VERDAD_ABSOLUTA §28`,
+con el grano **hora por hora**, no el día (§28.10, trampa nº 1).
 
 ### ⭐ MEDICIÓN 2026-09-25 (en `md`, contra prod) — el árbitro naïve queda REFUTADO
 

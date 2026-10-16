@@ -387,7 +387,7 @@ export function construirResumen(datos: DatosRegistro): string {
 // ── Comandos ─────────────────────────────────────────────────────────────────────────────
 
 const RELLENO_COMANDO = new Set([
-  'hola', 'oye', 'ver', 'veo', 'mostrar', 'muestrame', 'muestreme', 'dime', 'digame',
+  'hola', 'oye', 'ver', 'veo', 'mostrar', 'muéstrame', 'muestreme', 'dime', 'digame',
   'quiero', 'saber', 'busco', 'que', 'cuales', 'cual', 'donde', 'hay', 'tienen', 'tiene',
   'son', 'estan', 'esta', 'el', 'la', 'las', 'los', 'sus', 'de', 'del', 'mas', 'disponibles',
   'disponible', 'abiertas', 'abiertos', 'actuales', 'por', 'favor', 'porfa', 'porfavor',
@@ -686,7 +686,8 @@ export function avanzarRegistro(estado: string, datos: DatosRegistro, textoCrudo
     return turno(estado, datos, RECUERDA_CV);
   }
 
-  if (estado === 'postulada') return turno(estado, datos, EN_REVISION);
+  // `[RH.3.3.4]` Los estados de documentos son de alguien ya postulado: nunca se retoma el registro desde ahí.
+  if (estado === 'postulada' || estado === 'pidiendo_documentos' || estado === 'documentos_completos') return turno(estado, datos, EN_REVISION);
   if (estado === 'rechazada') return turno(estado, datos, YA_RESPONDIDA);
 
   // Un estado que no se conoce (no debería pasar): se retoma el registro donde falte.

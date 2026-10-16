@@ -852,8 +852,22 @@ export interface VecinalConciliacionFila {
   caja: number;
   date: string;
   rutas: string[];
+  /** ⛔ Lo vecinal de TODA la caja, sumando las rutas que la comparten. NO es de una ruta. */
   vecinal: number;
   tickets: number;
+  /**
+   * `[VEC.12.1]` La venta de **la ruta por la que se preguntó**, en esta caja y este día.
+   *
+   * `null` cuando la consulta no nombró una ruta (el panel global no la pide). Nunca 0 por
+   * ausencia: un cero acá significaría que esa ruta no vendió, y eso es otra cosa (ADR-056).
+   *
+   * ⛔ **Existe porque sin ella la pantalla mentía.** El detalle de una ruta mostraba `vecinal`
+   * —el total de la caja— bajo una columna que el lector leía como suya. Medido el 2026-10-14
+   * sobre abril→octubre: de 735 día-caja-ruta, **310 (42%) comparten caja con otra ruta** y ahí
+   * el total infla **5.05× en promedio, 85.6× en el peor caso**; con tres rutas, 37.6× y 170×.
+   * En PH el 14-oct la pantalla decía $18,694 donde `1V001` había vendido **$6,662.41**.
+   */
+  vecinal_ruta: number | null;
   /** NULL cuando no hay arqueo. Nunca 0: la ausencia no se dibuja como cero (ADR-056). */
   arqueo_venta: number | null;
   otros_en_la_caja: number | null;
@@ -870,6 +884,76 @@ export interface VecinalNoSuma {
   refactura_docs: number;
   telemarketing: number;
   telemarketing_docs: number;
+}
+
+/**
+ * `[VEC.11]` — **El puente Kepler ↔ Suite: por qué las dos superficies dicen otra cifra.**
+ *
+ * Hasta acá la pantalla lo decía en prosa —*"el sell-out sí los cuenta, y por eso publica una
+ * cifra más alta"*— sin decir **cuál**. Una conciliación nombra los dos números y enseña la
+ * aritmética que los une; mientras falte el segundo, el lector tiene que creer en la palabra.
+ *
+ * ⛔ **Todos los sumandos salen de UNA fuente (`analytics.v_kepler_sales_lines`) y el destino se
+ * MIDE en `analytics.mv_kepler_sales_daily`.** La primera versión tomaba la re-factura de
+ * `v_vecinal_no_suma` —que agrega la **cabecera** `c16`— y el puente no cerraba por $2,762.84 en
+ * septiembre. No era un error de la vista: es que **un identidad no se arma mezclando granos**.
+ * `no_suma` sigue sirviendo para contar documentos; para que la resta dé cero manda la línea,
+ * porque de líneas está hecho el sell-out (`l.c13`).
+ *
+ * ⚠️ `sellout` se LEE de la matvista, no se deriva aplicándole sus filtros a la canónica: una
+ * derivación que comparte el error con su origen se confirma sola (la trampa que el runbook
+ * `VEC8` ya documenta sobre PH-agosto).
+ *
+ * ⭐ `por_refrescar` existe porque la matvista es **nocturna**: la venta de HOY está en la
+ * canónica y todavía no en el sell-out. Sin separarlo, el día en curso se leería como descuadre.
+ * Medido el 2026-10-14: $91,111.90 — todo el "hueco" del rango de 45 días era eso.
+ *
+ * Verificado contra prod (2026-10-14): residuo **$0.05** en agosto, **$0.37** en septiembre,
+ * **$0.48** en los 45 días; julio **$327.84** sobre $1.79 M (0.018 %), que se declara y NO se
+ * reparte entre los sumandos.
+ */
+export interface VecinalPuente {
+  /** Lo que publica `/comercial/ventas-por-ruta`: `U-D-10` al grano de documento (`c16`). */
+  pagina: number;
+  pagina_docs: number;
+  /** Δ cabecera ↔ línea del mismo `U-D-10`: el descuento se prorratea por renglón. */
+  prorrateo: number;
+  /** `U-D-8` con código de ruta vecinal. **Venta real**, de otro canal; no pasa por esa caja. */
+  telemarketing: number;
+  telemarketing_docs: number;
+  /** `U-D-12` re-factura: re-emite el mismo ticket. **No es venta** — el arqueo lo ignora. */
+  espejo: number;
+  espejo_docs: number;
+  /** El universo vecinal completo, al grano de línea. = `pagina + prorrateo + tele + espejo`. */
+  kepler_total: number;
+  /** Lo que la matvista nocturna todavía no tiene. Se resta aparte, no es descuadre. */
+  por_refrescar: number;
+  /** MEDIDO en `mv_kepler_sales_daily` (canal `preventa` = el universo vecinal). */
+  sellout: number;
+  /** Hasta qué día llega la matvista dentro del rango. `null` = no cubre ni un día. */
+  sellout_hasta: string | null;
+  /** Lo que no cierra. Se declara con su nombre; nunca se absorbe en otro renglón (ADR-056). */
+  residuo: number;
+  /**
+   * `[VEC.14]` — **El otro eje de la conciliación: el IMPUESTO.**
+   *
+   * Pedido de Edgar: *"ellos no toman IEPS e IVA"*. Todo lo de arriba está en **bruto** — el
+   * precio del renglón de Kepler ya trae los impuestos (Σ`kdm2.c13` = `c16` en 99.84%). La cifra
+   * que se cita del otro lado es la neta, y mientras una superficie publique bruto y la otra
+   * neto, la diferencia se lee como descuadre.
+   *
+   * ⭐ Las dos tasas están **arbitradas por el dinero**, no tomadas del documento: medido contra
+   * prod en sep-2026, `c14/(c16−c14)` se pega a **0.1600–0.1602 en 646 documentos** (IVA 16%) y
+   * `c15/(c16−c14−c15)` a **exactamente 0.080 en 417** (IEPS 8%). Los valores menores son tickets
+   * MIXTOS (renglones gravados junto a tasa 0), y no hay **ningún** bucket por encima de 0.1602.
+   *
+   * ⛔ **El IEPS no se puede saltear dividiendo entre 1.16**: netear sólo por IVA deja
+   * **$69,251.27 adentro** en sep-2026, y **63% de los documentos lo llevan**.
+   */
+  iva: number;
+  ieps: number;
+  /** `pagina − iva − ieps`: la venta vecinal sin impuestos, al mismo grano que `pagina`. */
+  neto: number;
 }
 
 export interface VecinalConciliacion {
@@ -893,7 +977,70 @@ export interface VecinalConciliacion {
     arqueo_hasta: string | null;
   };
   no_suma: VecinalNoSuma;
+  puente: VecinalPuente;
   filas: VecinalConciliacionFila[];
+}
+
+// ── `[VEC.21]` La venta a CRÉDITO de la ruta, y el dinero que la saldó ──
+/**
+ * Un abono aplicado a la factura: el cobro, con **dónde entró el dinero**.
+ *
+ * ⚠️ `medio` y `cuenta` llegan `null` cuando el cobro no está en `analytics.erp_collections`.
+ * Eso NO es «entró en efectivo»: es que no se pudo resolver, y se declara (ADR-056).
+ */
+export interface RouteCreditAbono {
+  folio: string;
+  monto: number;
+  /** Doctype del abono en Kepler: `5` cobro · `7` cobro CFDI · `21`/`35` nota de crédito… */
+  tipo: string;
+  medio: string | null;
+  cuenta: string | null;
+  fecha: string | null;
+}
+
+/** CUATRO estados. `sin_vencimiento` no es `vigente`: es que no hay con qué juzgarlo. */
+export type RouteCreditCobranza = 'cobrada' | 'vigente' | 'vencida' | 'sin_vencimiento';
+
+export interface RouteCreditSaleRow {
+  warehouse_code: string;
+  warehouse_name: string;
+  route_no: string;
+  route_name: string | null;
+  folio: string;
+  fecha: string;
+  vence: string | null;
+  cliente_code: string | null;
+  importe: number;
+  /** Sin IVA ni IEPS — el negocio cuenta en neto (`[VEC.14]`). */
+  neto: number;
+  cobrado: number;
+  saldo: number;
+  cobranza: RouteCreditCobranza;
+  /** `null` sin vencimiento. Nunca 0: un 0 diría «vence hoy». */
+  dias_vencida: number | null;
+  abonos: RouteCreditAbono[];
+}
+
+export interface RouteCreditSales {
+  period: { from: string; to: string };
+  summary: {
+    facturas: number;
+    facturado: number;
+    neto: number;
+    cobrado: number;
+    saldo: number;
+    /** Lo vencido es el número que mueve a alguien: va aparte del saldo total. */
+    vencido: number;
+    facturas_vencidas: number;
+    por_estado: Record<string, number>;
+    /**
+     * ⭐ Cobertura de la liga con tesorería: cuántos abonos dicen en qué cuenta entró el dinero.
+     * Se publica porque sin esto «0 abonos con cuenta» y «no hay abonos» se leen igual.
+     */
+    abonos: number;
+    abonos_con_cuenta: number;
+  };
+  filas: RouteCreditSaleRow[];
 }
 
 // ── Fase T — Traspasos / movimientos que NO son venta ──
@@ -8364,7 +8511,7 @@ export class CommercialAnalyticsService {
    * sell-out sí los suma y por eso publica la vecinal de septiembre en $3,150,428.68 contra
    * $1,943,014.72 — **+62 %**; `[VEC.8]` es el runbook que lo corrige y necesita ventana.
    */
-  async vecinalConciliacion(fromArg?: string, toArg?: string): Promise<VecinalConciliacion> {
+  async vecinalConciliacion(fromArg?: string, toArg?: string, routeArg?: string): Promise<VecinalConciliacion> {
     const dRx = /^\d{4}-\d{2}-\d{2}$/;
     // Misma forma que `routeClosureReconciliation`, a propósito: dos expresiones distintas para
     // "hoy en México" en el mismo archivo divergen el día que alguien toque una.
@@ -8386,21 +8533,69 @@ export class CommercialAnalyticsService {
       rutas: string | null; vecinal: string | number; tickets: string | number;
       arqueo_venta: string | null; otros_en_la_caja: string | null; vecinal_pct: string | null;
       efectivo_esperado: string | null; efectivo_contado: string | null; efectivo_diff: string | null;
-      veredicto: VecinalVeredicto;
+      veredicto: VecinalVeredicto; vecinal_ruta: string | null;
     };
 
+    /**
+     * `[VEC.12.1]` La ruta por la que se pregunta, normalizada. Sin ella la columna no se calcula
+     * y llega `null` — que es lo correcto para el panel global, donde no hay UNA ruta.
+     *
+     * ⚠️ Se valida la FORMA (`1V001`), no contra el catálogo: un código inexistente devuelve cero
+     * filas, que se lee bien; lo que no se puede permitir es que entre texto libre a la consulta.
+     */
+    const route = /^[0-9]V[0-9]{1,4}$/i.test(String(routeArg ?? '').trim())
+      ? String(routeArg).trim().toUpperCase()
+      : null;
+
     return this.tk.run(async (trx) => {
+      /**
+       * `[VEC.12.3]` **UNA pasada agregada, no un `LATERAL` por fila.**
+       *
+       * ⛔ La primera versión correlacionaba `v_kepler_vecinal_sales_docs` por renglón. Esa vista
+       * paga el `LEFT JOIN kduv` que `[VEC.13]` documenta (nested loop sobre un catálogo sin
+       * índice utilizable), así que **se pagaba entero una vez por fila**. Medido contra prod:
+       *
+       *     año completo (574 filas) ....  37,562 / 35,825 / 38,523 ms   <- lo que iba a producción
+       *     el mismo año, una pasada ....     208 /    206 /    203 ms   (180×)
+       *     sólo el mes del drill .......      19 /     18 /     18 ms
+       *
+       * ⚠️ El CTE se **arma sólo cuando hay ruta**: con `route = null` la condición igual
+       * devolvería cero filas, pero recorriendo los documentos del período para nada. El panel
+       * global no pregunta por una ruta y no tiene por qué pagarlo.
+       *
+       * `route` entró por un regex de forma (arriba), así que interpolarlo no abre inyección;
+       * aun así viaja como binding.
+       */
+      const conRuta = route !== null;
+      const cteRuta = conRuta
+        ? `WITH r AS (
+             -- Grano (sucursal, CAJA, día): una ruta puede timbrar en más de una caja el mismo
+             -- día (medido: 38 de 696), y repartir su total diario entre cajas sería inventarlo.
+             SELECT warehouse_code AS wh, caja::integer AS caja, business_date AS d,
+                    sum(total) AS ruta
+               FROM analytics.v_kepler_vecinal_sales_docs
+              WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date
+                AND upper(route_no) = ?::text
+              GROUP BY 1,2,3)`
+        : '';
       const { rows } = await trx.raw(
-        `SELECT c.warehouse_code, COALESCE(w.name, c.warehouse_code) AS warehouse_name,
+        `${cteRuta}
+         SELECT c.warehouse_code, COALESCE(w.name, c.warehouse_code) AS warehouse_name,
                 c.caja, to_char(c.business_date,'YYYY-MM-DD') AS date,
                 c.rutas, c.vecinal, c.tickets, c.arqueo_venta, c.otros_en_la_caja, c.vecinal_pct,
-                c.efectivo_esperado, c.efectivo_contado, c.efectivo_diff, c.veredicto
+                c.efectivo_esperado, c.efectivo_contado, c.efectivo_diff, c.veredicto,
+                ${conRuta ? 'r.ruta' : 'NULL::numeric'} AS vecinal_ruta
            FROM analytics.v_vecinal_conciliacion c
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = c.tenant_id AND w.code = c.warehouse_code AND w.deleted_at IS NULL
+           ${conRuta
+            ? `LEFT JOIN r ON r.wh = c.warehouse_code AND r.caja = c.caja AND r.d = c.business_date`
+            : ''}
           WHERE c.tenant_id = ?::uuid AND c.business_date >= ?::date AND c.business_date <= ?::date
           ORDER BY c.business_date DESC, c.warehouse_code, c.caja`,
-        [tenantId, from, to]);
+        conRuta
+          ? [tenantId, from, to, route, tenantId, from, to]
+          : [tenantId, from, to]);
 
       // Lo que NO suma va en su propio grano (sucursal, día): la re-factura se emite en OTRA caja
       // que el ticket que copia, así que al grano de caja no se puede juntar con lo que refleja.
@@ -8411,6 +8606,44 @@ export class CommercialAnalyticsService {
           WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date`,
         [tenantId, from, to]);
 
+      /**
+       * `[VEC.11]` El puente Kepler ↔ Suite. Ver `VecinalPuente` para por qué cada sumando sale
+       * de la MISMA vista de líneas y por qué el destino se lee de la matvista en vez de
+       * derivarse. Medido contra prod: 146-209 ms en los cuatro rangos probados.
+       *
+       * ⚠️ `por_refrescar` se calcula con el `hasta` de la matvista, así que depende de `so`:
+       * va en el mismo CTE y no en una segunda ida a la base, que podría ver otro refresco.
+       */
+      const { rows: [pu] } = await trx.raw(
+        `WITH so AS (
+            SELECT COALESCE(sum(monto),0) AS sellout, max(business_date) AS hasta
+              FROM analytics.mv_kepler_sales_daily
+             WHERE tenant_id = ?::uuid AND channel = 'preventa'
+               AND business_date >= ?::date AND business_date <= ?::date),
+          doc AS (
+            -- [VEC.14] impuesto (IVA) y ieps salen de la vista canónica, NO se re-derivan
+            -- acá: el que netea por su cuenta se queda corto por el IEPS sin enterarse.
+            SELECT COALESCE(sum(total),0) AS pagina, count(*)::int AS docs,
+                   COALESCE(sum(impuesto),0) AS iva, COALESCE(sum(ieps),0) AS ieps
+              FROM analytics.v_kepler_vecinal_sales_docs
+             WHERE tenant_id = ?::uuid AND business_date >= ?::date AND business_date <= ?::date),
+          lin AS (
+            SELECT COALESCE(sum(importe) FILTER (WHERE doc_tipo = 10),0) AS ud10,
+                   COALESCE(sum(importe) FILTER (WHERE doc_tipo = 8),0) AS tele,
+                   count(DISTINCT folio) FILTER (WHERE doc_tipo = 8)::int AS tele_docs,
+                   COALESCE(sum(importe) FILTER (WHERE es_refactura),0) AS espejo,
+                   count(DISTINCT folio) FILTER (WHERE es_refactura)::int AS espejo_docs,
+                   COALESCE(sum(importe) FILTER (WHERE business_date > (SELECT hasta FROM so)),0) AS por_refrescar
+              FROM analytics.v_kepler_sales_lines
+             WHERE tenant_id = ?::uuid AND es_vecinal
+               AND business_date >= ?::date AND business_date <= ?::date)
+         SELECT doc.pagina, doc.docs AS pagina_docs, doc.iva, doc.ieps,
+                lin.ud10, lin.tele, lin.tele_docs,
+                lin.espejo, lin.espejo_docs, lin.por_refrescar, so.sellout,
+                to_char(so.hasta,'YYYY-MM-DD') AS sellout_hasta
+           FROM doc, lin, so`,
+        [tenantId, from, to, tenantId, from, to, tenantId, from, to]);
+
       const filas: VecinalConciliacionFila[] = (rows as FilaCruda[]).map((r) => ({
         warehouse_code: r.warehouse_code,
         warehouse_name: r.warehouse_name,
@@ -8419,6 +8652,8 @@ export class CommercialAnalyticsService {
         rutas: String(r.rutas || '').split(',').filter(Boolean),
         vecinal: Number(r.vecinal) || 0,
         tickets: Number(r.tickets) || 0,
+        // ⚠️ `num()`, no `Number()`: sin ruta pedida esto es `null` y un 0 diría «no vendió».
+        vecinal_ruta: num(r.vecinal_ruta),
         arqueo_venta: num(r.arqueo_venta),
         otros_en_la_caja: num(r.otros_en_la_caja),
         vecinal_pct: num(r.vecinal_pct),
@@ -8443,6 +8678,35 @@ export class CommercialAnalyticsService {
       }
       const r2 = (v: number) => Math.round(v * 100) / 100;
 
+      // `[VEC.11]` El puente se arma acá y NO en SQL: la resta final tiene que verse en el
+      // mismo lugar que sus sumandos, porque es la afirmación que el panel publica.
+      const pagina = r2(Number(pu?.pagina) || 0);
+      const ud10 = r2(Number(pu?.ud10) || 0);
+      const tele = r2(Number(pu?.tele) || 0);
+      const espejo = r2(Number(pu?.espejo) || 0);
+      const por_refrescar = r2(Number(pu?.por_refrescar) || 0);
+      const sellout = r2(Number(pu?.sellout) || 0);
+      const kepler_total = r2(ud10 + tele + espejo);
+      const puente: VecinalPuente = {
+        pagina,
+        pagina_docs: Number(pu?.pagina_docs) || 0,
+        prorrateo: r2(ud10 - pagina),
+        telemarketing: tele,
+        telemarketing_docs: Number(pu?.tele_docs) || 0,
+        espejo,
+        espejo_docs: Number(pu?.espejo_docs) || 0,
+        kepler_total,
+        por_refrescar,
+        sellout,
+        sellout_hasta: (pu?.sellout_hasta as string | null) ?? null,
+        residuo: r2(kepler_total - por_refrescar - sellout),
+        // `[VEC.14]` El eje del impuesto. `neto` se resta de `pagina` (bruto al grano de
+        // documento), que es el mismo grano en el que viajan `iva` e `ieps`.
+        iva: r2(Number(pu?.iva) || 0),
+        ieps: r2(Number(pu?.ieps) || 0),
+        neto: r2(pagina - (Number(pu?.iva) || 0) - (Number(pu?.ieps) || 0)),
+      };
+
       return {
         period: { from, to },
         summary: {
@@ -8461,6 +8725,96 @@ export class CommercialAnalyticsService {
           refactura_docs: Number(ns?.refactura_docs) || 0,
           telemarketing: r2(Number(ns?.telemarketing) || 0),
           telemarketing_docs: Number(ns?.telemarketing_docs) || 0,
+        },
+        puente,
+        filas,
+      };
+    });
+  }
+
+  /**
+   * `[VEC.21]` — **La venta a crédito de la ruta, con su cobro y la cuenta donde entró el dinero.**
+   *
+   * Lee `analytics.v_route_credit_sales`, que resuelve la cadena
+   * `kdm1 U-D-8 → kdue UD0801 → kdm5 → erp_collections` una sola vez. No se re-deriva acá.
+   *
+   * ⚠️ El rango por omisión son **90 días**, no 45 como la conciliación de efectivo: una factura
+   * a crédito vive mientras no se cobre, y recortarla a mes y medio escondería justo las viejas,
+   * que son las que importan.
+   */
+  async routeCreditSales(fromArg?: string, toArg?: string, routeArg?: string): Promise<RouteCreditSales> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const to = toArg && dRx.test(toArg) ? toArg : today;
+    const defFrom = new Date(new Date(`${to}T00:00:00Z`).getTime() - 90 * 86400000).toISOString().slice(0, 10);
+    const from = fromArg && dRx.test(fromArg) ? fromArg : defFrom;
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    // Misma validación de FORMA que `vecinalConciliacion`: un código inexistente devuelve cero
+    // filas, que se lee bien; lo que no puede entrar a la consulta es texto libre.
+    const route = /^[0-9]V[0-9]{1,4}$/i.test(String(routeArg ?? '').trim())
+      ? String(routeArg).trim().toUpperCase()
+      : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    type Cruda = {
+      warehouse_code: string; warehouse_name: string; route_no: string; route_name: string | null;
+      folio: string; fecha: string; vence: string | null; cliente_code: string | null;
+      importe: string | number; neto: string | number; cobrado: string | number; saldo: string | number;
+      cobranza: RouteCreditCobranza; dias_vencida: number | null; cobros: RouteCreditAbono[] | null;
+    };
+
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT v.warehouse_code, COALESCE(w.name, v.warehouse_code) AS warehouse_name,
+                v.route_no, v.route_name, v.folio,
+                to_char(v.fecha,'YYYY-MM-DD') AS fecha,
+                to_char(v.vence,'YYYY-MM-DD') AS vence,
+                v.cliente_code, v.importe, v.neto, v.cobrado, v.saldo,
+                v.cobranza, v.dias_vencida, v.cobros
+           FROM analytics.v_route_credit_sales v
+           LEFT JOIN commercial.warehouses w
+             ON w.tenant_id = v.tenant_id AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+          WHERE v.tenant_id = ?::uuid AND v.fecha >= ?::date AND v.fecha <= ?::date
+            ${route ? 'AND upper(v.route_no) = ?::text' : ''}
+          ORDER BY v.fecha DESC, v.warehouse_code, v.route_no, v.folio`,
+        route ? [tenantId, from, to, route] : [tenantId, from, to]);
+
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const filas: RouteCreditSaleRow[] = (rows as Cruda[]).map((r) => ({
+        warehouse_code: r.warehouse_code,
+        warehouse_name: r.warehouse_name,
+        route_no: r.route_no,
+        route_name: r.route_name,
+        folio: r.folio,
+        fecha: r.fecha,
+        vence: r.vence,
+        cliente_code: r.cliente_code,
+        importe: Number(r.importe) || 0,
+        neto: Number(r.neto) || 0,
+        cobrado: Number(r.cobrado) || 0,
+        saldo: Number(r.saldo) || 0,
+        cobranza: r.cobranza,
+        // ⚠️ `?? null`, no `|| 0`: sin vencimiento no hay días, y un 0 diría «vence hoy».
+        dias_vencida: r.dias_vencida ?? null,
+        abonos: r.cobros ?? [],
+      }));
+
+      const por_estado: Record<string, number> = {};
+      let facturado = 0, neto = 0, cobrado = 0, saldo = 0, vencido = 0, facturas_vencidas = 0;
+      let abonos = 0, abonos_con_cuenta = 0;
+      for (const f of filas) {
+        por_estado[f.cobranza] = (por_estado[f.cobranza] ?? 0) + 1;
+        facturado += f.importe; neto += f.neto; cobrado += f.cobrado; saldo += f.saldo;
+        if (f.cobranza === 'vencida') { vencido += f.saldo; facturas_vencidas++; }
+        for (const a of f.abonos) { abonos++; if (a.cuenta) abonos_con_cuenta++; }
+      }
+
+      return {
+        period: { from, to },
+        summary: {
+          facturas: filas.length,
+          facturado: r2(facturado), neto: r2(neto), cobrado: r2(cobrado), saldo: r2(saldo),
+          vencido: r2(vencido), facturas_vencidas, por_estado, abonos, abonos_con_cuenta,
         },
         filas,
       };

@@ -256,7 +256,7 @@ export class MovementsExportService {
     tot.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
     tot.getCell(7).numFmt = '"$"#,##0.00';
     if (data.truncated) {
-      const n = ws.addRow([`Listado truncado a ${data.docs.length.toLocaleString('es-MX')} documentos — acotá el rango o los filtros para el detalle completo.`]);
+      const n = ws.addRow([`Listado truncado a ${data.docs.length.toLocaleString('es-MX')} documentos — acota el rango o los filtros para el detalle completo.`]);
       n.getCell(1).font = { size: 9, italic: true, color: { argb: C.mute } };
     }
 

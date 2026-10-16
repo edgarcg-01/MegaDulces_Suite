@@ -489,7 +489,7 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
         Con qué folio y concepto entra la póliza en ContPAQi. El folio 1 del Diario es
         siempre el registro de compras del mes; el complemento va en el 2.
         @if (!existeLibroDelMes()) {
-          <strong>Este mes no tiene póliza de compras, así que lo que falta ES el libro: ponelo en folio 1.</strong>
+          <strong>Este mes no tiene póliza de compras, así que lo que falta ES el libro: ponlo en folio 1.</strong>
         }
       </p>
       <label class="lc-campo">

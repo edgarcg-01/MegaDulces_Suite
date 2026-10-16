@@ -90,7 +90,7 @@ export function conciliacion(e: EntradaConciliacion): VeredictoConciliacion {
       texto:
         `Este movimiento dice venir del documento ${doc.doc} ${doc.folio}, pero llegó sin el enlace. `
         + 'No se guarda así: el documento seguiría en la bandeja y alguien lo capturaría de nuevo. '
-        + 'Elegí el documento otra vez desde la lista.',
+        + 'Elige el documento otra vez desde la lista.',
     };
   }
 

@@ -22,14 +22,14 @@ import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError } from 'rxjs';
-import { VendorService, HomeCustomer, NbaDue, NearbyCustomer, DayPickState } from '../vendor.service';
+import { VendorService, HomeCustomer, NearbyCustomer, DayPickState } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
 import { GeolocationService } from '../../../core/services/geolocation.service';
 
 /**
  * Home "Mi ruta" — única pantalla del vendedor (rediseño Mercado mobile-first).
- * Hero full-bleed con anillo de progreso + KPIs del día, banner IA (ember) de
- * reorden, cartera en orden de visita con riel de estado, FAB sunset y un
+ * Hero full-bleed con anillo de progreso + KPIs del día, cartera en orden de
+ * visita con riel de estado, FAB sunset y un
  * bottom-sheet por cliente con la acción primaria destacada.
  */
 @Component({
@@ -103,7 +103,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
                   {{ ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido' }}
                   {{ fmtMoney(ac.pending_total) }} — entregar / ver
                 } @else {
-                  <span class="muted"><i class="pi pi-bolt"></i> Tocá para tomar pedido</span>
+                  <span class="muted"><i class="pi pi-bolt"></i> Toca para tomar pedido</span>
                 }
               </span>
             }
@@ -124,23 +124,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
           (click)="detectArrival()"
           >
           <i class="pi pi-map-marker"></i>
-          {{ geoStatus() === 'denied' ? 'Activá la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
-        </button>
-      }
-    
-      @if (!loading() && dueCount() > 0) {
-        <button
-          type="button"
-          class="smart"
-          [class.active]="onlyDue()"
-          (click)="toggleOnlyDue()"
-          >
-          <span class="spark"><i class="pi pi-sparkles"></i></span>
-          <span class="t">
-            <b>{{ dueCount() }} {{ dueCount() === 1 ? 'cliente' : 'clientes' }} para reordenar hoy</b>
-            <span>Según su ritmo de compra · IA</span>
-          </span>
-          <span class="go">{{ onlyDue() ? 'Ver todos' : 'Ver ›' }}</span>
+          {{ geoStatus() === 'denied' ? 'Activa la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
         </button>
       }
     
@@ -177,7 +161,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             <div class="empty">
               <i class="pi pi-cloud"></i>
               <p>No se pudo cargar tu ruta.</p>
-              <p class="hint">Revisá tu conexión e intentá de nuevo.</p>
+              <p class="hint">Revisa tu conexión e intenta de nuevo.</p>
               <button pButton (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
             </div>
           </p-card>
@@ -189,7 +173,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
             <div class="empty">
               <i class="pi pi-sitemap"></i>
               <p>No hay clientes en tu ronda de hoy.</p>
-              <p class="hint">Agregá un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
+              <p class="hint">Agrega un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
               <div class="empty-actions">
                 <button pButton (click)="addCustomer()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar cliente</span></button>
                 <a pButton severity="secondary" [text]="true" routerLink="/vendor/search"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar un cliente</span></a>
@@ -206,7 +190,6 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
                 [style.animation-delay.ms]="(i > 9 ? 9 : i) * 35"
                 [class.visited]="c.visited_today"
                 [class.preventa]="!c.visited_today && c.has_preventa_pending"
-                [class.due]="!c.visited_today && !c.has_preventa_pending && isDue(c)"
                 (click)="openSheet(c)"
                 >
                 <span class="seq" [class.ok]="c.visited_today">
@@ -229,9 +212,6 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
                       <span class="chip pend">
                         {{ c.pending_count }} por entregar
                       </span>
-                    }
-                    @if (!c.has_preventa_pending && isDue(c)) {
-                      <span class="chip due"><i class="pi pi-sparkles"></i> Reordenar</span>
                     }
                     @if (c.ordered_today) {
                       <span class="chip ok">Pedido hoy</span>
@@ -387,18 +367,6 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
 
       .body-pad { padding-top: 0.875rem; }
 
-      /* Smart banner (IA / ember) */
-      .smart {
-        display: flex; align-items: center; gap: 0.7rem; width: 100%; text-align: left;
-        margin-bottom: 0.875rem; padding: 0.7rem 0.8rem; border-radius: var(--r-lg, 16px);
-        background: var(--card-bg); border: 1px solid var(--ember-border); cursor: pointer;
-      }
-      .smart .spark { width: 34px; height: 34px; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--ember-border); display: grid; place-items: center; color: var(--action); font-size: 0.95rem; flex-shrink: 0; }
-      .smart .t { flex: 1; min-width: 0; }
-      .smart .t b { display: block; font-size: 0.85rem; color: var(--text-main); }
-      .smart .t span { font-size: var(--fs-xs); color: var(--text-muted); }
-      .smart .go { font-size: var(--fs-xs); font-weight: 700; color: var(--action); white-space: nowrap; }
-
       /* Banner de llegada (autodetección GPS) */
       .arrival {
         display: flex; align-items: center; gap: 0.7rem; width: 100%; text-align: left;
@@ -452,7 +420,6 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .client::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--border-color); }
       .client.visited::before { background: var(--ok-fg); }
       .client.preventa::before { background: var(--warn-fg); }
-      .client.due::before { background: var(--action); }
       .client:active { transform: scale(0.985); }
       .seq {
         flex-shrink: 0; width: 2.1rem; height: 2.1rem; border-radius: 14px; display: grid; place-items: center;
@@ -468,7 +435,6 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .chip.pre { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
       .chip.pend { background: var(--info-soft-bg); color: var(--info-soft-fg); }
       .chip.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-      .chip.due { background: var(--ember-soft); color: var(--brand-900); border: 1px solid var(--ember-border); }
       .more { color: var(--text-faint); flex-shrink: 0; font-size: 1rem; }
       .filter-empty { text-align: center; color: var(--text-muted); padding: 1.5rem; font-size: var(--fs-body); }
 
@@ -526,9 +492,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
 
       /* feedback táctil — todo lo presionable responde al press */
-      .smart, .contact-btn { transition: transform 0.08s var(--ease, ease); }
+      .contact-btn { transition: transform 0.08s var(--ease, ease); }
       .action { transition: background-color 0.12s ease; }
-      .smart:active { transform: scale(0.99); }
       .action:active:not(:disabled) { background: var(--hover-bg, var(--surface-ground)); }
       .contact-btn:active { transform: scale(0.97); }
 
@@ -536,7 +501,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
         .sheet, .sheet.closing, .sheet-backdrop, .sheet-backdrop.closing, .client { animation: none; }
         .hero::before { animation: none; }
         .ring { transition: none; }
-        .client, .fab, .sheet-primary, .smart, .contact-btn { transition: none; }
+        .client, .fab, .sheet-primary, .contact-btn { transition: none; }
         .hero-refresh.spinning i { animation: none; }
       }
     `,
@@ -562,8 +527,6 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
   readonly sheet = signal<HomeCustomer | null>(null);
   readonly sheetClosing = signal(false);
   readonly checking = signal(false);
-  readonly dueIds = signal<Set<string>>(new Set());
-  readonly onlyDue = signal(false);
   /** [VR.SUP.1] Estado de la ruta del día (supervisor). null = no cargó / no aplica. */
   readonly dayPick = signal<DayPickState | null>(null);
 
@@ -614,15 +577,9 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
       .reduce((s, o) => s + Number(o.total), 0),
   );
   readonly porEntregar = computed(() => this.customers().reduce((s, c) => s + (c.pending_count || 0), 0));
-  readonly dueCount = computed(() => {
-    const ids = this.dueIds();
-    return this.customers().filter((c) => ids.has(c.id)).length;
-  });
   readonly filtered = computed(() => {
     const term = this.search().trim().toLowerCase();
-    const ids = this.dueIds();
-    let all = this.customers();
-    if (this.onlyDue()) all = all.filter((c) => ids.has(c.id));
+    const all = this.customers();
     if (!term) return all;
     return all.filter(
       (c) => c.name.toLowerCase().includes(term) || c.code.toLowerCase().includes(term),
@@ -649,17 +606,15 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     this.loadError.set(false);
     forkJoin({
       home: this.api.home(),
-      due: this.api.nbaDue().pipe(catchError(() => of([] as NbaDue[]))),
       today: this.api.myOrdersToday().pipe(catchError(() => of([] as Order[]))),
       // [VR.SUP.1] Best-effort: si falla, no hay botón "Cambiar ruta" pero la ruta carga.
       dayPick: this.api.dayPickState().pipe(catchError(() => of(null))),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ home, due, today, dayPick }) => {
+        next: ({ home, today, dayPick }) => {
           this.dayPick.set(dayPick);
           this.customers.set(home);
-          this.dueIds.set(new Set(due.map((d) => d.customer_id)));
           this.ordersToday.set(today);
           this.loading.set(false);
           this.refreshing.set(false);
@@ -673,7 +628,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
           this.toast.add({
             severity: 'error',
             summary: 'No se pudo cargar tu ruta',
-            detail: 'Revisá tu conexión e intentá de nuevo.',
+            detail: 'Revisa tu conexión e intenta de nuevo.',
           });
         },
       });
@@ -691,9 +646,6 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     this.doc.body.style.setProperty('overflow', 'hidden');
     // Mover el foco al sheet una vez renderizado.
     setTimeout(() => this.sheetEl?.nativeElement?.focus(), 0);
-    if (this.isDue(c)) {
-      this.api.recordSignal(c.id, 'offer_shown', 'vendor').subscribe({ error: () => {} });
-    }
   }
   openSheetById(id: string): void {
     const c = this.customers().find((x) => x.id === id);
@@ -777,12 +729,6 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     this.router.navigate(['/vendor/search'], { queryParams: { new: 1 } });
   }
 
-  isDue(c: HomeCustomer): boolean {
-    return this.dueIds().has(c.id);
-  }
-  toggleOnlyDue(): void {
-    this.onlyDue.update((v) => !v);
-  }
 
   goOrder(c: HomeCustomer, mode: 'instante' | 'futuro'): void {
     this.closeSheet();
@@ -844,7 +790,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
         },
         error: (e) => {
           this.checking.set(false);
-          this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: e?.error?.message || 'Intentá de nuevo.' });
+          this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: e?.error?.message || 'Intenta de nuevo.' });
         },
       });
   }

@@ -126,7 +126,7 @@ const BORRADOR_V = 'rd.conteo.v1';
                 </button>
               </div>
               <p class="rk-tip">
-                Enter confirma «Igual». Si tecleás un número directo, se captura como diferencia.
+                Enter confirma «Igual». Si tecleas un número directo, se captura como diferencia.
               </p>
             } @else {
               <div class="rk-dif">
@@ -174,7 +174,7 @@ const BORRADOR_V = 'rd.conteo.v1';
           <i class="pi pi-search" aria-hidden="true"></i>
           <input class="rk-buscar-input" type="text" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
                  (keydown.enter)="irAlPrimero()" autocomplete="off"
-                 placeholder="Escaneá el código o escribí el nombre para saltar a ese producto" />
+                 placeholder="Escanea el código o escribe el nombre para saltar a ese producto" />
           @if (busqueda()) {
             <button pButton [text]="true" size="small" severity="secondary" (click)="busqueda.set('')">Limpiar</button>
           }
@@ -208,7 +208,7 @@ const BORRADOR_V = 'rd.conteo.v1';
         </footer>
         <p class="rk-local">
           <i class="pi pi-save" aria-hidden="true"></i>
-          Tu avance se guarda en este dispositivo. Si cambiás de equipo, empieza de cero.
+          Tu avance se guarda en este dispositivo. Si cambias de equipo, empieza de cero.
         </p>
       }
 
@@ -308,7 +308,7 @@ const BORRADOR_V = 'rd.conteo.v1';
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           Al registrarlo, este conteo <strong>reemplaza</strong> el saldo publicado de la ruta
           {{ ruta() }}: a partir del {{ countDate() }} el inventario de ese camión arranca en lo
-          que acabás de contar.
+          que acabas de contar.
         </p>
 
         @if (error()) { <p class="rk-msg rk-bad">{{ error() }}</p> }
@@ -517,7 +517,7 @@ export class AlmacenRutasContarComponent implements OnInit {
   readonly tooltipFoto = computed(() => {
     const h = this.hoja();
     if (!h) return '';
-    return `La camioneta reportó su existencia el ${h.foto_fecha}. Si contás contra una foto vieja, el conteo sigue siendo válido — pero sabé cuál es.`;
+    return `La camioneta reportó su existencia el ${h.foto_fecha}. Si cuentas contra una foto vieja, el conteo sigue siendo válido — pero ten claro cuál es.`;
   });
 
   /** Hasta 8 coincidencias, para que un empate se vea en vez de elegirse solo. */

@@ -44,8 +44,8 @@ const MODULO_PX = 2;
   template: `
     <div class="ct">
       <p class="ct-nota">
-        Pegá el cartel en {{ uno() ? 'la ubicación' : 'cada ubicación' }} antes de acomodar.
-        Salen <b>dos por hoja</b>; recortá por la línea punteada.
+        Pega el cartel en {{ uno() ? 'la ubicación' : 'cada ubicación' }} antes de acomodar.
+        Salen <b>dos por hoja</b>; recorta por la línea punteada.
       </p>
 
       <!-- Vista previa: el MISMO markup que se imprime, a escala. Imprimir algo

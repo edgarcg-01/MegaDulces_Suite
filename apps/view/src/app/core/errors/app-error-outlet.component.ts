@@ -22,20 +22,32 @@ import { AppErrorService, AppError } from './app-error.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (err(); as e) {
-      @if (e.kind === 'stale-version') {
+      @if (e.kind === 'stale-version' && !enPantallaPublica()) {
         <div class="ae-block" role="alertdialog" aria-labelledby="ae-t" aria-describedby="ae-d">
           <div class="ae-card">
             <p class="ae-eyebrow">Versión nueva</p>
             <h2 class="ae-title" id="ae-t">Hay una actualización lista</h2>
             <p class="ae-lead" id="ae-d">
               Se publicó una versión mientras tenías esta pestaña abierta, así que
-              esta pantalla quedó a medias. Recargá para seguir trabajando; no
-              perdés nada de lo que ya se guardó.
+              esta pantalla quedó a medias. Recarga para seguir trabajando; no
+              pierdes nada de lo que ya se guardó.
             </p>
             <button type="button" class="ae-btn" (click)="reload()">
               <i class="pi pi-refresh" aria-hidden="true"></i> Recargar ahora
             </button>
           </div>
+        </div>
+      } @else if (e.kind === 'stale-version') {
+        <div class="ae-toast" role="status">
+          <i class="pi pi-refresh ae-toast-ico" aria-hidden="true"></i>
+          <div class="ae-toast-txt">
+            <p class="ae-toast-t">Hay una versión nueva</p>
+            <p class="ae-toast-s">Puedes entrar igual; recarga cuando quieras.</p>
+          </div>
+          <button type="button" class="ae-toast-a" (click)="reload()">Recargar</button>
+          <button type="button" class="ae-toast-x" (click)="dismiss()" aria-label="Descartar aviso">
+            <i class="pi pi-times" aria-hidden="true"></i>
+          </button>
         </div>
       } @else {
         <div class="ae-toast" role="status">
@@ -43,7 +55,7 @@ import { AppErrorService, AppError } from './app-error.service';
           <div class="ae-toast-txt">
             <p class="ae-toast-t">Algo falló en esta pantalla</p>
             <p class="ae-toast-s">
-              Si se repite, reportá el código <code>{{ e.id }}</code>.
+              Si se repite, reporta el código <code>{{ e.id }}</code>.
               <button type="button" class="ae-toast-copy" (click)="copy(e)">
                 {{ copied() ? 'Copiado' : 'Copiar detalle' }}
               </button>
@@ -186,6 +198,26 @@ import { AppErrorService, AppError } from './app-error.service';
 export class AppErrorOutletComponent {
   private readonly svc = inject(AppErrorService);
   readonly err = computed(() => this.svc.current());
+
+  /**
+   * ⛔ **El bloqueo NO se pinta sobre una pantalla pública.** Medido en producción el 2026-10-14,
+   * con una oficina entera afuera: el overlay es `position: fixed; inset: 0; z-index: 9995`, así
+   * que sobre `/login` tapaba el formulario y **el único control de la pantalla**. La salida
+   * existía —el botón de recargar— pero no se lee como salida cuando lo que querías era entrar.
+   *
+   * ⭐ Y su propio texto era falso ahí: «quedó a medias… no perdés nada de lo que ya se guardó».
+   * Nadie estaba trabajando; estaban FUERA (`?reason=required`). El bloqueo sólo tiene sentido
+   * cuando hay trabajo que proteger — sin sesión no hay ninguno, y entonces el aviso va como
+   * toast descartable y el login sigue usable.
+   *
+   * Se lee `location.pathname` y no el `Router` a propósito: esto corre cuando la navegación
+   * pudo haber quedado inservible, que es la razón por la que este componente vive fuera del
+   * router (ver la cabecera del archivo).
+   */
+  enPantallaPublica(): boolean {
+    const p = (globalThis.location?.pathname ?? '').toLowerCase();
+    return p.includes('/login');
+  }
 
   reload(): void {
     window.location.reload();

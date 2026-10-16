@@ -54,7 +54,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
         <div class="cb-warn" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span><strong>{{ coverage().unmapped }} de {{ coverage().total }} cuentas mayor sin código agrupador SAT válido.</strong>
-          El catálogo XML saldrá con un placeholder que <strong>el SAT rechaza</strong> (formato requerido <code>NNN</code>/<code>NNN.NN</code>). Completá el mapeo abajo antes de presentarlo.</span>
+          El catálogo XML saldrá con un placeholder que <strong>el SAT rechaza</strong> (formato requerido <code>NNN</code>/<code>NNN.NN</code>). Completa el mapeo abajo antes de presentarlo.</span>
         </div>
       }
       <div class="cb-cards">
@@ -150,7 +150,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
           </td></tr>
         </ng-template>
       </p-table>
-      <p class="cb-note"><i class="pi pi-info-circle"></i> El código agrupador debe ser una clave del catálogo del SAT (formato <code>NNN</code> o <code>NNN.NN</code>). El campo sugiere claves comunes; podés escribir cualquiera válida.</p>
+      <p class="cb-note"><i class="pi pi-info-circle"></i> El código agrupador debe ser una clave del catálogo del SAT (formato <code>NNN</code> o <code>NNN.NN</code>). El campo sugiere claves comunes; puedes escribir cualquiera válida.</p>
     </div>
     </div>
     `,
@@ -248,7 +248,7 @@ export class ContabilidadContabilidadComponent {
   autoSuggest(): void {
     this.suggesting.set(true);
     this.svc.suggestCodAgrupador().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (res) => { this.suggesting.set(false); this.toast.add({ severity: 'success', summary: 'Sugerido', detail: `${res.inserted} cuenta(s) sembrada(s). Revisá y corregí las que no correspondan.` }); this.loadMap(); },
+      next: (res) => { this.suggesting.set(false); this.toast.add({ severity: 'success', summary: 'Sugerido', detail: `${res.inserted} cuenta(s) sembrada(s). Revisa y corrige las que no correspondan.` }); this.loadMap(); },
       error: () => { this.suggesting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo auto-sugerir.' }); },
     });
   }
@@ -265,7 +265,7 @@ export class ContabilidadContabilidadComponent {
       return;
     }
     if (!/^\d{3}(\.\d{1,3})?$/.test(cod)) {
-      this.toast.add({ severity: 'warn', summary: 'Formato inválido', detail: 'Usá NNN o NNN.NN (ej. 105.01).' });
+      this.toast.add({ severity: 'warn', summary: 'Formato inválido', detail: 'Usa NNN o NNN.NN (ej. 105.01).' });
       return;
     }
     this.svc.saveCodAgrupador({ cuenta_mayor: r.cuenta_mayor, cod_agrupador: cod }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

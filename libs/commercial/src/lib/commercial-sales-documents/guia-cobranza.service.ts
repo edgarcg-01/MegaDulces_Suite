@@ -135,7 +135,7 @@ export class GuiaCobranzaService {
       throw new BadRequestException(
         'La guía es de un solo vendedor y la selección tiene '
         + `${porVendedor.size}: ${[...porVendedor.values()].join(', ')}. `
-        + 'Filtrá por vendedor y generá una guía por cada uno.');
+        + 'Filtra por vendedor y genera una guía por cada uno.');
     }
 
     const emisor = await this.docs.emisorFiscal();

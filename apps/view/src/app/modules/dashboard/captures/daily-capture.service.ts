@@ -265,7 +265,7 @@ export class DailyCaptureService {
       this._horaInicio.set(null);
       this._activeExhibiciones.set([]);
       throw new Error(
-        'Permiso de ubicación bloqueado. Activá el GPS para esta app en los ajustes del navegador (candado de la URL → Permisos → Ubicación) y volvé a intentar.',
+        'Permiso de ubicación bloqueado. Activa el GPS para esta app en los ajustes del navegador (candado de la URL → Permisos → Ubicación) y vuelve a intentar.',
       );
     }
 
@@ -285,7 +285,7 @@ export class DailyCaptureService {
         this._horaInicio.set(null);
         this._activeExhibiciones.set([]);
         const offlineHint = !navigator.onLine
-          ? ' Si estás sin señal y no podés esperar, activá "Permitir guardar sin GPS" en ajustes (la captura quedará marcada para revisión).'
+          ? ' Si estás sin señal y no puedes esperar, activa "Permitir guardar sin GPS" en ajustes (la captura quedará marcada para revisión).'
           : '';
         throw new Error(
           'No se pudo capturar la ubicación GPS. Por favor verifique que el GPS esté activado y tenga señal.' + offlineHint,
@@ -758,7 +758,7 @@ export class DailyCaptureService {
               return throwError(
                 () =>
                   new Error(
-                    'Sin GPS válido y sin posición conocida. Activá "Permitir guardar sin GPS" en ajustes si necesitás guardar igual.',
+                    'Sin GPS válido y sin posición conocida. Activa "Permitir guardar sin GPS" en ajustes si necesitas guardar igual.',
                   ),
               );
             }

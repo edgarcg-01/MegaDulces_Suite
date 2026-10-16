@@ -83,7 +83,7 @@ import { OrderLine } from '../../portal/portal.service';
       <p-card>
         <div class="empty">
           <i class="pi pi-check-circle"></i>
-          <p>No tenés pedidos pendientes en tu cartera.</p>
+          <p>No tienes pedidos pendientes en tu cartera.</p>
         </div>
       </p-card>
     }
@@ -359,7 +359,7 @@ export class VendorPendingComponent implements OnInit {
             next: () => {
               this.clearProcessing(o.id);
               if (!o.customer_id) {
-                this.toast.add({ severity: 'warn', summary: 'Pedido reabierto', detail: 'Abrilo desde el cliente para corregirlo.' });
+                this.toast.add({ severity: 'warn', summary: 'Pedido reabierto', detail: 'Ábrelo desde el cliente para corregirlo.' });
                 this.reload();
                 return;
               }
@@ -372,7 +372,7 @@ export class VendorPendingComponent implements OnInit {
               this.toast.add({
                 severity: 'error',
                 summary: 'No se puede corregir',
-                detail: e?.error?.message || 'Intentá de nuevo.',
+                detail: e?.error?.message || 'Intenta de nuevo.',
               });
             },
           });
@@ -383,7 +383,7 @@ export class VendorPendingComponent implements OnInit {
   askFulfill(o: VendorOrder): void {
     this.confirmSvc.confirm({
       header: 'Marcar entregado',
-      message: `¿Confirmás la entrega de ${o.folio || o.code} a ${o.customer_name || 'este cliente'}? Se descuenta del inventario.`,
+      message: `¿Confirmas la entrega de ${o.folio || o.code} a ${o.customer_name || 'este cliente'}? Se descuenta del inventario.`,
       icon: 'pi pi-truck',
       acceptLabel: 'Entregar',
       rejectLabel: 'Cancelar',
@@ -406,7 +406,7 @@ export class VendorPendingComponent implements OnInit {
         this.toast.add({
           severity: 'error',
           summary: 'No se pudo completar',
-          detail: e?.error?.message || 'Intentá de nuevo.',
+          detail: e?.error?.message || 'Intenta de nuevo.',
         });
       },
     });

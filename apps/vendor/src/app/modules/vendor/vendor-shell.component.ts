@@ -15,6 +15,7 @@ import { RoutePingService } from '../../core/services/route-ping.service';
 import { PushService } from '../../core/services/push.service';
 import { OfflineOrderService } from '../../core/services/offline-order.service';
 import { OfflineSyncService } from '../../core/services/offline-sync.service';
+import { PresaleStatusService } from './presale-status.service';
 
 interface DiagProbe {
   build: { commit: string; ts: string };
@@ -58,16 +59,6 @@ interface DiagProbe {
             routerLinkActive="header-active"
             aria-label="Buscar cliente"
           ><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></a>
-          <a
-            pButton
-
-            severity="secondary"
-            size="small"
-            text
-            routerLink="assistant"
-            routerLinkActive="header-active"
-            aria-label="Thot"
-          ><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span></a>
           <a
             pButton
 
@@ -170,6 +161,14 @@ interface DiagProbe {
           }
           <span>Mi día</span>
         </a>
+        <!-- [MCP.8] El avance de sus pedidos de preventa: surtidor, faltantes, cobro. -->
+        <a routerLink="mis-pedidos" routerLinkActive="active" class="has-badge">
+          <i class="pi pi-list-check"></i>
+          @if (unseenReports() > 0) {
+            <span class="nav-badge">{{ unseenReports() }}</span>
+          }
+          <span>Pedidos</span>
+        </a>
         @if (canCarga) {
           <a routerLink="carga" routerLinkActive="active">
             <i class="pi pi-truck"></i>
@@ -226,16 +225,16 @@ interface DiagProbe {
               <b>Ubicación en segundo plano</b>
               <span class="diag-actions"><button type="button" (click)="bgHelpOpen.set(false)">Cerrar</button></span>
             </div>
-            <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisá estos 3 puntos en tu teléfono:</p>
+            <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisa estos 3 puntos en tu teléfono:</p>
             <ol class="bg-steps">
-              <li><b>Permiso de ubicación:</b> elegí <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
-              <li><b>Batería:</b> poné la app en <b>"Sin restricciones"</b> / desactivá el ahorro de batería para Vendedor.</li>
-              <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activá <b>"Autostart"</b> para esta app.</li>
+              <li><b>Permiso de ubicación:</b> elige <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
+              <li><b>Batería:</b> pon la app en <b>"Sin restricciones"</b> / desactiva el ahorro de batería para Vendedor.</li>
+              <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activa <b>"Autostart"</b> para esta app.</li>
             </ol>
             <button class="bg-cta" (click)="openLocationSettings()">
               <i class="pi pi-cog"></i>&nbsp;Abrir ajustes de la app
             </button>
-            <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después volvé a la app.</p>
+            <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después vuelve a la app.</p>
             @if (routePing.bgError(); as err) {
               <p class="bg-diag">Diagnóstico: <code>{{ err }}</code></p>
             }
@@ -441,6 +440,7 @@ export class VendorShellComponent {
   private readonly offlineApi = inject(OfflineOrderService);
   private readonly sync = inject(OfflineSyncService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly presaleStatus = inject(PresaleStatusService);
 
   private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
 
@@ -452,6 +452,8 @@ export class VendorShellComponent {
   readonly bgHelpOpen = signal(false);
   /** Pedidos confirmados offline sin sincronizar (badge en "Mi día"). */
   readonly pendingOrders = signal(0);
+  /** `[MCP.8]` Reportes de surtido que la vendedora no ha visto (badge en "Pedidos"). */
+  readonly unseenReports = signal(0);
   /** Transacciones muertas (visitas+pedidos al tope de reintentos) — dinero/visita real invisible. */
   readonly deadCount = signal(0);
   readonly retryingDead = signal(false);
@@ -477,6 +479,11 @@ export class VendorShellComponent {
   private refreshPendingBadge(): void {
     void this.offlineApi.count().then((n) => this.pendingOrders.set(n)).catch(() => void 0);
     void this.sync.getDeadCount().then((n) => this.deadCount.set(n)).catch(() => void 0);
+    // Una consulta chica (sin ODS). Sin señal falla en silencio y el globito se queda como estaba.
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      this.presaleStatus.unseen().pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (r) => this.unseenReports.set(r.unseen_reports), error: () => void 0 });
+    }
   }
 
   /** "Reintentar": revive lo muerto y fuerza sync. Lo invisible vuelve a intentarse. */
@@ -512,7 +519,7 @@ export class VendorShellComponent {
     this.toast.add(
       ok
         ? { severity: 'success', summary: 'Avisos activados', detail: 'Te recordaremos subir tu cierre.' }
-        : { severity: 'warn', summary: 'No se activaron', detail: 'Permití las notificaciones en tu navegador.' },
+        : { severity: 'warn', summary: 'No se activaron', detail: 'Permite las notificaciones en tu navegador.' },
     );
   }
 

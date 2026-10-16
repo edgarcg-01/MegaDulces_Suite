@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
-  HrCasilleroDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrLigaCreadaDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTalentApartado,
+  HrCasilleroDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrPedirDocumentosResultadoDto, HrLigaCreadaDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTalentApartado,
   HrTalentEtapa, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -69,6 +69,11 @@ export class ReclutamientoService {
 
   retirarDocumento(id: string, llave: string, reason: string): Observable<HrCandidatoFichaDto> {
     return this.http.post<HrCandidatoFichaDto>(`${this.base}/candidates/${encodeURIComponent(id)}/documents/retire`, { llave, reason });
+  }
+
+  /** `[RH.3.3.4b]` Pedirle sus documentos por WhatsApp (la lista queda registrada; el mensaje sale sólo dentro de la ventana de 24 h). */
+  pedirDocumentos(id: string, slots: string[]): Observable<HrPedirDocumentosResultadoDto> {
+    return this.http.post<HrPedirDocumentosResultadoDto>(`${this.base}/candidates/${encodeURIComponent(id)}/documents/request`, { slots });
   }
 
   /** `[RH.2.4]` Una liga personal para el candidato (subir su CV o el cuestionario de liderazgo), que vence en 7 días. */

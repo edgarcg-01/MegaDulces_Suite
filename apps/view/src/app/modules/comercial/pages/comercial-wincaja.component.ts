@@ -86,7 +86,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
           </ng-template>
           <ng-template #emptymessage>
             <tr><td colspan="8" class="wcj-empty">
-              @if (!loading()) { Sin data de Wincaja. Corré el importer en .245 y el feed gold. }
+              @if (!loading()) { Sin data de Wincaja. Corre el importer en .245 y el feed gold. }
             </td></tr>
           </ng-template>
         </p-table>

@@ -149,7 +149,7 @@ export class CommercialCalibrationService {
         .where({ finding_type: findingType })
         .update({ manual_override: override, updated_at: trx.fn.now() })
         .returning('*');
-      if (!updated.length) throw new NotFoundException('Regla sin estadística aún (corré la calibración primero)');
+      if (!updated.length) throw new NotFoundException('Regla sin estadística aún (corre la calibración primero)');
       return updated[0];
     });
   }

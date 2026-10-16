@@ -903,6 +903,146 @@ que ya trae `flujo` entrada/salida/traspaso, `signo`, anti-réplica y exclusión
 
 ---
 
+### 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14)
+
+`kdmm` dice **`U-A-5-1` = «Cobro PUE»** (pago en una sola exhibición). Su hermano fiscal es
+**`U-A-7-1` «Cobro CFDI»**, y el PUE es **8× más grande**: 6,111 documentos / **$118.5 M** contra
+1,138 / $16.0 M en 90 días.
+
+**Dónde cae en la taxonomía.** En `kdm1`, `c2 = 'U'` es el universo de clientes y `c3` da la
+dirección: **`D` = cargo** (sube la deuda del cliente: una venta) · **`A` = abono** (la baja). Todo
+el grupo `U-A` son abonos — `U-A-7` Cobro CFDI · `U-A-20` Devolución · `U-A-21` Nota de crédito ·
+`U-A-35` Nota de crédito · `U-A-40` Anticipo · `U-A-50` Recepción de traspaso.
+
+**⭐ Lo que de verdad lo define: contra qué cargo se aplica** (`kdm5`, donde `(c3,c4)` es el abono y
+`(c8,c9,c10)` el cargo que salda):
+
+| cargo que salda | qué es | aplicaciones | monto |
+|---|---|---|---|
+| **`U-D-13-1`** | **Factura Crédito No Fiscal** | **24,988** | **$469,893,930.95** |
+| `U-D-23-1` | Corte de Caja POS | 576 | $7,924,726.20 |
+| `U-D-12-1` | Factura Contado No Fiscal | 899 | $4,718,541.21 |
+| `U-D-41-1` | Embarque Telemarketing | 125 | $62,547.28 |
+| `U-D-5-1` | Factura TK Contado | 52 | $31,585.71 |
+| `U-D-60-1` | Documento por Cobrar | 1 | $1,000.00 |
+
+**El 98 % del dinero salda factura de crédito no fiscal** ⇒ en esta empresa, `U-A-5` es **el cobro de
+la venta a crédito de ruta**.
+
+⛔⛔ **NO leer la glosa como si fuera el tipo de documento.** `c24` dice cosas como
+*«VENTA RV CANDY SALGADO 25-09-2026»* o *«DEPOSITO EFECTIVO CAJA GENERAL M.M. 08/10/2026»* porque la
+persona describe **qué está cobrando** o **dónde lo depositó**, no qué documento capturó. Leerlo al
+revés hace decir *«el ingreso de Caja General es la venta de ruta»* cuando lo correcto es **«es la
+COBRANZA de la venta de ruta»** — la venta es el `U-D-13`, y el `U-A-5` llega después, cuando el
+repartidor vuelve con el dinero. *Ya costó una afirmación publicada; ver `FASE_CG_PATRONES_Y_ACCESIBILIDAD`.*
+
+**⚠️ `U-A-5` NO es un documento de caja.** Por dónde entra el dinero, 90 días:
+
+    banco .... 4,971 docs · $98,415,092.33 · 83.0 %
+    caja ..... 1,108 docs · $19,780,334.47 · 16.7 %
+    puente ...    32 docs ·    $342,298.63 ·  0.3 %
+
+Sólo su porción en efectivo pasa por Caja General. ⭐ Pero **acotado a la cobranza de RUTA el
+efectivo es el 99.7 %** (975 de 987 docs, $17.26 M) — o sea *«ruta ⇒ efectivo»* es regla confiable y
+*«cobranza ⇒ efectivo»* no lo es.
+
+⛔ **El método de pago (`c31`) NO distingue efectivo de banco**: vale `Tra` en el **100 %** de los
+`X-D-26` de caja **y** de banco. Lo que declara el efectivo es la **cuenta de tesorería** `c45`
+(ver §3.z): elegir `0011 CAJA GENERAL / EFECTIVO` **es** declararlo.
+
+### 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14)
+
+El cobro agrega por depósito y ahí se borra quién vendió — pero **el dato nace en el ticket y casi
+nunca falta**:
+
+    kdm1.c12  (en los U-D-10 «Ticket Contado Caja 2»)  →  kepler_ods.kduv.c2 → c3   (400 filas)
+
+**Cobertura medida, 30 días, las 8 plazas: 94,827 tickets · 99.5 % con vendedor** — peor caso 98.5 %
+(suc 08), cuatro plazas al 100 %. **43 códigos activos y los 43 resuelven a nombre.** Tampoco es sólo
+el ticket de mostrador: `U-D-6` factura global **100 %** · `U-D-12` no fiscal **99.6 %** · `U-D-5`
+factura TK **90.4 %**.
+
+⭐ `kduv` **distingue las dos naturalezas**, que es lo que sirve para agrupar: el **piso** de la
+sucursal (`SUC MORELIA MADERO PISO`, `SUCURSAL 8 ESQUINAS PISO`) contra la **ruta o la persona**
+(`RUTA VECINAL PH 01`, `GUILLERMO HERNANDEZ`, `GLORIA CALDERON`).
+
+**El caso que lo decodificó**, un corte repartido a lápiz entre dos personas:
+
+    2V003   39 tickets  CON0001167 → CON0001217   $24,418.16   GUILLERMO HERNANDEZ
+    2V001   12 tickets  CON0001174 → CON0001195   $16,914.88   JOSEPH AGUSTIN GUERERRO
+                                                   ───────────
+                                                   $41,333.04   = el corte U-D-23, al centavo
+
+⚠️ **Tres trampas, cada una costó un intento:**
+1. **`c81` (caja) está VACÍO en el ticket**; el campo vivo es **`c80` = APERTURA**. Filtrar por `c81`
+   devuelve 0 filas, y leer eso como «el ticket no trae vendedor» es falso.
+2. **`analytics.cash_cuts.folio` es la APERTURA, no el folio del documento.** El corte de arriba es
+   el `U-D-23` folio **`0000024`**, cajero `C04`; la «29» es su apertura. ⛔ Ligar `cash_cuts` ⋈
+   `kdm1` por folio **no empata**.
+3. **El importe de un reparto no es ningún documento.** $24,418.16 no aparece en `kdm1` — está
+   registrado **39 veces**. Buscar el total y concluir «no se registró» es el error.
+
+### 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14)
+
+**`c1` no es sólo la plaza.** Los valores compuestos (`01-001`…`01-006`) son **rutas**, confirmado
+por Edgar y verificado contra el padrón de vendedores:
+
+    01-001 → RD Urbano Olivares Victorino     01-004 → RD García Hurtado Víctor Hugo
+    01-002 → RD Fuentes Montes Enrique        01-005 → RD Martínez Patlán Mariano
+    01-003 → RD Hurtado Orozco Joaquín        01-006 → RD TORRES JORGE ANTONIO
+
+⇒ El filtro canónico **`btrim(c1) = sucursal`** (§3.z, Fase PO) los descarta a todos. Medido en
+prod, 90 días:
+
+| tabla | filas | pasa | **RUTA descartada** | réplica real |
+|---|---|---|---|---|
+| **`kdm1`** documentos | 302,492 | 295,260 | **7,229** | **3** |
+| `kdm5` aplicaciones | 68,543 | 67,408 | 0 | 1,135 |
+| `kdxe` cuentas por pagar | 52,535 | 51,797 | 0 | 738 |
+
+⭐ **En `kdm1` descarta 2,410 rutas por cada réplica real.** En `kdm5` y `kdxe` hace exactamente lo
+que se diseñó. **No es una política global: es UNA TABLA.**
+
+Lo que se pierde en `kdm1`, 90 días — **$5,869,974.50**:
+
+    U-D-10  Ticket Contado Caja 2   7,127   $4,385,771.68
+    U-D-23  Corte de Caja POS          61   $1,049,130.53
+    U-A-50  Recepción Traspaso Suc     30     $316,478.71
+    U-A-5   Cobro PUE                   6     $117,972.97
+
+⚠️⚠️ **Y no es que crezca: SE EXTIENDE A NUEVOS TIPOS DE DOCUMENTO.** Las rutas son las mismas
+**seis** desde agosto; lo que cambia es la mezcla:
+
+    mes    filas   monto          ticket prom.   rutas    U-D-23   U-A-5
+    jun       59   $  169,873        $2,879        2        —        —
+    ago    1,280   $  890,231        $  695        6        —        —
+    sep    4,036   $2,629,148        $  651        6        0        0
+    oct    1,913   $2,350,596        $1,229        6       61        6     ← medio mes
+
+El promedio saltó de $651 a $1,229 **por mezcla, no por rutas más grandes**: entraron cortes a
+$17,199 cada uno. ⇒ Arrancó sólo con tickets y desde octubre las rutas emiten también **su corte y
+su cobro** con código compuesto — justamente los dos documentos que cierran el circuito
+venta → corte → cobro.
+
+**Los objetos afectados** (leen `kdm1`): `analytics.kepler_bank_movements` · `mv_new_products` ·
+**`mv_product_margins_30d`** (publica MARGEN) · `v_erp_sales_line_units` · `expense_documents` ·
+`mv_caja_autofill_entidad`. **No afectados** (leen `kdm5`/`kdxe`, donde el filtro acierta): las 11
+vistas de compras y pagos.
+
+⛔⛔ **NO RELAJAR EL FILTRO EN BLOQUE, y la prueba es de la misma tarde.** En
+`analytics.kepler_bank_movements`, cambiarlo a `split_part(c1,'-',1) = sucursal` **DUPLICA $118k**:
+salen **52,548 filas para 52,542 llaves únicas**, porque esos documentos entran también por la otra
+pierna de la vista. En los tickets **no duplica nada** (cero réplica real).
+
+⇒ **Se mide por VISTA, no por tabla**, y cada una necesita su propio control de duplicados **antes**
+de tocarle el filtro. Dos vistas sobre `kdm1` pueden necesitar decisiones opuestas.
+
+⚠️ **Dos cabos con nombre:** el código `RD027` vende **$209,325.35 en 30 días** y **no existe en
+`kduv`** (0 filas) — se declara sin resolver, nunca se cae al nombre genérico de otra plaza. Y hay
+**645 tickets / $310,060 sin vendedor** (`c12` vacío), concentrados en `01-005`.
+
+---
+
 ### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
 
 La sucursal **01 Padre Hidalgo** empezó a capturar prospectos y cotizaciones en el módulo CRM de

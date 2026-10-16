@@ -573,7 +573,7 @@ export const SIN_PROVEEDOR = 'sin';
               <label class="pp-toggle-line">
                 <p-toggleswitch formControlName="activo"></p-toggleswitch>
                 <span>Activo en catálogo</span>
-                <span class="comm-muted is-small">(si lo desactivás, no aparece en portal ni vendor)</span>
+                <span class="comm-muted is-small">(si lo desactivas, no aparece en portal ni vendor)</span>
               </label>
             </form>
           </div>

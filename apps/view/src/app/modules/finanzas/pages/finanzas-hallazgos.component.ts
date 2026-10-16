@@ -274,7 +274,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </div>
 
           <div class="card-premium card-flat fh-panel fh-uncertain">
-            <h3 class="fh-card-title">Etiquetá estos primero <span class="muted">(el modelo está más inseguro — rinde más por clic)</span></h3>
+            <h3 class="fh-card-title">Etiqueta estos primero <span class="muted">(el modelo está más inseguro — rinde más por clic)</span></h3>
             @for (u of uncertain(); track u.id) {
               <div class="fh-unc-row" tabindex="0" role="button" (click)="setView('hallazgos')" (keyup.enter)="setView('hallazgos')">
                 <span class="fh-unc-t">{{ u.titulo }}</span>

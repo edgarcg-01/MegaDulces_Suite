@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -26,6 +26,10 @@ import {
   SalesByRouteTicketDetail,
   SalesByRouteTicketsPage,
   SalesByRouteTicketsParams,
+  VecinalConciliacion,
+  VecinalConciliacionFila,
+  VecinalVeredicto,
+  RouteCreditSales,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -34,9 +38,55 @@ import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 import { VecinalReconComponent } from './comercial-vecinal-recon.component';
+import { RutaCajaCaosComponent } from './comercial-ruta-caja-caos.component';
+import { CaosService, RutaCajaReporte } from '../../finanzas/caos.service';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
 
-type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets';
+type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'deposito';
+
+/**
+ * `[VEC.12.2]` Un día de la ruta contra el dinero que se contó.
+ *
+ * `deposito` y `diff` son `number | null` a propósito: `null` = **no se puede atribuir a esta
+ * ruta**, y entonces `motivo` dice por qué. Un 0 ahí significaría «no depositó», que es otra cosa.
+ */
+type ArqDia = {
+  date: string;
+  venta_ruta: number;
+  /**
+   * `[VEC.21]` Lo que ese día la ruta facturó **a crédito** (`U-D-8`), y cuánto de eso se cobró.
+   *
+   * ⛔ Va en la MISMA tabla y no en un panel aparte (pedido de Edgar): la pregunta de esta
+   * pestaña es *"el dinero de esta ruta, ¿llegó?"*, y el crédito es parte de esa pregunta — sólo
+   * que con otro calendario. Se factura un día y se cobra otro, por eso no entra al cuadre del
+   * arqueo: **no es que falte, es que todavía no vence**.
+   */
+  credito: number;
+  credito_cobrado: number;
+  credito_saldo: number;
+  /** Facturas a crédito vencidas de ese día. Es lo único accionable del renglón. */
+  credito_vencidas: number;
+  /** El efectivo contado en su(s) caja(s). Se muestra SIEMPRE: existe aunque no sea sólo suyo. */
+  deposito: number | null;
+  /** `efectivo_esperado − efectivo_contado` de la caja. `null` = todavía nadie la cerró. */
+  diff: number | null;
+  /**
+   * ⛔ CUATRO estados, no tres. `sin_medir` no es «no cuadra»: es que no hay arqueo con qué
+   * juzgarlo, y mezclarlos bajaría el cumplimiento por algo que nadie midió (ADR-056).
+   */
+  estado: 'cuadra' | 'falta' | 'sobra' | 'sin_medir';
+  /** `false` cuando la caja fue compartida: un faltante NO es atribuible a esta ruta. */
+  atribuible: boolean;
+  /** Por qué no es atribuible. Sólo se lee cuando el día SÍ se midió. */
+  motivo: string | null;
+  /**
+   * ⛔ Campo aparte, y no un `motivo` reusado: son dos preguntas distintas. Con uno solo, el
+   * `??=` dejaba el día de hoy diciendo «caja compartida con 1V002» donde lo cierto es que
+   * **todavía no hay arqueo** — una respuesta correcta a la pregunta que nadie hizo.
+   */
+  sin_medir: string | null;
+};
 
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
 type ViewRow = SalesByRouteRow & { _revenue: number; _units: number; _tickets: number; _share: number };
@@ -55,7 +105,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RoutePromoComponent,
+    RouterLink, LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -81,6 +131,11 @@ const MES: Record<string, string> = {
            Va aparte del de arriba a propósito: ése cruza el corte que sube el vendedor de RD, y la
            vecinal no sube corte — se timbra en una caja y su testigo es el arqueo. -->
       <app-vecinal-recon />
+
+      <!-- [CG.58.7] — La ruta y su DINERO: lo que deposito en la caja fuerte (CAOS) y la entrada
+           que esa caja genero en Caja General. Va despues del panel de la vecinal porque es el
+           otro circuito: las rutas directas depositan en CAOS, la vecinal se arquea en su caja. -->
+      <app-ruta-caja-caos />
 
       <!-- RR-PROMO — Agente AI: calcula incentivos de ruta desde el enunciado de la promo -->
       <app-comercial-route-promo />
@@ -234,7 +289,7 @@ const MES: Record<string, string> = {
           <h3>Cargando reporte…</h3><p>Consultando la venta por ruta del {{ year }}.</p></div>
       } @else if (!error()) {
         <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-directions"></i></div>
-          <h3>Ventas por ruta</h3><p>Elegí las rutas; el reporte carga automáticamente.</p></div>
+          <h3>Ventas por ruta</h3><p>Elige las rutas; el reporte carga automáticamente.</p></div>
       }
 
       <!-- Ventana y no cajón: el desglose trae nueve métricas y una tabla de productos, y en
@@ -332,6 +387,7 @@ const MES: Record<string, string> = {
             <button type="button" role="radio" [class.on]="tab()==='dias'" [attr.aria-checked]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
             <button type="button" role="radio" [class.on]="tab()==='clientes'" [attr.aria-checked]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
             <button type="button" role="radio" [class.on]="tab()==='tickets'" [attr.aria-checked]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
+            <button type="button" role="radio" [class.on]="tab()==='deposito'" [attr.aria-checked]="tab()==='deposito'" (click)="setTab('deposito')">Depósito</button>
           </div>
 
           @switch (tab()) {
@@ -384,10 +440,18 @@ const MES: Record<string, string> = {
               <p class="rr-note">Unidad tal como la declara la fuente (Wincaja: catálogo del artículo · Kepler: renglón del documento). "—" = SKU sin unidad en el catálogo de esa fuente.</p>
             }
             @case ('dias') {
+              <!-- [CG.58.7] La venta del día y lo que ESE día se depositó en la caja fuerte, en el
+                   mismo renglón: eso es conciliar. El día del depósito es el que DECLARA su texto,
+                   no el día en que se hizo (la ruta vuelve al otro día). -->
               <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template #header><tr>
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
-                  <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"><span class="sr-only">Proporción</span></th></tr>
+                  <th scope="col" class="comm-num">Venta</th>
+                  @if (!esRutaVecinal()) {
+                    <th scope="col" class="comm-num">Depositado</th>
+                    <th scope="col">Entrada a Caja General</th>
+                  }
+                  <th scope="col" class="rr-barcol"><span class="sr-only">Proporción</span></th></tr>
                 </ng-template>
                 <ng-template #body let-x>
                   <tr class="rr-row" (click)="drillDay(x.date)" [title]="'Ver tickets del ' + x.date">
@@ -397,10 +461,50 @@ const MES: Record<string, string> = {
                     </td>
                     <td class="comm-num">{{ x.tickets | number }}</td>
                     <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    @if (!esRutaVecinal()) {
+                      <td class="comm-num">
+                        @if (depDelDia(x.date); as d) { {{ d.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                        @else { <span class="comm-muted">—</span> }
+                      </td>
+                      <td>
+                        @if (depDelDia(x.date); as d) {
+                          @for (f of d.folios; track f.folio) {
+                            <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
+                               [queryParams]="{ q: f.folio, from: f.fecha, to: f.fecha }"
+                               [attr.aria-label]="'Abrir ' + f.folio + ' en Caja General'">{{ f.folio }}</a>
+                          }
+                          @if (d.sin_capturar) {
+                            <span class="comm-muted">{{ d.sin_capturar }} sin capturar</span>
+                          }
+                        } @else { <span class="comm-muted">—</span> }
+                      </td>
+                    }
                     <td class="rr-barcol"><span class="rr-bar" [style.width.%]="barPct(x.revenue)"></span></td>
                   </tr>
                 </ng-template>
               </p-table>
+              @if (!esRutaVecinal()) {
+                @if (depCargando()) {
+                  <p class="rr-note">Buscando los depósitos de esta ruta…</p>
+                } @else if (depError()) {
+                  <p class="rr-note rr-dep-bad-txt">{{ depError() }}</p>
+                } @else {
+                  <p class="rr-note">
+                    «Depositado» es lo que entró a la caja fuerte declarando <strong>este día</strong>
+                    en el texto del depósito.
+                    @if (depSinDia().n) {
+                      Esta ruta tiene además
+                      <strong>{{ depSinDia().n }}</strong> depósitos por
+                      <strong>{{ depSinDia().monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>
+                      cuyo texto <strong>declara la ruta pero no el día</strong>: no se pueden poner en
+                      ningún renglón, y se ven completos en la pestaña Depósito.
+                    }
+                    ⛔ Venta y depósito <strong>no son el mismo universo</strong> —la venta incluye
+                    crédito y otros medios de pago, el depósito es sólo efectivo—, así que acá
+                    <strong>no se resta</strong> una de otra: se muestran lado a lado.
+                  </p>
+                }
+              }
             }
             @case ('clientes') {
               <p-table [value]="detail()!.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
@@ -542,6 +646,226 @@ const MES: Record<string, string> = {
                 </p-table>
               }
             }
+            @case ('deposito') {
+              <!-- [CG.58.7] El dinero de ESTA ruta: su deposito en la caja fuerte (CAOS) y la
+                   entrada que ese deposito genero en Caja General. El vinculo es estructural
+                   (la entrada guarda de que deposito salio), por eso el folio es un enlace. -->
+              @if (esRutaVecinal()) {
+                <p class="rr-dep-nota">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  <span>
+                    <strong>Esta ruta no deposita en la caja fuerte.</strong> La vecinal cobra en una
+                    caja registradora de la sucursal, así que su dinero se cuenta en el
+                    <strong>arqueo de esa caja</strong>, no en CAOS ni en Caja General.
+                  </span>
+                </p>
+                <!-- [VEC.12] Antes esto terminaba acá, mandando a leer el panel de arriba. Pero la
+                     pregunta de quien abre una ruta es "ésta, ¿entregó el dinero?", y remitir a
+                     otro lado la deja sin responder donde se hace. Se muestran SUS cajas.
+                     ⛔ El grano es la CAJA, no la ruta: una caja mezcla rutas y mostrador, asi que
+                     la columna "% vecinal" dice cuanto del arqueo es atribuible -- y solo con 100
+                     el descuadre es de la vecinal. Sin eso, el numero invita a culpar al que pasa. -->
+                <app-load-state [loading]="arqCargando()" [error]="arqError()"
+                                [isEmpty]="!arqCargando() && !arqError() && !arqFilas().length"
+                                [skeletonRows]="5" emptyIcon="pi-wallet"
+                                emptyTitle="Ninguna caja con arqueo declara esta ruta en el período"
+                                emptyHint="El arqueo lo cierra la sucursal al terminar el turno. Si el período es reciente, puede que todavía no lo suban."
+                                (retry)="recargarArqueo()">
+                  @if (arqFilas().length) {
+                    <!-- [VEC.12.2] Vendio vs deposito, por DIA. Fuera la columna "Caja": es
+                         plomeria, y la pregunta es si el dinero llego.
+                         ⛔ El cuadre por ruta NO siempre se puede: cash_cuts no tiene ruta (grano
+                         sucursal/caja/turno, verificado), asi que solo cierra cuando la caja fue
+                         de ESTA ruta sola y 100% vecinal. Medido: 129 de 735 dia-ruta (17.6%).
+                         Donde no, se dice POR QUE en vez de dibujar una Δ que es de otro. -->
+                    <p class="rr-dep-sub">
+                      <strong>{{ arqCuadran() }}</strong> de {{ arqMedidos() }} día(s) medido(s)
+                      <strong>cuadran</strong>.
+                      @if (arqSinMedir()) {
+                        <!-- ADR-056: un dia sin arqueo no es "no cuadra", es que todavia no hay
+                             con que juzgarlo. Meterlo al denominador bajaria el cumplimiento por
+                             algo que nadie midio. -->
+                        {{ arqSinMedir() }} todavía sin arqueo, fuera de la cuenta.
+                      }
+                    </p>
+                    <!-- dt-scope + dt-stack: ocho columnas que son CAMPOS del mismo dia, no un
+                         pivote. ⚠️ El dt-stack SIN el dt-scope no apila nada: la consulta de
+                         contenedor no tiene contra que medir, y se ve igual de roto pero en verde. -->
+                    <div class="dt-scope">
+                    <p-table [value]="arqDias()" size="small" class="dt-stack surf-table" [scrollable]="true" scrollHeight="46vh" [tableStyle]="{ 'min-width': '64rem' }">
+                      <ng-template #header>
+                        <tr>
+                          <th scope="col">Día</th>
+                          <!-- ⛔ Decía «Contado» y pinta venta_ruta: la VENTA de la ruta, no el
+                               efectivo contado en el arqueo (ese es «Depósito»). Con el nombre
+                               viejo la fila se leía como un cuadre entre dos cifras que no se
+                               comparan — 12,764 contra 24,005 con Δ 0 — y la Δ es del ARQUEO
+                               DE LA CAJA, no de estas dos columnas. -->
+                          <th scope="col" class="comm-num">Venta de la ruta</th>
+                          <th scope="col" class="comm-num">Depósito</th>
+                          <th scope="col" class="comm-num">Δ</th>
+                          <th scope="col">Cuadre</th>
+                          <!-- [VEC.21] El credito en la MISMA tabla: es la otra mitad de "el
+                               dinero de esta ruta, ¿llego?". Se factura un dia y se cobra otro,
+                               por eso NO entra al cuadre del arqueo de arriba. -->
+                          <th scope="col" class="comm-num">A crédito</th>
+                          <th scope="col" class="comm-num">Cobrado</th>
+                          <th scope="col" class="comm-num">Por cobrar</th>
+                        </tr>
+                      </ng-template>
+                      <ng-template #body let-d>
+                        <tr>
+                          <td class="rr-mono" role="cell" data-label="Día">{{ d.date }}</td>
+                          <td class="comm-num rr-mono rr-strong" role="cell" data-label="Venta de la ruta">{{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <!-- El deposito SE MUESTRA SIEMPRE: es un hecho de la caja y existe
+                               aunque no se pueda atribuir a esta ruta sola. -->
+                          <td class="comm-num rr-mono" role="cell" data-label="Depósito">
+                            @if (d.deposito === null) { <span class="rr-tenue">—</span> }
+                            @else { {{ d.deposito | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          </td>
+                          <td class="comm-num rr-mono"
+                              [class.rr-bad]="d.estado === 'falta'"
+                              [class.rr-warn]="d.estado === 'sobra'" role="cell" data-label="Δ">
+                            @if (d.diff === null) { <span class="rr-tenue">—</span> }
+                            @else if (d.estado === 'cuadra') { 0 }
+                            @else { {{ d.diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          </td>
+                          <td role="cell" data-label="Cuadre">
+                            @switch (d.estado) {
+                              @case ('cuadra') { <span class="rr-ok">Cuadra</span> }
+                              @case ('falta')  { <span class="rr-bad">No cuadra · falta</span> }
+                              @case ('sobra')  { <span class="rr-warn">No cuadra · sobra</span> }
+                              @default         { <span class="rr-tenue">{{ d.sin_medir ?? 'Sin arqueo' }}</span> }
+                            }
+                            @if (d.estado !== 'sin_medir' && !d.atribuible) {
+                              <!-- Cuando CUADRA, compartir caja no estorba: si la caja cuadro, el
+                                   dinero de esta ruta esta adentro. Cuando NO cuadra, de quien es
+                                   el faltante no se puede saber -- y eso hay que decirlo. -->
+                              <span class="rr-tenue rr-nota"> · {{ d.motivo }}</span>
+                            }
+                          </td>
+                          <!-- ⛔ Un dia SIN credito muestra guion, no $0: "no facturo a credito"
+                               y "facturo cero" no son lo mismo. -->
+                          <td class="comm-num rr-mono" role="cell" data-label="A crédito">
+                            @if (!d.credito) { <span class="rr-tenue">—</span> }
+                            @else { {{ d.credito | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          </td>
+                          <td class="comm-num rr-mono" role="cell" data-label="Cobrado">
+                            @if (!d.credito) { <span class="rr-tenue">—</span> }
+                            @else { {{ d.credito_cobrado | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          </td>
+                          <td class="comm-num rr-mono rr-strong" role="cell" data-label="Por cobrar"
+                              [class.rr-bad]="d.credito_vencidas > 0">
+                            @if (!d.credito) { <span class="rr-tenue">—</span> }
+                            @else {
+                              {{ d.credito_saldo | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                              @if (d.credito_vencidas) {
+                                <span class="rr-nota"> · {{ d.credito_vencidas }} vencida(s)</span>
+                              }
+                            }
+                          </td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                    </div>
+                    @if (creditoError()) {
+                      <!-- ⛔ Se declara, no se dibuja en blanco: columnas vacías sin aviso se
+                           leen como "no vendió a crédito", que es otra cosa. -->
+                      <p class="rr-dep-sub rr-warn">
+                        No se pudo leer la venta a crédito de esta ruta: las tres últimas columnas
+                        están vacías por eso, no porque no haya.
+                      </p>
+                    } @else if (creditoTotal() > 0) {
+                      <p class="rr-dep-sub">
+                        A crédito en el período: <strong>{{ creditoTotal() | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>,
+                        por cobrar <strong>{{ creditoPorCobrar() | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>.
+                        Esto <strong>no entra al cuadre</strong> de arriba: se factura un día y se
+                        cobra otro, así que no es que falte — es que todavía no se cobró.
+                      </p>
+                    }
+                    <p class="rr-dep-sub rr-tenue">
+                      «Depósito» es el efectivo que se <strong>contó en el arqueo</strong> de la
+                      caja donde se timbró la ruta — Kepler no registra el depósito por ruta
+                      (<span class="rr-mono">cash_cuts</span> va por sucursal, caja y turno).
+                      ⛔ La <strong>Δ es la del arqueo de esa caja</strong> —lo contado contra lo
+                      que la caja debía tener—, <strong>no</strong> «Depósito menos Venta de la
+                      ruta»: esas dos no se restan, porque en la misma caja cobran otras rutas y
+                      el mostrador. Δ positiva = falta efectivo; negativa = sobra. Cuando la caja
+                      cuadra, el dinero de esta ruta está dentro; cuando no, el faltante es
+                      <strong>de la caja</strong> y no se puede atribuir a una ruta sola.
+                    </p>
+                  }
+                </app-load-state>
+              } @else {
+                <!-- La matriz de estados la lleva app-load-state: cargando, vacio y error de red
+                     NO se pintan igual, y el error ofrece reintentar. -->
+                <app-load-state [loading]="depCargando()" [error]="depError()"
+                                [isEmpty]="!depCargando() && !depError() && !depDepositos().length"
+                                [skeletonRows]="6" emptyIcon="pi-wallet"
+                                emptyTitle="Ningún depósito de la caja fuerte declara esta ruta"
+                                emptyHint="El texto del depósito es lo que la atribuye. Lo que no declara ruta queda sin dueño y se ve en el panel de arriba."
+                                (retry)="recargarDeposito()">
+                  <div class="rr-dep-kpis">
+                    <div><span>Depósitos</span><b>{{ depFila()?.depositos ?? 0 }}</b></div>
+                    <div><span>Depositado</span><b>{{ (depFila()?.monto_caos ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                    <div><span>En Caja General</span><b>{{ depFila()?.en_caja_general ? ((depFila()!.monto_caja_general) | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</b></div>
+                    <div><span>Sin capturar</span><b>{{ (depFila()?.monto_pendiente ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                  </div>
+
+                  @if (depFila()?.motivo_sucursal) {
+                    <p class="rr-dep-nota rr-dep-warn">
+                      <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      <span>{{ depFila()!.motivo_sucursal }}</span>
+                    </p>
+                  }
+
+                  <p-table [value]="depDepositos()" size="small" class="surf-table" [scrollable]="true" scrollHeight="46vh">
+                    <ng-template #header><tr>
+                      <th scope="col">Depósito</th>
+                      <th scope="col">Cuándo</th>
+                      <th scope="col">Texto que tecleó</th>
+                      <th scope="col">Día de venta</th>
+                      <th scope="col" class="comm-num">Depositado</th>
+                      <th scope="col">Entrada a Caja General</th>
+                      <th scope="col" class="comm-num">Δ</th></tr>
+                    </ng-template>
+                    <ng-template #body let-d>
+                      <tr>
+                        <td class="rr-mono">#{{ d.external_id }}</td>
+                        <td class="rr-mono">{{ d.occurred_at.slice(0, 16).replace('T', ' ') }}</td>
+                        <td class="rr-mono comm-muted">{{ d.ref || '(sin referencia)' }}</td>
+                        <td class="rr-mono">
+                          @if (d.fecha_venta) { {{ d.fecha_venta }} }
+                          @else { <span class="comm-muted" [title]="d.motivo">no lo declara</span> }
+                        </td>
+                        <td class="comm-num rr-strong">{{ d.monto_caos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td>
+                          @if (d.cg_folio) {
+                            <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
+                               [queryParams]="{ q: d.cg_folio, from: d.cg_fecha, to: d.cg_fecha }"
+                               [title]="'Abrir ' + d.cg_folio + ' en Caja General'">
+                              {{ d.cg_folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
+                            </a>
+                          } @else {
+                            <span class="comm-muted">sin capturar todavía</span>
+                          }
+                        </td>
+                        <td class="comm-num comm-muted">
+                          @if (d.delta === null) { — }
+                          @else { {{ d.delta | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                        </td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                  <p class="rr-note">
+                    De qué ruta es cada depósito lo dice el texto que tecleó quien depositó. Lo que no
+                    declara ruta no se reparte: se queda sin dueño y se ve en el panel de arriba. La
+                    <strong>Δ</strong> es cuánto más dice la entrada que el depósito y nunca es
+                    negativa en lo medido; su causa no está medida.
+                  </p>
+                </app-load-state>
+              }
+            }
           }
         }
       </app-side-peek>
@@ -549,6 +873,28 @@ const MES: Record<string, string> = {
   `,
   styles: [`
     :host { display:block; }
+    /* [CG.58.7] El deposito de la ruta en la caja fuerte */
+    .rr-dep-kpis { display:flex; gap:var(--sp-4); flex-wrap:wrap; margin:0 0 var(--sp-3); }
+    .rr-dep-kpis > div { display:flex; flex-direction:column; gap:2px; }
+    .rr-dep-kpis span { font-size:var(--fs-micro); color:var(--text-faint); }
+    .rr-dep-kpis b { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); color:var(--text-main); }
+    .rr-dep-nota { display:flex; gap:var(--sp-2); align-items:flex-start; margin:0 0 var(--sp-3);
+      padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md);
+      font-size:var(--fs-sm); color:var(--text-muted); line-height:1.5; }
+    .rr-dep-nota .pi { margin-top:2px; color:var(--text-faint); }
+    /* [VEC.12] El arqueo de la vecinal: su circuito del dinero, en su propia ruta. */
+    .rr-dep-sub { margin:0 0 var(--sp-2); font-size:var(--fs-micro); color:var(--text-muted); }
+    .rr-dep-sub:last-child { margin:var(--sp-2) 0 0; }
+    .rr-tenue { color:var(--text-faint); }
+    .rr-bad { color:var(--bad-fg); }
+    .rr-warn { color:var(--warn-fg); }
+    .rr-ok { color:var(--ok-fg); }
+    .rr-nota { font-size:var(--fs-micro); }
+    .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
+    .rr-dep-warn .pi { color: var(--warn-fg); }
+    .rr-dep-bad-txt { color: var(--bad-fg); }
+    .rr-dep-bad { border-color: color-mix(in srgb, var(--bad-fg) 38%, var(--border-color)); }
+    .rr-dep-bad .pi { color: var(--bad-fg); }
     .rr-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .rr-field { display:flex; flex-direction:column; gap:.3rem; }
     .rr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -652,6 +998,8 @@ export class ComercialVentasPorRutaComponent {
   private readonly destroyRef = inject(DestroyRef);
   /** `[JZ.1]` Para aterrizar filtrado desde un enlace. Ver `leerFiltrosDeLaUrl()`. */
   private readonly ruta = inject(ActivatedRoute);
+  /** `[CG.58.7]` El dinero de la ruta: su depósito en la caja fuerte y la entrada que generó. */
+  private readonly caos = inject(CaosService);
 
   routeOpts = signal<SalesByRouteOption[]>([]);
   productOpts = signal<{ value: string; label: string }[]>([]);
@@ -803,6 +1151,210 @@ export class ComercialVentasPorRutaComponent {
   tab = signal<DetailTab>('productos');
   private dailyMax = 1;
 
+  // ── `[CG.58.7]` El depósito de la ruta en la caja fuerte, y su entrada a Caja General ──────
+  //
+  // La fila que se está mirando se guarda entera: para resolver el depósito hacen falta el
+  // `route_no` (lo que el texto del depósito declara) y el `route_code` (para saber si es
+  // vecinal, que es otro circuito y NO deposita en CAOS).
+  peekRow = signal<SalesByRouteRow | null>(null);
+  depReporte = signal<RutaCajaReporte | null>(null);
+  depCargando = signal(false);
+  depError = signal<string | null>(null);
+
+  /**
+   * ⛔ La vecinal no deposita en la caja fuerte: cobra en una caja registradora y su dinero se
+   * cuenta en el arqueo de esa caja. Mezclarla acá le cobraría a un camión la venta de un
+   * vendedor que no lo maneja — mismo criterio que el clasificador del backend.
+   */
+  readonly esRutaVecinal = computed(() => {
+    const r = this.peekRow();
+    if (!r) return false;
+    return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '');
+  });
+
+  // ── `[VEC.12]` El dinero de una ruta VECINAL: el arqueo de la caja donde se timbró ────────
+  //
+  // El otro circuito. No se reusa `depReporte` (CAOS) a propósito: son dos hechos distintos y
+  // juntarlos en una estructura invitaría a sumarlos.
+  arqData = signal<VecinalConciliacion | null>(null);
+  arqCargando = signal(false);
+  arqError = signal<string | null>(null);
+  /**
+   * `[VEC.21]` La venta a crédito de ESTA ruta, para el mismo rango. Se pide aparte del arqueo
+   * porque son dos hechos distintos —el efectivo del día y la factura que se cobra después— y
+   * uno puede existir sin el otro: un día puede tener crédito y no tener arqueo, o al revés.
+   *
+   * ⚠️ Un error acá NO rompe la pestaña: el arqueo se sigue viendo y las columnas de crédito
+   * declaran que no se pudieron leer. Son dos preguntas, no una.
+   */
+  creditoData = signal<RouteCreditSales | null>(null);
+  creditoError = signal<string | null>(null);
+
+  /**
+   * Las filas día-caja donde participó ESTA ruta.
+   *
+   * ⚠️ El filtro es por pertenencia a `rutas`, no por igualdad: una caja mezcla rutas, y exigir
+   * que sea la única dejaría fuera justo las cajas compartidas —que son la mayoría— mostrando
+   * una tabla vacía que se leería como «no se contó».
+   */
+  readonly arqFilas = computed<VecinalConciliacionFila[]>(() => {
+    const d = this.arqData();
+    if (!d) return [];
+    const code = this.rutaAbierta();
+    if (!code) return [];
+    return d.filas.filter((f) => f.rutas.some((r) => r.trim().toUpperCase() === code));
+  });
+
+  /** El código de la ruta abierta, normalizado — la llave de todo lo de `[VEC.12]`. */
+  private rutaAbierta(): string {
+    return String(this.peekRow()?.route_no ?? '').trim().toUpperCase();
+  }
+
+  /** Las OTRAS rutas que usaron esa caja ese día. Vacío = la caja fue sólo de esta ruta. */
+  otrasRutas(f: VecinalConciliacionFila): string[] {
+    const mia = this.rutaAbierta();
+    return f.rutas.map((r) => r.trim().toUpperCase()).filter((r) => r && r !== mia);
+  }
+
+  /**
+   * `[VEC.12.2]` **Vendió contra depositó, por DÍA.** Se agrega sobre las cajas del día porque la
+   * caja es plomería: la pregunta del detalle de una ruta es si el dinero llegó.
+   *
+   * ⛔ **El cuadre por ruta no siempre existe, y eso NO se disimula.** `analytics.cash_cuts` no
+   * tiene columna de ruta —su grano es (sucursal, caja, turno), verificado— así que el efectivo
+   * contado sólo es de esta ruta cuando **todas** sus cajas del día fueron suyas solas y 100%
+   * vecinales. Medido el 2026-10-14 sobre 180 días: **129 de 735 día-ruta (17.6%)**; en PH
+   * `1V001`, 2 de 94. Donde no se puede, `deposito` y `diff` llegan `null` **con el motivo**, que
+   * es muy distinto de un cero (ADR-056).
+   *
+   * ⚠️ Una ruta puede timbrar en más de una caja el mismo día (38 de 696 medido), por eso se
+   * suma sobre las cajas y basta que UNA no sea atribuible para que el día no lo sea.
+   */
+  readonly arqDias = computed<ArqDia[]>(() => {
+    const porDia = new Map<string, VecinalConciliacionFila[]>();
+    for (const f of this.arqFilas()) {
+      const g = porDia.get(f.date);
+      if (g) g.push(f); else porDia.set(f.date, [f]);
+    }
+    // `[VEC.21]` El crédito del día, indexado por fecha de FACTURA. ⛔ No por fecha de cobro: lo
+    // que se vendió ese día es lo que se facturó ese día; el cobro llega después y por eso viaja
+    // como `credito_cobrado`, no como otro renglón.
+    const credito = new Map<string, { importe: number; cobrado: number; saldo: number; vencidas: number }>();
+    for (const f of this.creditoData()?.filas ?? []) {
+      const e = credito.get(f.fecha) ?? { importe: 0, cobrado: 0, saldo: 0, vencidas: 0 };
+      e.importe += f.importe; e.cobrado += f.cobrado; e.saldo += f.saldo;
+      if (f.cobranza === 'vencida') e.vencidas += 1;
+      credito.set(f.fecha, e);
+      // Un día con crédito y SIN arqueo igual tiene que salir: si no, la venta a crédito de un
+      // día sin corte desaparece de la pantalla sin que nadie se entere.
+      if (!porDia.has(f.fecha)) porDia.set(f.fecha, []);
+    }
+
+    const out: ArqDia[] = [];
+    for (const [date, fs] of porDia) {
+      let venta = 0, contado = 0, diff = 0;
+      let atribuible = true, medido = false;
+      let motivo: string | null = null, sinMedir: string | null = null;
+      for (const f of fs) {
+        venta += f.vecinal_ruta ?? 0;
+        // La caja es compartida si otra ruta la usó o si también cobró mostrador. Eso NO impide
+        // decir si cuadra: impide decir DE QUIÉN es el faltante cuando no cuadra.
+        const otras = this.otrasRutas(f);
+        if (otras.length) {
+          atribuible = false;
+          motivo ??= `caja compartida con ${otras.join(' · ')}`;
+        } else if (f.vecinal_pct !== null && f.vecinal_pct < 100) {
+          atribuible = false;
+          motivo ??= `la caja también cobró mostrador (${f.vecinal_pct}% vecinal)`;
+        }
+        if (f.efectivo_contado !== null) {
+          medido = true;
+          contado += f.efectivo_contado;
+          diff += f.efectivo_diff ?? 0;
+        } else {
+          sinMedir ??= this.etiquetaArqueo(f.veredicto);
+        }
+      }
+      /**
+       * ⚠️ El umbral es **$1**, no `=== 0`: la tabla redondea al peso y exigir el centavo pintaría
+       * «no cuadra» sobre un arqueo que cuadró. Medido en PH: el neto de 6 meses es $0.79.
+       */
+      const estado: ArqDia['estado'] = !medido ? 'sin_medir'
+        : Math.abs(diff) <= 1 ? 'cuadra'
+          : diff > 0 ? 'falta' : 'sobra';
+      const cr = credito.get(date);
+      out.push({
+        date,
+        venta_ruta: Math.round(venta * 100) / 100,
+        credito: Math.round((cr?.importe ?? 0) * 100) / 100,
+        credito_cobrado: Math.round((cr?.cobrado ?? 0) * 100) / 100,
+        credito_saldo: Math.round((cr?.saldo ?? 0) * 100) / 100,
+        credito_vencidas: cr?.vencidas ?? 0,
+        deposito: medido ? Math.round(contado * 100) / 100 : null,
+        diff: medido ? Math.round(diff * 100) / 100 : null,
+        estado,
+        atribuible,
+        motivo,
+        sin_medir: sinMedir,
+      });
+    }
+    return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+  });
+
+  /** Días con arqueo: el único denominador honesto del cumplimiento. */
+  readonly arqMedidos = computed(() => this.arqDias().filter((d) => d.estado !== 'sin_medir').length);
+  readonly arqCuadran = computed(() => this.arqDias().filter((d) => d.estado === 'cuadra').length);
+  /** Los que todavía no se pueden juzgar. Se publican aparte, NUNCA dentro del denominador. */
+  readonly arqSinMedir = computed(() => this.arqDias().filter((d) => d.estado === 'sin_medir').length);
+
+  /** `[VEC.21]` Lo facturado a crédito y lo que falta cobrar, del período que se está mirando. */
+  readonly creditoTotal = computed(() => this.arqDias().reduce((a, d) => a + d.credito, 0));
+  readonly creditoPorCobrar = computed(() => this.arqDias().reduce((a, d) => a + d.credito_saldo, 0));
+
+  /** La fila del reporte que corresponde a ESTA ruta. Null = ningún depósito la declara. */
+  readonly depFila = computed(() => {
+    const rep = this.depReporte();
+    const row = this.peekRow();
+    if (!rep || !row) return null;
+    return rep.filas.find((f) => f.ruta === String(Number(row.route_no))) ?? null;
+  });
+
+  /**
+   * `[CG.58.7]` Los depósitos de esta ruta indexados por el día que DECLARA su texto, para
+   * ponerlos al lado de la venta de ese día en «Por día». ⛔ No se indexa por `occurred_at`: el
+   * depósito se hace cuando la ruta vuelve, que normalmente es otro día — cruzarlo por la fecha
+   * del depósito pondría el dinero en el renglón equivocado.
+   */
+  readonly depPorDia = computed(() => {
+    const m = new Map<string, { monto: number; folios: { folio: string; fecha: string | null }[]; sin_capturar: number }>();
+    for (const d of this.depDepositos()) {
+      if (!d.fecha_venta) continue;
+      if (!m.has(d.fecha_venta)) m.set(d.fecha_venta, { monto: 0, folios: [], sin_capturar: 0 });
+      const e = m.get(d.fecha_venta) as { monto: number; folios: { folio: string; fecha: string | null }[]; sin_capturar: number };
+      e.monto += d.monto_caos;
+      if (d.cg_folio) e.folios.push({ folio: d.cg_folio, fecha: d.cg_fecha }); else e.sin_capturar += 1;
+    }
+    return m;
+  });
+
+  /**
+   * Lo que NO se puede poner en ningún renglón: declara la ruta pero no el día. Se DECLARA al pie
+   * en vez de repartirlo — un depósito no es un día, y repartirlo inventaría la fecha.
+   */
+  readonly depSinDia = computed(() => {
+    const sin = this.depDepositos().filter((d) => !d.fecha_venta);
+    return { n: sin.length, monto: sin.reduce((a, d) => a + d.monto_caos, 0) };
+  });
+
+  depDelDia(dia: string) { return this.depPorDia().get(dia) ?? null; }
+
+  readonly depDepositos = computed(() => {
+    const rep = this.depReporte();
+    const f = this.depFila();
+    if (!rep || !f) return [];
+    return rep.depositos.filter((d) => d.clave === f.clave);
+  });
+
   // RR2 — Tickets (paginado server-side) + drill al ticket
   readonly tkLimit = 50;
   readonly docTypeOpts = [{ label: 'Ticket', value: 'ticket' }, { label: 'Factura', value: 'factura' }];
@@ -910,7 +1462,125 @@ export class ComercialVentasPorRutaComponent {
 
   /** La carga de tickets la dispara el (onLazyLoad) de la tabla al montarse — no acá,
    *  o se pediría dos veces la misma página. */
-  setTab(t: DetailTab) { this.tab.set(t); }
+  setTab(t: DetailTab) {
+    this.tab.set(t);
+    // `[CG.58.7]` Se pide al abrir la pestaña y no al abrir la ruta: son 749 depósitos en toda la
+    // historia, pero no hay motivo para pagarlos cuando nadie los va a mirar.
+    // También en «Por día»: ahí es donde se concilia —la venta del día contra lo que ese día se
+    // depositó— y si no se pide, las dos columnas nuevas salen vacías y se leen como «no depositó».
+    if ((t === 'deposito' || t === 'dias') && !this.esRutaVecinal() && !this.depReporte() && !this.depCargando()) {
+      this.cargarDeposito();
+    }
+    // `[VEC.12]` La vecinal tiene su propio circuito: el arqueo de la caja, no la caja fuerte.
+    if (t === 'deposito' && this.esRutaVecinal() && !this.arqData() && !this.arqCargando()) {
+      this.cargarArqueo();
+    }
+  }
+
+  /**
+   * `[CG.58.7]` Los depósitos del AÑO que la pantalla está mirando. No se acota al mes del drill
+   * a propósito: un depósito no es un día —el texto declara ruta y día en el 54.5% de los casos y
+   * sólo la ruta en el resto—, así que recortarlo al mes escondería los que no fechan.
+   */
+  /** Reintento desde `app-load-state`: tira lo que haya y vuelve a pedir. */
+  recargarDeposito() { this.depReporte.set(null); this.cargarDeposito(); }
+
+  /** `[VEC.12]` Reintento del arqueo de la vecinal. */
+  recargarArqueo() { this.arqData.set(null); this.creditoData.set(null); this.cargarArqueo(); }
+
+  /**
+   * `[VEC.12]` El arqueo del AÑO que la pantalla está mirando, igual que los depósitos: el drill
+   * puede estar en un mes y la pregunta «¿entregó?» no se contesta mes a mes.
+   */
+  private cargarArqueo() {
+    const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    /**
+     * `[VEC.12.3]` **Se pide el período que la pantalla está mirando, no el año entero.**
+     *
+     * A diferencia de los depósitos de CAOS —donde el año se pide a propósito, porque el texto
+     * del depósito sólo fecha en el 54.5% de los casos— acá cada renglón del arqueo **tiene su
+     * día**, así que traer meses que nadie va a ver sólo cuesta. Medido contra prod: el mes del
+     * drill son **18 ms** contra **206 ms** del año.
+     *
+     * ⚠️ `detailBounds().to` es el primer día del mes SIGUIENTE (tope exclusivo) y el endpoint
+     * filtra con `<=`. Sin restar el día, octubre arrastraría el 1-nov.
+     */
+    const b = this.detailBounds();
+    const menosUnDia = (d: string) =>
+      new Date(new Date(`${d}T00:00:00Z`).getTime() - 864e5).toISOString().slice(0, 10);
+    const desde = b.from ?? `${this.year}-01-01`;
+    const topeAnio = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
+    const hasta = b.to ? menosUnDia(b.to) : topeAnio;
+    this.arqCargando.set(true);
+    this.arqError.set(null);
+    this.creditoError.set(null);
+    /**
+     * `[VEC.21]` La venta a CRÉDITO de la misma ruta y el mismo rango, en paralelo.
+     *
+     * ⛔ Va en su propia suscripción y **no encadenada** al arqueo: si la vista de crédito no
+     * está (la migración puede no estar aplicada) el arqueo tiene que seguir viéndose igual.
+     * Son dos preguntas; una que falla no puede apagar a la otra.
+     */
+    this.svc.routeCreditSales(desde, hasta, this.rutaAbierta())
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        /**
+         * ⛔ Se comprueba la FORMA, no sólo el `next`. Medido el 2026-10-15: el endpoint no
+         * está desplegado (404) y las tres columnas salían en blanco **sin aviso**, que se lee
+         * como «esta ruta no vendió a crédito» — y 1V001 facturó $59,475 en 6 documentos de
+         * octubre. Un cuerpo que no trae `filas` es una falla, no un cero (ADR-056).
+         */
+        next: (r) => {
+          if (!r || !Array.isArray(r.filas)) {
+            this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.');
+            return;
+          }
+          this.creditoData.set(r);
+        },
+        error: () => this.creditoError.set('No se pudo leer la venta a crédito de esta ruta.'),
+      });
+    // `[VEC.12.1]` La ruta viaja al servidor: sin ella la fila sólo trae el total de la CAJA, y
+    // mostrarlo en el detalle de una ruta es lo que hacía mentir a esta pestaña.
+    this.svc.vecinalConciliacion(desde, hasta, this.rutaAbierta()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.arqData.set(r); this.arqCargando.set(false); },
+      error: () => {
+        this.arqError.set('No se pudo leer el arqueo de las cajas.');
+        this.arqCargando.set(false);
+      },
+    });
+  }
+
+  /**
+   * ⛔ Las dos ausencias NO se dicen igual (ADR-056): `sin_arqueo` lo arregla la sucursal subiendo
+   * su corte; `contado_en_cero` es un corte que existe y declara cero, que es otra cosa.
+   */
+  etiquetaArqueo(v: VecinalVeredicto): string {
+    switch (v) {
+      case 'cuadra': return 'Cuadra';
+      case 'faltante': return 'Falta efectivo';
+      case 'sobrante': return 'Sobra efectivo';
+      case 'contado_en_cero': return 'Contado en cero';
+      case 'vecinal_excede_arqueo': return 'La vecinal excede el arqueo';
+      case 'sin_arqueo': return 'Sin arqueo';
+      case 'arqueo_abierto': return 'Caja sin cerrar';
+      case 'dia_en_curso': return 'Día en curso';
+      default: return v;
+    }
+  }
+
+  private cargarDeposito() {
+    const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const desde = `${this.year}-01-01`;
+    const hasta = hoy.slice(0, 4) === String(this.year) ? hoy : `${this.year}-12-31`;
+    this.depCargando.set(true);
+    this.depError.set(null);
+    this.caos.rutaCaja(desde, hasta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.depReporte.set(r); this.depCargando.set(false); },
+      error: () => {
+        this.depError.set('No se pudieron leer los depósitos de la caja fuerte.');
+        this.depCargando.set(false);
+      },
+    });
+  }
 
   private ticketParams(): SalesByRouteTicketsParams {
     const b = this.dayBounds() ?? this.detailBounds();
@@ -1050,7 +1720,7 @@ export class ComercialVentasPorRutaComponent {
         next: (r) => { this.report.set(r); this.loading.set(false); },
         error: (e) => {
           this.loading.set(false);
-          this.error.set(e?.error?.message || 'No se pudo consultar el reporte. Revisá la conexión e intentá de nuevo.');
+          this.error.set(e?.error?.message || 'No se pudo consultar el reporte. Revisa la conexión e intenta de nuevo.');
         },
       });
   }
@@ -1090,6 +1760,11 @@ export class ComercialVentasPorRutaComponent {
   openRoute(row: SalesByRouteRow, month?: string) {
     this.tab.set('productos');
     this.detail.set(null);
+    // `[CG.58.7]` La fila entera, para resolver el depósito de ESTA ruta. El reporte se tira: si
+    // no, la ruta nueva mostraría los depósitos de la anterior mientras carga.
+    this.peekRow.set(row);
+    this.depReporte.set(null);
+    this.depError.set(null);
     this.detailLoading.set(true);
     this.peekOpen.set(true);
     // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.

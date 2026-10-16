@@ -25,3 +25,17 @@ export function moneyShort(v: number | null | undefined): string {
     style: 'currency', currency: 'MXN', maximumFractionDigits: 0,
   });
 }
+
+/**
+ * `[CGP-V.7]` Como `money`, pero lo que no se midió se DICE: `null`, `undefined`, vacío o algo que no
+ * es número → `'sin medir'` (o la etiqueta que se pase), nunca `$0.00`. Un cero medido sigue siendo
+ * cero. Acepta texto porque el `numeric` de Postgres llega así por JSON.
+ *
+ * ⚠️ Aditiva a propósito: `money` no cambia. La usan Finanzas y Compras, y muchas columnas suyas
+ * son «el importe de la otra fuente, si lo tiene», donde el `?? 0` es una decisión de cada pantalla.
+ */
+export function moneyOSinMedir(v: number | string | null | undefined, sinDato = 'sin medir'): string {
+  if (v == null || v === '') return sinDato;
+  const n = Number(v);
+  return Number.isFinite(n) ? money(n) : sinDato;
+}

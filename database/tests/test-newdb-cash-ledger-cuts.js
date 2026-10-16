@@ -65,6 +65,16 @@ const corte = (over = {}) => ({
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
 
       console.log('\n── 2. El saldo corrido se DERIVA ──');
+      // `[CGP-D.2c]` La 00 la comparten las pruebas del servicio, que CONFIRMAN sus datos: medir el saldo
+      // en absoluto daba por hecho una sucursal vacía (corrida después de ellas: esperaba 500, vio
+      // 7,500). Se mide la DIFERENCIA contra el saldo corrido que ya había, con la misma columna.
+      const saldoDe00 = async () => {
+        const r = await trx.raw(
+          `SELECT saldo_movimientos FROM finance.v_cash_ledger_balance
+            WHERE sucursal='00' ORDER BY created_at DESC, id DESC LIMIT 1`);
+        return r.rows.length ? Number(r.rows[0].saldo_movimientos) : 0;
+      };
+      const saldoPrevio00 = await saldoDe00();
       const [i1] = await trx('finance.cash_ledger').insert(mov({ tipo: 'ingreso', monto: 1000 })).returning('*');
       const [g1] = await trx('finance.cash_ledger').insert(mov({ tipo: 'gasto', monto: 300 })).returning('*');
       const [d1] = await trx('finance.cash_ledger').insert(mov({ tipo: 'deposito', monto: 200 })).returning('*');
@@ -72,8 +82,8 @@ const corte = (over = {}) => ({
       const saldos = await trx.raw(
         `SELECT id, tipo, monto, efecto, saldo_movimientos FROM finance.v_cash_ledger_balance
           WHERE sucursal='00' ORDER BY created_at, id`);
-      const fin = Number(saldos.rows[saldos.rows.length - 1].saldo_movimientos);
-      ok(fin === 500, `1000 − 300 − 200 = 500 de movimientos (dio ${fin})`);
+      const fin = Number(saldos.rows[saldos.rows.length - 1].saldo_movimientos) - saldoPrevio00;
+      ok(fin === 500, `1000 − 300 − 200 = 500 de movimientos (dio ${fin} sobre los ${saldoPrevio00} que ya había)`);
       ok(Number(saldos.rows.find((r) => r.id === i1.id).efecto) === 1000, 'un ingreso suma');
       ok(Number(saldos.rows.find((r) => r.id === g1.id).efecto) === -300, 'un gasto resta');
       ok(Number(saldos.rows.find((r) => r.id === d1.id).efecto) === -200, 'un depósito al banco resta de la caja');
@@ -96,8 +106,9 @@ const corte = (over = {}) => ({
       const cancelado = tras.rows.find((r) => r.id === g1.id);
       ok(!!cancelado, 'el movimiento cancelado SIGUE en la vista — lo que se audita es que se canceló');
       ok(Number(cancelado.efecto) === 0, 'y su efecto sobre el saldo es 0');
-      ok(Number(tras.rows[tras.rows.length - 1].saldo_movimientos) === 800,
-        `el saldo se recalcula solo: 1000 − 200 = 800 (dio ${tras.rows[tras.rows.length - 1].saldo_movimientos})`);
+      const trasCancelar = Number(tras.rows[tras.rows.length - 1].saldo_movimientos) - saldoPrevio00;
+      ok(trasCancelar === 800,
+        `el saldo se recalcula solo: 1000 − 200 = 800 (dio ${trasCancelar} sobre los ${saldoPrevio00} que ya había)`);
 
       console.log('\n── 4. El corte: abrir ──');
       const [abierto] = await trx('finance.cash_ledger_cuts').insert(corte()).returning('*');
@@ -121,10 +132,12 @@ const corte = (over = {}) => ({
         total_ingresos: 1000, total_gastos: 0, total_depositos: 200,
         esperado, contado, diferencia: contado - esperado,
       });
+      // `[CGP-D.2]` `denom_key` es NOT NULL desde `20261006124500` (el billete de $20 y la moneda
+      // de $20 son renglones distintos): sin él este insert daba 23502 y la suite moría acá.
       await trx('finance.cash_ledger_cut_denominations').insert([
-        { tenant_id: T, cut_id: abierto.id, denominacion: 1000, piezas: 1 },
-        { tenant_id: T, cut_id: abierto.id, denominacion: 200, piezas: 1 },
-        { tenant_id: T, cut_id: abierto.id, denominacion: 100, piezas: 1 },
+        { tenant_id: T, cut_id: abierto.id, denom_key: '1000', denominacion: 1000, piezas: 1 },
+        { tenant_id: T, cut_id: abierto.id, denom_key: '200', denominacion: 200, piezas: 1 },
+        { tenant_id: T, cut_id: abierto.id, denom_key: '100', denominacion: 100, piezas: 1 },
       ]);
       const cerrado = await trx('finance.cash_ledger_cuts').where({ id: abierto.id }).first();
       ok(Number(cerrado.esperado) === 1300, `esperado = 500 + 1000 − 200 = 1300 (dio ${cerrado.esperado})`);
@@ -269,7 +282,11 @@ const corte = (over = {}) => ({
     // -- 10. CG.19 Capa 1b: el reconteo deja rastro o no existe ------------------------------
     console.log('\n-- 10. CG.19 Capa 1b - reconteo con rastro --');
     await knex.transaction(async (trx) => {
-      const [c] = await trx('finance.cash_ledger_cuts').insert(corte()).returning('*');
+      // `[CGP-D.3]` El corte nace YA CONTADO: un reconteo sólo existe si antes hubo un conteo, y
+      // la base lo exige (`cut_reconteo_constancia_chk`). Antes esta sección registraba un
+      // reconteo sobre un corte que nadie había contado — justo el caso que la regla nueva frena.
+      const [c] = await trx('finance.cash_ledger_cuts')
+        .insert(corte({ contado: 100, esperado: 100, diferencia: 0 })).returning('*');
 
       // El primer conteo guardado SIN razon no se distingue de un ajuste: la DB lo frena.
       const sinMotivo = await violation(trx, () => trx('finance.cash_ledger_cuts')
