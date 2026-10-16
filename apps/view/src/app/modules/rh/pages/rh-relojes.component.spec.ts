@@ -46,6 +46,8 @@ describe('[RH.1.7] RhRelojesComponent', () => {
       renombrar: vi.fn(() => of({ ok: true, nombre: 'NUEVO', relojes: 2 })),
       restaurar: vi.fn(() => of({ ok: true, relojes: 2 })),
       cancelarOrden: vi.fn(() => of({ ok: true })),
+      // [RH.1.12] la bandeja de códigos sin persona vive en esta pantalla.
+      sinPersona: vi.fn(() => of({ filas: [], total: 0, secciones: [] })),
       // `[RH.1.7c]` Lo que pide el marco de las pestañas (los contadores).
       asistencia: vi.fn(() => of(asistencia([]))),
       incidencias: vi.fn(() => of([])),
