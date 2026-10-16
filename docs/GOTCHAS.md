@@ -4196,3 +4196,33 @@ se distingue de una invisible por permisos. Por eso `[CG.131]` publica **cuánta
 
 ⚠️ Y `finance.kepler_accounts` **se llama como una tabla y es una vista**. El nombre no dice el
 tipo, y `relkind` sí: antes de apoyar un `JOIN` en algo de `finance.*`, mirar qué es.
+
+
+---
+
+## 81. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo el CI sale en verde
+
+**2026-10-15, `[VAC.FIX]` (causado por #414).** El pod de la API entró en **CrashLoopBackOff** y el despliegue no convergió:
+
+```
+TypeError: Cannot read properties of undefined (reading 'constructor')
+    at ModelPropertiesAccessor.applyMetadataFactory (@nestjs/swagger)
+[start] API process died during boot.
+```
+
+**El mecanismo.** `libs/contracts` usa la convención `export const X = z.object(...)` + `export type X = z.infer<typeof X>` (30 contratos). Un `X` es a la vez **valor y tipo**. Eso es inofensivo en todos lados **menos** como tipo de un parámetro **decorado**: con `emitDecoratorMetadata`, TypeScript resuelve el nombre, ve que hay un valor con ese nombre y emite **el objeto Zod** en `design:paramtypes`. `@nestjs/swagger` introspecciona esos tipos esperando **clases** y revienta al arrancar.
+
+```ts
+// ⛔ mata el arranque
+getPrecio(@Query(new ZodValidationPipe(VerificadorPrecioQuery)) query: VerificadorPrecioQuery) {}
+
+// ✅ un alias local de SOLO tipo no tiene valor homónimo: se emite `Object`
+type PrecioQuery = VerificadorPrecioQuery;
+getPrecio(@Query(new ZodValidationPipe(VerificadorPrecioQuery)) query: PrecioQuery) {}
+```
+
+**Por qué el CI no lo vio.** `Build & typecheck` y `Secret scan` —los requeridos— pasaron (el mensaje de `[VAC.FIX]` cuenta los cuatro checks en verde). El tipo está bien escrito; lo que falla es la **metadata de arranque**, y **ningún job levanta la API** (deuda `VP.5`, `ci.yml:359`). Tampoco lo vieron **dos pruebas por regex** sobre el texto del controlador: afirmaban el renglón que mataba el arranque y lo daban por bueno. Y la compuerta local `boot` —la única que lo habría visto— **murió antes** por una dependencia ajena (`pdf-lib`) y se clasificó como «roja y ajena».
+
+**Cómo se vigila ahora.** `kp.controller.spec.ts` lee `Reflect.getMetadata('design:paramtypes', …)` del controlador y exige que **ningún tipo emitido sea un objeto Zod**; comprueba **primero que hay metadata** (sin `emitDecoratorMetadata` la lista sale vacía y pasaría sin medir nada). Probada en los dos sentidos: con el alias, verde; devolviendo el defecto, falla sólo esa prueba.
+
+**Regla.** En un parámetro **decorado**, el tipo **nunca** es un nombre que también exista como valor: alias local de sólo tipo. Al tocar decoradores o firmas inyectadas, una prueba de metadata y, si no se puede demostrar el arranque, **declararlo en el PR** (`ONBOARDING.md` §8.0b, puntos 30 y 31). `kp.controller.ts` es el **primer** controlador que usa `ZodValidationPipe`: no había idiom de la casa que copiar; el siguiente que lo use copia este alias.

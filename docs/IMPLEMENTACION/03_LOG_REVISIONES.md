@@ -214,6 +214,23 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — `[VAC]` #414 tiró la API en producción con los checks requeridos del CI en verde — post-mortem y estado real de lo pendiente
+
+**Qué pasó.** #414 (el acople del verificador, fusionado el 2026-10-15) **dejó la API sin arrancar en producción**: CrashLoopBackOff, despliegue sin converger (`TypeError … reading 'constructor'` en `@nestjs/swagger`). Lo arregló Edgar con `[VAC.FIX]` (`e5fa64ec8`, 13:40 −06:00 del 15-oct). Verificado hoy: `/api/health` de prod responde `200` y sirve `11d37aa77`, que **incluye** el arreglo. **La duración de la caída no la medí** y no la afirmo.
+
+**La causa** (mía): al validar la consulta con Zod (`[VAC.L6]`) tipé un parámetro decorado con `VerificadorPrecioQuery`, que es a la vez el esquema Zod y su tipo. `emitDecoratorMetadata` emite **el objeto Zod** en `design:paramtypes` y Swagger muere al arrancar. Mecanismo completo y regla en [`GOTCHAS.md` §81](../GOTCHAS.md). `kp.controller.ts` era el **primer** controlador del repo con `ZodValidationPipe`: no había idiom que copiar.
+
+**Qué falló en las defensas — y qué fue mío.**
+- **El CI no levanta la API** (deuda `VP.5`): `Build & typecheck`, `Lint & test`, `CGP-D.1` y `gitleaks` salieron en verde. Es un fallo de arranque, no de tipos. (El mensaje de `[VAC.FIX]` dice que pasaron los cuatro checks; en mi corrida previa al merge pasaban los dos **requeridos** y `Lint & test` y `CGP-D.1` fallaban igual que en `main`, por causas ajenas.)
+- **Mis pruebas dieron falsa confianza.** Dos pruebas eran **regex sobre el texto fuente** del controlador y **fijaban el renglón que mataba el arranque** (la del spec de procedencia la actualicé yo mismo a la firma nueva). Mi «prueba por mutación» sobre el controlador sólo **quitaba ese texto**: demostraba que el regex detectaba su propio renglón, no que la API arrancara.
+- **Mi `npm run check` sí tenía la compuerta `boot`**, y salió roja. La clasifiqué en el PR como «roja y **ajena** a esta rama» (`pdf-lib` ausente del `node_modules` compartido). Pero `boot` murió **al cargar el módulo, antes de que Nest construyera el grafo**: **no pudo ver mi defecto**. Debí declarar «arranque **no verificado**», no «ajeno». Es el punto 31 del protocolo.
+- **No declaré el riesgo en el PR.** Cambié decoradores y firmas de un controlador y el PR no decía «arranque no verificado».
+- **Mi punto 24 del protocolo aconsejaba no correr `npm run check` en local** (correcto por la regla de no levantar el backend) **sin dar un sustituto del arranque**. El sustituto es una prueba de metadata (punto 30).
+
+**Qué cambió.** `kp.controller.ts`: alias de sólo tipo (`[VAC.FIX]`). `kp.controller.spec.ts`: prueba sobre `design:paramtypes`, con prueba negativa. Documentación de esta entrada: `GOTCHAS.md` §81, `ONBOARDING.md` §8.0b **puntos 30 y 31** (y el 24 corregido), changelog y tracker.
+
+**Estado real de lo pendiente de VAC, contra la Definición de Terminado de [`METODO_DE_TRABAJO`](../METODO_DE_TRABAJO.md) §5** (detalle en `FASE_VAC` §12): está **en prod** desde el 15-oct (DoD 7), pero **no se cierra ✅**: falta la **validación visual en el monitor real** y llevar H1 (la escalera de precios no monótona) a Precios/Comercial. Los items sin hacer (L2, L4, L5, L8, U1–U3, U14 y D1–D6) quedan **⏸️ diferidos con nombre y razón**, no como ⬜: la mayoría necesita lectura de prod o abre superficie nueva de arranque, y la campaña de aterrizaje (§7 del método) pide cerrar antes que abrir.
+
 ## 2026-10-16 — `[TP.16]` La semana completa y «Ordenar y pagar»
 
 - **Pedido:** maqueta en Excel de Francisco: semana lun→dom con presupuesto / comprometido /
@@ -451,7 +468,7 @@ quedarse cortas.
 ---
 ## 2026-10-14 — `[VAC]` El verificador de mostrador entra al estándar, y una auditoría de diseño encuentra que el problema no era visual
 
-**PR #414**, abierto contra `main` el 2026-10-14. **Qué se pidió.** Acoplar `/tienda/verificador` al estándar de la Suite, todo en local: unificar tipografía y tema, centavos más chicos, ancho fluido, kiosco sin información interna y el mayoreo como protagonista. Después llegó una auditoría de diseño y se aplicó por partes.
+**PR #414**, abierto el 2026-10-14 y **fusionado el 2026-10-15** (`1cb1f8dd2`); ⛔ **tumbó el arranque de la API en producción y lo arregló `[VAC.FIX]`** (ver la entrada del 2026-10-16 de abajo). **Qué se pidió.** Acoplar `/tienda/verificador` al estándar de la Suite, todo en local: unificar tipografía y tema, centavos más chicos, ancho fluido, kiosco sin información interna y el mayoreo como protagonista. Después llegó una auditoría de diseño y se aplicó por partes.
 
 **⭐ Lo que la auditoría encontró y no era de pantalla.** La escalera de precios publicada no es monótona: a partir de 3 piezas, comprar suelto a precio de mayoreo sale **más barato que el paquete o la caja** (caja $114.80 más cara que 48 sueltas). Es una decisión de Precios/Comercial y **no se resolvió**; antes hay que medir cuántos SKUs la tienen rota (consulta de sólo lectura contra prod, **no medida**) y verificar los precios del ejemplo contra el SKU real (salían del mockup).
 

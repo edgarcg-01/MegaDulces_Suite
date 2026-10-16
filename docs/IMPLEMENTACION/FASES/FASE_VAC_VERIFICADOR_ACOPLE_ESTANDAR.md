@@ -254,3 +254,36 @@ grep -rln "KpService\|kp.service" apps libs --include=*.spec.ts                 
 | Sin acceso a prod, el candado de paridad no se puede cerrar. | Se escribe con prueba negativa y se declara pendiente; no se publica "0 diferencias" sin haberlo medido. |
 
 **Preguntas que sólo puede contestar una persona:** ¿quién firma D1 — Edgar, 0Sistemas o ambos? · ¿el precio corregido a mano es una práctica viva en las tiendas (D2)? · ¿hay un mostrador de pruebas donde validar la piel?
+
+
+---
+
+## 12. Estado tras el merge (2026-10-16)
+
+**#414 se fusionó el 2026-10-15 (`1cb1f8dd2`) y tiró el arranque de la API en producción** (parámetro decorado tipado con el nombre del esquema Zod; ver [`GOTCHAS.md` §81](../../GOTCHAS.md)). Lo arregló `[VAC.FIX]` (`e5fa64ec8`); prod responde `200` y sirve `11d37aa77`, que lo incluye. Post-mortem en [`03_LOG_REVISIONES.md`](../03_LOG_REVISIONES.md) (2026-10-16). Esto corrige dos afirmaciones de §10 y de las notas L1/L7 de arriba: «los tipos del backend los comprueba el CI» era cierto —y **insuficiente**: el CI no levanta la API—, y la prueba del pipe en `kp.controller.spec.ts` era un regex sobre el texto fuente (su «mutación» sólo quitaba ese texto) y **ciega al defecto de arranque**.
+
+**Contra la Definición de Terminado de [`METODO_DE_TRABAJO`](../../METODO_DE_TRABAJO.md) §5:**
+
+| # | Punto | Estado |
+|---|---|---|
+| 1 | Métrica de §2 medida otra vez | ⚠️ **El plan se escribió antes del método y no define una métrica de §2.** Las cifras que sí hay (hex 69 → 2, `::ng-deep` 3 → 0, pruebas 298 → 325, `KpService` 0 → 28) son de implementación, no de resultado. Se declara. |
+| 2 | Capas verificadas o NO MEDIDAS | C3 (interfaz): verificada con renders estáticos y pruebas, **sin ver la app real**. C2 (API): tipos ✅ en CI; **arranque NO verificado por nadie antes del merge** (de ahí el incidente). C0 (datos): **NO MEDIDO** (sin lectura de prod). |
+| 3 | Endpoints que escriben, ejercidos | N/A: la fase sólo lee. |
+| 4 | Compuertas nuevas rotas a propósito | No se creó ninguna compuerta; se agregaron candados (probados por mutación, salvo el matiz de arriba). |
+| 5 | Primitivos en `libs/` | ✅ El contrato tipado y los esquemas de consulta viven en `libs/contracts`. Deuda con nombre: `mapear()` puro (L9) y `money.util` (L12). |
+| 6 | Tracker, log y roadmap reflejan el estado real | ✅ con este cierre (tracker, log, changelog, CV.24, GOTCHAS §81, ONBOARDING puntos 30–31). |
+| 7 | En prod | ✅ **Desde el 2026-10-15** (commit `11d37aa77` verificado hoy). |
+
+**Conclusión: no se marca ✅** hasta tener (a) la **validación visual en el monitor real** (lector, cámara, pantalla completa y datos reales) y (b) H1 llevado a Precios/Comercial con cifras de prod. Mientras tanto la fase queda **🧪** y **no libera cupo** (método §3).
+
+**Pendientes reclasificados a ⏸️ (diferido, con nombre y razón):**
+
+| Item | Por qué ⏸️ y no ⬜ | Qué lo destraba |
+|---|---|---|
+| **D1–D6** (leer de `v_label_prices`, códigos como vista, override manual, frescura, snapshot, candado `[CV.26]`) | Todo necesita lectura de prod, hoy sin acceso; y D2/D3/D5 están sin firmar | Acceso de lectura a prod + firma de D2/D3/D5 |
+| **L5** (declarar unidades dudosas) | Hay que medir contra prod qué filas contradicen su propio `c84` | Misma lectura de prod |
+| **L2, L4, L8** (resolver único, envelope de procedencia, throttle) | Tocan el backend, y la lección del incidente es que **ahí no hay red de seguridad**: el CI no levanta la API (VP.5). No se abre más superficie de arranque sin un job de arranque | VP.5 (job que levante la API) o una prueba de arranque equivalente |
+| **U1, U2, U3, U14** (descomponer el componente, cámara compartida, `<dialog>`, `@layer`) | Refactor sin valor visible que **pide validar en el dispositivo real**, que aún no se hizo (U2 toca Andén y conteo) | La validación visual del punto (a) |
+| **L10 (mensaje por 5xx), L12, mapear()** | Menores; ya hay deuda con nombre | — |
+
+⛔ **Cómo se verificó el arranque en este ciclo:** nunca. Es lo que enseña el incidente. Hasta que el CI levante la API (VP.5), todo cambio que toque decoradores, constructores o providers de Nest se acompaña de una prueba de `design:paramtypes` o declara «arranque no verificado» en el PR (`ONBOARDING.md` §8.0b, puntos 30–31).
