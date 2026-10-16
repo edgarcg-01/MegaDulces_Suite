@@ -219,7 +219,7 @@ export class AiProductMatcherService {
       );
       throw new ServiceUnavailableException(
         `El catálogo de búsqueda AI no está disponible (corpus '${source}' ilegible). ` +
-          `Avisá a sistemas: ${err?.message}`,
+          `Avisá a sistemas: ${(err as Error)?.message}`,
       );
     }
 
