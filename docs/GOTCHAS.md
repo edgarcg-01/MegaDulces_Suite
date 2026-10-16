@@ -4196,3 +4196,16 @@ se distingue de una invisible por permisos. Por eso `[CG.131]` publica **cuánta
 
 ⚠️ Y `finance.kepler_accounts` **se llama como una tabla y es una vista**. El nombre no dice el
 tipo, y `relkind` sí: antes de apoyar un `JOIN` en algo de `finance.*`, mirar qué es.
+
+---
+
+## 81. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long`
+
+**Medido el 2026-10-16.** `ThrottlerModule.forRoot` (`apps/api/src/app.module.ts`) declara tres tiers **con nombre**. El guard (`@nestjs/throttler` 6.5) recorre los tiers configurados y, para cada uno, lee la metadata `THROTTLER:LIMIT`+nombre del handler. Un `@Throttle({ default: { limit: 20, ttl: 60_000 } })` guarda `THROTTLER:LIMITdefault`, que **ningún tier lee**: ni error, ni aviso, ni log. El endpoint queda sólo con los topes globales (10/s, 60/10 s, 200/min por IP).
+
+⭐ **Cómo se encontró:** al revisar mi propio PR (el dictado, un servicio de **pago por uso**) contra el código del guard, no contra lo que decía la descripción («20 por minuto»). Un endpoint con un tope que no existe se ve idéntico a uno con tope: la única prueba es mirar la metadata o disparar 21 peticiones.
+
+⚠️ **Sigue latente en `libs/commercial/src/lib/commercial-analytics/commercial-analytics.controller.ts`:** líneas 929 (15/min), 1444, 1457 y 1468 (20/min) — cuatro endpoints que creen estar limitados y no lo están. **No se tocaron** (arreglarlos *agrega* un tope que hoy no existe → cambia su comportamiento; decide Edgar). Los que sí están bien usan `short`/`long` (p. ej. `commercial-catalog-search`: `@Throttle({ long: … })`).
+
+**Cómo evitarlo:** el nombre de la clave es el de un tier **configurado** (`short`/`medium`/`long`). El candado `libs/service-desk/src/lib/dictado-throttle.spec.ts` comprueba, para ese controlador, que todo `@Throttle` usa un tier existente y que el detector SÍ marca la forma `default` (control); falta generalizarlo a todo el repo (`[THR.1]`).
+
