@@ -576,3 +576,48 @@ Su prueba negativa (`--self-test`) corre el descuento sin acotar y exige que esc
 ⚠️ **Y lo que todavía NO está hecho, dicho con todas las letras:** `[CGA-A.9]` está **commiteado y
 sin empujar ni desplegar**. En producción el defecto sigue vivo. Verifiqué la consulta **leyendo
 prod**, no ejerciendo el endpoint — o sea que, según la regla 13 del proyecto, **no está probado**.
+
+### 10.7 ⛔ Segundo defecto del mismo carril: **la captura CONGELA el importe**
+
+Medido el 2026-10-16 al corregir el cobro de la ruta 27. **No es el mismo bug que §10.1, y el
+arreglo de A.9 no lo toca.**
+
+```
+CI-2026-00047   01-005|U-A-5|0000015|0011   libro $120.00   fuente $21,240.00
+```
+
+⭐ **La vista de pendientes excluye por `origen_ref`, no por monto.** El importe se copia al libro
+en el instante de capturar y nunca se vuelve a contrastar. Si la fuente se corrige después —acá el
+importer re-corrió a las 22:08 y completó los renglones del corte que a las 21:07 estaban a
+medias— **el libro conserva el número viejo y el documento ya nunca vuelve a ofrecerse en la
+cola**. Para la pantalla ese cobro está resuelto.
+
+⛔ Mismo modo de fallar que §10.1 y que `GOTCHAS` §86: **el dinero no se pierde ni se duplica, se
+vuelve invisible.** Y el arreglo del folio no lo cubre, porque acá la identidad es correcta — lo
+que miente es el importe.
+
+**Alcance, medido sobre todo el libro:** 2 filas.
+
+| folio | libro | fuente | diferencia | qué es |
+|---|---:|---:|---:|---|
+| `CI-2026-00047` | $120.00 | $21,240.00 | **$21,120.00** | desfase de tubería |
+| `CI-2026-00004` | $16,648.00 | $16,647.62 | −$0.38 | redondeo que tecleó la persona |
+
+**Lo entregado:**
+
+- `npm run check:cobro-monto-desfasado` — contrasta cada cobro capturado contra la suma de
+  `analytics.route_collections` para su propio `origen_ref`. **Exit 1**, y separa el redondeo
+  humano (≤ $1.00, informativo) del desfase de tubería. Su prueba negativa quita la **sucursal**
+  de la llave —el defecto de §86— y exige que el cruce se desborde: **2 contra 5**.
+- Migración `20261016163855_cga_a10_vincular_cobro_ruta27_folio15_con_caos.js` — corrige
+  `CI-2026-00047` **releyendo el importe de la fuente** (aborta si no suma lo medido) y enlaza el
+  depósito de CAOS **#1615 · $21,120.00**, siguiendo el precedente de `CI-2026-00048` (ruta 28,
+  libro $13,699.00, enlace $13,280.00): **el libro lleva lo que dice Kepler y el enlace lleva lo
+  que llegó a la bóveda.** La diferencia de **$120.00** queda nombrada en `senales`, no promediada.
+  ⚠️ Es una migración de datos: la compuerta del despliegue la clasifica **NO_MEDIDO** y frena al
+  equipo → **aplicar a mano antes de mergear**.
+- **No se toca `CI-2026-00004`.** Esos $0.38 son una decisión de quien capturó, no un defecto.
+
+**Lo que falta para que no vuelva** (va dentro de A.10): que la pantalla **re-contraste el importe
+contra la fuente al mostrar el movimiento**, en vez de confiar en la copia. Mientras eso no exista,
+el detector es lo único que lo encuentra — y hay que correrlo, no esperar a que avise.
