@@ -873,7 +873,7 @@ export class TiendaCaducidadesComponent {
   /**
    * Las últimas hojas del expediente de la sucursal. Es un asomo, no el
    * expediente completo: 25 filas para ver qué se levantó, y el botón lleva a
-   * `/tienda/caducidades/expediente` donde están los filtros y las 7 sucursales.
+   * `/tienda/caducidades/expediente` donde están los filtros y todas las sucursales.
    */
   cargarExpediente(): void {
     this.cargandoExp.set(true);

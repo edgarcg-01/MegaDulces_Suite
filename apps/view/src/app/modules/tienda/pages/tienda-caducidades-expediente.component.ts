@@ -30,7 +30,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
  *     levantó y el plazo. Click en una abre el formato imprimible.
  *
  * El alcance lo aplica el server (`ScopeService`, dimensión `warehouse`): el
- * encargado ve su sucursal, dirección ve las 7. El filtro de sucursal de esta
+ * encargado ve su sucursal, dirección ve todas. El filtro de sucursal de esta
  * pantalla acota DENTRO de lo permitido, nunca lo amplía.
  */
 @Component({

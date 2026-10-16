@@ -12,6 +12,7 @@ import {
   CloudinaryService,
   ObjectStorageService,
   ScopeService,
+  branchKeyFilterSql,
 } from '@megadulces/platform-core';
 
 /**
@@ -180,11 +181,10 @@ export class CommercialExpiryReviewsService {
       throw new BadRequestException('warehouse_id inválido');
 
     const userId = this.tenantCtx.get()?.userId;
-    // Se resuelve FUERA del `tk.run`: `scope.apply()` devuelve una Promise del
-    // builder, y `await` sobre un query builder de Knex (que es thenable) lo
-    // EJECUTA en vez de devolverlo. Con `current()` + `applyTo()` síncrono el
-    // builder se compone sin dispararse.
-    const sc = await this.scope.current();
+    // El alcance se resuelve FUERA del `tk.run` y llega como lista de ids: nunca
+    // se hace `await` sobre un query builder de Knex (es thenable: lo EJECUTA en
+    // vez de devolverlo, como pasaba con `scope.apply()`).
+    const scopeIds = await this.scope.warehouseIds(undefined);
     return this.tk.run(async (trx) => {
       let q = trx('commercial.expiry_reviews as r')
         .leftJoin('commercial.warehouses as w', 'w.id', 'r.warehouse_id');
@@ -192,11 +192,12 @@ export class CommercialExpiryReviewsService {
       // Alcance de sucursal SERVER-SIDE (2026-09-08). El encargado ve el historial
       // de SU sucursal y de ninguna otra; quien tiene alcance `all` (admin) sigue
       // viendo todo. Antes esto no se filtraba: la pantalla mostraba las hojas de
-      // las 7 sucursales a cualquiera con COMMERCIAL_EXPIRY_VER, y filtrarlo en el
-      // front no habría sido un filtro — solo un adorno sobre una API abierta.
-      // Se aplica sobre `w.code` porque el alcance habla en códigos de 2 dígitos
-      // (`identity.users.warehouse_code`), no en UUIDs.
-      q = this.scope.applyTo(q, sc, 'warehouse', 'w.code');
+      // todas las sucursales a cualquiera con COMMERCIAL_EXPIRY_VER, y filtrarlo en
+      // el front no habría sido un filtro — solo un adorno sobre una API abierta.
+      // El alcance habla en la llave canónica de 2 dígitos (`branchKeySql`), no en
+      // `w.code`: `ScopeService.warehouseIds()` ya la traduce a `warehouse_id`.
+      // `null` = alcance `all` (no filtra) · `[]` = ninguna (knex lo vuelve `false`).
+      if (scopeIds) q = q.whereIn('r.warehouse_id', scopeIds);
 
       // Promotor (tiene marcas asignadas) → solo ve SUS hojas.
       if (userId) {
@@ -697,11 +698,15 @@ export class CommercialExpiryReviewsService {
       const w = await trx('commercial.warehouses').where({ id: wanted }).whereNull('deleted_at').first();
       if (!w) throw new NotFoundException('Almacén no encontrado');
       // Sólo SUCURSALES. `commercial.warehouses` también tiene almacenes-ruta
-      // (`RUTA-*`, camiones), los de Morelia sin código Kepler (`MD-30`/`MD-32`)
-      // y basura de tests: nada de eso es un anaquel que alguien recorra, ni cabe
-      // en un expediente "por sucursal", ni puede ser la ficha de un usuario
-      // (`users.warehouse_code` valida `^[0-9]{2}$`, igual que el universo de la
-      // dimensión `warehouse` en ScopeService y que el picker de `captureContext`).
+      // (`RUTA-*`, camiones) y basura de tests: nada de eso es un anaquel que
+      // alguien recorra, ni cabe en un expediente "por sucursal", ni puede ser la
+      // ficha de un usuario (`users.warehouse_code` valida `^[0-9]{2}$`).
+      //
+      // ⚠️ Aquí la regla es sobre `code` a propósito, y NO sobre la llave canónica
+      // (`branchKeySql`) que usan las lecturas: el folio se arma con `w.code`
+      // (`CAD-<code>-…`, columna de 10) y la DB lo exige de 2 dígitos. Un almacén
+      // cuya llave es de 2 dígitos pero su `code` es `MD-xx` sí es sucursal para
+      // leer, pero no se le puede levantar una hoja.
       //
       // Sin esta guarda, un alcance amplio podía escribir en cualquier almacén: el
       // folio salía `CAD-EXPREV-80590231-2026-00001` y ese código de 15 caracteres
@@ -792,10 +797,10 @@ export class CommercialExpiryReviewsService {
       const pick = (qb: any) => qb.whereNull('deleted_at').select('id', 'code', 'name').orderBy('code');
 
       if (dim.modeWrite === 'all') {
-        // Solo las sucursales de verdad: `commercial.warehouses` también tiene
-        // almacenes-ruta (`RUTA-*`) y los de Morelia sin código Kepler, que no
-        // son un lugar donde alguien recorra un anaquel. Mismo criterio que el
-        // universo de la dimensión `warehouse` en ScopeService.
+        // Solo donde se puede ESCRIBIR una hoja: sucursales con `code` de 2 dígitos
+        // (el folio lo exige, ver `resolveWriteWarehouse`). `commercial.warehouses`
+        // también tiene almacenes-ruta (`RUTA-*`) y basura de tests, que no son un
+        // lugar donde alguien recorra un anaquel.
         const options = await pick(trx('commercial.warehouses').whereRaw(`code ~ '^[0-9]{2}$'`));
         return { mode: 'all' as const, warehouse: null, options };
       }
@@ -1020,7 +1025,8 @@ export class CommercialExpiryReviewsService {
    * producto, cantidad, caducidad, quién la levantó) y NO el contenedor del día:
    * ese solo agrupa la jornada y no es lo que se archiva.
    *
-   * Alcance server-side: `own` ve su sucursal, `all` ve las 7. El `warehouse_id`
+   * Alcance server-side: `own` ve su sucursal, `all` ve todas las de la red (hoy
+   * `00` CEDIS y `01`–`08`, pero el código no cuenta sucursales). El `warehouse_id`
    * del query es un filtro DENTRO de lo permitido, nunca una forma de salirse.
    */
   async listExpediente(q: {
@@ -1040,7 +1046,7 @@ export class CommercialExpiryReviewsService {
     if (q.warehouse_id && !UUID_REGEX.test(q.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
 
-    const sc = await this.scope.current();
+    const scopeIds = await this.scope.warehouseIds(undefined);
 
     return this.tk.run(async (trx) => {
       let qb = trx('commercial.expiry_review_lines as l')
@@ -1049,16 +1055,16 @@ export class CommercialExpiryReviewsService {
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id');
 
-      qb = this.scope.applyTo(qb, sc, 'warehouse', 'w.code');
+      if (scopeIds) qb = qb.whereIn('r.warehouse_id', scopeIds);
 
       // El expediente es POR SUCURSAL, así que sólo entran renglones de una
-      // sucursal (código de 2 dígitos) — mismo criterio que la portada y que
-      // `resolveWriteWarehouse`. Sin esto, a quien tiene alcance `all` la tabla
-      // le mezclaba renglones de almacenes-ruta y de almacenes de prueba, con
-      // folio "—" porque nunca les tocó uno: se veía como un expediente roto
-      // cuando en realidad esas filas no son expediente. Cazado mirando la
-      // pantalla, no por el smoke.
-      qb = qb.whereRaw(`w.code ~ '^[0-9]{2}$'`);
+      // sucursal (llave canónica de 2 dígitos) — mismo criterio que la portada y
+      // que el universo de la dimensión `warehouse` en ScopeService. Sin esto, a
+      // quien tiene alcance `all` la tabla le mezclaba renglones de
+      // almacenes-ruta y de almacenes de prueba, con folio "—" porque nunca les
+      // tocó uno: se veía como un expediente roto cuando en realidad esas filas
+      // no son expediente. Cazado mirando la pantalla, no por el smoke.
+      qb = qb.whereRaw(branchKeyFilterSql('w'));
 
       if (q.warehouse_id) qb = qb.where('r.warehouse_id', q.warehouse_id);
       if (q.from) qb = qb.where('r.review_date', '>=', q.from);
@@ -1146,19 +1152,20 @@ export class CommercialExpiryReviewsService {
    * información — nadie capturó ahí.
    */
   async expedienteBranches() {
-    const sc = await this.scope.current();
+    const scopeIds = await this.scope.warehouseIds(undefined);
 
     return this.tk.run(async (trx) => {
       let qb = trx('commercial.warehouses as w')
         .leftJoin('commercial.expiry_reviews as r', 'r.warehouse_id', 'w.id')
         .leftJoin('commercial.expiry_review_lines as l', 'l.review_id', 'r.id')
         // Solo sucursales de verdad: `commercial.warehouses` mezcla almacenes-ruta
-        // (`RUTA-*`) y los de Morelia sin código Kepler. Mismo criterio que el
-        // universo de la dimensión `warehouse` en ScopeService.
-        .whereRaw(`w.code ~ '^[0-9]{2}$'`)
+        // (`RUTA-*`) y basura de tests. Es el MISMO universo que la dimensión
+        // `warehouse` en ScopeService (`branchKeyFilterSql` + no borrado), así que
+        // la portada no puede mostrar una sucursal que el alcance no sabe asignar.
+        .whereRaw(branchKeyFilterSql('w'))
         .whereNull('w.deleted_at');
 
-      qb = this.scope.applyTo(qb, sc, 'warehouse', 'w.code');
+      if (scopeIds) qb = qb.whereIn('w.id', scopeIds);
 
       const rows = await qb
         .groupBy('w.id', 'w.code', 'w.name')
