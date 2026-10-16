@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
   MAX_VUELTAS, PISO_ALCANCE_DEFAULT,
   acumular, diaDe, motivoCeroOk, notaDeCorrida, planearVuelta, resumenVacio,
