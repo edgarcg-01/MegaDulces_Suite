@@ -57,6 +57,8 @@ export * from './http/identity-org.contract';
 export * from './http/supplier-credit-terms.contract';
 // [RE.32] Entrega de compras recibidas a Finanzas (folio ENT-YYYY-NNNNN, quién entrega y quién recibe).
 export * from './http/purchase-delivery.contract';
+// [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
+export * from './http/payment-calendar.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
 // (recon_tasks, supervisor_tasks, inventory_count_assignments, daily_assignments) y ninguna subió a
 // libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
