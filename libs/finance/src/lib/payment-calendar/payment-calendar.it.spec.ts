@@ -17,7 +17,7 @@
 import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
-import { PaymentCalendarService } from './payment-calendar.service';
+import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -31,6 +31,9 @@ const D2 = '2030-01-16';
 const MIGS = [
   '../../../../../database/migrations-newdb/20261008174741_analytics_v_supplier_payables.js',
   '../../../../../database/migrations-newdb/20261016002604_tp15_obligacion_desde_entrega_aceptada.js',
+  // `[TP.18]` El CHECK que admite el cuarto origen. Es idempotente, así que se aplica siempre:
+  // sin ella, programar una factura derivada revienta contra la restricción (así se descubrió).
+  '../../../../../database/migrations-newdb/20261016171340_tp18_allocation_items_origen_kepler_payable.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -70,6 +73,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await trx.raw(`ALTER TABLE commercial.purchase_delivery_lines ADD COLUMN IF NOT EXISTS referencia text`);
     if (!(await trx.raw(`SELECT to_regclass('analytics.v_supplier_payables') AS r`)).rows[0].r) await migUp(MIGS[0], trx);
     // TP.15 se aplica DESPUÉS de sembrar (abajo): su backfill es el que crea las obligaciones.
+    await migUp(MIGS[2], trx);   // `[TP.18]` el CHECK del cuarto origen (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -208,5 +212,103 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     expect(p1.bank_account_label).toBe('BBVA 9999 (prueba)');
     expect(p1.items.every((i) => i.branch_code === '08')).toBe(true);
     expect(day.lot_folio).toBe('300115-01');
+  });
+
+  // ── `[TP.18]` El origen DERIVADO: la deuda de Kepler que NO pasó por Entregas (ADR-094) ──────
+  // Un flete de la 06: existe en el ERP, nadie lo capturó, y hasta TP.18 no había forma de pagarlo
+  // desde el Calendario. Lo que se ejerce acá es lo que ningún test puro puede: que la reserva
+  // funcione SIN una tabla donde guardarla.
+  describe('[TP.18] deuda derivada de Kepler (sin tabla propia)', () => {
+    const D3 = '2030-01-17';
+    const FLETE = 'TPIT-FLETE1';
+    const kep = (amount: number) => ({ obligation_source: 'kepler_payable' as const, obligation_id: keplerId, applied_amount: amount });
+    let keplerId = '';
+    let a3 = '';
+    // ⚠️ `onlyAvailable: false` a propósito: el default esconde lo que ya no tiene disponible, y
+    // justamente lo que hay que comprobar es que la reserva de una obligación SIN TABLA se vea.
+    const derivada = async () => {
+      const rows = await cal.listObligations({ search: 'TPIT', onlyAvailable: false });
+      return rows.find((r: { obligation_id: string }) => r.obligation_id === keplerId) as
+        { reserved_amount: number; paid_amount: number; available_amount: number; branch_code: string; payee_id: string } | undefined;
+    };
+
+    it('una factura que nadie capturó aparece como kepler_payable, con la llave determinística', async () => {
+      await trx('kepler_ods.kdxe').insert({ sucursal: '06', c1: '06', c2: 'TPIT-GONAC', c3: 'A', c4: 20, c5: 1, c6: FLETE, c7: '2030-01-09 00:00:00', c10: '2030-01-09 00:00:00', c11: 9500 });
+      const rows = await cal.listObligations({ search: 'TPIT' });
+      const d = rows.filter((r: { obligation_source: string }) => r.obligation_source === 'kepler_payable');
+      expect(d).toHaveLength(1);
+      keplerId = (d[0] as { obligation_id: string }).obligation_id;
+      // La llave que calculó el SQL es la misma que calcula el TS (si no, el pago no reencuentra su factura).
+      expect(keplerId).toBe(keplerPayableId('06', 20, 1, FLETE));
+      expect((d[0] as { branch_code: string }).branch_code).toBe('06');
+      expect(Number((d[0] as { available_amount: number }).available_amount)).toBeCloseTo(9500, 2);
+    });
+
+    it('⛔ dedupe: ninguna factura capturada aparece TAMBIÉN como derivada', async () => {
+      const rows = await cal.listObligations({ search: 'TPIT' }) as { obligation_source: string; concept: string }[];
+      const derivadas = rows.filter((r) => r.obligation_source === 'kepler_payable');
+      // La única derivada es el flete: las 6 que entraron por Entregas quedan fuera por el NOT EXISTS,
+      // aunque Kepler siga debiéndolas. (No se cuentan las capturadas: a esta altura del flujo unas
+      // están pagadas y otras reservadas, así que su número depende de los tests de arriba.)
+      expect(derivadas).toHaveLength(1);
+      expect(derivadas[0].concept).toContain(FLETE);
+      for (const folio of ['TPIT-801', 'TPIT-802', 'TPIT-803', 'TPIT-101', 'TPIT-102', 'TPIT-601']) {
+        expect(derivadas.some((d) => d.concept.includes(folio))).toBe(false);
+      }
+    });
+
+    it('⭐ se programa, y lo reservado se ve SIN que exista una tabla donde guardarlo', async () => {
+      const a = await cal.createAllocation({ date: D3, items: [kep(9500)] }, USER);
+      a3 = a.id;
+      expect(Number(a.amount_assigned)).toBeCloseTo(9500, 2);
+      const d = await derivada();
+      expect(Number(d!.reserved_amount)).toBeCloseTo(9500, 2);
+      expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+    });
+
+    it('⛔ el mismo saldo no se reserva dos veces', async () => {
+      await expect(cal.createAllocation({ date: D3, items: [kep(9500)] }, USER)).rejects.toThrow(/disponible|pendiente/i);
+    });
+
+    it('se agrupa con una factura CAPTURADA del mismo proveedor y sucursal (06)', async () => {
+      await cal.addItem(a3, item('TPIT-601', 1000), USER);
+      const items = await trx('finance.payment_allocation_items').where({ allocation_id: a3 });
+      expect(items).toHaveLength(2);
+      expect(new Set(items.map((i: { obligation_source: string }) => i.obligation_source)))
+        .toEqual(new Set(['kepler_payable', 'supplier_payable']));
+    });
+
+    it('⛔ dos facturas DERIVADAS de sucursales distintas no se juntan en un pago', async () => {
+      // Otra factura sin capturar, esta vez en la 01. Es el mismo proveedor, así que lo único que
+      // las separa es el centro de costo — que es justo la regla de `[TP.16.3]`.
+      await trx('kepler_ods.kdxe').insert({ sucursal: '01', c1: '01', c2: 'TPIT-GONAC', c3: 'A', c4: 20, c5: 1, c6: 'TPIT-FLETE2', c7: '2030-01-09 00:00:00', c10: '2030-01-09 00:00:00', c11: 700 });
+      const otra = keplerPayableId('01', 20, 1, 'TPIT-FLETE2');
+      await expect(cal.addItem(a3, { obligation_source: 'kepler_payable', obligation_id: otra, applied_amount: 700 }, USER))
+        .rejects.toThrow(/sucursal/i);
+    });
+
+    it('el día trae el pago con su etiqueta rearmada desde la vista (no hay tabla de dónde leerla)', async () => {
+      const day = await cal.listDayAllocations(D3);
+      const p = day.find((x: { id: string }) => x.id === a3)!;
+      const it0 = (p as { items: { beneficiary: string; concept: string; branch_code: string | null }[] }).items
+        .find((i) => i.concept.includes(FLETE));
+      expect(it0).toBeTruthy();
+      expect(it0!.beneficiary).toContain('GONAC');
+      expect(it0!.branch_code).toBe('06');
+    });
+
+    it('⭐ el camino COMPLETO de escritura: ordenar → preparar → autorizar → ejecutar', async () => {
+      await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D3, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
+      await cal.setPriorityRank(a3, 1, USER);
+      await cal.prepare(a3, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
+      const lot = await cal.releaseLot(D3, 'tp_it_gerencia');
+      expect(lot.status).toBe('released');
+      await cal.execute(a3, USER);
+      // Lo reservado pasó a pagado, y se lee al vuelo: la factura derivada queda sin disponible.
+      const d = await derivada();
+      expect(Number(d!.paid_amount)).toBeCloseTo(9500, 2);
+      expect(Number(d!.reserved_amount)).toBeCloseTo(0, 2);
+      expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+    });
   });
 });
