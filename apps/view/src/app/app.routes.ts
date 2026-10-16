@@ -1224,7 +1224,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
-        // [CAT.3] El mismo producto a distinto precio segun la plaza.
+        // [CAT-PRECIO.1]/[CAT-PRECIO.5] Mantenimiento: la ficha que no coincide entre sucursales y
+        // lo que está sin clasificar. Mismo permiso que el catálogo: es lectura de la misma ficha.
+        path: 'catalogo/mantenimiento',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-mantenimiento.component').then(m => m.ComprasCatalogoMantenimientoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        // [CAT-PRECIO.2] El catálogo de precios de una sucursal, con la historia de cada precio.
         path: 'catalogo/precios',
         loadComponent: () => import('./modules/compras/pages/compras-catalogo-precios.component').then(m => m.ComprasCatalogoPreciosComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]

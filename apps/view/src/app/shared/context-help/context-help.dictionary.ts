@@ -1786,6 +1786,68 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // `[CAT-COSTO.7]` Los tres costos de Kepler. Definiciones de Compras (2026-10-14/15), verificadas
   // contra el ERP en `analytics.mv_kepler_costos` (mig 20261015115146). Lo de «última entrada» se
   // escribe porque la documentación anterior la llamaba promedio, y no lo es.
+  // `[CAT-PRECIO.2]`–`[CAT-PRECIO.4]` El catálogo de precios de una sucursal. Margen verificado contra el
+  // «%Margen» de la ficha de Kepler el 2026-10-16 (85 % unidad base y 2, 97.6 % unidad 3).
+  'precios-catalogo': {
+    title: 'Precios — el catálogo de precios',
+    intro: 'Los precios de venta de la ficha de Kepler de UNA sucursal: el de cada unidad y su cambio automático. Da clic en un precio para ver cómo ha cambiado. No corrige nada: los precios se capturan en Kepler.',
+    groups: [
+      {
+        heading: 'Qué ves',
+        entries: [
+          { term: 'Unidad base, 2 y 3', def: 'Las unidades de la ficha (pieza, paquete, caja…) con su precio de venta, impuestos incluidos.' },
+          { term: 'Cambio automático', def: 'El precio estándar por volumen (nivel 0) de cada unidad: desde cuántas unidades aplica y a cuánto. Los niveles 1 a 3 no se muestran porque Kepler no dice cuándo se aplican.' },
+          { term: 'Margen', def: 'El de Kepler: cuánto se gana sobre el costo estándar de esa unidad, con el precio sin impuestos. Se ve en pantalla para que el vendedor lo entienda; el PDF para el cliente sale sin margen ni costo. Puede no coincidir con el «%Margen» guardado en la ficha cuando ese campo quedó viejo.' },
+          { term: 'IVA e IEPS', def: '«incl.» quiere decir que el precio ya lo incluye (en Kepler, la tasa es negativa).' },
+        ],
+      },
+      {
+        heading: 'Cambios e historia',
+        entries: [
+          { term: 'Sólo los que cambiaron', def: 'Deja los productos que movieron precio ese día en esa sucursal, con el precio anterior y el % de ajuste. Se ocultan los cambios de un centavo: Kepler recalcula y no mueven la etiqueta.' },
+          { term: 'Historia de un precio', def: 'Cada cambio de ese precio en la bitácora de Kepler, del más nuevo al más viejo, con su gráfica. La bitácora empieza en octubre de 2024 y tiene meses sin registro; la historia los dice en vez de suponer que el precio no cambió.' },
+        ],
+      },
+    ],
+  },
+  // `[CAT-PRECIO.1]` Diferencias de la ficha de venta entre sucursales. Columnas de `kdii` verificadas
+  // el 2026-10-16 contra la ficha 02073 en pantalla de Kepler («Productos POS»).
+  'precios-sucursales': {
+    title: 'Precios — diferencias entre sucursales',
+    intro: 'La ficha de venta de un producto («Productos POS» en Kepler) tiene que ser la misma en todas las sucursales. Esta pantalla la compara campo por campo y dice qué sucursal se sale. No corrige nada: la corrección se captura en Kepler.',
+    groups: [
+      {
+        heading: 'Contra qué se compara',
+        entries: [
+          { term: 'La mayoría (provisional)', def: 'Lo que manda es el Sistema Concentrador de Kepler, pero su base todavía no llega a la Suite: sólo llegan las sucursales. Mientras tanto, la referencia es el valor que comparten la mayoría de las sucursales que venden al público. La mayoría puede estar equivocada: si una sola sucursal ya tiene el precio nuevo, las demás son la mayoría con el precio viejo.' },
+          { term: 'Cambió al último', def: 'La última vez que esa sucursal cambió un precio de ese producto, según la bitácora de precios de Kepler. Sirve para no mandar a corregir el precio bueno: la sucursal que cambió al último suele ser la que trae el precio nuevo.' },
+          { term: 'Sin mayoría', def: 'Dos o más valores empatan (por ejemplo, cuatro sucursales con uno y cuatro con otro). La pantalla no elige: hay que ver en el Concentrador cuál es el bueno.' },
+          { term: 'Igualdad exacta', def: 'Los precios se comparan al centavo. A diferencia de los costos, un precio no tiene tolerancia: el cliente paga el número impreso.' },
+        ],
+      },
+      {
+        heading: 'Los campos',
+        entries: [
+          { term: 'Precio por unidad', def: 'El precio de venta de cada unidad de la ficha (base, unidad 2 y unidad 3), con impuestos incluidos.' },
+          { term: 'Precio por volumen', def: 'El precio estándar por volumen (nivel 0): desde cuántas unidades y a cuánto. Los niveles 1 a 3 no se comparan porque Kepler no dice cuándo se aplican.' },
+          { term: 'Unidades y factores', def: 'Qué unidades tiene la ficha y cuántas unidades base trae cada una. Si una sucursal tiene otra unidad, sus precios tampoco son comparables.' },
+          { term: 'IVA e IEPS', def: 'Las tasas de la ficha. En Kepler, una tasa negativa quiere decir que el precio de venta ya la incluye.' },
+          { term: 'Línea, tipo y grupo', def: 'La clasificación del producto en Kepler. «NO APLICA» es el valor que trae la ficha cuando no se clasificó en esa sucursal.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Qué hacer con una diferencia',
+        kind: 'fix',
+        steps: [
+          'Abrí el producto: ves qué tiene cada sucursal en cada campo y cuál cambió al último.',
+          'Confirmá en el Concentrador cuál es el valor bueno: la mayoría no siempre lo es.',
+          'Corregí la ficha en Kepler. La pantalla avisa cuando entra el cambio; recargá para verlo.',
+        ],
+      },
+    ],
+  },
   'costos-kepler': {
     title: 'Costos — los tres costos de Kepler',
     intro: 'Kepler maneja tres costos distintos para el mismo producto, y cada uno contesta una pregunta distinta. Esta pantalla los pone lado a lado, en la unidad base del catálogo y sin impuesto. No corrige nada: los costos se corrigen en Kepler.',

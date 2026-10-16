@@ -214,6 +214,35 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — `[CAT-PRECIO.2–5]` Catálogo: Mantenimiento y el catálogo de Precios con su historia
+
+- **Corrección de rumbo de Compras:** la vista de diferencias no era «Precios». Quedan **Mantenimiento** (lo que hay
+  que corregir: diferencias entre sucursales + sin clasificar) y **Precios** (nuestro catálogo de precios de una
+  sucursal, con cambio automático, conversiones, margen sólo en pantalla, PDF para cliente y la historia al clic).
+- **Lo que cambió el diseño al medir:** el margen se calcula como Kepler y casa con su «%Margen» guardado en 85–97.6 %
+  (el resto es ese campo viejo); los factores de unidad vienen en unidades base (2,992/2,993); 5,597 productos sin
+  clasificar.
+- **Lo que costó:** la primera prueba visual dio 500 — un `?` en un regex SQL; knex lo convierte en parámetro. Las
+  pruebas SQL corrían por `pg` directo. Ahora se ejercen por knex y una prueba bloquea `?` en estos SQL.
+- **Verificado:** reglas, PDF e historia con pruebas negativas y mutación; 8 consultas por knex contra prod RO;
+  `check:pantalla` 10/10 en las 4 vistas; compuertas de plantillas, tipos, boundary, tokens y estilos.
+- **NO MEDIDO:** prueba visual completa de Mantenimiento › Sin clasificar y de la historia en teléfono.
+
+## 2026-10-16 — `[CAT-PRECIO.1]` Precios: la ficha de venta, campo por campo, entre sucursales
+
+- **Pedido:** Precios crece como Costos (Lista · Diferencias · Cambios del día · Historial). Se entrega el
+  contenedor y Diferencias, que reemplaza a «Precios distintos» (`[CAT.3]`).
+- **El defecto que se fue de paso:** `[CAT.3]` pedía 300 filas y contaba sobre ellas: el contador decía 300 con
+  486 reales. Ahora `total` es el conteo real y la paginación va aparte.
+- **Lo que cambió el diseño al medir:** tipo y grupo sólo están clasificados en ~43 % de las fichas de sucursal,
+  y la ficha 02073 dice ABARROTES en el Concentrador y NO APLICA en las 9 sucursales. **El Concentrador no está
+  en el ODS.** La referencia queda en la mayoría, declarada como provisional, con «cambió al último» de la
+  bitácora para no mandar a corregir el precio bueno.
+- **Verificado:** SQL contra prod RO (1,422 de 9,684; ~3–4 s); regla sobre esas filas (coincide, 0 descartadas);
+  21 pruebas con mutación en rojo; `check:pantalla` 10/10 en la vista; compuertas de templates, tipos, boundary,
+  tokens y estilos.
+- **Prueba visual:** hecha (claro, oscuro, 500 px, teléfono 390 px) con el endpoint por HTTP. Salió la deuda `[CAT-PRECIO.1.1]`: reglas viejas de `p-datatable` con `!important` que le ganan a `dt-stack`.
+
 ## 2026-10-16 — `[TP.15]` El Calendario de Pagos no tenía por dónde recibir una factura
 
 - **Síntoma:** Francisco no encontraba cómo cargar notas para pago. No era un botón escondido: el

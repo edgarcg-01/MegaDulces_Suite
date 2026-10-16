@@ -9671,6 +9671,84 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   Compras **479 ✔** · costos 35 ✔. `check:pantalla` matriz 10/10 y contra-último 10/10; el contenedor baja de
   3 a 2 fallas heredadas. **Sin validación visual ni tiempo medido**: la historia no existe en prod todavía.
 
+- [x] **[CAT-PRECIO.1]** 🧪 **Mantenimiento · Diferencias entre sucursales: la ficha de venta completa** (2026-10-16) —
+  pedido de Francisco. ⚠️ Nació como vista de Precios y **se mudó a la pestaña nueva Mantenimiento** el mismo día
+  (Compras: «Precios es nuestro catálogo de precios; lo que hay que corregir va en Mantenimiento»). **Reemplaza en
+  pantalla a `[CAT.3]`**. Compara la ficha «Productos POS» de Kepler campo por campo entre las sucursales que venden al
+  público: precio de cada unidad (al centavo, con impuestos), precio por volumen nivel 0, unidades y factores,
+  IVA/IEPS, línea/tipo/grupo, descripción y códigos de barras. Fuente `kepler_ods.kdii` + `kdig`/`kdie`/`kdif` +
+  `kdpv_prod_util`, leída en la consulta (**sin migración ni tabla nueva**); columnas verificadas contra la ficha
+  02073 en pantalla de Kepler. Regla pura `compararFicha` (mayoría por igualdad exacta; empate = `sin_mayoria`, no
+  elige). «Cambió al último» por plaza desde la bitácora (`kdpv_bitacora_precios`, índice parcial, ~0.5 s).
+  ⚠️ **La referencia es la MAYORÍA y es provisional**: Compras decidió que manda el **Sistema Concentrador**, y su
+  base **no está en el ODS** (`pv_suc_ip` lo lista como `SC` sin host). Se declara en pantalla y en el contrato
+  (`referencia: 'mayoria'`). Caso que lo justifica: 02073, la 03 con el precio nuevo y las otras 7 con el viejo.
+  **Antes/después medido en prod:** la pantalla vieja pedía 300 filas y su contador se quedaba en 300 con **486
+  reales** (+56 «revisar unidad»); la nueva publica `total` real y pagina en el servidor: **1,422 de 9,684**
+  productos con algún campo distinto (precio base 596 · unidad 2 630 · unidad 3 195 · volumen 738 · unidades 91 ·
+  IEPS 3 · línea 41 · tipo 64 · grupo 92 · descripción 8 · códigos 121; 210 campos sin mayoría). Morelia Madero
+  (07) se sale en 602 productos, el doble que cualquier otra. Consulta completa ~3–4 s. Frescura declarada con
+  `_sync_status` de `kdii`. Pruebas: regla 21/21 (5 negativas; **mutada para que un empate elija ganador → 2
+  rojas**) · módulo 186 ✔ · la regla corrida sobre las 1,422 filas reales de prod (0 descartadas, coincide con la
+  consulta). `check:pantalla` Diferencias **10/10**; el contenedor baja de 3 a 2 fallas (las mismas que el de
+  Costos). `lint:boundary`, `check:templates`, `templates-types`, tokens y estilos en verde. **Prueba visual
+  hecha (2026-10-16, API y vista locales contra prod RO, superoot):** endpoint por HTTP con los 1,422; claro,
+  oscuro, 500 px y teléfono 390 px. Ajustes que salieron: en el detalle, cada tramo de un valor compuesto va en
+  su renglón y se subraya SÓLO el tramo distinto (Kinder Delice: la caja de la 07, $1,664.89 contra $1,685.86);
+  la tabla se apila en angosto (`dt-scope` + `dt-stack` + `data-label`). ⚠️ **Deuda con nombre `[CAT-PRECIO.1.1]`:**
+  las reglas viejas de `styles.css` para `p-datatable` en pantalla chica (≤48rem fija la última celda
+  `sticky` + `table-cell`, ≤30rem **esconde de la 4.ª celda en adelante**, todo `!important`) le ganan a
+  `dt-stack`; aquí se neutralizan en el componente, pero el arreglo de fondo va en `dense-table.css` (afecta a
+  «Contra último costo» de Costos y a toda tabla apilada) — no se tocó a ciegas porque ese archivo declara el
+  presupuesto de bundle al límite y no se puede compilar local. `price-discrepancies` (CAT.3) queda en el
+  backend sin consumidor en pantalla.
+- [ ] **[CAT-PRECIO.0]** ⚠️ **Traer el Sistema Concentrador al ODS** — sin él, Diferencias compara contra la
+  mayoría. Decisión de Edgar (fuente nueva + credenciales). Falta: host, puerto y usuario RO de su base.
+- [x] **[CAT-PRECIO.2]** 🧪 **Precios: el catálogo de precios de una sucursal** (2026-10-16) — `/compras/catalogo/precios`,
+  armado sobre la hoja de Compras (70001 MAZAPÁN: unidad base, 2 y 3 con su precio y debajo «cambio automático»).
+  Decisiones de Francisco el mismo día: **sucursal obligatoria** recortada al alcance (`ScopeService`; con una sola
+  no hay selector; pedir otra = 403); **margen visible en pantalla y es el de Kepler** (ganancia sobre costo estándar
+  `c77` × factor, con el precio sin impuestos; tasa negativa = incluida); **el costo no viaja al front**; **PDF para
+  cliente sin margen ni costo** (prueba negativa); precios con impuestos; línea/tipo/grupo como filtros y orden
+  (artículo · línea · tipo · grupo, que también agrupa el PDF); códigos de barras e **conversión de unidades
+  debajo de su unidad** («PAQ = 10 PZA · CJA = 14 PAQ = 140 PZA»; `c81`/`c84` vienen en unidades base, medido 2,992
+  de 2,993 fichas con unidad 3 en la 03; la 3 se dice en la 2 sólo si da entero). Fuente `kepler_ods.kdii` + catálogos
+  + `kdpv_prod_util` nivel 0, **sin migración**. Medido: lista completa de una sucursal 0.3 s (9,679 productos).
+  **Margen verificado** contra el «%Margen» guardado en la ficha (`c87/c88/c89`): casa en 85 % (base), 85 % (unidad 2)
+  y 97.6 % (unidad 3); el resto es ese campo guardado que quedó viejo — se calcula con el precio y costo de hoy y la
+  pantalla lo declara. ⛔ Lección: la primera prueba visual dio **500** — el regex del costo llevaba `?` y knex
+  convierte cada uno en `$n`; por `pg` directo pasaba. Prueba que bloquea `?` en estos SQL (mutada → rojo).
+- [x] **[CAT-PRECIO.3]** 🧪 **«Sólo los que cambiaron»** (2026-10-16) — dentro de Precios (decisión de Compras: no es
+  pestaña aparte): los productos que movieron precio un día en esa sucursal, contra el anterior y con % de ajuste;
+  neto del día si cambió varias veces; se ocultan los de un centavo (mismo piso que Etiquetas › Cambios) y se
+  cuentan. Fecha por defecto = último día que llegó la bitácora, no «hoy». Tira con cuántos suben y bajan.
+- [x] **[CAT-PRECIO.4]** 🧪 **La historia de cada precio, al dar clic** (2026-10-16) — producto × unidad × sucursal desde
+  `analytics.v_label_price_changes`: fecha, precio, % contra el anterior (incremento / bajó), gráfica en **escalera**
+  (un precio no pasa en diagonal) y los **meses sin registro** de la bitácora de esa sucursal declarados (abril 2025
+  vacío). Ejemplo real: 70001 PAQ en la 01 tiene 25 cambios. 79 ms.
+- [x] **[CAT-PRECIO.5]** 🧪 **Mantenimiento · Sin clasificar** (2026-10-16) — productos sin línea, tipo o grupo en NINGUNA
+  sucursal que vende al público (vacío o `00001` = NO APLICA). Medido: **5,597** productos (5,504 sin tipo, 5,547 sin
+  grupo, 54 sin línea), 1,620 con venta en 30 días; ordenado por venta. Si alguna sucursal ya lo tiene asignado, va
+  a Diferencias. 0.45 s.
+  **Pruebas de CAT-PRECIO.2–5:** regla de precios 32/32 (margen, conversión, cambios del día, búsqueda/orden, SQL sin
+  `?`; 9 negativas) · PDF 6/6 (el margen nunca llega al cliente) · historia 4/4 (escalera, no diagonal) · tabs ·
+  módulo `commercial-products` 218 ✔ · Compras 497 ✔. `check:pantalla` Precios, Diferencias, Sin clasificar e
+  Historia **10/10**; el contenedor de Mantenimiento con las 2 fallas heredadas del patrón contenedor (igual que
+  Costos). Las 8 consultas ejercidas **por knex** contra prod RO. Prueba visual de Precios hecha por Francisco (PDF).
+  **Revisión independiente antes del PR (11 hallazgos):** corregidos — alcance con área `compras` (`[ZN.8]`); piso
+  del centavo en centavos enteros (con flotantes fallaba en ~18 % de los cambios de un centavo) y el neto cero ya no
+  se cuenta como «centavo»; la barra de filtros ya no se desmonta en cada carga (`linkedSignal`, mismo patrón que
+  Productos nuevos); un `?suc=` fuera de alcance tiene salida («Reintentar» suelta la sucursal); «sólo los que
+  cambiaron» se deshabilita sin bitácora y se apaga al cambiar de sucursal; línea y su nombre salen de la misma
+  ficha en Sin clasificar; fichas con SKU vacío fuera (5,598 → 5,597; comparados 9,684 → 9,683; diferencias igual).
+  **Medido y declarado, sin cambio de código:** horas de la bitácora siempre `HH:MM` (0 de 609,143 fuera) y 0 NULL en
+  las columnas comparadas de `kdii`. **Por diseño:** Diferencias y Sin clasificar ven toda la red (comparar entre
+  plazas lo exige) — no aplican alcance por sucursal. ⚠️ **Decisión de Francisco (2026-10-16), tomada a sabiendas:**
+  con precio, impuestos, factor y margen se puede despejar el costo estándar; quien tiene Catálogo sin el permiso de
+  costo (crédito y cobranza, facturación, marketing, telemarketing según `MATRIZ_ACCESOS`) podría calcularlo. Se le
+  ofreció mostrar el margen sólo con `COMPRAS_COSTO_ESTANDAR_VER` y eligió **margen visible para todos** los que ven el
+  catálogo (el propósito es que el vendedor lo entienda). Si se revierte, es un cambio de una línea en el servicio.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

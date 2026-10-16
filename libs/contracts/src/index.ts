@@ -105,6 +105,10 @@ export * from './http/budget-income-forecast.contract';
 export * from './http/budget-capacity-proposal.contract';
 // [CAT-COSTO.6–7] Los tres costos de Kepler (estándar · último · promedio) y la vista «Contra último costo».
 export * from './http/kepler-costos.contract';
+// [CAT-PRECIO.1] Precios › Diferencias entre sucursales: la ficha de venta campo por campo.
+export * from './http/precios-sucursales.contract';
+// [CAT-PRECIO.2–5] Precios (catálogo por sucursal + historia) y Mantenimiento › Sin clasificar.
+export * from './http/precios-catalogo.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
