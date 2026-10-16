@@ -50,7 +50,7 @@ const DEDUP_BUENO = `yac.origen_tipo = 'caos' AND `;
 const DEDUP_ROTO = '';
 
 const escondidos = (dedup) => `
-  SELECT v.sucursal, v.doc_tipo, v.folio, v.fecha_valor, v.monto, v.tipo
+  SELECT v.sucursal, v.doc_tipo, v.folio, to_char(v.fecha_valor,'YYYY-MM-DD') AS fecha_valor, v.monto, v.tipo
     FROM finance.v_caja_movimientos_pendientes v
    WHERE v.tenant_id = $1
      AND EXISTS (
@@ -75,7 +75,7 @@ async function main(c) {
   console.log(`  ${'-'.repeat(62)}`);
   for (const r of rows) {
     console.log(`  ${pad(r.sucursal, 10)}${pad(r.doc_tipo, 8)}${pad(r.folio, 10)}` +
-      `${pad(String(r.fecha_valor).slice(0, 10), 12)}${padL(money(r.monto), 14)}  ${r.tipo}`);
+      `${pad(r.fecha_valor, 12)}${padL(money(r.monto), 14)}  ${r.tipo}`);
   }
   console.log('\n  Son invisibles en pantalla: nadie los puede capturar desde la cola.\n');
   return 1;
