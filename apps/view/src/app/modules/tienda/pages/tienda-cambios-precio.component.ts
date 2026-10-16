@@ -10,6 +10,8 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { of } from 'rxjs';
+import { costoConImpuesto, costoDeLinea, tipoCambio } from '@megadulces/contracts';
+import type { CostoPresentacion, FichaCompras, TipoCambio } from '@megadulces/contracts';
 import { EtiquetasService, PriceChange, PriceChangeBranch } from '../etiquetas.service';
 import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 import { CambiosCompartirComponent } from '../components/cambios-compartir.component';
@@ -168,6 +170,18 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
     .cpr-linea .cpr-antes, .cpr-linea .cpr-ahora{ text-align:right; white-space:nowrap; }
     .cpr-linea-pct{ font-size:var(--fs-xs); text-align:right; }
     .cpr-pct-nd{ color:var(--fg-3); }
+
+    /* [ETQ-CAMBIOS.11] Columnas de Compras (proveedor, UXC, costos, mayoreo, tipo). Los costos y el tipo
+       llevan UNA línea por presentación, con el mismo alto y la misma raya que las líneas de Qué cambió,
+       para que cada costo quede a la altura del precio de su misma unidad. */
+    .cpr-prov{ max-width:11rem; font-size:var(--fs-xs); color:var(--fg-2); }
+    .cpr-cl{ padding:.2rem 0; min-height:1.6rem; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+    .cpr-cl + .cpr-cl{ border-top:1px dashed var(--border-color); }
+    .cpr-cl-nd{ color:var(--fg-3); font-size:var(--fs-xs); }
+    .cpr-tipo{ display:inline-block; min-width:1.4rem; text-align:center; font-size:var(--fs-micro);
+      font-weight:var(--fw-bold); padding:.05rem .3rem; border-radius:var(--radius-sm); }
+    .cpr-tipo-n{ background:var(--info-soft-bg); color:var(--info-soft-fg); }
+    .cpr-tipo-s{ background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .cpr-modo-lbl{ font-size:var(--fs-xs); color:var(--fg-2); white-space:nowrap; }
     @media (max-width: 40rem){ .cpr-lote{ flex-wrap:wrap; } }
 
@@ -361,8 +375,8 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
             }
           </div>
         } @else if (items().length) {
-          <div class="cpr-wrap">
-            <table class="cpr-tabla">
+          <div class="cpr-wrap dt-scope">
+            <table class="cpr-tabla dt-stack">
               <thead>
                 <tr>
                   <th style="width:3rem">
@@ -371,9 +385,15 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                              (change)="marcarTodos($any($event.target).checked)" aria-label="Marcar todos" />
                     </label>
                   </th>
-                  <th style="width:7rem">Código</th>
+                  <th style="width:6rem">Código</th>
                   <th>Producto</th>
-                  <th>Qué cambió</th>
+                  <th>Proveedor</th>
+                  <th class="cpr-money" title="Unidades por caja">UXC</th>
+                  <th class="cpr-money" title="Costo del producto con impuesto, antes del cambio">Costo anterior</th>
+                  <th class="cpr-money" title="Costo del producto con impuesto, hoy">Costo actual</th>
+                  <th>Precio punto de venta</th>
+                  <th class="cpr-money" title="Precio de la presentación CAJA">Mayoreo</th>
+                  <th title="N = sin costo anterior · S = el costo cambió">Tipo</th>
                   <th style="width:7rem"><span class="cpr-sr">Imprimir</span></th>
                 </tr>
               </thead>
@@ -388,20 +408,34 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                        FUERA del orden de tabulador (tabindex -1) para no duplicar las paradas por fila. -->
                   <tr class="cpr-fila-click" tabindex="0" [class.is-sel]="marcado(p)" (click)="clicFila(p)"
                       (keydown)="teclaFila($event, p)" title="Clic, Enter o Espacio para imprimir la etiqueta de este producto">
-                    <td (click)="$event.stopPropagation()">
+                    <td data-label="Marcar" role="cell" (click)="$event.stopPropagation()">
                       <label class="cpr-check">
                         <input type="checkbox" [checked]="marcado(p)" (change)="alternar(p)"
                                [attr.aria-label]="'Marcar ' + p.sku" />
                       </label>
                     </td>
-                    <td class="cpr-num">{{ p.sku }}</td>
-                    <td>
+                    <td class="cpr-num dt-id" data-label="Código" role="cell">{{ p.sku }}</td>
+                    <td data-label="Producto" role="cell">
                       {{ p.name || '—' }}
                       @if (p.es_baja) {
                         <span class="cpr-badge" title="El ERP le quitó el precio a una presentación: esa etiqueta saldría SIN PRECIO.">sin precio</span>
                       }
                     </td>
-                    <td>
+                    <td class="cpr-prov" data-label="Proveedor" role="cell" [title]="proveedorTxt(p)">{{ proveedorTxt(p) }}</td>
+                    <td class="cpr-money dt-num" data-label="UXC" role="cell">{{ uxcTxt(p) }}</td>
+                    <td class="cpr-money dt-num" data-label="Costo anterior" role="cell">
+                      @for (r of p.filas; track $index) {
+                        <div class="cpr-cl" [class.cpr-cl-nd]="costoAnteriorTxt(p, r) === '—'"
+                             [title]="anteriorTitulo(p, r)">{{ costoAnteriorTxt(p, r) }}</div>
+                      }
+                    </td>
+                    <td class="cpr-money dt-num" data-label="Costo actual" role="cell">
+                      @for (r of p.filas; track $index) {
+                        <div class="cpr-cl" [class.cpr-cl-nd]="costoActualTxt(p, r) === 'sin dato'"
+                             [title]="costoActualTxt(p, r) === 'sin dato' ? motivoSinCosto(p, r) : ''">{{ costoActualTxt(p, r) }}</div>
+                      }
+                    </td>
+                    <td data-label="Precio punto de venta" role="cell">
                       @for (r of p.filas; track $index) {
                         <div class="cpr-linea">
                           <span class="cpr-und">{{ r.unidad || '—' }}</span>
@@ -419,7 +453,20 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                         </div>
                       }
                     </td>
-                    <td class="cpr-accion">
+                    <td class="cpr-money dt-num" data-label="Mayoreo" role="cell" title="Precio de la presentación CAJA">{{ mayoreoTxt(p) }}@if (cajaDeTxt(p); as caja) {<span class="cpr-pct">{{ caja }}</span>}</td>
+                    <td data-label="Tipo" role="cell">
+                      @for (r of p.filas; track $index) {
+                        <div class="cpr-cl" style="text-align:left">
+                          @if (tipoDe(p, r); as t) {
+                            <span class="cpr-tipo" [class.cpr-tipo-n]="t === 'N'" [class.cpr-tipo-s]="t === 'S'"
+                                  [title]="t === 'N' ? 'Sin costo anterior registrado' : 'El costo cambió'">{{ t }}</span>
+                          } @else {
+                            <span class="cpr-cl-nd">—</span>
+                          }
+                        </div>
+                      }
+                    </td>
+                    <td class="cpr-accion dt-actions" role="cell">
                       <button type="button" class="cpr-btn-imprimir" tabindex="-1" (click)="imprimirUno($event, p)"
                               [attr.aria-label]="'Imprimir la etiqueta de ' + p.sku" title="Imprimir esta etiqueta">
                         <i class="pi pi-print" aria-hidden="true"></i> Imprimir
@@ -453,6 +500,21 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
               <p-button [label]="'Imprimir todas (' + productos().length + ')'" icon="pi pi-print"
                         size="small" [outlined]="true" (onClick)="imprimir(productos())" />
             </div>
+          }
+
+          <!-- [ETQ-CAMBIOS.11] El costo anterior sale de una foto diaria que se empezó a guardar hace poco:
+               antes de esa fecha NO existe, y una celda vacía sin explicación se lee como que no cambió. -->
+          @if (hayFichas()) {
+            <p class="cpr-head"><span style="font-size:var(--fs-xs); color:var(--fg-3)">
+              @if (costoHistorialError()) {
+                <b>No se pudo leer la historia de costos</b>: no es que no haya cambios, es que no se pudo preguntar. El costo anterior no se muestra.
+              } @else if (costoHistorialDesde(); as desde) {
+                El costo anterior se registra desde el <b>{{ desde }}</b>; de un cambio de costo anterior a esa fecha no hay dato.
+              } @else {
+                Todavía no hay historia de costos: el costo anterior aparecerá desde el día siguiente al primer registro nocturno.
+              }
+              <b>N</b> = sin costo anterior · <b>S</b> = el costo cambió. Los costos llevan impuesto; «Mayoreo» es el precio de la caja.
+            </span></p>
           }
 
           @if (volvieron() > 0) {
@@ -652,6 +714,59 @@ export class TiendaCambiosPrecioComponent {
   marcarTodos(on: boolean): void {
     this.sel.set(on ? new Set(this.productos().map((p) => this.clave(p))) : new Set<string>());
   }
+
+  // ── [ETQ-CAMBIOS.11] Lo que trae el PDF de Compras ────────────────────────────────────────────────
+  /** Una ficha por código. Sin ficha (API vieja, o un error al leerla) las columnas dicen «—» / «sin dato». */
+  private readonly fichas = computed(() => new Map((this.datos.value()?.fichas ?? []).map((f) => [f.sku, f])));
+  /** Desde cuándo existe la foto diaria del costo. `null` = todavía no hay «costo anterior» para nadie. */
+  readonly costoHistorialDesde = computed(() => this.datos.value()?.costo_historial_desde ?? null);
+  readonly costoHistorialError = computed(() => this.datos.value()?.costo_historial_error === true);
+  readonly hayFichas = computed(() => (this.datos.value()?.fichas ?? []).length > 0);
+
+  private ficha(p: ProductoCambio): FichaCompras | null { return this.fichas().get(p.sku) ?? null; }
+  /** El costo de la presentación de ESA línea, casado por rótulo; nunca por posición. */
+  private costoDe(p: ProductoCambio, r: PriceChange): CostoPresentacion | null {
+    return costoDeLinea(this.ficha(p), r.unidad);
+  }
+  private static dinero(v: number): string { return `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+
+  proveedorTxt(p: ProductoCambio): string { return this.ficha(p)?.proveedor || '—'; }
+  uxcTxt(p: ProductoCambio): string { const u = this.ficha(p)?.uxc; return u != null ? String(u) : '—'; }
+  mayoreoTxt(p: ProductoCambio): string {
+    const m = this.ficha(p)?.mayoreo_caja;
+    return m != null ? TiendaCambiosPrecioComponent.dinero(m) : '—';
+  }
+  /** Costo actual CON impuesto. «sin dato» si no hay costo para esa presentación o no se conoce el impuesto. */
+  costoActualTxt(p: ProductoCambio, r: PriceChange): string {
+    const c = this.costoDe(p, r);
+    const v = c ? costoConImpuesto(c.costo_actual, this.ficha(p)?.impuesto_pct ?? null) : null;
+    return v != null ? TiendaCambiosPrecioComponent.dinero(v) : 'sin dato';
+  }
+  /** Costo anterior CON impuesto. «—» = no hay historia (producto nuevo o foto sin cambios), no un cero. */
+  costoAnteriorTxt(p: ProductoCambio, r: PriceChange): string {
+    const c = this.costoDe(p, r);
+    const v = c ? costoConImpuesto(c.costo_anterior, this.ficha(p)?.impuesto_pct ?? null) : null;
+    return v != null ? TiendaCambiosPrecioComponent.dinero(v) : '—';
+  }
+  /** Por qué una celda de costo dice «sin dato»: la causa cambia lo que Compras puede hacer. */
+  motivoSinCosto(p: ProductoCambio, r: PriceChange): string {
+    const f = this.ficha(p);
+    if (!f) return 'No se pudo leer la ficha de Compras de este producto.';
+    if (!this.costoDe(p, r)) return 'Kepler no trae un costo para la presentación «' + (r.unidad ?? '') + '» en esta tienda.';
+    return 'No se conoce el impuesto de este producto (no tiene ventas recientes), así que no se calcula el costo con impuesto.';
+  }
+  /** La unidad del mayoreo, dicha junto a la cifra: «caja de 12». Sin UXC conocido no se inventa. */
+  cajaDeTxt(p: ProductoCambio): string | null {
+    const u = this.ficha(p)?.uxc;
+    return u != null && this.ficha(p)?.mayoreo_caja != null ? `caja de ${u}` : null;
+  }
+  /** Explica la celda de costo anterior: desde cuándo se registró, o por qué no hay. `anterior_desde` viaja para esto. */
+  anteriorTitulo(p: ProductoCambio, r: PriceChange): string {
+    const c = this.costoDe(p, r);
+    if (c?.costo_anterior != null && c.anterior_desde) return `Costo anterior registrado desde el ${c.anterior_desde}`;
+    return 'No hay costo anterior registrado: el producto es nuevo o la foto diaria del costo todavía no tiene historia.';
+  }
+  tipoDe(p: ProductoCambio, r: PriceChange): TipoCambio | null { return tipoCambio(this.costoDe(p, r)); }
 
   /** Cuánto cambió en PROPORCIÓN. Sin precio anterior no hay porcentaje — se declara con null. */
   pct(r: PriceChange): number | null {
