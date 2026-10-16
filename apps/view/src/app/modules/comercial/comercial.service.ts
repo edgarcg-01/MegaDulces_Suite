@@ -725,6 +725,38 @@ export interface ExpedienteBranch {
   ultima_captura: string | null;
 }
 
+/** Un día en que una sucursal subió hojas. Los días sin fila = sin captura. */
+export interface ExpedienteDia {
+  /** `YYYY-MM-DD`. */
+  fecha: string;
+  /** Llave canónica de sucursal (2 dígitos), la misma que emite `app-sucursal-picker`. */
+  sucursal: string;
+  warehouse_name: string;
+  hojas: number;
+  capturistas: string[];
+  /** Medidos contra HOY, no contra ese día. */
+  vencidos: number;
+  riesgosos: number;
+}
+
+/** La última vez que una sucursal subió hojas (sin importar la ventana), o `null` si nunca. */
+export interface ExpedienteUltima {
+  sucursal: string;
+  warehouse_name: string;
+  /** `YYYY-MM-DD`. */
+  ultima: string | null;
+}
+
+/** Respuesta de «Capturas por día»: los días con hojas + la última captura de cada sucursal. */
+export interface ExpedienteDiasResponse {
+  from: string;
+  to: string;
+  /** El «hoy» del server: contra él se mide cuánto lleva una sucursal sin capturar. */
+  hoy: string;
+  data: ExpedienteDia[];
+  ultimas: ExpedienteUltima[];
+}
+
 /**
  * Contexto de captura de caducidades.
  *  `own`  → una sola sucursal (la de su ficha): se muestra como dato, sin picker.
@@ -1361,6 +1393,15 @@ export class ComercialService {
   /** Portada: una fila por sucursal con lo que tiene archivado. */
   expedienteBranches() {
     return this.http.get<{ data: ExpedienteBranch[] }>(`${this.expiryBase}/expediente/sucursales`);
+  }
+  /** Días con capturas por sucursal. `from`/`to` = `YYYY-MM-DD`; el server devuelve la ventana que usó. */
+  expedienteDias(opts: { sucursal?: string; from?: string; to?: string; dias?: number } = {}) {
+    let params = new HttpParams();
+    if (opts.sucursal) params = params.set('sucursal', opts.sucursal);
+    if (opts.dias != null) params = params.set('dias', String(opts.dias));
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    return this.http.get<ExpedienteDiasResponse>(`${this.expiryBase}/expediente/dias`, { params });
   }
   listExpediente(opts: { warehouse_id?: string; from?: string; to?: string; plazo?: string; search?: string; page?: number; pageSize?: number } = {}) {
     let params = new HttpParams();

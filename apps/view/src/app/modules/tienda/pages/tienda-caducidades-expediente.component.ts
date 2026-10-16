@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
@@ -30,7 +30,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
  *     levantó y el plazo. Click en una abre el formato imprimible.
  *
  * El alcance lo aplica el server (`ScopeService`, dimensión `warehouse`): el
- * encargado ve su sucursal, dirección ve las 7. El filtro de sucursal de esta
+ * encargado ve su sucursal, dirección ve todas. El filtro de sucursal de esta
  * pantalla acota DENTRO de lo permitido, nunca lo amplía.
  */
 @Component({
@@ -52,6 +52,9 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
           <p class="surf-page-sub">Una hoja por producto, archivada en su sucursal</p>
         </div>
         <div class="exp-head-actions">
+          <button pButton [text]="true" severity="secondary" size="small" (click)="irADias()">
+            <span class="p-button-icon p-button-icon-left pi pi-calendar" aria-hidden="true"></span> Capturas por día
+          </button>
           <button pButton [text]="true" severity="secondary" size="small" (click)="irACaptura()">
             <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Registrar caducidad
           </button>
@@ -280,6 +283,7 @@ export class TiendaCaducidadesExpedienteComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly sucursales = signal<ExpedienteBranch[]>([]);
@@ -306,13 +310,39 @@ export class TiendaCaducidadesExpedienteComponent {
     !!(this.warehouseId || this.plazoFiltro || this.search.trim() || this.desde || this.hasta));
 
   constructor() {
+    // Llegada desde «Capturas por día»: `?fecha=AAAA-MM-DD&sucursal=NN` abre el expediente
+    // ya filtrado a ese día. La sucursal viaja como código (llave canónica) y se traduce
+    // a su id cuando llega la portada; hasta entonces no se pide nada, para no pintar
+    // «todas» un instante y después saltar.
+    const qp = this.route.snapshot.queryParamMap;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(qp.get('fecha') || '');
+    if (m) {
+      const [y, mo, da] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const dia = new Date(y, mo - 1, da);
+      // Fecha REAL: `new Date(2026, 12, 45)` no falla, se corre solo a febrero de 2027 y el filtro
+      // quedaría en un día que nadie pidió. Si no vuelve igual, se ignora.
+      if (dia.getFullYear() === y && dia.getMonth() === mo - 1 && dia.getDate() === da) this.desde = this.hasta = dia;
+    }
+    const sucPedida = /^[0-9]{2}$/.test(qp.get('sucursal') || '') ? qp.get('sucursal') : null;
+
     this.svc.expedienteBranches()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.sucursales.set(r.data || []); this.cargandoSuc.set(false); },
-        error: () => { this.cargandoSuc.set(false); this.toast.add({ severity: 'error', summary: 'No se pudieron cargar las sucursales' }); },
+        next: (r) => {
+          this.sucursales.set(r.data || []);
+          this.cargandoSuc.set(false);
+          if (sucPedida) {
+            this.warehouseId = (r.data || []).find((s) => s.code === sucPedida)?.id || '';
+            this.cargarHojas();
+          }
+        },
+        error: () => {
+          this.cargandoSuc.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudieron cargar las sucursales' });
+          if (sucPedida) this.cargarHojas();
+        },
       });
-    this.cargarHojas();
+    if (!sucPedida) this.cargarHojas();
   }
 
   cargarHojas(): void {
@@ -357,6 +387,7 @@ export class TiendaCaducidadesExpedienteComponent {
   }
 
   irACaptura(): void { this.router.navigate(['/tienda/caducidades']); }
+  irADias(): void { this.router.navigate(['/tienda/caducidades/dias']); }
 
   // ── presentación ──
 

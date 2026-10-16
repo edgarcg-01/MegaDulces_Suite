@@ -12,6 +12,8 @@ import {
   CloudinaryService,
   ObjectStorageService,
   ScopeService,
+  branchKeySql,
+  branchKeyFilterSql,
 } from '@megadulces/platform-core';
 
 /**
@@ -105,6 +107,44 @@ export interface ResolveResult {
   out_of_scope: boolean;
 }
 
+/** Un día en que una sucursal subió hojas (`GET /expediente/dias`). Los días sin fila = sin captura. */
+export interface ExpedienteDiaRow {
+  /** `YYYY-MM-DD`, el `review_date` de la hoja. */
+  fecha: string;
+  /** Llave canónica de sucursal (2 dígitos), la misma que emite el selector compartido. */
+  sucursal: string;
+  warehouse_name: string;
+  hojas: number;
+  /** Nombres de quienes subieron ese día. */
+  capturistas: string[];
+  /** Medidos contra HOY, no contra ese día. */
+  vencidos: number;
+  riesgosos: number;
+}
+
+/**
+ * La última vez que una sucursal subió hojas, SIN importar la ventana pedida. Existe porque hay
+ * sucursales que no capturan a diario (el CEDIS `00` captura «al menos cada mes»): para ellas la
+ * pregunta no es «¿qué días faltó?» sino «¿cuánto lleva sin capturar?», y eso no cabe en 7 días.
+ */
+export interface ExpedienteUltimaRow {
+  sucursal: string;
+  warehouse_name: string;
+  /** `YYYY-MM-DD`, o `null` si en el sistema esa sucursal nunca ha subido una hoja. */
+  ultima: string | null;
+}
+
+export interface ExpedienteDiasResult {
+  /** Ventana que usó el server (su `hoy`, no el del navegador). */
+  from: string;
+  to: string;
+  /** El «hoy» del server (`America/Mexico_City` en `pg-prod`): contra él se mide la antigüedad. */
+  hoy: string;
+  data: ExpedienteDiaRow[];
+  /** Una fila por sucursal del alcance (también las que nunca han capturado), respetando `sucursal`. */
+  ultimas: ExpedienteUltimaRow[];
+}
+
 export interface ListReviewsQuery {
   warehouse_id?: string;
   status?: string;
@@ -180,11 +220,10 @@ export class CommercialExpiryReviewsService {
       throw new BadRequestException('warehouse_id inválido');
 
     const userId = this.tenantCtx.get()?.userId;
-    // Se resuelve FUERA del `tk.run`: `scope.apply()` devuelve una Promise del
-    // builder, y `await` sobre un query builder de Knex (que es thenable) lo
-    // EJECUTA en vez de devolverlo. Con `current()` + `applyTo()` síncrono el
-    // builder se compone sin dispararse.
-    const sc = await this.scope.current();
+    // El alcance se resuelve FUERA del `tk.run` y llega como lista de ids: nunca
+    // se hace `await` sobre un query builder de Knex (es thenable: lo EJECUTA en
+    // vez de devolverlo, como pasaba con `scope.apply()`).
+    const scopeIds = await this.scope.warehouseIds(undefined);
     return this.tk.run(async (trx) => {
       let q = trx('commercial.expiry_reviews as r')
         .leftJoin('commercial.warehouses as w', 'w.id', 'r.warehouse_id');
@@ -192,11 +231,12 @@ export class CommercialExpiryReviewsService {
       // Alcance de sucursal SERVER-SIDE (2026-09-08). El encargado ve el historial
       // de SU sucursal y de ninguna otra; quien tiene alcance `all` (admin) sigue
       // viendo todo. Antes esto no se filtraba: la pantalla mostraba las hojas de
-      // las 7 sucursales a cualquiera con COMMERCIAL_EXPIRY_VER, y filtrarlo en el
-      // front no habría sido un filtro — solo un adorno sobre una API abierta.
-      // Se aplica sobre `w.code` porque el alcance habla en códigos de 2 dígitos
-      // (`identity.users.warehouse_code`), no en UUIDs.
-      q = this.scope.applyTo(q, sc, 'warehouse', 'w.code');
+      // todas las sucursales a cualquiera con COMMERCIAL_EXPIRY_VER, y filtrarlo en
+      // el front no habría sido un filtro — solo un adorno sobre una API abierta.
+      // El alcance habla en la llave canónica de 2 dígitos (`branchKeySql`), no en
+      // `w.code`: `ScopeService.warehouseIds()` ya la traduce a `warehouse_id`.
+      // `null` = alcance `all` (no filtra) · `[]` = ninguna (knex lo vuelve `false`).
+      if (scopeIds) q = q.whereIn('r.warehouse_id', scopeIds);
 
       // Promotor (tiene marcas asignadas) → solo ve SUS hojas.
       if (userId) {
@@ -697,11 +737,15 @@ export class CommercialExpiryReviewsService {
       const w = await trx('commercial.warehouses').where({ id: wanted }).whereNull('deleted_at').first();
       if (!w) throw new NotFoundException('Almacén no encontrado');
       // Sólo SUCURSALES. `commercial.warehouses` también tiene almacenes-ruta
-      // (`RUTA-*`, camiones), los de Morelia sin código Kepler (`MD-30`/`MD-32`)
-      // y basura de tests: nada de eso es un anaquel que alguien recorra, ni cabe
-      // en un expediente "por sucursal", ni puede ser la ficha de un usuario
-      // (`users.warehouse_code` valida `^[0-9]{2}$`, igual que el universo de la
-      // dimensión `warehouse` en ScopeService y que el picker de `captureContext`).
+      // (`RUTA-*`, camiones) y basura de tests: nada de eso es un anaquel que
+      // alguien recorra, ni cabe en un expediente "por sucursal", ni puede ser la
+      // ficha de un usuario (`users.warehouse_code` valida `^[0-9]{2}$`).
+      //
+      // ⚠️ Aquí la regla es sobre `code` a propósito, y NO sobre la llave canónica
+      // (`branchKeySql`) que usan las lecturas: el folio se arma con `w.code`
+      // (`CAD-<code>-…`, columna de 10) y la DB lo exige de 2 dígitos. Un almacén
+      // cuya llave es de 2 dígitos pero su `code` es `MD-xx` sí es sucursal para
+      // leer, pero no se le puede levantar una hoja.
       //
       // Sin esta guarda, un alcance amplio podía escribir en cualquier almacén: el
       // folio salía `CAD-EXPREV-80590231-2026-00001` y ese código de 15 caracteres
@@ -792,10 +836,10 @@ export class CommercialExpiryReviewsService {
       const pick = (qb: any) => qb.whereNull('deleted_at').select('id', 'code', 'name').orderBy('code');
 
       if (dim.modeWrite === 'all') {
-        // Solo las sucursales de verdad: `commercial.warehouses` también tiene
-        // almacenes-ruta (`RUTA-*`) y los de Morelia sin código Kepler, que no
-        // son un lugar donde alguien recorra un anaquel. Mismo criterio que el
-        // universo de la dimensión `warehouse` en ScopeService.
+        // Solo donde se puede ESCRIBIR una hoja: sucursales con `code` de 2 dígitos
+        // (el folio lo exige, ver `resolveWriteWarehouse`). `commercial.warehouses`
+        // también tiene almacenes-ruta (`RUTA-*`) y basura de tests, que no son un
+        // lugar donde alguien recorra un anaquel.
         const options = await pick(trx('commercial.warehouses').whereRaw(`code ~ '^[0-9]{2}$'`));
         return { mode: 'all' as const, warehouse: null, options };
       }
@@ -1020,7 +1064,8 @@ export class CommercialExpiryReviewsService {
    * producto, cantidad, caducidad, quién la levantó) y NO el contenedor del día:
    * ese solo agrupa la jornada y no es lo que se archiva.
    *
-   * Alcance server-side: `own` ve su sucursal, `all` ve las 7. El `warehouse_id`
+   * Alcance server-side: `own` ve su sucursal, `all` ve todas las de la red (hoy
+   * `00` CEDIS y `01`–`08`, pero el código no cuenta sucursales). El `warehouse_id`
    * del query es un filtro DENTRO de lo permitido, nunca una forma de salirse.
    */
   async listExpediente(q: {
@@ -1040,7 +1085,7 @@ export class CommercialExpiryReviewsService {
     if (q.warehouse_id && !UUID_REGEX.test(q.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
 
-    const sc = await this.scope.current();
+    const scopeIds = await this.scope.warehouseIds(undefined);
 
     return this.tk.run(async (trx) => {
       let qb = trx('commercial.expiry_review_lines as l')
@@ -1049,16 +1094,16 @@ export class CommercialExpiryReviewsService {
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id');
 
-      qb = this.scope.applyTo(qb, sc, 'warehouse', 'w.code');
+      if (scopeIds) qb = qb.whereIn('r.warehouse_id', scopeIds);
 
       // El expediente es POR SUCURSAL, así que sólo entran renglones de una
-      // sucursal (código de 2 dígitos) — mismo criterio que la portada y que
-      // `resolveWriteWarehouse`. Sin esto, a quien tiene alcance `all` la tabla
-      // le mezclaba renglones de almacenes-ruta y de almacenes de prueba, con
-      // folio "—" porque nunca les tocó uno: se veía como un expediente roto
-      // cuando en realidad esas filas no son expediente. Cazado mirando la
-      // pantalla, no por el smoke.
-      qb = qb.whereRaw(`w.code ~ '^[0-9]{2}$'`);
+      // sucursal (llave canónica de 2 dígitos) — mismo criterio que la portada y
+      // que el universo de la dimensión `warehouse` en ScopeService. Sin esto, a
+      // quien tiene alcance `all` la tabla le mezclaba renglones de
+      // almacenes-ruta y de almacenes de prueba, con folio "—" porque nunca les
+      // tocó uno: se veía como un expediente roto cuando en realidad esas filas
+      // no son expediente. Cazado mirando la pantalla, no por el smoke.
+      qb = qb.whereRaw(branchKeyFilterSql('w'));
 
       if (q.warehouse_id) qb = qb.where('r.warehouse_id', q.warehouse_id);
       if (q.from) qb = qb.where('r.review_date', '>=', q.from);
@@ -1146,19 +1191,20 @@ export class CommercialExpiryReviewsService {
    * información — nadie capturó ahí.
    */
   async expedienteBranches() {
-    const sc = await this.scope.current();
+    const scopeIds = await this.scope.warehouseIds(undefined);
 
     return this.tk.run(async (trx) => {
       let qb = trx('commercial.warehouses as w')
         .leftJoin('commercial.expiry_reviews as r', 'r.warehouse_id', 'w.id')
         .leftJoin('commercial.expiry_review_lines as l', 'l.review_id', 'r.id')
         // Solo sucursales de verdad: `commercial.warehouses` mezcla almacenes-ruta
-        // (`RUTA-*`) y los de Morelia sin código Kepler. Mismo criterio que el
-        // universo de la dimensión `warehouse` en ScopeService.
-        .whereRaw(`w.code ~ '^[0-9]{2}$'`)
+        // (`RUTA-*`) y basura de tests. Es el MISMO universo que la dimensión
+        // `warehouse` en ScopeService (`branchKeyFilterSql` + no borrado), así que
+        // la portada no puede mostrar una sucursal que el alcance no sabe asignar.
+        .whereRaw(branchKeyFilterSql('w'))
         .whereNull('w.deleted_at');
 
-      qb = this.scope.applyTo(qb, sc, 'warehouse', 'w.code');
+      if (scopeIds) qb = qb.whereIn('w.id', scopeIds);
 
       const rows = await qb
         .groupBy('w.id', 'w.code', 'w.name')
@@ -1174,6 +1220,118 @@ export class CommercialExpiryReviewsService {
         .orderBy('w.code', 'asc');
 
       return { data: rows };
+    });
+  }
+
+  /**
+   * **Qué días se subieron capturas, por sucursal.** Una fila por (día, sucursal)
+   * que SÍ tuvo hojas; los días sin fila los completa el front contra el rango.
+   *
+   * Se deriva del expediente (`expiry_review_lines` ⋈ `expiry_reviews`), no de una
+   * tabla aparte: es el mismo dato, agrupado por `review_date` — el día que
+   * `pg-prod` (timezone `America/Mexico_City`) le puso a la hoja al guardarla — así
+   * que el día que se ve acá es el mismo que muestra la columna «Fecha» del
+   * expediente y filtrar el expediente por ese día devuelve las mismas hojas.
+   *
+   * ⚠️ **No** devuelve ceros: un día sin fila es «sin captura», que puede ser
+   * descuido, domingo o tienda cerrada — el sistema no sabe cuál. Nombrarlo
+   * «incumplimiento» sería inventar un calendario laboral que no tenemos.
+   *
+   * Mismo universo y alcance que la portada (`branchKeyFilterSql` + `warehouseIds`),
+   * y `sucursal` (la llave canónica de 2 dígitos, la que emite el selector
+   * compartido `app-sucursal-picker`) filtra DENTRO de lo permitido, nunca amplía.
+   * Ventana por defecto: últimos 30 días; tope 366 (un año) para no volver esto un volcado.
+   */
+  async expedienteDias(q: { sucursal?: string; from?: string; to?: string; dias?: number }): Promise<ExpedienteDiasResult> {
+    if (q.sucursal && !/^[0-9]{2}$/.test(q.sucursal))
+      throw new BadRequestException('sucursal inválida (2 dígitos)');
+    // Fecha REAL, no sólo con forma de fecha: `2026-13-45` pasa un regex y Postgres lo
+    // rechaza al castear `::date` — que sale como 500 pelado, no como 400.
+    const fechaReal = (s: string): boolean => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+      if (!m) return false;
+      const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const t = new Date(Date.UTC(y, mo - 1, d));
+      return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+    };
+    if (q.from && !fechaReal(q.from)) throw new BadRequestException('from inválido (AAAA-MM-DD)');
+    if (q.to && !fechaReal(q.to)) throw new BadRequestException('to inválido (AAAA-MM-DD)');
+
+    // `dias` = ventana hacia atrás desde `to` (incluido). Sólo cuenta si no vino `from`.
+    const dias = Number.isInteger(q.dias) && (q.dias as number) >= 1 && (q.dias as number) <= 366 ? (q.dias as number) : 30;
+
+    const scopeIds = await this.scope.warehouseIds(undefined);
+
+    return this.tk.run(async (trx) => {
+      // `to` por defecto = hoy; `from` por defecto = `dias - 1` días antes. Se
+      // resuelven en SQL con `CURRENT_DATE` — el mismo reloj que fecha las hojas.
+      const [win] = (
+        await trx.raw(
+          `SELECT COALESCE(?::date, CURRENT_DATE)::text AS "to",
+                  COALESCE(?::date, COALESCE(?::date, CURRENT_DATE) - (?::int - 1))::text AS "from",
+                  CURRENT_DATE::text AS "hoy"`,
+          [q.to || null, q.from || null, q.to || null, dias],
+        )
+      ).rows as { from: string; to: string; hoy: string }[];
+
+      const span = Math.round((Date.parse(win.to) - Date.parse(win.from)) / 86_400_000);
+      if (span < 0) throw new BadRequestException('«desde» no puede ser posterior a «hasta»');
+      if (span > 365) throw new BadRequestException('El rango máximo es de un año (366 días).');
+
+      let qb = trx('commercial.expiry_review_lines as l')
+        .join('commercial.expiry_reviews as r', 'r.id', 'l.review_id')
+        .join('commercial.warehouses as w', 'w.id', 'r.warehouse_id')
+        .whereRaw(branchKeyFilterSql('w'))
+        .whereNull('w.deleted_at')
+        .where('r.review_date', '>=', win.from)
+        .where('r.review_date', '<=', win.to);
+
+      if (scopeIds) qb = qb.whereIn('r.warehouse_id', scopeIds);
+      if (q.sucursal) qb = qb.whereRaw(`(${branchKeySql('w')}) = ?`, [q.sucursal]);
+
+      const data = await qb
+        .leftJoin('public.users as u', 'u.id', 'l.created_by')
+        .groupBy('r.review_date', trx.raw(branchKeySql('w')), 'w.name')
+        .select(
+          trx.raw(`to_char(r.review_date, 'YYYY-MM-DD') AS fecha`),
+          trx.raw(`(${branchKeySql('w')}) AS sucursal`),
+          'w.name as warehouse_name',
+          trx.raw(`COUNT(l.id)::int AS hojas`),
+          // Quiénes subieron ese día (nombre, no id): el encargado pregunta «¿quién
+          // fue?», no «¿cuántos usuarios distintos?».
+          trx.raw(
+            `COALESCE(array_agg(DISTINCT COALESCE(u.nombre, u.username, r.responsible_name))
+                      FILTER (WHERE COALESCE(u.nombre, u.username, r.responsible_name) IS NOT NULL), '{}') AS capturistas`,
+          ),
+          // Estado de lo subido ESE día, medido contra hoy (igual que la portada).
+          trx.raw(`COUNT(l.id) FILTER (WHERE l.expiry_date IS NOT NULL AND l.expiry_date < CURRENT_DATE)::int AS vencidos`),
+          trx.raw(`COUNT(l.id) FILTER (WHERE l.expiry_date IS NOT NULL AND (l.expiry_date - CURRENT_DATE) BETWEEN 0 AND 30)::int AS riesgosos`),
+        )
+        .orderBy('fecha', 'desc')
+        .orderBy('sucursal', 'asc');
+
+      // La última captura de CADA sucursal del alcance, sin ventana. LEFT JOIN: una sucursal que
+      // nunca ha subido nada también sale (con `ultima: null`) — un hueco mudo se leería como «al día».
+      let qu = trx('commercial.warehouses as w')
+        .leftJoin('commercial.expiry_reviews as r', 'r.warehouse_id', 'w.id')
+        .leftJoin('commercial.expiry_review_lines as l', 'l.review_id', 'r.id')
+        .whereRaw(branchKeyFilterSql('w'))
+        .whereNull('w.deleted_at');
+      if (scopeIds) qu = qu.whereIn('w.id', scopeIds);
+      if (q.sucursal) qu = qu.whereRaw(`(${branchKeySql('w')}) = ?`, [q.sucursal]);
+      const ultimas = await qu
+        // `groupByRaw` y no `groupBy(raw, 'w.name')`: con un `raw` en primera posición Knex ignora
+        // los demás argumentos y el SQL pierde `w.name` del GROUP BY (42803).
+        .groupByRaw(`${branchKeySql('w')}, w.name`)
+        .select(
+          trx.raw(`(${branchKeySql('w')}) AS sucursal`),
+          'w.name as warehouse_name',
+          // Sólo cuenta una hoja con renglones: una cabecera vacía no es una captura.
+          trx.raw(`to_char(MAX(r.review_date) FILTER (WHERE l.id IS NOT NULL), 'YYYY-MM-DD') AS ultima`),
+        )
+        .orderBy('sucursal', 'asc');
+
+      return { from: win.from, to: win.to, hoy: win.hoy, data: data as ExpedienteDiaRow[], ultimas: ultimas as ExpedienteUltimaRow[] };
     });
   }
 

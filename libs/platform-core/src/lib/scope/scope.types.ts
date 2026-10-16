@@ -92,9 +92,12 @@ export interface ResolvedScope {
  * `[RE.23]` — **La llave canónica de la dimensión `warehouse` es el código de
  * sucursal de 2 dígitos**, y `commercial.warehouses.code` no siempre lo trae.
  *
- * Las 7 sucursales Kepler lo guardan tal cual (`'00'`..`'06'`); las de Morelia
- * —que corren Wincaja y no tienen código Kepler— lo guardan prefijado
- * (`'MD-30'`, `'MD-32'`) y el de 2 dígitos vive en `wincaja_source_branch`.
+ * Las sucursales con código Kepler lo guardan tal cual (hoy `'00'` CEDIS y
+ * `'01'`..`'08'`); las de Morelia, mientras corrían Wincaja y no tenían código
+ * Kepler, lo guardaban prefijado (`'MD-30'`, `'MD-32'`) y el de 2 dígitos vivía en
+ * `wincaja_source_branch`. Esos dos ya migraron (`MD-32` → `07`, soft-delete en
+ * `20260911120000`; `MD-30` se fundió en `08`, `20260921120000`), pero la regla
+ * sigue siendo el contrato para cualquier almacén que llegue con prefijo.
  *
  * Filtrar por `code ~ '^[0-9]{2}$'`, que es lo que se hacía **en tres lugares
  * distintos**, dejaba a Morelia fuera del modelo de alcance: no se podía
