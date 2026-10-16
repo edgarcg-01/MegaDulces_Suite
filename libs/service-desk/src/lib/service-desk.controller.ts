@@ -101,7 +101,7 @@ export class ServiceDeskController {
    */
   @Post('transcribe')
   @RequirePermissions(Permission.SERVICIO_REPORTAR)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle({ long: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'Dictado: audio base64 → texto (Groq Whisper, es). No disponible en áreas confidenciales.' })
   transcribe(@Body() body: SdTranscribeDto): Promise<SdTranscribeResult> {
     return this.dictation.transcribir(body);
