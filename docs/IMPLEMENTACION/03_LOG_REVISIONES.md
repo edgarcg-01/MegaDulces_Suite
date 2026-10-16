@@ -214,6 +214,20 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — `[TP.16]` La semana completa y «Ordenar y pagar»
+
+- **Pedido:** maqueta en Excel de Francisco: semana lun→dom con presupuesto / comprometido /
+  disponible y documentos por día; botón por día que lleve a ordenar y preparar el pago con lo que
+  pide el layout.
+- **Lo que se encontró al medir:** 8 pagos asignados y 0 preparados; la pantalla no dejaba elegir la
+  cuenta de origen; `prepare()` aceptaba una transferencia con UNA sola de las dos cuentas; el
+  catálogo de cuentas de proveedor tiene 0 filas y Kepler no guarda CLABE; el total del PDF de Caja
+  quedaba fuera de su tabla.
+- **Verificado:** spec de semana + CLABE 8 ✓, mutado → 6 ✗; `check:pantalla` 2 → 1 falla;
+  `check:templates` · `check:estilos` · `check:motion` · tokens · `lint:boundary` ✅; `tsc --noEmit`
+  sin errores nuevos.
+- **NO MEDIDO:** escrituras contra base real, build (CI) y validación visual.
+
 ## 2026-10-16 — `[TP.15]` El Calendario de Pagos no tenía por dónde recibir una factura
 
 - **Síntoma:** Francisco no encontraba cómo cargar notas para pago. No era un botón escondido: el

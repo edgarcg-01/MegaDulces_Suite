@@ -7940,7 +7940,11 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   [`prototipos/piramide-accesos-obligaciones.html`](FASES/prototipos/piramide-accesos-obligaciones.html).
   Antes de construir: quitar `superadmin` a los 3 Gerentes de Zona, corregir el rol de Facturación,
   asignar lugar a 13 personas y responder 4 preguntas abiertas.
-- [ ] 🔨 **TP.15** — 2026-10-16: **Lo que Finanzas acepta en «Entregas» llega solo al Calendario.**
+- [ ] 🚀 **TP.15** — 2026-10-16: **Lo que Finanzas acepta en «Entregas» llega solo al Calendario.**
+  **En prod (#420, mig aplicada el 16-oct):** medido después — 17 obligaciones · $1,587,690.31
+  (exacto al SELECT previo), y ya en uso: $1,307,709.59 reservados en pagos del 16, 26, 27-oct y
+  3-nov. ⚠️ El camino `receive()` (aceptar una entrega NUEVA) aún no se ejerce en prod: las 17
+  vienen del backfill (`created_by = mig:tp15`).
   Francisco: «no le encuentro cómo cargo las notas para pago». Medido en prod: el Calendario mostraba
   **0 obligaciones disponibles** con $2.15M de capacidad del día; `supplier_payment_obligations` = 0,
   lotes = 0 desde siempre. Aceptar en Entregas (RE.32) no creaba nada que pagar. Ahora, al aceptar,
@@ -7956,6 +7960,55 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   Calendario ya registró Kepler — pago ejecutado aquí + NC posterior deja un tope mayor a la deuda;
   (c) «sin saldo» no separa pagada de «no casó»; (d) `reprogram` no re-mide (lo cubre `execute`);
   (e) heredado: un pago con la misma obligación dos veces pasa el disponible.
+- [ ] 🔨 **TP.16** — 2026-10-16: **La semana completa y «Ordenar y pagar».** Francisco (con maqueta en
+  Excel): la fecha de arriba pasa a ser el **rango de la semana**; 7 columnas (lun→dom) con
+  presupuesto / comprometido / disponible y los documentos de cada día; cada día abre **«Ordenar y
+  pagar»**: orden, método, **cuenta de ORIGEN** (`finance.bank_accounts`, 19 elegibles) y **DESTINO**
+  (catálogo del proveedor o CLABE capturada). **Dos firmas** (decisión de Francisco): Tesorería
+  ordena y prepara, Gerencia/Dirección autoriza, Caja General dispersa.
+  Medido antes: los 8 pagos asignados en prod tenían **0 preparados** (sin método, origen ni
+  destino); el catálogo de cuentas de proveedor tiene **0 filas** y **Kepler no guarda CLABE** de
+  proveedores (ninguna columna de `kdxd` con 18 dígitos). Cambios: `GET weeks/:date` (compone los
+  resolvedores del día, en serie) y `GET origin-accounts`; `prepare()` exige origen (y destino en
+  transferencia — antes bastaba UNO cualquiera) y valida el dígito de control de la CLABE
+  (`clabeValida`, prueba con mutación: 6 ✗ al romperla); `releaseLot()` se niega con pagos sin
+  preparar; el PDF de Caja General gana «Cuenta origen» y su total vuelve DENTRO de la tabla (estaba
+  como `<tr>` suelto tras `</table>`). Contrato `payment-calendar.contract.ts`. `check:pantalla`:
+  2 → 1 falla (ahora con `LoadState`). Sin migración. ⚠️ **Sin validación visual** ni escritura
+  ejercida. **Siguiente etapa (aparte): layouts de dispersión BBVA · Banorte · Santander · BanBajío.**
+  Deuda: dar de alta una cuenta de proveedor exige `COMPRAS_OBLIGACIONES_GESTIONAR`, que Tesorería no
+  tiene; el catálogo se lee con `COMPRAS_OBLIGACIONES_VER` (sólo María de la Paz y Julio por TP.13).
+  La revisión independiente encontró 4 defectos y se corrigieron: efectivo/cheque guardaba la cuenta
+  del proveedor como destino; «preparado» = método + origen + destino según el método (`isPrepared`,
+  misma regla en front y back, mutación → rojo); respuestas de semana fuera de orden; CLABE con
+  dígitos pegados o de 17/19. **TP.16.1** (prueba en pantalla de Francisco, `localhost:4200`): la
+  página quedaba tan alta que la navegación de semana salía de vista al bajar; tarjetas vacías de
+  media pantalla; obligaciones en 3 renglones con barra horizontal; cifras del día repetidas en
+  grande; importe dos veces en la tabla; acciones sólo con ícono. Eligió «semana arriba, día al
+  lado»: franja compacta de 7 días (disponible + barra de uso + pagos), totales de la SEMANA en la
+  tira de KPIs, y abajo obligaciones | «Ordenar y pagar» lado a lado; botón «Preparar» con texto;
+  «Autorizar día» dice qué falta. `execute()` ahora exige el día autorizado (antes se podía marcar
+  pagado sin la segunda firma). **TP.16.2**: obligaciones disponibles **agrupadas por proveedor**
+  (encabezado con facturas, total y primer vencimiento; plegable; «Pagar juntas» arma un solo pago
+  con todas). La clave lleva la clasificación: el mismo nombre como gasto y como proveedor no se
+  mezcla. Lógica pura en `calendario-pagos-grupos.ts` (6 ✓, mutada → 2 ✗). Quitar un pago del día ya
+  regresaba la factura a la lista (`cancelAllocation` recalcula lo reservado). **TP.16.3** (Francisco):
+  sin check en la lista (el + y «Pagar juntas» bastan); la lista gana ancho (2/5) y la tabla interna
+  de PrimeNG por fin toma el ancho fijo (el selector anterior no aplicaba: de ahí el scroll lateral);
+  proveedor con una factura = un renglón. ⭐ **Regla de negocio: un pago = UN beneficiario y UNA
+  sucursal** (cada pago entra al centro de costo de su almacén; un proveedor con operación en 3
+  sucursales se paga junto sólo dentro del mismo almacén). Grupos por proveedor + sucursal en la
+  pantalla, y `paymentGroupKey()` lo hace cumplir en `createAllocation`/`addItem` (mutación → rojo).
+  Medido antes en prod: los 3 pagos agrupados existentes ya eran de 1 proveedor y 1 sucursal (no se
+  rompe nada). Sucursal sólo existe en factura de proveedor (`kepler_sucursal`); gastos (312) y
+  compromisos no la traen → «sin sucursal». **TP.16.4** (Francisco revisó la regla en una maqueta con
+  datos de ejemplo): «Sugerir armado» del día (lo vencido o que vence ese día, un pago por proveedor
+  + sucursal, lo más viejo primero, hasta el disponible; se destilda y se aplica); +, «Pagar juntas»
+  y el armado **se suman** al pago pendiente del mismo proveedor y sucursal en vez de crear otro;
+  casillas en la tabla del día → «Preparar seleccionados» (mismo método y origen, destino por pago;
+  uno que falla no detiene a los demás). Hueco cerrado: `addItem` dejaba sumar facturas a un pago
+  de un día ya AUTORIZADO. Lógica pura en `calendario-pagos-grupos.ts` (13 ✓, mutada → rojo). Deuda: `weekView` son 21 transacciones en serie y cada guardado recarga
+  la semana entera; `todayIso` no se actualiza si la pantalla queda abierta tras medianoche.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión

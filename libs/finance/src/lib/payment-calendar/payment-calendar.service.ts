@@ -2,8 +2,65 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Opt
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
+import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable';
+
+/**
+ * `[TP.16]` Los 7 días (lunes→domingo) de la semana que contiene `date`. Aritmética en UTC sobre
+ * la fecha civil: no hay hora de por medio, así que la zona horaria no puede correr el día.
+ */
+export function weekDates(date: string): string[] {
+  const [y, m, d] = date.split('-').map(Number);
+  const base = new Date(Date.UTC(y, m - 1, d));
+  const monday = new Date(base);
+  monday.setUTCDate(base.getUTCDate() - ((base.getUTCDay() + 6) % 7));
+  return Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(monday);
+    x.setUTCDate(monday.getUTCDate() + i);
+    return x.toISOString().slice(0, 10);
+  });
+}
+
+/**
+ * `[TP.16]` Dígito de control de una CLABE (Banxico): pesos 3·7·1 sobre los primeros 17 dígitos,
+ * se suma `(dígito × peso) mod 10`, y el control es `(10 − suma mod 10) mod 10`.
+ */
+export function clabeValida(clabe: string): boolean {
+  if (!/^\d{18}$/.test(clabe)) return false;
+  const pesos = [3, 7, 1];
+  let suma = 0;
+  for (let i = 0; i < 17; i++) suma += (Number(clabe[i]) * pesos[i % 3]) % 10;
+  return (10 - (suma % 10)) % 10 === Number(clabe[17]);
+}
+
+/**
+ * `[TP.16]` ¿El pago trae lo que Caja General necesita para dispersarlo? Método, y además origen
+ * (transferencia / cargo automático / cheque) y destino (transferencia). Un pago preparado ANTES de
+ * TP.16 tiene método pero no origen: no cuenta como preparado. El front (`unpreparedCount`) usa la
+ * misma regla; si cambia una, cambia la otra.
+ */
+export function isPrepared(a: { payment_method: string | null; bank_account_id?: string | null; destination_account_text?: unknown }): boolean {
+  if (!a.payment_method) return false;
+  if (a.payment_method !== 'efectivo' && !a.bank_account_id) return false;
+  if (a.payment_method === 'transferencia' && !String(a.destination_account_text ?? '').trim()) return false;
+  return true;
+}
+
+/**
+ * `[TP.16.3]` Lo que tiene que ser IGUAL en todas las facturas de un mismo pago (Francisco,
+ * 2026-10-16): **el beneficiario** (un pago es UNA transferencia a UNA cuenta) y **la sucursal**
+ * (el pago entra al centro de costo de cada almacén: un proveedor con operaciones en 3 sucursales
+ * se paga junto sólo dentro del mismo almacén). La sucursal sólo existe hoy en la factura de
+ * proveedor (`kepler_sucursal`, TP.15); gastos y compromisos no la traen y cuentan como «sin
+ * sucursal», que tampoco se mezcla con una conocida.
+ */
+export function paymentGroupKey(source: string, row: { supplier_id?: string | null; beneficiary?: string | null; kepler_sucursal?: string | null }): { payee: string; branch: string } {
+  const payee = source === 'supplier_payable' ? `s:${row.supplier_id ?? ''}` : `b:${String(row.beneficiary ?? '').trim().toUpperCase()}`;
+  const suc = source === 'supplier_payable' ? String(row.kepler_sucursal ?? '').trim() : '';
+  const branch = suc || 'sin sucursal';
+  return { payee, branch };
+}
 
 /** Renglón de `finance.payment_allocation_items` — sólo los campos que este servicio lee (`[NX.11]`). */
 interface AllocationItemRow {
@@ -33,6 +90,11 @@ export interface PrepareAllocationDto {
   bank_account_id?: string | null; destination_account_text?: string | null;
   cash_register_text?: string | null; reference_text?: string | null;
   supplier_payment_account_id?: string | null;
+}
+/** `[TP.16]` Renglón de `finance.payment_allocations` — sólo lo que la vista del día y la autorización leen. */
+interface AllocationRowLite {
+  id: string; bank_account_id: string | null; amount_assigned: number | string; payment_method: string | null;
+  [col: string]: unknown;
 }
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
 interface KeplerLinkedRow {
@@ -146,7 +208,7 @@ export class PaymentCalendarService {
         'obligation_source', 'obligation_id', 'beneficiary', 'concept', 'classification', 'subtype',
         'area_code', 'original_due_date', 'negotiated_date', 'original_amount', 'reserved_amount',
         'paid_amount', 'available_amount', 'is_critical', 'critical_reason', 'authorized_by',
-        'authorized_at', 'status', 'notes', 'created_at',
+        'authorized_at', 'status', 'notes', 'created_at', 'branch_code', 'payee_id',
       ];
       const legBudget = trx('budget.expense_obligations as o').select(
         trx.raw(`'budget_expense'::text AS obligation_source`), 'o.id AS obligation_id',
@@ -154,7 +216,7 @@ export class PaymentCalendarService {
         'o.area AS area_code', 'o.original_due_date', 'o.negotiated_date', 'o.original_amount',
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
-        'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at',
+        'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -163,7 +225,7 @@ export class PaymentCalendarService {
         trx.raw('NULL::text AS area_code'), 'o.original_due_date', 'o.negotiated_date', 'o.original_amount',
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
-        'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at',
+        'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -175,7 +237,7 @@ export class PaymentCalendarService {
           's.code AS area_code', 'o.original_due_date', 'o.negotiated_date', 'o.original_amount',
           'o.reserved_amount', 'o.paid_amount',
           trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
-          's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at',
+          's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
         ).whereNotIn('o.status', ['cancelled']);
 
       const unionSql = `(${legBudget.toQuery()} UNION ALL ${legCommitment.toQuery()} UNION ALL ${legSupplier.toQuery()}) AS ob`;
@@ -239,15 +301,15 @@ export class PaymentCalendarService {
       const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', allocations.map((a: any) => a.id));
       const bySource: Record<string, string[]> = {};
       for (const it of items as any[]) (bySource[it.obligation_source] ??= []).push(it.obligation_id);
-      const labels = new Map<string, { beneficiary: string; concept: string; supplier_id?: string }>();
+      const labels = new Map<string, { beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
         const ids = bySource[source];
         if (source === 'supplier_payable') {
           const rows = await trx('commercial.supplier_payment_obligations as o')
             .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
             .whereIn('o.id', ids)
-            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"));
-          for (const r of rows as any[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id });
+            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"));
+          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null }[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null });
         } else {
           const rows = await trx(TABLE_BY_SOURCE[source]).whereIn('id', ids).select('id', 'beneficiary', 'concept');
           for (const r of rows as any[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept ?? '—' });
@@ -257,11 +319,55 @@ export class PaymentCalendarService {
       for (const it of items as any[]) {
         const label = labels.get(`${it.obligation_source}:${it.obligation_id}`);
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
-        arr.push({ ...it, beneficiary: label?.beneficiary ?? '—', concept: label?.concept ?? '—', supplier_id: label?.supplier_id ?? null });
+        arr.push({ ...it, beneficiary: label?.beneficiary ?? '—', concept: label?.concept ?? '—', supplier_id: label?.supplier_id ?? null, branch_code: label?.branch_code ?? null });
         itemsByAllocation.set(it.allocation_id, arr);
       }
-      return allocations.map((a: any) => ({ ...a, items: itemsByAllocation.get(a.id) ?? [] }));
+      // `[TP.16]` Alias de la cuenta de ORIGEN, para que «Ordenar y pagar» diga de dónde sale el dinero.
+      const originIds = [...new Set(allocations.map((a: AllocationRowLite) => a.bank_account_id).filter(Boolean))] as string[];
+      const origin = new Map<string, string>();
+      if (originIds.length) {
+        const accs = await trx('finance.bank_accounts').whereIn('id', originIds).select('id', 'alias', 'bank', 'account_label');
+        for (const r of accs as { id: string; alias: string | null; bank: string; account_label: string }[]) origin.set(r.id, r.alias || `${r.bank} ${r.account_label}`);
+      }
+      return allocations.map((a: AllocationRowLite) => ({
+        ...a, amount_assigned: Number(a.amount_assigned),
+        bank_account_label: a.bank_account_id ? origin.get(a.bank_account_id) ?? null : null,
+        items: (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) })),
+      }));
     });
+  }
+
+  /**
+   * `[TP.16]` La semana completa (lunes a domingo) que contiene `date`: por día, su resumen, sus
+   * pagos y el folio del lote. Compone los mismos resolvedores del día (`daySummary`,
+   * `listDayAllocations`) en vez de re-implementarlos: un número del día y el de la semana no
+   * pueden diferir.
+   */
+  async weekView(date: string): Promise<PaymentCalendarWeek> {
+    this.assertDate(date);
+    // `2026-02-30` pasa el regex y JS lo «corrige» a marzo: una fecha imposible se rechaza.
+    const t = Date.parse(date + 'T00:00:00Z');
+    if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== date) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
+    const days = weekDates(date);
+    // En serie a propósito: 7 días × 3 lecturas en paralelo serían 21 transacciones a la vez
+    // contra el pool de prod, por una pantalla.
+    const out: PaymentCalendarWeek['days'] = [];
+    for (const d of days) {
+      const summary = await this.daySummary(d);
+      const allocations = (await this.listDayAllocations(d)) as PaymentCalendarAllocation[];
+      const lot = await this.getLot(d);
+      out.push({ date: d, summary, allocations, lot_folio: (lot?.folio as string | undefined) ?? null });
+    }
+    return { from: days[0], to: days[6], days: out };
+  }
+
+  /** `[TP.16]` Cuentas de ORIGEN elegibles: activas, banco o factoraje. La caja no es origen de una transferencia. */
+  async originAccounts(): Promise<PaymentOriginAccount[]> {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => trx('finance.bank_accounts')
+      .where('active', true).whereRaw(`coalesce(kind,'bank') <> 'cash'`)
+      .select('id', 'bank', 'account_label', 'alias', 'kind')
+      .orderBy([{ column: 'bank' }, { column: 'account_label' }]));
   }
 
   /** El lote del día tal cual (folio/status/released_by/at) — usado por el documento imprimible. */
@@ -278,6 +384,8 @@ export class PaymentCalendarService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const classifications = new Set<string>();
+      const payees = new Set<string>();
+      const branches = new Set<string>();
       for (const it of dto.items) {
         if (!(Number(it.applied_amount) > 0)) throw new BadRequestException('applied_amount debe ser > 0');
         const table = TABLE_BY_SOURCE[it.obligation_source];
@@ -289,8 +397,13 @@ export class PaymentCalendarService {
         if (Number(it.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
         await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount));
         classifications.add(CLASSIFICATION_BY_SOURCE[it.obligation_source]);
+        const k = paymentGroupKey(it.obligation_source, row);
+        payees.add(k.payee);
+        branches.add(k.branch);
       }
       if (classifications.size > 1) throw new BadRequestException('Un mismo pago no puede mezclar clasificaciones distintas (compromiso financiero / gasto / proveedor) — crea pagos separados.');
+      if (payees.size > 1) throw new BadRequestException('Un mismo pago no puede juntar facturas de beneficiarios distintos: es una sola transferencia a una sola cuenta. Crea un pago por beneficiario.');
+      if (branches.size > 1) throw new BadRequestException(`Un mismo pago no puede juntar facturas de sucursales distintas (${[...branches].join(', ')}): cada pago entra al centro de costo de su almacén. Crea un pago por sucursal.`);
       const lot = await this.getOrCreateLot(trx, tenantId, dto.date);
       if (LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado/cerrado — no admite pagos nuevos (reprograma a otro día).');
       const amountAssigned = dto.items.reduce((s, it) => s + Number(it.applied_amount), 0);
@@ -316,6 +429,10 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede modificar un pago pendiente');
+      // `[TP.16.4]` Sumar facturas a un pago de un día ya AUTORIZADO cambiaría lo que Gerencia firmó.
+      // `createAllocation` ya lo impedía para pagos nuevos; aquí faltaba.
+      const itemLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
+      if (itemLot && LOCKED_LOT_STATUSES.has(itemLot.status)) throw new BadRequestException('El día ya fue autorizado: no se le pueden sumar facturas a sus pagos (agrégalas a otro día).');
       if (CLASSIFICATION_BY_SOURCE[item.obligation_source] !== allocation.classification) throw new BadRequestException('La obligación no coincide con la clasificación de este pago');
       const table = TABLE_BY_SOURCE[item.obligation_source];
       const row = await trx(table).where({ tenant_id: tenantId, id: item.obligation_id }).first();
@@ -323,6 +440,14 @@ export class PaymentCalendarService {
       const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
       if (Number(item.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
       await this.assertKeplerBalance(trx, item.obligation_source, row, Number(item.applied_amount));
+      // `[TP.16.3]` Lo que se agrega a un pago existente tiene el mismo beneficiario y sucursal que lo que ya trae.
+      const [first] = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId }).whereNot({ obligation_id: item.obligation_id }).orderBy('created_at', 'asc').limit(1);
+      if (first) {
+        const firstRow = await trx(TABLE_BY_SOURCE[first.obligation_source as ObligationSource]).where({ tenant_id: tenantId, id: first.obligation_id }).first();
+        const a = paymentGroupKey(first.obligation_source, firstRow ?? {}), b = paymentGroupKey(item.obligation_source, row);
+        if (a.payee !== b.payee) throw new BadRequestException('Esta factura es de otro beneficiario: un pago es una sola transferencia a una sola cuenta.');
+        if (a.branch !== b.branch) throw new BadRequestException(`Esta factura es de la sucursal ${b.branch} y el pago es de la ${a.branch}: cada pago entra al centro de costo de su almacén.`);
+      }
       await trx('finance.payment_allocation_items').insert({
         tenant_id: tenantId, allocation_id: allocationId, obligation_source: item.obligation_source,
         obligation_id: item.obligation_id, applied_amount: item.applied_amount,
@@ -406,21 +531,44 @@ export class PaymentCalendarService {
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se prepara un pago pendiente');
 
-      let destinationText = dto.destination_account_text ?? null;
-      let accountId = dto.supplier_payment_account_id ?? null;
+      // `[TP.16]` La cuenta DESTINO sólo existe para transferencia / cargo automático. En efectivo o
+      // cheque se descarta: si no, la favorita del proveedor (o un texto de una preparación anterior)
+      // terminaba impresa como destino en la instrucción a Caja General.
+      const usesDestination = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico';
+      let destinationText = usesDestination ? dto.destination_account_text ?? null : null;
+      let accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
       if (accountId) {
         const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
         if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
         destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
       }
-      if ((dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico') && !dto.bank_account_id && !destinationText?.trim()) {
-        throw new BadRequestException('Transferencia/cargo automático requiere banco o cuenta destino (o elige una cuenta del catálogo)');
+      // `[TP.16]` ORIGEN (nuestra cuenta) y DESTINO (la del beneficiario) son dos datos distintos, y
+      // el layout del banco pide los dos. Antes bastaba uno cualquiera: una transferencia quedaba
+      // «preparada» con sólo la cuenta de origen y sin saber a dónde iba el dinero.
+      const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
+      if (needsOrigin) {
+        if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
+        const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).whereRaw(`coalesce(kind,'bank') <> 'cash'`).first();
+        if (!origin) throw new BadRequestException('La cuenta de origen no existe, está inactiva o es la caja.');
+      }
+      if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
+        throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
+      }
+      // Una CLABE capturada a mano se valida con su dígito de control: el error de dedo se ve aquí,
+      // no cuando el banco rechaza el layout.
+      // Sólo corridas de dígitos CONTIGUOS: pegar grupos separados por espacio inventaba una CLABE.
+      // 18 → se valida el control; 17 o 19 → casi seguro una CLABE con un dígito de más/menos.
+      if (!accountId) {
+        for (const run of (destinationText ?? '').match(/\d+/g) ?? []) {
+          if (run.length === 17 || run.length === 19) throw new BadRequestException(`«${run}» tiene ${run.length} dígitos: una CLABE lleva 18. Revísala.`);
+          if (run.length === 18 && !clabeValida(run)) throw new BadRequestException(`La CLABE ${run} no es válida (el dígito de control no cuadra). Revísala.`);
+        }
       }
       if (dto.payment_method === 'cheque' && !dto.reference_text?.trim()) throw new BadRequestException('Cheque requiere folio/referencia');
       if (dto.payment_method === 'efectivo' && !dto.cash_register_text?.trim()) throw new BadRequestException('Efectivo requiere la caja de salida');
 
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
-        payment_method: dto.payment_method, bank_account_id: dto.bank_account_id ?? null,
+        payment_method: dto.payment_method, bank_account_id: needsOrigin ? dto.bank_account_id : null,
         destination_account_text: destinationText, cash_register_text: dto.cash_register_text ?? null,
         reference_text: dto.reference_text ?? null, supplier_payment_account_id: accountId,
         updated_by: username, updated_at: trx.fn.now(),
@@ -436,6 +584,12 @@ export class PaymentCalendarService {
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se ejecuta un pago pendiente');
       if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar (Caja General lo necesita)');
+      // `[TP.16]` Dos firmas: Caja General dispersa lo que Gerencia/Dirección AUTORIZÓ. Sin esto, un
+      // pago se podía marcar pagado sin que nadie hubiera autorizado el día.
+      const execLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
+      if (!execLot || !LOCKED_LOT_STATUSES.has(execLot.status)) {
+        throw new BadRequestException('El día todavía no está autorizado: Gerencia o Dirección debe autorizarlo antes de marcar pagos como ejecutados.');
+      }
       // `[TP.15]` Entre asignar y ejecutar pueden pasar días: si Kepler ya no debe la factura, no se paga.
       for (const it of (await trx('finance.payment_allocation_items').where({ allocation_id: allocationId })) as AllocationItemRow[]) {
         if (it.obligation_source !== 'supplier_payable') continue;
@@ -590,6 +744,11 @@ export class PaymentCalendarService {
       const pending = await trx('finance.payment_allocations').where({ lot_id: lot.id, status: 'pending' });
       const withoutRank = pending.filter((a: any) => a.priority_rank == null);
       if (withoutRank.length) throw new BadRequestException(`${withoutRank.length} pago(s) sin orden de pago asignado — usa "proponer orden" o asígnalo a mano antes de autorizar`);
+      // `[TP.16]` Dos firmas: Tesorería ordena y PREPARA (método, origen, destino); Gerencia/Dirección
+      // autoriza lo que Caja General va a dispersar. Autorizar un pago sin preparar le entregaría a
+      // Caja una instrucción sin cuenta de origen ni destino.
+      const unprepared = pending.filter((a: AllocationRowLite) => !isPrepared(a));
+      if (unprepared.length) throw new BadRequestException(`${unprepared.length} pago(s) sin preparar (método, cuenta de origen y destino) — Tesorería debe prepararlos antes de autorizar`);
       const [{ consumo }] = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereIn('status', ['pending', 'executed'])
         .select(trx.raw('coalesce(sum(amount_assigned),0) AS consumo'));
       if (Number(consumo) > Number(capacity.authorized_amount) + 0.005) {

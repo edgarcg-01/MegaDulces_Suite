@@ -323,6 +323,38 @@ saldo de Kepler.
   aceptaciones cuya lectura de Kepler falló, y la opción B (elegir desde la deuda de Kepler lo que
   no pasa por Entregas: servicios, fletes).
 
+## TP.16 — La semana y «Ordenar y pagar» (2026-10-16)
+
+**Pedido (Francisco, con maqueta en Excel):** ver la semana completa en vez de un día; por día,
+presupuesto / comprometido / disponible y sus documentos; y un botón **«Ordenar y pagar»** que
+lleve al día con lo que pide el layout de pago: cuenta de origen, cuenta destino, CLABE.
+**Dos firmas** (decisión suya): Tesorería ordena y prepara → Gerencia/Dirección autoriza → Caja
+General dispersa.
+
+**Lo medido antes:** 8 pagos asignados en prod, **0 preparados**. 20 cuentas en
+`finance.bank_accounts` (19 elegibles como origen, sin la caja), pero la pantalla no dejaba elegir el
+origen. `commercial.supplier_payment_accounts` = **0 filas**, y Kepler **no guarda la CLABE** de los
+proveedores (ninguna columna de `kdxd` trae 18 dígitos; las de 10 son teléfonos): la CLABE es dato
+propio y se captura una vez.
+
+**Cómo quedó:**
+- `GET /finance/payment-calendar/weeks/:date` → la semana lunes→domingo que contiene la fecha;
+  compone `daySummary` + `listDayAllocations` + `getLot` por día (en serie: no 21 transacciones a la
+  vez). `GET origin-accounts`. Contrato en `libs/contracts/src/http/payment-calendar.contract.ts`.
+- `prepare()`: transferencia / cargo automático / cheque exigen **origen** (activa, no caja);
+  transferencia exige además **destino**. Antes bastaba uno de los dos, así que una transferencia
+  podía quedar «preparada» sin saber a dónde iba. Una CLABE tecleada se valida con el dígito de
+  control de Banxico (`clabeValida`).
+- `releaseLot()` se niega si hay pagos pendientes sin preparar: Caja no recibe una instrucción sin
+  cuentas.
+- Pantalla: rango de semana arriba; obligaciones a la izquierda; 7 tarjetas de día; el panel del día
+  con los pasos (orden → preparado → autorizado → Caja dispersa) y la tabla con método, origen y
+  destino. Agregar o agrupar elige el día de la semana visible.
+- PDF: columna «Cuenta origen»; el total vuelve dentro de la tabla.
+
+**Siguiente etapa: layouts de dispersión.** Se construye aparte, con un archivo real de cada banco
+(BBVA, Banorte, Santander, BanBajío). Propuesta en el PR de TP.16.
+
 ## Deferred / declarado (no inventado)
 
 - **Ejecución real vs Caja General**: `cash_register_text` es texto libre hoy, no una cuenta de caja
