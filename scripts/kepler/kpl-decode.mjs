@@ -43,21 +43,32 @@ const aliasMap = (source, baseTable) => {
 };
 
 /**
- * Confirma que esta forma usa la convencion `Cambio(numero_campo, ...)` contra el
- * alias `a`. Sin esta prueba el ordinal no se puede atribuir a `tabla_base`.
+ * Confirma que esta forma usa `Cambio(numero_campo, ...)` para escribir contra la
+ * tabla base. Sin esta prueba el ordinal no se puede atribuir a `tabla_base`.
+ *
+ * Dos convenciones observadas, ambas con el mismo `fun Cambio(numero_campo,...)`:
+ *   A) `"datos,a,1," & ... & numero_campo` con `kdb.open("a," & tabla_base)` — mayoría.
+ *   B) `tabla_base & ",1," & ... & numero_campo` directo — p.ej. cxpcatpropag (kdxd).
+ * En ambas, el log a `logmov` escribe el ordinal como campo 5 (misma semántica).
  */
-const cambioBinding = (source) => {
+const cambioBinding = (source, baseTable) => {
   const at = source.search(/\bfun\s+Cambio\s*\(/);
   if (at === -1) return { confirmed: false, reason: "sin `fun Cambio`" };
   const body = source.slice(at, at + 2000);
   const param = body.match(/\bfun\s+Cambio\s*\(\s*(\w+)/)?.[1];
-  const writesAliasA = /"datos\s*,\s*a\s*,/.test(body);
   const usesParam = param !== undefined && body.includes(param);
-  if (!writesAliasA)
-    return { confirmed: false, reason: "`Cambio` no escribe contra el alias `a`" };
+  const writesAliasA = /"datos\s*,\s*a\s*,/.test(body);
+  const writesBaseDirect =
+    /tabla_base\s*&\s*",\s*1\s*,/.test(body) ||
+    (baseTable !== undefined && new RegExp(`"${baseTable}\\s*,\\s*1\\s*,`, "i").test(body));
+  const logsOrdinal = /logmov[^"]*5\s*,\s*'["&]*\s*&\s*numero_campo/.test(body) ||
+    /5\s*,\s*'["&]*\s*&\s*numero_campo/.test(body);
+  const targetsBase = writesAliasA || writesBaseDirect || logsOrdinal;
+  if (!targetsBase)
+    return { confirmed: false, reason: "`Cambio` no escribe el ordinal contra la tabla base" };
   if (!usesParam)
     return { confirmed: false, reason: "`Cambio` no propaga su primer argumento" };
-  return { confirmed: true, param };
+  return { confirmed: true, param, convention: writesAliasA ? "alias-a" : "tabla-directa" };
 };
 
 /** Texto visible de un `<txt ...>Etiqueta</txt>`, sin markup ni entidades. */
@@ -141,7 +152,7 @@ for (const name of forms) {
     skipped.push({ form: name, reason: "sin campos con Cambio(N,..)" });
     continue;
   }
-  const binding = cambioBinding(source);
+  const binding = cambioBinding(source, baseTable);
   if (!binding.confirmed) {
     skipped.push({ form: name, reason: binding.reason, fields: fields.length });
     continue;

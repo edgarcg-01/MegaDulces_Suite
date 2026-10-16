@@ -1,21 +1,22 @@
 {
-  "generated_at": "2026-10-16T22:22:56.298Z",
+  "generated_at": "2026-10-16T22:36:12.083Z",
   "corpus": "Z:/Kepler/K95_Dev/temp",
   "forms_scanned": 94,
-  "forms_with_confirmed_binding": 8,
-  "bindings": 103,
-  "distinct_columns": 70,
+  "forms_with_confirmed_binding": 9,
+  "bindings": 120,
+  "distinct_columns": 87,
   "tables": [
     "kdcp",
     "kdii",
     "kdm_rutas",
     "kdud",
     "kdudent",
-    "kduv"
+    "kduv",
+    "kdxd"
   ],
   "conflicting_labels": 0,
   "unlabeled_bindings": 0,
-  "skipped": 86,
+  "skipped": 85,
   "entries": [
     {
       "table": "kdcp",
@@ -50,6 +51,414 @@
       "declared_fields": "a1...a2,a5,a13...a15",
       "aliases": {
         "a": "kdcp"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c3",
+      "ordinal": 3,
+      "field_id": "nombre",
+      "label": "Nombre",
+      "type": "string",
+      "decimals": null,
+      "max_len": "60",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c4",
+      "ordinal": 4,
+      "field_id": "direccion",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c5",
+      "ordinal": 5,
+      "field_id": "colonia",
+      "label": "Dirección",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c6",
+      "ordinal": 6,
+      "field_id": "poblacion",
+      "label": "Estado",
+      "type": "string",
+      "decimals": null,
+      "max_len": "40",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c27",
+      "ordinal": 27,
+      "field_id": "cp",
+      "label": "Código postal",
+      "type": "string",
+      "decimals": null,
+      "max_len": "10",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c7",
+      "ordinal": 7,
+      "field_id": "telefono1",
+      "label": "Tel 1",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c8",
+      "ordinal": 8,
+      "field_id": "telefono2",
+      "label": "Tel. 2",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c9",
+      "ordinal": 9,
+      "field_id": "fax",
+      "label": "Tel. 3",
+      "type": "string",
+      "decimals": null,
+      "max_len": "14",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c11",
+      "ordinal": 11,
+      "field_id": "dir_internet",
+      "label": "Correo",
+      "type": "string",
+      "decimals": null,
+      "max_len": "50",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c12",
+      "ordinal": 12,
+      "field_id": "agente",
+      "label": "Agente",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c13",
+      "ordinal": 13,
+      "field_id": "grupo",
+      "label": "Grupo",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c14",
+      "ordinal": 14,
+      "field_id": "zona",
+      "label": "Zona",
+      "type": null,
+      "decimals": null,
+      "max_len": null,
+      "widget": "cmb",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c15",
+      "ordinal": 15,
+      "field_id": "limite_credito",
+      "label": "Límite de crédito",
+      "type": "number",
+      "decimals": "2",
+      "max_len": "10",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c16",
+      "ordinal": 16,
+      "field_id": "plazo",
+      "label": "Plazo",
+      "type": "string",
+      "decimals": null,
+      "max_len": "4",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c17",
+      "ordinal": 17,
+      "field_id": "desc1",
+      "label": "Descuento 1",
+      "type": "string",
+      "decimals": null,
+      "max_len": "4",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c18",
+      "ordinal": 18,
+      "field_id": "desc2",
+      "label": "Descuento 2",
+      "type": "string",
+      "decimals": null,
+      "max_len": "4",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
+      },
+      "evidence": "observed:kpl-source"
+    },
+    {
+      "table": "kdxd",
+      "column": "c19",
+      "ordinal": 19,
+      "field_id": "desc3",
+      "label": "Descuento 3",
+      "type": "string",
+      "decimals": null,
+      "max_len": "4",
+      "widget": "inp",
+      "form": "cxpcatpropag.kpl",
+      "form_title": "Proveedores/Acreedores",
+      "declared_fields": "a2...a27",
+      "aliases": {
+        "a": "kdxd",
+        "g": "kdxv",
+        "k": "kdxk",
+        "j": "kdxj",
+        "e": "kdxe",
+        "s": "kdms",
+        "w": "kdlogmov"
       },
       "evidence": "observed:kpl-source"
     },
@@ -3945,6 +4354,176 @@
       "forms": [
         "md_cxccatvenpag.kpl"
       ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c3",
+      "labels": [
+        "Nombre"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c4",
+      "labels": [
+        "Dirección"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c5",
+      "labels": [
+        "Dirección"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c6",
+      "labels": [
+        "Estado"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c7",
+      "labels": [
+        "Tel 1"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c8",
+      "labels": [
+        "Tel. 2"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c9",
+      "labels": [
+        "Tel. 3"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c11",
+      "labels": [
+        "Correo"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c12",
+      "labels": [
+        "Agente"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c13",
+      "labels": [
+        "Grupo"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c14",
+      "labels": [
+        "Zona"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c15",
+      "labels": [
+        "Límite de crédito"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c16",
+      "labels": [
+        "Plazo"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c17",
+      "labels": [
+        "Descuento 1"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c18",
+      "labels": [
+        "Descuento 2"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c19",
+      "labels": [
+        "Descuento 3"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
+    },
+    {
+      "table": "kdxd",
+      "column": "c27",
+      "labels": [
+        "Código postal"
+      ],
+      "forms": [
+        "cxpcatpropag.kpl"
+      ]
     }
   ],
   "not_measured": {
@@ -4009,11 +4588,6 @@
       {
         "form": "cxpcatprobus.kpl",
         "reason": "sin campos con Cambio(N,..)"
-      },
-      {
-        "form": "cxpcatpropag.kpl",
-        "reason": "`Cambio` no escribe contra el alias `a`",
-        "fields": 17
       },
       {
         "form": "doc_consulta.kpl",
