@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
@@ -20,11 +20,14 @@ const VEREDICTO: Record<string, string> = {
   no_comparable: 'no comparable',
 };
 
+// [CAT-COSTO.11] Los nombres de los tres costos de Kepler, como en las pestañas. La «entrada» es la
+// compra XA2001 (Aplica Orden Entrada): es el último costo.
 const TIPO: Record<string, string> = {
   estandar: 'Costo estándar',
-  entrada: 'Costo de entrada',
-  primera: 'Primera entrada',
-  entrada_igual: 'Entrada sin cambio',
+  promedio: 'Costo promedio',
+  entrada: 'Último costo',
+  primera: 'Primera compra',
+  entrada_igual: 'Compra sin cambio',
 };
 
 /**
@@ -76,14 +79,14 @@ const TIPO: Record<string, string> = {
         <input type="date" [value]="hasta()" (change)="hasta.set($any($event.target).value)" />
       </label>
       <label class="ch-f">
-        <span>Qué cambió</span>
+        <span>Costo</span>
         <p-select [options]="opcionesTipo" optionLabel="label" optionValue="value" [ngModel]="tipo()"
-                  (onChange)="tipo.set($event.value)" appendTo="body" ariaLabel="Qué cambió" class="ch-sel" />
+                  (onChange)="tipo.set($event.value)" appendTo="body" ariaLabel="Costo" class="ch-sel" />
       </label>
     </section>
 
     @if (!sku()) {
-      <p class="ch-vacio">Busca un producto para ver cómo cambió su costo estándar y su costo de entrada en cada sucursal.</p>
+      <p class="ch-vacio">Busca un producto para ver cómo cambió su costo estándar, su costo promedio y su último costo en cada sucursal.</p>
     } @else if (error()) {
       <p class="ch-error" role="alert">No se pudo cargar el historial de {{ sku() }}. Intenta de nuevo en un momento.</p>
     } @else if (datos(); as d) {
@@ -93,9 +96,16 @@ const TIPO: Record<string, string> = {
           <p class="ch-titulo">{{ d.nombre || 'Sin nombre en catálogo' }}</p>
         </div>
         <dl class="ch-kpis">
-          <div><dt>Cambios de estándar</dt><dd>{{ conteo().estandar }}</dd></div>
-          <div><dt>Cambios en entrada</dt><dd>{{ conteo().entrada }}</dd></div>
-          <div><dt>Entradas arriba del estándar</dt><dd class="is-bad">{{ conteo().arriba }}</dd></div>
+          @if (tipo() === 'todos' || tipo() === 'estandar') {
+            <div><dt>Cambios de estándar</dt><dd>{{ conteo().estandar }}</dd></div>
+          }
+          @if (tipo() === 'todos' || tipo() === 'promedio') {
+            <div><dt>Cambios de promedio</dt><dd>{{ d.promedio_disponible ? conteo().promedio : 'sin medir' }}</dd></div>
+          }
+          @if (tipo() === 'todos' || tipo() === 'ultimo') {
+            <div><dt>Cambios de último costo</dt><dd>{{ conteo().entrada }}</dd></div>
+            <div><dt>Compras arriba del estándar</dt><dd class="is-bad">{{ conteo().arriba }}</dd></div>
+          }
         </dl>
       </section>
 
@@ -103,12 +113,14 @@ const TIPO: Record<string, string> = {
         <div class="ch-grafica-cab">
           <h2>Costo por unidad base</h2>
           <span class="ch-leyenda">
-            <span class="ch-ley-linea"></span> Estándar de {{ grafica().sucursalLinea || '—' }}
-            <span class="ch-ley-punto"></span> Costo de entrada
+            <span class="ch-ley-linea"></span> {{ tipo() === 'promedio' ? 'Promedio' : 'Estándar' }} de {{ grafica().sucursalLinea || '—' }}
+            @if (tipo() === 'todos' || tipo() === 'ultimo') {
+              <span class="ch-ley-punto"></span> Último costo (compra)
+            }
           </span>
         </div>
         <svg viewBox="0 0 1000 230" class="ch-svg" role="img"
-             [attr.aria-label]="'Costo estándar de ' + (grafica().sucursalLinea || 'ninguna sucursal') + ' en escalones y cada entrada como punto'">
+             [attr.aria-label]="(tipo() === 'promedio' ? 'Costo promedio de ' : 'Costo estándar de ') + (grafica().sucursalLinea || 'ninguna sucursal') + ' en escalones'">
           @for (e of grafica().ejeY; track e.y) {
             <line x1="50" x2="1000" [attr.y1]="e.y - 4" [attr.y2]="e.y - 4" class="ch-grid" />
             <text x="0" [attr.y]="e.y" class="ch-eje">{{ e.t }}</text>
@@ -123,11 +135,13 @@ const TIPO: Record<string, string> = {
             <circle [attr.cx]="p.x" [attr.cy]="p.y" r="5" class="ch-punto"><title>{{ p.titulo }}</title></circle>
           }
         </svg>
-        @if (grafica().lineaPlana) {
-          <p class="ch-nota">El estándar de {{ grafica().sucursalLinea || 'esta sucursal' }} no cambió en el periodo, o no hubo venta para verlo: la línea es plana.</p>
+        @if (tipo() === 'promedio' && !d.promedio_disponible) {
+          <p class="ch-nota">La historia del costo promedio todavía no se ha calculado (se calcula cada noche desde el kardex de Kepler): sin medir, no «sin cambios».</p>
+        } @else if (grafica().lineaPlana) {
+          <p class="ch-nota">El {{ tipo() === 'promedio' ? 'promedio' : 'estándar' }} de {{ grafica().sucursalLinea || 'esta sucursal' }} no cambió en el periodo, o no hubo {{ tipo() === 'promedio' ? 'salidas' : 'venta' }} para verlo: la línea es plana.</p>
         }
         @if (!sucursal()) {
-          <p class="ch-nota">La línea muestra el estándar de una sola sucursal. Elige una en el filtro para ver la suya.</p>
+          <p class="ch-nota">La línea muestra el {{ tipo() === 'promedio' ? 'promedio' : 'estándar' }} de una sola sucursal. Elige una en el filtro para ver la suya.</p>
         }
       </section>
 
@@ -135,11 +149,11 @@ const TIPO: Record<string, string> = {
         <div class="ch-tabla-cab">
           <div>
             <h2>Trazabilidad de cambios</h2>
-            <p>El cambio de entrada se mide contra la entrada anterior de la misma sucursal.</p>
+            <p>El último costo se mide contra la compra anterior de la misma sucursal; el promedio, contra el último valor mostrado (tolerancia 0.5 %).</p>
           </div>
           <label class="ch-chk">
             <p-checkbox [binary]="true" inputId="ch-igual" [ngModel]="incluirSinCambio()" (ngModelChange)="incluirSinCambio.set(!!$event)" />
-            <span>Incluir entradas sin cambio de costo</span>
+            <span>Incluir compras sin cambio de costo</span>
           </label>
         </div>
         <p-table [value]="eventos()" size="small" class="surf-table dt-stack">
@@ -230,9 +244,10 @@ const TIPO: Record<string, string> = {
     .ch-sub { font-size: var(--fs-xs); color: var(--c-text-3); }
     tr.is-tenue td { color: var(--c-text-3); }
     .ch-tipo { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: var(--fs-xs); font-weight: var(--fw-bold);
-      white-space: nowrap; background: var(--c-surface-2); color: var(--c-text-2); }
+      white-space: nowrap; background: var(--hover-bg); color: var(--c-text-2); }
     .ch-tipo-estandar { background: var(--c-text-1); color: var(--c-surface-1); }
     .ch-tipo-entrada, .ch-tipo-primera { background: var(--warn-soft-bg); color: var(--c-text-1); }
+    .ch-tipo-promedio { background: var(--hover-bg); color: var(--c-text-1); border: 1px solid var(--c-divider); }
     .ch-ver { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: var(--fs-xs); font-weight: var(--fw-bold);
       white-space: nowrap; background: var(--c-surface-2); color: var(--c-text-1); font-family: var(--font-mono); }
     .ch-ver-arriba { background: var(--bad-soft-bg); color: var(--bad-fg); }
@@ -246,6 +261,11 @@ const TIPO: Record<string, string> = {
 export class ComprasCostosHistorialComponent {
   /** SKU que llega desde la URL (o al hacer clic en un producto de «Entre sucursales»). */
   readonly sku = input<string | null>(null);
+  /**
+   * [CAT-COSTO.11] El costo de la pestaña desde la que se abrió (estándar, promedio o último): el
+   * historial abre filtrado en ese costo y se puede cambiar después desde el selector.
+   */
+  readonly costo = input<FiltroTipo | null>(null);
   readonly skuElegido = output<string>();
 
   private readonly api = inject(CostoEstandarService);
@@ -254,7 +274,7 @@ export class ComprasCostosHistorialComponent {
   private readonly q = signal('');
   readonly sucursal = signal<string | null>(null);
   readonly proveedor = signal<string | null>(null);
-  readonly tipo = signal<FiltroTipo>('ambos');
+  readonly tipo = linkedSignal<FiltroTipo>(() => this.costo() ?? 'todos');
   readonly incluirSinCambio = signal(false);
   // [CAT-COSTO.8] Por defecto, el MES EN CURSO (pedido de Compras, 2026-10-15), con el preset
   // compartido «Este mes». Antes eran 365 días con `toISOString()`, que da la fecha UTC: después de
@@ -265,9 +285,10 @@ export class ComprasCostosHistorialComponent {
   readonly desde = signal(isoLocalDate(this.mesEnCurso.from));
 
   readonly opcionesTipo = [
-    { label: 'Estándar y entrada', value: 'ambos' },
-    { label: 'Sólo costo estándar', value: 'estandar' },
-    { label: 'Sólo costo de entrada', value: 'entrada' },
+    { label: 'Los tres costos', value: 'todos' },
+    { label: 'Costo estándar', value: 'estandar' },
+    { label: 'Costo promedio', value: 'promedio' },
+    { label: 'Último costo', value: 'ultimo' },
   ];
 
   private readonly res = rxResource({
@@ -312,6 +333,7 @@ export class ComprasCostosHistorialComponent {
     const ev = this.eventos();
     return {
       estandar: ev.filter((e) => e.tipo === 'estandar').length,
+      promedio: ev.filter((e) => e.tipo === 'promedio').length,
       entrada: ev.filter((e) => e.tipo === 'entrada').length,
       arriba: ev.filter((e) => e.veredicto === 'arriba').length,
     };

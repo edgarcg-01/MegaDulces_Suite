@@ -321,6 +321,10 @@ export interface RespuestaHistorial {
   estandar_al_inicio: Record<string, number | null>;
   cambios_estandar: CambioEstandar[];
   entradas: EntradaTrazada[];
+  /** [CAT-COSTO.11] false mientras la historia por día no esté calculada: se declara, no se pinta vacía. */
+  promedio_disponible: boolean;
+  promedio_al_inicio: Record<string, number | null>;
+  cambios_promedio: CambioEstandar[];
 }
 
 export type VeredictoEntreSucursales = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';

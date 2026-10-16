@@ -33,7 +33,9 @@ import {
   EntradaTrazada,
   MuestraEstandar,
   cambiosEstandar,
+  cambiosPromedio,
   estandarEn,
+  promedioEn,
   trazarEntradas,
 } from './historial-costos';
 
@@ -60,6 +62,14 @@ export interface RespuestaHistorial {
   estandar_al_inicio: Record<string, number | null>;
   cambios_estandar: CambioEstandar[];
   entradas: (EntradaTrazada & { plaza_sin_kepler: string | null })[];
+  /**
+   * `[CAT-COSTO.11]` El costo promedio del kardex, de la misma historia por día que las matrices
+   * (`mv_kepler_costos_cambios`). `false` mientras esa historia no esté calculada: la pantalla lo
+   * declara, no lo pinta como «sin cambios».
+   */
+  promedio_disponible: boolean;
+  promedio_al_inicio: Record<string, number | null>;
+  cambios_promedio: CambioEstandar[];
 }
 
 const esFecha = (s?: string): boolean => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -1273,6 +1283,25 @@ export class StandardCostService {
         codigo: s.kepler_code,
         nombre: s.nombre,
       }));
+      // [CAT-COSTO.11] El promedio: del año previo (para saber el vigente al empezar) hasta `hasta`.
+      const { rows: [hist] } = await trx.raw(
+        `SELECT (SELECT relispopulated FROM pg_class WHERE oid = to_regclass('analytics.mv_kepler_costos_cambios')) AS poblada`,
+      );
+      const muestrasPromedio: MuestraEstandar[] = hist?.poblada
+        ? (
+            (
+              await trx.raw(
+                `SELECT sucursal, to_char(desde, 'YYYY-MM-DD') AS fecha, costo::float AS costo
+                   FROM analytics.mv_kepler_costos_cambios
+                  WHERE tenant_id = current_tenant_id() AND tipo = 'promedio' AND sku = ?
+                    AND desde BETWEEN ?::date AND ?::date
+                    AND sucursal <> '00'`,
+                [sku, desdeMuestras, hasta],
+              )
+            ).rows as { sucursal: string; fecha: string; costo: number }[]
+          ).map((r) => ({ sucursal: r.sucursal, fecha: r.fecha, costo: Number(r.costo) }))
+        : [];
+
       const trazadas = trazarEntradas(entradas, muestras).map((x) => ({
         ...x,
         // Plaza que no es de Kepler (era Wincaja): se nombra para que se vea POR QUÉ no se compara.
@@ -1293,6 +1322,9 @@ export class StandardCostService {
         estandar_al_inicio: Object.fromEntries(sucursales.map((s) => [s.codigo, estandarEn(muestras, s.codigo, desde)])),
         cambios_estandar: cambiosEstandar(muestras).filter((c) => c.fecha >= desde && c.fecha <= hasta),
         entradas: trazadas,
+        promedio_disponible: !!hist?.poblada,
+        promedio_al_inicio: Object.fromEntries(sucursales.map((s) => [s.codigo, promedioEn(muestrasPromedio, s.codigo, desde)])),
+        cambios_promedio: cambiosPromedio(muestrasPromedio).filter((c) => c.fecha >= desde && c.fecha <= hasta),
       };
     });
   }

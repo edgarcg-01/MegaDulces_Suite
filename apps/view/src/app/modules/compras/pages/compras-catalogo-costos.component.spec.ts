@@ -82,11 +82,24 @@ describe('[CAT-COSTO.10] ComprasCatalogoCostosComponent (contenedor de las vista
     expect(api.matriz.mock.calls[0][0].tipo).toBe('estandar');
   });
 
-  it('abrir el historial de un producto lo pone en la URL', async () => {
-    await montar();
-    const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    fix.componentInstance.abrirHistorial('70001');
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { vista: 'historial', sku: '70001' } }));
+  // [CAT-COSTO.11] El clic en un producto abre su historial EN EL COSTO de la pestaña donde se estaba.
+  for (const tipo of ['estandar', 'promedio', 'ultimo'] as const) {
+    it('desde la pestaña ' + tipo + ', el historial abre en el costo ' + tipo, async () => {
+      const el = await montar(tipo === 'estandar' ? {} : { vista: tipo });
+      const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      const hijo = fix.debugElement.query((d) => d.name === 'app-compras-costos-matriz');
+      hijo.componentInstance.skuElegido.emit('70001');
+      expect(el).toBeTruthy();
+      expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { vista: 'historial', sku: '70001', costo: tipo } }));
+    });
+  }
+
+  it('el historial recibe el costo de la URL; uno inventado no filtra', async () => {
+    await montar({ vista: 'historial', sku: '70001', costo: 'promedio' });
+    expect(fix.componentInstance.costoHistorial()).toBe('promedio');
+    query.next(convertToParamMap({ vista: 'historial', sku: '70001', costo: 'inventado' }));
+    fix.detectChanges();
+    expect(fix.componentInstance.costoHistorial()).toBeNull();
   });
 
   it('el selector ofrece las cinco vistas, en el orden de la hoja de Compras', async () => {
