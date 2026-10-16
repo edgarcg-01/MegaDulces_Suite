@@ -5,6 +5,7 @@ import type {
   HrAccionIncidencia, HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrAsistenciaResponse, HrBancoHorasExtraDto, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia, HrSinIdentificarDto,
   HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
+  HrAltaPersonaBody, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -128,6 +129,24 @@ export class RhService {
 
   cancelarOrden(id: string): Observable<{ ok: true }> {
     return this.http.post<{ ok: true }>(`${this.base}/devices/commands/${encodeURIComponent(id)}/cancel`, {});
+  }
+
+  // ── `[RH.1.12]` Códigos sin persona ──────────────────────────────────────────────────────
+
+  sinPersona(): Observable<HrSinPersonaResponse> {
+    return this.http.get<HrSinPersonaResponse>(`${this.base}/enrollments/unlinked`);
+  }
+
+  buscarPersonas(q: string): Observable<HrPersonaBuscadaDto[]> {
+    return this.http.get<HrPersonaBuscadaDto[]>(`${this.base}/enrollments/people`, { params: new HttpParams().set('q', q) });
+  }
+
+  ligarCodigo(enrollmentId: string, b: HrLigarBody): Observable<HrLigarResultadoDto> {
+    return this.http.post<HrLigarResultadoDto>(`${this.base}/enrollments/${encodeURIComponent(enrollmentId)}/link`, b);
+  }
+
+  altaDesdeReloj(enrollmentId: string, b: HrAltaPersonaBody): Observable<HrLigarResultadoDto> {
+    return this.http.post<HrLigarResultadoDto>(`${this.base}/enrollments/${encodeURIComponent(enrollmentId)}/register`, b);
   }
 
   /** Sólo manda los parámetros con valor. */
