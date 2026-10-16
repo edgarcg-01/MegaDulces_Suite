@@ -17,6 +17,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { ProductScanFieldComponent } from '../components/product-scan-field.component';
+import { estadoFefo, formatCantidad, EstadoFefo } from '../expiry-plazo';
 
 type Condition = 'bueno' | 'regular' | 'malo';
 type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
@@ -231,7 +232,14 @@ const PLAZO_INTERMEDIO_DIAS = 90;
                   }
                   @if (l.condition) { <span class="erd-cond" [attr.data-c]="l.condition">{{ l.condition }}</span> }
                   @if (l.location) { <span class="erd-loc"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ l.location }}</span> }
-                  @if (l.fed_to_fefo) { <span class="erd-fefo" title="Alimentó FEFO">FEFO ✓</span> }
+                  @switch (fefoDe(l).nivel) {
+                    @case ('total') { <span class="erd-fefo" title="Alimentó FEFO">FEFO ✓</span> }
+                    @case ('parcial') {
+                      <span class="erd-fefo erd-fefo--parcial" [title]="'No se fechó todo: ' + fefoDe(l).motivo">
+                        FEFO parcial {{ cant(fefoDe(l).reflejado) }} de {{ cant(fefoDe(l).capturado) }}
+                      </span>
+                    }
+                  }
                 </div>
                 @if (l.observations) { <div class="erd-line-obs">{{ l.observations }}</div> }
                 @if (l.action) { <div class="erd-line-act"><i class="pi pi-flag" aria-hidden="true"></i> {{ l.action }}</div> }
@@ -370,6 +378,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-scoped { display: inline-flex; align-items: center; gap: .35rem; margin-top: .3rem; font-size: var(--fs-xs, .72rem); color: var(--action, var(--c-accent, #b25e00)); }
     .erd-loc { font-size: var(--fs-xs, .72rem); color: var(--c-text-2, var(--text-muted)); }
     .erd-fefo { font-size: var(--fs-xs, .72rem); color: var(--good-fg, #1a7f37); }
+    .erd-fefo--parcial { color: var(--warn-fg); }
     .erd-line-obs { margin-top: .35rem; font-size: var(--fs-sm, .85rem); color: var(--c-text-2, var(--text-muted)); }
     .erd-line-act { margin-top: .25rem; font-size: var(--fs-sm, .85rem); }
     .erd-line-photo { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-md, 8px); }
@@ -745,6 +754,9 @@ export class ComercialExpiryReviewDetailComponent {
     return this.classify(this.daysFromDate(this.expiry));
   }
   /** Plazo de un renglón ya guardado. */
+  /** Cuánto de lo capturado llegó al inventario (ver `estadoFefo`): «FEFO ✓» sólo si llegó TODO. */
+  fefoDe(l: ExpiryReviewLine): EstadoFefo { return estadoFefo(l); }
+  cant(v: number | string | null | undefined): string { return formatCantidad(v); }
   plazoOf(expiry: string | null | undefined): { level: PlazoLevel; title: string; detail: string } | null {
     return this.classify(this.daysTo(String(expiry || '')));
   }

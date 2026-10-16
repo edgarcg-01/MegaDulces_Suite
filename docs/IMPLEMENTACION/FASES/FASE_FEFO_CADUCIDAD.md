@@ -83,6 +83,14 @@ Digitaliza la hoja manual "CONTROL DE CADUCIDADES" (inspección de anaquel): per
 >
 > **Lo que sigue vivo, dormido y sin consumidor:** el backend (`expiry-voice.service.ts`, `SpeechToTextService`, `POST /voice/transcribe|intake|pick`) y los métodos cliente de `ComercialService`. Están probados (smoke 69/69) y son inertes — no cuesta nada tenerlos y volver a montar el panel es una línea. Si se decide que no vuelve, hay que borrar: el service + los 3 endpoints + su provider en el módulo + los checks 2c del smoke + los métodos de `comercial.service.ts`.
 
+### P2.6.12 — «Ya se reflejó» sólo cuando se reflejó TODO (2026-10-16)
+
+| Ítem | Estado | Detalle |
+|---|---|---|
+| **P2.6.12** 🧪 código | Cuánto de lo capturado llegó al inventario | `feedLine` mueve `min(capturado, existencia sin fecha del producto en esa sucursal)`: capturar 10 cajas con 4 sin fecha deja `fed_to_fefo = true` y `fefo_qty = 4`. La pantalla leía sólo la bandera y decía **«Ya se reflejó en el control de inventario»** con 4 de 10. `estadoFefo()` (`expiry-plazo.ts`, pura) compara `fefo_qty` contra `quantity` y devuelve `total` / `parcial` / `ninguno` con el motivo; `mensajeFefo()` arma el aviso al guardar (verde sólo si llegó TODO; ámbar con «Se reflejaron 4 cajas de 10 cajas… quedan 6 sin fechar»; azul si nada se movió). Se usa en **cuatro** sitios: el aviso y la etiqueta de cada renglón de la captura, la **hoja que se imprime y se archiva** («Sí» / «Parcial» / «No») y el «FEFO ✓» del detalle de Almacén (ahora «FEFO parcial 4 de 10»). Sin cambios en el servidor ni migraciones: la línea ya traía `quantity` y `fefo_qty`. |
+
+⚠️ **Lo que NO resuelve (declarado):** (1) `quantity` está en la unidad que se eligió (caja/pieza/…) y `feedLine` la mueve **tal cual** contra existencia que puede estar en otra unidad — es posible que «4 de 10 cajas» compare peras con manzanas; ver [`UNIDADES_DE_MEDIDA.md`](../../UNIDADES_DE_MEDIDA.md). **No medido.** (2) El motivo sólo nombra lo que se sabe (sin catálogo / sin existencia sin fecha); no adivina por qué falta. (3) No se vio en pantalla: sólo pruebas y compuertas.
+
 ### P2.7 — Captura scan-first + asistente por voz (2026-09-08)
 
 Reportado desde la pantalla en uso: *"aquí los productos los vamos a escanear para que llene todos los apartados, solo modifique la fecha y la cantidad"*, más un asistente al que se le **habla**.

@@ -106,3 +106,91 @@ export function clasificarPlazo(ymd: string | null | undefined): Plazo | null {
   }
   return { level: 'bueno', dias, title: 'Buen plazo', detail: `quedan ${dias} días` };
 }
+
+// ── Cuánto de lo capturado llegó realmente al inventario (FEFO) ─────────────────────────────
+
+/** `total` = todo lo capturado se fechó · `parcial` = sólo una parte · `ninguno` = nada se movió. */
+export type FefoNivel = 'total' | 'parcial' | 'ninguno';
+
+export interface EstadoFefo {
+  nivel: FefoNivel;
+  /** Lo que SÍ se fechó en el inventario (0 si nada). */
+  reflejado: number;
+  /** Lo que la persona capturó en el anaquel. */
+  capturado: number;
+  /** Lo que quedó sin fechar (0 si `total`). */
+  faltante: number;
+  /** Por qué no llegó todo; `null` cuando sí llegó todo. */
+  motivo: string | null;
+}
+
+/** Las cantidades traen hasta 3 decimales (`numeric(14,3)`): por debajo de eso es ruido de coma flotante. */
+const TOLERANCIA_FEFO = 0.0005;
+
+/**
+ * **¿Qué parte de lo capturado se reflejó en el inventario?**
+ *
+ * Existe porque la pantalla decía «Ya se reflejó en el control de inventario» con sólo mirar
+ * `fed_to_fefo`, y esa bandera es verdadera aunque se haya movido UNA PARTE. `feedLine` mueve
+ * `min(capturado, existencia sin fecha del producto en esa sucursal)`: capturar 10 cajas con 4
+ * sin fecha en el sistema deja `fed_to_fefo = true` y `fefo_qty = 4`. La persona leía «listo»
+ * y el inventario tenía 4.
+ *
+ * Reglas, y qué NO se afirma:
+ *  - `fed_to_fefo` falso, o `fefo_qty` en 0/ausente → `ninguno`. No se confía en una cifra suelta
+ *    si la bandera no la respalda (ni en la bandera sin cifra).
+ *  - `fefo_qty` ≥ `quantity` (con tolerancia) → `total`. Si por algún motivo se fechó MÁS de lo
+ *    capturado, se cuenta como `total` y `reflejado` se recorta a lo capturado: no se dice «12 de 10».
+ *  - El motivo sólo nombra lo que se sabe: producto sin catálogo (no hay `product_id`) o falta de
+ *    existencia SIN FECHA registrada. No adivina por qué falta (conteo físico mayor, lote ya
+ *    fechado…): eso lo decide quien revise el inventario.
+ *
+ * ⚠️ NO resuelve —y no lo oculta— que `quantity` está en la unidad que se eligió (caja/pieza/…) y
+ * `feedLine` la mueve tal cual contra existencia que puede estar en otra: ver `docs/UNIDADES_DE_MEDIDA.md`.
+ */
+export function estadoFefo(l: {
+  fed_to_fefo?: boolean | null;
+  fefo_qty?: number | string | null;
+  quantity?: number | string | null;
+  product_id?: string | null;
+}): EstadoFefo {
+  const cap = Number(l.quantity);
+  const capturado = Number.isFinite(cap) && cap > 0 ? cap : 0;
+  const fq = Number(l.fefo_qty);
+  const fechado = l.fed_to_fefo && Number.isFinite(fq) && fq > 0 ? fq : 0;
+
+  if (fechado <= 0) {
+    return {
+      nivel: 'ninguno', reflejado: 0, capturado, faltante: capturado,
+      motivo: l.product_id
+        ? 'el sistema no tiene existencia sin fecha de este producto en esta sucursal'
+        : 'el producto no está en el catálogo',
+    };
+  }
+  if (fechado >= capturado - TOLERANCIA_FEFO) {
+    return { nivel: 'total', reflejado: Math.min(fechado, capturado) || fechado, capturado, faltante: 0, motivo: null };
+  }
+  return {
+    nivel: 'parcial', reflejado: fechado, capturado, faltante: capturado - fechado,
+    motivo: 'el sistema no tenía más existencia sin fecha de este producto en esta sucursal',
+  };
+}
+
+/**
+ * Lo que se le dice a la persona al guardar. Un mensaje, tres tonos: `success` sólo si TODO llegó.
+ * `unidad` es la de la captura (`caja`, `pieza`…); la plural la resuelve `formatUnidad`.
+ */
+export function mensajeFefo(
+  e: EstadoFefo,
+  unidad?: string | null,
+): { severity: 'success' | 'warn' | 'info'; detail: string } {
+  const u = (n: number): string => `${formatCantidad(n)} ${formatUnidad(n, unidad)}`;
+  if (e.nivel === 'total') return { severity: 'success', detail: 'Ya se reflejó todo en el control de inventario.' };
+  if (e.nivel === 'parcial') {
+    return {
+      severity: 'warn',
+      detail: `Se reflejaron ${u(e.reflejado)} de ${u(e.capturado)} en el control de inventario: ${e.motivo}. Quedan ${u(e.faltante)} sin fechar.`,
+    };
+  }
+  return { severity: 'info', detail: `Guardado, pero no movió inventario: ${e.motivo}.` };
+}
