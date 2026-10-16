@@ -4790,4 +4790,86 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(c.monto).toBe(380);
     });
   });
+
+  /**
+   * Auditoría front-end del 2026-10-16. Cuatro arreglos que NINGUNA de las 288 pruebas de arriba
+   * habría visto caer: no cambian lo que la pantalla calcula, cambian lo que ANUNCIA y lo que
+   * hace al desmontarse. Sin candado se revierten en el siguiente rediseño sin que nadie note.
+   */
+  describe('[CG-A11Y] la cifra se dice y la pantalla se desmonta limpia', () => {
+    /**
+     * El bloque del total es la única salida del conteo y cambia en CADA tecla de la reja. Sin
+     * región viva, quien usa lector de pantalla teclea once renglones y nunca se entera del
+     * total ni del veredicto.
+     */
+    it('⭐ el total contado viaja en una región viva, con su veredicto', async () => {
+      const fx = await capturaEnPantalla();
+      contar({ 500: 1 });
+      fx.detectChanges();
+
+      const vivo = fx.nativeElement.querySelector('p.sr-only[aria-live]') as HTMLElement | null;
+      expect(vivo, 'el bloque CONTADO no tiene región viva').not.toBeNull();
+      // `polite` y no `assertive`: anuncia cuando la persona deja de teclear, no cada dígito.
+      expect(vivo!.getAttribute('aria-live')).toBe('polite');
+      // La cifra sin su veredicto no es un dato: se lee entera o no se lee.
+      expect(vivo!.getAttribute('aria-atomic')).toBe('true');
+      expect(vivo!.textContent).toContain('500');
+      // Con un billete de $500 y sin documento elegido, el veredicto es «sin documento».
+      expect(vivo!.textContent).toContain('Sin documento');
+    });
+
+    /**
+     * La cola la mueve el socket: entran movimientos mientras la persona cuenta efectivo del
+     * otro lado de la pantalla. Va sobre el `cg-lead` que ya existe, no en un `sr-only` aparte.
+     */
+    it('⭐ la cuenta de la cola se anuncia sola cuando el socket la mueve', () => {
+      const fx = montar();
+      const lead = fx.nativeElement.querySelector('.cg-lead') as HTMLElement | null;
+      expect(lead, 'la cabecera de la cola no existe').not.toBeNull();
+      expect(lead!.getAttribute('aria-live')).toBe('polite');
+      expect(lead!.getAttribute('aria-atomic')).toBe('true');
+    });
+
+    /**
+     * ⭐ La prueba NEGATIVA de la guarda: sin `takeUntilDestroyed`, esta respuesta tardía escribe
+     * `rows()` en un componente que ya no está en pantalla.
+     */
+    it('⭐ una LECTURA que contesta tarde no escribe en el componente destruido', () => {
+      const tarde = new Subject<LibroResponse>();
+      const fx = montar({ libro: vi.fn(() => tarde.asObservable()) as never });
+
+      // Todavía en vuelo: nadie contestó.
+      expect(comp.rows().length).toBe(0);
+
+      fx.destroy();
+      tarde.next({ ...LIBRO, rows: [{ id: 'm-tarde' }] as never });
+
+      // Con la guarda la suscripción ya no existe y el `next` nunca corre.
+      expect(comp.rows().length, 'la respuesta tardía entró igual').toBe(0);
+    });
+
+    /**
+     * ⭐ El debounce del autollenado NO lo cubre `takeUntilDestroyed`: la guarda vive en la
+     * suscripción y acá todavía no hay suscripción — hay un `setTimeout` pendiente que dispara
+     * la petición DESPUÉS. Se cancela el temporizador, que es donde está el pendiente.
+     */
+    it('⭐ salir dentro de los 350 ms del debounce no dispara el autollenado', () => {
+      vi.useFakeTimers();
+      try {
+        const fx = montar();
+        comp.abrirCaptura();
+        comp.setF('beneficiario', 'MERENGUE LA MORENITA');
+        const antes = (svc.autofill as ReturnType<typeof vi.fn>).mock.calls.length;
+
+        comp.pedirPropuestaDebounced();
+        fx.destroy();
+        vi.advanceTimersByTime(400);
+
+        expect((svc.autofill as ReturnType<typeof vi.fn>).mock.calls.length,
+          'el debounce disparó la petición después de destruir la pantalla').toBe(antes);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });
