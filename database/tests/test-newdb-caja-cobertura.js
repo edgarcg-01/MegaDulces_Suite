@@ -70,7 +70,21 @@ const declarar = (txt) => { nomedido++; console.log(`  ⓘ NO MEDIDO — ${txt}`
  * El denominador, armado ACÁ y no importado del servicio. Replica el `whereNotExists` por glosa de
  * `movimientosPendientes()` — sin él contaría documentos que la cola YA OCULTA por estar
  * capturados, y la cobertura saldría peor de lo que es: mediría trabajo ya hecho como pendiente.
- * Medido: son 41 movimientos y $256,417 de diferencia en la ventana de octubre.
+ *
+ * ⛔⛔ `[CGA-A.11]` **ESTA RÉPLICA LLEVABA EL DEFECTO ADENTRO, y por eso nadie lo vio.**
+ * Faltaba `y.origen_tipo = 'caos'`. Sin eso, `glosa LIKE doc_tipo || ' ' || folio` tapa a
+ * cualquier otra sucursal con el mismo folio —el folio de camioneta es consecutivo **por
+ * unidad**, no global—, así que el denominador daba por hecho trabajo que nadie hizo y la
+ * cobertura salía **mejor de lo que era**. Medido en prod el 2026-10-16:
+ *
+ *     denominador ROTO  (sin acotar)   13,222 movimientos · $162,111,454.69
+ *     denominador BUENO (acotado)      13,361 movimientos · $163,188,930.98
+ *                                     ───────────────────────────────────────
+ *     diferencia                          139 movimientos ·   $1,077,476.29
+ *
+ * ⭐ **La lección no es el `AND` que faltaba: es que la prueba REPLICABA la consulta en vez de
+ * ejercer el servicio.** Una réplica hereda los defectos del original y después los certifica.
+ * `GOTCHAS` §86. Lo vigila `npm run check:dedup-por-llave`.
  */
 const DENOM = (filtroFecha) => `
   SELECT count(*)::int AS movimientos, coalesce(sum(v.monto),0)::numeric AS monto
@@ -79,6 +93,7 @@ const DENOM = (filtroFecha) => `
      AND NOT EXISTS (
        SELECT 1 FROM finance.cash_ledger y
         WHERE y.tenant_id = v.tenant_id AND y.deleted_at IS NULL AND y.estado <> 'cancelado'
+          AND y.origen_tipo = 'caos'
           AND y.glosa LIKE v.doc_tipo || ' ' || v.folio || '%')
      ${filtroFecha}`;
 
