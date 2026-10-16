@@ -258,9 +258,9 @@ const TODAS_LAS_CLAVES = Object.keys(PERMISSION_META);
               <div class="pd-aviso-blk" role="alert">
                 <i class="pi pi-ban" aria-hidden="true"></i>
                 <div>
-                  No podés otorgar {{ noPodesOtorgar().length }} de estos permisos porque vos no los
-                  tenés: <strong>{{ etiquetasDe(noPodesOtorgar()) }}</strong>. El guardado se va a
-                  rechazar hasta que los quites del lote o te los den a vos.
+                  No puedes otorgar {{ noPodesOtorgar().length }} de estos permisos porque tú no los
+                  tienes: <strong>{{ etiquetasDe(noPodesOtorgar()) }}</strong>. El guardado se va a
+                  rechazar hasta que los quites del lote o te los den a ti.
                 </div>
               </div>
             }

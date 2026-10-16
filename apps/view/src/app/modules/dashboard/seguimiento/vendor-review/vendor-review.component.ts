@@ -246,7 +246,7 @@ interface StatusMeta {
         <div class="card-premium card-flat p-0 overflow-hidden">
           @if (!selectedVendor()) {
             <div class="px-4 py-10 text-center text-sm text-content-faint">
-              Seleccioná un vendedor para ver sus visitas.
+              Selecciona un vendedor para ver sus visitas.
             </div>
           } @else {
             <!-- Cabecera del vendedor + filtros por estado -->

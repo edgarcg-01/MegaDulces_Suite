@@ -152,7 +152,7 @@ const ESTADO_LABEL: Record<string, string> = {
             <div class="ap-reap-t">
               <i class="pi pi-lock-open" aria-hidden="true"></i>
               <strong>Te piden reabrir {{ reaperturas().length === 1 ? 'un vale' : reaperturas().length + ' vales' }}</strong>
-              <span class="ap-faint">vos los aprobaste, así que la decisión es tuya</span>
+              <span class="ap-faint">tú los aprobaste, así que la decisión es tuya</span>
             </div>
             @for (r of reaperturas(); track r.id) {
               <article class="ap-reap-it">
@@ -203,8 +203,8 @@ const ESTADO_LABEL: Record<string, string> = {
         @if (pestana() === 'entrada' && d.entrada_truncada) {
           <div class="ap-aviso warn">
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-            <span>La lista llegó al tope y <strong>hay más esperando firma</strong>. Firmá los de
-              acá y volvé a actualizar.</span>
+            <span>La lista llegó al tope y <strong>hay más esperando firma</strong>. Firma los de
+              acá y vuelve a actualizar.</span>
           </div>
         }
 

@@ -61,7 +61,7 @@ export class CommercialBiAlmacenController {
   @ApiQuery({ name: 'folio', required: true })
   @ApiQuery({ name: 'doc_code', required: false })
   @ApiQuery({ name: 'doc_serie', required: false })
-  @ApiOperation({ summary: 'Documento completo de un folio (header+líneas+contraparte). 403 si el almacén no está en tu alcance; redacta el destino si es un cliente y no tenés COMMERCIAL_CUSTOMERS_VER.' })
+  @ApiOperation({ summary: 'Documento completo de un folio (header+líneas+contraparte). 403 si el almacén no está en tu alcance; redacta el destino si es un cliente y no tienes COMMERCIAL_CUSTOMERS_VER.' })
   movementDetail(
     @Query('warehouse_id') warehouseId: string,
     @Query('folio') folio: string,

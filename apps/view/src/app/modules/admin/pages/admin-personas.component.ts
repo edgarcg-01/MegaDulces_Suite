@@ -121,7 +121,7 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
                       emptyIcon="pi-users"
                       [emptyTitle]="hayFiltro() ? 'Nadie con estos filtros' : 'El padrón está vacío'"
                       [emptyHint]="hayFiltro()
-                        ? 'Probá quitando el departamento o limpiando la búsqueda. La búsqueda tolera acentos y errores de tecleo.'
+                        ? 'Prueba quitando el departamento o limpiando la búsqueda. La búsqueda tolera acentos y errores de tecleo.'
                         : 'Lo que ves acá está acotado a tu alcance: quien administra ve a todos, un encargado ve a su sucursal y un supervisor a su equipo.'"
                       [emptyCta]="hayFiltro() ? 'Limpiar filtros' : null"
                       emptyCtaIcon="pi pi-filter-slash"

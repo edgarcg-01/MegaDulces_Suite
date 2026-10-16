@@ -17,6 +17,7 @@
  */
 
 import { diaCorto } from '@megadulces/contracts';
+import type { BandejaSinConfirmar } from './caja-jornadas.query';
 
 export const UMBRAL_CORTE_ABIERTO_H = { aviso: 26, critico: 50 } as const;
 
@@ -29,7 +30,19 @@ export interface MedicionCortesAbiertos {
   jornadasSinCorte: string[];
   /** Desde cuándo hay cortes: antes de eso no hay jornada que reclamar. */
   inicioLibro: string | null;
+  /**
+   * `[CGP-L.13]` Lo que la bandeja propone y nadie confirmó, de ayer o antes.
+   * ⚠️ `null` = **no se pudo medir** (la vista no está). No es «cero pendientes», y por eso no
+   * dispara ni calla un aviso: se declara (ADR-056).
+   */
+  bandeja?: BandejaSinConfirmar | null;
 }
+
+/**
+ * `[CGP-L.13]` Umbrales de la bandeja, en DÍAS porque un documento tiene fecha, no hora.
+ * Aviso en cuanto algo de ayer sigue sin confirmar; crítico a los dos días.
+ */
+export const UMBRAL_BANDEJA_DIAS = { aviso: 1, critico: 2 } as const;
 
 export interface AvisoCorteAbierto {
   key: 'caja_corte_abierto';
@@ -43,6 +56,11 @@ export { diaCorto };
 
 function cuanto(horas: number): string {
   return horas >= 48 ? `${Math.floor(horas / 24)} días` : `${Math.floor(horas)} h`;
+}
+
+/** El dinero, en el aviso, con la misma forma que lo escribe la pantalla. */
+function pesos(n: number): string {
+  return `$${Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Cada cuánto se RECUERDA un aviso que no cambió. */
@@ -65,7 +83,13 @@ export function debeAvisar(
 /** La identidad de una situación: qué cortes, qué jornadas y con qué gravedad. Sin las horas. */
 export function huellaDeSituacion(m: MedicionCortesAbiertos, aviso: AvisoCorteAbierto): string {
   const viejos = m.abiertos.filter((c) => c.horas > UMBRAL_CORTE_ABIERTO_H.aviso).map((c) => c.folio).sort();
-  return `${aviso.severity}|${viejos.join(',')}|${[...m.jornadasSinCorte].sort().join(',')}`;
+  /**
+   * `[CGP-L.13]` De la bandeja entra **el día del más viejo**, no el conteo: confirmar 3 de 35 no
+   * es una situación nueva y no tiene que volver a sonar. Lo que cambia la situación es que
+   * aparezca un día más viejo (o que se vacíe).
+   */
+  const bandeja = m.bandeja && m.bandeja.movimientos > 0 ? `b:${m.bandeja.masViejo}` : '';
+  return `${aviso.severity}|${viejos.join(',')}|${[...m.jornadasSinCorte].sort().join(',')}|${bandeja}`;
 }
 
 /**
@@ -77,9 +101,14 @@ export function huellaDeSituacion(m: MedicionCortesAbiertos, aviso: AvisoCorteAb
 export function avisoCortesAbiertos(m: MedicionCortesAbiertos): AvisoCorteAbierto | null {
   const viejos = m.abiertos.filter((c) => c.horas > UMBRAL_CORTE_ABIERTO_H.aviso);
   const sinCorte = m.jornadasSinCorte;
-  if (viejos.length === 0 && sinCorte.length === 0) return null;
+  // `[CGP-L.13]` `null` es NO MEDIDO y no habla; 0 movimientos es «al día» y tampoco.
+  const bandeja = m.bandeja && m.bandeja.movimientos > 0 && m.bandeja.dias >= UMBRAL_BANDEJA_DIAS.aviso
+    ? m.bandeja : null;
+  if (viejos.length === 0 && sinCorte.length === 0 && !bandeja) return null;
 
-  const critico = viejos.some((c) => c.horas > UMBRAL_CORTE_ABIERTO_H.critico) || sinCorte.length >= 2;
+  const critico = viejos.some((c) => c.horas > UMBRAL_CORTE_ABIERTO_H.critico)
+    || sinCorte.length >= 2
+    || (bandeja != null && bandeja.dias >= UMBRAL_BANDEJA_DIAS.critico);
   const partes: string[] = [];
   for (const c of viejos) {
     partes.push(`El corte ${c.folio} (${diaCorto(c.fecha)}) lleva ${cuanto(c.horas)} abierto: mientras no se cierre, `
@@ -91,10 +120,24 @@ export function avisoCortesAbiertos(m: MedicionCortesAbiertos): AvisoCorteAbiert
       ? `La jornada del ${dias} tiene movimientos y no tiene corte.`
       : `Hay ${sinCorte.length} jornadas con movimientos y sin corte: ${dias}.`);
   }
+  if (bandeja) {
+    partes.push(`La bandeja tiene ${bandeja.movimientos} movimiento${bandeja.movimientos === 1 ? '' : 's'} `
+      + `sin confirmar por ${pesos(bandeja.monto)}; el más viejo es del ${diaCorto(bandeja.masViejo)} `
+      + `(${bandeja.dias} día${bandeja.dias === 1 ? '' : 's'}).`);
+  }
+  /**
+   * El título nombra lo MÁS GRAVE que hay, no lo primero que se midió: quien lee la campana tiene
+   * que saber de qué se trata sin abrirla. Un corte trabado tranca los días siguientes; la bandeja
+   * sólo deja un hueco que después nadie recuerda — grave, pero no bloqueante.
+   */
+  const soloBandeja = viejos.length === 0 && sinCorte.length === 0;
+  const title = soloBandeja
+    ? (critico ? 'Caja General: la bandeja lleva días sin confirmarse' : 'Caja General: quedaron movimientos sin confirmar')
+    : (critico ? 'Caja General: el corte lleva días sin cerrarse' : 'Caja General: hay un corte pendiente');
   return {
     key: 'caja_corte_abierto',
     severity: critico ? 'critical' : 'warn',
-    title: critico ? 'Caja General: el corte lleva días sin cerrarse' : 'Caja General: hay un corte pendiente',
+    title,
     message: partes.join(' '),
   };
 }

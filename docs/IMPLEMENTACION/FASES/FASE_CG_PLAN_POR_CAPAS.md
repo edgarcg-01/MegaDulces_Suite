@@ -572,6 +572,133 @@ archivos que no se tocaron** (re-medido con V.3: **62**, idénticos con y sin lo
 decía acá no se pudo reproducir) (forma de importar tipos en firmas con decoradores) y ninguno en los
 cinco tocados. No es como tipa el CI; lo confirma `Build & typecheck`.
 
+### 6.8 Medición en prod del 2026-10-15: la bandeja propone y nadie la mira (`[CGP-0.5]` / `[CGP-L.13]`)
+
+> Primera lectura de producción de este plan. **Transacción `READ ONLY`, como `edgar` con el tenant
+> fijado — no como `app_runtime`**, así que el libro puede verse **más** completo de lo que lo ve la
+> app: todos los huecos de abajo son **cota inferior** (GOTCHAS §80).
+
+**Lo que la disparó:** Edgar, *«el 95% de los ingresos o egresos no se deben hacer manuales»*.
+
+#### Del lado del dato, la regla ya se cumple
+
+| Origen | Movs | Monto |
+|---|---:|---:|
+| `pago_proveedor` (documento de Kepler) | 49 | $807,374.48 |
+| `caos` (feed de la máquina) | 29 | $415,367.00 |
+| `cobro` (documento de Kepler) | 10 | $181,796.02 |
+| **a mano** | **6** | $103,649.00 |
+
+**6.4% a mano**, y **2 de esos 6 son movimientos de prueba E2E**. Nadie está tecleando el libro.
+
+#### El cuello está un paso después: confirmar
+
+Caja General (`clave_banco = '0011'`), desde que ADR-070 hizo a la Suite el libro (12-oct):
+
+| Día | Confirmados | Sin confirmar | Monto pendiente |
+|---|---:|---:|---:|
+| 12-oct | 13 | 8 | $52,598.28 |
+| 13-oct | 19 | 2 | $40,620.00 |
+| **14-oct** | **4** | **35** | **$159,929.71** |
+| 15-oct (en curso) | 14 | 15 | $135,891.00 |
+| **Total** | **51** | **60** | **$389,038.99** |
+
+⭐⭐ **Y no es rezago de la ingesta** — que es lo que lo vuelve accionable en vez de una queja: los
+**35 gastos del 14 entraron al ERP ese mismo día (29) o el anterior (6)**. Estaban en la bandeja
+cuando ocurrieron. Sobre todo lo pendiente desde el 12-oct el rezago es **41 a 0 días y 19 a −1**.
+
+⇒ **El 14-oct no «faltaron dos movimientos»: faltaron 35**, más **10 depósitos de CAOS por
+$255,290** que tampoco se capturaron. Un solo día flojo deja ~$415 mil que después nadie recuerda.
+
+#### ⛔ Una corrección a esta misma medición, y es la que define el código
+
+La primera pasada dio **3% de confirmación**. Era cierta y medía **otra cosa**: usaba la ventana de
+**45 días** del servicio (`CAJA_VENTANA_DIAS`), que incluye **un mes en que el módulo no existía** —
+ahí hay **1,965 movimientos por $17.8M** que nadie iba a capturar nunca. Con el denominador correcto
+son **46%**.
+
+⭐ Por eso `bandejaSinConfirmar()` cuenta **desde el primer corte**, igual que `jornadasSinCorte`:
+*un sensor con el denominador viejo nace rojo para siempre y se apaga a la semana.* **Un número
+cierto sobre el universo equivocado es la forma más cara de equivocarse**, porque pasa todas las
+revisiones.
+
+#### Lo que se hizo con esto
+
+`[CGP-L.13]` — **tercera señal del sensor que ya corre** (`[CGP-L.10]`), no un sensor nuevo: mismo
+pase, mismo latido, mismo umbral en `CRON_JOBS`, misma regla de no repetir. Aviso a **1 día**,
+crítico a **2**. Contra prod hoy daría **crítico: 45 movimientos · $253,147.99 · el más viejo del
+12-oct · 3 días**.
+
+⚠️ **Lo que queda abierto y no es software:** los 7 movimientos con fecha de documento en
+**diciembre** (`[CG.24]`) se van a quedar en la bandeja para siempre ensuciando la cuenta; y
+`finance.caos_cash_links` tiene **9 enlaces vivos en toda la tabla**, o sea que el mecanismo de
+conciliación con la máquina prácticamente no se usa.
+
+---
+
+### 6.7 Estado al 2026-10-15: `[CGP-L.12]`, la jornada del corte (🧪 probado contra base real)
+
+**`[CGP-L.12]` — el corte mide el libro por el día del EFECTIVO.** Ítem nuevo, nacido del review de
+este plan. **Decisión de Edgar:** *«el día en que se movió el efectivo»*; y sobre el sobrante de una
+dispensación, *«depende, se puede devolver a CAOS o se queda en caja; **es por eso que se carga a
+Caja General**»*.
+
+⭐ **El motor ya estaba bien** (`[CG.95]`/`[CG.96]`): la dispensación (+) y su gasto (−) se cancelan y
+al cajón sólo le llega la morralla o el sobrante. **Lo que estaba mal era el reloj**, y §1.4 regla 2
+de este plan ya declaraba el correcto (`created_at`) sin que nadie lo comparara con el código: el
+corte filtraba por `cash_ledger.fecha` —la del **documento**, con mediana de **3 días** de rezago
+(`[CG.82]`)— mientras la bóveda se agrupa por `accounting_date`, el día físico.
+
+```text
+corte del 12 : + dispensado $X sin su gasto   ->  pide contar lo que ya se gastó  = FALTANTE
+corte del  9 : − gasto $X sin su pierna       ->  esperado $X más bajo            = SOBRANTE
+```
+
+Es `[CG.160]` otra vez, en el eje **TIEMPO** en vez del eje **PLAZA**. Y `arqueoDelDia` ya usaba el
+reloj correcto: **dos implementaciones del mismo cuadre divergieron, y la que FIRMA fue la que se
+apartó**.
+
+**El arreglo:** una sola definición (`JORNADA_LIBRO` + `enJornadaLibro`, en `caja-jornadas.query.ts`)
+que comparten los **tres** lectores: el universo del corte (`sueltosDe` → contar/recontar/cerrar/
+saldo), los sueltos de otras jornadas (`sueltosFuera`) y las jornadas sin corte (`jornadasSinCorte`,
+que alimenta al sensor y a la pantalla). Predicado como **rango sobre la columna**, nunca
+`(created_at AT TIME ZONE …)::date =`, que la saca del índice (`[LC.9]`).
+
+⭐⭐ **Y al probarlo apareció un defecto PREEXISTENTE que ninguna prueba podía ver.**
+`conciliacionCajero` —la que lee las dos piernas de la bóveda— sacaba el día con `toISOString()`,
+exactamente lo que `[CGP-L.5]` refutó (da el día **anterior** en Tokio) y que la línea 281 del mismo
+archivo ya llamaba *«funcionaba de casualidad»*. Con el proceso en cualquier zona al este de UTC, el
+corte sumaba el dispensado y el depositado **de otra jornada**. En prod no se veía porque el
+contenedor corre en hora de México, y **ninguna prueba lo ejercía: la suite no sembraba un solo
+movimiento de CAOS**. *El helper compartido de L.5 no sirvió en el único sitio que no lo llamaba.*
+
+**Medido** contra PostgreSQL 18.4 real, como `app_runtime`:
+
+| Qué | Resultado |
+|---|---|
+| Prueba nueva (`cash-cut.servicio-real.spec.ts`) | Gasto con `fecha` = D−3 y efectivo en D + su dispensación en `accounting_date` = D. **Es la primera prueba del repo que ejerce las piernas de la bóveda contra la base** |
+| **Mutación 1** (`sueltosDe` vuelve a `.where('fecha', dia)`) | **roja con el número exacto**: esperado **2,500** en vez de 500 — el faltante fantasma de **$2,000**. Sólo cae esa; las otras 17 siguen verdes |
+| **Mutación 2** (vuelve el `toISOString`) | **2 rojas en Tokio** |
+| `libs/finance/src/lib/caja` | **456/456** en **México, Tokio y UTC**, con `--no-file-parallelism` como lo corre el CI, y verificando que Node **reciba** la zona (en Git Bash `TZ=Asia/Tokyo` no llega — `[CGP-L.5]`) |
+| Base limpia, dos corridas seguidas | verdes las dos |
+| `npm run lint:boundary` | verde |
+
+El candado de alcance conserva sus dientes: comprueba **las dos fronteras** del rango y que **no
+vuelva** un `"fecha" =`, así que «simplificarlo» a un `::date =` lo pone rojo.
+
+⛔ **NO MEDIDO en local:** `test-newdb-caja-invariantes` y `test-newdb-cash-ledger-cuts`. El `.env`
+del repo apunta `DATABASE_URL_NEW` a **prod** y el candado de destino seguro aborta, con razón. Las
+corre el job `caja-db`.
+
+⚠️ **Declarado, no resuelto:** `created_at` es **cuándo se tecleó**. Coincide con el día del efectivo
+cuando la captura es del mismo día; una captura tardía vuelve a separar las piernas. El libro **no
+tiene columna para el día del efectivo** (`fecha` = documento, `created_at` = captura; `occurred_at`
+es de la máquina). **Deuda con nombre:** una columna propia, por omisión la de captura.
+
+⚠️ **Y una trampa del andamio, para el próximo:** el preparador de la base de prueba reconoce qué
+remediar **leyendo el mensaje de error de Postgres en inglés**. En un servidor en español se detiene
+en la primera tabla ajena. Se destraba con `ALTER DATABASE <base> SET lc_messages='C'`.
+
 ---
 
 ## 7. Fase 3: capa visual
@@ -881,7 +1008,8 @@ Control), que **decide Edgar**. Todo lo demás de V.1–V.12 está 🧪 en local
 | Item | Estado | Qué quedó |
 |---|---|---|
 | **CGP-E.1** | 🧪 | El proceso de tres jornadas contra la base, con un **oráculo independiente** escrito en la prueba (`cash-cut.servicio-real.spec.ts`, describe `[CGP-E.1]`): fondo declarado, tres tipos de movimiento, conteo ciego que cuadra al centavo, cierre y doble llave; fondo heredado del contado; faltante y reconteo con motivo; jornadas 3 y 4 cerradas en orden, cada una atando sólo lo suyo, y un día anterior que ya no se abre. **Probado en rojo**: si el depósito suma en vez de restar, el oráculo lo atrapa. ⚠️ Va a nivel de servicio, no de HTTP: levantar la API en local está prohibido (CLAUDE.md). ⚠️ El fondo del primer día se declara: el arqueo de Control no existe en la base de prueba |
-| CGP-E.1b / E.2 | ⬜ | El mismo escenario por HTTP y con Playwright: necesitan la API y la pantalla levantadas **en el CI**. No se escribieron sin poder correrlos |
+| **CGP-E.1b** | 🧪 | **El proceso POR HTTP — y NO hizo falta levantar la API.** `cash-ledger.http-real.spec.ts`: `@nestjs/testing` + `supertest` arman la app **en proceso**, sin puerto ni build, contra la misma base real. Corre en local y en el job `caja-db` con el mismo comando que el resto. Lo que decía este renglón («necesitan la API levantada en el CI») daba por imposible algo que ya estaba en el repo: `supertest` y `@nestjs/testing` estaban instalados **y ningún spec los usaba** |
+| CGP-E.2 | ⬜ | Playwright sobre la pantalla: eso sí necesita el navegador y la app servida. Sigue pendiente |
 | CGP-E.3 | ✅ | Las suites de caja corren en el job `caja-db`: servicio real, sensor, detalle (L.8) y «Fechas de caja en tres zonas» (L.5). `run-all-tests.js` sólo corre scripts de Node: no se duplicó |
 | CGP-E.4 | 🧪 | [`CAJA_GENERAL_LIBERACION`](../RUNBOOKS/CAJA_GENERAL_LIBERACION.md): fusionar `main` (la rama va 1 atrás), CI, migraciones (la rama no trae; verificar `20261014212702` con `soltar.sh --ver`), humo con las rutas verificadas en el controlador, cambios a avisar y vuelta atrás |
 | CGP-E.5 | 🧪 | [`CAJA_GENERAL_OPERACION`](../RUNBOOKS/CAJA_GENERAL_OPERACION.md): para la cajera y el supervisor, con los textos que muestra la pantalla. ⬜ Falta el contacto de soporte y revisarla con una cajera frente a la pantalla |

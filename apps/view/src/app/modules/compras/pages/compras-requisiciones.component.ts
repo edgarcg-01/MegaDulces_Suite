@@ -698,7 +698,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     if (v.vigente == null) return `Ninguno de sus ${v.renglones} renglones tiene costo comparable hoy: no se puede decir si sigue vigente.`;
     const cola = v.sin_medir > 0 ? ` · ${v.sin_medir} renglón(es) sin medir` : '';
     if (v.vigente) return `Los ${v.medibles} renglones medibles conservan el costo con el que se capturaron${cola}.`;
-    return `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}. Recalculá antes de aprobar.`;
+    return `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}. Recalcula antes de aprobar.`;
   }
 
   // ── `[RQ.4]` Lote ──────────────────────────────────────────────────────────────────────────
@@ -773,7 +773,7 @@ export class ComprasRequisicionesComponent implements OnInit {
             severity: 'error', life: 12000, summary: 'No se pudo marcar como ordenada',
             detail: e?.error?.message || (e?.status === 409
               ? 'Esa orden de compra ya está capturada en otra requisición.'
-              : 'Revisá la sucursal y el folio.'),
+              : 'Revisa la sucursal y el folio.'),
           });
         },
       });
@@ -800,7 +800,7 @@ export class ComprasRequisicionesComponent implements OnInit {
       },
       error: (e) => {
         this.busy.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo aplicar el lote', detail: e?.error?.message || 'Intentá de nuevo.' });
+        this.toast.add({ severity: 'error', summary: 'No se pudo aplicar el lote', detail: e?.error?.message || 'Intenta de nuevo.' });
       },
     });
   }

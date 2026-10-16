@@ -184,7 +184,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p class="ex-alcance">
           <i class="pi pi-mobile" aria-hidden="true"></i>
           <span>Pantalla angosta: se muestra <strong>{{ columns()[0].label }}</strong> sola.
-            Para comparar almacenes, abrí un producto.</span>
+            Para comparar almacenes, abre un producto.</span>
         </p>
       }
 
@@ -809,10 +809,31 @@ export class AlmacenExistenciaComponent implements OnInit {
       : 'Ninguna fuente declara cuántas unidades hacen una caja de este producto. Se está dividiendo por 1, o sea la cifra es la cantidad suelta.';
   }
 
-  /** [W1.0/W1.3] El texto del banner. Se declara la CAUSA, no sólo el conteo. */
+  /**
+   * [W1.0/W1.3] El texto del banner. Se declara la CAUSA, no sólo el conteo.
+   *
+   * ⭐ `[U.VA.1]` — **y la causa son DOS, no una.** Hasta el 2026-10-15 esta frase decía
+   * "un divisor que ninguna fuente respalda" para TODAS, y medido contra prod eso era falso en
+   * **3 de cada 4**: de 1,833 celdas, **1,335 (73 %) son de PESO** —el producto se mide en kilos
+   * y el divisor cuenta piezas por caja— y sólo 498 son de factor sin declarar.
+   *
+   * ⛔ Lo que lo hacía invisible es que **la pantalla YA sabía la diferencia**: cada celda lleva
+   * `nf: 'peso' | 'sin_factor'` con su propio tooltip. Se perdía al totalizar, o sea justo en la
+   * única frase que se lee sin pasar el mouse. Un agregado que colapsa dos causas manda a la
+   * gente a arreglar la equivocada: el peso se resuelve vendiendo por kilo, el otro pidiéndole
+   * a alguien que declare el factor.
+   */
   sinFactorTexto(t: ExistenciaTotals): string {
-    return `${t.skus_sin_factor} productos (${t.celdas_sin_factor} celdas) suman al total de cajas `
-      + 'con un divisor que ninguna fuente respalda: van marcadas con ° y su cifra es la cantidad suelta, no cajas.';
+    const peso = t.celdas_sin_factor_peso ?? 0;
+    const sinDato = t.celdas_sin_factor - peso;
+    const cabeza = `${t.skus_sin_factor} productos (${t.celdas_sin_factor} celdas) suman al total de cajas `
+      + 'con un divisor que no es comparable: van marcadas con ° y su cifra es la cantidad suelta, no cajas.';
+    if (!peso) return cabeza;
+    if (!sinDato) {
+      return `${cabeza} Todas son productos que se miden en PESO: el divisor cuenta piezas por caja.`;
+    }
+    return `${cabeza} ${peso} son productos que se miden en PESO (el divisor cuenta piezas por caja) `
+      + `y ${sinDato} no tienen factor declarado por ninguna fuente. Se arreglan distinto.`;
   }
 
   /**

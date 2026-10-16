@@ -9,6 +9,7 @@ import {
   ventanaDeCobertura,
   type CajaCobertura, type CajaCoberturaFiltro, type CajaPeriodoContado,
   SUCURSAL_CAJA_GENERAL,
+  diaDeFecha,
 } from '@megadulces/contracts';
 
 /**
@@ -455,7 +456,7 @@ export class CashLedgerService {
       throw new BadRequestException(
         `Ese documento de Kepler ya se registró en la caja con el folio ${aplicado.folio}`
         + `${aplicado.created_by_username ? ` (lo capturó ${aplicado.created_by_username})` : ''}. `
-        + 'Un mismo documento no puede entrar dos veces: si el anterior está mal, cancelalo y volvé a registrarlo.',
+        + 'Un mismo documento no puede entrar dos veces: si el anterior está mal, cancélalo y vuelve a registrarlo.',
       );
     }
     throw new BadRequestException(
@@ -960,7 +961,7 @@ export class CashLedgerService {
       if (esFechaFutura(input.fecha, await this.hoyMx(trx))) {
         throw new BadRequestException(
           `La fecha ${String(input.fecha).slice(0, 10)} es posterior a hoy. `
-          + 'Casi siempre es un error de captura del ERP: corregí la fecha al día en que se movió el '
+          + 'Casi siempre es un error de captura del ERP: corrige la fecha al día en que se movió el '
           + 'efectivo. Un movimiento fechado adelante desaparece del libro hasta que llegue ese mes.');
       }
 
@@ -1404,7 +1405,7 @@ export class CashLedgerService {
       // efectivo. Confirmarlo de un clic daría por pagado un importe que nadie contó.
       confirmable: false, kepler_cuenta: null, kepler_concepto: null,
       motivo: 'sin_cuenta' as const,
-      motivo_texto: 'Documento por pagar: elegí la cuenta contable y contá el efectivo que se entrega.',
+      motivo_texto: 'Documento por pagar: elige la cuenta contable y cuenta el efectivo que se entrega.',
     }));
   }
 
@@ -1841,7 +1842,7 @@ export class CashLedgerService {
           kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento', cuenta_bloqueada: true,
           conceptos_cuenta: cs, motivo: 'elegir_concepto',
           motivo_texto: cs.length
-            ? `La cuenta ${cc.contra_cuenta} viene del documento; elegí el concepto (${cs.length} ${cs.length === 1 ? 'opción' : 'opciones'}).`
+            ? `La cuenta ${cc.contra_cuenta} viene del documento; elige el concepto (${cs.length} ${cs.length === 1 ? 'opción' : 'opciones'}).`
             : `La cuenta ${cc.contra_cuenta} viene del documento; falta el concepto.` };
       }
       // Lo que no se puede confirmar viaja con su MOTIVO y sin cuenta. Mandar la fila sin decir
@@ -2062,8 +2063,17 @@ export class CashLedgerService {
 
         const mov: any = await this.create({
           tipo: pend.tipo,
-          // La fecha del documento, no la de hoy: `fecha_valor` es cuándo Kepler fechó el hecho.
-          fecha: it.fecha || String(pend.fecha_valor).slice(0, 10),
+          /**
+           * La fecha del documento, no la de hoy: `fecha_valor` es cuándo Kepler fechó el hecho.
+           *
+           * ⛔ `[CG.162]` Acá decía `String(pend.fecha_valor).slice(0, 10)`, y `pend` sale de
+           * `finance.v_caja_movimientos_pendientes`, donde `fecha_valor` es una columna `date`:
+           * node-pg la entrega como objeto `Date` y el recorte daba `"Wed May 27"`. Cuando el
+           * llamador no manda `it.fecha` —el camino del `||`— eso se iba a **escribir** al libro.
+           * Es el mismo defecto que dejó 755 depósitos de CAOS declarados «sin respaldo», sobre
+           * la MISMA vista y la MISMA columna; se corrigió acá al recorrer la familia.
+           */
+          fecha: it.fecha || diaDeFecha(pend.fecha_valor) || '',
           sucursal: it.sucursal || pend.sucursal,
           kepler_cuenta: conCuenta.kepler_cuenta,
           kepler_concepto: conCuenta.kepler_concepto,

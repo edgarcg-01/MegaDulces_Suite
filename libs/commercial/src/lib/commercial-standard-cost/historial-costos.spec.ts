@@ -1,6 +1,6 @@
 // [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el
 // archivo NO CARGUE y entonces reporta **0 tests**, no sus casos fallando.
-import { EntradaCruda, MuestraEstandar, cambiosEstandar, estandarEn, limpiarPicos, trazarEntradas } from './historial-costos';
+import { EntradaCruda, MuestraEstandar, cambiosEstandar, cambiosPromedio, estandarEn, limpiarPicos, promedioEn, trazarEntradas } from './historial-costos';
 
 const m = (sucursal: string, fecha: string, costo: number): MuestraEstandar => ({ sucursal, fecha, costo });
 const e = (over: Partial<EntradaCruda>): EntradaCruda => ({
@@ -110,5 +110,30 @@ describe('[CAT-COSTO.5] historial de costos', () => {
       expect(sinPrevio.motivo).toBe('sin_estandar_previo');
       for (const x of [sinPlaza, sinUnidad, sinPrevio]) expect(x.veredicto).toBe('no_comparable');
     });
+  });
+});
+
+describe('[CAT-COSTO.11] cambiosPromedio', () => {
+  it('el ruido diario dentro de la tolerancia no es un cambio', () => {
+    const s = [m('01', '2026-09-01', 10), m('01', '2026-09-02', 10.02), m('01', '2026-09-03', 9.99), m('01', '2026-09-04', 10.03)];
+    expect(cambiosPromedio(s)).toEqual([]);
+  });
+  it('una deriva lenta se reporta: se mide contra el último valor reportado, no contra el día anterior', () => {
+    // cada día +0.3 % (bajo la tolerancia de 0.5 %), pero al tercer día ya va +0.9 %
+    const s = [m('01', '2026-09-01', 10), m('01', '2026-09-02', 10.03), m('01', '2026-09-03', 10.06), m('01', '2026-09-04', 10.09)];
+    const c = cambiosPromedio(s);
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ fecha: '2026-09-03', antes: 10, despues: 10.06 });
+  });
+  it('cada sucursal lleva su propia serie y se ignoran costos no positivos', () => {
+    const s = [m('01', '2026-09-01', 10), m('01', '2026-09-05', 12), m('02', '2026-09-01', 20), m('02', '2026-09-03', 0), m('02', '2026-09-05', 20)];
+    expect(cambiosPromedio(s).map((x) => x.sucursal)).toEqual(['01']);
+  });
+  it('promedioEn devuelve el valor vigente en la fecha, coherente con los cambios', () => {
+    const s = [m('01', '2026-09-01', 10), m('01', '2026-09-02', 10.03), m('01', '2026-09-03', 10.06), m('01', '2026-09-10', 11)];
+    expect(promedioEn(s, '01', '2026-09-02')).toBe(10);
+    expect(promedioEn(s, '01', '2026-09-05')).toBe(10.06);
+    expect(promedioEn(s, '01', '2026-08-01')).toBeNull();
+    expect(promedioEn(s, '02', '2026-09-05')).toBeNull();
   });
 });

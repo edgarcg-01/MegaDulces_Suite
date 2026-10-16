@@ -34,7 +34,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Curaduría de Thot</h1>
-          <p class="surf-page-sub">Promové las buenas respuestas (👍) a ejemplos dorados; Thot las reusa como few-shot.</p>
+          <p class="surf-page-sub">Promueve las buenas respuestas (👍) a ejemplos dorados; Thot las reusa como few-shot.</p>
         </div>
         <div class="tcur-actions">
           <p-select [options]="profiles" [(ngModel)]="profile" optionLabel="label" optionValue="value" (onChange)="loadExamples()" styleClass="tcur-sel"></p-select>
@@ -114,7 +114,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="5" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-book"></i></div><h3>Sin ejemplos curados</h3><p>Promové de la cola o creá uno manual. (Hay ejemplos semilla en código que ya guían a Thot.)</p></div></td></tr>
+          <tr><td colspan="5" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-book"></i></div><h3>Sin ejemplos curados</h3><p>Promueve de la cola o crea uno manual. (Hay ejemplos semilla en código que ya guían a Thot.)</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -128,7 +128,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
           <input pInputText [(ngModel)]="form.question" placeholder="¿Cuánto vendí…?" />
         </label>
         <label>Respuesta modelo (estilo, sin cifras fijas)
-          <textarea pTextarea [(ngModel)]="form.answer" rows="3" placeholder="Arrancá con la conclusión en negrita…"></textarea>
+          <textarea pTextarea [(ngModel)]="form.answer" rows="3" placeholder="Arranca con la conclusión en negrita…"></textarea>
         </label>
         <label>Tools esperadas (coma)
           <input pInputText [(ngModel)]="form.toolsStr" placeholder="thot_flexible_aggregate, thot_resolve_entity" />
@@ -271,7 +271,7 @@ export class ComercialThotCurationComponent {
     this.reindexing.set(true);
     this.svc.reindex().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.reindexing.set(false); this.toast.add({ severity: 'success', summary: `Reindexado: ${r?.indexed ?? 0} ejemplos` }); },
-      error: () => { this.reindexing.set(false); this.toast.add({ severity: 'warn', summary: 'Reindex no disponible', detail: 'Verificá VECTOR_DATABASE_URL y VOYAGE_API_KEY' }); },
+      error: () => { this.reindexing.set(false); this.toast.add({ severity: 'warn', summary: 'Reindex no disponible', detail: 'Verifica VECTOR_DATABASE_URL y VOYAGE_API_KEY' }); },
     });
   }
 

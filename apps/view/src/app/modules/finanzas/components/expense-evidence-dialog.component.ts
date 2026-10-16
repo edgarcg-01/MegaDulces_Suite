@@ -212,7 +212,7 @@ export class ExpenseEvidenceDialogComponent {
   onClasChange() { this.clasificacion.set(this.clasificacionV); this.error.set(''); }
   clasHint(): string {
     switch (this.clasificacion()) {
-      case 'fiscal': return 'Te dieron factura. Adjuntala.';
+      case 'fiscal': return 'Te dieron factura. Adjúntala.';
       case 'no_fiscal_comprobable': return 'No hay factura, pero sí ticket o recibo.';
       case 'no_comprobable': return 'No hay factura ni ticket. La solicitud firmada va igual, más el motivo.';
       default: return '';
@@ -232,7 +232,7 @@ export class ExpenseEvidenceDialogComponent {
 
   /** Qué falta, en el orden en que se llena (para el tooltip del botón). */
   falta(): string {
-    if (!this.clasificacion()) return 'Elegí el tipo de gasto';
+    if (!this.clasificacion()) return 'Elige el tipo de gasto';
     if (!this.tieneSolicitud()) return 'Falta la solicitud de gasto firmada';
     return this.llevaEvidencia() ? 'Falta el comprobante del gasto' : 'Falta el motivo';
   }
@@ -289,11 +289,11 @@ export class ExpenseEvidenceDialogComponent {
   enviar() {
     const s = this.solicitud();
     if (!s || this.saving()) return;
-    if (!this.clasificacion()) { this.error.set('Elegí el tipo de gasto.'); return; }
+    if (!this.clasificacion()) { this.error.set('Elige el tipo de gasto.'); return; }
 
     // No comprobable: sin archivos, con motivo obligatorio. Se crea directo.
     if (!this.llevaEvidencia()) {
-      if (!this.comentarios.trim()) { this.error.set('Escribí por qué no se puede comprobar.'); return; }
+      if (!this.comentarios.trim()) { this.error.set('Escribe por qué no se puede comprobar.'); return; }
       this.error.set('');
       this.saving.set(true);
       this.crear([]);

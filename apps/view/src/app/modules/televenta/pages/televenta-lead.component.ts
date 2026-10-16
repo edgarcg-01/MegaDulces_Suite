@@ -86,7 +86,7 @@ const OUTCOMES: OutcomeOption[] = [
           </div>
           @if (snap.reservation; as res) {
             <div class="reservation">
-              <p class="ttl-label">Reservado por vos · vence en</p>
+              <p class="ttl-label">Reservado por ti · vence en</p>
               <p class="ttl">{{ formatTtl(res.expires_in_seconds) }}</p>
             </div>
           }
@@ -195,7 +195,7 @@ const OUTCOMES: OutcomeOption[] = [
             [options]="outcomes"
             optionLabel="label"
             optionValue="value"
-            placeholder="Seleccioná"
+            placeholder="Selecciona"
             [style]="{ width: '100%' }"
             appendTo="body"
           ></p-select>

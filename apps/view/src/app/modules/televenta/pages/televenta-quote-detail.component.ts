@@ -170,7 +170,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           <div class="aviso" role="note">
             <i class="pi pi-lock" aria-hidden="true"></i>
             <span>
-              Podés ver esta cotización, pero es de la sucursal <strong>{{ q.source_branch }}</strong> y tu
+              Puedes ver esta cotización, pero es de la sucursal <strong>{{ q.source_branch }}</strong> y tu
               alcance no incluye editar ahí.
             </span>
           </div>
@@ -196,7 +196,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                     [(ngModel)]="termino"
                     (ngModelChange)="onTermino($event)"
                     (focus)="onFoco()"
-                    placeholder="Escribí código SKU, código de barras o nombre del producto..."
+                    placeholder="Escribe código SKU, código de barras o nombre del producto..."
                     autocorrect="off"
                     spellcheck="false"
                     [disabled]="guardando()"
@@ -239,7 +239,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                 } @else if (catalogoAbierto() && termino.trim().length > 0 && !buscando()) {
                   <p class="search-hint">
                     Ningún producto de la sucursal {{ cot()?.source_branch }} coincide con <strong>"{{ termino }}"</strong>.
-                    Podés guardarlo como no casado para registrar la demanda rechazada.
+                    Puedes guardarlo como no casado para registrar la demanda rechazada.
                   </p>
                 }
               </div>
@@ -499,7 +499,7 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
           @if (!q.lines.length) {
             <div class="empty">
               <p class="empty-title">Esta cotización todavía no tiene renglones.</p>
-              <p class="empty-hint">Buscá artículos arriba, en "Agregar artículo", y agregalos uno a uno.</p>
+              <p class="empty-hint">Busca artículos arriba, en "Agregar artículo", y agrégalos uno a uno.</p>
             </div>
           } @else {
             <p-table [value]="q.lines" styleClass="p-datatable-sm dt-stack" [tableStyle]="{ 'min-width': '64rem' }">

@@ -439,7 +439,7 @@ export class AndenCaducidadComponent {
   readonly textoSemaforo = computed(() => {
     if (this.sinCaducidad()) return 'Sin caducidad: entra directo, sin semáforo';
     const d = this.dias();
-    if (d === null) return 'Capturá la caducidad para ver el veredicto';
+    if (d === null) return 'Captura la caducidad para ver el veredicto';
     const min = this.minShelfLife();
     const s = this.semaforo();
     if (s === 'r') {

@@ -40,7 +40,7 @@ const DAY_OPTIONS = WORK_DAYS.map((d) => ({ label: DAY_LABELS[d], value: d }));
     <div class="ra">
       <header class="ra-head">
         <h1><i class="pi pi-directions"></i> Asignar rutas</h1>
-        <p>Elegí un vendedor de tu equipo y asignale su ruta y los días que la recorre. Aparece de inmediato en su "Mi ruta".</p>
+        <p>Elige un vendedor de tu equipo y asígnale su ruta y los días que la recorre. Aparece de inmediato en su "Mi ruta".</p>
       </header>
 
       @if (loading()) {
@@ -52,7 +52,7 @@ const DAY_OPTIONS = WORK_DAYS.map((d) => ({ label: DAY_LABELS[d], value: d }));
         @if (vendors().length === 0) {
           <div class="ra-empty">
             <i class="pi pi-users"></i>
-            <p>No tenés vendedores en tu equipo.</p>
+            <p>No tienes vendedores en tu equipo.</p>
             <span>Pedile a oficina que te asigne vendedores (supervisor) para poder darles ruta.</span>
           </div>
         } @else {
@@ -63,7 +63,7 @@ const DAY_OPTIONS = WORK_DAYS.map((d) => ({ label: DAY_LABELS[d], value: d }));
             (onChange)="selectVendor($event.value)"
             optionLabel="username"
             optionValue="id"
-            placeholder="Elegí un vendedor…"
+            placeholder="Elige un vendedor…"
             styleClass="w-full"
             [filter]="vendors().length > 8"
           ></p-select>
@@ -112,7 +112,7 @@ const DAY_OPTIONS = WORK_DAYS.map((d) => ({ label: DAY_LABELS[d], value: d }));
               (onChange)="newRouteId.set($event.value)"
               optionLabel="label"
               optionValue="value"
-              placeholder="Elegí una ruta…"
+              placeholder="Elige una ruta…"
               styleClass="w-full"
               [filter]="routeOptions().length > 8"
             ></p-select>

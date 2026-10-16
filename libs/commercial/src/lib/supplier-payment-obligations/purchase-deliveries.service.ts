@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import type {
-  CreatePurchaseDeliveryDto, DeliveryDateBasis, DeliveryRecipient, PendingReceiptRow, PendingReceiptsResponse,
+  CreatePurchaseDeliveryDto, DeliveryCalendarResult, DeliveryDateBasis, DeliveryRecipient, PendingReceiptRow, PendingReceiptsResponse,
   PurchaseDeliveryDetail, PurchaseDeliveryLine, PurchaseDeliveryStatus, PurchaseDeliverySummary, ReceiptEvidenceStatus,
   ReceiptKey,
 } from '@megadulces/contracts';
@@ -20,6 +20,8 @@ interface Readiness {
   view: boolean; tables: boolean; internal: boolean;
   /** `[RE.32.2]` La vista publica `referencia` (mig 20261007300000) y los renglones la guardan (…300100). */
   ref: boolean; lineRef: boolean;
+  /** `[TP.15]` La obligación a proveedor guarda el renglón que la originó (mig 20261016002604). */
+  calendar: boolean;
 }
 type Trx = Knex.Transaction;
 
@@ -72,16 +74,18 @@ export class PurchaseDeliveriesService {
         EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('analytics.erp_goods_receipts')
                   AND attname = 'referencia' AND NOT attisdropped) AS ref,
         EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('commercial.purchase_delivery_lines')
-                  AND attname = 'referencia' AND NOT attisdropped) AS line_ref`);
+                  AND attname = 'referencia' AND NOT attisdropped) AS line_ref,
+        EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'commercial.supplier_payment_obligations'::regclass
+                  AND attname = 'purchase_delivery_line_id' AND NOT attisdropped) AS calendar`);
     const r: Readiness = {
       view: !!rows[0]?.view, tables: !!rows[0]?.tables, internal: !!rows[0]?.internal,
-      ref: !!rows[0]?.ref, lineRef: !!rows[0]?.line_ref,
+      ref: !!rows[0]?.ref, lineRef: !!rows[0]?.line_ref, calendar: !!rows[0]?.calendar,
     };
-    // Las cinco: si se cacheara con `ref` en false, la referencia no aparecería hasta reiniciar la API
+    // Las seis: si se cacheara con `ref` en false, la referencia no aparecería hasta reiniciar la API
     // aunque la migración ya estuviera aplicada.
-    if (r.view && r.tables && r.internal && r.ref && r.lineRef) this.readyCache = r;
+    if (r.view && r.tables && r.internal && r.ref && r.lineRef && r.calendar) this.readyCache = r;
     else {
-      const msg = `RE.32: migraciones pendientes — vista=${r.view} tablas=${r.tables} internos=${r.internal} referencia=${r.ref}/${r.lineRef}`;
+      const msg = `RE.32: migraciones pendientes — vista=${r.view} tablas=${r.tables} internos=${r.internal} referencia=${r.ref}/${r.lineRef} calendario=${r.calendar}`;
       if (msg !== this.lastWarn) { this.lastWarn = msg; this.logger.warn(msg); }
     }
     return r;
@@ -380,8 +384,96 @@ export class PurchaseDeliveriesService {
         status: rejections.length ? 'recibida_parcial' : 'recibida',
         received_by: username, received_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now(),
       });
-      return this.loadDetail(trx, tenantId, id);
+      // En su propio savepoint: si leer Kepler falla, la aceptación del papel queda en pie y el
+      // fallo se DECLARA (`error`), en vez de impedirle a Finanzas confirmar la entrega.
+      let calendar: DeliveryCalendarResult;
+      try {
+        // Tope de 15 s: la vista materializa la deuda entera de Kepler (medido ~0.4 s, con un
+        // antecedente de >150 s) y aquí la entrega está tomada con FOR UPDATE. El ROLLBACK del
+        // savepoint revierte el SET LOCAL si falla; si sale bien, se restaura a mano.
+        const { rows: [prev] } = await trx.raw(`SELECT current_setting('statement_timeout') AS v`);
+        calendar = await trx.transaction(async (sp) => {
+          await sp.raw(`SET LOCAL statement_timeout = '15s'`);
+          const out = await this.toCalendar(sp, tenantId, id);
+          await sp.raw(`SELECT set_config('statement_timeout', ?, true)`, [String(prev?.v ?? '0')]);
+          return out;
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.error(`TP.15 entrega ${id}: no pasó al calendario — ${msg}`);
+        calendar = { schema_ready: true, created: 0, amount: 0, without_balance: 0, without_supplier: 0, error: 'No se pudieron pasar las facturas al Calendario de Pagos; la entrega sí quedó confirmada. Avisa a Sistemas.' };
+      }
+      return { ...(await this.loadDetail(trx, tenantId, id)), calendar };
     });
+  }
+
+  /**
+   * `[TP.15]` Lo aceptado pasa al Calendario de Pagos como obligación a proveedor, **por el
+   * pendiente vivo de Kepler** (`analytics.v_supplier_payables`, misma sucursal + proveedor +
+   * folio de la entrada), no por el importe de la entrega. Medido el 2026-10-16: de 38 aceptados,
+   * 21 ya no tenían saldo en Kepler (pagados o de contado) y 2 tenían saldo menor; copiar el
+   * importe los habría ofrecido para pagar otra vez.
+   *
+   * Aceptar el papel ES la autorización para programarlo (ADR-064): `authorized_by` = quien
+   * decidió el renglón. Una entrada con dos documentos en Kepler no se adivina: no pasa.
+   * ⚠️ Mismo INSERT que el backfill de la mig `20261016002604`; si cambia uno, cambia el otro.
+   */
+  private async toCalendar(trx: Trx, tenantId: string, deliveryId: string): Promise<DeliveryCalendarResult> {
+    if (!(await this.readiness(trx)).calendar) {
+      return { schema_ready: false, created: 0, amount: 0, without_balance: 0, without_supplier: 0 };
+    }
+    await trx.raw(`
+      WITH doc AS MATERIALIZED (
+        SELECT p.tenant_id, p.sucursal, p.proveedor, p.folio,
+               min(p.doc_tipo) AS doc_tipo, min(p.doc_sub) AS doc_sub,
+               min(p.vencimiento) AS vencimiento, sum(p.pendiente) AS pendiente
+          FROM analytics.v_supplier_payables p
+         WHERE p.proveedor IN (SELECT supplier_code FROM commercial.purchase_delivery_lines
+                                WHERE tenant_id = :tenantId AND delivery_id = :deliveryId AND status = 'aceptado')
+         GROUP BY p.tenant_id, p.sucursal, p.proveedor, p.folio
+        HAVING count(*) = 1
+      )
+      INSERT INTO commercial.supplier_payment_obligations
+        (tenant_id, supplier_id, invoice_folio, concept, original_amount, original_due_date, notes,
+         authorized_by, authorized_at, created_by,
+         purchase_delivery_line_id, kepler_sucursal, kepler_doc_tipo, kepler_doc_sub, kepler_folio)
+      SELECT l.tenant_id, s.id, nullif(btrim(l.referencia), ''),
+             'Entrada ' || l.receipt_sucursal || '-' || l.receipt_folio
+               || coalesce(' · Fact. ' || nullif(btrim(l.referencia), ''), ''),
+             round(doc.pendiente, 2), coalesce(doc.vencimiento, l.kepler_due_date),
+             'Desde la entrega ' || d.code || ', aceptada por ' || l.decided_by,
+             l.decided_by, l.decided_at, l.decided_by,
+             l.id, doc.sucursal, doc.doc_tipo, doc.doc_sub, doc.folio
+        FROM commercial.purchase_delivery_lines l
+        JOIN commercial.purchase_deliveries d ON d.tenant_id = l.tenant_id AND d.id = l.delivery_id
+        JOIN catalog.suppliers s ON s.tenant_id = l.tenant_id AND s.code = l.supplier_code
+        JOIN doc ON doc.tenant_id = l.tenant_id AND doc.sucursal = l.receipt_sucursal
+                AND doc.proveedor = l.supplier_code AND doc.folio = l.receipt_folio
+       WHERE l.tenant_id = :tenantId AND l.delivery_id = :deliveryId AND l.status = 'aceptado'
+         AND round(doc.pendiente, 2) > 0
+         AND NOT EXISTS (SELECT 1 FROM commercial.supplier_payment_obligations o
+                          WHERE o.tenant_id = l.tenant_id AND o.purchase_delivery_line_id = l.id)
+      ON CONFLICT (tenant_id, purchase_delivery_line_id) WHERE purchase_delivery_line_id IS NOT NULL DO NOTHING`,
+      { tenantId, deliveryId });
+
+    const { rows } = await trx.raw(`
+      SELECT count(o.id)::int AS created, coalesce(sum(o.original_amount), 0) AS amount,
+             count(*) FILTER (WHERE o.id IS NULL AND s.id IS NULL)::int AS without_supplier,
+             count(*) FILTER (WHERE o.id IS NULL AND s.id IS NOT NULL)::int AS without_balance
+        FROM commercial.purchase_delivery_lines l
+        LEFT JOIN catalog.suppliers s ON s.tenant_id = l.tenant_id AND s.code = l.supplier_code
+        LEFT JOIN commercial.supplier_payment_obligations o ON o.tenant_id = l.tenant_id AND o.purchase_delivery_line_id = l.id
+       WHERE l.tenant_id = :tenantId AND l.delivery_id = :deliveryId AND l.status = 'aceptado'`,
+      { tenantId, deliveryId });
+    const r = rows[0] ?? {};
+    const out: DeliveryCalendarResult = {
+      schema_ready: true, created: Number(r.created ?? 0), amount: Number(r.amount ?? 0),
+      without_balance: Number(r.without_balance ?? 0), without_supplier: Number(r.without_supplier ?? 0),
+    };
+    if (out.without_balance || out.without_supplier) {
+      this.logger.log(`TP.15 entrega ${deliveryId}: ${out.created} al calendario, ${out.without_balance} sin saldo en Kepler, ${out.without_supplier} sin proveedor en catálogo`);
+    }
+    return out;
   }
 
   /** Compras cancela una entrega que Finanzas todavía no confirma: todo vuelve a pendientes. */

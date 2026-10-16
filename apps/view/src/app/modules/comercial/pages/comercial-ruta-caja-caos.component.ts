@@ -76,7 +76,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="!filas().length"
                           [skeletonRows]="6" emptyIcon="pi-wallet"
                           emptyTitle="Ningún depósito a la caja fuerte en estas fechas"
-                          emptyHint="Ampliá el rango: la caja fuerte tiene movimientos desde mayo de 2026."
+                          emptyHint="Amplía el rango: la caja fuerte tiene movimientos desde mayo de 2026."
                           (retry)="reload()">
             @if (data(); as d) {
               <p class="rc-veredicto" [class]="'rc-v-' + veredicto().tono">

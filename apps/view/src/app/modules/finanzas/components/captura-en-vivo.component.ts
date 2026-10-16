@@ -69,7 +69,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inj
           <strong>{{ error() }}</strong>
           <div class="cv-error-sub">
             El comprobante sólo se acepta tomado en el momento, así que no hay opción de subir
-            un archivo. Si esta computadora no tiene cámara, hacelo desde el celular.
+            un archivo. Si esta computadora no tiene cámara, hazlo desde el celular.
           </div>
         </div>
       </div>
@@ -170,7 +170,7 @@ export class CapturaEnVivoComponent {
   readonly aviso = signal('');
 
   readonly tipListo = 'Que se vean el total y la fecha del comprobante.';
-  readonly tipEsperando = 'Esperá a que se vea la imagen para disparar.';
+  readonly tipEsperando = 'Espera a que se vea la imagen para disparar.';
   readonly tipAriaOk = 'Capturar la evidencia';
   readonly tipAriaEsperando = 'La cámara todavía no da imagen';
 
@@ -245,7 +245,7 @@ export class CapturaEnVivoComponent {
      */
     this.reloj = setTimeout(() => {
       if (this.intento === mia && this.estado() === 'pidiendo') {
-        this.fallar('El navegador no respondió al permiso de cámara. Revisá el candado de la barra de direcciones y reintentá.');
+        this.fallar('El navegador no respondió al permiso de cámara. Revisa el candado de la barra de direcciones y reintenta.');
       }
     }, this.ESPERA_PERMISO_MS);
     const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined;
@@ -285,7 +285,7 @@ export class CapturaEnVivoComponent {
     // entregarse una foto negra, pero ahora se dice por qué.
     if (!v || !c || !v.videoWidth) {
       this.listo.set(false);
-      this.aviso.set('La cámara todavía no da imagen. Esperá un segundo y volvé a intentar.');
+      this.aviso.set('La cámara todavía no da imagen. Espera un segundo y vuelve a intentar.');
       return;
     }
     this.aviso.set('');

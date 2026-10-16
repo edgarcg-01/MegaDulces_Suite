@@ -102,7 +102,7 @@ const CHANNEL_SEL_OPTS = [
             <div><dt>¿Qué quieres ver?</dt><dd>El punto de partida. <b>Sucursales</b> = una columna por plaza para compararlas; <b>Canales</b> = abre las columnas por canal (Mostrador, Ruta, Vecinal, Mayoreo); <b>Vendedores</b> = por persona y ruta (p.ej. la vecinal de PH en Candy y Rafael); <b>vs Objetivo</b> = avance contra la meta del mes. No esconde filtros: sólo reencuadra.</dd></div>
             <div><dt>Periodo</dt><dd>El rango de fechas (mes, trimestre, año o rango libre). Meses cerrados salen del consolidado nocturno; el mes en curso, en vivo.</dd></div>
             <div><dt>Empresa</dt><dd>Marca / proveedor. Deja las filas de sus productos. Vacío = todas las empresas.</dd></div>
-            <div><dt>Sucursal · Canal</dt><dd>Acota a una o varias plazas y canales. Vacío = todos. También podés hacer <b>clic en el encabezado de una columna</b> del cuadro para acotar a esa sucursal.</dd></div>
+            <div><dt>Sucursal · Canal</dt><dd>Acota a una o varias plazas y canales. Vacío = todos. También puedes hacer <b>clic en el encabezado de una columna</b> del cuadro para acotar a esa sucursal.</dd></div>
             <div><dt>Vendedor</dt><dd>En «Vendedores»: acota a uno o varios vendedores por nombre.</dd></div>
             <div><dt>Buscar SKU</dt><dd>Acota a un producto por SKU o descripción, en todas las empresas a la vez.</dd></div>
             <div><dt>Avanzado</dt><dd>Cruce fino canal × almacén (o vendedor) en árbol. Al usarlo, gana sobre los filtros Sucursal/Canal.</dd></div>
@@ -373,11 +373,11 @@ const CHANNEL_SEL_OPTS = [
               </div>
             } @else {
               <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-flag"></i></div>
-                <h3>Sin metas capturadas</h3><p>No hay objetivos para {{ targetMonthLabel() }}. Capturá metas en <a routerLink="/comercial/analisis">Análisis</a>.</p></div>
+                <h3>Sin metas capturadas</h3><p>No hay objetivos para {{ targetMonthLabel() }}. Captura metas en <a routerLink="/comercial/analisis">Análisis</a>.</p></div>
             }
           } @else {
             <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-flag"></i></div>
-              <h3>Sin metas</h3><p>Elegí un mes para ver el avance vs objetivo.</p></div>
+              <h3>Sin metas</h3><p>Elige un mes para ver el avance vs objetivo.</p></div>
           }
         </div>
       } @else {
@@ -589,7 +589,7 @@ const CHANNEL_SEL_OPTS = [
         }
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-file-excel"></i></div>
-            <h3>Generá un reporte</h3><p>Elegí empresa y periodo, luego «Generar».</p></div>
+            <h3>Genera un reporte</h3><p>Elige empresa y periodo, luego «Generar».</p></div>
         }
       }
       }
@@ -1638,7 +1638,7 @@ export class ComercialSellOutComponent {
   generate() {
     this.syncPeriod();
     if (!this.curFrom || !this.curTo) {
-      this.toast.add({ severity: 'warn', summary: 'Elegí un periodo' });
+      this.toast.add({ severity: 'warn', summary: 'Elige un periodo' });
       return;
     }
     this.saveFilters();

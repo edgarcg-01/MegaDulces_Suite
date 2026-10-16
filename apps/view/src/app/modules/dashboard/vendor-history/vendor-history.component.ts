@@ -59,7 +59,7 @@ interface VendorDay {
             (ngModelChange)="onVendor($event)"
             optionLabel="label"
             optionValue="value"
-            placeholder="Elegí un vendedor"
+            placeholder="Elige un vendedor"
             [filter]="true"
             [showClear]="false"
             styleClass="vh-select"
@@ -69,7 +69,7 @@ interface VendorDay {
       </header>
 
       @if (!selectedUser()) {
-        <div class="vh-empty">Elegí una fecha y un vendedor para ver su recorrido del día.</div>
+        <div class="vh-empty">Elige una fecha y un vendedor para ver su recorrido del día.</div>
       } @else if (loadingDay()) {
         <p-skeleton height="140px" styleClass="vh-sk"></p-skeleton>
         <p-skeleton height="60vh"></p-skeleton>

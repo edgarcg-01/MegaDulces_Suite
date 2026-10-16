@@ -68,7 +68,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
       <div class="sf-pie">
         <span class="sf-est" [class.sf-listo]="activo()">
           <span class="sf-dot" aria-hidden="true"></span>
-          {{ activo() ? 'Pistola lista' : 'Tocá el campo para activar la pistola' }}
+          {{ activo() ? 'Pistola lista' : 'Toca el campo para activar la pistola' }}
         </span>
         @if (valor()) {
           <span class="sf-cnt">{{ visibles() }} de {{ total() }}</span>
@@ -129,8 +129,8 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 })
 export class ScanFieldComponent implements AfterViewInit, OnDestroy {
   readonly valor = input.required<string>();
-  readonly etiqueta = input('Escaneá o buscá');
-  readonly placeholder = input('Escaneá o escribí para buscar');
+  readonly etiqueta = input('Escanea o busca');
+  readonly placeholder = input('Escanea o escribe para buscar');
   readonly numerico = input(false);
   readonly conCamara = input(true);
   /** Coincidencias visibles / total, para el contador `N de M`. */
@@ -187,7 +187,7 @@ export class ScanFieldComponent implements AfterViewInit, OnDestroy {
     // `getUserMedia` no existe fuera de contexto seguro: en http de LAN el botón
     // tiene que decir por qué no abre, no quedarse mudo.
     if (!navigator.mediaDevices?.getUserMedia) {
-      this.sinCamara.emit('Este equipo no da acceso a la cámara (requiere HTTPS). Usá la pistola o tecleá el código.');
+      this.sinCamara.emit('Este equipo no da acceso a la cámara (requiere HTTPS). Usa la pistola o teclea el código.');
       return;
     }
     this.camaraAbierta.set(true);
@@ -210,7 +210,7 @@ export class ScanFieldComponent implements AfterViewInit, OnDestroy {
         );
       } catch {
         this.cerrarCamara();
-        this.sinCamara.emit('No se pudo abrir la cámara. Revisá los permisos (requiere HTTPS).');
+        this.sinCamara.emit('No se pudo abrir la cámara. Revisa los permisos (requiere HTTPS).');
       }
     }, 80);
   }

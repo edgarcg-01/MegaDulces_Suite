@@ -28,10 +28,10 @@ import { environment } from '../../../environments/environment';
       <header class="dg-head">
         <h1>Diagnóstico</h1>
         <p class="dg-sub">
-          Abrí esta pantalla <strong>después</strong> de que algo se quede colgado. La grabación
+          Abre esta pantalla <strong>después</strong> de que algo se quede colgado. La grabación
           corre desde que arranca la app y sobrevive a la recarga, así que lo importante
           —navegaciones y peticiones que nunca terminaron— queda registrado igual.
-          Tocá <strong>Copiar diagnóstico</strong> y mandá el texto.
+          Toca <strong>Copiar diagnóstico</strong> y manda el texto.
         </p>
       </header>
 

@@ -53,12 +53,12 @@ export class LoginComponent implements OnInit {
     if (reason === 'expired') {
       this.notice.set(
         this.returnUrl
-          ? 'Tu sesión expiró. Entrá de nuevo y te devolvemos a donde estabas.'
-          : 'Tu sesión expiró. Entrá de nuevo para continuar.',
+          ? 'Tu sesión expiró. Entra de nuevo y te devolvemos a donde estabas.'
+          : 'Tu sesión expiró. Entra de nuevo para continuar.',
       );
     } else if (reason === 'required' && this.returnUrl) {
       // No se dice "expiró": el guard no lo sabe. Sólo que hace falta entrar.
-      this.notice.set('Entrá para continuar y te llevamos a donde ibas.');
+      this.notice.set('Entra para continuar y te llevamos a donde ibas.');
     }
   }
 

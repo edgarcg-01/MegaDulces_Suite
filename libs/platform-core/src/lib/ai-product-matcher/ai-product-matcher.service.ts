@@ -280,7 +280,7 @@ export class AiProductMatcherService {
     if (extracted.length > this.maxItems) {
       throw new BadRequestException(
         `Se detectaron ${extracted.length} items, máximo permitido ${this.maxItems}. ` +
-          `Dividí la lista en varios envíos.`,
+          `Divide la lista en varios envíos.`,
       );
     }
 

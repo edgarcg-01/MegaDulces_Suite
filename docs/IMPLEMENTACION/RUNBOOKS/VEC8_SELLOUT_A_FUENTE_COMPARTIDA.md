@@ -498,3 +498,141 @@ repone — el radio de daño se queda en *traer lo que el ERP ya tiene*.
 - **El barrido cubre 5 tablas** (las que tienen fecha de negocio). Las que no la tienen las mira
   `--chicas` cada 30 min, pero **con su propio universo acotado**, no con ventana ancha.
 - **La ventana del carril continuo sigue en 3 días.** El semanal la compensa; no la cambia.
+
+---
+
+# `[VEC.20]` — «Telemarketing» es VENTA A CRÉDITO de la ruta, y su cadena hasta el banco existe entera
+
+> Edgar, 2026-10-15: *"se llama telemarketing pero son ventas a crédito que después. Hay que
+> agregarlas aquí y cazarlas con su depósito… para conciliar el depósito, la factura y las ventas"*.
+
+⛔ **Yo lo tenía mal.** `[VEC.11]` publicaba `U-D-8` como *"venta real, de otro canal"* y lo dejaba
+**fuera** del total de la ruta, declarado pero sin sumar, esperando una decisión de negocio. La
+decisión ya estaba tomada en el ERP y no la había mirado: **el propio Kepler lo registra como
+CARGO EN CARTERA**.
+
+```
+doc_code   doc_label                cargo/abono   docs 2026   importe 2026
+UD0801     Factura Telemarketing         C          4,457     $30,345,234.05
+```
+
+Es venta a crédito con todas las letras: tiene **cliente, vencimiento, saldo y estatus**.
+
+## La cadena, verificada salto por salto
+
+```
+kdm1  U-D-8              la ruta factura a crédito
+  └─ kdue  UD0801  (C)   cargo en cartera — vencimiento, saldo, estatus
+       └─ kdm5           la APLICACIÓN: liga el abono con la factura que salda
+            └─ kdue  UA0501 (A)   el cobro
+                 └─ analytics.erp_collections   medio_cobro + cuenta_tesoreria
+                      └─ [Fase CB]  el movimiento bancario
+```
+
+**Los cuatro primeros saltos están medidos y funcionan.** Para las rutas vecinales, ago→oct:
+
+| suc | ruta | facturas | facturado | **saldo sin cobrar** | con cobro |
+|---|---|---:|---:|---:|---:|
+| 01 | `1V001` | 35 | $281,613.32 | **$111,327.20** | 17 |
+| 08 | `2V004` | 2 | $16,671.18 | **$16,671.18** | 0 |
+| 08 | `2V005` | 2 | $8,402.38 | $365.52 | 2 |
+
+⚠️ **$128,363.90 facturados por las rutas y todavía sin cobrar**, que hoy no se ven en ninguna
+pantalla. `2V004` no tiene un solo cobro aplicado.
+
+## ⭐ El depósito: la ficha NO es el camino, el cobro ya lo dice
+
+`finance.collection_deposits` (Fase CC, la ficha escaneada con OCR) tiene **CERO filas, de
+ninguna sucursal**, contra 5,661 cobros desde agosto. ⛔ No es que nadie suba fichas: **Fase CC
+nunca terminó de desplegarse** (su propio tracker lo dice: *"pendiente prod: redeploy + correr
+importer desde LAN"*). *Cero filas por un defecto es indistinguible de cero filas por desuso.*
+
+⭐ **Pero no hace falta.** `analytics.erp_collections` ya trae `medio_cobro` y `cuenta_tesoreria`:
+
+```
+suc 01 · banco · BBVA 6721 ......  382 cobros · $4,629,570.93
+suc 01 · banco · BANORTE 3041 ...  144 cobros · $2,094,398.87
+suc 01 · caja  · CAJA GENERAL ...   10 cobros ·   $228,963.18
+suc 08 · banco · BAJIO 6506 .....   18 cobros · $1,335,910.74
+```
+
+O sea que *«¿se depositó, y en qué cuenta?»* se contesta **hoy**, sin esperar a Fase CC. Y
+`cuenta_tesoreria` es la misma nomenclatura que `finance.bank_accounts` de Fase CB, así que el
+último tramo —cobro ↔ movimiento bancario— también es alcanzable.
+
+## Lo que falta construir
+
+1. **`/comercial/ventas-por-ruta`**: la venta a crédito entra al total de la ruta (decisión de
+   Edgar), con su estado de cobranza — facturado · cobrado · saldo · vencido.
+2. **`/comercial/documentos`**: el documento con su cadena completa, factura → cobro → cuenta.
+3. Una **vista canónica** que resuelva la cadena una sola vez, para que las dos pantallas no la
+   re-deriven cada una (prototipo medido: **1.2–1.5 s**, hay que bajarlo antes de publicarlo).
+
+⛔ **`U-D-12` sigue FUERA y eso no cambia**: en estas rutas es espejo (98.2 % de solape, placebo 0,
+y el arqueo lo ignora). Lo que entra es `U-D-8`, que es el crédito de verdad.
+
+---
+
+# `[VEC.22]` — ⛔ CORRECCIÓN: el índice de `[VEC.13]` NO arregló la vista. El arreglo es otro, y está medido
+
+> `[VEC.13]` se commiteó afirmando que el índice sobre `kduv` bajaría
+> `v_kepler_vecinal_monthly` de 1,077 ms a ~42 ms y que eso **desbloqueaba retirar la copia**.
+> **Las dos cosas son falsas.** Medido en prod el 2026-10-15, con el índice ya aplicado
+> (batch 931):
+
+```
+v_kepler_vecinal_monthly (vista VIVA) ....  1,604 / 1,490 / 1,127 ms
+mv_kepler_vecinal_monthly (la COPIA) ....       4 /     4 /     4 ms
+```
+
+## Por qué me equivoqué
+
+La prueba que me convenció fue `SET enable_nestloop = off`, que bajó la vista a 42 ms. De ahí
+concluí *"falta el índice"*. **El índice no era lo que esa prueba demostraba.** Lo que demostraba
+es que **la ESTRATEGIA de join** estaba mal, y forzar un hash la arreglaba.
+
+El plan de hoy, con el índice puesto, lo dice:
+
+```
+Nested Loop Left Join  (cost=... rows=1) (actual rows=9135, loops=1)
+  Rows Removed by Join Filter: 3,644,865
+  ->  Index Scan using ix_kdm1_ruta_vecinal on kdm1  (rows=1 estimado · 9,135 real)
+  ->  Seq Scan on kduv  (rows=400, loops=9135)
+```
+
+⭐ **La causa es la ESTIMACIÓN, no el acceso**: el planner cree que el lado externo trae **1 fila**
+(trae 9,135). Con un estimado de 1, un nested loop con seq scan de 400 filas parece costar ~10
+unidades — **ningún índice cambia esa elección**, porque el planner cree que el bucle corre una vez.
+
+⚠️ El índice **no fue inútil**: `pg_stat_user_indexes` lo da con **103,656 scans**, así que otros
+consumidores de `kduv` sí lo usan. Pero **no arregla esta vista**, que es lo que el commit decía.
+
+## El arreglo real, medido
+
+Resolver `kduv` **DESPUÉS de agrupar** — 61 filas en vez de 9,135 — en vez de unirlo por documento:
+
+```
+cabeceras agrupadas, SIN kduv ................  70 / 39 / 42 ms
+kduv resuelto DESPUÉS de agrupar (61 filas) ..  46 / 45 / 46 ms
+hoy (kduv por documento) ..................... 1,127-1,604 ms
+```
+
+**35×**, y sin tocar ningún índice.
+
+⛔ **No se implementó todavía, a propósito.** `route_name` vive hoy en
+`v_kepler_vecinal_sales_docs` (grano documento) y lo consume la matriz; moverlo al rollup es un
+**cambio de contrato sobre tres vistas encadenadas** (docs → monthly → matview, con su PK UNIQUE).
+Hacer esa reestructura al final de una sesión larga, justo después de haberme equivocado sobre esta
+misma vista, es cómo se produce el error siguiente.
+
+## Lo que esto cambia en las decisiones ya tomadas
+
+- ⛔ **La copia `mv_kepler_vecinal_monthly` SIGUE justificada** (4 ms contra 1,500). El commit de
+  `[VEC.13]` decía que quedaba sin razón de ser: **no es cierto a día de hoy.**
+- ✅ `[VEC.14]` sí entregó: en prod, septiembre da bruto $1,943,014.72 · IVA $112,060.52 ·
+  IEPS $69,251.27 · **neto $1,761,702.93**.
+
+⚠️ **Y una trampa que casi me hace concluir mal otra vez:** al preguntar si las migraciones estaban
+aplicadas, `knex` resolvió `identity.knex_migrations` (vacía) en vez de `public.knex_migrations`
+(donde sí están, batches 931 y 933). *Prod tiene DOS ledgers y el que contesta depende del
+`search_path`* — un `[]` ahí se lee como «no está aplicada».

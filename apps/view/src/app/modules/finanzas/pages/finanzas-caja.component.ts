@@ -266,7 +266,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
               <div>
                 <h3>Sin workbook para este periodo</h3>
-                <p class="muted">La hoja CAJA GENERAL del Sheet está vacía: no hay copia manual contra la cual conciliar. Llénala en el Excel, o usá <b>General</b> — el Control no depende del manual.</p>
+                <p class="muted">La hoja CAJA GENERAL del Sheet está vacía: no hay copia manual contra la cual conciliar. Llénala en el Excel, o usa <b>General</b> — el Control no depende del manual.</p>
               </div>
             </div>
           } @else {

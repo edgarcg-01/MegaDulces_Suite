@@ -75,7 +75,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
           <div class="so-title"><h1>Gastos</h1><app-context-help topic="solicitudes" /></div>
           <p class="surf-page-sub">El ciclo completo: solicitudes de Kepler (XA1501), su aplicación a gasto (XA1001) y lo capturado en campo que falta ligar</p>
           @if (mias() && !sinAnclas()) { <p class="so-scope"><i class="pi pi-user" aria-hidden="true"></i> Mías = <strong>{{ miScopeTexto() }}</strong></p> }
-          @if (mias() && sinAnclas()) { <p class="so-scope is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No hay con qué saber cuáles son tuyas — pedí que te asignen tus áreas de gasto en Usuarios.</p> }
+          @if (mias() && sinAnclas()) { <p class="so-scope is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No hay con qué saber cuáles son tuyas — pide que te asignen tus áreas de gasto en Usuarios.</p> }
         </div>
         <div class="so-head-right">
           <!-- Estado del dato: esto es una vista VIVA sobre Kepler, así que hay que poder

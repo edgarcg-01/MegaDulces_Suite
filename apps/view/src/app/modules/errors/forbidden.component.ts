@@ -59,7 +59,7 @@ import { Permission } from '../../core/constants/permissions';
         <h2 class="fb-how-h">Cómo se resuelve</h2>
         @if (canManageRoles()) {
           <p>
-            Podés asignártelo vos mismo desde la administración de roles.
+            Puedes asignártelo tú mismo desde la administración de roles.
           </p>
         } @else {
           <p>
@@ -69,12 +69,12 @@ import { Permission } from '../../core/constants/permissions';
         }
         <p class="fb-relogin">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
-          Después de que te lo asignen tenés que <b>cerrar sesión y volver a
+          Después de que te lo asignen tienes que <b>cerrar sesión y volver a
           entrar</b>: los permisos viajan en tu sesión y no se actualizan solos.
         </p>
       </div>
 
-      <app-route-links heading="Esto sí podés abrir" [items]="alternatives()" />
+      <app-route-links heading="Esto sí puedes abrir" [items]="alternatives()" />
 
       <!-- Sin "Volver": se llegó acá por una redirección del guard, así que atrás
            es la ruta vedada y rebotaría de nuevo. Desde un 403 los movimientos

@@ -43,7 +43,19 @@ describe('[CG.160] el cierre ata EXACTAMENTE lo que el conteo suma', () => {
     // Si vuelve el `sucursal = '00'`, el cierre deja fuera la nómina que otras plazas pagaron
     // desde este mismo cajón y firma un faltante que no existe.
     expect(sql).not.toMatch(/"sucursal"\s*=/);
-    expect(sql).toContain(`"fecha" = '${DIA}'`);
+    /**
+     * `[CGP-L.12]` **La jornada se acota por el día del EFECTIVO, y como RANGO.** Acá decía
+     * `"fecha" = DIA`, que es el día del DOCUMENTO de Kepler: con su rezago de 3 días la
+     * dispensación de la bóveda caía en un corte y su gasto en otro, y el corte firmaba un
+     * faltante del tamaño del gasto.
+     *
+     * ⛔ El rango va sobre la columna, nunca `(created_at AT TIME ZONE …)::date = …`: envolverla
+     * la saca del índice (`[LC.9]`). Por eso se comprueban **las dos** fronteras: si alguien
+     * «simplifica» a un `::date =`, esto se pone rojo.
+     */
+    expect(sql).not.toMatch(/"fecha"\s*=/);
+    expect(sql).toContain(`created_at >= ('${DIA}'::date) AT TIME ZONE 'America/Mexico_City'`);
+    expect(sql).toContain(`created_at <  (('${DIA}'::date) + 1) AT TIME ZONE 'America/Mexico_City'`);
     expect(sql).toContain('"corte_id" is null');
     expect(sql).toContain('"deleted_at" is null');
   });

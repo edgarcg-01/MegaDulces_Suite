@@ -1126,7 +1126,7 @@ export class FinanceBankService {
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
     const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount,
-      reconAmt, retirosAmt, ultimoImport } = await this.tk.run(async (trx) => {
+      reconAmt, cobertura, ultimoImport } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
@@ -1170,16 +1170,49 @@ export class FinanceBankService {
       // re-disparar una escritura que no hacía falta. Se reconstruye con el MISMO par que
       // devuelve runMatch (monto casado / monto de retiros) para que el número no cambie
       // según de dónde venga.
+      // [CB.52] ⛔ **El chip decía «Conciliado 160%».** Un porcentaje que pasa de 100 no es una
+      // cifra alta: es un numerador que no cabe en su denominador. Medido en prod el 2026-10-15,
+      // periodo 2026-10, justo después de conciliar:
+      //
+      //   numerador   $51,208,666.76  = 948 retiros ($27.76M) + **812 depósitos** ($23.45M)
+      //   denominador $32,068,777.39  = **sólo los retiros**
+      //   → 159.7 %, que la pantalla redondea a 160 %
+      //
+      // La causa es un resto del motor viejo: `runMatch` sobre el 102 casaba SÓLO retiros, así
+      // que medir contra `SUM(amount_out)` era correcto. Desde `[CB.27]` el motor de tesorería
+      // casa **las dos direcciones**, el numerador creció y el denominador se quedó donde estaba.
+      //
+      // ⭐ Y el arreglo no es sumar `amount_in` al denominador y listo: el numerador son importes
+      // de KEPLER y el denominador importes del BANCO, dos columnas distintas que no tienen por
+      // qué sumar igual (de hecho no lo hacen: por eso existe la conciliación). Una cobertura se
+      // mide con **la misma columna arriba y abajo** — el monto bancario de lo casado sobre el
+      // monto bancario de todo. Así no puede pasar de 100 % por construcción.
       const reconAmt: any = await trx('finance.bank_recon_matches as rm')
         .join('finance.bank_movements as bm', 'bm.id', 'rm.bank_movement_id')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
-        .select(trx.raw('COALESCE(SUM(rm.kepler_amount),0)::numeric AS monto'),
+        .select(
+          // Lo que Kepler dice que vale lo casado. Se CONSERVA porque es informativo (y es lo que
+          // devolvía antes), pero ya no es el numerador del porcentaje.
+          trx.raw('COALESCE(SUM(rm.kepler_amount),0)::numeric AS monto'),
           trx.raw('MAX(rm.created_at) AS ultimo')).first();
-      const retirosAmt: any = await trx('finance.bank_movements as bm')
+      // Numerador y denominador, los dos en importe de BANCO y sobre el mismo universo.
+      // `DISTINCT` en el numerador: un movimiento puede tener N pareos (pase agrupado / lote) y
+      // sin él contaría su importe una vez por pareo — el mismo error, una capa más abajo.
+      /**
+       * `[CB.52]` Los dos lados de la cobertura, en importe de BANCO. Se declara en vez de
+       * dejarlo en `any`: knex devuelve `numeric` como string y leerlo sin forma es cómo el
+       * numerador terminó midiéndose contra otro universo que el denominador.
+       */
+      interface CoberturaRow { total: string | number | null; casado: string | number | null }
+      const cobertura = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
-        .select(trx.raw('COALESCE(SUM(bm.amount_out),0)::numeric AS monto')).first();
+        .where('st.period', period).whereNull('bm.deleted_at')
+        .select(
+          trx.raw(`COALESCE(SUM(bm.amount_in + bm.amount_out),0)::numeric AS total`),
+          trx.raw(`COALESCE(SUM(bm.amount_in + bm.amount_out) FILTER (
+             WHERE EXISTS (SELECT 1 FROM finance.bank_recon_matches rm WHERE rm.bank_movement_id = bm.id)
+           ),0)::numeric AS casado`)).first<CoberturaRow>();
       // Un match viejo sobre un estado de cuenta re-importado ya no describe lo que hay en
       // pantalla: los movimientos nuevos entran como `pending` y nadie vuelve a conciliar.
       // Medido en prod: los 9 periodos se re-importaron DESPUÉS de su último match.
@@ -1188,7 +1221,7 @@ export class FinanceBankService {
 
       return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
         matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n),
-        reconAmt, retirosAmt, ultimoImport };
+        reconAmt, cobertura, ultimoImport };
     });
 
     const bal = await this.balances(period);
@@ -1337,12 +1370,17 @@ export class FinanceBankService {
     // convierte en verde ni en cero.
     const ultimoMatch: string | null = (reconAmt as any)?.ultimo ?? null;
     const ultimoImportAt: string | null = (ultimoImport as any)?.ultimo ?? null;
-    const reconBankAmount = n((retirosAmt as any)?.monto);
+    // [CB.52] La cobertura, con la MISMA columna arriba y abajo (importe de banco, las dos
+    // direcciones). `matched_amount` sigue siendo lo que Kepler dice que vale lo casado —
+    // informativo y distinto a propósito — pero ya no divide a nadie.
+    const reconBankAmount = n(cobertura?.total);
+    const reconBankMatched = n(cobertura?.casado);
     const reconMatchedAmount = n((reconAmt as any)?.monto);
     const reconEstado = !conciliacionCorrida ? null : {
       matched_amount: Math.round(reconMatchedAmount * 100) / 100,
       bank_amount: Math.round(reconBankAmount * 100) / 100,
-      pct: reconBankAmount ? Math.round((reconMatchedAmount / reconBankAmount) * 100) : 0,
+      bank_matched_amount: Math.round(reconBankMatched * 100) / 100,
+      pct: reconBankAmount ? Math.round((reconBankMatched / reconBankAmount) * 100) : 0,
       last_match_at: ultimoMatch,
       last_import_at: ultimoImportAt,
       stale: !!(ultimoMatch && ultimoImportAt && new Date(ultimoImportAt) > new Date(ultimoMatch)),
@@ -1915,7 +1953,7 @@ export class FinanceBankService {
         claimed_llave_parcial: {
           docs: bloqueadosPorLlaveParcial,
           monto: Math.round(montoLlaveParcial * 100) / 100,
-          nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-conciliá los periodos anteriores para que la llave quede exacta.',
+          nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-concilia los periodos anteriores para que la llave quede exacta.',
         },
         dry_run: !!dryRun,
         diff,

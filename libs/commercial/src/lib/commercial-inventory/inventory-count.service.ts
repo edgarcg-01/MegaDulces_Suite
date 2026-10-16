@@ -145,7 +145,7 @@ export class InventoryCountService {
     if (bySku.length === 1) return bySku[0];
     const exact = bySku.filter((r: any) => String(r.sku) === c);
     if (exact.length === 1) return exact[0];
-    throw new ConflictException(`Código '${c}' ambiguo: coincide con ${bySku.length} productos. Escaneá el código de barras específico.`);
+    throw new ConflictException(`Código '${c}' ambiguo: coincide con ${bySku.length} productos. Escanea el código de barras específico.`);
   }
 
   /** Push de monitoreo en vivo al supervisor que mira el folio (best-effort). */
@@ -191,7 +191,7 @@ export class InventoryCountService {
     if (type === 'cycle' && !subset)
       throw new BadRequestException(
         'Un conteo cíclico necesita el subconjunto a contar (clase ABC o product_ids). '
-          + 'Usá POST /commercial/inventory/counts/open-cycle. Sin subconjunto el folio sería TOTAL.',
+          + 'Usa POST /commercial/inventory/counts/open-cycle. Sin subconjunto el folio sería TOTAL.',
       );
 
     return this.tk.run(async (trx) => {
@@ -396,10 +396,10 @@ export class InventoryCountService {
       );
       if (!productIds.length)
         throw new ConflictException(
-          `No hay productos clase ${cls} en este almacén. Corré "Recalcular ABC" primero (POST /commercial/inventory/abc/refresh).`,
+          `No hay productos clase ${cls} en este almacén. Corre "Recalcular ABC" primero (POST /commercial/inventory/abc/refresh).`,
         );
     } else {
-      throw new BadRequestException('Especificá abc_class o product_ids.');
+      throw new BadRequestException('Especifica abc_class o product_ids.');
     }
 
     return this.openCount({
@@ -536,13 +536,13 @@ export class InventoryCountService {
         if (item) {
           if (!item.aisle_id || !myAisleSet.has(item.aisle_id))
             throw new ForbiddenException(
-              'Este SKU no pertenece a tu pasillo asignado. Si está mal mapeado, avisá al supervisor.',
+              'Este SKU no pertenece a tu pasillo asignado. Si está mal mapeado, avisa al supervisor.',
             );
         } else if (myAisleSet.size !== 1) {
           // sobrante no listado: solo lo da de alta un contador de UN pasillo (sin
           // ambigüedad de a cuál pertenece). Multi-pasillo → que el supervisor lo mapee.
           throw new ForbiddenException(
-            'SKU no listado en el conteo y cubrís varios pasillos: pedí al supervisor que lo mapee a un pasillo.',
+            'SKU no listado en el conteo y cubres varios pasillos: pide al supervisor que lo mapee a un pasillo.',
           );
         }
       }
@@ -584,7 +584,7 @@ export class InventoryCountService {
         // lo resuelva manualmente (resolveItem).
         if (uid && (item.counted_by_1 === uid || item.counted_by_2 === uid))
           throw new ConflictException(
-            'No podés hacer el tercer conteo (desempate) de un SKU que vos mismo contaste antes.',
+            'No puedes hacer el tercer conteo (desempate) de un SKU que tú mismo contaste antes.',
           );
         slot = 'count_3';
         patch.count_3 = dto.quantity;
@@ -596,11 +596,11 @@ export class InventoryCountService {
         // si no, el doble conteo ciego colapsa a un único observador que auto-resuelve.
         if (uid && item.counted_by_1 === uid)
           throw new ConflictException(
-            'No podés hacer el segundo conteo de un SKU que vos mismo contaste en la primera pasada.',
+            'No puedes hacer el segundo conteo de un SKU que tú mismo contaste en la primera pasada.',
           );
         if (uid && item.count_2 != null && item.counted_by_2 && item.counted_by_2 !== uid)
           throw new ConflictException(
-            'Este SKU ya tiene un segundo conteo de otra persona; no se puede sobrescribir. Pedí un reconteo de desempate.',
+            'Este SKU ya tiene un segundo conteo de otra persona; no se puede sobrescribir. Pide un reconteo de desempate.',
           );
         slot = 'count_2';
         patch.count_2 = dto.quantity;
@@ -1415,7 +1415,7 @@ export class InventoryCountService {
     const unresolved = items.filter((it) => it.final_qty == null);
     if (unresolved.length) b.push({
       code: 'sin_valor_final', items: unresolved.length,
-      mensaje: `${unresolved.length} item(s) sin valor final. Corré "calcular discrepancias" o resolvelos.`,
+      mensaje: `${unresolved.length} item(s) sin valor final. Corre "calcular discrepancias" o resolvelos.`,
     });
 
     // Opt-in: sólo si el folio define umbral de recuento. Una merma grande no se postea al
@@ -1431,7 +1431,7 @@ export class InventoryCountService {
       if (sinMotivo.length) b.push({
         code: 'varianza_sin_motivo', items: sinMotivo.length,
         mensaje: `${sinMotivo.length} ítem(s) con varianza material sin motivo. `
-          + 'Clasificá la causa (reason_code) al resolverlos.',
+          + 'Clasifica la causa (reason_code) al resolverlos.',
       });
     }
     return b;
@@ -1697,7 +1697,7 @@ export class InventoryCountService {
           if (skus.filter(Boolean).length) label = skus.filter(Boolean).join(', ');
         }
         throw new ConflictException(
-          `${skippedReserved.length} SKU(s) con saldo resultante < reservado (${label}): liberá las reservas (pedidos) antes de reconciliar.`,
+          `${skippedReserved.length} SKU(s) con saldo resultante < reservado (${label}): libera las reservas (pedidos) antes de reconciliar.`,
         );
       }
 
@@ -1775,7 +1775,7 @@ export class InventoryCountService {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
     const acotado = opts?.soloSiEstaAbandonado === true;
     if (acotado && !String(reason || '').trim())
-      throw new BadRequestException('Escribí el motivo: es lo único que explica por qué se descartó el conteo.');
+      throw new BadRequestException('Escribe el motivo: es lo único que explica por qué se descartó el conteo.');
     return this.tk.run(async (trx) => {
       const count = await trx('commercial.inventory_counts')
         .where({ id: countId })

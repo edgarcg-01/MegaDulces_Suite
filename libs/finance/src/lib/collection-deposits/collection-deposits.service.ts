@@ -1013,7 +1013,7 @@ export class CollectionDepositsService {
       cobros_libres: n,
       opciones,
       detalle: opciones.length
-        ? 'Cada opcion liga VARIOS cobros a este abono. Revisala antes de confirmar: cuadrar '
+        ? 'Cada opcion liga VARIOS cobros a este abono. Revísala antes de confirmar: cuadrar '
           + 'por monto no prueba que sean estos.'
         : 'Ninguna combinacion de sus cobros sin ligar suma este deposito.',
     };

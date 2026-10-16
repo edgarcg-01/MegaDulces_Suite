@@ -301,7 +301,7 @@ export class LogisticsPayrollService {
     if (intruso.length) {
       throw new BadRequestException(
         `${intruso.join(' y ')} no se edita(n) en la liquidación: se derivan de los ajustes de nómina. ` +
-          `Registrá un ajuste (tipo bono/multa/anticipo/prestamo/falta) y el neto se recalcula solo.`,
+          `Registra un ajuste (tipo bono/multa/anticipo/prestamo/falta) y el neto se recalcula solo.`,
       );
     }
 

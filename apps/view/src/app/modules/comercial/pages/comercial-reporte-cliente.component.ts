@@ -71,7 +71,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
             </li>
           }
         </ul>
-        @if (topado()) { <p class="rc-nota">Hay más coincidencias: afiná el nombre.</p> }
+        @if (topado()) { <p class="rc-nota">Hay más coincidencias: afina el nombre.</p> }
       </section>
     } @else if (buscado()) {
       <section class="rc-card rc-vacio">
@@ -227,7 +227,7 @@ import { imprimirReporteCliente } from '../reporte-cliente-papel';
             <b>{{ dentro().size }} de {{ r.documentos.length }} compra{{ r.documentos.length === 1 ? '' : 's' }} van al reporte</b>
             <span class="rc-nota">
               @if (fuera() > 0) { Suman {{ totalDentro() | currency:'MXN':'symbol-narrow' }} · {{ fuera() }} fuera }
-              @else { Destildá las que no quieras incluir }
+              @else { Destilda las que no quieras incluir }
             </span>
           </div>
         }

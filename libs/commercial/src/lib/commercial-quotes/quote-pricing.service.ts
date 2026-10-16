@@ -911,7 +911,7 @@ export class QuotePricingService {
 
       const qty = Number(input.quantity);
       if (!Number.isFinite(qty) || qty <= 0) {
-        throw new BadRequestException('La cantidad tiene que ser mayor que cero. Para quitarlo, usá borrar el renglón.');
+        throw new BadRequestException('La cantidad tiene que ser mayor que cero. Para quitarlo, usa borrar el renglón.');
       }
 
       // El SKU sale del renglón, no del request: editar una cantidad no puede cambiar el producto.

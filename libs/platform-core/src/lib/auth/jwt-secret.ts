@@ -27,14 +27,14 @@ export function requireJwtSecret(): string {
   if (!secret) {
     throw new Error(
       '[AUTHZ-HARD] JWT_SECRET no está definido. La app NO arranca sin un secreto de firma. ' +
-        'Setealo (≥32 bytes aleatorios) en el entorno.',
+        'Setéalo (≥32 bytes aleatorios) en el entorno.',
     );
   }
   if (secret === PUBLIC_DEFAULT) {
     if (isProd) {
       throw new Error(
         '[AUTHZ-HARD] JWT_SECRET es el default público del repo. Es un agujero de seguridad crítico ' +
-          '(forja de superadmin). Rotá a un secreto real antes de arrancar en producción.',
+          '(forja de superadmin). Rota a un secreto real antes de arrancar en producción.',
       );
     }
     logger.warn(

@@ -191,7 +191,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
             } @else {
               <article class="cell cell-span-5">
                 <div class="rk-pick"><i class="pi pi-map-marker" aria-hidden="true"></i>
-                <p>Seleccioná una unidad de la lista o del mapa para ver su detalle y recorrido.</p>
+                <p>Selecciona una unidad de la lista o del mapa para ver su detalle y recorrido.</p>
               </div>
             </article>
           }
@@ -203,13 +203,13 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
                 <h3>Sin unidades</h3>
-                <p>Cuando el proveedor reporte dispositivos aparecerán aquí. Probá <b>Sincronizar</b>.</p>
+                <p>Cuando el proveedor reporte dispositivos aparecerán aquí. Prueba <b>Sincronizar</b>.</p>
               </div>
             } @else {
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                 <h3>No se pudo cargar el rastreo</h3>
-                <p>Revisá tu conexión y reintentá.</p>
+                <p>Revisa tu conexión y reintenta.</p>
                 <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
               </div>
             }

@@ -159,7 +159,7 @@ interface RouteOption {
             <p-inputnumber formControlName="total_weight_kg" [min]="0" [minFractionDigits]="2"></p-inputnumber>
           </label>
           <label>
-            Km estimados <i class="pi pi-info-circle" pTooltip="Si seleccionás una ruta del catálogo, se sugiere km×2 (ida+vuelta)."></i>
+            Km estimados <i class="pi pi-info-circle" pTooltip="Si seleccionas una ruta del catálogo, se sugiere km×2 (ida+vuelta)."></i>
             <p-inputnumber formControlName="actual_km" [min]="0" [minFractionDigits]="0"></p-inputnumber>
           </label>
         </div>
@@ -348,7 +348,7 @@ export class ShipmentFormDialogComponent {
 
   submit(): void {
     if (this.form.invalid) {
-      this.toast.add({ severity: 'warn', summary: 'Form inválido', detail: 'Revisá los campos obligatorios' });
+      this.toast.add({ severity: 'warn', summary: 'Form inválido', detail: 'Revisa los campos obligatorios' });
       return;
     }
     const raw = this.form.getRawValue();

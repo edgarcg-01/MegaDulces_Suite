@@ -59,7 +59,7 @@ export function motivoHttp(e: ErrorHttpLike | null | undefined, accion: string):
 
   // Sin respuesta: la petición no llegó o no volvió. NO es un error del servidor.
   if (!status) {
-    return `No hubo respuesta del servidor al ${accion}. Revisá la conexión o el WiFi de la bodega y volvé a intentar.`;
+    return `No hubo respuesta del servidor al ${accion}. Revisa la conexión o el WiFi de la bodega y vuelve a intentar.`;
   }
 
   switch (status) {
@@ -69,7 +69,7 @@ export function motivoHttp(e: ErrorHttpLike | null | undefined, accion: string):
       // el dato es el problema y no el permiso.
       return msg || `Algún dato del formulario no es válido para ${accion}.`;
     case 401:
-      return 'Tu sesión venció. Volvé a entrar y repetí la operación.';
+      return 'Tu sesión venció. Vuelve a entrar y repite la operación.';
     case 403:
       return (
         `Tu usuario no tiene permiso para ${accion}. ` +
@@ -82,7 +82,7 @@ export function motivoHttp(e: ErrorHttpLike | null | undefined, accion: string):
     case 413:
       return `Lo que se envió es demasiado grande para ${accion}.`;
     case 429:
-      return 'Fueron demasiados intentos seguidos. Esperá unos segundos y volvé a probar.';
+      return 'Fueron demasiados intentos seguidos. Espera unos segundos y vuelve a probar.';
     default:
       break;
   }
@@ -93,7 +93,7 @@ export function motivoHttp(e: ErrorHttpLike | null | undefined, accion: string):
     const detalle = msg && !/internal server error/i.test(msg) ? ` (${msg})` : '';
     return (
       `El servidor falló al ${accion} — error ${status}${detalle}. ` +
-      'No es algo que puedas corregir desde acá: avisá a sistemas con este mensaje.'
+      'No es algo que puedas corregir desde acá: avisa a sistemas con este mensaje.'
     );
   }
 

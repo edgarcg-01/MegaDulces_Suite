@@ -563,7 +563,7 @@ export class ComercialExperimentosPrecioComponent {
         this.marcando.set(null);
         this.captura.set(previo);
         this.toast.add({ severity: 'error', summary: 'No se registró',
-          detail: e?.error?.message ?? 'Intentá de nuevo' });
+          detail: e?.error?.message ?? 'Intenta de nuevo' });
       },
     });
   }

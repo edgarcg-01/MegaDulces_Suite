@@ -225,16 +225,16 @@ interface DiagProbe {
               <b>Ubicación en segundo plano</b>
               <span class="diag-actions"><button type="button" (click)="bgHelpOpen.set(false)">Cerrar</button></span>
             </div>
-            <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisá estos 3 puntos en tu teléfono:</p>
+            <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisa estos 3 puntos en tu teléfono:</p>
             <ol class="bg-steps">
-              <li><b>Permiso de ubicación:</b> elegí <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
-              <li><b>Batería:</b> poné la app en <b>"Sin restricciones"</b> / desactivá el ahorro de batería para Vendedor.</li>
-              <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activá <b>"Autostart"</b> para esta app.</li>
+              <li><b>Permiso de ubicación:</b> elige <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
+              <li><b>Batería:</b> pon la app en <b>"Sin restricciones"</b> / desactiva el ahorro de batería para Vendedor.</li>
+              <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activa <b>"Autostart"</b> para esta app.</li>
             </ol>
             <button class="bg-cta" (click)="openLocationSettings()">
               <i class="pi pi-cog"></i>&nbsp;Abrir ajustes de la app
             </button>
-            <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después volvé a la app.</p>
+            <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después vuelve a la app.</p>
             @if (routePing.bgError(); as err) {
               <p class="bg-diag">Diagnóstico: <code>{{ err }}</code></p>
             }
@@ -519,7 +519,7 @@ export class VendorShellComponent {
     this.toast.add(
       ok
         ? { severity: 'success', summary: 'Avisos activados', detail: 'Te recordaremos subir tu cierre.' }
-        : { severity: 'warn', summary: 'No se activaron', detail: 'Permití las notificaciones en tu navegador.' },
+        : { severity: 'warn', summary: 'No se activaron', detail: 'Permite las notificaciones en tu navegador.' },
     );
   }
 

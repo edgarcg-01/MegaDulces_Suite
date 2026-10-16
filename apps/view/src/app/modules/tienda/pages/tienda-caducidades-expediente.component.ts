@@ -63,7 +63,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
         <section class="exp-suc">
           <div class="exp-sec-head">
             <h2>Sucursales</h2>
-            <span class="exp-sec-sub">Elegí una para ver su expediente</span>
+            <span class="exp-sec-sub">Elige una para ver su expediente</span>
           </div>
 
           @if (cargandoSuc()) {
@@ -189,7 +189,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
                 <div class="comm-empty-icon"><i class="pi pi-folder-open" aria-hidden="true"></i></div>
                 @if (hayFiltros()) {
                   <h3>Nada con esos filtros</h3>
-                  <p>Probá con otro rango de fechas, otro plazo, o limpiá los filtros.</p>
+                  <p>Prueba con otro rango de fechas, otro plazo, o limpia los filtros.</p>
                 } @else {
                   <h3>El expediente está vacío</h3>
                   <p>Cada producto que se registre en Caducidades genera acá su hoja, con folio propio.</p>

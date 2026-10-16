@@ -89,7 +89,7 @@ export class JwtAuthGuard implements CanActivate {
     // no con un "asumo que sí" ciego — ver `getEstadoCuenta`.
     const estado = await this.permsCache.getEstadoCuenta(payload?.sub, payload?.tenant_id);
     if (!estado.activo) {
-      throw new UnauthorizedException('La cuenta está desactivada. Iniciá sesión de nuevo.');
+      throw new UnauthorizedException('La cuenta está desactivada. Inicia sesión de nuevo.');
     }
 
     // ┌─────────────────────────────────────────────────────────────────────┐
@@ -109,7 +109,7 @@ export class JwtAuthGuard implements CanActivate {
     const iat = typeof payload?.iat === 'number' ? payload.iat : null;
     if (estado.corteSesionSeg !== null && iat !== null && iat < estado.corteSesionSeg) {
       throw new UnauthorizedException(
-        'Tu sesión se cerró (cambio de contraseña o revocación). Iniciá sesión de nuevo.',
+        'Tu sesión se cerró (cambio de contraseña o revocación). Inicia sesión de nuevo.',
       );
     }
 

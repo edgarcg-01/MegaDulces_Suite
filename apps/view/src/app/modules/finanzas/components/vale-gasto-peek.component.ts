@@ -189,14 +189,14 @@ interface DocDelExpediente {
                      ofrece abrirlo, en vez de dejar un recuadro roto. -->
                 <a class="vp-otro" [href]="d.url" target="_blank" rel="noopener">
                   <i class="pi pi-file" aria-hidden="true"></i>
-                  <span>Este documento no se puede ver acá — abrilo para revisarlo</span>
+                  <span>Este documento no se puede ver acá — ábrelo para revisarlo</span>
                 </a>
               } @else {
                 <img [src]="d.url" [alt]="d.label" loading="lazy" (error)="fallo(d.url)" />
               }
               @if (fallidos().has(d.url)) {
                 <!-- Que la imagen no cargue NO es que no exista: se dice cuál de las dos. -->
-                <p class="vp-fallo">No se pudo mostrar el archivo. Probá «abrir aparte».</p>
+                <p class="vp-fallo">No se pudo mostrar el archivo. Prueba «abrir aparte».</p>
               }
             </figure>
           }

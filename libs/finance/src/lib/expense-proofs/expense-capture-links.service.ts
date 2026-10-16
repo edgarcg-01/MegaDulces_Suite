@@ -273,7 +273,7 @@ export class ExpenseCaptureLinksService {
 
     const clasificacion = (dto.clasificacion || '').trim() as ExpenseClasificacion;
     if (!EXPENSE_CLASIFICACIONES.includes(clasificacion)) {
-      throw new BadRequestException('elegí qué tipo de gasto es');
+      throw new BadRequestException('elige qué tipo de gasto es');
     }
     const lleva = requiereEvidencia(clasificacion);
     const motivo = (dto.comentarios || '').trim();

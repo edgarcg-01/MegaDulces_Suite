@@ -353,7 +353,7 @@ export class LogisticsFleetService {
         .where({ vehicle_id: dto.vehicle_id, status: 'en_uso' })
         .first();
       if (activeUse) {
-        throw new ConflictException('El vehículo ya tiene un check-in activo. Cerralo antes de uno nuevo.');
+        throw new ConflictException('El vehículo ya tiene un check-in activo. Ciérralo antes de uno nuevo.');
       }
       const [row] = await trx('logistics.vehicle_usage_logs')
         .insert({

@@ -1173,7 +1173,7 @@ export class CommercialCommissionsService {
       if (viva.status === 'aprobado') {
         throw new ConflictException(
           `La corrida del periodo ${period.anio}-${period.period_no} esta APROBADA. `
-          + 'Anulala primero: recalcular sobre una firma seria borrarla sin dejar rastro.',
+          + 'Anúlala primero: recalcular sobre una firma seria borrarla sin dejar rastro.',
         );
       }
       if (!ctx.replace) {
@@ -1183,7 +1183,7 @@ export class CommercialCommissionsService {
         );
       }
       if (!['borrador', 'bloqueada'].includes(viva.status)) {
-        throw new ConflictException(`No se reemplaza una corrida "${viva.status}": anulala primero.`);
+        throw new ConflictException(`No se reemplaza una corrida "${viva.status}": anúlala primero.`);
       }
       await trx('commercial.commission_run_lines').where({ run_id: viva.id }).del();
       await trx('commercial.commission_runs').where({ id: viva.id }).del();

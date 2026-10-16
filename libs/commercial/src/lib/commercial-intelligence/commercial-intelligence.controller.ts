@@ -110,7 +110,7 @@ export class CommercialIntelligenceController {
   @Get('thot/suggest/:customer_id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
-    summary: 'Thot sugiere qué ofrecer a un cliente. ?cart=id,id (afinidad/completá canasta) · ?zona= · ?limit= · ?log=<canal> registra la oferta (items+reason) para el feedback loop',
+    summary: 'Thot sugiere qué ofrecer a un cliente. ?cart=id,id (afinidad/completa canasta) · ?zona= · ?limit= · ?log=<canal> registra la oferta (items+reason) para el feedback loop',
   })
   async thotSuggest(
     @Param('customer_id') customerId: string,

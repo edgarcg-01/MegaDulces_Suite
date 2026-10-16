@@ -490,7 +490,7 @@ export class MiTrabajoComponent {
     if (!medido?.length) return 'lo último que abriste';
     const visibles = new Set(this.accesos().map((e) => e.id));
     const prestados = medido.filter((a) => visibles.has(a.id) && a.origen !== 'mio').length;
-    if (!prestados) return 'lo que más abrís';
+    if (!prestados) return 'lo que más abres';
     return prestados === visibles.size ? 'lo que abre tu equipo' : 'lo tuyo y lo de tu equipo';
   });
 

@@ -221,7 +221,7 @@ export class OrgService {
     }
 
     if (code && input.code && input.code !== code) {
-      throw new BadRequestException('El código de un puesto no se renombra: creá otro y movés la gente.');
+      throw new BadRequestException('El código de un puesto no se renombra: crea otro y mueves la gente.');
     }
   }
 
@@ -244,7 +244,7 @@ export class OrgService {
     if (yaEsta) {
       throw new ConflictException(
         yaEsta.deleted_at
-          ? `El puesto "${code}" existe pero está dado de baja. Reactivalo en vez de crearlo de nuevo.`
+          ? `El puesto "${code}" existe pero está dado de baja. Reactívalo en vez de crearlo de nuevo.`
           : `El puesto "${code}" ya existe.`,
       );
     }
@@ -348,7 +348,7 @@ export class OrgService {
     if (aCargo.length) {
       throw new ConflictException(
         `No se puede dar de baja "${code}": es el jefe de ${aCargo.length} puesto/s ` +
-          `(${aCargo.join(', ')}). Quedarían sin jefe. Reasignalos primero.`,
+          `(${aCargo.join(', ')}). Quedarían sin jefe. Reasígnalos primero.`,
       );
     }
 
@@ -576,7 +576,7 @@ export class OrgService {
       if (otro) {
         throw new ConflictException(
           `"${resp.label}" ya tiene un responsable principal: el puesto "${otro.position_code}". ` +
-            'Bajalo a secundario primero, o agregá éste como secundario.',
+            'Bajalo a secundario primero, o agrega éste como secundario.',
         );
       }
     }

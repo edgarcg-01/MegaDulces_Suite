@@ -98,8 +98,8 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="lines-banner">
               <i class="pi pi-info-circle" aria-hidden="true"></i>
               <span>
-                Revisá producto por producto. Ajustá la cantidad según stock disponible,
-                o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
+                Revisa producto por producto. Ajusta la cantidad según stock disponible,
+                o elimina la línea si no se puede surtir. Cuando todo esté listo, aprueba el pedido.
               </span>
             </div>
           }

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { diaDeFecha } from '@megadulces/contracts';
 import {
   repartirIngresosCaos, resumirReparto,
   type CobroDisponible, type DepositoCaos, type ResumenReparto,
@@ -184,7 +185,15 @@ export class CaosIngresoReconService {
         .select('k.origen_ref', 'k.fecha_valor', 'k.monto', trx.raw('coalesce(u.usado,0) AS usado')))
         .map((r: any) => ({
           origen_ref: r.origen_ref,
-          fecha: String(r.fecha_valor).slice(0, 10),
+          /**
+           * ⛔⛔ `[CG.162]` Acá decía `String(r.fecha_valor).slice(0, 10)` y costó $18.5 M de
+           * acusación: `fecha_valor` es `date`, node-pg la devuelve como **objeto `Date`**, y
+           * `String(Date)` da `"Wed May 27 2026 …"` → recortado, `"Wed May 27"`. Cualquier letra
+           * de día ordena después de `"2026-…"`, así que el corte `if (c.fecha > corte) break`
+           * del motor disparaba en el PRIMER cobro de los 755 depósitos y los declaraba a todos
+           * «sin respaldo». `diaDeFecha` es el resolvedor que sí entiende un `Date`.
+           */
+          fecha: diaDeFecha(r.fecha_valor) ?? r.fecha_valor,
           monto: Number(r.monto),
           consumido: Number(r.usado ?? 0),
         }));

@@ -149,7 +149,7 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
 
   it('monta sin proveedor elegido y NO pide el catálogo entero', async () => {
     expect(api.llamadasReporte).toBe(0);
-    expect(texto()).toContain('Elegí un proveedor para empezar');
+    expect(texto()).toContain('Elige un proveedor para empezar');
   });
 
   it('al elegir proveedor pide el reporte de ESE proveedor', async () => {

@@ -284,7 +284,7 @@ suite('[RH.3.2] bot de reclutamiento contra la base', () => {
     expect(r['armadoFin']).toEqual(['revisando_cv', true, true, ['text', 'document', 'text']]);
     expect(r['armadoDoc']).toMatchObject({ kind: 'document', mime: 'application/pdf', base64: Buffer.from('%PDF-1.4 cv armado').toString('base64') });
     expect(r['armadoHtml']).toEqual([true, true]);
-    expect(String(r['armadoSube'])).toContain('Subí tu *currículum*');
+    expect(String(r['armadoSube'])).toContain('Sube tu *currículum*');
     expect(r['armadoCand']).toEqual(['Rosa María Prueba Luna', 'armado_por_bot', true, ['cv']]);
     expect(r['checks']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23505', '23514']);
     expect(r['buenos']).toEqual(['sin error', 'sin error']);

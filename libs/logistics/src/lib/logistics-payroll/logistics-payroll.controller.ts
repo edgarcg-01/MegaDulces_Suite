@@ -95,7 +95,7 @@ export class LogisticsPayrollController {
 
   @Get('adjustments')
   @RequirePermissions(Permission.LOGISTICS_PAYROLL_VER)
-  @ApiOperation({ summary: 'Listar ajustes (filtrá por driver_id y/o period_id)' })
+  @ApiOperation({ summary: 'Listar ajustes (filtra por driver_id y/o period_id)' })
   listAdjustments(
     @Query('driver_id') driver_id?: string,
     @Query('period_id') period_id?: string,

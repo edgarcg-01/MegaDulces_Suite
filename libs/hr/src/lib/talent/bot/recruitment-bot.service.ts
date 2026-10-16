@@ -81,7 +81,7 @@ const DOC_SIN_EXPEDIENTE = 'Recibí tu archivo 📎. Si necesitamos algo más, u
 /** `[RH.3.3.4]` Lo que no es CV pero podría ser del expediente (se le pregunta a la visión a qué casillero va). */
 const TIPOS_DE_EXPEDIENTE = ['identificacion', 'comprobante', 'otro_documento'];
 const POSTULACION_COMPLETA = '✅ ¡Gracias! Con esto tu *postulación queda completa*. Un reclutador revisará tu información y te contactará. 🙌';
-const CV_SUBIDO = '¡Listo! ✅ Subí tu *currículum* a tu postulación. Con esto tu solicitud queda *completa* y un reclutador la va a revisar. ¡Mucha suerte! 🍀';
+const CV_SUBIDO = '¡Listo! ✅ Sube tu *currículum* a tu postulación. Con esto tu solicitud queda *completa* y un reclutador la va a revisar. ¡Mucha suerte! 🍀';
 const SIN_ARMADO = 'Por ahora no puedo armarte el CV desde aquí 🙏 Mándamelo como *PDF* o *foto* (aunque sea sencillo, con tus datos y tus trabajos anteriores).';
 const PDF_FALLO = 'Terminé tu solicitud ✅ pero no pude armar el PDF de tu CV en este momento 😕 Escribe *sí* en un rato y lo intento de nuevo; tus respuestas están guardadas.';
 

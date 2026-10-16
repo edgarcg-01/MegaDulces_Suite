@@ -162,13 +162,13 @@ import { Permission } from '../../../core/constants/permissions';
               </td></tr>
             </ng-template>
           </p-table>
-          @if (total() > rows().length) { <p class="pz-more">Mostrando {{ rows().length }} de {{ total() | number }}. Refiná con filtros.</p> }
+          @if (total() > rows().length) { <p class="pz-more">Mostrando {{ rows().length }} de {{ total() | number }}. Refina con filtros.</p> }
         </div>
 
         <!-- Detalle -->
         <div class="card-premium card-flat pz-detail">
           @if (!detail()) {
-            <div class="pz-empty"><i class="pi pi-arrow-left"></i> Elegí una póliza para ver sus asientos, su CFDI y los hallazgos.</div>
+            <div class="pz-empty"><i class="pi pi-arrow-left"></i> Elige una póliza para ver sus asientos, su CFDI y los hallazgos.</div>
           } @else {
             <div class="pz-d-head">
               <h3><code>{{ detail()!.header?.tipo_pol }}/{{ detail()!.header?.folio }}</code></h3>

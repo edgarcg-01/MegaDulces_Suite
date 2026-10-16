@@ -99,8 +99,8 @@ interface UbicacionFila extends WarehouseBin {
         <div class="ub-scan-main">
           <app-scan-field
             [valor]="codigoRack()"
-            etiqueta="Escaneá el cartel del rack"
-            placeholder="R-12 · o escribilo y Enter"
+            etiqueta="Escanea el cartel del rack"
+            placeholder="R-12 · o escríbelo y Enter"
             [refocoTick]="refocoScan()"
             (valorChange)="codigoRack.set($event)"
             (enter)="escanearRack()"
@@ -117,14 +117,14 @@ interface UbicacionFila extends WarehouseBin {
                 Crearla en este almacén
               </button>
             } @else if (canAssign() && !warehouseId) {
-              <span class="ub-scan-hint">Elegí primero el almacén para poder darla de alta.</span>
+              <span class="ub-scan-hint">Elige primero el almacén para poder darla de alta.</span>
             }
           </div>
         }
 
         @if (escaneoCandidatos().length) {
-          <div class="ub-scan-cands" role="group" aria-label="Elegí el almacén">
-            <span class="ub-scan-hint">Ese código existe en {{ escaneoCandidatos().length }} almacenes — elegí cuál:</span>
+          <div class="ub-scan-cands" role="group" aria-label="Elige el almacén">
+            <span class="ub-scan-hint">Ese código existe en {{ escaneoCandidatos().length }} almacenes — elige cuál:</span>
             @for (c of escaneoCandidatos(); track c.id) {
               <button type="button" class="ub-scan-cand" (click)="abrirDesdeLookup(c)">
                 <b>{{ c.code }}</b>
@@ -138,8 +138,8 @@ interface UbicacionFila extends WarehouseBin {
       @if (!warehouseId) {
         <div class="comm-empty">
           <div class="comm-empty-icon"><i class="pi pi-map-marker" aria-hidden="true"></i></div>
-          <h3>Elegí un almacén</h3>
-          <p>Seleccioná un almacén para ver cómo está acomodado — o escaneá un rack arriba y te llevo solo.</p>
+          <h3>Elige un almacén</h3>
+          <p>Selecciona un almacén para ver cómo está acomodado — o escanea un rack arriba y te llevo solo.</p>
         </div>
       } @else {
         <!-- Los tres números que contestan "¿cómo vamos?" sin abrir nada. -->
@@ -186,7 +186,7 @@ interface UbicacionFila extends WarehouseBin {
               emptyIcon="pi-map-marker"
               [emptyTitle]="filas().length ? 'Nada coincide' : 'Sin ubicaciones todavía'"
               [emptyHint]="filas().length
-                ? 'Probá con otro código o quitá el filtro de tipo.'
+                ? 'Prueba con otro código o quita el filtro de tipo.'
                 : 'Ninguna ubicación dada de alta en este almacén. Se crean desde el Andén al acomodar, o acá con Administrar.'"
               (retry)="reload()">
               <ul class="ub-lista">
@@ -276,7 +276,7 @@ interface UbicacionFila extends WarehouseBin {
             } @else {
               <div class="surf-card ub-hint-card">
                 <i class="pi pi-arrow-left" aria-hidden="true"></i>
-                <p>Elegí una ubicación de la izquierda para ver qué tiene adentro, en orden de caducidad.</p>
+                <p>Elige una ubicación de la izquierda para ver qué tiene adentro, en orden de caducidad.</p>
               </div>
             }
 
@@ -289,7 +289,7 @@ interface UbicacionFila extends WarehouseBin {
               @if (filterProductId) {
                 <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!locations().length"
                   emptyIcon="pi-search" emptyTitle="No está acomodado en ningún lado"
-                  emptyHint="Puede estar en existencia sin ubicar — mirá 'Por acomodar' abajo." (retry)="reload()">
+                  emptyHint="Puede estar en existencia sin ubicar — mira 'Por acomodar' abajo." (retry)="reload()">
                   <p-table [value]="locations()" styleClass="p-datatable-sm surf-table" [scrollable]="true"
                     scrollHeight="260px">
                     <ng-template #header>
@@ -306,7 +306,7 @@ interface UbicacionFila extends WarehouseBin {
                   </p-table>
                 </app-load-state>
               } @else {
-                <p class="ub-hint">Buscá un producto para ver en qué racks está repartido.</p>
+                <p class="ub-hint">Busca un producto para ver en qué racks está repartido.</p>
               }
             </div>
 
@@ -348,7 +348,7 @@ interface UbicacionFila extends WarehouseBin {
                   <div class="ub-row2">
                     <label class="ub-field"><span>Ubicación</span>
                       <p-select [options]="binOptions()" [(ngModel)]="puBin" optionLabel="label" optionValue="value"
-                        placeholder="Elegí dónde" [filter]="true" styleClass="ub-w"></p-select>
+                        placeholder="Elige dónde" [filter]="true" styleClass="ub-w"></p-select>
                     </label>
                     <label class="ub-field"><span>Cantidad</span><input pInputText type="number" min="1" [(ngModel)]="puQty" /></label>
                   </div>
@@ -389,7 +389,7 @@ interface UbicacionFila extends WarehouseBin {
             </div>
 
             <label class="ub-field">
-              <span>Escaneá el rack de destino</span>
+              <span>Escanea el rack de destino</span>
               <input pInputText [ngModel]="destinoCodigo()" (ngModelChange)="destinoCodigo.set($event)"
                 placeholder="R-11" />
               @if (destinoAviso(); as av) { <small class="ub-hint">{{ av }}</small> }
@@ -460,7 +460,7 @@ interface UbicacionFila extends WarehouseBin {
             </tr>
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><p>Sin ubicaciones. Creá la primera.</p></div></td></tr>
+            <tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><p>Sin ubicaciones. Crea la primera.</p></div></td></tr>
           </ng-template>
         </p-table>
       </p-dialog>
@@ -896,7 +896,7 @@ export class AlmacenUbicacionesComponent implements OnInit {
     this.puLot = u.lot_code;
     this.puExpiry = u.expiry_date || '';
     this.puQty = Number(u.to_locate);
-    this.toast.add({ severity: 'info', summary: 'Precargado', detail: 'Elegí la ubicación y confirmá' });
+    this.toast.add({ severity: 'info', summary: 'Precargado', detail: 'Elige la ubicación y confirma' });
   }
 
   canDoPutAway(): boolean {
@@ -957,7 +957,7 @@ export class AlmacenUbicacionesComponent implements OnInit {
         this.escaneoSinMatch.set(null);
         this.toast.add({
           severity: 'success', summary: 'Ubicación creada',
-          detail: `${b.code} — imprimí el cartel y pegalo antes de acomodar.`,
+          detail: `${b.code} — imprime el cartel y pégalo antes de acomodar.`,
         });
         // El cartel se ofrece de una: una ubicación sin cartel pegado es una
         // ubicación que nadie vuelve a encontrar ni la pistola puede leer.

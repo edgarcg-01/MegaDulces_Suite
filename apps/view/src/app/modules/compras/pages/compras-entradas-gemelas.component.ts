@@ -107,7 +107,7 @@ import { Permission } from '../../../core/constants/permissions';
                           [emptyTitle]="estado() === 'propuesto' ? 'Nada esperando dictamen' : 'Sin pares en este filtro'"
                           [emptyHint]="estado() === 'propuesto'
                             ? 'El motor no encontró ninguna recepción capturada dos veces que necesite decisión humana.'
-                            : 'Probá con otro estado o quitá el texto de la búsqueda.'" />
+                            : 'Prueba con otro estado o quita el texto de la búsqueda.'" />
         } @else {
           <div class="eg-scroll">
             <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first eg-table"
@@ -450,7 +450,7 @@ export class ComprasEntradasGemelasComponent {
       },
       error: (e) => {
         this.scanning.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo correr el motor', detail: e?.error?.message || 'Intentá de nuevo' });
+        this.toast.add({ severity: 'error', summary: 'No se pudo correr el motor', detail: e?.error?.message || 'Intenta de nuevo' });
       },
     });
   }
@@ -491,7 +491,7 @@ export class ComprasEntradasGemelasComponent {
       },
       error: (e) => {
         this.decidiendo.set(null);
-        this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Intentá de nuevo' });
+        this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Intenta de nuevo' });
       },
     });
   }

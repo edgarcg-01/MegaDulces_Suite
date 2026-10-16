@@ -38,7 +38,7 @@ async function anioLibre(tk: TenantKnexService, desde: number, cuantos: number):
   }));
   const libres = Array.from({ length: cuantos }, (_, i) => desde + i).filter((y) => !usados.has(y));
   if (!libres.length) {
-    throw new Error(`La base de prueba ya usó los ${cuantos} años desde ${desde}: reconstruila con database/tests/caja/preparar-base-caja.js.`);
+    throw new Error(`La base de prueba ya usó los ${cuantos} años desde ${desde}: reconstrúyela con database/tests/caja/preparar-base-caja.js.`);
   }
   return libres[Math.floor(Math.random() * libres.length)];
 }
@@ -80,6 +80,10 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
         tenant_id: T, folio: `CGS-${ANIO}-${Date.now()}-ancla`, tipo: 'gasto', fecha: ANCLA, sucursal: '00',
         kepler_cuenta: '601-001', kepler_concepto: '001', glosa: 'Movimiento del día que sí tiene corte',
         monto: 100, created_by: CAJERA,
+        // `[CGP-L.12]` La jornada de un movimiento es la del EFECTIVO (`created_at` en hora de
+        // México), no la del papel. Sin sembrarla, `now()` lo pondría en el día de la corrida y
+        // este movimiento no caería en el día que la prueba dice que tiene corte.
+        created_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [ANCLA]),
       });
       // Dos jornadas con movimientos (una de otra plaza: el cajón de la 00 la paga) y sin corte.
       for (const [i, fecha] of SIN_CORTE.entries()) {
@@ -87,6 +91,8 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
           tenant_id: T, folio: `CGS-${ANIO}-${Date.now()}-${i}`, tipo: 'gasto', fecha, sucursal: i ? '05' : '00',
           kepler_cuenta: '601-001', kepler_concepto: '001', glosa: 'Movimiento sin corte de la prueba',
           monto: 100, created_by: CAJERA,
+          // `[CGP-L.12]` idem: la jornada sin corte se mide por el día del efectivo.
+          created_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [fecha]),
         });
       }
       // El corte trabado: en borrador desde hace 75 horas, como el del 12-oct.
@@ -122,7 +128,12 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
       .where({ tenant_id: T, job_key: 'caja_corte_abierto' }).first());
     expect(latido).toMatchObject({ status: 'ok' });
     expect(Number(latido.rows_affected)).toBeGreaterThan(0);
-    expect(latido.note).toMatch(/jornada\(s\) sin corte · critical/);
+    // `[CGP-L.13]` La nota lleva las TRES señales y la gravedad al final. Se afirman por separado
+    // para que sumar una cuarta no obligue a reescribir la expresión, pero sin aflojar: la gravedad
+    // tiene que seguir estando, que es lo que esta prueba vino a cuidar.
+    expect(latido.note).toMatch(/jornada\(s\) sin corte/);
+    expect(latido.note).toMatch(/bandeja/);
+    expect(latido.note).toMatch(/critical$/);
   });
 
   it('la MISMA situación una hora después no se repite, y a las 6 horas se recuerda', async () => {
@@ -135,5 +146,32 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
     const seisHoras = await sensor.scan(T, base + 6 * HORA);
     expect(seisHoras.avisado).toBe(true);
     expect(avisos.length).toBe(n0 + 1);
+  });
+
+  /**
+   * ⛔⛔ `[CGP-L.13]` **SIN LA VISTA, LA BANDEJA SE DECLARA — NO SE DA POR LIMPIA.**
+   *
+   * `finance.v_caja_movimientos_pendientes` **no está en esta base**: su migración cuelga de
+   * `analytics.mv_caja_movimientos`, una materializada sobre el ODS de Kepler que no tiene nada que
+   * ver con el corte. Se intentó sumarla al preparador y se retiró: la migración corre pero la
+   * vista no queda, y arrastrar el ODS entero para una señal no paga.
+   *
+   * Lo que esta prueba vigila es **el guardia**: que el sensor no confunda «no pude mirar» con «no
+   * hay nada» (ADR-056). Si alguien cambia el `to_regclass` por un `count(*)` que devuelva 0, la
+   * medición pasaría a decir «bandeja al día» sobre una vista inexistente, y el latido lo publicaría
+   * como verde.
+   *
+   * ⚠️ **El SQL poblado NO se ejerce acá, y se declara.** Se validó contra **producción, en
+   * transacción `READ ONLY`**, el 2026-10-15: devolvió **45 movimientos · $253,147.99 · el más
+   * viejo del 12-oct · 3 días** — o sea que hoy el sensor avisaría en **crítico**. La lógica de
+   * decisión sobre esa medición sí tiene pruebas puras, con su negativa.
+   */
+  it('`[CGP-L.13]` sin la vista de la bandeja, la medición dice NO MEDIDO y el aviso no la inventa', async () => {
+    const m = await sensor.scan(T, Date.now() + 12 * HORA);
+    expect(m.bandeja).toBeNull();
+
+    const latido = await knex('analytics.cron_runs')
+      .where({ tenant_id: T, job_key: 'caja_corte_abierto' }).first();
+    expect(String(latido.note)).toContain('bandeja NO MEDIDA');
   });
 });

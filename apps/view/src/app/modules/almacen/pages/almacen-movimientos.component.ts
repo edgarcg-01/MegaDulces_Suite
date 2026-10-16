@@ -56,7 +56,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Diario de movimientos <app-context-help topic="almacen-movimientos" /></h1>
-          <p class="surf-page-sub">Movimientos de inventario por día. Abrí un día para ver sus documentos y auditarlos.</p>
+          <p class="surf-page-sub">Movimientos de inventario por día. Abre un día para ver sus documentos y auditarlos.</p>
         </div>
         <div class="dm-head-right">
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
@@ -92,7 +92,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
         <p-multiselect [options]="destKindOpts" [(ngModel)]="fDestKinds" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Destino"
                        [showClear]="false" [showToggleAll]="false" styleClass="dm-sel-sm"
-                       title="Destino de los traspasos. Por defecto solo sucursales; agregá Rutas para incluir reparto."></p-multiselect>
+                       title="Destino de los traspasos. Por defecto solo sucursales; agrega Rutas para incluir reparto."></p-multiselect>
         <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                        [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="dm-sel"></p-multiselect>
@@ -151,7 +151,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
               </tbody>
             </table>
           } @else {
-            <div class="dm-empty">Sin documentos con ese folio. Probá con o sin ceros a la izquierda.</div>
+            <div class="dm-empty">Sin documentos con ese folio. Prueba con o sin ceros a la izquierda.</div>
           }
         </div>
       }
@@ -408,7 +408,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   </div>
                 </header>
                 <div class="dm-subacc">
-                  <div class="dm-subacc-card"><span class="dm-subacc-code">✔ Pareadas exactas</span><span class="dm-subacc-val">{{ dt.totals.n_exact | number }} <span class="dm-muted dm-subacc-n">pólizas</span></span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code"><i class="pi pi-check" aria-hidden="true"></i> Pareadas exactas</span><span class="dm-subacc-val">{{ dt.totals.n_exact | number }} <span class="dm-muted dm-subacc-n">pólizas</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code">≈ Con dif. de costo</span><span class="dm-subacc-val">{{ dt.totals.cost.n | number }} <span class="dm-muted dm-subacc-n">pares · Δ {{ money(dt.totals.cost.diff_total) }}</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code up">Sin rastro · entradas</span><span class="dm-subacc-val up">{{ money(dt.totals.sin_rastro.amt_entrada) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_entrada }}</span></span></div>
                   <div class="dm-subacc-card"><span class="dm-subacc-code down">Sin rastro · salidas</span><span class="dm-subacc-val down">{{ money(dt.totals.sin_rastro.amt_salida) }} <span class="dm-muted dm-subacc-n">· {{ dt.totals.sin_rastro.n_salida }}</span></span></div>
@@ -452,7 +452,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   <div class="dm-pager">
                     <span class="dm-muted">
                       {{ dt.entries.length ? (dPage() * dPageSize + 1) : 0 }}–{{ min(dPage() * dPageSize + dPageSize, dt.entries.length) }}
-                      de {{ dt.entries.length | number }}@if (dt.entries_truncated) { <span class="dm-muted"> (top por importe de {{ dt.entries_total | number }} — acotá con filtros)</span> }
+                      de {{ dt.entries.length | number }}@if (dt.entries_truncated) { <span class="dm-muted"> (top por importe de {{ dt.entries_total | number }} — acota con filtros)</span> }
                     </span>
                     <span class="dm-pager-ctrls">
                       <button pButton type="button" class="p-button-sm p-button-text" [disabled]="dPage() === 0" (click)="goPage(-1, dt.entries.length)" ariaLabel="Anterior"><span class="p-button-icon pi pi-chevron-left" aria-hidden="true"></span></button>
@@ -512,7 +512,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                         <td class="dm-r dm-strong">{{ r.amount != null ? money(r.amount) : '—' }}</td>
                         <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
                       </tr>
-                    } @empty { <tr><td colspan="9" class="dm-empty">No hay traspasos sin cuadrar en el rango. 🎉</td></tr> }
+                    } @empty { <tr><td colspan="9" class="dm-empty">No hay traspasos sin cuadrar en el rango.</td></tr> }
                   </tbody>
                 </table>
                 @if (ck.rows.length) {
@@ -561,7 +561,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                   @for (s of wc.stores; track s.code) { {{ s.code }}·{{ s.name }}: {{ s.last_date ? (s.last_date | date:'yyyy-MM-dd') : 's/d' }}@if (!$last) { · } }
                   @if (wc.kepler_unmapped) { <span class="down"> · Kepler sin mapear a tienda: {{ money(wc.kepler_unmapped) }}</span> }
                 </div>
-                <p class="dm-block-sub">La recepción Wincaja cuenta el traspaso directo del CEDIS <strong>+ el inter-tienda</strong> (ej. <strong>Madero (32)</strong> se resurte vía Morelia Abastos; ver desglose «CEDIS + hermana»). <strong>Canindo (50)</strong> se surte por <em>compra de zona</em> (columna «+ Compra zona», 515-001), casi nada por CEDIS → su Δ negativo es esperado. Un mes con Wincaja incompleto (corte antes de fin de mes) infla el Δ — compará meses cerrados. El total de red es indicativo (el inter-tienda puede doble-contarse), el cuadre fiable es por tienda.</p>
+                <p class="dm-block-sub">La recepción Wincaja cuenta el traspaso directo del CEDIS <strong>+ el inter-tienda</strong> (ej. <strong>Madero (32)</strong> se resurte vía Morelia Abastos; ver desglose «CEDIS + hermana»). <strong>Canindo (50)</strong> se surte por <em>compra de zona</em> (columna «+ Compra zona», 515-001), casi nada por CEDIS → su Δ negativo es esperado. Un mes con Wincaja incompleto (corte antes de fin de mes) infla el Δ — compara meses cerrados. El total de red es indicativo (el inter-tienda puede doble-contarse), el cuadre fiable es por tienda.</p>
               </section>
             }
           }
@@ -693,7 +693,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
           @if (r.bucket === 'sin_rastro') {
             <div class="dm-cmp-side dm-cmp-none">
               <h4 class="dm-col-h">Contraparte</h4>
-              <p class="down dm-strong">⚠ Sin contraparte en Kepler</p>
+              <p class="down dm-strong"><i class="pi pi-exclamation-triangle" aria-label="Advertencia"></i> Sin contraparte en Kepler</p>
               <p class="dm-muted">No hay una póliza {{ r.kind === 'entrada' ? '515-002 (salida)' : '515-001 (entrada)' }} que cuadre con este importe (±{{ detail()?.tolerance_pct }}%) ni en la ventana de ±1 mes. Esto es lo que hay que localizar en Kepler.</p>
             </div>
           } @else {
@@ -763,7 +763,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
         <div class="dm-hz-aviso">
           <i class="pi pi-info-circle" aria-hidden="true"></i>
           <span>El conteo de arriba es completo; esta lista muestra los primeros {{ hzFilas().length | number }}
-                (el servidor sirve hasta 500 filas, problemas primero). Acotá el rango para verlos todos.</span>
+                (el servidor sirve hasta 500 filas, problemas primero). Acota el rango para verlos todos.</span>
         </div>
       }
       <table class="dm-docs dm-tbl">
@@ -813,7 +813,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                 } @empty { <tr><td colspan="4" class="dm-empty">Sin despachos Kepler a esta tienda en el mes.</td></tr> }
               </tbody>
             </table>
-            @if (d.kepler.truncated) { <div class="dm-col-foot down">Top 500 por importe — acotá el rango.</div> }
+            @if (d.kepler.truncated) { <div class="dm-col-foot down">Top 500 por importe — acota el rango.</div> }
           </div>
           <!-- Wincaja recibió -->
           <div class="dm-col">
@@ -826,10 +826,10 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                 } @empty { <tr><td colspan="5" class="dm-empty">Sin recepciones Wincaja en el mes.</td></tr> }
               </tbody>
             </table>
-            @if (d.wincaja.truncated) { <div class="dm-col-foot down">Top 500 por costo — acotá el rango.</div> }
+            @if (d.wincaja.truncated) { <div class="dm-col-foot down">Top 500 por costo — acota el rango.</div> }
           </div>
         </div>
-        <p class="dm-block-sub">No hay llave común folio↔folio (Kepler no conoce estas tiendas). Cada despacho del CEDIS debería tener su recepción en la tienda; compará por importe/fecha. Unidad Wincaja ≠ piezas Kepler → el cuadre es por $ (costo). La recepción incluye lo directo del CEDIS <strong>+ vía tienda hermana</strong>.</p>
+        <p class="dm-block-sub">No hay llave común folio↔folio (Kepler no conoce estas tiendas). Cada despacho del CEDIS debería tener su recepción en la tienda; compara por importe/fecha. Unidad Wincaja ≠ piezas Kepler → el cuadre es por $ (costo). La recepción incluye lo directo del CEDIS <strong>+ vía tienda hermana</strong>.</p>
       } @else { <div class="dm-empty">Sin datos.</div> }
     </p-dialog>
 
@@ -1166,7 +1166,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
           // ⚠️ Sin viejos NO se dice "está todo bien": con el rango por defecto (30 días) es
           // imposible que aparezca uno de 45, así que el silencio es de la ventana, no del dato.
           : `Salieron de un almacén y todavía no tienen recepción registrada. El más antiguo de este `
-            + `rango lleva ${h.sin_acuse.dias_max.toLocaleString('es-MX')} días. Ampliá el rango para `
+            + `rango lleva ${h.sin_acuse.dias_max.toLocaleString('es-MX')} días. Amplía el rango para `
             + `ver si hay más viejos: este hallazgo sólo mira lo que entra en las fechas elegidas.`,
       });
     }
@@ -1641,7 +1641,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
         const rows = [...r.rows].sort((a, b) => (b.key > a.key ? 1 : b.key < a.key ? -1 : 0));
         this.days.set(rows); this.loading.set(false);
       },
-      error: () => { this.days.set([]); this.loading.set(false); this.error.set('No se pudieron cargar los movimientos. Revisá la conexión e intentá de nuevo.'); },
+      error: () => { this.days.set([]); this.loading.set(false); this.error.set('No se pudieron cargar los movimientos. Revisa la conexión e intenta de nuevo.'); },
     });
     this.api.summary(this.currentFilters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(s => this.summary.set(s));
   }
@@ -1689,7 +1689,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
     this.cpDoc.set(null);
     this.api.document(l.folio, l.warehouse_id, l.doc_code, l.doc_serie).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.doc.set(d); this.docLoading.set(false); this.loadCounterpart(d); },
-      error: () => { this.doc.set(null); this.docLoading.set(false); this.docError.set('No se pudo cargar el documento. Intentá de nuevo.'); },
+      error: () => { this.doc.set(null); this.docLoading.set(false); this.docError.set('No se pudo cargar el documento. Intenta de nuevo.'); },
     });
   }
 
