@@ -227,6 +227,22 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — `[THR.1]` El nombre del tier decide si un tope existe: cuatro endpoints y dos controladores lo tenían mal
+
+**Qué se pidió.** Corregir los cuatro `@Throttle({ default })` de `commercial-analytics` que destapó la revisión de #406, y generalizar el candado a todo el repo.
+
+**Cómo funciona (verificado contra el guard, no supuesto).** `ThrottlerModule.forRoot` configura tres tiers con nombre (`short`, `medium`, `long`). `throttler.guard.js` lee, **por cada tier configurado**, `THROTTLER:LIMIT`+nombre y `THROTTLER:SKIP`+nombre. Un decorador con otro nombre guarda metadata que nadie lee: sin error, sin aviso, sin log.
+
+**Lo que se midió (todo el repo, 48 usos de @Throttle/@SkipThrottle):**
+1. ⛔ `commercial-analytics.controller.ts` líneas 929 (`sell-out/ask`, 15/min), 1444, 1457 y 1468 (`sales-by-route/promo`, `.xlsx`, `.pdf`, 20/min): `default`. El primero llama a un LLM de pago por uso. **Corregidos a `long`** — es el mismo valor de ttl que querían (60 s), así que el límite es el que el código decía.
+2. ⚠️ **Hallazgo nuevo al generalizar:** `@SkipThrottle()` **sin argumentos** equivale a `{ default: true }` (`throttler.decorator.js:27`) y tampoco salta nada. Está a nivel de clase en los dos controladores de ingesta de checadas (`libs/hr/src/lib/attendance/attendance-ingest.controller.ts`, líneas 28 y 85): creen estar exentos del límite global y siguen bajo 10/s, 60/10 s y 200/min por IP. **No se tocó**, y no por pereza: arreglarlo (`{ short: true, medium: true, long: true }`) **quita** hoy esa protección de un endpoint `@Public()` cuyo guard valida un token; si ese token resiste fuerza bruta sin tope es decisión de quien lleva RH/seguridad. Queda como deuda **declarada con ratchet** en el propio script (`EXCEPCIONES`): si sube, baja o desaparece, la compuerta frena.
+
+**La compuerta.** `scripts/check-throttle-names.js`: lee los tiers de `app.module.ts` (si no lee ninguno, **falla**: una compuerta que no sabe contra qué juzgar no reporta verde), busca todo decorador en `apps/` y `libs/` sin contar comentarios, extrae las claves de primer nivel con un parser de llaves balanceadas (no confunde `limit`/`ttl`) y frena si alguna no es un tier. Falla también si no encuentra **ningún** decorador (vacua = intención). `--self-test` con 17 casos (la forma `default`, `@SkipThrottle()` a secas, multilínea, comillas, comentarios, forma ilegible, y el ratchet en sus cuatro direcciones). **Mutada sobre el árbol real:** devolví un `default` a la línea 929 y la compuerta se puso en rojo con archivo y línea; restaurado, verde. Entra al pre-push (0.7 s) y al CI (self-test + corrida).
+
+**Riesgo declarado, sin poder medirlo desde aquí.**
+- El tope es **por IP** (`app.set('trust proxy', 1)`). Con prod detrás de Caddy/cloudflared, si el servidor viera una sola IP para todos, 15 preguntas por minuto serían **de toda la empresa**, no de cada analista. Los topes de login (4–6/min) ya viven con esa llave y se usan, lo que sugiere que la llave distingue — pero **no lo verifiqué contra prod**. Si alguien reporta 429 en el chat del sell-out, mirar primero esto.
+
+**Orden de merge y deuda cruzada con #406.** #406 (dictado) trae GOTCHAS §84 (el mecanismo), la línea `[THR.1]` abierta del tracker y un spec que lee el controlador de la Mesa de Servicio. **Este PR no depende de él** (no lo toca), pero al mergear #406 hay que, en este orden: cerrar la línea abierta `[THR.1]` del tracker, y quitar de §84 el párrafo «sigue latente en commercial-analytics», que dejará de ser cierto. No se hizo antes porque son archivos que sólo existen en #406 (los PR no se apilan).
 ## 2026-10-16 — `[CG.189–CG.191]` El libro de caja se llena solo, y la mitad del trabajo fue descubrir que ya estaba hecho
 
 **Pedido de Edgar:** *«nada de registrar movimientos a mano en `/finanzas/caja-general`… necesito

@@ -135,6 +135,10 @@ const COMPUERTAS = [
   //   · primeng: API que la v22 retiró y que Angular deja pasar como atributo HTML muerto.
   //     `pTemplate="footer"` en un `p-dialog` abre el diálogo SIN BOTONES (GOTCHAS §59).
   { nombre: 'reactividad', script: 'check-signal-reactivity.js', que: 'ningún computed() depende de un campo plano mutable', push: true, ms: 1801 },
+  // `[THR.1]` `@Throttle({ default })` y `@SkipThrottle()` a secas NO limitan ni saltan nada: los tiers se llaman
+  // short/medium/long y el guard ignora cualquier otro nombre sin avisar (GOTCHAS §84). Medido 2026-10-16: 4 endpoints
+  // con un LLM de pago por uso creían tener tope. Deuda declarada con ratchet en el propio script.
+  { nombre: 'throttle', script: 'check-throttle-names.js', que: 'todo @Throttle/@SkipThrottle usa un tier que el servidor configura (si no, no limita nada)', push: true, ms: 698 },
   { nombre: 'primeng', script: 'check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)', push: true, ms: 2084 },
   //   · spec-vivo: un archivo de prueba que no CARGA reporta 0 tests, no fallas — el total de
   //     la suite sigue creciendo y nadie mira la línea de archivos. Medido el 2026-10-06:
