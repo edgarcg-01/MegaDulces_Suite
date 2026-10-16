@@ -22,6 +22,17 @@ import {
   NewProductsService,
 } from './new-products.service';
 import { ProductFlowService } from './product-flow.service';
+import { FichaSucursalesService } from './ficha-sucursales.service';
+import { PreciosCatalogoService } from './precios-catalogo.service';
+import type {
+  CampoFicha,
+  CampoSinClasificar,
+  OrdenListaPrecios,
+  RespuestaFichaSucursales,
+  RespuestaHistoriaPrecio,
+  RespuestaListaPrecios,
+  RespuestaSinClasificar,
+} from '@megadulces/contracts';
 import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, MargenesProducto, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
 
 /**
@@ -38,6 +49,8 @@ export class CommercialProductsController {
     private readonly service: CommercialProductsService,
     private readonly newProducts: NewProductsService,
     private readonly flow: ProductFlowService,
+    private readonly ficha: FichaSucursalesService,
+    private readonly precios: PreciosCatalogoService,
   ) {}
 
   @Get()
@@ -104,6 +117,94 @@ export class CommercialProductsController {
       minPct: minPct ? Number(minPct) : undefined,
       kind: ['pieza','mayoreo','unidad'].includes(String(kind)) ? (kind as 'pieza'|'mayoreo'|'unidad') : '',
       limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('branch-differences')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT-PRECIO.1]` La ficha de venta de Kepler (precios por unidad, volumen, unidades, IVA/IEPS, '
+      + 'línea/tipo/grupo, descripción y códigos) que NO coincide entre sucursales, contra la mayoría '
+      + '(`referencia: mayoria`, provisional hasta que el Concentrador llegue al ODS). `total` es el conteo real.',
+  })
+  branchDifferences(
+    @Query('q') q?: string,
+    @Query('campo') campo?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaFichaSucursales> {
+    return this.ficha.diferencias({
+      q,
+      campo: campo as CampoFicha | undefined,
+      sucursal,
+      limite: limite ? Number(limite) : undefined,
+      desplazamiento: desplazamiento ? Number(desplazamiento) : undefined,
+    });
+  }
+
+  @Get('price-list')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT-PRECIO.2]` El catálogo de precios de UNA sucursal (obligatoria, recortada al alcance): '
+      + 'precio por unidad con impuestos, cambio automático (volumen nivel 0), margen Kepler sobre costo '
+      + 'estándar (el costo no viaja), códigos e IVA/IEPS. `cambio_fecha` = sólo lo que cambió ese día.',
+  })
+  priceList(
+    @Query('sucursal') sucursal?: string,
+    @Query('q') q?: string,
+    @Query('linea') linea?: string,
+    @Query('tipo') tipo?: string,
+    @Query('grupo') grupo?: string,
+    @Query('cambio_fecha') cambioFecha?: string,
+    @Query('orden') orden?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+    @Query('todo') todo?: string,
+  ): Promise<RespuestaListaPrecios> {
+    return this.precios.lista({
+      sucursal, q, linea, tipo, grupo,
+      cambio_fecha: cambioFecha || undefined,
+      orden: orden as OrdenListaPrecios | undefined,
+      limite: limite ? Number(limite) : undefined,
+      desplazamiento: desplazamiento ? Number(desplazamiento) : undefined,
+      todo: todo === 'true',
+    });
+  }
+
+  @Get('price-history')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT-PRECIO.4]` La historia de UN precio (producto × unidad × sucursal) desde la bitácora de '
+      + 'Kepler, con el % contra el anterior y los meses sin registro declarados.',
+  })
+  priceHistory(
+    @Query('sku') sku: string,
+    @Query('sucursal') sucursal: string,
+    @Query('unidad') unidad: string,
+  ): Promise<RespuestaHistoriaPrecio> {
+    return this.precios.historia(sku, sucursal, unidad);
+  }
+
+  @Get('unclassified')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT-PRECIO.5]` Mantenimiento: productos sin línea, tipo o grupo en NINGUNA sucursal que vende al público.',
+  })
+  unclassified(
+    @Query('q') q?: string,
+    @Query('falta') falta?: string,
+    @Query('linea') linea?: string,
+    @Query('con_venta') conVenta?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaSinClasificar> {
+    return this.precios.sinClasificar({
+      q, linea,
+      falta: falta as CampoSinClasificar | undefined,
+      con_venta: conVenta === 'true',
+      limite: limite ? Number(limite) : undefined,
+      desplazamiento: desplazamiento ? Number(desplazamiento) : undefined,
     });
   }
 
