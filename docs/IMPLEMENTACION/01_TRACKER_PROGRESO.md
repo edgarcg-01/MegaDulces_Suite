@@ -8007,7 +8007,21 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   y el armado **se suman** al pago pendiente del mismo proveedor y sucursal en vez de crear otro;
   casillas en la tabla del día → «Preparar seleccionados» (mismo método y origen, destino por pago;
   uno que falla no detiene a los demás). Hueco cerrado: `addItem` dejaba sumar facturas a un pago
-  de un día ya AUTORIZADO. Lógica pura en `calendario-pagos-grupos.ts` (13 ✓, mutada → rojo). Deuda: `weekView` son 21 transacciones en serie y cada guardado recarga
+  de un día ya AUTORIZADO. Lógica pura en `calendario-pagos-grupos.ts` (13 ✓, mutada → rojo).
+  **TP.16.6 — las escrituras, EJERCIDAS contra Postgres real** (regla 13): `payment-calendar.it.spec.ts`
+  corre el código real de `PurchaseDeliveriesService` + `PaymentCalendarService` contra la base local
+  de Docker (`TP_IT_DB`, se niega si no es localhost o si el `system_identifier` es el de prod),
+  TODO dentro de una transacción revertida (hasta las migraciones que le faltan). Escenario de
+  Francisco: Gonac 3 facturas en 08, 2 en 01, 1 en 06 + 1 pagada. **12 ✓**: aceptar crea 6 (la pagada
+  no) · junta 08+08 · rechaza 08+01 · suma misma sucursal y rechaza otra · candado de Kepler tras un
+  abono · autorizar exige orden y preparado · CLABE (control y 17 dígitos) · folio `300115-01` · ya
+  autorizado no admite sumar ni crear · ejecutar → pagado · semana con origen y sucursal. **Mutadas 3
+  reglas del servicio → 9 ✗.** Base local verificada intacta después. Sin `TP_IT_DB` se salta (12
+  skipped), no se pinta verde. Como `finance` no puede depender de `commercial`, el paso «aceptar la
+  entrega» va en `libs/commercial/.../purchase-deliveries.it.spec.ts` (**4 ✓**: sólo el destinatario
+  confirma; 4 creadas, 1 sin saldo, 1 sin proveedor, la rechazada fuera; la de abono nace por
+  17,455.80 y no por 27,455.80; **mutado a «importe de la entrega» → 2 ✗**). Correr ambas:
+  `TP_IT_DB=<conexión a la base local de Docker> npx vitest run <spec> --config libs/<lib>/vitest.config.ts`. Deuda: `weekView` son 21 transacciones en serie y cada guardado recarga
   la semana entera; `todayIso` no se actualiza si la pantalla queda abierta tras medianoche.
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
