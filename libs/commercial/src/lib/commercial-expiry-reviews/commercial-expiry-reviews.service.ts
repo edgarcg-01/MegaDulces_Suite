@@ -12,6 +12,7 @@ import {
   CloudinaryService,
   ObjectStorageService,
   ScopeService,
+  branchKeySql,
   branchKeyFilterSql,
 } from '@megadulces/platform-core';
 
@@ -104,6 +105,28 @@ export interface ResolveResult {
   source: 'barcode' | 'sku' | 'legacy_barcode' | 'none';
   /** Hubo match, pero es de una marca que este promotor no lleva. */
   out_of_scope: boolean;
+}
+
+/** Un día en que una sucursal subió hojas (`GET /expediente/dias`). Los días sin fila = sin captura. */
+export interface ExpedienteDiaRow {
+  /** `YYYY-MM-DD`, el `review_date` de la hoja. */
+  fecha: string;
+  /** Llave canónica de sucursal (2 dígitos), la misma que emite el selector compartido. */
+  sucursal: string;
+  warehouse_name: string;
+  hojas: number;
+  /** Nombres de quienes subieron ese día. */
+  capturistas: string[];
+  /** Medidos contra HOY, no contra ese día. */
+  vencidos: number;
+  riesgosos: number;
+}
+
+export interface ExpedienteDiasResult {
+  /** Ventana que usó el server (su `hoy`, no el del navegador). */
+  from: string;
+  to: string;
+  data: ExpedienteDiaRow[];
 }
 
 export interface ListReviewsQuery {
@@ -1181,6 +1204,96 @@ export class CommercialExpiryReviewsService {
         .orderBy('w.code', 'asc');
 
       return { data: rows };
+    });
+  }
+
+  /**
+   * **Qué días se subieron capturas, por sucursal.** Una fila por (día, sucursal)
+   * que SÍ tuvo hojas; los días sin fila los completa el front contra el rango.
+   *
+   * Se deriva del expediente (`expiry_review_lines` ⋈ `expiry_reviews`), no de una
+   * tabla aparte: es el mismo dato, agrupado por `review_date` — el día que
+   * `pg-prod` (timezone `America/Mexico_City`) le puso a la hoja al guardarla — así
+   * que el día que se ve acá es el mismo que muestra la columna «Fecha» del
+   * expediente y filtrar el expediente por ese día devuelve las mismas hojas.
+   *
+   * ⚠️ **No** devuelve ceros: un día sin fila es «sin captura», que puede ser
+   * descuido, domingo o tienda cerrada — el sistema no sabe cuál. Nombrarlo
+   * «incumplimiento» sería inventar un calendario laboral que no tenemos.
+   *
+   * Mismo universo y alcance que la portada (`branchKeyFilterSql` + `warehouseIds`),
+   * y `sucursal` (la llave canónica de 2 dígitos, la que emite el selector
+   * compartido `app-sucursal-picker`) filtra DENTRO de lo permitido, nunca amplía.
+   * Ventana por defecto: últimos 30 días; tope 366 (un año) para no volver esto un volcado.
+   */
+  async expedienteDias(q: { sucursal?: string; from?: string; to?: string; dias?: number }): Promise<ExpedienteDiasResult> {
+    if (q.sucursal && !/^[0-9]{2}$/.test(q.sucursal))
+      throw new BadRequestException('sucursal inválida (2 dígitos)');
+    // Fecha REAL, no sólo con forma de fecha: `2026-13-45` pasa un regex y Postgres lo
+    // rechaza al castear `::date` — que sale como 500 pelado, no como 400.
+    const fechaReal = (s: string): boolean => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+      if (!m) return false;
+      const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const t = new Date(Date.UTC(y, mo - 1, d));
+      return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+    };
+    if (q.from && !fechaReal(q.from)) throw new BadRequestException('from inválido (AAAA-MM-DD)');
+    if (q.to && !fechaReal(q.to)) throw new BadRequestException('to inválido (AAAA-MM-DD)');
+
+    // `dias` = ventana hacia atrás desde `to` (incluido). Sólo cuenta si no vino `from`.
+    const dias = Number.isInteger(q.dias) && (q.dias as number) >= 1 && (q.dias as number) <= 366 ? (q.dias as number) : 30;
+
+    const scopeIds = await this.scope.warehouseIds(undefined);
+
+    return this.tk.run(async (trx) => {
+      // `to` por defecto = hoy; `from` por defecto = `dias - 1` días antes. Se
+      // resuelven en SQL con `CURRENT_DATE` — el mismo reloj que fecha las hojas.
+      const [win] = (
+        await trx.raw(
+          `SELECT COALESCE(?::date, CURRENT_DATE)::text AS "to",
+                  COALESCE(?::date, COALESCE(?::date, CURRENT_DATE) - (?::int - 1))::text AS "from"`,
+          [q.to || null, q.from || null, q.to || null, dias],
+        )
+      ).rows as { from: string; to: string }[];
+
+      const span = Math.round((Date.parse(win.to) - Date.parse(win.from)) / 86_400_000);
+      if (span < 0) throw new BadRequestException('«desde» no puede ser posterior a «hasta»');
+      if (span > 365) throw new BadRequestException('El rango máximo es de un año (366 días).');
+
+      let qb = trx('commercial.expiry_review_lines as l')
+        .join('commercial.expiry_reviews as r', 'r.id', 'l.review_id')
+        .join('commercial.warehouses as w', 'w.id', 'r.warehouse_id')
+        .whereRaw(branchKeyFilterSql('w'))
+        .whereNull('w.deleted_at')
+        .where('r.review_date', '>=', win.from)
+        .where('r.review_date', '<=', win.to);
+
+      if (scopeIds) qb = qb.whereIn('r.warehouse_id', scopeIds);
+      if (q.sucursal) qb = qb.whereRaw(`(${branchKeySql('w')}) = ?`, [q.sucursal]);
+
+      const data = await qb
+        .leftJoin('public.users as u', 'u.id', 'l.created_by')
+        .groupBy('r.review_date', trx.raw(branchKeySql('w')), 'w.name')
+        .select(
+          trx.raw(`to_char(r.review_date, 'YYYY-MM-DD') AS fecha`),
+          trx.raw(`(${branchKeySql('w')}) AS sucursal`),
+          'w.name as warehouse_name',
+          trx.raw(`COUNT(l.id)::int AS hojas`),
+          // Quiénes subieron ese día (nombre, no id): el encargado pregunta «¿quién
+          // fue?», no «¿cuántos usuarios distintos?».
+          trx.raw(
+            `COALESCE(array_agg(DISTINCT COALESCE(u.nombre, u.username, r.responsible_name))
+                      FILTER (WHERE COALESCE(u.nombre, u.username, r.responsible_name) IS NOT NULL), '{}') AS capturistas`,
+          ),
+          // Estado de lo subido ESE día, medido contra hoy (igual que la portada).
+          trx.raw(`COUNT(l.id) FILTER (WHERE l.expiry_date IS NOT NULL AND l.expiry_date < CURRENT_DATE)::int AS vencidos`),
+          trx.raw(`COUNT(l.id) FILTER (WHERE l.expiry_date IS NOT NULL AND (l.expiry_date - CURRENT_DATE) BETWEEN 0 AND 30)::int AS riesgosos`),
+        )
+        .orderBy('fecha', 'desc')
+        .orderBy('sucursal', 'asc');
+
+      return { from: win.from, to: win.to, data: data as ExpedienteDiaRow[] };
     });
   }
 

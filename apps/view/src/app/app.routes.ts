@@ -1993,6 +1993,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
       },
       {
+        // Capturas por día: qué días cada sucursal subió caducidades. Vista del expediente,
+        // mismo gate (VER) y mismo orden-antes-de-`:id` que `expediente`.
+        path: 'caducidades/dias',
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidades-dias.component').then(m => m.TiendaCaducidadesDiasComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
         // El formato imprimible de UNA hoja. Acepta folio (`CAD-03-2026-00001`) o
         // el id del renglón. Gate de cualquiera de los dos permisos: quien
         // capturó tiene que poder imprimir su hoja para firmarla y archivarla.

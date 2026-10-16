@@ -17,6 +17,7 @@ import {
   ReviewLineDto,
   ResolveResult,
   EntryDto,
+  ExpedienteDiasResult,
 } from './commercial-expiry-reviews.service';
 import {
   ExpiryVoiceService,
@@ -129,6 +130,18 @@ export class CommercialExpiryReviewsController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @Get('expediente/dias')
+  @RequirePermissions(Permission.COMMERCIAL_EXPIRY_VER)
+  @ApiOperation({ summary: 'Qué días se subieron capturas, por sucursal (una fila por día y sucursal con hojas)' })
+  expedienteDias(
+    @Query('sucursal') sucursal?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('dias') dias?: string,
+  ): Promise<ExpedienteDiasResult> {
+    return this.service.expedienteDias({ sucursal, from, to, dias: dias ? Number(dias) : undefined });
   }
 
   /**
