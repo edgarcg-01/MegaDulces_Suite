@@ -34,7 +34,14 @@
  */
 
 const CONSTRAINT = 'cash_ledger_origen_chk';
-const VALORES = ['cfdi', 'recepcion', 'pago_proveedor', 'cobro', 'banco', 'manual', 'cobro_vecinal'];
+// ⛔ `[CGP-VEC.2.1]` Esta lista es la UNION de lo que el CHECK vivo ya aceptaba MAS el valor
+//    nuevo -- no una lista escrita de memoria. Faltaban `caos`, `gasto` y `orden_entrada`, asi
+//    que esta migracion, que se describe como "aditiva: solo amplia el CHECK", en realidad lo
+//    ESTRECHABA. Al aplicarla a prod el 2026-10-16 fallo con 23514 ("is violated by some row"):
+//    `caos` tiene 34 filas vivas. La transaccion revirtio y el CHECK viejo quedo intacto.
+// ⚠️ Y su propia autocomprobacion no lo habria visto: verifica que `cobro_vecinal` ESTE, no que
+//    no falte nada. Ampliar un CHECK por enumeracion exige leer el que hay, no recordarlo.
+const VALORES = ['cfdi', 'recepcion', 'pago_proveedor', 'cobro', 'banco', 'manual', 'caos', 'gasto', 'orden_entrada', 'cobro_vecinal'];
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
