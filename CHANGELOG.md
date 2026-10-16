@@ -9,6 +9,34 @@
 ---
 
 ## [Unreleased]
+### Changed — Calendario de Pagos: la semana completa y «Ordenar y pagar» (TP.16, 2026-10-16)
+- La fecha de arriba ahora es el **rango de la semana**. Se ven los 7 días (lunes a domingo), cada uno con presupuesto, comprometido, disponible y sus documentos, como la maqueta en Excel de Tesorería.
+- Cada día tiene **«Ordenar y pagar»**: orden de pago, método, **cuenta de origen** (de cuál cuenta de Mega Dulces sale) y **cuenta destino** (catálogo del proveedor o CLABE capturada), más los pasos que faltan para que Caja General disperse.
+- **Dos firmas:** Tesorería ordena y prepara; Gerencia o Dirección autoriza. No se puede autorizar un día con pagos sin preparar.
+- Una transferencia ya no se acepta con sólo una de las dos cuentas: pide origen y destino. La CLABE tecleada se valida con su dígito de control.
+- La instrucción impresa para Caja General muestra la cuenta de origen, y su total ya sale dentro de la tabla.
+- Medido antes: los 8 pagos asignados en prod tenían 0 preparados.
+- Tras la primera prueba en pantalla, todo cabe en una vista: franja compacta de la semana arriba (disponible y barra de uso por día), totales de la semana, y abajo las obligaciones junto a «Ordenar y pagar». «Preparar» es un botón con texto y «Autorizar día» dice qué le falta.
+- Un pago ya no se puede marcar como pagado si el día no está autorizado.
+- **Un pago = un proveedor y una sucursal**: cada pago entra al centro de costo de su almacén. Las obligaciones disponibles se agrupan por proveedor y sucursal; «Pagar juntas» arma un pago con todas las facturas del grupo, y el sistema rechaza juntar sucursales o proveedores distintos.
+- **«Sugerir armado»** propone los pagos del día: lo vencido o que vence ese día, un pago por proveedor y sucursal, primero lo más viejo, hasta el disponible.
+- Agregar una factura de un proveedor y sucursal que ya tiene pago ese día la **suma a ese pago** en vez de crear otro.
+- **Preparar seleccionados**: varios pagos a la vez con el mismo método y cuenta de origen.
+- La lista de obligaciones ya no tiene casillas ni desplazamiento lateral.
+### Added — Catálogo de Compras: Mantenimiento y el catálogo de Precios con su historia (CAT-PRECIO.1–5, 2026-10-16)
+- **Mantenimiento** (pestaña nueva): **Diferencias entre sucursales** compara la ficha de venta de Kepler campo por campo (precio de cada unidad al centavo, cambio automático, unidades, IVA/IEPS, línea/tipo/grupo, descripción, códigos) contra la mayoría de las sucursales y dice cuál cambió el precio al último. Medido: 1,422 de 9,683 productos con algún campo distinto. **Sin clasificar**: 5,597 productos sin línea, tipo o grupo en ninguna sucursal.
+- **Precios** es ahora el catálogo de precios de UNA sucursal (obligatoria y según el alcance de cada quien): precio de la unidad base, 2 y 3 con su conversión («CJA = 14 PAQ = 140 PZA»), cambio automático y códigos debajo de cada unidad, margen de Kepler en pantalla, filtros por línea/tipo/grupo y **PDF para el cliente sin margen ni costo**.
+- **Sólo los que cambiaron**: los precios que se movieron un día, contra el anterior y con % de ajuste.
+- **Clic en un precio**: su historia (fecha, precio, incremento o baja) con gráfica; los meses sin registro en la bitácora de Kepler se dicen.
+- Reemplaza a «Precios distintos» (CAT.3), que contaba sobre un tope de 300 filas cuando había 486.
+
+### Added — Calendario de Pagos: lo que Finanzas acepta en «Entregas» ya se puede programar (TP.15, 2026-10-16)
+- El Calendario **nunca tuvo un renglón**: 0 obligaciones de proveedor y 0 días armados en toda su historia, con $2.15M de capacidad autorizada el día que se midió. La factura sólo entraba capturándola a mano en `/compras/obligaciones`, una pestaña que Finanzas ni ve. Aceptar el papel en «Entregas» dejaba la constancia y nada que pagar.
+- Ahora, al confirmar una entrega, cada factura aceptada aparece sola en «Obligaciones disponibles», **por el saldo pendiente en Kepler** y no por el importe de la entrega. Medido: de 38 aceptadas, **21 ($370k) ya no tenían saldo** (pagadas o de contado) y 2 tenían saldo menor; copiar el importe las habría ofrecido para pagar otra vez.
+- Al asignar una factura a un día y otra vez al ejecutar el pago se vuelve a medir el saldo en Kepler: si se pagó por fuera, no deja programarla ni pagarla.
+- El aviso al confirmar dice cuántas pasaron, cuántas no tienen saldo y cuántas tienen el proveedor fuera del catálogo. Si leer Kepler falla, la entrega queda confirmada igual y el fallo se declara.
+- Al aplicar la migración entran las ya aceptadas con saldo: **17 facturas · $1,587,690.31**.
+
 ### Fixed — Caja Fuerte (CAOS): la pantalla acusaba de $18.5 M de efectivo «sin respaldo» por un defecto nuestro (CG.162/CG.163, 2026-10-15)
 - El panel de atribución publicaba **«Sin respaldo (ningún cobro lo explica): $18,500,100 · 757 depósitos»**, y el carril automático latía en `error` **cada hora** desde hacía días. No era un problema del efectivo ni de la gente: el servicio leía la fecha de cada cobro con `String(fecha_valor).slice(0,10)` sobre una columna `date`, que el driver entrega como objeto `Date` → `"Wed May 27"`. Como cualquier letra ordena después de `"2026-…"`, el motor descartaba **todos** los cobros en la primera comparación. **Tras el arreglo, contra las filas reales: 758 depósitos, 758 cubiertos, 0 sin respaldo.**
 - Ahora el motor **se niega** ante una fecha ilegible en vez de degradar a «sin respaldo»: un error de lectura ya no puede publicarse como un veredicto de negocio. Prueba nueva contra el driver real (sólo-lectura), además de las que ya existían con datos literales — que estaban las 12 en verde mientras producción estaba rota.

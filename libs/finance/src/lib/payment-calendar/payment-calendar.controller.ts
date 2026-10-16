@@ -7,6 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
+import type { PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -41,6 +42,20 @@ export class PaymentCalendarController {
       source, classification, search, dueFrom, dueTo,
       onlyCritical: onlyCritical === 'true', onlyAvailable: all !== 'true',
     });
+  }
+
+  @Get('weeks/:date')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[TP.16] La semana (lunes→domingo) que contiene :date — por día: resumen, pagos y folio del lote.' })
+  week(@Param('date') date: string): Promise<PaymentCalendarWeek> {
+    return this.svc.weekView(date);
+  }
+
+  @Get('origin-accounts')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[TP.16] Cuentas de ORIGEN elegibles al preparar un pago (activas, sin la caja).' })
+  originAccounts(): Promise<PaymentOriginAccount[]> {
+    return this.svc.originAccounts();
   }
 
   @Get('days/:date/summary')
