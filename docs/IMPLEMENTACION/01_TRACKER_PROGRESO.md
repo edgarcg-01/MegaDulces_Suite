@@ -9635,6 +9635,24 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   `X-A-40` → rojo**. Migración probada en Docker local (up ×2 · función · REFRESH · CONCURRENTLY · down,
   revertido).
 
+- [x] **[CAT-COSTO.10]** 🔨 **Las tres matrices de costo, día por día** (2026-10-15) — la hoja de Compras: producto ×
+  almacén (00 CEDIS–08) con el costo de ESE día, mayoría y **coincidencia**, y selector ‹ día › (flechas +
+  calendario, sin días futuros ni anteriores a la historia). Endpoint `GET commercial/standard-cost/matriz?tipo=
+  estandar|promedio|ultimo&fecha=` sobre `mv_kepler_costos_cambios` (`desde ≤ fecha < hasta`); regla pura
+  `filaMatriz` que NO reimplementa la comparación: envuelve a `clasificarEntreSucursales` (mayoría a centavos,
+  ±0.5 %, se declaran sin mayoría / unidad distinta / un solo almacén) y agrega la coincidencia = parte de los
+  almacenes comparados con el costo de la mayoría. Un almacén cuya historia empieza después del día pedido
+  estaba en Wincaja: su columna dice **«sin dato»**, nunca cero. El estándar deducido de la venta va en cursiva.
+  **«Entre sucursales» pasa a ser la pestaña «Costo estándar»** (es la misma comparación, ahora con el CEDIS y
+  con fecha); vistas: Costo estándar · Costo promedio · Último costo · Contra último costo · Historial por
+  producto. El padre queda como contenedor; cada vista con su componente y su prueba. Ajustes de paso: la
+  tabla de «Contra último costo» usa la salida estándar en angosto (`dt-scope` + `dt-stack` + `data-label`) en
+  lugar de los parches a mano de `[CAT-COSTO.7.1]`; la matriz se marca `dt-matrix-ok` (pivote); las dos vistas
+  ya no pintan titular ni conteos si la fuente viene `disponible:false`. Pruebas: `filaMatriz` 7/7 (3
+  negativas) · matriz 8/8 (3 negativas; **mutada para nunca decir «sin dato» → rojo**) · contenedor 5/5 ·
+  Compras **479 ✔** · costos 35 ✔. `check:pantalla` matriz 10/10 y contra-último 10/10; el contenedor baja de
+  3 a 2 fallas heredadas. **Sin validación visual ni tiempo medido**: la historia no existe en prod todavía.
+
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
   llevárselo en papel). El comprador elige **proveedores**, la **plaza**, qué **productos** entran

@@ -17,10 +17,15 @@ import {
   MotivoSinCosto,
   ORDEN_VEREDICTO_CONTRA_ULTIMO,
   RespuestaContraUltimo,
+  RespuestaMatrizCostos,
+  FilaMatrizCostos,
+  TipoCostoKepler,
   TOLERANCIA_CONTRA_ULTIMO,
   VeredictoContraUltimo,
+  VeredictoMatrizCostos,
 } from '@megadulces/contracts';
 import { antiguedadUltimo, clasificarContraUltimo } from './contra-ultimo';
+import { CeldaCruda, filaMatriz } from './matriz-costos';
 
 import {
   CambioEstandar,
@@ -63,6 +68,29 @@ const restarDias = (iso: string, dias: number): string => {
   d.setUTCDate(d.getUTCDate() - dias);
   return d.toISOString().slice(0, 10);
 };
+
+export interface FiltrosMatrizCostos {
+  tipo?: string;
+  /** `YYYY-MM-DD`; por defecto hoy (México). Una fecha futura se trata como hoy. */
+  fecha?: string;
+  q?: string;
+  proveedor_id?: string;
+  /** Sólo los productos donde ESTE almacén se sale de la mayoría. */
+  sucursal?: string;
+  veredicto?: VeredictoMatrizCostos;
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+interface FilaCrudaMatriz {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  venta_30d: string | number;
+  celdas: CeldaCruda[] | string;
+}
 
 export interface FiltrosContraUltimo {
   /** SKU o nombre. */
@@ -725,6 +753,170 @@ export class StandardCostService {
         proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
         tolerancia_pct: TOLERANCIA_ENTRE_SUCURSALES * 100,
         actividad_al: (actividad as { al: string | null } | undefined)?.al ?? null,
+        total: visibles.length,
+        filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
+    });
+  }
+
+  /**
+   * `[CAT-COSTO.10]` **La matriz de un costo ese día**: producto × almacén (00–08), con la coincidencia
+   * contra la mayoría. Lee la historia `analytics.mv_kepler_costos_cambios` (`[CAT-COSTO.9]`): el costo
+   * de cada celda es el vigente ese día (`desde <= fecha < hasta`). La comparación es la MISMA regla de
+   * «Entre sucursales» (`filaMatriz` → `clasificarEntreSucursales`).
+   *
+   * Un almacén cuya historia de ese costo empieza después de `fecha` estaba en Wincaja ese día: se
+   * devuelve su `desde` para que la pantalla declare la columna «sin dato», nunca en cero.
+   * La venta de 30 días es la de HOY (sirve para ordenar y para «sólo con venta»), y se declara.
+   */
+  async matriz(f: FiltrosMatrizCostos): Promise<RespuestaMatrizCostos> {
+    const limite = Math.min(Math.max(Number(f.limite) || 100, 1), 500);
+    const desplazamiento = Math.max(Number(f.desplazamiento) || 0, 0);
+    const tipo: TipoCostoKepler = (['estandar', 'promedio', 'ultimo'] as const).includes(f.tipo as TipoCostoKepler)
+      ? (f.tipo as TipoCostoKepler)
+      : 'estandar';
+
+    return this.tk.run(async (trx) => {
+      const { rows: [meta] } = await trx.raw(`
+        SELECT (SELECT relispopulated FROM pg_class WHERE oid = to_regclass('analytics.mv_kepler_costos_cambios')) AS poblada,
+               to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD') AS hoy`);
+      const fecha = f.fecha && esFecha(f.fecha) && f.fecha <= meta.hoy ? f.fecha : meta.hoy;
+      const [sucs, corrida] = await Promise.all([
+        trx
+          .from('commercial.warehouses')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .whereNotNull('kepler_code')
+          .whereRaw("kepler_code ~ '^[0-9]{2}$'") // sólo sucursales: las rutas (01-001…) no tienen ficha en kdii
+          .whereNull('deleted_at')
+          .select('kepler_code')
+          .min({ nombre: 'name' })
+          .groupBy('kepler_code')
+          .orderBy('kepler_code'),
+        trx
+          .from('analytics.cron_runs')
+          .where({ job_key: 'analytics_refresh_kepler_costos_cambios', status: 'ok' })
+          .max({ al: 'last_finish' })
+          .first(),
+      ]);
+      const calculadoAl = (corrida as { al: Date | string | null } | undefined)?.al ?? null;
+      const base: RespuestaMatrizCostos = {
+        disponible: false,
+        tipo,
+        fecha,
+        primera_fecha: null,
+        calculado_al: calculadoAl ? new Date(calculadoAl).toISOString() : null,
+        tolerancia_pct: TOLERANCIA_ENTRE_SUCURSALES * 100,
+        sucursales: (sucs as { kepler_code: string; nombre: string | null }[]).map((s) => ({
+          codigo: s.kepler_code,
+          nombre: s.nombre,
+          desde: null,
+        })),
+        resumen: Object.fromEntries(ORDEN_VEREDICTO_SUCURSALES.map((v) => [v, 0])) as Record<VeredictoMatrizCostos, number>,
+        proveedores: [],
+        total: 0,
+        filas: [],
+      };
+      if (!meta?.poblada) {
+        this.logger.warn('[CAT-COSTO.10] analytics.mv_kepler_costos_cambios no está poblada: disponible=false');
+        return base;
+      }
+
+      const [inicios, crudo] = await Promise.all([
+        trx.raw(
+          `SELECT sucursal, to_char(min(desde), 'YYYY-MM-DD') AS desde
+             FROM analytics.mv_kepler_costos_cambios
+            WHERE tenant_id = current_tenant_id() AND tipo = ?
+            GROUP BY 1`,
+          [tipo],
+        ),
+        (() => {
+          const qb = trx
+            .from(
+              trx.raw(
+                `(
+              SELECT h.sku,
+                     max(cp.nombre)                AS nombre,
+                     max(cp.supplier_id::text)     AS proveedor_id,
+                     max(sup.name)                 AS proveedor,
+                     COALESCE(sum(a.venta_bruta), 0)::numeric AS venta_30d,
+                     jsonb_agg(jsonb_build_object(
+                       'sucursal',   h.sucursal,
+                       'costo',      h.costo,
+                       'desde',      to_char(h.desde, 'YYYY-MM-DD'),
+                       'fuente',     h.fuente,
+                       'referencia', h.referencia,
+                       'unidad',     k.unidad_base,
+                       'vende',      COALESCE(a.venta_bruta, 0) > 0
+                     ) ORDER BY h.sucursal) AS celdas
+                FROM analytics.mv_kepler_costos_cambios h
+                LEFT JOIN analytics.mv_kepler_costos k
+                       ON k.tenant_id = h.tenant_id AND k.sucursal = h.sucursal AND k.sku = h.sku
+                LEFT JOIN analytics.mv_kepler_standard_cost_activity a
+                       ON btrim(a.sucursal::text) = h.sucursal AND a.sku = h.sku
+                LEFT JOIN catalog.products cp
+                       ON cp.sku = h.sku AND cp.deleted_at IS NULL AND cp.tenant_id = current_tenant_id()
+                LEFT JOIN catalog.suppliers sup
+                       ON sup.id = cp.supplier_id AND sup.tenant_id = cp.tenant_id
+               WHERE h.tenant_id = current_tenant_id() AND h.tipo = ?
+                 AND h.desde <= ?::date AND (h.hasta IS NULL OR h.hasta > ?::date)
+               GROUP BY h.sku
+            ) AS x`,
+                [tipo, fecha, fecha],
+              ),
+            )
+            .select('x.sku', 'x.nombre', 'x.proveedor_id', 'x.proveedor', 'x.venta_30d', 'x.celdas');
+          applySmartSearch(qb, f.q, { columns: ['x.sku', 'x.nombre'] });
+          if (f.proveedor_id) qb.where('x.proveedor_id', f.proveedor_id);
+          return qb as unknown as Promise<FilaCrudaMatriz[]>;
+        })(),
+      ]);
+
+      const desdeDe = new Map((inicios.rows as { sucursal: string; desde: string }[]).map((r) => [r.sucursal, r.desde]));
+      const filas: FilaMatrizCostos[] = crudo.map((r) => {
+        const celdas = (typeof r.celdas === 'string' ? JSON.parse(r.celdas) : r.celdas) as CeldaCruda[];
+        const m = filaMatriz(
+          celdas.map((c) => ({ ...c, costo: Number(c.costo) })),
+          { soloConVenta: f.solo_con_venta },
+        );
+        return {
+          sku: r.sku,
+          nombre: r.nombre,
+          proveedor_id: r.proveedor_id,
+          proveedor: r.proveedor,
+          venta_30d: Number(r.venta_30d) || 0,
+          ...m,
+        };
+      });
+
+      const resumen = { ...base.resumen };
+      const proveedores = new Map<string, { id: string; nombre: string; productos: number }>();
+      for (const x of filas) {
+        resumen[x.veredicto]++;
+        if (x.proveedor_id) {
+          const p = proveedores.get(x.proveedor_id) ?? { id: x.proveedor_id, nombre: x.proveedor ?? x.proveedor_id, productos: 0 };
+          p.productos++;
+          proveedores.set(x.proveedor_id, p);
+        }
+      }
+      const visibles = filas
+        .filter((x) => !f.veredicto || x.veredicto === f.veredicto)
+        .filter((x) => !f.sucursal || x.celdas.some((c) => c.sucursal === f.sucursal && c.fuera))
+        .sort(
+          (a, b) =>
+            ORDEN_VEREDICTO_SUCURSALES.indexOf(a.veredicto) - ORDEN_VEREDICTO_SUCURSALES.indexOf(b.veredicto) ||
+            b.venta_30d - a.venta_30d ||
+            (b.diferencia_pct ?? 0) - (a.diferencia_pct ?? 0) ||
+            a.sku.localeCompare(b.sku),
+        );
+      const primera = [...desdeDe.values()].sort()[0] ?? null;
+
+      return {
+        ...base,
+        disponible: true,
+        primera_fecha: primera,
+        sucursales: base.sucursales.map((s) => ({ ...s, desde: desdeDe.get(s.codigo) ?? null })),
+        resumen,
+        proveedores: [...proveedores.values()].sort((a, b) => a.nombre.localeCompare(b.nombre)),
         total: visibles.length,
         filas: visibles.slice(desplazamiento, desplazamiento + limite),
       };

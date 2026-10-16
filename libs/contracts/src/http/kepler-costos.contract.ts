@@ -28,6 +28,78 @@ export const COSTOS_KEPLER = {
   ultima_entrada: { nombre: 'Costo de la última entrada', que_es: 'Lo mueve cualquier entrada (compra, traspaso o ajuste). Sólo referencia.' },
 } as const;
 
+/** `[CAT-COSTO.10]` Los tres costos que tienen historia por día (la última entrada no). */
+export type TipoCostoKepler = 'estandar' | 'promedio' | 'ultimo';
+
+/** Resultado de comparar un costo entre almacenes: la MISMA regla de «Entre sucursales» (mayoría, ±0.5 %). */
+export type VeredictoMatrizCostos = 'distinto' | 'sin_mayoria' | 'unidad_distinta' | 'igual' | 'una_plaza';
+
+export const ETIQUETA_VEREDICTO_MATRIZ: Record<VeredictoMatrizCostos, string> = {
+  distinto: 'Un almacén se sale',
+  sin_mayoria: 'Sin mayoría',
+  unidad_distinta: 'Unidad distinta',
+  igual: 'Iguales',
+  una_plaza: 'Un solo almacén',
+};
+
+/**
+ * De dónde salió el costo de esa celda ese día.
+ *  · `ficha`  — la foto nocturna del catálogo (estándar real).
+ *  · `venta`  — estándar DEDUCIDO de lo que congeló la venta (antes de la primera foto).
+ *  · `kardex` — promedio del kardex de ese día.
+ *  · `xa2001` — la compra (último costo).
+ */
+export type FuenteCostoKepler = 'ficha' | 'venta' | 'kardex' | 'xa2001';
+
+export interface CeldaMatrizCostos {
+  sucursal: string;
+  costo: number;
+  /** Desde qué día rige ese valor (`YYYY-MM-DD`). */
+  desde: string;
+  fuente: FuenteCostoKepler;
+  /** Folio de la XA2001 para el último costo. */
+  referencia: string | null;
+  unidad: string | null;
+  /** Se sale de la mayoría más allá de la tolerancia (`null` sin mayoría). */
+  fuera: boolean | null;
+  desviacion_pct: number | null;
+}
+
+export interface FilaMatrizCostos {
+  sku: string;
+  nombre: string | null;
+  proveedor_id: string | null;
+  proveedor: string | null;
+  celdas: CeldaMatrizCostos[];
+  mayoria: number | null;
+  /** % de los almacenes comparados que coinciden con la mayoría. `null` si no hay con qué comparar. */
+  coincidencia_pct: number | null;
+  diferencia_pct: number | null;
+  veredicto: VeredictoMatrizCostos;
+  /** Venta bruta de 30 días (la de HOY, para ordenar lo que más pesa primero). */
+  venta_30d: number;
+}
+
+export interface RespuestaMatrizCostos {
+  disponible: boolean;
+  tipo: TipoCostoKepler;
+  /** El día que se está viendo (`YYYY-MM-DD`). */
+  fecha: string;
+  /** El primer día con historia de este tipo de costo. */
+  primera_fecha: string | null;
+  calculado_al: string | null;
+  tolerancia_pct: number;
+  /**
+   * Los almacenes, con el primer día que tienen dato de este costo. Un almacén cuya historia empieza
+   * después de `fecha` estaba en Wincaja ese día: su columna se declara «sin dato», no en cero.
+   */
+  sucursales: { codigo: string; nombre: string | null; desde: string | null }[];
+  resumen: Record<VeredictoMatrizCostos, number>;
+  proveedores: { id: string; nombre: string; productos: number }[];
+  total: number;
+  filas: FilaMatrizCostos[];
+}
+
 /** Por qué falta un costo. Un costo ausente es `null` CON motivo, nunca 0. */
 export type MotivoSinCosto = 'sin_estandar' | 'sin_compra' | 'sin_salida' | 'unidad_no_resuelta' | 'inverosimil';
 

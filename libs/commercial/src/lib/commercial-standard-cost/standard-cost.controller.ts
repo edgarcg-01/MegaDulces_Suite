@@ -10,7 +10,13 @@ import {
   RespuestaHistorial,
 } from './standard-cost.service';
 import { VeredictoEntreSucursales } from './entre-sucursales';
-import type { AntiguedadUltimo, RespuestaContraUltimo, VeredictoContraUltimo } from '@megadulces/contracts';
+import type {
+  AntiguedadUltimo,
+  RespuestaContraUltimo,
+  RespuestaMatrizCostos,
+  VeredictoContraUltimo,
+  VeredictoMatrizCostos,
+} from '@megadulces/contracts';
 
 /**
  * `[CE.3]` — Costo estándar por producto.
@@ -105,6 +111,40 @@ export class StandardCostController {
       sucursal: sucursal?.trim() || undefined,
       veredicto: veredicto?.trim() as VeredictoEntreSucursales | undefined,
       solo_diferencias: soloDiferencias === undefined ? true : soloDiferencias !== 'false',
+      solo_con_venta: soloConVenta === 'true',
+      limite: Number(limite) || undefined,
+      desplazamiento: Number(desplazamiento) || undefined,
+    });
+  }
+
+  /** ⚠️ Va ANTES de `:sku`: si no, `matriz` se leería como un SKU. */
+  @Get('matriz')
+  @RequirePermissions(Permission.COMPRAS_COSTO_ESTANDAR_VER)
+  @ApiOperation({
+    summary: 'Matriz de un costo (estándar, promedio o último) por producto × almacén, el día que se pida',
+    description:
+      'Sale de analytics.mv_kepler_costos_cambios: el costo de cada celda es el vigente ese día. Coincidencia ' +
+      'contra la mayoría con la regla de «Entre sucursales» (±0.5 %). Un almacén sin historia ese día se declara ' +
+      'con su fecha de inicio. `fecha` por defecto hoy; una futura se trata como hoy.',
+  })
+  matriz(
+    @Query('tipo') tipo?: string,
+    @Query('fecha') fecha?: string,
+    @Query('q') q?: string,
+    @Query('proveedor_id') proveedorId?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('veredicto') veredicto?: VeredictoMatrizCostos,
+    @Query('solo_con_venta') soloConVenta?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaMatrizCostos> {
+    return this.service.matriz({
+      tipo: tipo?.trim(),
+      fecha: fecha?.trim(),
+      q,
+      proveedor_id: proveedorId?.trim() || undefined,
+      sucursal: sucursal?.trim() || undefined,
+      veredicto: veredicto?.trim() as VeredictoMatrizCostos | undefined,
       solo_con_venta: soloConVenta === 'true',
       limite: Number(limite) || undefined,
       desplazamiento: Number(desplazamiento) || undefined,

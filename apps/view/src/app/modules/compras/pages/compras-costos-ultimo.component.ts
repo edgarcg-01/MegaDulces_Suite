@@ -40,15 +40,6 @@ const SEVERIDAD: Record<VeredictoContraUltimo, 'danger' | 'info' | 'warn' | 'sec
   igual: 'success',
 };
 
-const ETIQUETA_CORTA: Record<VeredictoContraUltimo, string> = {
-  estandar_abajo: 'Abajo',
-  estandar_arriba: 'Arriba',
-  unidad_no_clara: 'Unidad',
-  sin_compra: 'Sin compra',
-  sin_estandar: 'Sin estándar',
-  igual: 'Igual',
-};
-
 /** La fuente se recalcula de noche: pasado un día y poco, ya no es de hoy. */
 const UN_DIA_Y_POCO = 26 * 3600;
 
@@ -82,7 +73,7 @@ const UN_DIA_Y_POCO = 26 * 3600;
       <app-load-state [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="noDisponible()"
                       emptyIcon="pi-clock" emptyTitle="Los costos todavía no se han calculado"
                       emptyHint="Se calculan cada noche desde Kepler. Vuelve a entrar mañana." (retry)="recargar()">
-        @if (datos(); as d) {
+        @if (datosDisponibles(); as d) {
           <!-- La respuesta primero: cuánto pesa el estándar que quedó abajo de lo que hoy se paga. -->
           <p class="cu-titular">
             {{ n(d.resumen.estandar_abajo.filas) }} productos por sucursal tienen el costo estándar por debajo de su última compra
@@ -132,15 +123,13 @@ const UN_DIA_Y_POCO = 26 * 3600;
           </label>
         </section>
 
-        <div class="cu-tabla">
+        <div class="cu-tabla dt-scope">
           <p-table [value]="filas()" [loading]="cargando()" [lazy]="true" [paginator]="true"
                    [rows]="tamano()" [totalRecords]="total()" [first]="(pagina() - 1) * tamano()"
                    [rowsPerPageOptions]="[50, 100, 200]" (onLazyLoad)="onPagina($event)"
-                   size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
+                   size="small" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack">
             <ng-template #header>
-              <!-- El orden importa en angosto: la regla global de tablas oculta desde la 4a columna
-                   (salvo la ultima) en celular, asi que lo que hay que leer va primero. -->
-              <tr>
+                      <tr>
                 <th scope="col">Producto</th>
                 <th scope="col" class="comm-num">Estándar</th>
                 <th scope="col" class="comm-num">Último costo</th>
@@ -153,16 +142,16 @@ const UN_DIA_Y_POCO = 26 * 3600;
             </ng-template>
             <ng-template #body let-f>
               <tr>
-                <td>
+                <td role="cell" data-label="Producto">
                   <button type="button" class="cu-prod" (click)="skuElegido.emit(f.sku)"
                           [attr.aria-label]="'Ver historial de costos de ' + (f.nombre || f.sku)">{{ f.nombre || 'Sin nombre en catálogo' }}</button>
                   <div class="cu-suc">{{ nombreSucursal(f.sucursal) }}</div>
                   <div class="cu-meta"><span class="cu-mono">{{ f.sku }}</span> · {{ f.unidad_base || 'sin rótulo' }} · {{ f.proveedor || 'sin proveedor' }}</div>
                 </td>
-                <td class="comm-num cu-mono">{{ dineroONada(f.costo_estandar) }}</td>
-                <td class="comm-num cu-mono cu-fuerte">{{ dineroONada(f.costo_ultimo) }}</td>
-                <td class="comm-num cu-mono" [class.cu-mal]="f.veredicto === 'estandar_abajo'">{{ pct(f.diferencia_pct) }}</td>
-                <td class="cu-compra">
+                <td class="comm-num cu-mono" role="cell" data-label="Estándar">{{ dineroONada(f.costo_estandar) }}</td>
+                <td class="comm-num cu-mono cu-fuerte" role="cell" data-label="Último costo">{{ dineroONada(f.costo_ultimo) }}</td>
+                <td class="comm-num cu-mono" role="cell" data-label="Diferencia" [class.cu-mal]="f.veredicto === 'estandar_abajo'">{{ pct(f.diferencia_pct) }}</td>
+                <td class="cu-compra" role="cell" data-label="Última compra">
                   @if (f.ultimo_fecha) {
                     <span class="cu-mono">{{ f.ultimo_fecha }}</span>
                     <div class="cu-meta">
@@ -176,12 +165,9 @@ const UN_DIA_Y_POCO = 26 * 3600;
                     <span class="cu-sin">{{ textoMotivo(f) }}</span>
                   }
                 </td>
-                <td class="comm-num cu-mono">{{ dineroONada(f.costo_promedio) }}</td>
-                <td class="comm-num cu-mono">{{ f.venta_30d > 0 ? dinero(f.venta_30d) : '—' }}</td>
-                <td>
-                  <p-tag class="cu-tag-largo" [value]="etiqueta(f.veredicto)" [severity]="severidad(f.veredicto)" />
-                  <p-tag class="cu-tag-corto" [value]="etiquetaCorta(f.veredicto)" [severity]="severidad(f.veredicto)" />
-                </td>
+                <td class="comm-num cu-mono" role="cell" data-label="Promedio">{{ dineroONada(f.costo_promedio) }}</td>
+                <td class="comm-num cu-mono" role="cell" data-label="Venta 30 d">{{ f.venta_30d > 0 ? dinero(f.venta_30d) : '—' }}</td>
+                <td role="cell" data-label="Resultado"><p-tag [value]="etiqueta(f.veredicto)" [severity]="severidad(f.veredicto)" /></td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
@@ -242,17 +228,6 @@ const UN_DIA_Y_POCO = 26 * 3600;
     @container (max-width: 48rem) {
       .cu-f input, .cu-sel { width: 100%; min-width: 0; }
       .cu-f { flex: 1 1 100%; }
-      /* La primera columna es fija: con nombres largos ocupaba todo el ancho y no dejaba ver
-         ninguna cifra. Se acota para que asomen el estándar y el último costo. */
-      .cu-tabla td:first-child, .cu-tabla th:first-child { max-width: 9.5rem; min-width: 9.5rem; white-space: normal; }
-      .cu-prod { font-size: var(--fs-xs); }
-    }
-    /* La ultima columna queda fija a la derecha en angosto (regla global de tablas): con la
-       etiqueta larga tapaba las cifras. En angosto va la corta. */
-    .cu-tag-corto { display: none; }
-    @container (max-width: 30rem) {
-      .cu-tag-largo { display: none; }
-      .cu-tag-corto { display: inline-flex; }
     }
   `],
 })
@@ -298,6 +273,11 @@ export class ComprasCostosUltimoComponent {
   readonly datos = computed(() => (this.res.error() ? undefined : this.res.value()));
   readonly cargando = computed(() => this.res.isLoading());
   readonly error = computed(() => (this.res.error() ? 'No se pudo cargar la comparación de costos.' : null));
+  /** La respuesta sólo si la fuente está calculada: el titular y los conteos no se pintan sobre la nada. */
+  readonly datosDisponibles = computed(() => {
+    const d = this.datos();
+    return d?.disponible ? d : undefined;
+  });
   /** La fuente nunca se calculó: se dice, no se pinta una tabla vacía con conteos en cero. */
   readonly noDisponible = computed(() => {
     const d = this.datos();
@@ -378,10 +358,6 @@ export class ComprasCostosUltimoComponent {
 
   etiqueta(v: VeredictoContraUltimo): string {
     return ETIQUETA_VEREDICTO_CONTRA_ULTIMO[v];
-  }
-  /** Para pantallas angostas: la misma clasificación, en una palabra. */
-  etiquetaCorta(v: VeredictoContraUltimo): string {
-    return ETIQUETA_CORTA[v];
   }
   severidad(v: VeredictoContraUltimo): 'danger' | 'info' | 'warn' | 'secondary' | 'success' {
     return SEVERIDAD[v];

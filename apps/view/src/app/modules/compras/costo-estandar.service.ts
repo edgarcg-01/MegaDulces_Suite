@@ -5,8 +5,25 @@ import { environment } from '../../../environments/environment';
 import type {
   AntiguedadUltimo,
   RespuestaContraUltimo,
+  RespuestaMatrizCostos,
+  TipoCostoKepler,
   VeredictoContraUltimo,
+  VeredictoMatrizCostos,
 } from '@megadulces/contracts';
+
+/** `[CAT-COSTO.10]` Filtros de la matriz de costos. */
+export interface ConsultaMatrizCostos {
+  tipo: TipoCostoKepler;
+  /** `YYYY-MM-DD`; sin fecha el servidor usa hoy. */
+  fecha?: string;
+  q?: string;
+  proveedor_id?: string;
+  sucursal?: string;
+  veredicto?: VeredictoMatrizCostos;
+  solo_con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
 
 /** `[CAT-COSTO.7]` Filtros de la vista «Contra último costo». */
 export interface ConsultaContraUltimo {
@@ -212,6 +229,23 @@ export class CostoEstandarService {
     if (q.limite) p = p.set('limite', String(q.limite));
     if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
     return this.http.get<RespuestaEntreSucursales>(`${this.base}/entre-sucursales`, { params: p });
+  }
+
+  /**
+   * `[CAT-COSTO.10]` La matriz de un costo (estándar, promedio o último) el día pedido: producto ×
+   * almacén con la coincidencia contra la mayoría. El servidor decide todo; la pantalla pinta.
+   */
+  matriz(q: ConsultaMatrizCostos): Observable<RespuestaMatrizCostos> {
+    let p = new HttpParams().set('tipo', q.tipo);
+    if (q.fecha) p = p.set('fecha', q.fecha);
+    if (q.q?.trim()) p = p.set('q', q.q.trim());
+    if (q.proveedor_id) p = p.set('proveedor_id', q.proveedor_id);
+    if (q.sucursal) p = p.set('sucursal', q.sucursal);
+    if (q.veredicto) p = p.set('veredicto', q.veredicto);
+    if (q.solo_con_venta) p = p.set('solo_con_venta', 'true');
+    if (q.limite) p = p.set('limite', String(q.limite));
+    if (q.desplazamiento) p = p.set('desplazamiento', String(q.desplazamiento));
+    return this.http.get<RespuestaMatrizCostos>(`${this.base}/matriz`, { params: p });
   }
 
   /**
