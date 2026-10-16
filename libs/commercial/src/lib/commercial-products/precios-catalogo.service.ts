@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
-import { ScopeService, TenantKnexService } from '@megadulces/platform-core';
+import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
   CampoSinClasificar,
   ConsultaListaPrecios,
   ConsultaSinClasificar,
+  FilaListaPrecios,
   FilaSinClasificar,
   OrdenListaPrecios,
   RespuestaHistoriaPrecio,
@@ -44,7 +45,30 @@ export class PreciosCatalogoService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly scope: ScopeService,
+    private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * ⛔ `[CAT-PRECIO.5.1]` El margen NO sale hacia un CLIENTE.
+   *
+   * Compras decidió que el margen se vea en el catálogo "para que el vendedor lo entienda", y
+   * esa decisión se respeta. Lo que esa decisión no evaluó es a quién más se lo entrega: el
+   * endpoint está gateado por `COMMERCIAL_PRODUCTS_VER`, y ese permiso lo tienen **14 roles**,
+   * no los 4 que se nombraron -- entre ellos `customer_b2b`, que es un CLIENTE EXTERNO (3
+   * usuarios activos, medido en prod el 2026-10-16).
+   *
+   * Con precio, impuestos y margen se despeja el costo. Dárselo a un cliente es entregarle lo
+   * que pagamos por el producto, justo antes de negociar con él. El permiso gatea la API, no la
+   * pantalla: da igual que `/compras/catalogo/precios` sea una pantalla de Compras.
+   *
+   * Se anula SÓLO para el cliente, no para los 13 roles internos: así la decisión de Compras
+   * queda intacta y se cierra lo único que nadie decidió. Mismo idiom que el scoping de
+   * `commercial-customers.service.ts` (defense in depth por `roleName`).
+   */
+  private sinMargenParaCliente(filas: FilaListaPrecios[]): FilaListaPrecios[] {
+    if (this.tenantCtx.get()?.roleName !== 'customer_b2b') return filas;
+    return filas.map((f) => ({ ...f, unidades: f.unidades.map((u) => ({ ...u, margen_pct: null })) }));
+  }
 
   /**
    * Las sucursales que esta persona puede consultar: las que venden al público, recortadas a su
@@ -105,7 +129,7 @@ export class PreciosCatalogoService {
         c.cambio_fecha ? trx.raw(CAMBIOS_DIA_SQL, { suc: sucursal.codigo, fecha: c.cambio_fecha }) : null,
       ]);
       const { porClave, ocultos } = cambiosDelDia(((cambiosCrudos?.rows ?? []) as CambioCrudo[]));
-      const todas = ((fichas.rows ?? []) as FichaPrecio[]).map((f) => armarFila(f, porClave));
+      const todas = this.sinMargenParaCliente(((fichas.rows ?? []) as FichaPrecio[]).map((f) => armarFila(f, porClave)));
 
       const [linea, tipo, grupo] = [filtroCodigo(c.linea), filtroCodigo(c.tipo), filtroCodigo(c.grupo)];
       const filtradas = ordenar(
