@@ -437,10 +437,27 @@ export class CashLedgerService {
    * para que el usuario vea una frase en vez de un error de Postgres.
    */
   private async resolveMovimiento(trx: any, tenantId: string, origenRef: string) {
-    const row = await trx('finance.v_caja_movimientos_pendientes')
+    /**
+     * ⛔ `[CGP-VEC.2]` **La bandeja puede no estar, y eso no es un error del movimiento.**
+     *
+     * Esta consulta daba **500** cuando `finance.v_caja_movimientos_pendientes` no existe —
+     * `relation ... does not exist`—, y con eso se caía la captura entera. En prod la vista está,
+     * así que no mordía; lo destapó la primera prueba que ejerce `create()` por HTTP contra una
+     * base que sólo tiene el corte (`[CGP-VEC.2]`).
+     *
+     * ⭐ Y el arreglo no es sólo para las pruebas: un cobro **sin documento en Kepler** —las rutas
+     * vecinales de Michoacán no lo tienen— pasa por acá y lo correcto es que `doc` quede en `null`
+     * y `create()` conserve el monto del formulario, que es lo que ya hace diez líneas abajo.
+     *
+     * Es el mismo patrón que `[CGP-L.6]` dejó en el módulo: preguntar con `to_regclass` antes, en
+     * vez de dejar que el error reviente la transacción.
+     */
+    const hayBandeja = (await trx.raw(
+      `SELECT to_regclass('finance.v_caja_movimientos_pendientes') AS t`)).rows?.[0]?.t;
+    const row = hayBandeja ? await trx('finance.v_caja_movimientos_pendientes')
       .where({ tenant_id: tenantId, origen_ref: origenRef })
       .first('origen_ref', 'folio', 'doc_tipo', 'sucursal', 'clave_banco', 'caja_nombre', 'fecha_valor',
-        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto');
+        'tipo', 'origen_tipo', 'entidad_code', 'beneficiario', 'concepto', 'monto') : null;
     if (row) return row;
 
     // ⚠️ Se busca por `origen_ref` SOLO, sin `origen_tipo`: la llave ya lleva el `doc_tipo`, así que

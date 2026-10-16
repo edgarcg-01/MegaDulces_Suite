@@ -70,6 +70,12 @@ export interface CobroVecinalPendiente {
   diferencia: number;
   origen_ref: string;
   glosa: string;
+  /**
+   * El origen con el que se guarda. **Su propio valor, no `cobro`**: `create()` trata a `cobro`
+   * como anclado a un documento de Kepler y rechaza con frase el `origen_ref` que la bandeja no
+   * resuelve — y el cierre vecinal no tiene documento. Lo habilita la migración `20261016081244`.
+   */
+  origen_tipo: 'cobro_vecinal';
 }
 
 /**
@@ -117,6 +123,18 @@ export async function cobrosVecinalesPendientes(
   const existe = await trx.raw(`SELECT to_regclass('analytics.v_vecinal_conciliacion') AS t`);
   if (!existe.rows?.[0]?.t) return null;
 
+  /**
+   * ⛔ **La llave se arma en UN solo lugar: `refVecinal()`.**
+   *
+   * La primera versión de esto llevaba un `NOT EXISTS` que la re-armaba dentro del SQL
+   * (`warehouse_code || '|VEC|' || to_char(...) || '|' || caja`). Eran **dos definiciones de la
+   * misma llave**, y basta que alguien cambie una para que la bandeja ofrezca para siempre un
+   * cierre ya capturado —o que lo esconda sin haberlo capturado—. Es el mismo defecto que
+   * `[CG.160]` costó en el alcance del corte y que `[CGP-L.12]` costó en el reloj de la jornada:
+   * *un invariante que depende de que dos lugares digan lo mismo se rompe en cuanto alguien toca
+   * uno.* Acá el SQL trae los candidatos y **el descuento se hace en TS, con la misma función que
+   * publica la llave**.
+   */
   const r = await trx.raw(`
     SELECT v.warehouse_code AS sucursal,
            to_char(v.business_date, 'YYYY-MM-DD') AS fecha,
@@ -128,17 +146,10 @@ export async function cobrosVecinalesPendientes(
            coalesce(v.efectivo_diff, 0)::float AS diferencia,
            v.cerrado
       FROM analytics.v_vecinal_conciliacion v
-     WHERE v.tenant_id = ?
-       AND v.business_date >= ?::date
-       AND NOT EXISTS (
-         SELECT 1 FROM finance.cash_ledger l
-          WHERE l.tenant_id = v.tenant_id
-            AND l.deleted_at IS NULL AND l.estado <> 'cancelado'
-            AND l.origen_ref = v.warehouse_code || '|VEC|'
-                               || to_char(v.business_date, 'YYYY-MM-DD') || '|' || v.caja)
+     WHERE v.tenant_id = ? AND v.business_date >= ?::date
      ORDER BY v.business_date, v.warehouse_code, v.caja`, [tenantId, desde]);
 
-  return r.rows
+  const candidatos = r.rows
     .filter((x: { cerrado: boolean; veredicto: string; monto: number }) => esProponible(x))
     .map((x: CobroVecinalPendiente & { cerrado: boolean }) => ({
       sucursal: x.sucursal,
@@ -150,6 +161,18 @@ export async function cobrosVecinalesPendientes(
       veredicto: x.veredicto,
       diferencia: Number(x.diferencia),
       origen_ref: refVecinal(x.sucursal, x.fecha, x.caja),
+      origen_tipo: 'cobro_vecinal' as const,
       glosa: glosaVecinal(x.rutas, x.fecha, x.veredicto),
     }));
+  if (!candidatos.length) return [];
+
+  const yaEnElLibro = new Set<string>(
+    (await trx('finance.cash_ledger')
+      .where({ tenant_id: tenantId })
+      .whereNull('deleted_at')
+      .whereNot('estado', 'cancelado')
+      .whereIn('origen_ref', candidatos.map((x) => x.origen_ref))
+      .pluck('origen_ref')) as string[],
+  );
+  return candidatos.filter((x) => !yaEnElLibro.has(x.origen_ref));
 }
