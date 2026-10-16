@@ -23,6 +23,12 @@
 - Agregar una factura de un proveedor y sucursal que ya tiene pago ese día la **suma a ese pago** en vez de crear otro.
 - **Preparar seleccionados**: varios pagos a la vez con el mismo método y cuenta de origen.
 - La lista de obligaciones ya no tiene casillas ni desplazamiento lateral.
+### Added — Catálogo de Compras: Mantenimiento y el catálogo de Precios con su historia (CAT-PRECIO.1–5, 2026-10-16)
+- **Mantenimiento** (pestaña nueva): **Diferencias entre sucursales** compara la ficha de venta de Kepler campo por campo (precio de cada unidad al centavo, cambio automático, unidades, IVA/IEPS, línea/tipo/grupo, descripción, códigos) contra la mayoría de las sucursales y dice cuál cambió el precio al último. Medido: 1,422 de 9,683 productos con algún campo distinto. **Sin clasificar**: 5,597 productos sin línea, tipo o grupo en ninguna sucursal.
+- **Precios** es ahora el catálogo de precios de UNA sucursal (obligatoria y según el alcance de cada quien): precio de la unidad base, 2 y 3 con su conversión («CJA = 14 PAQ = 140 PZA»), cambio automático y códigos debajo de cada unidad, margen de Kepler en pantalla, filtros por línea/tipo/grupo y **PDF para el cliente sin margen ni costo**.
+- **Sólo los que cambiaron**: los precios que se movieron un día, contra el anterior y con % de ajuste.
+- **Clic en un precio**: su historia (fecha, precio, incremento o baja) con gráfica; los meses sin registro en la bitácora de Kepler se dicen.
+- Reemplaza a «Precios distintos» (CAT.3), que contaba sobre un tope de 300 filas cuando había 486.
 
 ### Added — Calendario de Pagos: lo que Finanzas acepta en «Entregas» ya se puede programar (TP.15, 2026-10-16)
 - El Calendario **nunca tuvo un renglón**: 0 obligaciones de proveedor y 0 días armados en toda su historia, con $2.15M de capacidad autorizada el día que se midió. La factura sólo entraba capturándola a mano en `/compras/obligaciones`, una pestaña que Finanzas ni ve. Aceptar el papel en «Entregas» dejaba la constancia y nada que pagar.

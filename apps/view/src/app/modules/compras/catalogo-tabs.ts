@@ -38,6 +38,17 @@ export const CATALOGO_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
   /**
+   * `[CAT-PRECIO.1]`/`[CAT-PRECIO.5]` Mantenimiento: todo lo que le falta o está mal a la ficha de
+   * Kepler — lo que no coincide entre sucursales y lo que está sin clasificar (línea, tipo, grupo).
+   * Pedido de Compras (2026-10-16): Precios es el catálogo de precios; lo que hay que CORREGIR vive aquí.
+   */
+  {
+    label: 'Mantenimiento',
+    route: '/compras/catalogo/mantenimiento',
+    icon: 'pi pi-wrench',
+    permission: Permission.COMMERCIAL_PRODUCTS_VER,
+  },
+  /**
    * `[CAT-COSTO.0]` Costos y Precios son dos tabs, no uno.
    *
    * Eran un solo tab que abría Precios (la pantalla que ya funcionaba) y dejaba Costos
