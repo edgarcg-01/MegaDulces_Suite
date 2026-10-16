@@ -18,6 +18,61 @@
 
 ---
 
+## 0. ⭐⭐ Verdad absoluta: cómo trabaja Kepler (medido, no supuesto)
+
+> Esto es lo **establecido** por ingeniería inversa + censo de las réplicas. Cada línea tiene su
+> evidencia abajo. Si algo acá choca con un relato más viejo, gana esto y hay que corregir el relato.
+
+1. **Kepler es un cliente DELGADO contra un servidor de aplicación por el puerto 1801.** Toda la
+   lógica de datos pasa por ahí. `Kdb7`/`Kdb8` (la capa `kdb.*`) **no hablan con Postgres**: no
+   importan sockets, ni ODBC, ni libpq. Arman cadenas de comando y las entregan al transporte.
+   *(§3 — medido por tabla de imports.)* ⭐ Consecuencia: **la base no es la interfaz; el servidor
+   de aplicación lo es.** Nosotros leemos las **réplicas** de esa base, no la vía por la que el
+   cliente escribe.
+
+2. **El cliente no sabe en qué sucursal está.** Cada instalación se cree la única (`orgbranch`
+   trae 2 filas genéricas en inglés en todas las ramas). **La dimensión sucursal no sale del dato:
+   sale de a qué base te conectaste** — hay 9 bases separadas (`kepler_md_00..08`). *(ERP_KEPLER
+   §2.4.)*
+
+3. **El programa se sirve desde el servidor, no desde disco.** Las páginas `.kpl` (XML+script
+   UTF-16) se descargan por el protocolo propietario del 1801; cualquier parche local se
+   sobrescribe al abrir. **No se puede modificar el cliente por nuestra cuenta.** *(FASE_BP §4.)*
+
+4. **El protocolo del 1801 NO va cifrado — va comprimido.** Marco:
+   `[int32 LE len_comprimido][int32 LE len_original][payload LZO1X-1]`. Confirmado por las dos
+   puntas (el emisor comprime, el receptor verifica que el tamaño descomprimido == `len_original`).
+   El cliente **no linkea ninguna librería TLS**. *(§7.1, §8, §8.1.)* ⚠️ **Implicación de
+   seguridad viva (S1):** si algún `*.ddns.net:1801` es alcanzable desde fuera de la LAN, el
+   tráfico del ERP viaja legible. **Pendiente de medir por Sistemas.**
+
+5. **La estructura está 100% disponible; el significado NO.** El esqueleto —377 tablas en la unión
+   de las 9 ramas, 6,348 columnas en la más completa, con tipos y PKs— **no está ofuscado**: se lee
+   de `information_schema`. Lo ofuscado es el **significado** de las columnas `cN`, que sólo se
+   recupera por RE. Hoy: **87 columnas con significado desde las formas (1.37%)**. *(ERP_KEPLER
+   §2.4, §2.8; `KEPLER_ESTRUCTURA*.json`.)*
+
+6. **El significado tiene DOS fuentes, y ninguna es el binario.** (a) Las **formas `.kpl`** atan
+   rótulo→`cN` para las tablas de **catálogo** (productos, clientes, proveedores…). (b) La
+   **inferencia sobre datos** decodifica las tablas **transaccionales** (`kdm1`, `kdm2`, `kdik`,
+   `kdmm`), que no se editan por catálogo. ⛔ **Los `.dll` del cliente NO contienen los nombres
+   `cN`** (§4): decompilar no destraba el decode. No hay atajo por Ghidra para el significado.
+
+7. **Kepler no expresa "no hay dato".** 100% de las columnas son `NOT NULL`; la ausencia se codifica
+   con centinelas (`''`, `0`, `1800-01-01`). **Un cero puede ser un cero o un vacío, y el tipo no
+   los distingue.** Más de la mitad del schema core está 100% vacío (columnas muertas), y **una
+   columna muerta se ve idéntica a un cero legítimo.** *(ERP_KEPLER §2.4.)*
+
+8. **Integridad sin una sola FK.** Cero llaves foráneas, cero UNIQUE, cero CHECK, cero triggers en
+   las 9 ramas. Lo que sostiene la integridad es la aplicación, no el motor. *(ERP_KEPLER §2.4.)*
+
+**En una línea:** *Kepler es un cliente delgado que habla un protocolo propietario comprimido (no
+cifrado) con un servidor de aplicación; su base es legible y completa en forma, pero opaca en
+significado, y ese significado sólo se recupera por ingeniería inversa de las formas y por
+inferencia sobre los datos — nunca del binario.*
+
+---
+
 ## 1. Plan de seguimiento
 
 Reglas de todos los pasos: estático y de sólo lectura sobre copias aisladas; ningún paso toca la
