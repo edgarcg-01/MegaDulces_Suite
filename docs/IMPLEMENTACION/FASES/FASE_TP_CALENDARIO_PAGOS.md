@@ -643,3 +643,77 @@ autoriza una obligación derivada) sigue abierta — bloquea C1 en adelante, no 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | TP.17.1 arbitrado contra la regla del ECA: desviación 0.13 % ($172,180 / 30 docs), declarada. Hipótesis de deuda cancelada refutada ($293). Universo descompuesto: $135,356,617 pagables sin internos. Hallazgo: los compromisos financieros también son derivables | Claude |
+
+---
+
+## 11. D1 RESUELTA + cierre de C0 (2026-10-16)
+
+### D1 — decidida por Edgar: **liberar el día ES la autorización** → **ADR-094**
+
+Programar un pago pasa a ser una **propuesta**; el compromiso nace cuando Gerencia/Dirección
+libera el lote con `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` — las dos firmas que ADR-065 ya construyó.
+`[TP.15]` **no se deroga**: lo que entra por Entregas conserva su `authorized_by`, que pasa a ser
+información adicional y no un requisito del que carezca lo derivado.
+
+⚠️ **Lo que se pierde, dicho:** cualquiera con `FINANCE_PAYMENTS_GESTIONAR` podrá **proponer** el
+pago de cualquier factura de Kepler. Es el mismo alcance que ya tiene sobre las capturadas, y el
+candado sigue siendo que **otra persona libere el día** — un candado que **nunca se ha ejercido**
+(5 lotes `draft`, 0 días autorizados en toda la historia).
+
+⇒ **C1 queda desbloqueado.** Razonamiento completo y lo rechazado, en ADR-094.
+
+### TP.17.2 — dedupe: medido, y sin migración nueva
+
+| | |
+|---|---:|
+| Obligaciones capturadas | 37 |
+| …con la llave `kepler_*` completa | **37 (100 %)** — la dejó la mig `20261016002604` de TP.15 |
+| …que casan con deuda viva de Kepler | **37 (100 %)** · $2,738,088 |
+
+⇒ **Sin dedupe serían 37 duplicados exactos.** El `NOT EXISTS` por las cuatro llaves
+(`kepler_sucursal · kepler_doc_tipo · kepler_doc_sub · kepler_folio`, excluyendo `cancelled`)
+alcanza: **no hace falta migración**, la llave ya está en la tabla. ✅
+
+### TP.17.4 — el costo de la lista, medido con la consulta armada
+
+| | |
+|---|---:|
+| Filas que entrega el origen derivado (sin `TI*`, sin duplicados) | **2,890** · $133,045,503 · 364 proveedores |
+| `ORDER BY vencimiento + LIMIT 200` — lo que pide la pantalla | **325 · 345 · 377 ms** (3 corridas) |
+| La misma consulta **sin límite** | 613 ms |
+
+⇒ Entra bajo los 500 ms **sólo si la pantalla pagina**. Traer la lista completa no entra. ✅ con
+condición.
+
+⚠️ **Lo que esta medición NO es, declarado:** se midió **la pata derivada sola**, con la estructura
+que usa `listObligations` pero **no el `UNION ALL` completo** con los tres orígenes existentes (que
+hoy aportan 37 + 312 + 0 filas, o sea poco), y **fuera de RLS** — con la cuenta de lectura directa,
+no por `TenantKnexService`. La medición definitiva es la del servicio real, y queda pendiente.
+
+### Hallazgo de diseño que salió de medir (y que no estaba en el plan)
+
+⛔ **`payment_allocation_items.obligation_id` es `uuid`**, y la llave natural de la deuda derivada
+es compuesta (`sucursal · doc_tipo · doc_sub · folio`). La primera corrida de la medición falló con
+`operator does not exist: uuid = text` — o sea que el origen derivado **no cabía** en el motor tal
+como está. Resuelto con un **uuid determinístico**: `md5('kepler_payable|'||…)::uuid`, estable,
+reproducible y sin extensión. ⛔ Se rechaza cambiar el tipo de la columna: tocaría los tres
+orígenes vivos para resolver lo que una función determinística resuelve sin migrar datos. (→ ADR-094 §4)
+
+### Estado de TP.17 (C0) al cierre
+
+| # | Item | Estado |
+|---|---|---|
+| TP.17.1 | Arbitraje contra testigo independiente | ✅ desviación 0.13 %, declarada |
+| TP.17.1b | Los financieros ($38 M) también se derivan | ⬜ — confirmado que existen; falta construir |
+| TP.17.2 | Dedupe por las 4 llaves | ✅ medido: 37/37 casan, sin migración |
+| TP.17.3 | Declarar lo no programable + excluir `TI*` | ✅ universo descompuesto y nombrado |
+| TP.17.4 | Costo de la lista | ✅ con condición (paginar) · ⚠️ falta medir el servicio real bajo RLS |
+
+⇒ **C0 cerrada.** Lo que sigue es C1 (TP.18), que ya no está bloqueado por D1 pero **sí** por el
+cupo de §3 del método y por un dueño con fecha.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | D1 decidida (liberar el día = autorización) → ADR-094. C0 cerrada: dedupe 37/37 sin migración, lista 325–377 ms paginada, y el hallazgo del `uuid` resuelto con llave determinística. Cero código de producción escrito | Edgar (decisión) · Claude (medición) |
