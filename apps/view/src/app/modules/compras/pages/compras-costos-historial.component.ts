@@ -119,6 +119,7 @@ const TIPO: Record<string, string> = {
             }
           </span>
         </div>
+        @if (!(tipo() === 'promedio' && !d.promedio_disponible)) {
         <svg viewBox="0 0 1000 230" class="ch-svg" role="img"
              [attr.aria-label]="(tipo() === 'promedio' ? 'Costo promedio de ' : 'Costo estándar de ') + (grafica().sucursalLinea || 'ninguna sucursal') + ' en escalones'">
           @for (e of grafica().ejeY; track e.y) {
@@ -135,6 +136,7 @@ const TIPO: Record<string, string> = {
             <circle [attr.cx]="p.x" [attr.cy]="p.y" r="5" class="ch-punto"><title>{{ p.titulo }}</title></circle>
           }
         </svg>
+        }
         @if (tipo() === 'promedio' && !d.promedio_disponible) {
           <p class="ch-nota">La historia del costo promedio todavía no se ha calculado (se calcula cada noche desde el kardex de Kepler): sin medir, no «sin cambios».</p>
         } @else if (grafica().lineaPlana) {
