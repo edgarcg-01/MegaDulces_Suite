@@ -228,6 +228,20 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-16 — `[MOS.1–MOS.3]` El buscador del mostrador encuentra por cuatro campos, y lo que Kepler no tiene llega solo a Compras
+
+**Qué se hizo.** El «¿Te pidieron algo?» del arqueo busca por nombre, proveedor, SKU o código de barras, con todas las presentaciones y el mayoreo de cada producto; y una pestaña nueva del Catálogo junta los códigos que Kepler no tiene, que salen solos al darse de alta. Maqueta aprobada antes de escribir código.
+
+**Lo que salió de investigar antes de construir.**
+- El factor de la caja (`kdii.c84`) cuenta **desde la base**, no desde el paquete: la ecuación de costo lo confirma en 98.5 % (`ERP_KEPLER.md` §2.1.1). Por eso paquetes por caja = piezas de la caja ÷ piezas del paquete.
+- El precio de un escalón de mayoreo es el de **una unidad de su presentación** (mediana 0.93 contra el paquete). La primera versión de la maqueta lo convertía a pieza y estaba mal.
+- **No hacía falta tabla nueva**: `floor_stockouts` ya tenía los motivos `no_en_catalogo` y `no_en_sucursal`.
+- **Defecto encontrado:** un código que existe en otra sucursal pero no en ésta mostraba en el mostrador el precio de la otra plaza como propio. Corregido.
+
+**Pruebas.** Unitarias de la lógica pura (18), del componente (7), del servicio del verificador (+4), de `KpService` (+6), de la pantalla y las pestañas, y **4 contra una base local real** (la tabla creada por sus migraciones dentro de una transacción que se revierte). Cada candado nuevo se rompió a propósito al menos una vez y se vio rojo. Tipos de API y plantillas verificados en el árbol de la rama (con una mutación detectada).
+
+**⛔ Incidente propio, declarado.** Correr `npm run check` desde un worktree **compiló y arrancó por 3 s el API del checkout compartido**: la sesión trae `NX_WORKSPACE_ROOT_PATH` apuntando ahí y Nx la respeta antes que el cwd (ya estaba en la memoria personal de otra sesión, no en el repo). Reescribió `Trade_marketing/dist/apps/api/main.js` con el código de ese checkout; no tocó prod (su `.env` apunta a la base local) y no dejó procesos. Además, las compuertas de Nx de esa corrida **midieron la rama de otra sesión, no ésta** — se repitieron a mano sobre el árbol correcto.
+
 ## 2026-10-16 — `[VAC]` #414 tiró la API en producción con los checks requeridos del CI en verde — post-mortem y estado real de lo pendiente
 
 **Qué pasó.** #414 (el acople del verificador, fusionado el 2026-10-15) **dejó la API sin arrancar en producción**: CrashLoopBackOff, despliegue sin converger (`TypeError … reading 'constructor'` en `@nestjs/swagger`). Lo arregló Edgar con `[VAC.FIX]` (`e5fa64ec8`, 13:40 −06:00 del 15-oct). Verificado hoy: `/api/health` de prod responde `200` y sirve `11d37aa77`, que **incluye** el arreglo. **La duración de la caída no la medí** y no la afirmo.
