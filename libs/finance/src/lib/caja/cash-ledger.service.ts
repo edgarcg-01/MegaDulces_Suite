@@ -352,12 +352,74 @@ export class CashLedgerService {
 
   /** Resuelve el par contra el catálogo vivo. Devuelve los nombres para el snapshot. */
   private async resolveConcept(trx: any, tenantId: string, sucursal: string, cuenta: string, concepto: string) {
-    const row = await trx('analytics.v_kepler_conceptos')
-      .where({ tenant_id: tenantId, sucursal, cuenta, concepto })
+    /**
+     * ⛔⛔ `[CG.193]` **EL RESOLVEDOR Y EL ESCRITOR TENÍAN DOS REGLAS PARA LA MISMA PREGUNTA, Y LA
+     * BANDEJA OFRECÍA FILAS QUE NO SE PODÍAN GUARDAR.**
+     *
+     * Lo destapó el canario del autollenado el 2026-10-16: la primera corrida escribió **0 filas**
+     * y latió `error` con *«El par cuenta/concepto 201/201 no existe en el catálogo de Kepler para
+     * la sucursal 01»*. Medido sobre la cola en alcance: de **120** que `resolverCuentas()` daba
+     * por confirmables, `create()` sólo aceptaba **20**.
+     *
+     *     ⛔ rechazadas por concepto de otra plaza ... 97  $322,773.25   (todas el par 201/201)
+     *        · sucursal 08 ×43 · 06 ×30 · 07 ×22 · 01 ×2
+     *     ⛔ rechazadas por sucursal compuesta ......  3  $ 32,083.89
+     *
+     * ⚠️ **Y esto NO lo trajo el autollenado: lo hizo visible.** El mismo rechazo le pasaba a una
+     * persona que apretara «confirmar» en la bandeja — con 97 de 120 filas ofrecidas como listas y
+     * un 400 al tocarlas. Es parte de por qué el módulo lleva 89 capturados contra un rezago que no
+     * baja.
+     *
+     * ── Las dos causas, y por qué la respuesta es la MISMA ──────────────────────────────────────
+     *  1. **El catálogo viene recortado en 01, 06, 07 y 08** (`[CS.3.11]`, medido: 126-128 cuentas
+     *     contra 158-168). `conceptosDeCuenta()` ya resuelve eso prestando el concepto de otras
+     *     plazas **sólo cuando el código es UNÁNIME** en todas donde la cuenta existe, y lo declara
+     *     con `de_otra_sucursal`. El escritor no conocía esa regla y exigía la tupla exacta.
+     *  2. **La sucursal llega COMPUESTA** (`01-001`…): el catálogo no tiene compuestas (`[CG.189]`),
+     *     así que la tupla exacta no puede existir **nunca** para esas filas.
+     *
+     * ⭐ **No se afloja el candado: se le enseña al escritor la regla que el resolvedor ya usaba.**
+     * Tener dos verdades sobre «¿este par es válido?» es el defecto que `[CG.27-B.0]` ya pagó entre
+     * la bandeja y el autofill. Lo que NO cambia: si el código no es unánime entre plazas, esto
+     * sigue tirando — `[CS.3.11]` midió que **69 cuentas tienen de 2 a 6 códigos distintos** y
+     * copiar a ciegas las habría clasificado mal.
+     */
+    const sucursalCat = this.sucursalBase(sucursal);
+    let row = await trx('analytics.v_kepler_conceptos')
+      .where({ tenant_id: tenantId, sucursal: sucursalCat, cuenta, concepto })
       .first('cuenta', 'concepto', 'concepto_nombre', 'cuenta_mayor');
+
+    if (!row) {
+      /**
+       * Respaldo, con la MISMA regla de `conceptosDeCuenta()`: se acepta el par sólo si esta plaza
+       * **no tiene la cuenta** (su catálogo viene recortado) y el código es **unánime** en todas
+       * las plazas donde sí existe. Si la plaza SÍ tiene la cuenta con otro concepto, eso no es un
+       * catálogo incompleto: es un par equivocado, y sigue siendo un error.
+       */
+      const tieneLaCuenta = await trx('analytics.v_kepler_conceptos')
+        .where({ tenant_id: tenantId, sucursal: sucursalCat, cuenta })
+        .first('cuenta');
+      if (!tieneLaCuenta) {
+        const otras = await trx('analytics.v_kepler_conceptos')
+          .where({ tenant_id: tenantId, cuenta })
+          .groupBy('cuenta')
+          .select('cuenta')
+          .count({ codigos: trx.raw('DISTINCT concepto') })
+          .select(trx.raw('min(concepto) AS concepto'), trx.raw('min(concepto_nombre) AS concepto_nombre'))
+          .first();
+        if (otras && Number(otras.codigos) === 1 && String(otras.concepto) === String(concepto)) {
+          row = { cuenta, concepto, concepto_nombre: otras.concepto_nombre, cuenta_mayor: null };
+          this.logger.warn(
+            `[CG.193] par ${cuenta}/${concepto} aceptado para la sucursal ${sucursalCat} desde el `
+            + 'catálogo de otras plazas (unánime): el catálogo de esta plaza viene recortado.',
+          );
+        }
+      }
+    }
+
     if (!row) {
       throw new BadRequestException(
-        `El par cuenta/concepto ${cuenta}/${concepto} no existe en el catálogo de Kepler para la sucursal ${sucursal}. `
+        `El par cuenta/concepto ${cuenta}/${concepto} no existe en el catálogo de Kepler para la sucursal ${sucursalCat}. `
         + 'No se guarda un movimiento con una cuenta que la contabilidad no reconoce.',
       );
     }
