@@ -1275,3 +1275,53 @@ desplegar y que alguien autorice un día.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | TP.19.4: el cruce automático propone el documento y no elige cuando hay duda. 35/35 verde. O3 cerrado en código | Claude |
+
+---
+
+## 22. TP.20.3 — una sola puerta a Pagos (O5) · 2026-10-16
+
+En el menú eran **cuatro renglones sueltos** con nombres que se parecen —*Pagos a proveedor*,
+*Pronto pago*, *Calendario de pagos*, *Programa de pagos*— y que hacen cosas distintas: dos miran
+lo ya pagado, una el plazo que vence y una lo que se va a pagar. Ahora son **una entrada «Pagos»**
+y una barra de pestañas, en el orden del ciclo del dinero: **se debe → se programa → se paga → se
+audita**. Pronto pago va primero porque es el único con reloj.
+
+### ⛔ Por qué NO hay shell de ruta, a diferencia de «Gastos»
+
+El área Gastos ya ocupa el único padre con `path: ''` que `/finanzas` puede tener **al final** — el
+que matchea cualquier URL restante. Meter un segundo padre vacío arriesga que `/finanzas/mis-gastos`
+deje de resolver, y **eso no se puede comprobar sin levantar la app**, que acá está prohibido.
+
+⇒ La barra se embebe en cada una de las cuatro pantallas: **una línea por pantalla contra el riesgo
+de romper cuatro que están en uso.** Es una decisión por riesgo, no por gusto, y queda escrita para
+que el día que exista un shell de área de Finanzas esto se simplifique.
+
+### El candado, con su prueba negativa
+
+Sin shell, una pantalla puede nacer **sin barra** y nadie se entera: se entra, pero no se sale a sus
+hermanas. El spec nuevo comprueba tres cosas: que el sidebar tenga **una** entrada con
+`tabs: PAGOS_TABS` y ya **no** las liste sueltas; que las cuatro rutas estén en la lista y **en el
+orden del ciclo**; y que las cuatro pantallas **embeban la barra**.
+
+⭐ **Roto a propósito** (DoD 4): quitarle `<app-pagos-tabs />` a *Programa de pagos* pone el candado
+en **rojo** con el mensaje exacto; restaurarla, en verde.
+
+⭐ Y el candado que **ya existía** (`[IG.2]`, «ninguna pestaña se queda fuera del sidebar») hizo su
+trabajo solo: al quitar los renglones del menú se puso rojo señalando dos pantallas que quedaban
+**vivas y sin puerta**. Se resolvió como Gastos — contando las rutas que el sidebar lleva por
+`tabs:` — no aflojando la prueba.
+
+### Medido
+
+| | antes → después |
+|---|---|
+| Renglones en el menú | **4 → 1** |
+| Pantallas de Pagos en un registro de pestañas | **2 de 4 → 4 de 4** |
+| `check:pantalla` de las cuatro | 3·1·1·2 → **3·1·1·2 (cero fallas nuevas)**, y las cuatro tipan |
+| Specs de `modules/finanzas` | **997/997** |
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | O5: una entrada «Pagos» con las cuatro pestañas, sin tocar rutas. Candado nuevo roto a propósito; el candado viejo detectó solo las dos pantallas que quedaban sin puerta | Claude |

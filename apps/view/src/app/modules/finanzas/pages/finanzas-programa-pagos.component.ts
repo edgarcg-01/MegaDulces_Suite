@@ -18,6 +18,7 @@ import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness } from '@megadulces/contracts';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 interface PPRow {
   id: string; source_month: string; pay_date: string | null; clearing_date: string | null;
@@ -49,12 +50,14 @@ interface PPRecon { months: PPReconMonth[] }
   selector: 'app-finanzas-programa-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
+  imports: [PagosTabsComponent, 
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, SelectModule, SkeletonModule, TagModule, MetricStripComponent,
     FreshnessPillComponent, MessageModule, TooltipModule,
   ],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
