@@ -1170,3 +1170,58 @@ ella espera (`c4=26` → `XD2601`), no se le inserta a la vista.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | TP.19.3: migración + `linkKeplerPayment()` con sus tres guardas y pruebas negativas. 31/31 verde. Falta la pantalla y el cruce automático | Claude |
+
+---
+
+## 20. TP.19.3 (pantalla) — «Pagos a proveedor» dice de dónde salió el pago · 2026-10-16
+
+Cada pago del ERP que nació en el Calendario muestra ahora su **folio de pago** y enlaza al
+Calendario. Si no nació ahí **no se pinta nada**: la ausencia es lo normal hoy, y un «—» por renglón
+sería ruido en una tabla que ya tiene ocho columnas.
+
+### ⛔ El riesgo que obligó a hacerlo condicional
+
+Esta pantalla **está en uso** (1,350 comprobantes). Las columnas de la liga llegan con una migración
+que **puede no estar aplicada**, y leerlas sin preguntar la tumbaría entera por una función que es
+un extra. Se resuelve con el patrón que ya usa `purchase-deliveries.service.ts`: preguntar a
+`pg_attribute` y **cachear sólo el `true`** — guardar el `false` dejaría la liga invisible hasta
+reiniciar la API aunque la migración ya estuviera aplicada.
+
+**Las dos ramas, probadas contra bases reales (2026-10-16):**
+
+| base | guard | efecto |
+|---|---|---|
+| **prod** (sin la migración) | `false` | omite el JOIN — **la pantalla no se cae** |
+| **local** (con la migración) | `true` | hace el JOIN y muestra el origen |
+
+### ⛔⛔ El defecto que encontró reaplicar la migración
+
+**`hasColumn('finance.payment_allocations', …)` MIENTE: devuelve `false` aunque la columna exista.**
+Knex trata el argumento como *nombre de tabla*, no como `esquema.tabla`, así que busca una tabla
+llamada literalmente «finance.payment_allocations» en el `search_path`.
+
+| forma | con la columna ya creada |
+|---|---|
+| `hasColumn('finance.payment_allocations', 'x')` | **false** ⛔ |
+| `withSchema('finance').hasColumn('payment_allocations', 'x')` | **true** ✓ |
+
+⇒ Escrita de la primera forma, la migración **no era idempotente**: a la segunda corrida moría con
+`column … already exists` — y el proyecto exige que lo sean. Lo cazó el spec de integración al
+reaplicarla, no una revisión. Verificado después corriendo el `up()` **dos veces seguidas**.
+
+⚠️ **Vale para cualquier migración del repo que use `hasColumn` con nombre calificado.**
+
+### Estado de O3
+
+| | |
+|---|---|
+| Migración + `linkKeplerPayment()` con 3 guardas y pruebas negativas | ✅ |
+| La pantalla muestra el origen | ✅ (condicional, con las dos ramas probadas) |
+| **Métrica: pagos ligados** | ⛔ **0 %** — ni la migración está en prod ni hay pagos ejecutados que ligar (0 días autorizados) |
+| Cruce automático (proponer el documento en vez de teclearlo) | ⬜ el espejo tiene fecha, monto y proveedor; `_linked_by` ya permite medir si acierta |
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | O3 completo en código: la liga, la pantalla condicional y sus dos ramas probadas. El `hasColumn` calificado resultó mentir y la migración no era idempotente; corregido y verificado | Claude |
