@@ -128,6 +128,22 @@ export class PaymentCalendarController {
     return this.svc.prepare(id, dto, req.user?.username || 'sistema');
   }
 
+  /**
+   * `[TP.19.3]` Liga el pago con su documento en Kepler (O3): de qué día del calendario salió esta
+   * transferencia. Aparte de `ejecutar` porque el dinero sale antes de que el ERP capture el
+   * documento — exigirlo al ejecutar obligaría a inventar un folio.
+   */
+  @Post('allocations/:id/kepler')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'TP.19.3 — liga el pago ejecutado con su documento de Kepler (sucursal, doc_prefix, folio). Verifica que exista en el espejo del ERP.' })
+  linkKepler(
+    @Param('id') id: string,
+    @Body() dto: { sucursal: string; doc_prefix: string; folio: string },
+    @Req() req: AuthedRequest,
+  ) {
+    return this.svc.linkKeplerPayment(id, dto, req.user?.username || 'sistema');
+  }
+
   @Post('allocations/:id/ejecutar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Caja General: marca el pago como ejecutado. No vuelve a liberar capacidad.' })

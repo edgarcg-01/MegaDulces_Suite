@@ -38,6 +38,8 @@ const MIGS = [
   // `[TP.18.3]` La matview de la ventana observada, que Pronto pago une en su consulta. Nace
   // vacía acá: esta prueba mide el PUENTE con el Calendario, no la ventana (eso es de la fase PP).
   '../../../../../database/migrations-newdb/20261010111352_pronto_pago_ventana_observada.js',
+  // `[TP.19.3]` Las columnas que ligan el pago ejecutado con su documento de Kepler (O3).
+  '../../../../../database/migrations-newdb/20261016185746_tp19_allocation_liga_pago_kepler.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -437,6 +439,35 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const f = await fila(F_ENTREGA);
       expect(f!['obligation_source']).toBe('supplier_payable');
       expect(f!['obligation_id']).toBe(obCapturada);
+    });
+
+    /**
+     * `[TP.19.3]` **O3 — el pago ejecutado dice cuál es en Kepler.** Sin esta liga, al marcar un
+     * pago como ejecutado el rastro se corta: reaparece en el ERP como un evento sin origen.
+     */
+    it('⭐ un pago ejecutado se liga a su documento de Kepler', async () => {
+      await migUp(MIGS[4], trx);   // las columnas de la liga (idempotente)
+      // ⚠️ `analytics.erp_supplier_payments` es una VISTA (derive-no-copy): no se le inserta. El
+      // pago se siembra en su fuente, `kepler_ods.kdm1`, con la forma que la vista espera —
+      // `c4=26` → `XD2601` (transferencia) y la sucursal del espejo del CEDIS, que es `'00'`.
+      await trx('kepler_ods.kdm1').insert({
+        sucursal: '00', c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'TPIT-KPAGO1',
+        c9: '2030-01-15 00:00:00', c10: 'CTPIT999', c16: 87126.24, c31: 'TRANSFERENCIA', c43: 'A',
+      });
+      const r = await cal.linkKeplerPayment(a1, { sucursal: '00', doc_prefix: 'XD2601', folio: 'TPIT-KPAGO1' }, USER);
+      expect(r.kepler_payment_folio).toBe('TPIT-KPAGO1');
+      expect(r.kepler_payment_linked_by).toBe(USER);
+      expect(r.kepler_payment_linked_at).toBeTruthy();
+    });
+
+    it('⛔ no liga a un folio que Kepler no tiene: una trazabilidad falsa es peor que ninguna', async () => {
+      await expect(cal.linkKeplerPayment(a1, { sucursal: '00', doc_prefix: 'XD2601', folio: 'NO-EXISTE' }, USER))
+        .rejects.toThrow(/Kepler no tiene/);
+    });
+
+    it('⛔ no liga un pago que todavía no se ejecutó: antes no hay documento que ligar', async () => {
+      await expect(cal.linkKeplerPayment(a2, { sucursal: '00', doc_prefix: 'XD2601', folio: 'TPIT-KPAGO1' }, USER))
+        .rejects.toThrow(/ejecutado/);
     });
 
     it('⛔ lo ya comprometido no se vuelve a ofrecer: `programable` descuenta lo reservado', async () => {
