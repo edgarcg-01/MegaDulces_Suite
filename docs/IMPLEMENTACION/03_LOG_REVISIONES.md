@@ -12658,3 +12658,74 @@ como **objetivo permanente de la fase** (A.10–A.13) y en [`GOTCHAS` §86](../G
    desplegó y no cambió nada. Escrito ≠ commiteado ≠ empujado ≠ desplegado ≠ ejercido: **al
    reportar, nombrar el eslabón exacto.** Hoy `A.9` está commiteado y **sin empujar ni desplegar**,
    y se verificó **leyendo prod**, no ejerciendo el endpoint — o sea **no probado** (regla 13).
+
+---
+
+## 2026-10-16 — `[TP.17]`/`[TP.18]` O1: el Calendario ve la deuda completa, y el techo que casi la vuelve a esconder
+
+**Qué se cerró.** El objetivo O1 del plan de unificación de Pagos: *la deuda que se ve es la que se
+puede programar*. El Calendario pasa de consumir sólo lo que Compras captura por Entregas a derivar
+**toda la deuda viva de Kepler**, sin importer y sin tabla nueva (ADR-094).
+
+**La cifra que lo motivó, medida el 2026-10-16 (prod, sólo lectura):**
+
+| | docs | monto |
+|---|---:|---:|
+| Deuda de proveedor en Kepler (sin traspasos internos) | 2,931 | $135,869,210 |
+| Lo que el Calendario podía programar | **37** | **$2,738,088** |
+| **Cobertura** | | **2.0 %** |
+
+**Lo construido:** cuarto `obligation_source: 'kepler_payable'` derivado de
+`analytics.v_supplier_payables`, con llave determinística (`md5(...)::uuid`, porque
+`obligation_id` es uuid y la llave natural es compuesta), dedupe por las cuatro llaves `kepler_*`,
+exclusión de los acreedores internos `TI*` y clasificación por naturaleza del acreedor **reusando
+`clasificarAcreedor()` del ECA** — generando el SQL desde sus constantes, no copiándolas.
+
+### Los cinco defectos que encontró, y quién los encontró
+
+| # | Defecto | Lo encontró |
+|---|---|---|
+| 1 | `ReferenceError: tenantId is not defined` — **rompía la lista entera** del Calendario | la prueba de integración. Los 16 specs puros pasaban en verde: `vitest` usa esbuild y **no tipa** |
+| 2 | El CHECK de `payment_allocation_items` rechazaba el origen nuevo | la prueba de integración (→ migración `20261016171340`) |
+| 3 | `available_amount` NULL en las ~2,890 sin reservar | yo, al optimizar: `LEFT JOIN` sin fila → `pendiente − NULL` |
+| 4 | 39 docs / **$38,503,392** de créditos marcados como `proveedor_mercancia` | medir la clasificación contra datos reales |
+| 5 | ⭐ **El techo de 1,000**: dejaba fuera **1,895 documentos por $105,683,725 — el 79 % del dinero** | revisar el endpoint antes de declarar el objetivo terminado |
+
+⭐ **El quinto es el más instructivo.** El `.limit(1000)` llevaba meses ahí y era **correcto** con 37
+obligaciones. Lo que lo volvió un defecto no fue tocarlo: fue multiplicar por 80 lo que entra por esa
+consulta. Y el recorte no era neutro — la lista va por vencimiento ascendente, así que lo que se
+ocultaba era **lo más reciente y lo más caro**, con la pantalla viéndose impecable.
+⇒ **Al abrirle una compuerta a un volumen nuevo, revisar los techos que ya existían río abajo.**
+
+### Cómo quedó
+
+El endpoint devuelve `{ rows, total, limit, offset }` y la pantalla dice **«N de M»** más un aviso
+que explica cómo llegar al resto (ADR-056: el techo se declara, no se calla). El armado del día pide
+techo alto a propósito: proponer qué pagar sobre las 1,000 más viejas habría sido peor que no
+proponer.
+
+**Probado:** `payment-calendar.it.spec.ts` **25/25** contra Postgres real con el código real del
+service, transacción revertida — incluido el camino completo *programar → agrupar → ordenar →
+preparar → autorizar → ejecutar* y **cuatro pruebas negativas**. `creditor-statements` 58/58 sin
+tocar. `check:pantalla` de la pantalla: **misma falla que antes del cambio (§9), ninguna nueva**.
+
+### Lo que NO quedó cerrado, declarado
+
+- ⛔ **La métrica sigue en 2.0 %**: el código **no está desplegado**. Al desplegarse pasa a ~100 %
+  (2,894 docs · $133,131,122). `auto-deploy.sh` tiene su renglón del `crontab` comentado.
+- ⚠️ **Deuda con nombre `[TP.18.7]`**: `keplerPayableId()` es un primitivo genérico (cualquier otro
+  origen derivado de un ERP lo va a necesitar) y hoy vive dentro del service, no en `libs/`
+  compartido. ADR-056 pide una cosa o la otra; queda como deuda, no como olvido.
+- ⚠️ **Deuda `[TP.18.5]`**: la lista tarda **432 ms de mediana y 555 ms de p90** — el p90 pasa el
+  límite duro de 500 ms. El techo no es la consulta nueva: `v_supplier_payables` **sola** cuesta
+  321 ms, costo que ya paga hoy Pronto pago. Bajarlo pide un índice sobre `kdxf`, que es DDL en prod.
+- ⚠️ **Paginación real**: lo entregado es un techo honesto con buscador, no paginación.
+- ⛔ **El tracker y la fila del roadmap no se actualizaron**: ambos archivos tienen cambios sin
+  commitear de otra sesión, y editarlos habría mezclado su trabajo con éste en el mismo commit.
+
+### Lección de proceso
+
+La migración del CHECK **viajó a producción antes que esta autorización**: el `pull --rebase` + push
+de otra sesión se llevó los commits de código, y alguien aplicó las pendientes 28 minutos después.
+En un checkout compartido sobre `main`, **un commit deja de ser tuyo en cuanto existe**. ⇒ Si el
+cambio necesita migración, aplicarla **antes** de commitear el código.
