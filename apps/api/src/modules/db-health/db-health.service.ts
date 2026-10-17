@@ -1564,6 +1564,13 @@ export const CRON_JOBS: CronCfg[] = [
   // El script se pone en `error` solo si tras podar el disco libre queda bajo el piso.
   { key: 'poda_disco',          label: 'Poda de imágenes y caché de construcción', cadence: 'tras cada despliegue + 04:30 (md)', warnH: 30, critH: 72 },
 
+  // [RH.1.8] Relojes: la ingesta late con cada lote y con cada latido del agente (minutos, aunque nadie cheque).
+  // Una sola llave para los 12 relojes: un reloj caído NO la pone roja — eso lo dice el semáforo de /rh/relojes.
+  // Entra el día del corte de asistencia (runbook RH_CORTE_ASISTENCIA §3 paso 7): antes, sin agente, saldría rojo.
+  { key: 'hr_attendance_ingest', label: 'Relojes checadores: entrada de checadas', cadence: 'continuo (latido del agente)', warnH: 0.5, critH: 2, maxRunH: 0.1 },
+  // [RH.1.5] Agente de alertas de asistencia, cada 30 min en el worker (ENABLE_HR_ATTENDANCE_AGENT).
+  { key: 'hr_attendance_agent', label: 'Asistencia: agente de alertas', cadence: 'cada 30 min', warnH: 1.5, critH: 3, maxRunH: 0.5 },
+
 ];
 
 export interface SourceHealth {
