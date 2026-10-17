@@ -982,3 +982,69 @@ es del ECA y está en producción.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | TP.17.1b: la deuda derivada se clasifica con la regla del ECA generada desde sus constantes. 39 docs / $38.5 M salen de «mercancía» y entran como compromiso financiero. 23/23 verde | Claude |
+
+---
+
+## 16. TP.17.2 — el techo que casi vuelve a esconder la deuda · O1 cerrado en local (2026-10-16)
+
+**El defecto, encontrado al revisar el endpoint antes de declarar O1 terminado.** `listObligations`
+terminaba en un `.limit(1000)` fijo y el front pedía todo de una. Con 37 obligaciones era invisible.
+Medido con la deuda derivada:
+
+| | docs | monto |
+|---|---:|---:|
+| Deuda derivada | 2,895 | $133,133,387 |
+| Lo que el endpoint devolvía | 1,000 | $27,449,662 |
+| **Lo que callaba** | **1,895** | **$105,683,725 (79 %)** |
+
+⭐ **Y el recorte no era neutro:** el orden es por vencimiento ascendente, así que el corte caía en
+**2026-06-04** y lo oculto era **lo más reciente y lo más caro**. La pantalla se habría visto
+impecable mostrando mil facturas viejas — exactamente lo contrario de lo que O1 promete.
+
+⭐⭐ **La lección que deja, y que no es sobre este `limit`:** ese techo era **correcto** cuando se
+escribió. No lo rompió tocarlo: lo rompió **multiplicar por 80 el volumen que entra por esa
+consulta**. ⇒ Al abrirle una compuerta a un volumen nuevo, hay que **revisar los techos que ya
+existían río abajo** — `limit`, `timeout`, tamaños de página, lotes.
+
+**Cómo quedó:** el endpoint devuelve `{ rows, total, limit, offset }` y la pantalla dice **«N de M»**
+más un `p-message` que explica cómo llegar al resto. El armado del día pide `limit=5000` a propósito:
+proponer qué pagar mirando las 1,000 más viejas es peor que no proponer. ⚠️ Esto es un **techo
+honesto, no paginación** — la paginación real queda declarada como deuda.
+
+⛔ **Un valor inválido cae al default, no al mínimo.** `Math.max(limit, 1)` hacía que `limit=-5`
+devolviera **una sola fila**: una lista casi vacía se lee como «no hay deuda». Lo cazó una prueba
+negativa, no una revisión.
+
+### Frontend (skill `diseno` cargada antes de tocar el primer archivo)
+
+| | |
+|---|---|
+| `check:pantalla -- calendario-pagos` | **1 falla antes → 1 falla después** (§9 frescura, preexistente). **Cero nuevas** |
+| Tipado | `✔ tipa (0 errores semánticos)` — cubre el cambio de contrato en la pantalla |
+| Piezas | `p-message` del sistema (el mismo patrón con que Programa de pagos declara sus meses faltantes), no un `<span>` propio |
+| `check:templates` · `check:tokens` · `check:tables` · `check:estilos` · `check:sql-backticks` | verdes |
+| Spec del agrupador | 17/17 |
+
+---
+
+## 17. O1 — estado final (2026-10-16)
+
+| DoD | |
+|---|---|
+| 1. Métrica remedida | ⛔ **sigue 2.0 %** — no desplegado. Al desplegarse: ~100 % (2,894 docs · $133,131,122) |
+| 2. Capas verificadas o declaradas | ✅ C0 arbitrada (0.13 %) · C1 y C2 probadas · C3 sin fallas nuevas |
+| 3. Endpoints que escriben, ejercidos | ✅ **25/25** contra Postgres real, con el camino completo hasta ejecutar |
+| 4. Compuerta nueva rota a propósito | ✅ cuatro pruebas negativas (techo, límite inválido, clasificación mixta, sucursales distintas) |
+| 5. Primitivo en `libs/` o deuda con nombre | ⚠️ **`[TP.18.7]`** — `keplerPayableId()` sigue dentro del service |
+| 6. Tracker + log + roadmap | 🟡 log ✅ · **tracker y roadmap NO**: tienen cambios sin commitear de otra sesión |
+| 7. En prod | ⛔ **no** — y escrito por qué: `auto-deploy.sh` tiene su renglón del `crontab` comentado |
+
+⇒ **O1 está terminado hasta donde esta sesión puede llevarlo: construido, medido y verificado en
+local.** Los dos puntos rojos no son trabajo pendiente de código — son un despliegue y dos archivos
+que otra sesión tiene tomados.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | TP.17.2: el techo de 1,000 se declara (`{rows,total}` + «N de M» + aviso). 25/25 verde, `check:pantalla` sin fallas nuevas. O1 cerrado en local con sus tres deudas nombradas | Claude |

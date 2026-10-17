@@ -327,7 +327,17 @@ export class PaymentCalendarService {
   async listObligations(q: {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;
+    limit?: number; offset?: number;
   }) {
+    // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
+    // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
+    // ⚠️ Un valor inválido (negativo, cero, NaN) cuenta como NO ESPECIFICADO y cae al default.
+    // Con `Math.max(n, 1)` un `limit=-5` devolvía **una sola fila** — una lista casi vacía que
+    // parece un día sin deuda. Fallar hacia el default es lo único que no miente.
+    const limitRaw = Number(q.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 5000) : 1000;
+    const offsetRaw = Number(q.offset);
+    const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
     // `[TP.18]` El tenant se NOMBRA acá: las tres patas con tabla van por RLS, pero la cuarta lee
     // `analytics.*`, que **no tiene RLS** — su alcance lo da este filtro explícito y nada más.
     const tenantId = this.tenantCtx.requireTenantId();
@@ -442,7 +452,27 @@ export class PaymentCalendarService {
       if (q.dueFrom) base.where('ob.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) base.where('ob.original_due_date', '<=', q.dueTo);
       if (q.onlyAvailable !== false) base.where('ob.available_amount', '>', 0).whereIn('ob.status', ['pending', 'partial']);
-      return base.orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC').limit(1000);
+      /**
+       * `[TP.17.2]` **El techo se DECLARA, no se calla** (ADR-056).
+       *
+       * Acá había un `.limit(1000)` sin más. Con 37 obligaciones capturadas era invisible; con la
+       * deuda derivada son **2,895**, y medido el 2026-10-16 el corte dejaba fuera **1,895
+       * documentos por $105,683,725** — el **79 % del dinero**. Y no es un recorte neutro: el
+       * orden es por vencimiento ascendente, así que lo que se oculta es **lo más reciente**
+       * (el corte caía en 2026-06-04). La pantalla se habría visto impecable mostrando mil
+       * facturas viejas, que es justo lo contrario de lo que este origen viene a resolver.
+       *
+       * Por eso la respuesta ahora lleva `total`: quien la pinta puede decir «mostrando N de M».
+       * ⚠️ Esto **no es paginación** — es un techo honesto. La paginación real queda como deuda
+       * con nombre en el tracker; mientras tanto el filtro y la búsqueda son el camino para
+       * llegar a cualquier factura.
+       */
+      const [{ total }] = await base.clone().clearSelect().clearOrder()
+        .count<{ total: string }[]>({ total: '*' });
+      const rows = await base
+        .orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC')
+        .limit(limit).offset(offset);
+      return { rows, total: Number(total), limit, offset };
     });
   }
 

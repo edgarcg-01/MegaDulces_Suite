@@ -125,7 +125,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
   });
 
   it('las obligaciones disponibles traen sucursal y el id del proveedor', async () => {
-    const rows = await cal.listObligations({ search: 'TPIT' });
+    const { rows } = await cal.listObligations({ search: 'TPIT' });
     expect(rows).toHaveLength(6);
     const by = Object.fromEntries(rows.map((r: { concept: string; branch_code: string; payee_id: string }) => [r.concept.split(' ')[1], r]));
     expect(by['08-TPIT-801'].branch_code).toBe('08');
@@ -227,14 +227,14 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     // ⚠️ `onlyAvailable: false` a propósito: el default esconde lo que ya no tiene disponible, y
     // justamente lo que hay que comprobar es que la reserva de una obligación SIN TABLA se vea.
     const derivada = async () => {
-      const rows = await cal.listObligations({ search: 'TPIT', onlyAvailable: false });
+      const { rows } = await cal.listObligations({ search: 'TPIT', onlyAvailable: false });
       return rows.find((r: { obligation_id: string }) => r.obligation_id === keplerId) as
         { reserved_amount: number; paid_amount: number; available_amount: number; branch_code: string; payee_id: string } | undefined;
     };
 
     it('una factura que nadie capturó aparece como kepler_payable, con la llave determinística', async () => {
       await trx('kepler_ods.kdxe').insert({ sucursal: '06', c1: '06', c2: 'TPIT-GONAC', c3: 'A', c4: 20, c5: 1, c6: FLETE, c7: '2030-01-09 00:00:00', c10: '2030-01-09 00:00:00', c11: 9500 });
-      const rows = await cal.listObligations({ search: 'TPIT' });
+      const { rows } = await cal.listObligations({ search: 'TPIT' });
       const d = rows.filter((r: { obligation_source: string }) => r.obligation_source === 'kepler_payable');
       expect(d).toHaveLength(1);
       keplerId = (d[0] as { obligation_id: string }).obligation_id;
@@ -245,7 +245,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
 
     it('⛔ dedupe: ninguna factura capturada aparece TAMBIÉN como derivada', async () => {
-      const rows = await cal.listObligations({ search: 'TPIT' }) as { obligation_source: string; concept: string }[];
+      const rows = await cal.listObligations({ search: 'TPIT' }).then((r) => r.rows) as { obligation_source: string; concept: string }[];
       const derivadas = rows.filter((r) => r.obligation_source === 'kepler_payable');
       // La única derivada es el flete: las 6 que entraron por Entregas quedan fuera por el NOT EXISTS,
       // aunque Kepler siga debiéndolas. (No se cuentan las capturadas: a esta altura del flujo unas
@@ -309,7 +309,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     it('un acreedor financiero se deriva como compromiso_financiero, no como proveedor', async () => {
       await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: 'ATPIT999', c3: 'TPIT ACREEDOR BANCO DE PRUEBA', c13: '120' });
       await trx('kepler_ods.kdxe').insert({ sucursal: '06', c1: '06', c2: 'ATPIT999', c3: 'A', c4: 20, c5: 1, c6: 'TPIT-CRED1', c7: '2030-01-08 00:00:00', c10: '2030-01-08 00:00:00', c11: 50000 });
-      const rows = await cal.listObligations({ search: 'TPIT ACREEDOR BANCO' }) as { classification: string; subtype: string; obligation_source: string }[];
+      const rows = await cal.listObligations({ search: 'TPIT ACREEDOR BANCO' }).then((r) => r.rows) as { classification: string; subtype: string; obligation_source: string }[];
       expect(rows).toHaveLength(1);
       expect(rows[0].obligation_source).toBe('kepler_payable');
       expect(rows[0].classification).toBe('compromiso_financiero');
@@ -323,8 +323,29 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
 
     it('la factura de mercancía del mismo origen sigue siendo proveedor_mercancia', async () => {
-      const rows = await cal.listObligations({ search: 'TPIT', onlyAvailable: false }) as { obligation_id: string; classification: string }[];
+      const rows = await cal.listObligations({ search: 'TPIT', onlyAvailable: false }).then((r) => r.rows) as { obligation_id: string; classification: string }[];
       expect(rows.find((r) => r.obligation_id === keplerId)!.classification).toBe('proveedor_mercancia');
+    });
+
+    // ── `[TP.17.2]` El techo se declara ──────────────────────────────────────────────────────
+    // ⛔ Prueba NEGATIVA del recorte: sin esto, el `.limit()` vuelve a esconder deuda en silencio.
+    // Medido en prod el 2026-10-16: el techo de 1000 dejaba fuera 1,895 documentos por
+    // $105,683,725 — el 79 % del dinero — y la pantalla se veía perfecta.
+    it('el techo recorta las filas pero el total dice cuántas hay de verdad', async () => {
+      const todo = await cal.listObligations({ search: 'TPIT', onlyAvailable: false });
+      expect(todo.rows.length).toBe(todo.total);          // sin recorte, coinciden
+      expect(todo.total).toBeGreaterThan(2);
+
+      const recortado = await cal.listObligations({ search: 'TPIT', onlyAvailable: false, limit: 2 });
+      expect(recortado.rows).toHaveLength(2);             // devuelve lo que cabe
+      expect(recortado.total).toBe(todo.total);           // …y CONFIESA cuántas hay
+      expect(recortado.limit).toBe(2);
+    });
+
+    it('el techo no deja pedir una página infinita ni negativa', async () => {
+      expect((await cal.listObligations({ search: 'TPIT', limit: 999999 })).limit).toBe(5000);
+      expect((await cal.listObligations({ search: 'TPIT', limit: -5 })).limit).toBe(1000);
+      expect((await cal.listObligations({ search: 'TPIT', offset: -3 })).offset).toBe(0);
     });
 
     it('⭐ el camino COMPLETO de escritura: ordenar → preparar → autorizar → ejecutar', async () => {
