@@ -1117,3 +1117,56 @@ sencillamente no existe para esa pantalla.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | O2: Pronto pago publica con qué programar cada factura y gana el botón «Programar». 28/28 verde, `check:pantalla` sin fallas nuevas. Tres defectos cazados al ejercer, uno de ellos afecta al CI | Claude |
+
+---
+
+## 19. TP.19.3 — el pago ejecutado dice cuál es en Kepler (O3, backend) · 2026-10-16
+
+**El hueco:** al marcar un pago como ejecutado, el rastro se cortaba. El pago reaparecía en el ERP
+—y en «Pagos a proveedor»— como un evento **sin origen**, y nadie podía contestar sin reconstruirlo
+a mano *«¿de qué día del calendario salió esta transferencia?»*.
+
+**Migración `20261016185746`** (aditiva, idempotente): `kepler_payment_sucursal · _doc_prefix ·
+_folio` + `_linked_at` / `_linked_by`, y un **índice único parcial**: un mismo documento de Kepler
+no puede estar ligado a dos pagos — sería contar dos veces la misma salida de dinero.
+
+⚠️ **Nullable a propósito:** el dinero sale **antes** de que el ERP capture el documento. Exigir la
+terna al ejecutar obligaría a **inventar un folio** para poder cerrar el pago. Lo que falta se
+declara con NULL (ADR-056) y se liga después — por eso es un endpoint aparte
+(`POST /allocations/:id/kepler`) y no un campo de `ejecutar`.
+
+⛔ **Sin FK al espejo del ERP**: `analytics.erp_supplier_payments` es una **vista** que se repuebla;
+una FK haría que repoblarla pudiera fallar por filas nuestras. La integridad la da el cruce.
+
+**Las tres guardas, con prueba negativa cada una:**
+
+| Guarda | Por qué |
+|---|---|
+| El documento **existe** en el espejo del ERP | ligar a un folio tecleado mal publicaría una trazabilidad falsa, que es peor que no tener ninguna |
+| Sólo se liga un pago **ya ejecutado** | antes de que salga el dinero no hay documento que ligar |
+| Un documento, **un solo** pago | índice único parcial |
+
+⭐ **Cierra tres deudas que `[TP.15]` había declarado**, y las tres eran la misma falta de liga: el
+tope de saldo no sabía qué pagos del Calendario ya había registrado Kepler; «sin saldo» mezclaba
+*pagada* con *no casó*; y un pago ejecutado no se podía reencontrar.
+
+**Probado:** `payment-calendar.it.spec.ts` **31/31** contra Postgres real. ⚠️ Sembrar el pago
+obligó a recordar que **el espejo es una vista**: se siembra `kepler_ods.kdm1` con la forma que
+ella espera (`c4=26` → `XD2601`), no se le inserta a la vista.
+
+### Lo que falta de O3
+
+- **La pantalla**: «Pagos a proveedor» todavía no muestra el origen (día autorizado + folio de
+  lote). Sin eso, la liga existe en la base pero nadie la ve.
+- **El cruce automático**: hoy la terna se teclea. El espejo tiene `pago_date`, `monto` y
+  `proveedor_code`, que es con lo que se podría **proponer** el documento — y `_linked_by` ya
+  permite medir si el sistema acierta.
+- ⛔ **La migración no está aplicada a prod.** A diferencia del CHECK de TP.18, acá el riesgo es
+  acotado: el endpoint es nuevo y nadie lo llama todavía, así que el código sin la migración no
+  rompe nada existente.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | TP.19.3: migración + `linkKeplerPayment()` con sus tres guardas y pruebas negativas. 31/31 verde. Falta la pantalla y el cruce automático | Claude |

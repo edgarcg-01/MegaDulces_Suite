@@ -799,6 +799,43 @@ export class PaymentCalendarService {
     });
   }
 
+  /**
+   * `[TP.19.3]` **Liga un pago del Calendario con su documento en Kepler** (O3).
+   *
+   * Va aparte de `execute()` porque el dinero sale **antes** de que el ERP capture el documento:
+   * exigir la terna al ejecutar obligaría a inventar un folio para poder cerrar el pago. Acá se
+   * liga cuando existe, y mientras tanto lo que falta se ve como falta (ADR-056).
+   *
+   * ⛔ Se verifica que el documento **exista** en el espejo del ERP y que el beneficiario coincida:
+   * ligar a un folio tecleado mal es peor que no ligar — publicaría una trazabilidad falsa.
+   */
+  async linkKeplerPayment(
+    allocationId: string,
+    ref: { sucursal: string; doc_prefix: string; folio: string },
+    username: string,
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const sucursal = String(ref?.sucursal ?? '').trim();
+    const docPrefix = String(ref?.doc_prefix ?? '').trim();
+    const folio = String(ref?.folio ?? '').trim();
+    if (!sucursal || !docPrefix || !folio) throw new BadRequestException('Falta sucursal, tipo de documento o folio del pago en Kepler.');
+    return this.tk.run(async (trx) => {
+      const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
+      if (!allocation) throw new NotFoundException('Pago no encontrado');
+      if (allocation.status !== 'executed') throw new BadRequestException('Sólo se liga un pago ya ejecutado: antes de que salga el dinero no hay documento que ligar.');
+      const doc = await trx('analytics.erp_supplier_payments')
+        .where({ tenant_id: tenantId, sucursal, doc_prefix: docPrefix, folio }).first();
+      if (!doc) throw new NotFoundException(`Kepler no tiene el pago ${docPrefix} ${folio} de la sucursal ${sucursal}. Revisa el folio o espera a que el feed lo traiga.`);
+      const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
+        .update({
+          kepler_payment_sucursal: sucursal, kepler_payment_doc_prefix: docPrefix, kepler_payment_folio: folio,
+          kepler_payment_linked_at: trx.fn.now(), kepler_payment_linked_by: username,
+          updated_by: username, updated_at: trx.fn.now(),
+        }).returning('*');
+      return updated;
+    });
+  }
+
   async execute(allocationId: string, username: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
