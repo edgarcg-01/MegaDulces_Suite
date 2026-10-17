@@ -915,3 +915,70 @@ tiempo: el árbol es de todos.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | Migración verificada en prod (batch 950, ledger correcto, CHECK idéntico). La aplicó otra sesión al empujar `main`; esta sesión no tiene permisos de escritura en prod y lo confirmó midiendo | Claude (verificación) |
+
+---
+
+## 15. TP.17.1b — un crédito bancario no es mercancía (2026-10-16)
+
+**El defecto que tenía lo construido en TP.18:** la pata derivada traía TODA la deuda del ERP y la
+marcaba entera como `proveedor_mercancia`. Medido, ahí adentro hay **39 documentos por
+$38,503,392** que son créditos BBVA y BanBajío, préstamos de personas físicas, tarjetas y
+factoraje. Con esa clasificación un crédito se podía **agrupar en el mismo pago que una factura de
+dulces** y **perdía su lugar en el orden** — los compromisos financieros se pagan primero.
+
+### Cómo se resolvió, y qué NO se hizo
+
+⛔ **El criterio no se reescribió.** Es `clasificarAcreedor()` del Estado de Cuenta de Acreedores,
+que ya está en producción. Lo que se agregó es una función que **genera el SQL desde sus propias
+constantes** (`PREFIJOS_FINANCIEROS`, `GRUPOS_FINANCIEROS`): si mañana se suma un prefijo al
+engine, esta consulta cambia sola. Una copia a mano habría sido la **sexta** familia de constantes
+duplicadas del repo (ADR-056, el primitivo que no se comparte).
+
+⚠️ **La clasificación deja de salir del `obligation_source`.** Para los tres orígenes con tabla la
+fija el origen; para el derivado **la trae la fila**, porque un mismo origen entrega facturas y
+créditos. Eso obligó a mover la validación de `addItem` **después** de cargar la obligación: antes
+se decidía mirando sólo el origen, y ahí ya no hay información suficiente.
+
+**Decisión declarada:** `servicios` y `sin_clasificar` van a `proveedor_mercancia`. No es que sean
+mercancía — **se pagan por el mismo circuito** (una factura del ERP a un tercero), mientras que
+`gasto` queda reservado a lo que autorizó Presupuestos por su propio camino.
+
+### Medido sobre prod (sólo lectura, 2026-10-16)
+
+| clasificación | docs | monto | acreedores |
+|---|---:|---:|---:|
+| `proveedor_mercancia` | 2,893 | $97,368,083 | 355 |
+| **`compromiso_financiero`** | **39** | **$38,503,392** | **12** |
+
+⭐ **La regla atrapó un caso que la prueba no cubría:** `GS012` (STM Financial) **empieza con `G`**
+—o sea, parece servicios— pero su grupo es **140**, y por eso entra como financiero. Las dos
+mitades del criterio hacen falta.
+
+⚠️ **Y la que no atrapa, dicha:** el grupo **120 se llama «Instituciones financieras» y NO cuenta**
+como financiero (sólo el 140). Los 12 acreedores reales se detectan **todos por prefijo de clave**
+(`A`, `TC`, `B.B.`), así que hoy no se pierde ninguno — pero **un banco dado de alta con clave
+`G*` y grupo 120 se leería como proveedor**. Queda anotado acá y no se cambia el engine: esa regla
+es del ECA y está en producción.
+
+### Probado
+
+- `payment-calendar.it.spec.ts`: **23/23** contra Postgres real. Tres casos nuevos — el acreedor
+  financiero se deriva como `compromiso_financiero` con subtipo `financiero`; ⛔ **no** se puede
+  sumar a un pago de proveedor (prueba negativa); y la factura de mercancía del mismo origen sigue
+  siendo `proveedor_mercancia`.
+- `creditor-statements`: **58/58** — el engine que se reusó no se tocó.
+- `boundary-gate` verde.
+
+### Estado de O1
+
+| | |
+|---|---|
+| Mecanismo | ✅ completo: deriva toda la deuda, deduplica, excluye internos y **clasifica por naturaleza** |
+| Verificación | ✅ 23/23 contra base real · migración del CHECK en prod (batch 950) |
+| **Métrica** | ⛔ **sigue en 2.0 %**: el código **no está desplegado**. Al desplegarse pasa a ~100 % (2,894 docs · $133,131,122 de $135,869,210) |
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | TP.17.1b: la deuda derivada se clasifica con la regla del ECA generada desde sus constantes. 39 docs / $38.5 M salen de «mercancía» y entran como compromiso financiero. 23/23 verde | Claude |
