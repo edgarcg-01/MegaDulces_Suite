@@ -1123,9 +1123,16 @@ jobs:
       # apunta a `192.168.0.222:5434/railway`, el mismo guard devuelve `kind: 'prod'` y
       # el runner se niega a correr. Por eso estas tres variables se fijan ACA y no se
       # heredan de ningun lado.
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/megadulces_logistica
-      DATABASE_URL_NEW: postgresql://postgres:postgres@localhost:5432/postgres_platform
-      DATABASE_URL_NEW_RUNTIME: postgresql://app_runtime:app_runtime@localhost:5432/postgres_platform
+      #
+      # [CI.SSL] `?sslmode=disable` es obligatorio: los knexfiles (`knexfile.js`,
+      # `knexfile-newdb.js`) FUERZAN `ssl: { rejectUnauthorized: false }` cuando hay URL, y el
+      # Postgres de este servicio no tiene SSL -> "The server does not support SSL connections"
+      # en el primer paso, y el job moria antes de correr una sola prueba. node-postgres deja
+      # que el `sslmode` de la URL gane sobre el `ssl` del objeto (verificado 2026-10-16 contra
+      # un Postgres local sin SSL: forzado falla, con sslmode=disable conecta).
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/megadulces_logistica?sslmode=disable
+      DATABASE_URL_NEW: postgresql://postgres:postgres@localhost:5432/postgres_platform?sslmode=disable
+      DATABASE_URL_NEW_RUNTIME: postgresql://app_runtime:app_runtime@localhost:5432/postgres_platform?sslmode=disable
       ENABLE_MULTITENANT: 'true'
       NX_DAEMON: 'false'
     steps:
