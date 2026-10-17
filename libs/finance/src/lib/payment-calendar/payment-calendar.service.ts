@@ -1,46 +1,19 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
+import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
 import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
 /**
- * `[TP.18]` **La deuda viva de Kepler, como origen — sin tabla propia** (ADR-094).
- *
- * Los otros tres orígenes son tablas nuestras con su `id` uuid. Éste es una VISTA
- * (`analytics.v_supplier_payables`, derive-no-copy sobre `kepler_ods`), y su llave natural es
- * compuesta: `sucursal · doc_tipo · doc_sub · folio`.
- *
- * ⛔ `finance.payment_allocation_items.obligation_id` es **uuid**, así que la llave natural no
- * cabe ahí: la primera medición falló con `operator does not exist: uuid = text`. Se resuelve con
- * un uuid **determinístico** — el mismo documento da siempre el mismo id, sin tabla intermedia y
- * sin extensión de Postgres. Se rechazó cambiar el tipo de la columna: tocaría los tres orígenes
- * vivos para resolver lo que una función resuelve sin migrar datos (ADR-094 §4).
- *
- * ⚠️ **Las dos formas de la llave tienen que coincidir siempre**: ésta (TS) y `KEPLER_PAYABLE_ID`
- * (SQL). Si se toca una, se toca la otra — `payment-calendar-kepler-payable.spec.ts` lo ejerce.
+ * `[TP.18.7]` La llave del origen derivado vive en `shared/`: la usan el Calendario y Pronto
+ * pago, y tener una función pura dentro de un servicio obligaba al otro módulo a importar el
+ * servicio entero (ADR-056). Se re-exporta porque ya hay código y pruebas que la toman de acá.
  */
-export function keplerPayableId(sucursal: string, docTipo: number | string, docSub: number | string, folio: string): string {
-  const h = createHash('md5').update(`kepler_payable|${sucursal}|${docTipo}|${docSub}|${folio}`).digest('hex');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
-
-/**
- * La MISMA llave de {@link keplerPayableId}, en SQL, para el alias que se le pase de
- * `analytics.v_supplier_payables`.
- *
- * ⛔ **Existe como función y no como constante porque la usa más de un servicio**: Pronto pago la
- * necesita para decirle al Calendario *cuál* factura programar (`[TP.18.3]`), y ahí la vista viene
- * con otro alias. Una segunda copia con otro alias sería la tercera forma de la misma llave, y la
- * llave es justo lo que tiene que coincidir siempre.
- */
-export function sqlKeplerPayableId(a = 'v'): string {
-  return `md5('kepler_payable|'||${a}.sucursal||'|'||${a}.doc_tipo||'|'||${a}.doc_sub||'|'||${a}.folio)::uuid`;
-}
+export { keplerPayableId, sqlKeplerPayableId } from '../shared/kepler-payable-key';
 const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
 
 /**
