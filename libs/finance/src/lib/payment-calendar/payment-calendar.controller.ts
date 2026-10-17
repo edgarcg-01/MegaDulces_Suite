@@ -28,7 +28,7 @@ export class PaymentCalendarController {
 
   @Get('obligations')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
-  @ApiOperation({ summary: 'Obligaciones disponibles (UNION de los 3 orígenes). No se acota por día — los pendientes no se pierden al cambiar de mes/año.' })
+  @ApiOperation({ summary: 'Obligaciones disponibles (UNION de los 4 orígenes: gasto, compromiso, factura capturada y deuda viva de Kepler). Devuelve { rows, total, limit, offset }: el total dice cuántas hay aunque el techo recorte. No se acota por día.' })
   listObligations(
     @Query('source') source?: ObligationSource,
     @Query('classification') classification?: string,
@@ -37,10 +37,13 @@ export class PaymentCalendarController {
     @Query('dueTo') dueTo?: string,
     @Query('onlyCritical') onlyCritical?: string,
     @Query('all') all?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
   ) {
     return this.svc.listObligations({
       source, classification, search, dueFrom, dueTo,
       onlyCritical: onlyCritical === 'true', onlyAvailable: all !== 'true',
+      limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined,
     });
   }
 
