@@ -486,4 +486,81 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
   });
 
+  /**
+   * `[TP.19.4]` **El sistema PROPONE el documento de Kepler; no lo adivina.** (O3)
+   *
+   * Teclear la terna `(sucursal, doc_prefix, folio)` es el trabajo que la liga venía a evitar. El
+   * espejo del ERP ya tiene con qué reconocerla: monto, día y proveedor.
+   *
+   * ⚠️ Este bloque arma **su propio escenario de punta a punta** —día, capacidad, pago, orden,
+   * preparación, autorización y ejecución— en vez de apoyarse en los pagos de arriba. Dos razones
+   * medidas: el proveedor tiene que empezar con `C`, porque la vista de pagos del ERP sólo trae
+   * **proveedores de compra**; y depender del estado que dejaron otros tests ya hizo fallar esta
+   * misma prueba por un pago que resultó no estar ejecutado.
+   */
+  describe('[TP.19.4] el documento de Kepler se propone, no se teclea', () => {
+    const D5 = '2030-02-10';
+    const FOLIO_SUELTO = 'CTPIT-S2';
+    let a5 = '';
+
+    beforeAll(async () => {
+      await migUp(MIGS[4], trx);
+      // Una factura más del proveedor de compra `CTPIT999`, sin capturar: entra por la deuda derivada.
+      await trx('kepler_ods.kdxe').insert({ sucursal: '01', c1: '01', c2: 'CTPIT999', c3: 'A', c4: 20, c5: 1, c6: FOLIO_SUELTO, c7: '2030-02-01 00:00:00', c10: '2030-02-20 00:00:00', c11: 31500 });
+      await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D5, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
+      const a = await cal.createAllocation({
+        date: D5,
+        items: [{ obligation_source: 'kepler_payable', obligation_id: keplerPayableId('01', 20, 1, FOLIO_SUELTO), applied_amount: 31500 }],
+      }, USER);
+      a5 = a.id;
+      await cal.setPriorityRank(a5, 1, USER);
+      await cal.prepare(a5, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
+      await cal.releaseLot(D5, 'tp_it_gerencia');
+    }, 60_000);
+
+    it('⛔ antes de ejecutar no hay documento que buscar', async () => {
+      await expect(cal.sugerirKeplerPayment(a5)).rejects.toThrow(/ejecutado/);
+    });
+
+    it('⭐ ejecutado, propone el documento por monto, día y proveedor', async () => {
+      await cal.execute(a5, USER);
+      // El documento del ERP, capturado un día DESPUÉS de que salió el dinero (por eso ±3 días).
+      await trx('kepler_ods.kdm1').insert({
+        sucursal: '00', c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'CTPIT-KSUG1',
+        c9: '2030-02-11 00:00:00', c10: 'CTPIT999', c16: 31500, c31: 'TRANSFERENCIA', c43: 'A',
+      });
+      const s = await cal.sugerirKeplerPayment(a5) as { candidatos: { folio: string }[]; unico?: boolean };
+      expect(s.candidatos).toHaveLength(1);
+      expect(s.unico).toBe(true);
+      expect(s.candidatos[0].folio).toBe('CTPIT-KSUG1');
+    });
+
+    it('⛔ con DOS candidatos no elige: los devuelve y deja decidir', async () => {
+      // Mismo proveedor, mismo monto, un día de diferencia: nada permite distinguirlos.
+      await trx('kepler_ods.kdm1').insert({
+        sucursal: '00', c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'CTPIT-KSUG2',
+        c9: '2030-02-12 00:00:00', c10: 'CTPIT999', c16: 31500, c31: 'TRANSFERENCIA', c43: 'A',
+      });
+      // Y uno que NO es candidato: mismo proveedor y día, pero $2 de diferencia. La tolerancia es
+      // de un centavo (redondeo), no «parecido»: un monto distinto es otro pago.
+      await trx('kepler_ods.kdm1').insert({
+        sucursal: '00', c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'CTPIT-KSUG3',
+        c9: '2030-02-11 00:00:00', c10: 'CTPIT999', c16: 31502, c31: 'TRANSFERENCIA', c43: 'A',
+      });
+      const s = await cal.sugerirKeplerPayment(a5) as { candidatos: { folio: string }[]; unico?: boolean };
+      expect(s.candidatos).toHaveLength(2);
+      expect(s.unico).toBe(false);
+      expect(s.candidatos.some((c) => c.folio === 'CTPIT-KSUG3')).toBe(false);
+    });
+
+    it('⛔ un documento ya ligado a otro pago deja de ser candidato', async () => {
+      await cal.linkKeplerPayment(a5, { sucursal: '00', doc_prefix: 'XD2601', folio: 'CTPIT-KSUG1' }, USER);
+      // Y ligado, ya no se vuelve a proponer nada para este pago.
+      const s = await cal.sugerirKeplerPayment(a5) as { ya_ligado: boolean; folio?: string };
+      expect(s.ya_ligado).toBe(true);
+      expect(s.folio).toBe('CTPIT-KSUG1');
+    });
+
+  });
+
 });

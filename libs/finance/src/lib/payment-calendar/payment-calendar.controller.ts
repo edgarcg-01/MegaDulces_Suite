@@ -133,6 +133,18 @@ export class PaymentCalendarController {
    * transferencia. Aparte de `ejecutar` porque el dinero sale antes de que el ERP capture el
    * documento — exigirlo al ejecutar obligaría a inventar un folio.
    */
+  /**
+   * `[TP.19.4]` Propone el documento de Kepler de un pago ejecutado (monto ±$0.01, día del lote
+   * ±3 y proveedor). `unico: true` = un solo candidato, que es cuando ligarlo no deja lugar a
+   * duda; con dos, los devuelve y **no elige**.
+   */
+  @Get('allocations/:id/kepler/sugerencias')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'TP.19.4 — candidatos de Kepler para ligar un pago ejecutado. No liga: propone.' })
+  sugerirKepler(@Param('id') id: string) {
+    return this.svc.sugerirKeplerPayment(id);
+  }
+
   @Post('allocations/:id/kepler')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'TP.19.3 — liga el pago ejecutado con su documento de Kepler (sucursal, doc_prefix, folio). Verifica que exista en el espejo del ERP.' })
