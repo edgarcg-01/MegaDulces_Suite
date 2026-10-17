@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { sqlKeplerPayableId } from '../payment-calendar/payment-calendar.service';
+import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
 
 /**
  * `[PP.1]` — **Lo que Tesorería todavía puede ganar, y hasta cuándo.**
