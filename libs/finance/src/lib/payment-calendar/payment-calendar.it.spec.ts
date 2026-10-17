@@ -18,6 +18,7 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
+import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -34,6 +35,9 @@ const MIGS = [
   // `[TP.18]` El CHECK que admite el cuarto origen. Es idempotente, así que se aplica siempre:
   // sin ella, programar una factura derivada revienta contra la restricción (así se descubrió).
   '../../../../../database/migrations-newdb/20261016171340_tp18_allocation_items_origen_kepler_payable.js',
+  // `[TP.18.3]` La matview de la ventana observada, que Pronto pago une en su consulta. Nace
+  // vacía acá: esta prueba mide el PUENTE con el Calendario, no la ventana (eso es de la fase PP).
+  '../../../../../database/migrations-newdb/20261010111352_pronto_pago_ventana_observada.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -362,4 +366,93 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
     });
   });
+  /**
+   * `[TP.18.3]` **El puente de O2: Pronto pago tiene que saber CON QUÉ programar.**
+   *
+   * La pantalla que ve vencer el descuento no puede ofrecer un botón si no sabe qué mandarle al
+   * Calendario. Lo que se ejerce acá es que las dos mitades coinciden: la llave que calcula
+   * Pronto pago es **la misma** que el Calendario guardó, y lo ya comprometido se descuenta de lo
+   * que queda por programar. Si estas dos cosas se separan, el botón manda a la nada.
+   */
+  describe('[TP.18.3] Pronto pago sabe con qué programar cada factura', () => {
+    let pp: ProntoPagoService;
+
+    beforeAll(async () => {
+      // La matview de la ventana observada: acá nace VACÍA, así que todo sale `sin_medir` — y es
+      // correcto. Lo que esta prueba mide es el puente, no la ventana (eso lo cubre la fase PP).
+      if (!(await trx.raw(`SELECT to_regclass('analytics.mv_supplier_prompt_discount') AS r`)).rows[0].r) await migUp(MIGS[3], trx);
+      /**
+       * ⛔ La migración la crea **`WITH NO DATA`**, y en Postgres una matview sin poblar **no se
+       * puede consultar**: cualquier `SELECT` revienta con `55000 — has not been populated`. En
+       * producción no se nota porque allá ya se refrescó; en una base recién levantada, **toda**
+       * consulta de Pronto pago falla por esto, y el error no menciona a Pronto pago.
+       * Acá nace vacía pero POBLADA, que no es lo mismo que vacía y sin poblar.
+       */
+      if (!(await trx.raw(`SELECT relispopulated FROM pg_class WHERE oid = 'analytics.mv_supplier_prompt_discount'::regclass`)).rows[0].relispopulated) {
+        await trx.raw(`REFRESH MATERIALIZED VIEW analytics.mv_supplier_prompt_discount`);
+      }
+      const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
+      pp = new ProntoPagoService(tk as never, { requireTenantId: () => M } as never);
+    }, 60_000);
+
+    const fila = async (folio: string) => {
+      const r = await pp.overview({ search: 'TPIT', limit: 300 });
+      return (r.rows as unknown as Record<string, unknown>[]).find((x) => String(x['folio']).trim() === folio);
+    };
+
+    // ⚠️ El proveedor arranca con `C` y no es cosmético: Pronto pago mira **sólo** mercancía
+    // (`proveedor LIKE 'C%'`), porque el pronto pago es un descuento de compra. Con el proveedor
+    // de los demás tests (`TPIT-GONAC`) estas filas sencillamente no existen para esa pantalla.
+    const PROV = 'CTPIT999';
+    const F_SUELTA = 'CTPIT-S1';   // nadie la capturó → va por la deuda derivada
+    const F_ENTREGA = 'CTPIT-E1';  // Compras la capturó → manda su obligación
+    const D4 = '2030-01-20';
+    let obCapturada = '';
+
+    beforeAll(async () => {
+      await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: PROV, c3: 'CTPIT DULCES DE PRUEBA', c13: '001' });
+      const [sup] = await trx('catalog.suppliers').insert({ tenant_id: M, code: PROV, name: 'CTPIT DULCES DE PRUEBA', activo: true }).returning('id');
+      for (const [folio, monto] of [[F_SUELTA, 12000], [F_ENTREGA, 7000]] as [string, number][]) {
+        await trx('kepler_ods.kdxe').insert({ sucursal: '01', c1: '01', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2030-01-06 00:00:00', c10: '2030-01-18 00:00:00', c11: monto });
+      }
+      // La obligación capturada se siembra con las MISMAS llaves que deja `toCalendar()` al
+      // aceptar una entrega (mig TP.15); lo que se prueba es el puente, no el alta.
+      const [o] = await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup.id, invoice_folio: F_ENTREGA, concept: F_ENTREGA,
+        original_due_date: '2030-01-18', original_amount: 7000, reserved_amount: 0, paid_amount: 0,
+        status: 'pending', created_by: USER, updated_by: USER, authorized_by: USER,
+        kepler_sucursal: '01', kepler_doc_tipo: 20, kepler_doc_sub: 1, kepler_folio: F_ENTREGA,
+      }).returning('id');
+      obCapturada = o.id;
+    }, 60_000);
+
+    it('⭐ la llave que publica Pronto pago es LA MISMA que guarda el Calendario', async () => {
+      const f = await fila(F_SUELTA);
+      expect(f).toBeTruthy();
+      expect(f!['obligation_source']).toBe('kepler_payable');
+      expect(f!['obligation_id']).toBe(keplerPayableId('01', 20, 1, F_SUELTA));
+    });
+
+    it('una factura que SÍ pasó por Entregas se programa por su obligación capturada', async () => {
+      const f = await fila(F_ENTREGA);
+      expect(f!['obligation_source']).toBe('supplier_payable');
+      expect(f!['obligation_id']).toBe(obCapturada);
+    });
+
+    it('⛔ lo ya comprometido no se vuelve a ofrecer: `programable` descuenta lo reservado', async () => {
+      const antes = await fila(F_SUELTA);
+      expect(Number(antes!['programable'])).toBeCloseTo(12000, 2);
+
+      // Se programa por el Calendario, con la llave que Pronto pago acaba de publicar.
+      await cal.createAllocation({
+        date: D4,
+        items: [{ obligation_source: 'kepler_payable', obligation_id: String(antes!['obligation_id']), applied_amount: 5000 }],
+      }, USER);
+
+      const despues = await fila(F_SUELTA);
+      expect(Number(despues!['reservado'])).toBeCloseTo(5000, 2);
+      expect(Number(despues!['programable'])).toBeCloseTo(7000, 2);
+    });
+  });
+
 });

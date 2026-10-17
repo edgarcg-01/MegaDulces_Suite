@@ -29,8 +29,19 @@ export function keplerPayableId(sucursal: string, docTipo: number | string, docS
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-/** La MISMA llave de {@link keplerPayableId}, en SQL. `v` = alias de `analytics.v_supplier_payables`. */
-const KEPLER_PAYABLE_ID = `md5('kepler_payable|'||v.sucursal||'|'||v.doc_tipo||'|'||v.doc_sub||'|'||v.folio)::uuid`;
+/**
+ * La MISMA llave de {@link keplerPayableId}, en SQL, para el alias que se le pase de
+ * `analytics.v_supplier_payables`.
+ *
+ * ⛔ **Existe como función y no como constante porque la usa más de un servicio**: Pronto pago la
+ * necesita para decirle al Calendario *cuál* factura programar (`[TP.18.3]`), y ahí la vista viene
+ * con otro alias. Una segunda copia con otro alias sería la tercera forma de la misma llave, y la
+ * llave es justo lo que tiene que coincidir siempre.
+ */
+export function sqlKeplerPayableId(a = 'v'): string {
+  return `md5('kepler_payable|'||${a}.sucursal||'|'||${a}.doc_tipo||'|'||${a}.doc_sub||'|'||${a}.folio)::uuid`;
+}
+const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
 
 /**
  * `[TP.17.1b]` **Un crédito bancario no es mercancía** (ADR-094 §7).

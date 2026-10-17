@@ -1048,3 +1048,72 @@ que otra sesión tiene tomados.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | TP.17.2: el techo de 1,000 se declara (`{rows,total}` + «N de M» + aviso). 25/25 verde, `check:pantalla` sin fallas nuevas. O1 cerrado en local con sus tres deudas nombradas | Claude |
+
+---
+
+## 18. O2 — el descuento que vence ya se puede accionar (2026-10-16)
+
+**Lo que faltaba:** Pronto pago veía vencer **$2,420,559** de descuento todavía dentro de ventana y
+**no tenía un solo botón**. El Calendario sí podía programar, pero no sabía de esas facturas.
+
+### C1/C2 — el puente: la pantalla ahora sabe CON QUÉ programar
+
+Cada fila de `/finance/pronto-pago` viaja con cinco campos nuevos:
+
+| campo | qué resuelve |
+|---|---|
+| `obligation_source` | si Compras ya la capturó como entrega manda **esa** obligación (trae fecha negociada y acuerdos); si no, va por la **deuda derivada** |
+| `obligation_id` | la llave con que el Calendario la va a guardar |
+| `reservado` · `pagado` | lo ya comprometido |
+| `programable` | `pendiente − reservado − pagado`: lo que queda por mandar |
+
+⛔ **La llave no se reimplementó.** `sqlKeplerPayableId()` pasó de constante a función para que
+Pronto pago la use con su propio alias. Si las dos formas se separaran, el botón mandaría a una
+factura que el Calendario no reconoce — y el síntoma no sería un error, sería un pago que no baja
+ningún saldo.
+
+### C3 — el botón (skill `diseno` cargada antes de tocar el archivo)
+
+- **«Programar»** por fila, sólo con `FINANCE_PAYMENTS_GESTIONAR`: ver el pronto pago no es
+  prepararlo. Autorizar el día sigue siendo otro permiso, en el Calendario.
+- Lo que ya tiene fecha **se dice** («ya programada» / «pagada»), no se deja un hueco.
+- El diálogo propone **la fecha que conserva el descuento** (si ya pasó, mañana — nunca hoy: un
+  pago se prepara antes de ejecutarse) y el monto programable como tope.
+- Dice en voz alta que **nace como propuesta**: el compromiso lo crea Gerencia al autorizar el día.
+- El error del servidor se muestra tal cual: es quien hace cumplir el saldo y la agrupación, y su
+  mensaje explica **por qué** no se pudo.
+
+### Probado
+
+| | |
+|---|---|
+| `payment-calendar.it.spec.ts` | **28/28** contra Postgres real · 3 casos nuevos: la llave coincide con la del Calendario, la factura capturada va por su obligación, y `programable` **baja tras programar con el service real** |
+| `check:pantalla -- pronto-pago` | **3 fallas antes → 3 después** (§2, §9, D.4c, preexistentes). **Cero nuevas**, y tipa sin errores |
+| `check:templates` · `check:estilos` | verdes |
+
+⭐ **Tres defectos que sólo aparecieron al ejercerlo**, ninguno visible en revisión:
+1. **Faltaba una coma** antes del `CASE` nuevo → `syntax error at or near "CASE"`.
+2. El mapeo de `rows` **no incluía los campos nuevos**: el SQL los calculaba y se perdían antes de
+   llegar al front.
+3. ⛔ La matview `mv_supplier_prompt_discount` se crea **`WITH NO DATA`**, y en Postgres una matview
+   sin poblar **no se puede consultar**: en una base recién levantada **toda** consulta de Pronto
+   pago falla con `55000`, y el error no menciona a Pronto pago. En prod no se nota porque ya se
+   refrescó. ⚠️ **Esto le pega también al job `pruebas-db` del CI**, que levanta la base desde cero.
+
+⚠️ **Y una del dato de prueba que vale como regla:** Pronto pago mira **sólo** proveedores `C%`
+(mercancía), porque el pronto pago es un descuento de compra. Un dato de prueba con otra clave
+sencillamente no existe para esa pantalla.
+
+### Lo que NO quedó
+
+- ⛔ **La métrica de O2 se mueve al desplegar**, igual que O1: el botón existe en el código, no en
+  producción.
+- ⚠️ El `boundary-gate` quedó **rojo por deuda ajena** (5 `any` nuevos en
+  `libs/finance/src/lib/caja/cash-ledger.service.ts`, de otra sesión y sin commitear). Ninguno de
+  los archivos de O2 aparece en el reporte.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | O2: Pronto pago publica con qué programar cada factura y gana el botón «Programar». 28/28 verde, `check:pantalla` sin fallas nuevas. Tres defectos cazados al ejercer, uno de ellos afecta al CI | Claude |

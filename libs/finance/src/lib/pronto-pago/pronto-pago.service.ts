@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { sqlKeplerPayableId } from '../payment-calendar/payment-calendar.service';
 
 /**
  * `[PP.1]` — **Lo que Tesorería todavía puede ganar, y hasta cuándo.**
@@ -175,14 +176,40 @@ export class ProntoPagoService {
                  CASE WHEN d.n_observaciones >= ${MIN_OBS} AND p.fecha IS NOT NULL
                       THEN p.fecha + d.dias_mediana END AS fecha_limite,
                  CASE WHEN d.n_observaciones >= ${MIN_OBS} AND d.tasa_observada IS NOT NULL
-                      THEN round(p.pendiente * d.tasa_observada, 2) END AS beneficio
+                      THEN round(p.pendiente * d.tasa_observada, 2) END AS beneficio,
+                 -- [TP.18.3] CON QUE se programa esta factura en el Calendario (ADR-094).
+                 -- Si Compras ya la capturo como entrega, manda esa obligacion (trae fecha
+                 -- negociada y acuerdos); si no, va por la deuda DERIVADA con su llave
+                 -- determinista. Es la misma regla de dedupe que aplica listObligations, y la
+                 -- llave la genera la MISMA funcion: si cambia alla, cambia aca.
+                 CASE WHEN o.id IS NOT NULL THEN 'supplier_payable' ELSE 'kepler_payable' END AS obligation_source,
+                 coalesce(o.id, ${sqlKeplerPayableId('p')}) AS obligation_id,
+                 -- Lo ya comprometido en el Calendario: sin esto el boton ofreceria programar
+                 -- de nuevo algo que ya tiene fecha, y el candado de saldo lo rechazaria DESPUES
+                 -- del clic -- que es la peor forma de decir que no.
+                 coalesce(r.reservado, 0) AS reservado,
+                 coalesce(r.pagado, 0)    AS pagado
             FROM analytics.v_supplier_payables p
             LEFT JOIN analytics.mv_supplier_prompt_discount d
                    ON d.proveedor_code = btrim(p.proveedor)
+            LEFT JOIN commercial.supplier_payment_obligations o
+                   ON o.kepler_sucursal = p.sucursal AND o.kepler_doc_tipo = p.doc_tipo
+                  AND o.kepler_doc_sub = p.doc_sub   AND o.kepler_folio    = p.folio
+                  AND o.status <> 'cancelled'
+            LEFT JOIN LATERAL (
+              SELECT coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0)  AS reservado,
+                     coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'executed'), 0) AS pagado
+                FROM finance.payment_allocation_items i
+                JOIN finance.payment_allocations a ON a.id = i.allocation_id
+               WHERE i.obligation_id = coalesce(o.id, ${sqlKeplerPayableId('p')})
+            ) r ON true
            WHERE p.tenant_id = ? AND p.pendiente > 0.01
              AND btrim(p.proveedor) LIKE 'C%'
         ), clasificado AS (
-          SELECT b.*, (b.fecha_limite - CURRENT_DATE) AS dias_restantes,
+          SELECT b.*,
+                 -- Lo que todavia se puede mandar al Calendario de esta factura.
+                 greatest(b.pendiente - b.reservado - b.pagado, 0) AS programable,
+                 (b.fecha_limite - CURRENT_DATE) AS dias_restantes,
                  CASE
                    WHEN b.fecha_limite IS NULL                         THEN 'sin_medir'
                    WHEN b.fecha_limite <  CURRENT_DATE                 THEN 'fuera_de_ventana'
@@ -258,6 +285,21 @@ export class ProntoPagoService {
           fecha_limite: r.fecha_limite,
           dias_restantes: r.dias_restantes == null ? null : Number(r.dias_restantes),
           estado: r.estado as EstadoPronto,
+          /**
+           * `[TP.18.3]` **El puente con el Calendario** (O2): con QUÉ se programa esta factura y
+           * cuánto queda por programar. Sin estos cinco campos la pantalla ve vencer el descuento
+           * y no tiene nada que mandar — que es exactamente el estado que O2 viene a cerrar.
+           *
+           * ⚠️ `obligation_source` no es siempre el mismo: si Compras ya capturó la factura como
+           * entrega manda esa obligación (trae fecha negociada y acuerdos); si no, va por la deuda
+           * derivada. La decisión se toma en el SQL con la misma regla de dedupe del Calendario.
+           */
+          obligation_source: r.obligation_source as 'supplier_payable' | 'kepler_payable',
+          obligation_id: r.obligation_id as string,
+          reservado: num(r.reservado),
+          pagado: num(r.pagado),
+          /** Lo que todavía se puede mandar al Calendario: `pendiente − reservado − pagado`. */
+          programable: num(r.programable),
           ...this.porQue(r),
         })),
         truncado: detalle.length >= limit,
