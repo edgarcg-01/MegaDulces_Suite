@@ -185,6 +185,11 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
+### Arqueo de ruta (RD/RV) · 2026-10-16
+
+- [x] **[ARQ-RUTA.1]** 🧪 En el arqueo RD/RV el selector de ruta va junto a la caja (renglón del turno o encabezado manual); se quitó el selector suelto de abajo.
+- [ ] **[ARQ-RUTA.2]** ⚠️ BLOCKED — Que las rutas salgan solas de Kepler por sucursal (tipo del catálogo `trade.catalogs.route_kind`, sucursal por las ventas de `kdm1.c12`). Falta medir en prod con `database/scripts/medir-rutas-arqueo-kepler.js`: necesita `PROD_RO_URL`.
+
 ### Fase MOS — Buscador de mostrador y productos no registrados · 2026-10-16 · rama `feat/mostrador-buscador-no-registrados`
 
 - [x] **[MOS.1]** 🧪 «¿Te pidieron algo?» (arqueo y Faltantes) busca por **nombre, proveedor, SKU o código de barras** y dice por qué salió cada renglón; cada resultado trae **todas sus presentaciones** con precio (la caja en **paquetes** cuando divide exacto; si no, en piezas) y el **mayoreo por unidad en la presentación en que Kepler lo captura**. Respaldo del verificador a **formato 3** (`u[].f` + `pv`/`pr`); `/kp/precio` publica `proveedor` (de `catalog.suppliers`). Lo elegido de la lista se refresca en vivo y la procedencia lo dice.

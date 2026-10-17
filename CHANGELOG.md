@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo de ruta: la ruta se elige junto a la caja (ARQ-RUTA.1, 2026-10-16)
+- En los arqueos RD y RV, el selector de ruta aparece junto a la caja (renglón del turno o encabezado manual) en lugar de en un bloque aparte. Pendiente: que las rutas salgan solas de Kepler (falta medir en prod).
 ### Added — El mostrador busca por nombre, proveedor, SKU o código, y lo que Kepler no tiene llega solo a Compras (MOS.1–MOS.3, 2026-10-16)
 - **«¿Te pidieron algo?»** (arqueo de caja y Faltantes) busca por nombre, proveedor, SKU o código de barras y dice por qué salió cada resultado. Cada uno trae todas sus presentaciones con precio —la caja en paquetes cuando divide exacto— y el mayoreo por unidad, en la presentación en que Kepler lo tiene.
 - **Catálogo › No registrados**: los códigos que se escanearon y Kepler no tiene en esa sucursal, con sucursal, proveedor y búsqueda. Salen solos en cuanto se dan de alta en Kepler. Sin tabla nueva ni migración.
