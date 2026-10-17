@@ -1,3 +1,32 @@
+# Tienda › Arqueo de caja — en RD/RV la ruta se elige junto a la caja (ARQ-RUTA.1)
+
+## Problema
+
+En el arqueo de una ruta (RD o RV) la ruta se elegía en un bloque aparte, debajo del tipo de arqueo, lejos de la caja a
+la que se le está entregando el efectivo.
+
+## Solución
+
+- Al elegir RD o RV, el selector **Ruta** aparece junto a **Caja**: en el renglón del turno («Caja 2 · Ruta …») o en el
+  encabezado del modo manual (Sucursal · Caja · Ruta · Fecha · Cajero).
+- Abajo sólo queda el aviso de cuando la sucursal no tiene rutas.
+
+## Cómo se implementó
+
+- `tienda-arqueo.component.ts`: el `p-select` de la ruta se pinta dentro del renglón del turno (que pasó de `p` a `div`:
+  un `p` no puede contener el bloque del select) y en el encabezado manual, fuera de la cadena de teclado de sus
+  campos. Pruebas nuevas en `tienda-arqueo.component.spec.ts` (4, una con mutación verificada).
+
+## Por qué así
+
+El formulario de conteo sólo se pinta con un turno elegido o en modo manual, así que siempre hay una caja a la vista
+junto a la cual poner la ruta. **Pendiente:** que las rutas salgan solas de Kepler por sucursal. Kepler no declara el
+tipo de ruta (la letra del código engaña: `2V004` es telemarketing), así que el tipo seguirá saliendo del catálogo y lo
+que se derivará es la sucursal donde vende cada ruta. Antes hay que medirlo en prod con
+`database/scripts/medir-rutas-arqueo-kepler.js` (sólo lectura).
+
+---
+
 # Tienda › Arqueo de caja — «¿Te pidieron algo?» busca por nombre, proveedor, SKU o código y muestra todas las presentaciones (MOS.1–MOS.3)
 
 ## Problema

@@ -247,8 +247,18 @@ interface CortesPersona {
               <!-- El turno, en un renglon. Eran seis campos en grilla; ninguno se
                    perdio y el estado de la caja (abierta/cerrada y su hora tipica de
                    corte) se gano, que antes costaba dos cajas de aviso. -->
-              <p class="arq-turno-linea">
+              <!-- [ARQ-RUTA.1] div y no p: con RD/RV aqui va el selector de la ruta, junto a la
+                   caja, y un p no puede contener el bloque del p-select. -->
+              <div class="arq-turno-linea">
                 <strong>Caja {{ t.caja }}</strong>
+                @if (esRuta()) {
+                  <label class="arq-ruta-inline">Ruta
+                    <p-select [options]="rutasDelTipo()" [(ngModel)]="aRuta" (ngModelChange)="dirty.set(true)"
+                              optionLabel="label" optionValue="route_code" styleClass="arq-fld arq-fld-ruta"
+                              appendTo="body" [placeholder]="rutasCargadas() && !rutasDelTipo().length ? 'Sin rutas' : 'Elige la ruta…'"
+                              [disabled]="!rutasDelTipo().length" ariaLabel="Ruta que entrega" />
+                  </label>
+                }
                 <span class="sep">·</span>{{ branchLabel(t.warehouse_code) }}
                 <span class="sep">·</span><span class="arq-mono">{{ t.cajero_code || '—' }}</span>
                 <span class="sep">·</span><span class="arq-mono">{{ t.business_date | date:'dd/MM/yy' }}</span>
@@ -257,7 +267,7 @@ interface CortesPersona {
                 @if (t.abierto && avisoCorte(t); as a) {
                   <span class="sep">·</span><span [class.arq-urge-txt]="a.pronto">{{ a.titulo }}</span>
                 }
-              </p>
+              </div>
 
               <!-- [SM.41] Las sangrias YA contadas de este turno.
                    Hasta esta entrega sobraba una sola linea, porque la clave unica no
@@ -306,6 +316,17 @@ interface CortesPersona {
                 </div>
               }
               <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
+              <!-- [ARQ-RUTA.1] Con RD/RV la ruta va junto a la caja: es de quien es el efectivo.
+                   Fuera de la cadena de teclado del encabezado (sin #hcell) para no correr sus
+                   indices: se elige con el mouse o con Tab. -->
+              @if (esRuta()) {
+                <label class="arq-lbl">Ruta
+                  <p-select [options]="rutasDelTipo()" [(ngModel)]="aRuta" (ngModelChange)="dirty.set(true)"
+                            optionLabel="label" optionValue="route_code" styleClass="arq-fld arq-fld-ruta"
+                            appendTo="body" [placeholder]="rutasCargadas() && !rutasDelTipo().length ? 'Sin rutas' : 'Elige la ruta…'"
+                            [disabled]="!rutasDelTipo().length" ariaLabel="Ruta que entrega" />
+                </label>
+              }
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
@@ -330,13 +351,11 @@ interface CortesPersona {
               <!-- SM.36 - Solo las rutas de SU tienda. Si la lista viene vacia se
                    DICE por que: una tienda sin rutas dadas de alta no es un error,
                    es el caso de 8ESQ hoy. -->
-              @if (rutasDelTipo().length) {
-                <label class="arq-lbl arq-block">Ruta que entrega
-                  <p-select [options]="rutasDelTipo()" [(ngModel)]="aRuta" (ngModelChange)="dirty.set(true)"
-                            optionLabel="label" optionValue="route_code" styleClass="arq-fld"
-                            appendTo="body" placeholder="Elige la ruta…" />
-                </label>
-              } @else if (rutasCargadas()) {
+              <!-- [ARQ-RUTA.1] El selector de la ruta subio junto a la caja: al renglon del turno o
+                   al encabezado manual. Este bloque solo se pinta con un turno elegido o en manual
+                   (puedeContar), asi que siempre hay una caja a la vista. Aqui queda el aviso de
+                   cuando la sucursal no tiene rutas. -->
+              @if (!rutasDelTipo().length && rutasCargadas()) {
                 <div class="arq-pide-box">
                   <i class="pi pi-info-circle"></i>
                   <div>
@@ -929,6 +948,9 @@ interface CortesPersona {
     .arq-turno-linea { margin: 0 0 .7rem; font-size: .78rem; color: var(--text-muted);
                        display: flex; flex-wrap: wrap; gap: .15rem .4rem; align-items: baseline; }
     .arq-turno-linea strong { color: var(--text-main); font-size: .85rem; }
+    /* [ARQ-RUTA.1] La ruta junto a la caja, en el mismo renglon. */
+    .arq-ruta-inline { display: inline-flex; align-items: center; gap: .35rem; color: var(--text-muted); }
+    :host ::ng-deep .arq-fld-ruta { min-width: 13rem; }
     .arq-turno-linea .sep { color: var(--border-color); }
     .arq-urge-txt { color: var(--warn-fg); font-weight: 600; }
     /* SM.31 - El panel es el contenedor de consulta (DESIGN §9: @container para
