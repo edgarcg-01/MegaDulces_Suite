@@ -872,3 +872,46 @@ el job `pruebas-db` del CI, que levanta Postgres de servicio con la imagen adecu
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | Prueba de escritura 20/20 contra Postgres real. Encontró 3 defectos: `tenantId` sin definir (rompía toda la lista), el CHECK que rechazaba el origen nuevo (→ migración) y un NULL que introduje al optimizar. Latencia 476→432 ms de mediana; p90 555 sigue sobre el límite | Claude |
+
+---
+
+## 14. TP.18.6 — la migración en prod (2026-10-16), y lo que enseña el árbol compartido
+
+**Verificado contra prod (sólo lectura, 2026-10-16 ~18:10):**
+
+| | |
+|---|---|
+| Migración | `20261016171340_tp18_allocation_items_origen_kepler_payable.js` |
+| Ledger | **`public.knex_migrations`** — el activo (1,272 filas). `identity.knex_migrations` sigue en **0**: es el señuelo por el que `migrate:latest` reaplicaría 800 migraciones |
+| Batch · hora | **950** · `2026-10-16 17:51:10-06` |
+| CHECK en prod | `ARRAY['budget_expense','financial_commitment','supplier_payable','kepler_payable']` — idéntico al que produce el `up()` |
+
+⭐ **Nadie de esta sesión la aplicó, y no podía:** la cuenta de prod de la máquina de trabajo es
+`edgar`, **sin superusuario, sin ser dueña de la tabla y con `transaction_read_only = on`**
+(SEG.4 — un guion equivocado **falla** en vez de mutar producción). La aplicó otra sesión, **28
+minutos después** de commitearla.
+
+⚠️ **Y eso es la lección, no un detalle de calendario.** En un checkout compartido sobre `main`,
+un commit deja de ser tuyo en cuanto existe: el `pull --rebase` + `push` de otra sesión se llevó
+los tres commits de código **y** la migración, y alguien corrió las pendientes. El orden que el
+protocolo pide —*la migración aditiva ANTES que el código que la lee*— **se cumplió por suerte**:
+entre que el código llegó a `main` y que el CHECK se amplió hubo una ventana en la que programar
+una factura derivada habría devuelto 500. Lo único que la tapó es que
+[`ops/prod/auto-deploy.sh`](../../../ops/prod/auto-deploy.sh) tiene su renglón del `crontab`
+comentado y nada se despliega solo.
+
+⛔ **Corolario para la próxima:** cuando el cambio necesita migración, **aplicarla antes de
+commitear el código**, no después — porque entre el commit y la autorización puede no haber
+tiempo: el árbol es de todos.
+
+### Estado
+
+| # | Item | Estado |
+|---|---|---|
+| TP.18.6 | Migración del CHECK aplicada a prod | ✅ batch 950, ledger `public`, verificada |
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | Migración verificada en prod (batch 950, ledger correcto, CHECK idéntico). La aplicó otra sesión al empujar `main`; esta sesión no tiene permisos de escritura en prod y lo confirmó midiendo | Claude (verificación) |
