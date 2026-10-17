@@ -1225,3 +1225,53 @@ reaplicarla, no una revisión. Verificado después corriendo el `up()` **dos vec
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | O3 completo en código: la liga, la pantalla condicional y sus dos ramas probadas. El `hasColumn` calificado resultó mentir y la migración no era idempotente; corregido y verificado | Claude |
+
+---
+
+## 21. TP.19.4 — el documento de Kepler se propone, no se teclea (O3 completo) · 2026-10-16
+
+Teclear la terna `(sucursal, doc_prefix, folio)` era el trabajo que la liga venía a evitar. El
+espejo del ERP ya tiene con qué reconocerla: **monto, día y proveedor**.
+
+`GET /allocations/:id/kepler/sugerencias` devuelve los candidatos y dice si hay **uno solo**.
+
+| Criterio | Tolerancia, y por qué |
+|---|---|
+| Monto | **± $0.01** — redondeo, no «parecido»: un monto distinto es otro pago |
+| Día | **± 3 días** del día del lote — el ERP se captura después de que sale el dinero |
+| Proveedor | exacto, por código |
+| Ya ligado a otro pago | **se excluye** — el índice único lo rechazaría igual, y ofrecer algo que va a fallar es la peor forma de decir que no |
+
+⛔ **Con dos candidatos no elige: los devuelve.** Es el mismo criterio con el que `[PC.6]`
+auto-valida un comprobante — sólo cuando el cruce no deja lugar a duda. Elegir entre dos pagos del
+mismo proveedor y monto es justo donde una trazabilidad inventada se vuelve indistinguible de una
+real.
+
+**Probado:** `payment-calendar.it.spec.ts` **35/35**, con 4 casos nuevos y 3 de ellos negativos:
+antes de ejecutar no hay nada que buscar · dos candidatos no eligen · un documento a $2 de
+distancia **no** es candidato · lo ya ligado no se vuelve a proponer.
+
+⚠️ **Dos cosas que el escenario de prueba obligó a aprender, y valen como regla:**
+1. La vista de pagos del ERP **sólo trae proveedores de compra (`C%`)**. Un dato de prueba con otra
+   clave no existe para ella — lo mismo que ya había pasado con Pronto pago.
+2. Este bloque **arma su propio escenario de punta a punta** en vez de apoyarse en los pagos de los
+   tests de arriba: depender del estado que dejó otro test ya hizo fallar esta prueba por un pago
+   que resultó no estar ejecutado.
+
+### O3 — estado final
+
+| | |
+|---|---|
+| Liga + 3 guardas con pruebas negativas | ✅ |
+| La pantalla muestra el origen (condicional, 2 ramas probadas) | ✅ |
+| El documento se **propone** | ✅ |
+| **Métrica: pagos ligados** | ⛔ **0 %** — la migración no está en prod y **no hay pagos ejecutados que ligar**: nunca se ha autorizado un día |
+
+⇒ O3 está **completo en código**. Lo que falta para que la métrica se mueva no es código: es
+desplegar y que alguien autorice un día.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-10-16 | TP.19.4: el cruce automático propone el documento y no elige cuando hay duda. 35/35 verde. O3 cerrado en código | Claude |

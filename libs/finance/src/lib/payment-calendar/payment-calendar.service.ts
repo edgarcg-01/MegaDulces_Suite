@@ -800,6 +800,68 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[TP.19.4]` **Propone el documento de Kepler de un pago ejecutado — no lo adivina** (O3).
+   *
+   * Teclear la terna `(sucursal, doc_prefix, folio)` es exactamente el trabajo que esta liga venía
+   * a evitar. El espejo del ERP ya tiene con qué reconocerla: **monto, día y proveedor**.
+   *
+   * ⛔ **Liga sola SÓLO si hay un único candidato**, y es el mismo criterio con el que `[PC.6]`
+   * auto-valida un comprobante: cuando el cruce no deja lugar a duda. Con dos candidatos
+   * **devuelve los dos y no elige** — elegir por el usuario entre dos pagos del mismo proveedor y
+   * monto es justo donde una trazabilidad inventada se vuelve indistinguible de una real.
+   *
+   * ⚠️ Tolerancias, dichas: **± 1 centavo** en el monto (redondeo) y **± 3 días** entre el día del
+   * lote y la fecha del documento, porque el ERP se captura después de que sale el dinero.
+   */
+  async sugerirKeplerPayment(allocationId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const a = await trx('finance.payment_allocations as pa')
+        .join('finance.payment_calendar_lots as pl', 'pl.id', 'pa.lot_id')
+        .where({ 'pa.tenant_id': tenantId, 'pa.id': allocationId })
+        .select('pa.*', 'pl.lot_date').first();
+      if (!a) throw new NotFoundException('Pago no encontrado');
+      if (a.status !== 'executed') throw new BadRequestException('Sólo se busca el documento de un pago ya ejecutado.');
+      if (a.kepler_payment_folio) return { ya_ligado: true, folio: a.kepler_payment_folio, candidatos: [] };
+
+      // Los códigos de proveedor que cubre este pago (las dos clases de factura los tienen).
+      const codigos: string[] = (await trx.raw(`
+        SELECT DISTINCT cod FROM (
+          SELECT s.code AS cod
+            FROM finance.payment_allocation_items i
+            JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id
+            JOIN catalog.suppliers s ON s.id = o.supplier_id
+           WHERE i.allocation_id = :id AND i.obligation_source = 'supplier_payable'
+          UNION
+          SELECT v.proveedor AS cod
+            FROM finance.payment_allocation_items i
+            JOIN analytics.v_supplier_payables v ON ${KEPLER_PAYABLE_ID} = i.obligation_id
+           WHERE i.allocation_id = :id AND i.obligation_source = 'kepler_payable'
+        ) q WHERE cod IS NOT NULL`, { id: allocationId })).rows.map((r: { cod: string }) => String(r.cod).trim());
+
+      if (!codigos.length) return { ya_ligado: false, candidatos: [], motivo: 'Este pago no cubre facturas de proveedor: no hay documento de Kepler que buscarle.' };
+
+      const candidatos = await trx('analytics.erp_supplier_payments as p')
+        .where('p.tenant_id', tenantId)
+        .whereIn(trx.raw('btrim(p.proveedor_code)'), codigos)
+        .whereRaw('abs(p.monto::numeric - ?::numeric) <= 0.01', [a.amount_assigned])
+        .whereRaw("p.pago_date BETWEEN ?::date - 3 AND ?::date + 3", [a.lot_date, a.lot_date])
+        // Un documento que ya está ligado a otro pago no es candidato: el índice único lo
+        // rechazaría igual, pero ofrecerlo y fallar después es la peor forma de decir que no.
+        .whereNotExists(function () {
+          this.select(trx.raw('1')).from('finance.payment_allocations as x')
+            .whereRaw('x.kepler_payment_sucursal = p.sucursal AND x.kepler_payment_doc_prefix = p.doc_prefix')
+            .whereRaw('x.kepler_payment_folio = p.folio');
+        })
+        .select('p.sucursal', 'p.doc_prefix', 'p.folio', 'p.pago_date', 'p.proveedor_code', 'p.proveedor_nombre',
+                trx.raw('p.monto::numeric AS monto'))
+        .orderBy('p.pago_date', 'asc').limit(10);
+
+      return { ya_ligado: false, candidatos, unico: candidatos.length === 1 };
+    });
+  }
+
+  /**
    * `[TP.19.3]` **Liga un pago del Calendario con su documento en Kepler** (O3).
    *
    * Va aparte de `execute()` porque el dinero sale **antes** de que el ERP capture el documento:
