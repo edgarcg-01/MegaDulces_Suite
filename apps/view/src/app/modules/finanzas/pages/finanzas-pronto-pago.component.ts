@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -49,12 +50,14 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
 @Component({
   selector: 'app-finanzas-pronto-pago',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, SkeletonModule,
+  imports: [PagosTabsComponent, CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, SkeletonModule,
             ToastModule, DialogModule, DatePickerModule, InputNumberModule,
             MetricStripComponent, ContextHelpComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in pp-page">
       <p-toast></p-toast>
 

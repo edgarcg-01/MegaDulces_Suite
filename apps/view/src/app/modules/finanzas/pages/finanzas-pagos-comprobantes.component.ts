@@ -21,6 +21,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
 import { PagosCapturaLoteComponent, type LoteGuardado } from '../components/pagos-captura-lote.component';
 import { CRITERIOS_PAGO, ETIQUETA_CRITERIO_PAGO, type Chequeo } from '@megadulces/contracts';
 import { PagosComprobantesSocketService, PaymentProofEvent } from '../pagos-comprobantes-socket.service';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 /** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
 interface GastoFile {
@@ -40,10 +41,12 @@ interface GastoFile {
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent],
+  imports: [PagosTabsComponent, RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in">
       <p-toast />
       <header class="surf-page-head">
