@@ -2282,6 +2282,18 @@ flujo entero, no el archivo tocado.
   2 min; la pantalla dice «Precios y existencia de hace N min · actualizando…». Lo que se cobra no
   sale de la copia. Si el vendedor cambió a ver la camioneta, la recarga no pisa esa vista. Pruebas
   10 nuevas (reglas + pantalla, mutación verificada).
+- [ ] **[VTK.13]** 🧪 **Abrir un cliente sin viajes de red en serie (meta <500 ms).** *2026-10-16.*
+  Con [VTK.10]/[VTK.11] desplegados (prod en `ef2e0501c`) la apertura seguía arriba de 1 s: el
+  render ya está topado (120/60 filas) y el catálogo sale de memoria desde el 2º cliente, así que lo
+  que quedaba era la **cascada**: fuentes+cliente → listas de precio → catálogo, y borrador,
+  pendientes y habituales esperando a la 1ª ronda sin depender de ella (3–4 viajes encadenados por
+  apertura). Ahora todo lo independiente sale a la vez; el único encadenado es catálogo ← cliente, y
+  `my-stock-sources` (5 min) y `price-lists` (10 min) se reusan en la sesión → del 2º cliente en
+  adelante la apertura es **un solo viaje** en paralelo (`customers/:id`, `orders`×2,
+  `orders/frequent`). Prueba `vendor-apertura-paralela.spec.ts` (4), **roja contra el componente
+  viejo** y verde con el nuevo. ⚠️ **NO MEDIDO en prod** (sin acceso de lectura desde esta sesión):
+  falta el antes/después real en el celular tras desplegar. ⚠️ **Deuda ADR-056:** el memo
+  `VendorService.deSesion` es un primitivo nuevo que vive en la app, no en `libs/`.
 
 ### Fase EMB — El embarque de Kepler en la Suite (cabecera logística) · 2026-09-17
 
