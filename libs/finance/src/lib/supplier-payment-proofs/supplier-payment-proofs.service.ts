@@ -100,6 +100,25 @@ export interface AttachPaymentDto {
 export class SupplierPaymentProofsService {
   private readonly logger = new Logger(SupplierPaymentProofsService.name);
 
+  /**
+   * `[TP.19.3]` ¿Están ya las columnas que ligan un pago con el Calendario (mig `20261016185746`)?
+   *
+   * ⚠️ **Sólo se cachea el `true`.** Si se guardara el `false`, la liga no aparecería hasta
+   * reiniciar la API aunque la migración ya estuviera aplicada — el mismo cuidado que toma
+   * `purchase-deliveries.service.ts`, y por la misma razón: una migración se aplica con la API
+   * arriba.
+   */
+  private calendarioOk = false;
+  private async calendarioListo(trx: Knex.Transaction): Promise<boolean> {
+    if (this.calendarioOk) return true;
+    const { rows } = await trx.raw(`
+      SELECT EXISTS (SELECT 1 FROM pg_attribute
+                      WHERE attrelid = to_regclass('finance.payment_allocations')
+                        AND attname = 'kepler_payment_folio' AND NOT attisdropped) AS ok`);
+    this.calendarioOk = !!rows[0]?.ok;
+    return this.calendarioOk;
+  }
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -174,9 +193,41 @@ export class SupplierPaymentProofsService {
         .as('bk');
       const joinBank = (j: any) => { j.on('c.sucursal', 'bk.kepler_sucursal').andOn('c.doc_prefix', 'bk.kepler_doc_tipo').andOn('c.folio', 'bk.kepler_doc_folio'); };
 
+      /**
+       * `[TP.19.3]` **De qué día del Calendario salió este pago** (objetivo O3).
+       *
+       * Hasta aquí esta pantalla mostraba el pago como un hecho sin origen: aparecía en Kepler y
+       * nadie podía decir si venía de un día autorizado ni con qué folio de lote. La liga la
+       * guarda `finance.payment_allocations` (`kepler_payment_*`).
+       *
+       * ⛔ **Condicional a propósito.** Esta pantalla está EN USO (1,350 comprobantes medidos) y
+       * las columnas llegan con una migración que puede no estar aplicada todavía. Leerlas sin
+       * preguntar la tumbaría entera por una función que es un extra. Es el mismo patrón que
+       * `purchase-deliveries.service.ts` usa para sus columnas nuevas.
+       */
+      const conCalendario = await this.calendarioListo(trx);
+      const cal = conCalendario
+        ? trx('finance.payment_allocations as pa')
+            .join('finance.payment_calendar_lots as pl', 'pl.id', 'pa.lot_id')
+            .where('pa.tenant_id', tenantId).whereNotNull('pa.kepler_payment_folio')
+            .select(
+              'pa.kepler_payment_sucursal', 'pa.kepler_payment_doc_prefix', 'pa.kepler_payment_folio',
+              'pa.folio as cal_folio', 'pl.lot_date as cal_fecha', 'pl.folio as cal_lote',
+            ).as('cal')
+        : null;
+
       const b = trx('analytics.erp_supplier_payments as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
         .leftJoin(bank, joinBank)
+        .modify((q) => {
+          if (!cal) return;
+          q.leftJoin(cal, (j: any) => {
+            j.on('c.sucursal', 'cal.kepler_payment_sucursal')
+             .andOn('c.doc_prefix', 'cal.kepler_payment_doc_prefix')
+             .andOn('c.folio', 'cal.kepler_payment_folio');
+          });
+          q.select('cal.cal_folio', 'cal.cal_fecha', 'cal.cal_lote');
+        })
         .where('c.tenant_id', tenantId)
         .select(
           'c.sucursal', 'c.folio', 'c.doc_prefix', 'c.metodo_pago', 'c.pago_date', 'c.proveedor_code', 'c.proveedor_nombre',
@@ -226,8 +277,14 @@ export class SupplierPaymentProofsService {
         const refs: string[] = Array.isArray(r.refs) ? r.refs : [];
         const refDup = refs.some((x) => dupSet.has(x));
         const cuentaAjena = r.cuenta_ajena === true;
-        const { refs: _drop, ...rest } = r;
-        return { ...rest, monto: Number(r.monto), cuenta_ajena: cuentaAjena, ref_dup: refDup, alerta: cuentaAjena || refDup };
+        const { refs: _drop, cal_folio: _cf, cal_fecha: _cd, cal_lote: _cl, ...rest } = r;
+        // `[TP.19.3]` El origen, cuando lo hay: de qué día autorizado salió este pago y con qué
+        // folio. `null` es un estado legítimo y frecuente — la mayoría de los pagos de hoy no
+        // nacieron en el Calendario. Se declara ausente, no se inventa (ADR-056).
+        const origen = r.cal_folio
+          ? { folio: String(r.cal_folio), fecha: r.cal_fecha as string | null, lote: (r.cal_lote as string | null) ?? null }
+          : null;
+        return { ...rest, monto: Number(r.monto), cuenta_ajena: cuentaAjena, ref_dup: refDup, alerta: cuentaAjena || refDup, origen_calendario: origen };
       });
 
       const kpiBase = trx('analytics.erp_supplier_payments as c')

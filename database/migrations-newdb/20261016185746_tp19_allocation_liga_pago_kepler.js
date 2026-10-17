@@ -32,27 +32,37 @@
  * @param { import("knex").Knex } knex
  */
 
-const TABLA = 'finance.payment_allocations';
+const ESQUEMA = 'finance';
+const TABLA_SOLA = 'payment_allocations';
+const TABLA = `${ESQUEMA}.${TABLA_SOLA}`;
 const COLS = [
   ['kepler_payment_sucursal', 'text'],
   ['kepler_payment_doc_prefix', 'text'],
   ['kepler_payment_folio', 'text'],
+  // Quién y cuándo la ligó: sin esto no se puede distinguir una liga hecha por una persona de una
+  // que propuso el sistema, que es justo lo que permite medir si el cruce automático acierta.
+  ['kepler_payment_linked_at', 'timestamptz'],
+  ['kepler_payment_linked_by', 'text'],
 ];
+
+/**
+ * ⛔⛔ **`hasColumn('finance.payment_allocations', …)` MIENTE: devuelve `false` aunque la columna
+ * exista.** Knex trata el argumento como el nombre de la tabla, no como `esquema.tabla`, así que
+ * busca una tabla llamada literalmente «finance.payment_allocations» en el `search_path`.
+ *
+ * Medido el 2026-10-16: con la columna ya creada, `hasColumn('finance.payment_allocations', 'x')`
+ * → **false**, y `withSchema('finance').hasColumn('payment_allocations', 'x')` → **true**. Escrito
+ * de la primera forma, esta migración **no era idempotente**: a la segunda corrida moría con
+ * `column … already exists`. Lo cazó el spec de integración al reaplicarla.
+ */
+const tieneColumna = (knex, col) => knex.schema.withSchema(ESQUEMA).hasColumn(TABLA_SOLA, col);
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
   for (const [col, tipo] of COLS) {
-    if (!(await knex.schema.hasColumn(TABLA, col))) {
+    if (!(await tieneColumna(knex, col))) {
       await knex.raw(`ALTER TABLE ${TABLA} ADD COLUMN ${col} ${tipo}`);
     }
-  }
-  // Quién y cuándo lo ligó: sin esto no se puede distinguir una liga hecha por una persona de una
-  // que propuso el sistema, que es justo lo que permite medir si el cruce automático acierta.
-  if (!(await knex.schema.hasColumn(TABLA, 'kepler_payment_linked_at'))) {
-    await knex.raw(`ALTER TABLE ${TABLA} ADD COLUMN kepler_payment_linked_at timestamptz`);
-  }
-  if (!(await knex.schema.hasColumn(TABLA, 'kepler_payment_linked_by'))) {
-    await knex.raw(`ALTER TABLE ${TABLA} ADD COLUMN kepler_payment_linked_by text`);
   }
   // Un mismo documento de Kepler no puede estar ligado a dos pagos del calendario: sería contar
   // dos veces la misma salida de dinero. Parcial, porque lo NO ligado (NULL) es lo normal.
@@ -65,7 +75,7 @@ exports.up = async function up(knex) {
 /** Deshace EXACTAMENTE lo que hizo el `up`. */
 exports.down = async function down(knex) {
   await knex.raw(`DROP INDEX IF EXISTS finance.payment_allocations_kepler_doc_uniq`);
-  for (const col of ['kepler_payment_linked_by', 'kepler_payment_linked_at', ...COLS.map(([c]) => c)]) {
-    if (await knex.schema.hasColumn(TABLA, col)) await knex.raw(`ALTER TABLE ${TABLA} DROP COLUMN ${col}`);
+  for (const [col] of COLS) {
+    if (await tieneColumna(knex, col)) await knex.raw(`ALTER TABLE ${TABLA} DROP COLUMN ${col}`);
   }
 };
