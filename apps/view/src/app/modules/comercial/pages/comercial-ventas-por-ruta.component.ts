@@ -30,6 +30,7 @@ import {
   VecinalConciliacionFila,
   VecinalVeredicto,
   RouteCreditSales,
+  RouteCreditSaleRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -745,26 +746,88 @@ const MES: Record<string, string> = {
                             }
                           </td>
                           <!-- ⛔ Un dia SIN credito muestra guion, no $0: "no facturo a credito"
-                               y "facturo cero" no son lo mismo. -->
+                               y "facturo cero" no son lo mismo.
+                               [VEC.31] Las tres celdas ABREN el dia: «1 vencida(s)» sin decir
+                               CUAL no deja hacer nada con el dato. Los documentos ya viajan en la
+                               misma respuesta, asi que el detalle no cuesta una consulta mas. -->
                           <td class="comm-num rr-mono" role="cell" data-label="A crédito">
                             @if (!d.credito) { <span class="rr-tenue">—</span> }
-                            @else { {{ d.credito | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                            @else {
+                              <button type="button" class="rr-drill" (click)="verCredito(d.date)"
+                                      [attr.aria-expanded]="creditoAbierto() === d.date"
+                                      [attr.aria-label]="'Ver las facturas a crédito del ' + d.date">
+                                {{ d.credito | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                              </button>
+                            }
                           </td>
                           <td class="comm-num rr-mono" role="cell" data-label="Cobrado">
                             @if (!d.credito) { <span class="rr-tenue">—</span> }
-                            @else { {{ d.credito_cobrado | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                            @else {
+                              <button type="button" class="rr-drill" (click)="verCredito(d.date)">
+                                {{ d.credito_cobrado | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                              </button>
+                            }
                           </td>
                           <td class="comm-num rr-mono rr-strong" role="cell" data-label="Por cobrar"
                               [class.rr-bad]="d.credito_vencidas > 0">
                             @if (!d.credito) { <span class="rr-tenue">—</span> }
                             @else {
-                              {{ d.credito_saldo | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                              @if (d.credito_vencidas) {
-                                <span class="rr-nota"> · {{ d.credito_vencidas }} vencida(s)</span>
-                              }
+                              <button type="button" class="rr-drill" (click)="verCredito(d.date)">
+                                {{ d.credito_saldo | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                                @if (d.credito_vencidas) {
+                                  <!-- ⭐ El numero que mueve a alguien a hacer algo, y ahora lleva
+                                       a QUE hacer: abre la lista con folio, cliente y dias. -->
+                                  <span class="rr-nota">· {{ d.credito_vencidas }} vencida(s)</span>
+                                }
+                              </button>
                             }
                           </td>
                         </tr>
+                        @if (creditoAbierto() === d.date) {
+                          <tr class="rr-drillrow">
+                            <td [attr.colspan]="8">
+                              @if (facturasDelDia(d.date); as fs) {
+                                <div class="rr-fac">
+                                  <div class="rr-fac-head">
+                                    <strong>Facturas a crédito del {{ d.date }}</strong>
+                                    <button type="button" class="rr-cerrar" (click)="verCredito(d.date)"
+                                            aria-label="Cerrar el detalle">Cerrar</button>
+                                  </div>
+                                  @for (f of fs; track f.folio) {
+                                    <div class="rr-fac-row" [class.rr-bad]="f.cobranza === 'vencida'">
+                                      <span class="rr-mono rr-strong">{{ f.folio }}</span>
+                                      <span class="rr-tenue">cliente {{ f.cliente_code ?? '—' }}</span>
+                                      <span>{{ etiquetaCobranza(f) }}</span>
+                                      <span class="rr-mono">vence {{ f.vence ?? '—' }}</span>
+                                      <span class="comm-num rr-mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                                      <span class="comm-num rr-mono rr-strong">
+                                        saldo {{ f.saldo | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                                      </span>
+                                      <!-- ⛔ Sin abonos NO se escribe «efectivo»: se dice que no se
+                                           cobro. Y un abono sin cuenta se declara, no se adivina. -->
+                                      <span class="rr-tenue">
+                                        @if (!f.abonos.length) { todavía no se cobró }
+                                        @else {
+                                          @for (a of f.abonos; track a.folio) {
+                                            <span>{{ a.folio }}
+                                              @if (a.cuenta) { → <strong>{{ a.cuenta }}</strong> }
+                                              @else { <span class="rr-warn">→ sin cuenta resuelta</span> }
+                                            </span>
+                                          }
+                                        }
+                                      </span>
+                                    </div>
+                                  }
+                                </div>
+                              } @else {
+                                <p class="rr-dep-sub rr-tenue">
+                                  Ese día tiene importe a crédito pero no llegó el detalle de los
+                                  documentos. No se inventa: falta el dato.
+                                </p>
+                              }
+                            </td>
+                          </tr>
+                        }
                       </ng-template>
                     </p-table>
                     </div>
@@ -890,6 +953,24 @@ const MES: Record<string, string> = {
     .rr-warn { color:var(--warn-fg); }
     .rr-ok { color:var(--ok-fg); }
     .rr-nota { font-size:var(--fs-micro); }
+    /* [VEC.31] La celda que se puede abrir se ve como tal: subrayado punteado, no un
+       boton que compita con la cifra. Hereda color para que el rojo de «vencida» gane. */
+    .rr-drill { border:0; background:transparent; padding:0; font:inherit; color:inherit;
+      cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+    .rr-drill:hover { text-decoration:underline solid; }
+    .rr-drill:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:2px; }
+    .rr-drillrow > td { background:var(--overlay-hover); padding:var(--sp-2) var(--sp-3); }
+    .rr-fac-head { display:flex; align-items:center; gap:var(--sp-2);
+      margin-bottom:var(--sp-2); font-size:var(--fs-sm); }
+    .rr-cerrar { margin-left:auto; border:1px solid var(--border-color); background:transparent;
+      border-radius:var(--r-sm); padding:2px var(--sp-2); font:inherit;
+      font-size:var(--fs-micro); color:var(--text-muted); cursor:pointer; }
+    .rr-cerrar:hover { background:var(--overlay-hover); }
+    /* Una fila por factura. @container para que en angosto apile en vez de recortar. */
+    .rr-fac-row { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3);
+      align-items:baseline; padding:var(--sp-1) 0; font-size:var(--fs-micro);
+      border-top:1px solid var(--border-color); }
+    .rr-fac-row:first-of-type { border-top:0; }
     .rr-dep-warn { border-color: color-mix(in srgb, var(--warn-fg) 38%, var(--border-color)); }
     .rr-dep-warn .pi { color: var(--warn-fg); }
     .rr-dep-bad-txt { color: var(--bad-fg); }
@@ -953,7 +1034,7 @@ const MES: Record<string, string> = {
     .rr-rhythm-head span { display:block; font-size:.78rem; font-weight:700; color:var(--text-main); }
     .rr-rhythm-head p, .rr-rhythm-head small { margin:.1rem 0 0; font-size:.65rem; color:var(--text-muted); }
     .rr-rhythm-head small { max-width:27rem; text-align:right; font-variant-numeric:tabular-nums; }
-    @media (max-width:40rem) {
+    @container (max-width:40rem) {
       .rr-rhythm-head { align-items:flex-start; flex-direction:column; }
       .rr-rhythm-head small { text-align:left; }
     }
@@ -1189,6 +1270,44 @@ export class ComercialVentasPorRutaComponent {
    */
   creditoData = signal<RouteCreditSales | null>(null);
   creditoError = signal<string | null>(null);
+
+  /**
+   * `[VEC.31]` El día cuyo detalle de crédito está abierto. `null` = ninguno.
+   *
+   * Edgar, 2026-10-16: *«me dice una vencida pero no sé cuál»*. Un contador sin el detalle
+   * detrás no deja hacer nada: el número que alarma tiene que llevar a la factura que lo causa.
+   *
+   * ⭐ Uno a la vez a propósito. La tabla ya trae 8 columnas; abrir varios días la convierte en
+   * una lista larga donde se pierde justamente la fila que se estaba mirando.
+   */
+  readonly creditoAbierto = signal<string | null>(null);
+
+  /** Abre o cierra el día. Click sobre el que ya está abierto = cerrar. */
+  verCredito(date: string) {
+    this.creditoAbierto.update((d) => (d === date ? null : date));
+  }
+
+  /**
+   * Las facturas de ese día. ⛔ Devuelve `null` —no `[]`— cuando no hay ninguna: la plantilla
+   * distingue «no llegó el detalle» de «no hay», que es la diferencia que ADR-056 exige.
+   */
+  facturasDelDia(date: string): RouteCreditSaleRow[] | null {
+    const fs = (this.creditoData()?.filas ?? []).filter((f) => f.fecha === date);
+    return fs.length ? fs : null;
+  }
+
+  /**
+   * ⛔ CUATRO etiquetas, no tres. `sin_vencimiento` no es «vigente»: es que el cargo no trae
+   * fecha y no hay con qué juzgarlo.
+   */
+  etiquetaCobranza(f: RouteCreditSaleRow): string {
+    switch (f.cobranza) {
+      case 'cobrada': return 'Cobrada';
+      case 'vencida': return f.dias_vencida === null ? 'VENCIDA' : `VENCIDA hace ${f.dias_vencida} d`;
+      case 'vigente': return f.dias_vencida === null ? 'Vigente' : `vence en ${-f.dias_vencida} d`;
+      default: return 'Sin vencimiento';
+    }
+  }
 
   /**
    * Las filas día-caja donde participó ESTA ruta.

@@ -129,3 +129,69 @@ describe('VEC.24 · el arqueo de la vecinal no se hereda entre rutas', () => {
     expect(cmp.arqDias().length).toBe(0);
   });
 });
+
+/**
+ * `[VEC.31]` — **«1 vencida(s)» tiene que decir CUÁL.**
+ *
+ * Edgar, 2026-10-16, mirando la pantalla: *«me dice una vencida pero no sé cuál»*. Un contador
+ * sin el documento detrás no deja hacer nada: el número que alarma tiene que llevar a la factura.
+ *
+ * ⭐ Se afirma sobre las FACTURAS que la pantalla mostraría, no sobre el estado del acordeón:
+ * `creditoAbierto() === fecha` seguiría verde aunque el filtro trajera las facturas del día
+ * equivocado — que es exactamente la clase de defecto que `[VEC.24]` acaba de costar.
+ */
+describe('VEC.31 · el crédito del día se abre y nombra sus facturas', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const fac = (folio: string, fecha: string, extra: Record<string, unknown> = {}) => ({
+    warehouse_code: '01', warehouse_name: 'Padre Hidalgo', route_no: '1V001', route_name: null,
+    folio, fecha, vence: fecha, cliente_code: 'C1', importe: 1000, neto: 1000,
+    cobrado: 0, saldo: 1000, cobranza: 'vigente', dias_vencida: null, abonos: [], ...extra,
+  });
+
+  it('⛔ abre SÓLO las facturas de ese día, y nombra la vencida', () => {
+    const { cmp } = montar();
+    cmp.openRoute(ruta('1V001'));
+    cmp.creditoData.set({
+      filas: [
+        fac('0001595', '2026-10-08', { cobranza: 'vencida', dias_vencida: 6, saldo: 6424 }),
+        fac('0001618', '2026-10-12'),
+      ],
+      summary: null,
+    } as never);
+
+    // Antes de abrir no hay detalle: la fila no se expande sola.
+    expect(cmp.creditoAbierto()).toBeNull();
+
+    cmp.verCredito('2026-10-08');
+    const fs = cmp.facturasDelDia('2026-10-08');
+    expect(fs?.length).toBe(1);
+    expect(fs?.[0].folio).toBe('0001595');
+    // ⭐ Lo que el usuario fue a buscar: cuál, y hace cuánto.
+    expect(cmp.etiquetaCobranza(fs![0])).toBe('VENCIDA hace 6 d');
+
+    // El día de al lado NO se cuela.
+    expect(cmp.facturasDelDia('2026-10-12')?.[0].folio).toBe('0001618');
+  });
+
+  it('⛔ un día sin facturas devuelve null, no una lista vacía', () => {
+    // ADR-056: «no llegó el detalle» y «no hay» se dicen distinto. Con `[]` la plantilla
+    // pintaría un bloque vacío, que se lee como «este día no facturó» — y puede ser que el
+    // detalle no haya llegado.
+    const { cmp } = montar();
+    cmp.openRoute(ruta('1V001'));
+    cmp.creditoData.set({ filas: [fac('0001618', '2026-10-12')], summary: null } as never);
+    expect(cmp.facturasDelDia('2026-10-09')).toBeNull();
+  });
+
+  it('⛔ el mismo click cierra: no quedan dos días abiertos a la vez', () => {
+    const { cmp } = montar();
+    cmp.openRoute(ruta('1V001'));
+    cmp.verCredito('2026-10-08');
+    expect(cmp.creditoAbierto()).toBe('2026-10-08');
+    cmp.verCredito('2026-10-12');
+    expect(cmp.creditoAbierto()).toBe('2026-10-12');
+    cmp.verCredito('2026-10-12');
+    expect(cmp.creditoAbierto()).toBeNull();
+  });
+});
