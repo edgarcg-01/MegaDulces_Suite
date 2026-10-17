@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
+import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
@@ -30,6 +31,32 @@ export function keplerPayableId(sucursal: string, docTipo: number | string, docS
 
 /** La MISMA llave de {@link keplerPayableId}, en SQL. `v` = alias de `analytics.v_supplier_payables`. */
 const KEPLER_PAYABLE_ID = `md5('kepler_payable|'||v.sucursal||'|'||v.doc_tipo||'|'||v.doc_sub||'|'||v.folio)::uuid`;
+
+/**
+ * `[TP.17.1b]` **Un crédito bancario no es mercancía** (ADR-094 §7).
+ *
+ * La deuda derivada trae TODO lo que el ERP debe, y ahí adentro hay dos naturalezas que el
+ * Calendario trata distinto: medido el 2026-10-16, **41 documentos por $38,012,268** son créditos
+ * BBVA y BanBajío, préstamos de personas físicas y tarjetas — contra 2,870 de proveedor. Si entran
+ * como `proveedor_mercancia`, un crédito se puede agrupar en el mismo pago que una factura de
+ * dulces y **pierde su lugar en el orden** (los compromisos financieros se pagan primero).
+ *
+ * ⛔ **El criterio NO se reescribe acá**: es el de `clasificarAcreedor()` del Estado de Cuenta de
+ * Acreedores, que ya está en producción. Lo que se hace es **generar el SQL desde sus mismas
+ * constantes**, para que agregar un prefijo o un grupo en el engine cambie también esta consulta.
+ * Una copia a mano sería la sexta familia de constantes duplicadas del repo.
+ *
+ * ⚠️ Lo que **sí** es decisión de esta fase, y queda dicha: `servicios` y `sin_clasificar` van a
+ * `proveedor_mercancia`. No es que sean mercancía — es que **se pagan por el mismo circuito** (una
+ * factura del ERP a un tercero), mientras que `gasto` está reservado para lo que autorizó
+ * Presupuestos por su propio camino. Los `interno` (`TI*`) ya quedaron fuera: no son deuda.
+ */
+function sqlClassificationKepler(codigo: string, grupo: string): string {
+  const porPrefijo = PREFIJOS_FINANCIEROS.map((p) => `upper(btrim(${codigo})) LIKE '${p}%'`).join(' OR ');
+  const porGrupo = GRUPOS_FINANCIEROS.map((g) => `btrim(coalesce(${grupo}, '')) = '${g}'`).join(' OR ');
+  return `CASE WHEN (${porGrupo}) OR (${porPrefijo})
+               THEN 'compromiso_financiero'::text ELSE 'proveedor_mercancia'::text END`;
+}
 
 /**
  * `[TP.16]` Los 7 días (lunes→domingo) de la semana que contiene `date`. Aritmética en UTC sobre
@@ -115,10 +142,22 @@ const CLASSIFICATION_BY_SOURCE: Record<ObligationSource, string> = {
   budget_expense: 'gasto',
   financial_commitment: 'compromiso_financiero',
   supplier_payable: 'proveedor_mercancia',
-  // Misma clasificación que la capturada a propósito: las dos son facturas de proveedor, y un
-  // pago puede cubrir una de cada una del mismo beneficiario y sucursal (ADR-094 §5).
+  // ⚠️ Sólo el FALLBACK del origen derivado. Su clasificación real sale de la FILA
+  // (`[TP.17.1b]`: un crédito bancario es `compromiso_financiero`), y se lee con
+  // {@link classificationOf} — nunca de este mapa directamente.
   kepler_payable: 'proveedor_mercancia',
 };
+
+/**
+ * `[TP.17.1b]` La clasificación de una obligación. Para los tres orígenes con tabla la fija el
+ * origen; para el derivado **la trae la fila**, porque un mismo origen entrega facturas de
+ * proveedor y créditos bancarios, que no se pagan juntos ni en el mismo orden.
+ */
+function classificationOf(source: ObligationSource, row: { classification?: unknown }): string {
+  if (source !== 'kepler_payable') return CLASSIFICATION_BY_SOURCE[source];
+  const c = String(row.classification ?? '').trim();
+  return c || CLASSIFICATION_BY_SOURCE.kepler_payable;
+}
 
 export interface AllocationItemDto { obligation_source: ObligationSource; obligation_id: string; applied_amount: number }
 export interface CreateAllocationDto { date: string; items: AllocationItemDto[]; priority_rank?: number | null; notes?: string | null }
@@ -256,6 +295,9 @@ export class PaymentCalendarService {
         trx.raw('? AS id', [id]),
         trx.raw(`'pending'::text AS status`),
         trx.raw('v.pendiente AS original_amount'),
+        // `[TP.17.1b]` La clasificación viaja con la fila: para este origen NO sale de
+        // `CLASSIFICATION_BY_SOURCE`, porque depende del acreedor y no del origen.
+        trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo')} AS classification`),
         's.id AS supplier_id',
         trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
         trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
@@ -367,7 +409,11 @@ export class PaymentCalendarService {
           trx.raw(`'kepler_payable'::text AS obligation_source`), trx.raw(`${KEPLER_PAYABLE_ID} AS obligation_id`),
           trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
           trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
-          trx.raw(`'proveedor_mercancia'::text AS classification`), trx.raw(`'mercancia'::text AS subtype`),
+          // `[TP.17.1b]` La clasificación sale de QUIÉN es el acreedor, no del origen: un crédito
+          // bancario y una factura de dulces llegan por la misma vista y no se pagan igual.
+          trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo')} AS classification`),
+          trx.raw(`CASE WHEN ${sqlClassificationKepler('v.proveedor', 'v.grupo')} = 'compromiso_financiero'
+                        THEN 'financiero'::text ELSE 'mercancia'::text END AS subtype`),
           trx.raw('v.proveedor AS area_code'), trx.raw('v.vencimiento AS original_due_date'),
           trx.raw('NULL::date AS negotiated_date'), trx.raw('v.pendiente AS original_amount'),
           // ⚠️ `coalesce` acá y no dentro del agregado: con LEFT JOIN, una factura SIN reserva no
@@ -556,7 +602,7 @@ export class PaymentCalendarService {
         const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
         if (Number(it.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
         await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount));
-        classifications.add(CLASSIFICATION_BY_SOURCE[it.obligation_source]);
+        classifications.add(classificationOf(it.obligation_source, row));
         const k = paymentGroupKey(it.obligation_source, row);
         payees.add(k.payee);
         branches.add(k.branch);
@@ -593,9 +639,12 @@ export class PaymentCalendarService {
       // `createAllocation` ya lo impedía para pagos nuevos; aquí faltaba.
       const itemLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
       if (itemLot && LOCKED_LOT_STATUSES.has(itemLot.status)) throw new BadRequestException('El día ya fue autorizado: no se le pueden sumar facturas a sus pagos (agrégalas a otro día).');
-      if (CLASSIFICATION_BY_SOURCE[item.obligation_source] !== allocation.classification) throw new BadRequestException('La obligación no coincide con la clasificación de este pago');
       const row = await this.loadObligationRow(trx, tenantId, item.obligation_source, item.obligation_id);
       if (!row) throw new NotFoundException('Obligación no encontrada');
+      // `[TP.17.1b]` Va DESPUÉS de cargar la fila, y no antes como hasta ahora: la clasificación
+      // del origen derivado vive en la fila (un crédito bancario no es una factura de mercancía),
+      // así que no se puede decidir con sólo mirar el `obligation_source`.
+      if (classificationOf(item.obligation_source, row) !== allocation.classification) throw new BadRequestException('La obligación no coincide con la clasificación de este pago');
       const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
       if (Number(item.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
       await this.assertKeplerBalance(trx, item.obligation_source, row, Number(item.applied_amount));

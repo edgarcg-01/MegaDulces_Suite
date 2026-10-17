@@ -297,6 +297,36 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       expect(it0!.branch_code).toBe('06');
     });
 
+    // ── `[TP.17.1b]` Un crédito bancario NO es mercancía ────────────────────────────────────
+    // Los $38 M de créditos, préstamos y tarjetas llegan por la MISMA vista que las facturas de
+    // dulces. Si entraran como `proveedor_mercancia` se podrían agrupar en el mismo pago y
+    // perderían su lugar en el orden (los compromisos financieros se pagan primero).
+    // ⚠️ La clave ARRANCA con `A` a propósito, y no es un detalle del dato de prueba: en la regla
+    // del ECA lo financiero se reconoce por **prefijo de clave** (`A`, `TC`, `B.B.`) o por el
+    // grupo **140**. El grupo **120, que se llama «Instituciones financieras», NO cuenta** — los
+    // 12 acreedores financieros reales de prod se detectan todos por prefijo. Si alguien da de
+    // alta un banco con clave `G*` y grupo 120, esta clasificación lo leerá como proveedor.
+    it('un acreedor financiero se deriva como compromiso_financiero, no como proveedor', async () => {
+      await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: 'ATPIT999', c3: 'TPIT ACREEDOR BANCO DE PRUEBA', c13: '120' });
+      await trx('kepler_ods.kdxe').insert({ sucursal: '06', c1: '06', c2: 'ATPIT999', c3: 'A', c4: 20, c5: 1, c6: 'TPIT-CRED1', c7: '2030-01-08 00:00:00', c10: '2030-01-08 00:00:00', c11: 50000 });
+      const rows = await cal.listObligations({ search: 'TPIT ACREEDOR BANCO' }) as { classification: string; subtype: string; obligation_source: string }[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0].obligation_source).toBe('kepler_payable');
+      expect(rows[0].classification).toBe('compromiso_financiero');
+      expect(rows[0].subtype).toBe('financiero');
+    });
+
+    it('⛔ y por eso NO se puede juntar con una factura de proveedor en el mismo pago', async () => {
+      const credito = keplerPayableId('06', 20, 1, 'TPIT-CRED1');
+      await expect(cal.addItem(a3, { obligation_source: 'kepler_payable', obligation_id: credito, applied_amount: 50000 }, USER))
+        .rejects.toThrow(/clasificación/i);
+    });
+
+    it('la factura de mercancía del mismo origen sigue siendo proveedor_mercancia', async () => {
+      const rows = await cal.listObligations({ search: 'TPIT', onlyAvailable: false }) as { obligation_id: string; classification: string }[];
+      expect(rows.find((r) => r.obligation_id === keplerId)!.classification).toBe('proveedor_mercancia');
+    });
+
     it('⭐ el camino COMPLETO de escritura: ordenar → preparar → autorizar → ejecutar', async () => {
       await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D3, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
       await cal.setPriorityRank(a3, 1, USER);
