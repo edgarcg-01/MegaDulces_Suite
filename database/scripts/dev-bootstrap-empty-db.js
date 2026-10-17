@@ -388,6 +388,44 @@ async function main() {
   }
   if (intento >= o.maxIter) { console.error(`⛔ Tope de ${o.maxIter} intentos.`); process.exit(1); }
 
+  /**
+   * ── Matvistas: una creada `WITH NO DATA` **no se puede CONSULTAR** ──────────────────────────
+   *
+   * ⛔ No es que devuelva cero filas: Postgres rechaza el `SELECT` con
+   * `55000 — materialized view "X" has not been populated`. O sea que una matvista sin poblar no
+   * es un dato vacío, es **una pantalla entera caída**, y el error no nombra a la pantalla.
+   *
+   * Medido el 2026-10-16: en una base recién levantada por este script quedaban **8 de 21** sin
+   * poblar; en prod, **0 de 58** (allá se refrescaron hace rato). Por eso el defecto sólo aparece
+   * en bases nuevas — las de desarrollo y **la del job `pruebas-db` del CI**, que es justo donde
+   * se supone que corren las pruebas contra base real. Se encontró porque toda consulta de Pronto
+   * pago fallaba contra esta base, con un error que no mencionaba a Pronto pago.
+   *
+   * Refrescarlas acá es barato (están vacías) y deja la base **consultable**. La que no pueda
+   * refrescarse se DECLARA en `_dev_bootstrap_log` en vez de quedar como una mina.
+   */
+  const sinPoblar = (await c.query(`
+    SELECT n.nspname AS esquema, c.relname AS nombre
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind = 'm' AND NOT c.relispopulated
+     ORDER BY 1, 2`)).rows;
+  let refrescadas = 0;
+  const mvFallidas = [];
+  for (const { esquema, nombre } of sinPoblar) {
+    try {
+      await c.query(`REFRESH MATERIALIZED VIEW ${esquema}.${nombre}`);
+      refrescadas++;
+    } catch (e) {
+      mvFallidas.push(`${esquema}.${nombre}`);
+      await log('matvista-sin-poblar', `${esquema}.${nombre}`,
+        `No se pudo refrescar: ${e.message}. ⛔ Cualquier SELECT sobre ella falla con 55000, no devuelve vacío.`);
+    }
+  }
+  if (sinPoblar.length) {
+    console.log(`\n   Matvistas: ${refrescadas}/${sinPoblar.length} refrescadas (sin poblar = no consultable, 55000).`);
+    if (mvFallidas.length) console.log(`     ⛔ sin poblar, DECLARADAS en _dev_bootstrap_log: ${mvFallidas.join(', ')}`);
+  }
+
   const total = Number((await c.query('select count(*) n from public.knex_migrations')).rows[0].n);
   await c.end();
 
