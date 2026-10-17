@@ -44,7 +44,29 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('es-MX', { minimumFract
 const pad = (s, n) => String(s ?? '').padEnd(n);
 const padL = (s, n) => String(s ?? '').padStart(n);
 
-/** El descuento tal como lo aplica el servicio HOY (acotado a CAOS). */
+/**
+ * ⛔⛔ **CORREGIDO el 2026-10-16, mismo día, después de desplegar `[CGA-A.10]`: esta compuerta
+ * estaba contando SIETE FALSOS POSITIVOS.**
+ *
+ * La versión anterior marcaba la colisión con
+ * `yac.origen_ref IS NULL OR yac.origen_ref <> v.origen_ref`. Eso tenía sentido **antes** de que
+ * existiera `declared_doc_ref`: el `origen_ref` de una captura desde CAOS es `device|external_id`,
+ * así que **nunca** puede ser igual al `sucursal|doc_tipo|folio|cuenta` del documento — la
+ * condición daba verdadero siempre, y toda fila descontada se reportaba como «escondida»,
+ * incluidas las que la captura **declara correctamente**.
+ *
+ * Medido al corregirlo: **16 · $211,548.14 → 9 · $155,363.19.** Los 7 de diferencia eran
+ * capturas sanas, con su `declared_doc_ref` puesto, haciendo exactamente lo que deben.
+ *
+ * ⭐ La lección vale más que el arreglo: **una compuerta hereda las suposiciones del mundo en
+ * que nació.** Cuando el mundo cambió —apareció la llave—, la compuerta siguió midiendo lo
+ * viejo y lo publicó con la misma confianza. Al cambiar el modelo hay que **re-mirar lo que lo
+ * vigila**, no sólo lo que lo usa.
+ *
+ * Lo que se busca ahora es lo único que sigue siendo un defecto: una fila que desaparece porque
+ * el descuento cayó a la **rama vieja del `LIKE`** —la captura no declaró documento— y la glosa
+ * coincidió por casualidad de `doc_tipo + folio`.
+ */
 const DEDUP_BUENO = `yac.origen_tipo = 'caos' AND `;
 /** El descuento ROTO: sin acotar, mira cualquier fila del libro. */
 const DEDUP_ROTO = '';
@@ -57,9 +79,10 @@ const escondidos = (dedup) => `
        SELECT 1 FROM finance.cash_ledger yac
         WHERE yac.tenant_id = v.tenant_id
           AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-          AND ${dedup} yac.glosa LIKE v.doc_tipo || ' ' || v.folio || '%'
-          -- La colisión: el libro tiene ESE doc_tipo+folio, pero de OTRA identidad.
-          AND (yac.origen_ref IS NULL OR yac.origen_ref <> v.origen_ref))`;
+          -- ⭐ La captura NO declaro documento: el descuento cae al LIKE y tapa por SEMEJANZA.
+          --    Si declaro (declared_doc_ref), tapa por LLAVE, y eso NO es esconder.
+          AND yac.declared_doc_ref IS NULL
+          AND ${dedup} yac.glosa LIKE v.doc_tipo || ' ' || v.folio || '%')`;
 
 async function main(c) {
   const { rows } = await c.query(escondidos(DEDUP_BUENO), [TENANT]);
