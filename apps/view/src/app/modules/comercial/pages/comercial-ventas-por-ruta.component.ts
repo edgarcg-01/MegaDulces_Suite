@@ -717,19 +717,44 @@ const MES: Record<string, string> = {
                       <ng-template #body let-d>
                         <tr>
                           <td class="rr-mono" role="cell" data-label="Día">{{ d.date }}</td>
-                          <td class="comm-num rr-mono rr-strong" role="cell" data-label="Venta de la ruta">{{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <!-- [VEC.32] Abre los TICKETS de ese dia. Reusa drillDay(), que es el
+                               mismo camino que ya usa la pestaña «Por dia»: no se inventa un
+                               segundo modo de ver lo mismo. -->
+                          <td class="comm-num rr-mono rr-strong" role="cell" data-label="Venta de la ruta">
+                            @if (!d.venta_ruta) { <span class="rr-tenue">—</span> }
+                            @else {
+                              <button type="button" class="rr-drill" (click)="drillDay(d.date)"
+                                      [attr.aria-label]="'Ver los tickets del ' + d.date">
+                                {{ d.venta_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                              </button>
+                            }
+                          </td>
                           <!-- El deposito SE MUESTRA SIEMPRE: es un hecho de la caja y existe
-                               aunque no se pueda atribuir a esta ruta sola. -->
+                               aunque no se pueda atribuir a esta ruta sola.
+                               [VEC.32] Y ABRE las cajas de ese dia: el renglon suma sobre ellas,
+                               asi que «$24,419» es la suma de cajas que el usuario no ve. Ahi
+                               esta el turno, el esperado, el contado y de quien es cada caja. -->
                           <td class="comm-num rr-mono" role="cell" data-label="Depósito">
                             @if (d.deposito === null) { <span class="rr-tenue">—</span> }
-                            @else { {{ d.deposito | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                            @else {
+                              <button type="button" class="rr-drill" (click)="verCajas(d.date)"
+                                      [attr.aria-expanded]="cajasAbierto() === d.date"
+                                      [attr.aria-label]="'Ver el arqueo de las cajas del ' + d.date">
+                                {{ d.deposito | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                              </button>
+                            }
                           </td>
                           <td class="comm-num rr-mono"
                               [class.rr-bad]="d.estado === 'falta'"
                               [class.rr-warn]="d.estado === 'sobra'" role="cell" data-label="Δ">
                             @if (d.diff === null) { <span class="rr-tenue">—</span> }
-                            @else if (d.estado === 'cuadra') { 0 }
-                            @else { {{ d.diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                            @else {
+                              <button type="button" class="rr-drill" (click)="verCajas(d.date)"
+                                      [attr.aria-label]="'Ver de qué caja sale la diferencia del ' + d.date">
+                                @if (d.estado === 'cuadra') { 0 }
+                                @else { {{ d.diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                              </button>
+                            }
                           </td>
                           <td role="cell" data-label="Cuadre">
                             @switch (d.estado) {
@@ -783,6 +808,60 @@ const MES: Record<string, string> = {
                             }
                           </td>
                         </tr>
+                        @if (cajasAbierto() === d.date) {
+                          <tr class="rr-drillrow">
+                            <td [attr.colspan]="8">
+                              <div class="rr-fac">
+                                <div class="rr-fac-head">
+                                  <strong>Arqueo de las cajas del {{ d.date }}</strong>
+                                  <button type="button" class="rr-cerrar" (click)="verCajas(d.date)"
+                                          aria-label="Cerrar el detalle">Cerrar</button>
+                                </div>
+                                <!-- ⛔ Una fila por CAJA, que es el grano real de cash_cuts
+                                     (sucursal, caja, turno). El renglon de arriba las suma. -->
+                                @for (f of cajasDelDia(d.date); track f.caja) {
+                                  <div class="rr-fac-row"
+                                       [class.rr-bad]="f.veredicto === 'faltante'"
+                                       [class.rr-warn]="f.veredicto === 'sobrante'">
+                                    <span class="rr-mono rr-strong">Caja {{ f.caja }}</span>
+                                    <span>{{ etiquetaArqueo(f.veredicto) }}</span>
+                                    <span class="rr-tenue">rutas: {{ f.rutas.join(' · ') }}</span>
+                                    <span class="comm-num rr-mono">
+                                      esta ruta
+                                      @if (f.vecinal_ruta === null) { <span class="rr-tenue">—</span> }
+                                      @else { {{ f.vecinal_ruta | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                                    </span>
+                                    <span class="comm-num rr-mono rr-tenue">
+                                      vecinal de la caja {{ f.vecinal | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                                    </span>
+                                    <!-- ⛔ Un nulo NO se dibuja como 0: «nadie cerro la caja» y
+                                         «se conto cero» son cosas distintas (ADR-056). -->
+                                    <span class="comm-num rr-mono">
+                                      esperado
+                                      @if (f.efectivo_esperado === null) { <span class="rr-tenue">sin arqueo</span> }
+                                      @else { {{ f.efectivo_esperado | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                                    </span>
+                                    <span class="comm-num rr-mono rr-strong">
+                                      contado
+                                      @if (f.efectivo_contado === null) { <span class="rr-tenue">—</span> }
+                                      @else { {{ f.efectivo_contado | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                                    </span>
+                                    <span class="comm-num rr-mono rr-strong">
+                                      Δ
+                                      @if (f.efectivo_diff === null) { <span class="rr-tenue">—</span> }
+                                      @else { {{ f.efectivo_diff | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                                    </span>
+                                    @if (f.vecinal_pct !== null && f.vecinal_pct < 100) {
+                                      <span class="rr-tenue rr-nota">
+                                        {{ f.vecinal_pct }}% vecinal · el resto es mostrador
+                                      </span>
+                                    }
+                                  </div>
+                                }
+                              </div>
+                            </td>
+                          </tr>
+                        }
                         @if (creditoAbierto() === d.date) {
                           <tr class="rr-drillrow">
                             <td [attr.colspan]="8">
@@ -1282,9 +1361,34 @@ export class ComercialVentasPorRutaComponent {
    */
   readonly creditoAbierto = signal<string | null>(null);
 
+  /**
+   * `[VEC.32]` El día cuyo detalle de CAJAS está abierto. Es otro panel, no otro estado del
+   * mismo: una pregunta es «¿qué facturé a crédito?» y la otra «¿de qué caja sale esta Δ?».
+   */
+  readonly cajasAbierto = signal<string | null>(null);
+
   /** Abre o cierra el día. Click sobre el que ya está abierto = cerrar. */
   verCredito(date: string) {
+    // ⛔ Cierra el otro panel: dos filas expandidas bajo el mismo día empujan la tabla y se
+    // pierde de vista justo el renglón que se estaba mirando.
+    this.cajasAbierto.set(null);
     this.creditoAbierto.update((d) => (d === date ? null : date));
+  }
+
+  verCajas(date: string) {
+    this.creditoAbierto.set(null);
+    this.cajasAbierto.update((d) => (d === date ? null : date));
+  }
+
+  /**
+   * Las cajas de ese día, que es el grano real de `analytics.cash_cuts` (sucursal, caja, turno).
+   *
+   * ⭐ El renglón de arriba las SUMA, y por eso «$24,419» no es el depósito de esta ruta: es el
+   * de todas las cajas donde timbró. Sin poder abrirlas, el usuario no tiene forma de ver que
+   * está mirando un agregado — y ése fue exactamente el defecto de `[VEC.12]`.
+   */
+  cajasDelDia(date: string): VecinalConciliacionFila[] {
+    return this.arqFilas().filter((f) => f.date === date);
   }
 
   /**

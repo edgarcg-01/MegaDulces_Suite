@@ -184,6 +184,56 @@ describe('VEC.31 · el crédito del día se abre y nombra sus facturas', () => {
     expect(cmp.facturasDelDia('2026-10-09')).toBeNull();
   });
 
+  /**
+   * `[VEC.32]` — **El «Depósito» del renglón es una SUMA de cajas, y hay que poder abrirla.**
+   *
+   * Es el mismo defecto que costó `[VEC.12]`: publicar un agregado donde el usuario lee un dato
+   * de la ruta. Ahora la celda abre las cajas, con lo que cada una aportó y de quién fue.
+   */
+  it('⛔ el Depósito abre las CAJAS de ese día, no las de otro', () => {
+    const { cmp, arqueos } = montar();
+    cmp.openRoute(ruta('1V001'));
+    cmp.setTab('deposito');
+    arqueos[0].next({
+      filas: [
+        FILA_1V002,
+        { ...FILA_1V002, caja: 2, date: '2026-10-03', efectivo_contado: 100, vecinal_ruta: 50 },
+        { ...FILA_1V002, caja: 7, date: '2026-10-05' },
+      ],
+    } as VecinalConciliacion);
+
+    cmp.verCajas('2026-10-03');
+    const cajas = cmp.cajasDelDia('2026-10-03');
+    expect(cajas.length).toBe(2);
+    expect(cajas.map((c: { caja: number }) => c.caja).sort()).toEqual([2, 4]);
+    // El día de al lado no se cuela.
+    expect(cmp.cajasDelDia('2026-10-05').length).toBe(1);
+  });
+
+  it('⛔ abrir las cajas CIERRA el crédito: no se apilan dos filas bajo el mismo día', () => {
+    // Dos expandidas empujan la tabla y se pierde de vista el renglón que se estaba mirando.
+    const { cmp } = montar();
+    cmp.openRoute(ruta('1V001'));
+    cmp.verCredito('2026-10-08');
+    expect(cmp.creditoAbierto()).toBe('2026-10-08');
+    cmp.verCajas('2026-10-08');
+    expect(cmp.cajasAbierto()).toBe('2026-10-08');
+    expect(cmp.creditoAbierto()).toBeNull();
+    cmp.verCredito('2026-10-08');
+    expect(cmp.cajasAbierto()).toBeNull();
+  });
+
+  it('⛔ la Venta de la ruta lleva a los TICKETS de ese día, por el camino que ya existía', () => {
+    // ⭐ Se afirma sobre la faceta y la pestaña, no sobre que «no truene»: si `drillDay` dejara
+    // de fijar el día, la pantalla mostraría los tickets del período entero y se leería igual.
+    const { cmp } = montar();
+    cmp.openRoute(ruta('1V001'));
+    cmp.setTab('deposito');
+    cmp.drillDay('2026-10-03');
+    expect(cmp.dDay()).toBe('2026-10-03');
+    expect(cmp.tab()).toBe('tickets');
+  });
+
   it('⛔ el mismo click cierra: no quedan dos días abiertos a la vez', () => {
     const { cmp } = montar();
     cmp.openRoute(ruta('1V001'));
