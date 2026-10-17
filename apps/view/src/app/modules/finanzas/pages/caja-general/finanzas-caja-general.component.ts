@@ -2069,6 +2069,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
                       El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
                     </small>
+                    <!-- [CGA-A.10b] Si venía de un documento anclado, su LLAVE se conserva y se
+                         DICE. Antes se perdía en silencio y sólo quedaba su texto en la glosa,
+                         con lo que la cola no podía saber de qué sucursal era. -->
+                    @if (docDeclarado(); as ref) {
+                      <small class="fin-hint-ok">Declara pagar el documento <strong>{{ ref }}</strong>.</small>
+                    }
                   }
                 </div>
                 }
@@ -3722,6 +3728,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   caosOpciones = signal<Array<CaosCapturable & { label: string }>>([]);
   caosSel: (CaosCapturable & { label: string }) | null = null;
   caosElegido = signal<CaosCapturable | null>(null);
+
+  /**
+   * ⭐⭐ `[CGA-A.10b]` **Qué documento DECLARA pagar una captura de CAOS, por LLAVE.**
+   *
+   * Lleva el `origen_ref` completo del documento (`01-005|U-A-5|0000015|0011`), que es lo que
+   * la cola compara. Se llena solo cuando el capturista ancló un documento y después eligió
+   * CAOS como origen: hasta hoy esa secuencia **conservaba el texto en la glosa y tiraba la
+   * llave**, y la cola tenía que adivinar la sucursal comparando prosa. Medido: una captura así
+   * tapó **siete cobros de siete sucursales** (`GOTCHAS` §86).
+   *
+   * `null` = la captura no declara documento, y eso está bien: no todo depósito paga uno.
+   */
+  docDeclarado = signal<string | null>(null);
 
   /**
    * CG — Los documentos POR PAGAR que el BUSCADOR encontró fuera del efectivo inferido: gastos
@@ -5885,6 +5904,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // una entrega a otra, que es justo el error que el índice único frena del lado del servidor.
     this.cobroSel = null;
     this.cobroElegido.set(null);
+    // `[CGA-A.10b]` La declaración tampoco sobrevive al diálogo anterior: arrastrarla pegaría
+    // la llave de OTRO documento a esta captura — y una llave equivocada es peor que ninguna,
+    // porque taparía un cobro ajeno en vez de dejarlo a la vista.
+    this.docDeclarado.set(null);
     this.montoContado.set(null);
     // CS.3.13 — la venta a crédito tampoco sobrevive al diálogo anterior.
     this.ventaCredito.set(0);
@@ -6011,6 +6034,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // Excluyente con CAOS: una captura tiene UN origen.
     this.caosElegido.set(null);
     this.caosSel = null;
+    // `[CGA-A.10b]` Con el documento ANCLADO no hace falta declararlo aparte: su identidad ya
+    // viaja en `origen_ref`. La declaración sólo existe para el caso CAOS, donde el `origen_ref`
+    // es `device|external_id` y el documento queda sin llave.
+    this.docDeclarado.set(null);
     this.cobroElegido.set(c);
     // CG.23 — El importe YA NO SE HEREDA del documento ni del total tecleado en la bandeja.
     //
@@ -6135,6 +6162,25 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * `origen_tipo='caos'` y el servidor toma el monto del arqueo, no de un documento.
    */
   private tomarMovimientoCaos(m: CaosCapturable): void {
+    /**
+     * ⭐⭐ `[CGA-A.10b]` **ACÁ SE PERDÍA LA IDENTIDAD DEL DOCUMENTO, y eso volvía dinero
+     * invisible.**
+     *
+     * El origen pasa a ser CAOS y el documento se suelta —correcto, una captura tiene UN
+     * origen—, pero la **glosa se conserva** (abajo: `v.glosa?.trim() || …`). O sea que el
+     * movimiento quedaba diciendo `U-A-5 0000007 · CONTADO` **sin ninguna llave que dijera de
+     * qué sucursal**, y el descuento anti-duplicado de la cola tenía que adivinarlo comparando
+     * ese texto. Como el folio de camioneta es consecutivo **por unidad**, una captura tapaba
+     * a todos sus homónimos: medido el 2026-10-16, **una sola tapó siete cobros de siete
+     * sucursales** (`GOTCHAS` §86, `[CGA-A.10c]`).
+     *
+     * Lo que falta no es el texto: es la **llave**. Se guarda antes de soltar el documento y
+     * viaja como `declared_doc_ref` — con eso el descuento compara identidad completa y deja
+     * de tapar por semejanza.
+     */
+    const docPrevio = this.cobroElegido();
+    this.docDeclarado.set(docPrevio?.origen_ref ?? this.docDeclarado());
+
     // Excluyente con el cobro de Kepler: una captura tiene UN origen.
     this.cobroElegido.set(null);
     this.cobroSel = null;
@@ -6165,6 +6211,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   soltarCaos(): void {
     this.caosElegido.set(null);
     this.caosSel = null;
+    // `[CGA-A.10b]` Sin origen CAOS la declaración no aplica: se suelta con él, para que no
+    // viaje pegada a una captura que ya es otra cosa.
+    this.docDeclarado.set(null);
     // CS.3.7 — sin el origen del cajero, su aporte sale del monto: hay que recalcular (antes el
     // efectivo vivía en la reja y quedaba; ahora va aparte y desaparece con el origen).
     this.recomputarMonto();
@@ -7058,6 +7107,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // documento: el monto sale del arqueo precargado, no se relee de Kepler.
       origen_tipo: caos ? 'caos' : (cobro ? (cobro.origen_tipo || (cobro.tipo === 'ingreso' ? 'cobro' : 'pago_proveedor')) : null),
       origen_ref: caos ? caos.origen_ref : (cobro ? cobro.origen_ref : null),
+      // ⭐ `[CGA-A.10b]` La LLAVE del documento que esta captura declara pagar. Sólo con origen
+      // CAOS: con documento anclado la identidad ya viaja en `origen_ref`. Sin esto, el
+      // descuento de la cola compara la GLOSA —texto libre— y tapa a cualquier otra sucursal
+      // con el mismo `doc_tipo + folio`, que en camioneta se repite a diario (`GOTCHAS` §86).
+      declared_doc_ref: caos ? (this.docDeclarado() ?? undefined) : undefined,
       // `[CG.160]` Por qué no hay documento. Va SIEMPRE que no haya origen; con origen el servidor
       // lo ignora (`conciliacion()` corta en `enlazado` antes de mirarlo).
       sin_documento_motivo: (!caos && !cobro) ? (this.sinDocumentoMotivo().trim() || undefined) : undefined,
