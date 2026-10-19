@@ -8384,6 +8384,53 @@ TP.6-TP.8+TP.10".
 **ADR-070** · **ADR-093** · Plan completo, medición y decisiones abiertas en
 [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
 
+> ### 🔨 2026-10-19 — **UN SOLO MÓDULO PARA EL EFECTIVO**: Captura · Expediente · Caja Fuerte
+>
+> Edgar: *«necesito un selector en caja (captura) donde yo seleccione si quiero capturar,
+> expediente o caja fuerte, y que todas vivan en un solo módulo»*.
+>
+> - [x] **[CG.121]** 🔨 **Las tres pantallas del efectivo entran por UNA puerta.** Lista única en
+>       [`caja-tabs.ts`](../../apps/view/src/app/modules/finanzas/caja-tabs.ts), que leen la barra
+>       (`app-caja-tabs`) y la entrada «Caja» del sidebar. Es el patrón de Gastos (`[GX.80]`) y
+>       Pagos (`[TP.20.3]`). El orden es el recorrido del dinero, no alfabético.
+>
+>       ⭐ **El hallazgo no era el selector: el Expediente NO TENÍA PUERTA.** Tenía ruta
+>       (`/finanzas/caja-general/expediente`) y permiso desde `[CG.105]`, pero ni pestaña ni
+>       renglón en el sidebar — se llegaba **sólo escribiendo la URL**. Es la falla de `[GX.17]`,
+>       `[LC.6.2]` e `[IG.2]`, otra vez. Y el candado de `[IG.2]` no la vio **porque sólo recorre
+>       lo que `FINANZAS_TABS` declara**: una pantalla ausente de esa lista le es invisible, así
+>       que pasaba en verde. Al entrar en la lista, queda cubierta.
+>
+>       ⛔ **Sin shell de ruta, a la fuerza.** El padre con `path: ''` de `/finanzas` ya lo ocupa
+>       Gastos y tiene que ir al final (un path vacío matchea cualquier URL restante), así que la
+>       barra se **embebe** en las tres pantallas, como Pagos. Un segundo padre vacío no da error
+>       de compilación: se come rutas en silencio.
+>
+>       ⚠️ **Captura y Expediente no tienen el mismo público, y la barra lo refleja.** La ruta de
+>       Captura admite `VER`/`GESTIONAR`/`AUTORIZAR`; la del Expediente exige `VER` a secas. Quien
+>       tenga sólo `GESTIONAR` captura pero no ve el expediente. No se emparejó acá: emparejarlo
+>       es cambiar el permiso de una ruta, y eso se decide en el árbol de authz.
+>
+>       ⚠️ `/finanzas/caja-general/firma` queda FUERA a propósito: es el teléfono del mostrador,
+>       se entra por el código de seis y se le presta a quien viene a firmar. Sirve además de
+>       **control negativo** del candado.
+>
+>       🧪 **Medido:** `finanzas-tabs.spec.ts` suma 5 pruebas (orden del recorrido, permiso =
+>       el de su ruta, una sola entrada en el sidebar, las tres embeben la barra, y el control de
+>       la firma). **Prueba negativa ejercida:** quitada la barra de `finanzas-caos`, el candado
+>       se puso **rojo en ese único test** y los otros 20 siguieron verdes. 435 pruebas verdes en
+>       las 5 suites de caja. `check:templates` ✅ · `check:estilos` sin crecer (2564/2680) ·
+>       `check:pantalla` sin fallas nuevas (las 3 que marca son previas y de otras pantallas).
+>
+>       ⚠️ **SIN VALIDACIÓN VISUAL**: la API local responde 500 y la pantalla no renderiza con
+>       datos. Lo más probable de ajustar es el alto — la barra entra como hija de `.cg-app`, que
+>       es la columna flex que reparte altura, con `flex:none`; si algo se recorta abajo, es ahí.
+>
+> - [x] **[CG.122]** 🔨 **Era `[CG.119]` y colisionaba.** El acceso directo a imprimir el ticket
+>       («Guardar e imprimir») había nacido hoy con un código **ya usado** por un item de
+>       `db-health` (`CRON_JOBS` + `maxRunH`, en `apps/api`). Dos items sin relación bajo el mismo
+>       código hacen que el tracker mienta. Renumerado a `[CG.122]`, que está libre.
+>
 > ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
 >
 > Edgar: *«te pedí que nunca ningún movimiento tuviera llenado manual **o que no se lograra
