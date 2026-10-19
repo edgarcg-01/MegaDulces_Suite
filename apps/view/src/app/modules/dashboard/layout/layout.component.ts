@@ -39,6 +39,7 @@ import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
+import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
 import { RUTA_DIRECTA_TABS } from '../../comercial/ruta-directa-tabs';
@@ -686,11 +687,24 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
-        // [IG.2] Faltaba en el sidebar: tenía pestaña desde CS.2 pero no entrada acá, así que se
-        // llegaba sólo escribiendo la URL. Lo destapó el candado nuevo de `finanzas-tabs.spec.ts`,
-        // que ahora recorre TODAS las pestañas en vez de nombrar tres rutas a mano.
-        { label: 'Caja Fuerte', icon: 'pi pi-lock', route: '/finanzas/caos', permission: Permission.FINANCE_CAOS_VER },
+        /**
+         * `[CG.121]` **UNA entrada para las tres pantallas del efectivo** (pedido de Edgar,
+         * 2026-10-19): Captura · Expediente · Caja Fuerte. Adentro se cambia con la barra de
+         * pestañas: `CAJA_TABS`, la MISMA lista que leen la barra y esta entrada.
+         *
+         * Eran dos renglones sueltos acá —«Caja (captura)» y «Caja Fuerte»— y el **Expediente
+         * no tenía ninguno**: se llegaba sólo escribiendo la URL. Es lo que `[IG.2]` ya había
+         * cobrado con Caja Fuerte, repetido en la pantalla de al lado.
+         *
+         * ⚠️ `route` queda como valor por omisión: `conDestino()` la reemplaza por la PRIMERA
+         * pestaña que la persona ve, así que quien sólo tiene `FINANCE_CAOS_VER` entra por Caja
+         * Fuerte y no rebota contra `/sin-acceso`.
+         *
+         * ⛔ NO se toca «Caja General» (`/finanzas/caja`), el renglón de arriba: es otra
+         * pantalla —la LECTURA del espejo del Access, de Tesorería— y se retira en `CG.16`.
+         * Nombres parecidos, circuitos distintos.
+         */
+        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
         { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
         { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
         /**

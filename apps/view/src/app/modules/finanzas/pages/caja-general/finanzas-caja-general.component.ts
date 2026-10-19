@@ -61,6 +61,7 @@ import {
   GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, CAPTURA_MANUAL_HABILITADA,
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
+import { CajaTabsComponent } from '../../caja-tabs.component';
 
 /**
  * `[CGP-V.2]` Lo que el servidor respondió al sellar o recontar EN ESTA sesión, atado a SU corte, con
@@ -165,7 +166,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
-    SidePeekComponent,
+    SidePeekComponent, CajaTabsComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -793,6 +794,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-app { height:100%; min-height:0; overflow:hidden; display:flex; flex-direction:column;
               padding-top:0; padding-bottom:0; }
     .cg-app > .cg-split { flex:1 1 auto; min-height:0; }
+    /* [CG.121] La barra del area toma su alto natural y NO cede. El default de un hijo flex es
+       flex:0 1 auto -- no crece, pero SI se encoge -- y un selector aplastado deja de leerse
+       justo cuando la cola se llena, que es cuando mas hace falta cambiar de pantalla. */
+    .cg-app > app-caja-tabs { flex:none; }
     /* ⛔ [CG.73] El saldo que [CG.71] metio en esta barra APRETABA a sus vecinos: medido en la
        pagina viva, el titulo caia a DOS lineas (60px) y el desplegable de la jornada a 57px.
        La barra no declaraba quien cede: ".cg-saldo" ya se encogia, pero el h1 y el boton tambien,
@@ -1119,6 +1124,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            ⚠️ Plegar NO es esconder: cerrada, la barra YA dice como va -- cuanto falta
            confirmar y si se rindio cuentas. Abierta da los numeros, el cuadre del dia, lo que
            repite sin cuenta declarada y el libro. Nada se borro: todo se MUDO aca adentro. -->
+      <!-- [CG.121] EL SELECTOR DEL AREA: Captura / Expediente / Caja Fuerte.
+           Entra COMO HIJA de .cg-app -- que ya es la columna flex que reparte el alto -- y no
+           como hermana de afuera: el host de esta pantalla es position:absolute + inset:0
+           ([CG.113b]) y colgarle un hermano arriba vuelve a romper la cadena de altura que ese
+           arreglo acaba de enderezar. Toma su alto natural, igual que la barra de abajo; el
+           unico hijo que recibe el alto restante sigue siendo .cg-split. -->
+      <app-caja-tabs class="cj-sin-margen" />
+
       <header class="cg-bar">
         <div class="cg-bar-id">
           <h1>Caja General</h1>
@@ -3508,7 +3521,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       <ng-template #footer>
         <p-button label="Volver al conteo" severity="secondary" size="small"
                   (onClick)="cerrarConFoco(confirmarGuardar)"></p-button>
-        <!-- ⭐ [CG.119] El acceso directo al ticket. Va ACA porque es donde se decide, con la
+        <!-- ⭐ [CG.122] El acceso directo al ticket. Va ACA porque es donde se decide, con la
              persona enfrente, y NO deshace [CG.81]: "Sí, guardar" sigue sin imprimir nada, que
              es lo que evita los ~84 tickets diarios que nadie pedia. Imprimir es el que se
              pide, no el default.
@@ -7596,7 +7609,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * `[CG.119]` `imprimir` es el ACCESO DIRECTO AL TICKET, y existe sin deshacer `[CG.81]`.
+   * `[CG.122]` `imprimir` es el ACCESO DIRECTO AL TICKET, y existe sin deshacer `[CG.81]`.
    *
    * Edgar hizo quitar la impresion automatica: el papel salia en CADA captura y en un dia
    * normal son ~84 movimientos, o sea 84 tickets que nadie pidio. Eso no cambia -- `Guardar`
@@ -7690,7 +7703,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${moneyOSinMedir(f.monto)}`);
-        // `[CG.119]` El ticket SOLO si lo pidieron en el diálogo. Va con el movimiento que
+        // `[CG.122]` El ticket SOLO si lo pidieron en el diálogo. Va con el movimiento que
         // devolvió el servidor —que ya trae folio y fecha— y reusa el mismo camino que el botón
         // del libro, así que no hay una segunda forma de armar el papel que se desalinee.
         if (imprimir) this.imprimirComprobante(m);

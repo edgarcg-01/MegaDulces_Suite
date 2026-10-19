@@ -11,6 +11,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
+import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
@@ -45,8 +46,11 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, ButtonModule, InputTextModule, SelectModule, TableModule, TagModule,
-    MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent],
+    MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
+    CajaTabsComponent],
   template: `
+    <!-- [CG.121] Captura / Expediente / Caja Fuerte son UN area, no tres reportes sueltos. -->
+    <app-caja-tabs />
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
