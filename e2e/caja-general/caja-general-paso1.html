@@ -278,7 +278,9 @@ tbody tr[aria-selected="true"] .chev{color:var(--action);transform:rotate(90deg)
 .pieza{width:52px;padding:1px var(--sp-1);text-align:right;border:1px solid var(--border-color);
   border-radius:5px;background:var(--card-bg);color:var(--text-main);font-family:var(--font-mono);
   font-variant-numeric:tabular-nums;font-size:var(--fs-nano)}
-.total{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;margin:0 var(--sp-3) var(--sp-3);
+/* `flex:none` porque ahora es hijo directo de `.ap` (columna flex): sin eso el total se
+   encoge cuando la reja crece, que es justo cuando hace falta leerlo. */
+.total{flex:none;display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;margin:0 var(--sp-3) var(--sp-3);
   padding:var(--sp-2) var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-sm);
   background:var(--surface-2)}
 .total .sp{flex:1}
@@ -536,18 +538,26 @@ tbody tr[aria-selected="true"] .chev{color:var(--action);transform:rotate(90deg)
           </div>
         </div>
 
-        <div class="total">
-          <div>
-            <div class="m-k">Contado</div>
-            <div class="ficha-monto">$19,138.00</div>
-          </div>
-          <span class="sp"></span>
-          <div style="text-align:right;color:var(--ok-fg);font-weight:600">Cuadra con el documento
-            <div class="m-s" style="color:var(--text-muted)">documento $19,138.00</div>
-          </div>
-        </div>
-        <p class="sr-only" aria-live="polite" aria-atomic="true">$19,138.00 contado. Cuadra con el documento.</p>
       </div>
+
+      <!-- ⛔⛔ EL TOTAL VA FUERA DE `.ap-b`, Y NO ES COSMÉTICO. Medido 2026-10-19 con
+           Playwright: dentro del scroller terminaba en 638px con el pliegue en 625 (laptop
+           768p) y en 787px con el pliegue en 730 (1080p al 125%). O sea que en las pantallas
+           de laptop —casi toda la flota— había que DESPLAZAR para ver el número contra el
+           que la persona cuadra el efectivo que tiene en la mano. Entraba sólo a 1920x937.
+           Los botones ya estaban anclados; el total, que es lo que se mira antes de apretar
+           Guardar, no. Ahora la reja de denominaciones es lo único que se desplaza. -->
+      <div class="total">
+        <div>
+          <div class="m-k">Contado</div>
+          <div class="ficha-monto">$19,138.00</div>
+        </div>
+        <span class="sp"></span>
+        <div style="text-align:right;color:var(--ok-fg);font-weight:600">Cuadra con el documento
+          <div class="m-s" style="color:var(--text-muted)">documento $19,138.00</div>
+        </div>
+      </div>
+      <p class="sr-only" aria-live="polite" aria-atomic="true">$19,138.00 contado. Cuadra con el documento.</p>
 
       <div class="ap-f">
         <span>Recibí conforme · sin firma — se puede guardar igual</span>
