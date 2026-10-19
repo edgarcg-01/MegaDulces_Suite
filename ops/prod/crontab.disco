@@ -6,7 +6,7 @@
 # vigilaba los respaldos ni avisaba con anticipación. Ver la cabecera de `vigia-disco.sh`.
 #
 # Instalar (sin pisar lo que ya hay):
-#   crontab -l 2>/dev/null | grep -v -E 'vigia-disco.sh|podar-disco.sh' > /tmp/ct
+#   crontab -l 2>/dev/null | grep -v -E 'vigia-disco.sh|podar-disco.sh|podar-registro.sh' > /tmp/ct
 #   cat ~/ops/prod/crontab.disco >> /tmp/ct && crontab /tmp/ct && crontab -l | grep -E 'vigia|podar'
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -15,3 +15,7 @@
 
 # Diario 04:30, independiente de los despliegues: la poda ya no espera a que alguien despliegue.
 30 4 * * * /bin/sh $HOME/ops/prod/podar-disco.sh >> $HOME/ops/prod/podar-disco.log 2>&1
+
+# [OPS.DISCO.4] Domingos 04:45: versiones viejas del registro (conserva 5 + todo lo que usa k3s,
+# bajo el candado de despliegues). Simulación del 2026-10-19: 674 manifiestos a borrar, 72 conservados.
+45 4 * * 0 /bin/sh $HOME/ops/prod/podar-registro.sh --aplicar >> $HOME/ops/prod/podar-registro.log 2>&1
