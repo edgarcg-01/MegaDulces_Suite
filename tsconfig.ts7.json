@@ -40,6 +40,11 @@
       "@megadulces/contracts/authz/scope-areas": ["./libs/contracts/src/authz/scope-areas.ts"],
       "@megadulces/contracts/http/cierre-viaje": ["./libs/contracts/src/http/cierre-viaje.contract.ts"],
       "@megadulces/contracts/http/alta-persona": ["./libs/contracts/src/http/alta-persona.contract.ts"],
+      // [TP.20.5] Los agregó esa sesión a `tsconfig.base.json` y faltaban acá; la compuerta
+      // `ts7-paths` lo marcó. Sin esto `tsgo` no resuelve el import y sale TS2307 "Cannot find
+      // module", que se lee como un error del código y no lo es.
+      "@megadulces/contracts/finance/kepler-payable-key": ["./libs/contracts/src/finance/kepler-payable-key.contract.ts"],
+      "@megadulces/contracts/finance/pronto-pago-ventana": ["./libs/contracts/src/finance/pronto-pago-ventana.contract.ts"],
       "@megadulces/contracts/authz/permission-meta": ["./libs/contracts/src/authz/permission-meta.ts"],
       "@megadulces/contracts/authz/permissions": ["./libs/contracts/src/authz/permissions.ts"],
       "@megadulces/contracts/authz/role-presets": ["./libs/contracts/src/authz/role-presets.ts"],
