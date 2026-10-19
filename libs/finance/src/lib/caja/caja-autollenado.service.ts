@@ -142,8 +142,33 @@ export class CajaAutollenadoService {
    */
   @Cron('0 */15 * * * *', { timeZone: 'America/Mexico_City' })
   async programado(): Promise<void> {
-    if (!this.habilitado) return;
+    /**
+     * ⛔ `[CG.195]` **UN CRON APAGADO QUE NO DEJA RASTRO ES INDISTINGUIBLE DE UNO ROTO.**
+     *
+     * Acá había un `return` mudo. Medido el 2026-10-19, en vivo: después de prender
+     * `ENABLE_CAJA_AUTOLLENADO` el motor no escribió nada, y **el log del worker no tenía una
+     * sola línea de este servicio** — ni «corrí», ni «me salté». Con los otros 50 crons latiendo
+     * alrededor, no se podía decir si la variable no había llegado, si el `@Cron` no estaba
+     * registrado o si simplemente todavía no tocaba tick. Diagnosticarlo costó una ventana de
+     * 15 minutos que no hacía falta gastar.
+     *
+     * Es exactamente la trampa que [`main.ts`](../../../../apps/api/src/main.ts) ya tenía
+     * escrita para `DISABLE_CRONS` —*«un interruptor que apaga 51 cron y no deja rastro en el
+     * log es una trampa en las dos direcciones»*— y la repetí en el cron de al lado.
+     *
+     * ⚠️ `debug` y no `log`: esto late cada 15 minutos y en un worker apagado llenaría el log de
+     * ruido. Lo que importa es que **exista** cuando alguien va a buscarlo.
+     */
+    if (!this.habilitado) {
+      this.logger.debug(
+        'apagado: ENABLE_CAJA_AUTOLLENADO no vale "true" en este proceso — el libro NO se está llenando solo',
+      );
+      return;
+    }
     if (this.running) { this.logger.warn('Skip: corrida en curso'); return; }
+    // `[CG.195]` El arranque también se dice: con esta línea, la ausencia de latido se puede
+    // atribuir —al proceso que no corrió, o a la corrida que falló— en vez de adivinarse.
+    this.logger.log(`corriendo (piso ${this.piso})…`);
     await this.correr({ aplicar: true })
       .catch((e: unknown) => this.logger.error(`autollenado: ${e instanceof Error ? e.message : String(e)}`));
   }
