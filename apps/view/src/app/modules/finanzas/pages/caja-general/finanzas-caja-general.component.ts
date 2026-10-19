@@ -2805,7 +2805,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                560 -> 40px y 12px     600 -> 20px y 0     640 -> 0 y 0     680 -> 0 y 0
            Va 680 y no 640: 640 da cero justo, y un importe de siete cifras suma ~18px y lo
            devuelve. ⚠️ El alto no se resiente -- medido, cuerpo sin desborde vertical. -->
-      <app-side-peek lado="izquierda" [width]="680"
+      <!-- ⚠️ [CG.118] Vuelve a la DERECHA, que es el default del organismo. Lo que se pierde,
+           dicho para que no se redescubra: el cajon tapa la columna del IMPORTE de la cola, que
+           es la cifra con la que se reconoce la fila. No es grave porque el importe del
+           movimiento elegido se repite DENTRO del arqueo (la ficha y el renglon "documento"),
+           asi que la cifra no desaparece de la pantalla -- cambia de lugar. -->
+      <app-side-peek [width]="680"
                      [open]="capturaAbierta()"
                      (openChange)="$event ? null : cerrarConFoco(capturaAbierta)"
                      title="2 · El arqueo" subtitle="cuenta el efectivo, pieza por pieza">
@@ -3393,6 +3398,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       <ng-template #footer>
         <p-button label="Volver al conteo" severity="secondary" size="small"
                   (onClick)="cerrarConFoco(confirmarGuardar)"></p-button>
+        <!-- ⭐ [CG.119] El acceso directo al ticket. Va ACA porque es donde se decide, con la
+             persona enfrente, y NO deshace [CG.81]: "Sí, guardar" sigue sin imprimir nada, que
+             es lo que evita los ~84 tickets diarios que nadie pedia. Imprimir es el que se
+             pide, no el default.
+             ⚠️ En secundario y a la izquierda del principal: el camino normal es guardar sin
+             papel, y dos botones del mismo peso al lado del unico que mueve dinero convierten
+             una excepcion en una pregunta. -->
+        <p-button label="Guardar e imprimir" icon="pi pi-print" severity="secondary" size="small"
+                  title="Guarda el movimiento y manda el ticket a la térmica"
+                  [loading]="guardando()" [disabled]="guardando()" (onClick)="guardar(true)"></p-button>
         <p-button label="Sí, guardar" icon="pi pi-check" size="small"
                   [loading]="guardando()" [disabled]="guardando()" (onClick)="guardar()"></p-button>
       </ng-template>
@@ -3679,12 +3694,35 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * señal acaba de cambiar y Angular aún no reconcilió. En angosto, además, `focus()` arrastra el
    * panel a la vista, que es justo lo que hace falta cuando queda apilado debajo de la lista.
    */
+  /**
+   * ⛔⛔ [CG.117] ESTO APUNTABA A UN CONTENEDOR QUE YA NO EXISTE, y por eso al elegir un
+   * movimiento el foco no se movia.
+   *
+   * Buscaba ".cg-detail", que era el panel de detalle del split. Al mudar el arqueo a un cajon
+   * ese nodo se retiro: querySelector devolvia null, el "?." se lo tragaba en silencio y el
+   * foco se quedaba donde estuviera -- medido en el navegador, terminaba en un boton del
+   * control segmentado ("Caja general"). O sea que para empezar a contar habia que ir al
+   * primer campo con el mouse, que es justo lo que [CG.46] habia arreglado una vez.
+   *
+   * ⚠️ Un selector que no encuentra nada NO es un error: es una funcion que se vuelve muda.
+   * El codigo seguia pareciendo correcto y nadie lo probaba porque jsdom tampoco mira el foco
+   * real. Por eso ahora, si no hay a donde ir, se dice en la consola en vez de no hacer nada.
+   *
+   * ⭐ Y va al PRIMER CAMPO DE PIEZAS, no al primer enfocable: lo primero del cajon es el
+   * buscador de retiros de CAOS, que es la excepcion. Contar empieza en el billete de $1,000,
+   * y desde ahi las flechas ya recorren la reja entera hasta Guardar. Si la fila todavia no se
+   * puede arquear (le falta declarar su cuenta) no hay reja, y entonces se cae al primer
+   * enfocable -- que ahi SI es lo que hay que resolver.
+   */
   private enfocarDetalle(): void {
     setTimeout(() => {
-      const panel = this.host.nativeElement.querySelector('.cg-detail');
-      const campo = panel?.querySelector<HTMLElement>(
-        'input,select,textarea,button,[tabindex]:not([tabindex="-1"])');
-      campo?.focus();
+      const cajon = this.host.nativeElement.querySelector('.cg-arqueo-cajon');
+      if (!cajon) return;
+      const campo =
+        cajon.querySelector<HTMLElement>('input.cg-pieza') ??
+        cajon.querySelector<HTMLElement>('input,select,textarea,button,[tabindex]:not([tabindex="-1"])');
+      if (campo) campo.focus();
+      else console.warn('[caja] el arqueo abrio sin ningun campo al que mandar el foco');
     }, 0);
   }
 
@@ -7405,7 +7443,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  guardar(): void {
+  /**
+   * `[CG.119]` `imprimir` es el ACCESO DIRECTO AL TICKET, y existe sin deshacer `[CG.81]`.
+   *
+   * Edgar hizo quitar la impresion automatica: el papel salia en CADA captura y en un dia
+   * normal son ~84 movimientos, o sea 84 tickets que nadie pidio. Eso no cambia -- `Guardar`
+   * sigue sin imprimir nada.
+   *
+   * Lo que faltaba era el caso contrario: cuando el ticket SI hace falta, porque quien entrega
+   * el efectivo lo pide. Hasta hoy habia que guardar, salir del arqueo, buscar el movimiento en
+   * el libro y apretar un icono -- con la persona esperando.
+   *
+   * ⭐ Va en el dialogo de confirmacion y no en el pie del arqueo a proposito: ahi es donde se
+   * decide, con la persona enfrente, y no obliga a elegir antes de saber si va a hacer falta.
+   * El default sigue siendo no imprimir; imprimir es el que se pide.
+   *
+   * ⚠️ Se imprime DESPUES de guardar y con el movimiento que devuelve el servidor, no con el
+   * formulario: el ticket lleva el folio nuestro y la fecha que asigno el servidor. Imprimir
+   * antes seria papel con un folio que todavia no existe.
+   */
+  guardar(imprimir = false): void {
     if (this.bloqueos().length || this.guardando() || !this.puedeGestionar()) return;
     this.guardando.set(true);
     // `[CG.62]` La ventana se cierra ACA, al empezar: si fallara, el aviso de error tiene que
@@ -7481,6 +7538,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${moneyOSinMedir(f.monto)}`);
+        // `[CG.119]` El ticket SOLO si lo pidieron en el diálogo. Va con el movimiento que
+        // devolvió el servidor —que ya trae folio y fecha— y reusa el mismo camino que el botón
+        // del libro, así que no hay una segunda forma de armar el papel que se desalinee.
+        if (imprimir) this.imprimirComprobante(m);
         /**
          * ⛔ `[CG.81]` **ACÁ EL COMPROBANTE SALÍA SOLO A LA TÉRMICA, y se retiró.** Pedido de
          * Edgar: *"hay que dejar de mandar el imprimible del ticket y sólo almacenarlo como un
