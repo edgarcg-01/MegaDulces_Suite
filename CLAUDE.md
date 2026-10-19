@@ -167,6 +167,8 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 > ⛔ **El detalle completo de cada fase vive en [`00_ROADMAP_FASES_DETALLE.md`](docs/IMPLEMENTACION/00_ROADMAP_FASES_DETALLE.md)** — no se repite acá.
 > Esta tabla sólo dice **qué fases existen y en qué estado están**. Para trabajar sobre una fase, abrí su plan en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES/).
 
+> ⭐ **El control de estado lo lleva el PM** en el GitHub Project privado [«Tablero PM»](https://github.com/users/edgarcg-01/projects/2) (una tarjeta por fase: dueño, revisión, motivo de cada cambio). Primera revisión fase por fase: **2026-10-19** (16 🔨 → 5 🔨 + VP 🟡). Si esta tabla y el tablero discrepan, **manda el tablero** y se corrige acá.
+
 🟢 cerrada (beta) · 🚀 en prod · 🧪 en código, probada · 🔨 en curso / diseñada · 🟡 parcial · 🔴 planeada, sin código · ⏸️ en espera · ⬜ TODO
 
 | Fase | Tema | Estado |
@@ -186,27 +188,27 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **J** | Logística (embarques, flotilla, costos) | 🟢 |
 | **LT** | Rastreo de flota GPS (MagniTracking) | 🟢 |
 | **K** | AI product match en captures (pgvector + Voyage + Haiku) | 🟢 |
-| **Horus** | Supervisor AI de ejecución (Trade) | 🔨 |
-| **LM** | Última Milla (entrega a domicilio local en moto) | 🔨 |
+| **Horus** | Supervisor AI de ejecución (Trade) | ⏸️ |
+| **LM** | Última Milla (entrega a domicilio local en moto) | ⏸️ |
 | **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | 🔨 |
-| **Maat** | AI de Finanzas (conocimiento + chat + patrones) | 🔨 |
+| **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
 | **RA** | Compras / Reabastecimiento (punto de reorden + existencia crítica + sugerido) | 🟢 |
 | **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🔨 |
 | **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
-| **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | 🔨 |
+| **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
 | **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | 🔨 |
-| **RE** | Recepción de Mercancía 360 (digitaliza el Excel de recepción) | 🔨 |
-| **CA** | CEDIS (Kepler Access 97) → ODS | 🔨 |
+| **RE** | Recepción de Mercancía 360 (digitaliza el Excel de recepción) | 🟢 |
+| **CA** | CEDIS (Kepler Access 97) → ODS | 🟢 |
 | **WR** | Réplica cruda Wincaja (Access 97 → Postgres, continua) | 🟢 |
-| **AX** | Anexo de venta imprimible (detalle + pagaré) | 🧪 |
+| **AX** | Anexo de venta imprimible (detalle + pagaré) | 🟢 |
 | **MR** | Motor de Rentabilidad (cascada de margen) | 🧪 |
 | **VP** | Verdad y Procedencia (el número declara con qué se calculó) | 🟡 |
-| **OBS** | Ingesta que no se cae en silencio | 🔨 |
-| **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🔨 |
-| **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🔨 |
+| **OBS** | Ingesta que no se cae en silencio | 🟢 |
+| **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🟢 |
+| **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🟢 |
 | **TP** | Calendario de Pagos | 🧪 |
 | **SN** | Suite: navegación por espacios ("Mi trabajo" en `/projects`) | 🧪 |
-| **CDRP** | Cuadro de Resultados por Puesto (el tablero directivo, DENTRO de «Mi trabajo») | 🔨 |
+| **CDRP** | Cuadro de Resultados por Puesto (el tablero directivo, DENTRO de «Mi trabajo») | 🟢 |
 | **FLT** | Lista de faltantes (la venta que NO ocurrió) | 🧪 |
 | **PU** | Presupuestos (motor de planeación y control) | 🧪 |
 | **IC** | Inventario Continuo (3 ritmos) | 🚀 |
@@ -214,13 +216,13 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | 🔨 |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
-| **MS** | Mesa de Servicio (tickets de servicio) | 🧪 |
-| **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🧪 |
+| **MS** | Mesa de Servicio (tickets de servicio) | 🟢 |
+| **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔴 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
-| **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🧪 |
+| **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 
 ---
 
