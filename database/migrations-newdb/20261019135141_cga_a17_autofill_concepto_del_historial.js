@@ -616,6 +616,27 @@ const DEF_VIEJA = `WITH p AS (
 
 async function recrear(knex, def) {
   await knex.raw(`SET LOCAL lock_timeout = '10s'`);
+
+  // ⛔ `GOTCHAS §87.1` — `CREATE MATERIALIZED VIEW` **POBLA en el acto**, y `def` lee
+  // `finance.v_caja_movimientos_pendientes`, cuyo `WHERE` incluye `tenant_id = current_tenant_id()`.
+  // Esa función sale de `current_setting('app.tenant_id')`, que en una sesión de migración **no está
+  // puesta**: devuelve NULL, el `WHERE` no casa con nada y la matvista nace con CERO filas **sin un
+  // solo error**. Medido el 2026-10-19: esta migración abortó con «pasó de 285 a 0 filas» — su propia
+  // guarda la atrapó, que es justo para lo que estaba.
+  //
+  // El tenant NO se escribe a mano: se lee de lo que la matvista YA tiene, así que la migración no
+  // puede quedar clavada a un tenant que mañana no sea el único.
+  const tenants = (await knex.raw(`SELECT DISTINCT tenant_id::text AS t FROM ${MV}`)).rows;
+  if (tenants.length !== 1) {
+    throw new Error(
+      `[A.17] la matvista tiene ${tenants.length} tenant(s); un solo SET no los puebla a todos. ABORTA.`,
+    );
+  }
+  // ⚠️ `set_config(...)` y NO `SET LOCAL app.tenant_id = ?`: una sentencia `SET` **no admite
+  // parámetros ligados** — Postgres la rechaza con `42601`. `set_config` es una función, así que
+  // sí los acepta, y su tercer argumento `true` significa LOCAL (se revierte al cerrar la tx).
+  await knex.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenants[0].t]);
+
   await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV}`);
   await knex.raw(`CREATE MATERIALIZED VIEW ${MV} AS ${def}`);
   // Sin este índice, `REFRESH ... CONCURRENTLY` falla y el refrescador queda bloqueando lectores.
