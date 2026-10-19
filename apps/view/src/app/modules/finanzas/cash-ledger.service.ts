@@ -500,6 +500,17 @@ export interface MovimientoPendiente {
   concepto: string | null;
   metodo: string | null;
   monto: number;
+  /**
+   * ⭐ `[CGA-A.15]` La unidad de reparto de la que viene este cobro (`ruta_27`, `ruta_503`…).
+   *
+   * `null` = **no es de camioneta**: es un cobro de mostrador, donde `CONTADO` es el cliente de
+   * verdad. Medido el 2026-10-19: de 136 cobros `CONTADO` en la cola, **36 eran de mostrador**,
+   * así que etiquetarlos todos con una ruta sería inventar.
+   *
+   * Sale de `analytics.route_collections.truck` por la procedencia del renglón, **no** de
+   * adivinar por el formato de la sucursal — la lección de `GOTCHAS` §86.
+   */
+  ruta?: string | null;
   /** CS.3.13 — el cliente del cobro es de crédito (`kdud` días/límite > 0): auto-rellena «venta a crédito». */
   cliente_credito?: boolean;
   credito_limite?: number | null;

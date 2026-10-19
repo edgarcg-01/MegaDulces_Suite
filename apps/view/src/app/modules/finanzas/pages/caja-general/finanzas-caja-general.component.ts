@@ -598,6 +598,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        apps/view. Repuntar el token es decision de Edgar, no de esta pantalla. Y --fs-nano (10px)
        para un folio que se transcribe sigue siendo chico aunque ahora contraste. */
     .cg-fila-doc { color:var(--text-muted); font-size:var(--fs-nano); }
+    /* ⭐ [CGA-A.15] La ruta. Mismo par color/tamano que .cg-fila-doc, que YA paso la auditoria
+       de contraste AA sobre el fondo vivo de prod (ver el bloque de arriba): se reusa en vez de
+       elegir un color nuevo que habría que volver a medir. */
+    .cg-fila-ruta { display:block; color:var(--text-muted); font-size:var(--fs-nano); font-weight:600; }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
        Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
        p-highlight ni del contraste de un fondo solo. */
@@ -2666,6 +2670,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   </td>
                   <td>
                     <span class="cg-fila-nom">{{ p.beneficiario || p.entidad_code || '—' }}</span>
+                    <!-- ⭐ [CGA-A.15] DE QUÉ RUTA viene el cobro. Con nueve camionetas entregando,
+                         la bandeja mostraba una pila de CONTADO + U-A-5 0000014 identicas y el
+                         folio no desempata: es consecutivo POR UNIDAD, asi que se repite entre
+                         rutas el mismo dia (la causa de GOTCHAS §86).
+                         No se pinta salvo que la vista lo AFIRME. null no es "no se sabe":
+                         es un cobro de MOSTRADOR, donde CONTADO es el cliente de verdad -- 36 de
+                         136 medidos el 19-oct. Inventarles una ruta seria peor que no decir nada. -->
+                    @if (p.ruta) {
+                      <small class="cg-fila-ruta">{{ etiquetaRuta(p.ruta) }}</small>
+                    }
                     <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
                          identico en cada renglon y convertia la tabla en un muro naranja donde el
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
@@ -5006,6 +5020,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   motivoCorto(m: string | null | undefined): string {
     if (!m) return 'no confirmable';
     return this.MOTIVO_CORTO[m] ?? m;
+  }
+
+  /**
+   * ⭐ `[CGA-A.15]` `ruta_27` → `Ruta 27`. Sólo cosmética: lo que decide es la vista.
+   *
+   * ⚠️ Lo que NO reconoce se muestra **tal cual**, no se descarta ni se disfraza. Una unidad
+   * nueva con otro patrón de nombre tiene que **verse**, igual que hace `motivoCorto` con una
+   * clave que el servidor empiece a mandar.
+   */
+  etiquetaRuta(r: string): string {
+    return r.split(' · ').map((u) => {
+      const m = /^ruta_(\w+)$/i.exec(u.trim());
+      return m ? `Ruta ${m[1]}` : u.trim();
+    }).join(' · ');
   }
 
   /**
