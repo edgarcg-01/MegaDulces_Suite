@@ -4253,6 +4253,63 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     });
   });
 
+  /**
+   * ⭐⭐ `[CG.194]` — **LO QUE LA TABLA YA DESCONTÓ TIENE QUE TENER NOMBRE Y CIFRA.**
+   *
+   * Medido en producción el 2026-10-19: el libro tenía **$8,179.00** de gastos y la pantalla
+   * publicaba **$3,109.00** bajo un renglón rotulado «Gastos», dentro de una tabla titulada
+   * «Caja general (nuestro libro)». Los **$5,070.00** de diferencia son un gasto pagado con
+   * efectivo que dispensó la máquina: el servidor los resta bien —ese dinero nunca pasó por el
+   * cajón— pero no lo decía, y el MISMO importe reaparecía sumado del otro lado («de eso, a la
+   * bóveda $270,200.00» contra «Movimiento de la bóveda $265,130.00»). Tres cifras correctas y
+   * ninguna explicando a las otras.
+   *
+   * ⚠️ Las pruebas afirman los TRES casos, no la cifra. El que importa es el primero: `undefined`
+   * tiene que dar «sin medir» y no `null`, porque `null` apaga el renglón igual que un cero y
+   * volvería a esconder el recorte sin decirlo — el defecto que esto vino a cerrar.
+   */
+  describe('[CG.194] el recorte de la bóveda se declara, no se omite', () => {
+    const conBoveda = (cg: Record<string, unknown>) =>
+      vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, ...cg } }));
+
+    it('con las dos piernas en cero no pinta nada: es un cero de verdad', () => {
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 0, gastos: 0, movimientos: 0 } }) });
+      expect(comp.boveda()).toBeNull();
+      expect(comp.bovedaCifras()).toBeNull();
+    });
+
+    it('con una pierna > 0 publica el objeto entero, con su conteo', () => {
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 0, gastos: 5070, movimientos: 1 } }) });
+      expect(comp.bovedaCifras()).toEqual({ ingresos: 0, gastos: 5070, movimientos: 1 });
+    });
+
+    it('⛔ [negativa] el campo AUSENTE da «sin_medir», nunca null', () => {
+      // Una API vieja no manda `se_fue_a_boveda`. Devolver `null` acá apagaría el renglón igual
+      // que un cero, y los de arriba seguirían viniendo recortados SIN avisar: exactamente el
+      // defecto original, reintroducido por la vía del deploy parcial.
+      // ⚠️ Se parte de un arqueo que SÍ trae el campo y se le quita. Hacerlo desde el fixture
+      // base —que nunca lo tuvo— daría verde sin probar nada: la prueba tiene que ejercer la
+      // AUSENCIA, no coincidir con ella.
+      const conCampo = { ...ARQUEO.caja_general, se_fue_a_boveda: { ingresos: 0, gastos: 5070, movimientos: 1 } };
+      expect(conCampo.se_fue_a_boveda).toBeDefined();
+      const { se_fue_a_boveda: _omitido, ...sinCampo } = conCampo;
+      expect('se_fue_a_boveda' in sinCampo).toBe(false);
+      montar({ arqueoDia: vi.fn(() => of({ ...ARQUEO, caja_general: sinCampo })) });
+      expect(comp.boveda()).toBe('sin_medir');
+      expect(comp.bovedaCifras()).toBeNull();
+    });
+
+    it('⛔ [negativa] las dos piernas NO se suman en un total', () => {
+      // Un ingreso que se tragó la máquina y un gasto que salió de ella van en sentidos
+      // contrarios: un total único los compensaría y volvería a esconder el recorte. Cada
+      // pierna viaja por su lado y corrige SU renglón.
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 5070, gastos: 5070, movimientos: 2 } }) });
+      const b = comp.bovedaCifras()!;
+      expect(b.ingresos).toBe(5070);
+      expect(b.gastos).toBe(5070);
+    });
+  });
+
 /**
  * ⭐⭐ `[CG.160]` — EL CORTE QUE NO SE PODÍA CERRAR, TRES JORNADAS SEGUIDAS.
  *

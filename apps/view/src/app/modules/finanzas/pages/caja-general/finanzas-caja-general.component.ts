@@ -944,7 +944,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        leyendo. */
     .cg-cargo { color:var(--ok-fg); }
     .cg-abono { color:var(--bad-fg); }
-    
+    /* [CG.194] El renglon que dice que le descontaron al de arriba. Es una ACLARACION de su
+       fila, no una fila mas de la cuenta: por eso no lleva el color de cargo/abono -- pintarlo
+       de verde o rojo lo haria leer como un movimiento que suma, y no suma: ya esta restado.
+       Se apoya en .fin-dim, que es el tono tenue que esta pantalla ya usa para lo derivado.
+       El sangrado lo da el texto (dos espacios duros), igual que los renglones "de eso, ..." de
+       abajo, para no inventar una segunda convencion de jerarquia en la misma columna. */
+    .cg-t-sub > th, .cg-t-sub > td { padding-top:0; border-top:0; }
+
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
@@ -1329,16 +1336,43 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   </tr>
                 </thead>
                 <tbody>
+                  <!-- ⭐⭐ [CG.194] CADA RENGLON DICE LO QUE YA LE DESCONTARON, PEGADO A EL.
+                       "Gastos" publicaba $3,109.00 mientras el libro tenia $8,179.00: la
+                       diferencia son $5,070 que se pagaron con efectivo de la maquina, y el
+                       servidor los resta bien -ese dinero nunca paso por el cajon-. Lo que
+                       faltaba era decirlo. Va DENTRO de la tabla y no como nota al pie porque
+                       es el unico lugar donde no hay duda de que renglon corrige.
+                       ⚠️ Las dos piernas NO se suman: un ingreso que se trago la maquina y un
+                       gasto que salio de ella van en sentidos contrarios, y un total unico los
+                       compensaria. Cada una corrige SU renglon o no se pinta. -->
                   <tr>
                     <th scope="row">Ingresos</th>
                     <td class="comm-num cg-cargo">{{ money(a.caja_general.ingresos) }}</td>
                     <td class="comm-num cg-t-vacia" aria-label="sin abono"></td>
                   </tr>
+                  @if (bovedaCifras(); as bv) {
+                    @if (bv.ingresos > 0) {
+                      <tr class="cg-t-sub">
+                        <th scope="row"><span class="fin-dim">&nbsp;&nbsp;no incluye lo que entró directo a la bóveda</span></th>
+                        <td class="comm-num fin-dim">{{ money(bv.ingresos) }}</td>
+                        <td class="comm-num cg-t-vacia" aria-label="sin abono"></td>
+                      </tr>
+                    }
+                  }
                   <tr>
                     <th scope="row">Gastos</th>
                     <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
                     <td class="comm-num cg-abono">{{ money(a.caja_general.gastos) }}</td>
                   </tr>
+                  @if (bovedaCifras(); as bv) {
+                    @if (bv.gastos > 0) {
+                      <tr class="cg-t-sub">
+                        <th scope="row"><span class="fin-dim">&nbsp;&nbsp;no incluye lo que se pagó con efectivo de la bóveda</span></th>
+                        <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
+                        <td class="comm-num fin-dim">{{ money(bv.gastos) }}</td>
+                      </tr>
+                    }
+                  }
                   <tr>
                     <th scope="row">Depositos al banco</th>
                     <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
@@ -1352,6 +1386,21 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   </tr>
                 </tfoot>
               </table>
+
+              <!-- ⭐ [CG.194] POR QUE UN MOVIMIENTO APARECE RECORTADO EN DOS RENGLONES A LA VEZ.
+                   El reparto es por PESO, no por movimiento: un cobro de ruta entra como UNO y
+                   se parte -los billetes se los traga la maquina, la morralla llega al cajon-.
+                   Sin este conteo, los dos renglones de arriba parecen dos hechos distintos.
+                   ⚠️ "Ausente" no es cero: una version vieja del servidor no manda el campo, y
+                   dibujar 0 ahi afirmaria que no se partio nada. Se declara. -->
+              @if (boveda() === 'sin_medir') {
+                <small class="fin-hint-warn">No se puede decir cuánto de esta jornada se quedó en
+                  la bóveda: esta versión del servidor no lo informa. Los renglones de arriba
+                  pueden venir recortados sin avisar.</small>
+              } @else if (bovedaCifras(); as bv) {
+                <small class="fin-dim">{{ bv.movimientos }} movimiento(s) tocaron las dos cajas: el
+                  importe se parte, no el movimiento.</small>
+              }
               <!-- ⭐⭐ [CG.97] "Movimiento del dia" es correcto -el dinero entro y se registro- pero
                    se LEE como "esto hay en la caja", y no lo hay: la maquina se traga los billetes
                    de los cobros de ruta y al cajon llega la morralla. Modelo "cajas separadas",
@@ -4860,6 +4909,46 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const en = cg.en_el_cajon;
     const bov = cg.a_la_boveda;
     return en == null || bov == null ? null : { en_el_cajon: en, a_la_boveda: bov };
+  });
+
+  /**
+   * ⭐⭐ `[CG.194]` **LO QUE LA TABLA DE ARRIBA YA DESCONTÓ, CON NOMBRE Y CIFRA.**
+   *
+   * Medido en prod el 2026-10-19, jornada del día: el libro tiene **$8,179.00** de gastos y la
+   * pantalla publicaba **$3,109.00** bajo un renglón que dice «Gastos», dentro de una tabla
+   * titulada «Caja general (nuestro libro)». La diferencia —**$5,070.00**— es un gasto pagado con
+   * efectivo que dispensó la máquina: el servidor lo resta de `gastos` (son `gastosCajon`) y hace
+   * bien, porque ese dinero nunca pasó por el cajón.
+   *
+   * ⛔ Lo que estaba mal es que **no se decía en ningún lado**, y el mismo importe reaparecía
+   * sumado del otro lado: «de eso, a la bóveda $270,200.00» contra «Movimiento de la bóveda
+   * $265,130.00», dos cifras de la bóveda lado a lado separadas por exactamente esos $5,070.
+   * Las tres son correctas; ninguna explicaba a las otras.
+   *
+   * ⭐ El dato **ya viajaba**: el backend publica `se_fue_a_boveda` desde `[CG.139]` —con sus dos
+   * piernas y el conteo de los que tocaron las dos cajas— y esta pantalla nunca lo leyó. No hace
+   * falta tocar el servidor ni la cifra: hace falta pintarlo.
+   *
+   * ⚠️ **Las dos piernas NO se suman en un total.** Un ingreso que se tragó la máquina y un gasto
+   * que salió de ella se mueven en sentidos contrarios; un solo número los compensaría y volvería
+   * a esconder justamente lo que esto viene a mostrar. Cada una corrige SU renglón.
+   *
+   * ⚠️ Tres casos, no dos (el criterio que ya aplica `autofill()` 300 líneas arriba):
+   *   · ausente        → esta versión del servidor no lo informa. **No es cero**: se declara.
+   *   · presente en 0  → no se partió nada. Es un cero de verdad y no se dibuja nada.
+   *   · presente > 0   → se pinta la pierna que corresponda.
+   */
+  boveda = computed<{ ingresos: number; gastos: number; movimientos: number } | 'sin_medir' | null>(() => {
+    const cg = this.arqueo()?.caja_general;
+    if (!cg) return null;
+    const b = cg.se_fue_a_boveda;
+    if (b === undefined) return 'sin_medir';
+    return Number(b.ingresos) > 0 || Number(b.gastos) > 0 ? b : null;
+  });
+  /** La forma con cifras, para que la plantilla no repita el `=== 'sin_medir'` en cada renglón. */
+  bovedaCifras = computed(() => {
+    const b = this.boveda();
+    return b && b !== 'sin_medir' ? b : null;
   });
 
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
