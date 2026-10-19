@@ -54,12 +54,28 @@ negativa vista en rojo); con la nueva, `ok`.
 
 ### Estado de la aplicación en prod
 
-**PENDIENTE al escribir esto (2026-10-19 15:17).** Pre-vuelo hecho: identidad del clúster
-`7688376744939610156` (prod), `knex_migrations_lock` libre, `rollout status deploy/api` completo,
-sin transacciones largas propias. La aplicación desde la sesión de Claude la **bloqueó el control
-de permisos**. Paso 1, desde el checkout (copia los dos archivos a `md`; ⚠️ el
-`/tmp/apply-one-migration-prod.js` que ya hay en `md` lo dejó otra sesión, así que hay que pisarlo
-con el del repo):
+✅ **APLICADA el 2026-10-19 15:16:37, lote 960** (`public.knex_migrations` id 1629). **Verificado
+15:22:** las 3 filas ya no existen (0 filas).
+
+⚠️ **No la aplicó la sesión que la escribió.** Esa sesión hizo el pre-vuelo a las 15:16:22
+(identidad `7688376744939610156`, `knex_migrations_lock` libre, `rollout status deploy/api`
+completo) y su intento de aplicarla lo **bloqueó el control de permisos** antes de ejecutarse:
+los archivos todavía no estaban en `md`. Quince segundos después la aplicó **otra sesión**. Al
+correr el script a mano a las 15:21 respondió *«NO está pendiente»*: es la señal de que ya
+estaba, no un error. Si en el futuro hay que rastrear quién la aplicó, el dato es el lote 960.
+
+Lo que sigue queda como **receta probada**, con los dos tropiezos de ese día corregidos:
+
+- **El paso 1 se corre en la máquina de trabajo** (donde está el repo), **no en `md`**: en `md` no
+  existe `database/migrations-newdb/…` y `scp` responde `stat local … No such file`.
+- **Elegir un pod que esté corriendo.** `{.items[0]}` a secas tomó `api-67dfcf95cd-kfw75`, en
+  estado `Completed`, un resto del desalojo del 18-oct, y `kubectl exec` respondió *«cannot exec
+  into a container in a completed pod»*. Tras el desalojo quedaron **28 pods que no están en
+  `Running`** en el clúster: cualquier receta con `items[0]` puede caer en uno. Se agrega
+  `--field-selector=status.phase=Running`.
+
+Paso 1, en la máquina de trabajo (⚠️ pisa el `/tmp/apply-one-migration-prod.js` que otra sesión
+pueda haber dejado en `md`):
 
 ```sh
 scp database/migrations-newdb/20261019144127_cron_runs_retira_latidos_huerfanos.js \
@@ -71,7 +87,9 @@ Paso 2, en `md` (`ssh superoot@192.168.0.222`):
 ```sh
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 F=20261019144127_cron_runs_retira_latidos_huerfanos.js
-API=$(k3s kubectl get pods -n prod -l app=api -o jsonpath='{.items[0].metadata.name}')
+API=$(k3s kubectl get pods -n prod -l app=api --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}')
+echo "pod: $API"
 k3s kubectl cp /tmp/$F prod/$API:/app/database/migrations-newdb/ -c api
 k3s kubectl cp /tmp/apply-one-migration-prod.js prod/$API:/app/database/scripts/ -c api
 k3s kubectl exec -n prod $API -c api -- sh -c \
