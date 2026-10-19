@@ -536,6 +536,11 @@ const resumen = (out) => ({
   dup_borrados: out.reduce((a, r) => a + (r.dup_borrados || 0), 0),
   dup_sin_original: out.reduce((a, r) => a + (r.dup_sin_original || 0), 0),
   abortados: out.filter((r) => r.delete_abortado || r.dedupe_abortado).length,
+  // `[OPS.LIMPIEZA.5]` CUÁLES, no cuántas. El 2026-10-18 el latido dijo «1 tablas con DELETE
+  // abortado» y el log que la nombraba murió con el pod (desalojo por disco, 23:35). Sin la
+  // tabla en el latido, decidir si es una poda por antigüedad o una lectura rota era imposible.
+  abortadosDonde: out.filter((r) => r.delete_abortado || r.dedupe_abortado)
+    .map((r) => `${r.tabla}@${r.suc} ${r.delete_abortado || r.dedupe_abortado}`),
   errores: out.filter((r) => r.error).length,
 });
 
@@ -604,7 +609,7 @@ async function latir(destUrl, r, ms) {
         r.huecos > ALERTA ? `${r.huecos} huecos en la ventana (se repusieron ${r.repuestas}) — muy por encima del regimen medido (p99=503 sobre 1217 corridas de 14 dias): revisar el carril PRIMARIO, no este` : null,
         sobranMal ? `${r.sobrantes} filas de mas en el ODS (umbral ${ALERTA_SOBRANTES}) — DELETE sin propagar, revisar a mano` : null,
         r.errores > 0 ? `${r.errores} tablas con error` : null,
-        r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano` : null,
+        r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano: ${r.abortadosDonde.slice(0, 3).join(' | ')}${r.abortadosDonde.length > 3 ? ` | +${r.abortadosDonde.length - 3} más` : ''}` : null,
       ].filter(Boolean).join(' · ') : null,
       require('os').hostname()]);
   } catch (e) {
