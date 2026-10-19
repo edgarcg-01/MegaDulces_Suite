@@ -1764,6 +1764,39 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toBeGreaterThan(0);
   });
 
+  it('⛔ [CG.120] la captura A MANO no se ofrece, pero la puerta compartida sigue viva', () => {
+    /**
+     * La captura a mano se retiró el 2026-10-19: un movimiento tecleado nace **sin
+     * `origen_ref`**, o sea sin nada contra qué cuadrarlo — no lo alcanza el candado de
+     * duplicados del servidor (que es por `origen_tipo + origen_ref`), no entra en el descuento
+     * de la cola, y en la conciliación aparece como una fila que no corresponde a ningún
+     * documento. Era la única puerta de esta pantalla por la que entraba dinero sin procedencia.
+     *
+     * ⛔ **Lo segundo que se afirma acá es lo que casi se rompe.** `abrirCaptura()` es la puerta
+     * COMPARTIDA de cuatro caminos: la cola del ERP (`capturarDesde`), la bóveda
+     * (`capturarDesdeCaos`), un recurrente sin regla (`declararDesdeRecurrente`) y el botón
+     * retirado. Guardarla por dentro —que es lo que parece pedir «inhabilitar la captura
+     * manual»— apagaría **el arqueo entero**. Por eso se apagó el botón y nada más, y por eso
+     * esta prueba comprueba las dos mitades juntas: que la puerta manual no está Y que la
+     * compartida sigue abriendo.
+     *
+     * ⚠️ Si alguien pone `CAPTURA_MANUAL_HABILITADA` en `true`, esta prueba se pone roja. Es a
+     * propósito: devolver esa puerta es una decisión, no un descuido, y tiene que tocarse acá.
+     */
+    const fx = montar();
+    fx.detectChanges();
+
+    const botones: HTMLElement[] = Array.from(fx.nativeElement.querySelectorAll('button'));
+    const manual = botones.find((b) => /Registrar movimiento/i.test(b.textContent ?? ''));
+    expect(comp.puedeGestionar(), 'la prueba no sirve sin permiso de captura').toBe(true);
+    expect(manual, 'se sigue ofreciendo capturar un movimiento a mano').toBeUndefined();
+
+    // Y la puerta compartida NO se tocó: sin esto, el arqueo de la cola moriría en silencio.
+    comp.abrirCaptura();
+    expect(comp.capturaAbierta(), 'abrirCaptura() dejó de abrir: se guardó la puerta compartida')
+      .toBe(true);
+  });
+
   it('⭐ al elegir un movimiento el foco cae en el PRIMER campo de piezas', async () => {
     /**
      * ⛔ `[CG.117]` `enfocarDetalle()` buscaba `.cg-detail`, que se retiró al mudar el arqueo al

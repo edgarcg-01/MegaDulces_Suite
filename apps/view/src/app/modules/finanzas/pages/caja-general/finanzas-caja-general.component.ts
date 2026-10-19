@@ -58,7 +58,7 @@ import {
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
   pasoDelCorte, textoPaso, type PasoCorte, textoDeError, separarPorFlujo,
-  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe,
+  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, CAPTURA_MANUAL_HABILITADA,
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 
@@ -1143,8 +1143,26 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
         <!-- [CGP-V.6] Sin el permiso de captura el boton no se ofrece: se dice, una vez, aca arriba. -->
         @if (puedeGestionar()) {
-          <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
-                    (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
+          <!-- ⛔⛔ [CG.120] LA CAPTURA A MANO SE RETIRA (Edgar, 2026-10-19). Un movimiento
+               tecleado nace SIN origen_ref, o sea sin nada contra que cuadrarlo: no lo alcanza el
+               candado de duplicados del servidor (que es por origen_tipo + origen_ref), no entra
+               en el descuento de la cola, y en la conciliacion aparece como una fila que no
+               corresponde a ningun documento. Era la unica puerta de esta pantalla por la que
+               entraba dinero sin procedencia.
+
+               ⭐ Se RETIRA, no se pinta en gris. Esta misma pantalla ya tiene escrita la regla,
+               400 lineas mas abajo: "un boton que se apaga sin decir por que se lee igual que un
+               boton roto, y el gesto siguiente es volver a tocarlo". Un gris permanente invita a
+               reportar una falla que no existe. Y no se deja un aviso fijo en su lugar porque el
+               encabezado ya dice que hacer -- "elige uno de la cola y el arqueo se abre al lado".
+
+               ⛔ Apaga EL BOTON, no abrirCaptura(): esa funcion la comparten la cola del ERP, la
+               boveda y los recurrentes sin regla. Guardarla por dentro apagaria el arqueo entero.
+               El interruptor, con su porque, vive en CAPTURA_MANUAL_HABILITADA. -->
+          @if (capturaManualHabilitada) {
+            <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
+                      (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
+          }
         } @else {
           <small class="fin-hint-warn">Sólo lectura: capturar, confirmar y rendir cuentas necesitan el
             permiso «Capturar en Caja General».</small>
@@ -3918,6 +3936,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   readonly GLOSA_MIN = GLOSA_MIN;
+  /** `[CG.120]` El interruptor de la captura a mano, para la plantilla. El porqué vive en la constante. */
+  readonly capturaManualHabilitada = CAPTURA_MANUAL_HABILITADA;
 
   rows = signal<MovimientoCaja[]>([]);
   cargando = signal(false);
