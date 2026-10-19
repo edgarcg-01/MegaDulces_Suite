@@ -1242,6 +1242,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
+        // [MOS.2] Lo que se escaneó en el mostrador y Kepler no tiene en esa sucursal. Sale solo de
+        // la lista cuando lo dan de alta en Kepler. Mismo permiso que su endpoint.
+        path: 'catalogo/no-registrados',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-no-registrados.component').then(m => m.ComprasCatalogoNoRegistradosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
         // [CAT.7] El reporte imprimible de precios por proveedor. Mismo permiso que el resto del
         // catálogo: es el mismo dato, mirado para llevárselo en papel a la negociación.
         path: 'catalogo/reporte',

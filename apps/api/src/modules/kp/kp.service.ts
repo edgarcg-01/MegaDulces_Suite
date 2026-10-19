@@ -44,6 +44,14 @@ const MAYOREO_MIN_DESC = 0.01;
  */
 const TENANT = process.env.MEGA_DULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
+/** Lo que el lote del snapshot sabe de cada SKU además del precio: mayoreo, gramaje y proveedor. */
+interface DatosDeLote {
+  mayoreo: MayoreoTier[];
+  contenido: string | null;
+  /** `[MOS.1]` `null` = la ficha no tiene proveedor. */
+  proveedor: string | null;
+}
+
 @Injectable()
 export class KpService {
   private readonly logger = new Logger(KpService.name);
@@ -291,8 +299,8 @@ export class KpService {
    * defecto que `[TDA.3]` acaba de arreglar con la unidad escaneada. El costo es tamaño de
    * descarga en una LAN, una vez cada 12 h; el beneficio es una sola definición.
    */
-  private async mayoreoDeTodos(sucursal: string | null): Promise<Map<string, { mayoreo: MayoreoTier[]; contenido: string | null }>> {
-    const idx = new Map<string, { mayoreo: MayoreoTier[]; contenido: string | null }>();
+  private async mayoreoDeTodos(sucursal: string | null): Promise<Map<string, DatosDeLote>> {
+    const idx = new Map<string, DatosDeLote>();
     // `[NORM.3]` El defecto que esto cierra: el snapshot se arma **por sucursal** (cada kiosco baja
     // el de su plaza) y esta consulta leía la tabla **sin filtrar por sucursal**. O sea el modo sin
     // red servía el mayoreo de la moda a las 8 tiendas. Medido: 1,164 grupos de mayoreo de paquete
@@ -318,7 +326,24 @@ export class KpService {
         );
         for (const r of rows || []) {
           const t = this.tiersDeFila(r);
-          if (t.mayoreo.length || t.contenido) idx.set(String(r.sku), t);
+          if (t.mayoreo.length || t.contenido) idx.set(String(r.sku), { ...t, proveedor: null });
+        }
+
+        // `[MOS.1]` El proveedor de la ficha, para que el mostrador busque por proveedor. Lectura
+        // APARTE y no un JOIN de la de arriba: ésa sólo trae productos con fila de etiqueta, y un
+        // producto sin mayoreo también tiene proveedor. Es el mismo que ve Compras en su Catálogo.
+        const prov = await trx.raw(
+          `SELECT btrim(p.sku) AS sku, btrim(s.name) AS proveedor
+             FROM catalog.products p
+             JOIN catalog.suppliers s ON s.id = p.supplier_id
+            WHERE p.tenant_id = ? AND p.deleted_at IS NULL
+              AND btrim(coalesce(p.sku,'')) <> '' AND btrim(coalesce(s.name,'')) <> ''`,
+          [TENANT],
+        );
+        for (const r of prov.rows || []) {
+          const k = String(r.sku);
+          const prev = idx.get(k);
+          idx.set(k, { mayoreo: prev?.mayoreo ?? [], contenido: prev?.contenido ?? null, proveedor: String(r.proveedor) });
         }
       });
     } catch (e: any) {
@@ -376,8 +401,10 @@ export class KpService {
      * saber si le habla a ella**.
      */
     product_id: string | null;
+    /** `[MOS.1]` El proveedor de la ficha (`catalog.suppliers`), el mismo que ve Compras. */
+    proveedor: string | null;
   }> {
-    const vacio = { override: null, mayoreo: [] as MayoreoTier[], contenido: null, product_id: null };
+    const vacio = { override: null, mayoreo: [] as MayoreoTier[], contenido: null, product_id: null, proveedor: null };
     // `[NORM.3]` La plaza de la que salió el precio. La tabla ahora tiene grano por sucursal, así
     // que el mayoreo se pide para ESA tienda: 1,164 grupos de mayoreo de paquete (6.3 %) tienen
     // precio distinto entre plazas, y antes se publicaba el de la moda. Sin plaza conocida se lee
@@ -396,10 +423,13 @@ export class KpService {
                   l.pack_price,            l.pack_size,
                   -- [TDA.8] La llave del aviso en vivo. Ya estaba en el JOIN; lo unico que
                   -- faltaba era publicarla.
-                  p.id AS product_id
+                  p.id AS product_id,
+                  -- [MOS.1] El proveedor de la ficha: el mismo que ve Compras en su Catalogo.
+                  s.name AS proveedor
              FROM catalog.products p
              JOIN ${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} l
                ON l.product_id = p.id AND l.tenant_id = p.tenant_id
+             LEFT JOIN catalog.suppliers s ON s.id = p.supplier_id
             WHERE p.tenant_id = ?
               AND p.deleted_at IS NULL
               AND btrim(p.sku) = ?
@@ -417,7 +447,10 @@ export class KpService {
         // El cómputo vive en `tiersDeFila` porque el snapshot offline usa el MISMO: la regla del
         // descuento mínimo no puede existir dos veces.
         const { mayoreo, contenido } = this.tiersDeFila(r);
-        return { override, mayoreo, contenido, product_id: r.product_id ?? null };
+        return {
+          override, mayoreo, contenido, product_id: r.product_id ?? null,
+          proveedor: r.proveedor ? String(r.proveedor).trim() || null : null,
+        };
       });
     } catch (e: any) {
       this.logger.warn(`datosDeEtiqueta(${codigo}) no se pudo leer: ${e.message}`);
@@ -591,6 +624,8 @@ export class KpService {
         productos_candidatos: candidatos,
         plaza_pedida_sin_dato: plazaPedidaSinDato,
         origen_precio: origen,
+        // `[MOS.1]` El proveedor de la ficha, de la misma lectura que el mayoreo.
+        proveedor: etiqueta.proveedor,
       };
     } catch (e: unknown) {
       throw this.falloInterno('getPrecio', e);
@@ -644,6 +679,8 @@ export class KpService {
 
       const vistos = new Set<string>();
       const items: VerificadorSnapshotItem[] = [];
+      const proveedores: string[] = [];
+      const indiceProveedor = new Map<string, number>();
 
       for (const r of rows) {
         if (vistos.has(r.codigo)) continue;
@@ -676,17 +713,32 @@ export class KpService {
         const et = etiquetas.get(String(r.codigo).replace(/^0+/, ''));
         const gramaje = et?.contenido ?? null;
 
+        // `[MOS.1]` El proveedor viaja como índice en un diccionario: el mismo nombre se repite
+        // en cientos de productos y el snapshot es una descarga por kiosco.
+        let pv: number | undefined;
+        if (et?.proveedor) {
+          pv = indiceProveedor.get(et.proveedor);
+          if (pv === undefined) {
+            pv = proveedores.length;
+            proveedores.push(et.proveedor);
+            indiceProveedor.set(et.proveedor, pv);
+          }
+        }
+
         items.push({
           c: r.codigo,
           b: bcs,
           bu: bus,
           n: r.nombre || '',
-          u: unidades.map(x => ({ u: x.u, p: x.precio_con_iva, s: x.precio_sin_iva })),
+          // `[MOS.1]` `f` = cuántas unidades base trae la presentación. Sin él el mostrador no
+          // puede decir que la caja trae 20 paquetes.
+          u: unidades.map(x => ({ u: x.u, p: x.precio_con_iva, s: x.precio_sin_iva, f: x.factor })),
           // `[TDA.4]` Mayoreo y gramaje, con la MISMA forma que la respuesta en vivo — una sola
           // definición para los dos modos. Se OMITEN cuando no hay nada que decir: un array vacío
           // por producto son ~9,000 arrays vacíos en la descarga del kiosco.
           ...(et?.mayoreo.length ? { m: et.mayoreo.map(compactarTier) } : {}),
           ...(gramaje ? { g: gramaje } : {}),
+          ...(pv !== undefined ? { pv } : {}),
         });
       }
 
@@ -697,6 +749,7 @@ export class KpService {
         sucursal: suc,
         generado: new Date().toISOString(),
         productos: items,
+        pr: proveedores,
       };
     } catch (e: unknown) {
       // Antes: 200 con `productos: []` y el mensaje de Postgres, que el kiosco leía como "el

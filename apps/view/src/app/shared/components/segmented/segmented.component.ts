@@ -1,7 +1,23 @@
 import { ChangeDetectionStrategy, Component, ElementRef, input, output, viewChild } from '@angular/core';
 
 
-export interface SegOption { label: string; value: string; }
+export interface SegOption {
+  label: string;
+  value: string;
+  /**
+   * Cuántos hay en esta opción. **Aditivo**: omitirlo deja el control exactamente como estaba,
+   * así que ninguna de las 48 pantallas que lo montan cambia sin tocarla.
+   *
+   * ⭐ Existe porque un filtro que no dice cuánto hay detrás obliga a tocarlo para enterarse: en
+   * Caja General había que entrar a «Egresos» para saber si valía la pena. El número va DENTRO
+   * del botón —no en un `title`— así que entra en el nombre accesible: un lector de pantalla
+   * anuncia «Egresos 117», no «Egresos».
+   *
+   * ⚠️ `undefined` ≠ `0`. Sin medición no se dibuja un cero (ADR-056): el cero dice «no hay», y
+   * «no lo sé» es otra cosa.
+   */
+  count?: number;
+}
 
 /**
  * Segmented control canónico (Operations). Track + pill activo, radiogroup accesible.
@@ -36,7 +52,7 @@ export interface SegOption { label: string; value: string; }
                 [attr.tabindex]="value() === o.value ? 0 : -1"
                 class="seg-btn" [class.on]="value() === o.value"
                 (keydown)="onKey($event)"
-                (click)="pick(o.value)">{{ o.label }}</button>
+                (click)="pick(o.value)">{{ o.label }}@if (o.count !== undefined) {<span class="seg-n"> {{ o.count }}</span>}</button>
       }
     </div>
   `,
@@ -48,6 +64,25 @@ export interface SegOption { label: string; value: string; }
     .seg-btn { border:0; background:transparent; padding:.4rem .7rem; font-size:var(--fs-xs,.8rem); font-weight:600; color:var(--text-muted); cursor:pointer; border-radius:6px; white-space:nowrap; transition:color 120ms var(--ease-standard), background 120ms var(--ease-standard); }
     .seg-btn:hover { color:var(--text-main); }
     .seg-btn.on { background:var(--card-bg); color:var(--text-main); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+    /* El conteo: mono y tabular para que los numeros no bailen al cambiar de opcion, y un peso
+       por debajo de la etiqueta -- el dato manda, pero la opcion es lo que se elige. */
+    .seg-n { margin-left:.35em; font-family:var(--font-mono); font-variant-numeric:tabular-nums;
+             font-weight:500; color:var(--text-muted); }
+    .seg-btn.on .seg-n { color:var(--text-main); }
+
+    /* ⛔⛔ EN ALTO CONTRASTE DE WINDOWS NO SE VEIA CUAL ESTABA ELEGIDA.
+       La opcion activa se marcaba con background + color + box-shadow, y en forced-colors los
+       TRES se caen: el fondo y el texto los sustituye el sistema, y el box-shadow directamente
+       NO SE DIBUJA (lo documenta libs/ui-web/src/forced-colors.css). O sea que las tres senales
+       eran la misma senal -- color -- y desaparecian juntas.
+       La flota es Windows y forced-colors es el tercer modo (DESIGN.md), no un extra. Esto lo
+       montan 48 pantallas, asi que el defecto no era de una.
+       Se usa outline, que SI se dibuja en ese modo, con offset negativo para no mover el
+       layout. Highlight es el color de sistema de "seleccionado", el mismo que usa el anillo
+       de foco de la base global: la opcion elegida se lee como elegida. */
+    @media (forced-colors: active) {
+      .seg-btn.on { outline:2px solid Highlight; outline-offset:-2px; }
+    }
 
     /* Touch: 31px de alto es la mitad del minimo de Fitts (DESIGN §11). En el
        arqueo estas pestanas eligen si el corte es cierre o relevo — errarle con

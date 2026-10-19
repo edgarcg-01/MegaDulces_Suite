@@ -1587,7 +1587,17 @@ export class CashCutService {
       // Se dice sólo cuando hay alguno, para que no sea un aviso permanente que nadie lee.
       const fueraDeFecha = Number(libro?.fechados_otro_dia ?? 0);
       if (fueraDeFecha > 0) {
-        limites.push(`Esta jornada es lo REGISTRADO hoy:  de esos movimientos traen el documento de Kepler fechado otro día. El efectivo se movió hoy; el papel es de antes.`);
+        /**
+         * ⛔ `[CG.194]` **ACÁ FALTABA EL NÚMERO.** La frase decía *"Esta jornada es lo REGISTRADO
+         * hoy:␣␣de esos movimientos traen el documento de Kepler fechado otro día"* — con dos
+         * espacios donde iba `${fueraDeFecha}`. Un aviso al que se le cae su única cifra no avisa
+         * nada: dice que *algunos* son papel de antes, y «algunos» no se puede comparar contra
+         * nada. Medido en prod el 2026-10-19: eran **13 de 18**, el 72% de la jornada.
+         *
+         * ⚠️ El campo `fechados_otro_dia` viaja bien como número desde `[CG.82]` y por eso el
+         * defecto no se vio: la pantalla tenía el dato y lo que estaba roto era la frase.
+         */
+        limites.push(`Esta jornada es lo REGISTRADO hoy: ${fueraDeFecha} de ${Number(libro?.movimientos ?? 0)} movimientos traen el documento de Kepler fechado otro día. El efectivo se movió hoy; el papel es de antes.`);
       }
       if (cajero && (cajero['tipos_desconocidos'] as unknown[]).length > 0) {
         no_medido.push('El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.');

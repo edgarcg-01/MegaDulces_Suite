@@ -115,6 +115,11 @@ spec:
             - "maintenance_work_mem=4GB"
             - "-c"
             - "work_mem=64MB"
+            # ⚠️ [OPS.DISCO.3] `wal_compression=zstd` y `checkpoint_timeout=15min` NO están acá: se
+            # pusieron con ALTER SYSTEM el 2026-10-19 (viven en postgresql.auto.conf, dentro de PGDATA,
+            # y sobreviven al reinicio). Motivo: con compresión apagada y checkpoint cada 5 min la base
+            # generaba ~200 segmentos/h (~12.5 GB/día archivados) y llenó el disco. ⛔ Un `-c` acá
+            # para esos dos parámetros GANA sobre ALTER SYSTEM: no reponerlos con otro valor.
             - "-c"
             - "max_wal_size=8GB"
             - "-c"

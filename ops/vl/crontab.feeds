@@ -109,6 +109,36 @@
 # ⚠️ Necesita `ODS_PUBLISH_DEST_URL` en /secrets/feeds.env (credencial: nunca al repo).
 7,17,27,37,47,57 * * * * /app/ops/vl/run-feed.sh publish-tienda "node /app/database/importers/kepler/publish-ods-remote.js --apply"
 
+# ⭐⭐ [CGA-A.3] / [RC.4] LOS COBROS DE CAMIONETA: runner → prod. ÚLTIMO TRAMO DE LA CADENA.
+#
+#     camioneta (md.kdm1 ⋈ md.kdm5) → mart.cobros_ruta (runner :5433) → ESTE →
+#     analytics.route_collections (prod) → la cola de Caja General
+#
+# ⛔ **Hasta el 2026-10-16 este importer NO ESTABA AGENDADO EN NINGÚN LADO.** Se corría a mano,
+# y el día que se cablearon cuatro camionetas hubo que invocarlo tres veces para que el dinero
+# apareciera en pantalla. Un tramo que depende de que alguien se acuerde no es un carril.
+#
+# ⚠️ Y el modo de fallar es el de toda esta familia: **no hay error, no hay log, no hay
+# descuadre**. Un cobro que no sube se ve EXACTAMENTE igual que un día sin cobros. Por eso el
+# importer late en `analytics.cron_runs` (`route_collections`) y además hay dos compuertas que
+# salen a buscarlo en vez de esperar el aviso:
+#     npm run check:camioneta-sin-cobro     (la unidad manda venta y no manda cobro)
+#     npm run check:cobro-monto-desfasado   (el libro dice lo que la fuente desmiente)
+#
+# Cadencia: **cada 10 min, minutos terminados en 4.** No es arbitraria — es el único hueco que
+# queda: `prices` toma 2,32; `publish-tienda` 7..57; `contpaqi-cfdis` cae en 3 y 8;
+# `contpaqi-cfdis-emit` en 1 y 6; `stock` en 5,20,35,50. Apilarse con cualquiera de ésos pelea
+# por la misma conexión al runner.
+#
+# ⚠️ Cada 10 min y no más seguido con motivo: las camionetas empujan al reconectar (tarea por
+# evento de red + cada 15 min), así que muestrear más fino no adelanta nada y sólo multiplica
+# corridas vacías. El UPSERT es por `(tenant_id, truck, cobro_folio, folio_corte)`, así que una
+# corrida repetida reescribe los mismos valores: **no duplica dinero**.
+#
+# Env: `SRC_URL` cae al default correcto (`md:5433/kepler_consolidado`) y `DATABASE_URL_NEW` ya
+# viene de /secrets/feeds.env como el resto. No necesita credencial nueva.
+4,14,24,34,44,54 * * * * /app/ops/vl/run-feed.sh route-collections "node /app/database/importers/kepler/import-route-collections.js --apply"
+
 # [VL.6.2] EL VIGILANTE. Vigila que el scanner de Salud BD del API siga vivo y, si no, toma el
 # control y abre las alertas el mismo. Se muda a `md` sin tocar una linea: ya viaja dentro de la
 # imagen y `pg` resuelve (verificado). Su env sale de /secrets/feeds.env como todos, via run-feed.sh.

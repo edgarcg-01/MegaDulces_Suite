@@ -13,9 +13,9 @@
  *   - `1V006 «RUTA VECINAL MORELIA ABASTOS»` — $721,860.44, invisible por no emitir `U-D-10`.
  *
  * ── ⛔ La prueba NEGATIVA ────────────────────────────────────────────────────────────────────
- * El bloque 6 **rompe la compuerta a propósito**: borra lógicamente la clase de `UD1301` dentro
+ * El bloque 7 **rompe la compuerta a propósito**: borra lógicamente la clase de `UD1301` dentro
  * de una transacción, comprueba que la vista lo declara `sin_clasificar` con su importe, y hace
- * ROLLBACK. Sin eso, los otros cinco bloques son una intención: pasarían igual contra una vista
+ * ROLLBACK. Sin eso, los otros seis bloques son una intención: pasarían igual contra una vista
  * que devolviera cero filas siempre.
  *
  * Uso:  node database/tests/test-newdb-clase-documento-venta.js
@@ -69,6 +69,47 @@ async function main() {
     }
   }
 
+  /**
+   * 2-bis — ⭐⭐ **La misma pregunta, sobre TODO el dinero.** `[VEC.33]`
+   *
+   * El bloque 2 mira las rutas vecinales, que medido en 2026 son **$20 M de $1,094 M**: el
+   * **2 %**. Durante tres días esta compuerta dijo «ninguna venta queda sin clasificar»
+   * mirando esa rebanada, y afuera había **$22,062,513** sin clase — `UD2301 «Corte de Caja
+   * POS»` ($20.8 M) y `UD6001 «Documento por Cobrar»` ($1.2 M).
+   *
+   * ⛔ Una compuerta acotada no avisa de lo que dejó fuera: se ve idéntica a una que pasa.
+   */
+  const gen = await c.query(`SELECT to_regclass('analytics.v_sale_doc_coverage') v`);
+  if (!gen.rows[0].v) {
+    mal('analytics.v_sale_doc_coverage no existe — [VEC.33] sin aplicar: la compuerta ' +
+        'sólo vigila el 2 % del dinero');
+  } else {
+    const t = await c.query(`SELECT doc_code, doc_nombre, sum(docs)::int docs,
+        round(sum(importe))::float imp
+      FROM analytics.v_sale_doc_coverage
+     WHERE clase = 'sin_clasificar' AND importe > 0
+     GROUP BY 1,2 ORDER BY 4 DESC`);
+    if (t.rowCount === 0) {
+      bien('ninguna venta queda sin clasificar en NINGUNA familia de ruta');
+    } else {
+      mal(`${t.rowCount} tipo(s) con venta SIN CLASIFICAR fuera de lo vecinal:`);
+      for (const x of t.rows) {
+        console.log(`      ${x.doc_code} ${x.doc_nombre ?? '(sin nombre)'} · ` +
+                    `${x.docs} doc(s) · $${x.imp.toLocaleString('es-MX')}`);
+      }
+    }
+    // ⭐ Y que de verdad mire más que lo vecinal: si alguien la acota otra vez, esto se cae.
+    const fam = await c.query(`SELECT count(DISTINCT familia)::int n,
+        round(sum(importe) FILTER (WHERE familia <> 'vecinal'))::float fuera
+      FROM analytics.v_sale_doc_coverage`);
+    if (fam.rows[0].n >= 3 && fam.rows[0].fuera > 0) {
+      bien(`el lente cubre ${fam.rows[0].n} familias de ruta · ` +
+           `$${Math.round(fam.rows[0].fuera).toLocaleString('es-MX')} fuera de lo vecinal`);
+    } else {
+      mal('la cobertura general volvió a quedar acotada: mira ' + fam.rows[0].n + ' familia(s)');
+    }
+  }
+
   // 3 — El universo de RUTAS es el catálogo, no «las que emitieron un ticket».
   const r = await c.query(`SELECT count(DISTINCT route_no)::int rutas,
       count(DISTINCT route_no) FILTER (WHERE importe > 0)::int con_venta
@@ -107,7 +148,63 @@ async function main() {
   }
 
   /**
-   * 6 — ⛔ PRUEBA NEGATIVA: se rompe la compuerta a propósito y se exige el rojo.
+   * 6 — ⭐⭐ **El espejo no puede estar escondiendo venta.** Es la mitad peligrosa de la
+   * clasificación: `credito` de menos se ve (falta plata), `espejo` de más **no se ve** —
+   * simplemente no aparece.
+   *
+   * ── Lo que se midió el 2026-10-16, y por qué este bloque quedó así ───────────────────────
+   * `UD0501` se había clasificado espejo **por el nombre**, sin medir. Son $4.36 M. Medido:
+   *
+   *   cruce documento a documento, mismo día e importe:
+   *     UD05xx .. 93.9 % de los docs · placebo (+30 d) 0.1 %   <- control, el cruce es real
+   *     UD12xx .. 61.1 % de los docs · placebo (+30 d) 0.1 %
+   *
+   *   exceso sobre los tickets, por grano:
+   *     UD05xx .. día $273,151 · semana $187,023 · mes $108,004 · TODO $41,420
+   *     UD12xx .. día  $20,478 · semana    $693 · mes       $0 · TODO      $0
+   *
+   * ⭐ `UD12xx` colapsa a CERO al grano mes: espejo puro, la diferencia era desfase de fecha.
+   * De `UD05xx` queda un neto de **$41,420 (0.95 %)**, concentrado en `1V003` (+$27,382) y
+   * `3V001` (+$14,038). ⛔ Hipótesis de tickets cancelados: **refutada**, esas rutas no tienen
+   * ni uno. Lo que sí lo explica es el mes: la diferencia **oscila alrededor de cero**
+   * (+1.2 %, −1.4 %, +0.2 %, +8.8 %, +4.0 %, **−8.3 %**, +10.4 %) y julio (+$41,727) casi se
+   * cancela con septiembre (−$44,791). **La venta no va en negativo; un desfase sí.**
+   *
+   * Por eso la compuerta vigila el NETO acumulado, no el mes: un mes suelto no dice nada, y
+   * exigirle cero haría ruido siete veces al año. Si el neto se despega, el espejo dejó de
+   * serlo y hay venta escondida.
+   */
+  const ESPEJO_MAX_PCT = 2.0; // hoy 0.95 %. Si sube, alguien cambió el proceso.
+  const porRuta = await c.query(`
+    WITH d AS (
+      SELECT btrim(h.c12) AS ruta, (h.c4)::int AS dt, h.c16 AS imp
+        FROM kepler_ods.kdm1 h
+       WHERE h.c2='U' AND h.c3='D' AND (h.c4)::int IN (10,5,12)
+         AND btrim(COALESCE(h.c12,'')) ~ '^[0-9]V[0-9]'
+         AND btrim(COALESCE(h.c1,''))=btrim(h.sucursal)
+         AND COALESCE(NULLIF(btrim(h.c43),''),'')<>'C'),
+    g AS (
+      SELECT ruta,
+             COALESCE(sum(imp) FILTER (WHERE dt=10),0) AS tk,
+             COALESCE(sum(imp) FILTER (WHERE dt IN (5,12)),0) AS fx
+        FROM d GROUP BY 1)
+    SELECT sum(GREATEST(0, fx - tk))::float AS exceso,
+           sum(fx)::float AS espejo FROM g`);
+  {
+    const x = porRuta.rows[0];
+    const pct = x.espejo ? (100 * (x.exceso || 0) / x.espejo) : 0;
+    const txt = `$${Math.round(x.exceso || 0).toLocaleString('es-MX')} sobre ` +
+                `$${Math.round(x.espejo).toLocaleString('es-MX')} (${pct.toFixed(2)} %)`;
+    if (pct <= ESPEJO_MAX_PCT) {
+      bien(`el espejo no esconde venta: neto ${txt}, bajo el ${ESPEJO_MAX_PCT} % tolerado`);
+    } else {
+      mal(`⛔ el espejo EXCEDE a los tickets en ${txt}. Dejó de ser espejo: esa venta no ` +
+          'aparece en ninguna pantalla. Revisar la clase de UD0501/UD1201.');
+    }
+  }
+
+  /**
+   * 7 — ⛔ PRUEBA NEGATIVA: se rompe la compuerta a propósito y se exige el rojo.
    *
    * ⚠️ Necesita una credencial que ESCRIBA. Desde el puesto de trabajo se lee prod en
    * `default_transaction_read_only`, así que ahí esto no se puede ejercer — y eso se DECLARA
@@ -138,7 +235,7 @@ async function main() {
   } catch (e) {
     if (/read-only/i.test(e.message)) {
       sinMedir('prueba negativa: esta credencial es de sólo lectura. Correrla desde el pod de ' +
-               'api para ejercerla (ver el comentario del bloque 6)');
+               'api para ejercerla (ver el comentario del bloque 7)');
     } else {
       mal('prueba negativa: error inesperado — ' + e.message);
     }

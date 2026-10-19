@@ -1,0 +1,5136 @@
+{
+  "generated_at": "2026-10-16T23:30:38.510Z",
+  "skeleton": {
+    "source": "replicas Kepler md:5433 (read-only)",
+    "branch": "kepler_md_00",
+    "tables": 367,
+    "columns": 6348
+  },
+  "reverse_engineering": {
+    "source": "formas .kpl (scripts/kepler/kpl-decode.mjs)",
+    "columns_decoded": 87,
+    "tables_touched": 7
+  },
+  "coverage": {
+    "columns_total": 6348,
+    "columns_with_meaning": 87,
+    "pct": "1.37%"
+  },
+  "tables": [
+    {
+      "table": "kdii",
+      "columns": 103,
+      "decoded_by_re": 35,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": "Descripción"
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": "Línea"
+        },
+        {
+          "column": "c4",
+          "type": "character varying",
+          "meaning": "Tipo"
+        },
+        {
+          "column": "c5",
+          "type": "character varying",
+          "meaning": "Grupo"
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": "Código del proveedor"
+        },
+        {
+          "column": "c7",
+          "type": "character varying",
+          "meaning": "1"
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": "Proveedor"
+        },
+        {
+          "column": "c9",
+          "type": "character varying",
+          "meaning": "Proveedor secundario"
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "numeric(10,4)",
+          "meaning": null
+        },
+        {
+          "column": "c14",
+          "type": "numeric(13,4)",
+          "meaning": "Precios de ventas"
+        },
+        {
+          "column": "c15",
+          "type": "numeric(13,4)",
+          "meaning": "Precios de ventas"
+        },
+        {
+          "column": "c16",
+          "type": "numeric(13,4)",
+          "meaning": "Precios de ventas"
+        },
+        {
+          "column": "c17",
+          "type": "numeric(13,4)",
+          "meaning": "Precios de ventas"
+        },
+        {
+          "column": "c18",
+          "type": "numeric(8,4)",
+          "meaning": "IVA"
+        },
+        {
+          "column": "c19",
+          "type": "numeric(8,4)",
+          "meaning": "IEPS"
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": "Moneda"
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "numeric(15,4)",
+          "meaning": "Precio lista proveedor"
+        },
+        {
+          "column": "c24",
+          "type": "numeric(8,4)",
+          "meaning": "Descuento proveedor"
+        },
+        {
+          "column": "c25",
+          "type": "character varying",
+          "meaning": "Producto substituto"
+        },
+        {
+          "column": "c26",
+          "type": "character varying",
+          "meaning": "Producto equivalente"
+        },
+        {
+          "column": "c27",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c28",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c29",
+          "type": "numeric(8,4)",
+          "meaning": null
+        },
+        {
+          "column": "c30",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c31",
+          "type": "character varying",
+          "meaning": "Moneda compra"
+        },
+        {
+          "column": "c32",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c33",
+          "type": "numeric(15,4)",
+          "meaning": "Minimo"
+        },
+        {
+          "column": "c34",
+          "type": "numeric(15,4)",
+          "meaning": "Punto reorden"
+        },
+        {
+          "column": "c35",
+          "type": "numeric(15,4)",
+          "meaning": "Máximo"
+        },
+        {
+          "column": "c36",
+          "type": "numeric(4,2)",
+          "meaning": null
+        },
+        {
+          "column": "c37",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c38",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c39",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c40",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c41",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c42",
+          "type": "numeric(15,4)",
+          "meaning": null
+        },
+        {
+          "column": "c43",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c44",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c45",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c46",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c47",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c48",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c49",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c50",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c51",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c52",
+          "type": "numeric(3,2)",
+          "meaning": null
+        },
+        {
+          "column": "c53",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c54",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c55",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c56",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c57",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c58",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c59",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c60",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c61",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c62",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c63",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c64",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c65",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c66",
+          "type": "numeric(5,4)",
+          "meaning": null
+        },
+        {
+          "column": "c67",
+          "type": "numeric(10)",
+          "meaning": null
+        },
+        {
+          "column": "c68",
+          "type": "numeric(10,4)",
+          "meaning": null
+        },
+        {
+          "column": "c69",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c70",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c71",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c72",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c73",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c74",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c75",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c76",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c77",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c78",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c79",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c80",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c81",
+          "type": "numeric(10,2)",
+          "meaning": "Unidad Dos"
+        },
+        {
+          "column": "c82",
+          "type": "character varying",
+          "meaning": "Unidad Dos"
+        },
+        {
+          "column": "c83",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c84",
+          "type": "numeric(10,2)",
+          "meaning": "Unidad Tres"
+        },
+        {
+          "column": "c85",
+          "type": "character varying",
+          "meaning": "Unidad Tres"
+        },
+        {
+          "column": "c86",
+          "type": "numeric(10,2)",
+          "meaning": null
+        },
+        {
+          "column": "c87",
+          "type": "numeric(10,4)",
+          "meaning": null
+        },
+        {
+          "column": "c88",
+          "type": "numeric(10,4)",
+          "meaning": null
+        },
+        {
+          "column": "c89",
+          "type": "numeric(10,4)",
+          "meaning": null
+        },
+        {
+          "column": "c90",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c91",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c92",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c93",
+          "type": "character varying",
+          "meaning": "1"
+        },
+        {
+          "column": "c94",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c95",
+          "type": "character varying",
+          "meaning": "Unidad Dos"
+        },
+        {
+          "column": "c96",
+          "type": "character varying",
+          "meaning": "Unidad Dos"
+        },
+        {
+          "column": "c97",
+          "type": "character varying",
+          "meaning": "Unidad Tres"
+        },
+        {
+          "column": "c98",
+          "type": "character varying",
+          "meaning": "Unidad Tres"
+        },
+        {
+          "column": "c99",
+          "type": "character varying",
+          "meaning": "Obsoleto?"
+        },
+        {
+          "column": "c100",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c101",
+          "type": "numeric(10)",
+          "meaning": "Días de Caducidad"
+        },
+        {
+          "column": "c102",
+          "type": "character varying",
+          "meaning": "1"
+        },
+        {
+          "column": "c103",
+          "type": "numeric(15,2)",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdud",
+      "columns": 30,
+      "decoded_by_re": 20,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": "Nombre"
+        },
+        {
+          "column": "c4",
+          "type": "character varying",
+          "meaning": "Dirección"
+        },
+        {
+          "column": "c5",
+          "type": "character varying",
+          "meaning": "Dirección"
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": "Estado"
+        },
+        {
+          "column": "c7",
+          "type": "character varying",
+          "meaning": "Tel .1"
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": "Tel .2"
+        },
+        {
+          "column": "c9",
+          "type": "character varying",
+          "meaning": "Tel .3"
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": "Email"
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": "Vendedor"
+        },
+        {
+          "column": "c13",
+          "type": "character varying",
+          "meaning": "Grupo"
+        },
+        {
+          "column": "c14",
+          "type": "character varying",
+          "meaning": "Zona"
+        },
+        {
+          "column": "c15",
+          "type": "numeric(15,2)",
+          "meaning": "Límite de crédito"
+        },
+        {
+          "column": "c16",
+          "type": "numeric(4)",
+          "meaning": "Plazo"
+        },
+        {
+          "column": "c17",
+          "type": "character varying",
+          "meaning": "Descuentos (1)"
+        },
+        {
+          "column": "c18",
+          "type": "character varying",
+          "meaning": "Descuentos (2)"
+        },
+        {
+          "column": "c19",
+          "type": "character varying",
+          "meaning": "Descuentos (3)"
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c24",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c25",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c26",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c27",
+          "type": "character varying",
+          "meaning": "Código postal"
+        },
+        {
+          "column": "c28",
+          "type": "numeric(7,4)",
+          "meaning": "Comisiones: S/Venta"
+        },
+        {
+          "column": "c29",
+          "type": "numeric(7,4)",
+          "meaning": "Comisiones: S/Cobro"
+        },
+        {
+          "column": "c30",
+          "type": "character varying",
+          "meaning": "CURP"
+        }
+      ]
+    },
+    {
+      "table": "kdxd",
+      "columns": 36,
+      "decoded_by_re": 17,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": "Nombre"
+        },
+        {
+          "column": "c4",
+          "type": "character varying",
+          "meaning": "Dirección"
+        },
+        {
+          "column": "c5",
+          "type": "character varying",
+          "meaning": "Dirección"
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": "Estado"
+        },
+        {
+          "column": "c7",
+          "type": "character varying",
+          "meaning": "Tel 1"
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": "Tel. 2"
+        },
+        {
+          "column": "c9",
+          "type": "character varying",
+          "meaning": "Tel. 3"
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": "Correo"
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": "Agente"
+        },
+        {
+          "column": "c13",
+          "type": "character varying",
+          "meaning": "Grupo"
+        },
+        {
+          "column": "c14",
+          "type": "character varying",
+          "meaning": "Zona"
+        },
+        {
+          "column": "c15",
+          "type": "numeric(15,2)",
+          "meaning": "Límite de crédito"
+        },
+        {
+          "column": "c16",
+          "type": "numeric(4)",
+          "meaning": "Plazo"
+        },
+        {
+          "column": "c17",
+          "type": "character varying",
+          "meaning": "Descuento 1"
+        },
+        {
+          "column": "c18",
+          "type": "character varying",
+          "meaning": "Descuento 2"
+        },
+        {
+          "column": "c19",
+          "type": "character varying",
+          "meaning": "Descuento 3"
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c24",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c25",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c26",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c27",
+          "type": "character varying",
+          "meaning": "Código postal"
+        },
+        {
+          "column": "c28",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c29",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c30",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c31",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c32",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c33",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c34",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c35",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c36",
+          "type": "numeric(15,2)",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdudent",
+      "columns": 13,
+      "decoded_by_re": 8,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": "Dirección"
+        },
+        {
+          "column": "c4",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c5",
+          "type": "character varying",
+          "meaning": "Ciudad"
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": "Teléfono"
+        },
+        {
+          "column": "c7",
+          "type": "character varying",
+          "meaning": "Teléfono 2"
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": "Contacto"
+        },
+        {
+          "column": "c9",
+          "type": "character varying",
+          "meaning": "Correo"
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": "Comentarios"
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "character varying",
+          "meaning": "Ruta Asignada"
+        }
+      ]
+    },
+    {
+      "table": "kduv",
+      "columns": 21,
+      "decoded_by_re": 4,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": "Nombre del vendedor"
+        },
+        {
+          "column": "c4",
+          "type": "double precision(53)",
+          "meaning": "Comisión sobre ventas"
+        },
+        {
+          "column": "c5",
+          "type": "double precision(53)",
+          "meaning": "Comisión sobre utilidad"
+        },
+        {
+          "column": "c6",
+          "type": "double precision(53)",
+          "meaning": "Comisión sobre cobros"
+        },
+        {
+          "column": "c7",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c9",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c14",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c15",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c16",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c17",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c18",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c19",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdcp",
+      "columns": 31,
+      "decoded_by_re": 2
+    },
+    {
+      "table": "kdm_rutas",
+      "columns": 2,
+      "decoded_by_re": 1
+    },
+    {
+      "table": "kdm1",
+      "columns": 200,
+      "decoded_by_re": 0,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c4",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c5",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c7",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c8",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c9",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c14",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c15",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c16",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c17",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c18",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c19",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c24",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c25",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c26",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c27",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c28",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c29",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c30",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c31",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c32",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c33",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c34",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c35",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c36",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c37",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c38",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c39",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c40",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c41",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c42",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c43",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c44",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c45",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c46",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c47",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c48",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c49",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c50",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c51",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c52",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c53",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c54",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c55",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c56",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c57",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c58",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c59",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c60",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c61",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c62",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c63",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c64",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c65",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c66",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c67",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c68",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c69",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c70",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c71",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c72",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c73",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c74",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c75",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c76",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c77",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c78",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c79",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c80",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c81",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c82",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c83",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c84",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c85",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c86",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c87",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c88",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c89",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c90",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c91",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c92",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c93",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c94",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c95",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c96",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c97",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c98",
+          "type": "numeric(3)",
+          "meaning": null
+        },
+        {
+          "column": "c99",
+          "type": "numeric(15,4)",
+          "meaning": null
+        },
+        {
+          "column": "c100",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c101",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c102",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c103",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c104",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c105",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c106",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c107",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c108",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c109",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c110",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c111",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c112",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c113",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c114",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c115",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c116",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c117",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c118",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c119",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c120",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c121",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c122",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c123",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c124",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c125",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c126",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c127",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c128",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c129",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c130",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c131",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c132",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c133",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c134",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c135",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c136",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c137",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c138",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c139",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c140",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c141",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c142",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c143",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c144",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c145",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c146",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c147",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c148",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c149",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c150",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c151",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c152",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c153",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c154",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c155",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c156",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c157",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c158",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c159",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c160",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c161",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c162",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c163",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c164",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c165",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c166",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c167",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c168",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c169",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c170",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c171",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c172",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c173",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c174",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c175",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c176",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c177",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c178",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c179",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c180",
+          "type": "numeric(10)",
+          "meaning": null
+        },
+        {
+          "column": "c181",
+          "type": "numeric(10)",
+          "meaning": null
+        },
+        {
+          "column": "c182",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c183",
+          "type": "numeric(10,2)",
+          "meaning": null
+        },
+        {
+          "column": "c184",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c185",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c186",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c187",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c188",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c189",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c190",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c191",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c192",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c193",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c194",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c195",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c196",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c197",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c198",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c199",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c200",
+          "type": "character varying",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdudp",
+      "columns": 110,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdik",
+      "columns": 109,
+      "decoded_by_re": 0,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c4",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c5",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c6",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c7",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c8",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c9",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c10",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c14",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c15",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c16",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c17",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c18",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c19",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c24",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c25",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c26",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c27",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c28",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c29",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c30",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c31",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c32",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c33",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c34",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c35",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c36",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c37",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c38",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c39",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c40",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c41",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c42",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c43",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c44",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c45",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c46",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c47",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c48",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c49",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c50",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c51",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c52",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c53",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c54",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c55",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c56",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c57",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c58",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c59",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c60",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c61",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c62",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c63",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c64",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c65",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c66",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c67",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c68",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c69",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c70",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c71",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c72",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c73",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c74",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c75",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c76",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c77",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c78",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c79",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c80",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c81",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c82",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c83",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c84",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c85",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c86",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c87",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c88",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c89",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c90",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c91",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c92",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c93",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c94",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c95",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c96",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c97",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c98",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c99",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c100",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c101",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c102",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c103",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c104",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c105",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c106",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c107",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c108",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c109",
+          "type": "numeric(15,2)",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdc100",
+      "columns": 100,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc107",
+      "columns": 100,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc124",
+      "columns": 100,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc125",
+      "columns": 100,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc126",
+      "columns": 100,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecfd",
+      "columns": 95,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm2",
+      "columns": 70,
+      "decoded_by_re": 0,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c4",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c5",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c7",
+          "type": "numeric(5)",
+          "meaning": null
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c9",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "numeric(14,6)",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c14",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c15",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c16",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c17",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c18",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c19",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c20",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "numeric(3)",
+          "meaning": null
+        },
+        {
+          "column": "c24",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c25",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c26",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c27",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c28",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c29",
+          "type": "numeric(4)",
+          "meaning": null
+        },
+        {
+          "column": "c30",
+          "type": "numeric(4)",
+          "meaning": null
+        },
+        {
+          "column": "c31",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c32",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c33",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c34",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c35",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c36",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c37",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c38",
+          "type": "numeric(15,2)",
+          "meaning": null
+        },
+        {
+          "column": "c39",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c40",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c41",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c42",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c43",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c44",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c45",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c46",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c47",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c48",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c49",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c50",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c51",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c52",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c53",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c54",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c55",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c56",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c57",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c58",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c59",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c60",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c61",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c62",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c63",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c64",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c65",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c66",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c67",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c68",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c69",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c70",
+          "type": "character varying",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdrhdfes",
+      "columns": 70,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m1",
+      "columns": 69,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhmxe",
+      "columns": 69,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdderip",
+      "columns": 68,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvcontactos",
+      "columns": 68,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmm",
+      "columns": 61,
+      "decoded_by_re": 0,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c4",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c5",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c6",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c7",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c8",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c9",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c10",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c11",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c12",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c13",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c14",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c15",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c16",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c17",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c18",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c19",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c20",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c21",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c22",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c23",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c24",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c25",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c26",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c27",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c28",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c29",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c30",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c31",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c32",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c33",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c34",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c35",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c36",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c37",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c38",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c39",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c40",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c41",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c42",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c43",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c44",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c45",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c46",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c47",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c48",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c49",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c50",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c51",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c52",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c53",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c54",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c55",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c56",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c57",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c58",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c59",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c60",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c61",
+          "type": "character varying",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdpd",
+      "columns": 61,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhasp",
+      "columns": 60,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdug",
+      "columns": 58,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxg",
+      "columns": 58,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc20012",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22401",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22408",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22411",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc225",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22501",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22502",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22503",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22504",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22505",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22506",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22507",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22508",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22509",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22510",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22511",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22512",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc226",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22601",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22602",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22603",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22604",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22605",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22606",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22607",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22608",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22609",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22610",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22611",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc22612",
+      "columns": 50,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_folio_caja",
+      "columns": 49,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcm",
+      "columns": 46,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpa",
+      "columns": 43,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhemp",
+      "columns": 43,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhhor",
+      "columns": 43,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "crdcredit",
+      "columns": 42,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdij",
+      "columns": 41,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_m2",
+      "columns": 35,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpord",
+      "columns": 35,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdporp",
+      "columns": 35,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdue",
+      "columns": 31,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxe",
+      "columns": 31,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfepacs",
+      "columns": 29,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm3",
+      "columns": 27,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33pagm1",
+      "columns": 25,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdis",
+      "columns": 25,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpord2",
+      "columns": 25,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpord3",
+      "columns": 25,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhdesp",
+      "columns": 25,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cprelprodkcp",
+      "columns": 24,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfavoritos",
+      "columns": 23,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_unico",
+      "columns": 23,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33pagm2",
+      "columns": 22,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "doctype",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpknavios",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33docsec",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m2pte",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpc",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhdxe",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhdxn",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhtpmv",
+      "columns": 21,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33can",
+      "columns": 20,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m2",
+      "columns": 20,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmt",
+      "columns": 20,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfedir",
+      "columns": 19,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkfiguratransporte",
+      "columns": 18,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm6",
+      "columns": 18,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdt1",
+      "columns": 18,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdtriggers",
+      "columns": 18,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kduf",
+      "columns": 18,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "webuser",
+      "columns": 18,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpdocrel",
+      "columns": 17,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpu3",
+      "columns": 17,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdactiv",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdderip2",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33docprv",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcp",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4pagm0",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfeconf",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdis2",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvpresxven",
+      "columns": 16,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdc3",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cedirfis",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4imp",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdhlab1",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_gratisxm",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_gratisxq",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhasplab",
+      "columns": 15,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkvehiculo",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33folxdoc",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satfopg",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecerep",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm5",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm9",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdurevcxc",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvtamano",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxrevcxp",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orgmail",
+      "columns": 14,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecfdcom",
+      "columns": 13,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhcon",
+      "columns": 13,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhper",
+      "columns": 13,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvsegmto",
+      "columns": 13,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "newsdashboard",
+      "columns": 13,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdb1",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m2imp",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m2pteimp",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmensajes",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdms",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_descuxm",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_descuxq",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdusegcli",
+      "columns": 12,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm8",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpord8",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhdep",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvtacaj80",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvtareas",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxf",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "md_prom_comb",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "pos95historico",
+      "columns": 11,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcecfdpol",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33catlog",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkaereos",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecert",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdflujosdesc",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdhaca1",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_prov_prod",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhaspaca",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhaspent",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "md_prom_comb2",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "pv_suc_ip",
+      "columns": 10,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpm1",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33nomem",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satprd",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecedocuuid",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdil",
+      "columns": 9,
+      "decoded_by_re": 0,
+      "detail": [
+        {
+          "column": "c1",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c2",
+          "type": "numeric(2)",
+          "meaning": null
+        },
+        {
+          "column": "c3",
+          "type": "character varying",
+          "meaning": null
+        },
+        {
+          "column": "c4",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c5",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c6",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c7",
+          "type": "timestamp without time zone",
+          "meaning": null
+        },
+        {
+          "column": "c8",
+          "type": "double precision(53)",
+          "meaning": null
+        },
+        {
+          "column": "c9",
+          "type": "double precision(53)",
+          "meaning": null
+        }
+      ]
+    },
+    {
+      "table": "kdlogmov",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm4",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm7",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmx",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmx_25",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmx_26",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmx_27",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_bitacora_precios",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhemfe",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhnom",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orgcurrency",
+      "columns": 9,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "crdcreditvar",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdb2",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdb3",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcn24",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcn25",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcn26",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcn27",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cefracaran",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpderechovia",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpestaciones",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpunidades",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfefol",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdiu",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmy",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpm",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpord4",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_prod_promo",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhrut",
+      "columns": 8,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m1rel",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33m2ped",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpconfigauto",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpmatpeligroso",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satimp",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satum",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satuso",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfefolxdoc",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdiicte",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdip",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_sucursales",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpq",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_prod_util",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhpue",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvmedios",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvzip",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orgbranch",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orglogtbl_24",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orglogtbl_25",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orglogtbl_26",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "orglogtbl_27",
+      "columns": 7,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33relprd",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpcodaereo",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpproductos",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satmn",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satpais",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satpedadu",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satrf",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33sattpc",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecedoc",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfenoti",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdgum",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrutman",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvdocxcot",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvsegmtoava",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "pos95opeparamdoc",
+      "columns": 6,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcrmcomen",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcrmdoctos",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kddpest",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kddplin",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kddpprd",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33celoc",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cempio",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpcomplemento",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpservicios",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptipocarro",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptipocontenedor",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptipoestacion",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptipopermiso",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satedo",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3regaduanero",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfedfprov",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdgup",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdie",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpc2",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpc3",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpc4",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpc5",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpcte",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpi",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpo",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_kdku",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdtact",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvcolonia",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "pos95cajamn",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "pos95cajero",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "ctl",
+      "columns": 5,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdconfig",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdctesacum",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33ceinco",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33ceunimed",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkcarros",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkcontenecarro",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkcontenedoresmar",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cpkremolque",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33fol",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33relped",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satadu",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpconfigmar",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpcontenedormar",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpembalaje",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpfigtransp",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcppartetransp",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptipocarga",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptiporemolque",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptipotrafico",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcptransporte",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satexp",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satmes",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satmto",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satobjimp",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satper",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33sattpr",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4cp3kremccp",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3conespeciales",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3docaduanero",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3frfarmaceutica",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3registmo",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3seccofepris",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe4satcp3tipomateria",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfeaddeconfig",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecesatban",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdib",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdif",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdig",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdiq",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_rutas2",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_transporte",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_ubi_suc_prod",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdmz",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpf",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhtpcn",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "sqliov",
+      "columns": 4,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdco",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcrmcatcompe",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcrmparam",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cecolo",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cefracaraprod",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satcpautmar",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33satpatadu",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfeaddexcli",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfeceban",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfececonfig",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfececta",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfolio",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdgue",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_gerentes",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdpv_unico",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhfeba",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhtpem",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdt2",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kducliact",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kduj",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvalrfc40",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvavance",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvdoctos",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxj",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxv",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "pos95caja",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "shadow",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "sink_ident",
+      "columns": 3,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "datfisparams",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdcrmcatcomen",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cemovtras",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cepedim",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cerelidres",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33cetipopera",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33params",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33reladu",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33relmn",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfe33relum",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecesatcta",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecesatmon",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdfecesatmto",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdid",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdilo",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdis7",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdis8",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdis9",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_cat_che",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_cat_emb",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_cat_sur",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdm_chofer",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhfpag",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhmcr",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdrhtur",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kduk",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvcaucierr",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvtipocontacto",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvtipomedio",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdvtitulos",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "kdxk",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "syshdassigned",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "syshddeptos",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "webusrtypes",
+      "columns": 2,
+      "decoded_by_re": 0
+    },
+    {
+      "table": "hash_resync",
+      "columns": 2,
+      "decoded_by_re": 0
+    }
+  ]
+}

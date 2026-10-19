@@ -1,3 +1,21 @@
+REM ############################################################################
+REM  ⛔⛔ RETIRADO el 2026-10-16 por `[CGA-A.12]`. NO COPIAR DE ACA.
+REM
+REM  A esta plantilla LE FALTA EL BLOQUE DE COBROS, y eso no es un olvido con
+REM  cara de olvido: es la razon por la que el 16-oct habia 11 camionetas
+REM  empujando VENTAS y solo 4 empujando COBROS. Quien copiaba de aca se
+REM  llevaba un archivo incompleto y nadie se enteraba, porque una camioneta
+REM  que nunca mando cobros se ve IGUAL que una que no cobro nada.
+REM
+REM  El archivo de una camioneta ahora se GENERA y se VERIFICA:
+REM    node database/importers/kepler/route-push/armar-push-camioneta.js \
+REM         --truck ruta_21 --serie UD1001 --salida push-ruta.cmd
+REM    node database/importers/kepler/route-push/armar-push-camioneta.js \
+REM         --verificar C:\KeplerPush\push-ruta.cmd
+REM
+REM  Se conserva como REFERENCIA historica. Comprobado con el verificador:
+REM  falla la regla «manda COBROS».
+REM ############################################################################
 @echo off
 REM ============================================================================
 REM  PUSH de ventas de RUTA v2 — camioneta -> runner.  REACTIVO A LA RED.

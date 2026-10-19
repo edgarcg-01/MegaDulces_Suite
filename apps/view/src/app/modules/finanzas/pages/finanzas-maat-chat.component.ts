@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
+import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { FormsModule } from '@angular/forms';
@@ -227,12 +228,12 @@ const SUGGESTIONS = [
   `,
   styles: [`
     .tc-page { display: flex; flex-direction: column; position: relative; height: calc(100dvh - 7rem); }
-    @media (max-width: 63.9988rem) {
+    @container (max-width: 63.9988rem) {
       .tc-page {
         height: calc(100dvh - 3.5rem - 2.2rem - 3.6rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
       }
     }
-    @media (max-width: 40rem) {
+    @container (max-width: 40rem) {
       .tc-thread { gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }
       .tc-msg { gap: var(--sp-2); max-width: 100%; }
       .tc-avatar { width: 28px; height: 28px; }
@@ -730,7 +731,7 @@ export class FinanzasMaatChatComponent implements OnInit {
 
   /** Navega dentro de la SPA a un deep-link interno (ej. una póliza en Egresos). */
   go(url: string) {
-    if (url && url.startsWith('/')) this.router.navigateByUrl(url);
+    if (url && url.startsWith('/')) irConservandoPanel(this.router, url);
   }
 
   /** Event-delegation: links markdown internos (data-internal) navegan sin recargar. */
@@ -738,7 +739,7 @@ export class FinanzasMaatChatComponent implements OnInit {
     const a = (ev.target as HTMLElement)?.closest('a[data-internal]') as HTMLAnchorElement | null;
     if (!a) return;
     const href = a.getAttribute('href');
-    if (href && href.startsWith('/')) { ev.preventDefault(); this.router.navigateByUrl(href); }
+    if (href && href.startsWith('/')) { ev.preventDefault(); irConservandoPanel(this.router, href); }
   }
 
   /** Exporta un bloque a CSV (Excel lo abre nativo). BOM para acentos. */

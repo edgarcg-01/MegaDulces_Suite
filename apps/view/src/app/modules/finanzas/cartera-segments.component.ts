@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
+import { irConservandoPanel } from '../../core/panel/ir-conservando-panel';
 import { SegmentedComponent } from '../../shared/components/segmented/segmented.component';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
@@ -94,6 +95,6 @@ export class CarteraSegmentsComponent {
     // `queryParamsHandling` NO se preserva a propósito: los filtros de una vista no
     // significan lo mismo en la otra, y arrastrarlos abriría la de al lado con un
     // recorte que nadie pidió.
-    this.router.navigateByUrl(destino);
+    irConservandoPanel(this.router, destino);
   }
 }

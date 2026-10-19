@@ -217,6 +217,148 @@ const TIPO_POL = `split_part(p.doc_tipo,'-',1) || split_part(p.doc_tipo,'-',2)
     check(sv.sin_vinculo === 0, `${sv.sin_vinculo} movimientos automáticos sin origen_ref`);
   }
 
+  // ── 9. `[CG.193]` El ESCRITOR acepta lo mismo que el RESOLVEDOR da por confirmable ───────
+  //
+  // ⛔ Lo destapó el canario: de 120 confirmables, `create()` aceptaba 20. 97 morían con
+  // «El par 201/201 no existe … para la sucursal 08» porque el catálogo de esa plaza viene
+  // recortado y `conceptosDeCuenta()` había prestado el concepto de otra (regla [CS.3.11]),
+  // regla que `resolveConcept()` no conocía. Dos verdades para la misma pregunta.
+  //
+  // Esto afirma la REGLA, no la cifra: «si la plaza no tiene la cuenta y el código es unánime
+  // entre las plazas que sí la tienen, el par vale; si no, no».
+  console.log('\n[9] [CG.193] El escritor conoce la regla del catálogo recortado');
+  const regla = async (suc, cuenta, concepto) => {
+    const b = String(suc).split('-')[0];
+    const { rows: [ex] } = await c.query(
+      `SELECT 1 FROM analytics.v_kepler_conceptos
+        WHERE tenant_id=$1 AND sucursal=$2 AND cuenta=$3 AND concepto=$4 LIMIT 1`, [TENANT, b, cuenta, concepto]);
+    if (ex) return 'exacto';
+    const { rows: [tiene] } = await c.query(
+      `SELECT 1 FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND sucursal=$2 AND cuenta=$3 LIMIT 1`,
+      [TENANT, b, cuenta]);
+    if (tiene) return 'rechaza';
+    const { rows: [u] } = await c.query(
+      `SELECT count(DISTINCT concepto)::int codigos, min(concepto) concepto
+         FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND cuenta=$2 GROUP BY cuenta`, [TENANT, cuenta]);
+    return (u && Number(u.codigos) === 1 && String(u.concepto) === String(concepto)) ? 'respaldo' : 'rechaza';
+  };
+
+  // La cuenta que lo motivó tiene que SEGUIR siendo unánime: si mañana otra plaza le da otro
+  // código, el respaldo deja de aplicar y esta prueba lo dice antes de que escriba mal.
+  const { rows: [u201] } = await c.query(
+    `SELECT count(DISTINCT concepto)::int codigos, count(DISTINCT sucursal)::int plazas
+       FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND cuenta='201' GROUP BY cuenta`, [TENANT]);
+  check(u201 && Number(u201.codigos) === 1,
+    `la cuenta 201 sigue siendo unánime: ${u201?.codigos} código(s) en ${u201?.plazas} plaza(s)`,
+    'si deja de serlo, el respaldo de [CG.193] ya no debe aplicarle y hay que revisar el caso');
+
+  const casos = [
+    ['08', '201', '201', 'respaldo', 'plaza con catálogo recortado + código unánime'],
+    ['01', '201', '201', 'respaldo', 'idem, la plaza del canario'],
+    // ⛔ PRUEBAS NEGATIVAS: lo que NO debe aceptar nunca.
+    ['08', '201', '999', 'rechaza', 'concepto inventado sobre una cuenta que la plaza no tiene'],
+    ['08', 'ZZZZ', '001', 'rechaza', 'cuenta que no existe en ninguna plaza'],
+  ];
+  for (const [suc, cuenta, concepto, esperado, por] of casos) {
+    const v = await regla(suc, cuenta, concepto);
+    const bien = esperado === 'rechaza' ? v === 'rechaza' : v !== 'rechaza';
+    check(bien, `suc ${suc} · ${cuenta}/${concepto} → ${v} (esperado: ${esperado}) — ${por}`);
+  }
+
+  // ⭐ Y la propiedad que de verdad importa: resolvedor y escritor NO pueden discrepar.
+  // Se mide sobre la cola real; si vuelven a divergir, esto se pone rojo con el número.
+  const { rows: compuestasOK } = await c.query(`
+    SELECT DISTINCT split_part(p.sucursal,'-',1) AS suc
+      FROM finance.v_caja_movimientos_pendientes p
+     WHERE p.tenant_id=$1 AND p.sucursal LIKE '%-%'`, [TENANT]);
+  let divergen = 0;
+  for (const { suc } of compuestasOK) {
+    const { rows: [x] } = await c.query(
+      `SELECT 1 FROM analytics.v_kepler_conceptos WHERE tenant_id=$1 AND sucursal=$2 LIMIT 1`, [TENANT, suc]);
+    if (!x) divergen++;
+  }
+  check(divergen === 0,
+    `la sucursal base de toda fila compuesta existe en el catálogo (${compuestasOK.length} base(s) revisada(s))`,
+    'si una base no está en el catálogo, [CG.189] la vuelve confirmable y [CG.193] no la puede escribir');
+
+  // ── 10. `[CGA-A.17]` El concepto se DERIVA de lo que las personas capturaron ─────────────
+  //
+  // ⛔ Lo disparó un INSERT a mano en psql (`CP036 → 511/059`, 2026-10-19). El motivo que se
+  // escribió —«059 sale de 27 de 28 capturas con cuenta 511»— ERA una derivación hecha a mano.
+  // Acá se afirma la REGLA y, sobre todo, **sus dos guardas**, que es lo que la vuelve segura.
+  console.log('\n[10] [CGA-A.17] El concepto dominante por cuenta, y sus guardas');
+  const MIN_SOP = 5, MIN_RAT = 0.8, MIN_ENT = 3;
+  const { rows: hist } = await c.query(
+    `SELECT kepler_cuenta cuenta, kepler_concepto concepto, count(*)::int n,
+            count(DISTINCT beneficiario)::int entidades
+       FROM finance.cash_ledger
+      WHERE tenant_id=$1 AND deleted_at IS NULL AND estado <> 'cancelado'
+        AND kepler_concepto IS NOT NULL AND created_by <> $2
+      GROUP BY 1,2`, [TENANT, SVC_ID]);
+  const porCta = new Map();
+  for (const f of hist) { if (!porCta.has(f.cuenta)) porCta.set(f.cuenta, []); porCta.get(f.cuenta).push(f); }
+  const veredicto = (cuenta) => {
+    if (/^(102|122)/.test(String(cuenta))) return { ok: false, motivo: 'caja_o_banco' };
+    const arr = porCta.get(cuenta);
+    if (!arr) return { ok: false, motivo: 'sin_historia' };
+    const ord = [...arr].sort((a, b) => b.n - a.n || String(a.concepto).localeCompare(String(b.concepto)));
+    const total = ord.reduce((s, x) => s + x.n, 0), top = ord[0];
+    if (total < MIN_SOP) return { ok: false, motivo: 'soporte_bajo' };
+    if (ord.length > 1 && ord[1].n === top.n) return { ok: false, motivo: 'empate' };
+    if (top.n / total < MIN_RAT) return { ok: false, motivo: 'no_domina' };
+    if (top.entidades < MIN_ENT) return { ok: false, motivo: 'una_sola_entidad' };
+    return { ok: true, concepto: top.concepto, n: top.n, total, entidades: top.entidades };
+  };
+
+  // ⛔⛔ GUARDA 1 — la que el CONTROL contra el catálogo de Kepler obligó a poner.
+  // En una cuenta de CAJA el concepto identifica CUÁL caja chica: es de la ENTIDAD, no de la
+  // cuenta. Derivarlo por cuenta mandaría el dinero a la caja de otra plaza (medido: Kepler dice
+  // `037` para GG015 y la dominancia del libro diría `011`).
+  const g1 = veredicto('102');
+  check(!g1.ok && g1.motivo === 'caja_o_banco',
+    `guarda 1: la cuenta 102 (caja chica) NO se deriva (${g1.motivo})`,
+    'sin esta guarda, el dinero de una caja chica va a la caja de otra plaza');
+
+  // ⛔ GUARDA 2 — una sola entidad no prueba nada sobre la CUENTA.
+  const g2 = veredicto('601-001');
+  if (!porCta.has('601-001')) {
+    declarar('601-001 ya no tiene historia: la guarda 2 no se ejerce con datos reales');
+  } else {
+    check(!g2.ok && g2.motivo === 'una_sola_entidad',
+      `guarda 2: 601-001 NO se deriva pese a dominar 100% (${g2.motivo})`,
+      'con una sola entidad, «el concepto es de la cuenta» es una suposición, no una medición');
+  }
+
+  // ✅ El caso que motivó todo: la cuenta del INSERT a mano.
+  const v511 = veredicto('511');
+  if (!porCta.has('511')) {
+    declarar('la cuenta 511 ya no tiene historia humana: el caso que motivó [CGA-A.17] no se ejerce');
+  } else {
+    check(v511.ok,
+      v511.ok
+        ? `511 se deriva solo → ${v511.concepto} (${v511.n}/${v511.total}, ${v511.entidades} entidades)`
+        : `511 dejó de derivarse (${v511.motivo}) — ya NO cubre el caso de CP036`,
+      'si esto se pone rojo, volvió a hacer falta declarar a mano lo que el libro prueba');
+  }
+
+  // ⭐ Y la propiedad general: nada que se derive puede venir de una cuenta de caja/banco.
+  const derivadas = [...porCta.keys()].filter((k) => veredicto(k).ok);
+  check(derivadas.every((k) => !/^(102|122)/.test(String(k))),
+    `las ${derivadas.length} cuenta(s) derivables son todas de gasto/pasivo: ${derivadas.join(', ')}`);
+
+  // ── 11. `[CGA-A.18]` Lo que NO se deriva tiene una puerta que no es psql ─────────────────
+  console.log('\n[11] [CGA-A.18] La tabla declarada es escribible desde la app');
+  const { rows: [dec] } = await c.query(
+    `SELECT count(*)::int n, count(*) FILTER (WHERE declarada_por IS NULL)::int sin_autor
+       FROM finance.caja_autofill_declarada WHERE tenant_id=$1`, [TENANT]);
+  check(true, `${dec.n} declaración(es) registradas`);
+  if (dec.sin_autor > 0) {
+    declarar(`${dec.sin_autor} declaración(es) SIN autor: entraron por psql, no por el endpoint `
+      + '(POST /finance/cash-ledger/autofill/declarar lo exige)');
+  } else if (dec.n > 0) {
+    check(true, 'todas las declaraciones tienen autor: ninguna entró por psql');
+  }
+
   await c.end();
   console.log(`\n${ok} ✓ · ${fail} ✗ · ${nomedido} no medidos`);
   process.exit(fail ? 1 : 0);
