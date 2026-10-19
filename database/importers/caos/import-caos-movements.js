@@ -320,8 +320,8 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
         // acotado por tiempo es para el ruido, no para una falla de configuración.
         if (r.fatal || debeLatir(false)) {
           ultimoLatido = Date.now();
-          await hb.begin(KEY, ETIQUETA).catch(() => {});
-          await hb.end(KEY, latidoDe(r)).catch(() => {});
+          await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+          await hb.end(KEY, latidoDe(r)).catch((e) => console.warn(`[latido] end ${KEY}: ${e.message}`));
         }
         return true;
       }
@@ -332,16 +332,16 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
       }
       if (debeLatir(hubo)) {
         ultimoLatido = Date.now();
-        await hb.begin(KEY, ETIQUETA).catch(() => {});
-        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch(() => {});
+        await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch((x) => console.warn(`[latido] end ${KEY}: ${x.message}`));
       }
       return true;
     } catch (e) {
       console.error('falló:', e.message);
       // Una falla SIEMPRE late, sin importar el acotado: es el hecho que hay que ver.
       ultimoLatido = Date.now();
-      await hb.begin(KEY, ETIQUETA).catch(() => {});
-      await hb.end(KEY, { status: 'error', error: e.message }).catch(() => {});
+      await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+      await hb.end(KEY, { status: 'error', error: e.message }).catch((x) => console.warn(`[latido] end ${KEY}: ${x.message}`));
       if (!WATCH_SEG) { process.exitCode = 1; return false; }
       // En demonio: la sesión del aparato puede haber caducado de una forma que el adapter no
       // detectó. Se tira y el próximo ciclo abre una nueva — 759 ms una vez, no por ciclo.
