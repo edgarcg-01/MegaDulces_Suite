@@ -132,7 +132,10 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
           </p-button>
         </div>
 
-        <p-table [value]="d.rows" styleClass="p-datatable-sm pp-tbl" [rowHover]="true"
+        <!-- [TP.18.3.1] dt-scope + dt-stack: 8 columnas no caben en angosto y sin esto la tabla
+             no dice que hace. El <p-table> pasa de styleClass (que v22 IGNORA) a size+class. -->
+        <div class="dt-scope">
+        <p-table [value]="d.rows" size="small" class="pp-tbl dt-stack" [rowHover]="true"
                  [scrollable]="true" scrollHeight="52vh"
                  [paginator]="d.rows.length > 50" [rows]="50">
           <ng-template #header>
@@ -149,24 +152,24 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
           </ng-template>
           <ng-template #body let-r>
             <tr>
-              <td>
+              <td role="cell" data-label="Proveedor">
                 <div class="pp-strong">{{ r.proveedor_nombre || r.proveedor_code }}</div>
                 <div class="pp-sub pp-mono">{{ r.proveedor_code }} · suc. {{ r.sucursal }}</div>
               </td>
-              <td>
+              <td role="cell" data-label="Factura">
                 <div class="pp-mono">{{ r.folio }}</div>
                 <div class="pp-sub">{{ r.fecha ? (r.fecha | date:'dd/MM/yy') : 'sin fecha' }}</div>
               </td>
-              <td class="pp-r pp-strong pp-mono">{{ money(r.pendiente) }}</td>
-              <td class="pp-r pp-mono">
+              <td role="cell" data-label="Pendiente" class="pp-r pp-strong pp-mono">{{ money(r.pendiente) }}</td>
+              <td role="cell" data-label="Tasa obs." class="pp-r pp-mono">
                 @if (r.tasa_observada != null) { {{ (r.tasa_observada * 100) | number:'1.1-1' }}% }
                 @else { <span class="pp-muted" title="Sin observaciones suficientes">—</span> }
               </td>
-              <td class="pp-r pp-mono">
+              <td role="cell" data-label="Se gana" class="pp-r pp-mono">
                 @if (r.beneficio != null) { <strong>{{ money(r.beneficio) }}</strong> }
                 @else { <span class="pp-muted">—</span> }
               </td>
-              <td>
+              <td role="cell" data-label="Limite estimado">
                 @if (r.fecha_limite) {
                   <div>{{ r.fecha_limite | date:'dd/MM/yy' }}</div>
                   <div class="pp-sub">{{ diasTexto(r) }}</div>
@@ -174,7 +177,7 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
                   <span class="pp-muted">no medible</span>
                 }
               </td>
-              <td>
+              <td role="cell" data-label="Estado">
                 <!-- Texto + icono: el color NO es el unico portador (DESIGN regla 14). -->
                 <span class="pp-estado" [class]="'pp-e-' + r.estado">
                   <i class="pi" [ngClass]="iconoDe(r.estado)" aria-hidden="true"></i>
@@ -188,7 +191,7 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
                    descuento y no tenia donde hacer nada. El pago nace como PROPUESTA; el
                    compromiso lo crea Gerencia al autorizar el dia (ADR-094). -->
               @if (puedeProgramar()) {
-                <td class="pp-r">
+                <td role="cell" data-label="Acción" class="pp-r">
                   @if (r.programable > 0) {
                     <p-button size="small" [outlined]="true" (onClick)="abrirProgramar(r)"
                               [attr.aria-label]="'Programar pago de la factura ' + r.folio">
@@ -214,6 +217,7 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
             </td></tr>
           </ng-template>
         </p-table>
+        </div>
 
         @if (d.truncado) {
           <p class="pp-trunc" role="status">
@@ -259,7 +263,7 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
 
             <label class="pp-dlg-lbl" for="pp-monto">Monto</label>
             <p-inputnumber inputId="pp-monto" [(ngModel)]="montoPago" mode="currency" currency="MXN"
-                           locale="es-MX" [min]="0" [max]="r.programable" styleClass="pp-dlg-campo" />
+                           locale="es-MX" [min]="0" [max]="r.programable" inputStyleClass="pp-dlg-campo" />
             <p class="pp-dlg-sub">Disponible para programar: <strong>{{ money(r.programable) }}</strong></p>
 
             <p class="pp-dlg-nota pp-dlg-firma">
