@@ -170,6 +170,17 @@ export class PaymentProgramService {
   async recon() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      /**
+       * `[PP.10.1]` La fila agregada del programa, con las seis columnas que el SELECT de abajo
+       * pide y que luego se leen una por una. Se DECLARA en vez de dejarla en `any`: lo que
+       * vuelve de knex no tiene forma. `count()/sum()` de pg pueden llegar como texto.
+       */
+      interface FilaPrograma {
+        source_month: string;
+        n?: string | number | null; monto?: string | number | null;
+        flag_si?: string | number | null; flag_no?: string | number | null;
+        flag_na?: string | number | null; monto_no?: string | number | null;
+      }
       const prog = await trx('finance.payment_program')
         .select(trx.raw(`source_month,
           count(*)::int AS n, coalesce(sum(amount),0)::numeric AS monto,
@@ -182,21 +193,53 @@ export class PaymentProgramService {
         .where({ tenant_id: tenantId, source: 'kepler', cuenta_mayor: '201' })
         .whereIn('tipo_pol', ['XD2601', 'XD2501']).where('anio_mes', '>=', '2026-01')
         .select('anio_mes').sum({ monto: 'importe' }).groupBy('anio_mes');
-      let bank: any[] = [];
+      /** `[PP.10.1]` Agregado por mes: la llave del mes cambia de nombre segun la fuente. */
+      interface MesMonto { anio_mes?: string; ym?: string; monto?: string | number | null }
+      let bank: MesMonto[] = [];
       try {
         bank = await trx('finance.bank_movements').where('tenant_id', tenantId).where('amount_out', '>', 0)
           .select(trx.raw(`to_char(movement_date,'YYYY-MM') AS ym`)).sum({ monto: 'amount_out' })
           .groupByRaw(`to_char(movement_date,'YYYY-MM')`);
       } catch { bank = []; }
-      const kByM = new Map(kep.map((r: any) => [r.anio_mes, Number(r.monto)]));
-      const bByM = new Map(bank.map((r: any) => [r.ym, Number(r.monto)]));
+      const kByM = new Map(kep.map((r: MesMonto) => [r.anio_mes, Number(r.monto)]));
+      const bByM = new Map(bank.map((r: MesMonto) => [r.ym, Number(r.monto)]));
+      const pByM = new Map(prog.map((p: FilaPrograma) => [p.source_month, p]));
+
+      /**
+       * `[PP.10]` **Los meses salen de la UNIÓN, no del libro.**
+       *
+       * ⛔ Acá se recorría `prog` — los meses que el Excel de Tesorería tiene—, así que **un mes
+       * sin libro no salía ausente: no existía**. Y como el libro se carga a mano, su estado
+       * normal es atrasado: medido el 2026-10-19, con el libro en **2026-08** (72 días sin
+       * cargar), esta conciliación era **ciega a 5,201 movimientos por $91,720,679** de
+       * septiembre y octubre — y la pantalla se veía impecable, cuadrando enero a agosto.
+       *
+       * ⭐ Es el mismo defecto que `[PP.7]` arregló en el listado y que acá seguía vivo: lo que
+       * falta se DECLARA (ADR-056). Un mes con pagos en el ERP y sin libro aparece con
+       * `libro_cargado: false`, no desaparece.
+       *
+       * ⚠️ Esto **no los hace cuadrar ni lo pretende**: programa, cuenta 201 y bancos son
+       * universos distintos y la comparación sigue siendo informativa. Lo que cambia es que el
+       * mes **se ve**.
+       */
+      const meses = [...new Set([...pByM.keys(), ...kByM.keys(), ...bByM.keys()] as string[])]
+        .filter((m) => typeof m === 'string' && m >= '2026-01')
+        .sort();
+
       return {
-        months: prog.map((p: any) => ({
-          month: p.source_month, program: Number(p.monto), program_n: Number(p.n),
-          flag_si: Number(p.flag_si), flag_no: Number(p.flag_no), flag_na: Number(p.flag_na), monto_no: Number(p.monto_no),
-          kepler201: kByM.get(p.source_month) || 0,
-          bank_cb: bByM.has(p.source_month) ? bByM.get(p.source_month) : null,
-        })),
+        months: meses.map((month) => {
+          const p: FilaPrograma | undefined = pByM.get(month);
+          return {
+            month,
+            /** `false` = el Excel de Tesorería no tiene ese mes. Distinto de «ese mes no se pagó». */
+            libro_cargado: !!p,
+            program: p ? Number(p.monto) : 0, program_n: p ? Number(p.n) : 0,
+            flag_si: p ? Number(p.flag_si) : 0, flag_no: p ? Number(p.flag_no) : 0,
+            flag_na: p ? Number(p.flag_na) : 0, monto_no: p ? Number(p.monto_no) : 0,
+            kepler201: kByM.get(month) || 0,
+            bank_cb: bByM.has(month) ? bByM.get(month) : null,
+          };
+        }),
       };
     });
   }

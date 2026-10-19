@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
@@ -587,7 +588,7 @@ export class FinanzasHallazgosComponent implements OnInit {
     const p = new URLSearchParams({ type: 'beneficiario', key: e['beneficiario'] || '(sin beneficiario)', doc_sucursal: e['sucursal'] || '', doc_tipo: e['doc_tipo'] || 'XA2001', doc_folio: e['doc_folio'] });
     return `/finanzas/egresos/detalle?${p.toString()}`;
   }
-  go(url: string) { this.router.navigateByUrl(url); }
+  go(url: string) { irConservandoPanel(this.router, url); }
 
   evidenceRows(f: Finding): { k: string; v: string }[] {
     const e = { ...(f.entity || {}), ...(f.evidencia || {}) };

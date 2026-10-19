@@ -11,6 +11,7 @@ import {
   type VerificadorPrecioResponse, type VerificadorSnapshot, type VerificadorSnapshotItem,
   VERIFICADOR_SNAPSHOT_FORMATO, expandirTier,
 } from '@megadulces/contracts';
+import { aBuscable, buscarEnCatalogo, type Buscable, type CampoCoincidencia } from './mostrador-catalogo';
 
 /** Se reexporta para que la pantalla lo importe de acá, junto al servicio que lo entrega. */
 export type { MayoreoTier } from '@megadulces/contracts';
@@ -41,6 +42,27 @@ export interface ProductoPrecio {
    * a ella, así que se verifica en vez de callarse (ADR-056).
    */
   product_id: string | null;
+  /** `[MOS.1]` El proveedor de la ficha. `null` = sin proveedor, o un respaldo que no lo trae. */
+  proveedor?: string | null;
+}
+
+/** `[MOS.1]` Un producto encontrado en el respaldo por nombre, proveedor, SKU o código. */
+export interface HalladoCatalogo {
+  codigo: string;
+  nombre: string;
+  proveedor: string | null;
+  por: CampoCoincidencia;
+  exacto: boolean;
+  unidades: UnidadPrecio[];
+  mayoreo: MayoreoTier[];
+}
+
+/**
+ * Las presentaciones de un renglón del respaldo. `f` llega desde el formato 3: un respaldo más
+ * viejo no lo trae y queda en 1, que se lee como "no sé cuánto trae" (la pantalla no dice nada).
+ */
+function unidadesDeItem(item: VerificadorSnapshotItem): UnidadPrecio[] {
+  return (item.u || []).map((x) => ({ u: x.u, precio_con_iva: x.p, precio_sin_iva: x.s, factor: x.f ?? 1 }));
 }
 
 /**
@@ -228,6 +250,10 @@ export class VerificadorService {
   /** `[TDA.3]` código de barras → UNIDAD a la que pertenece. Ver `armarIndice`. */
   private indiceUnidad = new Map<string, string>();
   private indiceDe: string | null = null;
+  /** `[MOS.1]` Un renglón por producto (sin repetir por código), listo para buscar. */
+  private buscables: Buscable[] = [];
+  /** `[MOS.1]` El diccionario de proveedores del respaldo cargado (`VerificadorSnapshot.pr`). */
+  private proveedores: string[] = [];
 
   /** Estado del respaldo de la sucursal activa. `null` = no hay respaldo descargado. */
   readonly snapshot = signal<EstadoSnapshot | null>(null);
@@ -283,6 +309,7 @@ export class VerificadorService {
             // `[TDA.8]` La llave del aviso en vivo. El backend la publica desde la misma fila de
             // etiqueta de la que sale el mayoreo.
             product_id: r.product_id ?? null,
+            proveedor: r.proveedor ?? null,
           },
           // `[TDA.2]` Procedencia del número: de qué plaza salió, si varía entre plazas, y si lo
           // corrigió una persona (ese override es el que se imprime en el anaquel, y el mostrador
@@ -318,7 +345,9 @@ export class VerificadorService {
     const item = this.indice.get(codigo) ?? this.indice.get(codigo.replace(/^0+/, '')) ?? this.indice.get(codigo.padStart(5, '0'));
     if (!item) return { estado: 'no_encontrado', origen: 'respaldo', codigo, snapshotAl: snapAl, motivoRespaldo };
 
-    const unidades = (item.u || []).map((x) => ({ u: x.u, precio_con_iva: x.p, precio_sin_iva: x.s, factor: 1 }));
+    // `[MOS.1]` Con el factor del respaldo (formato 3). Antes iba fijo en 1: la caja escaneada sin
+    // red no podía decir cuántas piezas traía.
+    const unidades = unidadesDeItem(item);
     // `[TDA.3]` La unidad del código escaneado, del segundo índice del snapshot. Se busca con las
     // mismas tres formas del código que el índice principal, o un pad distinto perdería la unidad
     // aunque el producto sí se haya encontrado.
@@ -348,6 +377,7 @@ export class VerificadorService {
         // pasa —si estás en respaldo es porque no hay red, y sin red no hay socket— pero el
         // camino tiene que decir la verdad igual, no apoyarse en que la otra falla lo tape.
         product_id: null,
+        proveedor: item.pv != null ? (this.proveedores[item.pv] ?? null) : null,
       },
       // Sólo se afirma la unidad si además tiene precio en este respaldo: decir "escaneaste CJA"
       // y no poder mostrar el precio de CJA sería peor que no decir nada.
@@ -427,48 +457,26 @@ export class VerificadorService {
    *
    * El match es por TODAS las palabras escritas, en cualquier orden y sin acentos, porque nadie
    * teclea "PAL CHIQUI HUESO C/CHILE ALVHER /40" de corrido: se teclea "chiqui chile".
+   *
+   * `[MOS.1]` Ahora busca también por **proveedor, SKU y código de barras**, y cada resultado dice
+   * por qué salió. Trae las presentaciones con su factor y el mayoreo, para que el desplegable
+   * muestre todo lo que el cliente puede pedir sin abrir nada más. La lógica vive en
+   * `mostrador-catalogo.ts` (pura, con sus pruebas); acá sólo se le da el respaldo.
    */
-  async buscarPorNombre(
-    sucursal: string,
-    texto: string,
-    limite = 40,
-  ): Promise<Array<{ codigo: string; nombre: string; precio: number | null; unidad: string | null }> | null> {
-    const q = this.normalizar(texto);
-    if (!q) return [];
+  async buscarEnCatalogo(sucursal: string, texto: string, limite = 40): Promise<HalladoCatalogo[] | null> {
+    if (!(texto || '').trim()) return [];
     const hay = await this.cargarIndice(sucursal);
     if (!hay) return null; // no hay respaldo: "no puedo buscar" ≠ "no hay resultados"
 
-    const palabras = q.split(' ').filter(Boolean);
-    const vistos = new Set<string>();
-    const res: Array<{ codigo: string; nombre: string; precio: number | null; unidad: string | null }> = [];
-
-    for (const it of this.indice.values()) {
-      if (!it?.c || vistos.has(it.c)) continue;     // el índice repite el mismo item por cada código
-      const nombre = it.n || '';
-      const norm = this.normalizar(nombre);
-      if (!palabras.every((p) => norm.includes(p))) continue;
-      vistos.add(it.c);
-      // La unidad BASE es la primera del arreglo: es la que el mostrador cotiza por pieza.
-      const base = it.u?.[0];
-      res.push({
-        codigo: it.c,
-        nombre,
-        precio: base?.p != null ? base.p : null,
-        unidad: base?.u ?? null,
-      });
-      if (res.length >= limite) break;
-    }
-
-    // El que empieza con lo tecleado primero: es el que la persona está buscando.
-    const arranca = (n: string) => (this.normalizar(n).startsWith(palabras[0]) ? 0 : 1);
-    return res.sort((a, b) => arranca(a.nombre) - arranca(b.nombre) || a.nombre.localeCompare(b.nombre));
-  }
-
-  /** Sin acentos, mayúsculas, espacios colapsados. Lo que se teclea nunca coincide con el ERP. */
-  private normalizar(s: string): string {
-    return (s || '')
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .toUpperCase().replace(/\s+/g, ' ').trim();
+    return buscarEnCatalogo(this.buscables, texto, limite).map(({ b, por, exacto }) => ({
+      codigo: b.codigo,
+      nombre: b.item.n || '',
+      proveedor: b.proveedor,
+      por,
+      exacto,
+      unidades: unidadesDeItem(b.item),
+      mayoreo: (b.item.m || []).map(expandirTier),
+    }));
   }
 
   /** Carga el índice en memoria desde IndexedDB si hace falta. `false` = no hay respaldo. */
@@ -520,5 +528,9 @@ export class VerificadorService {
     this.indice = m;
     this.indiceUnidad = u;
     this.indiceDe = sucursal;
+    // `[MOS.1]` Un renglón por PRODUCTO para buscar: el índice de arriba repite el mismo producto
+    // por cada código, y buscar ahí devolvería el mismo dulce cuatro veces.
+    this.proveedores = payload.pr ?? [];
+    this.buscables = payload.productos.filter((it) => it?.c).map((it) => aBuscable(it, this.proveedores));
   }
 }

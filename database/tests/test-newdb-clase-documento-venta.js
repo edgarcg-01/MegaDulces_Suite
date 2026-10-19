@@ -69,6 +69,47 @@ async function main() {
     }
   }
 
+  /**
+   * 2-bis — ⭐⭐ **La misma pregunta, sobre TODO el dinero.** `[VEC.33]`
+   *
+   * El bloque 2 mira las rutas vecinales, que medido en 2026 son **$20 M de $1,094 M**: el
+   * **2 %**. Durante tres días esta compuerta dijo «ninguna venta queda sin clasificar»
+   * mirando esa rebanada, y afuera había **$22,062,513** sin clase — `UD2301 «Corte de Caja
+   * POS»` ($20.8 M) y `UD6001 «Documento por Cobrar»` ($1.2 M).
+   *
+   * ⛔ Una compuerta acotada no avisa de lo que dejó fuera: se ve idéntica a una que pasa.
+   */
+  const gen = await c.query(`SELECT to_regclass('analytics.v_sale_doc_coverage') v`);
+  if (!gen.rows[0].v) {
+    mal('analytics.v_sale_doc_coverage no existe — [VEC.33] sin aplicar: la compuerta ' +
+        'sólo vigila el 2 % del dinero');
+  } else {
+    const t = await c.query(`SELECT doc_code, doc_nombre, sum(docs)::int docs,
+        round(sum(importe))::float imp
+      FROM analytics.v_sale_doc_coverage
+     WHERE clase = 'sin_clasificar' AND importe > 0
+     GROUP BY 1,2 ORDER BY 4 DESC`);
+    if (t.rowCount === 0) {
+      bien('ninguna venta queda sin clasificar en NINGUNA familia de ruta');
+    } else {
+      mal(`${t.rowCount} tipo(s) con venta SIN CLASIFICAR fuera de lo vecinal:`);
+      for (const x of t.rows) {
+        console.log(`      ${x.doc_code} ${x.doc_nombre ?? '(sin nombre)'} · ` +
+                    `${x.docs} doc(s) · $${x.imp.toLocaleString('es-MX')}`);
+      }
+    }
+    // ⭐ Y que de verdad mire más que lo vecinal: si alguien la acota otra vez, esto se cae.
+    const fam = await c.query(`SELECT count(DISTINCT familia)::int n,
+        round(sum(importe) FILTER (WHERE familia <> 'vecinal'))::float fuera
+      FROM analytics.v_sale_doc_coverage`);
+    if (fam.rows[0].n >= 3 && fam.rows[0].fuera > 0) {
+      bien(`el lente cubre ${fam.rows[0].n} familias de ruta · ` +
+           `$${Math.round(fam.rows[0].fuera).toLocaleString('es-MX')} fuera de lo vecinal`);
+    } else {
+      mal('la cobertura general volvió a quedar acotada: mira ' + fam.rows[0].n + ' familia(s)');
+    }
+  }
+
   // 3 — El universo de RUTAS es el catálogo, no «las que emitieron un ticket».
   const r = await c.query(`SELECT count(DISTINCT route_no)::int rutas,
       count(DISTINCT route_no) FILTER (WHERE importe > 0)::int con_venta

@@ -196,7 +196,19 @@ export class CashLedgerService {
    * conserva el camino manual en vez de obligar a elegir.
    */
   movimientosPendientes(
-    f: { tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number } = {},
+    f: {
+      tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string;
+      search?: string; limit?: number;
+      /**
+       * `[CGA11Y-O3b]` El grupo elegido en la tira de accesos (`U-A-5`, `X-D-26`…).
+       *
+       * ⚠️ El nombre va en `snake_case` porque **es el nombre del query param**: el bucle de abajo
+       * serializa las llaves tal cual. Escribirlo `docTipo` acá mandaría `?docTipo=` y el servidor
+       * —que lee `doc_tipo`— lo ignoraría **en silencio**: la lista saldría sin filtrar y nadie
+       * vería un error. Es la convención que `CLAUDE.md` fija para query params.
+       */
+      doc_tipo?: string;
+    } = {},
   ): Observable<PendientesResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
@@ -500,6 +512,17 @@ export interface MovimientoPendiente {
   concepto: string | null;
   metodo: string | null;
   monto: number;
+  /**
+   * ⭐ `[CGA-A.15]` La unidad de reparto de la que viene este cobro (`ruta_27`, `ruta_503`…).
+   *
+   * `null` = **no es de camioneta**: es un cobro de mostrador, donde `CONTADO` es el cliente de
+   * verdad. Medido el 2026-10-19: de 136 cobros `CONTADO` en la cola, **36 eran de mostrador**,
+   * así que etiquetarlos todos con una ruta sería inventar.
+   *
+   * Sale de `analytics.route_collections.truck` por la procedencia del renglón, **no** de
+   * adivinar por el formato de la sucursal — la lección de `GOTCHAS` §86.
+   */
+  ruta?: string | null;
   /** CS.3.13 — el cliente del cobro es de crédito (`kdud` días/límite > 0): auto-rellena «venta a crédito». */
   cliente_credito?: boolean;
   credito_limite?: number | null;
@@ -565,6 +588,23 @@ export interface PendientesResponse {
    * en Kepler.
    */
   mal_fechados?: { movimientos: number; monto: number };
+  /**
+   * `[CGA11Y-O3a]` Cuántos hay POR GRUPO, para la tira de accesos rápidos. Ordenado por volumen.
+   *
+   * ⛔ **El eje es `doc_tipo`, no `origen_tipo`.** En esta vista `origen_tipo` sale del signo
+   * (`signo > 0 ? 'cobro' : 'pago_proveedor'`), así que es un sinónimo de `tipo` y no distingue
+   * nada — medido el 2026-10-16: 1,428 gasto↔`pago_proveedor` y 479 ingreso↔`cobro`, sin una sola
+   * excepción. `doc_tipo` sí separa: `U-A-5` es el depósito de efectivo (95% del ingreso),
+   * `X-D-26` el pago/egreso (92% de la salida), `D-23-1` el cobro de ruta de detalle.
+   *
+   * ⚠️ **NO se calcula con `rows`.** Contar la página en vez del trabajo es el defecto que
+   * `[CG.30]` midió: la bandeja publicaba «31 de 100» teniendo 1,887 en esa caja y 12,793 en
+   * total. Viene del servidor o no viene.
+   *
+   * ⚠️ `undefined` = el servidor desplegado todavía no lo manda. **No es un arreglo vacío**: sin
+   * grupos no se dibuja la tira, en vez de dibujarla con ceros (ADR-056).
+   */
+  grupos?: Array<{ doc_tipo: string; tipo: string; movimientos: number; monto: number }>;
   rows: MovimientoPendiente[];
   /**
    * CG — Lo que el BUSCADOR encuentra FUERA del efectivo inferido: documentos POR PAGAR —

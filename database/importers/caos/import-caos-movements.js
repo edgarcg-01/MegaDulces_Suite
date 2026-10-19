@@ -110,10 +110,63 @@ function rowHash(mov, det) {
 let ADAPTER = null;
 const adapterVivo = () => (ADAPTER || (ADAPTER = new CaosAdapter()));
 
+/**
+ * ⭐ `[CGA-A.14]` **Qué latido le corresponde a un ciclo que no movió filas.** Está afuera, en
+ * una función pura, para poder PROBARLA: la regla que importa acá —«no poder correr late en
+ * ERROR, no en verde»— vivía incrustada en un ternario dentro de un `catch`, donde nadie la
+ * podía ejercer sin credenciales, sin red y sin escribir en prod.
+ *
+ *   node database/importers/caos/import-caos-movements.js --probar-latido
+ */
+function latidoDe(r) {
+  return r.fatal
+    ? { status: 'error', rows: 0, error: r.nota }
+    : { status: 'ok', rows: 0, note: r.nota };
+}
+
+if (process.argv.includes('--probar-latido')) {
+  const casos = [
+    ['sin credenciales (NO puede correr)', { fatal: true, nota: 'CAOS sin credenciales' }, 'error'],
+    ['sin novedad (corrió y no hubo nada)', { nota: 'nada nuevo' }, 'ok'],
+  ];
+  let fallas = 0;
+  console.log('\n[prueba] un carril que NO PUEDE correr late en error, no en verde\n');
+  for (const [que, r, esperado] of casos) {
+    const got = latidoDe(r).status;
+    const bien = got === esperado;
+    if (!bien) fallas++;
+    console.log(`  ${bien ? '✓' : '✗'} ${que} → ${got} (esperado ${esperado})`);
+  }
+  // ⛔ El defecto, explícito: si alguien quita el `fatal`, esto tiene que ponerse rojo.
+  if (latidoDe({ nota: 'CAOS sin credenciales' }).status !== 'ok') fallas++;
+  console.log('');
+  process.exit(fallas ? 1 : 0);
+}
+
 async function ciclo(c) {
   const adapter = adapterVivo();
   if (!adapter.isConfigured()) {
-    return { nota: 'CAOS sin credenciales (CAOS_USER/CAOS_PASS) — feed inactivo en este entorno', filas: 0, nuevos: 0 };
+    /**
+     * ⛔⛔ `[CGA-A.14]` **ESTO LATÍA EN VERDE, y por eso nadie vio 24 horas sin CAOS.**
+     *
+     * Hasta el 2026-10-16 este caso devolvía sólo `nota` y el lazo escribía
+     * `status: 'ok', rows: 0`. O sea que un carril que **no puede correr** —el pod arrancó sin
+     * `CAOS_USER`/`CAOS_PASS` porque el secreto `ingest-env` no las tenía— se publicaba como
+     * sano, con cero filas. Y «cero filas porque no hay credenciales» se ve **exactamente
+     * igual** que «cero filas porque hoy no hubo movimientos».
+     *
+     * ⭐ Es la violación directa de ADR-056: **lo que no se pudo medir se DECLARA, nunca se
+     * dibuja como verde.** Un latido verde no es una cortesía: es lo que mira el vigilante
+     * para decidir que no hay nada que arreglar.
+     *
+     * `fatal` lo marca para que el lazo escriba `status: 'error'` —el único de los tres
+     * estados que dice la verdad acá— y lo haga **sin acotar por tiempo**: una falla de
+     * configuración es el hecho que hay que ver, no ruido a espaciar.
+     */
+    return {
+      nota: 'CAOS sin credenciales (CAOS_USER/CAOS_PASS) — el feed NO puede correr en este entorno',
+      fatal: true, filas: 0, nuevos: 0,
+    };
   }
 
   const fromArg = argVal('from');
@@ -263,7 +316,13 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
       const hubo = !r.nota && (r.nuevos + r.actualizados) > 0;
       if (r.nota) {
         console.log(r.nota);
-        if (debeLatir(false)) { ultimoLatido = Date.now(); await hb.begin(KEY, ETIQUETA).catch(() => {}); await hb.end(KEY, { status: 'ok', rows: 0, note: r.nota }).catch(() => {}); }
+        // `[CGA-A.14]` Un carril que NO PUEDE correr late en `error`, y late SIEMPRE: el
+        // acotado por tiempo es para el ruido, no para una falla de configuración.
+        if (r.fatal || debeLatir(false)) {
+          ultimoLatido = Date.now();
+          await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+          await hb.end(KEY, latidoDe(r)).catch((e) => console.warn(`[latido] end ${KEY}: ${e.message}`));
+        }
         return true;
       }
       // En modo demonio sólo se imprime cuando hay novedad: a 1 s, un renglón por ciclo son
@@ -273,16 +332,16 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
       }
       if (debeLatir(hubo)) {
         ultimoLatido = Date.now();
-        await hb.begin(KEY, ETIQUETA).catch(() => {});
-        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch(() => {});
+        await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch((x) => console.warn(`[latido] end ${KEY}: ${x.message}`));
       }
       return true;
     } catch (e) {
       console.error('falló:', e.message);
       // Una falla SIEMPRE late, sin importar el acotado: es el hecho que hay que ver.
       ultimoLatido = Date.now();
-      await hb.begin(KEY, ETIQUETA).catch(() => {});
-      await hb.end(KEY, { status: 'error', error: e.message }).catch(() => {});
+      await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+      await hb.end(KEY, { status: 'error', error: e.message }).catch((x) => console.warn(`[latido] end ${KEY}: ${x.message}`));
       if (!WATCH_SEG) { process.exitCode = 1; return false; }
       // En demonio: la sesión del aparato puede haber caducado de una forma que el adapter no
       // detectó. Se tira y el próximo ciclo abre una nueva — 759 ms una vez, no por ciclo.

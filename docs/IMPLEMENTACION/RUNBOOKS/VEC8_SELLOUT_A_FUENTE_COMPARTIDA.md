@@ -636,3 +636,62 @@ misma vista, es cómo se produce el error siguiente.
 aplicadas, `knex` resolvió `identity.knex_migrations` (vacía) en vez de `public.knex_migrations`
 (donde sí están, batches 931 y 933). *Prod tiene DOS ledgers y el que contesta depende del
 `search_path`* — un `[]` ahí se lee como «no está aplicada».
+
+---
+
+# `[VEC.34]` — ⛔⛔ CIERRE: tampoco el arreglo de `[VEC.22]` era real. `kduv` cuesta el 12 %, no el 97 %
+
+> **Resultado NEGATIVO, medido el 2026-10-19.** Esta sección cierra la pregunta para que nadie
+> vuelva a abrirla: **no hay un 35× esperando en `v_kepler_vecinal_sales_docs`.** La migración que
+> escribí para lograrlo se descartó antes de commitearla.
+
+## La medición que había que hacer primero, y que tardé tres intentos en hacer
+
+| | |
+|---|---:|
+| PISO — las 14 columnas, `route_name` = NULL, **sin `kduv`** | **1,328 / 1,324 / 1,340 ms** |
+| la vista VIVA, con `kduv` | 1,519 / 1,516 / 1,530 ms |
+| sólo las dos llaves, sin columnas pesadas | 187 / 181 ms |
+
+**`kduv` cuesta ~190 ms: el 12 %.** Los otros **1,330 ms son producir 9,449 filas × 14 columnas**, y
+eso no lo arregla ninguna estrategia de join.
+
+## Las tres variantes que probé, todas peores o iguales
+
+| variante | tiempo |
+|---|---:|
+| hoy (join directo a `kduv`) | 1,519 ms |
+| `kduv` en CTE `MATERIALIZED` (el lado chico) | 1,608 / 1,651 ms |
+| ambos lados `MATERIALIZED` | **2,509 / 2,814 ms** ⛔ |
+| subconsulta escalar con índice | 1,537 / 1,567 ms |
+
+⭐ Las tres devuelven **exactamente las mismas filas** (`EXCEPT` en los dos sentidos: 0 y 0), así que
+el descarte es por rendimiento, no por corrección. Y la de «ambos materializados» es **65 % más
+lenta**: el planner pasa a `Merge Right Join` y agrega un `Sort` de 9,448 filas.
+
+## ⛔ El error, que cometí TRES veces sobre el mismo objeto
+
+1. **`[VEC.13]`** — «el índice la baja a ~42 ms». Falso. Retractado en `[VEC.22]`.
+2. **`[VEC.22]`** — «el arreglo real, medido: 46 ms, 35×». **También falso**: esa cifra era un
+   `count()` sobre **4 columnas**, no la vista con sus 14.
+3. **Hoy, antes de este cierre** — «el join agrega 1,500 ms, el 97 %». Falso por lo mismo: comparé
+   `count(*)` servido por índice contra un `count` con join, y **ninguno de los dos devuelve las
+   columnas que la vista devuelve**.
+
+**Siempre el mismo defecto: medir un proxy barato y atribuirle el costo de la consulta real.** Es
+textual lo que la memoria del proyecto llama *«medir la consulta REAL, no una parecida»*.
+
+⚠️ Y una trampa concreta que lo alimentó: **sin el predicado `c9::date <= hoy` la misma consulta
+cuesta 829 ms en vez de 33**, porque ese predicado es el que habilita `ix_kdm1_ruta_vecinal`. Mis
+primeras variantes lo omitían, daban ~900 ms parejos, y me hicieron creer que `kduv` no importaba.
+**Una comparación que no reproduce el `WHERE` real no compara nada.**
+
+## Lo que esto deja decidido
+
+- ⭐ **`mv_kepler_vecinal_monthly` se queda, y ahora con su número:** **13–17 ms** contra
+  **1,438–1,580 ms** de la vista viva — ~100×. Lo que `[VEC.13]` dijo («queda sin razón de ser») es
+  falso, y lo que `[VEC.22]` dijo («sigue justificada») queda confirmado con medida.
+- El índice `ix_kduv_btrim_suc_code` **se queda**: no sirve para esta vista —el plan la une con
+  `Join Filter`, no con `Index Cond`— pero lo usan otros consumidores.
+- ⛔ **Si alguien quiere esta vista más rápida, el camino NO es el join:** es devolver menos
+  columnas o menos filas. Las 14 columnas de 9,449 documentos son el piso.

@@ -1252,10 +1252,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   /** Carga online: backend + cachea el contexto para poder abrir offline luego. */
   private loadOnline(customerId: string): void {
-    // Ronda 1: warehouse default + customer (en paralelo). El customer alimenta
-    // el catálogo de la ronda 2 sin re-pedirlo (antes se fetcheaba 2 veces).
+    // [VTK.13] Todo lo que no depende de otra respuesta sale A LA VEZ. Antes borrador,
+    // pendientes y habituales esperaban a la ronda de fuentes+cliente sin necesitarla, y las
+    // listas de precio abrían otro salto después del cliente: 3–4 viajes en serie por apertura.
+    // Ahora el único encadenado es catálogo ← (fuentes + cliente), y en el 2º cliente de la ruta
+    // fuentes y listas ya están en memoria (VendorService.deSesion).
     this.loadError.set(false);
-    forkJoin({
+    // El customer alimenta el catálogo sin re-pedirlo (antes se fetcheaba 2 veces).
+    const cabecera$ = forkJoin({
       // warehouse NO es crítico: si falla, seguimos con almacén vacío (sin badges
       // de stock) en vez de tumbar toda la pantalla. El customer SÍ es crítico.
       // Fuentes de stock del vendedor: sucursal de surtido (inicial) + camioneta.
@@ -1263,38 +1267,37 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         .myStockSources()
         .pipe(catchError(() => of({ sucursal: null, camioneta: null }))),
       customer: this.api.getCustomer(customerId),
+      // Sólo calienta la memoria: catalogInstant las lee de ahí sin otro viaje.
+      listas: this.api.precalentarListas().pipe(catchError(() => of(null))),
+    }).pipe(
+      switchMap(({ sources, customer }) => {
+        const warehouseId = sources.sucursal?.id || '';
+        // catalog con fallback: un 403/red ya no deja la pantalla en blanco;
+        // se renderiza el cliente y se avisa/reintenta.
+        // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
+        return this.api.catalogInstant(customer, warehouseId || undefined).pipe(
+          catchError(() =>
+            of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
+          ),
+          map((catalog) => ({ sources, customer, warehouseId, catalog })),
+        );
+      }),
+    );
+    forkJoin({
+      cabecera: cabecera$,
+      // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
+      // el borrador suelto del cliente, como siempre.
+      existingDraft: this.editingOrderId()
+        ? this.api.orderById(this.editingOrderId()!).pipe(catchError(() => of(null)))
+        : this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
+      pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
+      frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
     })
-      .pipe(
-        switchMap(({ sources, customer }) => {
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ cabecera: { sources, customer, warehouseId, catalog }, existingDraft, pending, frequent }) => {
           this.stockSources.set(sources);
           this.stockView.set('sucursal');
-          const warehouseId = sources.sucursal?.id || '';
-          return forkJoin({
-            customer: of(customer),
-            warehouseId: of(warehouseId),
-            // catalog/draft con fallback: un 403/red en ellos ya no deja la
-            // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
-            // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
-            catalog: this.api
-              .catalogInstant(customer, warehouseId || undefined)
-              .pipe(
-                catchError(() =>
-                  of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
-                ),
-              ),
-            // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
-            // el borrador suelto del cliente, como siempre.
-            existingDraft: this.editingOrderId()
-              ? this.api.orderById(this.editingOrderId()!).pipe(catchError(() => of(null)))
-              : this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
-            pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
-            frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
-          });
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: ({ customer, catalog, warehouseId, existingDraft, pending, frequent }) => {
           this.customer.set(customer);
           this.prices.set(catalog.prices);
           this.priceListId = catalog.priceListId;

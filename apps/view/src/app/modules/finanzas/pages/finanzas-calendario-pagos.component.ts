@@ -10,6 +10,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
+import { MessageModule } from 'primeng/message';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
@@ -26,6 +27,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -41,6 +43,12 @@ interface Obligation {
   payee_id: string | null;
 }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
+/**
+ * `[TP.17.2]` La lista de obligaciones viaja con su TOTAL. El endpoint tiene un techo (1,000 por
+ * omisión) y sin este dato la pantalla no puede distinguir «hay mil» de «te muestro mil de tres mil»
+ * — que es la diferencia entre informar y mentir (ADR-056).
+ */
+interface ObligationPage { rows: Obligation[]; total: number; limit: number; offset: number }
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   compromiso_financiero: 'Compromiso financiero', gasto: 'Gasto', proveedor_mercancia: 'Proveedor',
@@ -88,9 +96,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent],
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in cal-page">
       <p-toast></p-toast>
       <header class="surf-page-head cal-head">
@@ -145,8 +155,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <!-- ── Obligaciones disponibles ─────────────────────────────────── -->
         <section class="cal-panel cal-oblig" aria-label="Obligaciones disponibles">
           <div class="cal-panel-head">
-            <h2>Obligaciones disponibles <span class="cal-count">{{ obligations().length | number }} {{ obligations().length === 1 ? 'factura' : 'facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}</span></h2>
+            <!-- [TP.17.2] Cuando el techo recorta, el contador dice "N de M": un "1,000 facturas"
+                 a secas sobre 2,931 es el numero que miente, no el que falta. -->
+            <h2>Obligaciones disponibles <span class="cal-count">@if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} } @else { {{ obligations().length | number }} }{{ obligations().length === 1 && !obligationsTruncated() ? ' factura' : ' facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}</span></h2>
           </div>
+          <!-- [TP.17.2] El techo se DECLARA (ADR-056). Medido el 2026-10-16: con la deuda derivada
+               el corte de 1,000 dejaba fuera 1,895 documentos por $105,683,725 -el 79% del dinero-
+               y, como la lista va por vencimiento, lo oculto era lo MAS RECIENTE. -->
+          @if (obligationsTruncated()) {
+            <p-message severity="info" class="cal-techo">
+              <span>
+                Se muestran las <b>{{ obligations().length | number }}</b> más próximas a vencer, de
+                <b>{{ obligationsTotal() | number }}</b>. Las demás no faltan por error: usá la búsqueda
+                o el filtro de tipo para llegar a cualquiera.
+              </span>
+            </p-message>
+          }
           <div class="cal-filters">
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadObligations()" placeholder="Buscar beneficiario o factura…" class="p-inputtext-sm cal-search" aria-label="Buscar beneficiario o factura" />
             <p-select [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Tipo" [showClear]="true" styleClass="cal-sel p-inputtext-sm" />
@@ -503,7 +527,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* ── Área de trabajo: obligaciones | ordenar y pagar */
     /* La lista de obligaciones gana ancho (2 de 5): nombre completo sin desplazamiento lateral. */
     .cal-work { display:grid; grid-template-columns:minmax(26rem, 2fr) minmax(0, 3fr); gap:var(--sp-4); align-items:start; }
-    @media (max-width: 70rem) { .cal-work { grid-template-columns:minmax(0, 1fr); } }
+    @container (max-width: 70rem) { .cal-work { grid-template-columns:minmax(0, 1fr); } }
     .cal-panel { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:var(--sp-3); min-width:0; }
     .cal-oblig { display:flex; flex-direction:column; height:clamp(24rem, calc(100vh - 22rem), 40rem); }
     .cal-panel-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-2); }
@@ -693,6 +717,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return filasAgrupadas(this.obligationGroups(), plegados);
   });
   loadingObligations = signal(false);
+  /** `[TP.17.2]` Cuántas obligaciones hay de verdad, más allá del techo que devolvió el servidor. */
+  readonly obligationsTotal = signal(0);
+  /**
+   * ⚠️ Lee los DOS signals siempre: nada de `&&` que corte antes del segundo. Un `computed()` que
+   * no alcanza a leer una señal se queda sin esa dependencia y **no vuelve a recalcular**
+   * (la compuerta `reactividad` existe por eso).
+   */
+  readonly obligationsTruncated = computed(() => {
+    const total = this.obligationsTotal();
+    const mostradas = this.obligations().length;
+    return total > mostradas;
+  });
   saving = signal(false);
   selected = signal<Obligation[]>([]);
 
@@ -815,8 +851,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.classificationFilter) p.set('classification', this.classificationFilter);
     if (this.search.trim()) p.set('search', this.search.trim());
     if (this.onlyCritical) p.set('onlyCritical', 'true');
-    this.http.get<Obligation[]>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.obligations.set(rows); this.loadingObligations.set(false); },
+    this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.obligations.set(r.rows); this.obligationsTotal.set(r.total); this.loadingObligations.set(false); },
       error: () => { this.loadingObligations.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' }); },
     });
   }
@@ -943,7 +979,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const day = this.selectedDay();
     if (!day) return;
     try {
-      const all = await firstValueFrom(this.http.get<Obligation[]>(`${this.base}/obligations`));
+      // [TP.17.2] Techo alto a proposito: el armado PROPONE que pagar, y con la primera pagina
+      // propondria sobre las 1,000 mas viejas en vez de sobre toda la deuda.
+      const page = await firstValueFrom(this.http.get<ObligationPage>(`${this.base}/obligations?limit=5000`));
+      const all = page.rows;
       const groups = sugerirArmado(all, day.date, Number(day.summary.remaining_amount ?? 0));
       this.armado.set(groups);
       this.armadoOn.set(new Set(groups.filter((g) => g.fits).map((g) => g.key)));
