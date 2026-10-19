@@ -221,7 +221,7 @@ export class SupplierPaymentProofsService {
         .leftJoin(bank, joinBank)
         .modify((q) => {
           if (!cal) return;
-          q.leftJoin(cal, (j: any) => {
+          q.leftJoin(cal, (j: Knex.JoinClause) => {
             j.on('c.sucursal', 'cal.kepler_payment_sucursal')
              .andOn('c.doc_prefix', 'cal.kepler_payment_doc_prefix')
              .andOn('c.folio', 'cal.kepler_payment_folio');

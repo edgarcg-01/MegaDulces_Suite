@@ -184,6 +184,23 @@ export interface CreateAgreementDto {
  * desincronizar el saldo).
  */
 @Injectable()
+/**
+ * `[TP.19.4.1]` Lo que devuelve la sugerencia de Kepler. Son TRES returns distintos en el
+ * mismo metodo (ya ligado / sin documentos que ligar / con candidatos), asi que los campos
+ * que no estan en los tres van opcionales: una union exacta rompe por exceso de propiedades.
+ *
+ * ⚠️ `candidatos` va como piso declarado y no con la forma de sus columnas: el SELECT trae mas
+ * de las que se pueden leer de un vistazo, y escribir una forma que NO se midio es inventarla.
+ * Quien la necesite tipada que la mida primero (ADR-056: lo que no se midio se DECLARA).
+ */
+export interface SugerenciaKepler {
+  ya_ligado: boolean;
+  folio?: string | null;
+  candidatos: Record<string, unknown>[];
+  motivo?: string;
+  unico?: boolean;
+}
+
 export class PaymentCalendarService {
   private readonly logger = new Logger(PaymentCalendarService.name);
   constructor(
@@ -813,7 +830,7 @@ export class PaymentCalendarService {
    * ⚠️ Tolerancias, dichas: **± 1 centavo** en el monto (redondeo) y **± 3 días** entre el día del
    * lote y la fecha del documento, porque el ERP se captura después de que sale el dinero.
    */
-  async sugerirKeplerPayment(allocationId: string) {
+  async sugerirKeplerPayment(allocationId: string): Promise<SugerenciaKepler> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const a = await trx('finance.payment_allocations as pa')
@@ -870,6 +887,11 @@ export class PaymentCalendarService {
    *
    * ⛔ Se verifica que el documento **exista** en el espejo del ERP y que el beneficiario coincida:
    * ligar a un folio tecleado mal es peor que no ligar — publicaría una trazabilidad falsa.
+   */
+  /**
+   * ⚠️ `[TP.19.3.1]` Piso declarado: devuelve la fila actualizada de `payment_allocations`, y
+   * sus columnas no se enumeran aca porque no se midieron. El unico consumidor (el controlador)
+   * la pasa tal cual, asi que el piso alcanza y no finge una forma que nadie verifico.
    */
   async linkKeplerPayment(
     allocationId: string,

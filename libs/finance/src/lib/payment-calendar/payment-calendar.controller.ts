@@ -141,7 +141,7 @@ export class PaymentCalendarController {
   @Get('allocations/:id/kepler/sugerencias')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'TP.19.4 — candidatos de Kepler para ligar un pago ejecutado. No liga: propone.' })
-  sugerirKepler(@Param('id') id: string) {
+  sugerirKepler(@Param('id') id: string): ReturnType<PaymentCalendarService['sugerirKeplerPayment']> {
     return this.svc.sugerirKeplerPayment(id);
   }
 
@@ -152,7 +152,7 @@ export class PaymentCalendarController {
     @Param('id') id: string,
     @Body() dto: { sucursal: string; doc_prefix: string; folio: string },
     @Req() req: AuthedRequest,
-  ) {
+  ): ReturnType<PaymentCalendarService['linkKeplerPayment']> {
     return this.svc.linkKeplerPayment(id, dto, req.user?.username || 'sistema');
   }
 

@@ -143,7 +143,15 @@ export function montoBuscado(search: string | null | undefined): { valor: string
 }
 
 /** El `OR` de importe que se le cuelga al buscador. Sin término numérico no agrega nada. */
-function agregaMonto(b: any, columna: string, m: { valor: string; entero: boolean } | null): void {
+/**
+ * `[CG.116.1]` Las formas que devuelven las consultas de la bandeja. Se DECLARAN en vez de
+ * dejarlas en `any`: lo que vuelve de knex no tiene forma, y abajo se leen campo por campo.
+ * `count()/sum()` de pg devuelven TEXTO, por eso el `string | number`.
+ */
+interface Agregado { n?: string | number | null; monto?: string | number | null }
+interface GrupoPendiente { doc_tipo?: string | null; tipo?: string | null; n?: string | number | null; monto?: string | number | null }
+
+function agregaMonto(b: Knex.QueryBuilder, columna: string, m: { valor: string; entero: boolean } | null): void {
   if (!m) return;
   if (m.entero) {
     // Rango semiabierto en vez de `trunc(monto)`: así el filtro sigue pudiendo usar un índice.
@@ -1323,7 +1331,7 @@ export class CashLedgerService {
        * persigue en otro lado («un total que no corresponde a lo filtrado es otra forma de
        * mentir, más difícil de ver»).
        */
-      const filtrosCon = (b: any, conTipo = true) => {
+      const filtrosCon = (b: Knex.QueryBuilder, conTipo = true) => {
         let x = b.where('tenant_id', tenantId);
         if (q.tipo && conTipo) x = x.where('tipo', q.tipo);
         // `doc_tipo` viaja junto con `tipo`: los dos ACOTAN AL GRUPO, así que los conteos de la
@@ -1423,7 +1431,7 @@ export class CashLedgerService {
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
       // dónde cortó es indistinguible de una bandeja vacía (ADR-056).
-      const atras: any = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
+      const atras: Agregado = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '<', desde)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
@@ -1444,7 +1452,7 @@ export class CashLedgerService {
        * que es lo único que las saca de verdad (`[CG.25]` las sigue cuando eso pasa).
        */
       const hoy = await this.hoyMx(trx);
-      const adelante: any = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
+      const adelante: Agregado = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>', hoy)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
@@ -1469,7 +1477,7 @@ export class CashLedgerService {
        * lista (`desde`..`hoy`), porque un conteo de otro período al lado de la lista es
        * justamente la cifra que no corresponde a lo filtrado.
        */
-      const grupos: any[] = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'), false)
+      const grupos: GrupoPendiente[] = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'), false)
         .where('fecha_valor', '>=', desde)
         .where('fecha_valor', '<=', hoy)
         .select('doc_tipo', 'tipo')
@@ -1487,7 +1495,7 @@ export class CashLedgerService {
         const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         // `[CG.116]` El importe entra al mismo OR: lo que el papel trae grande es el monto.
         const m = montoBuscado(q.search);
-        qb = qb.where((b: any) => {
+        qb = qb.where((b: Knex.QueryBuilder) => {
           b.whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
             .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
             .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
@@ -1591,7 +1599,7 @@ export class CashLedgerService {
          * `DESIGN.md` llama «dinero con Number() antes de formatear».
          */
         grupos: grupos
-          .map((g: any) => ({
+          .map((g: GrupoPendiente) => ({
             doc_tipo: String(g.doc_tipo ?? ''),
             tipo: String(g.tipo ?? ''),
             movimientos: Number(g.n ?? 0),
@@ -1618,7 +1626,7 @@ export class CashLedgerService {
    * ⛔ Ni un `?` en el subquery de exclusión: knex lo tomaría como binding (ya costó una columna en
    * `20260819220000`). Se guarda con `to_regclass` para entornos sin la vista (idempotente).
    */
-  private async buscarPagables(trx: any, tenantId: string, search: string, limit: number) {
+  private async buscarPagables(trx: Knex.Transaction, tenantId: string, search: string, limit: number) {
     const existe = await trx.raw(`SELECT to_regclass('analytics.expense_documents') AS t`);
     if (!existe.rows[0]?.t) return [];
     const s = `%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -1627,7 +1635,7 @@ export class CashLedgerService {
       .whereIn('e.doc_tipo', ['XA1001', 'XA2001'])
       // `[CG.116]` El importe también acá: es el MISMO término del mismo cuadro de búsqueda, y
       // dejar que encuentre por monto en una lista y no en la otra se lee como que no funciona.
-      .where((b: any) => {
+      .where((b: Knex.QueryBuilder) => {
         b.whereRaw(`e.beneficiario ILIKE ? ESCAPE '\\'`, [s])
           .orWhereRaw(`e.concepto ILIKE ? ESCAPE '\\'`, [s])
           .orWhereRaw(`e.doc_folio ILIKE ? ESCAPE '\\'`, [s]);

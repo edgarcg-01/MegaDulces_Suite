@@ -170,6 +170,17 @@ export class PaymentProgramService {
   async recon() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      /**
+       * `[PP.10.1]` La fila agregada del programa, con las seis columnas que el SELECT de abajo
+       * pide y que luego se leen una por una. Se DECLARA en vez de dejarla en `any`: lo que
+       * vuelve de knex no tiene forma. `count()/sum()` de pg pueden llegar como texto.
+       */
+      interface FilaPrograma {
+        source_month: string;
+        n?: string | number | null; monto?: string | number | null;
+        flag_si?: string | number | null; flag_no?: string | number | null;
+        flag_na?: string | number | null; monto_no?: string | number | null;
+      }
       const prog = await trx('finance.payment_program')
         .select(trx.raw(`source_month,
           count(*)::int AS n, coalesce(sum(amount),0)::numeric AS monto,
@@ -182,15 +193,17 @@ export class PaymentProgramService {
         .where({ tenant_id: tenantId, source: 'kepler', cuenta_mayor: '201' })
         .whereIn('tipo_pol', ['XD2601', 'XD2501']).where('anio_mes', '>=', '2026-01')
         .select('anio_mes').sum({ monto: 'importe' }).groupBy('anio_mes');
-      let bank: any[] = [];
+      /** `[PP.10.1]` Agregado por mes: la llave del mes cambia de nombre segun la fuente. */
+      interface MesMonto { anio_mes?: string; ym?: string; monto?: string | number | null }
+      let bank: MesMonto[] = [];
       try {
         bank = await trx('finance.bank_movements').where('tenant_id', tenantId).where('amount_out', '>', 0)
           .select(trx.raw(`to_char(movement_date,'YYYY-MM') AS ym`)).sum({ monto: 'amount_out' })
           .groupByRaw(`to_char(movement_date,'YYYY-MM')`);
       } catch { bank = []; }
-      const kByM = new Map(kep.map((r: any) => [r.anio_mes, Number(r.monto)]));
-      const bByM = new Map(bank.map((r: any) => [r.ym, Number(r.monto)]));
-      const pByM = new Map(prog.map((p: any) => [p.source_month, p]));
+      const kByM = new Map(kep.map((r: MesMonto) => [r.anio_mes, Number(r.monto)]));
+      const bByM = new Map(bank.map((r: MesMonto) => [r.ym, Number(r.monto)]));
+      const pByM = new Map(prog.map((p: FilaPrograma) => [p.source_month, p]));
 
       /**
        * `[PP.10]` **Los meses salen de la UNIÓN, no del libro.**
@@ -215,7 +228,7 @@ export class PaymentProgramService {
 
       return {
         months: meses.map((month) => {
-          const p: any = pByM.get(month);
+          const p: FilaPrograma | undefined = pByM.get(month);
           return {
             month,
             /** `false` = el Excel de Tesorería no tiene ese mes. Distinto de «ese mes no se pagó». */
