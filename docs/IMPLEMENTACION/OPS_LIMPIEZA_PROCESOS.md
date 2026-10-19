@@ -253,6 +253,103 @@ limpieza.
 
 ---
 
+## OPS.LIMPIEZA.8 — `prod-registry` y `prod-backup` de Compose a k3s
+
+**Estado: PREPARADO, sin aplicar** (2026-10-19). Los manifiestos están escritos y validados, y el
+corte se hace a mano, fuera de horario hábil (regla 9).
+
+| Archivo | Qué es |
+|---|---|
+| `ops/k3s/63-registry.deployment.yaml` | `registry:2` con `hostNetwork`, escuchando en `127.0.0.1:5000`, sobre el MISMO directorio (`prod_registry-data`) |
+| `ops/k3s/53-prod-backup.deployment.yaml` | La misma imagen de respaldo (cron + pgBackRest), la misma agenda y los mismos hostPath |
+
+**Validado:** `kubectl apply --dry-run=server` acepta los dos · `npm run check:k3s` sin rojos
+propios (`los 2 PREPARADO(s) siguen corriendo en Compose`) · `npm run check:base-tags`:
+`trade-prod-backup:base-7fee9ed6c22a` ✔.
+
+**Por qué `migracion: preparado` y el compose sin tocar:** es el protocolo de `check:k3s`. Un
+manifiesto escrito y sin aplicar se etiqueta `preparado`, el servicio sigue en Compose, y
+`aplicar-k3s-prod.sh` **lo salta**: nadie lo aplica por accidente antes del corte. La etiqueta
+`migrado` y el perfil `retirado-k3s` en `ops/prod/docker-compose.yml` van **en el commit del
+corte**, no antes. Si se adelantan, `check:k3s` marca *«EN LOS DOS MUNDOS»*.
+
+**La imagen del respaldo ya existe.** Los 5 archivos de entrada en `md:~/build-prod`
+(`Dockerfile.backup`, `backup-prod.sh`, `pgbackrest-run.sh`, `pgbackrest.conf`,
+`crontab.backup`) son idénticos, byte a byte, a los del repo (sha256 comparado el 2026-10-19), y
+`trade-prod-backup:latest` se construyó a las 09:26, un minuto después de que se actualizaran.
+Basta retagearla.
+
+### Receta del corte (en `md`, fuera de horario hábil)
+
+**0. Antes.** Que no haya un despliegue en curso, y copiar los manifiestos a la copia que se
+aplica (la de `md`, no la del repo: ver la memoria «ops/k3s del REPO no es lo que se aplica»):
+
+```sh
+# en la máquina de trabajo
+scp ops/k3s/63-registry.deployment.yaml ops/k3s/53-prod-backup.deployment.yaml \
+    superoot@192.168.0.222:~/ops/k3s/
+```
+
+```sh
+# en md
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+k3s kubectl -n prod rollout status deploy/api --timeout=10s      # nada desplegando
+curl -fsS http://127.0.0.1:5000/v2/_catalog                       # registro viejo responde
+# imagen del respaldo al registro (mismo directorio que va a usar el pod nuevo)
+docker tag trade-prod-backup:latest localhost:5000/trade-prod-backup:base-7fee9ed6c22a
+docker push localhost:5000/trade-prod-backup:base-7fee9ed6c22a
+```
+
+**A. Registro (corte de ~1 min; durante ese minuto nadie puede bajar imágenes).**
+
+```sh
+docker update --restart=no prod-registry && docker stop prod-registry
+k3s kubectl apply -f ~/ops/k3s/63-registry.deployment.yaml
+k3s kubectl -n prod rollout status deploy/registry --timeout=180s
+curl -fsS http://127.0.0.1:5000/v2/_catalog          # mismas imágenes que en el paso 0
+# PRUEBA NEGATIVA: con el contenedor viejo DETENIDO, containerd baja una imagen en uso
+TAG=$(k3s kubectl -n prod get deploy api -o jsonpath='{.spec.template.spec.containers[0].image}')
+sudo k3s crictl pull "$TAG"                           # tiene que decir "Image is up to date" o bajarla
+```
+
+Si `registry:2` no está en containerd y `md` no tiene internet, el pod queda en `ErrImagePull`.
+Se precarga desde Docker: `docker save registry:2 | sudo k3s ctr images import -`.
+
+**Volver atrás (registro):**
+`k3s kubectl -n prod delete deploy registry && docker update --restart=unless-stopped prod-registry && docker start prod-registry`.
+
+**B. Respaldo (fuera de 21:55–01:00: nunca dos `cron` disparando).**
+
+```sh
+docker update --restart=no prod-backup && docker stop prod-backup
+k3s kubectl apply -f ~/ops/k3s/53-prod-backup.deployment.yaml
+k3s kubectl -n prod rollout status deploy/backup --timeout=180s
+POD=$(k3s kubectl -n prod get pods -l app=backup --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+k3s kubectl -n prod exec $POD -- sh -c 'cat /etc/cron.d/backup-prod | grep -v "^#"'      # la agenda
+k3s kubectl -n prod exec $POD -- su -s /bin/sh postgres -c 'pgbackrest --stanza=prod check'  # llega al socket y al repo
+```
+
+**Volver atrás (respaldo):**
+`k3s kubectl -n prod delete deploy backup && docker update --restart=unless-stopped prod-backup && docker start prod-backup`.
+
+**C. La noche siguiente: no se declara hecho sin esto.**
+
+- 22:00: `~/backups/trade_marketing_<fecha>_2200.dump` nuevo, y su latido en `analytics.cron_runs`.
+- 23:30: `pgbackrest info` muestra un respaldo nuevo (incremental o completo según la edad del último).
+- Prueba de restauración: `ops/prod/deploy.sh --pitr` (`probar-pitr.sh`, destino seguro).
+- Recién entonces: `migracion: migrado` en los dos manifiestos + `profiles: ["retirado-k3s"]` en
+  `backup` y `registry` de `ops/prod/docker-compose.yml`, en el mismo commit, y `check:k3s` en verde.
+
+### Lo que se vio de paso y NO es de este item
+
+`npm run check:base-tags` marca **`52-pg-prod` · `trade-prod-pg`**: el manifiesto dice
+`base-ab04fe3d5350` y sus entradas hashean `base-a3ce41f18d79`. Alguien cambió
+`ops/prod/Dockerfile.pg` / `pgbackrest.conf` sin subir la etiqueta, así que **`pg-prod` corre con
+la configuración vieja sin ningún error visible**. Lo tiene que mirar quien hizo ese cambio
+(probablemente `VL.9.10b`/`OPS.DISCO.3`).
+
+---
+
 ## Lo que queda abierto
 
 - **OPS.LIMPIEZA.2** — `feed_route_stock`: ¿retirar o agendar `import-route-stock.js`? Decide Edgar.

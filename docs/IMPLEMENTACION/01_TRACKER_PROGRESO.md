@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1800 KB, 11677 líneas, 72 secciones.
+> **Índice navegable** — 1801 KB, 11677 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -42,7 +42,7 @@
 | 6139 | 6305 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
 | 6306 | 6606 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
 | 6607 | 6669 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6670 | 6775 | 28 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 6670 | 6775 | 29 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
 | 6776 | 6838 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
 | 6839 | 6999 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
 | 7000 | 7070 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
@@ -6762,7 +6762,7 @@ mtime de log (ver OBS.8.2).
   - `kepler_sales_fact_full` **no está «corriendo 35 h»**: `last_finish` 03:01:33.177 y `last_start` .186 (**9 ms después**) = dos emisores con la misma llave. ⛔ **Hallazgo: un 2º planificador.** El contenedor Compose `feeds-cron` (`trade-ingest:latest`, creado el 16-oct 17:46) está **vivo con la MISMA agenda** que el pod k3s `feeds-cron` (nocturno 03:00, `publish-tienda`, …). Corrió el nocturno el 17 y el 19-oct (falla a los ~340 s: `EAI_AGAIN pg-prod`, el nombre del Postgres de Compose parado). Lo **arrancó alguien a las 15:09:45 del 19-oct**, sin rastro en git. **No se tocó** (es infra de prod y otra sesión opera `md` hoy) → **decide quien lleve `OPS.DISCO`/Edgar: pararlo** (`docker update --restart=no` + `stop`), si no, cada noche duplica el nocturno y fabrica latidos cruzados.
 - [ ] ⚠️ **OPS.LIMPIEZA.6** **Decide Edgar:** apagar `caja_general_ship` + `caja_general_replica_all` (copian un Access muerto desde el 10-oct) y prender o no `caja_autollenado`.
 - [ ] 🔨 **OPS.LIMPIEZA.7** (2026-10-19) **Compose fuera de `md`.** El `feeds-cron` de Compose lo reiniciaba `ods-autoheal` cada ~6.7 min (chequeo de salud roto: `EAI_AGAIN pg-prod`), no una persona. Repo: `autoheal` pasa a `retirado-k3s` (era el único servicio sin perfil). ✅ **En `md`, hecho 15:27:** `ods-autoheal` y `feeds-cron` detenidos con `restart=no` (verificado con `docker inspect`; k3s `ingesta/feeds-cron` sigue 1/1). **Verificar mañana:** que `kepler_sales_fact_full` cierre su latido con el nocturno corriendo UNA sola vez. Quedan en Compose, sin equivalente en k3s: `prod-backup` y `prod-registry` → migrarlos es otro item, con su propio riesgo.
-- [ ] ⬜ **OPS.LIMPIEZA.8** **Sacar de Compose lo último: `prod-registry` y `prod-backup` → k3s** (pedido del PM 2026-10-19: «Docker Compose no debería existir»). Es item, no fase (Fase 0 no abre fases). Medido 2026-10-19:
+- [ ] 🔨 **OPS.LIMPIEZA.8** — **PREPARADO 2026-10-19:** `ops/k3s/63-registry.deployment.yaml` + `53-prod-backup.deployment.yaml` (`migracion: preparado`, validados con `--dry-run=server`, `check:k3s` y `check:base-tags` verdes en lo propio). **Falta el corte en `md`**, fuera de horario hábil, con la receta de `OPS_LIMPIEZA_PROCESOS.md` › OPS.LIMPIEZA.8 (pasos 0/A/B, y C la noche siguiente). ⚠️ De paso: `check:base-tags` marca `52-pg-prod` con la etiqueta vieja (cambió `Dockerfile.pg`/`pgbackrest.conf` sin bump) → `pg-prod` corre con la configuración vieja. **Sacar de Compose lo último: `prod-registry` y `prod-backup` → k3s** (pedido del PM 2026-10-19: «Docker Compose no debería existir»). Es item, no fase (Fase 0 no abre fases). Medido 2026-10-19:
   - `prod-registry` (`registry:2`, `127.0.0.1:5000`, volumen `prod_registry-data`) es **crítico**: TODAS las imágenes propias de k3s salen de ahí (`localhost:5000/trade-prod-{api,portal,vendor,caddy}`, `trade-ingest`; `registries.yaml` `[K3S.21]`). Si cae mientras el kubelet reprograma pods —lo que pasó en el desalojo del 18-oct— los pods nuevos quedan en `ImagePullBackOff`.
   - `prod-backup` (pgBackRest) monta el volumen de datos de `pg-prod` (`prod_pg-prod-data`), el socket `~/pgsock`, el repo `~/pgbackrest` y `~/backups`. Lo recreó `VL.9.10b` hoy.
   - **D1 registro:** (a) Deployment `registry:2` en k3s sobre el MISMO directorio (hostPath, sin copiar imágenes) · (b) sin registro: `k3s ctr images import` desde `deploy.sh`. Recomendado **(a)**: no cambia `registries.yaml` ni los manifiestos, y se revierte con un `docker start`.
