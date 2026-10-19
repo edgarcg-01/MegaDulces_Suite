@@ -66,7 +66,22 @@ const rows = (nombreA) => [
     ok(n === 1, `insertó fila con columna nueva (changed=${n})`);
     ok((await c.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='kepler_ods' AND table_name='${T}' AND column_name='extra'`)).rows.length === 1, "columna 'extra' auto-agregada");
 
-    console.log('\n6) _sync_status:');
+    // `[OPS.LIMPIEZA.3]` La fila que vale lo mismo y se escribe distinto: el caso que dejaba al
+    // publicador de la tienda en rojo para siempre. Primero se prueba que EXISTE (el guard no la
+    // reescribe y el texto sigue distinto) y después que `forceRewrite` la hace converger.
+    console.log('\n6) Igual en valor, distinta en texto (numeric 20 vs 20.00):');
+    const txt = async () => (await c.query(`SELECT t::text AS s FROM kepler_ods.${T} t WHERE sucursal='00' AND c1='B'`)).rows[0].s;
+    const fila = [{ sucursal: '00', c1: 'B', c2: 2, nombre: 'beta', monto: '20.00' }];
+    const antes = await txt();
+    n = await applyRawUpsert(c, M, fila, meta2);
+    ok(n === 0 && (await txt()) === antes, `sin forceRewrite NO se reescribe (changed=${n}) y el texto sigue ${antes}`);
+    n = await applyRawUpsert(c, M, fila, { ...meta2, forceRewrite: true });
+    const despues = await txt();
+    ok(n === 1 && despues.includes('20.00'), `con forceRewrite se reescribe (changed=${n}) -> ${despues}`);
+    n = await applyRawUpsert(c, M, rows('ALFA'), META);
+    ok(n === 0, `el default sigue sin churn después de la reescritura (changed=${n})`);
+
+    console.log('\n7) _sync_status:');
     const st = (await c.query(`SELECT rows_last, rows_seen FROM kepler_ods._sync_status WHERE table_name='${T}'`)).rows[0];
     ok(!!st, 'marca de frescura escrita');
 

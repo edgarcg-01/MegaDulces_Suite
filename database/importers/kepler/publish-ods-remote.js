@@ -97,6 +97,14 @@ const sslFor = (url) => (/@(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|
   ? false : { rejectUnauthorized: false });
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
 const SEP = '\u001f'; // separador de la llave compuesta: no aparece en datos de Kepler
+// Tope de filas que se reescriben forzadas por ciclo (ver `[OPS.LIMPIEZA.3]` en `publicarTabla`).
+const REWRITE_MAX = Math.max(1, Number(process.env.ODS_PUBLISH_REWRITE_MAX) || 50);
+
+/** Hasta 5 llaves y cuántas quedan. ⚠️ El `SEP` es INVISIBLE en un log: `89535␟04` se leía
+ *  `8953504` y no existía en la tabla. Se pinta como `/` para que la llave se pueda buscar. */
+const muestra = (ks) => (ks.length
+  ? ` [${ks.slice(0, 5).map((k) => String(k).split(SEP).join('/')).join(', ')}${ks.length > 5 ? `, +${ks.length - 5} más` : ''}]`
+  : '');
 
 /**
  * ⛔ LAS DOS COMPUERTAS, y ninguna clasifica por NOMBRE.
@@ -241,6 +249,27 @@ async function publicarTabla(src, dst, m) {
     const d = await diff(dst, m);
     if (d.faltan.length) aplicadas += await empujar(src, dst, m, d.faltan);
 
+    // ⭐ `[OPS.LIMPIEZA.3]` **IGUALES EN VALOR, DISTINTAS EN TEXTO.** Medido el 2026-10-19 en el log
+    // de `feeds-cron`: 35 pasadas de 35 con las MISMAS 2 llaves de `kdii` (89535/04, 95029/01) y
+    // `aplicadas=0`. O sea: el UPSERT sin churn compara por VALOR (`IS DISTINCT FROM`) y no ve nada
+    // que cambiar, y la huella compara `md5(fila::text)` y sí lo ve. Las dos tienen razón en su
+    // propio idioma, y la fila no converge nunca — el latido quedaba en rojo para siempre.
+    //
+    // Las que siguen distintas DESPUÉS del UPSERT normal son exactamente ésas. Se reescriben forzadas
+    // (sin el guard), que deja el texto del destino igual al del origen. Con tope: muchas filas acá
+    // ya no son «una representación rara», es otra cosa, y se DECLARAN en vez de reescribirse.
+    if (d.faltan.length) {
+      const tercas = (await diff(dst, m)).faltan;
+      if (tercas.length && tercas.length <= REWRITE_MAX) {
+        aplicadas += await empujar(src, dst, { ...m, forceRewrite: true }, tercas);
+        console.log(`    · ${m.table}: ${tercas.length} fila(s) iguales en valor y distintas en texto -> reescritas`
+          + `${muestra(tercas)}`);
+      } else if (tercas.length) {
+        console.log(`    ⚠ ${m.table}: ${tercas.length} filas no convergen con el UPSERT (tope de reescritura `
+          + `${REWRITE_MAX}) -> NO se fuerzan. Se declaran.`);
+      }
+    }
+
     // `raw-upsert` NUNCA borra: un producto dado de baja en el ERP se quedaría en la tienda para
     // siempre. Con tope: un borrado masivo casi siempre significa que la LECTURA falló, no que el
     // catálogo se vació — y ante la duda se DECLARA, no se borra.
@@ -292,12 +321,14 @@ async function publicarTabla(src, dst, m) {
       // `float8` depende de `extra_float_digits` y `timestamptz` se renderiza según la zona
       // horaria de la SESIÓN. Una fila puede valer lo mismo de los dos lados y hashear distinto
       // para siempre.
-      const muestra = (ks) => (ks.length ? ` [${ks.slice(0, 5).join(', ')}${ks.length > 5 ? `, +${ks.length - 5} más` : ''}]` : '');
       console.log(`    ⚠ ${m.table}: tras publicar siguen ${v.faltan.length} filas distintas y ${v.sobran.length} sobrantes.`);
       if (v.faltan.length) console.log(`       distintas${muestra(v.faltan)}`);
       if (v.sobran.length) console.log(`       sobrantes${muestra(v.sobran)}`);
     }
-    return { estado: 'publicada', nSrc: hSrc.n, nDst: post.n, aplicadas, borradas, declarados, cuadra };
+    return {
+      estado: 'publicada', nSrc: hSrc.n, nDst: post.n, aplicadas, borradas, declarados, cuadra,
+      distintas: v.faltan, sobrantes: v.sobran,
+    };
   } finally {
     await src.query('COMMIT').catch(() => src.query('ROLLBACK').catch(() => {}));
   }
@@ -310,7 +341,12 @@ async function unaPasada(src, dst) {
     if (!m) { console.log(`  ${t.padEnd(6)} ⚠ no existe en kepler_ods del origen (o no tiene PK) -> skip`); continue; }
     const r = await publicarTabla(src, dst, m);
     totalAplicadas += r.aplicadas; totalBorradas += r.borradas;
-    if (r.cuadra === false) malas.push(`${t}:${r.nSrc}/${r.nDst}`);
+    // El latido dice CUÁLES, no `87086/87086`: los conteos cuadraban y lo que fallaba era el
+    // contenido, así que el conteo solo era un error que no se podía diagnosticar desde el tablero.
+    if (r.cuadra === false) {
+      malas.push(`${t}: ${r.distintas.length} distintas${muestra(r.distintas)}`
+        + `${r.sobrantes.length ? ` · ${r.sobrantes.length} sobrantes${muestra(r.sobrantes)}` : ''}`);
+    }
     const veredicto = r.cuadra === null ? r.estado : (r.cuadra ? (r.estado === 'igual' ? 'igual' : 'cuadra') : '⚠ NO CUADRA');
     console.log(`  ${t.padEnd(6)} origen=${String(r.nSrc).padStart(7)} destino=${String(r.nDst).padStart(7)}`
       + ` aplicadas=${String(r.aplicadas).padStart(7)} borradas=${String(r.borradas).padStart(5)}  ${veredicto}`);
