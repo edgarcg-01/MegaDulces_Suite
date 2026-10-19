@@ -2628,6 +2628,33 @@ export class CashLedgerService {
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
+          /**
+           * ⭐ `[CG.196]` **CADA FILA DECLARA DE DÓNDE SALIÓ SU CUENTA.** ADR-056: *un campo
+           * lleno sin saber de dónde salió es indistinguible de uno inventado.*
+           *
+           * Faltaba, y lo encontró la verificación de la primera corrida real del autollenado
+           * (2026-10-19): las **43 filas** que escribió cuadraban al centavo contra su documento
+           * de Kepler, pero **ninguna decía por qué camino se había resuelto su par contable**.
+           * El motor ya lo sabía —`resolverCuentas()` devuelve `cuenta_fuente` desde `[CS.3.1b]`—
+           * y se tiraba al guardar.
+           *
+           * ⚠️ Importa más en el camino automático que en el manual: cuando una persona captura,
+           * ella es la procedencia; cuando escribe la máquina, esto es lo ÚNICO que permite
+           * contestar después *«¿por qué este movimiento quedó en 201/201?»* — y medir la tasa de
+           * corrección por fuente, que es la regla 4 de ADR-070 §8.5.
+           */
+          autofill: {
+            motor: 'autollenado',
+            // 'documento' · 'documento_nombre' · 'libro_dominante' · 'regla' · 'ruta'
+            cuenta_fuente: conCuenta.cuenta_fuente ?? null,
+            kepler_cuenta: conCuenta.kepler_cuenta ?? null,
+            kepler_concepto: conCuenta.kepler_concepto ?? null,
+            // Sólo viajan cuando la fuente fue `libro_dominante` ([CGA-A.17]): es el soporte que
+            // justificó el concepto, para que la decisión se pueda revisar sin re-derivarla.
+            concepto_soporte: conCuenta.concepto_soporte ?? null,
+            concepto_entidades: conCuenta.concepto_entidades ?? null,
+            decidido_en: new Date().toISOString(),
+          },
         }, user);
 
         montos.set(it.origen_ref, Number(mov.monto));
