@@ -194,15 +194,54 @@ corrieron.
 `feeds-cron`. Corrió el nocturno el 17 y el 19-oct y falló a los ~340 s (`EAI_AGAIN pg-prod`: es el
 nombre del Postgres de Compose, que está parado). Por eso `kepler_sales_fact_full` mostraba
 `running` desde hacía 35 h: `last_finish` 03:01:33.177 y `last_start` .186, dos emisores con la
-misma llave. **Alguien lo arrancó el 19-oct a las 15:09:45**, sin rastro en git. **No se tocó.**
+misma llave.
 
-Para pararlo (decide quien lleve `OPS.DISCO` o Edgar):
+### OPS.LIMPIEZA.7 — Docker Compose no debería existir en `md`: todo va en k3s
+
+**Corrección de lo que se creyó primero:** nadie arrancaba `feeds-cron` a mano. Lo hacía
+**`ods-autoheal`**: su log muestra *«found to be unhealthy - Restarting container»* cada ~6.7 min
+(13:26, 13:33, 13:39, 13:46…). El chequeo de salud falla porque el contenedor busca `pg-prod`,
+que es el nombre del Postgres de Compose y está parado (`EAI_AGAIN pg-prod`). El bucle no
+terminaba nunca, y en cada vuelta el contenedor volvía a cargar la agenda del nocturno.
+
+**Inventario de Compose vivo en `md` (2026-10-19 15:25):**
+
+| Contenedor | Proyecto | ¿Equivalente en k3s? | Decisión |
+|---|---|---|---|
+| `feeds-cron` | `vl` | Sí: `ingesta/feeds-cron` | **Apagar**: es el duplicado |
+| `ods-autoheal` | `vl` | No hace falta: sólo vigila contenedores con `autoheal=true` y el único vivo era `feeds-cron` | **Apagar** |
+| `prod-backup` | `prod` | **No** | Se queda hasta migrarlo: es el respaldo de prod (pgBackRest), recreado hoy por `VL.9.10b` |
+| `prod-registry` | `prod` | **No** | Se queda hasta migrarlo: registro de imágenes |
+| `sonar-server`, `sonar-db` | `sonar` | No | Herramienta de desarrollo, no de prod |
+| `obs-netdata` | `obs` | No | Monitoreo |
+
+**En el repo:** `ops/vl/docker-compose.yml` ya declaraba `feeds-cron` bajo el perfil
+`retirado-k3s`; se le agrega el mismo perfil a `autoheal`, que era el único servicio sin perfil.
+Así ningún `docker compose up -d` lo levanta. `feeds-cron` se creó el 16-oct a las 17:46, un
+minuto después de que se copiara el compose a `md` (17:45): alguien lo levantó con su nombre
+explícito, porque el perfil por sí solo no lo habría arrancado.
+
+**En `md`: PENDIENTE.** El control de permisos bloqueó a la sesión de Claude. Comando para correr
+en `md`:
 
 ```sh
-docker update --restart=no feeds-cron && docker stop feeds-cron
+docker update --restart=no feeds-cron ods-autoheal
+docker stop -t 20 ods-autoheal feeds-cron
+docker ps -a --filter name=feeds-cron --filter name=ods-autoheal \
+  --format '{{.Names}} | {{.Status}} | restart={{.HostConfig.RestartPolicy.Name}}'
 ```
 
-Sin `--restart=no`, `unless-stopped` lo revive en el próximo reinicio de `md`.
+⚠️ **Primero `ods-autoheal`, después `feeds-cron`** (el `stop` los procesa en ese orden): al revés,
+autoheal puede volver a levantar `feeds-cron` en la ventana de 30 s. Y sin `--restart=no`,
+`unless-stopped` los revive en el próximo reinicio de `md`.
+
+**Cómo revertir:** `docker update --restart=unless-stopped feeds-cron ods-autoheal && docker start
+ods-autoheal feeds-cron`. No tiene sentido hacerlo: duplicaría el nocturno otra vez.
+
+**Lo que falta para que Compose desaparezca de verdad:** migrar `prod-backup` y `prod-registry` a
+k3s. Es trabajo de infraestructura con riesgo propio: el respaldo no se puede quedar sin correr
+ni un día, y si el registro se cae no hay despliegues. Va como fase o item aparte, no como
+limpieza.
 
 ---
 
