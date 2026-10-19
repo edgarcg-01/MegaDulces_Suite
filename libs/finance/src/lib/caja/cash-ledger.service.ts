@@ -136,7 +136,7 @@ function llaveDeValor(valor: number): string {
  * folio: el buscador es universal, así que suma resultados, no los reemplaza.
  */
 export function montoBuscado(search: string | null | undefined): { valor: string; entero: boolean } | null {
-  const limpio = String(search ?? '').trim().replace(/[$\s ]/g, '').replace(/,/g, '');
+  const limpio = String(search ?? '').trim().replace(/[$\s\u00a0]/g, '').replace(/,/g, '');
   // Tope de 12 enteros: más que eso no es un importe de caja, es un folio largo.
   if (!/^\d{1,12}(\.\d{1,2})?$/.test(limpio)) return null;
   return { valor: limpio, entero: !limpio.includes('.') };
@@ -1431,7 +1431,7 @@ export class CashLedgerService {
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
       // dónde cortó es indistinguible de una bandeja vacía (ADR-056).
-      const atras: Agregado = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
+      const atras: Agregado | undefined = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '<', desde)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
@@ -1452,7 +1452,7 @@ export class CashLedgerService {
        * que es lo único que las saca de verdad (`[CG.25]` las sigue cuando eso pasa).
        */
       const hoy = await this.hoyMx(trx);
-      const adelante: Agregado = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
+      const adelante: Agregado | undefined = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>', hoy)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
