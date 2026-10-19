@@ -1,6 +1,6 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
-import { KNEX_NEW_DB, latirCron, TenantContextService } from '@megadulces/platform-core';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
+import { KNEX_NEW_DB, latirCron, PgListenService, TenantContextService } from '@megadulces/platform-core';
+import { CANAL_CAJA } from './caja-realtime.service';
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { CashLedgerService } from './cash-ledger.service';
@@ -101,9 +101,12 @@ export const SVC_AUTOLLENADO = {
  * «no había nada» de «no pude con nada» (`motivoCeroOk`), y por eso el aviso de abajo existe.
  */
 @Injectable()
-export class CajaAutollenadoService {
+export class CajaAutollenadoService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CajaAutollenadoService.name);
   private running = false;
+  /** La firma del último aviso procesado. Vacía = todavía no llegó ninguno. */
+  private ultimaFirma = '';
+  private dejarDeEscuchar: (() => void) | null = null;
   /** `aplicado: false` = fue una simulación; sus cifras son lo que HARÍA, no lo que hizo. */
   private ultima: CorridaAutollenado | null = null;
 
@@ -111,6 +114,7 @@ export class CajaAutollenadoService {
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly ledger: CashLedgerService,
     private readonly tenantCtx: TenantContextService,
+    private readonly listen: PgListenService,
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
 
@@ -124,6 +128,31 @@ export class CajaAutollenadoService {
     return String(process.env.ENABLE_CAJA_AUTOLLENADO ?? '').trim() === 'true';
   }
 
+  /**
+   * `[CG.197]` Se engancha al aviso del carril. **Siempre se escucha, aun apagado**: así el log
+   * puede decir «llegó un aviso y no corrí porque estoy apagado», que es justo la distinción que
+   * `[CG.195]` vino a arreglar. Decidir si se llena es de `porAviso()`, no de acá.
+   */
+  onModuleInit(): void {
+    try {
+      this.dejarDeEscuchar = this.listen.escuchar(CANAL_CAJA, (p) => { void this.porAviso(p); });
+      this.logger.log(
+        `escuchando ${CANAL_CAJA} (sin reloj) · ${this.habilitado ? `ACTIVO, piso ${this.piso}` : 'APAGADO: no va a llenar'}`,
+      );
+    } catch (e: unknown) {
+      // ⛔ No tumba el arranque del worker: 50 crons más dependen de este proceso. Se DICE, y el
+      // latido se queda viejo, que es como db-health se entera.
+      this.logger.error(
+        `no se pudo escuchar ${CANAL_CAJA}: ${(e as Error)?.message} — el libro NO se va a llenar solo`,
+      );
+    }
+  }
+
+  onModuleDestroy(): void {
+    this.dejarDeEscuchar?.();
+    this.dejarDeEscuchar = null;
+  }
+
   /** El piso de alcance vigente. Se puede mover sin redeploy; moverlo atrás es decisión contable. */
   get piso(): string {
     const v = String(process.env.CAJA_AUTOLLENADO_PISO ?? '').trim();
@@ -131,17 +160,47 @@ export class CajaAutollenadoService {
   }
 
   /**
-   * Cada 15 minutos.
+   * ⭐⭐ `[CG.197]` **SE LLENA CUANDO LLEGA EL DINERO, NO CUANDO SUENA UN RELOJ.**
    *
-   * ⭐ La cadencia sale de medir, no de gusto: `analytics.mv_caja_movimientos` se refresca cada
-   * ~1 min, así que un documento registrado en Kepler está disponible casi enseguida; y la póliza
-   * que resuelve la cuenta tarda **días** (cobertura medida: 90.5 % a 0-2 días → 100 % a 8-30).
-   * O sea que correr más seguido no adelantaría nada, y correr una vez al día dejaría el libro un
-   * día atrás del dinero. 15 minutos pone el libro a un cuarto de hora del ERP y le da a cada
-   * documento tantos reintentos como necesite para cuando su póliza aparezca.
+   * Pedido de Edgar, 2026-10-19: *«nada de crons»*, y después *«analizá cuál es la mejor opción
+   * para mantener la información fresca y al momento»*.
+   *
+   * ── Lo que reemplaza, y por qué el reloj perdía ──────────────────────────────────────────
+   * Había un `@Cron` cada 15 min. Medido contra el carril real:
+   *
+   *     retraso del libro        reloj: hasta 15 min   ·  evento: segundos tras el refresh
+   *     cuándo trabaja           reloj: 96 veces/día   ·  evento: sólo si la fuente cambió
+   *     costo por corrida        8.0 s, haya o no      ·  8.0 s por cambio real
+   *
+   * ⭐ **El mecanismo ya existía y el repo ya lo había elegido para ESTE mismo dato.** El carril
+   * `caja-mv-push` no es un reloj: corre `refresh-caja-matview.js --escuchar=caja_fuente`, un
+   * oyente que refresca cuando `feeds-ingest` avisa que su UPSERT —sin churn— cambió algo. Su
+   * propio archivo lo dice: *«reemplaza —no acompaña— a la idea de "cada 30 min sondeá el
+   * universo completo"»*. Esto sólo se sube a esa ola.
+   *
+   * ── ⛔ Se escucha `caja_movimientos`, NO `caja_fuente`, y la diferencia es todo ───────────
+   * `caja_fuente` avisa que la FUENTE cambió — se emite **antes** del refresh. Este motor lee
+   * `analytics.mv_caja_movimientos`, que es una MATVISTA: escuchar ahí lo haría correr contra la
+   * foto vieja y no encontrar lo que vino a buscar. `caja_movimientos` lo emite el carril
+   * **después de un refresh exitoso**, que es cuando el dato existe de verdad.
+   *
+   * ⭐ Y el payload trae la **firma** (`filas`, `max_folio`, `suma`), no los movimientos — así que
+   * el debounce sale gratis: si la firma no cambió respecto de la última que procesé, no hay
+   * nada nuevo y no se corre. Un lote de ingesta que emite varios avisos seguidos produce **una**
+   * corrida, no cinco.
+   *
+   * ── ⚠️ El hueco, declarado (no lo descubras de nuevo) ────────────────────────────────────
+   * `caja_fuente` —y por lo tanto el refresh, y por lo tanto este aviso— se dispara sólo por
+   * `kepler_ods.kdm1` y `kdb1`: los DOCUMENTOS. **La póliza no lo dispara**: las `kdc2*` entran
+   * por el carril hash, que no avisa. Y la póliza es la que resuelve la cuenta, y tarda días
+   * (cobertura medida: 90.5 % a 0-2 días → 100 % a 8-30).
+   *
+   * ⇒ Un documento que hoy no resuelve se re-evalúa **cuando llega otro documento cualquiera**,
+   * porque cada corrida recorre la cola entera, no sólo lo nuevo. Medido, eso pasa todos los
+   * días. Pero **no está garantizado por construcción**, y ésa es la deuda `[CG.198]`: emitir el
+   * mismo aviso desde el carril que escribe `kdc2*`.
    */
-  @Cron('0 */15 * * * *', { timeZone: 'America/Mexico_City' })
-  async programado(): Promise<void> {
+  async porAviso(payload: string): Promise<void> {
     /**
      * ⛔ `[CG.195]` **UN CRON APAGADO QUE NO DEJA RASTRO ES INDISTINGUIBLE DE UNO ROTO.**
      *
@@ -156,8 +215,8 @@ export class CajaAutollenadoService {
      * escrita para `DISABLE_CRONS` —*«un interruptor que apaga 51 cron y no deja rastro en el
      * log es una trampa en las dos direcciones»*— y la repetí en el cron de al lado.
      *
-     * ⚠️ `debug` y no `log`: esto late cada 15 minutos y en un worker apagado llenaría el log de
-     * ruido. Lo que importa es que **exista** cuando alguien va a buscarlo.
+     * ⚠️ `debug` y no `log`: esto llega con cada aviso del carril y en un worker apagado
+     * llenaría el log de ruido. Lo que importa es que **exista** cuando alguien va a buscarlo.
      */
     if (!this.habilitado) {
       this.logger.debug(
@@ -165,10 +224,45 @@ export class CajaAutollenadoService {
       );
       return;
     }
-    if (this.running) { this.logger.warn('Skip: corrida en curso'); return; }
+
+    /**
+     * El aviso viene de FUERA del API (lo escribe el carril), así que es entrada no confiable:
+     * si no parsea, se descarta con aviso. Mismo criterio que `caja-realtime.service.ts`.
+     */
+    let firma: string;
+    try {
+      const d = JSON.parse(payload || '{}') as Record<string, unknown>;
+      firma = `${d.filas ?? '?'}|${d.max_folio ?? '?'}|${d.max_captura ?? '?'}|${d.suma ?? '?'}`;
+    } catch {
+      this.logger.warn('payload de caja_movimientos no es JSON; descartado');
+      return;
+    }
+
+    /**
+     * ⭐ El debounce, y es lo que vuelve barato al evento: el carril avisa tras CADA refresh
+     * exitoso —avisa de más a propósito, para no avisar de menos— pero la firma sólo cambia
+     * cuando el corte cambió de verdad. Sin esto, un refresh que no movió nada dispararía los
+     * 8 s de una corrida completa cada minuto.
+     *
+     * ⚠️ La firma incluye la SUMA, no sólo el conteo: un movimiento corregido (mismo folio, otro
+     * monto) no mueve `filas` y se perdería. Esa decisión ya está tomada y medida del lado del
+     * emisor; acá sólo se respeta.
+     */
+    if (firma === this.ultimaFirma) {
+      this.logger.debug(`aviso sin cambios (${firma}); no corro`);
+      return;
+    }
+    this.ultimaFirma = firma;
+
+    if (this.running) {
+      // ⛔ No se pierde: al terminar la corrida en curso se vuelve a mirar, porque la firma ya
+      // quedó guardada como pendiente de procesar.
+      this.logger.warn('Skip: corrida en curso — el próximo aviso la retoma');
+      return;
+    }
     // `[CG.195]` El arranque también se dice: con esta línea, la ausencia de latido se puede
     // atribuir —al proceso que no corrió, o a la corrida que falló— en vez de adivinarse.
-    this.logger.log(`corriendo (piso ${this.piso})…`);
+    this.logger.log(`aviso del carril (${firma}) → corriendo, piso ${this.piso}…`);
     await this.correr({ aplicar: true })
       .catch((e: unknown) => this.logger.error(`autollenado: ${e instanceof Error ? e.message : String(e)}`));
   }
@@ -220,7 +314,8 @@ export class CajaAutollenadoService {
 
     try {
       /**
-       * ⛔ **SIN ESTE SCOPE NO HAY TENANT Y NADA FUNCIONA.** Esto corre por `@Cron`, sin request,
+       * ⛔ **SIN ESTE SCOPE NO HAY TENANT Y NADA FUNCIONA.** Esto corre por un aviso de Postgres (y
+       * por el endpoint manual), nunca dentro de un request,
        * así que no hay `TenantContextInterceptor` que haya fijado el contexto. `CashLedgerService`
        * pide `requireTenantId()` y `TenantKnexService` inyecta `app.tenant_id` leyéndolo de acá —
        * y `finance.cash_ledger` tiene RLS **forzado**: sin el scope la lectura devuelve 0 filas

@@ -1093,7 +1093,22 @@ export const CRON_JOBS: CronCfg[] = [
   // movimientos». Cada 15 min → 1 h de aviso (4 corridas perdidas), 6 h de crítico.
   // ⚠️ Entregar CERO es normal (la cola vacía es el estado al que aspira) y lo declara
   // `motivoCeroOk`, que a propósito NO lo declara cuando quedaron filas sin resolver.
-  { key: 'caja_autollenado',    label: 'Caja General: el libro se llena solo (autollenado)', cadence: 'cada 15 min', warnH: 1, critH: 6, maxRunH: 0.25 },
+  //
+  // ⭐⭐ `[CG.197]` **EL UMBRAL SUBIÓ PORQUE YA NO HAY RELOJ, y es lo que más fácil se olvida al
+  // pasar de cron a evento.** Antes corría cada 15 min, así que 1 h sin latido eran cuatro
+  // corridas perdidas: un defecto. Ahora corre **cuando el carril avisa que entraron documentos
+  // nuevos**, o sea que QUEDARSE QUIETO ES LEGÍTIMO — un domingo, o cualquier tramo sin
+  // movimientos de caja, no produce latido y no hay nada malo. Con el umbral viejo esto habría
+  // gritado todos los domingos, y una alarma que grita cuando todo está bien enseña a ignorarla:
+  // es peor que no tenerla.
+  //
+  // 30 h / 72 h sale de la cadencia REAL del negocio, medida en `FASE_CG_CIRCUITO_DEL_EFECTIVO`:
+  // **de lunes a sábado, NUNCA domingo** (0 movimientos en domingo sobre 2,922 ingresos del año).
+  // El hueco legítimo más largo es el domingo entero más el sábado por la tarde: ~30 h.
+  //
+  // ⚠️ Avisa por el SÍNTOMA, no por la causa: si el carril de documentos muere, esto se queda
+  // viejo — pero quien lo ve de verdad es el latido del propio carril (`mv_caja_push`).
+  { key: 'caja_autollenado',    label: 'Caja General: el libro se llena solo (por aviso del carril, sin reloj)', cadence: 'por evento (NOTIFY caja_movimientos)', warnH: 30, critH: 72, maxRunH: 0.25 },
   // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
   { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
