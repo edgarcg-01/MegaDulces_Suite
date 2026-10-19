@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# [OPS.DISCO.3] Agenda del disco de `md` — crontab de USUARIO de superoot (sin campo de usuario).
+#
+# Por qué existe (2026-10-19): segunda caída por DiskPressure en 11 días. `podar-disco.sh` sólo
+# corría al desplegar (el despliegue automático está apagado → último latido 16-oct) y nada
+# vigilaba los respaldos ni avisaba con anticipación. Ver la cabecera de `vigia-disco.sh`.
+#
+# Instalar (sin pisar lo que ya hay):
+#   crontab -l 2>/dev/null | grep -v -E 'vigia-disco.sh|podar-disco.sh|podar-registro.sh' > /tmp/ct
+#   cat ~/ops/prod/crontab.disco >> /tmp/ct && crontab /tmp/ct && crontab -l | grep -E 'vigia|podar'
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Cada 10 min: días hasta DiskPressure → tablero (job_key vigia_disco); escala si el margen es corto.
+*/10 * * * * /bin/sh $HOME/ops/prod/vigia-disco.sh >> $HOME/ops/prod/vigia-disco.log 2>&1
+
+# Diario 04:30, independiente de los despliegues: la poda ya no espera a que alguien despliegue.
+30 4 * * * /bin/sh $HOME/ops/prod/podar-disco.sh >> $HOME/ops/prod/podar-disco.log 2>&1
+
+# [OPS.DISCO.4] Domingos 04:45: versiones viejas del registro (conserva 5 + todo lo que usa k3s,
+# bajo el candado de despliegues). Simulación del 2026-10-19: 674 manifiestos a borrar, 72 conservados.
+45 4 * * 0 /bin/sh $HOME/ops/prod/podar-registro.sh --aplicar >> $HOME/ops/prod/podar-registro.log 2>&1
