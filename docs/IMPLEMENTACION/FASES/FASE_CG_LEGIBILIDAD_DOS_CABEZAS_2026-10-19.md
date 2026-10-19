@@ -260,7 +260,94 @@ designada es **María de la Paz Gutiérrez Guzmán** (`maria_gutierrez`, `tesore
 
 ---
 
-## 6. Cómo se mide que mejoró
+## 6. El plan — qué se construye, en qué orden y por qué ése
+
+⭐ **El conmutador de modos NO se construye primero.** Es la conclusión, no el punto de partida:
+hoy existe una sola superficie, así que «elegir modo» no tiene entre qué elegir. Primero se
+arregla la que hay y se construye la que falta; el modo aparece solo cuando hay dos.
+
+### Tanda 1 · Legibilidad de lo que ya existe — **sin bloqueos, empieza ya**
+
+Objetivos **O1, O2, O3, O6**. Es jerarquía visual y tokens: no toca datos, ni permisos, ni el
+servidor. Sirve a quien usa la pantalla **hoy** — Carmen (177 capturas) y Mayra (47).
+
+| Entrega | Métrica de cierre |
+|---|---|
+| Cinco escalas tipográficas, no doce | el script de §1 cuenta ≤ 5 |
+| Piso de 12 px; el folio a 13 mono | 0 textos < 12 px · 0 instrucciones bajo AA |
+| Abrir con ≤ 3 cifras, no 28 | conteo de montos sobre el pliegue ≤ 3 |
+| Los atajos que existen, escritos | cada atajo activo tiene su `<kbd>` visible |
+
+⚠️ **No espera a nada de lo de abajo, y por eso va primera.** Si las otras tandas se traban —y dos
+dependen de decisiones ajenas—, ésta ya mejoró la pantalla para las dos personas que la usan.
+
+### Tanda 2 · Destrabar la autorización — **C2, chica, y bloquea todo lo de supervisión**
+
+Objetivo **O7**, pasos 1 y 2. Sin esto, cualquier vista de supervisión nace con el botón apagado.
+
+1. Repartir `FINANCE_CAJA_AUTORIZAR` al rol `tesoreria` (la supervisora designada).
+2. **Ejercer la autorización contra prod** con el payload de la pantalla. Van 6 cortes y cero
+   autorizaciones: ese camino **nunca corrió**.
+3. Resolver la anomalía de `surtidor` (pregunta abierta, no se toca sin confirmar).
+
+**Métrica de cierre:** un corte real pasa de `cerrado` a autorizado, firmado por alguien que no lo
+cerró. Hoy: **0 de 6**.
+
+### Tanda 3 · El dato del rezago — **C0/C1, independiente de la 2**
+
+El campo que parte `fuera_de_ventana` en **rezago real** (desde el 12-oct, cuando arrancó el
+sistema) e **histórico anterior al sistema**. Hoy viaja como un solo bloque de ~13,400.
+
+Medido el 2026-10-19, toda la caja: con el corte en 12-oct son **88 movimientos por $1,236,469.70**
+de rezago real, contra 13,319 anteriores.
+
+⚠️ **El ancla es el arranque del sistema, no una declaración.** Verificado contra el propio dato:
+las capturas saltan de 2–3 sueltas a 24 el 12-oct y se sostienen en 14–52 diarias. Por eso es una
+constante con nombre y no una fecha configurable: un hecho histórico no se mueve.
+
+⚠️ **Y la etiqueta sigue la evidencia:** lo que sabemos de esos 13,319 es que son **anteriores al
+sistema**, no que alguien los haya conciliado. Decir «conciliado» afirma un acto de Dirección que
+no está medido.
+
+**Métrica de cierre:** el endpoint devuelve los tres cubos por separado y la suma cuadra con el
+bloque único de hoy.
+
+### Tanda 4 · Modo Supervisión — **depende de 2 y 3**
+
+La segunda superficie. Abre con tres cifras, en este orden:
+
+1. **N cortes esperan tu firma** (de la tanda 2) — es lo único que sólo ella puede destrabar.
+2. **El rezago real** (de la tanda 3) — cuánto se viene arrastrando.
+3. **Qué está trabado y por quién** — sin cuenta declarada, mal fechados, jornadas sin cerrar.
+
+Y **O4**: «Tu jornada» deja de ser un muro de 661 palabras bajo un solo encabezado; su primera
+línea pasa a ser el veredicto del día, no la salud del catálogo.
+
+**Métrica de cierre:** desde abrir la pantalla, la supervisora llega a autorizar un corte **sin
+pasar por la cola** ni cambiar un filtro a mano.
+
+### Tanda 5 · El conmutador — **lo último, y sale casi gratis**
+
+Con dos superficies vivas, el modo es sólo cuál se abre primero. Lo propone el puesto y se puede
+cambiar; se recuerda por persona.
+
+---
+
+### El camino crítico, dicho en una línea
+
+```
+Tanda 1  (UI, sin bloqueos)  ──────────────────────────────▶  entrega sola
+Tanda 2  (permiso + ejercerlo)  ──┐
+Tanda 3  (campo del rezago)     ──┴──▶  Tanda 4 (vista)  ──▶  Tanda 5 (modo)
+```
+
+**Lo que puede frenar el plan no es técnico:** la tanda 2 necesita que alguien reparta un permiso y
+que se confirme lo de `surtidor`; la 3 necesita que nadie mueva el ancla del 12-oct. La tanda 1 no
+necesita a nadie — por eso arranca.
+
+---
+
+## 7. Cómo se mide que mejoró
 
 Sin esto son intenciones. Las tres se pueden correr hoy:
 
