@@ -4776,3 +4776,67 @@ cada una:
 ⚠️ El costo de (2), que es real: la bandeja pasa a depender de que el runner responda. Un runner
 caído **da error** en vez de lista vacía — que es lo correcto (error ≠ vacío, ADR-056) pero se ve.
 El `connect_timeout=5` del servidor acota el peor caso a 5 segundos.
+
+### 87.1 · Corolario — recrear una MATVISTA desde `psql` la deja en CERO si su fuente filtra por `current_tenant_id()`, y **no da error**
+
+**Vivido el 2026-10-19, en la misma tarde que §87 y por mi mano.**
+
+Al convertir `analytics.route_collections` de tabla a vista (`[CGA-A.22]`) hubo que soltar y
+recrear toda su cadena de dependientes. El último escalón es una **matvista**:
+
+```
+analytics.route_collections
+  → finance.v_caja_movimientos_pendientes
+      → analytics.mv_caja_autofill_entidad
+```
+
+El script corrió como `kubectl exec ... psql -U postgres`, hizo
+`CREATE MATERIALIZED VIEW ... AS <definición capturada viva>`, **terminó con éxito** y la
+comprobación imprimió:
+
+```
+ autollenado_filas
+-------------------
+                 0
+```
+
+Tenía **285**. Ninguna línea de error, ningún aviso.
+
+⛔ **La causa:** `CREATE MATERIALIZED VIEW` **ejecuta la consulta en ese momento** para poblarse.
+La definición lee `finance.v_caja_movimientos_pendientes`, cuyo `WHERE` incluye
+`tenant_id = current_tenant_id()`, y esa función es:
+
+```sql
+SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid;
+```
+
+Una sesión de `psql` no tiene `app.tenant_id`, así que devuelve `NULL`, el `WHERE` no casa con
+nada y la matvista nace **poblada de cero filas** — que no es lo mismo que vacía por falta de
+datos, pero se ve exactamente igual.
+
+⚠️ **Y lo que rompe es silencioso y a distancia**: el autollenado de Caja General pasó a contestar
+«sin propuesta» para TODA entidad. Nadie se entera por un log: se entera quien captura, un rato
+después, cuando la pantalla deja de proponer.
+
+### La regla
+
+⭐ **Toda sentencia que POBLA algo —`CREATE MATERIALIZED VIEW`, `REFRESH`, un `INSERT ... SELECT`
+de backfill— corrida fuera de la aplicación necesita fijar el tenant ANTES:**
+
+```sql
+SET app.tenant_id = '00000000-0000-0000-0000-00000000d01c';
+REFRESH MATERIALIZED VIEW analytics.mv_caja_autofill_entidad;
+```
+
+Y **la comprobación no es que el comando haya salido bien: es contar las filas y compararlas con
+lo que había**. Un `CREATE` exitoso no dice nada sobre el contenido.
+
+⛔ Esto ya había pasado **y ya estaba escrito**: `[CG.180]` lo documentó cuando esa misma matvista
+llegó a producción con cero filas por una migración que leía una vista filtrada por tenant sin
+fijarlo —*"misma sesión y mismo instante, sin tenant 0 filas, con tenant 13,302"*—. Lo repetí el
+mismo día en que lo cité. **Tener la trampa escrita no alcanza si la lista de verificación del
+momento no la incluye**, y por eso queda acá, pegada al procedimiento que la dispara.
+
+⚠️ No es sólo de matvistas: aplica a **cualquier objeto que se llena al crearse** y a cualquier
+script de carga. Si el `SELECT` de adentro pasa por una vista con RLS o con filtro por tenant, el
+resultado depende de una variable de sesión que nadie puso.

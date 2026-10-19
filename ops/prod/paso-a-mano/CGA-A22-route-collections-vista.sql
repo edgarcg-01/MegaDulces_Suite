@@ -3,13 +3,25 @@
 --            Equivalente en SQL de la migracion 20261019143732. Idempotente:
 --            si ya es vista, no hace nada.
 --
--- ⭐ La definicion de finance.v_caja_movimientos_pendientes NO se pega aca: se
---    CAPTURA de la base viva antes de soltarla y se vuelve a crear textual. Asi
---    no puede quedar desincronizada de lo que prod tiene hoy.
+-- ⛔ LA CADENA DE DEPENDIENTES SON TRES NIVELES, NO UNO. El primer intento
+--    (2026-10-19) fallo porque se habia medido solo el primer escalon:
+--
+--      analytics.route_collections              (tabla)
+--        -> finance.v_caja_movimientos_pendientes   (vista)
+--             -> analytics.mv_caja_autofill_entidad (MATVISTA)
+--
+--    Error literal: "cannot drop view ... because other objects depend on it".
+--    Buscar los dependientes de una tabla y no los dependientes de SUS
+--    dependientes es la forma de descubrir el tercer escalon en produccion.
+--    Verificado con un recorrido RECURSIVO: son exactamente tres, nada mas alla.
+--
+-- ⭐ Las dos definiciones se CAPTURAN de la base viva antes de soltar nada, no se
+--    pegan aca. Pegar una definicion a mano es como se desincronizan las cosas.
 -- =============================================================================
 DO $mig$
 DECLARE
   def_pend text;
+  def_mv   text;
   n_rem    bigint;
   n_loc    bigint;
   k        "char";
@@ -21,17 +33,19 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Guarda 1: el servidor FDW existe. Sin esto la tabla foranea se crea igual y
-  -- falla recien al leerla, o sea en la pantalla y no aca.
+  -- Guarda 1: el servidor FDW existe.
   IF NOT EXISTS (SELECT 1 FROM pg_foreign_server WHERE srvname = 'runner_rutas') THEN
     RAISE EXCEPTION '[A.22] no existe el servidor FDW runner_rutas. ABORTA.';
   END IF;
 
-  -- La definicion VIVA de la vista dependiente, antes de soltar nada.
-  SELECT pg_get_viewdef('finance.v_caja_movimientos_pendientes'::regclass, true)
-    INTO def_pend;
+  -- Las definiciones VIVAS de los dos dependientes, antes de soltar nada.
+  SELECT pg_get_viewdef('finance.v_caja_movimientos_pendientes'::regclass, true) INTO def_pend;
+  SELECT pg_get_viewdef('analytics.mv_caja_autofill_entidad'::regclass, true)    INTO def_mv;
   IF def_pend IS NULL OR length(def_pend) < 100 THEN
-    RAISE EXCEPTION '[A.22] no se pudo capturar la definicion de la vista de la cola. ABORTA.';
+    RAISE EXCEPTION '[A.22] no se pudo capturar la vista de la cola. ABORTA.';
+  END IF;
+  IF def_mv IS NULL OR length(def_mv) < 100 THEN
+    RAISE EXCEPTION '[A.22] no se pudo capturar la matvista del autollenado. ABORTA.';
   END IF;
 
   -- La tabla foranea.
@@ -40,19 +54,20 @@ BEGIN
     EXECUTE 'ALTER FOREIGN TABLE analytics.cobros_ruta RENAME TO ft_cobros_ruta';
   END IF;
 
-  -- Guarda 2: el runner RESPONDE y no trae menos que la copia local. Un origen con
-  -- menos filas que la copia es una perdida, no una migracion.
-  EXECUTE 'SELECT count(*) FROM analytics.ft_cobros_ruta'   INTO n_rem;
+  -- Guarda 2: el runner RESPONDE y no trae menos que la copia local.
+  EXECUTE 'SELECT count(*) FROM analytics.ft_cobros_ruta'    INTO n_rem;
   EXECUTE 'SELECT count(*) FROM analytics.route_collections' INTO n_loc;
   IF n_rem < n_loc THEN
-    RAISE EXCEPTION '[A.22] el runner tiene % filas y la copia local %. Cambiar PERDERIA filas. ABORTA.',
+    RAISE EXCEPTION '[A.22] el runner tiene % filas y la copia local %. PERDERIA filas. ABORTA.',
       n_rem, n_loc;
   END IF;
 
-  -- Postgres exige soltar el dependiente para soltar la tabla.
+  -- Se sueltan los TRES, de arriba hacia abajo.
+  EXECUTE 'DROP MATERIALIZED VIEW analytics.mv_caja_autofill_entidad';
   EXECUTE 'DROP VIEW finance.v_caja_movimientos_pendientes';
   EXECUTE 'DROP TABLE analytics.route_collections';
 
+  -- Y se recrean al reves.
   EXECUTE $v$
     CREATE VIEW analytics.route_collections AS
      SELECT '00000000-0000-0000-0000-00000000d01c'::uuid AS tenant_id,
@@ -63,14 +78,18 @@ BEGIN
        FROM analytics.ft_cobros_ruta f $v$;
 
   EXECUTE format('CREATE VIEW finance.v_caja_movimientos_pendientes AS %s', def_pend);
+  EXECUTE format('CREATE MATERIALIZED VIEW analytics.mv_caja_autofill_entidad AS %s', def_mv);
 
-  -- Los GRANT no sobreviven a un DROP: sin esto las compuertas que leen prod quedan ciegas.
+  -- ⛔ Sin este indice unico, `REFRESH ... CONCURRENTLY` falla y el refrescador
+  -- bloquea a los lectores. No es opcional.
+  EXECUTE 'CREATE UNIQUE INDEX mv_caja_autofill_entidad_uq
+             ON analytics.mv_caja_autofill_entidad USING btree (tenant_id, entidad_code)';
+
+  -- Los GRANT no sobreviven a un DROP.
   EXECUTE 'GRANT SELECT ON analytics.route_collections TO dev_ro';
   EXECUTE 'GRANT SELECT ON finance.v_caja_movimientos_pendientes TO dev_ro';
 
-  -- El carril deja de existir, su latido tambien. Si se dejara, cron_runs tendria
-  -- para siempre un route_collections congelado: un carril fantasma que ningun
-  -- tablero puede arreglar. Verificado: ningun componente lee ese job_key.
+  -- El carril deja de existir, su latido tambien.
   DELETE FROM analytics.cron_runs WHERE job_key = 'route_collections';
   GET DIAGNOSTICS n_lat = ROW_COUNT;
 
@@ -79,7 +98,8 @@ BEGIN
 END
 $mig$;
 
--- Comprobacion: tiene que decir 'v' y traer las filas de HOY.
+-- Comprobacion: 'v', las filas de HOY, y la matvista de vuelta con sus filas.
 SELECT relkind AS tipo FROM pg_class WHERE oid = 'analytics.route_collections'::regclass;
 SELECT truck, max(fecha) AS ultima, count(*) AS filas
   FROM analytics.route_collections GROUP BY 1 ORDER BY 2 DESC;
+SELECT count(*) AS autollenado_filas FROM analytics.mv_caja_autofill_entidad;
