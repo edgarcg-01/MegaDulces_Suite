@@ -59,6 +59,15 @@
  */
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
+/**
+ * Tolerancia de REDONDEO DE TECLADO, autorizada por Edgar el 2026-10-19:
+ * "la diferencia puede ser hasta de un peso".
+ *
+ * ⚠️ NO es tolerancia para la morralla. La ecuacion maquina + cajon = libro se sigue
+ * exigiendo AL CENTAVO. Esto cubre solo el desfase entre lo que el capturista tecleo y
+ * lo que dice el documento de Kepler.
+ */
+const TOLERANCIA_TECLADO = 1.00;
 const DEVICE = 'AST700-19758';
 
 /**
@@ -98,6 +107,30 @@ const CASOS = [ /* 3 casos: dos con deposito, uno sin el y con motivo declarado 
     libro: '21507.00', maquina: '0.00', cajon: '21507.00',
     doc_ref: '01-001|U-A-5|0000012|0011',
     nota: 'ruta 21, cobro U-A-5 0000012 del 15-oct. Sin deposito: "NO FUNCINA CAOS", todo al cajon',
+  },
+  {
+    folio: 'CI-2026-00043', deposito: null,
+    libro: '17408.00', maquina: '0.00', cajon: '17408.00',
+    doc_ref: '01-006|U-A-5|0000012|0011',
+    nota: 'ruta 28, cobro U-A-5 0000012 del 15-oct. Sin deposito: "NO FUNCIONA CAOS", todo al cajon',
+  },
+  /**
+   * ⭐ El quinto es el unico que NO cierra al centavo, y por un motivo distinto a los demas.
+   *
+   * Carmen escribio **$13,896.00** donde el documento dice **$13,895.87**: 13 centavos de
+   * redondeo de teclado. No es morralla -en los casos con deposito el libro vale mas porque la
+   * maquina no toma monedas-; aca vale mas porque se redondeo hacia arriba.
+   *
+   * ⛔ Su motivo decia "NO APARECE EN SWITE", y mi primera busqueda le dio la razon... porque
+   * busque el importe EXACTO que ella tecleo. El cobro SI existe: ruta_26, cobro 0000012 del
+   * 15-oct, $13,895.87, corte Caja 1-107. De los seis cobros de camioneta de ese dia ninguno
+   * otro cae a menos de $337, asi que no hay ambiguedad.
+   */
+  {
+    folio: 'CI-2026-00044', deposito: null,
+    libro: '13896.00', maquina: '0.00', cajon: '13896.00',
+    doc_ref: '01-004|U-A-5|0000012|0011',
+    nota: 'ruta 26, cobro U-A-5 0000012 del 15-oct. Sin deposito; $0.13 de redondeo de teclado',
   },
 ];
 
@@ -163,8 +196,14 @@ exports.up = async function up(knex) {
            FROM analytics.mv_caja_movimientos v WHERE v.tenant_id = ?::uuid) z
         WHERE z.origen_ref = ? LIMIT 1`, [TENANT, ref]);
     if (!d) throw new Error(`[A.24] el documento ${ref} no existe en Kepler. ABORTA.`);
-    if (d.monto !== c.libro) {
-      throw new Error(`[A.24] ${ref} vale ${d.monto} y el libro ${c.libro}. No concilia: ABORTA.`);
+    const desfase = Number((Number(c.libro) - Number(d.monto)).toFixed(2));
+    if (Math.abs(desfase) > TOLERANCIA_TECLADO) {
+      throw new Error(`[A.24] ${ref} vale ${d.monto} y el libro ${c.libro} (desfase ${desfase}).`
+        + ` Pasa de ${TOLERANCIA_TECLADO}: ABORTA.`);
+    }
+    if (desfase !== 0) {
+      console.log(`[A.24] ${c.folio} difiere del documento en ${desfase.toFixed(2)} —`
+        + ` redondeo de teclado, dentro de la tolerancia autorizada.`);
     }
 
     // ── Guarda 5: nadie más tomó ese documento. Dos movimientos sobre el mismo cobro es
