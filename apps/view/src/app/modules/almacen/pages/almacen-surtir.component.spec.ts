@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
+import { provideRouter, Router, UrlTree } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import type { PickerTakeNextResponse, PickerWave, PickerWaveLine } from '@megadulces/contracts';
 import { AlmacenSurtirComponent } from './almacen-surtir.component';
@@ -501,8 +501,14 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('Salir va a /almacen y NO al tablero (el almacenista no tiene permiso de verlo: lo rebotaría)', async () => {
     await montar();
-    const nav = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const router = TestBed.inject(Router);
+    const nav = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     clic('Salir');
-    expect(nav).toHaveBeenCalledWith('/almacen');
+    // `[MT.5.4]` Se afirma sobre el DESTINO, no sobre el mecanismo: desde que
+    // «Salir» pasa por `irConservandoPanel` (para no tirar la pantalla partida)
+    // el argumento es un `UrlTree`, no el texto. Fijar el texto habría hecho
+    // fallar un cambio que no mueve a dónde va el botón.
+    expect(nav).toHaveBeenCalledTimes(1);
+    expect(router.serializeUrl(nav.mock.calls[0][0] as UrlTree)).toBe('/almacen');
   });
 });
