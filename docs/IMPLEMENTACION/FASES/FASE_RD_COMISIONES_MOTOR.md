@@ -154,13 +154,48 @@ sin dato y nada avisó.
   cara.
 
 #### `[RD.74]` La ventana — que la fuente aguante el año
-- `v_rd_commission_sales` hace **timeout a 120 s** sobre el año; `mv_rd_route_daily_200d` cubre
-  desde **2026-04-02**, o sea que **no cubre Q1–Q6**.
-- ⛔ **Cambiar a la matvista a secas borra Q1–Q6 en silencio** — es exactamente el error que
-  `[RD.58]` ya pagó con el `$/km`. Va **híbrido declarado** (matvista dentro de su ventana, vista
-  viva fuera) **o** la ventana se amplía a propósito, con su medición de costo de refresco.
-- **Cierre**: el escaneo del año completa en < 5 s **y** Q1 devuelve el mismo total al centavo que
-  devuelve hoy. Las dos aserciones, no una.
+
+⭐ **El híbrido YA EXISTE y funciona: `[RD.54]` lo construyó.** `v_rd_commission_sales` lee
+`v_rd_route_daily_rapido`, que es `mv_rd_route_daily_200d UNION ALL` la vista viva para lo que
+cae antes de la matvista, con el corte **fila por fila**. ⛔ Y la poda **sí** funciona: el
+`EXPLAIN ANALYZE` muestra la rama viva con `rows=0` y su subplan `never executed` cuando la
+matvista cubre la ventana. *Dos hipótesis mías —«la vista de costo es la cara» y «el planner no
+puede podar la rama viva»— eran falsas y la medición las tiró.*
+
+**Lo que de verdad cuesta, medido el 2026-10-19 sobre las 20 quincenas (tiempos estables,
+variación 1.1–1.2× en tres vueltas, o sea estructural y no contención):**
+
+| | |
+|---|---|
+| Contrastar el año entero | **136.8 s** de lectura (venta 130 s · costo 7 s) |
+| Más el trabajo del motor | ≈ **4 min 09 s**, que es justo lo que el log del 7-oct midió |
+| Q1 (enero) | **~9 s** · Q10 (mayo) ~4.2 s · Q20 (sep-oct) **~1.0 s** |
+| La consulta de **costo** | ≤ 1.5 s, y **0 filas en Q1–Q12**: el COGS del embarque arranca en Q13 (18-jun) |
+
+**Por qué, aislado en una sola comparación:**
+
+```
+Q1 (ene)      matvista DIRECTO        11 ms ·   0 filas   <- no la cubre
+              solo la rama viva    8,361 ms · 143 filas   <- todo el costo esta aca
+Q20 (sep-oct) matvista DIRECTO       278 ms · 201 filas
+              solo la rama viva    1,178 ms ·   0 filas   <- peaje fijo aunque no aporte
+```
+
+1. ⛔ **La matvista arranca el 2026-04-02** (200 días), así que **Q1–Q7 las sirve la vista viva
+   entera**: 6–17 s cada una. No es un defecto del híbrido, es su ventana.
+2. ⚠️ **Y su cobertura es RALA en el medio**: 2,614 filas para ~22 rutas × ~200 días, cuando el
+   lleno serían ~4,400. Por eso Q9–Q15 —que están dentro de la ventana— igual caen parcialmente
+   a la rama viva y cuestan 4–8 s.
+3. Aun cuando la matvista cubre todo, la rama viva cobra un **peaje fijo de ~1.2 s** devolviendo
+   cero filas.
+
+**Entonces el trabajo de `[RD.74]` es la VENTANA, no el híbrido**: ampliarla para que cubra el
+año. ⛔ Eso es un `REFRESH MATERIALIZED VIEW` sobre una matvista que **ya consumen Ventas por
+ruta y me-zona** — escritura pesada, va **fuera de horario** y con su medición de costo de
+refresco, porque hoy se refresca cada 30 min.
+
+- **Cierre**: el escaneo del año completa en < 5 s **y** Q1 devuelve el mismo total al centavo
+  que devuelve hoy. Las dos aserciones, no una — acelerar perdiendo Q1 es el error de `[RD.58]`.
 
 ---
 
