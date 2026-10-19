@@ -38,7 +38,7 @@ interface PPResponse {
 interface PPFacets { months: string[]; banks: string[]; methods: string[]; tipos: string[] }
 /** [PP.7] Qué meses están y cuáles faltan. `faltantes` vacío NO significa "al día": significa que no falta ninguno hasta el mes pasado. */
 interface PPCobertura { cargados: string[]; faltantes: string[]; desde: string | null; hasta_esperado: string | null }
-interface PPReconMonth { month: string; program: number; program_n: number; flag_si: number; flag_no: number; flag_na: number; monto_no: number; kepler201: number; bank_cb: number | null }
+interface PPReconMonth { month: string; /** [PP.10] false = el Excel no tiene ese mes. Distinto de «no se pago». */ libro_cargado: boolean; program: number; program_n: number; flag_si: number; flag_no: number; flag_na: number; monto_no: number; kepler201: number; bank_cb: number | null }
 interface PPRecon { months: PPReconMonth[] }
 
 /**
@@ -124,9 +124,21 @@ interface PPRecon { months: PPReconMonth[] }
                   <tr><th>Mes</th><th class="ta-r">Programa</th><th class="ta-r">Kepler 201 (pagos)</th><th class="ta-r">Bancos (CB)</th><th class="ta-r">Pagado no en Kepler</th></tr>
                 </ng-template>
                 <ng-template #body let-m>
-                  <tr>
+                  <!-- [PP.10] Un mes SIN libro ya no desaparece de la tabla: se muestra y se
+                       dice. Antes la conciliacion recorria solo los meses del Excel, asi que con
+                       el libro atrasado la pantalla se veia cuadrando y callaba los meses del
+                       problema. El estado no viaja solo en el color (DESIGN regla 14). -->
+                  <tr [class.pp-sin-libro]="!m.libro_cargado">
                     <td class="pp-mono">{{ m.month }}</td>
-                    <td class="ta-r pp-num">{{ money(m.program) }} <span class="pp-recon-n">{{ m.program_n }}</span></td>
+                    <td class="ta-r pp-num">
+                      @if (m.libro_cargado) {
+                        {{ money(m.program) }} <span class="pp-recon-n">{{ m.program_n }}</span>
+                      } @else {
+                        <span class="pp-falta" title="El Excel de Tesoreria no tiene este mes. No es que no se haya pagado.">
+                          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> sin cargar
+                        </span>
+                      }
+                    </td>
                     <td class="ta-r pp-num muted">{{ money(m.kepler201) }}</td>
                     <td class="ta-r pp-num muted">{{ m.bank_cb === null ? '—' : money(m.bank_cb) }}</td>
                     <td class="ta-r pp-num" [class.pp-warn]="m.flag_no > 0">{{ m.flag_no > 0 || m.flag_si > 0 ? (money(m.monto_no) + ' · ' + m.flag_no) : 's/dato' }}</td>
@@ -134,7 +146,7 @@ interface PPRecon { months: PPReconMonth[] }
                 </ng-template>
               </p-table>
             </div>
-            <p class="pp-recon-note">Los tres universos <b>no son iguales</b> — es informativo, no un descuadre: <b>Kepler 201</b> incluye nómina/inter-sucursal/gastos (superset); <b>Bancos CB</b> son todos los egresos del estado de cuenta (solo meses cargados). La señal <b>confiable</b> de "pagado pero no asentado en el ERP" es <b>Pagado no en Kepler</b> (columna KEPLER de Tesorería, $ · #), disponible donde el Excel la trae (jul/ago). "s/dato" = ese mes no traía la columna.</p>
+            <p class="pp-recon-note">Los tres universos <b>no son iguales</b> — es informativo, no un descuadre: <b>Kepler 201</b> incluye nómina/inter-sucursal/gastos (superset); <b>Bancos CB</b> son todos los egresos del estado de cuenta (solo meses cargados). La señal <b>confiable</b> de "pagado pero no asentado en el ERP" es <b>Pagado no en Kepler</b> (columna KEPLER de Tesorería, $ · #), disponible donde el Excel la trae (jul/ago). "s/dato" = ese mes no traía la columna. <b>[PP.10]</b> Los meses salen de la <b>unión</b> de las tres fuentes: un mes con pagos en el ERP y <b>sin libro</b> aparece marcado <b>sin cargar</b> — antes no aparecía, y con el libro atrasado esta tabla callaba meses enteros.</p>
           } @else { <p class="pp-empty">Cargando conciliación…</p> }
         </section>
       }
@@ -224,6 +236,11 @@ interface PPRecon { months: PPReconMonth[] }
     </div>
   `,
   styles: [`
+    /* [PP.10] El mes sin libro se ve distinto Y lo dice: el color no es el unico portador
+       (DESIGN regla 14), por eso el renglon lleva ademas icono y la palabra "sin cargar". */
+    .pp-sin-libro { background: var(--overlay-hover); }
+    .pp-falta { display: inline-flex; align-items: center; gap: .3rem;
+      color: var(--warn-fg); font-size: var(--fs-xs); }
     :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .pp-head-actions { display:flex; gap:.5rem; }
