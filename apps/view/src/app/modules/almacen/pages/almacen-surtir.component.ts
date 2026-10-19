@@ -156,6 +156,10 @@ function plural(n: number, uno: string, varios: string): string {
             <p class="sr-tip">
               @if (!almacenId()) { Elige primero tu almacén. } @else { Te toca el pedido que más urge. No se elige cuál. }
             </p>
+            <!-- [MCP.3.2] La lista de pedidos autorizados (folio y cliente): Surtir no tiene pestañas. -->
+            <button pButton type="button" [text]="true" severity="secondary" class="sr-tap sr-ver-lista" (click)="verLista()">
+              <span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span> Ver la lista de pedidos
+            </button>
           } @else {
             <p class="sr-tip">
               @if (!almacenId()) { Elige primero tu almacén. }
@@ -585,6 +589,7 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-fg); }
     .sr-btn-ped { min-height: 3.25rem; font-size: var(--fs-lg); flex-direction: row; gap: .5rem; margin-top: .2rem; }
     .sr-btn-ped i { font-size: var(--fs-lg); }
+    .sr-ver-lista { align-self: flex-start; }
 
     @media (prefers-reduced-motion: reduce) {
       .sr-barra > span, .sr-btn { transition: none; }
@@ -872,6 +877,11 @@ export class AlmacenSurtirComponent implements OnInit {
         this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
       },
     });
+  }
+
+  /** `[MCP.3.2]` La lista de pedidos de Kepler por surtir (folio y cliente). */
+  verLista(): void {
+    this.router.navigateByUrl('/almacen/pedidos');
   }
 
   volverALista(): void {

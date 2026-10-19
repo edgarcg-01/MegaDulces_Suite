@@ -243,6 +243,13 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(c.origen()).toBe('TELEMARK');
   });
 
+  it('[MCP.3.2] en Telemarketing hay "Ver la lista de pedidos" y lleva al tablero (vista del surtidor)', async () => {
+    await montar();
+    const nav = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    clic('Ver la lista de pedidos');
+    expect(nav).toHaveBeenCalledWith('/almacen/pedidos');
+  });
+
   it('lo guardado del viejo "Todos" (vacío) cae en Telemarketing', async () => {
     localStorage.setItem('gp.surtir.origen.v1', '');
     await montar();
