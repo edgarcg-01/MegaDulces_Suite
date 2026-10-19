@@ -2994,7 +2994,47 @@ export class CashLedgerService {
         return qb;
       };
 
+      /**
+       * ⭐⭐ `[CG.126]` **EL LIBRO NO DECÍA A QUÉ CAJA ENTRÓ EL DINERO.**
+       *
+       * Edgar, 2026-10-19: *«debemos diferenciar lo que entra a caja general vs lo que entra a
+       * CAOS»*. El cuadre del día ya lo separa desde `[CG.139]` —un cobro de ruta es UN
+       * movimiento con dos destinos: los billetes a la máquina y la morralla al cajón—, pero el
+       * libro publicaba sólo `monto`, o sea el total, y leerlo como «entró a caja general»
+       * **sobredeclara el efectivo del cajón por todo lo que se fue a la bóveda**.
+       *
+       * ⛔ Sale de `analytics.v_caja_reparto_movimiento`, que es el MISMO resolvedor que usa el
+       * cuadre (`cash-cut.service.ts`, `movimientosDelDia`). No se recalcula acá: dos derivaciones
+       * del mismo reparto es la forma de que el libro y el cuadre discrepen un día sin que nadie
+       * sepa cuál manda.
+       *
+       * ⭐ **Las DOS mitades se leen de la vista, ninguna se resta acá.** El primer intento
+       * derivaba `en_cajon` como `monto - en_boveda` —que es lo que hace el cuadre— hasta que la
+       * verificación contra prod mostró que **la vista ya publica `en_cajon`**. Restarlo igual
+       * sería la tercera versión del mismo número.
+       *
+       * ⚠️ Va en ESTA consulta y **no en `base()`**: `base()` lo reusa el KPI con su propio
+       * `.select()` de agregados, y Postgres rechaza una columna no agregada ahí. Un `select` en
+       * el lugar equivocado habría roto el encabezado del libro, no esta lista.
+       *
+       * ⚠️ `'*'` explícito porque la consulta no tenía `select` ninguno: sin él, agregar la
+       * columna derivada dejaría la fila **sólo** con esa columna y la pantalla entera en blanco.
+       *
+       * 🧪 **Verificado contra prod en sólo lectura el 2026-10-19** (no se compila local): la
+       * vista existe con `cash_ledger_id · en_boveda · en_cajon`, el subselect corre, y de las
+       * **236 filas del libro hay 0 sin reparto y 64 que tocan la bóveda**. El caso que lo
+       * justifica, textual de prod: `CI-2026-00112` vale $19,313.00 y se parte en **$19,250.00
+       * a la máquina y $63.00 al cajón** — publicar el total como «entró a caja general»
+       * sobredeclaraba ese renglón en un 99.7 %.
+       */
       const rows = await base()
+        .select(
+          '*',
+          trx.raw(`COALESCE((SELECT r.en_boveda FROM analytics.v_caja_reparto_movimiento r
+                              WHERE r.cash_ledger_id = finance.cash_ledger.id), 0) AS en_boveda`),
+          trx.raw(`COALESCE((SELECT r.en_cajon FROM analytics.v_caja_reparto_movimiento r
+                              WHERE r.cash_ledger_id = finance.cash_ledger.id), monto) AS en_cajon`),
+        )
         .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(limit).offset(offset);
 
