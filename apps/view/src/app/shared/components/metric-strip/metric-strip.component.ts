@@ -206,7 +206,10 @@ export interface MetricStripItem {
     .ms-row { display:flex; align-items:baseline; gap:.5rem; }
     .ms-v { font-family:var(--font-mono); font-size:1.55rem; font-weight:600; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text-main); }
     /* valores de texto (nombres/fechas): no mono, más chico, para que no griten. */
-    .ms-v.is-text { font-family:var(--font-body,inherit); font-size:1.05rem; font-weight:700; letter-spacing:-.01em; }
+    /* [CGA-LEG.8] 1.05rem = 16.8px, otro peldano inventado. --fs-h3 (16px) es el que el sistema
+       tiene para un titulo de panel y conserva la intencion del comentario de arriba: el valor de
+       TEXTO va mas chico que el numerico (24.8) para que no grite. */
+    .ms-v.is-text { font-family:var(--font-body,inherit); font-size:var(--fs-h3); font-weight:700; letter-spacing:-.01em; }
     .ms-item.tone-ok .ms-v { color:var(--ok-fg); }
     .ms-item.tone-warn .ms-v { color:var(--warn-fg); }
     .ms-item.tone-bad .ms-v { color:var(--bad-fg); }
