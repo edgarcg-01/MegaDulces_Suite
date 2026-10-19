@@ -137,7 +137,23 @@
 #
 # Env: `SRC_URL` cae al default correcto (`md:5433/kepler_consolidado`) y `DATABASE_URL_NEW` ya
 # viene de /secrets/feeds.env como el resto. No necesita credencial nueva.
-4,14,24,34,44,54 * * * * /app/ops/vl/run-feed.sh route-collections "node /app/database/importers/kepler/import-route-collections.js --apply"
+# ⛔⛔ [CGA-A.22] RETIRADO EL 2026-10-19. Este renglon corria cada 10 min y copiaba
+#    mart.cobros_ruta (runner) -> analytics.route_collections (prod). Ya no hace falta:
+#    prod LEE el runner en vivo por la tabla foranea `analytics.ft_cobros_ruta`, y
+#    `analytics.route_collections` paso a ser VISTA. La frescura dejo de ser "hasta 10
+#    minutos" y paso a ser CERO.
+#
+#    ⛔ Y no es solo innecesario: el importer escribiria sobre una VISTA y fallaria cada
+#    10 minutos. Dejarlo seria cambiar un carril sano por una alarma permanente que nadie
+#    lee -- que es justo como se pierden las alarmas que si importan.
+#
+#    Lo que lo motivo: la ruta 27 entrego $19,939.00 el 19-oct y no aparecio. El cron NO
+#    era la causa (fue el merge, GOTCHAS §87) pero era el otro tramo por lote del carril,
+#    y el pedido fue explicito: "no quiero nada de crons".
+#
+#    Para volver atras: `exports.down` de la migracion 20261019143732 recrea la tabla y la
+#    repuebla; recien ahi tiene sentido descomentar esto.
+# 4,14,24,34,44,54 * * * * /app/ops/vl/run-feed.sh route-collections "node /app/database/importers/kepler/import-route-collections.js --apply"
 
 # [VL.6.2] EL VIGILANTE. Vigila que el scanner de Salud BD del API siga vivo y, si no, toma el
 # control y abre las alertas el mismo. Se muda a `md` sin tocar una linea: ya viaja dentro de la
