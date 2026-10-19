@@ -58,13 +58,26 @@ const noMedido = (m) => { nm++; console.log('  ·  NO MEDIDO —', m); };
       noMedido('sin la columna no hay nada que comprobar: aplicá 20261019084231');
       noMedido('la prueba negativa (duplicado real) necesita la misma columna');
     } else {
+      // ⛔ **El ancla es el PRIMER renglón con destino, no una fecha.** La primera versión de
+      // esto exigía destino a todo lo creado desde el 2026-10-19 y se puso roja al aplicar la
+      // migración: la columna ya existía pero **el código que la escribe todavía no estaba
+      // desplegado** (en este repo un push NO despliega). O sea que medía el reloj y lo
+      // reportaba como defecto del dato. Anclando al primer renglón que SÍ trae destino, el
+      // candado no necesita saber cuándo se desplegó: lo deduce del propio dato, y mientras no
+      // haya ninguno declara NO MEDIDO en vez de inventar un veredicto (ADR-056).
       const pobl = (await knex.raw(`
+        WITH anc AS (
+          SELECT min(created_at) AS desde FROM commercial.purchase_requisition_lines
+           WHERE tenant_id = ? AND destination_warehouse_id IS NOT NULL
+        )
         SELECT count(*)::int lineas,
                count(l.destination_warehouse_id)::int con_destino,
-               count(*) FILTER (WHERE l.created_at >= '2026-10-19')::int nuevas,
-               count(l.destination_warehouse_id) FILTER (WHERE l.created_at >= '2026-10-19')::int nuevas_con_destino
-          FROM commercial.purchase_requisition_lines l WHERE l.tenant_id = ?`, [T])).rows[0];
-      console.log(`   renglones ${pobl.lineas} · con destino ${pobl.con_destino} · creados desde el arreglo ${pobl.nuevas} (con destino ${pobl.nuevas_con_destino})`);
+               (SELECT desde FROM anc)::text desde,
+               count(*) FILTER (WHERE l.created_at >= (SELECT desde FROM anc))::int nuevas,
+               count(l.destination_warehouse_id) FILTER (WHERE l.created_at >= (SELECT desde FROM anc))::int nuevas_con_destino
+          FROM commercial.purchase_requisition_lines l WHERE l.tenant_id = ?`, [T, T])).rows[0];
+      console.log(`   renglones ${pobl.lineas} · con destino ${pobl.con_destino}`
+        + (pobl.desde ? ` · desde el primero con destino (${pobl.desde}): ${pobl.nuevas} (con destino ${pobl.nuevas_con_destino})` : ''));
 
       // El destino apunta a un almacén real del mismo tenant (la FK lo exige; se comprueba que
       // la FK esté puesta, no se confía en que alguien la haya respetado a mano).
@@ -77,11 +90,13 @@ const noMedido = (m) => { nm++; console.log('  ·  NO MEDIDO —', m); };
         WHERE schemaname = 'commercial' AND indexname = 'idx_purch_req_lines_dest_wh') AS t`)).rows[0].t;
       ok(!!idx, 'hay índice para «qué se le pidió a esta sucursal»');
 
-      if (Number(pobl.nuevas) === 0) {
-        noMedido('todavía no se arma ninguna requisición con el código nuevo: nada que exigir');
+      if (!pobl.desde) {
+        noMedido('ningún renglón trae destino todavía: la columna está, pero el código que la'
+          + ' escribe no está desplegado (en este repo un push NO despliega). Nada que exigir aún.');
+        noMedido('la prueba negativa (duplicado real) necesita al menos un renglón con destino');
       } else {
         ok(Number(pobl.nuevas_con_destino) === Number(pobl.nuevas),
-          `todo renglón creado desde el arreglo lleva destino (${pobl.nuevas_con_destino}/${pobl.nuevas})`);
+          `todo renglón creado desde el primero con destino lo lleva (${pobl.nuevas_con_destino}/${pobl.nuevas})`);
 
         // ── 3. LA PRUEBA NEGATIVA ───────────────────────────────────────────────────────────
         // Con destino, dos renglones de (documento, producto, destino) ya no son un desglose.

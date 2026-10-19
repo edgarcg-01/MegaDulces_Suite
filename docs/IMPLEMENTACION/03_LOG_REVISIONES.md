@@ -12829,3 +12829,72 @@ empujar es el incidente que congela las migraciones de todos.
 tesorería quedó duplicada, deuda **con nombre**, toca Fase CC) · `[VEC.30]` (decisión de negocio:
 ¿`1V006` entra al tablero de rutas de caja?) · el arreglo de `kduv` (35×, medido, sin implementar) ·
 **validación visual: cero pantallas vistas en toda la tanda**.
+
+---
+
+## 2026-10-19 — Cierre del tramo de unificación de Pagos: O2, O3, O5 y dos defectos que medían de menos
+
+Continuación de la entrada del 16-oct (O1). Este tramo cierra en código tres objetivos más y
+encuentra dos defectos que no estaban en el plan.
+
+### Lo entregado
+
+| | Objetivo | Qué quedó |
+|---|---|---|
+| **O2** | El descuento se acciona | Pronto pago publica **con qué** programar cada factura (origen, llave, reservado, pagado, programable) y gana el botón **«Programar»**: propone la fecha que conserva el descuento y declara que nace como propuesta |
+| **O3** | Un pago se lee de punta a punta | Liga `payment_allocations ↔ Kepler` con tres guardas, la pantalla «Pagos a proveedor» muestra el origen, y el documento **se propone** en vez de teclearse (monto ±$0.01, día ±3, proveedor) |
+| **O5** | Una sola puerta | Cuatro renglones del menú → **una entrada «Pagos»** con sus cuatro pestañas, en el orden del ciclo del dinero |
+
+### Los defectos que encontró ejercer el código, no revisarlo
+
+1. ⛔ **`ReferenceError: tenantId is not defined`** — rompía la lista **entera** del Calendario. Los
+   16 specs puros pasaban en verde: `vitest` usa esbuild y **no tipa**.
+2. ⛔ **El CHECK de `payment_allocation_items`** rechazaba el origen nuevo: la pantalla habría
+   listado 2,892 facturas **imposibles de programar**, con 500 al apretar el botón.
+3. ⛔ **El techo de 1,000 del endpoint de obligaciones**: con la deuda derivada dejaba fuera
+   **1,895 documentos por $105,683,725** —el 79 % del dinero— y, como la lista va por vencimiento,
+   ocultaba **lo más reciente**. ⭐ Ese techo era **correcto** cuando se escribió; lo rompió
+   multiplicar por 80 el volumen. ⇒ **Al abrirle una compuerta a un volumen nuevo, revisar los
+   techos que ya existían río abajo.**
+4. ⛔ **`hasColumn('finance.payment_allocations', …)` MIENTE** — knex trata el argumento como
+   nombre de tabla, no como `esquema.tabla`. La migración **no era idempotente** y moría a la
+   segunda corrida. ⚠️ Vale para cualquier migración del repo escrita así.
+5. ⛔ **Una matvista creada `WITH NO DATA` no se puede CONSULTAR** (`55000`). En una base recién
+   levantada quedaban **8 de 21** sin poblar — en prod, 0 de 58. Por eso sólo pega en bases nuevas:
+   las de desarrollo y **la del job `pruebas-db` del CI**. Arreglado en `dev-bootstrap-empty-db.js`,
+   que el CI ya corre.
+
+### Las dos cifras que este tramo **no** publicó, y por qué
+
+- ⛔ **$273,408,195 «pagados sin registro en Kepler»** (`[PP.4]`): la cota mezcla *no se asentó* con
+  *se asentó en otra cuenta* — el libro trae financiamiento (7.33 %) y gasto (6.59 %) que no van por
+  la 201. La hipótesis del desglose de póliza quedó **refutada** (1.25 líneas de promedio). Queda
+  declarado: no correr el recon hasta arbitrar el universo contra el estado de cuenta bancario.
+- ⭐ Lo que sí se publicó y estaba oculto: `[PP.10]`, la conciliación era **ciega a 5,201
+  movimientos por $91,720,679** de sep y oct, porque recorría los meses que el Excel tiene. Mismo
+  defecto que `[PP.7]` ya había corregido en el listado de esa misma pantalla — **una corrección no
+  viaja sola a sus hermanas**.
+
+### ⛔ Lo que NO se hizo, y pesa más que lo hecho
+
+**Ninguna métrica se movió.** Cobertura **2.0 %**, acciones ejecutadas **0**, pagos ligados **0 %**,
+libro con **72 días**. Las migraciones están aplicadas y el código en `main`, pero **nada está
+desplegado** y **nunca se ha autorizado un día** en el Calendario — sin eso O3 no tiene qué ligar.
+
+Cuatro objetivos cerrados en código y cero efecto en producción es, con nombre propio, el estado
+🧪 que el método señala como el problema de fondo (330 items). Lo que mueve tres métricas de un
+solo acto es **desplegar**; lo que destraba la cuarta es que **alguien libere un día**.
+
+### Deuda declarada
+
+- `[TP.18.5]` latencia p90 **555 ms** sobre el límite de 500. El piso no es la consulta nueva:
+  `v_supplier_payables` **sola** cuesta 321 ms. Bajarlo pide un índice en `kdxf` → **DDL en prod,
+  fuera de horario**.
+- **Sin validación visual**: **cuatro** pantallas tocadas sin abrirlas (`nx serve` prohibido) — más la
+  barra de pestañas, que no es pantalla y se ve en las cuatro. Lo más
+  probable de ajustar: el aviso de techo del calendario, el diálogo de «Programar» y la columna de
+  origen en Pagos a proveedor.
+- **Tracker y roadmap sin actualizar**: ambos archivos han tenido cambios sin commitear de otras
+  sesiones cada vez que se intentó; editarlos habría mezclado trabajo ajeno en el mismo commit.
+- La base local de pruebas quedó **parchada** (pgvector marcada sin ejecutar, `products.embedding`
+  como `text`), registrado en su `_dev_bootstrap_log`.

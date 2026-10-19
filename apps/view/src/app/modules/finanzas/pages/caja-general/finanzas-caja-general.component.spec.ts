@@ -1764,6 +1764,39 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toBeGreaterThan(0);
   });
 
+  it('⛔ [CG.120] la captura A MANO no se ofrece, pero la puerta compartida sigue viva', () => {
+    /**
+     * La captura a mano se retiró el 2026-10-19: un movimiento tecleado nace **sin
+     * `origen_ref`**, o sea sin nada contra qué cuadrarlo — no lo alcanza el candado de
+     * duplicados del servidor (que es por `origen_tipo + origen_ref`), no entra en el descuento
+     * de la cola, y en la conciliación aparece como una fila que no corresponde a ningún
+     * documento. Era la única puerta de esta pantalla por la que entraba dinero sin procedencia.
+     *
+     * ⛔ **Lo segundo que se afirma acá es lo que casi se rompe.** `abrirCaptura()` es la puerta
+     * COMPARTIDA de cuatro caminos: la cola del ERP (`capturarDesde`), la bóveda
+     * (`capturarDesdeCaos`), un recurrente sin regla (`declararDesdeRecurrente`) y el botón
+     * retirado. Guardarla por dentro —que es lo que parece pedir «inhabilitar la captura
+     * manual»— apagaría **el arqueo entero**. Por eso se apagó el botón y nada más, y por eso
+     * esta prueba comprueba las dos mitades juntas: que la puerta manual no está Y que la
+     * compartida sigue abriendo.
+     *
+     * ⚠️ Si alguien pone `CAPTURA_MANUAL_HABILITADA` en `true`, esta prueba se pone roja. Es a
+     * propósito: devolver esa puerta es una decisión, no un descuido, y tiene que tocarse acá.
+     */
+    const fx = montar();
+    fx.detectChanges();
+
+    const botones: HTMLElement[] = Array.from(fx.nativeElement.querySelectorAll('button'));
+    const manual = botones.find((b) => /Registrar movimiento/i.test(b.textContent ?? ''));
+    expect(comp.puedeGestionar(), 'la prueba no sirve sin permiso de captura').toBe(true);
+    expect(manual, 'se sigue ofreciendo capturar un movimiento a mano').toBeUndefined();
+
+    // Y la puerta compartida NO se tocó: sin esto, el arqueo de la cola moriría en silencio.
+    comp.abrirCaptura();
+    expect(comp.capturaAbierta(), 'abrirCaptura() dejó de abrir: se guardó la puerta compartida')
+      .toBe(true);
+  });
+
   it('⭐ al elegir un movimiento el foco cae en el PRIMER campo de piezas', async () => {
     /**
      * ⛔ `[CG.117]` `enfocarDetalle()` buscaba `.cg-detail`, que se retiró al mudar el arqueo al
@@ -4250,6 +4283,63 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     it('el servidor diciendo `cajon: null` (sin cajero) manda sobre los planos', () => {
       montar({ arqueoDia: conCajon({ cajon: null, en_el_cajon: 120.5, a_la_boveda: 900 }) });
       expect(comp.cajon()).toBeNull();
+    });
+  });
+
+  /**
+   * ⭐⭐ `[CG.194]` — **LO QUE LA TABLA YA DESCONTÓ TIENE QUE TENER NOMBRE Y CIFRA.**
+   *
+   * Medido en producción el 2026-10-19: el libro tenía **$8,179.00** de gastos y la pantalla
+   * publicaba **$3,109.00** bajo un renglón rotulado «Gastos», dentro de una tabla titulada
+   * «Caja general (nuestro libro)». Los **$5,070.00** de diferencia son un gasto pagado con
+   * efectivo que dispensó la máquina: el servidor los resta bien —ese dinero nunca pasó por el
+   * cajón— pero no lo decía, y el MISMO importe reaparecía sumado del otro lado («de eso, a la
+   * bóveda $270,200.00» contra «Movimiento de la bóveda $265,130.00»). Tres cifras correctas y
+   * ninguna explicando a las otras.
+   *
+   * ⚠️ Las pruebas afirman los TRES casos, no la cifra. El que importa es el primero: `undefined`
+   * tiene que dar «sin medir» y no `null`, porque `null` apaga el renglón igual que un cero y
+   * volvería a esconder el recorte sin decirlo — el defecto que esto vino a cerrar.
+   */
+  describe('[CG.194] el recorte de la bóveda se declara, no se omite', () => {
+    const conBoveda = (cg: Record<string, unknown>) =>
+      vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, ...cg } }));
+
+    it('con las dos piernas en cero no pinta nada: es un cero de verdad', () => {
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 0, gastos: 0, movimientos: 0 } }) });
+      expect(comp.boveda()).toBeNull();
+      expect(comp.bovedaCifras()).toBeNull();
+    });
+
+    it('con una pierna > 0 publica el objeto entero, con su conteo', () => {
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 0, gastos: 5070, movimientos: 1 } }) });
+      expect(comp.bovedaCifras()).toEqual({ ingresos: 0, gastos: 5070, movimientos: 1 });
+    });
+
+    it('⛔ [negativa] el campo AUSENTE da «sin_medir», nunca null', () => {
+      // Una API vieja no manda `se_fue_a_boveda`. Devolver `null` acá apagaría el renglón igual
+      // que un cero, y los de arriba seguirían viniendo recortados SIN avisar: exactamente el
+      // defecto original, reintroducido por la vía del deploy parcial.
+      // ⚠️ Se parte de un arqueo que SÍ trae el campo y se le quita. Hacerlo desde el fixture
+      // base —que nunca lo tuvo— daría verde sin probar nada: la prueba tiene que ejercer la
+      // AUSENCIA, no coincidir con ella.
+      const conCampo = { ...ARQUEO.caja_general, se_fue_a_boveda: { ingresos: 0, gastos: 5070, movimientos: 1 } };
+      expect(conCampo.se_fue_a_boveda).toBeDefined();
+      const { se_fue_a_boveda: _omitido, ...sinCampo } = conCampo;
+      expect('se_fue_a_boveda' in sinCampo).toBe(false);
+      montar({ arqueoDia: vi.fn(() => of({ ...ARQUEO, caja_general: sinCampo })) });
+      expect(comp.boveda()).toBe('sin_medir');
+      expect(comp.bovedaCifras()).toBeNull();
+    });
+
+    it('⛔ [negativa] las dos piernas NO se suman en un total', () => {
+      // Un ingreso que se tragó la máquina y un gasto que salió de ella van en sentidos
+      // contrarios: un total único los compensaría y volvería a esconder el recorte. Cada
+      // pierna viaja por su lado y corrige SU renglón.
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 5070, gastos: 5070, movimientos: 2 } }) });
+      const b = comp.bovedaCifras()!;
+      expect(b.ingresos).toBe(5070);
+      expect(b.gastos).toBe(5070);
     });
   });
 
