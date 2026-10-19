@@ -236,10 +236,10 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   // ── [MCP.3.1] Sucursal: los pedidos de la app, en esta misma pantalla ─────────────────
 
-  it('⭐ sólo dos orígenes: Telemarketing y Sucursal (ya no hay "Todos", que mezclaba)', async () => {
+  it('⭐ sólo dos orígenes, Sucursal primero (ya no hay "Todos", que mezclaba)', async () => {
     await montar();
     const chips = Array.from(el().querySelectorAll('.sr-chip')).map((b) => b.textContent?.trim());
-    expect(chips).toEqual(['Telemarketing', 'Sucursal']);
+    expect(chips).toEqual(['Sucursal', 'Telemarketing']);
     expect(c.origen()).toBe('TELEMARK');
   });
 

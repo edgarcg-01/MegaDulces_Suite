@@ -608,8 +608,9 @@ export class AlmacenSurtirComponent implements OnInit {
 
   readonly plural = plural;
   readonly origenes: ReadonlyArray<{ v: Origen; l: string }> = [
-    { v: 'TELEMARK', l: 'Telemarketing' },
+    // [MCP.3.2] Sucursal primero (decisión de David, 2026-10-19): es lo que surte la sucursal.
     { v: 'SUCURSAL', l: 'Sucursal' },
+    { v: 'TELEMARK', l: 'Telemarketing' },
   ];
   readonly dias: ReadonlyArray<{ v: PresalePickBucket; l: string }> = [
     { v: 'hoy', l: 'Hoy' },
