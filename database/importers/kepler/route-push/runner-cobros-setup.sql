@@ -240,3 +240,22 @@ CREATE TRIGGER tg_route_collections_stg_merge
   AFTER INSERT ON ingest.route_collections_stg
   FOR EACH STATEMENT
   EXECUTE FUNCTION ingest.tg_route_collections_stg_merge();
+
+
+-- =============================================================================
+-- [CGA-A.22] EL PERMISO QUE FALTABA PARA QUE PROD LEA ESTA TABLA EN VIVO.
+--
+-- Medido el 2026-10-19: el servidor FDW `runner_rutas` de prod entra con el rol
+-- `prod_fdw_ro`, que YA tenia USAGE en `mart` y SELECT sobre `mart.existencias_ruta`
+-- -- pero nadie le dio `mart.cobros_ruta` cuando se creo. El sintoma no es un
+-- error de conexion sino:
+--
+--     ERROR: permission denied for table cobros_ruta
+--     CONTEXT: remote SQL command: SELECT count(*) FROM mart.cobros_ruta
+--
+-- ⚠️ Es el tipo de hueco que no se ve hasta que alguien USA la tuberia: el
+-- servidor existia desde antes con CERO tablas foraneas, asi que el permiso que
+-- le faltaba nunca se ejercio.
+-- =============================================================================
+GRANT USAGE ON SCHEMA mart TO prod_fdw_ro;
+GRANT SELECT ON mart.cobros_ruta TO prod_fdw_ro;
