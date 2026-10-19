@@ -890,6 +890,8 @@ export interface ConsolidadoLinea {
   destinos: string[];
   /** En cuántas órdenes aparece. */
   ordenes: number;
+  /** `[OC.4]` Los folios de esas órdenes. La liga que la consolidación borra, para el CSV. */
+  folios?: string[];
 }
 export interface ConsolidadoProveedor {
   supplier: { id: string; code: string | null; name: string };

@@ -15,6 +15,7 @@ import { ComprasService, PurchaseOrderRow, PurchaseOrderEstado, OrdenesPorProvee
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { generarOrdenProveedorPdf } from '../orden-proveedor-pdf';
+import { descargarCsvPedidoProveedor } from '../orden-proveedor-csv';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -75,10 +76,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <td class="oc-muted">{{ g.mas_vieja | date:'dd/MM/yy' }}</td>
               <td class="oc-muted">{{ g.proxima_entrega ? (g.proxima_entrega | date:'dd/MM/yy') : '—' }}</td>
               <td class="oc-r">
-                <button pButton type="button" class="p-button-sm p-button-text" [disabled]="imprimiendo() === g.supplier_id"
+                <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!!bajando()"
                         (click)="imprimir(g)" [title]="'Imprime en un solo papel todo lo que falta pedirle a ' + g.supplier_name">
-                  <span class="p-button-icon p-button-icon-left pi" [class.pi-print]="imprimiendo() !== g.supplier_id" [class.pi-spinner]="imprimiendo() === g.supplier_id" aria-hidden="true"></span>
+                  <span class="p-button-icon p-button-icon-left pi" [class.pi-print]="bajando() !== g.supplier_id + ':pdf'" [class.pi-spinner]="bajando() === g.supplier_id + ':pdf'" aria-hidden="true"></span>
                   <span class="p-button-label">Imprimir pedido</span>
+                </button>
+                <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!!bajando()"
+                        (click)="descargarCsv(g)" [title]="'El mismo pedido en CSV, con los folios de origen por renglon, para trabajarlo en Excel'">
+                  <span class="p-button-icon p-button-icon-left pi" [class.pi-file-excel]="bajando() !== g.supplier_id + ':csv'" [class.pi-spinner]="bajando() === g.supplier_id + ':csv'" aria-hidden="true"></span>
+                  <span class="p-button-label">CSV</span>
                 </button>
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="verDocumentos(g)"
                         [title]="'Ver las ' + g.ordenes + ' orden(es) de ' + g.supplier_name">
@@ -182,7 +188,9 @@ export class ComprasOrdenesComponent implements OnInit {
   grupos = signal<OrdenesPorProveedorRow[]>([]);
   loadingGrupos = signal(false);
   errorGrupos = signal(false);
-  imprimiendo = signal<string | null>(null);
+  /** Qué se está bajando ahora mismo: `<supplier_id>:pdf|csv`. Uno a la vez: los dos botones
+   *  piden el mismo consolidado y dos descargas simultáneas podrían no coincidir. */
+  bajando = signal<string | null>(null);
   private readonly proveedores = signal<{ id: string; name: string; code?: string | null }[]>([]);
   readonly proveedorOpts = computed(() => this.proveedores()
     .map((s) => ({ label: s.code ? `${s.code} · ${s.name}` : s.name, value: s.id })));
@@ -234,35 +242,45 @@ export class ComprasOrdenesComponent implements OnInit {
     this.setVista('documento');
   }
 
+  /** `[OC.3]` El pedido completo del proveedor, en un papel para mandar. */
+  imprimir(g: OrdenesPorProveedorRow): void { this.bajar(g, 'pdf'); }
+
+  /** `[OC.4]` El MISMO pedido en CSV, para trabajarlo. Lleva además los folios por renglón. */
+  descargarCsv(g: OrdenesPorProveedorRow): void { this.bajar(g, 'csv'); }
+
   /**
-   * `[OC.3]` **El pedido completo del proveedor, en un papel.**
+   * `[OC.3]`/`[OC.4]` **Una sola llamada al servidor para los dos formatos.**
    *
-   * Pide el consolidado al servidor —una llamada, no una por orden— y dibuja el PDF. Si el
-   * proveedor no tiene nada pendiente se DICE, en vez de bajar un papel en blanco.
+   * El PDF y el CSV salen del MISMO consolidado a propósito: si cada botón pidiera lo suyo, dos
+   * descargas hechas con segundos de diferencia podrían no coincidir, y nadie sabría cuál de los
+   * dos papeles creer. Si el proveedor no tiene nada pendiente se DICE, en vez de bajar un
+   * archivo en blanco.
    */
-  imprimir(g: OrdenesPorProveedorRow): void {
-    if (this.imprimiendo()) return;
-    this.imprimiendo.set(g.supplier_id);
+  private bajar(g: OrdenesPorProveedorRow, formato: 'pdf' | 'csv'): void {
+    if (this.bajando()) return;
+    this.bajando.set(`${g.supplier_id}:${formato}`);
     this.api.consolidadoProveedor(g.supplier_id, this.fEstado || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: async (c) => {
           try {
             if (!c.lineas.length) {
-              this.toast.add({ severity: 'warn', summary: 'Nada que imprimir', detail: `${g.supplier_name} no tiene renglones pendientes con este filtro.` });
+              this.toast.add({ severity: 'warn', summary: 'Nada que descargar', detail: `${g.supplier_name} no tiene renglones pendientes con este filtro.` });
               return;
             }
-            await generarOrdenProveedorPdf({
+            const data = {
               emitido: new Date(),
               elaboro: this.auth.user()?.username || 'sistema',
               proveedor: { code: c.supplier.code, name: c.supplier.name },
               ordenes: c.ordenes.map((o) => ({ folio: o.folio, warehouse_code: o.warehouse_code, expected_date: o.expected_date })),
               filas: c.lineas,
               totales: { cantidad: Number(c.totales.cantidad) || 0, pendiente: Number(c.totales.pendiente) || 0, importe: Number(c.totales.importe) || 0 },
-            });
-          } finally { this.imprimiendo.set(null); }
+            };
+            if (formato === 'csv') descargarCsvPedidoProveedor(data);
+            else await generarOrdenProveedorPdf(data);
+          } finally { this.bajando.set(null); }
         },
         error: () => {
-          this.imprimiendo.set(null);
+          this.bajando.set(null);
           this.toast.add({ severity: 'error', summary: 'No se pudo armar el pedido', detail: 'El servidor no devolvió el consolidado. Reintenta.' });
         },
       });
