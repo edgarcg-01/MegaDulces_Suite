@@ -601,7 +601,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⭐ [CGA-A.15] La ruta. Mismo par color/tamano que .cg-fila-doc, que YA paso la auditoria
        de contraste AA sobre el fondo vivo de prod (ver el bloque de arriba): se reusa en vez de
        elegir un color nuevo que habría que volver a medir. */
-    .cg-fila-ruta { display:block; color:var(--text-muted); font-size:var(--fs-nano); font-weight:600; }
+    /* El concepto del ERP puede ser largo: se recorta con elipsis, igual que el nombre de la
+       contraparte. Se recorta en CSS y no en TS a proposito -- asi no se pierde texto, se
+       adapta al ancho real de la celda, y la ficha de la fila sigue teniendo el concepto entero. */
+    .cg-fila-ruta { display:block; color:var(--text-muted); font-size:var(--fs-nano); font-weight:600;
+                    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
        Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
        p-highlight ni del contraste de un fondo solo. */
@@ -2678,11 +2682,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          la bandeja mostraba una pila de CONTADO + U-A-5 0000014 identicas y el
                          folio no desempata: es consecutivo POR UNIDAD, asi que se repite entre
                          rutas el mismo dia (la causa de GOTCHAS §86).
-                         No se pinta salvo que la vista lo AFIRME. null no es "no se sabe":
-                         es un cobro de MOSTRADOR, donde CONTADO es el cliente de verdad -- 36 de
-                         136 medidos el 19-oct. Inventarles una ruta seria peor que no decir nada. -->
-                    @if (p.ruta) {
-                      <small class="cg-fila-ruta">{{ etiquetaRuta(p.ruta) }}</small>
+                         La ruta solo se pinta si la vista la AFIRMA. Cuando no la afirma NO se
+                         inventa: se cae al concepto del ERP, que dice de donde viene con sus
+                         propias palabras (VENTAS 16-10-2026 RV CANDY Y DON RAFA). Solo en las
+                         filas cuya contraparte no dice nada -- CONTADO generico. -->
+                    @if (procedencia(p); as proc) {
+                      <small class="cg-fila-ruta">{{ proc }}</small>
                     }
                     <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
                          identico en cada renglon y convertia la tabla en un muro naranja donde el
@@ -5033,6 +5038,39 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * nueva con otro patrón de nombre tiene que **verse**, igual que hace `motivoCorto` con una
    * clave que el servidor empiece a mandar.
    */
+  /**
+   * ⭐⭐ `[CGA-A.15b]` **De dónde viene el movimiento, con lo que se puede PROBAR.**
+   *
+   * Tres escalones, en orden de fuerza — y ninguno inventa:
+   *
+   *  1. **La ruta**, si la vista la afirma. Sale de la procedencia del renglón
+   *     (`analytics.route_collections.truck`), no de cómo se ve el código de sucursal.
+   *  2. **El concepto del ERP**, si no hay ruta. Dice de dónde viene con sus propias palabras:
+   *     `VENTAS 16-10-2026 RV CANDY Y DON RAFA`, `DEPOSITO EFECTIVO BBVA 4176 CAJA GENERAL`.
+   *  3. **Nada.** Una fila sin procedencia demostrable se queda callada.
+   *
+   * ⚠️ **`ruta` nula NO significa «no es ruta».** Significa «no se puede probar por procedencia».
+   * Medido el 2026-10-19: de los 36 cobros `CONTADO` que no vienen de camioneta, los de la
+   * sucursal `01` son **vecinales** (`RV CANDY Y DON RAFA`) — rutas de verdad, que entran por
+   * el carril del ODS. Confundir «no demostrable» con «no es» es cómo se pierde media verdad.
+   *
+   * ⛔ **Por qué no se traduce la sucursal a un nombre.** `analytics.caja_sucursales_catalog`
+   * existe, pero está **duplicado y es de departamentos, no de plazas**: la sucursal `01`
+   * devuelve «Sistemas» *y* «Departamento»; la `03`, «Compras» *y* «Mercadotecnia». Usarlo
+   * pondría una etiqueta confiada y equivocada al lado de una correcta, que es peor que el
+   * silencio. Arreglar ese catálogo va aparte.
+   *
+   * ⚠️ Sólo se ofrece donde la contraparte **no dice nada** (`CONTADO` genérico). Donde hay un
+   * beneficiario real —un proveedor, un cliente con nombre— la fila ya se explica sola y
+   * agregarle el concepto sería ruido en 13 mil renglones.
+   */
+  procedencia(p: MovimientoPendiente): string {
+    if (p.ruta) return this.etiquetaRuta(p.ruta);
+    const nom = (p.beneficiario || p.entidad_code || '').trim().toUpperCase();
+    if (nom !== 'CONTADO') return '';
+    return (p.concepto || '').trim();
+  }
+
   etiquetaRuta(r: string): string {
     return r.split(' · ').map((u) => {
       const m = /^ruta_(\w+)$/i.exec(u.trim());
