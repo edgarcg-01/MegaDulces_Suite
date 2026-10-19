@@ -255,8 +255,25 @@ limpieza.
 
 ## OPS.LIMPIEZA.8 — `prod-registry` y `prod-backup` de Compose a k3s
 
-**Estado: PREPARADO, sin aplicar** (2026-10-19). Los manifiestos están escritos y validados, y el
-corte se hace a mano, fuera de horario hábil (regla 9).
+**Estado: CORTADO el 2026-10-19 ~15:58–16:00; falta la noche de verificación (paso C).**
+Lo corrió una persona en `md` (el control de permisos bloquea a Claude), paso a paso, con la
+verificación de cada uno:
+
+| Paso | Resultado |
+|---|---|
+| 0 | `api` sin despliegue en curso, 0 pods `Pending`. Registro con 8 repositorios. `trade-prod-backup:base-7fee9ed6c22a` subida (`sha256:c9d14dbf…`) |
+| A1 | `registry:2` precargada en containerd (`26b2eb03618e7`, 10.1 MB) |
+| A2 | `prod-registry` detenido con `restart=no` · pod `registry` `Running` · el `_catalog` devuelve los **mismos 8 repositorios** · sólo él escucha en `127.0.0.1:5000` · el manifiesto de `trade-prod-api:7f5718334` responde HTTP 200 |
+| A3 | `crictl pull` (prueba negativa con el viejo apagado): **resultado no registrado** |
+| B | `prod-backup` detenido con `restart=no` · pod `backup` `Running` · agenda 22:00/23:30 intacta · `pgbackrest --stanza=prod check` → WAL `00000001000001A90000001E` archivado, *completed successfully* |
+
+**Después del corte, el Docker de `md` sólo tiene herramientas** (`sonar-server`, `sonar-db`,
+`obs-netdata`): ya no queda ningún contenedor de producción en Compose.
+
+**Antes del corte** (se deja como estaba escrito): los manifiestos estaban escritos y validados,
+y el corte se hacía a mano, fuera de horario hábil (regla 9). Se hizo a las 16:00 de un lunes,
+con decisión del PM: el registro deja ~1 min sin poder bajar imágenes, y se verificó antes que
+no hubiera despliegue en curso ni pods `Pending`.
 
 | Archivo | Qué es |
 |---|---|
