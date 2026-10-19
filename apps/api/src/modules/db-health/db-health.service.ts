@@ -785,6 +785,60 @@ const APP_SOURCES: SourceCfg[] = [
                                   || string_agg(route_code, ', ' ORDER BY route_code) FROM ret), '') AS note_extra`,
     warnH: 3, critH: 8, cadence: 'intradía ~1h (feeds de ruta en intraday) + respaldo nightly',
   },
+  // `[RD.72]` ⭐⭐ **La camioneta sube todos los días y lo que sube no tiene fechas nuevas.**
+  //
+  // Medido el 2026-10-19 a las 15:45: el push de la ruta **504** había corrido **26 minutos
+  // antes** (15:19) y el día más nuevo que traía era el **1 de octubre**. Reescribió el 30-sep y
+  // el 1-oct —su `imported_at` pasó de 10-01 a 10-19— sin un solo día nuevo. **18 días**, y
+  // **cero filas** en la quincena que cierra el 21. El 501 va por el mismo camino: 5 días.
+  //
+  // ⛔ Ningún sensor podía verlo, y no por falta de sensores:
+  //   · un latido de `cron_runs` está VERDE y **tiene razón**: el job corre puntual cada hora;
+  //   · `route_sales` (arriba) mide la ruta más rezagada —ya resolvió el eje "qué ruta"— pero
+  //     sobre `sales_by_route_monthly`, que es un rollup **MENSUAL**: su columna `month` vale
+  //     `2026-10-01` para las quince rutas, así que **no tiene grano de día** y no puede
+  //     distinguir una ruta que vendió ayer de una pegada hace 18 días.
+  //
+  // ⭐ O sea que el eje que falta no es *qué ruta*, es **qué reloj**: la fecha del DATO
+  // (`business_date`) contra la fecha de la CARGA (`imported_at`). Un UPSERT que escribe
+  // `now()` deja la segunda siempre fresca aunque la primera esté congelada.
+  //
+  // ⚠️ **Las dos de fuente MUERTA quedan fuera del veredicto, y NO escondidas.** Con la 321
+  // (139 d) y la 322 (110 d) adentro, esta fila viviría en rojo para siempre por dos rutas que
+  // son una decisión pendiente de Dirección, no una falla de ingesta — y una alarma que grita
+  // siempre se aprende a ignorar (es lo que midió `[RD.53]`, y el mismo criterio que usa
+  // `route_sales` con sus retiradas). Van nombradas en la nota, con sus días (ADR-056).
+  //
+  // Umbrales fijados por el HUECO del dato, no por el pulgar. Distribución real de la edad del
+  // día más nuevo, que es lo que `classify()` mira: las nueve rutas normales entre **16 y 64 h**
+  // (64 h = vendió el viernes, hoy domingo), el 501 resbalando en **136 h**, el 504 pegado en
+  // **448 h**. `warnH: 96` cae en el hueco limpio entre 64 y 136; `critH: 192` entre 136 y 448.
+  // Costo medido en prod: **24 ms**.
+  {
+    key: 'rd_route_push_dia',
+    label: 'Ruta Directa — el DÍA que trae el push (no la hora en que subió)',
+    table: 'analytics.v_rd_commission_universe', tsCandidates: [],
+    sql: `WITH vivas AS (
+              SELECT route_code, ultimo_dia_con_dato, dias_sin_dato
+                FROM analytics.v_rd_commission_universe
+               WHERE comisiona AND fuente_estado <> 'muerta'
+            ), muertas AS (
+              SELECT string_agg(route_code || ' (' || dias_sin_dato || 'd)', ', '
+                                ORDER BY dias_sin_dato DESC) AS t, count(*)::int AS n
+                FROM analytics.v_rd_commission_universe
+               WHERE comisiona AND fuente_estado = 'muerta'
+            )
+            SELECT min(v.ultimo_dia_con_dato)::timestamp AS last_update,
+                   'la mas rezagada de ' || count(*)::text || ' que comisionan con fuente viva: '
+                     || coalesce((SELECT route_code FROM vivas ORDER BY ultimo_dia_con_dato LIMIT 1), '—')
+                     || ' (' || coalesce((SELECT max(dias_sin_dato) FROM vivas)::text, '?') || ' dias sin un dia nuevo)'
+                     || CASE WHEN (SELECT n FROM muertas) > 0
+                             THEN ' · ' || (SELECT n FROM muertas)::text
+                                  || ' fuera de la alarma por fuente MUERTA: ' || (SELECT t FROM muertas)
+                             ELSE '' END AS note_extra
+              FROM vivas v`,
+    warnH: 96, critH: 192, cadence: 'intradía ~1h (push de camionetas, :18 de cada hora)',
+  },
 ];
 
 const EXT_SOURCES: ExtCfg[] = [
