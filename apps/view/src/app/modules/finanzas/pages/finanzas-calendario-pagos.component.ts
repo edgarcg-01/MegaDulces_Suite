@@ -22,6 +22,7 @@ import type {
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -50,6 +51,14 @@ interface Obligation {
   pronto_fecha_limite?: string | null;
   pronto_beneficio?: number | null;
   pronto_estado?: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
+  /**
+   * `[TP.20.5]` **El ref de la ficha de esta factura.** Lo arma el backend, que es el único que
+   * conoce la clave natural del documento de Kepler. Viene `null` en los orígenes que no tienen
+   * documento detrás (un gasto presupuestado, un compromiso financiero) y en una obligación
+   * capturada a la que nadie le anotó el folio del ERP: ahí no hay ficha que abrir y el nombre
+   * **no se pinta como enlace**, que es la única forma honesta de decirlo.
+   */
+  entity_ref?: string | null;
 }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
 /**
@@ -105,12 +114,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
     <app-pagos-tabs />
     <div class="surf-page in cal-page">
+      <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
       <header class="surf-page-head cal-head">
         <div class="surf-page-head-text">
@@ -218,7 +228,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               } @else if (r.kind === 'item') {
                 <tr class="cal-grp-item" [class.cal-row-critical]="r.o.is_critical">
                   <td class="cal-c-name">
-                    <div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div>
+                    <!-- [TP.20.5] La factura abre su FICHA: deuda + ventana + lo programado +
+                         el pago que la liquido + su comprobante, sin salir de aqui. -->
+                    @if (r.o.entity_ref) {
+                      <button type="button" class="cal-item-concept cal-reflink" [title]="'Ver la ficha completa de ' + r.o.concept"
+                              (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}</button>
+                    } @else {
+                      <div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div>
+                    }
                     <!-- [TP.20.4] La urgencia del DESCUENTO, aqui y no en una columna nueva: esta
                          tabla es un panel estrecho de cuatro columnas y tres mas la romperian.
                          Solo aparece cuando hay algo que ganar; lo demas no dice nada. -->
@@ -240,7 +257,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <tr [class.cal-row-critical]="r.critical">
                   <td class="cal-c-name">
                     <div class="cal-benef" [title]="r.o.beneficiary">@if (r.critical) { <i class="pi pi-flag cal-crit-flag" aria-label="Crítico"></i> }{{ r.o.beneficiary }}</div>
-                    <div class="cal-concept" [title]="r.o.concept"><span class="cal-suc">{{ branchLabel(r.o.branch_code) }}</span> {{ r.o.concept }}</div>
+                    <div class="cal-concept" [title]="r.o.concept"><span class="cal-suc">{{ branchLabel(r.o.branch_code) }}</span>
+                      @if (r.o.entity_ref) {
+                        <button type="button" class="cal-reflink" [title]="'Ver la ficha completa de ' + r.o.concept"
+                                (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}</button>
+                      } @else { {{ r.o.concept }} }
+                    </div>
                   </td>
                   <td class="cal-c-due cal-mono" [class.cal-overdue]="isOverdue(vence(r.o))">{{ shortDate(vence(r.o)) }}@if (r.o.negotiated_date) { <span class="cal-muted" aria-label="fecha renegociada">*</span> }</td>
                   <td class="comm-num cal-c-amt">{{ money(r.o.available_amount) }}</td>
@@ -527,6 +549,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-top:.15rem;
       font-size: var(--fs-xs); color: var(--text-muted); }
     .cal-pp-urge { color: var(--warn-fg); font-weight: 600; }
+    /* [TP.20.5] La factura es un enlace a su ficha. No se pinta de color en reposo: en una
+       lista densa, 2,900 enlaces azules son ruido; el afordance aparece al pasar y al foco. */
+    .cal-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0;
+      font:inherit; text-align:left; }
+    .cal-reflink:hover { color: var(--action); text-decoration: underline; }
+    .cal-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cal-neg { color:var(--bad-fg); }
@@ -658,6 +686,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   `],
 })
 export class FinanzasCalendarioPagosComponent implements OnInit {
+  /**
+   * `[TP.20.5]` El ref abierto en la ficha. El propio panel lo publica en la URL (`?ref=`), así
+   * que una factura se puede pegar en un chat y el otro abre exactamente el mismo documento.
+   */
+  readonly inspect = signal<string | null>(null);
+
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

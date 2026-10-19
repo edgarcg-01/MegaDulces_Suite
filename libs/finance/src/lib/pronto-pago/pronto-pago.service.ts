@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
-import { PRONTO_PAGO_MIN_OBS, PRONTO_PAGO_DIAS_AVISO } from '../shared/pronto-pago-ventana';
+import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
+import { PRONTO_PAGO_MIN_OBS, PRONTO_PAGO_DIAS_AVISO, sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 
 /**
  * `[PP.1]` — **Lo que Tesorería todavía puede ganar, y hasta cuándo.**
@@ -42,11 +42,11 @@ import { PRONTO_PAGO_MIN_OBS, PRONTO_PAGO_DIAS_AVISO } from '../shared/pronto-pa
  */
 
 /** Mínimo de observaciones para publicar una ventana. Medido: con 3 se conserva el 99.7% del descuento. */
-/** [TP.20.4] Vive en shared/pronto-pago-ventana: el Calendario usa la MISMA. */
+/** [TP.20.4] Vive en @megadulces/contracts: el Calendario usa la MISMA. */
 const MIN_OBS = PRONTO_PAGO_MIN_OBS;
 
 /** Días antes del límite en que un renglón pasa a "por vencer". Es aviso, no regla de negocio. */
-/** [TP.20.4] Vive en shared/pronto-pago-ventana: el Calendario usa la MISMA. */
+/** [TP.20.4] Vive en @megadulces/contracts: el Calendario usa la MISMA. */
 const DIAS_AVISO = PRONTO_PAGO_DIAS_AVISO;
 
 export type EstadoPronto = 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
@@ -126,10 +126,7 @@ export class ProntoPagoService {
                  d.n_observaciones, d.dias_mediana, d.tasa_observada,
                  -- La fecha limite ESTIMADA. NULL cuando no hay ventana medible: sin esto, un
                  -- COALESCE a hoy pondria "vence hoy" sobre algo que nadie midio.
-                 CASE WHEN d.n_observaciones >= ${MIN_OBS} AND p.fecha IS NOT NULL
-                      THEN p.fecha + d.dias_mediana END AS fecha_limite,
-                 CASE WHEN d.n_observaciones >= ${MIN_OBS} AND d.tasa_observada IS NOT NULL
-                      THEN round(p.pendiente * d.tasa_observada, 2) END AS beneficio
+                 ${sqlVentanaProntoPago('p', 'd')}
             FROM analytics.v_supplier_payables p
             LEFT JOIN analytics.mv_supplier_prompt_discount d
                    ON d.proveedor_code = btrim(p.proveedor)
@@ -137,13 +134,12 @@ export class ProntoPagoService {
              AND btrim(p.proveedor) LIKE 'C%'
         ), clasificado AS (
           SELECT b.*,
-                 (b.fecha_limite - CURRENT_DATE) AS dias_restantes,
-                 CASE
-                   WHEN b.fecha_limite IS NULL                                 THEN 'sin_medir'
-                   WHEN b.fecha_limite <  CURRENT_DATE                         THEN 'fuera_de_ventana'
-                   WHEN b.fecha_limite <= CURRENT_DATE + ${DIAS_AVISO}         THEN 'por_vencer'
-                   ELSE 'capturable'
-                 END AS estado
+                 -- [TP.20.5] Los nombres que esta pantalla ya publicaba. El CÁLCULO ya no vive
+                 -- acá: lo decide sqlVentanaProntoPago() arriba, la misma que usa el Calendario.
+                 b.pronto_fecha_limite AS fecha_limite,
+                 b.pronto_beneficio    AS beneficio,
+                 b.pronto_estado       AS estado,
+                 (b.pronto_fecha_limite - CURRENT_DATE) AS dias_restantes
             FROM base b
         )
         SELECT estado,
@@ -176,10 +172,7 @@ export class ProntoPagoService {
                  -- proveedor da 6.3% a 26 días" y no muestra con qué lo sabe; quien paga no puede
                  -- decidir si confiar en el número ni cuándo ignorarlo.
                  d.dias_p90, d.descuento_12m,
-                 CASE WHEN d.n_observaciones >= ${MIN_OBS} AND p.fecha IS NOT NULL
-                      THEN p.fecha + d.dias_mediana END AS fecha_limite,
-                 CASE WHEN d.n_observaciones >= ${MIN_OBS} AND d.tasa_observada IS NOT NULL
-                      THEN round(p.pendiente * d.tasa_observada, 2) END AS beneficio,
+                 ${sqlVentanaProntoPago('p', 'd')},
                  -- [TP.18.3] CON QUE se programa esta factura en el Calendario (ADR-094).
                  -- Si Compras ya la capturo como entrega, manda esa obligacion (trae fecha
                  -- negociada y acuerdos); si no, va por la deuda DERIVADA con su llave
@@ -187,6 +180,11 @@ export class ProntoPagoService {
                  -- llave la genera la MISMA funcion: si cambia alla, cambia aca.
                  CASE WHEN o.id IS NOT NULL THEN 'supplier_payable' ELSE 'kepler_payable' END AS obligation_source,
                  coalesce(o.id, ${sqlKeplerPayableId('p')}) AS obligation_id,
+                 -- [TP.20.5] El ref de la FICHA de esta factura. Lo arma el backend (es la
+                 -- regla de la casa: el front sólo lo construye en un punto de entrada) y es
+                 -- lo que abre la vida completa del documento sin salir de la pantalla.
+                 'oblig:' || p.sucursal || '|' || p.doc_tipo || '|' || p.doc_sub
+                           || '|' || btrim(p.folio) AS entity_ref,
                  -- Lo ya comprometido en el Calendario: sin esto el boton ofreceria programar
                  -- de nuevo algo que ya tiene fecha, y el candado de saldo lo rechazaria DESPUES
                  -- del clic -- que es la peor forma de decir que no.
@@ -212,13 +210,12 @@ export class ProntoPagoService {
           SELECT b.*,
                  -- Lo que todavia se puede mandar al Calendario de esta factura.
                  greatest(b.pendiente - b.reservado - b.pagado, 0) AS programable,
-                 (b.fecha_limite - CURRENT_DATE) AS dias_restantes,
-                 CASE
-                   WHEN b.fecha_limite IS NULL                         THEN 'sin_medir'
-                   WHEN b.fecha_limite <  CURRENT_DATE                 THEN 'fuera_de_ventana'
-                   WHEN b.fecha_limite <= CURRENT_DATE + ${DIAS_AVISO} THEN 'por_vencer'
-                   ELSE 'capturable'
-                 END AS estado
+                 -- [TP.20.5] Los nombres que esta pantalla ya publicaba. El CÁLCULO ya no vive
+                 -- acá: lo decide sqlVentanaProntoPago() arriba, la misma que usa el Calendario.
+                 b.pronto_fecha_limite AS fecha_limite,
+                 b.pronto_beneficio    AS beneficio,
+                 b.pronto_estado       AS estado,
+                 (b.pronto_fecha_limite - CURRENT_DATE) AS dias_restantes
             FROM base b
         )
         SELECT * FROM clasificado
@@ -299,6 +296,8 @@ export class ProntoPagoService {
            */
           obligation_source: r.obligation_source as 'supplier_payable' | 'kepler_payable',
           obligation_id: r.obligation_id as string,
+          /** `[TP.20.5]` Abre la ficha de la factura: deuda + ventana + programación + pago. */
+          entity_ref: r.entity_ref as string,
           reservado: num(r.reservado),
           pagado: num(r.pagado),
           /** Lo que todavía se puede mandar al Calendario: `pendiente − reservado − pagado`. */

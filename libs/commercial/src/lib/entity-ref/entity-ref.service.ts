@@ -1,6 +1,8 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, Permission } from '@megadulces/platform-core';
 import { EntityKind, RefField, RefRelation, RefResult, makeRef, parseRef } from './entity-ref.types';
+import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
+import { sqlVentanaProntoPago, PRONTO_PAGO_MIN_OBS } from '@megadulces/contracts/finance/pronto-pago-ventana';
 
 /**
  * Resolvedor universal de referencias — el backend de "todo es clickeable".
@@ -31,11 +33,14 @@ const KIND_PERMS: Record<EntityKind, string[]> = {
   prov: [Permission.COMPRAS_PROVEEDORES_VER, Permission.COMPRAS_360_VER, Permission.COMPRAS_ENTRADAS_VER],
   sku: [Permission.COMPRAS_360_VER, Permission.COMPRAS_ENTRADAS_VER],
   pdoc: [Permission.COMPRAS_360_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_ORDENES_VER],
+  // La ficha publica el pendiente, lo programado y el comprobante: es Tesorería, no Compras.
+  oblig: [Permission.FINANCE_PAYMENTS_VER],
 };
 
 const KIND_LABEL: Record<EntityKind, string> = {
   ent: 'Orden de entrada', lin: 'Renglón', adj: 'Ajuste de compra',
   pay: 'Pago a proveedor', prov: 'Proveedor', sku: 'Producto', pdoc: 'Documento de compra',
+  oblig: 'Factura por pagar',
 };
 
 /** Los dos papeles de arriba de la cadena, que ahora SÍ tienen documento detrás. */
@@ -43,8 +48,63 @@ const PDOC_LABEL: Record<string, string> = { XA3501: 'Orden de compra', XA3701: 
 
 /** Ventana (días) para los vínculos que Kepler no codifica y hay que estimar. */
 const HEURISTIC_WINDOW = 30;
+/** `[TP.20.5]` El id derivado de la factura, con el alias de la subconsulta de la ficha. */
+const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
+
 /** Tope de filas por bloque de relaciones — el panel es para orientarse, no para exportar. */
 const REL_LIMIT = 20;
+
+/**
+ * `[TP.20.5]` Las filas que lee la ficha de la obligación. Son los nombres que devuelve cada
+ * consulta, no un contrato de API: viven acá porque son el único lugar donde se leen. Los
+ * `numeric` de Postgres llegan como **string** por el driver — por eso `number | string` y
+ * por eso todo importe pasa por `n()` antes de publicarse.
+ */
+type Num = number | string | null;
+
+/**
+ * El constructor de consultas que recibe cada resolvedor. ⚠️ Es `any` HEREDADO: los otros ocho
+ * resolvedores de este archivo lo declaran así desde antes y cambiarlo acá partiría la firma. Se
+ * le pone nombre para que la deuda se vea y se pueda buscar, no para disimularla.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TrxLike = any;
+
+interface FilaFicha {
+  sucursal: string; proveedor: string; proveedor_nombre: string | null; grupo: string | null;
+  doc_tipo: Num; doc_sub: Num; folio: string;
+  importe: Num; aplicado: Num; pendiente: Num;
+  vencido: boolean | null; dias_vencido: Num; anterior_al_corte: boolean | null;
+  n_observaciones: Num; tasa_observada: Num; dias_mediana: Num;
+  obligation_id: string;
+  pronto_beneficio: Num; pronto_estado: string | null;
+  fecha_txt: string | null; vencimiento_txt: string | null; pronto_fecha_limite_txt: string | null;
+}
+
+interface FilaAplicacion {
+  pago_doctipo: string; pago_folio: string; pago_sucursal: string;
+  pago_fecha: string | null; aplicado: Num;
+}
+
+interface FilaPagoEspejo {
+  sucursal: string; folio: string; doc_prefix: string;
+  monto: Num; metodo_pago: string | null; medio_pago: string | null; pago_date: string | null;
+}
+
+interface FilaLiquidada {
+  doc_tipo: Num; doc_sub: Num; folio: string; aplicado: Num; con_saldo: boolean | null;
+}
+
+interface FilaObligacionCapturada { id: string; status: string }
+
+interface FilaProgramada {
+  applied_amount: Num; status: string; payment_method: string | null; allocation_folio: string | null;
+  kepler_payment_sucursal: string | null; kepler_payment_doc_prefix: string | null;
+  kepler_payment_folio: string | null;
+  lot_status: string | null; released_by: string | null; lot_date: string | null;
+}
+
+interface FilaComprobante { folio: string; status: string; ocr_referencia: string | null }
 
 export interface RefCaller {
   /** Mapa fresco de permisos del rol (lo adjunta RolesGuard al request). */
@@ -105,6 +165,7 @@ export class EntityRefService {
         case 'pay': return this.pago(trx, tenantId, parts[0], parts[1], parts[2]);
         case 'prov': return this.proveedor(trx, tenantId, parts[0]);
         case 'pdoc': return this.purchaseDoc(trx, tenantId, parts[0], parts[1], parts[2]);
+        case 'oblig': return this.obligacion(trx, tenantId, parts[0], parts[1], parts[2], parts[3]);
         default: return this.producto(trx, tenantId, parts[0]);
       }
     });
@@ -383,6 +444,58 @@ export class EntityRefService {
     const relations: RefRelation[] = [];
     const notes = ['Kepler no liga el pago a la recepción. Las entradas de abajo son las del mismo proveedor en la ventana previa — candidatas, no confirmadas.'];
 
+    /**
+     * `[TP.20.5]` **Lo que este pago liquidó — estructural, no estimado.**
+     *
+     * Las entradas de abajo son una ESTIMACIÓN por proveedor+ventana, y así se declara. Esto es
+     * lo contrario: `kepler_ods.kdxf` es la tabla con la que el ERP aplica un pago contra un
+     * documento, así que el vínculo lo pone Kepler, no nosotros. Es además la misma tabla que
+     * alimenta el `aplicado` de `v_supplier_payables`, o sea que el panel y el saldo no pueden
+     * discrepar.
+     *
+     * ⚠️ El doctype sale del prefijo (`XD2601` → `26`) porque kdxf guarda el número, no el
+     * prefijo. Si mañana entra un prefijo con otra forma, esto deja de ligar en silencio — por
+     * eso la nota de abajo distingue "sin aplicaciones" de "no se pudo".
+     *
+     * ⛔ `con_saldo` existe porque la vista de cuentas por pagar **sólo publica documentos con
+     * saldo > 0.005**: una factura que este pago liquidó por completo ya no está ahí. Enlazarla
+     * daría un 404 al hacer clic, y un enlace muerto es peor que ningún enlace — así que esas se
+     * CUENTAN en la nota en vez de pintarse.
+     */
+    const liquidadas: FilaLiquidada[] = await trx
+      .select(
+        trx.raw('f.c7 AS doc_tipo'), trx.raw('f.c8 AS doc_sub'), trx.raw('btrim(f.c9) AS folio'),
+        trx.raw('sum(f.c10) AS aplicado'),
+        trx.raw(
+          `bool_or(EXISTS (SELECT 1 FROM analytics.v_supplier_payables v
+                            WHERE v.tenant_id = ? AND v.sucursal = f.sucursal AND v.doc_tipo = f.c7
+                              AND v.doc_sub = f.c8 AND btrim(v.folio) = btrim(f.c9))) AS con_saldo`,
+          [tenantId],
+        ),
+      )
+      .from('kepler_ods.kdxf as f')
+      .whereRaw('btrim(f.c1) = f.sucursal')
+      .andWhere('f.sucursal', sucursal)
+      .andWhereRaw('btrim(f.c4::text) = ? AND btrim(f.c6) = ?', [String(docPrefix).slice(2, 4), folio])
+      .groupByRaw('1, 2, 3')
+      .orderByRaw('4 DESC')
+      .limit(REL_LIMIT);
+    let saldadas = 0;
+    for (const d of liquidadas) {
+      if (d.con_saldo !== true) { saldadas++; continue; }
+      relations.push({
+        ref: makeRef('oblig', sucursal, d.doc_tipo, d.doc_sub, d.folio),
+        group: 'Facturas que liquidó (liga del ERP)',
+        label: `Factura ${d.folio}`, sub: `X-${d.doc_tipo}-${d.doc_sub}`, amount: n(d.aplicado),
+      });
+    }
+    if (saldadas) {
+      notes.push(`Otras ${saldadas} factura(s) que este pago aplicó ya quedaron saldadas y salieron de cuentas por pagar: el ERP las liga, pero no hay ficha viva que abrir.`);
+    }
+    if (!liquidadas.length) {
+      notes.push('Este pago no tiene aplicaciones registradas en kdxf: puede ser un anticipo sin aplicar.');
+    }
+
     if (p.proveedor_code) {
       relations.push({ ref: makeRef('prov', p.proveedor_code), group: 'Proveedor',
         label: p.proveedor_nombre || p.proveedor_code, sub: p.proveedor_rfc || p.proveedor_code });
@@ -414,6 +527,240 @@ export class EntityRefService {
         { label: 'Sucursal', value: p.sucursal, kind: 'mono' },
       ],
       relations, notes,
+    };
+  }
+
+  // -- Obligación: la vida completa de UNA factura por pagar -------------------
+  /**
+   * `[TP.20.5]` — **La factura, con todo lo que se sabe de ella, en un solo panel.**
+   *
+   * Las cuatro pantallas de Pagos hablan del MISMO sustantivo —la factura del proveedor— y cada
+   * una guarda un pedazo de su vida: *Pronto pago* sabe hasta cuándo conviene pagarla, el
+   * *Calendario* en qué día quedó programada y quién liberó ese día, *Pagos a proveedor* con qué
+   * documento de Kepler salió y qué comprobante la respalda. Para responder «¿ésta ya se pagó?»
+   * había que abrir tres pantallas y cruzarlas a ojo.
+   *
+   * ⭐ Esto **no fusiona las listas**: §23 de la fase TP midió que el Calendario agrupa por
+   * beneficiario y Pronto pago ordena por urgencia, y que fusionarlas rompe una de las dos. Lo
+   * que se unifica es el **registro**. Cada lista conserva su pregunta y su orden; lo que vive
+   * junto es la información de una factura.
+   *
+   * ⚠️ **El vínculo factura↔pago es ESTRUCTURAL, no estimado.** Sale de `kepler_ods.kdxf`, la
+   * tabla con la que el propio ERP aplica un pago contra un documento (`c4/c5/c6` = el pago,
+   * `c7/c8/c9` = la factura, `c10` = lo aplicado). No se cruza por monto+mes: ese cruce es
+   * exactamente el que produjo los $273 M indefendibles de `[PP.4]`.
+   *
+   * ⛔ `analytics.*` y `kepler_ods.*` NO tienen RLS → filtro `tenant_id` explícito donde la
+   * columna existe. `kepler_ods.kdxf` no la tiene: el alcance se lo da la factura, que sí se
+   * resolvió con tenant.
+   */
+  private async obligacion(
+    trx: TrxLike, tenantId: string, sucursal: string, docTipo: string, docSub: string, folio: string,
+  ): Promise<RefResult> {
+    // La ventana de pronto pago se envuelve en una subconsulta para poder `to_char` la fecha:
+    // pg devuelve `date` como objeto y al serializar a JSON se corre un día en MX.
+    const [v]: FilaFicha[] = await trx
+      .select(
+        'q.*',
+        trx.raw(`to_char(q.fecha,'YYYY-MM-DD') AS fecha_txt`),
+        trx.raw(`to_char(q.vencimiento,'YYYY-MM-DD') AS vencimiento_txt`),
+        trx.raw(`to_char(q.pronto_fecha_limite,'YYYY-MM-DD') AS pronto_fecha_limite_txt`),
+      )
+      .from(
+        trx.raw(
+          `(SELECT v.sucursal, v.proveedor, v.proveedor_nombre, v.grupo, v.doc_tipo, v.doc_sub, v.folio,
+                   v.fecha, v.vencimiento, v.importe, v.aplicado, v.pendiente, v.vencido, v.dias_vencido,
+                   v.anterior_al_corte, d.n_observaciones, d.tasa_observada, d.dias_mediana,
+                   ${KEPLER_PAYABLE_ID} AS obligation_id,
+                   ${sqlVentanaProntoPago('v', 'd')}
+              FROM analytics.v_supplier_payables v
+              LEFT JOIN analytics.mv_supplier_prompt_discount d ON d.proveedor_code = v.proveedor
+             WHERE v.tenant_id = ? AND v.sucursal = ? AND v.doc_tipo = ?::numeric
+               AND v.doc_sub = ?::numeric AND btrim(v.folio) = ?
+             LIMIT 1) AS q`,
+          [tenantId, sucursal, docTipo, docSub, folio],
+        ),
+      );
+
+    if (!v) {
+      // ⚠️ "No existe" y "ya no debe nada" son cosas distintas: la vista SOLO trae saldo > 0.005.
+      // Decirle "no existe" a una factura saldada sería dibujar un hecho falso.
+      throw new NotFoundException(
+        `La factura ${folio} (${sucursal}) no tiene saldo pendiente en Kepler, o no existe. ` +
+        `La vista de cuentas por pagar sólo publica documentos con saldo.`,
+      );
+    }
+
+    const relations: RefRelation[] = [];
+    const notes: string[] = [];
+    const badges: RefResult['badges'] = [{ text: `${sucursal}/${folio}`, tone: 'muted' }];
+
+    if (v.vencido === true) badges.push({ text: `Vencida ${n(v.dias_vencido)} d`, tone: 'danger' });
+    else if (v.vencido === false) badges.push({ text: 'Vigente', tone: 'ok' });
+
+    const VENTANA_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'muted' | 'info'> = {
+      capturable: 'ok', por_vencer: 'warn', fuera_de_ventana: 'muted', sin_medir: 'muted',
+    };
+    const VENTANA_TEXTO: Record<string, string> = {
+      capturable: 'Descuento capturable', por_vencer: 'Descuento por vencer',
+      fuera_de_ventana: 'Fuera de ventana', sin_medir: 'Ventana sin medir',
+    };
+    const estado = String(v.pronto_estado ?? 'sin_medir');
+    badges.push({
+      text: VENTANA_TEXTO[estado] ?? estado, tone: VENTANA_TONE[estado] ?? 'muted',
+      title: estado === 'sin_medir'
+        ? `Menos de ${PRONTO_PAGO_MIN_OBS} pagos observados con descuento para este proveedor: no se sabe, que no es lo mismo que no hay.`
+        : 'Ventana OBSERVADA (lo que de hecho funcionó), no pactada con el proveedor.',
+    });
+
+    const fields: RefField[] = [
+      { label: 'Proveedor', value: v.proveedor_nombre || v.proveedor, source: 'kdxd.c3' },
+      { label: 'Código', value: v.proveedor, kind: 'mono', source: 'kdxe.c2' },
+      { label: 'Documento', value: `${v.doc_tipo}-${v.doc_sub} ${v.folio}`, kind: 'mono', source: 'kdxe.c4/c5/c6' },
+      { label: 'Sucursal', value: v.sucursal, kind: 'mono' },
+      { label: 'Fecha', value: v.fecha_txt, kind: 'date', source: 'kdxe.c7' },
+      { label: 'Vence', value: v.vencimiento_txt, kind: 'date', source: 'kdxe.c10' },
+      { label: 'Importe', value: n(v.importe), kind: 'money', source: 'kdxe.c11' },
+      { label: 'Aplicado', value: n(v.aplicado), kind: 'money', source: 'Σ kdxf.c10 (pagos aplicados)' },
+      { label: 'Pendiente', value: n(v.pendiente), kind: 'money', source: 'importe − aplicado' },
+      { label: 'Límite de pronto pago', value: v.pronto_fecha_limite_txt, kind: 'date',
+        source: v.pronto_fecha_limite_txt ? `fecha + ${n(v.dias_mediana)} d (mediana observada)` : 'no medible' },
+      { label: 'Se gana si se paga antes', value: v.pronto_beneficio === null ? null : n(v.pronto_beneficio),
+        kind: 'money', source: `${n(v.n_observaciones)} observaciones` },
+    ];
+
+    // -- Lo que el ERP ya aplicó contra esta factura (kdxf) ------------------
+    const apl: FilaAplicacion[] = await trx
+      .select(
+        trx.raw(`btrim(f.c4::text) AS pago_doctipo`), trx.raw(`btrim(f.c6) AS pago_folio`),
+        trx.raw(`f.sucursal AS pago_sucursal`), trx.raw(`to_char(min(f.c3)::date,'YYYY-MM-DD') AS pago_fecha`),
+        trx.raw(`sum(f.c10) AS aplicado`),
+      )
+      .from('kepler_ods.kdxf as f')
+      .whereRaw('btrim(f.c1) = f.sucursal')
+      .andWhere('f.sucursal', sucursal)
+      .andWhereRaw('f.c7 = ?::numeric AND f.c8 = ?::numeric AND btrim(f.c9) = ?', [docTipo, docSub, folio])
+      .groupByRaw('1, 2, 3')
+      .orderByRaw('4');
+
+    // Sólo tres doctypes de pago tienen prefijo publicado en `analytics.erp_supplier_payments`.
+    // Los demás (X-D-55 nota de crédito, X-D-40 ajuste) existen en kdxf y NO son un pago con
+    // comprobante: se nombran, no se enlazan — un enlace muerto es peor que ningún enlace.
+    const PREFIJO_PAGO: Record<string, string> = { '25': 'XD2501', '26': 'XD2601', '60': 'XD6001' };
+    const ligables = apl.filter((a) => PREFIJO_PAGO[a.pago_doctipo]);
+    const pagos: FilaPagoEspejo[] = ligables.length
+      ? await trx('analytics.erp_supplier_payments')
+          .select('sucursal', 'folio', 'doc_prefix', 'monto', 'metodo_pago', 'medio_pago',
+            trx.raw(`to_char(pago_date,'YYYY-MM-DD') AS pago_date`))
+          .where({ tenant_id: tenantId, sucursal })
+          .whereIn('folio', ligables.map((a) => a.pago_folio))
+      : [];
+
+    const sinFicha: string[] = [];
+    for (const a of apl) {
+      const prefix = PREFIJO_PAGO[a.pago_doctipo];
+      const p = prefix ? pagos.find((x) => x.folio === a.pago_folio && x.doc_prefix === prefix) : null;
+      if (p) {
+        relations.push({
+          ref: makeRef('pay', p.sucursal, p.doc_prefix, p.folio), group: 'Pagos aplicados (Kepler)',
+          label: `Pago ${p.folio}`, sub: `${p.metodo_pago ?? 's/método'} · ${p.pago_date ?? ''}`.trim(),
+          amount: n(a.aplicado), date: p.pago_date,
+        });
+      } else {
+        sinFicha.push(`X-D-${a.pago_doctipo} ${a.pago_folio} (${a.pago_fecha ?? 's/f'}, ${money(n(a.aplicado))})`);
+      }
+    }
+    if (sinFicha.length) {
+      notes.push(
+        `Kepler aplicó ${sinFicha.length} documento(s) a esta factura que NO están en el espejo de ` +
+        `pagos a proveedor —son de otro tipo (nota de crédito X-D-55, ajuste X-D-40) o de un ` +
+        `acreedor que no es proveedor de mercancía—: ${sinFicha.join('; ')}. El importe ya está ` +
+        `restado del pendiente; lo que no hay es ficha de pago que abrir.`,
+      );
+    }
+    if (!apl.length && n(v.aplicado) > 0) {
+      notes.push('La factura tiene importe aplicado pero no se encontró el detalle en kdxf — el feed puede venir rezagado.');
+    }
+
+    // -- Lo que NOSOTROS programamos (Calendario) ----------------------------
+    // Dos id posibles: el derivado (md5 de la clave natural) y el de una obligación CAPTURADA
+    // por Entregas, que es otra fila con la misma factura detrás.
+    const ids: string[] = [v.obligation_id];
+    const [cap]: FilaObligacionCapturada[] = await trx('commercial.supplier_payment_obligations')
+      .select('id', 'status')
+      .where({ tenant_id: tenantId, kepler_sucursal: sucursal, kepler_folio: folio })
+      .andWhereRaw('kepler_doc_tipo = ?::numeric AND kepler_doc_sub = ?::numeric', [docTipo, docSub])
+      .limit(1);
+    if (cap) ids.push(cap.id);
+
+    const prog: FilaProgramada[] = await trx('finance.payment_allocation_items as i')
+      .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
+      .leftJoin('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
+      .select('i.applied_amount', 'a.status', 'a.payment_method', 'a.folio as allocation_folio',
+        'a.kepler_payment_sucursal', 'a.kepler_payment_doc_prefix', 'a.kepler_payment_folio',
+        'l.status as lot_status', 'l.released_by',
+        trx.raw(`to_char(l.lot_date,'YYYY-MM-DD') AS lot_date`))
+      .whereIn('i.obligation_id', ids)
+      .orderByRaw('l.lot_date NULLS LAST');
+
+    const ESTADO_LOTE: Record<string, string> = {
+      draft: 'en borrador', released: 'liberado (autorizado)', closed: 'cerrado',
+    };
+    for (const g of prog) {
+      fields.push({
+        label: g.lot_date ? `Programada para ${g.lot_date}` : 'Programada (sin día)',
+        value: n(g.applied_amount), kind: 'money',
+        source: `${g.status}${g.lot_status ? ' · día ' + (ESTADO_LOTE[g.lot_status] ?? g.lot_status) : ''}` +
+          `${g.released_by ? ' por ' + g.released_by : ''}`,
+      });
+      if (g.kepler_payment_folio) {
+        relations.push({
+          ref: makeRef('pay', g.kepler_payment_sucursal, g.kepler_payment_doc_prefix, g.kepler_payment_folio),
+          group: 'Pago que ejecutó lo programado',
+          label: `Pago ${g.kepler_payment_folio}`, sub: `ligado desde el calendario · ${g.payment_method ?? ''}`.trim(),
+          amount: n(g.applied_amount),
+        });
+      }
+    }
+    if (!prog.length) {
+      // ⛔ "Sin programar" NO se dibuja como un cero ni como un verde: se dice.
+      notes.push(
+        cap
+          ? 'Esta factura está capturada como obligación pero todavía no entró a ningún día del calendario.'
+          : 'Esta factura todavía no está en ningún día del calendario de pagos.',
+      );
+      badges.push({ text: 'Sin programar', tone: 'info' });
+    }
+
+    // -- El comprobante (Pagos a proveedor) ---------------------------------
+    const foliosPago = relations.filter((r) => r.ref.startsWith('pay:')).map((r) => parseRef(r.ref).parts[2]);
+    if (foliosPago.length) {
+      const proofs: FilaComprobante[] = await trx('finance.supplier_payment_proofs')
+        .select('folio', 'status', 'ocr_referencia')
+        .where({ tenant_id: tenantId, sucursal }).whereIn('folio', foliosPago);
+      const conComprobante = proofs.filter((p) => p.status !== 'rechazado').map((p) => p.folio);
+      const sin = foliosPago.filter((f) => conComprobante.indexOf(f) < 0);
+      if (sin.length) {
+        notes.push(`Sin comprobante cargado todavía: pago(s) ${sin.join(', ')}.`);
+      }
+      for (const p of proofs) {
+        badges.push({ text: `Comprobante ${p.status}`, tone: p.status === 'validado' ? 'ok' : 'warn',
+          title: `Pago ${p.folio}${p.ocr_referencia ? ' · ref ' + p.ocr_referencia : ''}` });
+      }
+    }
+
+    if (v.proveedor) {
+      relations.push({ ref: makeRef('prov', v.proveedor), group: 'Proveedor',
+        label: v.proveedor_nombre || v.proveedor, sub: v.proveedor });
+    }
+
+    notes.push('La ventana de pronto pago es OBSERVADA (lo que de hecho obtuvo descuento), no una condición pactada: ese dato no existe en el ERP.');
+
+    return {
+      ref: '', kind: 'oblig',
+      title: `Factura ${v.folio}`,
+      subtitle: `${v.proveedor_nombre || v.proveedor} · pendiente ${money(n(v.pendiente))}`,
+      badges, fields, relations, notes,
     };
   }
 

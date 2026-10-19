@@ -1427,3 +1427,131 @@ una consulta que ya está en el límite de latencia (`[TP.18.5]`). Queda como de
 
 ⛔ **Sin validación visual** (`nx serve` prohibido): el chip de ahorro es lo primero que habría que
 mirar — es el único elemento nuevo dentro de una celda que ya corta texto con «…».
+
+---
+
+## 25. TP.20.5 — La información vive junta: la **ficha de la obligación** (2026-10-19)
+
+Pedido de Edgar: *«no sólo quiero que se hagan módulos y se partan en submódulos; quiero que la
+información viva junta — si se centran en lo mismo, ¿por qué no unificarlo?»*.
+
+El §23 había medido que **fusionar las listas rompe una de las dos** (el Calendario agrupa por
+beneficiario, Pronto pago ordena por urgencia). Eso sigue siendo cierto, y sigue sin hacerse. Lo
+que faltaba ver es que **la lista no es la unidad de unificación**.
+
+### Las cuatro pantallas hablan del mismo sustantivo
+
+No son cuatro temas: son **cuatro preguntas sobre una factura de proveedor**.
+
+| Pantalla | Qué sabe de ESA factura |
+|---|---|
+| Pronto pago | hasta cuándo conviene pagarla y cuánto se gana |
+| Calendario de pagos | en qué día quedó programada y quién liberó ese día |
+| Pagos a proveedor | con qué documento de Kepler salió y qué comprobante la respalda |
+| Programa de pagos | — **sin llave** (ver abajo) |
+
+Para responder *«¿ésta ya se pagó?»* había que abrir tres pantallas y cruzarlas a ojo. Así que lo
+que se unifica es **el registro, no la lista**: cada lista conserva su pregunta y su orden, y la
+factura reúne su vida entera en un solo panel.
+
+### ⭐ El primitivo ya existía, y Finanzas era la única que no lo usaba
+
+`entity-ref` — *«el panel que hace que TODO sea clickeable»*. El comentario de su controller ya lo
+decía desde que se escribió: *«Ruta NEUTRAL a propósito… la idea es que Finanzas abra el mismo
+proveedor con el mismo ref»*. Lo usaban **2 pantallas de Compras y ninguna de Finanzas**.
+
+⛔ Y había un motivo real, no desidia: la puerta exigía **sólo permisos de Compras**, así que a
+Tesorería le habría dado **403 en la cara** sobre una ficha que es suya. Ahora `FINANCE_PAYMENTS_VER`
+entra por la puerta, y adentro `can()` sigue filtrando **por tipo** — el permiso de entrada no es un
+pase libre a ajustes ni a pagos.
+
+Lo nuevo es un tipo más: **`oblig`** (`oblig:<sucursal>|<tipo>|<sub>|<folio>`). Cero cambios en la
+UI del panel: agregar una entidad es un caso más en el resolvedor.
+
+### ⚠️ El hallazgo que lo hace defendible: `kepler_ods.kdxf`
+
+**El vínculo factura↔pago lo pone el ERP, no nosotros.** `kdxf` es la tabla con la que Kepler aplica
+un pago contra un documento: `c4/c5/c6` = el pago, `c7/c8/c9` = la factura, `c10` = lo aplicado. Es
+además **la misma tabla que alimenta el `aplicado` de `v_supplier_payables`**, o sea que el panel y
+el saldo no pueden discrepar.
+
+⛔ Esto es exactamente lo contrario del cruce por **monto + mes** que produjo los **$273 M
+indefendibles de `[PP.4]`**. Donde hay liga estructural, se usa; donde no la hay, se declara.
+
+### Lo medido en prod (2026-10-19, sólo lectura)
+
+| | |
+|---|---:|
+| Facturas con saldo | **2,974** · **$139,829,081** |
+| …con pago parcial aplicado | **333** |
+| Aplicaciones en `kdxf` de facturas vivas | **752** |
+| …que resuelven a una ficha de pago en `analytics.erp_supplier_payments` | **103 (13.7 %)** |
+
+⚠️ **Ese 13.7 % no es un defecto del espejo: es su alcance.** De las 650 aplicaciones de OFICINAS,
+**498 son del doctype 26 y existen todas en `kdm1`**; quedan fuera porque la vista filtra
+`c10 ILIKE 'C%'` — y las excluidas son `GN001` NOMINA y `GC002` COMISIONES, que **no son proveedores
+de mercancía**. También quedan fuera los doctypes **X-D-55** (nota de crédito, 1,904 filas · $23.3 M)
+y **X-D-40** (ajuste), que aplican contra la factura pero **no son un pago con comprobante**.
+
+⇒ La ficha los **nombra en una nota** con su folio, fecha e importe, y **no los enlaza**: el importe
+ya está restado del pendiente; lo que no hay es ficha de pago que abrir. Un enlace muerto es peor
+que ningún enlace.
+
+### La regla compartida se mudó, y perdió dos copias más
+
+`pronto-pago-ventana` y `kepler-payable-key` pasaron de `libs/finance` a **`libs/contracts`**: el
+resolvedor es `scope:commercial` y la compuerta de fronteras le prohíbe importar `scope:finance`.
+Copiarlas habría sido la sexta familia de constantes duplicadas (ADR-056), y éstas deciden dinero.
+
+⛔ Entran por **subruta** (`@megadulces/contracts/finance/…`), no por el barrel: `kepler-payable-key`
+importa `node:crypto` y el barrel raíz lo cargan las **3 apps Angular**. Es el mismo patrón que
+`[ID.28]` dejó escrito después de medir **+225 kB** en el chunk inicial de `view`.
+
+⭐ Y de paso: *Pronto pago* tenía **dos copias más** del cálculo de la ventana dentro de su propio
+archivo (la consulta de KPIs y la del detalle). Ahora las dos llaman a `sqlVentanaProntoPago()`.
+**La regla queda escrita una vez y la usan cuatro consultas.**
+
+### Qué se puede hacer ahora que antes no
+
+Desde el Calendario y desde Pronto pago, la **factura** abre su ficha. Desde Pagos a proveedor, el
+**folio del pago** abre la suya, y desde ahí se llega a las facturas que liquidó — ida y vuelta. El
+ref viaja en la URL (`?ref=`), así que una factura se pega en un chat y el otro abre exactamente el
+mismo documento.
+
+En la ficha: proveedor, documento, fechas, importe, **aplicado**, pendiente, **límite de pronto pago
+y cuánto se gana**, **en qué día quedó programada y quién liberó ese día**, los **pagos de Kepler**
+que la aplicaron y el **estado de su comprobante**.
+
+### Probado
+
+- **10/10** de integración contra Postgres real (`entity-ref.it.spec.ts`), con el pago sembrado en
+  su fuente (`kdm1`) y la aplicación en `kdxf`, todo dentro de una transacción revertida.
+- Ejercen **la unión**, no el cableado: que el pendiente salga del ERP y no de una resta nuestra;
+  que el pago aparezca con **lo que aplicó a esa factura** (30,000 − 12,000 = 18,000); que la liga
+  sea **de ida y vuelta**; que lo programado traiga **quién liberó el día**; y que **la llave de la
+  ficha sea la misma que usa el motor de asignaciones** —si divergen, la ficha diría «sin programar»
+  sobre algo programado.
+- **Tres pruebas negativas**: una factura saldada **no se inventa** (la vista sólo publica saldo > 0);
+  un rol **sin** el permiso de pagos **no abre** la ficha; un ref con partes de menos se rechaza
+  **antes de tocar la base**.
+- **44/44** de la suite del Calendario siguen verdes tras mudar las reglas a `contracts` y reescribir
+  las dos consultas de Pronto pago (`pp.overview()` las ejerce a las dos).
+- `nx run api:typecheck` **verde** (tsgo, sin build). `check:templates` ✅ · `check:estilos` ✅ ·
+  `check:tokens` ✅ · `boundary-gate` ✅ (las 7 filas nuevas quedaron **tipadas**, no en `any`).
+- `check:pantalla`: calendario **1 falla → 1 falla** (la misma §9 de siempre), pronto-pago 3,
+  comprobantes 1 — **las tres tipan con 0 errores semánticos** y ninguna falla es de lo agregado.
+
+### Declarado
+
+⛔ **Programa de pagos (el libro) queda fuera, y no por olvido.** Sigue sin llave: no guarda el
+folio del pago de Kepler, sólo `invoice_folios` (de *factura*), `kepler_flag` (24.8 %) y
+`kepler_matched` (NULL). Casarlo por monto+mes es lo que produjo los $273 M de `[PP.4]`. **Tres de
+cuatro pantallas se unifican; la cuarta tiene nombre, causa y monto.**
+
+⛔ **Sin validación visual** (`nx serve` prohibido). Lo primero que habría que mirar: que el folio
+convertido en botón **no cambie la altura de la fila** en las tres tablas, y que el panel abra por
+encima del diálogo de «Programar» en Pronto pago (`aboveModals` ya está puesto, pero no se vio).
+
+⚠️ **El enlace no se pinta de color en reposo** (sólo al pasar y al foco). Es deliberado: en una
+lista de 2,900 renglones, 2,900 enlaces de color compiten con la señal que **sí** decide. Si en uso
+resulta que nadie descubre que la factura se puede abrir, el ajuste es ése.

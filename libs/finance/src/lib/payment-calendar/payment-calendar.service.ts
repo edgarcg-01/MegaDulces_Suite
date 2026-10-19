@@ -3,8 +3,8 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
-import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
-import { sqlVentanaProntoPago } from '../shared/pronto-pago-ventana';
+import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
+import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
@@ -14,7 +14,7 @@ export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supp
  * pago, y tener una función pura dentro de un servicio obligaba al otro módulo a importar el
  * servicio entero (ADR-056). Se re-exporta porque ya hay código y pruebas que la toman de acá.
  */
-export { keplerPayableId, sqlKeplerPayableId } from '../shared/kepler-payable-key';
+export { keplerPayableId, sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
 
 /**
@@ -352,6 +352,9 @@ export class PaymentCalendarService {
         'authorized_at', 'status', 'notes', 'created_at', 'branch_code', 'payee_id',
         // [TP.20.4] la ventana de pronto pago viaja con la fila
         'pronto_fecha_limite', 'pronto_beneficio', 'pronto_estado',
+        // [TP.20.5] el ref de la ficha. NULL en los orígenes que no tienen documento de Kepler
+        // detrás: un ref inventado abriría un panel que no existe.
+        'entity_ref',
       ];
       const legBudget = trx('budget.expense_obligations as o').select(
         trx.raw(`'budget_expense'::text AS obligation_source`), 'o.id AS obligation_id',
@@ -360,7 +363,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
-        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -370,7 +373,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
-        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -384,6 +387,11 @@ export class PaymentCalendarService {
           trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
           trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
+          // [TP.20.5] La obligacion CAPTURADA por Entregas tambien tiene ficha, pero solo si
+          // alguien le anoto el documento de Kepler. Sin esos cuatro campos no hay a que apuntar.
+          trx.raw(`CASE WHEN o.kepler_sucursal IS NOT NULL AND o.kepler_folio IS NOT NULL
+                        THEN 'oblig:' || o.kepler_sucursal || '|' || o.kepler_doc_tipo || '|'
+                                      || o.kepler_doc_sub || '|' || btrim(o.kepler_folio) END AS entity_ref`),
         ).whereNotIn('o.status', ['cancelled']);
 
       /**
@@ -458,6 +466,10 @@ export class PaymentCalendarService {
           trx.raw('v.fecha::timestamptz AS created_at'), trx.raw('v.sucursal AS branch_code'),
           trx.raw('s.id AS payee_id'),
           trx.raw(sqlVentanaProntoPago('v', 'd')),
+          // [TP.20.5] La ficha de la factura: la arma el backend porque es el unico que sabe
+          // las cuatro partes de la clave natural (sucursal, tipo, subtipo, folio).
+          trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub
+                             || '|' || btrim(v.folio) AS entity_ref`),
         );
 
       const unionSql = `(${legBudget.toQuery()} UNION ALL ${legCommitment.toQuery()} UNION ALL ${legSupplier.toQuery()} UNION ALL ${legKepler.toQuery()}) AS ob`;
