@@ -377,9 +377,32 @@ export class CajaAutollenadoService implements OnModuleInit, OnModuleDestroy {
     } catch (e: unknown) {
       // ⛔ Una corrida que revienta NO puede quedar como «cero entregado»: con la cola vacía eso
       // se pintaría verde. Se registra como falla explícita.
+      /**
+       * ⛔⛔ `[CG.199]` **CORTAR EL MENSAJE POR EL PRINCIPIO TIRA JUSTO LA CAUSA.**
+       *
+       * Acá decía `msg.slice(0, 300)`. Medido en vivo el 2026-10-19: el latido quedó con
+       * *«corrida: select count(*) as "n", sum("monto") from "finance"."v_caja_movimientos_
+       * pendientes" where "tenant_id" = $1 and not exists (select 1 from…»* y **nada más** —
+       * 300 caracteres de SQL y cero información sobre qué falló.
+       *
+       * ⭐ La razón es la forma del error de knex: **arma el `message` con el SQL ADELANTE y el
+       * error de Postgres ATRÁS**. Recortar por el principio conserva lo que ya sabíamos (la
+       * consulta, que está en el código) y descarta lo único que no sabíamos (el motivo).
+       *
+       * Se guarda la COLA, no la cabeza, y además el `code` de Postgres —que es lo que dice la
+       * clase de falla en cinco caracteres— por delante, donde no lo pueda cortar nadie.
+       *
+       * ⚠️ `latirCron` vuelve a recortar a 500 al juntar las fallas. Por eso el `code` va primero:
+       * si algún día alguien suma otra falla al arreglo, lo que sobreviva seguirá siendo útil.
+       */
+      const err = e as { message?: unknown; code?: unknown; detail?: unknown };
       const msg = e instanceof Error ? e.message : String(e);
-      r = { ...r, fallas: [...r.fallas, `corrida: ${msg.slice(0, 300)}`] };
-      this.logger.error(`autollenado: ${msg}`);
+      const code = err?.code ? `[${String(err.code)}] ` : '';
+      const detalle = err?.detail ? ` · ${String(err.detail)}` : '';
+      const cola = msg.length > 240 ? `…${msg.slice(-240)}` : msg;
+      r = { ...r, fallas: [...r.fallas, `corrida: ${code}${cola}${detalle}`.slice(0, 300)] };
+      // En el log va ENTERO: el log no tiene límite de 500 y es donde se diagnostica.
+      this.logger.error(`autollenado: ${code}${msg}${detalle}`);
     } finally {
       this.running = false;
     }
