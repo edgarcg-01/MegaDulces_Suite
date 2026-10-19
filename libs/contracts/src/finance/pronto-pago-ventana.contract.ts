@@ -1,9 +1,14 @@
 /**
- * `[TP.20.4]` — **La ventana de pronto pago, en un solo lugar.**
+ * `[TP.20.4]`/`[TP.20.5]` — **La ventana de pronto pago, en un solo lugar.**
  *
- * La regla vive aquí porque la usan **dos** pantallas y por motivos distintos: *Pronto pago* la
+ * La regla vive aquí porque la usan **tres** consumidores y por motivos distintos: *Pronto pago* la
  * publica como su razón de ser, y el *Calendario* la muestra como la urgencia de una factura
- * mientras se arma el día (`[TP.20.4]`).
+ * mientras se arma el día (`[TP.20.4]`); y la **ficha de la obligación** (`[TP.20.5]`) la publica
+ * como un dato más de la vida de esa factura.
+ *
+ * ⛔ Por eso está en `libs/contracts` y no en `libs/finance`: la ficha la resuelve el
+ * `entity-ref`, que es `scope:commercial`, y la compuerta de fronteras le prohíbe importar
+ * `scope:finance`. El lugar donde los dos pueden verla es el contrato compartido.
  *
  * ⛔ **Por qué no se copió al Calendario.** Serían dos definiciones de «hasta cuándo conviene
  * pagar», y la primera vez que alguien ajuste el mínimo de observaciones o los días de aviso, las

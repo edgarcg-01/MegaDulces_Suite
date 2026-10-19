@@ -20,6 +20,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } from '../pronto-pago.service';
 
 /**
@@ -52,13 +53,14 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
   standalone: true,
   imports: [PagosTabsComponent, CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, SkeletonModule,
             ToastModule, DialogModule, DatePickerModule, InputNumberModule,
-            MetricStripComponent, ContextHelpComponent, SegmentedComponent],
+            MetricStripComponent, ContextHelpComponent, SegmentedComponent, EntityInspectorComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
     <app-pagos-tabs />
     <div class="surf-page in pp-page">
+      <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
 
       <header class="surf-page-head">
@@ -157,7 +159,11 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
                 <div class="pp-sub pp-mono">{{ r.proveedor_code }} · suc. {{ r.sucursal }}</div>
               </td>
               <td role="cell" data-label="Factura">
-                <div class="pp-mono">{{ r.folio }}</div>
+                <!-- [TP.20.5] La factura abre su ficha: la misma que se ve desde el Calendario y
+                     desde Pagos a proveedor. La pantalla no cambia de orden ni pierde columnas:
+                     lo que se unifica es el REGISTRO, no la lista (§23). -->
+                <button type="button" class="pp-mono pp-reflink" (click)="inspect.set(r.entity_ref)"
+                        [title]="'Ver la ficha completa de la factura ' + r.folio">{{ r.folio }}</button>
                 <div class="pp-sub">{{ r.fecha ? (r.fecha | date:'dd/MM/yy') : 'sin fecha' }}</div>
               </td>
               <td role="cell" data-label="Pendiente" class="pp-r pp-strong pp-mono">{{ money(r.pendiente) }}</td>
@@ -298,6 +304,11 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
     .pp-search input { min-width: 14rem; }
     .pp-r { text-align: right; }
     .pp-mono { font-variant-numeric: tabular-nums; }
+    /* [TP.20.5] El folio abre la ficha. Sin color en reposo: en una lista que se recorre por
+       urgencia, un enlace de color por fila compite con la senal que SI decide (el estado). */
+    .pp-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
+    .pp-reflink:hover { color: var(--action); text-decoration: underline; }
+    .pp-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .pp-strong { font-weight: 600; color: var(--text-main); }
     .pp-sub { font-size: var(--fs-xs); color: var(--text-muted); }
     .pp-muted { color: var(--text-muted); }
@@ -339,6 +350,9 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
   `],
 })
 export class FinanzasProntoPagoComponent {
+  /** `[TP.20.5]` El ref abierto en la ficha de la factura (el panel lo publica en `?ref=`). */
+  readonly inspect = signal<string | null>(null);
+
   private readonly svc = inject(ProntoPagoService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

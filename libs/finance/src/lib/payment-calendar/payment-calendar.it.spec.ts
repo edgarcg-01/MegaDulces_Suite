@@ -20,7 +20,7 @@ import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
 import { PaymentProgramService } from '../payment-program/payment-program.service';
-import { sqlVentanaProntoPago } from '../shared/pronto-pago-ventana';
+import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -492,7 +492,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
    * `[TP.20.4]` **La ventana de pronto pago, la MISMA para las dos pantallas.**
    *
    * El inventario descartó fusionar Pronto pago con el Calendario (ordenan y agrupan al revés);
-   * lo que viaja son los tres campos que deciden. La regla vive en `shared/pronto-pago-ventana` y
+   * lo que viaja son los tres campos que deciden. La regla vive en `@megadulces/contracts` y
    * acá se ejerce **el SQL que genera**, contra casos construidos — así se prueba la regla sin
    * depender de que la matview del ERP tenga datos.
    */

@@ -1228,7 +1228,11 @@ jobs:
           # ⛔ El filtro es una SUBCADENA del path, no un glob: `'src/lib/**/*.it.spec.ts'`
           # devuelve «No test files found» y **exit 0** — un verde que no corrió nada. Probado
           # en la máquina de trabajo antes de cablearlo (2026-10-16).
+          # `[TP.20.5]` Dos raíces, no una: la ficha de la obligación vive en `libs/commercial`
+          # (el resolvedor de refs es neutral y está ahí). Dejarla fuera habría sido una suite
+          # escrita que no corre en ningún lado — que es la deuda que este job vino a cerrar.
           npx vitest run --root libs/finance it.spec 2>&1 | tee integracion.log
+          npx vitest run --root libs/commercial it.spec 2>&1 | tee -a integracion.log
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           set -e
           # Una suite que no encontró archivos NO es una suite verde.
