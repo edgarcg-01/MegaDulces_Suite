@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
+import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -285,6 +286,16 @@ interface RequisitionLineDto {
   supplier_id?: string | null;
   source_type?: string;               // RA.11 — 'supplier' (default) | 'branch' (traspaso)
   source_warehouse_id?: string | null; // RA.11 — almacén origen si source_type='branch'
+  /**
+   * `[RA-FIX.1]` La sucursal que NECESITA esta cantidad.
+   *
+   * ⛔ No es `source_warehouse_id`: ése es de dónde SALE un traspaso. En una compra consolidada
+   * el encabezado dice dónde ENTREGA el proveedor (el CEDIS) y esto dice a qué sucursal va — son
+   * dos almacenes distintos en la misma fila, y por no tener dónde escribir el segundo el
+   * desglose por sucursal se guardaba como N renglones indistinguibles del mismo SKU (medido:
+   * 1,269 renglones de más en 74 requisiciones).
+   */
+  destination_warehouse_id?: string | null;
   on_hand?: number;
   in_transit?: number;
   min_stock?: number;
@@ -3757,11 +3768,19 @@ export class CommercialReplenishmentService {
         })
         .returning(['id', 'folio', 'estado']);
 
+      // `[RA-FIX.1]` El destino sólo se escribe si la columna existe: el código llega a prod por
+      // despliegue y la migración se aplica aparte, así que entre una cosa y la otra la API tiene
+      // que seguir creando requisiciones. Lo que falta mientras tanto es el dato nuevo, no el
+      // servicio — y se dice en el log, no se traga.
+      const destListo = await this.destinoColLista(trx);
       await trx('commercial.purchase_requisition_lines').insert(lines.map((l) => ({
         tenant_id: tenantId, requisition_id: req.id, product_id: l.product_id,
         supplier_id: l.supplier_id && UUID_RX.test(l.supplier_id) ? l.supplier_id : null,
         source_type: l.source_type === 'branch' ? 'branch' : 'supplier',
         source_warehouse_id: l.source_type === 'branch' && l.source_warehouse_id && UUID_RX.test(l.source_warehouse_id) ? l.source_warehouse_id : null,
+        ...(destListo
+          ? { destination_warehouse_id: l.destination_warehouse_id && UUID_RX.test(l.destination_warehouse_id) ? l.destination_warehouse_id : null }
+          : {}),
         on_hand: Number(l.on_hand || 0), in_transit: Number(l.in_transit || 0),
         min_stock: Number(l.min_stock || 0), reorder_point: Number(l.reorder_point || 0), max_stock: Number(l.max_stock || 0),
         suggested_qty: Number(l.suggested_qty || 0), final_qty: Number(l.final_qty),
@@ -4043,6 +4062,27 @@ export class CommercialReplenishmentService {
    * materializada del workbook.
    */
   private rqVigenciaCols: boolean | null = null;
+  /**
+   * `[RA-FIX.1]` ¿Existe ya `purchase_requisition_lines.destination_warehouse_id`?
+   *
+   * Mismo patrón (y mismo motivo) que {@link vigenciaColsListas}: el despliegue y la migración
+   * no llegan juntos. Se memoiza porque la respuesta no cambia dentro de un proceso salvo por
+   * una migración, que reinicia los pods.
+   */
+  private rqDestinoCol: boolean | null = null;
+  private async destinoColLista(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqDestinoCol != null) return this.rqDestinoCol;
+    try {
+      const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema='commercial' AND table_name='purchase_requisition_lines'
+          AND column_name='destination_warehouse_id') AS t`);
+      this.rqDestinoCol = !!r.rows?.[0]?.t;
+    } catch { this.rqDestinoCol = false; }
+    if (!this.rqDestinoCol)
+      this.logger.warn('[RA-FIX.1] falta la migración 20261019084231 — el renglón de compra NO guarda la sucursal que lo necesita (la requisición se crea igual; lo que no queda es el desglose).');
+    return this.rqDestinoCol;
+  }
+
   private async vigenciaColsListas(trx: Knex.Transaction): Promise<boolean> {
     if (this.rqVigenciaCols != null) return this.rqVigenciaCols;
     try {
@@ -4496,6 +4536,12 @@ export class CommercialReplenishmentService {
       }
       lineas = [...porSku.values()];
     }
+
+    // `[RA-FIX.3]` ⛔ **Una fracción de caja no se le escribe al ERP.** El criterio y el mensaje
+    // viven en `fraccion-caja.ts` —con la medición que los justifica— para que no se repitan
+    // escritos a mano el día que otro camino escriba al ERP. Fail-closed, nombrando los SKUs.
+    const fraccion = renglonesConFraccion(lineas);
+    if (fraccion.length) throw new BadRequestException(mensajeFraccion(fraccion));
 
     const res = await this.keplerSink.entregar({
       requisition_id: cab.id, folio_suite: cab.folio, tipo,
