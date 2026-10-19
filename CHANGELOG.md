@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — El mostrador busca por nombre, proveedor, SKU o código, y lo que Kepler no tiene llega solo a Compras (MOS.1–MOS.3, 2026-10-16)
+- **«¿Te pidieron algo?»** (arqueo de caja y Faltantes) busca por nombre, proveedor, SKU o código de barras y dice por qué salió cada resultado. Cada uno trae todas sus presentaciones con precio —la caja en paquetes cuando divide exacto— y el mayoreo por unidad, en la presentación en que Kepler lo tiene.
+- **Catálogo › No registrados**: los códigos que se escanearon y Kepler no tiene en esa sucursal, con sucursal, proveedor y búsqueda. Salen solos en cuanto se dan de alta en Kepler. Sin tabla nueva ni migración.
+### Fixed — Un código de otra sucursal ya no muestra el precio de la otra plaza (MOS.2, 2026-10-16)
+- Si un código existía en otra sucursal pero no en ésta, el mostrador mostraba el precio de la otra plaza como si fuera de aquí. Ahora avisa que falta el alta y lo anota en No registrados.
+### Fixed — La API no arrancaba en producción tras #414 (VAC.FIX, 2026-10-15; documentado 2026-10-16)
+- `/kp/precio` y `/kp/precios-todos` tipaban un parámetro decorado con `VerificadorPrecioQuery`, que es a la vez el esquema Zod y su tipo: `emitDecoratorMetadata` emitía **el objeto Zod** y `@nestjs/swagger` moría al arrancar (**CrashLoopBackOff en prod**, con los checks requeridos del CI en verde: ningún job levanta la API, deuda `VP.5`). Arreglado con alias de sólo tipo y una prueba que lee `design:paramtypes` (`kp.controller.spec.ts`). Producción responde `200` y sirve un commit que lo incluye.
+- **Protocolo previo al PR** (`ONBOARDING.md` §8.0b, puntos **30 y 31**; `GOTCHAS.md` §84): al tocar decoradores o firmas inyectadas, probar la **metadata** y, si no se puede demostrar el arranque, declararlo; y una compuerta roja por causa ajena **no es «ajena»: para tu cambio es NO MEDIDA**.
 ### Fixed — Caja General: el total contado ahora se anuncia, y la fila abierta se ve en Alto Contraste (CG.183–CG.186, 2026-10-16)
 - Auditoría **front-end** de `/finanzas/caja-general` (no de diseño: la pantalla ya usa el sistema — 78 `comm-num`, 40 `p-table`, 16 `app-load-state`, `OnPush` + 103 signals, cero `any` — y el auditor de contrato le marca **una sola** advertencia contra una línea base de 247 pantallas con falla). Lo corregido son defectos de **comportamiento**.
 - **La cifra que la pantalla existe para producir no se decía.** Había **una sola** región viva en 2,462 líneas de template. El bloque «CONTADO» cambia con cada tecla de la reja de denominaciones: quien usa lector de pantalla tecleaba once renglones y nunca se enteraba del total ni del veredicto. Y la cola de «por confirmar» **la mueve el socket**: entraban movimientos nuevos mientras la persona contaba efectivo del otro lado de la pantalla, en silencio. Ahora el total viaja con su veredicto («$460.00 contado, cuadra con el documento») y la cuenta de la cola se anuncia sola.
@@ -72,7 +80,7 @@
 - La app pedía 8,000 productos y hay 9,429 con precio; los menos vendidos no llegaban al celular y no aparecían al buscarlos. Ahora pide el catálogo completo (hasta 10,000).
 - El precio que se cobra no cambia: el renglón lo sigue calculando el servidor al agregarlo. Sin migraciones ni permisos → sin re-login.
 - **Y al abrir el cliente ya no se espera el catálogo (VTK.11):** se muestra el que el celular ya tiene (de la sesión o guardado, misma sucursal y de menos de un día) y el nuevo se baja detrás, con la edad a la vista. Al pasar de un cliente a otro de la ruta en menos de 2 minutos ni siquiera se vuelve a bajar.
-### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, PR #414, 2026-10-14)
+### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, PR #414, fusionado 2026-10-15)
 - **Mayoreo como protagonista**, enmarcado, con **el ahorro por unidad** como cifra principal («Ahorras $5.59 por unidad (6.5% menos)») y el total del mínimo de apoyo; cada umbral es su propio bloque y el de paquete dice a cuántas piezas equivale («Equivale a 144 piezas»).
 - **Ancho fluido** (la tarjeta usa todo el ancho, dos columnas precio | mayoreo en pantalla ancha) y **centavos más chicos** en todo precio. **La unidad se lee a 1–2 m.**
 - **Modo kiosco** sin botón de cámara y sin los datos internos del producto. ⚠️ En kiosco el aviso de «este precio acaba de cambiar» ya no se muestra (el respaldo sí sigue declarado por el banner).

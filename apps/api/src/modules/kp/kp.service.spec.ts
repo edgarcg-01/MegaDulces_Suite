@@ -42,6 +42,8 @@ interface Opciones {
   falla?: boolean;
   /** Falla sólo la lectura de la etiqueta: el precio tiene que salir igual. */
   fallaEtiqueta?: boolean;
+  /** `[MOS.1]` La lectura aparte de proveedores del lote del snapshot. */
+  proveedores?: Fila[];
 }
 
 const MENSAJE_PG = 'relation "kepler_ods.kdii" does not exist (host 10.20.30.40:5434)';
@@ -53,6 +55,9 @@ function dbFalso(o: Opciones = {}) {
     if (o.falla) throw new Error(MENSAJE_PG);
     if (sql.includes('SET LOCAL')) return { rows: [] };
     if (sql.includes('FROM kepler_ods.kdii')) return { rows: o.kdii ?? [] };
+    if (sql.includes('catalog.suppliers') && !sql.includes('product_label_prices')) {
+      return { rows: o.proveedores ?? [] };
+    }
     if (sql.includes('product_label_prices')) {
       if (o.fallaEtiqueta) throw new Error(MENSAJE_PG);
       return { rows: o.etiqueta ?? [] };
@@ -375,5 +380,62 @@ describe('[VAC.L7] KpService.getPreciosTodos', () => {
     const tier = expandirTier(compacto);
     expect(compactarTier(tier)).toEqual(compacto);
     expect(tier.equivale_a).toBe('144 piezas');
+  });
+
+  describe('[MOS.1] lo que necesita el buscador del mostrador', () => {
+    it('cada presentación lleva cuántas unidades base trae (la caja cuenta desde la pieza)', async () => {
+      const { svc } = servicio({
+        kdii: [kdii({ u2: 'PAQ', pv2: 126, f2: 40, u3: 'CJA', pv3: 2380, f3: 800 })],
+      });
+      const r: any = await svc.getPreciosTodos('03');
+      expect(r.productos[0].u.map((x: any) => [x.u, x.f])).toEqual([['PZA', 1], ['PAQ', 40], ['CJA', 800]]);
+    });
+
+    it('el proveedor viaja como índice en un diccionario, sin repetir el nombre', async () => {
+      const { svc } = servicio({
+        kdii: [kdii({ codigo: '00610' }), kdii({ codigo: '00611' }), kdii({ codigo: '00612' })],
+        proveedores: [
+          { sku: '610', proveedor: 'DULCES DE LA ROSA' },
+          { sku: '611', proveedor: 'DULCES DE LA ROSA' },
+        ],
+      });
+      const r: any = await svc.getPreciosTodos('03');
+      expect(r.pr).toEqual(['DULCES DE LA ROSA']);
+      expect(r.productos.map((x: any) => x.pv)).toEqual([0, 0, undefined]);
+    });
+
+    it('⛔ sin proveedor en la ficha NO se inventa uno: el campo se omite', async () => {
+      const { svc } = servicio({ kdii: [kdii()], proveedores: [] });
+      const r: any = await svc.getPreciosTodos('03');
+      expect(r.pr).toEqual([]);
+      expect('pv' in r.productos[0]).toBe(false);
+    });
+
+    it('si falla la lectura del lote el snapshot sale igual, sin mayoreo ni proveedor', async () => {
+      const { svc } = servicio({ kdii: [kdii()], fallaEtiqueta: true, proveedores: [{ sku: '610', proveedor: 'X' }] });
+      const r: any = await svc.getPreciosTodos('03');
+      expect(r.total).toBe(1);
+      expect(r.pr).toEqual([]);
+    });
+  });
+});
+
+describe('[MOS.1] KpService.getPrecio publica el proveedor', () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('el proveedor sale de la misma fila que el mayoreo', async () => {
+    const { svc } = servicio({ kdii: [kdii()], etiqueta: [etiqueta({ proveedor: ' RICOLINO ' })] });
+    const r: any = await svc.getPrecio('00610', '03');
+    expect(r.proveedor).toBe('RICOLINO');
+  });
+
+  it('sin fila de etiqueta el proveedor es null, no una cadena vacía', async () => {
+    const { svc } = servicio({ kdii: [kdii()], etiqueta: [] });
+    const r: any = await svc.getPrecio('00610', '03');
+    expect(r.proveedor).toBeNull();
   });
 });

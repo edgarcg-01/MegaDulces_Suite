@@ -18,6 +18,7 @@ import {
   ConsultaResultado,
   DeshacerResult,
   VENTANA_DESHACER_MIN,
+  NoRegistradosResult,
 } from './floor-stockouts.service';
 
 /**
@@ -73,6 +74,20 @@ export class FloorStockoutsController {
     return this.service.deshacer(id);
   }
 
+  @Patch(':id/descripcion')
+  // `[MOS.3]` Mismo permiso y mismos frenos que `deshacer`: es la misma persona, en el mismo
+  // momento, diciendo qué era lo que el lector no reconoció.
+  @RequirePermissions(Permission.STORE_STOCKOUT_CAPTURAR)
+  @ApiOperation({
+    summary: 'Escribir qué es un código que Kepler no tiene (sólo recién escaneado)',
+    description:
+      `Sólo \`no_en_catalogo\`, sólo \`open\` y sólo dentro de ${VENTANA_DESHACER_MIN} minutos. ` +
+      'No suma un reporte: actualiza el texto del que ya se anotó.',
+  })
+  describir(@Param('id') id: string, @Body() dto: { texto: string }): Promise<{ id: string; product_name: string }> {
+    return this.service.describir(id, dto?.texto);
+  }
+
   @Get('sucursal/:code/consulta')
   // `[FLT.22]` Es una CONSULTA, no una captura: la abre quien reporta y quien supervisa. Gatearla
   // sólo con VER dejaría a la cajera —que tiene CAPTURAR y no VER, medido— sin poder preguntar si
@@ -112,6 +127,20 @@ export class FloorStockoutsController {
   }
 
   // ── COMPRAS ───────────────────────────────────────────────────────────────────────────────
+
+  @Get('no-registrados')
+  // `[MOS.2]` El permiso del Catálogo de Compras, el MISMO que la ruta de la pestaña: una pestaña
+  // visible cuyo endpoint contesta 403 es peor que no tener la pestaña.
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'Catálogo › No registrados: códigos escaneados que Kepler no tiene en esa sucursal',
+    description:
+      'Sale solo de la lista en cuanto aparece en Kepler (se compara contra kepler_ods.kdii de la ' +
+      'sucursal en cada lectura). Lista completa con tope; `recortado` dice si se llegó al tope.',
+  })
+  noRegistrados(): Promise<NoRegistradosResult> {
+    return this.service.noRegistrados();
+  }
 
   @Get()
   @RequirePermissions(Permission.COMPRAS_HALLAZGOS_VER)
