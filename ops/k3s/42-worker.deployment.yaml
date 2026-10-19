@@ -117,10 +117,28 @@ spec:
             #   3. Una corrida real acotada, y `node database/tests/test-newdb-caja-autollenado.js`
             #      en verde (sus aserciones [6], [7] y [8] sólo se ejercen cuando ya escribió).
             #
-            # ⚠️ Al prenderlo, `analytics.cron_runs` → `caja_autollenado` empieza a latir cada
-            #   15 min; su umbral ya está declarado en `CRON_JOBS` (warn 1 h, crit 6 h). Si el
-            #   renglón no aparece, el cron NO está corriendo acá.
-            - { name: ENABLE_CAJA_AUTOLLENADO, value: "false" }
+            # ⭐⭐ PRENDIDO desde el 2026-10-19, y el default cambió A PROPÓSITO.
+            #
+            #   Nació en "false" porque el motor no se había ejercido nunca contra base real.
+            #   Ya se ejerció: su primera corrida escribió 43 movimientos por $504,101.68 y las
+            #   43 cuadran AL CENTAVO contra su documento de Kepler (30 pagos + 1 cobro contra
+            #   analytics.mv_caja_movimientos; 12 cobros de ruta contra el GRUPO de
+            #   analytics.route_collections). La condición para prenderlo se cumplió.
+            #
+            # ⛔ Y se declara acá, en el manifiesto, por una razón MEDIDA: un `kubectl set env`
+            #   lo prende hasta el próximo despliegue, que vuelve a aplicar este archivo y lo
+            #   apaga EN SILENCIO. Pasó dos veces el 2026-10-19 — es el mismo mecanismo de
+            #   [CG.192]. Lo que no está acá, no sobrevive.
+            #
+            # ⚠️ [CG.197] Ya NO hay reloj: el motor escucha `NOTIFY caja_movimientos` y corre
+            #   cuando el carril avisa que entraron documentos. Por eso el umbral de `CRON_JOBS`
+            #   subió a 30 h / 72 h: quedarse quieto un domingo es legítimo.
+            - { name: ENABLE_CAJA_AUTOLLENADO, value: "true" }
+            # El piso de alcance: decisión de Edgar del 2026-10-16 ("del día 10 para adelante,
+            # todo lo anterior ya debería estar conciliado" en el Access). ⛔ Moverlo HACIA ATRÁS
+            # es una decisión contable, no de operación: antes del 10-oct hay 13,206 movimientos
+            # por $162,080,748.92 que ya están conciliados del otro lado.
+            - { name: CAJA_AUTOLLENADO_PISO, value: "2026-10-10" }
             # [K.VEC.2] 2026-10-16 - el corpus vectorial se recreo desde cero (pg-rag quedo
             #   vacio en la mudanza a md del 22-sep; ver GOTCHAS §83). Aplicado en el cluster
             #   por Edgar a las 09:57 con `kubectl set env`; este valor es el mismo, para que
