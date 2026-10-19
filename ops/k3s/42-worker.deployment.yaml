@@ -133,7 +133,28 @@ spec:
             # ⚠️ [CG.197] Ya NO hay reloj: el motor escucha `NOTIFY caja_movimientos` y corre
             #   cuando el carril avisa que entraron documentos. Por eso el umbral de `CRON_JOBS`
             #   subió a 30 h / 72 h: quedarse quieto un domingo es legítimo.
-            - { name: ENABLE_CAJA_AUTOLLENADO, value: "true" }
+            # ⛔⛔ [CGA-A.23] APAGADO el 2026-10-19 por Edgar. NO lo prendas sin leer esto.
+            #
+            #   El motor lee `v_caja_movimientos_pendientes`, que son DOCUMENTOS: un U-A-5 dice
+            #   que el vendedor cobro a sus clientes, un X-D-26 dice que se capturo un pago en
+            #   el ERP. Ninguno dice que el efectivo se movio. El unico testigo de entrada
+            #   fisica es CAOS, porque ahi una maquina conto billetes con hora y usuario.
+            #
+            #   Medido ese dia sobre los 155 movimientos que el motor habia escrito:
+            #     gastos    123 · $489,911.98   SIN testigo fisico
+            #     ingresos   32 · $525,353.22   SIN testigo fisico
+            #     -> CERO con enlace a CAOS. $1,015,265.20 de papel convertido en asientos de
+            #        caja, mezclados en la pantalla con los que si tienen respaldo.
+            #
+            #   Y por no mirar el dinero produjo 13 DUPLICADOS por $228,243.00: no puede
+            #   distinguir "este documento ya se pago con un deposito que alguien capturo" de
+            #   "este documento esta pendiente". Caso testigo: ruta 27, 15-oct — Kepler decia
+            #   $17,086.00 y la maquina habia contado $16,040.00.
+            #
+            #   ⭐ El motor NO se equivoco: hizo lo que le pidieron sobre una bandeja que
+            #   mentia. Para volver a prenderlo hace falta que el dedup de la bandeja no
+            #   dependa de que un humano llene `declared_doc_ref` (8 de 35 lo tienen).
+            - { name: ENABLE_CAJA_AUTOLLENADO, value: "false" }
             # El piso de alcance: decisión de Edgar del 2026-10-16 ("del día 10 para adelante,
             # todo lo anterior ya debería estar conciliado" en el Access). ⛔ Moverlo HACIA ATRÁS
             # es una decisión contable, no de operación: antes del 10-oct hay 13,206 movimientos
