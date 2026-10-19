@@ -185,9 +185,130 @@ export class CommercialPurchaseOrdersService {
       const rows = await base.clone()
         .select('po.id', 'po.folio', 'po.estado', 'po.source_type', 'po.expected_date',
           'po.total_lines', 'po.total_units', 'po.received_units', 'po.total_cost', 'po.created_at', 'po.closed_at',
+          // `[OC.1]` El ID del proveedor, no sólo su nombre: agrupar por nombre junta a dos
+          // proveedores homónimos y separa a uno escrito de dos formas — y este repo tiene una
+          // fase entera de normalización de proveedores porque eso ya pasó.
+          'po.supplier_id',
           trx.raw('w.code AS warehouse_code'), trx.raw('sup.name AS supplier_name'), trx.raw('src.code AS source_code'))
         .orderBy('po.created_at', 'desc').limit(pageSize).offset((page - 1) * pageSize);
       return { total: Number(totalRow?.c || 0), page, pageSize, rows };
+    });
+  }
+
+  /**
+   * `[OC.1]` — **Las órdenes agrupadas por proveedor, sobre TODO el universo filtrado.**
+   *
+   * ⛔ Y por eso es un endpoint, no un `group by` en el navegador: la lista viene **paginada de
+   * 50** y hay **152 órdenes** (medido en prod el 2026-10-19). Agrupar la página mostraría «3
+   * órdenes» de un proveedor que tiene 4, sin ningún aviso de que falta una — un total
+   * equivocado se lee igual que uno correcto.
+   *
+   * Por omisión agrupa lo que todavía falta surtir (`open` + `partial`): hoy son **73 órdenes de
+   * 54 proveedores**. Con `estado` manda la pantalla.
+   */
+  async porProveedor(q: { estado?: string; warehouse_id?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const estados = q?.estado ? [q.estado] : ['open', 'partial'];
+    return this.tk.run(async (trx) => {
+      const base = trx('commercial.purchase_orders as po')
+        .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'po.tenant_id').andOn('sup.id', 'po.supplier_id'))
+        .where('po.tenant_id', tenantId)
+        .whereIn('po.estado', estados)
+        // Un traspaso no tiene proveedor a quién pedirle: esta vista es de COMPRA.
+        .andWhere('po.source_type', 'supplier');
+      if (q?.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('po.warehouse_id', q.warehouse_id);
+      const rows = await base
+        .groupBy('sup.id', 'sup.code', 'sup.name')
+        .select('sup.id as supplier_id', 'sup.code as supplier_code', 'sup.name as supplier_name',
+          trx.raw('COUNT(*)::int AS ordenes'),
+          trx.raw('SUM(po.total_units)::numeric AS unidades'),
+          trx.raw('SUM(GREATEST(po.total_units - COALESCE(po.received_units, 0), 0))::numeric AS pendiente'),
+          trx.raw('SUM(po.total_cost)::numeric AS importe'),
+          trx.raw('MIN(po.created_at) AS mas_vieja'),
+          trx.raw(`MIN(po.expected_date) AS proxima_entrega`),
+          trx.raw(`array_agg(DISTINCT po.estado) AS estados`))
+        .orderBy('importe', 'desc');
+      return { estados, total: rows.length, rows };
+    });
+  }
+
+  /**
+   * `[OC.2]` — **TODO LO QUE SE LE DEBE PEDIR A UN PROVEEDOR, EN UN SOLO LISTADO.**
+   *
+   * Es lo que alimenta el «pedido completo por proveedor» que se imprime desde `/compras/ordenes`:
+   * una fila por SKU con la cantidad **sumada de todas sus órdenes**, y la columna de destino
+   * diciendo a qué almacenes va.
+   *
+   * ── Por qué un endpoint y no N llamadas al detalle ──────────────────────────────────────────
+   *
+   * La lista de órdenes no trae renglones, así que armar el papel desde el navegador obligaba a
+   * pedir el detalle de cada orden. Un proveedor con 9 órdenes son 9 viajes para UN botón, y el
+   * documento sale distinto según cuál responda primero.
+   *
+   * ── ⚠️ Lo que la consolidación PIERDE, dicho acá ────────────────────────────────────────────
+   *
+   * Sumar el mismo SKU entre órdenes **borra a qué folio pertenecía cada cantidad**. Es la forma
+   * que se eligió (decisión del 2026-10-19: el proveedor quiere UNA lista, no nueve), y se
+   * compensa de dos maneras, no con una promesa: el documento lleva **los folios en el
+   * encabezado** y **los almacenes por renglón**. Al recibir, el cuadre vuelve a ser contra la
+   * orden, no contra este papel.
+   *
+   * ⭐ **El costo puede variar entre órdenes del mismo SKU** (se compró a dos precios distintos).
+   * No se elige uno: se devuelve el **promedio ponderado por cantidad** y la bandera
+   * `costo_varia`, para que el papel pueda decirlo en vez de publicar un precio que nadie cotizó.
+   */
+  async consolidadoProveedor(q: { supplier_id?: string; estado?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const supplierId = String(q?.supplier_id ?? '').trim();
+    if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
+    // Por omisión, **lo que todavía falta surtir**: una orden recibida o cancelada no se le
+    // vuelve a pedir a nadie. Con `estado` explícito manda la pantalla.
+    const estados = q?.estado ? [q.estado] : ['open', 'partial'];
+
+    return this.tk.run(async (trx) => {
+      const sup: any = await trx('catalog.suppliers')
+        .where({ tenant_id: tenantId, id: supplierId }).first('id', 'code', 'name');
+      if (!sup) throw new NotFoundException('Proveedor no encontrado');
+
+      const ordenes = await trx('commercial.purchase_orders as po')
+        .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'po.tenant_id').andOn('w.id', 'po.warehouse_id'))
+        .where({ 'po.tenant_id': tenantId, 'po.supplier_id': supplierId })
+        .whereIn('po.estado', estados)
+        .select('po.id', 'po.folio', 'po.estado', 'po.expected_date', 'po.total_cost', 'po.created_at',
+          trx.raw('w.code AS warehouse_code'))
+        .orderBy('po.created_at', 'asc');
+
+      if (!ordenes.length) {
+        return { supplier: sup, estados, ordenes: [], lineas: [], totales: { ordenes: 0, renglones: 0, cantidad: 0, pendiente: 0, importe: 0 } };
+      }
+
+      const ids = ordenes.map((o: any) => o.id);
+      const lineas = await trx('commercial.purchase_order_lines as l')
+        .join('commercial.purchase_orders as po', (j) => j.on('po.tenant_id', 'l.tenant_id').andOn('po.id', 'l.purchase_order_id'))
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'l.tenant_id').andOn('pr.id', 'l.product_id'))
+        .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'po.tenant_id').andOn('w.id', 'po.warehouse_id'))
+        .where('l.tenant_id', tenantId).whereIn('l.purchase_order_id', ids)
+        .groupBy('pr.sku', 'pr.nombre')
+        .select('pr.sku', 'pr.nombre',
+          trx.raw('SUM(l.ordered_qty)::numeric AS cantidad'),
+          trx.raw('SUM(GREATEST(l.ordered_qty - COALESCE(l.received_qty, 0), 0))::numeric AS pendiente'),
+          trx.raw('SUM(l.line_cost)::numeric AS importe'),
+          // Ponderado por cantidad, no promedio simple: dos órdenes de 1 y 100 cajas no pesan igual.
+          trx.raw(`CASE WHEN SUM(l.ordered_qty) > 0
+                        THEN (SUM(l.line_cost) / SUM(l.ordered_qty))::numeric ELSE 0 END AS unit_cost`),
+          trx.raw('(COUNT(DISTINCT round(l.unit_cost, 4)) > 1) AS costo_varia'),
+          trx.raw(`array_remove(array_agg(DISTINCT w.code ORDER BY w.code), NULL) AS destinos`),
+          trx.raw('COUNT(DISTINCT l.purchase_order_id)::int AS ordenes'))
+        .orderBy('pr.sku', 'asc');
+
+      const n = (v: unknown) => Number(v) || 0;
+      const totales = lineas.reduce((a: any, l: any) => ({
+        ordenes: ordenes.length, renglones: a.renglones + 1,
+        cantidad: a.cantidad + n(l.cantidad), pendiente: a.pendiente + n(l.pendiente),
+        importe: a.importe + n(l.importe),
+      }), { ordenes: ordenes.length, renglones: 0, cantidad: 0, pendiente: 0, importe: 0 });
+
+      return { supplier: sup, estados, ordenes, lineas, totales };
     });
   }
 
