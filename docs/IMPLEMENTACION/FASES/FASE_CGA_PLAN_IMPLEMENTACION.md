@@ -795,3 +795,54 @@ son dos hechos distintos.
 
 Y por el lado de la suite, lo de §10.8: la migración `20261016170505` va **antes** del deploy del
 código, porque el servicio ya lee `declared_doc_ref`.
+
+### 10.12 `[CG.194]` — el arqueo restaba $5,070 sin nombrarlos (2026-10-19)
+
+Auditando la ventana **«Tu jornada»** con la pantalla a la vista, contra prod del 19-oct:
+
+```
+libro: gastos          $8,179.00
+pantalla: "Gastos"     $3,109.00
+                       ─────────
+diferencia             $5,070.00   ← gasto pagado con efectivo de la máquina
+```
+
+El servidor hace bien en restarlo —ese dinero nunca pasó por el cajón, son `gastosCajon`— pero
+el renglón se rotula **«Gastos»** dentro de una tabla titulada **«Caja general (nuestro libro)»**.
+Y el mismo importe reaparecía **sumado** del otro lado:
+
+```
+de eso, a la bóveda      $270,200.00      ┐ difieren en los mismos
+Movimiento de la bóveda  $265,130.00      ┘ $5,070, sin una línea que lo diga
+```
+
+⭐ **Tres cifras correctas y ninguna explicando a las otras.** Hoy *Ingresos* sale completo sólo
+por casualidad (`ing_boveda = 0`); el día que un cobro se parta, se recorta igual y en silencio.
+Es la regla del propio proyecto —*declarar el universo, no sólo el número*— incumplida **dentro de
+una misma tabla**.
+
+⭐⭐ **El dato ya viajaba.** El backend publica `se_fue_a_boveda` desde `[CG.139]`, con sus dos
+piernas y el conteo de los que tocaron las dos cajas; la pantalla nunca lo leyó. No se tocó el
+servidor ni se movió una cifra: se pintó lo que ya llegaba.
+
+⚠️ **Las dos piernas NO se suman en un total.** Un ingreso que se tragó la máquina y un gasto que
+salió de ella van en sentidos contrarios: un número único los compensaría y volvería a esconder
+exactamente lo que esto vino a mostrar. Cada una corrige **su** renglón, dentro de la tabla.
+
+**Segundo defecto, mismo commit** — `cash-cut.service.ts:1590` tenía dos espacios donde iba la
+interpolación de `fueraDeFecha`: *«Esta jornada es lo REGISTRADO hoy:␣␣de esos movimientos traen el
+documento de Kepler fechado otro día»*. Un aviso al que se le cae su única cifra no avisa. Hoy
+diría **13 de 18** (72% de la jornada). El campo viajaba bien como número desde `[CG.82]`; lo roto
+era la frase, y por eso nadie lo vio.
+
+Commit `29067cf49`. Probado: 307 en `view` (4 nuevas, con la negativa **ejercida** en rojo), 98 en
+`finance`. ⚠️ Sin validación visual.
+
+#### Lo que la misma auditoría midió y NO se tocó
+
+| Hallazgo | Medido | Estado |
+|---|---|---|
+| **6 cortes cerrados, CERO autorizados** | `CC-2026-00001`…`00006`, 12→17-oct, `authorized_by IS NULL` | ⬜ el último paso del flujo nunca se completó; la pantalla lo dice de a uno y nunca «van seis» |
+| **La cobertura no cierra** | `2,850 de 3,020 · 114 sin subcuenta` → faltan **56** sin nombrar | ⬜ enumera una de dos exclusiones |
+| **«Fuera de esta jornada»** | 11 sueltos previos, 1 cancelado → **10 · −$1,704.47** | ✅ exacto, verificado al centavo. Falta **salida**: el del 28-sep lleva 21 días y no hay camino para abrir su corte |
+| **Contraparte «CONTADO»** en el historial | mismo defecto de `GOTCHAS` §86 | ⚠️ lo resuelve la columna `ruta` de `20261019094522`, **sin aplicar** |
