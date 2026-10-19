@@ -1,35 +1,46 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
+import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
+import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
 import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
 /**
- * `[TP.18]` **La deuda viva de Kepler, como origen — sin tabla propia** (ADR-094).
- *
- * Los otros tres orígenes son tablas nuestras con su `id` uuid. Éste es una VISTA
- * (`analytics.v_supplier_payables`, derive-no-copy sobre `kepler_ods`), y su llave natural es
- * compuesta: `sucursal · doc_tipo · doc_sub · folio`.
- *
- * ⛔ `finance.payment_allocation_items.obligation_id` es **uuid**, así que la llave natural no
- * cabe ahí: la primera medición falló con `operator does not exist: uuid = text`. Se resuelve con
- * un uuid **determinístico** — el mismo documento da siempre el mismo id, sin tabla intermedia y
- * sin extensión de Postgres. Se rechazó cambiar el tipo de la columna: tocaría los tres orígenes
- * vivos para resolver lo que una función resuelve sin migrar datos (ADR-094 §4).
- *
- * ⚠️ **Las dos formas de la llave tienen que coincidir siempre**: ésta (TS) y `KEPLER_PAYABLE_ID`
- * (SQL). Si se toca una, se toca la otra — `payment-calendar-kepler-payable.spec.ts` lo ejerce.
+ * `[TP.18.7]` La llave del origen derivado vive en `shared/`: la usan el Calendario y Pronto
+ * pago, y tener una función pura dentro de un servicio obligaba al otro módulo a importar el
+ * servicio entero (ADR-056). Se re-exporta porque ya hay código y pruebas que la toman de acá.
  */
-export function keplerPayableId(sucursal: string, docTipo: number | string, docSub: number | string, folio: string): string {
-  const h = createHash('md5').update(`kepler_payable|${sucursal}|${docTipo}|${docSub}|${folio}`).digest('hex');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
+export { keplerPayableId, sqlKeplerPayableId } from '../shared/kepler-payable-key';
+const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
 
-/** La MISMA llave de {@link keplerPayableId}, en SQL. `v` = alias de `analytics.v_supplier_payables`. */
-const KEPLER_PAYABLE_ID = `md5('kepler_payable|'||v.sucursal||'|'||v.doc_tipo||'|'||v.doc_sub||'|'||v.folio)::uuid`;
+/**
+ * `[TP.17.1b]` **Un crédito bancario no es mercancía** (ADR-094 §7).
+ *
+ * La deuda derivada trae TODO lo que el ERP debe, y ahí adentro hay dos naturalezas que el
+ * Calendario trata distinto: medido el 2026-10-16, **41 documentos por $38,012,268** son créditos
+ * BBVA y BanBajío, préstamos de personas físicas y tarjetas — contra 2,870 de proveedor. Si entran
+ * como `proveedor_mercancia`, un crédito se puede agrupar en el mismo pago que una factura de
+ * dulces y **pierde su lugar en el orden** (los compromisos financieros se pagan primero).
+ *
+ * ⛔ **El criterio NO se reescribe acá**: es el de `clasificarAcreedor()` del Estado de Cuenta de
+ * Acreedores, que ya está en producción. Lo que se hace es **generar el SQL desde sus mismas
+ * constantes**, para que agregar un prefijo o un grupo en el engine cambie también esta consulta.
+ * Una copia a mano sería la sexta familia de constantes duplicadas del repo.
+ *
+ * ⚠️ Lo que **sí** es decisión de esta fase, y queda dicha: `servicios` y `sin_clasificar` van a
+ * `proveedor_mercancia`. No es que sean mercancía — es que **se pagan por el mismo circuito** (una
+ * factura del ERP a un tercero), mientras que `gasto` está reservado para lo que autorizó
+ * Presupuestos por su propio camino. Los `interno` (`TI*`) ya quedaron fuera: no son deuda.
+ */
+function sqlClassificationKepler(codigo: string, grupo: string): string {
+  const porPrefijo = PREFIJOS_FINANCIEROS.map((p) => `upper(btrim(${codigo})) LIKE '${p}%'`).join(' OR ');
+  const porGrupo = GRUPOS_FINANCIEROS.map((g) => `btrim(coalesce(${grupo}, '')) = '${g}'`).join(' OR ');
+  return `CASE WHEN (${porGrupo}) OR (${porPrefijo})
+               THEN 'compromiso_financiero'::text ELSE 'proveedor_mercancia'::text END`;
+}
 
 /**
  * `[TP.16]` Los 7 días (lunes→domingo) de la semana que contiene `date`. Aritmética en UTC sobre
@@ -115,10 +126,22 @@ const CLASSIFICATION_BY_SOURCE: Record<ObligationSource, string> = {
   budget_expense: 'gasto',
   financial_commitment: 'compromiso_financiero',
   supplier_payable: 'proveedor_mercancia',
-  // Misma clasificación que la capturada a propósito: las dos son facturas de proveedor, y un
-  // pago puede cubrir una de cada una del mismo beneficiario y sucursal (ADR-094 §5).
+  // ⚠️ Sólo el FALLBACK del origen derivado. Su clasificación real sale de la FILA
+  // (`[TP.17.1b]`: un crédito bancario es `compromiso_financiero`), y se lee con
+  // {@link classificationOf} — nunca de este mapa directamente.
   kepler_payable: 'proveedor_mercancia',
 };
+
+/**
+ * `[TP.17.1b]` La clasificación de una obligación. Para los tres orígenes con tabla la fija el
+ * origen; para el derivado **la trae la fila**, porque un mismo origen entrega facturas de
+ * proveedor y créditos bancarios, que no se pagan juntos ni en el mismo orden.
+ */
+function classificationOf(source: ObligationSource, row: { classification?: unknown }): string {
+  if (source !== 'kepler_payable') return CLASSIFICATION_BY_SOURCE[source];
+  const c = String(row.classification ?? '').trim();
+  return c || CLASSIFICATION_BY_SOURCE.kepler_payable;
+}
 
 export interface AllocationItemDto { obligation_source: ObligationSource; obligation_id: string; applied_amount: number }
 export interface CreateAllocationDto { date: string; items: AllocationItemDto[]; priority_rank?: number | null; notes?: string | null }
@@ -160,6 +183,22 @@ export interface CreateAgreementDto {
  * de cada obligación SIEMPRE recalculados desde los items activos (nunca +=/-= manual, para no
  * desincronizar el saldo).
  */
+/**
+ * `[TP.19.4.1]` Lo que devuelve la sugerencia de Kepler. Son TRES returns distintos en el
+ * mismo metodo (ya ligado / sin documentos que ligar / con candidatos), asi que los campos
+ * que no estan en los tres van opcionales: una union exacta rompe por exceso de propiedades.
+ *
+ * ⚠️ `candidatos` va como piso declarado y no con la forma de sus columnas: el SELECT trae mas
+ * de las que se pueden leer de un vistazo, y escribir una forma que NO se midio es inventarla.
+ * Quien la necesite tipada que la mida primero (ADR-056: lo que no se midio se DECLARA).
+ */
+export interface SugerenciaKepler {
+  ya_ligado: boolean;
+  folio?: string | null;
+  candidatos: Record<string, unknown>[];
+  motivo?: string;
+  unico?: boolean;
+}
 @Injectable()
 export class PaymentCalendarService {
   private readonly logger = new Logger(PaymentCalendarService.name);
@@ -256,6 +295,9 @@ export class PaymentCalendarService {
         trx.raw('? AS id', [id]),
         trx.raw(`'pending'::text AS status`),
         trx.raw('v.pendiente AS original_amount'),
+        // `[TP.17.1b]` La clasificación viaja con la fila: para este origen NO sale de
+        // `CLASSIFICATION_BY_SOURCE`, porque depende del acreedor y no del origen.
+        trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo')} AS classification`),
         's.id AS supplier_id',
         trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
         trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
@@ -285,7 +327,17 @@ export class PaymentCalendarService {
   async listObligations(q: {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;
+    limit?: number; offset?: number;
   }) {
+    // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
+    // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
+    // ⚠️ Un valor inválido (negativo, cero, NaN) cuenta como NO ESPECIFICADO y cae al default.
+    // Con `Math.max(n, 1)` un `limit=-5` devolvía **una sola fila** — una lista casi vacía que
+    // parece un día sin deuda. Fallar hacia el default es lo único que no miente.
+    const limitRaw = Number(q.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 5000) : 1000;
+    const offsetRaw = Number(q.offset);
+    const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0;
     // `[TP.18]` El tenant se NOMBRA acá: las tres patas con tabla van por RLS, pero la cuarta lee
     // `analytics.*`, que **no tiene RLS** — su alcance lo da este filtro explícito y nada más.
     const tenantId = this.tenantCtx.requireTenantId();
@@ -367,7 +419,11 @@ export class PaymentCalendarService {
           trx.raw(`'kepler_payable'::text AS obligation_source`), trx.raw(`${KEPLER_PAYABLE_ID} AS obligation_id`),
           trx.raw(`coalesce(s.name, v.proveedor_nombre, v.proveedor) AS beneficiary`),
           trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
-          trx.raw(`'proveedor_mercancia'::text AS classification`), trx.raw(`'mercancia'::text AS subtype`),
+          // `[TP.17.1b]` La clasificación sale de QUIÉN es el acreedor, no del origen: un crédito
+          // bancario y una factura de dulces llegan por la misma vista y no se pagan igual.
+          trx.raw(`${sqlClassificationKepler('v.proveedor', 'v.grupo')} AS classification`),
+          trx.raw(`CASE WHEN ${sqlClassificationKepler('v.proveedor', 'v.grupo')} = 'compromiso_financiero'
+                        THEN 'financiero'::text ELSE 'mercancia'::text END AS subtype`),
           trx.raw('v.proveedor AS area_code'), trx.raw('v.vencimiento AS original_due_date'),
           trx.raw('NULL::date AS negotiated_date'), trx.raw('v.pendiente AS original_amount'),
           // ⚠️ `coalesce` acá y no dentro del agregado: con LEFT JOIN, una factura SIN reserva no
@@ -396,7 +452,27 @@ export class PaymentCalendarService {
       if (q.dueFrom) base.where('ob.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) base.where('ob.original_due_date', '<=', q.dueTo);
       if (q.onlyAvailable !== false) base.where('ob.available_amount', '>', 0).whereIn('ob.status', ['pending', 'partial']);
-      return base.orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC').limit(1000);
+      /**
+       * `[TP.17.2]` **El techo se DECLARA, no se calla** (ADR-056).
+       *
+       * Acá había un `.limit(1000)` sin más. Con 37 obligaciones capturadas era invisible; con la
+       * deuda derivada son **2,895**, y medido el 2026-10-16 el corte dejaba fuera **1,895
+       * documentos por $105,683,725** — el **79 % del dinero**. Y no es un recorte neutro: el
+       * orden es por vencimiento ascendente, así que lo que se oculta es **lo más reciente**
+       * (el corte caía en 2026-06-04). La pantalla se habría visto impecable mostrando mil
+       * facturas viejas, que es justo lo contrario de lo que este origen viene a resolver.
+       *
+       * Por eso la respuesta ahora lleva `total`: quien la pinta puede decir «mostrando N de M».
+       * ⚠️ Esto **no es paginación** — es un techo honesto. La paginación real queda como deuda
+       * con nombre en el tracker; mientras tanto el filtro y la búsqueda son el camino para
+       * llegar a cualquier factura.
+       */
+      const [{ total }] = await base.clone().clearSelect().clearOrder()
+        .count<{ total: string }[]>({ total: '*' });
+      const rows = await base
+        .orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC')
+        .limit(limit).offset(offset);
+      return { rows, total: Number(total), limit, offset };
     });
   }
 
@@ -556,7 +632,7 @@ export class PaymentCalendarService {
         const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
         if (Number(it.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
         await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount));
-        classifications.add(CLASSIFICATION_BY_SOURCE[it.obligation_source]);
+        classifications.add(classificationOf(it.obligation_source, row));
         const k = paymentGroupKey(it.obligation_source, row);
         payees.add(k.payee);
         branches.add(k.branch);
@@ -593,9 +669,12 @@ export class PaymentCalendarService {
       // `createAllocation` ya lo impedía para pagos nuevos; aquí faltaba.
       const itemLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
       if (itemLot && LOCKED_LOT_STATUSES.has(itemLot.status)) throw new BadRequestException('El día ya fue autorizado: no se le pueden sumar facturas a sus pagos (agrégalas a otro día).');
-      if (CLASSIFICATION_BY_SOURCE[item.obligation_source] !== allocation.classification) throw new BadRequestException('La obligación no coincide con la clasificación de este pago');
       const row = await this.loadObligationRow(trx, tenantId, item.obligation_source, item.obligation_id);
       if (!row) throw new NotFoundException('Obligación no encontrada');
+      // `[TP.17.1b]` Va DESPUÉS de cargar la fila, y no antes como hasta ahora: la clasificación
+      // del origen derivado vive en la fila (un crédito bancario no es una factura de mercancía),
+      // así que no se puede decidir con sólo mirar el `obligation_source`.
+      if (classificationOf(item.obligation_source, row) !== allocation.classification) throw new BadRequestException('La obligación no coincide con la clasificación de este pago');
       const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
       if (Number(item.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
       await this.assertKeplerBalance(trx, item.obligation_source, row, Number(item.applied_amount));
@@ -732,6 +811,114 @@ export class PaymentCalendarService {
         reference_text: dto.reference_text ?? null, supplier_payment_account_id: accountId,
         updated_by: username, updated_at: trx.fn.now(),
       }).returning('*');
+      return updated;
+    });
+  }
+
+  /**
+   * `[TP.19.4]` **Propone el documento de Kepler de un pago ejecutado — no lo adivina** (O3).
+   *
+   * Teclear la terna `(sucursal, doc_prefix, folio)` es exactamente el trabajo que esta liga venía
+   * a evitar. El espejo del ERP ya tiene con qué reconocerla: **monto, día y proveedor**.
+   *
+   * ⛔ **Liga sola SÓLO si hay un único candidato**, y es el mismo criterio con el que `[PC.6]`
+   * auto-valida un comprobante: cuando el cruce no deja lugar a duda. Con dos candidatos
+   * **devuelve los dos y no elige** — elegir por el usuario entre dos pagos del mismo proveedor y
+   * monto es justo donde una trazabilidad inventada se vuelve indistinguible de una real.
+   *
+   * ⚠️ Tolerancias, dichas: **± 1 centavo** en el monto (redondeo) y **± 3 días** entre el día del
+   * lote y la fecha del documento, porque el ERP se captura después de que sale el dinero.
+   */
+  async sugerirKeplerPayment(allocationId: string): Promise<SugerenciaKepler> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const a = await trx('finance.payment_allocations as pa')
+        .join('finance.payment_calendar_lots as pl', 'pl.id', 'pa.lot_id')
+        .where({ 'pa.tenant_id': tenantId, 'pa.id': allocationId })
+        .select('pa.*', 'pl.lot_date').first();
+      if (!a) throw new NotFoundException('Pago no encontrado');
+      if (a.status !== 'executed') throw new BadRequestException('Sólo se busca el documento de un pago ya ejecutado.');
+      if (a.kepler_payment_folio) return { ya_ligado: true, folio: a.kepler_payment_folio, candidatos: [] };
+
+      // Los códigos de proveedor que cubre este pago (las dos clases de factura los tienen).
+      const codigos: string[] = (await trx.raw(`
+        SELECT DISTINCT cod FROM (
+          SELECT s.code AS cod
+            FROM finance.payment_allocation_items i
+            JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id
+            JOIN catalog.suppliers s ON s.id = o.supplier_id
+           WHERE i.allocation_id = :id AND i.obligation_source = 'supplier_payable'
+          UNION
+          SELECT v.proveedor AS cod
+            FROM finance.payment_allocation_items i
+            JOIN analytics.v_supplier_payables v ON ${KEPLER_PAYABLE_ID} = i.obligation_id
+           WHERE i.allocation_id = :id AND i.obligation_source = 'kepler_payable'
+        ) q WHERE cod IS NOT NULL`, { id: allocationId })).rows.map((r: { cod: string }) => String(r.cod).trim());
+
+      if (!codigos.length) return { ya_ligado: false, candidatos: [], motivo: 'Este pago no cubre facturas de proveedor: no hay documento de Kepler que buscarle.' };
+
+      const candidatos = await trx('analytics.erp_supplier_payments as p')
+        .where('p.tenant_id', tenantId)
+        // [TP.19.4.1] knex ACEPTA un Raw como columna de whereIn en tiempo de ejecucion, pero
+        //   sus tipos no lo declaran (TS2769: Raw no es readonly string[]). La conversion dice
+        //   eso y nada mas: no cambia la consulta. Aparecio al poner el tipo de retorno del
+        //   metodo -- antes nadie obligaba a TypeScript a inferir esta linea.
+        .whereIn(trx.raw('btrim(p.proveedor_code)') as unknown as string, codigos)
+        .whereRaw('abs(p.monto::numeric - ?::numeric) <= 0.01', [a.amount_assigned])
+        .whereRaw("p.pago_date BETWEEN ?::date - 3 AND ?::date + 3", [a.lot_date, a.lot_date])
+        // Un documento que ya está ligado a otro pago no es candidato: el índice único lo
+        // rechazaría igual, pero ofrecerlo y fallar después es la peor forma de decir que no.
+        .whereNotExists(function () {
+          this.select(trx.raw('1')).from('finance.payment_allocations as x')
+            .whereRaw('x.kepler_payment_sucursal = p.sucursal AND x.kepler_payment_doc_prefix = p.doc_prefix')
+            .whereRaw('x.kepler_payment_folio = p.folio');
+        })
+        .select('p.sucursal', 'p.doc_prefix', 'p.folio', 'p.pago_date', 'p.proveedor_code', 'p.proveedor_nombre',
+                trx.raw('p.monto::numeric AS monto'))
+        .orderBy('p.pago_date', 'asc').limit(10);
+
+      return { ya_ligado: false, candidatos, unico: candidatos.length === 1 };
+    });
+  }
+
+  /**
+   * `[TP.19.3]` **Liga un pago del Calendario con su documento en Kepler** (O3).
+   *
+   * Va aparte de `execute()` porque el dinero sale **antes** de que el ERP capture el documento:
+   * exigir la terna al ejecutar obligaría a inventar un folio para poder cerrar el pago. Acá se
+   * liga cuando existe, y mientras tanto lo que falta se ve como falta (ADR-056).
+   *
+   * ⛔ Se verifica que el documento **exista** en el espejo del ERP y que el beneficiario coincida:
+   * ligar a un folio tecleado mal es peor que no ligar — publicaría una trazabilidad falsa.
+   */
+  /**
+   * ⚠️ `[TP.19.3.1]` Piso declarado: devuelve la fila actualizada de `payment_allocations`, y
+   * sus columnas no se enumeran aca porque no se midieron. El unico consumidor (el controlador)
+   * la pasa tal cual, asi que el piso alcanza y no finge una forma que nadie verifico.
+   */
+  async linkKeplerPayment(
+    allocationId: string,
+    ref: { sucursal: string; doc_prefix: string; folio: string },
+    username: string,
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const sucursal = String(ref?.sucursal ?? '').trim();
+    const docPrefix = String(ref?.doc_prefix ?? '').trim();
+    const folio = String(ref?.folio ?? '').trim();
+    if (!sucursal || !docPrefix || !folio) throw new BadRequestException('Falta sucursal, tipo de documento o folio del pago en Kepler.');
+    return this.tk.run(async (trx) => {
+      const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
+      if (!allocation) throw new NotFoundException('Pago no encontrado');
+      if (allocation.status !== 'executed') throw new BadRequestException('Sólo se liga un pago ya ejecutado: antes de que salga el dinero no hay documento que ligar.');
+      const doc = await trx('analytics.erp_supplier_payments')
+        .where({ tenant_id: tenantId, sucursal, doc_prefix: docPrefix, folio }).first();
+      if (!doc) throw new NotFoundException(`Kepler no tiene el pago ${docPrefix} ${folio} de la sucursal ${sucursal}. Revisa el folio o espera a que el feed lo traiga.`);
+      const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
+        .update({
+          kepler_payment_sucursal: sucursal, kepler_payment_doc_prefix: docPrefix, kepler_payment_folio: folio,
+          kepler_payment_linked_at: trx.fn.now(), kepler_payment_linked_by: username,
+          updated_by: username, updated_at: trx.fn.now(),
+        }).returning('*');
       return updated;
     });
   }

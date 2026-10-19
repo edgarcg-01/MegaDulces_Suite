@@ -21,6 +21,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
 import { PagosCapturaLoteComponent, type LoteGuardado } from '../components/pagos-captura-lote.component';
 import { CRITERIOS_PAGO, ETIQUETA_CRITERIO_PAGO, type Chequeo } from '@megadulces/contracts';
 import { PagosComprobantesSocketService, PaymentProofEvent } from '../pagos-comprobantes-socket.service';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 /** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
 interface GastoFile {
@@ -40,10 +41,12 @@ interface GastoFile {
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent],
+  imports: [PagosTabsComponent, RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in">
       <p-toast />
       <header class="surf-page-head">
@@ -100,7 +103,18 @@ interface GastoFile {
           <ng-template #body let-c>
             <tr>
               <td>{{ c.pago_date | date:'dd/MM/yy' }}</td>
-              <td class="mono">{{ c.folio }}</td>
+              <td class="mono">{{ c.folio }}
+                <!-- [TP.19.3] El ORIGEN del pago: de que dia autorizado del Calendario salio y
+                     con que folio de lote. Hasta hoy este pago se leia como un hecho sin origen.
+                     Si no nacio en el Calendario no se pinta nada: la ausencia es lo normal y
+                     poner "—" aqui agregaria ruido en cada renglon. -->
+                @if (c.origen_calendario; as o) {
+                  <a class="cb-origen" routerLink="/finanzas/calendario-pagos"
+                     [title]="'Pago ' + o.folio + ' del calendario' + (o.fecha ? ', dia ' + (o.fecha | date:'dd/MM/yy') : '')">
+                    <i class="pi pi-calendar-plus" aria-hidden="true"></i> {{ o.folio }}
+                  </a>
+                }
+              </td>
               <!-- [PP.9] Manda el MEDIO real, no el tipo de documento: "Transferencia" sobre un
                    pago hecho en efectivo era la mentira más cara de esta pantalla. El documento
                    de Kepler no se pierde, va en el tooltip. -->
@@ -416,6 +430,11 @@ interface GastoFile {
     .cb-table .strong { font-weight: 600; color: var(--text-main); }
     .cb-table .muted { color: var(--text-muted); }
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
+    /* [TP.19.3] El origen en el Calendario: discreto, pero enlazable. */
+    .cb-origen { display: inline-flex; align-items: center; gap: .25rem; margin-top: .15rem;
+      font-size: var(--fs-xs); color: var(--text-muted); text-decoration: none; }
+    .cb-origen:hover { color: var(--action); text-decoration: underline; }
+    .cb-origen:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-radius: var(--r-sm); }
     .cb-metodo { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
     .cb-metodo i { font-size: .7rem; }
     .cb-metodo.tra { color: var(--action); }

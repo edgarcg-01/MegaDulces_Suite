@@ -97,7 +97,7 @@ if not defined PSQL echo [%date% %time%] ERROR: psql.exe no encontrado >> "%LOG%
 if not defined PSQL goto :eof
 
 REM 0) PRECHECK: el runner responde? Si no, salir rapido (se reintenta al reconectar).
-%PSQL% "%DST%" -tAc "select 1" >nul 2>&1
+%PSQL% -d "%DST%" -tAc "select 1" >nul 2>&1
 if errorlevel 1 (
   echo [%date% %time%] OFFLINE: runner ${RUNNER_HOST} no alcanzable; se reintenta al reconectar >> "%LOG%"
   goto :eof
@@ -108,14 +108,14 @@ REM ===========================================================================
 REM  BLOQUE 1 — VENTAS
 REM  Si la base tiene VARIAS rutas, el filtro por %ROUTE_SERIE% es OBLIGATORIO
 REM  (si no, doble conteo). Verificar la serie con:
-REM    %PSQL% "%SRC%" -c "select distinct rtrim(btrim(c63),'-') from md.kdm1 where c4=10 and c2='U' and c3='D'"
+REM    %PSQL% -d "%SRC%" -c "select distinct rtrim(btrim(c63),'-') from md.kdm1 where c4=10 and c2='U' and c3='D'"
 REM ===========================================================================
-%PSQL% "%DST%" -c "delete from ingest.route_sales_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
+%PSQL% -d "%DST%" -c "delete from ingest.route_sales_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
 
-%PSQL% "%SRC%" -c "\\copy (select '%TRUCK%',h.c1,h.c6,h.c9::date,h.c10,d.c8,d.c10,d.c11,d.c9::numeric,d.c12::numeric,d.c13::numeric from md.kdm2 d join md.kdm1 h on h.c1=d.c1 and h.c2=d.c2 and h.c3=d.c3 and h.c4=d.c4 and h.c5=d.c5 and h.c6=d.c6 where d.c2='U' and d.c3='D' and h.c4=10 and rtrim(btrim(h.c63),'-')='%ROUTE_SERIE%' and h.c9>=current_date-%DAYS%) to stdout csv" | %PSQL% "%DST%" -c "\\copy ingest.route_sales_stg (truck,almacen,folio,fecha,forma_pago,sku,producto,unidad,cantidad,precio_neto,importe) from stdin csv" >> "%LOG%" 2>&1
+%PSQL% -d "%SRC%" -c "\\copy (select '%TRUCK%',h.c1,h.c6,h.c9::date,h.c10,d.c8,d.c10,d.c11,d.c9::numeric,d.c12::numeric,d.c13::numeric from md.kdm2 d join md.kdm1 h on h.c1=d.c1 and h.c2=d.c2 and h.c3=d.c3 and h.c4=d.c4 and h.c5=d.c5 and h.c6=d.c6 where d.c2='U' and d.c3='D' and h.c4=10 and rtrim(btrim(h.c63),'-')='%ROUTE_SERIE%' and h.c9>=current_date-%DAYS%) to stdout csv" | %PSQL% -d "%DST%" -c "\\copy ingest.route_sales_stg (truck,almacen,folio,fecha,forma_pago,sku,producto,unidad,cantidad,precio_neto,importe) from stdin csv" >> "%LOG%" 2>&1
 
 echo [%date% %time%] merge ventas -^> filas: >> "%LOG%"
-%PSQL% "%DST%" -c "select ingest.merge_route_sales('%TRUCK%', %DAYS%)" >> "%LOG%" 2>&1
+%PSQL% -d "%DST%" -c "select ingest.merge_route_sales('%TRUCK%', %DAYS%)" >> "%LOG%" 2>&1
 
 REM ===========================================================================
 REM  BLOQUE 2 — EXISTENCIA  [RD.32]
@@ -126,12 +126,12 @@ REM    kdik.c2=SKU  kdik.c5=existencia   kdik.c16=costo
 REM  OJO: existencia > 0 (el catalogo trae miles en cero) y es una FOTO del
 REM  momento: el merge REEMPLAZA la del dia, no acumula.
 REM ===========================================================================
-%PSQL% "%DST%" -c "delete from ingest.route_stock_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
+%PSQL% -d "%DST%" -c "delete from ingest.route_stock_stg where truck='%TRUCK%'" >> "%LOG%" 2>&1
 
-%PSQL% "%SRC%" -c "\\copy (select '%TRUCK%',btrim(k.c2),btrim(i.c2),btrim(i.c11),k.c5::numeric,k.c16::numeric,(k.c5*k.c16)::numeric from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0) to stdout csv" | %PSQL% "%DST%" -c "\\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1
+%PSQL% -d "%SRC%" -c "\\copy (select '%TRUCK%',btrim(k.c2),btrim(i.c2),btrim(i.c11),k.c5::numeric,k.c16::numeric,(k.c5*k.c16)::numeric from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0) to stdout csv" | %PSQL% -d "%DST%" -c "\\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1
 
 echo [%date% %time%] merge existencia -^> filas: >> "%LOG%"
-%PSQL% "%DST%" -c "select ingest.merge_route_stock('%TRUCK%')" >> "%LOG%" 2>&1
+%PSQL% -d "%DST%" -c "select ingest.merge_route_stock('%TRUCK%')" >> "%LOG%" 2>&1
 
 REM ===========================================================================
 REM  BLOQUE 3 — COBROS UA0501  [RC.2]
@@ -160,12 +160,12 @@ REM
 REM  NO se filtra por cuenta: van los de caja (0011) y los de banco (2169). La
 REM  cuenta viaja en su columna y se separa del otro lado.
 REM ===========================================================================
-%PSQL% "%DST%" -v ON_ERROR_STOP=1 -c "DELETE FROM ingest.route_collections_stg WHERE truck='%TRUCK%'" 2>>"%LOG%"
+%PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "DELETE FROM ingest.route_collections_stg WHERE truck='%TRUCK%'" 2>>"%LOG%"
 
-%PSQL% "%SRC%" -v ON_ERROR_STOP=1 -c "\\copy (select '%TRUCK%', btrim(h.c1::text), btrim(h.c6::text), h.c9::date, btrim(h.c45::text), btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text), btrim(a.c11::text), a.c12::numeric, btrim(a.c14::text) from md.kdm5 a join md.kdm1 h on btrim(h.c1::text)=btrim(a.c1::text) and btrim(h.c2::text)=btrim(a.c2::text) and btrim(h.c3::text)=btrim(a.c3::text) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6::text)=btrim(a.c6::text) where btrim(a.c2::text)='U' and btrim(a.c3::text)='A' and btrim(a.c4::text)='5' and btrim(h.c1::text)=regexp_replace(current_database(),'^md_','') and h.c9 >= current_date - %DAYS%) to stdout csv" | %PSQL% "%DST%" -v ON_ERROR_STOP=1 -c "\\copy ingest.route_collections_stg (truck,almacen,cobro_folio,fecha,cuenta,doc_tipo,folio_corte,importe,referencia) from stdin csv" >> "%LOG%" 2>&1
+%PSQL% -d "%SRC%" -v ON_ERROR_STOP=1 -c "\\copy (select '%TRUCK%', btrim(h.c1::text), btrim(h.c6::text), h.c9::date, btrim(h.c45::text), btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text), btrim(a.c11::text), a.c12::numeric, btrim(a.c14::text) from md.kdm5 a join md.kdm1 h on btrim(h.c1::text)=btrim(a.c1::text) and btrim(h.c2::text)=btrim(a.c2::text) and btrim(h.c3::text)=btrim(a.c3::text) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6::text)=btrim(a.c6::text) where btrim(a.c2::text)='U' and btrim(a.c3::text)='A' and btrim(a.c4::text)='5' and btrim(h.c1::text)=regexp_replace(current_database(),'^md_','') and h.c9 >= current_date - %DAYS%) to stdout csv" | %PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "\\copy ingest.route_collections_stg (truck,almacen,cobro_folio,fecha,cuenta,doc_tipo,folio_corte,importe,referencia) from stdin csv" >> "%LOG%" 2>&1
 
 echo [%date% %time%] merge cobros -^> filas: >> "%LOG%"
-%PSQL% "%DST%" -tAc "SELECT ingest.merge_route_collections('%TRUCK%')" >> "%LOG%" 2>&1
+%PSQL% -d "%DST%" -tAc "SELECT ingest.merge_route_collections('%TRUCK%')" >> "%LOG%" 2>&1
 
 echo [%date% %time%] OK %TRUCK% >> "%LOG%"
 
@@ -206,6 +206,35 @@ const REGLAS = [
     duele: '.249 sobrevive como reenvío TCP, así que la van mal dada de alta FUNCIONA y nadie ve el error',
   },
   {
+    /**
+     * ⭐⭐ `[CGA-A.12b]` **La cadena de conexión va con `-d`, NUNCA como argumento suelto.**
+     *
+     * Medido en `ruta_503` el 2026-10-19, después de tres intentos fallidos: el `psql` de esas
+     * máquinas **no permuta opciones después del primer argumento posicional**. Con
+     *
+     *     %PSQL% -d "%DST%" -tAc "select 1"
+     *
+     * psql toma la URL como `dbname`, `-tAc` como *username*, y la consulta **sobra**: la
+     * ignora con una «precaución» y **abre una sesión interactiva**. En un `.cmd` eso no se ve
+     * como error: el comando «corre», devuelve no-cero, y el push se declara **OFFLINE aunque
+     * el runner conteste**.
+     *
+     * ⛔ Y no es hipotético para la plantilla: ése es exactamente el precheck de
+     * `push-ruta.v2.template.cmd`, que es de donde copiaron varias unidades.
+     *
+     * Con `-d "%DST%"` la cadena es valor de opción, no hay posicional, y no hay nada que
+     * permutar.
+     */
+    id: 'psql_d',
+    texto: 'la cadena de conexión se pasa con `-d`, no suelta',
+    ok: (s) => !/%PSQL%\s+"%[A-Za-z_]\w*%"/.test(codigo(s)),
+    detalle: (s) => {
+      const m = codigo(s).match(/%PSQL%\s+"%[A-Za-z_]\w*%"[^\r\n]{0,40}/);
+      return m ? `p.ej.: ${m[0].trim()}` : '';
+    },
+    duele: 'ese psql no permuta opciones: toma la URL como dbname, la consulta sobra y abre sesión → el push se declara OFFLINE con el runner vivo',
+  },
+  {
     id: 'timeout',
     texto: 'las cadenas llevan connect_timeout',
     ok: (s) => codigo(s).split(/\r?\n/).filter((l) => /postgresql:\/\//.test(l))
@@ -229,7 +258,7 @@ function variablesHuerfanas(s) {
   const definidas = new Set();
   for (const m of s.matchAll(/^\s*set\s+([A-Za-z_]\w*)\s*=/gim)) definidas.add(m[1].toUpperCase());
   const usadas = new Set();
-  // Sólo las que aparecen como destino de psql: `%PSQL% "%X%"` o `%PSQL% -d "%X%"`.
+  // Sólo las que aparecen como destino de psql: `%PSQL% -d "%X%"` o `%PSQL% -d "%X%"`.
   for (const m of s.matchAll(/%PSQL%\s+(?:-d\s+)?"%([A-Za-z_]\w*)%"/gi)) usadas.add(m[1].toUpperCase());
   return [...usadas].filter((v) => !definidas.has(v));
 }
@@ -274,6 +303,8 @@ function selfTest() {
     ['conexion', bueno.replace(/^set SRC=/m, 'set LOCAL_CONN=')],
     ['runner', bueno.replace(/192\.168\.0\.222/g, '192.168.0.249')],
     ['timeout', bueno.replace(/\?connect_timeout=5/g, '')],
+    // ⭐ `[CGA-A.12b]` La forma que repartió `push-ruta.v2.template.cmd`: la cadena suelta.
+    ['psql_d', bueno.replace(/%PSQL% -d ("%[A-Za-z_]\w*%")/g, '%PSQL% $1')],
   ];
 
   console.log('\n[self-test] Cada mutación rompe UNA regla, y tiene que salir ESA.\n');
@@ -286,7 +317,7 @@ function selfTest() {
 
   console.log('');
   if (fallas.length) { for (const f of fallas) console.log(`  ✗ ${f}`); console.log(''); return 1; }
-  console.log('✓ prueba negativa: la plantilla propia pasa las 7 reglas, y las 5 mutaciones caen.\n');
+  console.log('✓ prueba negativa: la plantilla propia pasa las 8 reglas, y las 6 mutaciones caen.\n');
   return 0;
 }
 

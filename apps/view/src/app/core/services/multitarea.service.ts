@@ -1,9 +1,11 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ActivatedRoute, NavigationEnd, Router, UrlTree } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, PRIMARY_OUTLET, Router, UrlTree } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { alCambiarEnOtraVentana, guardarPreferencia, leerPreferencia } from '../utils/cross-tab';
 
 const CLAVE = 'mt.detallesAparte.v1';
+/** `[MT.6]` Ancho del panel, en px. Vacio = sin tocar (manda el default del CSS). */
+const CLAVE_ANCHO = 'mt.anchoPanel.v1';
 
 /**
  * Dónde abre el detalle cuando hacés clic en un folio.
@@ -61,6 +63,41 @@ export class MultitareaService {
   registrarRutaDelArea(r: ActivatedRoute): void { this.rutaArea = r; }
 
   /**
+   * `[MT.5]` **Kiosco**: la persona con una sola pantalla, sin chrome.
+   *
+   * Lo sabe el layout (lo deduce de cuántos items le quedan en el nav) y lo
+   * necesita el panel, que vive en la raíz y no ve esa cuenta. Va acá y no en
+   * un servicio nuevo porque es estado de la pantalla partida: el panel no se
+   * abre donde no hay dónde abrirlo.
+   *
+   * ⚠️ El layout lo apaga al desmontarse. Sin eso, salir de un área en kiosco a
+   * una pantalla sin layout dejaría el valor pegado y el panel no abriría más.
+   */
+  private readonly _kiosco = signal(false);
+  readonly kiosco = this._kiosco.asReadonly();
+  declararKiosco(v: boolean): void { this._kiosco.set(v); }
+
+  /**
+   * `[MT.6]` **Dónde quedó el divisor**, en píxeles de ancho del panel.
+   *
+   * `null` = sin tocar: manda el default del CSS (`clamp(24rem, 46%, 60rem)`).
+   * Se guarda como preferencia y se sincroniza entre ventanas por el mismo
+   * mecanismo que el modo — mover el divisor en una ventana y que la otra siga
+   * en la mitad es la misma clase de mentira que `[MT.2]` vino a cerrar.
+   *
+   * ⚠️ Se guarda el PÍXEL, no el porcentaje: la persona acomoda el divisor para
+   * que entre algo concreto (una tabla de 7 columnas), y eso es un ancho, no una
+   * proporción. En una ventana más chica el `clamp` de abajo lo recorta.
+   */
+  private readonly _anchoPanel = signal<number | null>(leerAncho());
+  readonly anchoPanel = this._anchoPanel.asReadonly();
+
+  ponerAnchoPanel(px: number | null): void {
+    this._anchoPanel.set(px);
+    guardarPreferencia(CLAVE_ANCHO, px === null ? '' : String(Math.round(px)));
+  }
+
+  /**
    * Lo que se le pasa a '[target]' de un enlace de drill-down.
    *
    * 'undefined' y no '_self': con '_self' RouterLink igual entra por su camino,
@@ -77,6 +114,7 @@ export class MultitareaService {
   constructor() {
     // Otra ventana cambió la preferencia.
     alCambiarEnOtraVentana(CLAVE, (v) => this._modo.set(normalizar(v)));
+    alCambiarEnOtraVentana(CLAVE_ANCHO, (v) => this._anchoPanel.set(aPx(v)));
     // El enlace al panel depende del primario, así que la memoria se vacía al navegar.
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe(() => this.memoria.clear());
   }
@@ -112,16 +150,88 @@ export class MultitareaService {
   }
 
   /**
-   * Abre la pantalla actual —con su filtro, su búsqueda y su scroll en la URL—
-   * en otra ventana.
+   * `[MT.3]` Abre la pantalla actual aparte **donde dice la preferencia**.
    *
-   * 'noopener' no es ceremonia: sin él la ventana nueva recibe 'window.opener' y
-   * puede navegar a la que la abrió. Además le deja al navegador liberar el hilo.
+   * ⛔ Antes abría ventana SIEMPRE, y eso hacía mentir al menú: alguien elegía
+   * «Abrirlo al lado (pantalla partida)», apretaba el botón y le saltaba una
+   * pestaña igual. Reportado por Edgar el 2026-10-16. Una preferencia que el
+   * botón de al lado ignora no es una preferencia, es un adorno.
+   *
+   *  - `'lado'`   → esta misma pantalla en el panel derecho, con la de la
+   *                 izquierda intacta. Es el caso de comparar dos cortes del
+   *                 mismo reporte sin perder el primero.
+   *  - el resto   → otra ventana del navegador.
+   *
+   * ⚠️ `'aqui'` cae a ventana A PROPÓSITO: "reemplazar esta pantalla" no tiene
+   * sentido cuando lo que se abre ES esta pantalla —el gesto no haría nada y un
+   * botón que no hace nada se lee como roto—, y el botón existe justamente para
+   * abrir aparte.
    */
   abrirEstaPantallaAparte(): void {
+    if (this._modo() === 'lado' && this.rutaArea && this.alLado()) return;
     if (typeof window === 'undefined') return;
+    // 'noopener' no es ceremonia: sin él la ventana nueva recibe 'window.opener'
+    // y puede navegar a la que la abrió. Además le deja al navegador liberar el hilo.
     window.open(window.location.href, '_blank', 'noopener');
   }
+
+  /**
+   * Duplica la pantalla actual en el outlet `panel`. Devuelve `false` si no se
+   * pudo armar el árbol, para que quien llama **caiga a la ventana** en vez de
+   * quedarse sin hacer nada.
+   *
+   * ⚠️ Los query params se llevan a mano. `createUrlTree` NO los arrastra, y sin
+   * ellos el panel abriría la pantalla **sin el filtro, la búsqueda ni el rango
+   * de fechas** que la persona está mirando — o sea: no sería la misma pantalla,
+   * que es lo único que este gesto promete.
+   */
+  private alLado(): boolean {
+    const actual = this.router.parseUrl(this.router.url);
+    const primario = caminoPrimario(actual);
+    if (!primario) return false;
+    const arbol = this.router.createUrlTree([{ outlets: { panel: segmentos([primario]) } }], {
+      relativeTo: this.rutaArea,
+      queryParams: actual.queryParams,
+      fragment: actual.fragment ?? undefined,
+    });
+    void this.router.navigateByUrl(arbol);
+    return true;
+  }
+}
+
+/**
+ * El camino de la rama PRIMARIA, sin los outlets auxiliares.
+ *
+ * ⚠️ `router.url` ya puede traer un panel abierto
+ * (`/compras/(ordenes//panel:compras/ordenes/ID)`); meter eso tal cual dentro de
+ * otro outlet anida el split dentro del split. Se recorre la rama primaria y se
+ * deja el resto afuera.
+ */
+function caminoPrimario(arbol: UrlTree): string {
+  const partes: string[] = [];
+  let grupo = arbol.root;
+  for (;;) {
+    const hijo = grupo.children[PRIMARY_OUTLET];
+    if (!hijo) break;
+    partes.push(...hijo.segments.map((s) => s.path));
+    grupo = hijo;
+  }
+  return partes.length ? '/' + partes.join('/') : '';
+}
+
+/**
+ * Lee el ancho guardado. Vacio, ausente o basura caen a `null` = sin tocar.
+ * ⚠️ `Number('')` es 0, no NaN: sin el corte explicito, borrar la preferencia
+ * dejaria el panel con 0 px de ancho en vez de devolverle el default.
+ */
+function aPx(v: string | null): number | null {
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function leerAncho(): number | null {
+  return aPx(leerPreferencia(CLAVE_ANCHO));
 }
 
 /** Lee el modo guardado. El '1' es el formato viejo de `[MT.3]` (booleano). */

@@ -1,6 +1,7 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
 import { GASTOS_TABS } from './gastos-tabs';
+import { PAGOS_TABS } from './pagos-tabs';
 
 /**
  * Tabs del proyecto Finanzas. Aquí crece lo contable (documentos, hallazgos,
@@ -89,12 +90,11 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-send',
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
-  {
-    label: 'Calendario de pagos',
-    route: '/finanzas/calendario-pagos',
-    icon: 'pi pi-calendar',
-    permission: Permission.FINANCE_PAYMENTS_VER,
-  },
+  // `[TP.20.3]` ⬆️ Esa entrada queda por compatibilidad del registro, pero las CUATRO pantallas
+  // del ciclo de pago viven en `pagos-tabs.ts`: la MISMA lista que pinta la barra de cada una y a
+  // la que lleva la entrada «Pagos» del menú. Antes acá había dos sueltas (Pagos a proveedor y
+  // Calendario) y las otras dos —Pronto pago y Programa— no estaban en ningún registro.
+  ...PAGOS_TABS.filter((t) => t.route !== '/finanzas/pagos-comprobantes'),
   // Presupuesto se movió a su MÓDULO propio (`/presupuesto`, Fase PU) — ya no es tab de Finanzas.
   {
     label: 'Hallazgos',
