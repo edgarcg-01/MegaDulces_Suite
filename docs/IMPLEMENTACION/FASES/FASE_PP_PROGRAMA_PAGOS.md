@@ -156,3 +156,46 @@ mes con libro sigue marcado como cargado, y la lista sale ordenada y sin repetid
 ⛔ **Lo que esto NO resuelve, y sigue siendo la ruta crítica: `[PP.8]`.** El libro se sigue
 cargando a mano y hoy lleva **72 días** sin actualizarse. PP.10 hace **visible** el hueco; no lo
 llena.
+
+---
+
+## PP.4 revisado — la señal derivada nunca corrió, y su criterio no tiene árbitro (2026-10-19)
+
+**Lo primero, verificado:** `finance.payment_program.kepler_matched` está **100 % NULL — 0 de
+2,716 filas**. El algoritmo que la deriva (`reconKepler()` del importer, sprint PP.4) **nunca
+produjo un dato en producción**. La columna existe, el código existe, el dato no.
+
+Mientras tanto, la señal que la pantalla publica es la del Excel (`kepler_flag`), con
+**673 de 2,716 = 24.8 %** de cobertura. El 75 % restante no dice nada en ninguna de las dos.
+
+### ⛔ Y por qué NO basta con correr el recon
+
+Correrlo poblaría la columna, pero **su criterio no está arbitrado**. Medido como cota conservadora
+(un pago del libro que no encuentra en la cuenta 201 **ninguna** línea del mismo mes con su mismo
+monto ±$1): **1,260 de 2,716 pagos · $273,408,195**.
+
+⛔ **Esa cifra NO es publicable como «pagado sin registro en Kepler»**, y conviene decir por qué
+antes de que alguien la cite:
+
+| Hipótesis | Veredicto |
+|---|---|
+| El desglose de la póliza rompe el match monto-a-monto | **Refutada**: 23,457 pólizas, **1.25 líneas** de promedio, sólo 9 % con varias |
+| El universo 201 no cubre todo el libro | **Lo explica en parte**: la cuenta 201 es pago a proveedor, y el libro trae además **financiamiento 7.33 % y gasto 6.59 %**, que no se asientan ahí |
+| Falta algo más | **Sin medir** — y eso es justamente el punto |
+
+⇒ La cota **mezcla** «no se asentó» con «se asentó en otra cuenta». Una señal así, publicada como
+*pagado y no registrado*, pondría $273 M de sospecha sobre algo que en buena parte sí está
+asentado. Es exactamente la clase de cifra que ADR-059 obliga a **arbitrar contra un testigo del
+mismo grano** antes de salir a pantalla.
+
+### Qué haría falta, declarado
+
+1. **Definir el universo comparable** del libro: sólo lo que de verdad va por 201 (excluir
+   financiamiento y gasto), o ampliar el testigo a las cuentas donde sí caen.
+2. **Arbitrar contra un hecho independiente** —el estado de cuenta bancario del mismo mes— antes de
+   que `kepler_matched` llegue a la pantalla.
+3. Recién entonces correr el recon. ⛔ **Hoy no**: poblar la columna con este criterio sólo haría
+   que la pantalla publique una cifra que nadie puede defender.
+
+⚠️ **Esto no bloquea `[PP.10]`**, que sólo hace visibles los meses sin libro y no afirma nada sobre
+cuadres. Y no cambia que `[PP.8]` —que el libro se cargue solo— siga siendo la ruta crítica.
