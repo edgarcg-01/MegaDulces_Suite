@@ -190,13 +190,43 @@ export class PaymentProgramService {
       } catch { bank = []; }
       const kByM = new Map(kep.map((r: any) => [r.anio_mes, Number(r.monto)]));
       const bByM = new Map(bank.map((r: any) => [r.ym, Number(r.monto)]));
+      const pByM = new Map(prog.map((p: any) => [p.source_month, p]));
+
+      /**
+       * `[PP.10]` **Los meses salen de la UNIÓN, no del libro.**
+       *
+       * ⛔ Acá se recorría `prog` — los meses que el Excel de Tesorería tiene—, así que **un mes
+       * sin libro no salía ausente: no existía**. Y como el libro se carga a mano, su estado
+       * normal es atrasado: medido el 2026-10-19, con el libro en **2026-08** (72 días sin
+       * cargar), esta conciliación era **ciega a 5,201 movimientos por $91,720,679** de
+       * septiembre y octubre — y la pantalla se veía impecable, cuadrando enero a agosto.
+       *
+       * ⭐ Es el mismo defecto que `[PP.7]` arregló en el listado y que acá seguía vivo: lo que
+       * falta se DECLARA (ADR-056). Un mes con pagos en el ERP y sin libro aparece con
+       * `libro_cargado: false`, no desaparece.
+       *
+       * ⚠️ Esto **no los hace cuadrar ni lo pretende**: programa, cuenta 201 y bancos son
+       * universos distintos y la comparación sigue siendo informativa. Lo que cambia es que el
+       * mes **se ve**.
+       */
+      const meses = [...new Set([...pByM.keys(), ...kByM.keys(), ...bByM.keys()] as string[])]
+        .filter((m) => typeof m === 'string' && m >= '2026-01')
+        .sort();
+
       return {
-        months: prog.map((p: any) => ({
-          month: p.source_month, program: Number(p.monto), program_n: Number(p.n),
-          flag_si: Number(p.flag_si), flag_no: Number(p.flag_no), flag_na: Number(p.flag_na), monto_no: Number(p.monto_no),
-          kepler201: kByM.get(p.source_month) || 0,
-          bank_cb: bByM.has(p.source_month) ? bByM.get(p.source_month) : null,
-        })),
+        months: meses.map((month) => {
+          const p: any = pByM.get(month);
+          return {
+            month,
+            /** `false` = el Excel de Tesorería no tiene ese mes. Distinto de «ese mes no se pagó». */
+            libro_cargado: !!p,
+            program: p ? Number(p.monto) : 0, program_n: p ? Number(p.n) : 0,
+            flag_si: p ? Number(p.flag_si) : 0, flag_no: p ? Number(p.flag_no) : 0,
+            flag_na: p ? Number(p.flag_na) : 0, monto_no: p ? Number(p.monto_no) : 0,
+            kepler201: kByM.get(month) || 0,
+            bank_cb: bByM.has(month) ? bByM.get(month) : null,
+          };
+        }),
       };
     });
   }

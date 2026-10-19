@@ -119,3 +119,40 @@ Headers cambian mes a mes → mapeo por nombre no posición · proveedor texto-l
 búsqueda compartido, dejar supplier_text crudo + supplier_id nullable · KEPLER=false en mes en curso es
 esperado (lag, no error) · términos escasos en Excel → completar con Kepler c30 · anti-churn/RLS/tenant
 explícito (reglas de la casa).
+
+---
+
+## PP.10 — la conciliación era ciega a los meses sin libro (2026-10-19)
+
+**Medido en prod (sólo lectura, 2026-10-19), con el libro en `2026-08` y 72 días sin cargarse:**
+
+| | docs | monto |
+|---|---:|---:|
+| Meses que la conciliación mostraba | ene–ago | — |
+| **2026-09** en Kepler (cuenta 201, pagos) | 3,640 | $62,910,817 |
+| **2026-10** en Kepler | 1,561 | $28,809,862 |
+| ⛔ **Total invisible** | **5,201** | **$91,720,679** |
+
+**La causa:** `recon()` recorría `prog` — los meses que el Excel de Tesorería tiene. Un mes sin
+cargar **no salía ausente: no existía**. Y como el libro se carga a mano, su estado normal es
+atrasado, así que la pantalla se veía **impecable cuadrando enero a agosto** mientras callaba los
+dos meses donde está el problema.
+
+⭐ Es el mismo defecto que `[PP.7]` ya había corregido en el listado —ahí se enumeran los meses
+faltantes— y que en la conciliación seguía vivo. **Una corrección no viaja sola a sus hermanas.**
+
+**Cómo quedó:** los meses salen de la **unión** de las tres fuentes (libro ∪ Kepler ∪ bancos) y
+cada uno dice si el libro lo tiene. En la tabla, un mes sin libro aparece marcado **«sin cargar»**
+—con icono y palabra, no sólo color— en lugar de desaparecer.
+
+⚠️ **Esto no los hace cuadrar ni lo pretende:** programa, cuenta 201 y bancos son universos
+distintos y la comparación sigue siendo informativa. Lo que cambia es que el mes **se ve**.
+
+**Probado:** `payment-calendar.it.spec.ts` **38/38** contra Postgres real, con el caso exacto: un
+mes que sólo existe en el ERP **aparece** con `libro_cargado: false` (antes era `undefined`), el
+mes con libro sigue marcado como cargado, y la lista sale ordenada y sin repetidos.
+`check:pantalla -- programa-pagos`: **2 fallas antes → 2 después**, ninguna nueva.
+
+⛔ **Lo que esto NO resuelve, y sigue siendo la ruta crítica: `[PP.8]`.** El libro se sigue
+cargando a mano y hoy lleva **72 días** sin actualizarse. PP.10 hace **visible** el hueco; no lo
+llena.

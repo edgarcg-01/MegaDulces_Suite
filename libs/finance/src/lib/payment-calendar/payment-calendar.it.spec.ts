@@ -19,6 +19,7 @@ import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
+import { PaymentProgramService } from '../payment-program/payment-program.service';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -483,6 +484,60 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const despues = await fila(F_SUELTA);
       expect(Number(despues!['reservado'])).toBeCloseTo(5000, 2);
       expect(Number(despues!['programable'])).toBeCloseTo(7000, 2);
+    });
+  });
+
+  /**
+   * `[PP.10]` **La conciliación del Programa de pagos no puede ser ciega a un mes sin libro.** (O4)
+   *
+   * Recorría los meses que el Excel de Tesorería tiene, así que un mes sin cargar **no salía
+   * ausente: no existía**. Y el libro se carga a mano, o sea que su estado normal es atrasado:
+   * medido el 2026-10-19 con el libro en agosto, la conciliación era ciega a **5,201 movimientos
+   * por $91,720,679** de septiembre y octubre, con la pantalla viéndose impecable.
+   */
+  describe('[PP.10] la conciliación ve los meses que el ERP tiene aunque el libro no', () => {
+    let pp: PaymentProgramService;
+    const MES_CON_LIBRO = '2026-03';
+    const MES_SIN_LIBRO = '2026-04';
+
+    beforeAll(async () => {
+      pp = new PaymentProgramService({ run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) } as never,
+                                     { requireTenantId: () => M } as never);
+      // Un mes con libro…
+      await trx('finance.payment_program').insert({
+        tenant_id: M, source_month: MES_CON_LIBRO, client_uuid: 'pp10-con-libro',
+        supplier_text: 'PP10 PROVEEDOR', amount: 1000, pay_date: `${MES_CON_LIBRO}-15`,
+      });
+      // …y otro que SÓLO existe en el ERP: pagos asentados, sin que nadie cargara el Excel.
+      await trx('analytics.gl_poliza_lines').insert({
+        tenant_id: M, source: 'kepler', cuenta_mayor: '201', tipo_pol: 'XD2601',
+        anio_mes: MES_SIN_LIBRO, importe: 777777, sucursal: '00',
+        ejercicio: 2026, periodo: 4, folio: 'PP10-1', num_movto: 1,
+        cuenta: '201-001', cargo_abono: 'C',
+      });
+    }, 60_000);
+
+    it('⭐ un mes con pagos en el ERP y sin libro APARECE, marcado como no cargado', async () => {
+      const r = await pp.recon() as { months: { month: string; libro_cargado: boolean; kepler201: number; program: number }[] };
+      const sin = r.months.find((m) => m.month === MES_SIN_LIBRO);
+      expect(sin).toBeTruthy();                      // ⛔ antes de [PP.10] esto era `undefined`
+      expect(sin!.libro_cargado).toBe(false);
+      expect(Number(sin!.kepler201)).toBeCloseTo(777777, 2);
+      expect(Number(sin!.program)).toBe(0);          // cero, y además DICHO con `libro_cargado`
+    });
+
+    it('el mes que sí tiene libro sigue marcado como cargado', async () => {
+      const r = await pp.recon() as { months: { month: string; libro_cargado: boolean; program: number }[] };
+      const con = r.months.find((m) => m.month === MES_CON_LIBRO);
+      expect(con!.libro_cargado).toBe(true);
+      expect(Number(con!.program)).toBeCloseTo(1000, 2);
+    });
+
+    it('los meses salen ordenados y sin repetirse', async () => {
+      const r = await pp.recon() as { months: { month: string }[] };
+      const ms = r.months.map((m) => m.month);
+      expect(ms).toEqual([...ms].sort());
+      expect(new Set(ms).size).toBe(ms.length);
     });
   });
 
