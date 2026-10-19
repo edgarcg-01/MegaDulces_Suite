@@ -4685,3 +4685,93 @@ negativa (`--self-test`) corre el descuento **sin acotar** y exige que esconda M
 `16` (vigente) contra `157` (el defecto). Si los dos dan igual, **lo declara como no medido**, no
 lo da por bueno.
 
+
+---
+
+## 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propio detector lo leyó como verde
+
+**Vivido el 2026-10-19. El error es mío: yo elegí dónde va el latido, y escribí el razonamiento al lado.**
+
+### Lo que pasó
+
+La ruta 27 cerró su día, imprimió su ticket —`UA0501-0000017`, `$19,939.00`, dos cortes POS— y
+**la venta no aparecía en la suite**. El reporte llegó como «la 27 no aparece», o sea: como un
+problema de una camioneta.
+
+No era de una camioneta. La cadena tiene **tres saltos** y el que se rompió no era el que todos
+miraban:
+
+```
+camioneta → ingest.route_collections_stg      push del .cmd       ✔ corrió 20:01, 25 filas
+stg → mart.cobros_ruta                        merge()             ⛔ NO corrió sobre ese lote
+mart → analytics.route_collections (prod)     cron cada 10 min    ✔ corría, leía un mart viejo
+```
+
+La prueba de que el merge no corrió es que **`stg` seguía lleno**: el merge termina con
+`DELETE FROM ingest.route_collections_stg WHERE truck = p_truck`. 27 filas ahí significan que
+nadie las consumió. Y los filtros no descartaban nada — **27 de 27 válidas**, cero sin fecha,
+cero sin folio.
+
+### Por qué nada avisó, que es la parte que me toca
+
+`ingest.merge_route_collections()` escribe el latido, y en esa función hay un comentario mío:
+
+> ⚠️ El latido va ACÁ y no en el `.cmd`: si lo escribiera el agente, un push que sube cero filas
+> igual diría "ok". Escrito por el merge, mide **ENTREGA**.
+
+**Eso es falso, y lo escribí como si fuera la justificación.** Un latido escrito por el merge mide
+*«el último merge que corrió, corrió bien»*. No mide entrega: mide **la última vez que el
+consumidor se despertó**. Si el productor deja su lote y el consumidor nunca arranca, el latido
+conserva el verde del intento anterior y no hay fila nueva que contradiga nada.
+
+Medido ese día: `route_collections_heartbeat` decía `ruta_27 · last_ok 20:01 · 25 filas · ok`
+mientras sus 27 filas del 19-oct seguían en `stg`.
+
+⛔ Y arrastró al detector: **`check-camioneta-sin-cobro.js` cruza los dos latidos**
+(`route_push_heartbeat` vs `route_collections_heartbeat`) y clasifica `carril_caido` cuando la
+venta es fresca y el cobro rancio. Con los dos latidos frescos y el dato atascado **entre** ellos,
+la unidad sale sana. El detector no falló por un umbral mal puesto: **falló porque los dos
+testigos que compara están del mismo lado del corte.**
+
+### La regla
+
+⭐ **Un latido mide el proceso que lo escribe, nunca el que lo alimenta.** Si el productor deposita
+en una bandeja y el consumidor la vacía, el único hecho que prueba entrega es **la bandeja vacía**
+— no el sello del consumidor.
+
+Para que un latido mida entrega tiene que incluir, en la misma escritura, **lo que quedó sin
+consumir**. Un `rows_pendientes` al lado del `rows_last` habría puesto esto en rojo sin que nadie
+mirara.
+
+### El corolario que vale para cualquier carril por bandeja
+
+⚠️ **Toda bandeja intermedia necesita su propio detector de residuo, y ese detector NO puede
+depender de que el consumidor corra.** Lo que hay que vigilar no es «¿el consumidor salió bien?»
+sino «¿quedó algo que debería haberse ido?». Son preguntas distintas y sólo la segunda se vuelve
+roja cuando el consumidor no aparece.
+
+Es el hermano de **§84** —un shipper verde con `rows_affected = 0` puede ser que murió el origen—
+girado: acá el origen está vivo, el shipper está verde, y **lo que murió es el escalón del medio**.
+En los dos casos el error es el mismo: *se declara sano un tramo midiendo sus puntas*.
+
+### Lo que lo destrabó, y lo que falta
+
+Corriendo `ingest.merge_route_collections('ruta_27')` a mano: `mart` pasó de 17-oct a 19-oct y el
+cron de las 20:24 lo levantó solo. En prod quedó `ruta_27 · 19-oct · $19,939.00`, al centavo
+contra el ticket.
+
+⛔ **Eso es el parche, no la solución.** Las dos correcciones de fondo, en orden de lo que cuesta
+cada una:
+
+1. **Que no haya merge que pueda no correr.** `mart.cobros_ruta` como **vista sobre `stg`**, con el
+   dedup adentro. Un paso que no existe no se puede saltar.
+2. **Que no haya cron.** El servidor FDW `runner_rutas` **ya existe en prod y tiene CERO tablas
+   foráneas** — la tubería estaba puesta y sin usar. Con una tabla foránea sobre
+   `mart.cobros_ruta`, `analytics.route_collections` pasa a ser vista y el lag de 10 minutos
+   desaparece. Medido: 173 filas, 176 kB, **24 ms** leer la tabla entera, y un solo dependiente
+   (`finance.v_caja_movimientos_pendientes`).
+3. **Mientras tanto**, el latido lleva `rows_pendientes`.
+
+⚠️ El costo de (2), que es real: la bandeja pasa a depender de que el runner responda. Un runner
+caído **da error** en vez de lista vacía — que es lo correcto (error ≠ vacío, ADR-056) pero se ve.
+El `connect_timeout=5` del servidor acota el peor caso a 5 segundos.
