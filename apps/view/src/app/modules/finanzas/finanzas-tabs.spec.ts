@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { FINANZAS_TABS } from './finanzas-tabs';
 import { GASTOS_TABS } from './gastos-tabs';
+import { PAGOS_TABS } from './pagos-tabs';
 import { Permission } from '../../core/constants/permissions';
 
 /**
@@ -52,6 +53,64 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     expect(fuenteSidebar()).toContain('tabs: GASTOS_TABS');
     const deGastos = GASTOS_TABS.map((t) => t.route);
     for (const r of RUTAS) expect(deGastos).toContain(r);
+  });
+
+  /**
+   * `[TP.20.3]` **Las cuatro pantallas de Pagos entran por UNA puerta, y ninguna se queda sin
+   * ella** (objetivo O5).
+   *
+   * Es el mismo riesgo que `[GX.18]` ya cobró en Gastos: al juntar renglones del menú en una sola
+   * entrada, basta olvidar una ruta en la lista para que esa pantalla quede **viva pero sin puerta
+   * alguna** — sólo alcanzable escribiendo la URL. Acá además hay una trampa propia: la barra de
+   * Pagos **no tiene shell de ruta**, se embebe pantalla por pantalla, así que una pantalla nueva
+   * puede nacer sin barra y nadie se entera.
+   */
+  describe('[TP.20.3] la puerta única de Pagos', () => {
+    const DE_PAGOS = [
+      '/finanzas/pronto-pago',
+      '/finanzas/calendario-pagos',
+      '/finanzas/pagos-comprobantes',
+      '/finanzas/programa-pagos',
+    ] as const;
+
+    it('el sidebar tiene UNA entrada «Pagos» que lleva las cuatro pestañas', () => {
+      const src = fuenteSidebar();
+      expect(src).toContain('tabs: PAGOS_TABS');
+      // ⛔ Y ya NO las lista como renglones sueltos: si alguien vuelve a agregarlas, son dos
+      // puertas a lo mismo y el menú deja de decir que son un ciclo.
+      for (const r of DE_PAGOS.filter((x) => x !== '/finanzas/pronto-pago')) {
+        expect(src).not.toContain("route: '" + r + "'");
+      }
+    });
+
+    it('las cuatro rutas están en PAGOS_TABS, en el orden del ciclo del dinero', () => {
+      expect(PAGOS_TABS.map((t) => t.route)).toEqual([...DE_PAGOS]);
+    });
+
+    /**
+     * ⛔ Sin shell de ruta, la barra vive en cada pantalla: esto comprueba que las cuatro la
+     * tengan. Una pantalla sin barra queda encerrada — se entra, pero no se sale a sus hermanas.
+     */
+    it('las cuatro pantallas embeben la barra de pestañas', () => {
+      const ARCHIVOS: Record<string, string> = {
+        '/finanzas/pronto-pago': 'finanzas-pronto-pago.component.ts',
+        '/finanzas/calendario-pagos': 'finanzas-calendario-pagos.component.ts',
+        '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
+        '/finanzas/programa-pagos': 'finanzas-programa-pagos.component.ts',
+      };
+      for (const ruta of DE_PAGOS) {
+        const base = ARCHIVOS[ruta];
+        const CANDIDATAS = [
+          'src/app/modules/finanzas/pages/' + base,
+          'apps/view/src/app/modules/finanzas/pages/' + base,
+        ];
+        let src: string | null = null;
+        for (const c of CANDIDATAS) { try { src = readFileSync(c, 'utf8'); break; } catch { /* siguiente */ } }
+        if (src === null) throw new Error('NO MEDIDO: no se pudo leer ' + base);
+        expect(src).toContain('<app-pagos-tabs />');
+        expect(src).toContain('PagosTabsComponent');
+      }
+    });
   });
 
   /**
@@ -197,7 +256,11 @@ describe('[IG.2] toda pestaña de Finanzas tiene su entrada en el sidebar', () =
     // `[GX.80]` Una pantalla también tiene puerta si es pestaña de un ÁREA que el sidebar lleva como
     // UNA entrada con `tabs:` (Gastos): esa entrada lleva al área y la barra de arriba a cada pantalla.
     // Sólo cuenta si la entrada existe de verdad en el fuente: sin ella, las cuatro vuelven a faltar.
-    const porArea = fuente.includes('tabs: GASTOS_TABS') ? GASTOS_TABS.map((t) => t.route) : [];
+    // `[TP.20.3]` Pagos sigue la misma regla desde hoy: UNA entrada con `tabs: PAGOS_TABS`.
+    const porArea = [
+      ...(fuente.includes('tabs: GASTOS_TABS') ? GASTOS_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: PAGOS_TABS') ? PAGOS_TABS.map((t) => t.route) : []),
+    ];
     const ausentes = FINANZAS_TABS
       .map((t) => t.route)
       // Las rutas que redirigen o viven fuera de /finanzas no se exigen acá.

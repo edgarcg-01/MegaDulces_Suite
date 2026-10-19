@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService, todayMx } from '@megadulces/platform-core';
+import { SQL_NO_REGISTRADOS, NO_REGISTRADOS_TOPE } from './no-registrados.sql';
 
 /**
  * `[FLT.3]` — LISTA DE FALTANTES: la venta que NO ocurrió, reportada desde el piso.
@@ -210,6 +211,54 @@ export type ConsultaResultado =
  * Compras (`decidir(..., 'era_error')`), que deja rastro de quién la tomó.
  */
 export const VENTANA_DESHACER_MIN = 5;
+
+/** `[MOS.3]` Lo más largo que se guarda de lo que escribe la cajera sobre un código no registrado. */
+export const DESCRIPCION_MAX = 120;
+
+/**
+ * `[MOS.2]` Un renglón de **No registrados**: un código que el mostrador escaneó y Kepler no tiene
+ * en esa sucursal. Ver `no-registrados.sql.ts`.
+ */
+export interface NoRegistrado {
+  /** La identidad del renglón: `sku:…`, `code:…` o `txt:…`. */
+  cosa: string;
+  warehouse_code: string;
+  warehouse_name: string | null;
+  /** El código que se escaneó. `null` = se reportó por clave, sin escanear. */
+  scanned_code: string | null;
+  /** La clave. Para un código que no existe en ninguna sucursal, `null`. */
+  sku: string | null;
+  /**
+   * El nombre: el de Kepler si el código ya existe en otra sucursal; si no, lo que escribió la
+   * persona; si tampoco, `null` (la pantalla dice "Sin descripción", no inventa).
+   */
+  nombre: string | null;
+  /** `true` = el nombre lo escribió alguien en el mostrador, no sale de Kepler. */
+  nombre_escrito: boolean;
+  proveedor: string | null;
+  veces: number;
+  ultima_vez: string;
+}
+
+/** La fila cruda de `SQL_NO_REGISTRADOS`, antes de mapear. */
+interface FilaNoRegistrado {
+  cosa: string;
+  warehouse_code: string;
+  warehouse_name: string | null;
+  scanned_code: string | null;
+  sku: string | null;
+  product_name: string | null;
+  kepler_nombre: string | null;
+  proveedor: string | null;
+  veces: number | string;
+  ultima_vez: string | Date;
+}
+
+export interface NoRegistradosResult {
+  filas: NoRegistrado[];
+  /** `true` = se cortó en el tope de la consulta y hay más de lo que se muestra. */
+  recortado: boolean;
+}
 
 export interface DeshacerResult {
   id: string;
@@ -600,6 +649,88 @@ export class FloorStockoutsService {
         [id],
       );
       return { id, eliminado: false, times_reported: Number(rows[0].times_reported) };
+    });
+  }
+
+  /**
+   * `[MOS.3]` — La cajera dice qué es un código que Kepler no tiene.
+   *
+   * El mostrador anota solo el código que no existe en ninguna sucursal (`no_en_catalogo`), y lo
+   * único que se sabe de él es el número. Lo que la persona alcance a escribir ("gomita enchilada
+   * bolsa roja") es lo que le permite a Compras encontrarlo. No se manda como un segundo
+   * `reportar()`: eso SUMARÍA un reporte que no ocurrió (la llave de la semana es el código).
+   *
+   * Los frenos son los mismos que `deshacer()`, por la misma razón: alcance, sólo `open`, sólo
+   * dentro de la ventana. Y sólo `no_en_catalogo`: cuando el producto existe, su nombre sale de
+   * Kepler y no se pisa con texto escrito a mano.
+   */
+  async describir(id: string, texto: string): Promise<{ id: string; product_name: string }> {
+    if (!id?.trim()) throw new BadRequestException('Falta el reporte');
+    const limpio = String(texto ?? '').replace(/\s+/g, ' ').trim().slice(0, DESCRIPCION_MAX);
+    if (!limpio) throw new BadRequestException('Escribe qué es el producto');
+
+    return this.tk.run(async (trx) => {
+      const fila = await trx('commercial.floor_stockouts as f')
+        .join('commercial.warehouses as w', 'w.id', 'f.warehouse_id')
+        .select(
+          'f.id', 'f.kind', 'f.status', 'w.code as warehouse_code',
+          trx.raw(
+            `(f.last_reported_at > now() - (? || ' minutes')::interval) AS dentro_de_ventana`,
+            [VENTANA_DESHACER_MIN],
+          ),
+        )
+        .where('f.id', id)
+        .first();
+
+      if (!fila) throw new NotFoundException('No existe ese reporte');
+      await this.assertAlcanza(fila.warehouse_code);
+      if (fila.kind !== 'no_en_catalogo') {
+        throw new ConflictException('Sólo se describe un código que Kepler no tiene: los demás traen su nombre de Kepler');
+      }
+      if (fila.status !== 'open') {
+        throw new ConflictException('Compras ya atendió este reporte');
+      }
+      if (!fila.dentro_de_ventana) {
+        throw new ConflictException(
+          `Sólo se puede describir lo que se acaba de escanear (${VENTANA_DESHACER_MIN} minutos)`,
+        );
+      }
+
+      await trx('commercial.floor_stockouts')
+        .where({ id })
+        .update({ product_name: limpio, updated_at: trx.fn.now() });
+      return { id, product_name: limpio };
+    });
+  }
+
+  /**
+   * `[MOS.2]` — **No registrados**: lo que el mostrador escaneó y Kepler todavía no tiene en esa
+   * sucursal. Lo que ya aparece en Kepler sale solo (es una lectura, ver `no-registrados.sql.ts`).
+   *
+   * Devuelve la lista COMPLETA (con tope declarado): la pantalla filtra por sucursal, proveedor y
+   * texto en el cliente, y eso sólo es correcto si tiene todo. Por eso `recortado` viaja aparte:
+   * si algún día se llega al tope, la pantalla lo dice en vez de filtrar sobre un pedazo.
+   */
+  async noRegistrados(): Promise<NoRegistradosResult> {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(SQL_NO_REGISTRADOS);
+      const filas: NoRegistrado[] = (rows as FilaNoRegistrado[]).map((r) => {
+        const deKepler = r.kepler_nombre ? String(r.kepler_nombre).trim() : '';
+        const escrito = r.product_name ? String(r.product_name).trim() : '';
+        return {
+          cosa: String(r.cosa),
+          warehouse_code: String(r.warehouse_code),
+          warehouse_name: r.warehouse_name ?? null,
+          scanned_code: r.scanned_code ?? null,
+          sku: r.sku ? String(r.sku) : null,
+          nombre: deKepler || escrito || null,
+          nombre_escrito: !deKepler && !!escrito,
+          proveedor: r.proveedor ? String(r.proveedor).trim() || null : null,
+          veces: Number(r.veces) || 0,
+          ultima_vez: new Date(r.ultima_vez).toISOString(),
+        };
+      });
+      return { filas, recortado: filas.length >= NO_REGISTRADOS_TOPE };
     });
   }
 

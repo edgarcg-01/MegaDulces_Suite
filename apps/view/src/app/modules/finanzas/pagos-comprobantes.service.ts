@@ -25,6 +25,12 @@ export interface PagoRow {
   medio_pago?: string | null;
   /** Nombre de la cuenta de tesorería (ej. "CAJA GENERAL", "BBVA 5712"). */
   cuenta_tesoreria?: string | null;
+  /**
+   * `[TP.19.3]` **De qué día del Calendario de pagos salió este pago** (O3), si es que salió de
+   * ahí. `null` es un estado legítimo y hoy el más común: casi ningún pago nació en el Calendario.
+   * Opcional porque el servidor sólo lo incluye cuando su migración está aplicada.
+   */
+  origen_calendario?: { folio: string; fecha: string | null; lote: string | null } | null;
   pago_date: string | null;
   proveedor_code: string | null;
   proveedor_nombre: string | null;

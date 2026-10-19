@@ -61,7 +61,10 @@ const NO_DATE = '9999-12-31';
 const norm = (s: string | null | undefined) => String(s ?? '').trim().toUpperCase();
 const branchKey = (b: string | null | undefined) => String(b ?? '').trim() || '-';
 function payeeKey(source: string | undefined, supplierId: string | null | undefined, beneficiary: string): string {
-  return source === 'supplier_payable' && supplierId ? `s:${supplierId}` : `b:${norm(beneficiary)}`;
+  // `[TP.18]` `kepler_payable` (la deuda derivada de Kepler, ADR-094) agrupa como factura: es del
+  // mismo proveedor que una capturada y un pago puede cubrir las dos. Espejo del backend.
+  const esFactura = source === 'supplier_payable' || source === 'kepler_payable';
+  return esFactura && supplierId ? `s:${supplierId}` : `b:${norm(beneficiary)}`;
 }
 export function obligationKey(o: Pick<GroupableObligation, 'classification' | 'beneficiary' | 'branch_code' | 'obligation_source' | 'payee_id'>): string {
   return `${o.classification}|${payeeKey(o.obligation_source, o.payee_id, o.beneficiary)}|${branchKey(o.branch_code)}`;

@@ -1,3 +1,19 @@
+REM ############################################################################
+REM  ⛔⛔ RETIRADO el 2026-10-16 por `[CGA-A.12]`. NO SE PEGA MAS.
+REM
+REM  Este archivo existia para PEGARSE a mano «antes del endlocal», y ese
+REM  mecanismo es el defecto: tres de los cuatro parches del 16-oct salieron de
+REM  que cada camioneta es un archivo distinto que nadie valida. Uno de ellos
+REM  fue justamente este bloque usando %SRC%/%DST% sobre maquinas que definen
+REM  %LOCAL_CONN%/%RUNNER_CONN% -- y psql con una variable vacia NO GRITA.
+REM
+REM  El bloque de cobros ahora vive DENTRO de la plantilla unica, que se genera:
+REM    node database/importers/kepler/route-push/armar-push-camioneta.js \
+REM         --truck ruta_21 --serie UD1001 --salida push-ruta.cmd
+REM
+REM  Se conserva como referencia del razonamiento (el filtro de almacen, el
+REM  grano N:M, por que c63 no sirve). Todo eso esta tambien en el generador.
+REM ############################################################################
 REM ===========================================================================
 REM  [RC.2] LOS COBROS UA0501 DE LA CAMIONETA. Se PEGA en `push-ruta.cmd`,
 REM  antes del `endlocal`, despues del bloque de existencia.
@@ -39,9 +55,9 @@ REM  NO se filtra por cuenta: van los de caja (0011, saldan cortes D-23-1) y los
 REM  de banco (2169, saldan facturas D-13-1). La cuenta viaja en su columna y se
 REM  separa del otro lado. Filtrar en el origen es perder dato sin poder revisarlo.
 REM ===========================================================================
-%PSQL% -d "%RUNNER_CONN%" -v ON_ERROR_STOP=1 -c "DELETE FROM ingest.route_collections_stg WHERE truck='%TRUCK%'" 2>>"%LOG%"
+%PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "DELETE FROM ingest.route_collections_stg WHERE truck='%TRUCK%'" 2>>"%LOG%"
 
-%PSQL% -d "%LOCAL_CONN%" -v ON_ERROR_STOP=1 -c "\copy (select '%TRUCK%', btrim(h.c1::text), btrim(h.c6::text), h.c9::date, btrim(h.c45::text), btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text), btrim(a.c11::text), a.c12::numeric, btrim(a.c14::text) from md.kdm5 a join md.kdm1 h on btrim(h.c1::text)=btrim(a.c1::text) and btrim(h.c2::text)=btrim(a.c2::text) and btrim(h.c3::text)=btrim(a.c3::text) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6::text)=btrim(a.c6::text) where btrim(a.c2::text)='U' and btrim(a.c3::text)='A' and btrim(a.c4::text)='5' and btrim(h.c1::text)=regexp_replace(current_database(),'^md_','') and h.c9 >= current_date - %DAYS%) to stdout csv" | %PSQL% -d "%RUNNER_CONN%" -v ON_ERROR_STOP=1 -c "\copy ingest.route_collections_stg (truck,almacen,cobro_folio,fecha,cuenta,doc_tipo,folio_corte,importe,referencia) from stdin csv" >> "%LOG%" 2>&1
+%PSQL% -d "%SRC%" -v ON_ERROR_STOP=1 -c "\copy (select '%TRUCK%', btrim(h.c1::text), btrim(h.c6::text), h.c9::date, btrim(h.c45::text), btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text), btrim(a.c11::text), a.c12::numeric, btrim(a.c14::text) from md.kdm5 a join md.kdm1 h on btrim(h.c1::text)=btrim(a.c1::text) and btrim(h.c2::text)=btrim(a.c2::text) and btrim(h.c3::text)=btrim(a.c3::text) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6::text)=btrim(a.c6::text) where btrim(a.c2::text)='U' and btrim(a.c3::text)='A' and btrim(a.c4::text)='5' and btrim(h.c1::text)=regexp_replace(current_database(),'^md_','') and h.c9 >= current_date - %DAYS%) to stdout csv" | %PSQL% -d "%DST%" -v ON_ERROR_STOP=1 -c "\copy ingest.route_collections_stg (truck,almacen,cobro_folio,fecha,cuenta,doc_tipo,folio_corte,importe,referencia) from stdin csv" >> "%LOG%" 2>&1
 
 echo [%date% %time%] merge cobros -^> filas: >> "%LOG%"
-%PSQL% -d "%RUNNER_CONN%" -tAc "SELECT ingest.merge_route_collections('%TRUCK%')" >> "%LOG%" 2>&1
+%PSQL% -d "%DST%" -tAc "SELECT ingest.merge_route_collections('%TRUCK%')" >> "%LOG%" 2>&1

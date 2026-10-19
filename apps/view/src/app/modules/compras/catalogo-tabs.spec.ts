@@ -28,6 +28,7 @@ describe('CATALOGO_TABS', () => {
       ['Productos nuevos', '/compras/catalogo/nuevos'],
       ['Solicitudes', '/compras/catalogo/solicitudes'],
       ['Incidencias', '/compras/catalogo/incidencias'],
+      ['No registrados', '/compras/catalogo/no-registrados'],
       ['Mantenimiento', '/compras/catalogo/mantenimiento'],
       ['Costos', '/compras/catalogo/costos'],
       ['Precios', '/compras/catalogo/precios'],
@@ -90,6 +91,30 @@ describe('CATALOGO_TABS', () => {
     const bloque = fuente.slice(i, fuente.indexOf('}', i));
     expect(bloque).toContain('ComprasCatalogoNuevosComponent');
     expect(bloque).toContain('permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)');
+  });
+
+  /**
+   * `[MOS.2]` No registrados: tab y ruta con el MISMO permiso que su endpoint
+   * (`GET /commercial/floor-stockouts/no-registrados` pide COMMERCIAL_PRODUCTS_VER). `[negativa]`
+   * Si la ruta pidiera el permiso de la bandeja de faltantes, quien ve el catálogo vería un tab que
+   * rebota.
+   */
+  it('No registrados: tab y ruta piden COMMERCIAL_PRODUCTS_VER y abren su componente', () => {
+    const tab = CATALOGO_TABS.find((t) => t.label === 'No registrados');
+    expect(tab?.permission).toBe(Permission.COMMERCIAL_PRODUCTS_VER);
+
+    const fuente = readFileSync(join(__dirname, '../../app.routes.ts'), 'utf8');
+    const i = fuente.indexOf(`path: 'catalogo/no-registrados'`);
+    expect(i).toBeGreaterThan(-1);
+    const bloque = fuente.slice(i, fuente.indexOf('}', i));
+    expect(bloque).toContain('ComprasCatalogoNoRegistradosComponent');
+    expect(bloque).toContain('permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)');
+
+    const control = readFileSync(
+      join(__dirname, '../../../../../../libs/commercial/src/lib/commercial-stockouts/floor-stockouts.controller.ts'), 'utf8');
+    const j = control.indexOf(`@Get('no-registrados')`);
+    expect(j).toBeGreaterThan(-1);
+    expect(control.slice(j, j + 400)).toContain('@RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)');
   });
 
   it('cada tab apunta a una ruta que existe en el árbol real', () => {

@@ -37,16 +37,35 @@ let ok = 0; let fail = 0; let nm = 0;
 const A = (c, m) => { if (c) { ok++; console.log('  ✔ ' + m); } else { fail++; console.log('  ✖ ' + m); } };
 const NM = (m) => { nm++; console.log('  — NO MEDIDO: ' + m); };
 
-/** La exclusión, tal cual la arma el servicio. Se parametriza para poder APAGARLA en la negativa. */
-const cola = (conExclusion) => `
-  SELECT doc_tipo, folio, monto FROM finance.v_caja_movimientos_pendientes p
-   WHERE p.tenant_id = $1
-     AND p.fecha_valor >= current_date - 45 AND p.fecha_valor <= current_date
-     ${conExclusion ? `AND NOT EXISTS (
+/**
+ * La exclusión, tal cual la arma el servicio. Se parametriza para poder APAGARLA en la negativa.
+ *
+ * ⛔⛔ `[CGA-A.11]` **ESTA RÉPLICA LLEVABA EL DEFECTO ADENTRO.** Faltaba `origen_tipo = 'caos'`,
+ * que es lo único para lo que este descuento existe: lo que viene de Kepler ya lo excluye la
+ * vista por `origen_ref`, que es exacto. Sin ese `AND`, `glosa LIKE doc_tipo || ' ' || folio`
+ * tapaba **157 movimientos · $1,325,687.43** de otras sucursales con el mismo folio.
+ *
+ * ⭐ Y la prueba no podía verlo: su negativa apaga la exclusión **entera**, así que compara
+ * «con filtro» contra «sin filtro» y las dos ramas estaban mal. **Una negativa que no toca el
+ * predicado que carga el peso no prueba el predicado.** Por eso ahora hay una tercera rama,
+ * `'roto'`, que reproduce el defecto a propósito y exige que esconda MÁS. `GOTCHAS` §86.
+ *
+ * @param {'con'|'sin'|'roto'} modo
+ */
+const cola = (modo) => {
+  const acotado = modo === 'con' ? `AND yac.origen_tipo = 'caos'` : '';
+  const exclusion = modo === 'sin' ? '' : `AND NOT EXISTS (
        SELECT 1 FROM finance.cash_ledger yac
         WHERE yac.tenant_id = p.tenant_id
           AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-          AND yac.glosa LIKE p.doc_tipo || ' ' || p.folio || '%')` : ''}`;
+          ${acotado}
+          AND yac.glosa LIKE p.doc_tipo || ' ' || p.folio || '%')`;
+  return `
+  SELECT doc_tipo, folio, monto FROM finance.v_caja_movimientos_pendientes p
+   WHERE p.tenant_id = $1
+     AND p.fecha_valor >= current_date - 45 AND p.fecha_valor <= current_date
+     ${exclusion}`;
+};
 
 (async () => {
   console.log('\n=== [CG.85] la cola y lo ya capturado ===\n');
@@ -69,8 +88,8 @@ const cola = (conExclusion) => `
       A(declaradas > 0, `${declaradas} capturas nombran su documento en la glosa (esa es la llave)`);
 
       console.log('\n1) lo ya capturado NO vuelve a ofrecerse');
-      const sin = await pg.query(cola(true), [TENANT]);
-      const con = await pg.query(cola(false), [TENANT]);
+      const sin = await pg.query(cola('con'), [TENANT]);     // con la exclusión vigente
+      const con = await pg.query(cola('sin'), [TENANT]);     // sin exclusión: vuelven los dups
       const quitados = con.rows.length - sin.rows.length;
       A(quitados > 0, `la exclusión saca ${quitados} fila(s) que ya estaban en el libro`);
 
@@ -79,13 +98,32 @@ const cola = (conExclusion) => `
         SELECT p.doc_tipo, p.folio, l.folio AS ya_es
           FROM finance.v_caja_movimientos_pendientes p
           JOIN finance.cash_ledger l ON l.tenant_id = p.tenant_id AND l.deleted_at IS NULL
-           AND l.estado <> 'cancelado' AND l.glosa LIKE p.doc_tipo || ' ' || p.folio || '%'
+           AND l.estado <> 'cancelado' AND l.origen_tipo = 'caos'
+           AND l.glosa LIKE p.doc_tipo || ' ' || p.folio || '%'
          WHERE p.tenant_id = $1`, [TENANT]);
       for (const d of dup.rows) console.log(`      · ${d.doc_tipo} ${d.folio} ya es ${d.ya_es}`);
 
       console.log('\n2) ⛔ [negativa] SIN la exclusión, los duplicados vuelven');
       A(con.rows.length === sin.rows.length + quitados,
         'apagar la exclusión los devuelve exactamente (si no, la regla mide otra cosa)');
+
+      // ⭐⭐ `[CGA-A.11]` La negativa que faltaba, y que es la que vale.
+      //
+      // Apagar la exclusión entera (punto 2) compara «filtro» contra «nada»: las dos ramas
+      // pueden estar mal a la vez, y lo estaban. Esta reproduce el DEFECTO —el mismo `LIKE`
+      // pero sin acotar a `caos`— y exige que esconda MÁS. Si deja de distinguir, el acote
+      // dejó de hacer algo y hay que mirarlo.
+      console.log('\n2b) ⛔ [negativa] el descuento SIN acotar a `caos` esconde de MÁS');
+      const roto = await pg.query(cola('roto'), [TENANT]);
+      const escondidosDeMas = sin.rows.length - roto.rows.length;
+      if (escondidosDeMas === 0) {
+        NM('hoy ninguna sucursal comparte folio con otra: la negativa no puede distinguir ' +
+           '(se DECLARA, no se da por buena)');
+      } else {
+        A(escondidosDeMas > 0,
+          `sin acotar, el filtro escondería ${escondidosDeMas} movimiento(s) más — ` +
+          `esa es la plata que [CGA-A.9] recuperó (GOTCHAS §86)`);
+      }
     }
 
     console.log('\n3) ⛔ [negativa] NO esconde lo que nadie declaró');

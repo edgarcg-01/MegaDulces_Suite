@@ -129,6 +129,32 @@ export interface ConsultaFaltante {
   veredicto?: 'hay_en_tienda' | 'sin_existencia' | 'no_medido';
 }
 
+/**
+ * `[MOS.2]` Un renglón de Catálogo › No registrados: un código que el mostrador escaneó y Kepler no
+ * tiene en esa sucursal. Sale solo de la lista en cuanto aparece en Kepler.
+ */
+export interface NoRegistrado {
+  cosa: string;
+  warehouse_code: string;
+  warehouse_name: string | null;
+  scanned_code: string | null;
+  /** `null` = el código no existe en ninguna sucursal: no hay clave. */
+  sku: string | null;
+  /** `null` = no hay nombre en Kepler ni lo escribió nadie. */
+  nombre: string | null;
+  /** `true` = el nombre lo escribió la cajera, no sale de Kepler. */
+  nombre_escrito: boolean;
+  proveedor: string | null;
+  veces: number;
+  ultima_vez: string;
+}
+
+export interface NoRegistradosRespuesta {
+  filas: NoRegistrado[];
+  /** `true` = hay más de lo que se muestra (se llegó al tope del servidor). */
+  recortado: boolean;
+}
+
 export const ETIQUETA_MOTIVO: Record<StockoutKind, string> =
   MOTIVOS.reduce((a, m) => ({ ...a, [m.kind]: m.label }), {} as Record<StockoutKind, string>);
 
@@ -201,5 +227,15 @@ export class FaltantesService {
     return this.http.patch<{ id: string; status: StockoutStatus; decision: StockoutDecision }>(
       `${this.base}/${id}/decision`, { decision, nota },
     );
+  }
+
+  /** `[MOS.2]` Catálogo › No registrados: la lista completa (se filtra en la pantalla). */
+  noRegistrados(): Observable<NoRegistradosRespuesta> {
+    return this.http.get<NoRegistradosRespuesta>(`${this.base}/no-registrados`);
+  }
+
+  /** `[MOS.3]` La cajera escribe qué es un código que Kepler no tiene. No suma un reporte. */
+  describir(id: string, texto: string): Observable<{ id: string; product_name: string }> {
+    return this.http.patch<{ id: string; product_name: string }>(`${this.base}/${id}/descripcion`, { texto });
   }
 }
