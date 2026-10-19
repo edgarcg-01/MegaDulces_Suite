@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1782 KB, 11558 líneas, 72 secciones.
+> **Índice navegable** — 1788 KB, 11609 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,35 +50,35 @@
 | 7099 | 7131 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
 | 7132 | 7521 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
 | 7522 | 7653 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7654 | 7698 | 19 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 7699 | 7738 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 7739 | 7791 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 7792 | 7858 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 7859 | 8021 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8022 | 8197 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8198 | 8365 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8366 | 10024 | 123 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10025 | 10033 | 1 | Fase RR — Ventas por ruta |
-| 10034 | 10329 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 10330 | 10340 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 10341 | 10361 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 10362 | 10372 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 10373 | 10384 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 10385 | 10444 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 10445 | 10872 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 10873 | 10887 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 10888 | 10929 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 10930 | 11071 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11072 | 11102 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11103 | 11150 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11151 | 11163 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11164 | 11193 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11200 | 11209 | 1 | 📝 Convenciones |
-| 11210 | 11246 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 11247 | 11265 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 11266 | 11318 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 11319 | 11621 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 11622 | 11642 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 7654 | 7700 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7701 | 7740 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 7741 | 7793 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 7794 | 7860 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 7861 | 8023 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8024 | 8199 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8200 | 8367 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8368 | 10075 | 127 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10076 | 10084 | 1 | Fase RR — Ventas por ruta |
+| 10085 | 10380 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 10381 | 10391 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 10392 | 10412 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 10413 | 10423 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 10424 | 10435 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 10436 | 10495 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 10496 | 10923 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 10924 | 10938 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 10939 | 10980 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 10981 | 11122 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11123 | 11153 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11154 | 11201 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11202 | 11214 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11215 | 11244 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11251 | 11260 | 1 | 📝 Convenciones |
+| 11261 | 11297 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11298 | 11316 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 11317 | 11369 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 11370 | 11672 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 11673 | 11693 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -8369,6 +8369,55 @@ TP.6-TP.8+TP.10".
 
 **ADR-070** · **ADR-093** · Plan completo, medición y decisiones abiertas en
 [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
+
+> ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
+>
+> Edgar: *«te pedí que nunca ningún movimiento tuviera llenado manual **o que no se lograra
+> hacer**»*, después de tener que abrir psql y correr
+> `INSERT INTO finance.caja_autofill_declarada … ('CP036','511','059', 'matvista daba 511
+> unánime y concepto NULL; 059 sale de 27 de 28 capturas')`.
+>
+> ⭐ **El motivo que escribió ERA una derivación hecha a mano.** Dos defectos distintos, y los
+> dos le daban la razón.
+>
+> - [x] **[CGA-A.17]** 🔨 **El concepto era derivable y nadie lo derivaba.** La matvista deriva la
+>       CUENTA de las pólizas pero sólo saca el CONCEPTO cuando Kepler nombra al tercero en su
+>       catálogo. **Medido: 241 de 285 entidades (85 %) con cuenta y concepto `NULL`**, frenando
+>       **89 movimientos / $706,476.32** en el alcance vigente.
+>       ⛔ **Y el hecho no es de la entidad, es de la CUENTA:** declarar `CP036→511/059` obliga a
+>       repetir el mismo renglón **114 veces**, una por cada entidad que usa `511`.
+>       ⛔⛔ **El CONTROL refutó la versión ingenua, y de ahí salieron las guardas.** Contra el
+>       puente por nombre de Kepler (otra fuente, otro camino), sobre las 44 entidades con
+>       respuesta conocida: **coincidió 0, discrepó 1**. El caso que discrepa lo explica todo —
+>       `GG015`, cuenta **`102`**: Kepler dice `037` (CAJA CHICA MORELIA ABASTOS) y la dominancia
+>       del libro diría `011`. **En una cuenta de CAJA el concepto identifica CUÁL caja**, o sea
+>       que es de la entidad; derivarlo por cuenta mandaría el dinero a la caja de otra plaza.
+>       La migración `20261013102052` ya lo había escrito.
+>       **Tres guardas, cada una medida:** (1) nunca cuenta de CAJA/BANCO (`102*`, `122*`);
+>       (2) **≥3 entidades distintas** — es lo que vuelve *«el concepto es de la cuenta»* una
+>       medición: `511` tiene **19** y `115` **16**, pero `601-001` tiene **1** y por eso **NO**
+>       se propone aunque dé 13/13; (3) soporte ≥5, dominancia ≥80 %, sin empate.
+>       ⚠️ Sólo capturas de **PERSONAS**: derivar de lo que el motor escribió sería pedirle que se
+>       confirme solo (ADR-059). Medido: las 229 filas del libro son de personas, **cero del motor**.
+>       **Deriva `115→071`, `201→201`, `511→059`. Destraba 114 entidades / 49 movimientos.**
+> - [x] **[CGA-A.18]** 🔨 **Lo que no se deriva no tenía puerta que no fuera psql.** Medido: la
+>       tabla existe desde el 13-oct y **ningún endpoint la escribía** — cuatro lugares la LEEN,
+>       cero la escriben. ⭐ Es el **mismo defecto exacto** que `[CG.22.6]` ya había encontrado en
+>       `caja_classify_rules` (*«el bloqueo no era falta de trabajo, era que NO EXISTÍA NINGUNA
+>       PANTALLA para cargarlas»*), repetido en la tabla de al lado **seis días después**.
+>       `POST /finance/cash-ledger/autofill/declarar` (`FINANCE_CAJA_AUTORIZAR`: decide la cuenta
+>       de **todos** los movimientos de esa entidad, no de uno) + `GET /autofill/declaradas`.
+>       Motivo obligatorio y el par validado contra el catálogo vivo.
+>
+> **Candados [10] y [11]** en `test-newdb-caja-autollenado.js`, con las dos guardas **como pruebas
+> negativas** (`102` y `601-001` TIENEN que quedar fuera): **18 ✓ · 0 ✗**. El [11] detecta la
+> declaración que entró por psql y la marca **SIN AUTOR**. Suite `libs/finance` **1,438 verdes**,
+> boundary gate verde. Commit `64fdb7471`.
+>
+> ⬜ **Lo que falta:** soltar a prod · **el frontend no se tocó** (los endpoints existen, la
+> pantalla no) · ⛔ **el autollenado sigue APAGADO**: no corre desde el **16-oct 13:30** y lleva
+> **0 filas escritas** — el despliegue de ese día revirtió el `set env` (`[CG.192]`) y nadie lo
+> volvió a prender.
 
 > ### 🔨 2026-10-16 — **EL LIBRO SE LLENA SOLO**: autollenado sin supervisión · ADR-093
 >
