@@ -49,5 +49,9 @@ export default defineConfig({
     viewport: { width: 1366, height: 768 },
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // ⚠️ El proyecto NO vuelve a expandir `devices['Desktop Chrome']`: hacerlo RESTAURA el
+  // viewport del device (1280x720) y PISA en silencio el `use.viewport` de arriba. Medido
+  // 2026-10-19: las 22 pruebas de teclado decían correr a 1366x768 y corrían a 1280x720.
+  // El `use` de un proyecto gana sobre el `use` global, así que sólo va lo que cambia.
+  projects: [{ name: 'chromium' }],
 });
