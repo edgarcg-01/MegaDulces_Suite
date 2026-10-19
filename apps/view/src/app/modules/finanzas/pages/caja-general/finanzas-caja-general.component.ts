@@ -235,7 +235,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .w-full { width:100%; }
 
     .fin-hint-ok   { color:var(--ok-fg); font-size:var(--fs-xs); }
-    .fin-hint-warn { color:var(--warn-fg); font-size:var(--fs-xs); }
+    /* ⛔⛔ [CGA-LEG.6] --warn-fg ES PARA ICONOS Y BORDES, NO PARA TEXTO. Medido el 2026-10-19
+       sobre el fondo vivo: #F59E0B da contraste 1.95, menos de la mitad del minimo AA -- y lo
+       que lleva esta clase son los avisos que explican por que algo NO se puede hacer todavia
+       ("frescura sin medir", "N cosa(s) por resolver"). Un aviso que no se lee es indistinguible
+       de no haberlo puesto.
+       --warn-soft-fg (#92400E) ya existe en la escala exactamente para texto de advertencia, y
+       voltea solo en oscuro (#FCD34D). No se inventa un color: se usa el que el sistema tenia
+       para este rol y que nadie estaba usando. */
+    .fin-hint-warn { color:var(--warn-soft-fg); font-size:var(--fs-xs); }
 
     /* CG.23 - El arqueo. Una TABLA y no la reja de cajitas que habia antes: esto es dato
        tabular (denominacion x piezas x importe), asi el encabezado de columna existe de
@@ -359,8 +367,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⭐ [CG.62] El atajo, ESCRITO. D.5: "un atajo que nadie sabe que existe no existe" -- y la
        navegacion por flechas de la reja llevaba varios commits funcionando sin que nada la
        anunciara. Las teclas van en <kbd>, que es lo que son. */
-    .cg-ap-atajo { font-size:var(--fs-nano); color:var(--text-muted); white-space:nowrap; }
-    .cg-ap-atajo kbd { font-family:var(--font-mono); font-size:var(--fs-nano);
+    .cg-ap-atajo { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
+    .cg-ap-atajo kbd { font-family:var(--font-mono); font-size:var(--fs-xs);
                        border:1px solid var(--border-color); border-radius:var(--r-sm);
                        padding:0 var(--sp-1); margin:0 1px; background:var(--surface-2); }
     /* ⛔ [CG.57] EL CONTENEDOR DE CONSULTA VIVE ACA. La reja del arqueo pregunta
@@ -597,14 +605,21 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        ⚠️ Queda DECLARADO lo que no se arregla aca: --text-faint da 2.33 y lo usan 112 archivos de
        apps/view. Repuntar el token es decision de Edgar, no de esta pantalla. Y --fs-nano (10px)
        para un folio que se transcribe sigue siendo chico aunque ahora contraste. */
-    .cg-fila-doc { color:var(--text-muted); font-size:var(--fs-nano); }
+    /* ⭐ [CGA-LEG.4] SE CIERRA LA DEUDA QUE EL BLOQUE DE ARRIBA DEJO DECLARADA -- textual:
+       "--fs-nano (10px) para un folio que se transcribe sigue siendo chico aunque ahora
+       contraste". Medido el 2026-10-19: el folio salia a 10px mientras su importe iba a 24.8.
+       La cifra en grande y su identificador en lo mas chico de la pantalla, cuando lo que se
+       lee caracter por caracter contra el papel es el folio. Sube a --fs-sm (13px), el mismo
+       peldano del cuerpo de la tabla: deja de ser terciario por TAMANO y queda subordinado por
+       color, que es lo que [CG.33] ya habia decidido para este mismo dato. */
+    .cg-fila-doc { color:var(--text-muted); font-size:var(--fs-sm); }
     /* ⭐ [CGA-A.15] La ruta. Mismo par color/tamano que .cg-fila-doc, que YA paso la auditoria
        de contraste AA sobre el fondo vivo de prod (ver el bloque de arriba): se reusa en vez de
        elegir un color nuevo que habría que volver a medir. */
     /* El concepto del ERP puede ser largo: se recorta con elipsis, igual que el nombre de la
        contraparte. Se recorta en CSS y no en TS a proposito -- asi no se pierde texto, se
        adapta al ancho real de la celda, y la ficha de la fila sigue teniendo el concepto entero. */
-    .cg-fila-ruta { display:block; color:var(--text-muted); font-size:var(--fs-nano); font-weight:600;
+    .cg-fila-ruta { display:block; color:var(--text-muted); font-size:var(--fs-xs); font-weight:600;
                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
        Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
@@ -706,7 +721,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        border-radius:var(--r-md); }
     .cg-total-bloque.es-ok   { background:var(--ok-soft-bg);   border-color:var(--ok-border); }
     .cg-total-bloque.es-warn { background:var(--warn-soft-bg); border-color:var(--warn-border); }
-    .cg-lbl-micro { font-size:var(--fs-nano); font-weight:500; color:var(--text-muted);
+    .cg-lbl-micro { font-size:var(--fs-xs); font-weight:500; color:var(--text-muted);
                     text-transform:uppercase; letter-spacing:.06em; }
     .cg-total-n { font-size:var(--fs-display); font-weight:700; line-height:1.05;
                   letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
