@@ -2,8 +2,19 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # [VL.9.10] El carril de respaldos de pgBackRest — con latido.
 #
-#   pgbackrest-run.sh full     # completo (semanal)
-#   pgbackrest-run.sh diff     # diferencial (diario)
+#   pgbackrest-run.sh auto     # lo que agenda cron: completo si el último tiene ≥3 días, si no diferencial
+#   pgbackrest-run.sh full     # completo (a mano)
+#   pgbackrest-run.sh diff     # diferencial (a mano)
+#
+# ── POR QUÉ CADA 3 DÍAS Y NO SEMANAL (2026-10-19) ───────────────────────────
+# La base genera ~12.5 GB/día de WAL comprimido (~4,500 segmentos). Con un completo
+# semanal y `repo1-retention-full=2` el WAL retenido llegaba a ~175 GB y el nodo de k3s
+# entraba en DiskPressure: desalojaba `pg-prod`, el completo del domingo abortaba con
+# [057] (perdió la conexión), no expiraba nada y el disco seguía lleno — un círculo.
+# Con un completo cada 3 días el WAL retenido queda en ~40–75 GB.
+# ⭐ `auto` decide por la EDAD del último completo, no por el calendario: si un completo
+# falla, la noche siguiente lo reintenta solo en vez de esperar al próximo domingo.
+# (`*/3` de cron no sirve: se reinicia cada mes y deja el 31 y el 1 pegados.)
 #
 # ── POR QUÉ HAY QUE AGENDARLO ───────────────────────────────────────────────
 # pgBackRest expira el WAL atado a los RESPALDOS: mientras exista un solo completo,
@@ -29,8 +40,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -u
 
-TIPO="${1:-diff}"
-case "$TIPO" in full|diff|incr) ;; *) echo "uso: pgbackrest-run.sh full|diff|incr"; exit 2 ;; esac
+TIPO="${1:-auto}"
+case "$TIPO" in auto|full|diff|incr) ;; *) echo "uso: pgbackrest-run.sh auto|full|diff|incr"; exit 2 ;; esac
+DIAS_ENTRE_COMPLETOS="${PGBR_FULL_EVERY_DAYS:-3}"
 
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
 JOB=pgbackrest_backup
@@ -69,6 +81,25 @@ SQL
 #   · pgBackRest SE NIEGA a correr como root, y además necesita leer PGDATA, que es de 999.
 # Por eso el guion corre como root (así lo lanza cron), carga el entorno, y baja a `postgres`
 # sólo para el comando de respaldo.
+# `auto`: la etiqueta de un completo es `AAAAMMDD-HHMMSSF` y su carpeta vive en el
+# repositorio. Sin completo, o con uno de ≥N días, toca completo. Se compara por fecha
+# de calendario (no por segundos) para que el de las 23:30 no se corra un día por minutos.
+if [ "$TIPO" = auto ]; then
+  ultimo=$(ls -1 /var/lib/pgbackrest/backup/prod 2>/dev/null | grep -E '^[0-9]{8}-[0-9]{6}F$' | sort | tail -1)
+  if [ -z "$ultimo" ]; then
+    TIPO=full; motivo="no hay completo en el repositorio"
+  else
+    f="$(echo "$ultimo" | cut -c1-8)"
+    edad=$(( ( $(date -d "$(date +%F)" +%s) - $(date -d "$f" +%s) ) / 86400 ))
+    if [ "$edad" -ge "$DIAS_ENTRE_COMPLETOS" ]; then
+      TIPO=full; motivo="último completo $ultimo tiene $edad días"
+    else
+      TIPO=diff; motivo="último completo $ultimo tiene $edad días (< $DIAS_ENTRE_COMPLETOS)"
+    fi
+  fi
+  di "auto → $TIPO ($motivo)"
+fi
+
 di "── pgbackrest --type=$TIPO ──"
 
 # ⚠️ ¿EL LATIDO CAE EN LA BASE QUE MIRA EL TABLERO? pgBackRest siempre respalda el
