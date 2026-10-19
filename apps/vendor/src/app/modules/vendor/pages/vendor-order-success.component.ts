@@ -47,7 +47,7 @@ import { VendorService } from '../vendor.service';
         }
         <button class="ghost" (click)="goCaptureExhibit()"><i class="pi pi-camera"></i> Capturar exhibición</button>
         <button class="back" [disabled]="finishing()" (click)="finishVisit()">
-          <i class="pi" [ngClass]="finishing() ? 'pi-spin pi-spinner' : 'pi-flag'"></i> Finalizar visita
+          <i class="pi" [ngClass]="finishing() ? 'pi-spin pi-spinner' : 'pi-home'"></i> Finalizar visita e ir al inicio
         </button>
       </div>
     </div>
@@ -58,7 +58,8 @@ import { VendorService } from '../vendor.service';
       .ok {
         position: relative; margin: -1rem; min-height: calc(100dvh - 8rem);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        padding: 2rem 1.5rem 7rem; text-align: center; overflow: hidden; color: #fff;
+        /* El fondo reserva la barra de abajo (5rem) más los botones fijos: el monto no queda debajo. */
+        padding: 2rem 1.5rem calc(16rem + env(safe-area-inset-bottom)); text-align: center; overflow: hidden; color: #fff;
         /* Mismo gradiente que ya se veia: la rama "entregado" (verde) nunca se
            alcanzaba. OJO: este azul es el #2563EB que DESIGN.md prohibe — se
            conserva tal cual para no cambiar el look de paso; cambiarlo es
@@ -81,7 +82,10 @@ import { VendorService } from '../vendor.service';
       .amt { font-family: var(--font-mono); font-size: 2.2rem; font-weight: 700; font-variant-numeric: tabular-nums; margin: 1.1rem 0 0.3rem; }
       .sub { font-size: 0.85rem; opacity: 0.92; max-width: 18rem; }
 
-      .acts { position: fixed; left: 1rem; right: 1rem; bottom: calc(1.75rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 0.7rem; z-index: 5; }
+      /* [MCP.3.3] ARRIBA de la barra de abajo de la app (fija, 5rem, z-index 10). A 1.75rem del
+         fondo y con z-index 5, el último botón ("Finalizar visita", el único que regresa al inicio)
+         quedaba tapado por la barra: el vendedor no tenía cómo volver (captura de David, 2026-10-19). */
+      .acts { position: fixed; left: 1rem; right: 1rem; bottom: calc(5rem + 0.75rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 0.7rem; z-index: 11; }
       .acts .wa, .acts .back, .acts .ghost {
         height: 3.25rem; border-radius: var(--r-md, 12px); font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
         display: flex; align-items: center; justify-content: center; gap: 0.6rem; border: none; cursor: pointer; text-decoration: none;
