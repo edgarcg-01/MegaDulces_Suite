@@ -12890,7 +12890,8 @@ solo acto es **desplegar**; lo que destraba la cuarta es que **alguien libere un
 - `[TP.18.5]` latencia p90 **555 ms** sobre el límite de 500. El piso no es la consulta nueva:
   `v_supplier_payables` **sola** cuesta 321 ms. Bajarlo pide un índice en `kdxf` → **DDL en prod,
   fuera de horario**.
-- **Sin validación visual**: cinco pantallas tocadas sin abrirlas (`nx serve` prohibido). Lo más
+- **Sin validación visual**: **cuatro** pantallas tocadas sin abrirlas (`nx serve` prohibido) — más la
+  barra de pestañas, que no es pantalla y se ve en las cuatro. Lo más
   probable de ajustar: el aviso de techo del calendario, el diálogo de «Programar» y la columna de
   origen en Pagos a proveedor.
 - **Tracker y roadmap sin actualizar**: ambos archivos han tenido cambios sin commitear de otras
