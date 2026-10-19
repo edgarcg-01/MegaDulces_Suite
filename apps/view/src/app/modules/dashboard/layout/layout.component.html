@@ -281,25 +281,31 @@
           </div>
         }
 
-        <!-- Pending Update Indicator (chip-info para tema-aware) -->
-        <button
-          (click)="dismissPendingUpdate()"
-          class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted relative"
-          [class.text-content-active]="hasPendingUpdate()"
-          aria-label="Limpiar indicador de actualización"
-        >
-          <i
-            class="pi pi-refresh text-lg"
-            [class.pi-spin]="hasPendingUpdate()"
-            aria-hidden="true"
-          ></i>
-          @if (hasPendingUpdate()) {
-            <span
-              class="absolute -top-1 -right-1 h-3 w-3 rounded-full animate-pulse status-bad status-fill"
-              aria-hidden="true"
-            ></span>
-          }
-        </button>
+        <!--
+          ⛔⛔ `[HF.1]` ACÁ VIVÍA UN BOTÓN QUE PROMETÍA UNA ACCIÓN QUE NO HACÍA.
+          Quitado por pedido de Edgar el 2026-10-16: «parece para refrescar a la
+          nueva actualización».
+
+          Lo era todo menos eso, y cada señal apuntaba al lado equivocado:
+           · se veía como `pi pi-refresh` GIRANDO, con un punto rojo pulsando
+             (`status-bad`), que es el vocabulario de «algo pasa, apretá acá»;
+           · lo prendían eventos `capture:created/synced/deleted` — o sea que un
+             compañero registró una visita. Nada que ver con versiones;
+           · y al apretarlo llamaba a `dismissUpdate()`, que **sólo apaga su
+             propio indicador**. No refrescaba datos, no traía nada, no navegaba.
+
+          ⭐ El aviso de versión nueva DE VERDAD ya existe y funciona, con el
+          mismo ícono: `app.component.html` → «Hay una versión nueva ·
+          Actualizar», que corre `applyUpdate()` sobre el service worker real.
+          Dos controles con el mismo `pi-refresh`, uno real y uno que no hacía
+          nada: ése era el defecto.
+
+          ⚠️ `DataUpdateService` queda SIN consumidores (su `update$` ya tenía
+          cero suscriptores). La conexión de socket que `[SW.2]` abre en
+          `/dashboard` existía sólo para encender este botón — ver la deuda
+          anotada en el tracker antes de borrar el servicio.
+        -->
+
 
         <!--
           `[MT.3]` Multitarea. Sólo en escritorio y fuera del modo kiosco: en una
@@ -313,15 +319,17 @@
         @if (!isRestricted() && !isMobile()) {
           <button
             type="button"
-            (click)="mtMenuRef.toggle($event)"
+            (click)="multitarea.abrirEstaPantallaAparte()"
+            (contextmenu)="abrirMenuConClicDerecho($event, mtMenuRef)"
             class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted
                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
             [class.text-content-active]="multitarea.detallesAparte()"
             aria-haspopup="menu"
             [attr.aria-expanded]="mtMenuOpen()"
-            [title]="multitarea.detallesAparte()
-              ? 'Multitarea · los detalles se abren aparte'
-              : 'Multitarea · abrir esta pantalla en otra ventana'"
+            [title]="(multitarea.modo() === 'lado'
+              ? 'Abrir esta pantalla al lado (pantalla partida)'
+              : 'Abrir esta pantalla en otra pestaña')
+              + ' — clic derecho: opciones'"
             aria-label="Multitarea"
           >
             <i class="pi pi-clone text-lg" aria-hidden="true"></i>
@@ -445,52 +453,26 @@
       lista se te va de la vista justo cuando la querías quieta.
     -->
     <main class="flex-1 min-h-0 flex w-full h-full bg-surface-layout relative overflow-hidden">
-      <section class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden relative">
+      <!--
+        `[MT.6]` ⭐ El CONTENEDOR de consulta. Las pantallas se miden contra ESTA
+        columna, no contra la ventana: en pantalla partida la ventana sigue
+        diciendo «1600 px de escritorio» mientras la pantalla tiene 600, y por
+        eso las tarjetas se encimaban y las tablas salían cortadas.
+        Va acá y no en `<main>` para que el ancho NO incluya el riel del sidebar.
+      -->
+      <section class="pane flex-1 min-w-0 overflow-y-auto overflow-x-hidden relative">
         <div class="motion-safe:animate-fade-in-up">
           <router-outlet></router-outlet>
         </div>
       </section>
 
       <!--
-        El panel. Se pinta sólo cuando hay algo adentro — `(activate)` del
-        propio outlet, no adivinando desde la URL. Y nunca en kiosco ni en
-        móvil: ahí no hay ancho que partir.
+        `[MT.5]` Acá vivía el panel de la pantalla partida. Se fue a la RAÍZ
+        (`SplitShellComponent`): mientras colgó del layout, el split sólo existía
+        dentro de un área y se perdía al salir a «Mi trabajo». Lo único que el
+        layout sigue aportando es lo que sólo él sabe — si la persona está en
+        kiosco —, y lo declara en `MultitareaService`.
       -->
-      <aside
-        class="mt-panel"
-        [class.is-open]="panelAbierto() && !isRestricted() && !isMobile()"
-        [attr.aria-hidden]="panelAbierto() ? null : 'true'"
-        [attr.inert]="panelAbierto() ? null : ''"
-        aria-label="Panel lateral"
-      >
-        <header class="mt-panel-head">
-          <span class="mt-panel-title">{{ panelTitulo() }}</span>
-          <!--
-            `[MT.5]` Los 47: dashboard (28) y tienda (19) comparten estado de
-            pantalla entre sus páginas, así que dos paneles de la MISMA familia
-            se pisan los filtros. Se declara acá en vez de bloquearlo — el caso
-            es real y quien lo abre tiene que saber qué está viendo.
-          -->
-          @if (panelMismaFamilia()) {
-            <span class="mt-panel-warn" [title]="'Las dos pantallas comparten sus filtros: cambiar uno mueve el otro'">
-              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> comparten filtros
-            </span>
-          }
-          <a class="mt-panel-btn" [routerLink]="enlacePanelACompleto()" title="Abrir a pantalla completa" aria-label="Abrir a pantalla completa">
-            <i class="pi pi-window-maximize" aria-hidden="true"></i>
-          </a>
-          <a class="mt-panel-btn" [routerLink]="enlaceCerrarPanel()" title="Cerrar el panel" aria-label="Cerrar el panel">
-            <i class="pi pi-times" aria-hidden="true"></i>
-          </a>
-        </header>
-        <div class="mt-panel-body">
-          <router-outlet
-            name="panel"
-            (activate)="panelAbierto.set(true)"
-            (deactivate)="panelAbierto.set(false)"
-          ></router-outlet>
-        </div>
-      </aside>
     </main>
 
     <!--

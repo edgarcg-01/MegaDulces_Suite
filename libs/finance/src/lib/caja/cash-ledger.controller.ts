@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
-import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
+import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 import type { PorReclasificar } from './cash-cut.service';
@@ -124,8 +124,21 @@ export class CashLedgerController {
     @Query('to') to?: string,
     @Query('search') search?: string,
     @Query('limit') limit?: string,
+    /**
+     * `[CGA11Y-O3b]` El filtro que hace clicable la tira de accesos. Sin él los conteos por
+     * grupo se podían MOSTRAR pero no USAR: tocar «Egresos 117» no tenía con qué acotar la lista.
+     *
+     * ⚠️ `doc_tipo` y no `origen_tipo`, por lo mismo que los conteos: en esta vista `origen_tipo`
+     * sale del signo y no distingue nada. `U-A-5` = depósito de efectivo · `X-D-26` = pago/egreso
+     * · `D-23-1` = cobro de ruta de detalle.
+     */
+    @Query('doc_tipo') docTipo?: string,
   ) {
-    return this.svc.movimientosPendientes({ tipo, caja, sucursal, from, to, search, limit: limit ? Number(limit) : undefined });
+    return this.svc.movimientosPendientes({
+      tipo, caja, sucursal, from, to, search,
+      doc_tipo: docTipo,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   // CS.3 — va ANTES de `@Get(':id')` (Nest resuelve por orden; `caos-capturables` se comería como id).
@@ -255,6 +268,35 @@ export class CashLedgerController {
   @ApiOperation({ summary: '[CG.190] Estado del autollenado: piso de alcance, si el cron está prendido, y el resumen de la última corrida DE ESTE PROCESO (null = todavía no corrió acá; aplicado:false = fue simulación). El histórico está en analytics.cron_runs.' })
   estadoAutollenado(): EstadoAutollenado {
     return this.autollenado.estado();
+  }
+
+  /**
+   * ⭐⭐ `[CGA-A.18]` **Declarar la cuenta/concepto de una entidad.** Va ANTES de `@Get(':id')`.
+   *
+   * Existe porque el 2026-10-19 hubo que abrir psql y correr un `INSERT` a mano para `CP036`:
+   * la tabla `finance.caja_autofill_declarada` vivía desde el 13-oct y **ningún endpoint la
+   * escribía**. Mismo defecto que `[CG.22.6]` ya había encontrado en `caja_classify_rules`.
+   *
+   * ⛔ `FINANCE_CAJA_AUTORIZAR` y no `GESTIONAR`: esto no captura UN movimiento, decide la cuenta
+   * contable de **todos los de esa entidad, de ahora en adelante**. Es la misma llave que
+   * confirma el mapa de conceptos.
+   */
+  @Post('autofill/declarar')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGA-A.18] Declara el par cuenta/concepto de una entidad (lo que NO se puede derivar). Exige motivo de 10+ caracteres y valida el par contra el catálogo vivo de Kepler. Reemplaza al INSERT por psql, que era la única puerta. Idempotente por entidad: vuelve a declarar y se actualiza.' })
+  declararEntidad(
+    @Body() body: { entidad_code?: string; kepler_cuenta?: string; kepler_concepto?: string; motivo?: string; sucursal?: string },
+    @Req() req: AuthedRequest,
+  ): Promise<EntidadDeclarada> {
+    return this.svc.declararEntidad(body ?? {}, this.user(req));
+  }
+
+  /** `[CGA-A.18]` Lo declarado, para revisarlo. Va ANTES de `@Get(':id')` como el resto. */
+  @Get('autofill/declaradas')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CGA-A.18] Las entidades cuya cuenta/concepto se declaró a mano, con su motivo y quién la declaró. Lo DERIVADO no aparece acá: esto es sólo lo que alguien decidió.' })
+  declaradas(): Promise<EntidadDeclarada[]> {
+    return this.svc.declaradas();
   }
 
   /**

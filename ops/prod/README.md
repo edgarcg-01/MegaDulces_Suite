@@ -994,8 +994,9 @@ acumulándose mientras el comando que debía archivarlo no llegaba a ejecutarse.
 
 ### ✅ Agendado — y dónde corre, que era la decisión abierta
 
-`ops/prod/pgbackrest-run.sh`, por el cron de `prod-backup`: **completo los domingos 23:30,
-diferencial el resto**. Después del volcado de las 22:00, que cierra ~23:15.
+`ops/prod/pgbackrest-run.sh auto`, por el cron de `prod-backup` a las 23:30: **completo si el
+último tiene ≥3 días, diferencial si no** (hasta el 2026-10-19 era completo los domingos; el WAL
+retenido llegó a 160 GB y el nodo entró en DiskPressure). Después del volcado de las 22:00, que cierra ~23:15.
 
 ⚠️ **No era opcional**: pgBackRest expira el WAL **atado a los respaldos**. Con un solo completo,
 el WAL archivado desde entonces no se borra nunca — medido, el repositorio pasó de 4 GB a 12 GB

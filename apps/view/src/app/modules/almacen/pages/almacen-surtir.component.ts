@@ -4,6 +4,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
@@ -725,7 +726,7 @@ export class AlmacenSurtirComponent implements OnInit {
    * guard lo rebotaría. `/almacen` lo manda a la primera pantalla que sí puede abrir.
    */
   salir(): void {
-    this.router.navigateByUrl('/almacen');
+    irConservandoPanel(this.router, '/almacen');
   }
 
   // ── Cantidades ──────────────────────────────────────────────────────────────────────────
