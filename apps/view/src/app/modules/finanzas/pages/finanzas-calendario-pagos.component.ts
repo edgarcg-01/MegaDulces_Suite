@@ -41,6 +41,15 @@ interface Obligation {
   branch_code: string | null;
   /** `[TP.16.4]` Id del proveedor (sólo facturas de proveedor): la llave del pago es el id, no el nombre. */
   payee_id: string | null;
+  /**
+   * `[TP.20.4]` La ventana de pronto pago de esta factura: hasta cuándo conviene pagarla y cuánto
+   * se gana si se paga antes. ⚠️ La fecha es **observada, no pactada** — sale de los pagos que de
+   * hecho obtuvieron descuento. `sin_medir` significa que no hay observaciones suficientes, que
+   * **no es lo mismo** que «este proveedor no da descuento».
+   */
+  pronto_fecha_limite?: string | null;
+  pronto_beneficio?: number | null;
+  pronto_estado?: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
 }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
 /**
@@ -175,6 +184,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadObligations()" placeholder="Buscar beneficiario o factura…" class="p-inputtext-sm cal-search" aria-label="Buscar beneficiario o factura" />
             <p-select [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Tipo" [showClear]="true" styleClass="cal-sel p-inputtext-sm" />
             <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
+            <!-- [TP.20.4] Armar el dia mirando lo que CADUCA, sin salir a otra pantalla. -->
+            <label class="cal-check" title="Solo facturas cuyo descuento por pronto pago vence en 5 dias o menos"><p-checkbox [(ngModel)]="soloPorVencer" [binary]="true" (onChange)="loadObligations()" />Descuento por vencer</label>
           </div>
           <p-table [value]="obligationRows()" [loading]="loadingObligations()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm surf-table cal-table cal-oblig-table">
             <ng-template #header>
@@ -206,7 +217,20 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 </tr>
               } @else if (r.kind === 'item') {
                 <tr class="cal-grp-item" [class.cal-row-critical]="r.o.is_critical">
-                  <td class="cal-c-name"><div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div></td>
+                  <td class="cal-c-name">
+                    <div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div>
+                    <!-- [TP.20.4] La urgencia del DESCUENTO, aqui y no en una columna nueva: esta
+                         tabla es un panel estrecho de cuatro columnas y tres mas la romperian.
+                         Solo aparece cuando hay algo que ganar; lo demas no dice nada. -->
+                    @if (r.o.pronto_beneficio && (r.o.pronto_estado === 'por_vencer' || r.o.pronto_estado === 'capturable')) {
+                      <span class="cal-pp" [class.cal-pp-urge]="r.o.pronto_estado === 'por_vencer'"
+                            [title]="'Descuento por pronto pago estimado. La fecha limite es OBSERVADA, no pactada.'">
+                        <i class="pi" [class.pi-bolt]="r.o.pronto_estado === 'por_vencer'" [class.pi-tag]="r.o.pronto_estado === 'capturable'" aria-hidden="true"></i>
+                        ahorra {{ money(r.o.pronto_beneficio) }}
+                        @if (r.o.pronto_fecha_limite) { <span class="cal-muted">· antes del {{ shortDate(r.o.pronto_fecha_limite) }}</span> }
+                      </span>
+                    }
+                  </td>
                   <td class="cal-c-due cal-mono" [class.cal-overdue]="isOverdue(vence(r.o))">{{ shortDate(vence(r.o)) }}@if (r.o.negotiated_date) { <span class="cal-muted" aria-label="fecha renegociada">*</span> }</td>
                   <td class="comm-num cal-c-amt">{{ money(r.o.available_amount) }}</td>
                   <td class="cal-c-add"><button pButton type="button" class="p-button-sm p-button-text" [attr.aria-label]="'Agregar ' + r.o.concept + ' a un día'" (click)="quickAdd(r.o)"><span class="pi pi-plus" aria-hidden="true"></span></button></td>
@@ -498,6 +522,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-nav { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
     .cal-week-label { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); font-weight:600; color:var(--text-main); min-width:10.5rem; text-align:center; }
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
+    /* [TP.20.4] El ahorro por pronto pago en la fila: discreto, y urgente cuando caduca.
+       El estado no viaja solo en el color -lleva icono y la palabra "antes del"-. */
+    .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-top:.15rem;
+      font-size: var(--fs-xs); color: var(--text-muted); }
+    .cal-pp-urge { color: var(--warn-fg); font-weight: 600; }
     .cal-muted { color:var(--text-faint); }
     .cal-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cal-neg { color:var(--bad-fg); }
@@ -706,6 +735,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   classificationFilter: string | null = null;
   search = '';
   onlyCritical = false;
+  /** `[TP.20.4]` Filtra a lo que pierde descuento en 5 días o menos. */
+  soloPorVencer = false;
 
   obligations = signal<Obligation[]>([]);
   /** Proveedores plegados (por clave de grupo). */
@@ -851,6 +882,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.classificationFilter) p.set('classification', this.classificationFilter);
     if (this.search.trim()) p.set('search', this.search.trim());
     if (this.onlyCritical) p.set('onlyCritical', 'true');
+    if (this.soloPorVencer) p.set('prontoPago', 'por_vencer');
     this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.obligations.set(r.rows); this.obligationsTotal.set(r.total); this.loadingObligations.set(false); },
       error: () => { this.loadingObligations.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' }); },

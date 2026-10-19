@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
+import { PRONTO_PAGO_MIN_OBS, PRONTO_PAGO_DIAS_AVISO } from '../shared/pronto-pago-ventana';
 
 /**
  * `[PP.1]` — **Lo que Tesorería todavía puede ganar, y hasta cuándo.**
@@ -41,10 +42,12 @@ import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
  */
 
 /** Mínimo de observaciones para publicar una ventana. Medido: con 3 se conserva el 99.7% del descuento. */
-const MIN_OBS = 3;
+/** [TP.20.4] Vive en shared/pronto-pago-ventana: el Calendario usa la MISMA. */
+const MIN_OBS = PRONTO_PAGO_MIN_OBS;
 
 /** Días antes del límite en que un renglón pasa a "por vencer". Es aviso, no regla de negocio. */
-const DIAS_AVISO = 5;
+/** [TP.20.4] Vive en shared/pronto-pago-ventana: el Calendario usa la MISMA. */
+const DIAS_AVISO = PRONTO_PAGO_DIAS_AVISO;
 
 export type EstadoPronto = 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
 

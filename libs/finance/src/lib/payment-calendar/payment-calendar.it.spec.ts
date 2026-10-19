@@ -20,6 +20,7 @@ import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
 import { PaymentProgramService } from '../payment-program/payment-program.service';
+import { sqlVentanaProntoPago } from '../shared/pronto-pago-ventana';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -484,6 +485,64 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const despues = await fila(F_SUELTA);
       expect(Number(despues!['reservado'])).toBeCloseTo(5000, 2);
       expect(Number(despues!['programable'])).toBeCloseTo(7000, 2);
+    });
+  });
+
+  /**
+   * `[TP.20.4]` **La ventana de pronto pago, la MISMA para las dos pantallas.**
+   *
+   * El inventario descartó fusionar Pronto pago con el Calendario (ordenan y agrupan al revés);
+   * lo que viaja son los tres campos que deciden. La regla vive en `shared/pronto-pago-ventana` y
+   * acá se ejerce **el SQL que genera**, contra casos construidos — así se prueba la regla sin
+   * depender de que la matview del ERP tenga datos.
+   */
+  describe('[TP.20.4] la ventana de pronto pago decide igual en las dos pantallas', () => {
+    /** Evalúa el SQL real de `sqlVentanaProntoPago()` sobre una fila armada a mano. */
+    const evaluar = async (diasDesdeFactura: number, nObs: number, diasMediana: number, tasa = 0.05) => {
+      const { rows } = await trx.raw(`
+        SELECT ${sqlVentanaProntoPago('v', 'd')}
+          FROM (SELECT (CURRENT_DATE - ${diasDesdeFactura})::date AS fecha, 10000::numeric AS pendiente) v,
+               (SELECT ${nObs}::int AS n_observaciones, ${diasMediana}::int AS dias_mediana,
+                       ${tasa}::numeric AS tasa_observada) d`);
+      return rows[0] as { pronto_fecha_limite: string | null; pronto_beneficio: string | null; pronto_estado: string };
+    };
+
+    it('todavía capturable: el límite está lejos', async () => {
+      const r = await evaluar(2, 10, 30);
+      expect(r.pronto_estado).toBe('capturable');
+      expect(Number(r.pronto_beneficio)).toBeCloseTo(500, 2);   // 10,000 × 5 %
+    });
+
+    it('por vencer: entra dentro de los días de aviso', async () => {
+      expect((await evaluar(28, 10, 30)).pronto_estado).toBe('por_vencer');
+    });
+
+    it('⛔ fuera de ventana — que NO quiere decir perdido', async () => {
+      expect((await evaluar(40, 10, 30)).pronto_estado).toBe('fuera_de_ventana');
+    });
+
+    it('⛔ sin medir con menos observaciones que el mínimo, y el límite queda NULL', async () => {
+      const r = await evaluar(2, 2, 30);
+      expect(r.pronto_estado).toBe('sin_medir');
+      // ⛔ NULL y no «hoy»: un COALESCE a la fecha actual diría «vence hoy» sobre algo que nadie midió.
+      expect(r.pronto_fecha_limite).toBeNull();
+      expect(r.pronto_beneficio).toBeNull();
+    });
+
+    it('el borde del aviso cae del lado correcto', async () => {
+      // Límite exactamente a 5 días (el aviso) → por vencer; a 6 → todavía capturable.
+      expect((await evaluar(25, 10, 30)).pronto_estado).toBe('por_vencer');
+      expect((await evaluar(24, 10, 30)).pronto_estado).toBe('capturable');
+    });
+
+    it('la lista del Calendario trae los tres campos y el filtro los usa', async () => {
+      const todas = await cal.listObligations({ search: 'TPIT', onlyAvailable: false });
+      expect(todas.rows.length).toBeGreaterThan(0);
+      for (const r of todas.rows as { pronto_estado: string }[]) expect(r.pronto_estado).toBeTruthy();
+      // La matview nace vacía en esta base, así que todo es `sin_medir` — y el filtro lo respeta.
+      const porVencer = await cal.listObligations({ search: 'TPIT', onlyAvailable: false, prontoPago: 'por_vencer' });
+      expect(porVencer.rows).toHaveLength(0);
+      expect(porVencer.total).toBe(0);
     });
   });
 

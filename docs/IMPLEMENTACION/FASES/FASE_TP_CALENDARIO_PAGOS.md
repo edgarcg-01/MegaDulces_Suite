@@ -1381,3 +1381,49 @@ $92,981,074**) y desde `[TP.18.3]` comparten `obligation_id`, así que es un `LE
 el libro no guarda el folio del pago de Kepler — sólo `invoice_folios` (de *factura*), `kepler_flag`
 (24.8 %) y `kepler_matched` (NULL). Casarlos por monto+mes es lo que produjo los $273 M
 indefendibles de `[PP.4]`.
+
+---
+
+## 24. TP.20.4 — la urgencia del descuento, dentro del Calendario (2026-10-19)
+
+Lo que el inventario de §23 recomendó en lugar de fusionar: que al armar el día se vea **qué
+factura pierde descuento**, sin mover a Pronto pago de su sitio.
+
+### La regla no se copió: se compartió
+
+`libs/finance/src/lib/shared/pronto-pago-ventana.ts` — las constantes (`MIN_OBS = 3`,
+`DIAS_AVISO = 5`) y el SQL que decide los tres campos. **Pronto pago pasó a tomarlas de ahí**, así
+que las dos pantallas no pueden divergir: si mañana se ajusta el mínimo de observaciones, cambia en
+las dos a la vez. Copiarla habría sido la sexta familia de constantes duplicadas del repo, y ésta
+decide dinero.
+
+### ⚠️ Lo que cambió respecto de lo propuesto, y por qué
+
+Se propusieron **tres columnas nuevas**. Al abrir la tabla: es un **panel estrecho de cuatro
+columnas** (Proveedor/factura · Vence · Disponible · Agregar) con ancho fijo y texto cortado con
+«…». Tres columnas más la rompen.
+
+⇒ La señal va **dentro de la celda de la factura**, como un renglón corto —
+*«⚡ ahorra $1,234 · antes del 24/10»*— y **sólo cuando hay algo que ganar**: en `fuera_de_ventana`
+o `sin_medir` no se pinta nada, porque un «—» por fila es ruido en una lista que se recorre rápido.
+Más un filtro **«Descuento por vencer»** junto a «Críticos».
+
+### Probado
+
+- **44/44** contra Postgres real. Seis casos nuevos ejercen **la regla**, no el cableado: evalúan
+  el SQL que genera el helper sobre filas construidas y verifican los cuatro estados, el **borde**
+  del aviso (límite a 5 días → *por vencer*; a 6 → *capturable*), el beneficio calculado, y que
+  `sin_medir` deje la fecha en **NULL** y no en «hoy».
+- La lista del Calendario trae los tres campos y el filtro los usa.
+- `check:pantalla -- calendario-pagos`: **1 falla antes → 1 después**, ninguna nueva · templates,
+  estilos y specs del agrupador (17/17) verdes.
+
+### Declarado
+
+⚠️ La ventana sólo viaja hoy en el origen **derivado** (`kepler_payable`), que tiene la factura del
+ERP a mano. Las 37 obligaciones **capturadas** por Entregas salen `sin_medir`: para calcularles la
+ventana hace falta unirlas a `v_supplier_payables` por sus llaves `kepler_*`, que es un join más en
+una consulta que ya está en el límite de latencia (`[TP.18.5]`). Queda como deuda con nombre.
+
+⛔ **Sin validación visual** (`nx serve` prohibido): el chip de ahorro es lo primero que habría que
+mirar — es el único elemento nuevo dentro de una celda que ya corta texto con «…».
