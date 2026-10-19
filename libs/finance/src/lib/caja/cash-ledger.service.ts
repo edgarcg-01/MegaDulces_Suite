@@ -105,6 +105,54 @@ function llaveDeValor(valor: number): string {
   return v === 0.5 ? '0.5' : String(v);
 }
 
+/**
+ * `[CG.116]` El término del buscador leído **como importe**.
+ *
+ * El buscador de la bandeja pegaba contra seis columnas de TEXTO (beneficiario, entidad,
+ * concepto, folio, origen_ref, doc_tipo) y contra ninguna de dinero. Pero el papel que la
+ * persona tiene en la mano — el ticket, la ficha de depósito, el comprobante — lo que trae
+ * grande es **el monto**, y era justo lo único con lo que no se podía buscar.
+ *
+ * ⚠️ **No se busca el importe con `ILIKE`.** Un `monto::text ILIKE '%500%'` devolvería
+ * `$1,500.00`, `$25,003.00` y `$500,000.00` en la misma lista: el importe es una cantidad, no
+ * una cadena, y tratarlo como cadena produce coincidencias que nadie pidió.
+ *
+ * **Las dos formas, y por qué son dos:**
+ *
+ *   `9781.50`  con decimales  -> exacto. La persona copió el importe completo.
+ *   `9781`     sin decimales  -> el peso entero: `[9781, 9782)`, así encuentra `$9,781.50`.
+ *                               Es como se lee un total redondeado, y exigir los centavos
+ *                               haría que el caso más común no encuentre nada.
+ *
+ * Se limpia lo que una persona escribe al copiar dinero: el signo de pesos, los espacios
+ * (incluido el duro que traen los PDF) y los separadores de miles.
+ *
+ * ⛔ Devuelve el número **como cadena** a propósito: se liga con `?::numeric` para que lo
+ * redondee Postgres y no el `double` de JavaScript. `monto` en la vista es `numeric`, y
+ * comparar dinero contra un flotante es la forma de que `0.1 + 0.2` decida un arqueo.
+ *
+ * ⚠️ `null` cuando el término no es un importe — ahí la búsqueda queda como estaba, sólo texto.
+ * Un término de puros dígitos (`90`) SÍ es un importe candidato y además sigue pegando contra
+ * folio: el buscador es universal, así que suma resultados, no los reemplaza.
+ */
+export function montoBuscado(search: string | null | undefined): { valor: string; entero: boolean } | null {
+  const limpio = String(search ?? '').trim().replace(/[$\s ]/g, '').replace(/,/g, '');
+  // Tope de 12 enteros: más que eso no es un importe de caja, es un folio largo.
+  if (!/^\d{1,12}(\.\d{1,2})?$/.test(limpio)) return null;
+  return { valor: limpio, entero: !limpio.includes('.') };
+}
+
+/** El `OR` de importe que se le cuelga al buscador. Sin término numérico no agrega nada. */
+function agregaMonto(b: any, columna: string, m: { valor: string; entero: boolean } | null): void {
+  if (!m) return;
+  if (m.entero) {
+    // Rango semiabierto en vez de `trunc(monto)`: así el filtro sigue pudiendo usar un índice.
+    b.orWhereRaw(`${columna} >= ?::numeric AND ${columna} < ?::numeric + 1`, [m.valor, m.valor]);
+  } else {
+    b.orWhereRaw(`${columna} = ?::numeric`, [m.valor]);
+  }
+}
+
 export interface CreateMovementInput {
   tipo: 'ingreso' | 'gasto' | 'deposito';
   fecha: string;
@@ -1247,6 +1295,8 @@ export class CashLedgerService {
 
   async movimientosPendientes(q: {
     tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number;
+    /** `[CGA11Y-O3b]` El grupo elegido en la tira de accesos (`U-A-5`, `X-D-26`, `D-23-1`…). */
+    doc_tipo?: string;
   }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
@@ -1258,9 +1308,28 @@ export class CashLedgerService {
       const desde = q.from
         || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
 
-      const filtros = (b: any) => {
+      /**
+       * `conTipo` existe por los CONTEOS POR GRUPO, y es la parte fácil de equivocar.
+       *
+       * ⛔ Si la tira de accesos («Depósitos 6 · Egresos 117 · …») heredara el filtro de tipo,
+       * cada grupo mostraría su número **sólo mientras está elegido** y cero el resto del
+       * tiempo. O sea: para saber cuántos egresos hay habría que ir a egresos — que es
+       * exactamente lo que la tira viene a evitar. Los conteos se piden con `conTipo:false`;
+       * la lista y sus totales siguen con el filtro puesto.
+       *
+       * ⚠️ `caja` y `sucursal` SÍ se conservan en los dos casos: acotan el universo del que
+       * se cuenta, no el grupo. Contar egresos de otra caja al lado de los de ésta sería
+       * publicar una cifra de un universo distinto, que es el defecto que este archivo ya
+       * persigue en otro lado («un total que no corresponde a lo filtrado es otra forma de
+       * mentir, más difícil de ver»).
+       */
+      const filtrosCon = (b: any, conTipo = true) => {
         let x = b.where('tenant_id', tenantId);
-        if (q.tipo) x = x.where('tipo', q.tipo);
+        if (q.tipo && conTipo) x = x.where('tipo', q.tipo);
+        // `doc_tipo` viaja junto con `tipo`: los dos ACOTAN AL GRUPO, así que los conteos de la
+        // tira (conTipo:false) tampoco lo heredan — si no, el grupo elegido sería el único con
+        // número y los demás saldrían en cero.
+        if (q.doc_tipo && conTipo) x = x.where('doc_tipo', q.doc_tipo);
         if (q.caja) x = x.where('clave_banco', q.caja);
         if (q.sucursal) x = x.where('sucursal', q.sucursal);
         /**
@@ -1354,7 +1423,7 @@ export class CashLedgerService {
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
       // dónde cortó es indistinguible de una bandeja vacía (ADR-056).
-      const atras: any = await filtros(trx('finance.v_caja_movimientos_pendientes'))
+      const atras: any = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '<', desde)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
@@ -1375,11 +1444,40 @@ export class CashLedgerService {
        * que es lo único que las saca de verdad (`[CG.25]` las sigue cuando eso pasa).
        */
       const hoy = await this.hoyMx(trx);
-      const adelante: any = await filtros(trx('finance.v_caja_movimientos_pendientes'))
+      const adelante: any = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>', hoy)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
-      let qb = filtros(trx('finance.v_caja_movimientos_pendientes'))
+      /**
+       * ⭐ `[CGA11Y-O3a]` LOS CONTEOS POR GRUPO, para la tira de accesos rápidos.
+       *
+       * Sin esto la pantalla sólo puede contar **las filas que cargó**, y eso ya fue un defecto
+       * medido: `[CG.30]` encontró la bandeja publicando «31 de 100» con **1,887** en esa caja y
+       * **12,793** en total. *El tamaño de la página no es el trabajo.*
+       *
+       * El eje es `doc_tipo`, que es el que de verdad separa: `U-A-5` es el depósito de efectivo
+       * (el 95% del ingreso), `X-D-26` el pago/egreso (el 92% de la salida), `D-23-1` el cobro de
+       * ruta de detalle. ⛔ **NO se usa `origen_tipo`**: en esta vista sale del signo
+       * (`signo > 0 ? 'cobro' : 'pago_proveedor'`), así que es un sinónimo de `tipo` y no
+       * distingue nada — medido el 2026-10-16.
+       *
+       * Costo medido contra prod el 2026-10-16: **21 ms**, `HashAggregate` sobre
+       * `Index Scan using ix_mv_caja_movimientos_bandeja`, 55 buffers. Es un `GROUP BY` sobre un
+       * índice que ya existía, no una consulta nueva que haya que sostener.
+       *
+       * ⚠️ `conTipo:false`: ver la nota de `filtrosCon`. Y comparte la MISMA ventana que la
+       * lista (`desde`..`hoy`), porque un conteo de otro período al lado de la lista es
+       * justamente la cifra que no corresponde a lo filtrado.
+       */
+      const grupos: any[] = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'), false)
+        .where('fecha_valor', '>=', desde)
+        .where('fecha_valor', '<=', hoy)
+        .select('doc_tipo', 'tipo')
+        .count({ n: '*' })
+        .sum({ monto: 'monto' })
+        .groupBy('doc_tipo', 'tipo');
+
+      let qb = filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>=', desde)
         .where('fecha_valor', '<=', hoy);
 
@@ -1387,14 +1485,18 @@ export class CashLedgerService {
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
         const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-        qb = qb.where((b: any) => b
-          .whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
-          // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
-          .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]));
+        // `[CG.116]` El importe entra al mismo OR: lo que el papel trae grande es el monto.
+        const m = montoBuscado(q.search);
+        qb = qb.where((b: any) => {
+          b.whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
+            // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
+            .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]);
+          agregaMonto(b, 'monto', m);
+        });
       }
       /**
        * ⛔ `[CG.30]` **CUÁNTOS HAY DE VERDAD dentro de la ventana.**
@@ -1479,6 +1581,23 @@ export class CashLedgerService {
         // no son trabajo de caja, son un error de captura de Kepler que alguien tiene que ir a
         // corregir allá.
         mal_fechados: { movimientos: Number(adelante?.n ?? 0), monto: Number(adelante?.monto ?? 0) },
+        /**
+         * ⭐ `[CGA11Y-O3a]` Los conteos por grupo, para que la tira de accesos no tenga que
+         * contar las filas que cargó. Van **ordenados por volumen**: la pantalla pinta los
+         * accesos en el orden que recibe, y el grupo con más trabajo tiene que ir primero.
+         *
+         * ⚠️ `numeric` de Postgres llega como STRING por JSON: se convierte acá, no en la
+         * pantalla. Sin esto el monto se concatena en vez de sumarse — el gotcha que
+         * `DESIGN.md` llama «dinero con Number() antes de formatear».
+         */
+        grupos: grupos
+          .map((g: any) => ({
+            doc_tipo: String(g.doc_tipo ?? ''),
+            tipo: String(g.tipo ?? ''),
+            movimientos: Number(g.n ?? 0),
+            monto: Number(g.monto ?? 0),
+          }))
+          .sort((a, b) => b.movimientos - a.movimientos),
       };
     });
   }
@@ -1506,10 +1625,14 @@ export class CashLedgerService {
     const rows = await trx('analytics.expense_documents as e')
       .where('e.tenant_id', tenantId)
       .whereIn('e.doc_tipo', ['XA1001', 'XA2001'])
-      .where((b: any) => b
-        .whereRaw(`e.beneficiario ILIKE ? ESCAPE '\\'`, [s])
-        .orWhereRaw(`e.concepto ILIKE ? ESCAPE '\\'`, [s])
-        .orWhereRaw(`e.doc_folio ILIKE ? ESCAPE '\\'`, [s]))
+      // `[CG.116]` El importe también acá: es el MISMO término del mismo cuadro de búsqueda, y
+      // dejar que encuentre por monto en una lista y no en la otra se lee como que no funciona.
+      .where((b: any) => {
+        b.whereRaw(`e.beneficiario ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`e.concepto ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`e.doc_folio ILIKE ? ESCAPE '\\'`, [s]);
+        agregaMonto(b, 'e.importe', montoBuscado(search));
+      })
       .whereRaw(`NOT EXISTS (
         SELECT 1 FROM finance.cash_ledger l
          WHERE l.tenant_id = e.tenant_id

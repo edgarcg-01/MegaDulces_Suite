@@ -2481,9 +2481,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <p-select [options]="opcionesCaja()" [ngModel]="cajaActiva()" optionLabel="label" optionValue="value"
                     (ngModelChange)="setCaja($event)" class="cg-sel" [ariaLabel]="'Caja'"></p-select>
           <!-- CS.3.9 — El buscador universal es de «por confirmar»: acá se busca el movimiento que se
-               va a capturar (folio de Kepler, concepto, beneficiario, doc). El libro tiene el suyo. -->
+               va a capturar (folio de Kepler, concepto, beneficiario, doc). El libro tiene el suyo.
+               ⭐ [CG.116] Y el IMPORTE, que es lo que el papel en la mano trae grande. Se nombra
+               primero en el rótulo porque es el caso nuevo: una funcion que no se anuncia no
+               existe (D.5), y el buscador no tiene forma de insinuarla sola. -->
           <input pInputText [(ngModel)]="searchPend" (keyup.enter)="cargarPendientes()" class="cg-sel cg-buscar"
-                 placeholder="Buscar: folio Kepler, concepto, beneficiario…" aria-label="Buscar en por confirmar" />
+                 placeholder="Buscar: importe, folio Kepler, concepto, beneficiario…"
+                 aria-label="Buscar en por confirmar por importe, folio de Kepler, concepto o beneficiario" />
           <span class="cg-bandeja-sp"></span>
           <!-- [CG.56] "Marcar todas" vivia como una casilla en el encabezado de la columna. Al
                retirarse la columna entera, una casilla suelta en un th sin casillas debajo no
