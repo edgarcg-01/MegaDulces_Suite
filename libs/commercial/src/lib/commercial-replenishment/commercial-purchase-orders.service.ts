@@ -298,7 +298,11 @@ export class CommercialPurchaseOrdersService {
                         THEN (SUM(l.line_cost) / SUM(l.ordered_qty))::numeric ELSE 0 END AS unit_cost`),
           trx.raw('(COUNT(DISTINCT round(l.unit_cost, 4)) > 1) AS costo_varia'),
           trx.raw(`array_remove(array_agg(DISTINCT w.code ORDER BY w.code), NULL) AS destinos`),
-          trx.raw('COUNT(DISTINCT l.purchase_order_id)::int AS ordenes'))
+          trx.raw('COUNT(DISTINCT l.purchase_order_id)::int AS ordenes'),
+          // `[OC.4]` **De qué órdenes salió ESTE renglón.** En el PDF no cabe —por eso los folios
+          // van en el encabezado— pero el CSV es un archivo de datos y ahí sí hay columna: es la
+          // liga hacia atrás que la consolidación borra, devuelta donde se puede usar.
+          trx.raw(`array_agg(DISTINCT po.folio ORDER BY po.folio) AS folios`))
         .orderBy('pr.sku', 'asc');
 
       const n = (v: unknown) => Number(v) || 0;

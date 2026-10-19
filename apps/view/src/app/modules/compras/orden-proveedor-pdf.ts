@@ -39,6 +39,9 @@ export interface OcProvFila {
   importe: number | string;
   costo_varia: boolean;
   destinos: string[];
+  /** `[OC.4]` Folios de las órdenes que aportaron a este renglón. Los usa el CSV; en el papel
+   *  no caben y por eso van en el encabezado. */
+  folios?: string[];
 }
 
 export interface OcProvData {

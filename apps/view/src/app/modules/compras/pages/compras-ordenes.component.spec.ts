@@ -111,7 +111,18 @@ describe('[OC.3] imprimir el pedido del proveedor', () => {
     expect(api.consolidadoProveedor).toHaveBeenCalledWith(GRUPO.supplier_id, undefined);
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'warn' }));
     // Y se suelta el candado: si no, el botón queda muerto para siempre.
-    expect(f.componentInstance.imprimiendo()).toBeNull();
+    expect(f.componentInstance.bajando()).toBeNull();
+  });
+
+  it('⭐ el CSV sale del MISMO consolidado que el PDF, no de otra llamada', async () => {
+    // Si cada botón pidiera lo suyo, dos descargas con segundos de diferencia podrían no
+    // coincidir y nadie sabría cuál de los dos papeles creer.
+    const api = doble();
+    const f = await montar(api);
+    f.componentInstance.descargarCsv(GRUPO as never);
+    await f.whenStable();
+    expect(api.consolidadoProveedor).toHaveBeenCalledWith(GRUPO.supplier_id, undefined);
+    expect(f.componentInstance.bajando()).toBeNull();
   });
 
   it('respeta el filtro de estado al pedir el consolidado', async () => {
@@ -132,6 +143,6 @@ describe('[OC.3] imprimir el pedido del proveedor', () => {
     await f.whenStable();
 
     expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'error' }));
-    expect(f.componentInstance.imprimiendo()).toBeNull();
+    expect(f.componentInstance.bajando()).toBeNull();
   });
 });
