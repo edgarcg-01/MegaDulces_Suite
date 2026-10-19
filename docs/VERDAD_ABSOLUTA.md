@@ -672,7 +672,7 @@ sólo que en este eje ya van **siete** resolvedores y la adopción va al revés 
 | **Catálogo interno** (`catalogo-interno.service.ts`, 3 consultas) | `i.c84 AS pzas_bulto` | mismo defecto, **no estaba declarado en ningún lado** |
 | ⭐ **Bot / conversación comercial** (`commerce-conversation.binding.module.ts:183`) | `GREATEST(COALESCE(p.factor_sale,1),1)` | le dice al **cliente** "2 paquetes (80 pzas)". El `COALESCE(...,1)` es el default silencioso que ADR-056 prohíbe: donde nadie sabe, **afirma 1** |
 | **Andén / recepción** (`almacen/anden/cantidad.util.ts`) | `catalog.product_barcodes.factor` — una **octava** fuente | sólo **383 de 12,503 códigos** (378 productos) traen factor > 1; 7,469 vienen ≤ 1 y 4,651 NULL → el conteo por cajas está muerto en **97%** de los códigos y el input de cajas se deshabilita solo |
-| **Caducidades** (`commercial-expiry-reviews`, `expiry-voice`) | `p.factor_sale` para "PAQ x 24" | tras VA.3 el número coincide, pero **viaja sin veredicto**: no distingue "1 porque es 1" de "1 porque nadie sabe" |
+| **Caducidades** (`commercial-expiry-reviews`; `expiry-voice` se retiró el 2026-10-19) | `p.factor_sale` para "PAQ x 24" | tras VA.3 el número coincide, pero **viaja sin veredicto**: no distingue "1 porque es 1" de "1 porque nadie sabe" |
 | **Catálogo de productos** (`commercial-products.service.ts`) | `p.factor_sale` | ídem |
 | **Salidas** (`salidasReport` + su Excel) | cascada `v_product_box_factor` → `box_size` → `factor_sale` | usa el canónico **viejo** y cae a dos fuentes sin testigo; el consenso no participa |
 

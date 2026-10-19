@@ -12,6 +12,10 @@
 ### Added — El mostrador busca por nombre, proveedor, SKU o código, y lo que Kepler no tiene llega solo a Compras (MOS.1–MOS.3, 2026-10-16)
 - **«¿Te pidieron algo?»** (arqueo de caja y Faltantes) busca por nombre, proveedor, SKU o código de barras y dice por qué salió cada resultado. Cada uno trae todas sus presentaciones con precio —la caja en paquetes cuando divide exacto— y el mayoreo por unidad, en la presentación en que Kepler lo tiene.
 - **Catálogo › No registrados**: los códigos que se escanearon y Kepler no tiene en esa sucursal, con sucursal, proveedor y búsqueda. Salen solos en cuanto se dan de alta en Kepler. Sin tabla nueva ni migración.
+### Removed — Caducidades: se retira el asistente de voz, que nadie usaba (P2.9 paso 1b, 2026-10-19)
+- A pedido del PM («si no se ocupa, bórralo»). El micrófono salió de la pantalla el 2026-09-10 y el backend quedó **dormido y sin consumidor**; se verificó con `git grep` sobre `main` que ningún componente ni llamador usaba los 3 métodos del cliente. Se borran: `expiry-voice.service.ts`, `expiry-voice-match.ts` y su spec (15 pruebas), los endpoints `POST /commercial/expiry-reviews/voice/{transcribe,intake,pick}`, sus providers del módulo (`ExpiryVoiceService`, `AnthropicService`, `SpeechToTextService`, que seguiría existiendo en `platform-core` para Thot), los 3 métodos y 3 tipos del cliente y los checks 2c del smoke.
+- **Cambio de comportamiento:** esos 3 endpoints dejan de existir (404). No hay consumidores conocidos; una integración externa que los llamara dejaría de funcionar.
+- Era la cuarta copia de la lista de unidades (`caja · pieza · bulto · kg`): el paso 1 del plan P2.9 la reduce a una.
 ### Fixed — Un código de otra sucursal ya no muestra el precio de la otra plaza (MOS.2, 2026-10-16)
 - Si un código existía en otra sucursal pero no en ésta, el mostrador mostraba el precio de la otra plaza como si fuera de aquí. Ahora avisa que falta el alta y lo anota en No registrados.
 ### Fixed — La API no arrancaba en producción tras #414 (VAC.FIX, 2026-10-15; documentado 2026-10-16)
