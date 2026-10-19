@@ -183,7 +183,6 @@ export interface CreateAgreementDto {
  * de cada obligación SIEMPRE recalculados desde los items activos (nunca +=/-= manual, para no
  * desincronizar el saldo).
  */
-@Injectable()
 /**
  * `[TP.19.4.1]` Lo que devuelve la sugerencia de Kepler. Son TRES returns distintos en el
  * mismo metodo (ya ligado / sin documentos que ligar / con candidatos), asi que los campos
@@ -200,7 +199,7 @@ export interface SugerenciaKepler {
   motivo?: string;
   unico?: boolean;
 }
-
+@Injectable()
 export class PaymentCalendarService {
   private readonly logger = new Logger(PaymentCalendarService.name);
   constructor(
@@ -860,7 +859,11 @@ export class PaymentCalendarService {
 
       const candidatos = await trx('analytics.erp_supplier_payments as p')
         .where('p.tenant_id', tenantId)
-        .whereIn(trx.raw('btrim(p.proveedor_code)'), codigos)
+        // [TP.19.4.1] knex ACEPTA un Raw como columna de whereIn en tiempo de ejecucion, pero
+        //   sus tipos no lo declaran (TS2769: Raw no es readonly string[]). La conversion dice
+        //   eso y nada mas: no cambia la consulta. Aparecio al poner el tipo de retorno del
+        //   metodo -- antes nadie obligaba a TypeScript a inferir esta linea.
+        .whereIn(trx.raw('btrim(p.proveedor_code)') as unknown as string, codigos)
         .whereRaw('abs(p.monto::numeric - ?::numeric) <= 0.01', [a.amount_assigned])
         .whereRaw("p.pago_date BETWEEN ?::date - 3 AND ?::date + 3", [a.lot_date, a.lot_date])
         // Un documento que ya está ligado a otro pago no es candidato: el índice único lo
