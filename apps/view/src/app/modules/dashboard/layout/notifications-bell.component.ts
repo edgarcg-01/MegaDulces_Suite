@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
+import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { Subscription } from 'rxjs';
 import { AlertsSocketService, CommercialAlert } from '../command-center/alerts-socket.service';
 import { FindingsService } from '../../finanzas/findings.service';
@@ -391,7 +392,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
 
   // Hallazgos y acciones se abren con <a routerLink>: una alerta de la campana
   // es justo lo que querés abrir AL LADO de lo que estabas haciendo (ADR-078).
-  goFeed(it: FeedItem): void { this.close(); if (it.route) this.router.navigateByUrl(it.route); }
+  goFeed(it: FeedItem): void { this.close(); if (it.route) irConservandoPanel(this.router, it.route); }
 
   icon(it: FeedItem): string {
     switch (it.type) {

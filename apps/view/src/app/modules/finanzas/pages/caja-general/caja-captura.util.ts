@@ -43,7 +43,17 @@ import { seleccionarDenominaciones, type Denominacion, type VeredictoCorte } fro
  * ⚠️ El CHECK de `finance.cash_ledger_denominations` sigue admitiendo las 14; acá se ofrecen
  * 5. Volver a ofrecer el de $1,000 es agregar su llave a esta lista — sin migración.
  */
-const CAJA_BILLETES_KEYS = ['500', '200', '100', '50', '20'] as const;
+/**
+ * ⭐ 2026-10-16 — ENTRA EL DE $1,000. Pedido de Edgar. Es exactamente lo que el párrafo de
+ * arriba decía que costaba: agregar su llave, sin migración, porque el CHECK de
+ * `finance.cash_ledger_denominations` siempre admitió las 14.
+ *
+ * ⚠️ Y acá hay un hecho que conviene no perder: mientras NO estuvo ofrecido, un billete de
+ * $1,000 que entraba a la caja sólo podía declararse partiéndolo en otras denominaciones o
+ * cayendo en morralla — o sea, un desglose que no reconstruye lo que había en la mano. El
+ * arqueo cuadraba en el total y mentía en la composición.
+ */
+const CAJA_BILLETES_KEYS = ['1000', '500', '200', '100', '50', '20'] as const;
 
 /**
  * `[CG.38]` Las monedas que la caja cuenta, de la mayor a la menor.
@@ -82,6 +92,56 @@ export const BILLETES_CAJA: readonly Denominacion[] = seleccionarBilletes(CAJA_B
 
 /** Las seis monedas de la caja. Lo de menos de 50¢ sigue cayendo en el campo suelto. */
 export const MONEDAS_CAJA: readonly Denominacion[] = seleccionarMonedas(CAJA_MONEDAS_KEYS);
+
+/**
+ * ⭐⭐ `[CGA11Y-O3b]` LA TAXONOMÍA DE LA TIRA DE ACCESOS — declarada, no inferida.
+ *
+ * ⛔ **Por qué es una tabla y no un `startsWith()` en la plantilla.** El grupo de un movimiento no
+ * existe como dato: en `finance.v_caja_movimientos_pendientes`, `origen_tipo` se calcula como
+ * `signo > 0 ? 'cobro' : 'pago_proveedor'`, o sea que es un **sinónimo del signo** y no distingue
+ * nada. Medido en prod el 2026-10-16: 1,428 gasto↔`pago_proveedor` y 479 ingreso↔`cobro`, sin una
+ * sola excepción. Lo que sí separa es `doc_tipo`, que es el documento de Kepler.
+ *
+ * **El universo completo, medido sobre 365 días (prod, `clave_banco='0011'`):**
+ *
+ * | doc_tipo | tipo    | movs  | importe | grupo          |
+ * |----------|---------|------:|--------:|----------------|
+ * | `X-D-26` | gasto   | 9,589 | $77.0 M | Egresos        |
+ * | `U-A-5`  | ingreso | 3,692 | $76.6 M | Depósitos      |
+ * | `X-D-60` | gasto   |    47 | $ 4.4 M | Otros egresos  |
+ * | `X-A-45` | ingreso |    45 | $ 3.9 M | Otros ingresos |
+ * | `U-A-25` | ingreso |     3 | $ 3.7 K | Otros ingresos |
+ * | `X-D-25` | gasto   |     1 | $ 9.8 K | Otros egresos  |
+ *
+ * Dos doctypes se llevan el **97%** de los movimientos; los otros cuatro son cola larga y se
+ * agrupan para no poner cuatro accesos con un dígito cada uno.
+ *
+ * ⚠️ **Lo que NO está acá, a propósito:** «Vecinal». El cierre de ruta vecinal se timbra en la
+ * caja de su sucursal y llega a Caja General **como un `U-A-5` ya agregado por día y plaza**
+ * (`VEC.10`). Ponerlo como acceso propio pondría 572 cierres ENCIMA de 3,648 depósitos: ~$9 M
+ * contados dos veces. Va como procedencia del depósito, no como grupo.
+ *
+ * ⚠️ Un `doc_tipo` que no esté acá **NO se reparte a ojo**: cae en «Sin clasificar», que es un
+ * acceso de primera clase. Un grupo inventado es peor que un grupo que falta (ADR-056).
+ */
+export interface GrupoCola { clave: string; label: string; docTipos: readonly string[]; }
+
+export const GRUPOS_COLA: readonly GrupoCola[] = [
+  { clave: 'deposito', label: 'Depósitos',      docTipos: ['U-A-5'] },
+  { clave: 'egreso',   label: 'Egresos',        docTipos: ['X-D-26'] },
+  { clave: 'otros_in', label: 'Otros ingresos', docTipos: ['X-A-45', 'U-A-25'] },
+  { clave: 'otros_eg', label: 'Otros egresos',  docTipos: ['X-D-60', 'X-D-25'] },
+];
+
+/** La clave de «no lo sé». No es un grupo más: es la declaración de que el mapa no alcanzó. */
+export const GRUPO_SIN_CLASIFICAR = 'sin_clasificar';
+
+/** A qué grupo pertenece un `doc_tipo`. Lo que el mapa no cubre se DECLARA, no se adivina. */
+export function grupoDe(docTipo: string | null | undefined): string {
+  const d = String(docTipo ?? '').trim();
+  if (!d) return GRUPO_SIN_CLASIFICAR;
+  return GRUPOS_COLA.find((g) => g.docTipos.includes(d))?.clave ?? GRUPO_SIN_CLASIFICAR;
+}
 
 /** Largo mínimo de la glosa. Espejo del CHECK de `finance.cash_ledger`. */
 export const GLOSA_MIN = 5;
