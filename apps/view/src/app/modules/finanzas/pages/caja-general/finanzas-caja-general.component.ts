@@ -368,6 +368,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        navegacion por flechas de la reja llevaba varios commits funcionando sin que nada la
        anunciara. Las teclas van en <kbd>, que es lo que son. */
     .cg-ap-atajo { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
+    /* [CGA-LEG.9] El atajo de la cola comparte renglon con los filtros, que ya van apretados:
+       se permite que baje de linea en vez de empujar un control fuera de la vista. Es lo ultimo
+       que tiene que caber, no lo primero que rompe. */
+    .cg-atajo-cola { white-space:normal; }
     .cg-ap-atajo kbd { font-family:var(--font-mono); font-size:var(--fs-xs);
                        border:1px solid var(--border-color); border-radius:var(--r-sm);
                        padding:0 var(--sp-1); margin:0 1px; background:var(--surface-2); }
@@ -2599,6 +2603,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       [loading]="confirmando()"
                       [disabled]="!marcadas().length || confirmando()" (onClick)="confirmarLote()"></p-button>
           }
+          <!-- ⭐ [CGA-LEG.9] EL RECORRIDO PRINCIPAL, ESCRITO. D.5: un atajo que nadie sabe que
+               existe no existe -- y para quien cuenta con las manos ocupadas el atajo ES la
+               interfaz. Medido el 2026-10-19: la plantilla tiene 23 bindings de teclado y solo
+               5 teclas estaban anunciadas, todas dentro del arqueo. El bucle que la persona
+               repite decenas de veces al dia -elegir, arquear, volver- no decia una palabra.
+
+               ⛔ Se anuncia SOLO lo que el codigo responde, verificado uno por uno:
+                 ← →    las dos tiras son app-segmented, que mueve con flechas (spec propia)
+                 ↑ ↓    pSelectableRow en el <tr> de la cola: flechas, Home/End y UN stop de Tab
+                 Enter  (keydown.enter)="abrirDeLaCola(p)" en esa misma fila
+                 Esc    lo cierra app-side-peek y devuelve el foco (cerrarConFoco)
+               NO se anuncia "/ buscar": el prototipo lo tenia, esta pantalla NO -- no hay
+               ningun manejador global de "/". Un atajo escrito que no funciona es peor que
+               ninguno: se prueba una vez, no pasa nada, y deja de creerse el resto del renglon.
+
+               Va al final de la barra y no bajo el titulo: comparte renglon con lo que ya esta
+               (O3 pide MENOS cosas sobre el pliegue, no mas), y en --fs-xs/--text-muted queda
+               subordinado a los controles que acompaña. -->
+          <span class="cg-ap-atajo cg-atajo-cola">
+            <kbd>&larr;</kbd><kbd>&rarr;</kbd> acceso &middot;
+            <kbd>&uarr;</kbd><kbd>&darr;</kbd> fila &middot;
+            <kbd>Enter</kbd> arquear &middot;
+            <kbd>Esc</kbd> volver
+          </span>
         </div>
 
         <!-- El recibo del lote va ARRIBA de la lista y FUERA de ella. Estaba adentro, así que al

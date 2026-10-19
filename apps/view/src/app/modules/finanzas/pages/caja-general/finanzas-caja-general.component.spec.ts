@@ -1764,6 +1764,43 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toBeGreaterThan(0);
   });
 
+  it('⭐ [CGA-LEG.9] el recorrido con teclado está ESCRITO, y lo escrito existe', async () => {
+    /**
+     * D.5: un atajo que nadie sabe que existe no existe — y para quien cuenta con las manos
+     * ocupadas el atajo **es** la interfaz. Medido el 2026-10-19: la plantilla tiene 23 bindings
+     * de teclado y sólo 5 teclas estaban anunciadas, todas dentro del arqueo. El bucle que la
+     * persona repite decenas de veces al día —elegir, arquear, volver— no decía una palabra.
+     *
+     * ⛔ **Lo que esta prueba protege de verdad es la segunda mitad: que lo anunciado funcione.**
+     * El prototipo tenía `/ buscar` y esta pantalla NO lo tiene: no hay ningún manejador global
+     * de `/`. Un atajo escrito que no responde es peor que ninguno — se prueba una vez, no pasa
+     * nada, y deja de creerse el resto del renglón.
+     */
+    // Con cola sembrada: el atajo promete algo SOBRE UNA FILA, así que sin filas la mitad que
+    // importa no se podría comprobar — y una prueba que no puede fallar no prueba nada.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const atajo: HTMLElement | null = fx.nativeElement.querySelector('.cg-atajo-cola');
+    expect(atajo, 'el recorrido de la cola no se anuncia en ninguna parte').not.toBeNull();
+    const teclas = Array.from(atajo!.querySelectorAll('kbd')).map((k) => (k.textContent ?? '').trim());
+    expect(teclas, 'falta alguna de las cuatro teclas del recorrido')
+      .toEqual(expect.arrayContaining(['←', '→', '↑', '↓', 'Enter', 'Esc']));
+
+    // ⛔ [negativa] No se promete lo que no existe.
+    expect(atajo!.textContent, 'se anuncia «/ buscar» y esta pantalla no tiene ese atajo')
+      .not.toContain('/');
+
+    // Y lo prometido RESPONDE: Enter sobre una fila abre el arqueo.
+    const fila: HTMLElement | null = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila, 'no hay fila con la cual comprobar lo que el atajo promete').not.toBeNull();
+    expect(comp.capturaAbierta()).toBe(false);
+    fila!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fx.detectChanges();
+    expect(comp.capturaAbierta(), 'el atajo dice «Enter arquear» y Enter no abrió el arqueo').toBe(true);
+  });
+
   it('⛔ [CG.120] la captura A MANO no se ofrece, pero la puerta compartida sigue viva', () => {
     /**
      * La captura a mano se retiró el 2026-10-19: un movimiento tecleado nace **sin
