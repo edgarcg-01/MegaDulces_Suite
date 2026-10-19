@@ -150,6 +150,29 @@ export const GLOSA_MIN = 5;
 export const ARQUEO_EPSILON = 0.005;
 
 /**
+ * `[CG.120]` ¿Se ofrece capturar un movimiento **a mano**, sin documento del ERP?
+ *
+ * **No, desde el 2026-10-19** (decisión de Edgar). Un movimiento tecleado nace sin
+ * `origen_ref`, o sea sin nada contra qué cuadrarlo: no lo alcanza el candado de duplicados del
+ * servidor —que es por `origen_tipo + origen_ref`—, no entra en el descuento de la cola, y en la
+ * conciliación aparece como una fila que no corresponde a ningún documento. Es la única puerta
+ * de esta pantalla por la que puede entrar dinero sin procedencia.
+ *
+ * ⛔ **Esto apaga el BOTÓN, no `abrirCaptura()`.** Esa función es la puerta compartida de cuatro
+ * caminos —la cola del ERP (`capturarDesde`), la bóveda (`capturarDesdeCaos`), un recurrente sin
+ * regla (`declararDesdeRecurrente`) y este botón—, así que guardarla por dentro apagaría el
+ * arqueo entero. Los tres primeros SIEMPRE traen documento; el único sin procedencia es éste.
+ *
+ * ⚠️ Lo que NO hace: no toca el servidor. `POST /cash-ledger` sigue aceptando un movimiento sin
+ * origen —`sin_documento_motivo` existe justamente para eso (`[CG.160]`)— y hay otras pantallas
+ * y el lote que lo usan. Esto es una puerta de ESTA pantalla que se cierra, no una regla de
+ * negocio nueva; si la regla tiene que valer para todos, va en el backend y es otro cambio.
+ *
+ * Volver a abrirla es poner `true` acá.
+ */
+export const CAPTURA_MANUAL_HABILITADA = false;
+
+/**
  * Un renglón contado.
  *
  * ⚠️ `[CG.38]` `denom_key` es la IDENTIDAD; `denominacion` es su valor, y se conserva porque es
