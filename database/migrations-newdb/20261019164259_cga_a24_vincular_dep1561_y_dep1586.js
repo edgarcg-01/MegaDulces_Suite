@@ -65,7 +65,7 @@ const DEVICE = 'AST700-19758';
  * Cada caso con TODO lo que hay que creerle, para que la guarda pueda desmentirlo.
  * `doc_ref` en `null` = ya está declarado y no se toca.
  */
-const CASOS = [
+const CASOS = [ /* 3 casos: dos con deposito, uno sin el y con motivo declarado */
   {
     folio: 'CI-2026-00002', deposito: 1561,
     libro: '21790.00', maquina: '21770.00', cajon: '20.00',
@@ -77,6 +77,27 @@ const CASOS = [
     libro: '17692.00', maquina: '17680.00', cajon: '12.00',
     doc_ref: '01-005|U-A-5|0000011|0011',
     nota: 'ruta 27, cobro U-A-5 0000011 del 13-oct (3 cortes de POS)',
+  },
+  /**
+   * ⭐ El tercero NO tiene depósito, y está bien que no lo tenga.
+   *
+   * `CI-2026-00042` lo capturó Carmen el 15-oct con el motivo escrito donde corresponde:
+   * **«NO FUNCINA CAOS»**. El dinero entró entero al cajón y nada a la bóveda, así que la
+   * ecuación cierra igual:  máquina $0.00 + cajón $21,507.00 = Kepler $21,507.00.
+   *
+   * ⚠️ **La máquina SÍ registró movimientos ese día** — 11, de 08:54 a 15:31. O sea que el
+   * motivo, literal, no cuadra con lo que CAOS vio. Eso **no invalida la conciliación**: el
+   * efectivo está declarado en el cajón y el documento cuadra al centavo. Pero queda dicho,
+   * porque un motivo que contradice al testigo es algo que alguien debería mirar.
+   *
+   * Lo único que le falta es `declared_doc_ref`: sin él, `01-001|U-A-5|0000012|0011` sigue
+   * ofreciéndose en la cola y cualquiera lo captura de nuevo.
+   */
+  {
+    folio: 'CI-2026-00042', deposito: null,
+    libro: '21507.00', maquina: '0.00', cajon: '21507.00',
+    doc_ref: '01-001|U-A-5|0000012|0011',
+    nota: 'ruta 21, cobro U-A-5 0000012 del 15-oct. Sin deposito: "NO FUNCINA CAOS", todo al cajon',
   },
 ];
 
@@ -91,22 +112,37 @@ exports.up = async function up(knex) {
         WHERE tenant_id = ?::uuid AND folio = ? AND deleted_at IS NULL`, [TENANT, c.folio]);
     if (!l) throw new Error(`[A.24] ${c.folio} no existe o está borrado. ABORTA.`);
     if (l.estado === 'cancelado') throw new Error(`[A.24] ${c.folio} está cancelado. ABORTA.`);
-    if (l.origen_ref !== `${DEVICE}|${c.deposito}`) {
-      throw new Error(`[A.24] ${c.folio} apunta a "${l.origen_ref}", no al depósito ${c.deposito}. ABORTA.`);
-    }
     if (l.monto !== c.libro) {
       throw new Error(`[A.24] ${c.folio} vale ${l.monto} y se midió ${c.libro}. Cambió: ABORTA.`);
     }
 
-    // ── Guarda 2: el depósito existe en CAOS, es un Deposito, y contó lo medido.
-    const { rows: [m] } = await knex.raw(
-      `SELECT total::text, type_id FROM analytics.caos_cash_movements
-        WHERE tenant_id = ?::uuid AND device = ? AND external_id = ?`,
-      [TENANT, DEVICE, c.deposito]);
-    if (!m) throw new Error(`[A.24] el depósito ${c.deposito} no está en CAOS. ABORTA.`);
-    if (Number(m.type_id) !== 0) throw new Error(`[A.24] ${c.deposito} no es un Deposito. ABORTA.`);
-    if (m.total !== c.maquina) {
-      throw new Error(`[A.24] la máquina dice ${m.total} para ${c.deposito}, se midió ${c.maquina}. ABORTA.`);
+    if (c.deposito === null) {
+      // ── Guarda 2-bis, para el caso SIN depósito: tiene que estar DECLARADO por qué no lo hay,
+      // y no puede apuntar a ninguno. Un movimiento sin depósito y sin motivo es un hueco.
+      if (l.origen_ref) {
+        throw new Error(`[A.24] ${c.folio} se declaró sin depósito pero apunta a "${l.origen_ref}". ABORTA.`);
+      }
+      const { rows: [sd] } = await knex.raw(
+        `SELECT sin_documento_motivo m FROM finance.cash_ledger
+          WHERE tenant_id = ?::uuid AND id = ?::uuid`, [TENANT, l.id]);
+      if (!sd || !sd.m || !sd.m.trim()) {
+        throw new Error(`[A.24] ${c.folio} no tiene depósito NI motivo declarado. ABORTA.`);
+      }
+      console.log(`[A.24] ${c.folio} sin depósito, motivo declarado: "${sd.m}"`);
+    } else {
+      if (l.origen_ref !== `${DEVICE}|${c.deposito}`) {
+        throw new Error(`[A.24] ${c.folio} apunta a "${l.origen_ref}", no al depósito ${c.deposito}. ABORTA.`);
+      }
+      // ── Guarda 2: el depósito existe en CAOS, es un Deposito, y contó lo medido.
+      const { rows: [m] } = await knex.raw(
+        `SELECT total::text, type_id FROM analytics.caos_cash_movements
+          WHERE tenant_id = ?::uuid AND device = ? AND external_id = ?`,
+        [TENANT, DEVICE, c.deposito]);
+      if (!m) throw new Error(`[A.24] el depósito ${c.deposito} no está en CAOS. ABORTA.`);
+      if (Number(m.type_id) !== 0) throw new Error(`[A.24] ${c.deposito} no es un Deposito. ABORTA.`);
+      if (m.total !== c.maquina) {
+        throw new Error(`[A.24] la máquina dice ${m.total} para ${c.deposito}, se midió ${c.maquina}. ABORTA.`);
+      }
     }
 
     // ── Guarda 3: LA ECUACIÓN. máquina + cajón = Kepler. Si no cierra, no se vincula.
@@ -131,16 +167,30 @@ exports.up = async function up(knex) {
       throw new Error(`[A.24] ${ref} vale ${d.monto} y el libro ${c.libro}. No concilia: ABORTA.`);
     }
 
+    // ── Guarda 5: nadie más tomó ese documento. Dos movimientos sobre el mismo cobro es
+    // exactamente el duplicado que esta fase vino a cerrar.
+    const { rows: [otro] } = await knex.raw(
+      `SELECT folio FROM finance.cash_ledger
+        WHERE tenant_id = ?::uuid AND deleted_at IS NULL AND estado <> 'cancelado'
+          AND id <> ?::uuid AND (origen_ref = ? OR declared_doc_ref = ?) LIMIT 1`,
+      [TENANT, l.id, ref, ref]);
+    if (otro) {
+      throw new Error(`[A.24] ${ref} ya lo tiene ${otro.folio}. Sería un duplicado: ABORTA.`);
+    }
+
     // ── El enlace formal a la máquina. Aditivo: no mueve un peso del corte.
-    await knex.raw(
-      `INSERT INTO finance.caos_cash_links
-         (tenant_id, cash_ledger_id, caos_device, caos_external_id, monto_enlazado, senales)
-       VALUES (?::uuid, ?::uuid, ?, ?, ?::numeric,
-               jsonb_build_object('origen','CGA-A.24','por','conciliacion_uno_a_uno',
-                                  'cajon', ?::numeric, 'nota', ?))
-       ON CONFLICT (tenant_id, caos_device, caos_external_id) WHERE deleted_at IS NULL
-       DO NOTHING`,
-      [TENANT, l.id, DEVICE, c.deposito, c.maquina, c.cajon, c.nota]);
+    // ⛔ Sólo cuando hay depósito: inventar un enlace a $0 afirmaría que la máquina participó.
+    if (c.deposito !== null) {
+      await knex.raw(
+        `INSERT INTO finance.caos_cash_links
+           (tenant_id, cash_ledger_id, caos_device, caos_external_id, monto_enlazado, senales)
+         VALUES (?::uuid, ?::uuid, ?, ?, ?::numeric,
+                 jsonb_build_object('origen','CGA-A.24','por','conciliacion_uno_a_uno',
+                                    'cajon', ?::numeric, 'nota', ?))
+         ON CONFLICT (tenant_id, caos_device, caos_external_id) WHERE deleted_at IS NULL
+         DO NOTHING`,
+        [TENANT, l.id, DEVICE, c.deposito, c.maquina, c.cajon, c.nota]);
+    }
 
     // ── El documento, sólo si falta. Nunca se pisa uno ya declarado.
     if (c.doc_ref) {
