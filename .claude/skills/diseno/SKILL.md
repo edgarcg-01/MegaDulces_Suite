@@ -46,18 +46,20 @@ npm run check:pantalla -- <nombre-del-modulo>   # una  (el `--` es obligatorio: 
 npm run check:pantalla -- --todas               # el barrido
 ```
 
-> Medido 2026-10-13: **255 pantallas · 247 con falla · 633 fallas.** No es alarmismo, es la línea
+> Medido 2026-10-19: **267 pantallas · 247 con falla · 629 fallas.** No es alarmismo, es la línea
 > base — tu pantalla casi seguro ya falla algo antes de que la toques. Lo que **no** vale es sumar
-> una falla nueva.
+> una falla nueva, y desde `[AUD.3]` eso **ya no depende de tu memoria**: está sellado en
+> `scripts/check-pantalla.deuda.json` y el push frena si aparece una falla que no esté ahí.
 
 | Regla | Pantallas que fallan hoy |
 |---|---|
-| §2 matriz de estados (sin `LoadState`: *cargando* ≡ *vacío* ≡ *error*) | 206 |
-| §9 frescura (dato volátil sin edad declarada) | 198 |
-| Q.1 answer-first (abre con el grid crudo, no con el veredicto) | 152 |
-| O.4 rejilla fuera de `p-table` | 49 |
+| §2 matriz de estados (sin `LoadState`: *cargando* ≡ *vacío* ≡ *error*) | 203 |
+| §9 frescura (dato volátil sin edad declarada) | 197 |
+| Q.1 answer-first (abre con el grid crudo, no con el veredicto) | 154 |
+| O.4 rejilla fuera de `p-table` | 48 |
 | D.8 búsqueda con `.includes()` | 13 |
 | D.7 rejilla sin teclado | 11 |
+| D.4c `role="tablist"` que no son pestañas | 3 |
 
 ---
 
@@ -158,20 +160,32 @@ referencia un rol, **nunca inventa un hex**.
 
 ## 7. Las compuertas
 
-El registro canónico es `scripts/compuertas.js` — **31 compuertas, 16 en el push**. No las copies a
-ningún lado: en este repo ya hubo dos listas de compuertas que divergieron.
+El registro canónico es `scripts/compuertas.js` — **32 compuertas, 21 en el push** (medido
+2026-10-19). No las copies a ningún lado: en este repo ya hubo dos listas que divergieron.
 
 ```bash
-npm run check                 # todo
-npm run check:estilos         # escala --fs-*, hex crudo, breakpoints en px, foco sin anillo
-npm run check:motion          # techo de 350 ms, en ms y en s
-npm run check:templates       # el literal de template cierra (ver §8)
-npm run check:pantalla <mod>  # ⭐ el contrato de producto de UNA pantalla
+npm run check                    # todo
+npm run check:estilos            # escala --fs-*, hex crudo, breakpoints en px, foco sin anillo
+npm run check:motion             # techo de 350 ms, en ms y en s
+npm run check:templates          # el literal de template cierra (ver §8)
+npm run check:pantalla           # ⭐ el barrido: ninguna falla NUEVA de contrato de producto
+npm run check:pantalla -- <mod>  # ⭐ UNA pantalla, con su chequeo de tipos (~10 s)
 ```
 
-Las once que cobran una regla de `DESIGN.md`: `templates` · `templates-types` · `tokens CSS` ·
+Las **doce** que cobran una regla de `DESIGN.md`: `templates` · `templates-types` · `tokens CSS` ·
 `estilos` · `motion` · `tablas densas` · `teclado` · `búsqueda` · `sin emojis` · `primeng` ·
-`reactividad`.
+`reactividad` · **`pantalla`**.
+
+> ⭐ **`pantalla` entró al push el 2026-10-19 (`[AUD.3]`), y hasta ese día no la corría NADIE.**
+> Estaba escrita desde `[AUD.1]` pero fuera de los dos runners —cero menciones en `ci.yml`, cero
+> en el `pre-push`—, así que sólo se ejecutaba si alguien se acordaba. **Esta skill lo pedía, y
+> una skill es una instrucción, no un mecanismo.** Lo que midió no ejecutarse: 247 de 267
+> pantallas con falla.
+>
+> ⛔ **Nace con la deuda sellada** en `scripts/check-pantalla.deuda.json` (ruta → ids de regla) y
+> frena **sólo lo NUEVO**: encendida en duro sobre el árbol entero nacería roja para los cuatro y
+> la apagarían el primer día. Si arreglás una pantalla, re-sellá con `-- --sellar-deuda`; sellar
+> una falla nueva sube el piso y hay que decir por qué en el commit.
 
 ⛔ **No compiles ni levantes nada en local** (`CLAUDE.md`, regla dura: un backend local terminó con 6
 conexiones a la base de **producción**). El build lo hace el CI. Las compuertas de arriba son scripts
