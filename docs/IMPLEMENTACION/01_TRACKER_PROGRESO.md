@@ -8485,6 +8485,60 @@ TP.6-TP.8+TP.10".
 >       datos. Lo más probable de ajustar es el alto — la barra entra como hija de `.cg-app`, que
 >       es la columna flex que reparte altura, con `flex:none`; si algo se recorta abajo, es ahí.
 >
+> - [x] **[CG.123]** 🧪 **«Tu jornada» era un muro: ahora tiene tres partes.** Edgar: *«"tu
+>       jornada" es un asco»*. Medido sobre lo VISIBLE al abrir —no sobre la plantilla, que
+>       incluye lo plegado—: **3 rejillas, 39 cifras, 7 botones, 41 textos atenuados contra 5
+>       enfatizados y 36 `<small>`**, en un solo desplazamiento. Y el título mentía sobre dos
+>       tercios: de sus tres regiones, **dos no son la jornada** (las bandejas son trabajo
+>       pendiente; el Historial es **otro rango de fechas**, trae sus propios calendarios).
+>       Selector de 3 (`Hoy · Pendientes · Historial`) con la cifra dentro de cada botón:
+>       Miller (chunking), Hick (curaduría) y Tesler (se ordena, **no se esconde**).
+>
+>       ⛔⛔ **La primera versión escondía lo que DECLARA un hueco, y lo cazaron nueve pruebas,
+>       no yo.** Con los cortes caídos, el aviso «no se pudieron leer» vivía dentro de la sección
+>       Historial: en la vista por default una **lectura fallida quedaba invisible**. Publicar
+>       nada es peor que publicar un cero (ADR-056) — el mismo defecto de `[CG.181]` con una capa
+>       encima. Las declaraciones subieron sobre el selector y hay prueba negativa parada en «Hoy».
+>
+>       ⚠️ Y corrige algo que dije mal antes: `.cg-historial` **no** es hermano de `.cg-app` ni
+>       se recorta. Vive dentro de este diálogo — por eso no hay scroll que lo alcance.
+>
+> - [x] **[CG.125]** 🧪 **La columna «Origen» no decía el origen.** Lo destapó Edgar preguntando
+>       *«dime a qué te refieres con origen»*. Pintaba `autofill`, o sea **si el motor propuso la
+>       cuenta contable** — nada que ver con de dónde salió el dinero. Por eso 233 movimientos con
+>       `U-A-5 0000015 · CONTADO` en «Qué pasó» salían todos como «manual». Un rótulo que nombra
+>       una cosa y muestra otra manda a buscar un problema que no existe.
+>       Ahora pinta `origen_tipo` + `origen_ref` (Kepler · caja fuerte · sin documento), que ya
+>       viajaban y nunca se pintaron. «autorrellenado» pasó al desplegable como *Clasificación
+>       contable*, que es lo que es. Además: **desplegable por fila** con todo el respaldo, **orden
+>       asc/desc en 7 columnas**, dos filtros, y fuera Cuenta/Concepto de la rejilla.
+>
+>       ⭐ **Los campos ya llegaban al navegador**: el listado del libro es un `SELECT *` sin
+>       `.select()`, y el tipo no los declaraba. Cero cambios de servidor para mostrarlos.
+>       ⛔ **Hallazgo sin arreglar, declarado:** ese `SELECT *` también baja `firma_png` —un PNG en
+>       base64— **por cada fila**. Acotar el SELECT es trabajo de servidor y va aparte.
+>
+> - [x] **[CG.126]** 🧪 **El libro no diferenciaba Caja General de CAOS.** Edgar: *«debemos
+>       diferenciar lo que entra a caja general vs lo que entra a CAOS»*. El cuadre ya lo separa
+>       desde `[CG.139]`; el libro publicaba sólo `monto`, y leer eso como «entró a caja general»
+>       **sobredeclara el cajón por todo lo que se fue a la máquina**.
+>
+>       ⛔ Sale de `analytics.v_caja_reparto_movimiento`, el **mismo resolvedor** del cuadre — no
+>       se recalcula en la pantalla ni en el libro. El primer intento derivaba `en_cajon` como
+>       `monto - en_boveda`; la verificación contra prod mostró que **la vista ya lo publica**, así
+>       que se leen las dos mitades y no se resta nada.
+>
+>       🧪 **Verificado contra prod, sólo lectura** (no se compila local): de **236 filas, 0 sin
+>       reparto y 64 tocan la bóveda**. El caso que lo justifica, textual: `CI-2026-00112` vale
+>       $19,313.00 y se parte en **$19,250.00 a la máquina y $63.00 al cajón** — el total
+>       sobredeclaraba ese renglón en 99.7 %.
+>
+>       ⚠️ **Sin validación visual** (API local en 500). Y tres errores que sólo vio el compilador
+>       de plantillas, no vitest ni `check:pantalla`: `p-sortIcon` no existe en PrimeNG v22 (es
+>       `p-sort-icon`), `expandedRowKeys` no admite binding de dos vías, y **`opcionesCaja` ya
+>       existía** en la clase — la trampa de reusar un nombre en un componente de 8,000 líneas,
+>       que la skill `diseno` advierte y no grepeé.
+>
 > - [x] **[CG.122]** 🔨 **Era `[CG.119]` y colisionaba.** El acceso directo a imprimir el ticket
 >       («Guardar e imprimir») había nacido hoy con un código **ya usado** por un item de
 >       `db-health` (`CRON_JOBS` + `maxRunH`, en `apps/api`). Dos items sin relación bajo el mismo

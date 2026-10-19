@@ -794,6 +794,28 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-app { height:100%; min-height:0; overflow:hidden; display:flex; flex-direction:column;
               padding-top:0; padding-bottom:0; }
     .cg-app > .cg-split { flex:1 1 auto; min-height:0; }
+
+    /* [CG.125] EL DESPLEGABLE DEL LIBRO. Rejilla de fichas: cada dato con su rotulo encima, en
+       vez de una lista de "clave: valor" que obliga a leer renglon por renglon.
+       auto-fit + minmax hace que en angosto caiga a una columna sin un solo breakpoint. */
+    .cg-det-rejilla { display:grid; gap:var(--sp-3);
+                      grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr));
+                      padding:var(--sp-3); background:var(--layout-bg);
+                      border-radius:var(--r-sm,6px); }
+    .cg-det-rejilla > div { min-width:0; font-size:var(--fs-sm); overflow-wrap:anywhere; }
+    .cg-det-ancho { grid-column:1 / -1; }
+    /* El rotulo NO va en gris claro: es la unica pista de que es cada dato. Peso, no color.
+       (Lo que la fase de legibilidad midio: 41 atenuados contra 5 enfatizados.) */
+    .cg-det-r { display:block; font-size:var(--fs-xs); font-weight:700;
+                letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted);
+                margin-bottom:var(--sp-1); }
+    .cg-libro-det > td { padding:0 !important; }
+    /* Los dos filtros del libro, separados de los calendarios: filtran OTRA cosa. Cada uno con
+       su rotulo encima, porque dos segmented pegados sin nombre se leen como un solo control
+       partido -- y son dos preguntas distintas. */
+    .cg-libro-filtros { display:flex; flex-wrap:wrap; gap:var(--sp-4);
+                        margin:var(--sp-2) 0 var(--sp-3); }
+    .cg-libro-filtros > div { min-width:0; }
     /* [CG.121] La barra del area toma su alto natural y NO cede. El default de un hijo flex es
        flex:0 1 auto -- no crece, pero SI se encoge -- y un selector aplastado deja de leerse
        justo cuando la cola se llena, que es cuando mas hace falta cambiar de pantalla. */
@@ -1208,6 +1230,47 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 [style]="{ width: 'min(1180px, 96vw)' }" [contentStyle]="{ 'max-height': '78vh' }"
                 styleClass="cg-jornada-dlg" header="Tu jornada">
         <div class="cg-jornada">
+          <!-- ⭐⭐ [CG.123] EL SELECTOR, Y POR QUE ESTE DIALOGO LO NECESITABA.
+               Medido lo VISIBLE al abrir (no la plantilla, que incluye lo plegado): 3 rejillas,
+               39 cifras, 7 botones, 41 textos atenuados contra 5 enfatizados. Un solo
+               desplazamiento con todo eso no se lee: se recorre hasta encontrar.
+
+               DESIGN.md §10, las tres leyes que esto cumple:
+                 Miller  -> 39 cifras seguidas sin separador declarado es justo lo que prohibe.
+                 Hick    -> se elige QUE mirar en vez de recorrerlo todo.
+                 Tesler  -> y por eso NO es un acordeon "por limpieza": nada se esconde. Las tres
+                            partes van nombradas, a un clic, y con su cifra DENTRO del boton, asi
+                            que se ve que existen y cuanto hay sin entrar a cada una.
+
+               ⛔ Y el nombre mentia sobre dos tercios: las bandejas son trabajo pendiente y el
+               Historial es OTRO rango de fechas (trae sus propios calendarios). Separarlos es
+               dejar de llamar "tu jornada" a cosas que no lo son. -->
+          <app-segmented [options]="seccionesJornada()" [value]="seccionJornada()"
+                         (valueChange)="seccionJornada.set($any($event))"
+                         ariaLabel="Qué parte de la jornada querés ver"></app-segmented>
+
+          <!-- ⛔⛔ [CG.123] LO QUE DECLARA UN HUECO NO ENTRA AL SELECTOR, Y ESTO LO CAZARON LAS
+               PRUEBAS, NO YO.
+               Primer intento: las tres regiones detras del selector y listo. Nueve pruebas se
+               pusieron rojas y tenian razon -- con los cortes caidos, el aviso "no se pudieron
+               leer" vivia DENTRO de la seccion Historial, asi que en la vista por default una
+               lectura FALLIDA quedaba invisible. Publicar nada es peor que publicar un cero
+               (ADR-056), y es exactamente el defecto que [CG.181] vino a arreglar: un cero que
+               afirmaba algo que nadie midio.
+               ⭐ Por eso los conteos van DENTRO de los botones del selector (se ve cuanto hay sin
+               entrar) y lo que no se pudo medir sube ACA, donde se lee se mire la seccion que se
+               mire. Eso es Tesler: se ordena, no se esconde. -->
+          @if (errLibro() || errCortes() || !recurrentes()) {
+            <p class="cg-jornada-dec">
+              @if (!recurrentes()) {
+                <span class="fin-hint-warn">Repiten y nadie declaro su cuenta &mdash; Sin medir: no se pudo leer la lista.</span>
+              }
+              @if (errLibro()) { <span class="fin-hint-warn">el libro no se pudo leer</span> }
+              @if (errCortes()) { <span class="fin-hint-warn">los cortes no se pudieron leer</span> }
+            </p>
+          }
+
+          @if (seccionJornada() === 'hoy') {
           <p class="fin-dim cg-sub-dim">{{ coberturaTexto() }}</p>
 
           <!-- ⭐⭐ [CG.180] DE DONDE SALE EL AUTOLLENADO, Y SI SU FUENTE ESTA VIVA.
@@ -1780,6 +1843,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <small class="fin-hint-warn">No se pudo medir la jornada. No es que no haya movimiento: es que no se pudo leer.</small>
         }
       </div>
+          }
+
+          <!-- [CG.123] PENDIENTES: lo que espera trabajo. No es "tu jornada" -- son documentos
+               por pagar y gastos que repiten sin cuenta declarada. Vivian pegados debajo del
+               cuadre del dia, al mismo peso, y por eso el dia y el pendiente se leian igual. -->
+          @if (seccionJornada() === 'pendientes') {
       @if (pagables().length) {
         <section class="cg-bandeja">
           <header class="cg-bandeja-head">
@@ -1891,6 +1960,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
       </section>
 
+          }
+
+          <!-- [CG.123] HISTORIAL: el libro y los cortes, por un rango de fechas PROPIO -- trae
+               sus calendarios adentro. O sea que por definicion NO es la jornada de hoy, y
+               tenerlo aca abajo era la parte mas enganosa del titulo. -->
+          @if (seccionJornada() === 'historial') {
       <section class="cg-historial">
         <button type="button" class="cg-historial-h" (click)="historialAbierto.set(!historialAbierto())"
                 [attr.aria-expanded]="historialAbierto()">
@@ -1971,38 +2046,101 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       emptyIcon="pi-book" emptyTitle="Sin movimientos en el periodo"
                       emptyHint="Prueba con otro rango de fechas o quita el filtro de tipo."
                       (retry)="cargar()">
-      <p-table [value]="rows()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
-               [scrollable]="true" scrollHeight="flex">
+      <!-- [CG.125] EL FILTRO QUE FALTABA. La pregunta de la supervision es "¿que entro SIN
+           documento?", y hasta hoy habia que leer las 233 filas para contestarla. Va como
+           segmented con su cifra dentro: se ve cuanto hay en cada uno sin tocarlo. -->
+      <div class="cg-libro-filtros">
+        <div>
+          <span class="cg-det-r">Con qué se concilió</span>
+          <app-segmented [options]="opcionesOrigen()" [value]="origenFiltro()"
+                         (valueChange)="origenFiltro.set($any($event))"
+                         ariaLabel="Con qué se concilió"></app-segmented>
+        </div>
+        <!-- [CG.126] Son DOS preguntas distintas y por eso dos controles: de donde salio el papel
+             no dice a que caja entro el efectivo. Un cobro puede venir de un documento de Kepler
+             y terminar en la maquina de CAOS. -->
+        <div>
+          <span class="cg-det-r">A qué caja entró</span>
+          <app-segmented [options]="opcionesCajaDestino()" [value]="cajaFiltro()"
+                         (valueChange)="cajaFiltro.set($any($event))"
+                         ariaLabel="A qué caja entró el dinero"></app-segmented>
+        </div>
+      </div>
+
+      <!-- ⛔ [CG.125] expandedRowKeys va de UNA SOLA VIA, no [( )]. En PrimeNG v22 la tabla
+           declara el input pero NO su salida expandedRowKeysChange, asi que el binding de dos
+           vias falla con NG8007 y Angular lo lee como un evento NATIVO del elemento. La tabla
+           muta el objeto en el lugar, que es todo lo que hace falta para recordar que esta
+           desplegado. -->
+      <p-table [value]="filasLibro()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
+               [scrollable]="true" scrollHeight="flex"
+               [expandedRowKeys]="libroDesplegado">
         <ng-template #header>
           <tr>
             <!-- scope="col" como en las otras tres tablas de la pantalla: sin el, un lector de
-                 pantalla no liga la celda con su encabezado y lee nueve valores sueltos. -->
-            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cuenta / Concepto</th>
-            <th scope="col">Qué pasó</th><th scope="col" class="comm-num">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
+                 pantalla no liga la celda con su encabezado y lee nueve valores sueltos.
+                 [CG.125] Y ahora ORDENAN: pSortableColumn + p-sort-icon, que es el orden asc/desc
+                 que PrimeNG ya trae -- no se escribe uno a mano (Jakob: la tabla se comporta
+                 como un Excel, que es lo que la persona ya sabe usar).
+                 ⛔ El elemento es p-sort-icon, NO p-sortIcon: en v22 el selector es
+                 "p-sort-icon, p-sorticon" y la forma camelCase da NG8001 "is not a known
+                 element". Es un error de PLANTILLA, asi que ni vitest ni el chequeo semantico
+                 de check:pantalla lo ven -- sale recien en Build & typecheck. -->
+            <th scope="col" class="ta-c"><span class="sr-only">Desplegar</span></th>
+            <th scope="col" pSortableColumn="folio">Folio <p-sort-icon field="folio" /></th>
+            <th scope="col" pSortableColumn="fecha">Fecha <p-sort-icon field="fecha" /></th>
+            <th scope="col" pSortableColumn="tipo">Tipo <p-sort-icon field="tipo" /></th>
+            <th scope="col" pSortableColumn="glosa">Qué pasó <p-sort-icon field="glosa" /></th>
+            <th scope="col" class="comm-num" pSortableColumn="monto">Monto <p-sort-icon field="monto" /></th>
+            <!-- [CG.125] El efectivo NO ordena, y se dice por que: sale de monto - venta_credito,
+                 o sea que no es un campo de la fila y p-table ordena por campo. Rotularlo como
+                 ordenable y que no ordenara seria peor que no ofrecerlo. -->
+            <th scope="col" class="comm-num">Entró a caja</th>
+            <th scope="col" pSortableColumn="created_by_username">Capturó <p-sort-icon field="created_by_username" /></th>
+            <th scope="col" pSortableColumn="origen_tipo">Origen <p-sort-icon field="origen_tipo" /></th>
             <th scope="col" class="ta-c">Comprobante</th>
           </tr>
         </ng-template>
-        <ng-template #body let-m>
+        <ng-template #body let-m let-expandido="expanded">
           <tr [pSelectableRow]="m">
+            <td class="ta-c">
+              <p-button [pRowToggler]="m" size="small" severity="secondary" [text]="true" [rounded]="true"
+                        [icon]="expandido ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                        [ariaLabel]="(expandido ? 'Ocultar' : 'Ver') + ' el detalle de ' + m.folio"></p-button>
+            </td>
             <td class="mono">{{ m.folio }}</td>
             <td>{{ dmy(m.fecha) }}</td>
             <td><p-tag [value]="etiquetaTipo(m.tipo)" [severity]="sevTipo(m.tipo)"></p-tag></td>
-            <td>
-              <span class="mono">{{ m.kepler_cuenta }} / {{ m.kepler_concepto }}</span>
-              <small class="fin-dim d-block">{{ m.kepler_concepto_nombre }}</small>
-            </td>
             <td>{{ m.glosa }}</td>
             <td class="comm-num">{{ money(m.monto) }}</td>
+            <!-- ⭐ [CG.126] A QUE CAJA ENTRO. La cifra de arriba es el cajon de Caja General,
+                 que es el tema de esta pantalla; debajo se nombra lo que se fue a la maquina.
+                 Cuando no toca la boveda no se imprime "$0.00 a CAOS": un cero repetido en 233
+                 filas es ruido, y el renglon ya dice que todo quedo en el cajon.
+                 ⚠️ Y si el servidor no mando el reparto se DECLARA, no se dibuja un cero. -->
+            <td class="comm-num">
+              @if (repartoDe(m); as r) {
+                @if (!r.medido) {
+                  <small class="fin-hint-warn">sin repartir</small>
+                } @else if (tocaBoveda(m)) {
+                  {{ money(r.cajon) }}
+                  <small class="fin-dim d-block">{{ money(r.boveda) }} a caja fuerte</small>
+                } @else {
+                  {{ money(r.cajon) }}
+                }
+              }
+              @if (m.venta_credito) {
+                <small class="fin-dim d-block">{{ money(m.venta_credito) }} a crédito</small>
+              }
+            </td>
             <td>{{ m.created_by_username || '—' }}</td>
+            <!-- ⛔ [CG.125] ACA DECIA "autorrellenado"/"manual", que es si el motor propuso la
+                 CUENTA -- no de donde salio el dinero. Ver origenDe(). -->
             <td>
-              @if (m.autofill) {
-                <!-- [CG.136] Acá el <span> existía sólo para colgarle un title con la DEFINICIÓN
-                     de la etiqueta ("parte de este movimiento la propuso el sistema"). Una
-                     definición fija en un title sólo existe para quien tiene mouse: se fue al
-                     diccionario versionado (regla P), que esta pantalla ya abre con su cajón de
-                     ayuda. Sin el title, el envoltorio no envolvía nada. -->
-                <p-tag value="autorrellenado" severity="info"></p-tag>
-              } @else { <small class="fin-dim">manual</small> }
+              @if (origenDe(m); as o) {
+                <span [class.fin-hint-warn]="o.tono === 'warn'">{{ o.sistema }}</span>
+                <small class="fin-dim d-block mono">{{ o.ref }}</small>
+              }
             </td>
             <td class="ta-c">
               <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
@@ -2016,8 +2154,77 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </td>
           </tr>
         </ng-template>
+
+        <!-- ⭐ [CG.125] EL DESPLEGABLE. Pedido de Edgar: "quiero un desplegable que me diga toda
+             la informacion". Lo que salio de la rejilla (la cuenta contable) vive aca, junto con
+             todo lo que ya viajaba en la fila y nunca se pintaba. La rejilla queda con lo que se
+             RECONOCE de un vistazo; el respaldo se abre cuando hace falta. -->
+        <ng-template #expandedrow let-m>
+          <tr class="cg-libro-det">
+            <td colspan="10">
+              <div class="cg-det-rejilla">
+                <div><span class="cg-det-r">Cuenta / Concepto</span>
+                  <span class="mono">{{ m.kepler_cuenta }} / {{ m.kepler_concepto }}</span>
+                  <small class="fin-dim d-block">{{ m.kepler_concepto_nombre || 'sin nombre de concepto' }}</small></div>
+                <div><span class="cg-det-r">Beneficiario</span>
+                  {{ m.beneficiario || '—' }}
+                  @if (m.beneficiario_rfc) { <small class="fin-dim d-block mono">{{ m.beneficiario_rfc }}</small> }</div>
+                <div><span class="cg-det-r">Sucursal</span>{{ m.sucursal | sucursal }}</div>
+                <div><span class="cg-det-r">Capturado</span>{{ dmy(m.fecha) }}@if (m.hora) { · {{ m.hora }} }
+                  <small class="fin-dim d-block">{{ m.created_by_username || 'sin usuario' }}</small></div>
+
+                <div><span class="cg-det-r">Conciliado con</span>
+                  @if (origenDe(m); as o) {
+                    <span [class.fin-hint-warn]="o.tono === 'warn'">{{ o.sistema }}</span>
+                    <small class="fin-dim d-block mono">{{ o.ref }}</small>
+                  }</div>
+                <!-- [CG.126] El reparto completo, nombrando las DOS cajas aunque una este en
+                     cero: aca si vale, porque el desplegable se abre para entender UN movimiento
+                     y "cero a la boveda" es la respuesta, no ruido. -->
+                <div><span class="cg-det-r">A caja general (cajón)</span>
+                  @if (repartoDe(m); as r) {
+                    @if (r.medido) { <span class="mono">{{ money(r.cajon) }}</span> }
+                    @else { <small class="fin-hint-warn">no se pudo repartir entre las dos cajas</small> }
+                  }</div>
+                <div><span class="cg-det-r">A caja fuerte (CAOS)</span>
+                  @if (repartoDe(m); as r) {
+                    @if (r.medido) { <span class="mono">{{ money(r.boveda) }}</span> }
+                    @else { <small class="fin-hint-warn">sin medir</small> }
+                  }</div>
+                <div><span class="cg-det-r">Total del movimiento</span>
+                  <span class="mono">{{ money(m.monto) }}</span>
+                  @if (m.venta_credito) {
+                    <small class="fin-dim d-block">{{ money(m.venta_credito) }} fue a crédito, no entró en efectivo</small>
+                  }</div>
+                <div><span class="cg-det-r">Morralla</span><span class="mono">{{ money(m.morralla || 0) }}</span></div>
+                <div><span class="cg-det-r">Corte</span>
+                  @if (m.corte_id) { <span class="mono">{{ m.corte_id }}</span> }
+                  @else { <small class="fin-dim">todavía no entró a ningún corte</small> }</div>
+
+                <!-- La CLASIFICACION, que es lo que la vieja columna "Origen" decia en realidad. -->
+                <div><span class="cg-det-r">Clasificación contable</span>
+                  @if (m.autofill) { <p-tag value="la propuso el sistema" severity="info"></p-tag> }
+                  @else { <small class="fin-dim">la tecleó una persona</small> }</div>
+                <div><span class="cg-det-r">Firma</span>
+                  @if (m.firma_nombre) { {{ m.firma_nombre }}
+                    <small class="fin-dim d-block">{{ m.firma_estado || 'sin estado' }}</small> }
+                  @else { <small class="fin-dim">sin firma</small> }</div>
+                @if (m.sin_documento_motivo) {
+                  <div class="cg-det-ancho"><span class="cg-det-r">Por qué no trae documento</span>
+                    <span class="fin-hint-warn">{{ m.sin_documento_motivo }}</span></div>
+                }
+                @if (m.estado === 'cancelado') {
+                  <div class="cg-det-ancho"><span class="cg-det-r">Cancelado</span>
+                    <span class="fin-hint-warn">{{ m.cancel_reason || 'sin motivo declarado' }}</span>
+                    <small class="fin-dim d-block">{{ m.cancelled_by_username || 'sin usuario' }}</small></div>
+                }
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+
         <ng-template #emptymessage>
-          <tr><td colspan="9" class="fin-empty">Sin movimientos en el periodo.</td></tr>
+          <tr><td colspan="10" class="fin-empty">Sin movimientos en el periodo.</td></tr>
         </ng-template>
       </p-table>
       </app-load-state>
@@ -2077,6 +2284,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       </app-load-state>
         }
       </section>
+          }
         </div>
       </p-dialog>
 
@@ -4543,6 +4751,157 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * ⛔ El discriminante es `origen === 'caos'` —el movimiento **nació** del feed de la máquina—
    * y no un enlace: *"si se asocia no quiere decir que lo tocó"*.
    */
+  /**
+   * ⛔⛔ `[CG.125]` **LA COLUMNA «ORIGEN» NO DECÍA EL ORIGEN, Y LO DESTAPÓ EDGAR PREGUNTANDO.**
+   *
+   * *«origen (dime a qué te refieres con origen)»*. La pregunta era el hallazgo: esa columna
+   * pintaba `autorrellenado` o `manual` según `m.autofill`, que es **si el motor propuso la
+   * cuenta contable** — nada que ver con de dónde salió el dinero. Por eso en su captura 233
+   * movimientos con `U-A-5 0000015 · CONTADO` escrito en «Qué pasó» salían todos como
+   * **«manual»**: el documento estaba ahí, la columna hablaba de otra cosa.
+   *
+   * ⭐ Un rótulo que nombra una cosa y muestra otra es peor que no tener la columna: se lee, se
+   * cree, y manda a buscar un problema que no existe (*«¿por qué nadie ancla documentos?»*).
+   *
+   * El ORIGEN de verdad son `origen_tipo` + `origen_ref`, que ya viajaban y no se pintaban:
+   *  · `cobro` / `pago_proveedor` / … → el documento de **Kepler** con el que se concilió.
+   *  · `caos` → el movimiento de la **caja fuerte** con el que se concilió (`device|external_id`).
+   *  · vacío → **no se concilió con nada**, y entonces lo que importa es el motivo declarado.
+   *
+   * Lo de antes no se borra: «autorrellenado» pasa a llamarse por su nombre dentro del
+   * desplegable, donde es lo que es — procedencia de la CLASIFICACIÓN, no del dinero.
+   */
+  origenDe(m: MovimientoCaja): { sistema: string; ref: string; tono: 'ok' | 'warn' } {
+    const t = String(m.origen_tipo ?? '').trim();
+    const ref = String(m.origen_ref ?? '').trim();
+    if (!t && !ref) return { sistema: 'Sin documento', ref: m.sin_documento_motivo || 'sin motivo declarado', tono: 'warn' };
+    if (t === 'caos') return { sistema: 'Caja fuerte', ref: m.declared_doc_ref || ref || '—', tono: 'ok' };
+    return { sistema: 'Kepler', ref: ref || '—', tono: 'ok' };
+  }
+
+  /**
+   * ⭐⭐ `[CG.126]` **A qué caja entró: el cajón de Caja General, o la bóveda (CAOS).**
+   *
+   * Edgar: *«debemos diferenciar lo que entra a caja general vs lo que entra a CAOS»*. El cuadre
+   * del día ya lo separa desde `[CG.139]`; el libro publicaba sólo el total, y leer eso como
+   * «entró a caja general» **sobredeclara el cajón por todo lo que se fue a la máquina**.
+   *
+   * ⛔ El reparto **no se calcula acá**: lo manda el servidor desde
+   * `analytics.v_caja_reparto_movimiento`, que es el mismo resolvedor del cuadre. Si la pantalla
+   * lo derivara por su cuenta habría dos restas para el mismo dinero, y el día que difieran nadie
+   * sabría cuál manda. Esta función sólo LEE lo que vino.
+   *
+   * ⚠️ `medido:false` cuando el servidor no mandó el reparto (deploy parcial, o el movimiento no
+   * está en la vista). **No se dibuja un cero**: un cero en «bóveda» afirma que a la máquina no
+   * llegó nada, y eso es justo lo que no se sabe (ADR-056).
+   */
+  repartoDe(m: MovimientoCaja): { medido: boolean; cajon: number; boveda: number } {
+    if (m.en_cajon == null && m.en_boveda == null) {
+      return { medido: false, cajon: 0, boveda: 0 };
+    }
+    const boveda = Number(m.en_boveda ?? 0);
+    // Si sólo vino una de las dos, la otra sale de la resta — misma formula que el servidor.
+    const cajon = m.en_cajon == null ? Number(m.monto ?? 0) - boveda : Number(m.en_cajon);
+    return { medido: true, cajon, boveda };
+  }
+
+  /** `[CG.126]` ¿Este movimiento tocó la bóveda? Decide si se pinta el reparto o una sola cifra. */
+  tocaBoveda(m: MovimientoCaja): boolean {
+    const r = this.repartoDe(m);
+    return r.medido && Math.abs(r.boveda) > 0.005;
+  }
+
+  /** `[CG.125]` Las filas del libro desplegadas, por `id`. */
+  libroDesplegado: Record<string, boolean> = {};
+
+  /**
+   * `[CG.125]` Filtro por cómo se concilió. Es el que faltaba: la pregunta operativa de la
+   * supervisión es «¿qué entró sin documento?», y hasta hoy había que leer 233 filas para saberlo.
+   */
+  origenFiltro = signal<'todo' | 'kepler' | 'caos' | 'sin'>('todo');
+  readonly opcionesOrigen = computed<SegOption[]>(() => {
+    const r = this.rows();
+    const n = (f: (m: MovimientoCaja) => boolean) => r.filter(f).length;
+    return [
+      { label: 'Todo', value: 'todo', count: r.length },
+      { label: 'Kepler', value: 'kepler', count: n((m) => !!m.origen_tipo && m.origen_tipo !== 'caos') },
+      { label: 'Caja fuerte', value: 'caos', count: n((m) => m.origen_tipo === 'caos') },
+      { label: 'Sin documento', value: 'sin', count: n((m) => !m.origen_tipo) },
+    ];
+  });
+
+  /**
+   * ⭐ `[CG.126]` **El segundo filtro: a qué caja ENTRÓ el dinero.**
+   *
+   * ⛔ Es otra pregunta que la de arriba y por eso es otro control. «Origen» es **con qué se
+   * concilió** (de dónde salió el papel); esto es **a dónde fue el efectivo**. Un cobro puede
+   * venir de un documento de Kepler y terminar en la máquina de CAOS: mezclarlos en un solo
+   * filtro obligaría a elegir cuál de las dos preguntas se puede hacer.
+   */
+  cajaFiltro = signal<'todo' | 'cajon' | 'boveda' | 'sin_repartir'>('todo');
+  readonly opcionesCajaDestino = computed<SegOption[]>(() => {
+    const r = this.rows();
+    const sinRepartir = r.filter((m) => !this.repartoDe(m).medido).length;
+    return [
+      { label: 'Las dos cajas', value: 'todo', count: r.length },
+      { label: 'Caja general', value: 'cajon', count: r.filter((m) => this.repartoDe(m).cajon !== 0).length },
+      { label: 'Caja fuerte', value: 'boveda', count: r.filter((m) => this.tocaBoveda(m)).length },
+      // Lo que no se pudo repartir se OFRECE como filtro sólo si existe: es trabajo, no un cero.
+      ...(sinRepartir ? [{ label: 'Sin repartir', value: 'sin_repartir', count: sinRepartir }] : []),
+    ];
+  });
+
+  /** Las filas que se pintan: los dos filtros se aplican en el navegador, sobre lo ya traído. */
+  readonly filasLibro = computed<MovimientoCaja[]>(() => {
+    const o = this.origenFiltro();
+    const c = this.cajaFiltro();
+    let r = this.rows();
+    if (o === 'caos') r = r.filter((m) => m.origen_tipo === 'caos');
+    else if (o === 'sin') r = r.filter((m) => !m.origen_tipo);
+    else if (o === 'kepler') r = r.filter((m) => !!m.origen_tipo && m.origen_tipo !== 'caos');
+    if (c === 'boveda') r = r.filter((m) => this.tocaBoveda(m));
+    else if (c === 'cajon') r = r.filter((m) => this.repartoDe(m).cajon !== 0);
+    else if (c === 'sin_repartir') r = r.filter((m) => !this.repartoDe(m).medido);
+    return r;
+  });
+
+  /**
+   * `[CG.123]` **En qué parte de «Tu jornada» está parada la persona.**
+   *
+   * Edgar, 2026-10-19: *«"tu jornada" es un asco»*. Medido antes de tocarlo, sobre lo que se ve
+   * AL ABRIR (no sobre la plantilla, que incluye lo plegado): **3 rejillas, 39 cifras, 7 botones,
+   * 41 textos atenuados contra 5 enfatizados y 36 `<small>`**, todo en un solo desplazamiento.
+   *
+   * ⛔ Y el nombre mentía sobre la mitad: de sus tres regiones, **dos no son «tu jornada»** — las
+   * bandejas son trabajo pendiente, y el Historial es **otro rango de fechas** (tiene sus propios
+   * calendarios adentro). Un título que describe un tercio de lo que contiene no orienta: desorienta.
+   *
+   * Lo que manda `DESIGN.md` §10, y que esto viene a cumplir:
+   *  · **Miller (chunking)** — nada de 39 cifras seguidas sin separador declarado.
+   *  · **Hick** — curaduría antes de enumerar: se elige QUÉ mirar, no se recorre todo.
+   *  · **Tesler** — ⛔ y por eso NO es un acordeón «por limpieza»: nada se esconde. Las tres
+   *    partes están nombradas y a un clic, con su cifra adentro del botón, así que la persona ve
+   *    que existen y cuánto hay en cada una sin tener que entrar.
+   */
+  seccionJornada = signal<'hoy' | 'pendientes' | 'historial'>('hoy');
+
+  /**
+   * `[CG.123]` Las tres partes, con cuánto hay detrás de cada una.
+   *
+   * ⚠️ `count` es ADITIVO y `undefined` ≠ `0` (ADR-056): si la bandeja no se midió, el botón no
+   * dibuja un cero que se leería como «no hay nada».
+   */
+  readonly seccionesJornada = computed<SegOption[]>(() => {
+    const rc = this.recurrentes();
+    const pend = this.pagables().length + (rc?.medido?.sin_regla ?? 0);
+    const movs = this.rows().length;
+    return [
+      { label: 'Hoy', value: 'hoy' },
+      { label: 'Pendientes', value: 'pendientes', count: pend },
+      { label: 'Historial', value: 'historial', count: this.errLibro() ? undefined : movs },
+    ];
+  });
+
   readonly opcionesDondeEntro = [
     { label: 'Caja general', value: 'cajon' },
     { label: 'Se fue a CAOS', value: 'boveda' },
