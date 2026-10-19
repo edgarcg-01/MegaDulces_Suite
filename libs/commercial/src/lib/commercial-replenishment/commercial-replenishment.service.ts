@@ -3959,7 +3959,6 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
         .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'r.tenant_id').andOn('sw.id', 'r.source_warehouse_id'))
         .where('r.tenant_id', tenantId);
-      if (q.estado) base.andWhere('r.estado', q.estado);
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('r.warehouse_id', q.warehouse_id);
       if (q.source_type && (q.source_type === 'supplier' || q.source_type === 'branch')) {
         base.andWhere('r.source_type', q.source_type);
@@ -3975,6 +3974,23 @@ export class CommercialReplenishmentService {
           if (loteCols) w.orWhereRaw("COALESCE(r.batch_folio, '') ILIKE ?", [t]);
         });
       }
+      // `[RQ.16]` ⛔ **EL RESUMEN SE MIDE ANTES DE APLICAR EL ESTADO, y es la corrección.**
+      //
+      // Hasta acá el resumen salía del universo **ya filtrado por estado**, y la pantalla abre
+      // fija en `pending_approval`. El 2026-10-19, con la cola de pendientes en **0** —Arizbeth
+      // la vació: 14 el 16-oct, 0 hoy— la bandeja se veía ASÍ: los cuatro indicadores en cero,
+      // la tabla diciendo *«Sin lotes con este filtro»* y, al lado, *«75 lote(s) armado(s)»*.
+      // Detrás había **1,049 requisiciones** (529 aprobadas, 131 ordenadas, 20 recibidas). Se
+      // reportó como *"requisiciones salía vacía"*, y no era un error: era la pantalla diciendo
+      // la verdad sobre un filtro y nada sobre el resto.
+      //
+      // ⭐ Una tira que se llama «Requisiciones por estado» existe para contestar **dónde está
+      // lo que hay**; medida dentro de un estado no puede contestarlo nunca — los otros tres
+      // valen 0 por construcción, no por medición. Los demás filtros (almacén, tipo, búsqueda,
+      // lote) **sí** la acotan: ésos son el universo del que se pregunta.
+      const baseResumen = base.clone();
+      if (q.estado) base.andWhere('r.estado', q.estado);
+
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
         .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.source_warehouse_id', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
@@ -4007,12 +4023,13 @@ export class CommercialReplenishmentService {
       const vig = await this.vigenciaDeRequisiciones(trx, tenantId, rows.map((r: any) => r.id));
       for (const r of rows as any[]) r.vigencia = vig.get(r.id) ?? null;
 
-      // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO FILTRADO (no sobre la pagina).
+      // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO (no sobre la pagina, y desde
+      // `[RQ.16]` tampoco sobre el estado filtrado — ver arriba).
       // Es lo que faltaba para que alguien pueda ver que hay 610 esperando: la lista devolvia
       // un `total` y nada mas, y con el filtro por defecto en "todos los estados" las pendientes
       // quedaban mezcladas con las canceladas y las recibidas, 50 por pagina, ordenadas por
       // fecha — o sea que las mas viejas, que son las que importan, caian en la pagina 12.
-      const resumenRows = await base.clone().clearSelect().clearOrder()
+      const resumenRows = await baseResumen.clone().clearSelect().clearOrder()
         .groupBy('r.estado')
         .select('r.estado',
           trx.raw('count(*)::int AS n'),
