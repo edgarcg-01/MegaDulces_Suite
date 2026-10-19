@@ -1325,3 +1325,59 @@ trabajo solo: al quitar los renglones del menú se puso rojo señalando dos pant
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | O5: una entrada «Pagos» con las cuatro pestañas, sin tocar rutas. Candado nuevo roto a propósito; el candado viejo detectó solo las dos pantallas que quedaban sin puerta | Claude |
+
+---
+
+## 23. ¿Fusionar Pronto pago con el Calendario? — inventario feature×feature (2026-10-19)
+
+La regla del proyecto es explícita: **no se unifican dos vistas perdiendo columnas, chips o
+subtotales; el inventario va ANTES de tocar código.** Éste es ese inventario — y el resultado
+**contradice la propuesta** que lo originó («la fusión barata»).
+
+### Lo que cada una tiene
+
+| Pronto pago (340 líneas) | ¿Existe en la lista del Calendario? |
+|---|---|
+| Veredicto *answer-first* («hoy hay $X que se pueden ganar; $Y vence en 5 días») | ⛔ no |
+| Procedencia: la ventana es **observada, no pactada** | ⛔ no |
+| Hallazgos de descuento **ya perdido** | ⛔ no |
+| Filtro por **estado de ventana** (capturable · por vencer · fuera · sin medir) | ⛔ no |
+| Columna **Tasa observada** | ⛔ no |
+| Columna **Se gana** (beneficio) | ⛔ no |
+| Columna **Límite estimado** (la fecha que decide) | ⛔ no |
+| El **«por qué»** por fila | ⛔ no |
+| Orden por **urgencia del descuento** → dinero | ⛔ no |
+| Buscador · KPIs · ayuda contextual | ✅ equivalente |
+
+La lista de obligaciones del Calendario tiene hoy **tres columnas** (Proveedor/factura · Vence ·
+Disponible) y está pensada para **elegir qué pagar hoy**: filtra por tipo y críticos, y **agrupa por
+beneficiario** para armar un pago.
+
+### ⛔ El conflicto que mata la fusión
+
+No es que falten columnas: es que las dos listas **ordenan y agrupan al revés**.
+
+- El Calendario **agrupa por beneficiario** — un pago es una transferencia a una cuenta.
+- Pronto pago **no puede agrupar**: cada factura tiene **su propia fecha límite**, y juntarlas por
+  proveedor esconde la que vence mañana detrás de la que vence en tres semanas. Es la razón por la
+  que esa pantalla ordena por urgencia, y está escrita en su propio encabezado: *«el orden ES la
+  mitad del valor»*.
+
+⇒ Fusionarlas obliga a elegir un orden, y cualquiera de los dos **rompe la pantalla que pierde**.
+Más 9 features sin lugar y una pantalla que pasaría de 1,187 a ~1,500 líneas.
+
+### Recomendación revisada
+
+**No fusionar.** En su lugar, llevar al Calendario **sólo las tres columnas que deciden** —*límite
+estimado*, *se gana* y *estado de ventana*— como información de la fila, más un filtro **«con
+descuento por vencer»**. Eso da lo que la fusión perseguía —ver la urgencia del descuento mientras
+se arma el día— **sin tocar el orden, sin perder features y sin una pantalla gigante**.
+
+El dato ya está disponible: ambas derivan de `analytics.v_supplier_payables` (**1,741 docs ·
+$92,981,074**) y desde `[TP.18.3]` comparten `obligation_id`, así que es un `LEFT JOIN` a
+`mv_supplier_prompt_discount`, no una integración nueva.
+
+⚠️ **Y la otra fusión (Pagos a proveedor + Programa de pagos) sigue bloqueada por falta de llave:**
+el libro no guarda el folio del pago de Kepler — sólo `invoice_folios` (de *factura*), `kepler_flag`
+(24.8 %) y `kepler_matched` (NULL). Casarlos por monto+mes es lo que produjo los $273 M
+indefendibles de `[PP.4]`.
