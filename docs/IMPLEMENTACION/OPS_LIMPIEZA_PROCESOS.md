@@ -221,15 +221,21 @@ Así ningún `docker compose up -d` lo levanta. `feeds-cron` se creó el 16-oct 
 minuto después de que se copiara el compose a `md` (17:45): alguien lo levantó con su nombre
 explícito, porque el perfil por sí solo no lo habría arrancado.
 
-**En `md`: PENDIENTE.** El control de permisos bloqueó a la sesión de Claude. Comando para correr
-en `md`:
+**En `md`: ✅ HECHO el 2026-10-19.** `ods-autoheal` se detuvo a las 15:27:21 y `feeds-cron` a las
+15:27:39 (hora MX), los dos con `restart=no`. Los corrió una persona en `md`, porque el control de
+permisos bloqueó a la sesión de Claude. **Verificado:** `running=false`, `exited`, `restart=no`; los
+deployments k3s `ingesta/feeds-cron` y `ingesta/feeds-livefast` siguen `1/1`. Receta usada:
 
 ```sh
 docker update --restart=no feeds-cron ods-autoheal
 docker stop -t 20 ods-autoheal feeds-cron
-docker ps -a --filter name=feeds-cron --filter name=ods-autoheal \
-  --format '{{.Names}} | {{.Status}} | restart={{.HostConfig.RestartPolicy.Name}}'
+docker inspect feeds-cron ods-autoheal \
+  --format '{{.Name}} | running={{.State.Running}} | restart={{.HostConfig.RestartPolicy.Name}}'
 ```
+
+⚠️ La verificación se hace con `docker inspect`, **no** con `docker ps --format`: `ps` no expone
+`HostConfig` y responde *«can't evaluate field HostConfig»*. Ese error es de la plantilla, no
+del `stop`.
 
 ⚠️ **Primero `ods-autoheal`, después `feeds-cron`** (el `stop` los procesa en ese orden): al revés,
 autoheal puede volver a levantar `feeds-cron` en la ventana de 30 s. Y sin `--restart=no`,
