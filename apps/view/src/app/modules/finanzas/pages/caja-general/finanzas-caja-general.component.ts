@@ -324,7 +324,26 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* El cuerpo del arqueo dentro del cajon: el cajon ya da su propio scroll (.sp-body), asi
        que aca NO se vuelve a declarar overflow -- dos contenedores scrolleables anidados dejan
        la rueda del mouse decidiendo cual mueve, que es el defecto que nadie reporta y todos sufren. */
-    .cg-arqueo-cajon { display:block; }
+    /* ⛔⛔ [CG.115] SIN height:100% EL PIE ANCLADO NO SE PEGA A NADA, y Guardar se iba de la
+       pantalla. Medido 2026-10-19 en el navegador, con un conteo que no cuadra (ahi aparece la
+       explicacion del sobrante y el contenido crece):
+
+           .cg-pie-arqueo   position:sticky bottom:0   -> termina en 954px, pliegue en 918
+           .cg-ap-cuerpo    874 alto · overflow-y:auto · desborda 0   <- NO scrollea
+           .sp-body         846 alto · overflow-y:auto · desborda 68  <- el que SI scrollea
+
+       sticky se ancla al contenedor desplazable MAS CERCANO. Como .cg-ap-cuerpo declara
+       overflow-y:auto, se lleva ese papel -- pero al no tener altura acotada crece con el
+       contenido (874 dentro de un .sp-body de 846) y nunca se mueve, asi que el pie se queda
+       en su sitio estatico mientras el scroll real pasa un nivel mas arriba.
+
+       ⭐ Es la MISMA familia que [CG.113b]: un elemento que DECLARA la barra sin recibir
+       altura. Alla era el host contra el armazon; aca es el cuerpo del arqueo contra el cajon.
+       Declarar overflow no crea un scroller util si el alto es auto.
+
+       Con height:100% el cuerpo se ajusta al cajon, el desborde vuelve a ser SUYO, y el pie
+       sticky se pega a su borde: Guardar queda siempre a la vista, que es [CG.62]. */
+    .cg-arqueo-cajon { display:block; height:100%; min-height:0; }
     /* La tarjeta de cada apartado: borde 1px y NINGUNA sombra -- in-page es una de las dos. */
     .cg-ap { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden;
              border:1px solid var(--border-color); border-radius:var(--r-md); }
@@ -636,6 +655,40 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     @container (max-width:26rem) {
       .cg-reja2 { grid-template-columns:1fr; }
       .cg-reja-sep { display:none; }
+    }
+
+    /* ⛔⛔ [CG.114] LAS REGLAS "MOVILES" DE styles.css SE COMIAN LA REJA. Medido 2026-10-19 en
+       el navegador, con el arqueo abierto:
+
+           cada tabla pedia  304px   y su contenedor daba  210px   -> 94px de desborde
+           cabecera Piezas   x=154..258
+           cabecera Importe  x=164          <- dibujada ENCIMA, se leia "IPieporzaste"
+
+       styles.css:931 tiene un bloque "Mobile table optimizations" bajo
+       @container (max-width: 48rem) que le pone a TODA celda de p-datatable un
+       min-width de 120px, y a la ULTIMA columna min-width 100px + position:sticky + right:0
+       -- pensado para fijar una columna de acciones en un telefono.
+
+       ⭐ Nunca habian disparado acá porque la caja que esa consulta mide es .cg-ap-cuerpo, y
+       como apartado del split medía mas de 768px. Al mudar el arqueo a un cajon de 560 el
+       cuerpo quedo en 504px: por debajo del umbral movil. O sea que la regresion no fue tocar
+       la reja -- fue cambiarle el ANCHO A SU CONTENEDOR, y una consulta de contenedor ajena
+       cambio de rama sola.
+
+       Los dos sintomas son uno: con min-width de 120px la tabla no entra, aparece el desborde
+       horizontal, y recien ahi el sticky de la ultima columna tiene contra que pegarse y se
+       monta sobre la vecina. Quitando el minimo desaparecen los dos.
+
+       Esto NO es una tabla de datos con columnas de sobra: son tres columnas de ancho conocido
+       (denominacion, piezas, importe) que deben caber en su mitad. El minimo generico sobra.
+       Se neutraliza SOLO acá, por la clase de esta tabla -- la regla global sigue sirviendo a
+       las tablas anchas para las que se escribio. */
+    :host ::ng-deep .cg-arqueo-tbl .p-datatable-thead > tr > th,
+    :host ::ng-deep .cg-arqueo-tbl .p-datatable-tbody > tr > th,
+    :host ::ng-deep .cg-arqueo-tbl .p-datatable-tbody > tr > td { min-width:0 !important; }
+    :host ::ng-deep .cg-arqueo-tbl .p-datatable-thead > tr > th:last-child,
+    :host ::ng-deep .cg-arqueo-tbl .p-datatable-tbody > tr > td:last-child {
+      position:static !important; box-shadow:none !important;
     }
 
     /* EL numero de la pantalla. --fs-display es "headline metric, UNA por vista" y esta pantalla
@@ -2721,7 +2774,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            ⛔ SIN aboveModals: adentro hay p-select, p-autocomplete y se abre el p-dialog de
            confirmar. Esos nacen en 1000/1100 y con el cajon en 1200 quedarian TAPADOS; el propio
            organismo lo documenta. -->
-      <app-side-peek lado="izquierda" [width]="560"
+      <!-- ⛔ [CG.114] 560 NO ALCANZABA, y se medía mal con la reja vacía. Con todos los importes
+           en $0.00 la tabla colapsa a 223px y parece entrar; con un conteo real
+           ($34,000.00) pide 250px contra los 210px que da media mitad de 560 -> 40px de
+           desborde horizontal, justo en la pantalla donde se cuenta efectivo.
+           MEDIDO 2026-10-19 con dos conteos cargados, buscando el primer ancho sin desborde:
+               560 -> 40px y 12px     600 -> 20px y 0     640 -> 0 y 0     680 -> 0 y 0
+           Va 680 y no 640: 640 da cero justo, y un importe de siete cifras suma ~18px y lo
+           devuelve. ⚠️ El alto no se resiente -- medido, cuerpo sin desborde vertical. -->
+      <app-side-peek lado="izquierda" [width]="680"
                      [open]="capturaAbierta()"
                      (openChange)="$event ? null : cerrarConFoco(capturaAbierta)"
                      title="2 · El arqueo" subtitle="cuenta el efectivo, pieza por pieza">
