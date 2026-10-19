@@ -4,6 +4,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
+import { sqlVentanaProntoPago } from '../shared/pronto-pago-ventana';
 import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
@@ -328,6 +329,8 @@ export class PaymentCalendarService {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;
     limit?: number; offset?: number;
+    /** [TP.20.4] Solo facturas cuyo descuento por pronto pago esta por vencer o aun es capturable. */
+    prontoPago?: 'por_vencer' | 'capturable';
   }) {
     // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
     // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
@@ -347,6 +350,8 @@ export class PaymentCalendarService {
         'area_code', 'original_due_date', 'negotiated_date', 'original_amount', 'reserved_amount',
         'paid_amount', 'available_amount', 'is_critical', 'critical_reason', 'authorized_by',
         'authorized_at', 'status', 'notes', 'created_at', 'branch_code', 'payee_id',
+        // [TP.20.4] la ventana de pronto pago viaja con la fila
+        'pronto_fecha_limite', 'pronto_beneficio', 'pronto_estado',
       ];
       const legBudget = trx('budget.expense_obligations as o').select(
         trx.raw(`'budget_expense'::text AS obligation_source`), 'o.id AS obligation_id',
@@ -355,6 +360,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -364,6 +370,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -376,6 +383,7 @@ export class PaymentCalendarService {
           'o.reserved_amount', 'o.paid_amount',
           trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
+          trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
         ).whereNotIn('o.status', ['cancelled']);
 
       /**
@@ -395,6 +403,17 @@ export class PaymentCalendarService {
        */
       const legKepler = trx('analytics.v_supplier_payables as v')
         .leftJoin('catalog.suppliers as s', 's.code', 'v.proveedor')
+        /**
+         * `[TP.20.4]` **La urgencia del descuento, donde se arma el día.**
+         *
+         * El inventario de §23 descartó fusionar Pronto pago con esta pantalla: ordenan y agrupan
+         * al revés, y fusionarlas rompía una de las dos. Lo que sí viaja son **los tres campos que
+         * deciden** — hasta cuándo conviene pagar, cuánto se gana y en qué estado está la ventana.
+         *
+         * ⛔ La regla **no se reimplementa**: sale de `sqlVentanaProntoPago()`, la misma que usa
+         * Pronto pago. Si mañana cambia el mínimo de observaciones, cambia en las dos.
+         */
+        .leftJoin('analytics.mv_supplier_prompt_discount as d', 'd.proveedor_code', 'v.proveedor')
         // `[TP.18.5]` Lo reservado se agrega **una vez** y se une por id. Era un LATERAL, que es
         // lo natural de escribir y costaba 2,892 evaluaciones para leer un puñado de filas:
         // medido contra prod, 476 ms de mediana contra 399 así (−16 %).
@@ -438,6 +457,7 @@ export class PaymentCalendarService {
           trx.raw(`'pending'::text AS status`), trx.raw('NULL::text AS notes'),
           trx.raw('v.fecha::timestamptz AS created_at'), trx.raw('v.sucursal AS branch_code'),
           trx.raw('s.id AS payee_id'),
+          trx.raw(sqlVentanaProntoPago('v', 'd')),
         );
 
       const unionSql = `(${legBudget.toQuery()} UNION ALL ${legCommitment.toQuery()} UNION ALL ${legSupplier.toQuery()} UNION ALL ${legKepler.toQuery()}) AS ob`;
@@ -445,6 +465,8 @@ export class PaymentCalendarService {
       if (q.source) base.where('ob.obligation_source', q.source);
       if (q.classification) base.where('ob.classification', q.classification);
       if (q.onlyCritical) base.where('ob.is_critical', true);
+      // [TP.20.4] El filtro que faltaba para armar el dia mirando lo que caduca.
+      if (q.prontoPago) base.where('ob.pronto_estado', q.prontoPago);
       if (q.search?.trim()) {
         const s = q.search.trim();
         base.andWhere((w: any) => w.whereILike('ob.beneficiary', `%${s}%`).orWhereILike('ob.concept', `%${s}%`));
