@@ -245,7 +245,9 @@ autoheal puede volver a levantar `feeds-cron` en la ventana de 30 s. Y sin `--re
 ods-autoheal feeds-cron`. No tiene sentido hacerlo: duplicaría el nocturno otra vez.
 
 **Lo que falta para que Compose desaparezca de verdad:** migrar `prod-backup` y `prod-registry` a
-k3s. Es trabajo de infraestructura con riesgo propio: el respaldo no se puede quedar sin correr
+k3s. Quedó como **`OPS.LIMPIEZA.8`** en el tracker, con las decisiones D1/D2, los criterios de «hecho»
+y el riesgo. Lo esencial: `prod-registry` es de donde k3s baja **todas** las imágenes propias, así
+que no es un resto sino una pieza crítica. Es trabajo de infraestructura con riesgo propio: el respaldo no se puede quedar sin correr
 ni un día, y si el registro se cae no hay despliegues. Va como fase o item aparte, no como
 limpieza.
 
