@@ -731,6 +731,15 @@ export interface CreateRequisitionLine {
   supplier_id?: string | null;
   source_type?: SourceType;
   source_warehouse_id?: string | null;
+  /**
+   * `[RA-FIX.1]` La sucursal que NECESITA esta cantidad — el renglón del desglose del que salió.
+   *
+   * ⛔ No es `source_warehouse_id` (el ORIGEN de un traspaso). En una compra consolidada el
+   * encabezado lleva el CEDIS donde entrega el proveedor y esto la sucursal destino. Sin este
+   * campo el desglose se perdía al guardar: 1,269 renglones indistinguibles del mismo SKU en 74
+   * requisiciones (medido en prod el 2026-10-19).
+   */
+  destination_warehouse_id?: string | null;
   on_hand?: number;
   in_transit?: number;
   min_stock?: number;

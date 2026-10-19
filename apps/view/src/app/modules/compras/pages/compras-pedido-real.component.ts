@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, piezasDeCajas, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
 import { MotivoTope, roundSeedConTope, textoTope, TOPE_COBERTURA_DIAS } from '../pedido-tope';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -681,7 +681,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <td class="pr-r"><span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span></td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                       <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
-                                      <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
+                                      <td class="pr-r pr-muted">{{ piezasDeCajas(u.qty, u.uxc) | number:'1.0-0' }}</td>
                                       <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
                                       <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost) }}</td>
                                     </tr>
@@ -1740,7 +1740,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
 
     /* ── [RA-PRO.59] CELULAR VERTICAL (menos de 40rem). Tableta y escritorio quedan por encima del
        corte y no cambian. Mismo corte que la senal compacto() del componente. ────────────── */
-    @media (max-width: 40rem) {
+    @container (max-width: 40rem) {
       /* B — Tabla principal: sin scroll horizontal. Quedan Producto, Exist. red, Suma Ped. cajas y
          $ Pedido (lo que decide). Se ocultan por posicion: 2 Ud/caja, 3 Costo, 4 Tend., 5 Est.,
          7 XYZ, 8 En camino, 9 Reorden, 10 Max, 12 Piezas, 14 Valor venta, 15 Valor exist.
@@ -3761,6 +3761,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /** Opciones del segmented de cobertura. Los mismos 14/30/45 que eran chips sueltos. */
+  /** `[RA-FIX.4]` La conversión cajas→piezas, expuesta para la plantilla: una sola definición
+   *  (vive en `pedido-redondeo.ts`) para el acuse en pantalla y para las dos exportaciones. */
+  readonly piezasDeCajas = piezasDeCajas;
+
   readonly coverageOpts: SegOption[] = [
     { label: '14d', value: '14' }, { label: '30d', value: '30' }, { label: '45d', value: '45' },
   ];
@@ -4519,6 +4523,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         notes: `Demand-driven (venta × cobertura ${this.coverage}d) — por sucursal${nota}`,
         lines: ls.map<CreateRequisitionLine>((l) => ({
           product_id: l.r.product_id, supplier_id: l.r.supplier_id || null, source_type: 'supplier',
+          // `[RA-FIX.1]` La sucursal del renglón del desglose — el dato que el comprador capturó
+          // y que hasta hoy se tiraba. `l.wh` es quién la NECESITA; el encabezado lleva `toWh`,
+          // que es dónde ENTREGA el proveedor. En una compra directa son el mismo almacén; en una
+          // consolidada no, y ésa es justamente la que no se podía reconstruir.
+          destination_warehouse_id: l.wh ?? null,
           on_hand: l.b.exis, suggested_qty: l.b.seed, final_qty: l.qty, unit_cost: l.b.cc,
         })),
       });
@@ -4552,6 +4561,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         notes: `Bajada de compra consolidada ${ls[0].toCode} → ${ls[0].b.code}`,
         lines: ls.map<CreateRequisitionLine>((l) => ({
           product_id: l.r.product_id, source_type: 'branch', source_warehouse_id: l.toWh!,
+          // `[RA-FIX.1]` En un traspaso el destino coincide con el encabezado, y se escribe igual:
+          // la columna significa lo mismo en los dos tipos — "quién necesita esta cantidad" — y
+          // una columna que sólo se llena a veces obliga a un `CASE` en cada consulta.
+          destination_warehouse_id: l.wh ?? null,
           suggested_qty: l.qty, final_qty: l.qty, unit_cost: l.b.cc,
         })),
       });
@@ -4564,6 +4577,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         notes: 'Traspaso CEDIS→sucursal (déficit × cobertura)' + this.unitNote(rs),
         lines: rs.map<CreateRequisitionLine>((r) => ({
           product_id: r.product_id, source_type: 'branch', source_warehouse_id: r.from_warehouse_id,
+          destination_warehouse_id: r.to_warehouse_id ?? null,   // `[RA-FIX.1]` quién la necesita
           suggested_qty: r.qty, final_qty: r.qty, unit_cost: r.unit_cost,
         })),
       });
@@ -4766,14 +4780,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         sku: l.r.sku, nombre: l.r.nombre, abc_class: this.abcOf(l.r.product_id),
         sell_daily: l.b.vta / 30.4, days_cover: this.diasInv(l.r, l.b),
         on_hand: l.b.exis, in_transit: l.r.transito_cajas ?? undefined, suggested_qty: l.b.seed,
-        uxc: l.r.uxc, cajas: l.qty, piezas: l.qty * l.r.uxc, unit_cost: l.b.cc, line_cost: l.qty * l.b.cc,
+        uxc: l.r.uxc, cajas: l.qty, piezas: piezasDeCajas(l.qty, l.r.uxc), unit_cost: l.b.cc, line_cost: l.qty * l.b.cc,
       })),
       ...tr.map<PedidoExportLine>((r) => ({
         warehouse_code: r.warehouse_code, supplier_name: `TRASPASO ← ${r.from_code}`,
         sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
         sell_daily: r.sell_daily, days_cover: r.cover, deficit: r.deficit || undefined,
         on_hand: r.on_hand, suggested_qty: r.qty,
-        uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
+        uxc: r.uxc, cajas: r.qty, piezas: piezasDeCajas(r.qty, r.uxc), unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
       })),
     ];
     this.dl.set(true);
