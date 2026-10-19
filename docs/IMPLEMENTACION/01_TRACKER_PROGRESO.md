@@ -186,6 +186,56 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
+### AUD — El contrato de producto deja de depender de que alguien se acuerde · 2026-10-19
+
+> Edgar: *«nosotros sólo nos basamos en lo visual, accesibilidad, comprensión, sencillez.
+> ¿existen reglas que hagan esto?»*
+>
+> Sí: **41 reglas ejecutables** (31 compuertas + las 10 de `check-pantalla.js`). Lo que no existía
+> era el reparto parejo. Medido ese día, eje por eje:
+>
+> | Eje | Documentado en | Compuerta antes de hoy |
+> |---|---|---|
+> | Visual | `DESIGN.md` §Typography · §Color · §Motion · §R | ✅ `estilos`, `tokens CSS`, `motion` |
+> | Accesibilidad | §Ing.UI 3 (AA piso duro, APCA Lc≥75) | ⚠️ sólo `teclado` y `sin emojis` |
+> | Comprensión | §Jerarquía del dato · §Ing.UI 2 · §P · §G | ❌ existían y **no corrían** |
+> | Sencillez | **§10 Leyes de interacción (BINDING)** | ❌ ninguna |
+
+- [x] **[AUD.3]** 🧪 **`check:pantalla` entró a las compuertas, y hasta hoy no la corría NADIE.**
+      Escrita en `[AUD.1]`, quedó fuera de los dos runners: **cero menciones en `ci.yml`, cero en
+      el `pre-push`**. La skill `diseno` la pedía — pero *una skill es una instrucción, no un
+      mecanismo*, que es la misma lección que costó los 9 Python huérfanos. Lo que midió no
+      ejecutarse: **247 de 267 pantallas con falla, 629 fallas** (§2 matriz de estados 203 · §9
+      frescura 197 · Q.1 answer-first 154 · O.4 48 · D.8 13 · D.7 11 · D.4c 3).
+
+      ⛔ **Tres defectos impedían que fuera compuerta, y los tres eran del script:** sin argumento
+      salía con `exit 1` y un texto **sin rutas** —que `gate-push` lee como «deuda ajena» y deja
+      pasar, textual el defecto que ese archivo documenta en `rutasQueNombra()`—; imprimía el
+      nombre del componente en vez de la ruta; y terminaba en `process.exit(0)` **siempre**, o sea
+      que no podía ponerse roja ni queriendo.
+
+      ⭐ **Nace con la deuda sellada y frena sólo lo NUEVO.** `scripts/check-pantalla.deuda.json`
+      guarda **ruta → ids de regla**, y ahí diverge del precedente (`check-keyboard-nav.deuda.json`
+      guarda una lista plana): allá una pantalla falla o no, acá puede fallar por diez reglas, y
+      con lista plana una pantalla que ya debe `§2` podría sumar `Q.1` mañana **y pasar invisible**.
+
+      🧪 **Prueba negativa ejercida en los DOS niveles.** (1) Rota una pantalla limpia
+      (`comercial-egresos`), el barrido pasó a `1 NUEVA` y `exit 1`, con las otras 629 quietas.
+      (2) End-to-end: rota `finanzas-caos` y simulado el push de su commit, `gate-push` **bloqueó
+      con exit 1 y la atribuyó por ruta**, mientras `boundary`, `sidebar-tabs` y `sin emojis`
+      seguían informándose como deuda ajena. Restauradas las dos; barrido en `0 NUEVA(S)`.
+
+- [ ] **[AUD.4]** ⬜ **Compuerta de contraste** — el agujero más grave de accesibilidad. `DESIGN.md`
+      §Ing.UI 3 lo manda (WCAG AA piso innegociable, APCA Lc≥75 en texto ≤14px) y **nada lo mide**:
+      que `--action-ink` da 3.39 se descubrió a mano. Tampoco hay nada para `forced-colors` (Alto
+      Contraste de Windows), que el propio doc llama «el tercer modo» y la flota es Windows.
+
+- [ ] **[AUD.5]** ⬜ **La primera compuerta de SENCILLEZ.** Las 7 leyes de §10 son BINDING y
+      automatizables —Miller (>6 campos consecutivos sin separador), Tesler (⛔ datos vitales tras
+      acordeones en desktop), Von Restorff (acción destructiva nunca en `--action`), Hick (`⌘K` con
+      20+ destinos)—, y ninguna tiene instrumento. ⚠️ **Decisión de Edgar antes del código:** cuál
+      se mide primero, porque define qué va a significar «sencillo» en este proyecto.
+
 ### Fase MOS — Buscador de mostrador y productos no registrados · 2026-10-16 · rama `feat/mostrador-buscador-no-registrados`
 
 - [x] **[MOS.1]** 🧪 «¿Te pidieron algo?» (arqueo y Faltantes) busca por **nombre, proveedor, SKU o código de barras** y dice por qué salió cada renglón; cada resultado trae **todas sus presentaciones** con precio (la caja en **paquetes** cuando divide exacto; si no, en piezas) y el **mayoreo por unidad en la presentación en que Kepler lo captura**. Respaldo del verificador a **formato 3** (`u[].f` + `pv`/`pr`); `/kp/precio` publica `proveedor` (de `catalog.suppliers`). Lo elegido de la lista se refresca en vivo y la procedencia lo dice.
