@@ -72,6 +72,63 @@ caso, no partir el dato.
 
 ---
 
+## 2b. La supervisora tiene nombre — y hoy **no puede** autorizar
+
+Edgar designó a **María de la Paz Gutiérrez Guzmán** (`maria_gutierrez`, rol `tesoreria`) como
+supervisora de Caja General, 2026-10-19.
+
+⚠️ **Hay dos Gutiérrez en finanzas y se confunden fácil.** `mayra_gutierrez` —Mayra Laura Gutiérrez
+Castillo, puesto `aux_caja_general_zona`— **captura 47 movimientos** en esta misma pantalla.
+Nombrarla a ella como supervisora la pondría a revisar su propio trabajo. La supervisora es
+**María de la Paz**, la de tesorería, que no captura.
+
+### ⛔⛔ La supervisión nunca ocurrió, y no es por desidia
+
+Medido contra prod el 2026-10-19:
+
+```
+finance.cash_ledger_cuts:   6 cerrados  ·  0 con autorizador
+```
+
+El sistema **ya exige** la segunda firma —la propia pantalla lo dice: *«falta que lo autorice otra
+persona, porque quien cierra no autoriza»*— y de **6 cortes cerrados, cero se autorizaron**.
+
+**La causa no es de interfaz. Es un permiso que nunca se repartió:**
+
+| Permiso | Quién lo tiene hoy |
+|---|---|
+| `FINANCE_CAJA_VER` | 12 roles, incluida `tesoreria` |
+| `FINANCE_CAJA_GESTIONAR` | 10 roles, incluida `tesoreria` |
+| **`FINANCE_CAJA_AUTORIZAR`** | **`direccion`, `superadmin`, `surtidor`** |
+
+`tesoreria` **no está**. Tampoco `finanzas`, ni `finanzas_operativo`. O sea: **nadie del área de
+finanzas puede autorizar un corte**, incluida la supervisora designada — que sí puede *capturar*,
+que es justo el acto que debería vigilar.
+
+Verificado que es la llave real y no un nombre suelto:
+`@RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)` en `cash-ledger.controller.ts:285`. Lo
+aplica el servidor.
+
+⭐ **Esto reordena el trabajo.** Construir el Modo Supervisión primero produciría una pantalla
+preciosa donde el botón de autorizar está apagado para la persona a la que está dirigida. El
+permiso va **antes** que la vista — C2 antes que C3, que es lo que el método pide.
+
+⚠️ **Y una anomalía para revisar, no para arreglar sin preguntar:** `surtidor` tiene
+`FINANCE_CAJA_AUTORIZAR`. Un surtidor de almacén autorizando cortes de caja parece un reparto
+accidental, pero no lo mido como error: hay que confirmarlo con quien lo otorgó.
+
+### Dos hallazgos más, del mismo barrido
+
+**La jefa de finanzas es quien más captura.** María del Carmen Rodríguez Vera, puesto
+`jefe_finanzas`, lleva **177 capturas** — más que nadie. Quien debería revisar es la que más
+teclea. No se arregla con interfaz, pero el diseño tiene que saberlo.
+
+**La jerarquía está casi vacía.** De 18 personas en `cajas` y `tesoreria`, sólo **2** tienen
+`supervisor_id` cargado. Las 14 cajeras, ninguno. Mayra —que captura— tampoco. Si el Modo
+Supervisión se apoyara en ese campo para saber a quién mira cada quien, hoy no tendría a nadie.
+
+---
+
 ## 3. Objetivos
 
 Cada uno lleva su métrica de hoy y su meta. Un objetivo sin cifra medida hoy no se abre (§método).
@@ -127,6 +184,28 @@ Es **un cambio de qué se destaca**, no dos pantallas con dos verdades: las dos 
 ⚠️ Antes de construirlo hay que contestar la pregunta abierta de abajo sobre el permiso: si el modo
 se elige a mano o lo propone el puesto.
 
+### O7 · El Modo Supervisión abre con lo que espera una firma
+
+**Hoy:** 6 cortes cerrados, **0 autorizados**, y en ninguna parte de la pantalla se dice que hay
+algo esperando. **Meta:** la primera cifra del Modo Supervisión es *«N cortes esperan tu
+autorización»*, y desde ahí se autoriza.
+
+⛔ **Bloqueado por C2, y no se empieza al revés.** Hoy `FINANCE_CAJA_AUTORIZAR` lo tienen
+`direccion`, `superadmin` y `surtidor` — **nadie de finanzas**, ni la supervisora designada.
+Construir la vista primero entrega una pantalla donde el botón está apagado justo para quien la
+pediría. El orden es:
+
+1. **C2 ·** repartir `FINANCE_CAJA_AUTORIZAR` al rol de la supervisora (`tesoreria`), y revisar por
+   qué lo tiene `surtidor`.
+2. **C2 ·** verificar en prod que la autorización **funciona** ejerciéndola: un endpoint que
+   escribe no está probado hasta que una prueba lo ejerció con el payload de la pantalla. Van 6
+   cortes y cero autorizaciones, así que ese camino **nunca corrió en producción**.
+3. **C3 ·** recién entonces, la cifra en la vista.
+
+⚠️ El paso 2 no es trámite: es exactamente la forma del defecto que dejó el arqueo 8 días en cero
+—build verde, pruebas verdes, y el único camino que la pantalla usaba, roto—. Cero autorizaciones
+por falta de permiso y cero por un 500 **se ven igual desde afuera**.
+
 ### O6 · El teclado también es legibilidad
 
 **Hoy:** la pantalla tiene atajos reales (flechas en la reja, Enter, Esc) y **sólo dos se anuncian**
@@ -164,9 +243,20 @@ baja de nivel o se va a un gesto, no se encoge.
   una sucursal chica es la misma persona.
 - **¿«Tu jornada» es de las dos cabezas o sólo de supervisión?** Hoy mezcla el cierre del día (que
   hace quien captura) con la salud del catálogo (que no le toca a nadie de caja).
-- **¿Hay alguien hoy que supervise esta pantalla?** No lo medí. Si la supervisión ocurre fuera del
-  sistema —en Excel o preguntando—, el Modo Supervisión tiene que empezar por ahí y no por lo que
-  suponemos que miraría.
+- **¿Por qué `surtidor` tiene `FINANCE_CAJA_AUTORIZAR`?** Un surtidor de almacén autorizando
+  cortes de caja parece un reparto accidental. No lo doy por error: hay que confirmarlo con quien
+  lo otorgó antes de quitarlo.
+- **¿Se carga la jerarquía (`supervisor_id`) o el modo se apoya sólo en el permiso?** Hoy 2 de 18
+  personas de cajas/tesorería lo tienen. Si el Modo Supervisión quisiera decir «tus cajeras», hoy
+  no tendría a quién nombrar.
+- **¿La jefa de finanzas debería seguir capturando?** 177 capturas, más que nadie. Es una pregunta
+  de proceso, no de pantalla, pero cambia para quién se diseña el Modo Supervisión.
+
+### ✅ Contestada el 2026-10-19
+
+~~¿Hay alguien hoy que supervise esta pantalla?~~ **No. Cero de seis cortes autorizados**, y la
+causa está medida: `FINANCE_CAJA_AUTORIZAR` no lo tiene ningún rol de finanzas. La supervisora
+designada es **María de la Paz Gutiérrez Guzmán** (`maria_gutierrez`, `tesoreria`) — ver §2b.
 
 ---
 
