@@ -8,6 +8,10 @@
 --   #1561 -> CI-2026-00002   21,770.00 +     20.00 = 21,790.00
 --   #1586 -> CI-2026-00021   17,680.00 +     12.00 = 17,692.00
 --   sin dep -> CI-2026-00042      0.00 + 21,507.00 = 21,507.00   ("NO FUNCINA CAOS")
+--   sin dep -> CI-2026-00043      0.00 + 17,408.00 = 17,408.00   ("NO FUNCIONA CAOS")
+--   sin dep -> CI-2026-00044      0.00 + 13,896.00 = 13,896.00   ("NO APARECE EN SWITE")
+--                                 el documento dice 13,895.87: $0.13 de redondeo de teclado,
+--                                 dentro de la tolerancia de $1.00 que autorizo Edgar.
 --
 -- ⛔ NO toca `morralla`: los $20, $12 y la morralla del tercero son hechos FISICOS.
 --    Los declara quien conto el efectivo, no esta migracion.
@@ -23,7 +27,9 @@ BEGIN
     SELECT * FROM (VALUES
       ('CI-2026-00002', 1561, 21790.00, 21770.00,    20.00, NULL),
       ('CI-2026-00021', 1586, 17692.00, 17680.00,    12.00, '01-005|U-A-5|0000011|0011'),
-      ('CI-2026-00042', NULL, 21507.00,     0.00, 21507.00, '01-001|U-A-5|0000012|0011')
+      ('CI-2026-00042', NULL, 21507.00,     0.00, 21507.00, '01-001|U-A-5|0000012|0011'),
+      ('CI-2026-00043', NULL, 17408.00,     0.00, 17408.00, '01-006|U-A-5|0000012|0011'),
+      ('CI-2026-00044', NULL, 13896.00,     0.00, 13896.00, '01-004|U-A-5|0000012|0011')
     ) AS t(folio, dep, libro, maquina, cajon, doc_ref)
   LOOP
     -- G1: existe, vive, y vale lo medido
@@ -74,8 +80,15 @@ BEGIN
         FROM analytics.mv_caja_movimientos v WHERE v.tenant_id = T) z
      WHERE z.origen_ref = ref LIMIT 1;
     IF d IS NULL THEN RAISE EXCEPTION '[A.24] el documento % no existe en Kepler. ABORTA.', ref; END IF;
-    IF d.monto <> r.libro THEN
-      RAISE EXCEPTION '[A.24] % vale % y el libro %. No concilia: ABORTA.', ref, d.monto, r.libro;
+    -- Tolerancia de REDONDEO DE TECLADO, $1.00, autorizada por Edgar el 2026-10-19.
+    -- ⚠️ NO aplica a la ecuacion maquina+cajon=libro, que sigue al centavo (G3).
+    IF abs(r.libro - d.monto) > 1.00 THEN
+      RAISE EXCEPTION '[A.24] % vale % y el libro % (desfase %). Pasa de $1.00: ABORTA.',
+        ref, d.monto, r.libro, round(r.libro - d.monto, 2);
+    END IF;
+    IF r.libro <> d.monto THEN
+      RAISE NOTICE '[A.24] % difiere del documento en $% -- redondeo de teclado, tolerado.',
+        r.folio, round(r.libro - d.monto, 2);
     END IF;
 
     -- G5: nadie mas tomo ese documento
@@ -114,5 +127,5 @@ SELECT l.folio, l.monto, l.declared_doc_ref,
        l.morralla
   FROM finance.cash_ledger l
  WHERE l.tenant_id = '00000000-0000-0000-0000-00000000d01c'
-   AND l.folio IN ('CI-2026-00002','CI-2026-00021','CI-2026-00042')
+   AND l.folio IN ('CI-2026-00002','CI-2026-00021','CI-2026-00042','CI-2026-00043','CI-2026-00044')
  ORDER BY l.folio;
