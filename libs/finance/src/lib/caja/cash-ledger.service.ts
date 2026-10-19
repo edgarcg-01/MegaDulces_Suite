@@ -251,22 +251,19 @@ const ORIGEN_ANCLADO = ['cobro', 'pago_proveedor'];
 const CLASE_DESCUADRE: Record<string, ClaseDescuadre> = { ingreso: 'caja_entrega', gasto: 'caja_egreso' };
 
 /**
- * `[CGA-A.17]` Umbrales para DERIVAR el concepto de una cuenta a partir de lo que las personas
- * ya capturaron. Cada uno sale de una medición, no de un gusto — el detalle está en el bloque de
- * `resolverCuentas()`:
+ * ⭐⭐ `[CGA-A.17u]` **LOS UMBRALES YA NO VIVEN ACÁ.** Estaban en estas tres constantes y, a la
+ * vez, escritos de nuevo en SQL dentro de la matvista `mv_caja_autofill_entidad` — dos sesiones
+ * el mismo día, el mismo código de ticket, dos respuestas a la misma pregunta.
  *
- *   · `MIN_ENTIDADES` es el que convierte «el concepto es de la cuenta» en una MEDICIÓN: `511`
- *     tiene 19 entidades distintas y `115` 16; `601-001` tiene **1**, y por eso NO se propone
- *     aunque dé 13/13. Una sola entidad no dice nada sobre la cuenta.
- *   · Las cuentas de CAJA (`102*`) quedan fuera por código, no por umbral: ahí el concepto
- *     identifica CUÁL caja chica, y el control contra el catálogo de Kepler lo demostró.
+ * La regla entera (soporte ≥ 5 · dominancia ≥ 80 % · ≥ 3 entidades distintas · sin cuentas de
+ * CAJA/BANCO · sólo capturas de personas · sin empate) vive en **un solo lugar**:
+ * `analytics.v_caja_concepto_por_cuenta`, creada por la migración `20261019154654`, que es
+ * donde está cada guarda con su medición al lado.
  *
- * ⚠️ Son parámetros con estado, no constantes de la física: si la tasa de corrección sube, se
- * ajustan ACÁ y se re-mide — no se agrega un segundo umbral en otra rama.
+ * ⛔ Dejar acá un umbral muerto sería peor que no tenerlo: el próximo que quiera aflojar la regla
+ * lo cambiaría aquí, vería que no pasa nada, y terminaría cambiándola en el otro lado también.
  */
-const CONCEPTO_MIN_SOPORTE = 5;
-const CONCEPTO_MIN_RATIO = 0.8;
-const CONCEPTO_MIN_ENTIDADES = 3;
+
 
 /** La cuenta de servicio del autollenado (`20261016105305`). Sus filas NO cuentan como historia. */
 const SVC_AUTOLLENADO_ID = '00000000-0000-0000-0000-0000000ca11e';
@@ -2372,47 +2369,39 @@ export class CashLedgerService {
     trx: Knex.Transaction, tenantId: string, cuentas: string[],
   ): Promise<Map<string, { concepto: string; soporte: number; entidades: number; ratio: number }>> {
     const m = new Map<string, { concepto: string; soporte: number; entidades: number; ratio: number }>();
-    // Guarda 1: fuera las cuentas de CAJA y BANCO. Ahí el concepto es de la entidad (cuál caja),
-    // no de la cuenta. Es la misma exclusión que la matvista aplica para derivar la cuenta.
-    const elegibles = (cuentas ?? []).filter((c) => c && !/^(102|122)/.test(String(c)));
-    if (!elegibles.length) return m;
+    const lista = (cuentas ?? []).filter(Boolean).map(String);
+    if (!lista.length) return m;
 
-    const filas = await trx('finance.cash_ledger')
+    /**
+     * ⭐⭐ `[CGA-A.17u]` **LA REGLA YA NO VIVE ACÁ: SE LEE.** Acá había un GROUP BY con sus
+     * umbrales, y la MISMA regla estaba escrita otra vez en SQL dentro de
+     * `analytics.mv_caja_autofill_entidad` (el peldaño `hist_cta`, de la migración
+     * `20261019135141`). Dos sesiones, el mismo día, el mismo código de ticket, dos respuestas.
+     *
+     * Contrastadas contra prod: coincidían en las 3 cuentas que mueven el dinero
+     * (`115→071`, `201→201`, `511→059`) y **nunca proponían distinto** — o sea que no había
+     * un error activo, pero sí uno latente: la de SQL proponía 7 cuentas más, entre ellas
+     * `102→011`, que el control contra el catálogo de Kepler ya había refutado (en una cuenta
+     * de CAJA el concepto dice CUÁL caja chica).
+     *
+     * Ahora las dos leen `analytics.v_caja_concepto_por_cuenta`. Las guardas y su porqué medido
+     * viven en la migración `20261019154654`, que es el único lugar donde se pueden cambiar.
+     *
+     * ⚠️ La vista filtra por `tenant_id` en su propia columna, pero el filtro va igual acá: no
+     * tiene RLS propio y heredar el del llamador sería suponer.
+     */
+    const filas = await trx('analytics.v_caja_concepto_por_cuenta')
       .where('tenant_id', tenantId)
-      .whereIn('kepler_cuenta', elegibles)
-      .whereNull('deleted_at')
-      .whereNot('estado', 'cancelado')
-      .whereNotNull('kepler_concepto')
-      // ⚠️ Sólo capturas de PERSONAS: derivar de lo que el motor escribió sería el espejo de
-      // ADR-059 — pedirle al motor que confirme su propia decisión.
-      .whereNot('created_by', SVC_AUTOLLENADO_ID)
-      .groupBy('kepler_cuenta', 'kepler_concepto')
-      .select('kepler_cuenta', 'kepler_concepto')
-      .count({ n: '*' })
-      .countDistinct({ entidades: 'beneficiario' });
+      .whereIn('cuenta', lista)
+      .select('cuenta', 'concepto', 'n', 'total', 'entidades', 'dominancia');
 
-    const porCuenta = new Map<string, Array<{ concepto: string; n: number; entidades: number }>>();
     for (const f of filas as Array<Record<string, unknown>>) {
-      const k = String(f.kepler_cuenta);
-      if (!porCuenta.has(k)) porCuenta.set(k, []);
-      porCuenta.get(k)!.push({
-        concepto: String(f.kepler_concepto), n: Number(f.n), entidades: Number(f.entidades),
+      m.set(String(f.cuenta), {
+        concepto: String(f.concepto),
+        soporte: Number(f.n),
+        entidades: Number(f.entidades),
+        ratio: Number(f.dominancia),
       });
-    }
-
-    for (const [cuenta, arr] of porCuenta) {
-      // Desempate ESTABLE: por n desc y, a igual n, por el código. Sin esto, dos corridas con el
-      // mismo dato podrían proponer cosas distintas según cómo viniera ordenado el SELECT.
-      const ord = [...arr].sort((a, b) => b.n - a.n || a.concepto.localeCompare(b.concepto));
-      const total = ord.reduce((s, x) => s + x.n, 0);
-      const top = ord[0];
-      if (!top) continue;
-      if (total < CONCEPTO_MIN_SOPORTE) continue;               // guarda 3a: poca historia
-      if (ord.length > 1 && ord[1].n === top.n) continue;       // empate: elegir sería inventar
-      const ratio = top.n / total;
-      if (ratio < CONCEPTO_MIN_RATIO) continue;                 // guarda 3b: no domina
-      if (top.entidades < CONCEPTO_MIN_ENTIDADES) continue;     // guarda 2: no prueba ser de la CUENTA
-      m.set(cuenta, { concepto: top.concepto, soporte: top.n, entidades: top.entidades, ratio });
     }
     return m;
   }
