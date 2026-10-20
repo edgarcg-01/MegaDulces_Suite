@@ -15,12 +15,12 @@
  * hoy y rompería en silencio el día que entre un segundo doctype.
  */
 
-export type EntityKind = 'ent' | 'lin' | 'adj' | 'pay' | 'prov' | 'sku' | 'pdoc';
+export type EntityKind = 'ent' | 'lin' | 'adj' | 'pay' | 'prov' | 'sku' | 'pdoc' | 'oblig';
 
-export const ENTITY_KINDS: EntityKind[] = ['ent', 'lin', 'adj', 'pay', 'prov', 'sku', 'pdoc'];
+export const ENTITY_KINDS: EntityKind[] = ['ent', 'lin', 'adj', 'pay', 'prov', 'sku', 'pdoc', 'oblig'];
 
 /** Cuántas partes lleva cada tipo — valida el ref antes de tocar la DB. */
-const ARITY: Record<EntityKind, number> = { ent: 3, lin: 3, adj: 3, pay: 3, prov: 1, sku: 1, pdoc: 3 };
+const ARITY: Record<EntityKind, number> = { ent: 3, lin: 3, adj: 3, pay: 3, prov: 1, sku: 1, pdoc: 3, oblig: 4 };
 
 export interface ParsedRef {
   kind: EntityKind;

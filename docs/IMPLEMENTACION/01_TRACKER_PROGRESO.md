@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1788 KB, 11609 líneas, 72 secciones.
+> **Índice navegable** — 1836 KB, 12023 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,75 +10,75 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 159 | 168 | 📊 Estado global de fases |
 | 160 | 186 | 1 | 🚦 Estado por item (granular) |
-| 187 | 3041 | 379 | 🎯 EN PROGRESO |
-| 3058 | 3095 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 3096 | 3129 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 3130 | 3214 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 3215 | 3318 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 3319 | 3385 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 3386 | 3489 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 3490 | 3573 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 3574 | 3743 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 3744 | 3806 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 3807 | 3879 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 3880 | 3931 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 3932 | 4393 | 39 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4394 | 4407 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4408 | 4432 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4433 | 4455 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4456 | 4494 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4495 | 5123 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5124 | 5308 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5309 | 5351 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5352 | 5429 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5430 | 5523 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5524 | 5659 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 5660 | 5676 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 5677 | 5722 | 83 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 5723 | 5790 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 5791 | 6043 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6044 | 6109 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6110 | 6137 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6138 | 6304 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6305 | 6605 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 6606 | 6668 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6669 | 6754 | 21 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 6755 | 6817 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 6818 | 6978 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 6979 | 7049 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7050 | 7098 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7099 | 7131 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7132 | 7521 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7522 | 7653 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7654 | 7700 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 7701 | 7740 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 7741 | 7793 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 7794 | 7860 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 7861 | 8023 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8024 | 8199 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8200 | 8367 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8368 | 10075 | 127 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10076 | 10084 | 1 | Fase RR — Ventas por ruta |
-| 10085 | 10380 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 10381 | 10391 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 10392 | 10412 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 10413 | 10423 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 10424 | 10435 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 10436 | 10495 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 10496 | 10923 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 10924 | 10938 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 10939 | 10980 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 10981 | 11122 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11123 | 11153 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11154 | 11201 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11202 | 11214 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11215 | 11244 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11251 | 11260 | 1 | 📝 Convenciones |
-| 11261 | 11297 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 11298 | 11316 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 11317 | 11369 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 11370 | 11672 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 11673 | 11693 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 187 | 3095 | 389 | 🎯 EN PROGRESO |
+| 3112 | 3149 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3150 | 3183 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3184 | 3268 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3269 | 3372 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3373 | 3439 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3440 | 3543 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3544 | 3627 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3628 | 3797 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3798 | 3860 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3861 | 3933 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 3934 | 3985 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 3986 | 4447 | 39 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4448 | 4461 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4462 | 4486 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4487 | 4509 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4510 | 4548 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4549 | 5177 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5178 | 5362 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5363 | 5405 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5406 | 5483 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5484 | 5577 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5578 | 5713 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 5714 | 5730 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 5731 | 5776 | 83 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 5777 | 5844 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 5845 | 6097 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6098 | 6163 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6164 | 6191 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6192 | 6358 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6359 | 6659 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6660 | 6722 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 6723 | 6830 | 31 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 6831 | 6893 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 6894 | 7054 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7055 | 7125 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7126 | 7174 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7175 | 7207 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7208 | 7597 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7598 | 7729 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 7730 | 7776 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7777 | 7816 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 7817 | 7869 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 7870 | 7936 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 7937 | 8099 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8100 | 8383 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8384 | 8551 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8552 | 10486 | 143 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10487 | 10495 | 1 | Fase RR — Ventas por ruta |
+| 10496 | 10791 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 10792 | 10802 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 10803 | 10823 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 10824 | 10834 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 10835 | 10846 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 10847 | 10906 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 10907 | 11334 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11335 | 11349 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11350 | 11391 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11392 | 11533 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11534 | 11564 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11565 | 11612 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11613 | 11628 | 12 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11629 | 11658 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11665 | 11674 | 1 | 📝 Convenciones |
+| 11675 | 11711 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11712 | 11730 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 11731 | 11783 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 11784 | 12086 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 12087 | 12107 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -185,6 +185,56 @@ Y se actualiza el símbolo al avanzar:
 ---
 
 ## 🎯 EN PROGRESO
+
+### AUD — El contrato de producto deja de depender de que alguien se acuerde · 2026-10-19
+
+> Edgar: *«nosotros sólo nos basamos en lo visual, accesibilidad, comprensión, sencillez.
+> ¿existen reglas que hagan esto?»*
+>
+> Sí: **41 reglas ejecutables** (31 compuertas + las 10 de `check-pantalla.js`). Lo que no existía
+> era el reparto parejo. Medido ese día, eje por eje:
+>
+> | Eje | Documentado en | Compuerta antes de hoy |
+> |---|---|---|
+> | Visual | `DESIGN.md` §Typography · §Color · §Motion · §R | ✅ `estilos`, `tokens CSS`, `motion` |
+> | Accesibilidad | §Ing.UI 3 (AA piso duro, APCA Lc≥75) | ⚠️ sólo `teclado` y `sin emojis` |
+> | Comprensión | §Jerarquía del dato · §Ing.UI 2 · §P · §G | ❌ existían y **no corrían** |
+> | Sencillez | **§10 Leyes de interacción (BINDING)** | ❌ ninguna |
+
+- [x] **[AUD.3]** 🧪 **`check:pantalla` entró a las compuertas, y hasta hoy no la corría NADIE.**
+      Escrita en `[AUD.1]`, quedó fuera de los dos runners: **cero menciones en `ci.yml`, cero en
+      el `pre-push`**. La skill `diseno` la pedía — pero *una skill es una instrucción, no un
+      mecanismo*, que es la misma lección que costó los 9 Python huérfanos. Lo que midió no
+      ejecutarse: **247 de 267 pantallas con falla, 629 fallas** (§2 matriz de estados 203 · §9
+      frescura 197 · Q.1 answer-first 154 · O.4 48 · D.8 13 · D.7 11 · D.4c 3).
+
+      ⛔ **Tres defectos impedían que fuera compuerta, y los tres eran del script:** sin argumento
+      salía con `exit 1` y un texto **sin rutas** —que `gate-push` lee como «deuda ajena» y deja
+      pasar, textual el defecto que ese archivo documenta en `rutasQueNombra()`—; imprimía el
+      nombre del componente en vez de la ruta; y terminaba en `process.exit(0)` **siempre**, o sea
+      que no podía ponerse roja ni queriendo.
+
+      ⭐ **Nace con la deuda sellada y frena sólo lo NUEVO.** `scripts/check-pantalla.deuda.json`
+      guarda **ruta → ids de regla**, y ahí diverge del precedente (`check-keyboard-nav.deuda.json`
+      guarda una lista plana): allá una pantalla falla o no, acá puede fallar por diez reglas, y
+      con lista plana una pantalla que ya debe `§2` podría sumar `Q.1` mañana **y pasar invisible**.
+
+      🧪 **Prueba negativa ejercida en los DOS niveles.** (1) Rota una pantalla limpia
+      (`comercial-egresos`), el barrido pasó a `1 NUEVA` y `exit 1`, con las otras 629 quietas.
+      (2) End-to-end: rota `finanzas-caos` y simulado el push de su commit, `gate-push` **bloqueó
+      con exit 1 y la atribuyó por ruta**, mientras `boundary`, `sidebar-tabs` y `sin emojis`
+      seguían informándose como deuda ajena. Restauradas las dos; barrido en `0 NUEVA(S)`.
+
+- [ ] **[AUD.4]** ⬜ **Compuerta de contraste** — el agujero más grave de accesibilidad. `DESIGN.md`
+      §Ing.UI 3 lo manda (WCAG AA piso innegociable, APCA Lc≥75 en texto ≤14px) y **nada lo mide**:
+      que `--action-ink` da 3.39 se descubrió a mano. Tampoco hay nada para `forced-colors` (Alto
+      Contraste de Windows), que el propio doc llama «el tercer modo» y la flota es Windows.
+
+- [ ] **[AUD.5]** ⬜ **La primera compuerta de SENCILLEZ.** Las 7 leyes de §10 son BINDING y
+      automatizables —Miller (>6 campos consecutivos sin separador), Tesler (⛔ datos vitales tras
+      acordeones en desktop), Von Restorff (acción destructiva nunca en `--action`), Hick (`⌘K` con
+      20+ destinos)—, y ninguna tiene instrumento. ⚠️ **Decisión de Edgar antes del código:** cuál
+      se mide primero, porque define qué va a significar «sencillo» en este proyecto.
 
 ### Fase MOS — Buscador de mostrador y productos no registrados · 2026-10-16 · rama `feat/mostrador-buscador-no-registrados`
 
@@ -3022,6 +3072,11 @@ dato → backend → frontend.
 | **RD.14 identidad normalizada** | 🧪 2026-10-02 | La vista llevaba las 11 rutas en un **`VALUES` a mano**. La tabla ya existía con su PK y su FK, **vacía**: `commercial.warehouses` (`kepler_code`, `source_warehouse_id`) y `analytics.transfer_dest_map` (`warehouse_id`, con el nombre del chofer en `dest_label`). Se poblaron y la vista pasó a ser un JOIN. ⭐ **La membresía es DATO**: Morelia 321/322 caen solas por no tener destino de embarque, no por una lista que alguien tenga que acordarse de editar |
 | **RD.15 el presupuesto es 0.5 s** | 🧪 2026-10-02 | Medido con la consulta **del servicio** (no una parecida — ése fue el error que publicó «664 ms»): **1,775 ms / 1.1M buffers**. Normalizar la **empeoró a 2,988–4,960 ms** porque la identidad quedó derivando `carga_desde` con un `LATERAL` contra `kdm1` **en el camino caliente**, y es un `min()` que no cambia nunca. Dos matvistas (ledger + identidad de 11 filas) → **77–98 ms**. El presupuesto es ahora una **aserción del candado** |
 | **RD.16 auditoría de las 3 capas** | 🧪 2026-10-02 | 13 defectos; 8 arreglados (P0+P1). Los cuatro graves: el veredicto de pantalla **afirmaba «los camiones no acumulan» pase lo que pase** (ahora sale del número); el detalle **truncaba en las 11 rutas** sin decirlo (549–938 pares contra un tope de 500, y cortaba justo los 633 `sin_costo` que la cabecera declara); `data_as_of` publicaba la frescura **del dato y no la de la copia**; y un error de red en el panel se pintaba como **estado vacío**. Más `cuadra` ternario, `null` en vez de ceros dibujados, veredicto compuesto, y el ledger **dependiendo** de la identidad (no sólo yendo después). Candado **35 ✓ / 0 ✗** |
+| **RD.71 el universo DECLARA el estado de su fuente** | 🚀 2026-10-19 | mig **20261019141120** (batch 957 en prod). `v_rd_commission_universe` decidía `veredicto` mirando la config **primero**: una fila con `activo = true` salía `comisiona` **sin preguntarle nunca a la venta**. Por eso dos fantasmas llevaban meses cobrando — la **321 con 139 días** sin un dato y la **322 con 110**, las dos con **$0 en 30 días** — mientras **8 rutas que no cobran vendían $2,222,937.33** en 30 días. La vista ahora publica `ultimo_dia_con_dato · dias_sin_dato · subtotal_30d · fuente_estado · tiene_dato_futuro`. ⭐ **Aditiva a propósito**: `veredicto` y `comisiona` salen **idénticos en las 22 rutas** (verificado columna por columna contra la vista viva antes de aplicar) porque **a quién se le paga es decisión de Dirección (D1), no de una vista** — la vista describe la contradicción, no la resuelve. ⛔ **La PODA del dato futuro es lo que sostiene la columna**: la ruta **22** tiene una venta fechada **2026-12-06** y sin `FILTER (business_date <= current_date)` sale con `dias_sin_dato = -48`, o sea **la más fresca de todas** — la que tiene el dato corrupto es justo la que menos sospecha levanta. Los dos hechos van en columnas separadas: pegarlos hace desaparecer al segundo. Candado `test-newdb-rd-commission-universe-fuente.js` **15 ✔ / 0 ✖ contra prod**, con prueba negativa de la poda y su control, probado además con **dos mutaciones sobre base real** (quitar la poda · meter la frescura en el veredicto) que ponen 2 asserts en rojo cada una. **DECLARA lo que no cubre**: que la pantalla lo pinte (`GET /universe` **no tiene ni un consumidor en el frontend** — por eso los fantasmas eran invisibles) y a quién pagarle cuando una ruta se renombra |
+| **RD.72 el latido mira el DÍA del dato, no la hora de la carga** | 🔨 2026-10-19 | Sonda `rd_route_push_dia` en `db-health`. ⭐⭐ **La camioneta sube todos los días y lo que sube no tiene fechas nuevas.** Medido a las 15:45: el push de la **504** había corrido **26 min antes** (15:19) y el día más nuevo que traía era el **1-oct** — reescribió el 30-sep y el 1-oct sin un solo día nuevo. **18 días, cero filas en la quincena que cierra el 21.** El 501 va igual (5 días). ⛔ **Ningún sensor podía verlo, y no por falta de sensores**: un latido de `cron_runs` está verde **y tiene razón** (el job corre puntual cada hora), y `route_sales` —que ya había resuelto el eje «qué ruta», midiendo la más rezagada y no el máximo— corre sobre `sales_by_route_monthly`, un rollup **MENSUAL** cuya columna `month` vale `2026-10-01` para las quince rutas: **no tiene grano de día**. ⭐ O sea que el eje que faltaba no era *qué ruta* sino **qué reloj** — `business_date` contra `imported_at`; un UPSERT que escribe `now()` deja la carga siempre fresca con el dato congelado. ⚠️ Las dos de fuente **muerta** (321, 322) quedan **fuera del veredicto y nombradas en la nota**: adentro, la fila viviría en rojo para siempre por una decisión pendiente de Dirección, y una alarma que grita siempre se aprende a ignorar (`[RD.53]`). Umbrales del **hueco del dato, no del pulgar**: normales 16–64 h, el 501 resbalando 136 h, el 504 pegado 448 h ⇒ `warnH: 96` cae entre 64 y 136, `critH: 192` entre 136 y 448. SQL **24 ms** contra prod; `nx test api db-health` **13/13**. ⚠️ **Falta desplegar**: la sonda sólo se puede verificar en prod corriendo, y `auto-deploy.sh` tiene su renglón del crontab comentado |
+| **RD.80 el padrón deja de ser invisible** | 🔨 2026-10-19 | Pestaña **Padrón** en `/comercial/comisiones`. ⛔ **`GET /commissions/universe` existía desde `[RD.17]` y NO tenía un solo consumidor en el frontend** — el universo se derivaba, se publicaba, y la pantalla nunca lo mostraba. Por eso la **321 pudo pasar 139 días cobrando sin vender** y nadie lo vio. ⚠️ La pestaña «No comisionan» **no podía** contestarlo: sale de las LÍNEAS DE LA CORRIDA, o sea del espejo del libro, y el libro no tiene filas para las rutas nuevas (2V001, 2V003) ni para una que dejó de aparecer. La nueva no mira la corrida: mira el padrón entero, exista o no la quincena. Cuatro hallazgos con nombre, ordenados por lo que mueve un depósito: `cobra_sin_fuente` (rojo) · `fuente_rezagada` · `dato_imposible` (venta con fecha futura) · `vende_sin_cobrar` (con su monto, para que la exclusión se pueda **revisar** en vez de ser una lista de códigos raros). ⭐ **La pantalla DECLARA, no decide**: que la 321 siga cobrando o que las 2V queden fuera es decisión de Dirección (**D1**), y el pie lo dice en la cara. Reusa `CommissionUniverseRow` y `commissionUniverse()`, que **ya existían sin usarse** — ninguna pieza nueva. Compuertas: `check:pantalla` **✔ 0 errores semánticos · ✔ cumple las 10 reglas**, el repo sigue en 5 fallas (**ninguna nueva**) · `check:templates` ✔ 465 · `check:tokens --todo` ✔ 864 · `check:tables --todo` ✔ ninguna tabla nueva sin salida en estrecho · 0 emojis en 184 líneas. ⚠️ **Sin validación visual**: no se levanta nada en local; lo más probable de ajustar es el ancho de la columna «Último día con dato», que lleva dos datos en una celda |
+| **RD.71.1 la 321 y la 322 pasaron de RD a vecinal — salen del padrón** | 🔨 2026-10-20 | mig **20261020090646**. ⭐ **Resuelve la decisión D1**: Edgar, 2026-10-20 — *«si son sus relevos, pasaron de RD a RV»*, o sea que **la comisión de Ruta Directa sigue al TIPO DE RUTA, no al chofer**. El testigo que le pone fecha es **el libro**, el registro de lo que se depositó: su último renglón para las dos es la **Q14 (02-jul → 15-jul)** — la 321 cobró $3,390 ahí y **nunca más**; la 322 **no cobró en todo 2026** (las 14 quincenas en `bajo_umbral`). De la Q15 en adelante ninguna tiene renglón. **El negocio hizo el cambio en julio y lo único que quedó atrás fue el padrón del sistema**, que las seguía publicando como `comisiona` con la fuente muerta hace **140 y 111 días** y **$0 en 30 días**. Operan en Kepler como `2V001`/`2V003` desde el 2026-09-08 (`[RD.61]`), venden **$751,354.38 en 30 días**, y su veredicto `fuera_no_es_camion` con esta decisión queda **correcto**. ⛔⛔ **Ya se hizo una vez y se revirtió el mismo día** (`[RD.61]`): la evidencia de entonces era toda cierta y llevaba a la conclusión equivocada porque **faltaba el hecho de negocio**. Por eso el motivo va **ESCRITO EN LA FILA**, y la migración **agrega la columna `notes`, que no existía** — una fila con `activo=false` y sin motivo se reactiva sola la próxima vez que alguien mire la tabla. **No toca nada de lo pagado**: las 14 quincenas siguen `pagado` e intocables. Probada contra base real desechable: `up` **2 de 2**, idempotente (2ª corrida 0 apagadas, nota sin duplicar), `down` exacto (13 activas, 0 con nota). El `down` quita la nota por **comparación literal y no por regex**, porque el motivo trae `.`, `(`, `|` y `-` — es la trampa de `[RD.60.1]`. ⚠️ **Deuda con nombre**: `commission_route_config` **no tiene pantalla**, así que cada alta/baja de ruta es un despliegue. ⚠️ **Falta aplicar a prod**, y esta vez por `ops/prod/aplicar-migracion.sh`, que exige que el archivo esté en `origin/main` |
+| **RD.73.1 los dos huecos de estructura que encontró la revisión de C0** | 🔨 2026-10-20 | mig **20261020092424**. La revisión de las tres capas (§7.1 del plan) salió **sólida** —RLS forzado en las 9 tablas, **36 constraints**, índices naturales, las **20 corridas cuadran al centavo** contra la suma de sus líneas, cero huérfanos— y dejó **dos** cosas, las dos de forma. **(1)** `commission_engine_lines` era **la única de las nueve sin audit fields** y **sin FK a `tenant_id`**: tenía `computed_at`, que dice *cuándo* se calculó y no **quién lo mandó calcular** — y la llena un botón que cuesta ~4 min de lectura contra prod. ⛔ **No se le pone `deleted_at` a propósito**: el contraste escribe con `DELETE … WHERE (tenant_id, period_id)` + `INSERT`, o sea borrado **físico**, así que un borrado lógico sería una columna **que ningún consumidor filtra** — la forma de fabricar el defecto de mañana. **(2)** `commission_route_config` **no podía decir desde cuándo** una ruta dejó de comisionar: sólo `activo = false`, sin fecha, y por eso `[RD.71.1]` tuvo que escribir el 2026-07-15 dentro de un texto libre. ⭐ Se agrega **`activo_hasta`, NO un par `valid_from`/`valid_to`**: una vigencia real exige **N filas por ruta**, y el índice `(tenant_id, route_code)` lo prohíbe con razón — `v_rd_commission_universe` hace `LEFT JOIN … ON route_code` y una segunda fila **multiplica la ruta, que ahí significa cobrarla dos veces**. `activo_hasta` da el hecho que falta sin tocar la cardinalidad ni a los nueve consumidores. ⚠️ **Declarado lo que NO resuelve**: no permite reconstruir el padrón a una fecha pasada; la vigencia completa queda como deuda con nombre. Además **rellena `activo_hasta` de 321/322** con el `date_to` de la Q14, con tres guardas (sólo esas rutas · sólo si ya están apagadas · sólo si nadie puso fecha). Probada contra base real desechable: `up` completo · backfill **2 de 3** (la ruta activa no se toca) · 2ª pasada **no-op** · `down` deja la tabla exacta. ⭐ **La prueba de idempotencia cazó un defecto propio**: la guarda de la FK buscaba `pg_get_constraintdef LIKE '%identity.tenants%'` y Postgres **omite el esquema** cuando está en el `search_path`, así que la 2ª pasada reventaba; se cambió a buscar por **nombre de constraint**. ⭐ Y corrigió un hallazgo de mi propia revisión: `commission_beneficiary_config` **no está muerta** —el servicio la lee para la deducción por persona y **ya tiene vigencia**—, está **vacía**, y las 20 corridas publican `total_deduccion`/`total_neto` en **NULL** y no en 0. Eso es ADR-056 bien aplicado: no es hueco de C0, es la decisión **D3** |
 
 ⚠️ **Deuda P2 de RD.16, declarada con nombre** (fuera de alcance por decisión de Edgar): **B-5** `pares` cuenta la fila fantasma del LEFT JOIN · **B-6** el candado no ejercita el rango por defecto del servicio (`hasta = hoy`; medido 0 filas futuras, divergencia latente) · **F-4** el rango y la valuación **no van en la URL** (DESIGN §10) · **F-5** el centinela `'2000-01-01'` replicado en el front · **F-6** `rango` es campo plano con `ngModel` en componente zoneless · **D-2** si el ODS deja de replicar una rama **la ruta desaparece sin aviso** (la `505` lleva 22 días sin carga) · **D-3** un almacén madre con `kepler_code` NULL daría carga 0 en silencio.
 
@@ -6750,6 +6805,28 @@ guarda de 20 %). El script existe y tiene guardas, **nunca se agendó**, y borra
 decisión · `FEEDS_INGEST_KEY` en texto plano en los launchers (→ INFRA.1.4) · `FeedGuardian` mata por
 mtime de log (ver OBS.8.2).
 
+### OPS.LIMPIEZA — Procesos con latido en rojo sin dato malo (diagnóstico 2026-10-19, 11 procesos)
+> 📄 **Registro completo —qué se cambió, evidencia, cómo verificar y cómo revertir cada item—:** [`OPS_LIMPIEZA_PROCESOS.md`](OPS_LIMPIEZA_PROCESOS.md). Migración `20261019144127`: ✅ **aplicada en prod** 2026-10-19 15:16:37, lote 960 (la aplicó otra sesión); verificado 0 filas huérfanas.
+- [ ] 🔨 **OPS.LIMPIEZA.1** (2026-10-19) `ui_usage_flush` late `ok` sin tráfico (el motivo iba en `fallas` → 38.8 % de latidos en `error`), con spec y prueba negativa (rojo con la línea vieja) · migración `20261019144127` borra 3 latidos huérfanos (`rd_commission_runner`, `fact_replenishment_plan` sin sufijo, `prueba_no_usar`) · borrada la copia vieja de `[RD.34]` en `migraciones-en-espera/`. **Falta:** push + aplicar la migración (sólo DELETE → NO_MEDIDO, frena el despliegue si no se aplica) + verificar en `cron_runs`.
+- [ ] ⚠️ **OPS.LIMPIEZA.2** `feed_route_stock` / `import-route-stock.js`: la foto ya se lee en vivo de `mv_rd_route_photo` y nada lee `route_counts source=kepler` (1 fila, 06-oct), pero `check-importer-sin-agenda.js` lo declara deuda A AGENDAR. **Decide Edgar** ¿retirar o agendar?
+- [ ] 🔨 **OPS.LIMPIEZA.3** (2026-10-19) `ods_publish_tienda` en rojo perpetuo. **Medido en el log de `feeds-cron` (k3s `ingesta`):** 35/35 pasadas con las MISMAS 2 llaves de `kdii` (`89535/04`, `95029/01`) y `aplicadas=0` → el UPSERT sin churn las ve iguales por VALOR y la huella `md5(fila::text)` distintas por TEXTO; no convergen nunca. La columna exacta NO se midió (exige leer la base de la tienda con su credencial). Arreglo: tras el UPSERT normal, las que siguen distintas se reescriben con `meta.forceRewrite` (opt-in nuevo de `raw-upsert`, default sin cambio; tope 50/ciclo, arriba se declaran) · el latido nombra las llaves en vez de `87086/87086` · el separador invisible de la llave se pinta `/` (por él, `89535␟04` se leía `8953504` y no existía). `test-newdb-raw-upsert.js` paso 6 cubre el caso — **NO CORRIDA local** (Docker caído); la corre `pruebas-db` en CI. **Falta:** push + que `feeds-cron` tome la imagen nueva + ver el latido `ok`.
+- [ ] 🔨 **OPS.LIMPIEZA.4** (2026-10-19) `feed_catalog` › `import-brands-lineas.js` lee `kepler_ods.kdig` (una consulta a la misma base) en vez de abrir 9 conexiones con `stockMap()` — que daba el **POS remoto** de cada sucursal, no la réplica, y saltaba una caída con un `⚠` mudo. Precedencia conservada (`ORDER BY sucursal`, primera gana). **Medido en prod:** 9 sucursales, 546–548 líneas c/u, 549 códigos, **1** con nombre distinto entre sucursales (`002` KI´SNACKS vs MONDELEZ) → gana la 00 antes y después. Fuente vacía ahora FALLA en vez de decidir sobre nada. **Sin dry-run contra prod** (equivalencia medida por SQL). **Falta:** push + ver la corrida del sábado 02:00.
+- [ ] 🔨 **OPS.LIMPIEZA.5** (2026-10-19) Investigado, en sólo lectura. **Parte de los rojos es el incidente del disco** (`VL.9.10b`/`OPS.DISCO.3`): el kubelet desalojó **toda prod** (pg-prod, api, caddy, cloudflared, portal, vendor, redis, worker e ingesta) entre **23:35 y 23:36 del 18-oct** y nada volvió hasta los reinicios de 07:53/09:10 → el nocturno y `ods-reconcile-full` del 19-oct no corrieron (este último `Failed`). Disco: 86 % el 15-oct → 94 % el 19-oct, con el aviso de `image_gc` en el journal desde el 15-oct, sin que nadie lo viera. Lo propio de cada proceso:
+  - `cdc_reconcile_full`: el aborto (>60 %) es del **18-oct 02:10**, antes del desalojo; la tabla **no se sabe**: el latido no la nombraba y el log murió con el pod. Arreglado: el latido nombra `tabla@sucursal` + fracción. Si resulta poda por antigüedad, ya existe `podaCol` para declararla.
+  - `kepler_sales_fact_full` **no está «corriendo 35 h»**: `last_finish` 03:01:33.177 y `last_start` .186 (**9 ms después**) — ❌ **diagnóstico EQUIVOCADO, corregido 2026-10-20:** esos 9 ms los produce UN solo `hb.begin()` (cierra la corrida colgada y abre la nueva); la causa real es **OPS.LIMPIEZA.9** (falta de memoria). El 2º planificador sí existía, pero no explicaba esto. ⛔ **Hallazgo: un 2º planificador.** El contenedor Compose `feeds-cron` (`trade-ingest:latest`, creado el 16-oct 17:46) está **vivo con la MISMA agenda** que el pod k3s `feeds-cron` (nocturno 03:00, `publish-tienda`, …). Corrió el nocturno el 17 y el 19-oct (falla a los ~340 s: `EAI_AGAIN pg-prod`, el nombre del Postgres de Compose parado). Lo **arrancó alguien a las 15:09:45 del 19-oct**, sin rastro en git. **No se tocó** (es infra de prod y otra sesión opera `md` hoy) → **decide quien lleve `OPS.DISCO`/Edgar: pararlo** (`docker update --restart=no` + `stop`), si no, cada noche duplica el nocturno y fabrica latidos cruzados.
+- [ ] ⚠️ **OPS.LIMPIEZA.6** **Decide Edgar:** apagar `caja_general_ship` + `caja_general_replica_all` (copian un Access muerto desde el 10-oct) y prender o no `caja_autollenado`.
+- [ ] 🔨 **OPS.LIMPIEZA.7** (2026-10-19) **Compose fuera de `md`.** El `feeds-cron` de Compose lo reiniciaba `ods-autoheal` cada ~6.7 min (chequeo de salud roto: `EAI_AGAIN pg-prod`), no una persona. Repo: `autoheal` pasa a `retirado-k3s` (era el único servicio sin perfil). ✅ **En `md`, hecho 15:27:** `ods-autoheal` y `feeds-cron` detenidos con `restart=no` (verificado con `docker inspect`; k3s `ingesta/feeds-cron` sigue 1/1). **Verificar mañana:** que `kepler_sales_fact_full` cierre su latido con el nocturno corriendo UNA sola vez. Quedan en Compose, sin equivalente en k3s: `prod-backup` y `prod-registry` → migrarlos es otro item, con su propio riesgo.
+- [ ] 🚀 **OPS.LIMPIEZA.8** — ✅ **CORTADO 2026-10-19 ~16:00** (en `md`, por una persona): el registro y el respaldo corren en k3s; `prod-registry` y `prod-backup` detenidos con `restart=no`; en Docker sólo quedan herramientas (`sonar-*`, `obs-netdata`). `_catalog` con los mismos 8 repos; `pgbackrest check` OK. **Para cerrar (✅):** la noche del 19-oct, dump de las 22:00 + pgBackRest de las 23:30 + `deploy.sh --pitr`; y entonces `migracion: migrado` + `retirado-k3s` en `ops/prod/docker-compose.yml`. Antes: **PREPARADO 2026-10-19:** `ops/k3s/63-registry.deployment.yaml` + `53-prod-backup.deployment.yaml` (`migracion: preparado`, validados con `--dry-run=server`, `check:k3s` y `check:base-tags` verdes en lo propio). **Falta el corte en `md`**, fuera de horario hábil, con la receta de `OPS_LIMPIEZA_PROCESOS.md` › OPS.LIMPIEZA.8 (pasos 0/A/B, y C la noche siguiente). ⚠️ De paso: `check:base-tags` marca `52-pg-prod` con la etiqueta vieja (cambió `Dockerfile.pg`/`pgbackrest.conf` sin bump) → `pg-prod` corre con la configuración vieja. **Sacar de Compose lo último: `prod-registry` y `prod-backup` → k3s** (pedido del PM 2026-10-19: «Docker Compose no debería existir»). Es item, no fase (Fase 0 no abre fases). Medido 2026-10-19:
+  - `prod-registry` (`registry:2`, `127.0.0.1:5000`, volumen `prod_registry-data`) es **crítico**: TODAS las imágenes propias de k3s salen de ahí (`localhost:5000/trade-prod-{api,portal,vendor,caddy}`, `trade-ingest`; `registries.yaml` `[K3S.21]`). Si cae mientras el kubelet reprograma pods —lo que pasó en el desalojo del 18-oct— los pods nuevos quedan en `ImagePullBackOff`.
+  - `prod-backup` (pgBackRest) monta el volumen de datos de `pg-prod` (`prod_pg-prod-data`), el socket `~/pgsock`, el repo `~/pgbackrest` y `~/backups`. Lo recreó `VL.9.10b` hoy.
+  - **D1 registro:** (a) Deployment `registry:2` en k3s sobre el MISMO directorio (hostPath, sin copiar imágenes) · (b) sin registro: `k3s ctr images import` desde `deploy.sh`. Recomendado **(a)**: no cambia `registries.yaml` ni los manifiestos, y se revierte con un `docker start`.
+  - **D2 respaldo:** CronJob k3s con hostPath a los mismos directorios. ⛔ No se apaga el contenedor hasta que el CronJob tenga **un completo + un incremental verificados** (`pgbackrest info` y prueba de restauración en un destino seguro). El respaldo no puede quedarse sin correr ni un día.
+  - **Hecho cuando:** `docker ps` en `md` sólo lista herramientas (`sonar-*`, `obs-netdata`) · un rollout de `api` baja la imagen del registro en k3s (prueba negativa: con el contenedor viejo detenido) · `pgbackrest info` muestra un respaldo del CronJob de esa misma noche · `ops/prod/` y `ops/vl/` declaran los dos servicios en `retirado-k3s`.
+  - **Riesgo:** fuera de horario hábil (regla 9). El registro, sin despliegues en curso; el respaldo, entre corridas. Dueño: quien lleve `OPS.DISCO` / infra.
+- [ ] 🔨 **OPS.LIMPIEZA.9** (2026-10-20) — **ARREGLADO EN CÓDIGO: por mes.** `import-sales-fact.js` procesa 14 ventanas mensuales en vez de 13 meses de golpe (~1/13 de memoria; NO se subió RAM al pod). Equivalencia medida en prod: 1,051,987 filas y $203,763,445.31 iguales de una vez y por ventanas; 0 solapes. **Falta:** push + imagen nueva de `feeds-cron` + ver el nocturno 03:00 cerrar `ok`. Diagnóstico: **El refresco completo de ventas (13 meses) muere por MEMORIA desde la mudanza a k3s.** Log de `ingesta/feeds-cron` 20-oct 03:00: `import-sales-fact.js` → `JavaScript heap out of memory` a los 86.5 s (heap ~511 MB). Pod con `limits.memory: 1Gi` → `heap_size_limit` medido **524 MB**, `NODE_OPTIONS` vacío; en Compose no había límite. Es el ÚNICO que corrige ventas >2 días atrás. Arreglo propuesto: más memoria al pod + heap explícito al nocturno, **midiendo antes la memoria libre del nodo** (comparte con `pg-prod`); a futuro, procesar por lotes. **No medido:** desde qué noche falla.
+- [ ] 🔨 **OPS.LIMPIEZA.10** (2026-10-20) — **ARREGLADO EN CÓDIGO.** `00/kdij` ya estaba declarada podada; el corte era `min(c10)` y 18 filas rezagadas del origen (dic-2025, abr-2026) lo corrían a 2025-12-03. Ahora el corte es donde empieza la cobertura ≥90 % día por día (medido: exacto desde 22-sep) → 8 bajas reales en vez de 61,026. **Falta:** imagen de ingesta + ver `cdc_reconcile_full` 02:10 en `ok`. Antes: `cdc_reconcile_full` ya nombra la tabla: **`kdij@00 61026/65146 (94%)`** → el freno abortó bien. Investigar qué es `kdij` y si la réplica de la 00 poda por antigüedad (→ declarar con `podaCol`) o lee incompleto.
+- ➡️ `caos_ingreso_conciliar` (dos cálculos, corte a las 18:00) NO va acá: toca dinero de Caja General → fase CGA.
+
 ---
 
 ## Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md)
@@ -8191,6 +8268,114 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   `TP_IT_DB=<conexión a la base local de Docker> npx vitest run <spec> --config libs/<lib>/vitest.config.ts`. Deuda: `weekView` son 21 transacciones en serie y cada guardado recarga
   la semana entera; `todayIso` no se actualiza si la pantalla queda abierta tras medianoche.
 
+### TP.17–TP.20 — Los cinco objetivos del plan del 16-oct — 🧪 en local, **nada desplegado** (2026-10-16 → 2026-10-19)
+
+> Plan completo, medición y bitácora: [`FASES/FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md)
+> §10–§25. ADR-094 (la deuda se DERIVA; autorizar = liberar el día) y ADR-096 (dos pantallas del
+> mismo registro se unifican por el REGISTRO, no por la lista).
+> ⛔ **Ninguno de estos items está en producción.** `auto-deploy.sh` tiene su renglón del `crontab`
+> comentado y no se pidió push. La métrica de cada objetivo **no se movió**: lo construido vive en
+> `main` local y en el CI, no en `md`.
+
+- [ ] 🧪 **TP.17 + TP.18** — **O1: la deuda que se ve es la que se puede programar.** El Calendario
+  veía el **2.0 %** de la deuda (37 obligaciones capturadas) contra **2,894 documentos ·
+  $133,131,122** vivos en Kepler. Se agregó un **cuarto origen derivado** (`kepler_payable`) sobre
+  `analytics.v_supplier_payables` — **sin importer y sin tabla nueva** (ADR-094), con llave
+  determinista `md5(…)::uuid` para puentear la clave natural compuesta al `uuid` del motor.
+  **Arbitrado contra el ECA**: desviación **0.13 %**. Mig `20261016171340` (CHECK del cuarto
+  origen) **aplicada en prod, lote 950**. ⚠️ Métrica remedida: **sigue 2.0 %** — no desplegado.
+  **Deudas con nombre:** (a) el techo de 1,000 filas ocultaba **1,895 docs · $105,683,725** (79 %
+  del dinero) y ahora se **declara** («N de M») pero **no hay paginación real**; (b) latencia p90
+  **555 ms** contra el límite duro de 500 — el arreglo es un índice sobre
+  `kepler_ods.kdxf (sucursal, c7, c8, btrim(c9))`, que es **DDL en prod y necesita autorización +
+  ventana fuera de horario**.
+- [ ] 🧪 **TP.18.3 + TP.20.1** — **O2: el descuento que vence se puede accionar.** Pronto pago veía
+  vencer **$2,420,559** todavía dentro de ventana y no tenía a dónde mandarlos. Ahora publica
+  `obligation_source`/`obligation_id`/`reservado`/`pagado`/`programable` y tiene botón
+  **«Programar»** (gated por `FINANCE_PAYMENTS_GESTIONAR`) que escribe en el Calendario con la
+  **misma regla de dedupe**: si Compras ya capturó la factura, manda esa obligación; si no, la
+  derivada.
+- [ ] 🧪 **TP.19.3 + TP.19.4 + TP.20.2** — **O3: un pago se lee de punta a punta.** `linkKeplerPayment()`
+  + `sugerirKeplerPayment()` (el documento del ERP se **propone**, no se teclea) y «Pagos a
+  proveedor» muestra **de qué día autorizado salió** cada pago. Mig `20261016185746`
+  (`kepler_payment_*` + índice único parcial). ⚠️ Métrica: **0 % → 0 %**, porque **nunca se ha
+  autorizado un día** (0 de 5 lotes liberados) y no hay pago ejecutado que ligar.
+- [ ] ⏸️ **TP.19.4 / TP.20.4-original** — **O4: el libro de Tesorería deja de teclearse. NO se
+  construyó, y la razón está medida.** Derivar el libro del calendario habría producido un libro
+  **vacío**: cero días autorizados. En su lugar se arregló lo que sí estaba roto —**PP.10**: la
+  conciliación era ciega a los meses sin libro cargado y escondía **$91,720,679**. El libro lleva
+  **72 días sin actualizarse** y hacerlo auto-alimentado exige refactorizar
+  `import-payment-program.js` (un IIFE único): **es una fase, no un item**.
+- [ ] 🧪 **TP.20.3** — **O5: una sola puerta a Pagos.** Las cuatro pantallas (Pronto pago ·
+  Calendario · Pagos a proveedor · Programa de pagos) pasan de **4 renglones de menú a 1 entrada
+  con 4 pestañas**, en el orden del ciclo del dinero (se debe → se programa → se paga → se audita).
+  ⛔ **Sin shell de ruta a propósito**: `/finanzas` ya gastó su único padre `path: ''` en Gastos, y
+  meter un segundo arriesga que `/finanzas/mis-gastos` deje de resolver — y eso **no se puede
+  comprobar sin levantar la app**, que está prohibido. La barra se embebe en cada pantalla.
+- [ ] 🧪 **TP.20.4** — **La urgencia del descuento, donde se arma el día** (2026-10-19). El
+  inventario feature×feature (§23) **contradijo** la propuesta que lo originó: fusionar las listas
+  rompe una de las dos (el Calendario agrupa por beneficiario, Pronto pago ordena por urgencia).
+  En su lugar, la ventana viaja con la fila del Calendario y hay filtro **«Descuento por vencer»**.
+  ⚠️ Cambió la forma respecto de lo acordado: eran **tres columnas**, y al abrir la tabla resultó un
+  panel estrecho de cuatro con texto cortado — la señal va **dentro de la celda**, como chip, y
+  **sólo cuando hay algo que ganar**. ⚠️ Las 37 obligaciones **capturadas** salen `sin_medir`: darles
+  ventana es un join más en una consulta que ya está en el límite de latencia.
+- [ ] 🧪 **TP.20.5** — **La ficha de la obligación: la información de una factura vive junta**
+  (2026-10-19, ADR-096). Lo que §23 no vio: **la lista no es la unidad de unificación, el registro
+  sí**. Las cuatro pantallas son cuatro preguntas sobre el mismo sustantivo. Se agregó el tipo
+  `oblig` al resolvedor `entity-ref` —el primitivo **ya existía** y Finanzas era la única que no lo
+  usaba, porque **la puerta exigía sólo permisos de Compras** y a Tesorería le daba **403** sobre
+  una ficha que es suya—. El vínculo factura↔pago es **estructural** (`kepler_ods.kdxf`, la tabla
+  con la que el ERP aplica un pago contra un documento, y la misma que alimenta el saldo), **no un
+  cruce por monto+mes**: ese cruce es el de los **$273 M indefendibles de PP.4**. Medido en prod:
+  **2,974 facturas con saldo · $139,829,081**, 333 con pago parcial; de 752 aplicaciones de
+  facturas vivas, **103 (13.7 %)** resuelven a ficha de pago — y ese 13.7 % es el **alcance** del
+  espejo, no un defecto (las 498 que faltan son nómina/comisiones y notas de crédito X-D-55 /
+  ajustes X-D-40, que aplican contra la factura pero **no son un pago con comprobante**): se
+  **nombran** y no se enlazan. **10/10** de integración contra Postgres real con **tres pruebas
+  negativas**. ⛔ **Programa de pagos queda fuera y no por olvido**: sigue sin llave (no guarda el
+  folio del pago de Kepler).
+- [x] **TP.18.7** — **deuda saldada el 2026-10-19:** `keplerPayableId()` ya no vive dentro del
+  service. Junto con la ventana de pronto pago, bajó a `libs/contracts` **por subruta** (el barrel
+  raíz lo cargan las 3 apps Angular y esto importa `node:crypto`). De paso, *Pronto pago* tenía
+  **dos copias más** del cálculo de la ventana en su propio archivo: ahora **cuatro consultas
+  llaman a la misma función**.
+
+- [ ] 🧪 **TP.21.1 + TP.21.2** — **O6 (agregado por Edgar el 2026-10-20): fusionar lo que SÍ se
+  puede.** El *Programa de pagos* y el *Calendario* no son dos temas: son **la misma línea de
+  tiempo —el día en que sale el dinero— cortada en dos**, con el pasado en un Excel y el futuro en
+  el sistema. Medido en prod: el libro llega al **2026-08-28** (2,716 filas · 175 días ·
+  **$375,117,550**), el calendario empieza el **2026-10-16** (6 días, **todos en borrador**),
+  **0 días en común** y **53 días** en medio de los que **ninguna de las dos pantallas decía
+  nada**. Ahora `weekView()` publica por día `libro: {monto, n, mes_cargado}` en **una** consulta
+  para los siete (el método ya iba en 21 transacciones en serie, y sumar siete más por una tira de
+  encabezado sería pagar el doble por la mitad del dato), y la tira de semana lo pinta:
+  *«libro: $X · N»* donde hay pagos y **«libro sin cargar»** en ámbar donde el Excel no tiene ese
+  mes — ⚠️ **nunca un cero mudo**: es el mismo defecto que `[PP.10]` halló escondiendo
+  **$91,720,679**. ⛔ **No casa renglones** (el libro no guarda el folio del pago de Kepler; casar
+  por monto+mes es `[PP.4]`, los $273 M indefendibles): **suma por fecha** y se declara **otro
+  universo**. **49/49** contra Postgres real (5 nuevas), con la compuerta **rota a propósito** —
+  forzar `mes_cargado: true` pone roja **la prueba correcta** (1 failed / 48 passed) y verde al
+  revertir. `api:typecheck` verde · `check:pantalla -- calendario-pagos` **0 fallas NUEVAS**.
+  ⛔ Sin validación visual: el pie del día ya tenía dos líneas y ahora puede llevar tres, en una
+  tira de siete botones. Detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md) §26.
+- [ ] ⬜ **TP.21.3** — **absorber el resto del libro**: desglose por banco y por método,
+  conciliación mensual de cuatro columnas, píldora de frescura y aviso de meses faltantes —
+  **nueve piezas** que no caben en una tira de semana. Va **con su propio inventario antes**: la
+  regla del repo prohíbe unificar perdiendo columnas, chips o subtotales. Al cerrarlo,
+  `/finanzas/programa-pagos` redirige y las pestañas pasan de 4 a 3.
+
+**Lo que falta para que TP pase de 🧪 a 🚀, y de quién depende:**
+
+| # | Qué | De quién depende |
+|---|---|---|
+| 1 | **Desplegar.** Nada de TP.17–TP.20.5 está en `md`; las tres métricas de objetivo siguen en su valor de partida | push + despliegue (Edgar) |
+| 2 | **Autorizar un día.** 0 de 5 lotes liberados en toda la historia: sin eso O3 no puede medirse ni con el código en prod | Gerencia/Dirección |
+| 3 | **Índice en `kepler_ods.kdxf`** para bajar el p90 de 555 ms | DDL en prod, fuera de horario |
+| 4 | **Dueño y fecha** — sin eso la fase no puede pasar a 🔨 (§7 del método) | Edgar / Tablero PM |
+| 5 | **Validación visual** de las 4 pantallas: el chip de ahorro y el folio vuelto botón no los vio nadie | `nx serve` prohibido — hace falta el entorno desplegado |
+
+
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
 semanal los sigue manejando fuera del sistema.
@@ -8369,6 +8554,233 @@ TP.6-TP.8+TP.10".
 
 **ADR-070** · **ADR-093** · Plan completo, medición y decisiones abiertas en
 [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
+
+> ### 🔨 2026-10-19 — **UN SOLO MÓDULO PARA EL EFECTIVO**: Captura · Expediente · Caja Fuerte
+>
+> Edgar: *«necesito un selector en caja (captura) donde yo seleccione si quiero capturar,
+> expediente o caja fuerte, y que todas vivan en un solo módulo»*.
+>
+> - [x] **[CG.121]** 🔨 **Las tres pantallas del efectivo entran por UNA puerta.** Lista única en
+>       [`caja-tabs.ts`](../../apps/view/src/app/modules/finanzas/caja-tabs.ts), que leen la barra
+>       (`app-caja-tabs`) y la entrada «Caja» del sidebar. Es el patrón de Gastos (`[GX.80]`) y
+>       Pagos (`[TP.20.3]`). El orden es el recorrido del dinero, no alfabético.
+>
+>       ⭐ **El hallazgo no era el selector: el Expediente NO TENÍA PUERTA.** Tenía ruta
+>       (`/finanzas/caja-general/expediente`) y permiso desde `[CG.105]`, pero ni pestaña ni
+>       renglón en el sidebar — se llegaba **sólo escribiendo la URL**. Es la falla de `[GX.17]`,
+>       `[LC.6.2]` e `[IG.2]`, otra vez. Y el candado de `[IG.2]` no la vio **porque sólo recorre
+>       lo que `FINANZAS_TABS` declara**: una pantalla ausente de esa lista le es invisible, así
+>       que pasaba en verde. Al entrar en la lista, queda cubierta.
+>
+>       ⛔ **Sin shell de ruta, a la fuerza.** El padre con `path: ''` de `/finanzas` ya lo ocupa
+>       Gastos y tiene que ir al final (un path vacío matchea cualquier URL restante), así que la
+>       barra se **embebe** en las tres pantallas, como Pagos. Un segundo padre vacío no da error
+>       de compilación: se come rutas en silencio.
+>
+>       ⚠️ **Captura y Expediente no tienen el mismo público, y la barra lo refleja.** La ruta de
+>       Captura admite `VER`/`GESTIONAR`/`AUTORIZAR`; la del Expediente exige `VER` a secas. Quien
+>       tenga sólo `GESTIONAR` captura pero no ve el expediente. No se emparejó acá: emparejarlo
+>       es cambiar el permiso de una ruta, y eso se decide en el árbol de authz.
+>
+>       ⚠️ `/finanzas/caja-general/firma` queda FUERA a propósito: es el teléfono del mostrador,
+>       se entra por el código de seis y se le presta a quien viene a firmar. Sirve además de
+>       **control negativo** del candado.
+>
+>       🧪 **Medido:** `finanzas-tabs.spec.ts` suma 5 pruebas (orden del recorrido, permiso =
+>       el de su ruta, una sola entrada en el sidebar, las tres embeben la barra, y el control de
+>       la firma). **Prueba negativa ejercida:** quitada la barra de `finanzas-caos`, el candado
+>       se puso **rojo en ese único test** y los otros 20 siguieron verdes. 435 pruebas verdes en
+>       las 5 suites de caja. `check:templates` ✅ · `check:estilos` sin crecer (2564/2680) ·
+>       `check:pantalla` sin fallas nuevas (las 3 que marca son previas y de otras pantallas).
+>
+>       ⚠️ **SIN VALIDACIÓN VISUAL**: la API local responde 500 y la pantalla no renderiza con
+>       datos. Lo más probable de ajustar es el alto — la barra entra como hija de `.cg-app`, que
+>       es la columna flex que reparte altura, con `flex:none`; si algo se recorta abajo, es ahí.
+>
+> - [x] **[CG.123]** 🧪 **«Tu jornada» era un muro: ahora tiene tres partes.** Edgar: *«"tu
+>       jornada" es un asco»*. Medido sobre lo VISIBLE al abrir —no sobre la plantilla, que
+>       incluye lo plegado—: **3 rejillas, 39 cifras, 7 botones, 41 textos atenuados contra 5
+>       enfatizados y 36 `<small>`**, en un solo desplazamiento. Y el título mentía sobre dos
+>       tercios: de sus tres regiones, **dos no son la jornada** (las bandejas son trabajo
+>       pendiente; el Historial es **otro rango de fechas**, trae sus propios calendarios).
+>       Selector de 3 (`Hoy · Pendientes · Historial`) con la cifra dentro de cada botón:
+>       Miller (chunking), Hick (curaduría) y Tesler (se ordena, **no se esconde**).
+>
+>       ⛔⛔ **La primera versión escondía lo que DECLARA un hueco, y lo cazaron nueve pruebas,
+>       no yo.** Con los cortes caídos, el aviso «no se pudieron leer» vivía dentro de la sección
+>       Historial: en la vista por default una **lectura fallida quedaba invisible**. Publicar
+>       nada es peor que publicar un cero (ADR-056) — el mismo defecto de `[CG.181]` con una capa
+>       encima. Las declaraciones subieron sobre el selector y hay prueba negativa parada en «Hoy».
+>
+>       ⚠️ Y corrige algo que dije mal antes: `.cg-historial` **no** es hermano de `.cg-app` ni
+>       se recorta. Vive dentro de este diálogo — por eso no hay scroll que lo alcance.
+>
+> - [x] **[CG.125]** 🧪 **La columna «Origen» no decía el origen.** Lo destapó Edgar preguntando
+>       *«dime a qué te refieres con origen»*. Pintaba `autofill`, o sea **si el motor propuso la
+>       cuenta contable** — nada que ver con de dónde salió el dinero. Por eso 233 movimientos con
+>       `U-A-5 0000015 · CONTADO` en «Qué pasó» salían todos como «manual». Un rótulo que nombra
+>       una cosa y muestra otra manda a buscar un problema que no existe.
+>       Ahora pinta `origen_tipo` + `origen_ref` (Kepler · caja fuerte · sin documento), que ya
+>       viajaban y nunca se pintaron. «autorrellenado» pasó al desplegable como *Clasificación
+>       contable*, que es lo que es. Además: **desplegable por fila** con todo el respaldo, **orden
+>       asc/desc en 7 columnas**, dos filtros, y fuera Cuenta/Concepto de la rejilla.
+>
+>       ⭐ **Los campos ya llegaban al navegador**: el listado del libro es un `SELECT *` sin
+>       `.select()`, y el tipo no los declaraba. Cero cambios de servidor para mostrarlos.
+>       ⛔ **Hallazgo sin arreglar, declarado:** ese `SELECT *` también baja `firma_png` —un PNG en
+>       base64— **por cada fila**. Acotar el SELECT es trabajo de servidor y va aparte.
+>
+> - [x] **[CG.126]** 🧪 **El libro no diferenciaba Caja General de CAOS.** Edgar: *«debemos
+>       diferenciar lo que entra a caja general vs lo que entra a CAOS»*. El cuadre ya lo separa
+>       desde `[CG.139]`; el libro publicaba sólo `monto`, y leer eso como «entró a caja general»
+>       **sobredeclara el cajón por todo lo que se fue a la máquina**.
+>
+>       ⛔ Sale de `analytics.v_caja_reparto_movimiento`, el **mismo resolvedor** del cuadre — no
+>       se recalcula en la pantalla ni en el libro. El primer intento derivaba `en_cajon` como
+>       `monto - en_boveda`; la verificación contra prod mostró que **la vista ya lo publica**, así
+>       que se leen las dos mitades y no se resta nada.
+>
+>       🧪 **Verificado contra prod, sólo lectura** (no se compila local): de **236 filas, 0 sin
+>       reparto y 64 tocan la bóveda**. El caso que lo justifica, textual: `CI-2026-00112` vale
+>       $19,313.00 y se parte en **$19,250.00 a la máquina y $63.00 al cajón** — el total
+>       sobredeclaraba ese renglón en 99.7 %.
+>
+>       ⚠️ **Sin validación visual** (API local en 500). Y tres errores que sólo vio el compilador
+>       de plantillas, no vitest ni `check:pantalla`: `p-sortIcon` no existe en PrimeNG v22 (es
+>       `p-sort-icon`), `expandedRowKeys` no admite binding de dos vías, y **`opcionesCaja` ya
+>       existía** en la clase — la trampa de reusar un nombre en un componente de 8,000 líneas,
+>       que la skill `diseno` advierte y no grepeé.
+>
+> - [x] **[CG.127]** 🧪 **El libro cortaba la lista en silencio: 148 filas y $1.94 M invisibles.**
+>       Edgar pidió *«hay que paginar las tablas que se generen»*, y al medirlo apareció algo peor
+>       que la falta de paginador. Medido en prod el 2026-10-20, en el MISMO periodo de su captura
+>       (01→19 oct): **248 movimientos, la pantalla pintaba 100**, y las **148 filas restantes
+>       —$1,943,998.57, del 7 al 15 de octubre— no se veían ni se anunciaban.**
+>
+>       ⛔ Dos causas, las dos de omisión: `cargar()` **no mandaba `limit`** (el servidor usa 100,
+>       tope 500) y **`has_more` llegaba y nadie lo miraba**. El encabezado publicaba «248» porque
+>       el KPI se calcula sin tope — la pantalla decía un número y mostraba otro.
+>       ⚠️ Y `armarReporte()` **ya pedía 500**: el reporte impreso y la pantalla venían mostrando
+>       universos distintos del mismo periodo.
+>
+>       ⭐ **Un paginador solo lo habría empeorado**: paginaría lo traído y publicaría «1–25 de
+>       100» con total seguridad mientras el encabezado dice 248. Por eso van las tres cosas —
+>       traer el periodo, **declarar** si ni así alcanza (ADR-056), y recién entonces paginar.
+>
+>       ⭐⭐ **Subir el tope fue barato recién después de medir el peso:** el listado era
+>       `SELECT *` y bajaba **`firma_png`** —un PNG en base64— por fila, **sin que la tabla pinte
+>       ninguna**. Medido: 248 filas, 39 con firma, **1,386 kB de firmas contra 17 kB de texto —
+>       el 98.8 % del payload**. Recorridos los consumidores antes de sacarla: el único es esta
+>       pantalla y su botón de reimprimir pide `detalle(id)` aparte. El `SELECT` pasa a ser
+>       **explícito**, para que una columna pesada nueva no vuelva a entrar sola.
+>
+>       Paginadas: el libro (25), movimientos del día (20), el expediente (30/día) y Caja Fuerte
+>       (25). ⛔ **Cortes NO**: son **7 en todo el histórico** (medido) y un paginador ahí es ruido.
+>
+> - [x] **[CG.122]** 🔨 **Era `[CG.119]` y colisionaba.** El acceso directo a imprimir el ticket
+>       («Guardar e imprimir») había nacido hoy con un código **ya usado** por un item de
+>       `db-health` (`CRON_JOBS` + `maxRunH`, en `apps/api`). Dos items sin relación bajo el mismo
+>       código hacen que el tracker mienta. Renumerado a `[CG.122]`, que está libre.
+>
+> ### 🔨 2026-10-20 — **UN CAJÓN NO DEBE DINERO**: 4 de 7 cortes afirmaban un sobrante imposible
+>
+> Auditoría de estructura de `/finanzas/caja-general` pedida por Edgar, midiendo prod en sólo
+> lectura (`system_identifier` `7688376744939610156`, 2026-10-20 08:58 hora de México).
+>
+> ⭐⭐ **Lo primero que hay que decir es que el hallazgo que yo traía estaba equivocado.** Entré
+> apuntando a `POST /cortes/:id/contar` —el endpoint que tiró prod el 14-oct— y **está resuelto de
+> raíz**: `[CG.155]` unificó los TRES caminos de escritura en `filasDenominacion()` (función sin
+> base de datos, con candado), la migración `20261014212702` puso los invariantes, y
+> `cash-cut.servicio-real.spec.ts` ejerce `abrir → contar → cerrar → autorizar` con el payload de
+> la pantalla contra Postgres real como `app_runtime`, dentro del job `caja-db` del CI. Prod lo
+> confirma: **7 cortes cerrados, 49 filas de denominación, 0 cortes trabados.** Lo grave estaba en
+> otro lado y sólo apareció al medir.
+>
+> - [x] **[CG.195]** 🔨 **El veredicto del arqueo publicaba una cifra que no puede ser cierta.**
+>       `veredictoDe` nunca miraba el `esperado`: devolvía `sobra`/`falta` desde la diferencia, y
+>       con el esperado **bajo cero** la diferencia es positiva **siempre** (`contado` es una suma
+>       de piezas, nunca negativa). O sea que cuanto más rota la cuenta, más grande el «sobrante»
+>       que la pantalla afirmaba.
+>
+>       Antes/después sobre los 7 cortes reales:
+>
+>       ```
+>       CC-2026-00001   esperado    3,402.45   sobra → sobra
+>       CC-2026-00002   esperado -149,915.32   sobra → esperado_imposible
+>       CC-2026-00003   esperado   87,781.66   falta → falta
+>       CC-2026-00004   esperado  -68,199.86   sobra → esperado_imposible
+>       CC-2026-00005   esperado  -62,631.80   sobra → esperado_imposible
+>       CC-2026-00006   esperado  -81,227.27   sobra → esperado_imposible
+>       CC-2026-00007   esperado  296,867.09   falta → falta
+>       ```
+>
+>       **4 de 7 pasan de una afirmación falsa a una ausencia declarada**, y los 3 que conservan su
+>       veredicto son exactamente los del esperado plausible — sin ese contraste, «ninguno dice
+>       sobra» se cumpliría también rompiéndolos todos.
+>
+>       Séptimo veredicto **`esperado_imposible`**, en `VEREDICTOS_SIN_RESPUESTA` junto a
+>       `sin_contar`, `sin_base` y `sin_medir`: no es un grado de «no cuadra», es otra razón por la
+>       que la pregunta no tiene respuesta (ADR-056). ⭐ El vocabulario ya existía; esto no inventó
+>       un primitivo, usó el que `[CG.42]` y `[CG.156]` habían construido.
+>
+>       ⛔ `veredictoDe` recibe el `esperado` como campo **REQUERIDO**, no opcional: los dos
+>       llamadores de producción ya lo tenían a mano, y opcional dejaría que el tercero lo omitiera
+>       sin enterarse — que es exactamente cómo nació el defecto de `[CG.155]`.
+>
+>       Commit `71a66e18f`. Verde: **504** pruebas de `libs/finance`, **690** de contracts, **1,010**
+>       de view finanzas, más `check:templates` y `check:spec-vivo`. Prueba negativa ejercida con
+>       los 4 cortes reales al centavo. ⚠️ **Sin validación visual** (no se levanta el frontend); el
+>       typecheck de plantillas lo hace el CI. `sevVeredicto` ya caía a `secondary` por defecto, que
+>       es el color correcto para un veredicto sin respuesta. La etiqueta del tag entró en
+>       `7802915ec`, de otra sesión, que barrió el archivo compartido.
+>
+> ⬜ **Lo que la misma auditoría midió y NO se tocó** — en orden de lo que mueve dinero:
+>
+> - ⛔⛔ **[CGA-A.25]** ⬜ **LA PIERNA DEL DEPÓSITO NO EXISTE: cero filas en toda la vida del
+>   módulo.** `finance.cash_ledger` tiene **0 de 250** movimientos con `tipo='deposito'` (170
+>   `gasto`, 80 `ingreso`), y `total_depositos = 0.00` en los **7** cortes. Nada registra el
+>   efectivo que **sale** del cajón hacia el banco, así que el `esperado` arrastra la entrada
+>   entera como si se hubiera quedado adentro — **ésta es la causa de fondo de `[CG.195]`**, que
+>   sólo dejó de publicarla como veredicto.
+>   ⚠️ Hoy el esperado se apoya **sólo** en las dos piernas del cajero CAOS (`[CG.96]`): lo que
+>   sale del cajón sin pasar por la AST700 no tiene cómo registrarse. Y `[CG.120]` apagó la captura
+>   manual el 19-oct —por una razón buena, dinero sin procedencia— que era la **única** puerta de
+>   esta pantalla para un depósito al banco. **Decisión D7, no la decido yo.**
+>   ⛔ Y no se puede concluir desde acá si las diferencias de ±$100K son modelo roto o efectivo real
+>   perdido: es la regla del propio proyecto —*descartar el defecto antes de culpar a la gente*— y
+>   requiere la respuesta de D7 primero.
+>
+> - **[CGA-A.26]** ⬜ **Siguen CERO cortes autorizados, ahora son 7.** Actualiza el renglón de
+>   `10.12` (eran 6). `carmen_rodriguez` abre y cierra los **7**; `authorized_at IS NULL` en todos.
+>   ⭐ **Y NO es un hueco de permiso**, que era mi sospecha: medido, `FINANCE_CAJA_AUTORIZAR` está
+>   repartido en `direccion` (2 usuarios) y `superadmin` (9), y `direccion` tiene `AUTORIZAR` **sin**
+>   `GESTIONAR` — está diseñado como segunda llave a propósito. La llave existe y nadie la usa: es
+>   proceso, no código.
+>
+> - **[CGA-A.27]** ⬜ **Un movimiento fechado 2026-12-10 lleva 3 semanas vivo.** `CG-2026-00002`,
+>   $1,060, `origen_tipo='pago_proveedor'` (`X-D-26|0001298`), creado el **29-sep** por `superoot`,
+>   sin `corte_id`. El vigilante `[CG.25]` (`caja-fecha-futura-scanner`) **avisa y nada lo corrige**:
+>   va a aterrizar en un corte de diciembre. Mismo síntoma que el hueco **G8** de este plan.
+>
+> - **[CGA-A.28]** ⬜ **Dos movimientos de prueba E2E viven en un corte de prod.** `CG-2026-00042`
+>   ($100) y `CG-2026-00043` ($1), glosa «AUDITORIA E2E», cancelados el 14-oct y colgados de
+>   `CC-2026-00003`. Están **bien excluidos** del total guardado (por eso el corte cuadra consigo
+>   mismo), pero son datos de prueba en el libro del negocio.
+>
+> - **[CGA-A.29]** ⬜ **El job `caja-db` del CI corre, se pone ROJO y no bloquea nada.** No tiene
+>   `continue-on-error` —o sea que tiñe la corrida— pero `sellar` sólo depende de `[build,
+>   secret-scan]` y la protección de rama exige esos dos. La única prueba automática que cubre el
+>   defecto que tiró prod dos veces es, de hecho, informativa. ⚠️ Decidir si se exige **es** la
+>   misma decisión que `verify` y `pruebas-db` tienen pendiente, no un olvido.
+>
+> - **[CGA-A.30]** ⬜ **Deuda de estructura, declarada con nombre:** `finanzas-caja-general.component.ts`
+>   son **8,152 líneas / 502 KB** en un archivo (decorator 160-185, estilos 186-1135, plantilla
+>   1136-3980, clase 3982-8152; **109 signals, 56 computed, ~150 métodos**). La lógica pura ya está
+>   bien afuera (`caja-captura.util.ts`, 40 KB, con 33 KB de spec), así que **no es deuda de
+>   calidad** — es que plantilla y clase en un solo archivo concentran a varias sesiones del
+>   checkout compartido en el mismo punto. Se midió hoy mismo: el archivo cambió en disco **entre
+>   dos comandos míos**, y commitear la etiqueta exigió `git apply --cached` de un solo hunk para no
+>   llevarse 5 hunks ajenos. ⛔ **No se abre como fase** (Fase 0 en curso, §7 del método).
 
 > ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
 >
@@ -11206,6 +11618,9 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[MCP.4]** 🧪 Documentos de Kepler (2026-10-08): `GET :id/candidates` (vista `erp_sale_tickets`, sin importer; ordenados por productos en común) + `POST :id/link` / `:id/unlink` + comparación por renglón en `GET :id`. Mig `20261008012420` (`commercial.order_kepler_documents`, RLS forzado, un documento vivo por pedido y por documento, prueba negativa dentro). Motor puro con 22 pruebas (mutación verificada). **Pendiente:** aplicar la migración a prod ANTES del código + redeploy; prueba HTTP.
 - [ ] **[MCP.2]** 🧪 Pantalla del encargado (2026-10-08): pestaña **Preventa** en Almacén › Pedidos (`/almacen/pedidos/preventa`, permiso del tablero `ALMACEN_PEDIDOS_VER`): chips por etapa y vencidos, sucursal, buscador compartido, tabla con documento de Kepler y pedido contra cobrado; panel con candidatos ("Es este"), corregir liga con motivo, comparación por renglón y recorrido. Revisión independiente: 12 hallazgos corregidos (respuestas viejas que pisaban el panel, recarga sin cancelar, filtros invisibles, total desconocido sumado como 0, a11y). **Falta validación visual.**
 - [ ] **[MCP.3]** 🧪 Surtido al llegar, pedido por pedido (2026-10-14, pedido de David): bandeja del surtidor `/almacen/surtir-preventa` con los pedidos de preventa de SU sucursal en Hoy / Mañana / Próximos (lo vencido cae en Hoy; dentro del día por llegada, D5), se refresca sola (20 s + el aviso en vivo `order_to_pick`) y el aviso de la campana abre el pedido (`?pedido=`). «Empezar a surtir» registra quién y a qué hora (`commercial.presale_picks`, mig `20261014095517`, RLS forzado, CHECK de cierre con prueba negativa); al terminar, lo que no hubo **se quita del pedido** y el total se recalcula con el motor (`CommercialOrdersService.recortarTrasSurtido`, misma transacción) y la vendedora recibe el reporte. El pool de olas excluye lo que ya se surte por pedido; la Mesa lo muestra en surtido / en caja. El aviso en vivo ahora también llega por `warehouse_code` de la ficha. ⚠️ **No pasa por el motor de GP** (que sólo arma Kepler): es un camino propio para la preventa. Pruebas: engine 26 · servicio 11 · pantalla 7. Plan en [`FASE_MCP`](FASES/FASE_MCP_MESA_CONTROL_PREVENTA.md) §6.8.
+- [ ] **[MCP.3.1]** 🧪 Los pedidos de la app le llegan al surtidor (2026-10-19, pedido de David: "a los surtidores no les llegan los pedidos que levantan sus vendedores y preventas"). **Medido en prod:** 12 avisos `order_to_pick`, **0 vistos**; `commercial.presale_picks` en **0 filas**. Dos fallas encadenadas: (1) el surtidor aterriza en `/almacen/surtir` («Tomar siguiente» sólo arma desde Kepler) y ahí el chip «Sucursal» leía Kepler `origen=SUCURSAL`; la bandeja MCP.3 vivía en `/almacen/surtir-preventa`, a la que nada lo llevaba; (2) **abrir un pedido daba 500 en prod** (`column p.name does not exist`: `catalog.products` tiene `nombre`) en el detalle y el cierre de `presale-picking`. **Hecho:** Surtir con sólo dos orígenes (sale «Todos») y «Sucursal» lista ahí mismo los pedidos de la app por Hoy / Mañana / Próximos; se surten con los mismos renglones y el cierre de MCP.3 (quita faltantes, recalcula, avisa a la vendedora); marcas guardadas en el celular hasta cerrar; la campana abre `?pedido=` en Surtir; `p.nombre` + `barcode` en el detalle. Sin migraciones ni permisos. ⚠️ **Abierto:** si la caja captura el cobro como `U-D-40` el pedido saldría otra vez en Telemarketing; los Kepler `origen=SUCURSAL` (almacén 08) ya no se toman desde Surtir; `commercial-tickets.service.ts:684` tiene el mismo `p.name`.
+- [ ] **[MCP.3.2]** 🧪 La lista de pedidos del surtidor (2026-10-19): `/almacen/pedidos` acepta `COMMERCIAL_PICKING_GESTIONAR`; sin `ALMACEN_PEDIDOS_VER` es una vista de sólo **Pedido** y **Cliente / destino** de lo `AUTORIZADO` (30 días) de su sucursal, sin pestañas, estatus, periodos, filtros, totales ni detalle. `GET /warehouse/orders` le responde **sin importes** (`sinImportes`; `totales.importe` → `number | null`). En Surtir, **Sucursal** va primero y Telemarketing trae «Ver la lista de pedidos». ⚠️ Provisional: sólo `AUTORIZADO` (decisión de Claude, falta confirmación de David).
+- [ ] **[MCP.3.3]** 🧪 «Pedido agendado» (app de vendor): el botón que regresa al inicio («Finalizar visita») lo tapaba la barra de abajo (`.acts` fijo a 1.75rem con `z-index` 5 bajo la barra de 5rem y `z-index` 10). Sube por encima de la barra y dice «Finalizar visita e ir al inicio». No se agrega un botón que vaya al inicio sin cerrar la visita.
 - [ ] **[MCP.4.1]** 🧪 Morelia Madero cobra en Kepler como 07 (confirmado por Francisco, 2026-10-08): la mesa busca tickets en la sucursal Kepler del almacén (`warehouses.kepler_code`) y recorta el alcance por sucursal, no por almacén vivo (`MD-32` se dio de baja el 2026-09-11 y escondía 7 pedidos). Mig `20261008040859` (no escribe si MD-32 sigue vivo y otro almacén ya es 07). Simulado en prod: PD-00028 con 3 posibles, PD-00032 con 2.
 - [ ] **[MCP.5]** 🧪 Pescar pedidos + guía de carga (2026-10-08): celular `/rider/llevar` y `/vendor/llevar` (repartidor por alcance; vendedor sólo lo que levantó: 13 de 19 vendedores no tienen sucursal); una guía abierta por (repartidor, sucursal, ruta, día); caja `/almacen/pedidos/guias` imprime el PDF y lo congela (reimpresión marcada). Permiso nuevo `PREVENTA_GUIAS_GESTIONAR` repartido a quien cuenta la caja. Mesa con etapa **En ruta**. Migs `20261008041458` (tablas, RLS, prueba negativa) y `041459` (permiso). Probado: up() real + rollback en Docker e integración de punta a punta contra Postgres (pescar, doble pesca, quitar, imprimir, reimprimir, mesa). **Falta:** migs a prod ANTES del código, redeploy api+view+vendor, re-login (permiso nuevo), validación visual.
 - [x] **[MCP.6]** ✅ Entrega de conformidad en el celular (2026-10-08; **en prod 2026-10-09**: PR #335 fusionado y mig `20261008141401` aplicada; arreglo de la mesa `p.nombre` en PR #333; prueba visual local completa): en una guía impresa, **Entregar** abre el pedido con los documentos de Kepler del cliente (el ligado o el de más productos en común, preseleccionado); se registra completo / con diferencia (+nota) y lo cobrado en efectivo y transferencia (+referencia) en el renglón de la guía (`status 'entregado'`). **No se pudo entregar** (+motivo) = `no_entregado`, el pedido vuelve a "Para llevar". La liga se hace con origen `celular`; si el pedido ya trae otro documento ligado, 409. ⛔ **No toca `orders.status`** (fulfilled dispararía el CFDI de FE.5 y descontaría stock): la mesa deriva **Entregado** del renglón. Caja y mesa ven lo cobrado. Endpoints `GET field/presale/orders/:id`, `POST field/presale/deliver`, `POST field/presale/not-delivered`. Mig `20261008141401` (columnas + `delivered_folio_digital` + 5 CHECK + índice único de entregado + prueba negativa; `down()` reversible con datos). Revisión independiente: 15 hallazgos, 14 atendidos (candado pedido→guía, no se entrega un cancelado, liga y `cancel()` congelados tras la entrega, guías impresas de días anteriores visibles, sin preselección a ciegas, reintento seguro, topes, lo no entregado visible). Probado: commercial 594/594, contracts 440/440, builds api+view+vendor, compuertas. Probado contra Postgres de Docker (transacción deshecha): up() + idempotencia + down()/up() de la mig, e integración de punta a punta (sin imprimir no se entrega, validaciones y topes, entrega sin tocar orders.status, reintento, no entregado libera, guía de ayer visible, cancelado no se entrega, mesa y caja). Encontró que la comparación de la mesa leía p.name (no existe; es nombre): bug de MCP.4 ya en prod, corregido en commit aparte. **Falta:** mig a prod ANTES del código, redeploy api+view+vendor, validación visual. **Declarado:** "Por entregar" de `apps/vendor` sigue listando los entregados en guía (lee `confirmed`); sin firma del cliente; se aceptan importes en cero.

@@ -587,7 +587,16 @@ services:
   #
   # ACOTADO POR ETIQUETA a propósito: en modo `all` reiniciaría también `pg-ods`, y
   # reiniciar la base por un healthcheck ajeno es peor que la enfermedad.
+  #
+  # ⛔ `[OPS.LIMPIEZA.7]` RETIRADO 2026-10-19. Todos los servicios con `autoheal: "true"` viven
+  # en `retirado-k3s` (k3s reinicia por su propia `livenessProbe`), así que éste quedó como el
+  # ÚNICO servicio activo del stack, sin nada sano que vigilar. Y lo que vigilaba era peor que
+  # nada: un `feeds-cron` de Compose levantado a mano el 16-oct no resolvía `pg-prod`, salía
+  # `unhealthy`, y autoheal lo reiniciaba cada ~6.7 min **para siempre** — cada vuelta volvía a
+  # cargar la MISMA agenda que el pod k3s `ingesta/feeds-cron`: el nocturno corría dos veces y
+  # los latidos se cruzaban (`kepler_sales_fact_full` en `running` 35 h).
   autoheal:
+    profiles: ["retirado-k3s"]
     image: willfarrell/autoheal:latest
     container_name: ods-autoheal
     restart: unless-stopped

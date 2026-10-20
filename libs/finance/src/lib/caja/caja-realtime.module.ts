@@ -21,6 +21,9 @@ import { CajaRealtimeService } from './caja-realtime.service';
     }),
   ],
   providers: [CajaGateway, CajaRealtimeService, PgListenService],
-  exports: [CajaGateway],
+  // `[CG.197]` `PgListenService` se EXPORTA para que el autollenado se cuelgue del MISMO canal
+  // con la MISMA conexión. Darle su propia instancia abriría una segunda conexión `LISTEN` a
+  // prod para escuchar exactamente lo mismo — y dos oyentes del mismo aviso son dos corridas.
+  exports: [CajaGateway, PgListenService],
 })
 export class CajaRealtimeModule {}

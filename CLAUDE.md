@@ -64,6 +64,26 @@
 
 ⛔⛔ **NADA DE WORKTREES NI RAMAS — SE TRABAJA SOBRE `main` EN EL CHECKOUT COMPARTIDO** (Edgar, 2026-10-12; deroga el `[PROC.2]` de 2026-10-07 que pedía un worktree por sesión). El árbol es compartido por varias sesiones: **commiteá SIEMPRE con pathspec** (`git commit -- <rutas>`), nunca `git add -A`, nunca `--amend`. Onboarding de máquina en [`ONBOARDING.md`](ONBOARDING.md) — **§8.0 `npm run hooks:install` es obligatorio por máquina**. Reglas duras en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
 
+> ⭐⭐ **DESDE EL 2026-10-14 DOS REGLAS SE EJECUTAN, YA NO SE PIDEN.** Las declara
+> [`.claude/settings.json`](.claude/settings.json) (versionado: los tiene todo el equipo) y el
+> código vive en [`scripts/hooks/`](scripts/hooks/):
+>
+> - **`bloquea-python.js`** (`PreToolUse` sobre Bash y PowerShell) — rechaza `python/pip` **y
+>   explica con qué reemplazarlo**. ⛔ La auditoría midió por qué la regla se incumplía: no
+>   faltaba la regla, faltaba el mecanismo. `~/.claude/settings.json` tenía **27 reglas que la
+>   AUTO-APROBABAN**, dos de ellas comodines (`Bash(python -c ' *)` y `Bash(python -)` — justo
+>   la forma que cuelga esperando stdin). O sea que el reflejo no encontraba **ninguna**
+>   fricción. Probado en vivo en los dos sentidos: bloquea `python --version` y **deja pasar**
+>   `grep -i python docs/GOTCHAS.md`.
+> - **`verifica-al-cerrar.js`** (`Stop`) — al terminar el turno corre las compuertas estáticas
+>   rápidas sobre el árbol y **devuelve el rojo a la sesión**, que es el único momento en que
+>   todavía puede arreglarlo. Bloquea **una sola vez** por estado del árbol (si no, un rojo de
+>   deuda ajena dejaría la sesión girando) y **nunca falla por su propio andamio**.
+>
+> ⚠️ **Lo que un hook NO arregla:** la profundidad del razonamiento la fija `effortLevel` en
+> `~/.claude/settings.json` (personal, no versionado). Está en **`medium`** por decisión de
+> Edgar el 2026-10-14; si una sesión "va plana y deja pasar detalles", ese es el dial.
+
 > **Tres correcciones al proceso, medidas el 2026-10-07 — ver `[PROC.1]`–`[PROC.3]`:**
 >
 > - ⛔ **Acá decía «→ 1 review (CODEOWNERS) →» y era FALSO: 1 de los últimos 25 PRs mergeados tuvo reseña**, y `required_approving_review_count` es **ninguna**. Los PRs viven **4 a 30 minutos** (#278 entró con 3,567 líneas en 10). ⭐ **El PR es el carril del CI, no una revisión** — y conviene decirlo, porque una línea que describe un proceso que no ocurre se cita para dar por revisado lo que nadie miró. Si se quiere revisión de verdad, se prende en la protección de rama; mientras no esté, **la compuerta es el CI**.
@@ -132,7 +152,12 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
   - ⚠️ **Y se leyó como falta de adopción**: el día anterior se reportó *«1 corte abierto, 0 cerrados en toda la historia»* como que nadie usaba el módulo. **Cero filas por un defecto es indistinguible de cero filas por desuso** — descartar el defecto ANTES de culpar a la gente.
   - **Al agregar una columna `NOT NULL` o cambiar una PK: recorrer TODOS los caminos que insertan en esa tabla** (un `grep` del nombre de la tabla), no sólo el que estás tocando.
   - ⛔ **«Probar en local» NO es la salida**, y choca de frente con la regla de arriba (nada de levantar el backend local, que también se escribió después de un incidente medido). **El lugar donde se ejerce una escritura es el CI o un entorno de pruebas, nunca la laptop apuntando a prod.**
-  - ⚠️ **Deuda con nombre:** `database/run-all-tests.js` (12+ suites, ~155 aserciones) **no corre en ningún lado automáticamente** — `ci.yml` lo declara en su línea 359 («necesita API arriba»). Es la deuda **VP.5**. Mientras siga así, cada camino de escritura depende de que alguien se acuerde de ejercerlo a mano.
+  - ⚠️ **Deuda VP.5, re-medida el 2026-10-15 — las cifras viejas («12+ suites», «9 `.spec.ts` con `--passWithNoTests`») quedaron chicas y el diagnóstico estaba mal partido:**
+    - **526 `.spec.ts` SÍ corren** en CI (`npx nx affected -t test`): 13 proyectos tienen target `test` **inferido por el plugin `@nx/vitest`**, por eso ningún `project.json` lo declara y un grep los da por huérfanos. ⛔ Preguntale a Nx (`nx show projects --with-target test`), no al `project.json`.
+    - **`database/run-all-tests.js` declara 413 suites** y era lo que no corría en ningún lado: sus dos menciones en `ci.yml` eran **comentarios explicando que no estaba**. Y es el **3er archivo más editado del repo** (165 ediciones en 30 días): se mantenía con cuidado algo que nadie ejecutaba.
+    - ⭐ **El motivo declarado («necesita API arriba») cubría al 16%.** El runner ya clasifica con `needsApi`: **348 de 413 (84%) sólo necesitan Postgres**, y la bandera `--solo-db` que las selecciona ya existía (`[VP.5.3]`) sin cablear. El bloqueo real, que el propio `ci.yml` declaraba tres líneas más arriba, era **«multi-DB sembrada»** — otro problema.
+    - 🧪 **Desde el 2026-10-15 hay job `pruebas-db` en `ci.yml`** (Postgres de servicio + `dev-bootstrap-empty-db.js` + seeds + `--solo-db`). Nace **informativo** (`continue-on-error`), como nació `verify`: exigirlo sin historia bloquearía todos los merges. **No toca `ci-green`** (`sellar` sólo depende de `build` y `secret-scan`), así que no puede frenar producción. ⚠️ **Sin verificar en el runner**: el job no se probó donde va a correr, que es la lección del propio `ci.yml` §700.
+    - ⛔ Siguen fuera las **65 suites HTTP** (`needsApi: true`). Mientras tanto, cada camino de escritura que ellas cubren depende de que alguien se acuerde de ejercerlo a mano.
 
 ### Convenciones técnicas
 - Naming snake_case en DB y `role_name`.
@@ -167,6 +192,8 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 > ⛔ **El detalle completo de cada fase vive en [`00_ROADMAP_FASES_DETALLE.md`](docs/IMPLEMENTACION/00_ROADMAP_FASES_DETALLE.md)** — no se repite acá.
 > Esta tabla sólo dice **qué fases existen y en qué estado están**. Para trabajar sobre una fase, abrí su plan en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES/).
 
+> ⭐ **El control de estado lo lleva el PM** en el GitHub Project privado [«Tablero PM»](https://github.com/users/edgarcg-01/projects/2) (una tarjeta por fase: dueño, revisión, motivo de cada cambio). Primera revisión fase por fase: **2026-10-19** (16 🔨 → 5 🔨 + VP 🟡). Si esta tabla y el tablero discrepan, **manda el tablero** y se corrige acá.
+
 🟢 cerrada (beta) · 🚀 en prod · 🧪 en código, probada · 🔨 en curso / diseñada · 🟡 parcial · 🔴 planeada, sin código · ⏸️ en espera · ⬜ TODO
 
 | Fase | Tema | Estado |
@@ -186,27 +213,27 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **J** | Logística (embarques, flotilla, costos) | 🟢 |
 | **LT** | Rastreo de flota GPS (MagniTracking) | 🟢 |
 | **K** | AI product match en captures (pgvector + Voyage + Haiku) | 🟢 |
-| **Horus** | Supervisor AI de ejecución (Trade) | 🔨 |
-| **LM** | Última Milla (entrega a domicilio local en moto) | 🔨 |
+| **Horus** | Supervisor AI de ejecución (Trade) | ⏸️ |
+| **LM** | Última Milla (entrega a domicilio local en moto) | ⏸️ |
 | **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | 🔨 |
-| **Maat** | AI de Finanzas (conocimiento + chat + patrones) | 🔨 |
+| **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
 | **RA** | Compras / Reabastecimiento (punto de reorden + existencia crítica + sugerido) | 🟢 |
 | **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🔨 |
 | **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
-| **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | 🔨 |
+| **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
 | **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | 🔨 |
-| **RE** | Recepción de Mercancía 360 (digitaliza el Excel de recepción) | 🔨 |
-| **CA** | CEDIS (Kepler Access 97) → ODS | 🔨 |
+| **RE** | Recepción de Mercancía 360 (digitaliza el Excel de recepción) | 🟢 |
+| **CA** | CEDIS (Kepler Access 97) → ODS | 🟢 |
 | **WR** | Réplica cruda Wincaja (Access 97 → Postgres, continua) | 🟢 |
-| **AX** | Anexo de venta imprimible (detalle + pagaré) | 🧪 |
+| **AX** | Anexo de venta imprimible (detalle + pagaré) | 🟢 |
 | **MR** | Motor de Rentabilidad (cascada de margen) | 🧪 |
 | **VP** | Verdad y Procedencia (el número declara con qué se calculó) | 🟡 |
-| **OBS** | Ingesta que no se cae en silencio | 🔨 |
-| **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🔨 |
-| **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🔨 |
+| **OBS** | Ingesta que no se cae en silencio | 🟢 |
+| **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🟢 |
+| **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🟢 |
 | **TP** | Calendario de Pagos | 🧪 |
 | **SN** | Suite: navegación por espacios ("Mi trabajo" en `/projects`) | 🧪 |
-| **CDRP** | Cuadro de Resultados por Puesto (el tablero directivo, DENTRO de «Mi trabajo») | 🔨 |
+| **CDRP** | Cuadro de Resultados por Puesto (el tablero directivo, DENTRO de «Mi trabajo») | 🟢 |
 | **FLT** | Lista de faltantes (la venta que NO ocurrió) | 🧪 |
 | **PU** | Presupuestos (motor de planeación y control) | 🧪 |
 | **IC** | Inventario Continuo (3 ritmos) | 🚀 |
@@ -214,13 +241,13 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | 🔨 |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
-| **MS** | Mesa de Servicio (tickets de servicio) | 🧪 |
-| **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🧪 |
+| **MS** | Mesa de Servicio (tickets de servicio) | 🟢 |
+| **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔴 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
-| **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🧪 |
+| **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 
 ---
 
@@ -235,6 +262,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | Archivo | KB | Para qué |
 |---|---:|---|
 | [`ONBOARDING.md`](ONBOARDING.md) | 36 | **Empezar acá** — de cero a API+view corriendo (Docker local, flujo git) |
+| [`docs/ESTANDAR_DE_INTERFACES.md`](docs/ESTANDAR_DE_INTERFACES.md) | 14 | ⭐⭐ **Cuándo una interfaz está BIEN**, para cualquier app. 5 capas, cada regla con su caso medido. Arriba de `DESIGN.md` en la pila: si se contradicen, gana éste |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 12 | Mapa de código: apps, dominios (libs), módulos, DBs, feeds, servicios externos |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 7 | Términos de dominio + nombres internos (Thot/Horus/Maat, Kepler, fases) |
 | [`docs/VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md) | 296 | ⭐⭐ **FUENTE PRINCIPAL DE RAZÓN** (ADR-059). Qué ARBITRA cada número, cuánto aguanta y qué se declara. Resolvedores únicos, las trampas que ya cobraron, los huecos con nombre y monto, y las **hipótesis refutadas** para que nadie las reconstruya. **Antes de publicar una cifra, abrí su índice y leé la sección de ese número** |
@@ -245,7 +273,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | [`docs/ARQUITECTURA_DATOS.md`](docs/ARQUITECTURA_DATOS.md) | 16 | Schemas, tablas, FKs, flujo, mermaid |
 | [`docs/IMPLEMENTACION/INDEX.md`](docs/IMPLEMENTACION/INDEX.md) | 11 | Mapa de toda la documentación |
 | [`docs/IMPLEMENTACION/00_ROADMAP_GENERAL.md`](docs/IMPLEMENTACION/00_ROADMAP_GENERAL.md) | 5 | Vista de pájaro |
-| [`00_ROADMAP_FASES_DETALLE.md`](docs/IMPLEMENTACION/00_ROADMAP_FASES_DETALLE.md) | 232 | **Detalle íntegro de las 48 fases** (salió de CLAUDE.md el 2026-10-14). Una fila por fase: `grep -n '| **XX**'` |
+| [`00_ROADMAP_FASES_DETALLE.md`](docs/IMPLEMENTACION/00_ROADMAP_FASES_DETALLE.md) | 232 | **Detalle íntegro de las 48 fases** (salió de CLAUDE.md el 2026-10-14). Una fila por fase: `grep -n '\| **XX**'` |
 | [`01_TRACKER_PROGRESO.md`](docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md) | **1,723** | Kanban en vivo, 72 secciones. ⛔ El más grande del repo: **siempre por índice**, nunca entero |
 | [`02_DECISIONES_ARQUITECTURA.md`](docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md) | 356 | **88 ADRs** (hasta ADR-092), 90 secciones indexadas |
 | [`03_LOG_REVISIONES.md`](docs/IMPLEMENTACION/03_LOG_REVISIONES.md) | 911 | Historial de checkpoints, 196 secciones indexadas |
@@ -320,7 +348,32 @@ Los que gobiernan el trabajo diario: **ADR-010** multi-tenancy (`tenant_id` + RL
 
 ## Design System ("Mercado" — 2 surfaces)
 
-Antes de cualquier decisión visual/UI, leer [`DESIGN.md`](DESIGN.md). Un solo sistema, dos modes:
+> ⭐⭐⭐ **LA LEY ESTÁ EN [`docs/ESTANDAR_DE_INTERFACES.md`](docs/ESTANDAR_DE_INTERFACES.md)**, y es
+> lo primero que se lee. Define **cuándo una interfaz está bien** —para cualquier app, sin hablar
+> de colores ni componentes— en cinco capas: **veracidad · alcance · comprensión · sencillez ·
+> respeto**. Su ley 0, de la que deriva todo lo demás:
+>
+> > **Nada afirma lo que no es, y todo lo que importa se puede alcanzar.**
+>
+> `DESIGN.md` y las skills son **cómo se cumple ese estándar con el sistema «Mercado»**. Si se
+> contradicen, **gana el estándar** y hay que corregir lo otro.
+
+Después, para toda decisión visual/UI, leer [`DESIGN.md`](DESIGN.md). Un solo sistema, dos modes:
+
+> ⭐⭐ **Y son DOS skills, porque construir y auditar son oficios distintos:**
+> [`diseno`](.claude/skills/diseno/SKILL.md) para **escribir o cambiar** frontend ·
+> [`auditoria-diseno`](.claude/skills/auditoria-diseno/SKILL.md) para **juzgar una pantalla que ya
+> existe**. ⛔ La segunda nace el 2026-10-20 de una auditoría de `/finanzas/caja-general` en la que
+> Edgar encontró **preguntando** tres defectos que la auditoría no vio: una columna rotulada
+> «Origen» que mostraba otra cosa, un libro que publicaba **248 movimientos y pintaba 100** (148
+> filas, **$1,943,998.57**, invisibles y sin aviso) y un diálogo cuyo nombre cubría un tercio de lo
+> que contenía.
+>
+> ⭐ **La causa no fue falta de reglas: las compuertas verifican PRESENCIA de piezas** (que haya
+> `LoadState`, `MetricStrip`, frescura) y ninguna caza que un rótulo mienta o que una lista esconda
+> el 40 % de sus filas. Eso son los **seis cruces** de esa skill, más la regla que faltaba: **todo
+> instrumento que escribas arranca con un control cuya respuesta ya conocés** — tres instrumentos
+> caseros dieron resultados falsos ese día y los tres habrían entrado al informe.
 
 - **Storefront** (`/portal/*`): Fraunces editorial + Hanken Grotesk + Geist Mono. Decoración intencional, ilustraciones SVG, density comfortable.
 - **Operations** (`/dashboard/*`, `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/telemarketing/*`): **NO Fraunces**, NO ilustraciones. Page-head = Hanken Bold. Tabla densa + master-detail como primary organism. Density compact++. Tesis "esto es serio".

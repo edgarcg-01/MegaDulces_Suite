@@ -459,6 +459,7 @@ reaparece en Kepler como un evento sin origen.
 | **O3** | Un pago se lee de punta a punta | pagos ejecutados ligados a Kepler **0 % → 100 %** | TP.19.3 · TP.20.2 |
 | **O4** | El libro de Tesorería deja de teclearse | meses del libro derivados del calendario **0 → el mes en curso** | TP.19.4 · TP.20.4 |
 | **O5** | Una sola puerta a Pagos | renglones de menú **4 → 1 entrada con 4 pestañas**; pantallas en `FINANZAS_TABS` **2/4 → 4/4** | TP.20.3 |
+| **O6** | **Las pantallas que se pueden fusionar, fusionadas** (agregado 2026-10-20) | días con pasado visible **0 → los 7 de la semana**; hueco entre libro y calendario **53 días invisibles → declarado** | TP.21 |
 
 ---
 
@@ -1325,3 +1326,324 @@ trabajo solo: al quitar los renglones del menú se puso rojo señalando dos pant
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-10-16 | O5: una entrada «Pagos» con las cuatro pestañas, sin tocar rutas. Candado nuevo roto a propósito; el candado viejo detectó solo las dos pantallas que quedaban sin puerta | Claude |
+
+---
+
+## 23. ¿Fusionar Pronto pago con el Calendario? — inventario feature×feature (2026-10-19)
+
+La regla del proyecto es explícita: **no se unifican dos vistas perdiendo columnas, chips o
+subtotales; el inventario va ANTES de tocar código.** Éste es ese inventario — y el resultado
+**contradice la propuesta** que lo originó («la fusión barata»).
+
+### Lo que cada una tiene
+
+| Pronto pago (340 líneas) | ¿Existe en la lista del Calendario? |
+|---|---|
+| Veredicto *answer-first* («hoy hay $X que se pueden ganar; $Y vence en 5 días») | ⛔ no |
+| Procedencia: la ventana es **observada, no pactada** | ⛔ no |
+| Hallazgos de descuento **ya perdido** | ⛔ no |
+| Filtro por **estado de ventana** (capturable · por vencer · fuera · sin medir) | ⛔ no |
+| Columna **Tasa observada** | ⛔ no |
+| Columna **Se gana** (beneficio) | ⛔ no |
+| Columna **Límite estimado** (la fecha que decide) | ⛔ no |
+| El **«por qué»** por fila | ⛔ no |
+| Orden por **urgencia del descuento** → dinero | ⛔ no |
+| Buscador · KPIs · ayuda contextual | ✅ equivalente |
+
+La lista de obligaciones del Calendario tiene hoy **tres columnas** (Proveedor/factura · Vence ·
+Disponible) y está pensada para **elegir qué pagar hoy**: filtra por tipo y críticos, y **agrupa por
+beneficiario** para armar un pago.
+
+### ⛔ El conflicto que mata la fusión
+
+No es que falten columnas: es que las dos listas **ordenan y agrupan al revés**.
+
+- El Calendario **agrupa por beneficiario** — un pago es una transferencia a una cuenta.
+- Pronto pago **no puede agrupar**: cada factura tiene **su propia fecha límite**, y juntarlas por
+  proveedor esconde la que vence mañana detrás de la que vence en tres semanas. Es la razón por la
+  que esa pantalla ordena por urgencia, y está escrita en su propio encabezado: *«el orden ES la
+  mitad del valor»*.
+
+⇒ Fusionarlas obliga a elegir un orden, y cualquiera de los dos **rompe la pantalla que pierde**.
+Más 9 features sin lugar y una pantalla que pasaría de 1,187 a ~1,500 líneas.
+
+### Recomendación revisada
+
+**No fusionar.** En su lugar, llevar al Calendario **sólo las tres columnas que deciden** —*límite
+estimado*, *se gana* y *estado de ventana*— como información de la fila, más un filtro **«con
+descuento por vencer»**. Eso da lo que la fusión perseguía —ver la urgencia del descuento mientras
+se arma el día— **sin tocar el orden, sin perder features y sin una pantalla gigante**.
+
+El dato ya está disponible: ambas derivan de `analytics.v_supplier_payables` (**1,741 docs ·
+$92,981,074**) y desde `[TP.18.3]` comparten `obligation_id`, así que es un `LEFT JOIN` a
+`mv_supplier_prompt_discount`, no una integración nueva.
+
+⚠️ **Y la otra fusión (Pagos a proveedor + Programa de pagos) sigue bloqueada por falta de llave:**
+el libro no guarda el folio del pago de Kepler — sólo `invoice_folios` (de *factura*), `kepler_flag`
+(24.8 %) y `kepler_matched` (NULL). Casarlos por monto+mes es lo que produjo los $273 M
+indefendibles de `[PP.4]`.
+
+---
+
+## 24. TP.20.4 — la urgencia del descuento, dentro del Calendario (2026-10-19)
+
+Lo que el inventario de §23 recomendó en lugar de fusionar: que al armar el día se vea **qué
+factura pierde descuento**, sin mover a Pronto pago de su sitio.
+
+### La regla no se copió: se compartió
+
+`libs/finance/src/lib/shared/pronto-pago-ventana.ts` — las constantes (`MIN_OBS = 3`,
+`DIAS_AVISO = 5`) y el SQL que decide los tres campos. **Pronto pago pasó a tomarlas de ahí**, así
+que las dos pantallas no pueden divergir: si mañana se ajusta el mínimo de observaciones, cambia en
+las dos a la vez. Copiarla habría sido la sexta familia de constantes duplicadas del repo, y ésta
+decide dinero.
+
+### ⚠️ Lo que cambió respecto de lo propuesto, y por qué
+
+Se propusieron **tres columnas nuevas**. Al abrir la tabla: es un **panel estrecho de cuatro
+columnas** (Proveedor/factura · Vence · Disponible · Agregar) con ancho fijo y texto cortado con
+«…». Tres columnas más la rompen.
+
+⇒ La señal va **dentro de la celda de la factura**, como un renglón corto —
+*«⚡ ahorra $1,234 · antes del 24/10»*— y **sólo cuando hay algo que ganar**: en `fuera_de_ventana`
+o `sin_medir` no se pinta nada, porque un «—» por fila es ruido en una lista que se recorre rápido.
+Más un filtro **«Descuento por vencer»** junto a «Críticos».
+
+### Probado
+
+- **44/44** contra Postgres real. Seis casos nuevos ejercen **la regla**, no el cableado: evalúan
+  el SQL que genera el helper sobre filas construidas y verifican los cuatro estados, el **borde**
+  del aviso (límite a 5 días → *por vencer*; a 6 → *capturable*), el beneficio calculado, y que
+  `sin_medir` deje la fecha en **NULL** y no en «hoy».
+- La lista del Calendario trae los tres campos y el filtro los usa.
+- `check:pantalla -- calendario-pagos`: **1 falla antes → 1 después**, ninguna nueva · templates,
+  estilos y specs del agrupador (17/17) verdes.
+
+### Declarado
+
+⚠️ La ventana sólo viaja hoy en el origen **derivado** (`kepler_payable`), que tiene la factura del
+ERP a mano. Las 37 obligaciones **capturadas** por Entregas salen `sin_medir`: para calcularles la
+ventana hace falta unirlas a `v_supplier_payables` por sus llaves `kepler_*`, que es un join más en
+una consulta que ya está en el límite de latencia (`[TP.18.5]`). Queda como deuda con nombre.
+
+⛔ **Sin validación visual** (`nx serve` prohibido): el chip de ahorro es lo primero que habría que
+mirar — es el único elemento nuevo dentro de una celda que ya corta texto con «…».
+
+---
+
+## 25. TP.20.5 — La información vive junta: la **ficha de la obligación** (2026-10-19)
+
+Pedido de Edgar: *«no sólo quiero que se hagan módulos y se partan en submódulos; quiero que la
+información viva junta — si se centran en lo mismo, ¿por qué no unificarlo?»*.
+
+El §23 había medido que **fusionar las listas rompe una de las dos** (el Calendario agrupa por
+beneficiario, Pronto pago ordena por urgencia). Eso sigue siendo cierto, y sigue sin hacerse. Lo
+que faltaba ver es que **la lista no es la unidad de unificación**.
+
+### Las cuatro pantallas hablan del mismo sustantivo
+
+No son cuatro temas: son **cuatro preguntas sobre una factura de proveedor**.
+
+| Pantalla | Qué sabe de ESA factura |
+|---|---|
+| Pronto pago | hasta cuándo conviene pagarla y cuánto se gana |
+| Calendario de pagos | en qué día quedó programada y quién liberó ese día |
+| Pagos a proveedor | con qué documento de Kepler salió y qué comprobante la respalda |
+| Programa de pagos | — **sin llave** (ver abajo) |
+
+Para responder *«¿ésta ya se pagó?»* había que abrir tres pantallas y cruzarlas a ojo. Así que lo
+que se unifica es **el registro, no la lista**: cada lista conserva su pregunta y su orden, y la
+factura reúne su vida entera en un solo panel.
+
+### ⭐ El primitivo ya existía, y Finanzas era la única que no lo usaba
+
+`entity-ref` — *«el panel que hace que TODO sea clickeable»*. El comentario de su controller ya lo
+decía desde que se escribió: *«Ruta NEUTRAL a propósito… la idea es que Finanzas abra el mismo
+proveedor con el mismo ref»*. Lo usaban **2 pantallas de Compras y ninguna de Finanzas**.
+
+⛔ Y había un motivo real, no desidia: la puerta exigía **sólo permisos de Compras**, así que a
+Tesorería le habría dado **403 en la cara** sobre una ficha que es suya. Ahora `FINANCE_PAYMENTS_VER`
+entra por la puerta, y adentro `can()` sigue filtrando **por tipo** — el permiso de entrada no es un
+pase libre a ajustes ni a pagos.
+
+Lo nuevo es un tipo más: **`oblig`** (`oblig:<sucursal>|<tipo>|<sub>|<folio>`). Cero cambios en la
+UI del panel: agregar una entidad es un caso más en el resolvedor.
+
+### ⚠️ El hallazgo que lo hace defendible: `kepler_ods.kdxf`
+
+**El vínculo factura↔pago lo pone el ERP, no nosotros.** `kdxf` es la tabla con la que Kepler aplica
+un pago contra un documento: `c4/c5/c6` = el pago, `c7/c8/c9` = la factura, `c10` = lo aplicado. Es
+además **la misma tabla que alimenta el `aplicado` de `v_supplier_payables`**, o sea que el panel y
+el saldo no pueden discrepar.
+
+⛔ Esto es exactamente lo contrario del cruce por **monto + mes** que produjo los **$273 M
+indefendibles de `[PP.4]`**. Donde hay liga estructural, se usa; donde no la hay, se declara.
+
+### Lo medido en prod (2026-10-19, sólo lectura)
+
+| | |
+|---|---:|
+| Facturas con saldo | **2,974** · **$139,829,081** |
+| …con pago parcial aplicado | **333** |
+| Aplicaciones en `kdxf` de facturas vivas | **752** |
+| …que resuelven a una ficha de pago en `analytics.erp_supplier_payments` | **103 (13.7 %)** |
+
+⚠️ **Ese 13.7 % no es un defecto del espejo: es su alcance.** De las 650 aplicaciones de OFICINAS,
+**498 son del doctype 26 y existen todas en `kdm1`**; quedan fuera porque la vista filtra
+`c10 ILIKE 'C%'` — y las excluidas son `GN001` NOMINA y `GC002` COMISIONES, que **no son proveedores
+de mercancía**. También quedan fuera los doctypes **X-D-55** (nota de crédito, 1,904 filas · $23.3 M)
+y **X-D-40** (ajuste), que aplican contra la factura pero **no son un pago con comprobante**.
+
+⇒ La ficha los **nombra en una nota** con su folio, fecha e importe, y **no los enlaza**: el importe
+ya está restado del pendiente; lo que no hay es ficha de pago que abrir. Un enlace muerto es peor
+que ningún enlace.
+
+### La regla compartida se mudó, y perdió dos copias más
+
+`pronto-pago-ventana` y `kepler-payable-key` pasaron de `libs/finance` a **`libs/contracts`**: el
+resolvedor es `scope:commercial` y la compuerta de fronteras le prohíbe importar `scope:finance`.
+Copiarlas habría sido la sexta familia de constantes duplicadas (ADR-056), y éstas deciden dinero.
+
+⛔ Entran por **subruta** (`@megadulces/contracts/finance/…`), no por el barrel: `kepler-payable-key`
+importa `node:crypto` y el barrel raíz lo cargan las **3 apps Angular**. Es el mismo patrón que
+`[ID.28]` dejó escrito después de medir **+225 kB** en el chunk inicial de `view`.
+
+⭐ Y de paso: *Pronto pago* tenía **dos copias más** del cálculo de la ventana dentro de su propio
+archivo (la consulta de KPIs y la del detalle). Ahora las dos llaman a `sqlVentanaProntoPago()`.
+**La regla queda escrita una vez y la usan cuatro consultas.**
+
+### Qué se puede hacer ahora que antes no
+
+Desde el Calendario y desde Pronto pago, la **factura** abre su ficha. Desde Pagos a proveedor, el
+**folio del pago** abre la suya, y desde ahí se llega a las facturas que liquidó — ida y vuelta. El
+ref viaja en la URL (`?ref=`), así que una factura se pega en un chat y el otro abre exactamente el
+mismo documento.
+
+En la ficha: proveedor, documento, fechas, importe, **aplicado**, pendiente, **límite de pronto pago
+y cuánto se gana**, **en qué día quedó programada y quién liberó ese día**, los **pagos de Kepler**
+que la aplicaron y el **estado de su comprobante**.
+
+### Probado
+
+- **10/10** de integración contra Postgres real (`entity-ref.it.spec.ts`), con el pago sembrado en
+  su fuente (`kdm1`) y la aplicación en `kdxf`, todo dentro de una transacción revertida.
+- Ejercen **la unión**, no el cableado: que el pendiente salga del ERP y no de una resta nuestra;
+  que el pago aparezca con **lo que aplicó a esa factura** (30,000 − 12,000 = 18,000); que la liga
+  sea **de ida y vuelta**; que lo programado traiga **quién liberó el día**; y que **la llave de la
+  ficha sea la misma que usa el motor de asignaciones** —si divergen, la ficha diría «sin programar»
+  sobre algo programado.
+- **Tres pruebas negativas**: una factura saldada **no se inventa** (la vista sólo publica saldo > 0);
+  un rol **sin** el permiso de pagos **no abre** la ficha; un ref con partes de menos se rechaza
+  **antes de tocar la base**.
+- **44/44** de la suite del Calendario siguen verdes tras mudar las reglas a `contracts` y reescribir
+  las dos consultas de Pronto pago (`pp.overview()` las ejerce a las dos).
+- `nx run api:typecheck` **verde** (tsgo, sin build). `check:templates` ✅ · `check:estilos` ✅ ·
+  `check:tokens` ✅ · `boundary-gate` ✅ (las 7 filas nuevas quedaron **tipadas**, no en `any`).
+- `check:pantalla`: calendario **1 falla → 1 falla** (la misma §9 de siempre), pronto-pago 3,
+  comprobantes 1 — **las tres tipan con 0 errores semánticos** y ninguna falla es de lo agregado.
+
+### Declarado
+
+⛔ **Programa de pagos (el libro) queda fuera, y no por olvido.** Sigue sin llave: no guarda el
+folio del pago de Kepler, sólo `invoice_folios` (de *factura*), `kepler_flag` (24.8 %) y
+`kepler_matched` (NULL). Casarlo por monto+mes es lo que produjo los $273 M de `[PP.4]`. **Tres de
+cuatro pantallas se unifican; la cuarta tiene nombre, causa y monto.**
+
+⛔ **Sin validación visual** (`nx serve` prohibido). Lo primero que habría que mirar: que el folio
+convertido en botón **no cambie la altura de la fila** en las tres tablas, y que el panel abra por
+encima del diálogo de «Programar» en Pronto pago (`aboveModals` ya está puesto, pero no se vio).
+
+⚠️ **El enlace no se pinta de color en reposo** (sólo al pasar y al foco). Es deliberado: en una
+lista de 2,900 renglones, 2,900 enlaces de color compiten con la señal que **sí** decide. Si en uso
+resulta que nadie descubre que la factura se puede abrir, el ajuste es ése.
+
+---
+
+## 26. O6 / TP.21 — Fusionar lo que SÍ se puede: el libro y el calendario son una sola línea de tiempo (2026-10-20)
+
+Pedido de Edgar: *«fusionemos las interfaces que se puedan fusionar — Programa de pagos y Calendario
+de pagos: ver su estructura y cómo los hacemos vivir en uno solo»*.
+
+El inventario va **antes** de tocar código. Éste es.
+
+### La estructura de cada una
+
+| | **Calendario de pagos** (1,292 líneas) | **Programa de pagos** (382 líneas) |
+|---|---|---|
+| Eje | **la semana** — 7 días con presupuesto/comprometido/disponible | **el mes** — filtros Mes · Banco · Método · Tipo · Kepler |
+| Qué responde | *¿qué vamos a pagar y con qué capacidad?* | *¿qué ya se pagó y qué no está asentado en el ERP?* |
+| Tiempo | **prospectivo** | **retrospectivo** |
+| Escribe | **sí** (agrega, ordena, prepara, ejecuta, libera el día) | **no** — read-only |
+| Fuente | `finance.payment_calendar_lots/allocations/items` + 4 orígenes de obligación | `finance.payment_program` (el Excel de Tesorería, importado) |
+| Organismos propios | tira de semana con barra de capacidad · panel de obligaciones agrupadas por beneficiario · panel del día con orden/método/cuenta y acciones · PDF de instrucción a Caja General | KPIs · desglose **por banco** y **por método** · aviso de **meses faltantes** · píldora de frescura del libro · **conciliación mensual** (Programa vs Kepler 201 vs Bancos CB vs «pagado no en Kepler») |
+
+### ⭐ Lo que la medición de hoy cambia
+
+No son dos temas: son **la misma línea de tiempo —el día en que sale el dinero— cortada en dos**,
+con el pasado en un Excel y el futuro en el sistema. Medido en prod (sólo lectura, 2026-10-20):
+
+| | |
+|---|---|
+| El libro | 2,716 filas · **175 días** · $375,117,550 · hasta el **2026-08-28** |
+| El calendario | **6 días**, todos de octubre, **todos en borrador** |
+| **Días en común** | **0** |
+| **Hueco entre los dos** | **53 días** (29-ago → 15-oct) de los que **ninguna de las dos pantallas dice nada** |
+
+Ese hueco no se veía desde ninguna parte. No es un detalle estético: es el mes y medio en que
+Tesorería pagó y el sistema no lo sabe.
+
+### Qué se fusiona, y qué no
+
+✅ **El eje.** La llave que las dos comparten de verdad es **la fecha**. El día del calendario
+puede decir qué dice el libro de ese mismo día — y lo dice **como otro universo**, sumado por
+fecha, no casado renglón por renglón.
+
+⛔ **Los renglones, no.** El libro no guarda el folio del pago de Kepler (sólo `invoice_folios`, de
+*factura*; `kepler_flag` 24.8 %; `kepler_matched` NULL). Casarlos por **monto + mes** es exactamente
+lo que produjo los **$273 M indefendibles de `[PP.4]`**. Esto no cambió hoy y no se fuerza.
+
+⛔ **Los organismos propios del libro, tampoco — todavía.** Desglose por banco y por método,
+conciliación mensual de cuatro columnas, frescura del libro, aviso de meses faltantes: **nueve
+piezas** que no tienen lugar en una tira de semana. La regla del repo es explícita: *no se unifican
+dos vistas perdiendo columnas, chips o subtotales*. Se absorben en `TP.21.3`, con su propio
+inventario, **o no se absorben**.
+
+### `[TP.21.1]` + `[TP.21.2]` — la costura, hecha hoy
+
+`weekView()` publica, por día, `libro: { monto, n, mes_cargado }`, en **una** consulta para los
+siete días (la nota del propio método ya contaba 21 transacciones en serie; sumar siete más por una
+tira de encabezado sería pagar el doble por la mitad del dato).
+
+⚠️ **`mes_cargado` es la mitad del valor.** Un día de un mes que el Excel no tiene da `0` por
+ausencia, no porque no se haya pagado. Pintar las dos cosas igual es el mismo defecto que `[PP.10]`
+encontró escondiendo **$91,720,679**. En pantalla: *«libro: $X · N»* cuando hay pagos, y
+**«libro sin cargar»** en ámbar cuando el mes no está — nunca un cero mudo.
+
+La señal va en el pie del día, discreta: es **contexto**, no la cifra con la que se arma el pago.
+Lo único que toma color es el hueco, porque es lo único que pide acción.
+
+### Probado
+
+- **49/49** contra Postgres real (44 antes + **5** de la costura).
+- Ejercen **la distinción que importa**: el lunes suma sus dos pagos y el martes el suyo; un día sin
+  pagos de un mes **cargado** es un cero **de verdad**; un día de un mes **no cargado** sale marcado;
+  y —la que protege de `[PP.4]`— **el libro no mueve lo asignado del día**: son universos distintos
+  y mezclarlos es el defecto, no la feature.
+- ⭐ **Compuerta rota a propósito**: forzando `mes_cargado: true` la suite se pone **roja en la
+  prueba correcta** (1 failed / 48 passed), y verde al revertir.
+- `api:typecheck` verde · `check:templates` verde · `check:pantalla -- calendario-pagos`:
+  **0 fallas NUEVAS**.
+
+### Lo que falta de O6
+
+| Sprint | Qué | Estado |
+|---|---|---|
+| `TP.21.1` | el día publica su pasado (`libro` en `weekView`) | 🧪 hecho |
+| `TP.21.2` | la costura en la tira de semana + el hueco declarado | 🧪 hecho |
+| `TP.21.3` | absorber los **nueve** organismos del libro (banco, método, conciliación, frescura, meses faltantes) y redirigir `/finanzas/programa-pagos` | ⬜ **con su propio inventario antes** |
+
+⛔ **Sin validación visual** (`nx serve` prohibido): el pie del día ya tenía dos líneas y ahora puede
+llevar tres. Es lo primero que habría que mirar, porque son siete botones en una tira horizontal.
+
+⚠️ **Y el número de O6 no se moverá hasta desplegar**, como los otros cinco: hoy el hueco de 53 días
+está medido y declarado en el código, no en la pantalla que usa Tesorería.

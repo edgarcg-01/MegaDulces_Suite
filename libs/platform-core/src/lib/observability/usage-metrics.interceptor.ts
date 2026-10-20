@@ -161,7 +161,9 @@ export class UsageMetricsInterceptor implements NestInterceptor, OnModuleDestroy
     if (!this.buffer.size && !this.usuarios.size) {
       // Sin tráfico no se escribe nada, pero SÍ se late con el motivo: un latido ausente y un
       // latido "cero legítimo" son cosas distintas y el tablero tiene que poder distinguirlas.
-      await this.latir(0, 0, ['sin trafico en la ventana']);
+      // ⛔ El motivo NO va en `fallas`: ahí pintaba `error` (38.8 % de los latidos en prod, cada
+      // madrugada). Lo declara `ceroEsOk` dentro de `latir()`, que es su lugar.
+      await this.latir(0, 0, []);
       return;
     }
     this.descargando = true;

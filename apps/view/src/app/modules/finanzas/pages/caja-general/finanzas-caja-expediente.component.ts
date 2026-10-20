@@ -12,6 +12,7 @@ import { FreshnessPillComponent } from '../../../../shared/components/freshness-
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import type { Freshness } from '@megadulces/contracts';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
+import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 
 /** Un renglón del historial: un día, con el corte de ese día. */
@@ -125,8 +126,11 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ButtonModule, TableModule, TagModule,
-    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent],
+    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent,
+    CajaTabsComponent],
   template: `
+    <!-- [CG.121] Captura / Expediente / Caja Fuerte son UN area, no tres reportes sueltos. -->
+    <app-caja-tabs />
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -263,8 +267,15 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                         (retry)="recargar()" />
 
         @if (dias().length) {
+          <!-- [CG.127] Paginada: es un renglon por DIA, asi que su largo lo fija el rango que
+               elija quien revisa -- un trimestre son ~90 renglones. 30 por pagina es un mes,
+               que es la unidad con la que se revisa un corte diario. -->
           <p-table [value]="dias()" size="small" dataKey="fecha" [rowHover]="true"
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
+                   [paginator]="dias().length > 30" [rows]="30"
+                   [rowsPerPageOptions]="[30, 60, 90]"
+                   [showCurrentPageReport]="true"
+                   currentPageReportTemplate="{first}–{last} de {totalRecords} días"
                    selectionMode="single" [selection]="diaSel()" (selectionChange)="abrir($event)">
             <ng-template #header>
               <!-- Las tres familias, rotuladas. Sin esta fila, efectivo, dolares y credito se

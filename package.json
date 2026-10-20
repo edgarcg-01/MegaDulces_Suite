@@ -57,6 +57,8 @@
     "check:cobro-monto-desfasado:self": "node database/scripts/check-cobro-monto-desfasado.js --self-test",
     "check:dedup-por-llave": "node scripts/check-dedup-por-llave.js",
     "check:dedup-por-llave:self": "node scripts/check-dedup-por-llave.js --probar-negativo",
+    "check:bandeja-residuo": "node database/scripts/check-bandeja-residuo.js",
+    "check:bandeja-residuo:self": "node database/scripts/check-bandeja-residuo.js --self-test",
     "check:camioneta-sin-cobro": "node database/scripts/check-camioneta-sin-cobro.js",
     "check:camioneta-sin-cobro:self": "node database/scripts/check-camioneta-sin-cobro.js --self-test",
     "camioneta:armar": "node database/importers/kepler/route-push/armar-push-camioneta.js",

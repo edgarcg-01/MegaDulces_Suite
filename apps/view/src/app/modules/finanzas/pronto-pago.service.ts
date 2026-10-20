@@ -35,6 +35,12 @@ export interface ProntoPagoRow {
    */
   obligation_source: 'supplier_payable' | 'kepler_payable';
   obligation_id: string;
+  /**
+   * `[TP.20.5]` **El ref de la ficha de esta factura** — la vida completa del documento: deuda,
+   * ventana, en qué día quedó programada, con qué pago de Kepler salió y si hay comprobante. Lo
+   * arma el servidor; acá sólo se abre.
+   */
+  entity_ref: string;
   reservado: number;
   pagado: number;
   /** Lo que todavía se puede mandar al Calendario: `pendiente − reservado − pagado`. */
