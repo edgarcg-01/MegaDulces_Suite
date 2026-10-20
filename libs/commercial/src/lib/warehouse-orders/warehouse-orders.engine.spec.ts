@@ -9,7 +9,7 @@
  * estatus NO mueve los conteos de los botones.
  */
 import type { WarehouseOrderRow } from '@megadulces/contracts';
-import { armarRespuesta, horasAbierto, ordenEstatus, periodo, PeriodoInvalido, relojMx } from './warehouse-orders.engine';
+import { armarRespuesta, horasAbierto, ordenEstatus, periodo, PeriodoInvalido, relojMx, sinImportes } from './warehouse-orders.engine';
 
 const fila = (over: Partial<WarehouseOrderRow>): WarehouseOrderRow => ({
   clave: '01-1-0002781', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio: '0002781',
@@ -100,5 +100,36 @@ describe('[GP.1] filtros y conteos', () => {
     const r = armarRespuesta([...rows, fila({ clave: 'x', estatus: 'CANCELADO' })], SIN_FILTRO, per, ALCANCE, ahora);
     expect(r.conteos[r.conteos.length - 1]).toMatchObject({ estatus: 'CANCELADO', pedidos: 1 });
     expect(ordenEstatus('CANCELADO', 'CREADO')).toBeGreaterThan(0);
+  });
+});
+
+describe('[MCP.3.2] sinImportes: lo que recibe el surtidor', () => {
+  const ahora = new Date('2026-10-06T15:41:00Z');
+  const per = { from: '2026-10-01', to: '2026-10-31' };
+  const r = armarRespuesta(
+    [fila({}), fila({ clave: '01-1-0002790', folio: '0002790', documento: 'UD4001-0002790', estatus: 'AUTORIZADO', importe: 1000 })],
+    SIN_FILTRO, per, ALCANCE, ahora,
+  );
+
+  it('ningún importe viaja: ni por renglón ni en el total', () => {
+    const s = sinImportes(r);
+    expect(s.items.every((x) => x.importe === null)).toBe(true);
+    expect(s.totales.importe).toBeNull();
+    // null y no 0: "no lo puedes ver" no es "vale cero".
+    expect(s.totales.importe).not.toBe(0);
+  });
+
+  it('lo que sí ve queda intacto: folio, cliente, conteos', () => {
+    const s = sinImportes(r);
+    expect(s.items.map((x) => x.documento)).toEqual(r.items.map((x) => x.documento));
+    expect(s.items.map((x) => x.destino_nombre)).toEqual(r.items.map((x) => x.destino_nombre));
+    expect(s.totales.pedidos).toBe(r.totales.pedidos);
+    expect(s.conteos).toEqual(r.conteos);
+  });
+
+  it('no muta la respuesta original (la del tablero sigue con dinero)', () => {
+    sinImportes(r);
+    expect(r.totales.importe).toBeGreaterThan(0);
+    expect(r.items.some((x) => x.importe !== null)).toBe(true);
   });
 });
