@@ -1,3 +1,4 @@
+import type { Knex } from 'knex';
 import { Injectable, Logger, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
@@ -38,6 +39,10 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * su fecha; nunca se elimina la fila. Borrarla dejaría las corridas pasadas sin con qué
  * explicar a quién le pagaron, y la regla dura del repo prohíbe borrar en prod.
  */
+/** `[RD.84]` Una quincena ya pagada que una edicion del padron tocaria. Sólo las columnas
+ *  que el aviso lee: el importe para sumarlo y el periodo para nombrarlo. */
+interface FilaPagada { pagado: string | number | null; period_no: number; anio: number }
+
 @Injectable()
 export class CommissionPadronService {
   private readonly logger = new Logger(CommissionPadronService.name);
@@ -202,11 +207,11 @@ export class CommissionPadronService {
 
   // ── Internos ───────────────────────────────────────────────────────────────────────────
 
-  private async escalaVigente(trx: any, onDate: string): Promise<string> {
+  private async escalaVigente(trx: Knex.Transaction, onDate: string): Promise<string> {
     const escala = await trx('commercial.commission_scales')
       .whereNull('deleted_at')
       .where('valid_from', '<=', onDate)
-      .andWhere((b: any) => b.whereNull('valid_to').orWhere('valid_to', '>', onDate))
+      .andWhere((b: Knex.QueryBuilder) => b.whereNull('valid_to').orWhere('valid_to', '>', onDate))
       .orderBy('valid_from', 'desc').first();
     if (!escala) {
       throw new ConflictException(
@@ -225,7 +230,7 @@ export class CommissionPadronService {
    * y avisar de ésas sería ruido que enseña a ignorar el aviso.
    */
   private async quincenasPagadasAfectadas(
-    trx: any, tenantId: string, routeCode: string,
+    trx: Knex.Transaction, tenantId: string, routeCode: string,
     desde: string | null, hasta: string | null, activo: boolean,
   ): Promise<AvisoPagadas | null> {
     const { rows } = await trx.raw(
@@ -244,11 +249,11 @@ export class CommissionPadronService {
         GROUP BY 1, 2 ORDER BY 1, 2`,
       [tenantId, routeCode, desde, desde, activo, hasta, hasta]);
     if (!rows.length) return null;
-    const pagado = rows.reduce((s: number, r: any) => s + Number(r.pagado || 0), 0);
+    const pagado = rows.reduce((s: number, r: FilaPagada) => s + Number(r.pagado || 0), 0);
     return {
       quincenas: rows.length,
       pagado: pagado.toFixed(2),
-      detalle: rows.map((r: any) => `Q${r.period_no}/${r.anio}`).join(', '),
+      detalle: rows.map((r: FilaPagada) => `Q${r.period_no}/${r.anio}`).join(', '),
     };
   }
 }

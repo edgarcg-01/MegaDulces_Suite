@@ -41,6 +41,25 @@ import { primerCorteDelLibro } from './caja-relevo';
  * dejaba la pantalla diciendo "±$1" mientras el matcher usaba otra cosa.
  */
 // `[CGA-A.44]` El valor vive en el motor: la cola de captura casa con el mismo.
+/**
+ * `[CGA-A.39]` Un documento de Kepler de Caja General, como lo devuelve `docsKeplerPorLlave`.
+ *
+ * ⚠️ `importe` y `signo` se declaran `string | number` a propósito: node-pg entrega `numeric`
+ * como TEXTO. Tiparlos de número invitaría a sumarlos sin convertirlos, que es como se fabrica
+ * un total equivocado que se lee igual que uno correcto.
+ */
+type DocKeplerCG = {
+  sucursal: string;
+  clave_banco: string;
+  folio: string;
+  fecha: unknown;
+  concepto: string | null;
+  beneficiario: string | null;
+  doc_tipo: string;
+  importe: string | number;
+  signo: number | string;
+};
+
 const MATCH_EPS = CUADRE_TOLERANCIA_PESOS;
 const CUADRE_EPS = 1000;
 const TENDERS = ['efectivo', 'morralla', 'cheques', 'tarjeta', 'caja_chica', 'sobregiro'];
@@ -151,9 +170,18 @@ export class CajaGeneralService {
    * OTRO día que el que se está viendo. La de camionetas va en SAVEPOINT por la misma razón que
    * `cobrosDeRuta`: si el FDW falla, ese par sale «solo libro» en vez de tumbar el Cuadre.
    */
-  private async docsKeplerPorLlave(trx: Knex.Transaction, tenantId: string, keys: string[]) {
+  /**
+   * ⚠️ El tipo de retorno va DECLARADO, no inferido. Sin él TypeScript unía tres caminos
+   * (`[]`, `tes`, y el spread con `cobroDeRutaComoKepler`) y terminaba en `unknown[]`: el
+   * `.map((r) => ...)` de la línea ~854 fallaba con **TS18046: 'r' is of type 'unknown'** y
+   * tiraba el build de `main` entero (10 errores, `Running target build ... failed`).
+   *
+   * ⛔ El `return []` es el que empuja la inferencia: un `never[]` unido a un objeto no estrecha,
+   * ensancha. Declarar el contrato de salida cuesta una línea y lo cierra.
+   */
+  private async docsKeplerPorLlave(trx: Knex.Transaction, tenantId: string, keys: string[]): Promise<DocKeplerCG[]> {
     if (!keys.length) return [];
-    const tes: Array<{ sucursal: string; clave_banco: string; folio: string; fecha: unknown; concepto: string | null; beneficiario: string | null; doc_tipo: string; importe: string | number; signo: number | string }> =
+    const tes: DocKeplerCG[] =
       await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).andWhere('account_label', 'CG')
         .whereRaw(`sucursal || '|' || doc_tipo || '|' || folio || '|' || clave_banco = ANY(?)`, [keys])

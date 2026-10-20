@@ -1,3 +1,4 @@
+import type { Knex } from 'knex';
 import {
   Injectable,
   Logger,
@@ -492,7 +493,7 @@ export class CommercialCommissionsService {
              FROM commercial.commission_bonuses
             WHERE scale_id = ? AND deleted_at IS NULL`, [vigente.id]);
         if (previos.length) {
-          await trx('commercial.commission_bonuses').insert(previos.map((b: any) => ({
+          await trx('commercial.commission_bonuses').insert(previos.map((b: Record<string, unknown>) => ({
             ...b, tenant_id: tenantId, scale_id: nuevaId,
             created_by: userId ?? null, updated_by: userId ?? null,
           })));
@@ -849,7 +850,7 @@ export class CommercialCommissionsService {
    * que ADR-056 prohíbe. Es además el comportamiento que ya había.
    */
   private async universo(
-    trx: any, tenantId: string, from: string, to: string,
+    trx: Knex.Transaction, tenantId: string, from: string, to: string,
   ): Promise<RutaUniverso[]> {
     const { rows } = await trx.raw(
       `SELECT u.route_code, u.route_kind, u.plaza_o_zona,
@@ -1029,7 +1030,7 @@ export class CommercialCommissionsService {
           WHERE run_id = ? AND deleted_at IS NULL AND beneficiario = 'chofer'
           ORDER BY route_code`, [run.id]);
 
-      const filas: SimulacionFila[] = lineas.map((l: any) => {
+      const filas: SimulacionFila[] = lineas.map((l: Record<string, unknown>) => {
         const venta = Number(l.venta) || 0;
         const subtotal = Number(l.subtotal) || 0;
         const tier = this.pickTier(tiers, venta);

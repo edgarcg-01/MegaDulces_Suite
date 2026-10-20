@@ -1,3 +1,4 @@
+import type { Knex } from 'knex';
 import { Injectable, Logger, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
@@ -163,16 +164,16 @@ export class CommissionBonosService {
     if (!parcial && !String(dto?.nombre ?? '').trim()) {
       throw new BadRequestException('nombre requerido: es con lo que se lee el bono en el recibo');
     }
-    if (!BENEFICIARIOS.includes(dto?.beneficiario as any)) {
+    if (!(BENEFICIARIOS as readonly string[]).includes(dto?.beneficiario ?? '')) {
       throw new BadRequestException(
         `beneficiario "${dto?.beneficiario}" no existe. Son: ${BENEFICIARIOS.join(' | ')}.`);
     }
-    if (!METRICAS.includes(dto?.metrica as any)) {
+    if (!(METRICAS as readonly string[]).includes(dto?.metrica ?? '')) {
       throw new BadRequestException(
         `metrica "${dto?.metrica}" no existe. Son: ${METRICAS.join(' | ')}. `
         + '"manual" es la que no se deriva: la marca una persona.');
     }
-    if (!COMPARADORES.includes(dto?.comparador as any)) {
+    if (!(COMPARADORES as readonly string[]).includes(dto?.comparador ?? '')) {
       throw new BadRequestException(
         `comparador "${dto?.comparador}" no existe. Son: gt (estrictamente mayor) | gte (mayor o igual).`);
     }
@@ -194,7 +195,7 @@ export class CommissionBonosService {
     }
   }
 
-  private async escalaVigente(trx: any): Promise<{ id: string }> {
+  private async escalaVigente(trx: Knex.Transaction): Promise<{ id: string }> {
     const escala = await trx('commercial.commission_scales')
       .whereNull('deleted_at').whereNull('valid_to')
       .orderBy('valid_from', 'desc').first();
