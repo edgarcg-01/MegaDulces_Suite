@@ -192,9 +192,17 @@ corrieron.
 **⛔ Un segundo planificador.** El contenedor de Docker Compose `feeds-cron`
 (`trade-ingest:latest`, creado el 16-oct 17:46) está vivo con **la misma agenda** que el pod k3s
 `feeds-cron`. Corrió el nocturno el 17 y el 19-oct y falló a los ~340 s (`EAI_AGAIN pg-prod`: es el
-nombre del Postgres de Compose, que está parado). Por eso `kepler_sales_fact_full` mostraba
-`running` desde hacía 35 h: `last_finish` 03:01:33.177 y `last_start` .186, dos emisores con la
-misma llave.
+nombre del Postgres de Compose, que está parado).
+
+> ❌ **DIAGNÓSTICO EQUIVOCADO, corregido el 2026-10-20.** Acá decía que ese duplicado explicaba
+> que `kepler_sales_fact_full` estuviera en `running` 35 h, porque `last_finish` (03:01:33.177) y
+> `last_start` (.186) estaban a 9 ms: «dos emisores con la misma llave». **No era así.** Esos
+> 9 ms los produce un solo `hb.begin()`: encuentra la corrida anterior colgada en `running`, la
+> cierra como error (eso escribe `last_finish`) y abre la nueva (`last_start`) en la misma
+> llamada. Con el duplicado de Compose ya detenido, el 20-oct se repitió idéntico
+> (03:00:44.182 / .198). **La causa real es `OPS.LIMPIEZA.9`, más abajo:** el proceso muere por
+> falta de memoria. ⭐ La lección: dos marcas a milisegundos NO prueban dos emisores; antes hay
+> que leer qué escribe `begin()`.
 
 ### OPS.LIMPIEZA.7 — Docker Compose no debería existir en `md`: todo va en k3s
 
@@ -364,6 +372,47 @@ k3s kubectl -n prod exec $POD -- su -s /bin/sh postgres -c 'pgbackrest --stanza=
 `ops/prod/Dockerfile.pg` / `pgbackrest.conf` sin subir la etiqueta, así que **`pg-prod` corre con
 la configuración vieja sin ningún error visible**. Lo tiene que mirar quien hizo ese cambio
 (probablemente `VL.9.10b`/`OPS.DISCO.3`).
+
+---
+
+## Verificación de la noche del 19 al 20-oct
+
+| Qué | Resultado |
+|---|---|
+| `backup_prod` (pg_dump 22:00, **desde el pod k3s**) | ✅ `ok` · 2988 MB en 487 s · 786 tablas · `trade_marketing_2026-10-19_2200.dump` |
+| `pgbackrest_backup` (23:30, **desde el pod k3s**) | ✅ `ok` · `diff` en 48 s (`20261018-233002F_20261019-233001D`) · 7 respaldos · 109 GB |
+| `ods_publish_tienda` (OPS.LIMPIEZA.3) | ✅ `ok` (08:47, 463 aplicadas) |
+| `ui_usage_flush` (OPS.LIMPIEZA.1) | ✅ `ok` |
+| `cdc_reconcile_full` (OPS.LIMPIEZA.5) | ⚠️ `error`, **pero ya nombra la tabla**: `kdij@00 61026/65146 (94%)` → `OPS.LIMPIEZA.10` |
+| `kepler_sales_fact_full` | ❌ sigue en `running` → la causa real es `OPS.LIMPIEZA.9` |
+
+## OPS.LIMPIEZA.9 — El refresco completo de ventas muere por memoria desde la mudanza a k3s
+
+**Evidencia** (log de `ingesta/feeds-cron`, 20-oct 03:00): `import-sales-fact.js` (ventana de 13
+meses) termina con `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of
+memory` a los 86.5 s, con el heap en ~511 MB. Al morir así no llega a `hb.end()` y el latido queda
+en `running` hasta la noche siguiente. `feed_nightly` lo reporta igual las noches del 18 y del 20.
+
+**Mecanismo:** Node dimensiona su heap según el límite de memoria del contenedor. El pod
+`feeds-cron` tiene `limits.memory: 1Gi` (`ops/k3s/26-feeds-cron.deployment.yaml`); medido dentro
+del pod, `heap_size_limit` = **524 MB** y `NODE_OPTIONS` vacío. En Compose no había límite, y el
+heap era varias veces mayor.
+
+**Por qué importa:** es el **único** proceso que corrige ventas de más de 2 días atrás (el 17-sep
+corrigió $9.5 M). Mientras falle, cualquier corrección tardía de Kepler no llega a
+`analytics.sales_daily`. **No medido:** desde qué noche exacta falla; el renglón de `cron_runs` se
+sobreescribe y el log del pod sólo guarda la vida del pod actual.
+
+**Arreglo propuesto (sin aplicar):** subir la memoria del pod y darle al nocturno un heap explícito.
+**Medir antes la memoria libre del nodo**, porque comparte máquina con `pg-prod`. A futuro, que el
+importer procese por lotes en vez de cargar 13 meses en memoria.
+
+## OPS.LIMPIEZA.10 — `cdc_reconcile_full`: `kdij` de la sucursal 00 querría borrar el 94 %
+
+El latido nuevo funcionó: `kdij@00 61026/65146 (94%) > 60% — ABORTADO`. El freno hizo lo correcto
+(94 % es casi seguro una lectura incompleta o una poda en origen, no 61 mil bajas reales). **Falta
+investigar:** qué es `kdij` en Kepler, si la réplica de la `00` (OFICINAS) poda esa tabla por
+antigüedad (entonces se declara con `podaCol`) o si la lectura de la réplica está incompleta.
 
 ---
 

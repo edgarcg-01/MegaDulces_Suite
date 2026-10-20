@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1805 KB, 11679 líneas, 72 secciones.
+> **Índice navegable** — 1813 KB, 11785 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,75 +10,75 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 159 | 168 | 📊 Estado global de fases |
 | 160 | 186 | 1 | 🚦 Estado por item (granular) |
-| 187 | 3044 | 384 | 🎯 EN PROGRESO |
-| 3061 | 3098 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 3099 | 3132 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 3133 | 3217 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 3218 | 3321 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 3322 | 3388 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 3389 | 3492 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 3493 | 3576 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 3577 | 3746 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 3747 | 3809 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 3810 | 3882 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 3883 | 3934 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 3935 | 4396 | 39 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4397 | 4410 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4411 | 4435 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4436 | 4458 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4459 | 4497 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4498 | 5126 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5127 | 5311 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5312 | 5354 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5355 | 5432 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5433 | 5526 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5527 | 5662 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 5663 | 5679 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 5680 | 5725 | 83 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 5726 | 5793 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 5794 | 6046 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6047 | 6112 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6113 | 6140 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6141 | 6307 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6308 | 6608 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 6609 | 6671 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 6672 | 6777 | 29 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 6778 | 6840 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 6841 | 7001 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7002 | 7072 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7073 | 7121 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7122 | 7154 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7155 | 7544 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 7545 | 7676 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 7677 | 7723 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 7724 | 7763 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 7764 | 7816 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 7817 | 7883 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 7884 | 8046 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8047 | 8222 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8223 | 8390 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8391 | 10145 | 130 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10146 | 10154 | 1 | Fase RR — Ventas por ruta |
-| 10155 | 10450 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 10451 | 10461 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 10462 | 10482 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 10483 | 10493 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 10494 | 10505 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 10506 | 10565 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 10566 | 10993 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 10994 | 11008 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11009 | 11050 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11051 | 11192 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11193 | 11223 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11224 | 11271 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11272 | 11284 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11285 | 11314 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11321 | 11330 | 1 | 📝 Convenciones |
-| 11331 | 11367 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 11368 | 11386 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 11387 | 11439 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 11440 | 11742 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 11743 | 11763 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 187 | 3094 | 387 | 🎯 EN PROGRESO |
+| 3111 | 3148 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3149 | 3182 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3183 | 3267 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3268 | 3371 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3372 | 3438 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3439 | 3542 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3543 | 3626 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3627 | 3796 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3797 | 3859 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3860 | 3932 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 3933 | 3984 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 3985 | 4446 | 39 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4447 | 4460 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4461 | 4485 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4486 | 4508 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4509 | 4547 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4548 | 5176 | 56 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5177 | 5361 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5362 | 5404 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5405 | 5482 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5483 | 5576 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5577 | 5712 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 5713 | 5729 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 5730 | 5775 | 83 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 5776 | 5843 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 5844 | 6096 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6097 | 6162 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6163 | 6190 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6191 | 6357 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6358 | 6658 | 104 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 6659 | 6721 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 6722 | 6829 | 30 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 6830 | 6892 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 6893 | 7053 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7054 | 7124 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7125 | 7173 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7174 | 7206 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7207 | 7596 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 7597 | 7728 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 7729 | 7775 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 7776 | 7815 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 7816 | 7868 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 7869 | 7935 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 7936 | 8098 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8099 | 8274 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8275 | 8442 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8443 | 10251 | 134 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10252 | 10260 | 1 | Fase RR — Ventas por ruta |
+| 10261 | 10556 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 10557 | 10567 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 10568 | 10588 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 10589 | 10599 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 10600 | 10611 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 10612 | 10671 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 10672 | 11099 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11100 | 11114 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11115 | 11156 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11157 | 11298 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11299 | 11329 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11330 | 11377 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11378 | 11390 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11391 | 11420 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11427 | 11436 | 1 | 📝 Convenciones |
+| 11437 | 11473 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11474 | 11492 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 11493 | 11545 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 11546 | 11848 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 11849 | 11869 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6811,7 +6811,7 @@ mtime de log (ver OBS.8.2).
 - [ ] 🔨 **OPS.LIMPIEZA.4** (2026-10-19) `feed_catalog` › `import-brands-lineas.js` lee `kepler_ods.kdig` (una consulta a la misma base) en vez de abrir 9 conexiones con `stockMap()` — que daba el **POS remoto** de cada sucursal, no la réplica, y saltaba una caída con un `⚠` mudo. Precedencia conservada (`ORDER BY sucursal`, primera gana). **Medido en prod:** 9 sucursales, 546–548 líneas c/u, 549 códigos, **1** con nombre distinto entre sucursales (`002` KI´SNACKS vs MONDELEZ) → gana la 00 antes y después. Fuente vacía ahora FALLA en vez de decidir sobre nada. **Sin dry-run contra prod** (equivalencia medida por SQL). **Falta:** push + ver la corrida del sábado 02:00.
 - [ ] 🔨 **OPS.LIMPIEZA.5** (2026-10-19) Investigado, en sólo lectura. **Parte de los rojos es el incidente del disco** (`VL.9.10b`/`OPS.DISCO.3`): el kubelet desalojó **toda prod** (pg-prod, api, caddy, cloudflared, portal, vendor, redis, worker e ingesta) entre **23:35 y 23:36 del 18-oct** y nada volvió hasta los reinicios de 07:53/09:10 → el nocturno y `ods-reconcile-full` del 19-oct no corrieron (este último `Failed`). Disco: 86 % el 15-oct → 94 % el 19-oct, con el aviso de `image_gc` en el journal desde el 15-oct, sin que nadie lo viera. Lo propio de cada proceso:
   - `cdc_reconcile_full`: el aborto (>60 %) es del **18-oct 02:10**, antes del desalojo; la tabla **no se sabe**: el latido no la nombraba y el log murió con el pod. Arreglado: el latido nombra `tabla@sucursal` + fracción. Si resulta poda por antigüedad, ya existe `podaCol` para declararla.
-  - `kepler_sales_fact_full` **no está «corriendo 35 h»**: `last_finish` 03:01:33.177 y `last_start` .186 (**9 ms después**) = dos emisores con la misma llave. ⛔ **Hallazgo: un 2º planificador.** El contenedor Compose `feeds-cron` (`trade-ingest:latest`, creado el 16-oct 17:46) está **vivo con la MISMA agenda** que el pod k3s `feeds-cron` (nocturno 03:00, `publish-tienda`, …). Corrió el nocturno el 17 y el 19-oct (falla a los ~340 s: `EAI_AGAIN pg-prod`, el nombre del Postgres de Compose parado). Lo **arrancó alguien a las 15:09:45 del 19-oct**, sin rastro en git. **No se tocó** (es infra de prod y otra sesión opera `md` hoy) → **decide quien lleve `OPS.DISCO`/Edgar: pararlo** (`docker update --restart=no` + `stop`), si no, cada noche duplica el nocturno y fabrica latidos cruzados.
+  - `kepler_sales_fact_full` **no está «corriendo 35 h»**: `last_finish` 03:01:33.177 y `last_start` .186 (**9 ms después**) — ❌ **diagnóstico EQUIVOCADO, corregido 2026-10-20:** esos 9 ms los produce UN solo `hb.begin()` (cierra la corrida colgada y abre la nueva); la causa real es **OPS.LIMPIEZA.9** (falta de memoria). El 2º planificador sí existía, pero no explicaba esto. ⛔ **Hallazgo: un 2º planificador.** El contenedor Compose `feeds-cron` (`trade-ingest:latest`, creado el 16-oct 17:46) está **vivo con la MISMA agenda** que el pod k3s `feeds-cron` (nocturno 03:00, `publish-tienda`, …). Corrió el nocturno el 17 y el 19-oct (falla a los ~340 s: `EAI_AGAIN pg-prod`, el nombre del Postgres de Compose parado). Lo **arrancó alguien a las 15:09:45 del 19-oct**, sin rastro en git. **No se tocó** (es infra de prod y otra sesión opera `md` hoy) → **decide quien lleve `OPS.DISCO`/Edgar: pararlo** (`docker update --restart=no` + `stop`), si no, cada noche duplica el nocturno y fabrica latidos cruzados.
 - [ ] ⚠️ **OPS.LIMPIEZA.6** **Decide Edgar:** apagar `caja_general_ship` + `caja_general_replica_all` (copian un Access muerto desde el 10-oct) y prender o no `caja_autollenado`.
 - [ ] 🔨 **OPS.LIMPIEZA.7** (2026-10-19) **Compose fuera de `md`.** El `feeds-cron` de Compose lo reiniciaba `ods-autoheal` cada ~6.7 min (chequeo de salud roto: `EAI_AGAIN pg-prod`), no una persona. Repo: `autoheal` pasa a `retirado-k3s` (era el único servicio sin perfil). ✅ **En `md`, hecho 15:27:** `ods-autoheal` y `feeds-cron` detenidos con `restart=no` (verificado con `docker inspect`; k3s `ingesta/feeds-cron` sigue 1/1). **Verificar mañana:** que `kepler_sales_fact_full` cierre su latido con el nocturno corriendo UNA sola vez. Quedan en Compose, sin equivalente en k3s: `prod-backup` y `prod-registry` → migrarlos es otro item, con su propio riesgo.
 - [ ] 🚀 **OPS.LIMPIEZA.8** — ✅ **CORTADO 2026-10-19 ~16:00** (en `md`, por una persona): el registro y el respaldo corren en k3s; `prod-registry` y `prod-backup` detenidos con `restart=no`; en Docker sólo quedan herramientas (`sonar-*`, `obs-netdata`). `_catalog` con los mismos 8 repos; `pgbackrest check` OK. **Para cerrar (✅):** la noche del 19-oct, dump de las 22:00 + pgBackRest de las 23:30 + `deploy.sh --pitr`; y entonces `migracion: migrado` + `retirado-k3s` en `ops/prod/docker-compose.yml`. Antes: **PREPARADO 2026-10-19:** `ops/k3s/63-registry.deployment.yaml` + `53-prod-backup.deployment.yaml` (`migracion: preparado`, validados con `--dry-run=server`, `check:k3s` y `check:base-tags` verdes en lo propio). **Falta el corte en `md`**, fuera de horario hábil, con la receta de `OPS_LIMPIEZA_PROCESOS.md` › OPS.LIMPIEZA.8 (pasos 0/A/B, y C la noche siguiente). ⚠️ De paso: `check:base-tags` marca `52-pg-prod` con la etiqueta vieja (cambió `Dockerfile.pg`/`pgbackrest.conf` sin bump) → `pg-prod` corre con la configuración vieja. **Sacar de Compose lo último: `prod-registry` y `prod-backup` → k3s** (pedido del PM 2026-10-19: «Docker Compose no debería existir»). Es item, no fase (Fase 0 no abre fases). Medido 2026-10-19:
@@ -6821,6 +6821,8 @@ mtime de log (ver OBS.8.2).
   - **D2 respaldo:** CronJob k3s con hostPath a los mismos directorios. ⛔ No se apaga el contenedor hasta que el CronJob tenga **un completo + un incremental verificados** (`pgbackrest info` y prueba de restauración en un destino seguro). El respaldo no puede quedarse sin correr ni un día.
   - **Hecho cuando:** `docker ps` en `md` sólo lista herramientas (`sonar-*`, `obs-netdata`) · un rollout de `api` baja la imagen del registro en k3s (prueba negativa: con el contenedor viejo detenido) · `pgbackrest info` muestra un respaldo del CronJob de esa misma noche · `ops/prod/` y `ops/vl/` declaran los dos servicios en `retirado-k3s`.
   - **Riesgo:** fuera de horario hábil (regla 9). El registro, sin despliegues en curso; el respaldo, entre corridas. Dueño: quien lleve `OPS.DISCO` / infra.
+- [ ] ⬜ **OPS.LIMPIEZA.9** (2026-10-20) **El refresco completo de ventas (13 meses) muere por MEMORIA desde la mudanza a k3s.** Log de `ingesta/feeds-cron` 20-oct 03:00: `import-sales-fact.js` → `JavaScript heap out of memory` a los 86.5 s (heap ~511 MB). Pod con `limits.memory: 1Gi` → `heap_size_limit` medido **524 MB**, `NODE_OPTIONS` vacío; en Compose no había límite. Es el ÚNICO que corrige ventas >2 días atrás. Arreglo propuesto: más memoria al pod + heap explícito al nocturno, **midiendo antes la memoria libre del nodo** (comparte con `pg-prod`); a futuro, procesar por lotes. **No medido:** desde qué noche falla.
+- [ ] ⬜ **OPS.LIMPIEZA.10** (2026-10-20) `cdc_reconcile_full` ya nombra la tabla: **`kdij@00 61026/65146 (94%)`** → el freno abortó bien. Investigar qué es `kdij` y si la réplica de la 00 poda por antigüedad (→ declarar con `podaCol`) o lee incompleto.
 - ➡️ `caos_ingreso_conciliar` (dos cálculos, corte a las 18:00) NO va acá: toca dinero de Caja General → fase CGA.
 
 ---
