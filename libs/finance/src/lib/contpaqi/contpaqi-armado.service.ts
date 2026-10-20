@@ -5,6 +5,7 @@ import {
 } from '@megadulces/contracts';
 import { AlcanceTenant } from './alcance-tenant';
 import { compararArchivo, filasDeEntrega, huellaArchivo, type LoteArchivo } from './entrega';
+import { esFirmable, PREFIJO_GASTO, validarFirma, validarRevocacion, type CuentaCatalogo } from './firma-regla';
 
 /**
  * `[CP.8.52]` La entrega se niega con un motivo que quien marca tiene que leer (archivo distinto,
@@ -12,6 +13,46 @@ import { compararArchivo, filasDeEntrega, huellaArchivo, type LoteArchivo } from
  */
 export class EntregaRechazada extends Error {
   readonly code = 'entrega_rechazada';
+}
+
+/** `[CP.8.53]` Una firma o revocación que no procede, con el motivo para quien firma. */
+export class FirmaRechazada extends Error {
+  readonly code = 'firma_rechazada';
+}
+
+/** Una fila de `contpaqi.account_rules` tal como la lee `reglas()`. */
+interface FilaRegla {
+  categoria_code: string;
+  tipo_regla: string;
+  estado: string;
+  cuenta_gasto: string | null;
+  cuenta_nombre: string | null;
+  aprobada_por: string | null;
+  aprobada_en: string | null;
+  concepto_medido: string | null;
+  forma_medida: { candidata?: string; salvedad?: string; pareados?: number } | null;
+}
+
+/** `[CP.8.53]` Una regla como la ve el contador: qué es, cuánto pesa este mes, y su evidencia. */
+export interface ReglaVista {
+  categoria_code: string;
+  tipo_regla: string;
+  estado: string;
+  /** `false` si la categoría tiene egresos pero ninguna fila en `account_rules`. */
+  tiene_fila: boolean;
+  cuenta_gasto: string | null;
+  cuenta_nombre: string | null;
+  aprobada_por: string | null;
+  aprobada_en: string | null;
+  firmable: boolean;
+  motivo_no_firmable: string | null;
+  /** ⛔ Indicio del derivador, NUNCA una propuesta aplicada: la pantalla no la preselecciona. */
+  indicio: string | null;
+  evidencia: string | null;
+  salvedad: string | null;
+  pareados: number | null;
+  movimientos_mes: number;
+  importe_mes: number;
 }
 import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
@@ -472,6 +513,137 @@ export class ContpaqiArmadoService {
     return { alias_normalizado: alias, cuenta: entrada.cuenta };
   }
 
+  /**
+   * `[CP.8.53]` — **Las reglas como las ve el contador**, ordenadas por cuánto dinero del mes
+   * traban. ⭐ El orden es el trabajo: firmar primero la que más pesa.
+   *
+   * Incluye las categorías que tienen egresos y **ninguna fila** en `account_rules` (el armador
+   * las trata como `sin_medir`): si no aparecieran acá, ese dinero quedaría trabado sin que nadie
+   * sepa por qué.
+   */
+  async reglas(anioMes: string): Promise<ReglaVista[]> {
+    return this.conTenant(async () => {
+      const filas = await this.db('contpaqi.account_rules').where({ tenant_id: MEGA })
+        .select('categoria_code', 'tipo_regla', 'estado', 'cuenta_gasto', 'cuenta_nombre',
+          'aprobada_por', 'concepto_medido', 'forma_medida',
+          this.db.raw(`to_char(aprobada_en AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD HH24:MI') as aprobada_en`));
+      const egresos = await this.leerEgresos(anioMes);
+      const vol = new Map<string, { n: number; imp: number }>();
+      for (const e of egresos) {
+        const v = vol.get(e.categoria_code) ?? { n: 0, imp: 0 };
+        v.n += 1;
+        v.imp = Math.round((v.imp + Number(e.amount_out)) * 100) / 100;
+        vol.set(e.categoria_code, v);
+      }
+      const out: ReglaVista[] = (filas as FilaRegla[]).map((f) => {
+        const fm = (f.forma_medida ?? {}) as { candidata?: string; salvedad?: string; pareados?: number };
+        const fr = esFirmable(f);
+        const v = vol.get(f.categoria_code);
+        return {
+          categoria_code: f.categoria_code,
+          tipo_regla: f.tipo_regla,
+          estado: f.estado,
+          tiene_fila: true,
+          cuenta_gasto: f.cuenta_gasto,
+          cuenta_nombre: f.cuenta_nombre,
+          aprobada_por: f.aprobada_por,
+          aprobada_en: f.aprobada_en,
+          firmable: fr.firmable,
+          motivo_no_firmable: fr.firmable ? null : fr.motivo,
+          indicio: fm.candidata ?? null,
+          evidencia: f.concepto_medido ?? null,
+          salvedad: fm.salvedad ?? null,
+          pareados: typeof fm.pareados === 'number' ? fm.pareados : null,
+          movimientos_mes: v?.n ?? 0,
+          importe_mes: v?.imp ?? 0,
+        };
+      });
+      const conFila = new Set(out.map((r) => r.categoria_code));
+      for (const [cat, v] of vol) {
+        if (conFila.has(cat)) continue;
+        out.push({
+          categoria_code: cat, tipo_regla: 'sin_medir', estado: 'sin_regla', tiene_fila: false,
+          cuenta_gasto: null, cuenta_nombre: null, aprobada_por: null, aprobada_en: null,
+          firmable: false,
+          motivo_no_firmable: 'la categoría no tiene fila en contpaqi.account_rules: el derivador nunca la midió',
+          indicio: null, evidencia: null, salvedad: null, pareados: null,
+          movimientos_mes: v.n, importe_mes: v.imp,
+        });
+      }
+      return out.sort((a, b) => b.importe_mes - a.importe_mes || a.categoria_code.localeCompare(b.categoria_code));
+    });
+  }
+
+  /** `[CP.8.53]` Las cuentas que una regla por categoría puede llevar: gasto `52*`, afectables, vivas. */
+  async cuentasGasto(): Promise<{ codigo: string; nombre: string }[]> {
+    return this.conTenant(async () => this.db('analytics.contpaqi_accounts')
+      .where('codigo', 'like', `${PREFIJO_GASTO}%`)
+      .where('afectable', 1)
+      .where((q) => q.whereNull('es_baja').orWhere('es_baja', false))
+      .orderBy('codigo')
+      .select('codigo', 'nombre'));
+  }
+
+  /**
+   * `[CP.8.53]` — **El contador firma la cuenta de una categoría.** Desde ese momento el armador
+   * la usa: los egresos de esa categoría entran al archivo sin tocar código.
+   *
+   * ⛔ Valida contra el catálogo de ContPAQi (`validarFirma`): una cuenta con forma válida que no
+   * existe, que es de mayor o que no es de gasto se importaría como basura o cuadraría mal.
+   */
+  async firmarRegla(categoria: string, cuenta: string, por: string): Promise<ReglaVista> {
+    return this.conTenant(async () => {
+      const regla = await this.db('contpaqi.account_rules')
+        .where({ tenant_id: MEGA, categoria_code: categoria }).first();
+      const catalogo = /^\d{10}$/.test(String(cuenta ?? '').trim())
+        ? ((await this.db('analytics.contpaqi_accounts').where({ codigo: String(cuenta).trim() })
+          .first('codigo', 'nombre', 'afectable', 'es_baja')) as CuentaCatalogo | undefined) ?? null
+        : null;
+      const v = validarFirma({ regla: regla ?? null, cuenta, catalogo, por });
+      if (!v.ok) throw new FirmaRechazada(v.motivo);
+      await this.db('contpaqi.account_rules')
+        .where({ tenant_id: MEGA, categoria_code: categoria })
+        .update({
+          estado: 'aprobada',
+          cuenta_gasto: catalogo!.codigo,
+          cuenta_nombre: catalogo!.nombre,
+          aprobada_por: por,
+          aprobada_en: this.db.fn.now(),
+          updated_at: this.db.fn.now(),
+        });
+      this.log.log(`regla firmada: ${categoria} → ${catalogo!.codigo} (${por})`);
+      return this.reglaVista(categoria);
+    });
+  }
+
+  /**
+   * `[CP.8.53]` Revocar una firma: la categoría vuelve a `sin_regla` y deja de armarse.
+   *
+   * ⚠️ Conserva `cuenta_gasto` y `aprobada_por` como **la última firma** (el CHECK lo permite en
+   * `sin_regla`), para que se lea qué se revocó. Quién revocó y cuándo **no queda**: no hay
+   * columna, y una tabla de historia sería una fase aparte. Deuda con nombre en el tracker.
+   */
+  async revocarRegla(categoria: string, por: string): Promise<ReglaVista> {
+    return this.conTenant(async () => {
+      const regla = await this.db('contpaqi.account_rules')
+        .where({ tenant_id: MEGA, categoria_code: categoria }).first();
+      const v = validarRevocacion(regla ?? null, por);
+      if (!v.ok) throw new FirmaRechazada(v.motivo);
+      await this.db('contpaqi.account_rules')
+        .where({ tenant_id: MEGA, categoria_code: categoria })
+        .update({ estado: 'sin_regla', updated_at: this.db.fn.now() });
+      this.log.log(`regla revocada: ${categoria} (antes ${regla.cuenta_gasto}) por ${por}`);
+      return this.reglaVista(categoria);
+    });
+  }
+
+  private async reglaVista(categoria: string): Promise<ReglaVista> {
+    const mes = new Date().toISOString().slice(0, 7);
+    const r = (await this.reglas(mes)).find((x) => x.categoria_code === categoria);
+    if (!r) throw new FirmaRechazada(`«${categoria}» desapareció de account_rules`);
+    return r;
+  }
+
   /** Devuelve la regla con la cuenta del proveedor puesta, o igual con su motivo si no resolvió. */
   private conProveedor(
     base: ReglaCuenta,
@@ -526,19 +698,20 @@ export class ContpaqiArmadoService {
    */
   async generarArchivoMes(anioMes: string): Promise<{
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
-    nombre: string; entregado: false;
+    nombre: string; entregado: false; ya_entregadas: number; cambiados: string[];
   }> {
     return this.conTenant(() => this.generarArchivoMesEnAlcance(anioMes));
   }
 
   private async generarArchivoMesEnAlcance(anioMes: string): Promise<{
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
-    nombre: string; entregado: false;
+    nombre: string; entregado: false; ya_entregadas: number; cambiados: string[];
   }> {
     const a = await this.armarArchivo(anioMes);
     return {
       mes: a.mes, contenido: a.contenido, polizas: a.polizas, movimientos: a.movimientos,
       total: a.total, nombre: a.nombre, entregado: false,
+      ya_entregadas: a.ya_entregadas, cambiados: a.cambiados,
     };
   }
 
@@ -594,7 +767,7 @@ export class ContpaqiArmadoService {
    */
   private async armarArchivo(anioMes: string): Promise<{
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
-    nombre: string; entregado: false; lotes: LoteArchivo[];
+    nombre: string; entregado: false; lotes: LoteArchivo[]; ya_entregadas: number; cambiados: string[];
   }> {
     if (!this.sink) throw new Error('no hay sink de pólizas conectado');
     const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
@@ -606,11 +779,41 @@ export class ContpaqiArmadoService {
       );
     }
 
+    /**
+     * ⛔⛔ `[CP.8.53]` **Lo ya entregado no se vuelve a mandar.** Firmar una regla cambia lo que
+     * arma un mes que quizá ya se cargó en ContPAQi: si el archivo trajera otra vez esos lotes,
+     * importarlo los DUPLICARÍA allá. El archivo lleva sólo los lotes sin entrega registrada; un
+     * lote entregado cuyo total cambió después no se reenvía y se declara en `cambiados`.
+     * (`rechazada` = el cuadre dijo que nunca apareció: ése sí puede volver a mandarse.)
+     */
+    const entregados = new Map<string, number>(
+      ((await this.db('contpaqi.poliza_exports')
+        .where({ tenant_id: MEGA, evento_tipo: 'bank_lote', periodo: anioMes })
+        .whereIn('estado', ['armada', 'entregada', 'aplicada'])
+        .select('evento_id', 'total')) as { evento_id: string; total: string | number }[])
+        .map((r) => [r.evento_id, Number(r.total)]),
+    );
+    const cambiados: string[] = [];
+    const pendientes = conAsiento.filter((l) => {
+      const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
+      if (!entregados.has(clave)) return true;
+      if (Math.round(entregados.get(clave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(clave);
+      return false;
+    });
+    if (!pendientes.length) {
+      throw new Error(
+        `todo lo armable de ${anioMes} ya se entregó (${entregados.size} pólizas registradas): no hay archivo nuevo que generar.`
+        + (cambiados.length
+          ? ` ⚠️ ${cambiados.length} lote(s) cambiaron después de entregarse y NO se reenvían: ${cambiados.join(', ')}.`
+          : ''),
+      );
+    }
+
     const partes: string[] = [];
     const lotesArchivo: LoteArchivo[] = [];
     let movimientos = 0;
     let total = 0;
-    for (const l of conAsiento) {
+    for (const l of pendientes) {
       const clave = `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
       const r = await this.sink.entregar({
         evento_tipo: 'bank_lote', evento_id: clave,
@@ -629,17 +832,20 @@ export class ContpaqiArmadoService {
       total = Math.round((total + l.asiento!.total) * 100) / 100;
     }
 
-    this.log.log(`archivo ${anioMes}: ${conAsiento.length} pólizas · ${movimientos} movimientos `
-      + `· ${total} · NO marcado como entregado`);
+    this.log.log(`archivo ${anioMes}: ${pendientes.length} pólizas · ${movimientos} movimientos `
+      + `· ${total} · NO marcado como entregado · ${entregados.size} ya entregadas fuera`
+      + (cambiados.length ? ` · ⚠️ ${cambiados.length} cambiaron tras entregarse` : ''));
     return {
       mes: anioMes,
       contenido: partes.join(''),
-      polizas: conAsiento.length,
+      polizas: pendientes.length,
       movimientos,
       total,
       nombre: `egresos-banco-${anioMes}.txt`,
       entregado: false,
       lotes: lotesArchivo,
+      ya_entregadas: entregados.size,
+      cambiados,
     };
   }
 

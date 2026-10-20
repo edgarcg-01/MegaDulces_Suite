@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { AUTHZ_TREE } from '@megadulces/contracts/authz/authz-tree';
 import {
   aBase64,
+  codigoDeIndicio,
+  nombreDeRegla,
   contarDeNadie,
   esDeNadie,
   etiquetaMotivo,
@@ -178,3 +180,26 @@ function buscarNodo(nodos: Nodo[], id: string): Nodo | null {
   }
   return null;
 }
+
+describe('[CP.8.14] reglas de cuenta — lo que la pantalla deriva', () => {
+  const catalogo = [{ codigo: '5200650000' }, { codigo: '5200600000' }];
+
+  it('el indicio se ofrece sólo si su cuenta está en el catálogo firmable', () => {
+    expect(codigoDeIndicio('5200650000 COMISIONES Y SITUACIONES (94.4%)', catalogo)).toBe('5200650000');
+  });
+
+  it('⛔ un indicio a una cuenta fuera del catálogo NO se ofrece (el backend la rechazaría)', () => {
+    expect(codigoDeIndicio('2120000112 EFFEM (80%)', catalogo)).toBeNull();
+  });
+
+  it('sin indicio, o sin código al inicio, no se ofrece nada', () => {
+    expect(codigoDeIndicio(null, catalogo)).toBeNull();
+    expect(codigoDeIndicio('sin evidencia utilizable', catalogo)).toBeNull();
+  });
+
+  it('el nombre sale de la primera frase de la evidencia, y si no sirve, del código', () => {
+    expect(nombreDeRegla({ evidencia: 'Comisión bancaria. 2,788 movs', categoria_code: 'comision_bancaria' }))
+      .toBe('Comisión bancaria');
+    expect(nombreDeRegla({ evidencia: null, categoria_code: 'renta' })).toBe('renta');
+  });
+});
