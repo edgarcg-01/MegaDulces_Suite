@@ -290,10 +290,10 @@ export class CashLedgerService {
    * Viene del catálogo y no de los movimientos: una caja dormida tiene que poder verse en el
    * selector, o sería indistinguible de una que no existe.
    */
-  cajas(dias?: number): Observable<{ rows: CajaKepler[]; ventana_dias: number }> {
+  cajas(dias?: number): Observable<{ rows: CajaKepler[]; ventana_dias: number | null; desde?: string | null }> {
     let p = new HttpParams();
     if (dias) p = p.set('dias', String(dias));
-    return this.leer<{ rows: CajaKepler[]; ventana_dias: number }>(`${this.base}/cajas`, { params: p });
+    return this.leer<{ rows: CajaKepler[]; ventana_dias: number | null; desde?: string | null }>(`${this.base}/cajas`, { params: p });
   }
 
   /**
@@ -628,6 +628,8 @@ export interface PendientesResponse {
   /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */
   desde?: string;
   ventana_dias?: number | null;
+  /** `[CGA-A.43]` De dónde sale `desde`: la pantalla lo pidió, es el primer corte del libro, o la ventana de siempre. */
+  desde_motivo?: 'pedido' | 'relevo' | 'ventana';
   /**
    * Lo que la ventana DEJA FUERA, declarado. Medido en prod al aplicar CG.21: con el libro nuevo
    * vacío, "pendiente" era todo lo que Kepler registró desde 2025 — 12,160 movimientos. Eso no es

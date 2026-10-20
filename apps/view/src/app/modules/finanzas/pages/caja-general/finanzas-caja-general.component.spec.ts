@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
@@ -386,7 +386,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // se desmonta la persona queda encerrada con el filtro puesto y sin forma de sacarlo.
     const bandeja: Element | null = fixture.nativeElement.querySelector('.cg-bandeja');
     expect(bandeja).not.toBeNull();
-    expect(bandeja!.querySelectorAll('p-select').length).toBe(2);   // ventana + caja
+    // [CGA-A.43] La ventana se quitó: queda sólo el selector de caja.
+    expect(bandeja!.querySelectorAll('p-select').length).toBe(1);   // caja
     expect(bandeja!.querySelectorAll('app-segmented').length).toBe(1); // entra / sale
     expect(bandeja!.querySelectorAll('input[type="search"], input.cg-buscar').length).toBe(1);
   });
@@ -3399,19 +3400,18 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // eran justamente los del futuro: el ERP captura con 3 dias de mediana y ninguno legitimo
   // tiene `fecha_valor` de hoy.
 
-  it('la ventana por default es la MEDIDA, no la de pruebas ni «hoy»', () => {
-    // Estuvo en 1 dia desde el 22-sep "para las pruebas de CG.21", con un comentario que decia
-    // que tenia que volver. Se quedo ocho dias.
-    //
-    // `[CG.51]` Y ahora arranca en LA JORNADA (3 dias) por pedido de Edgar -- "por default solo
-    // deben ser los movimientos del dia"-- pero NO en 1 dia, que es lo que esa frase pide al pie
-    // de la letra. Medido contra prod el 2026-10-07 antes de cambiarlo: hoy = 0 movimientos, y el
-    // dia mas reciente con volumen real es el 05/10. `fecha_valor` es la fecha del DOCUMENTO y el
-    // ERP captura con 3 dias de mediana, asi que "hoy" abre la pantalla VACIA todos los dias.
-    montar();
-    expect(comp.ventanaDias()).toBe(CAJA_JORNADA_DIAS);
-    expect(comp.ventanaDias()).not.toBe(1);
-    expect(comp.ventanaDias()).toBeLessThan(CAJA_VENTANA_DIAS);
+  it('[CGA-A.43] la cola no manda ventana: la acota el servidor en el primer corte del libro', () => {
+    // Antes arrancaba en «La jornada» (3 días) con un selector. Medido el 2026-10-20: desde el
+    // primer corte del libro la cola es exacta (61 documentos) y los 3 días escondían 32.
+    const movimientosPendientes = vi.fn(() => of({ ...VACIA, desde: '2026-10-12', ventana_dias: null, desde_motivo: 'relevo' }));
+    montar({ movimientosPendientes });
+    const pedidos = movimientosPendientes.mock.calls as unknown as Array<[{ from?: string }]>;
+    expect(pedidos.length).toBeGreaterThan(0);
+    // NEGATIVA: si la pantalla volviera a mandar una ventana, el servidor dejaría de acotar en el relevo.
+    for (const [q] of pedidos) expect(q.from).toBeUndefined();
+    expect((comp as unknown as Record<string, unknown>)['opcionesVentana']).toBeUndefined();
+    expect(comp.textoAlcance()).toContain('primer corte del libro');
+    expect(comp.textoAlcance()).toContain('12/10/26');
   });
 
   // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────

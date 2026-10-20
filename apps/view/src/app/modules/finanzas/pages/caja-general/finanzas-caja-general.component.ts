@@ -18,7 +18,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
+import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -2804,8 +2804,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              Dos renglones DELIBERADOS: arriba quién es y qué tan fresco; abajo con qué se acota,
              y la acción al extremo derecho, que es donde se la busca. -->
         <div class="cg-bandeja-controles">
-          <p-select [options]="opcionesVentana" [ngModel]="ventanaDias()" optionLabel="label" optionValue="value"
-                    (ngModelChange)="setVentana($event)" class="cg-sel" [ariaLabel]="'Desde cuándo'"></p-select>
+          <!-- [CGA-A.43] Aca vivia el selector de ventana (Desde ayer / La jornada / 7 / 45 dias / Todo).
+               Se quito: la cola arranca en el primer corte del libro y desde ahi es exacta. -->
           <!-- Tres valores excluyentes = control segmentado, no un desplegable: se ve el estado
                actual y las dos alternativas sin abrir nada. Es el patrón canónico del repertorio. -->
           <app-segmented [options]="opcionesSigno" [value]="signoBandeja()"
@@ -3114,9 +3114,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              poder leer que el trabajo está del otro lado del corte. -->
         @if (rezago(); as rz) {
           <p class="fin-dim cg-rezago">
-            Quedan <strong>{{ rz.movimientos }}</strong> movimientos anteriores a esta ventana,
-            por {{ money(rz.monto) }}. No son trabajo del día: son lo que el sistema anterior ya
-            registró, y hasta dónde se traen es una decisión aparte.
+            Quedan <strong>{{ rz.movimientos }}</strong> movimientos de Kepler anteriores al primer corte
+            del libro, por {{ money(rz.monto) }}. Son de la era Control (el Access), que ya los saldó:
+            se revisan en Control (histórico), no aquí.
           </p>
         }
         @if (malFechados(); as mf) {
@@ -4484,30 +4484,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   ];
 
   /**
-   * ⭐ `[CG.51]` **Arranca en LA JORNADA (3 días), no en los 45.**
-   *
-   * Pedido de Edgar el 2026-10-07: *"por default sólo deben ser los movimientos del día"*.
-   *
-   * ⛔ **«El día» literal NO se puede.** Y no es una opinión: ya se intentó. El default estuvo en
-   * **1 día** desde el 2026-09-22 y se revirtió, porque la bandeja devolvía **7 filas y las 7 eran
-   * documentos mal fechados** — la ventana no tenía tope de arriba, así que lo único que pasaba un
-   * filtro de «último día» eran los de diciembre. Con el tope ya puesto, 1 día devuelve **cero**:
-   * `fecha_valor` es la fecha del DOCUMENTO en Kepler y el ERP captura con una mediana de **3 días**
-   * de rezago, así que ningún documento legítimo tiene fecha de hoy.
-   *
-   * Re-medido contra prod el 2026-10-07, antes de tocar esto: **hoy = 0 movimientos**, hoy+ayer = 7,
-   * 7 días = 201, la ventana de 45 = **12,976**, y el día más reciente con volumen real es el 05/10
-   * con 40. Un default de «hoy» abriría la pantalla vacía todos los días.
-   *
-   * Por eso arranca en `CAJA_JORNADA_DIAS`: la jornada **y su rezago normal**, que es lo que de
-   * verdad llegó para trabajarse hoy. La serie histórica por ventana (filas · gastos · ingresos),
-   * medida el 2026-09-30: 1d → 7·6·1 (todas basura) · 3d → 19·6·13 · 7d → 115·24·91 ·
-   * 45d → 1,777·1,217·560.
-   *
-   * ⚠️ Lo de atrás NO se esconde: `rezago()` publica cuántos quedan antes del corte y por cuánto
-   * dinero, y lo calcula el servidor contra **esta** ventana, no contra la suya — al angostarla, el
-   * aviso crece solo. Y sigue siendo un selector, no una constante escondida, para que moverlo no
-   * sea un deploy.
+   * ⛔ `[CGA-A.43]` **Aquí vivía el selector de ventana de la cola** (Desde ayer · La jornada ·
+   * 7 días · 45 días · Todo), con su default en 3 días (`[CG.51]`). Se quitó (Edgar, 2026-10-20:
+   * «ya sabemos qué movimientos están pendientes»): el servidor acota la cola en el PRIMER CORTE
+   * DEL LIBRO (`caja-relevo.ts`). Lo anterior es de la era Control, que ya lo saldó; desde el
+   * corte la cola es exacta (medido: 61 documentos). La ventana de 3 días escondía 32 de ellos.
    */
   /**
    * `[CG.51]` El historial (el libro + los cortes) arranca CERRADO. Es referencia, no la tarea.
@@ -4528,21 +4509,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   jornadaAbierta = signal(false);
 
-  ventanaDias = signal<number>(CAJA_JORNADA_DIAS);
-  readonly opcionesVentana = [
-    { label: 'Desde ayer', value: 1 },
-    { label: 'La jornada', value: CAJA_JORNADA_DIAS },
-    { label: '7 días', value: 7 },
-    // El 45 se reteclaba acá teniendo la constante a mano. Así es como terminan "cinco familias
-    // de constantes duplicadas" (ADR-056): el día que el rezago se re-mida, esto queda viejo.
-    { label: `${CAJA_VENTANA_DIAS} días`, value: CAJA_VENTANA_DIAS },
-    { label: 'Todo', value: 0 },
-  ];
   /**
    * Lo que el SERVIDOR dijo que acotó. La píldora publicaba el selector local, o sea su propia
    * intención: si el backend corta distinto (y tiene su propio default), la pantalla mentía.
    */
-  ventanaSrv = signal<{ desde?: string; dias?: number | null } | null>(null);
+  ventanaSrv = signal<{ desde?: string; dias?: number | null; motivo?: 'pedido' | 'relevo' | 'ventana' } | null>(null);
   /** La lista viene topada. Sin decirlo, un movimiento más allá del tope es invisible para siempre. */
   truncada = signal(false);
   /**
@@ -5783,10 +5754,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const enPagina = this.pendientes().length;
     const ok = this.confirmables();
     const srv = this.ventanaSrv();
-    const dias = srv?.dias ?? this.ventanaDias();
+    const dias = srv?.dias ?? null;
     const partes: string[] = [];
     if (ok < enPagina) partes.push('el resto necesita que su cuenta esté declarada');
-    if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
+    // [CGA-A.43] El alcance lo dice el servidor: desde el primer corte del libro, o su ventana.
+    if (srv?.motivo === 'relevo' && srv.desde) partes.push(`desde el ${dmy(srv.desde)} (primer corte del libro)`);
+    else if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
     else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
     return partes.join(' · ');
   });
@@ -7277,14 +7250,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // El conteo de cada caja es "documentos EN LA VENTANA", así que se vuelve a pedir cuando la
     // ventana cambia. Antes se pedía una sola vez en ngOnInit y los números entre paréntesis
     // quedaban congelados, contradiciendo a la lista de abajo.
-    this.svc.cajas(this.ventanaDias() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.cajas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.cajas.set(r.rows ?? []),
       error: () => { /* se conserva lo último conocido; el computed cae a la CAJA GENERAL */ },
     });
   }
 
   /** Cambiar cualquiera de los tres filtros: limpia el recibo viejo y vuelve a pedir. */
-  setVentana(v: number): void { this.ventanaDias.set(Number(v)); this.cargarCajas(); this.refiltrar(); }
   setSigno(v: '' | 'ingreso' | 'gasto'): void { this.signoBandeja.set(v); this.refiltrar(); }
   setCaja(v: string): void { this.cajaActiva.set(v); this.refiltrar(); }
 
@@ -7300,10 +7272,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const partes: string[] = [];
     const s = this.signoBandeja();
     if (s) partes.push(s === 'ingreso' ? 'sólo entradas' : 'sólo salidas');
-    const d = this.ventanaSrv()?.dias ?? this.ventanaDias();
-    if (d) partes.push(`últimos ${d} día${d === 1 ? '' : 's'}`);
     const filtro = partes.length ? ` (${partes.join(', ')})` : '';
-    return `Kepler no registró movimientos de esta caja en el corte elegido${filtro}. Amplía la ventana o cambia el signo.`;
+    // [CGA-A.43] Ya no hay ventana que ampliar: la cola cubre todo desde el primer corte del libro.
+    return `No hay movimientos de Kepler pendientes en esta caja${filtro}.${s ? ' Prueba con el otro signo.' : ''}`;
   }
 
   /**
@@ -7348,21 +7319,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   cargarPendientes(bg = false, encadenar = false): void {
     if (!bg) this.cargandoPend.set(true);
-    // `0` = «Todo»: se manda una fecha muy vieja en vez de omitir `from`, porque omitirlo le
-    // devolvería el default del servidor y la persona habría pedido otra cosa.
-    const dias = this.ventanaDias();
-    const desde = dias === 0
-      ? '2000-01-01'
-      // El corrimiento se hace sobre el día DE MÉXICO. Con `toISOString()` la ventana corría un
-      // día después de las 18:00 locales.
-      : toMxDateKey(new Date(Date.now() - dias * 86400000));
+    // [CGA-A.43] Sin `from`: el servidor acota la cola en el primer corte del libro.
     this.svc.movimientosPendientes({
       tipo: this.signoBandeja() || undefined,
       // [CGA11Y-O3b] El grupo elegido en la tira. Acota la LISTA; los conteos de la tira no lo
       // heredan (ver filtrosCon en el servicio), o cada acceso tendria numero solo al estar activo.
       doc_tipo: this.docTipoGrupo() || undefined,
       caja: this.cajaActiva() || undefined,
-      from: desde,
       // CS.3.9 — el buscador universal de «por confirmar»: folio de Kepler, concepto, beneficiario, doc.
       search: this.searchPend() || undefined,
       limit: 100,
@@ -7382,7 +7345,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.totalPend.set(typeof r.total === 'number' ? r.total : null);
         // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
         // en la respuesta desde el primer día y no se leía ninguno.
-        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null });
+        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null, motivo: r.desde_motivo });
         this.datosAl.set(r.datos_al ?? null);
         this.truncada.set(!!r.has_more);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
