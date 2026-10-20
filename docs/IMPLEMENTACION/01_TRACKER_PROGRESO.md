@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1835 KB, 12023 líneas, 72 secciones.
+> **Índice navegable** — 1836 KB, 12023 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -6823,7 +6823,7 @@ mtime de log (ver OBS.8.2).
   - **Hecho cuando:** `docker ps` en `md` sólo lista herramientas (`sonar-*`, `obs-netdata`) · un rollout de `api` baja la imagen del registro en k3s (prueba negativa: con el contenedor viejo detenido) · `pgbackrest info` muestra un respaldo del CronJob de esa misma noche · `ops/prod/` y `ops/vl/` declaran los dos servicios en `retirado-k3s`.
   - **Riesgo:** fuera de horario hábil (regla 9). El registro, sin despliegues en curso; el respaldo, entre corridas. Dueño: quien lleve `OPS.DISCO` / infra.
 - [ ] 🔨 **OPS.LIMPIEZA.9** (2026-10-20) — **ARREGLADO EN CÓDIGO: por mes.** `import-sales-fact.js` procesa 14 ventanas mensuales en vez de 13 meses de golpe (~1/13 de memoria; NO se subió RAM al pod). Equivalencia medida en prod: 1,051,987 filas y $203,763,445.31 iguales de una vez y por ventanas; 0 solapes. **Falta:** push + imagen nueva de `feeds-cron` + ver el nocturno 03:00 cerrar `ok`. Diagnóstico: **El refresco completo de ventas (13 meses) muere por MEMORIA desde la mudanza a k3s.** Log de `ingesta/feeds-cron` 20-oct 03:00: `import-sales-fact.js` → `JavaScript heap out of memory` a los 86.5 s (heap ~511 MB). Pod con `limits.memory: 1Gi` → `heap_size_limit` medido **524 MB**, `NODE_OPTIONS` vacío; en Compose no había límite. Es el ÚNICO que corrige ventas >2 días atrás. Arreglo propuesto: más memoria al pod + heap explícito al nocturno, **midiendo antes la memoria libre del nodo** (comparte con `pg-prod`); a futuro, procesar por lotes. **No medido:** desde qué noche falla.
-- [ ] ⬜ **OPS.LIMPIEZA.10** (2026-10-20) `cdc_reconcile_full` ya nombra la tabla: **`kdij@00 61026/65146 (94%)`** → el freno abortó bien. Investigar qué es `kdij` y si la réplica de la 00 poda por antigüedad (→ declarar con `podaCol`) o lee incompleto.
+- [ ] 🔨 **OPS.LIMPIEZA.10** (2026-10-20) — **ARREGLADO EN CÓDIGO.** `00/kdij` ya estaba declarada podada; el corte era `min(c10)` y 18 filas rezagadas del origen (dic-2025, abr-2026) lo corrían a 2025-12-03. Ahora el corte es donde empieza la cobertura ≥90 % día por día (medido: exacto desde 22-sep) → 8 bajas reales en vez de 61,026. **Falta:** imagen de ingesta + ver `cdc_reconcile_full` 02:10 en `ok`. Antes: `cdc_reconcile_full` ya nombra la tabla: **`kdij@00 61026/65146 (94%)`** → el freno abortó bien. Investigar qué es `kdij` y si la réplica de la 00 poda por antigüedad (→ declarar con `podaCol`) o lee incompleto.
 - ➡️ `caos_ingreso_conciliar` (dos cálculos, corte a las 18:00) NO va acá: toca dinero de Caja General → fase CGA.
 
 ---
