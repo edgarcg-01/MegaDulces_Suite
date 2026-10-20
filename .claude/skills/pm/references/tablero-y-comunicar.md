@@ -18,6 +18,20 @@ fase** en el repo **privado** `edgarcg-01/MegaDulces_PM` (creado 2026-10-19 con 
   (ids con `gh project field-list 2 --owner edgarcg-01 --format json`).
 - Regla del tablero: **«En curso» ≤ 4**. Dueño y cierre se llenan **en la ronda con cada persona**,
   nunca a ojo.
+- **Más estructura (2026-10-20):**
+  - **Etiquetas de tipo:** `fase` · `bug` · `ops` · `seguridad` · `urgente` · `auditoría`.
+  - **Área** y **Prioridad** (1–5, `criterios.md` §1) en cada tarjeta.
+  - **Semana** (campo de iteración, ciclos de 7 días desde el lunes 2026-10-19): toda tarjeta En curso
+    lleva la semana actual; al planear la junta del lunes se mueve a la siguiente.
+  - **Sub-tareas** (`POST repos/edgarcg-01/MegaDulces_PM/issues/<padre>/sub_issues` con el `id` numérico
+    del hijo): para urgencias y bugs con pasos; la barra «Sub-issues progress» mide el avance. Las
+    sub-tareas **no** se agregan al tablero: el tablero queda a nivel fase.
+  - **Reporte de estado** semanal del proyecto (mutación `createProjectV2StatusUpdate`, status
+    `ON_TRACK|AT_RISK|OFF_TRACK`, `startDate`/`targetDate` de la semana): avance con cifras, lo que
+    está en riesgo con dueño, carga por persona. Es lo que lee Dirección.
+  - El dueño de Edgar se escribe **"Edgar"** (él es también el PM); un dev sin invitación aceptada
+    **no se puede asignar** (GitHub lo descarta en silencio): sólo se pone en el campo Dueño.
+  - Las **vistas** (tablero, por dueño, por área, urgente) no se crean por API: se hacen en la web.
 - Si el roadmap de `CLAUDE.md` y el Project discrepan en una fase, se dice cuál cambió y se alinean;
   no se elige uno en silencio.
 
