@@ -48,13 +48,40 @@ describe('[HF.1] el aviso de versión nueva', () => {
   });
 
   /**
-   * El aviso real: service worker de verdad, y **ofrece** en vez de imponer —
-   * recargar bajo las manos de alguien que está capturando es peor que esperar.
+   * ⭐⭐ `[SW.2]` **LA REGLA NO CAMBIÓ; CAMBIÓ EL MECANISMO.**
+   *
+   * Acá se exigía que el botón «Hay una versión nueva · Actualizar» siguiera en
+   * `app.component.html`. Edgar lo hizo quitar el 2026-10-20: salía después de
+   * cada despliegue y había que atenderlo.
+   *
+   * ⛔ Pero lo que este gate protege sigue valiendo, y es lo de arriba, textual:
+   * *«quitar el ruido sirve de poco si de paso se pierde el aviso que sí recarga,
+   * y el día del deploy nadie se entera»*. Un botón menos **no puede** significar
+   * gente corriendo código viejo sin saberlo — y menos después de un hotfix.
+   *
+   * Así que el gate deja de exigir el BOTÓN y pasa a exigir el MECANISMO: que la
+   * versión nueva se aplique sola cuando la pestaña deja de estar a la vista.
+   * Si alguien borra eso creyendo que limpia, esto se pone rojo.
    */
-  it('el aviso REAL sigue en pie, y es el único que promete actualizar', () => {
-    expect(appHtml).toMatch(/updateReady\(\)/);
-    expect(appHtml).toMatch(/applyUpdate\(\)/);
-    expect(appHtml).toMatch(/versión nueva/i);
+  const appTs = leer('app.component.ts');
+
+  it('la versión nueva se sigue aplicando sola, aunque ya no haya botón', () => {
+    // El disparador: pestaña oculta. ⛔ `visibilitychange`, no `blur` — `blur` se
+    // dispara con la pestaña todavía a la vista al lado de otra ventana.
+    expect(appTs).toMatch(/visibilitychange/);
+    expect(appTs).toMatch(/visibilityState === 'hidden'/);
+    // Y que de verdad active y recargue: escuchar el evento sin aplicar no sirve.
+    expect(appTs).toMatch(/activateUpdate\(\)/);
+    expect(appTs).toMatch(/location\.reload\(\)/);
+  });
+
+  /**
+   * ⛔ NEGATIVA del cambio: el botón no vuelve por la puerta de atrás. Si hace
+   * falta otra vez, se discute — pero no reaparece en un refactor.
+   */
+  it('NEGATIVA: el botón de actualizar NO volvió a la raíz', () => {
+    expect(appHtml).not.toMatch(/\(click\)="applyUpdate\(\)"/);
+    expect(appHtml).not.toMatch(/class="app-update"/);
   });
 
   /**
