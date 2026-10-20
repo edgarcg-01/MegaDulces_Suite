@@ -4601,6 +4601,15 @@ export interface CommissionRunDetail {
   dias_multifuente: number | null;
   rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number | null;
   data_as_of: string | null; gates: CommissionGate[] | null; origen: string | null;
+  /**
+   * `[RD.83]` El sello del trámite. `getRun` devuelve la fila entera, así que estos campos
+   * YA viajaban — lo que faltaba era declararlos para poder pintarlos.
+   *
+   * ⚠️ Medido contra prod el 2026-10-20: las **20** corridas tienen `approved_at` en NULL.
+   * No es un hueco de pintura: entraron como espejo del libro (`origen = 'libro'`) y el paso
+   * de aprobación no se ejerció nunca. La pantalla lo DECLARA en vez de callarlo.
+   */
+  approved_at?: string | null; paid_at?: string | null;
   /** Cuándo se calculó esta corrida. La pantalla lo publica: una cifra sin su hora no se defiende. */
   updated_at: string | null;
   notes: string | null;
