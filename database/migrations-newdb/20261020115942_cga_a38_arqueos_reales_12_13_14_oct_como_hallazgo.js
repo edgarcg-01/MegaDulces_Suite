@@ -118,6 +118,27 @@ exports.up = async function up(knex) {
     throw new Error(`[CGA-A.38] ${m} -- migracion abortada, no se inserto ninguna fila.`);
   };
 
+  // ⛔ La regla va PRIMERO. `finance.findings` tiene
+  //     FOREIGN KEY (tenant_id, rule_key) REFERENCES finance.rule_registry(tenant_id, rule_key)
+  // y `caja_conteo_corrido` no estaba dada de alta en ningun lado: ni en prod, ni en otra
+  // migracion, ni en un seeder. Medido el 2026-10-20 — la migracion fallaba con
+  //     violates foreign key constraint "findings_tenant_id_rule_key_fkey"
+  // y revertia entera, asi que ninguno de los tres hallazgos llegaba.
+  //
+  // El `clase` es el mismo que usan los INSERT de abajo (`error_captura`), para que la regla y
+  // sus hallazgos no se contradigan. Idempotente: si ya existe, no se pisa.
+  await knex.raw(
+    `INSERT INTO finance.rule_registry (tenant_id, rule_key, nombre, descripcion, clase)
+     VALUES (?, ?, ?, ?, 'error_captura')
+     ON CONFLICT (tenant_id, rule_key) DO NOTHING`,
+    [
+      TENANT, REGLA,
+      'Conteo de arqueo que no es el del dia',
+      'El corte quedo sellado con un conteo de OTRO dia. Pasa cuando un corte se cierra tarde y '
+      + 'se llena en rafaga en orden de folio: la cifra firmada deja de ser la que se conto. '
+      + 'No se corrige sola -- el trigger cash_cut_guardia congela un corte cerrado.',
+    ]);
+
   for (const d of DIAS) {
     // Guarda 1: el desglose de la foto suma lo que la foto dice.
     const suma = d.desglose.reduce((a, [, v, p]) => a + v * p, 0);
