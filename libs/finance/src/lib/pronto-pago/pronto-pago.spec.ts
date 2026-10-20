@@ -40,6 +40,14 @@ function visible(s: string): string {
   return s.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
 }
 const CODIGO = sinComentarios(SVC);
+/**
+ * `[TP.18.7]` La regla de la ventana (umbral y fecha límite) se mudó a `libs/contracts`, compartida
+ * con el Calendario de pagos. Las pruebas la miden AHÍ y exigen que el servicio la use: buscar el
+ * literal en el servicio dejó estas dos en rojo desde ese refactor.
+ */
+const VENTANA = sinComentarios(
+  readFileSync(join(RAIZ, 'libs', 'contracts', 'src', 'finance', 'pronto-pago-ventana.contract.ts'), 'utf8'),
+);
 const MIG_SQL = sinComentarios(MIG);
 const VIS = visible(PANT);
 
@@ -76,7 +84,8 @@ describe('[PP.1] ⛔ la ventana es OBSERVADA, y la pantalla lo dice', () => {
   });
 
   it('⭐ el umbral de observaciones está MEDIDO, no elegido de oído', () => {
-    expect(CODIGO).toMatch(/const MIN_OBS = 3/);
+    expect(VENTANA).toMatch(/export const PRONTO_PAGO_MIN_OBS = 3;/);
+    expect(CODIGO).toMatch(/const MIN_OBS = PRONTO_PAGO_MIN_OBS;/);
     // Y la migración carga la medición que lo justifica, para que nadie lo mueva a ciegas.
     expect(MIG).toMatch(/99\.7%/);
   });
@@ -85,7 +94,11 @@ describe('[PP.1] ⛔ la ventana es OBSERVADA, y la pantalla lo dice', () => {
 describe('[PP.1] ⛔ lo que no se midió se DECLARA, nunca se dibuja en cero', () => {
   it('⭐⭐ sin ventana medible NO hay fecha límite: queda NULL, no CURRENT_DATE', () => {
     // Un COALESCE a hoy pondría "vence hoy" sobre 807 documentos que nadie midió.
-    expect(CODIGO).toMatch(/THEN p\.fecha \+ d\.dias_mediana END AS fecha_limite/);
+    // La regla vive en el contrato (sin ELSE: sin ventana, NULL) y el servicio la usa tal cual.
+    expect(VENTANA).toMatch(/THEN \$\{v\}\.fecha \+ \$\{d\}\.dias_mediana END`/);
+    expect(VENTANA).not.toMatch(/coalesce\(\s*\$\{d\}\.dias_mediana/i);
+    expect(CODIGO).toMatch(/\$\{sqlVentanaProntoPago\('p', 'd'\)\}/);
+    expect(CODIGO).toMatch(/b\.pronto_fecha_limite AS fecha_limite/);
     expect(CODIGO).not.toMatch(/coalesce\(\s*d\.dias_mediana\s*,\s*\d/i);
   });
 
