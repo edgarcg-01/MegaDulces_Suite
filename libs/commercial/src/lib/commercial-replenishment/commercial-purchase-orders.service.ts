@@ -47,6 +47,63 @@ export interface CreateReceiptDto {
   received_at?: string | null;           // YYYY-MM-DD (default hoy)
 }
 
+/**
+ * `[OC.2]` Una fila del agrupado por proveedor. Los `SUM(...)::numeric` llegan como **texto**
+ * desde node-pg, no como número: se declaran `string` para que nadie los sume sin convertirlos.
+ */
+export interface FilaPorProveedor {
+  supplier_id: string;
+  supplier_code: string | null;
+  supplier_name: string | null;
+  ordenes: number;
+  unidades: string | null;
+  pendiente: string | null;
+  importe: string | null;
+  mas_vieja: Date | null;
+  proxima_entrega: Date | null;
+  estados: string[];
+}
+
+export interface RespuestaPorProveedor {
+  estados: string[];
+  total: number;
+  rows: FilaPorProveedor[];
+}
+
+/** `[OC.3]` Proveedor al que se le consolida el pedido. */
+export interface ProveedorConsolidado {
+  id: string;
+  code: string | null;
+  name: string | null;
+}
+
+/** Totales del consolidado. Se arman sumando los renglones, no contando la página. */
+export interface TotalesConsolidado {
+  ordenes: number;
+  renglones: number;
+  cantidad: number;
+  pendiente: number;
+  importe: number;
+}
+
+/** Un renglón del consolidado: un SKU, con lo que suman todas las órdenes del proveedor. */
+export interface RenglonConsolidado {
+  sku: string;
+  nombre: string | null;
+  cantidad: string | number | null;
+  pendiente: string | number | null;
+  importe: string | number | null;
+  [extra: string]: unknown;
+}
+
+export interface RespuestaConsolidado {
+  supplier: ProveedorConsolidado;
+  estados: string[];
+  ordenes: Array<{ id: string; [extra: string]: unknown }>;
+  lineas: RenglonConsolidado[];
+  totales: TotalesConsolidado;
+}
+
 @Injectable()
 export class CommercialPurchaseOrdersService {
   private readonly logger = new Logger(CommercialPurchaseOrdersService.name);
@@ -206,7 +263,7 @@ export class CommercialPurchaseOrdersService {
    * Por omisión agrupa lo que todavía falta surtir (`open` + `partial`): hoy son **73 órdenes de
    * 54 proveedores**. Con `estado` manda la pantalla.
    */
-  async porProveedor(q: { estado?: string; warehouse_id?: string }) {
+  async porProveedor(q: { estado?: string; warehouse_id?: string }): Promise<RespuestaPorProveedor> {
     const tenantId = this.tenantCtx.requireTenantId();
     const estados = q?.estado ? [q.estado] : ['open', 'partial'];
     return this.tk.run(async (trx) => {
@@ -257,7 +314,7 @@ export class CommercialPurchaseOrdersService {
    * No se elige uno: se devuelve el **promedio ponderado por cantidad** y la bandera
    * `costo_varia`, para que el papel pueda decirlo en vez de publicar un precio que nadie cotizó.
    */
-  async consolidadoProveedor(q: { supplier_id?: string; estado?: string }) {
+  async consolidadoProveedor(q: { supplier_id?: string; estado?: string }): Promise<RespuestaConsolidado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const supplierId = String(q?.supplier_id ?? '').trim();
     if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
@@ -266,7 +323,7 @@ export class CommercialPurchaseOrdersService {
     const estados = q?.estado ? [q.estado] : ['open', 'partial'];
 
     return this.tk.run(async (trx) => {
-      const sup: any = await trx('catalog.suppliers')
+      const sup: ProveedorConsolidado | undefined = await trx('catalog.suppliers')
         .where({ tenant_id: tenantId, id: supplierId }).first('id', 'code', 'name');
       if (!sup) throw new NotFoundException('Proveedor no encontrado');
 
@@ -282,7 +339,7 @@ export class CommercialPurchaseOrdersService {
         return { supplier: sup, estados, ordenes: [], lineas: [], totales: { ordenes: 0, renglones: 0, cantidad: 0, pendiente: 0, importe: 0 } };
       }
 
-      const ids = ordenes.map((o: any) => o.id);
+      const ids = ordenes.map((o: { id: string }) => o.id);
       const lineas = await trx('commercial.purchase_order_lines as l')
         .join('commercial.purchase_orders as po', (j) => j.on('po.tenant_id', 'l.tenant_id').andOn('po.id', 'l.purchase_order_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'l.tenant_id').andOn('pr.id', 'l.product_id'))
@@ -306,7 +363,7 @@ export class CommercialPurchaseOrdersService {
         .orderBy('pr.sku', 'asc');
 
       const n = (v: unknown) => Number(v) || 0;
-      const totales = lineas.reduce((a: any, l: any) => ({
+      const totales = lineas.reduce((a: TotalesConsolidado, l: RenglonConsolidado) => ({
         ordenes: ordenes.length, renglones: a.renglones + 1,
         cantidad: a.cantidad + n(l.cantidad), pendiente: a.pendiente + n(l.pendiente),
         importe: a.importe + n(l.importe),

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CommercialPurchaseOrdersService, CreatePurchaseOrderDto, CreateReceiptDto } from './commercial-purchase-orders.service';
+import { CommercialPurchaseOrdersService, CreatePurchaseOrderDto, CreateReceiptDto, RespuestaPorProveedor, RespuestaConsolidado } from './commercial-purchase-orders.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
 const PO_ESTADO_LABEL: Record<string, string> = {
@@ -43,14 +43,14 @@ export class CommercialPurchaseOrdersController {
   @Get('por-proveedor')
   @RequirePermissions(Permission.COMPRAS_ORDENES_VER)
   @ApiOperation({ summary: 'Órdenes de COMPRA agrupadas por proveedor, sobre todo el universo (no la página). Por omisión open+partial.' })
-  porProveedor(@Query('estado') estado?: string, @Query('warehouse_id') warehouse_id?: string) {
+  porProveedor(@Query('estado') estado?: string, @Query('warehouse_id') warehouse_id?: string): Promise<RespuestaPorProveedor> {
     return this.svc.porProveedor({ estado, warehouse_id });
   }
 
   @Get('consolidado')
   @RequirePermissions(Permission.COMPRAS_ORDENES_VER)
   @ApiOperation({ summary: 'Todo lo que falta pedirle a UN proveedor, consolidado por SKU (para imprimir el pedido completo). Por omisión toma sus órdenes open+partial.' })
-  consolidado(@Query('supplier_id') supplier_id?: string, @Query('estado') estado?: string) {
+  consolidado(@Query('supplier_id') supplier_id?: string, @Query('estado') estado?: string): Promise<RespuestaConsolidado> {
     return this.svc.consolidadoProveedor({ supplier_id, estado });
   }
 
