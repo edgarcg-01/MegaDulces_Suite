@@ -64,11 +64,14 @@ const dmy = (v: string | null | undefined): string => {
     <div class="surf-page in">
       <header class="surf-page-head gp-head">
         <div class="gp-head-text">
-          <h1>Pedidos</h1>
+          <h1>{{ soloSurtidor() ? 'Pedidos por surtir' : 'Pedidos' }}</h1>
           @if (data(); as d) {
-            <span class="gp-meta">{{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }} · sólo lectura, el pedido se avanza en Kepler</span>
+            @if (!soloSurtidor()) {
+              <span class="gp-meta">{{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }} · sólo lectura, el pedido se avanza en Kepler</span>
+            }
           }
         </div>
+        @if (!soloSurtidor()) {
         <div class="gp-actions">
           @if (puedeSurtir()) {
             <a pButton routerLink="/almacen/surtir" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-shopping-bag" aria-hidden="true"></span><span class="p-button-label">Surtir</span></a>
@@ -84,6 +87,7 @@ const dmy = (v: string | null | undefined): string => {
           <p-datepicker inputId="gp-rango" [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" placeholder="Rango" (onClose)="onRange()" ariaLabel="Rango de fechas" />
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
         </div>
+        }
       </header>
 
       @if (err(); as e) { <div class="gp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gp-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
@@ -91,17 +95,19 @@ const dmy = (v: string | null | undefined): string => {
       @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gp-skel-row"></div> }</div> }
       @else if (data(); as d) {
         @if (!d.alcance.todas) {
-          @if (d.alcance.sucursales.length) {
+          @if (d.alcance.sucursales.length && !soloSurtidor()) {
             <div class="gp-note" role="note"><i class="pi pi-shop" aria-hidden="true"></i><span>Viendo sólo {{ d.alcance.sucursales.length === 1 ? 'tu sucursal' : 'tus sucursales' }}: <b>{{ sucursalesTexto(d) }}</b>.</span></div>
-          } @else {
+          } @else if (!d.alcance.sucursales.length) {
             <div class="gp-note gp-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay pedidos que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
           }
         }
 
         <div class="gp-list">
           <section class="gp-block dt-scope" aria-labelledby="gp-h-lista">
+            <h2 id="gp-h-lista" class="sr-only">Lista de pedidos</h2>
+            <!-- [MCP.3.2] El surtidor ve sólo la lista: sin estatus, filtros ni totales. -->
+            @if (!soloSurtidor()) {
             <div class="gp-bh">
-              <h2 id="gp-h-lista" class="sr-only">Lista de pedidos</h2>
               <div class="gp-chips" role="group" aria-label="Estatus en Kepler">
                 <button type="button" class="gp-chip" [class.on]="!estatus()" [attr.aria-pressed]="!estatus()" (click)="pickEstatus(null)">Todos <span class="num">{{ totalConteos(d) }}</span></button>
                 @for (c of d.conteos; track c.estatus) {
@@ -120,7 +126,25 @@ const dmy = (v: string | null | undefined): string => {
                 <input pInputText type="search" class="gp-q" [ngModel]="q()" (ngModelChange)="onQ($event)" placeholder="Folio, cliente, ciudad o guía" aria-label="Buscar folio, cliente, ciudad o guía" />
               </div>
             </div>
-            @if (d.truncado) { <p class="gp-hint gp-pad">Se muestran los primeros {{ d.items.length }}; los conteos y totales sí incluyen todos. Acota el periodo o filtra por estatus.</p> }
+            }
+            @if (d.truncado && !soloSurtidor()) { <p class="gp-hint gp-pad">Se muestran los primeros {{ d.items.length }}; los conteos y totales sí incluyen todos. Acota el periodo o filtra por estatus.</p> }
+            @if (soloSurtidor()) {
+              <!-- [MCP.3.2] Vista del surtidor: sólo el pedido y para quién es. Sin detalle (es del tablero). -->
+              <p-table [value]="d.items" size="small" class="surf-table dt-stack" [scrollable]="true" scrollHeight="calc(100vh - 14rem)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
+                <ng-template #header>
+                  <tr><th>Pedido</th><th>Cliente / destino</th></tr>
+                </ng-template>
+                <ng-template #body let-r>
+                  <tr>
+                    <td role="cell" data-label="Pedido"><span class="mono">{{ r.documento }}</span><span class="muted gp-sub">{{ origenLabel(r.origen) }}</span></td>
+                    <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr><td colspan="2"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>No hay pedidos autorizados por surtir.</span></div></td></tr>
+                </ng-template>
+              </p-table>
+            } @else {
             <p-table [value]="d.items" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="calc(100vh - 25rem)" selectionMode="single" [selection]="sel()" (selectionChange)="pick($event)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
               <ng-template #header>
                 <tr>
@@ -150,9 +174,10 @@ const dmy = (v: string | null | undefined): string => {
             <div class="gp-foot" aria-label="Totales de lo filtrado">
               <span><b class="num">{{ d.totales.pedidos.toLocaleString('es-MX') }}</b> pedidos</span>
               <span><b class="num">{{ d.totales.renglones.toLocaleString('es-MX') }}</b> renglones</span>
-              <span><b class="num">{{ money(d.totales.importe) }}</b></span>
+              <span><b class="num">{{ d.totales.importe === null ? '—' : money(d.totales.importe) }}</b></span>
               @if (masAntiguo(); as h) { <span class="gp-foot-warn">sin embarcar más antiguo: <b class="num">{{ horas(h) }}</b></span> }
             </div>
+            }
           </section>
         </div>
 
@@ -286,6 +311,13 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly puedeSurtir = this.perms.has$(Permission.COMMERCIAL_PICKING_GESTIONAR);
   /** [GP.4] Misma razón que Surtir: Checar es pantalla de foco y su entrada no pinta botón. */
   readonly puedeChecar = this.perms.has$(Permission.ALMACEN_CHECADO_GESTIONAR);
+  /**
+   * `[MCP.3.2]` Entra por el permiso de surtir, no por el del tablero (decisión de David,
+   * 2026-10-19): ve sólo los pedidos autorizados por surtir de su sucursal, con folio y cliente.
+   * Sin estatus, periodos, filtros, totales, importes ni detalle; el servidor tampoco le manda dinero.
+   */
+  private readonly veTablero = this.perms.has$(Permission.ALMACEN_PEDIDOS_VER);
+  readonly soloSurtidor = computed(() => !this.veTablero());
   private readonly destroyRef = inject(DestroyRef);
   private readonly q$ = new Subject<string>();
 
@@ -396,6 +428,12 @@ export class AlmacenPedidosComponent implements OnInit {
       q: this.q() || null,
     };
     const hoy = new Date();
+    if (this.soloSurtidor()) {
+      // [MCP.3.2] Lo que le toca: AUTORIZADO (ya se puede surtir y nadie lo ha surtido). Ventana de
+      // 30 días y no "el mes": el día 1 no deben desaparecer los autorizados del mes anterior.
+      const desde = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 30);
+      return { estatus: ['AUTORIZADO'], origen: null, sucursal: null, q: null, from: iso(desde), to: iso(hoy) };
+    }
     switch (this.preset()) {
       case 'hoy': f.from = f.to = iso(hoy); break;
       case 'semana': {
@@ -431,6 +469,7 @@ export class AlmacenPedidosComponent implements OnInit {
   }
 
   pick(r: WarehouseOrderRow | null): void {
+    if (this.soloSurtidor()) return; // el detalle es del tablero; el surtidor no tiene esa clave
     this.sel.set(r);
     this.det.set(null);
     this.detErr.set(null);
