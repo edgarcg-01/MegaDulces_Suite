@@ -2246,6 +2246,22 @@ export class ComercialService {
   commissionPadron() {
     return this.http.get<PadronRuta[]>(`${this.base}/commissions/routes`);
   }
+  /**
+   * `[RD.85]` Los bonos de la escala VIGENTE. ⛔ Los criterios del objetivo mensual no se
+   * administran por acá: viven en `/objective`, donde la regla de que los pesos sumen 100 %
+   * ya está escrita — y escribirla dos veces es como las dos se desincronizan.
+   */
+  commissionBonos() {
+    return this.http.get<BonoRD[]>(`${this.base}/commissions/bonuses`);
+  }
+  commissionBonoAlta(dto: BonoAlta) {
+    return this.http.post<BonoRD>(`${this.base}/commissions/bonuses`, dto);
+  }
+  /** Un bono se APAGA (`activo:false`), no se borra: apagado conserva su configuración. */
+  commissionBonoEditar(id: string, dto: BonoEdicion) {
+    return this.http.patch<BonoRD>(`${this.base}/commissions/bonuses/${id}`, dto);
+  }
+
   commissionPadronAlta(dto: PadronAlta) {
     return this.http.post<PadronRuta>(`${this.base}/commissions/routes`, dto);
   }
@@ -4784,6 +4800,32 @@ export interface PadronEdicion {
 }
 /** Lo que una vigencia nueva dejaría fuera, en quincenas ya PAGADAS y en pesos. */
 export interface PadronAvisoPagadas { quincenas: number; pagado: string; detalle: string }
+
+/**
+ * `[RD.85]` Un bono de la escala vigente.
+ *
+ * ⚠️ `periodo` no es un detalle: es el filtro que impide que un bono mensual entre a las DOS
+ * quincenas del mes y se pague **dos veces** (`[RD.59]`). Se pinta siempre, nunca se asume.
+ */
+export interface BonoRD {
+  id: string; beneficiario: string; nombre: string; metrica: string; comparador: string;
+  umbral: string | number; monto: string | number;
+  route_code: string | null; gate_venta_min: string | number | null;
+  periodo: string; grupo: string | null; peso_pct: string | number | null;
+  activo: boolean; updated_at: string | null;
+  escala_nombre?: string; escala_desde?: string;
+}
+export interface BonoAlta {
+  beneficiario: 'chofer' | 'supervisor'; nombre: string;
+  metrica: string; comparador: 'gt' | 'gte';
+  umbral: number; monto: number; periodo: 'quincena' | 'mes';
+  route_code?: string | null; gate_venta_min?: number | null;
+}
+export interface BonoEdicion {
+  nombre?: string; metrica?: string; comparador?: 'gt' | 'gte';
+  umbral?: number; monto?: number; periodo?: 'quincena' | 'mes';
+  route_code?: string | null; gate_venta_min?: number | null; activo?: boolean;
+}
 
 export interface CommissionUniverseRow {
   route_code: string; comisiona: boolean; veredicto: string; route_kind: string | null;
