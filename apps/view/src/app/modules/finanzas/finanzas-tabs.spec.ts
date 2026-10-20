@@ -144,13 +144,17 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
    * declara, una pantalla ausente de esa lista le es invisible: el candado pasaba en verde.
    */
   describe('[CG.121] la puerta única de Caja', () => {
+    // `[CGS.2]` Arqueos entra SEGUNDA, pegada a Captura: lo que la motivó es que el arqueo
+    // estaba al fondo de la pantalla de Captura, y mandarla al final movería el scroll de
+    // sitio en vez de quitarlo.
     const DE_CAJA = [
       '/finanzas/caja-general',
+      '/finanzas/caja-general/arqueos',
       '/finanzas/caja-general/expediente',
       '/finanzas/caos',
     ] as const;
 
-    it('el sidebar tiene UNA entrada «Caja» que lleva las tres pestañas', () => {
+    it('el sidebar tiene UNA entrada «Caja» que lleva todas las pestañas', () => {
       const src = fuenteSidebar();
       expect(src).toContain('tabs: CAJA_TABS');
       // ⛔ Y ya NO las lista como renglones sueltos: dos puertas a lo mismo y el menú deja de
@@ -161,7 +165,7 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       }
     });
 
-    it('las tres rutas están en CAJA_TABS, en el orden del recorrido del dinero', () => {
+    it('las rutas están en CAJA_TABS, en el orden del recorrido del dinero', () => {
       expect(CAJA_TABS.map((t) => t.route)).toEqual([...DE_CAJA]);
     });
 
@@ -183,6 +187,10 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
 
       // Ruta: permissionGuard(FINANCE_CAJA_VER).
       expect(t('/finanzas/caja-general/expediente')?.permission).toBe(Permission.FINANCE_CAJA_VER);
+      // `[CGS.2]` Ruta: permissionGuard(FINANCE_CAJA_VER). Es lectura: quien revisa de mañana no
+      // tiene por qué poder capturar para poder mirar.
+      expect(t('/finanzas/caja-general/arqueos')?.permission).toBe(Permission.FINANCE_CAJA_VER);
+      expect(t('/finanzas/caja-general/arqueos')?.anyOf).toBeUndefined();
       // Ruta: anyPermissionGuard(FINANCE_CAOS_VER) — permiso PROPIO, otro circuito de efectivo.
       expect(t('/finanzas/caos')?.permission).toBe(Permission.FINANCE_CAOS_VER);
     });
@@ -192,9 +200,10 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
      * vive embebida en cada pantalla. Una que nazca sin ella queda **encerrada**: se entra,
      * pero no se sale a sus hermanas.
      */
-    it('las tres pantallas embeben la barra de pestañas', () => {
+    it('todas las pantallas embeben la barra de pestañas', () => {
       const ARCHIVOS: Record<string, string> = {
         '/finanzas/caja-general': 'caja-general/finanzas-caja-general.component.ts',
+        '/finanzas/caja-general/arqueos': 'caja-general/finanzas-caja-arqueos.component.ts',
         '/finanzas/caja-general/expediente': 'caja-general/finanzas-caja-expediente.component.ts',
         '/finanzas/caos': 'caos/finanzas-caos.component.ts',
       };

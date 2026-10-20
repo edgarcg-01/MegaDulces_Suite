@@ -48,6 +48,23 @@ export const CAJA_TABS: readonly PageTab[] = [
     ],
   },
   {
+    /**
+     * ⭐ `[CGS.2]` **Arqueos.** Pedido de Edgar (2026-10-20): *«en historial tengo que hacer
+     * scroll hasta abajo para ver los arqueos; hagamos una pestaña extra que diga Arqueos»*.
+     *
+     * Va SEGUNDA, pegada a Captura, y no al final: lo que la motivó es que el arqueo estaba al
+     * fondo de la pantalla de Captura. Mandarlo al último lugar de la barra sería mover el
+     * scroll de sitio, no quitarlo.
+     *
+     * ⚠️ Mismo permiso que su ruta (`FINANCE_CAJA_VER`), copiado de `app.routes.ts`. Una pestaña
+     * con un gate distinto al de su ruta falla de las dos maneras y ninguna avisa.
+     */
+    label: 'Arqueos',
+    route: '/finanzas/caja-general/arqueos',
+    icon: 'pi pi-check-square',
+    permission: Permission.FINANCE_CAJA_VER,
+  },
+  {
     // `[CG.105]` El corte diario y el expediente del día. Sólo lectura: se captura en Control.
     // ⛔ `exact` queda en su default (true) y eso importa acá: esta ruta CUELGA de la de
     // Captura (`/finanzas/caja-general/expediente`). Con `exact: false` en Captura, las dos

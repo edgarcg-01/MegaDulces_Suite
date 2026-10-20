@@ -665,6 +665,17 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
       },
       {
+        // ⭐ `[CGS.2]` **Arqueos**: el corte sellado en la Suite contra el arqueo de cierre de
+        // Control, día por día y pieza por pieza. Pedido de Edgar (2026-10-20) para que el
+        // supervisor no tenga que bajar hasta el fondo del historial de Captura.
+        //
+        // ⚠️ `FINANCE_CAJA_VER` a secas, igual que el Expediente: es lectura, y quien revisa de
+        // mañana no tiene por qué poder capturar para poder mirar.
+        path: 'caja-general/arqueos',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-arqueos.component').then(m => m.FinanzasCajaArqueosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
+      },
+      {
         // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la
         // caja está capturando en la PC. Se teclea el código de seis que la caja muestra.
         //

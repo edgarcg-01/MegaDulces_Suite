@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, ageHuman } from '@megadulces/platform-core';
 import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
+import type {
+  CruceArqueoDia, CruceArqueoLadoSuite, CruceArqueosResponse,
+} from '@megadulces/contracts';
 
 /**
  * `[CG.105]` — **El expediente diario de Caja General y el historial de cortes.**
@@ -110,7 +113,7 @@ export class CajaControlService {
    * conteo es una decisión de negocio sobre cortes firmados, y mientras no esté tomada, afirmarla
    * acá sería inventar un árbitro (ADR-059). La pantalla declara la diferencia, no la resuelve.
    */
-  async cruce(q: { desde?: string; hasta?: string; limit?: number }) {
+  async cruce(q: { desde?: string; hasta?: string; limit?: number }): Promise<CruceArqueosResponse> {
     const limit = Math.min(Number(q.limit) || 60, this.TOPE);
     return this.tk.run(async (trx) => {
       /**
@@ -147,11 +150,21 @@ export class CajaControlService {
        * ⛔ Los cortes de la Suite se traen en UNA consulta, no una por día. Con 60 días serían 60
        * viajes en serie sobre la pantalla que el supervisor abre cada mañana — el mismo error que
        * `me-cycles` documenta haber retirado por costar 9 segundos.
+       *
+       * ⭐⭐ **Y se traen POR VENTANA, no por los días de Control.** Antes se pedían con
+       * `whereIn('fecha', dias)`, o sea que un corte de la Suite en un día que Control no cerró
+       * **no existía para esta pantalla**. Medido el 2026-10-20 sobre prod: el 12-oct
+       * ($3,653.50) y el 13-oct ($57,571.00) desaparecían — dos de los siete cortes, y uno de
+       * ellos el más grande del periodo. Una pantalla de cuadre que esconde un arqueo entero es
+       * peor que no tenerla: se lee como que ese día no pasó nada.
        */
       const dias = ctrl.map((r: { fecha: Date | string }) => this.soloFecha(r.fecha));
-      const cortes = dias.length
+      const desde = q.desde ?? (dias.length ? dias[dias.length - 1] : null);
+      const hasta = q.hasta ?? (dias.length ? dias[0] : null);
+      const cortes = desde && hasta
         ? await trx('finance.cash_ledger_cuts')
-          .whereIn('fecha', dias).where('sucursal', SUCURSAL_CAJA_GENERAL)
+          .where('sucursal', SUCURSAL_CAJA_GENERAL)
+          .where('fecha', '>=', desde).where('fecha', '<=', hasta)
           .select('id', 'folio', 'fecha', 'estado', 'contado', 'morralla', 'esperado',
             'diferencia', 'authorized_at', 'closed_by_username')
         : [];
@@ -171,7 +184,7 @@ export class CajaControlService {
         porCorte.set(d.cut_id as string, m);
       }
 
-      const rows = ctrl.map((v: Record<string, unknown>) => {
+      const rows: CruceArqueoDia[] = ctrl.map((v: Record<string, unknown>) => {
         const dia = this.soloFecha(v.fecha as Date);
         const c = porDia.get(dia);
         const reja = c ? (porCorte.get(c.id as string) ?? new Map<string, number>()) : new Map<string, number>();
@@ -182,6 +195,15 @@ export class CajaControlService {
           const suite = m.suite ? (reja.get(m.suite) ?? 0) : null;
           const difPiezas = suite === null ? null : suite - control;
           return {
+            /**
+             * ⛔ `clave` y `tipo` NO son adorno: sin ellos la reja tiene **dos piezas distintas
+             * con el mismo rótulo**. $20 es billete (`b20`) y también moneda (`m20`), y $100
+             * igual (`b100`/`m100`). Una pantalla que las etiquete sólo por su valor muestra
+             * «$20» dos veces en la misma tabla, con cifras distintas y sin forma de saber cuál
+             * es cuál — y si además las agrupa por valor, las funde.
+             */
+            clave: m.control,
+            tipo: m.control.startsWith('b') ? ('billete' as const) : ('moneda' as const),
             valor: m.valor,
             control,
             suite,
@@ -197,36 +219,85 @@ export class CajaControlService {
         return {
           fecha: dia,
           control: {
-            folio: v.corte_folio, efectivo: efeControl,
-            cuadra_ticket: v.corte_cuadra_ticket ?? null, hora: v.corte_hora ?? null,
+            folio: (v.corte_folio ?? null) as string | null, efectivo: efeControl as number | null,
+            cuadra_ticket: (v.corte_cuadra_ticket ?? null) as boolean | null,
+            hora: (v.corte_hora ?? null) as string | null,
           },
-          suite: c
-            ? {
-              folio: c.folio, estado: c.estado, contado,
-              esperado: c.esperado === null ? null : Number(c.esperado),
-              diferencia: c.diferencia === null ? null : Number(c.diferencia),
-              autorizado: c.authorized_at != null, cerro: c.closed_by_username ?? null,
-            }
-            : null,
+          suite: c ? this.ladoSuite(c) : null,
           /**
-           * ⛔ Tres estados, no dos (ADR-056). `sin_corte` NO es «difieren en todo»: es que ese día
-           * la Suite no tiene corte, y pintarlo como un descuadre del tamaño del arqueo entero
-           * mandaría a buscar efectivo que nadie perdió.
+           * ⛔ CUATRO estados, no dos (ADR-056). Ni `sin_corte` ni `sin_arqueo` son «difieren en
+           * todo»: son un conteo que falta de un lado, y pintarlos como un descuadre del tamaño
+           * del arqueo entero mandaría a buscar efectivo que nadie perdió.
            */
           cruce: c == null || contado === null
-            ? { estado: 'sin_corte' as const, diferencia: null }
+            ? { estado: 'sin_corte' as const, diferencia: null as number | null }
             : Math.abs(contado - efeControl) < 0.005
-              ? { estado: 'cuadran' as const, diferencia: 0 }
-              : { estado: 'difieren' as const, diferencia: Math.round((contado - efeControl) * 100) / 100 },
+              ? { estado: 'cuadran' as const, diferencia: 0 as number | null }
+              : { estado: 'difieren' as const, diferencia: Math.round((contado - efeControl) * 100) / 100 as number | null },
           desglose,
         };
       });
 
+      /**
+       * ⭐⭐ **El lado espejo: cortes de la Suite que Control nunca cerró.** Sin esto la pantalla
+       * recorre sólo los días de Control y un corte sellado acá se vuelve invisible — medido en
+       * prod el 2026-10-20: el 12 y el 13-oct, $61,224.50 entre los dos.
+       *
+       * ⛔ Van con `control.efectivo = null`, **nunca 0**: cero afirmaría que Control contó la
+       * caja y no encontró nada, que es exactamente lo contrario de lo que pasó.
+       */
+      const conArqueo = new Set(rows.map((r) => r.fecha));
+      const soloSuite: CruceArqueoDia[] = cortes
+        .filter((c: { fecha: Date | string }) => !conArqueo.has(this.soloFecha(c.fecha)))
+        .map((c: Record<string, unknown>) => {
+          const reja = porCorte.get(c.id as string) ?? new Map<string, number>();
+          const desglose = MAPA.map((m) => ({
+            clave: m.control,
+            tipo: m.control.startsWith('b') ? ('billete' as const) : ('moneda' as const),
+            valor: m.valor,
+            control: null as number | null,
+            suite: m.suite ? (reja.get(m.suite) ?? 0) : null,
+            dif_piezas: null as number | null,
+            dif_importe: null as number | null,
+            solo_en: m.suite ? null : 'control',
+          })).filter((d) => (d.suite ?? 0) !== 0);
+          return {
+            fecha: this.soloFecha(c.fecha as Date),
+            control: {
+              folio: null as string | null, efectivo: null as number | null,
+              cuadra_ticket: null as boolean | null, hora: null as string | null,
+            },
+            suite: this.ladoSuite(c),
+            cruce: { estado: 'sin_arqueo' as const, diferencia: null as number | null },
+            desglose,
+          };
+        });
+
+      const todas = [...rows, ...soloSuite].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
+
       return {
-        rows, limit, fuente: 'analytics.v_caja_control_cortes + finance.cash_ledger_cuts',
+        rows: todas, limit, fuente: 'analytics.v_caja_control_cortes + finance.cash_ledger_cuts',
         frescura: await this.frescura(trx),
       };
     });
+  }
+
+  /**
+   * `[CGS.2]` El lado Suite de un renglón, en UN solo lugar. Lo arman los dos caminos —el día que
+   * Control cerró y el que no— y escribirlo dos veces es cómo uno se queda viejo sin que nadie lo
+   * note: el `autorizado` o el `cerro` dejarían de salir en la mitad de las filas y la pantalla
+   * diría «—» con cara de dato ausente.
+   */
+  private ladoSuite(c: Record<string, unknown>): CruceArqueoLadoSuite {
+    return {
+      folio: c.folio as string,
+      estado: c.estado as string,
+      contado: c.contado === null || c.contado === undefined ? null : Number(c.contado),
+      esperado: c.esperado === null || c.esperado === undefined ? null : Number(c.esperado),
+      diferencia: c.diferencia === null || c.diferencia === undefined ? null : Number(c.diferencia),
+      autorizado: c.authorized_at != null,
+      cerro: (c.closed_by_username ?? null) as string | null,
+    };
   }
 
   /**
