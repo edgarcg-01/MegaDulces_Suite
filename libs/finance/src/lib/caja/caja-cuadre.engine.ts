@@ -81,6 +81,15 @@ export interface ResultadoCuadre<T extends MovCuadre> {
   tolerancia: number;
 }
 
+/**
+ * `[CGA-A.44]` La tolerancia con que el Cuadre casa un movimiento de caja con su documento: ±$5.
+ * Vive acá porque ya la usan DOS consumidores —el Cuadre (`caja-general.service`) y la cola de
+ * captura (`caja-relevo.saldadosPorControl`)— y tienen que casar exactamente igual: si una se
+ * moviera sola, la cola listaría como pendiente lo que el Cuadre da por casado. El porqué de los
+ * $5 (antes $1) está medido en la cabecera de `caja-general.service.ts`.
+ */
+export const CUADRE_TOLERANCIA_PESOS = 5;
+
 export function redondea2(v: number): number {
   return Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 }

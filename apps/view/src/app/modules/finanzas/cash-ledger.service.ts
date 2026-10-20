@@ -630,6 +630,12 @@ export interface PendientesResponse {
   ventana_dias?: number | null;
   /** `[CGA-A.43]` De dónde sale `desde`: la pantalla lo pidió, es el primer corte del libro, o la ventana de siempre. */
   desde_motivo?: 'pedido' | 'relevo' | 'ventana';
+  /** `[CGA-A.44]` El primer corte del libro (cuando `desde_motivo='relevo'`). */
+  relevo?: string | null;
+  /** `[CGA-A.44]` Documentos de la era Control que se quitaron por estar ya saldados en el Control. */
+  saldados_por_control?: number;
+  /** `[CGA-A.44]` false = no se leyeron los cobros de camioneta y se dejaron visibles (lado seguro). */
+  control_ruta_disponible?: boolean;
   /**
    * Lo que la ventana DEJA FUERA, declarado. Medido en prod al aplicar CG.21: con el libro nuevo
    * vacío, "pendiente" era todo lo que Kepler registró desde 2025 — 12,160 movimientos. Eso no es

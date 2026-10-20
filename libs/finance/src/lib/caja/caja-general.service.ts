@@ -3,7 +3,7 @@ import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
 import { SUCURSAL_CAJA_GENERAL, diaDeFecha, diaMxDeInstante, type Freshness } from '@megadulces/contracts';
-import { casarPorImporte, canonBank, escapaLike, type MovCuadre, type ResultadoCuadre } from './caja-cuadre.engine';
+import { casarPorImporte, canonBank, escapaLike, CUADRE_TOLERANCIA_PESOS, type MovCuadre, type ResultadoCuadre } from './caja-cuadre.engine';
 import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
 import {
   casarLibroConKepler, cobroDeRutaComoKepler, indexaLibro, juntaCuadres, llaveKeplerDelLibro, marcaEnLibro, resumeEnLibro,
@@ -40,7 +40,8 @@ import { primerCorteDelLibro } from './caja-relevo';
  * centavos, y el `EPS` del cuadre por día). Las tres se derivan de ésta ahora: mover una sola
  * dejaba la pantalla diciendo "±$1" mientras el matcher usaba otra cosa.
  */
-const MATCH_EPS = 5;
+// `[CGA-A.44]` El valor vive en el motor: la cola de captura casa con el mismo.
+const MATCH_EPS = CUADRE_TOLERANCIA_PESOS;
 const CUADRE_EPS = 1000;
 const TENDERS = ['efectivo', 'morralla', 'cheques', 'tarjeta', 'caja_chica', 'sobregiro'];
 
