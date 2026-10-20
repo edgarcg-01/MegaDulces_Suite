@@ -471,11 +471,20 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   </tbody>
                 </table>
               </div>
+              <!-- [AUD-A] El span NO es decorativo. La clase cm-warn es display:flex en fila con
+                   flex-wrap:nowrap, asi que CADA nodo de texto y CADA strong o em suelto se
+                   vuelve un item flex propio. Sin el span, esta nota se pintaba como CINCO
+                   columnas con la frase entrelazada entre ellas, ilegible. Medido en prod el
+                   2026-10-20: los hijos quedaban en x=577 (persona) y x=909 (contribucion)
+                   sobre un ancho de 926 px. Las otras cuatro notas de esta pantalla si traian
+                   su span; esta era la unica sin el, y por eso era la unica rota. -->
               <p class="cm-warn">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
-                ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
-                arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+                <span>
+                  La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
+                  ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
+                  arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+                </span>
               </p>
             } @else if (tab() === 'padron') {
               <!-- [RD.80] El padron NO mira la corrida: mira quien esta dado de alta para cobrar
