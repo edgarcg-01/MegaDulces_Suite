@@ -467,6 +467,39 @@ export class CommercialCommissionsService {
         updated_by: userId ?? null,
       })));
 
+      // ⛔⛔ `[RD.85.0]` **LOS BONOS SE HEREDAN, Y ANTES NO.**
+      //
+      // Medido contra prod el 2026-10-20: `commission_bonuses` cuelga de `scale_id`, y el motor
+      // los lee con `where({ scale_id: scale.id })`. Esta funcion copiaba los ESCALONES y no los
+      // bonos, asi que la primera version nueva del tabulador nacia con **cero bonos**:
+      //
+      //     la unica escala que existe ....... 17 bonos, 4 escalones
+      //     el libro pago en bonos ........... $140,800 en 20 quincenas = $7,040 por quincena
+      //
+      // O sea: cambiar un escalon —el acto para el que esta pantalla existe— habria dejado de
+      // pagar **$7,040 por quincena**, en silencio. Y en silencio de verdad: sin error y sin
+      // aviso, porque **"no hay bonos configurados" es indistinguible de "ningun bono se
+      // cumplio"**. Es el mismo defecto que dejo el arqueo de caja ocho dias en cero.
+      //
+      // ⭐ Se copian TODOS los campos de negocio, incluidos `periodo` y `grupo`: sin `periodo`
+      // un bono mensual entraria a las dos quincenas y se pagaria dos veces (`[RD.59]`), y sin
+      // `grupo`/`peso_pct` el objetivo mensual perderia sus pesos y dejaria de sumar 100.
+      let bonosHeredados = 0;
+      if (vigente?.id) {
+        const { rows: previos } = await trx.raw(
+          `SELECT beneficiario, nombre, metrica, comparador, umbral, monto, route_code,
+                  gate_venta_min, periodo, grupo, peso_pct, activo
+             FROM commercial.commission_bonuses
+            WHERE scale_id = ? AND deleted_at IS NULL`, [vigente.id]);
+        if (previos.length) {
+          await trx('commercial.commission_bonuses').insert(previos.map((b: any) => ({
+            ...b, tenant_id: tenantId, scale_id: nuevaId,
+            created_by: userId ?? null, updated_by: userId ?? null,
+          })));
+          bonosHeredados = previos.length;
+        }
+      }
+
       // La anterior se CIERRA, no se borra: las quincenas ya calculadas tienen que poder seguir
       // explicando con que porcentaje se pagaron.
       if (vigente?.id) {
@@ -474,8 +507,16 @@ export class CommercialCommissionsService {
           .where({ id: vigente.id })
           .update({ valid_to: desde, updated_by: userId ?? null, updated_at: trx.fn.now() });
       }
-      this.logger.log(`[RD.66] escala ${nuevaId} desde ${desde}; cerrada ${vigente?.id ?? '-'}`);
-      return { id: nuevaId, valid_from: desde, cerro_a: vigente?.id ?? null, escalones: tiers.length };
+      this.logger.log(
+        `[RD.66] escala ${nuevaId} desde ${desde}; cerrada ${vigente?.id ?? '-'}; `
+        + `${bonosHeredados} bono(s) heredado(s)`);
+      // ⚠️ `bonos_heredados` VIAJA y se pinta. Un 0 ahi no se dibuja como exito: significa que
+      // la escala nueva no paga ningun bono, y quien la estrena tiene que verlo antes de que
+      // llegue la quincena.
+      return {
+        id: nuevaId, valid_from: desde, cerro_a: vigente?.id ?? null,
+        escalones: tiers.length, bonos_heredados: bonosHeredados,
+      };
     });
   }
 

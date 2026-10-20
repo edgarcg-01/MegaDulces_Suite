@@ -8,6 +8,9 @@ import {
   CommissionPadronService, type PadronFila, type AltaRuta, type EditarRuta,
 } from './commission-padron.service';
 import {
+  CommissionBonosService, type BonoFila, type AltaBono, type EditarBono,
+} from './commission-bonos.service';
+import {
   CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
   type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
 } from './commission-objective.service';
@@ -32,6 +35,7 @@ export class CommercialCommissionsController {
     private readonly contraste: CommissionContrastService,
     private readonly objetivo: CommissionObjectiveService,
     private readonly padronSvc: CommissionPadronService,
+    private readonly bonosSvc: CommissionBonosService,
   ) {}
 
   /**
@@ -224,6 +228,46 @@ export class CommercialCommissionsController {
   })
   editarRuta(@Param('id') id: string, @Body() body: EditarRuta) {
     return this.padronSvc.editar(id, body);
+  }
+
+  /**
+   * `[RD.85]` Los bonos quincenales de la escala VIGENTE, con lo que de verdad pagaron al lado.
+   * ⛔ Los criterios del objetivo mensual no se administran acá: ver `/objective`.
+   */
+  @Get('bonuses')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'Los bonos de la escala vigente' })
+  bonos(): Promise<BonoFila[]> {
+    return this.bonosSvc.listar();
+  }
+
+  @Post('bonuses')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Crea un bono quincenal — el primer INSERT que esta tabla tiene',
+    description:
+      'RD.85. Hasta hoy `commission_bonuses` tenia UPDATE y ningun INSERT: los 17 bonos vivos se '
+      + 'sembraron por migracion, y crear uno exigia un despliegue. El libro pago $140,800 en '
+      + 'bonos en 20 quincenas ($7,040 por quincena). `periodo` es OBLIGATORIO y sin valor por '
+      + 'defecto: sin el, un bono mensual entra a las dos quincenas del mes y se paga DOS VECES '
+      + '(RD.59). La escala se resuelve sola con la vigente.',
+  })
+  altaBono(@Body() body: AltaBono): Promise<BonoFila> {
+    return this.bonosSvc.crear(body);
+  }
+
+  @Patch('bonuses/:id')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Edita o APAGA un bono quincenal',
+    description:
+      'RD.85. Un bono se apaga (`activo:false`), no se borra: apagado conserva su configuracion '
+      + 'y deja explicable la quincena que si lo pago. Un criterio del objetivo mensual se '
+      + 'rechaza con su mensaje — esos viven en /objective, donde la regla de que los pesos '
+      + 'sumen 100% ya esta escrita, y escribirla dos veces es como las dos se desincronizan.',
+  })
+  editarBono(@Param('id') id: string, @Body() body: EditarBono): Promise<BonoFila> {
+    return this.bonosSvc.editar(id, body);
   }
 
   @Post('recalculate-from')

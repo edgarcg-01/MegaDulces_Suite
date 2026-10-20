@@ -19,7 +19,7 @@ import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
   CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
-  PadronRuta, PadronAvisoPagadas,
+  PadronRuta, PadronAvisoPagadas, BonoRD,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -164,6 +164,93 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             <button type="submit" [disabled]="!formOk() || padronGuardando()"
                     [class]="esBaja() ? 'cm-btn cm-btn--baja' : 'cm-btn'">
               {{ padronGuardando() ? 'Guardando…' : (esBaja() ? 'Dar de baja' : 'Guardar') }}
+            </button>
+          </div>
+        </form>
+      </p-dialog>
+
+      <!-- [RD.85] Alta y edicion de un bono. Mismo criterio que el padron: apagar es editar,
+           no un boton aparte, porque un bono apagado conserva su configuracion. -->
+      <p-dialog [(visible)]="bonoAbierto" [modal]="true" [draggable]="false"
+                [style]="{ width: '34rem' }"
+                [header]="bonoEditando() ? ('Bono · ' + bonoEditando()!.nombre) : 'Nuevo bono'">
+        <form class="cm-form" (ngSubmit)="guardarBono()">
+          <label class="cm-campo"><span>Nombre</span>
+            <input type="text" name="bnombre" [(ngModel)]="bNombre" required />
+            <small class="cm-muted">Es con lo que se lee el bono en el recibo del chofer.</small>
+          </label>
+
+          <p class="cm-form-sep">Quién y cuándo</p>
+          <label class="cm-campo"><span>Para</span>
+            <select name="bbenef" [(ngModel)]="bBenef">
+              <option value="chofer">Chofer</option>
+              <option value="supervisor">Supervisor</option>
+            </select>
+          </label>
+          <label class="cm-campo"><span>Periodo</span>
+            <select name="bperiodo" [(ngModel)]="bPeriodo">
+              <option value="quincena">Quincenal — entra a esta nómina</option>
+              <option value="mes">Mensual — entra una sola vez al mes</option>
+            </select>
+            <small class="cm-muted">
+              No tiene valor por omisión a propósito: un bono mensual sin marcar entraría a las
+              dos quincenas del mes y se pagaría <strong>dos veces</strong>.
+            </small>
+          </label>
+          <label class="cm-campo"><span>Ruta <span class="cm-muted">(vacío = todas)</span></span>
+            <input type="text" name="bruta" [(ngModel)]="bRuta" /></label>
+
+          <p class="cm-form-sep">Cuándo se cumple</p>
+          <label class="cm-campo"><span>Métrica</span>
+            <select name="bmetrica" [(ngModel)]="bMetrica">
+              <option value="venta">Venta de la quincena</option>
+              <option value="markup_pct">Margen sobre costo (%)</option>
+              <option value="visitas">Visitas</option>
+              <option value="volumen">Volumen</option>
+              <option value="manual">Manual — la marca una persona</option>
+            </select>
+          </label>
+          <label class="cm-campo"><span>Comparador</span>
+            <select name="bcomp" [(ngModel)]="bComp">
+              <option value="gte">Alcanza o pasa el umbral</option>
+              <option value="gt">Pasa el umbral (estricto)</option>
+            </select>
+          </label>
+          <label class="cm-campo">
+            <span>Umbral <span class="cm-muted">en {{ unidadMetrica() }}</span></span>
+            <input type="number" name="bumbral" step="0.0001" [(ngModel)]="bUmbral" required />
+          </label>
+          <label class="cm-campo">
+            <span>Venta mínima para que aplique <span class="cm-muted">(opcional)</span></span>
+            <input type="number" name="bgate" step="0.01" [(ngModel)]="bGate" />
+            <small class="cm-muted">
+              Es una compuerta aparte del umbral: aunque la métrica se cumpla, sin esta venta
+              el bono no paga.
+            </small>
+          </label>
+
+          <p class="cm-form-sep">Cuánto paga</p>
+          <label class="cm-campo"><span>Monto</span>
+            <input type="number" name="bmonto" min="0" step="0.01" [(ngModel)]="bMonto" required /></label>
+
+          @if (bonoEditando()) {
+            <label class="cm-campo cm-campo--check">
+              <input type="checkbox" name="bactivo" [(ngModel)]="bActivo" />
+              <span>Activo</span>
+            </label>
+            <p class="cm-muted cm-micro">
+              Apagarlo no lo borra: conserva su configuración y deja explicable la quincena que
+              sí lo pagó.
+            </p>
+          }
+
+          @if (bonoErr(); as e) {
+            <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+          }
+          <div class="cm-form-pie">
+            <button type="button" class="cm-btn-sec" (click)="bonoAbierto.set(false)">Cancelar</button>
+            <button type="submit" class="cm-btn" [disabled]="!bonoOk() || bonoGuardando()">
+              {{ bonoGuardando() ? 'Guardando…' : 'Guardar' }}
             </button>
           </div>
         </form>
@@ -787,6 +874,72 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   sale de las <strong>lineas de la corrida</strong> y habla solo de ese periodo.
                 </span>
               </p>
+            } @else if (tab() === 'bonos') {
+              <!-- [RD.85] Los bonos se capturaban por migracion: la tabla tenia UPDATE y ningun
+                   INSERT. El libro pago $140,800 en bonos en 20 quincenas -- $7,040 por
+                   quincena, mas que la comision de varias rutas juntas. -->
+              <div class="cm-padron-tit">
+                <div>
+                  <p class="cm-eyebrow">Bonos de la quincena</p>
+                  <p class="cm-muted cm-micro">
+                    Lo que se suma a la comisión cuando una ruta pasa su umbral.
+                    Cuelgan del <strong>tabulador vigente</strong>
+                    @if (bonos()[0]?.escala_desde) { (desde {{ dia(bonos()[0].escala_desde!) }}) }
+                    y una versión nueva los hereda.
+                  </p>
+                </div>
+                @if (puedeGestionar()) {
+                  <button type="button" class="cm-btn" (click)="abrirBonoAlta()">
+                    <i class="pi pi-plus" aria-hidden="true"></i> Nuevo bono
+                  </button>
+                }
+              </div>
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <th>Bono</th><th>Para</th><th>Ruta</th><th>Periodo</th>
+                    <th>Se cumple cuando</th><th class="comm-num">Paga</th>
+                    <th>Estado</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    @for (b of bonos(); track b.id) {
+                      <tr [class.cm-fila-baja]="!b.activo">
+                        <td class="cm-name">{{ b.nombre }}</td>
+                        <td class="cm-muted">{{ b.beneficiario }}</td>
+                        <td class="comm-num">{{ b.route_code || 'todas' }}</td>
+                        <td>
+                          <!-- ⚠️ El periodo se pinta SIEMPRE: es lo que impide que un bono
+                               mensual entre a las dos quincenas y se pague dos veces. -->
+                          <p-tag [severity]="b.periodo === 'mes' ? 'info' : 'secondary'"
+                                 [value]="b.periodo === 'mes' ? 'mensual' : 'quincenal'" />
+                        </td>
+                        <td class="cm-nota">{{ reglaBono(b) }}</td>
+                        <td class="comm-num cm-mono">{{ money(b.monto) }}</td>
+                        <td>
+                          <p-tag [severity]="b.activo ? 'success' : 'secondary'"
+                                 [value]="b.activo ? 'activo' : 'apagado'" />
+                        </td>
+                        <td>
+                          @if (puedeGestionar() && !b.grupo) {
+                            <button type="button" class="cm-btn-sec cm-btn-min"
+                                    (click)="abrirBonoEdicion(b)">Editar</button>
+                          } @else if (b.grupo) {
+                            <span class="cm-muted cm-micro">en «Bono por objetivo»</span>
+                          }
+                        </td>
+                      </tr>
+                    } @empty {
+                      <tr><td colspan="8" class="cm-empty">
+                        El tabulador vigente no tiene ningún bono configurado.
+                        <strong>Eso no es «nadie cobró bono»: es que no hay ninguno que cobrar.</strong>
+                      </td></tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              @if (bonoErr(); as e) {
+                <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+              }
             } @else if (tab() === 'fuera') {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
@@ -1079,7 +1232,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       text-transform:uppercase; letter-spacing:.04em; color:var(--c-text-2); }
     .cm-campo { display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-sm); }
     .cm-campo > span { color:var(--c-text-1); }
-    .cm-campo input, .cm-campo textarea { padding:.35rem .5rem; border:1px solid var(--border-color);
+    .cm-campo input, .cm-campo textarea, .cm-campo select { padding:.35rem .5rem; border:1px solid var(--border-color);
       border-radius:var(--r-sm,6px); background:var(--c-surface-0); color:var(--c-text-1);
       font:inherit; font-size:var(--fs-sm); }
     .cm-campo--check { flex-direction:row; align-items:center; gap:.4rem; }
@@ -1304,6 +1457,8 @@ export class ComercialComisionesComponent {
     // `[RD.84]` El padrón EDITABLE va junto al universo — la pestaña muestra los dos. Pedirlo
     // sólo al abrir el diálogo dejaría la tabla vacía hasta el primer clic.
     this.cargarPadron();
+    // [RD.85] Los bonos cuelgan de la escala, no de la quincena: se piden una vez.
+    this.cargarBonos();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
@@ -1421,6 +1576,10 @@ export class ComercialComisionesComponent {
       // «Libro vs motor», que es la otra comparación de esta misma pantalla.
       ...(this.padronHallazgos().length
         ? [{ label: `Cobro vs venta · ${this.padronHallazgos().length}`, value: 'padron' }] : []),
+      // `[RD.85]` La pestaña aparece SIEMPRE, también con cero bonos — y sobre todo con cero:
+      // un tabulador sin bonos es el síntoma de `[RD.85.0]`, y esconder la pestaña lo volvería
+      // invisible justo cuando hay que verlo. La cuenta es de los ACTIVOS, que son los que pagan.
+      { label: `Bonos · ${this.bonos().filter((b) => b.activo).length}`, value: 'bonos' },
     ];
   }
 
@@ -2080,6 +2239,125 @@ export class ComercialComisionesComponent {
         : `Ruta ${r.fila.route_code} de baja desde el ${this.dia(String(this.fHasta()))}.`),
       error: falla,
     });
+  }
+
+  // ── [RD.85] Los bonos ──────────────────────────────────────────────────────────────────
+  //
+  // ⛔ Medido el 2026-10-20: `commission_bonuses` tenía un `UPDATE` y **ningún `INSERT`**. Los
+  // 17 bonos vivos se sembraron por migración. Y el libro pagó **$140,800 en bonos en 20
+  // quincenas** — $7,040 por quincena, más que la comisión de varias rutas juntas.
+
+  readonly bonos = signal<BonoRD[]>([]);
+  readonly bonoAbierto = signal(false);
+  readonly bonoEditando = signal<BonoRD | null>(null);
+  readonly bonoGuardando = signal(false);
+  readonly bonoErr = signal<string | null>(null);
+
+  readonly bNombre = signal('');
+  readonly bBenef = signal<'chofer' | 'supervisor'>('chofer');
+  readonly bPeriodo = signal<'quincena' | 'mes'>('quincena');
+  readonly bRuta = signal<string | null>(null);
+  readonly bMetrica = signal('venta');
+  readonly bComp = signal<'gt' | 'gte'>('gte');
+  readonly bUmbral = signal<number | null>(null);
+  readonly bGate = signal<number | null>(null);
+  readonly bMonto = signal<number | null>(null);
+  readonly bActivo = signal(true);
+
+  /**
+   * ⭐ La unidad del umbral cambia con la métrica, y sin decirlo **25 significa veinticinco por
+   * ciento en una y veinticinco pesos en otra**. La pantalla lo rotula en vez de esperar que
+   * quien captura lo sepa.
+   */
+  readonly unidadMetrica = computed(() => {
+    switch (this.bMetrica()) {
+      case 'markup_pct': return 'por ciento de margen';
+      case 'venta': return 'pesos de venta';
+      case 'visitas': return 'visitas';
+      case 'volumen': return 'unidades';
+      default: return 'la marca de una persona — el umbral no decide nada';
+    }
+  });
+
+  readonly bonoOk = computed(() =>
+    !!this.bNombre().trim() && this.bUmbral() != null
+    && this.bMonto() != null && Number(this.bMonto()) >= 0);
+
+  /** La regla del bono en una frase, en la unidad de su métrica. */
+  reglaBono(b: BonoRD): string {
+    // ⚠️ Los `numeric` de Postgres llegan como STRING por JSON. `pct()` toma number, así que
+    // se convierte acá: sin el `Number()` el valor sale sin formato o no tipa.
+    const u = b.metrica === 'markup_pct' ? `${this.pct(Number(b.umbral))}% de margen`
+      : b.metrica === 'venta' ? `${this.money(b.umbral)} de venta`
+        : b.metrica === 'manual' ? 'lo marca una persona'
+          : `${Number(b.umbral)} ${b.metrica}`;
+    if (b.metrica === 'manual') return u;
+    const cmp = b.comparador === 'gt' ? 'pasa' : 'alcanza';
+    const gate = b.gate_venta_min
+      ? ` · y vendió ${this.money(b.gate_venta_min)} o más` : '';
+    return `${cmp} ${u}${gate}`;
+  }
+
+  cargarBonos(): void {
+    this.api.commissionBonos().subscribe({
+      next: (b) => this.bonos.set(b ?? []),
+      // Error ≠ vacío: «no hay bonos» es una afirmación sobre el tabulador, no sobre la red.
+      error: (e) => this.bonoErr.set(
+        e?.error?.message ?? 'No se pudieron leer los bonos. No es que no haya: no se pudieron leer.'),
+    });
+  }
+
+  abrirBonoAlta(): void {
+    this.bonoEditando.set(null); this.bonoErr.set(null);
+    this.bNombre.set(''); this.bBenef.set('chofer'); this.bPeriodo.set('quincena');
+    this.bRuta.set(null); this.bMetrica.set('venta'); this.bComp.set('gte');
+    this.bUmbral.set(null); this.bGate.set(null); this.bMonto.set(null); this.bActivo.set(true);
+    this.bonoAbierto.set(true);
+  }
+
+  abrirBonoEdicion(b: BonoRD): void {
+    this.bonoEditando.set(b); this.bonoErr.set(null);
+    this.bNombre.set(b.nombre);
+    this.bBenef.set(b.beneficiario === 'supervisor' ? 'supervisor' : 'chofer');
+    this.bPeriodo.set(b.periodo === 'mes' ? 'mes' : 'quincena');
+    this.bRuta.set(b.route_code); this.bMetrica.set(b.metrica);
+    this.bComp.set(b.comparador === 'gt' ? 'gt' : 'gte');
+    this.bUmbral.set(Number(b.umbral));
+    this.bGate.set(b.gate_venta_min == null ? null : Number(b.gate_venta_min));
+    this.bMonto.set(Number(b.monto)); this.bActivo.set(b.activo);
+    this.bonoAbierto.set(true);
+  }
+
+  guardarBono(): void {
+    // Idempotencia visual: se bloquea en el primer clic, antes de esperar respuesta.
+    if (this.bonoGuardando() || !this.bonoOk()) return;
+    this.bonoGuardando.set(true);
+    this.bonoErr.set(null);
+    const listo = (nombre: string) => {
+      this.bonoGuardando.set(false);
+      this.bonoAbierto.set(false);
+      this.toast.add({ severity: 'success', summary: 'Bono guardado', detail: nombre });
+      this.cargarBonos();
+    };
+    const falla = (e: any) => {
+      this.bonoGuardando.set(false);
+      this.bonoErr.set(e?.error?.message ?? 'No se pudo guardar el bono.');
+    };
+    const comun = {
+      nombre: this.bNombre().trim(), metrica: this.bMetrica(), comparador: this.bComp(),
+      umbral: Number(this.bUmbral()), monto: Number(this.bMonto()),
+      periodo: this.bPeriodo(),
+      route_code: this.bRuta()?.trim() || null,
+      gate_venta_min: this.bGate() == null ? null : Number(this.bGate()),
+    };
+    const edit = this.bonoEditando();
+    if (!edit) {
+      this.api.commissionBonoAlta({ ...comun, beneficiario: this.bBenef() })
+        .subscribe({ next: (b) => listo(`${b.nombre} creado.`), error: falla });
+      return;
+    }
+    this.api.commissionBonoEditar(edit.id, { ...comun, activo: this.bActivo() })
+      .subscribe({ next: (b) => listo(`${b.nombre} actualizado.`), error: falla });
   }
 
   diasCortos(l: CommissionLine): boolean {
