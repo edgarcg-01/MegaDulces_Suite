@@ -115,7 +115,7 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 **CB.1-backfill (pendiente de insumos):** el importer ya es genérico; falta **cargar los workbooks de feb–jul 2026** (solo tengo enero). Cuando Edgar los provea, se corre el importer una vez por mes (o un loop) → histórico completo. Ver [`CB.1b`] abajo.
 
 ## 4. Diferido / decisiones abiertas
-- **CB.52 — pendiente OPERATIVO (un comando):** aplicar la migración `20261020151727` a prod. Es INSERT de 2 reglas (prioridad 54/55) + UPDATE de 1,616 movimientos, sin DDL → la compuerta de despliegue la clasifica **NO_MEDIDO y frena al equipo** hasta que alguien la aplique a mano: va **antes** de mergear. El comando canónico está en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). Pre-vuelo del 2026-10-20: rollout de `api` terminado, sin transacciones largas.
+- **CB.52.1 — pendiente OPERATIVO (un comando):** aplicar `20261020155755_bank_rules_comision_tpv_prioridad.js` a prod. La hermana `20261020151727` ya entró (**batch 976**, 15:40 MX) y alcanzó al **98 %**; faltan los **28 movimientos ($8,229.81)** capturados con el código del depósito. Sin DDL → la compuerta la clasifica **NO_MEDIDO y frena al equipo**: va **antes** de mergear. Comando en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). El archivo ya está en `md:/tmp`, **hash verificado** `740cf832eea8e698`.
 - **CB.47 — pendiente OPERATIVO (lo que de verdad cierra el descuadre):** cargar los estados de cuenta que faltan — **mar y may: 1604, 1621, 2169, 4885, 5565**; feb: 4885; abr/jun/sep: 3660. Y revisar la **1604**, que en abril tiene `bank_statement` pero **cero movimientos**. Mientras falten, sus traspasos seguirán sin contraparte por diseño: el sistema ya no los acusa de «sin origen», pero tampoco puede inventar la pata que no está.
 - **CB.46 — pendiente HUMANO:** ¿quién captura los **14 movimientos de CAJA GENERAL** ($43,285) con fecha **19-ago** dentro del corte de **sep-2026** y **sin concepto**? No son desfase de corte ni typo de año, y ningún umbral puede decidirlo solo.
 - **CB.46 — pendiente OPERATIVO (requiere ventana + OK):** los **23 movimientos ya en prod** con el año mal (**$1,579,507**: 17 en `2027-08-06` de la cuenta 7744, 6 en el año `0206` de la 4176). La compuerta evita que entren **nuevos**; los que ya están sólo se arreglan corrigiendo la celda y re-importando el mes, o con un UPDATE puntual. **No se tocó**: es escritura a prod en horario hábil.
@@ -132,10 +132,22 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 
 ---
 
-## 5. `[CB.52]` 🧪 La comisión de terminal dejaba de ser comisión porque el banco dice «CREDITO»
+## 5. `[CB.52]` 🚀 La comisión de terminal dejaba de ser comisión porque el banco dice «CREDITO»
 
-**EN CÓDIGO 2026-10-20** · commit `10c7c5a3d` (local, sin push) · migración `20261020151727`
-**PENDIENTE PROD: aplicar la migración** (ver §4).
+**EN PROD al 98 % desde el 2026-10-20** (`20261020151727`, **batch 976**, 15:40 MX): 1,561
+movimientos a `comision_bancaria` y 1,587 a `iva_acreditable`.
+🧪 **`[CB.52.1]` pendiente prod** (`20261020155755`): los **28 restantes** ($8,229.81).
+Commits locales sin push: `10c7c5a3d` · `73332d8c7` · `092189e5b`.
+
+> ⛔⛔ **Lo que costó, y la lección que vale más que el arreglo.** El archivo se copió a
+> `md:/tmp` **antes** de corregirle las prioridades, y al aplicarlo corrió **la versión vieja**:
+> reglas en 138/139 con `match_code ^612$`. El ledger quedó diciendo `20261020151727` aplicada
+> — con un contenido que ya no es el del repo. **Una migración aplicada no se edita** (el
+> ledger describiría algo que nunca corrió): se restauró al contenido que SÍ corrió y la
+> corrección vive en una migración hermana.
+> ⭐ **El candado que faltaba es de dos líneas: `sha256sum` del archivo local contra el del
+> destino, antes de ejecutar.** Al copiar la hermana se hizo, y coincidió (`740cf832eea8e698`).
+> Nada en el camino avisa de esto: el script valida la identidad del clúster, no la del archivo.
 
 Salió de medir una afirmación de [`FASE_CP8`](FASE_CP8_PUENTE_CONTPAQI.md) §39.3, que suponía
 que ContPAQi llevaba los pagos de crédito «por su módulo de tesorería, no como renglón de
