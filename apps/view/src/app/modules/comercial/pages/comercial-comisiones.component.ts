@@ -491,17 +491,21 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               }
               @if (padronVendeSinCobrar(); as m) {
                 <p class="cm-muted cm-micro">
-                  Y {{ money(m) }} de venta en 30 dias esta en rutas que <strong>no comisionan</strong>.
-                  Puede ser correcto — las vecinales no son Ruta Directa — pero con el monto al
-                  lado la exclusion se puede revisar.
+                  Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
+                  <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
+                  Directa — pero con el monto al lado la exclusion se puede revisar.
                 </p>
               }
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
                   <thead><tr>
+                    <!-- [AUD] "Vendio" decia una cosa y la celda pintaba otra: el valor es
+                         subtotal_30d, y subtotal y venta difieren 6.4% ($399,857 en 30 dias).
+                         El diccionario de esta misma pantalla ya ensena la diferencia, y el
+                         subtotal es ademas la BASE con que se calcula la comision. -->
                     <th>Ruta</th><th>Chofer</th><th>Plaza o zona</th>
                     <th>Comisiona</th><th>Ultimo dia con dato</th>
-                    <th class="comm-num">Vendio (30 d)</th><th>Que pasa</th>
+                    <th class="comm-num">Subtotal (30 d)</th><th>Que pasa</th>
                   </tr></thead>
                   <tbody>
                     @for (r of padronHallazgos(); track r.route_code) {
@@ -538,6 +542,12 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   con codigo nuevo, y si la comision sigue al chofer o al tipo de ruta no lo puede
                   resolver una pantalla. Lo que la pantalla si puede hacer es que la contradiccion
                   deje de ser invisible.
+                  <br />
+                  <strong>De donde sale:</strong> del <em>padron derivado</em> —todas las rutas que
+                  existen, comisionen o no— y de su venta de los ultimos <strong>30 dias</strong>.
+                  <strong>No sale de la quincena</strong>, asi que no depende de que haya corrida
+                  ni cambia al elegir otro periodo. La pestana <em>No comisionan</em> es otra cosa:
+                  sale de las <strong>lineas de la corrida</strong> y habla solo de ese periodo.
                 </span>
               </p>
             } @else if (tab() === 'fuera') {
@@ -1032,10 +1042,17 @@ export class ComercialComisionesComponent {
       ...(this.faltoDelPeriodo().length
         ? [{ label: `Lo que faltó · ${this.faltoDelPeriodo().length}`, value: 'falto' }] : []),
       ...(c.length ? [{ label: `Libro vs motor · ${c.length}`, value: 'contraste' }] : []),
-      // `[RD.80]` El padrón no depende de la corrida: si hay hallazgos, se muestran aunque la
-      // quincena elegida no tenga número. Son dos preguntas distintas y la segunda no espera.
+      // `[RD.80]` No depende de la corrida: si hay hallazgos, se muestran aunque la quincena
+      // elegida no tenga número. Son dos preguntas distintas y la segunda no espera.
+      //
+      // ⛔ **Se llamaba «Padrón» y era un nombre falso.** Medido: de sus 13 filas, **8 NO están
+      // en el padrón** (`en_config = false`: las vecinales). Un título que nombra el registro
+      // mientras la mayoría de su contenido es justamente lo que quedó FUERA del registro
+      // desorienta — es el caso `[CG.123]`. Lo que la pestaña compara de verdad son las dos
+      // caras del mismo hecho: quién cobra y quién vende. El nombre nuevo además rima con
+      // «Libro vs motor», que es la otra comparación de esta misma pantalla.
       ...(this.padronHallazgos().length
-        ? [{ label: `Padrón · ${this.padronHallazgos().length}`, value: 'padron' }] : []),
+        ? [{ label: `Cobro vs venta · ${this.padronHallazgos().length}`, value: 'padron' }] : []),
     ];
   }
 
@@ -1129,8 +1146,20 @@ export class ComercialComisionesComponent {
   readonly padronEnRiesgo = computed(() => this.padronHallazgos()
     .filter((r) => r.problema === 'cobra_sin_fuente').length);
 
-  readonly padronVendeSinCobrar = computed(() => this.padronHallazgos()
-    .filter((r) => r.problema === 'vende_sin_cobrar')
+  /**
+   * ⛔ **Suma sobre el HECHO, no sobre la etiqueta** — y la diferencia no es de estilo.
+   *
+   * `padronHallazgos()` asigna **una sola** etiqueta por fila con una cadena de ternarios, así
+   * que una ruta que venda sin cobrar **y además** traiga una venta con fecha futura se queda
+   * con `dato_imposible` y **desaparecía de este total sin avisar**. Es el Cruce 1: una cifra
+   * publicada que no se puede recorrer hasta su lista.
+   *
+   * ⚠️ Era **latente, no vivo**: hoy la única con dato futuro es la 22, que sí comisiona. Se
+   * arregla ahora porque el día que deje de ser latente, el síntoma es un total más chico —
+   * y un total más chico no se nota.
+   */
+  readonly padronVendeSinCobrar = computed(() => this.padron()
+    .filter((r) => !r.comisiona && Number(r.subtotal_30d) > 0)
     .reduce((s, r) => s + Number(r.subtotal_30d), 0));
 
   // ── `[RD.52]` El contraste ────────────────────────────────────────────────────────────────
