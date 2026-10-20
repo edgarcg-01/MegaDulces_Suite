@@ -18,6 +18,12 @@ export type MetricTone = 'default' | 'ok' | 'warn' | 'bad' | 'brand' | 'ember';
 export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
 
 /**
+ * `[CGA-A.47]` Un chip de la tarjeta: con qué se midió la cifra («contado», «sin recontar»,
+ * «por confirmar»). Va con TEXTO siempre — el color sólo acompaña (estándar 2.3).
+ */
+export interface MetricChip { texto: string; tono?: 'ok' | 'warn' | 'bad' | 'info' | 'mute'; icono?: string; title?: string }
+
+/**
  * MetricCard — tarjeta KPI rica con micro-gráfica + count-up animado.
  * Reemplaza a `metric-tile`. Variantes: plain · sparkline · gauge · bars · progress · ember.
  * Degrada a `plain` si la variante necesita `series`/`goal` y no hay datos.
@@ -28,12 +34,22 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
   standalone: true,
   imports: [SparklineComponent, RingGaugeComponent, MiniBarsComponent, CountUpDirective],
   template: `
-    <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [class.is-flash]="flash()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
+    <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [class.is-flash]="flash()" [class.is-arrastre]="medicion() === 'arrastre'" [class.is-compact]="compact()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
       <header class="mc-head">
         <span class="mc-label">{{ label() }}@if (live()) {
           <span class="mc-live" title="En vivo" aria-hidden="true"></span>
         }</span>
-        @if (delta() !== null && delta() !== undefined) {
+        <!-- [CGA-A.47] Con qué se midió la cifra. Aditivo: sin chips, la cabecera es la de siempre. -->
+        @if (chips().length) {
+          <span class="mc-chips">
+            @for (c of chips(); track c.texto) {
+              <span class="mc-chip" [class]="'mc-chip tono-' + (c.tono || 'mute')" [attr.title]="c.title || null">
+                @if (c.icono) { <i class="pi" [class]="'pi ' + c.icono" aria-hidden="true"></i> }{{ c.texto }}
+              </span>
+            }
+          </span>
+        }
+        @if (!deltaLabel() && delta() !== null && delta() !== undefined) {
           <span class="mc-delta" [class]="'is-' + dir()">
             <i class="pi" [class.pi-arrow-up-right]="dir()==='up'" [class.pi-arrow-down-right]="dir()==='down'" [class.pi-minus]="dir()==='flat'" aria-hidden="true"></i>
             {{ deltaText() }}
@@ -59,6 +75,14 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
           <div class="mc-value" [appCountUp]="value()" [countUpFormat]="cuFormat()"
           [appCountUpLive]="live()" [attr.aria-live]="live() ? 'polite' : null"></div>
         }
+        <!-- [CGA-A.47] Delta con TEXTO propio («▲ $201,200 vs 19/10»), bajo la cifra: flecha + palabras,
+             no sólo color. Aditivo: sin deltaLabel, el delta en % sigue en la cabecera. -->
+        @if (deltaLabel()) {
+          <span class="mc-delta-txt" [class]="'mc-delta-txt is-' + dir()">
+            <i class="pi" [class.pi-arrow-up-right]="dir()==='up'" [class.pi-arrow-down-right]="dir()==='down'" [class.pi-equals]="dir()==='flat'" aria-hidden="true"></i>
+            {{ deltaLabel() }}
+          </span>
+        }
         <!-- SPARKLINE / EMBER -->
         @if ((effVariant() === 'sparkline' || effVariant() === 'ember')) {
           <app-sparkline
@@ -69,7 +93,7 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
         <!-- BARS -->
         @if (effVariant() === 'bars') {
           <app-mini-bars
-            [data]="series()" [labels]="seriesLabels()" [highlightLast]="highlightLast()"
+            [data]="seriesMedida()" [labels]="seriesLabels()" [highlightLast]="highlightLast()"
             [color]="accentSoft()" [highlightColor]="accentGraph()"
           ></app-mini-bars>
         }
@@ -84,7 +108,8 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
           <span class="mc-sub">{{ sub() }}</span>
         }
       }
-    
+      <!-- [CGA-A.47] Detalle propio de quien usa la tarjeta (p. ej. la barra por denominación). -->
+      <ng-content></ng-content>
     </article>
     `,
   styles: [`
@@ -173,6 +198,32 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
     .mc.is-large app-mini-bars { --mb-h:64px; }
     .mc.is-large .mc-label { font-size: var(--fs-xs, .75rem); }
 
+    /* [CGA-A.47] Variantes ADITIVAS. Sin estas entradas la tarjeta es la de siempre. */
+    .mc-chips { display:inline-flex; flex-wrap:wrap; justify-content:flex-end; gap:.25rem; min-width:0; }
+    .mc-chip { display:inline-flex; align-items:center; gap:.25rem; font-size: var(--fs-micro, .6875rem); font-weight:600;
+      padding:.1rem .45rem; border-radius:999px; white-space:normal; line-height:1.25; }
+    .mc-chip i { font-size:.65rem; }
+    .mc-chip.tono-mute { color: var(--text-muted); background: var(--overlay-hover); }
+    .mc-chip.tono-info { color: var(--info-fg); background: color-mix(in srgb, var(--info-fg) 12%, transparent); }
+    .mc-chip.tono-ok   { color: var(--ok-fg);   background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
+    .mc-chip.tono-warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 14%, transparent); }
+    .mc-chip.tono-bad  { color: var(--bad-fg);  background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
+    .mc-delta-txt { display:inline-flex; align-items:center; gap:.25rem; font-size: var(--fs-xs, .75rem); font-weight:600;
+      font-variant-numeric: tabular-nums; }
+    .mc-delta-txt i { font-size:.65rem; }
+    .mc-delta-txt.is-up { color: var(--ok-fg); } .mc-delta-txt.is-down { color: var(--bad-fg); }
+    .mc-delta-txt.is-flat { color: var(--text-faint); }
+    /* Compacta: la misma tarjeta con menos aire, para tiras de 5-6 cifras. */
+    .mc.is-compact { min-height: 0; padding: .75rem .875rem .625rem; gap:.25rem; }
+    .mc.is-compact .mc-value { font-size: 1.375rem; font-weight: var(--fw-bold, 700); }
+    .mc.is-compact.is-large .mc-value { font-size: 1.75rem; }
+    .mc.is-compact app-sparkline { margin-top:.125rem; --spk-h:26px; }
+    .mc.is-compact.is-large app-sparkline { --spk-h:34px; }
+    /* ARRASTRADO: borde PUNTEADO = nadie lo recontó. La señal no depende sólo del color. */
+    .mc.is-arrastre { border-style: dashed; background: transparent; }
+    .mc.is-arrastre::before { display:none; }
+    .mc.is-arrastre .mc-value { color: var(--text-muted); }
+
     .mc-gauge-row { display:flex; align-items:center; gap:1rem; }
     .mc-gauge-meta { display:flex; flex-direction:column; gap:.2rem; min-width:0; }
 
@@ -203,7 +254,18 @@ export class MetricCardComponent {
 
   readonly sub = input<string>('');
   readonly variant = input<MetricVariant>('plain');
-  readonly series = input<number[]>([]);
+  /** `null` = ese punto no se midió: la sparkline lo marca como hueco, no como cero (aditivo). */
+  readonly series = input<readonly (number | null)[]>([]);
+  /** Las barras no tienen forma honesta de pintar un hueco: reciben sólo lo medido. */
+  readonly seriesMedida = computed(() => (this.series() ?? []).filter((v): v is number => v != null));
+  /** `[CGA-A.47]` Chips de procedencia («contado», «sin recontar», «por confirmar»). */
+  readonly chips = input<readonly MetricChip[]>([]);
+  /** `[CGA-A.47]` `'arrastre'` = el valor se repite de un corte a otro sin recontarse: borde punteado. */
+  readonly medicion = input<'contado' | 'arrastre' | null>(null);
+  /** `[CGA-A.47]` Menos aire, para tiras de varias cifras. */
+  readonly compact = input<boolean>(false);
+  /** `[CGA-A.47]` Delta en TEXTO («▲ $201,200 vs 19/10»), bajo la cifra. Usa `deltaDir` para la flecha. */
+  readonly deltaLabel = input<string>('');
   /** Etiquetas por punto de la serie → tooltip contextual en sparkline/bars (ej. nombre de almacén). */
   readonly seriesLabels = input<string[]>([]);
   /** Resaltar la última barra (default true). Apagar cuando las barras son un ranking, no una serie temporal. */

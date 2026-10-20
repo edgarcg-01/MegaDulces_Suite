@@ -9,6 +9,7 @@ import { environment } from '../../../../../environments/environment';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { MetricCardComponent, type MetricChip } from '../../../../shared/components/metric-card/metric-card.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import type { Freshness } from '@megadulces/contracts';
@@ -134,7 +135,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ButtonModule, TableModule, TagModule,
-    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent,
+    LoadStateComponent, SidePeekComponent, MetricStripComponent, MetricCardComponent, FreshnessPillComponent, SegmentedComponent,
     CajaTabsComponent],
   template: `
     <!-- [CG.121] Captura / Expediente / Caja Fuerte son UN area, no tres reportes sueltos. -->
@@ -206,8 +207,63 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
             }
           </div>
           @if (u.tiene_corte) {
-            <app-metric-strip [items]="corteKpis()" ariaLabel="Lo que registró el último corte" />
-            @for (n of corteNotas(); track n) { <p class="cx-nota">{{ n }}</p> }
+            <!-- [CGA-A.47] Tarjetas compactas (propuesta aprobada por Edgar, 2026-10-20): cada una dice
+                 CON QUE se midio -- borde solido = contado, punteado = se arrastra sin recontar, chip
+                 «por confirmar» = interpretacion sin validar -- y trae su linea de 14 dias, donde un
+                 dia sin conteo es un HUECO, no un cero. -->
+            <div class="cx-cards">
+              <app-metric-card class="cx-card-principal" label="Efectivo en el cajón" format="text" [valueText]="mx(u.total_efectivo)"
+                               [compact]="true" [large]="true" tone="brand" variant="sparkline"
+                               [series]="serie('total_efectivo')" [seriesLabels]="serieFechas()"
+                               [deltaLabel]="deltaDe('total_efectivo').texto" [deltaDir]="deltaDe('total_efectivo').dir"
+                               [chips]="[{ texto: 'contado', tono: 'mute' }]">
+                @if (denoms().length) {
+                  <div class="cx-denoms" role="img" [attr.aria-label]="'Por denominación: ' + denomsTexto()">
+                    @for (s of denoms(); track s.etiqueta) {
+                      <span [style.width.%]="s.pct" [style.background]="s.color" [attr.title]="s.etiqueta + ' = ' + mx(s.monto)"></span>
+                    }
+                  </div>
+                  <div class="cx-leyenda">
+                    @for (s of denoms(); track s.etiqueta) { <span><i [style.background]="s.color"></i>{{ s.etiqueta }}</span> }
+                  </div>
+                }
+              </app-metric-card>
+              <app-metric-card label="Cheques" format="text" [valueText]="mx(u.total_cheques)" [compact]="true" variant="sparkline"
+                               [series]="serie('total_cheques')" [seriesLabels]="serieFechas()" [accent]="'var(--text-faint)'"
+                               [deltaLabel]="deltaDe('total_cheques').texto" [deltaDir]="deltaDe('total_cheques').dir" />
+              <app-metric-card label="Tarjeta" format="text" [valueText]="mx(u.total_tarjeta)" [compact]="true" variant="sparkline"
+                               [series]="serie('total_tarjeta')" [seriesLabels]="serieFechas()" [accent]="'var(--text-faint)'"
+                               [deltaLabel]="deltaDe('total_tarjeta').texto" [deltaDir]="deltaDe('total_tarjeta').dir"
+                               [chips]="chipsTarjeta" />
+              <app-metric-card label="Dólares" format="text" [valueText]="usd(u.dolares_usd) + ' USD'" [compact]="true" medicion="arrastre"
+                               [sub]="u.tipo_cambio ? '≈ ' + mx(u.total_dolares) + ' · tipo de cambio ' + u.tipo_cambio : 'sin tipo de cambio declarado'"
+                               [chips]="[{ texto: 'sin recontar', tono: 'mute', icono: 'pi-replay' }]">
+                <div class="cx-repite"><span class="cx-repite-barra"><b [style.width.%]="repite('dolares_usd').pct"></b></span>igual en {{ repite('dolares_usd').n }} de {{ repite('dolares_usd').de }} cortes</div>
+              </app-metric-card>
+              <app-metric-card label="Papeles" format="text" [valueText]="mx(u.total_papeles)" [compact]="true" medicion="arrastre" sub="por pagar"
+                               [chips]="[{ texto: 'sin recontar', tono: 'mute', icono: 'pi-replay' }]">
+                <div class="cx-repite"><span class="cx-repite-barra"><b [style.width.%]="repite('total_papeles').pct"></b></span>igual en {{ repite('total_papeles').n }} de {{ repite('total_papeles').de }} cortes</div>
+              </app-metric-card>
+            </div>
+            <!-- El total que declaro Control, como COMPOSICION: se ve de que esta hecho y que no es el cajon. -->
+            <div class="cx-total">
+              <div class="cx-total-t">Total declarado por Control<strong class="comm-num">{{ mx(u.total_declarado) }}</strong>no es lo que hay en el cajón</div>
+              <div class="cx-total-g">
+                <div class="cx-comp" role="img" [attr.aria-label]="'De qué está hecho el total: ' + composicionTexto()">
+                  @for (p of composicion(); track p.nombre) {
+                    <span [style.width.%]="p.pct" [style.background]="p.color" [attr.title]="p.nombre + ' ' + mx(p.monto)"></span>
+                  }
+                </div>
+                <div class="cx-leyenda">
+                  @for (p of composicion(); track p.nombre) { <span><i [style.background]="p.color"></i>{{ p.nombre }} {{ p.pctTexto }}</span> }
+                </div>
+              </div>
+            </div>
+            <p class="cx-codigo">
+              <span><i class="cx-mini"></i>borde sólido: se contó</span>
+              <span><i class="cx-mini cx-mini-d"></i>punteado: se arrastra, nadie lo recontó</span>
+              <span>la línea: últimos 14 días · una marca abajo = día sin conteo</span>
+            </p>
           }
         </section>
       }
@@ -395,7 +451,29 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
     .cx-corte-cab { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; margin-bottom:var(--sp-2); }
     .cx-h2 { margin:0; font-size:var(--fs-h3); font-weight:600; }
     .cx-ver-meta { color:var(--text-muted); font-size:var(--fs-sm); }
-    .cx-nota { margin:var(--sp-1) 0 0; font-size:var(--fs-sm); color:var(--text-muted); max-width:64rem; }
+    /* Tarjetas: llenan el ancho; la del efectivo ocupa dos columnas (es la que se cuadra). */
+    .cx-cards { display:grid; gap:var(--sp-2); grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr)); }
+    .cx-card-principal { grid-column:span 2; }
+    .cx-denoms { display:flex; height:8px; border-radius:999px; overflow:hidden; background:var(--overlay-hover); margin-top:var(--sp-1); }
+    .cx-denoms span { height:100%; }
+    .cx-leyenda { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); font-size:var(--fs-micro); color:var(--text-muted); }
+    .cx-leyenda i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:var(--sp-1); }
+    .cx-repite { display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-xs); color:var(--text-muted); }
+    .cx-repite-barra { flex:1; height:4px; border-radius:999px; background:var(--overlay-hover); overflow:hidden; }
+    .cx-repite-barra b { display:block; height:100%; background:var(--text-faint); }
+    .cx-total { display:grid; grid-template-columns:auto 1fr; gap:var(--sp-2) var(--sp-4); align-items:center; margin-top:var(--sp-2);
+                padding:var(--sp-3) var(--sp-4); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
+    .cx-total-t { font-size:var(--fs-xs); color:var(--text-muted); }
+    .cx-total-t strong { display:block; font-size:var(--fs-lg); color:var(--text-main); }
+    .cx-total-g { display:flex; flex-direction:column; gap:var(--sp-2); min-width:0; }
+    .cx-comp { display:flex; height:10px; border-radius:999px; overflow:hidden; }
+    .cx-comp span { height:100%; }
+    .cx-comp span + span { box-shadow:inset 1px 0 0 var(--card-bg); }
+    .cx-codigo { display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); margin:var(--sp-2) 0 0; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cx-codigo span { display:inline-flex; align-items:center; gap:var(--sp-2); }
+    .cx-mini { display:inline-block; width:18px; height:12px; border-radius:3px; border:1.5px solid var(--text-faint); }
+    .cx-mini-d { border-style:dashed; }
+    @container (max-width: 44rem) { .cx-card-principal { grid-column:auto; } .cx-total { grid-template-columns:1fr; } }
 
     /* [CG.106] Los dias como atajo del Expediente. Botones de verdad, no divs con click:
        asi llegan por teclado y el lector de pantalla dice cual esta elegido (aria-pressed). */
@@ -508,55 +586,87 @@ export class FinanzasCajaExpedienteComponent implements OnInit, OnDestroy {
     return `se contó el ${this.dmy(u.fecha)}`;
   }
 
-  /**
-   * `[CGA-A.47]` Lo que registró el último corte, en UNA tira. Sólo lo que cambia de un corte a
-   * otro: dólares y papeles se dicen aparte (`corteNotas`) porque se arrastran.
-   */
-  readonly corteKpis = computed<MetricStripItem[]>(() => {
-    const u = this.ultimo();
-    if (!u?.tiene_corte) return [];
-    return [
-      { label: 'Efectivo en el cajón', value: this.mx(u.total_efectivo),
-        sub: `${this.mx(u.total_billetes)} en billetes · ${this.mx(u.total_monedas)} en monedas` },
-      { label: 'Cheques', value: this.mx(u.total_cheques) },
-      { label: 'Tarjeta (Control)', value: this.mx(u.total_tarjeta),
-        sub: 'ver la nota de abajo' },
-    ];
-  });
+  // ── `[CGA-A.47]` Las tarjetas del último corte ────────────────────────────────────────────
 
-  /**
-   * `[CGA-A.47]` Lo que el corte afirma SIN haberlo medido, con su número. Estándar 1.3: lo que no
-   * se midió se declara. Medido el 2026-10-20 sobre 80 cortes: USD con 1 valor distinto (×80) y
-   * papeles con 2 (uno ×79) — se arrastran (VERDAD §28.4), y antes salían en tarjetas propias
-   * como «En custodia» y «Papeles por pagar».
-   */
-  readonly corteNotas = computed<string[]>(() => {
+  /** Los últimos 14 días, del más viejo al más nuevo (así se lee una línea de tiempo). */
+  private readonly ultimos14 = computed<CorteDia[]>(() => this.dias().slice(0, 14).reverse());
+  readonly serieFechas = computed<string[]>(() => this.ultimos14().map((d) => this.dmy(d.fecha)));
+
+  /** La serie de una columna: `null` el día que nadie contó — la sparkline lo pinta como hueco, no como cero. */
+  serie(k: keyof CorteDia): (number | null)[] {
+    return this.ultimos14().map((d) => (d.tiene_corte && d[k] != null ? Number(d[k]) : null));
+  }
+
+  /** Contra el corte ANTERIOR que sí se contó: flecha + texto, no sólo color (estándar 2.3). */
+  deltaDe(k: keyof CorteDia): { texto: string; dir: 'up' | 'down' | 'flat' } {
+    const contados = this.dias().filter((d) => d.tiene_corte && d[k] != null);
+    if (contados.length < 2) return { texto: '', dir: 'flat' };
+    const a = Number(contados[0][k]);
+    const b = Number(contados[1][k]);
+    const dif = Math.round((a - b) * 100) / 100;
+    const cuando = this.dmy(contados[1].fecha).slice(0, 5);
+    if (Math.abs(dif) < 0.005) return { texto: `igual que el ${cuando}`, dir: 'flat' };
+    return { texto: `${this.mx(Math.abs(dif))} vs ${cuando}`, dir: dif > 0 ? 'up' : 'down' };
+  }
+
+  /** Cuántos cortes repiten el valor del último: lo que NO cambia no se está contando. */
+  repite(k: keyof CorteDia): { n: number; de: number; pct: number } {
     const u = this.ultimo();
     const d = this.dias().filter((x) => x.tiene_corte);
-    if (!u?.tiene_corte || !d.length) return [];
-    const igual = (k: keyof CorteDia) => d.filter((x) => String(x[k]) === String(u[k])).length;
-    const notas: string[] = [];
-    const usd = Number(u.dolares_usd ?? 0);
-    const pap = Number(u.total_papeles ?? 0);
-    const partes: string[] = [];
-    if (usd) partes.push(`${this.usd(u.dolares_usd)} USD`
-      + (u.tipo_cambio ? ` (≈ ${this.mx(u.total_dolares)} al tipo de cambio ${u.tipo_cambio})` : '')
-      + ` — el mismo valor en ${igual('dolares_usd')} de ${d.length} cortes`);
-    if (pap) partes.push(`papeles por pagar ${this.mx(u.total_papeles)} — el mismo valor en ${igual('total_papeles')} de ${d.length}`);
-    if (partes.length) notas.push(`Sin recontar (se arrastran de un corte a otro): ${partes.join('; ')}.`);
-    /**
-     * ⚠️ «Tarjeta» de Control: en los cortes del 19 y 20-oct-2026 coincidió AL PESO con el saldo
-     * de la caja fuerte ($360,020), medido con el replay de CAOS ya validado. Es probable que el
-     * cajero anote ahí la caja fuerte; NO está confirmado con operación, y los días anteriores no
-     * se pudieron verificar. Se dice con su fecha para que no se lea como regla.
-     */
-    if (Number(u.total_tarjeta ?? 0)) {
-      notas.push('«Tarjeta» es lo que anotó Control en ese campo. En los cortes del 19 y 20-oct-2026 coincidió al peso '
-        + 'con el saldo de la caja fuerte: probablemente el cajero anota ahí la caja fuerte (falta confirmarlo con operación).');
-    }
-    notas.push(`Total declarado por Control: ${this.mx(u.total_declarado)} — suma efectivo, dólares, papeles, cheques y tarjeta; no es lo que hay en el cajón.`);
-    return notas;
+    if (!u?.tiene_corte || !d.length) return { n: 0, de: 0, pct: 0 };
+    const n = d.filter((x) => String(x[k]) === String(u[k])).length;
+    return { n, de: d.length, pct: Math.round((n / d.length) * 100) };
+  }
+
+  /**
+   * ⚠️ «Tarjeta» de Control: en los cortes del 19 y 20-oct-2026 coincidió AL PESO con el saldo de
+   * la caja fuerte ($360,020), medido con el replay de CAOS ya validado. Probablemente el cajero
+   * anota ahí la caja fuerte; NO está confirmado con operación. Va como chip «por confirmar», con
+   * la fecha en el title para que no se lea como regla.
+   */
+  readonly chipsTarjeta: MetricChip[] = [
+    { texto: 'según Control', tono: 'mute' },
+    { texto: '¿caja fuerte? · por confirmar', tono: 'info', icono: 'pi-info-circle',
+      title: 'En los cortes del 19 y 20-oct-2026 coincidió al peso con el saldo de la caja fuerte (CAOS). Falta confirmarlo con operación.' },
+  ];
+
+  /** Barra por denominación del efectivo contado. Escala TONAL del color de acción: sin arcoíris. */
+  readonly denoms = computed<{ etiqueta: string; monto: number; pct: number; color: string }[]>(() => {
+    const u = this.ultimo();
+    if (!u?.tiene_corte) return [];
+    const total = Number(u.total_efectivo ?? 0);
+    if (!total) return [];
+    const tono = (p: number) => `color-mix(in srgb, var(--action) ${p}%, var(--border-color))`;
+    const filas: { d: number; k: string; color: string }[] = [
+      { d: 1000, k: 'b1000', color: 'var(--text-muted)' }, { d: 500, k: 'b500', color: 'var(--action)' },
+      { d: 200, k: 'b200', color: tono(70) }, { d: 100, k: 'b100', color: tono(48) },
+      { d: 50, k: 'b50', color: tono(32) }, { d: 20, k: 'b20', color: tono(20) },
+    ];
+    const out = filas
+      .map((f) => ({ q: Number(u[f.k] ?? 0), ...f }))
+      .filter((f) => f.q > 0)
+      .map((f) => ({ etiqueta: `$${f.d} ×${f.q}`, monto: f.d * f.q, pct: ((f.d * f.q) / total) * 100, color: f.color }));
+    const mon = Number(u.total_monedas ?? 0);
+    if (mon > 0) out.push({ etiqueta: `monedas ${this.mx(mon)}`, monto: mon, pct: Math.max((mon / total) * 100, 0.6), color: 'var(--text-faint)' });
+    return out;
   });
+  readonly denomsTexto = computed(() => this.denoms().map((s) => s.etiqueta).join(', '));
+
+  /** El total que declaró Control, como composición: se ve de qué está hecho. */
+  readonly composicion = computed<{ nombre: string; monto: number; pct: number; pctTexto: string; color: string }[]>(() => {
+    const u = this.ultimo();
+    if (!u?.tiene_corte) return [];
+    const partes = [
+      { nombre: 'Efectivo', monto: Number(u.total_efectivo ?? 0), color: 'var(--action)' },
+      { nombre: 'Tarjeta', monto: Number(u.total_tarjeta ?? 0), color: 'var(--chart-2)' },
+      { nombre: 'Dólares', monto: Number(u.total_dolares ?? 0), color: 'var(--chart-8)' },
+      { nombre: 'Papeles', monto: Number(u.total_papeles ?? 0), color: 'color-mix(in srgb, var(--chart-8) 45%, transparent)' },
+      { nombre: 'Cheques', monto: Number(u.total_cheques ?? 0), color: 'var(--chart-7)' },
+    ].filter((p) => p.monto > 0);
+    const t = partes.reduce((a, p) => a + p.monto, 0) || 1;
+    return partes.map((p) => ({ ...p, pct: (p.monto / t) * 100, pctTexto: `${Math.round((p.monto / t) * 100)}%` }));
+  });
+  readonly composicionTexto = computed(() => this.composicion().map((p) => `${p.nombre} ${p.pctTexto}`).join(', '));
 
   /** `[CGA-A.47]` Lo que antes era una tira de 4 KPI (dos repetían cifras de arriba), en una línea. */
   readonly resumenHistorial = computed<string>(() => {
