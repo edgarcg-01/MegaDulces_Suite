@@ -20,6 +20,14 @@ una decisión.
 
 ---
 
+> ⭐⭐ **¿Vas a JUZGAR una pantalla en vez de construirla? Cargá
+> [`auditoria-diseno`](../auditoria-diseno/SKILL.md).** Esta skill dice cómo se construye; aquélla,
+> cómo se encuentra lo que está mal en algo que ya existe — y son oficios distintos. Trae los **seis
+> cruces que ninguna compuerta hace** (un rótulo que miente, una lista que esconde el 40 % de sus
+> filas, un contenedor cuyo nombre cubre un tercio de lo que contiene), la disciplina de instrumento
+> y los tres niveles de evidencia. Nace el 2026-10-20, después de que el usuario encontrara
+> **preguntando** tres defectos graves que una auditoría hecha sólo con esta skill no vio.
+
 ## 1. Antes de escribir una línea: medir la pantalla
 
 ⛔ **No abras el archivo vecino para "ser consistente".** Ya costó: `/logistica/gasto-ruta` se
