@@ -182,6 +182,50 @@ Una jerarquía que no se puede decir en una línea no existe — se está maquet
 
 ---
 
+## 3d. Las 18 leyes — qué exige cada una al GENERAR y qué se mira al AUDITAR
+
+⛔ **Auditado el 2026-10-20: de las 18 leyes que `DESIGN.md` declara binding, DIEZ no aparecían en
+ninguna capa ejecutable** — ni acá, ni en el estándar, ni en la skill de auditoría. Estaban en el
+papel. Fuentes: `§Ing.UI 1:1068` (el fundamento cognitivo) y `§10:1318` (interacción + resiliencia).
+
+⭐ **La ley NO se cita como etiqueta, se aplica por su mecanismo.** «Esto viola Hick» no es un
+hallazgo; «hay 23 acciones planas en la barra y ninguna curaduría» sí.
+
+### Fundamento cognitivo — cómo se percibe (`§Ing.UI 1`)
+
+| Ley | Al GENERAR | Al AUDITAR, la pregunta |
+|---|---|---|
+| **Gestalt** | Agrupar baja el parsing de *n* elementos a *k* grupos. El grupo se forma con **espaciado** (escala 4px); el borde es el ÚLTIMO recurso | ¿los grupos se ven sin cajas? ¿hay bordes haciendo el trabajo del espacio? |
+| **Hick** | Recortar decisiones **simultáneas**: curaduría y progressive disclosure antes que 20 acciones planas; `⌘K` con 20+ destinos | ¿cuántas decisiones simultáneas ofrece? ¿hay curaduría o es una lista completa? |
+| **Fitts** | target = f(distancia, tamaño). CTA grande y alcanzable; **≥44px en touch**. ⛔ Conflicto densidad↔Fitts: en `fine` gana densidad (32–40px), en `coarse` gana Fitts. **No se promedia — lo decide el puntero** | ¿el objetivo táctil llega a 44px en `coarse`? ¿la acción primaria está donde cae la mano? |
+| **Doherty** | La latencia no es incomodidad, es **pérdida de contexto**: arriba de ~400 ms se suelta el hilo. **INP < 200 ms** es criterio de aceptación, no perf posterior. Palancas: optimistic UI, skeleton **dimensionado**, `@defer`, ceder el hilo | ¿el presupuesto está medido o supuesto? ⛔ **Y nunca se retarda a propósito** para que «se sienta» confiable |
+| **Carga cognitiva** | La composición debe **reducir esfuerzo mental**. ⭐ Si un layout necesita una leyenda para entenderse, **falló** | ¿hace falta explicarla para que se entienda? |
+| **Lectura Z / F** | **Z** en storefront, **F** en tablas densas. La acción principal cae donde el patrón deposita el ojo, no centrada por estética | ¿el CTA está donde mira el ojo, o donde quedó lindo? |
+
+### Interacción — cómo se opera (`§10.1–7`)
+
+| Ley | Al GENERAR | Al AUDITAR, la pregunta |
+|---|---|---|
+| **Tesler** | La complejidad no se elimina, se traslada — y acá se traslada al **código**, no a la persona. ⛔ Prohibido esconder datos vitales tras acordeones «por limpieza». **Densidad ordenada > minimalismo que esconde** | ¿lo que se plegó era secundario de verdad? ¿se ve que existe? |
+| **Miller** | Ningún formulario con **>6 campos consecutivos** sin separador con título. Valor alfanumérico >6 caracteres, segmentado — **y la segmentación es CSS**: el valor copiable va intacto | ¿hay bloques de más de 6? ¿romper el *paste* por estética? |
+| **Jakob** | No se reinventa lo que la persona ya conoce: tabla = Excel (filtros arriba, orden en el header, paginación abajo), buscador arriba, `⌘K`, migas | ¿inventa una interacción donde había un patrón conocido? |
+| **Proximidad numérica** | El margen inferior de un grupo = **2×** la distancia `label↔input` (el label pega a SU input). En tablas, el header pega a los datos | ¿el aire entre etiqueta y dato rompe la asociación? («efecto Dribbble») |
+| **Von Restorff** | La destructiva **nunca** usa `--action`: va en `--bad-fg`, **físicamente separada** de la diaria, con fricción proporcional o deshacer. **Una sola primaria por pantalla** | ¿«Borrar» está pegado a «Guardar»? ¿cuántas primarias compiten? |
+| **Poka-yoke** | Prevenir antes que reportar: validación al blur, envío deshabilitado mientras es inválido, máscaras, unidades explícitas. **El error es el último recurso** | ¿deja cometer el error y después lo reporta? |
+| **Keyboard-first** | Autofocus al primer campo, `Enter` envía (salvo textarea), tab order = orden visual, atajos para lo repetitivo — **y el atajo se escribe en pantalla** | ¿se completa la tarea sin mouse? ¿el atajo existe pero nadie lo sabe? |
+
+### Resiliencia — qué pasa cuando algo sale mal (`§10.8–12`)
+
+| Ley | Al GENERAR | Al AUDITAR, la pregunta |
+|---|---|---|
+| **Estado sucio** | Rastrear `isDirty`; `CanDeactivate` en navegación interna y `beforeunload` al salir. `Esc` en captura activa **pide confirmación, no descarta en silencio** | ¿se pierde lo tecleado al navegar o al cerrar? |
+| **Datos añejos** | Todo dato volátil muestra **su edad** y ofrece refresh local; scroll anclado si entran filas en vivo | ¿se puede distinguir «hace 3 min» de «hace 9 horas» de un vistazo? |
+| **Fallos parciales** | Toda acción masiva maneja respuesta **parcial**, nunca binaria: «48 procesados · 2 fallaron», y los fallidos **siguen seleccionados** para reintentar | ¿un lote con un error se reporta como si todo hubiera fallado? |
+| **Idempotencia visual** | Todo botón que muta DB se deshabilita **síncrono en el primer clic**, antes de esperar la respuesta | ¿el doble clic del pánico cobra dos veces? |
+| **Postel** | **Liberal al recibir**: normalizar antes de validar (importe con comas, fecha tecleada, folio con espacios, pegado de Excel). **Estricto al emitir**: lo que va al backend o se copia a Kepler/SAT va sin adornos. ⛔ **Liberal NO es adivinar**: la tolerancia es para la FORMA, jamás para el SIGNIFICADO — `03/04` es ambigua, se pregunta o se declara | ¿rechaza `1,250.00` por la coma? ¿asume el significado de algo ambiguo? |
+
+---
+
 ## 3c. Lo demás que es BINDING y esta skill no traía
 
 ⛔ **Auditado el 2026-10-20: de las 13 secciones `BINDING` de `DESIGN.md`, SEIS no llegaban a
