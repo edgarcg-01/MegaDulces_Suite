@@ -334,6 +334,15 @@ export class CashLedgerService {
   }
 
   /**
+   * `[CGA-A.43]` Con qué arrancaría la caja si se abriera el corte ahora: el `contado` del cierre
+   * anterior, o `sin_medir`. Es la MISMA regla que aplica el servidor al abrir con el fondo vacío.
+   */
+  fondoSugerido(sucursal: string): Observable<FondoSugerido> {
+    const p = new HttpParams().set('sucursal', sucursal);
+    return this.leer<FondoSugerido>(`${this.base}/cortes/fondo-sugerido`, { params: p });
+  }
+
+  /**
    * `[CG.26]` El cierre de la jornada: el día en caja general y en el cajero (CAOS).
    *
    * ⭐ **No depende de que haya corte abierto**, y eso es el punto: el panel de «Arqueo final del
@@ -761,6 +770,15 @@ export interface RevelacionCorte {
 
 /** `[CGP-L.4]` Lo que devuelve `GET cortes/jornadas-pendientes`: el contrato que comparte con el servidor. */
 export type { JornadasPendientes };
+
+/** `[CGA-A.43]` `GET cortes/fondo-sugerido`. `monto: null` = no hay cierre anterior medido. */
+export interface FondoSugerido {
+  monto: number | null;
+  origen: string;
+  denominaciones?: Record<string, number> | null;
+  procedencia?: string | null;
+  limites?: unknown[];
+}
 
 export interface SaldoResponse {
   sucursal: string;
