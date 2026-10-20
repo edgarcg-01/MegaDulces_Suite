@@ -2247,6 +2247,25 @@ export class ComercialService {
     return this.http.get<PadronRuta[]>(`${this.base}/commissions/routes`);
   }
   /**
+   * `[RD.86]` Las versiones del tabulador. ⛔ Hasta el 2026-10-20 **ninguna pantalla lo
+   * consumía**: el endpoint existía desde `[RD.66]` y el número que decide el porcentaje de cada
+   * peso sólo se podía cambiar por curl.
+   */
+  commissionScales() {
+    return this.http.get<EscalasRD>(`${this.base}/commissions/scales`);
+  }
+  /** Qué pasaría con este tabulador, **antes** de guardarlo. No escribe nada. */
+  commissionScaleSimular(tiers: TierRD[]) {
+    return this.http.post<SimulacionEscalaRD>(`${this.base}/commissions/scales/simulate`, { tiers });
+  }
+  commissionScaleEstrenar(body: { valid_from: string; nombre?: string; tiers: TierRD[] }) {
+    return this.http.post<{
+      id: string; valid_from: string; cerro_a: string | null;
+      escalones: number; bonos_heredados: number;
+    }>(`${this.base}/commissions/scales`, body);
+  }
+
+  /**
    * `[RD.85]` Los bonos de la escala VIGENTE. ⛔ Los criterios del objetivo mensual no se
    * administran por acá: viven en `/objective`, donde la regla de que los pesos sumen 100 %
    * ya está escrita — y escribirla dos veces es como las dos se desincronizan.
@@ -4800,6 +4819,43 @@ export interface PadronEdicion {
 }
 /** Lo que una vigencia nueva dejaría fuera, en quincenas ya PAGADAS y en pesos. */
 export interface PadronAvisoPagadas { quincenas: number; pagado: string; detalle: string }
+
+/** `[RD.86]` Un escalón. `max_amount: null` = sin techo. `min` inclusivo, `max` exclusivo. */
+export interface TierRD { min_amount: number; max_amount: number | null; pct: number }
+export interface EscalaRD {
+  id: string; code: string; nombre: string;
+  valid_from: string; valid_to: string | null; vigente: boolean;
+  base_field: string; gate_field: string; share_supervisor_pct: string | number;
+  notes: string | null;
+  tiers: { min_amount: string | number; max_amount: string | number | null; pct: string | number }[];
+}
+export interface EscalasRD {
+  escalas: EscalaRD[];
+  /** La primera fecha desde la que se puede estrenar: lo pagado NO se recalcula. */
+  piso_editable: string | null;
+  hoy: string;
+}
+/**
+ * `[RD.86]` Lo que un tabulador propuesto le haría a la última quincena **pagada**.
+ *
+ * ⚠️ `base` no es decoración: dice sobre qué quincena se simuló. Un delta sin su base no se
+ * puede citar — es el mismo defecto que un porcentaje sin denominador.
+ */
+export interface SimulacionEscalaRD {
+  base: { anio: number; period_no: number; date_from: string; date_to: string; rutas: number };
+  total_hoy: number; total_nuevo: number; delta: number;
+  /** Rutas que HOY cobran y con el propuesto quedarían **sin escalón**, o sea en $0. */
+  caen: number;
+  suben: number;
+  filas: {
+    route_code: string; beneficiario_nombre: string | null;
+    venta: number; subtotal: number;
+    pct_hoy: number | null; pct_nuevo: number | null;
+    comision_hoy: number; comision_nueva: number; delta: number;
+    cae_del_acantilado: boolean; sube_al_escalon: boolean;
+    motivo_no_pago: string | null;
+  }[];
+}
 
 /**
  * `[RD.85]` Un bono de la escala vigente.

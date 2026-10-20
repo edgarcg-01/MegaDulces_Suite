@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CommercialCommissionsService } from './commercial-commissions.service';
+import { CommercialCommissionsService, type SimulacionEscala } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
 import {
@@ -170,6 +170,31 @@ export class CommercialCommissionsController {
     },
   ) {
     return this.service.createScaleVersion(body);
+  }
+
+  /**
+   * `[RD.86]` Qué pasaría con este tabulador, **antes** de guardarlo.
+   *
+   * ⛔ Es `VER` y no `GESTIONAR` a propósito: **no escribe nada**. Quien puede mirar la nómina
+   * puede preguntarse qué pasaría si el escalón se moviera; estrenar la versión es otro acto.
+   */
+  @Post('scales/simulate')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'Simula un tabulador sobre la ultima quincena PAGADA -- no escribe nada',
+    description:
+      'RD.86. Body: `{ tiers[] }`. El tabulador es un ACANTILADO: debajo del primer escalon la '
+      + 'comision es CERO, no "un poco menos" -- hoy el piso esta en $189,999.99 y 9 ruta-periodo '
+      + 'caen del lado malo por $26,932.74. Reaplica los escalones propuestos sobre las lineas ya '
+      + 'medidas y congeladas de la ultima corrida pagada: NO vuelve a correr el motor (costaria '
+      + '~5.7 s, leeria la fuente de hoy y mezclaria dos cambios en un solo numero) y NO recalcula '
+      + 'bonos ni deducciones, para que el delta conteste solo "que hace ESTE escalon". Devuelve '
+      + '`caen` y `suben`: las dos caras del acantilado, con nombre propio.',
+  })
+  simulateScale(
+    @Body() body: { tiers: { min_amount: number; max_amount: number | null; pct: number }[] },
+  ): Promise<SimulacionEscala> {
+    return this.service.simularEscala(body?.tiers);
   }
 
   @Get('universe')

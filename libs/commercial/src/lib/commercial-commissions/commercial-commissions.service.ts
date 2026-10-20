@@ -974,6 +974,102 @@ export class CommercialCommissionsService {
     return rows[0]?.d ?? null;
   }
 
+  /**
+   * `[RD.86]` — **Qué pasaría con este tabulador, ANTES de guardarlo.**
+   *
+   * ── Por qué ──────────────────────────────────────────────────────────────────────────────
+   * El tabulador es un **acantilado**: debajo del primer escalón `pickTier()` devuelve `null` y
+   * la comisión es **$0**, no «un poco menos». Medido contra prod: hoy el piso está en
+   * **$189,999.99**, y **9 ruta-periodo del contraste** caen del lado malo por **$26,932.74**.
+   * Mover un escalón a ciegas no cambia un porcentaje: **apaga depósitos enteros**.
+   *
+   * ── Cómo se simula, y por qué así ────────────────────────────────────────────────────────
+   * ⭐ Se reaplica el tabulador propuesto sobre **las líneas de la última corrida pagada**, que
+   * ya tienen su `venta` y su `subtotal` medidos y congelados. **No se vuelve a correr el
+   * motor**: eso cuesta ~5.7 s, leería la fuente de hoy y mezclaría dos cambios —el del
+   * tabulador y el del dato— en un solo número. Acá **sólo se mueve el tabulador**.
+   *
+   * ⛔ **Y por eso la simulación NO toca bonos ni deducciones**: se dejan como quedaron. Si
+   * también se recalcularan, el delta dejaría de responder *«¿qué hace ESTE escalón?»*. La
+   * respuesta declara `base` para que quien la lee sepa sobre qué quincena está mirando.
+   */
+  async simularEscala(
+    tiersPropuestos: { min_amount: number; max_amount: number | null; pct: number }[],
+  ): Promise<SimulacionEscala> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!tiersPropuestos?.length) throw new BadRequestException('tiers requerido');
+    const tiers: Tier[] = [...tiersPropuestos]
+      .sort((a, b) => Number(a.min_amount) - Number(b.min_amount))
+      .map((t) => ({
+        min_amount: String(t.min_amount),
+        max_amount: t.max_amount === null ? null : String(t.max_amount),
+        pct: String(t.pct),
+      }));
+
+    return this.tk.run(async (trx) => {
+      const { rows: [run] } = await trx.raw(
+        `SELECT r.id, p.anio, p.period_no,
+                to_char(p.date_from,'YYYY-MM-DD') date_from,
+                to_char(p.date_to,'YYYY-MM-DD') date_to
+           FROM commercial.commission_runs r
+           JOIN commercial.commission_periods p ON p.id = r.period_id
+          WHERE r.tenant_id = ? AND r.deleted_at IS NULL AND r.status = 'pagado'
+          ORDER BY p.date_to DESC LIMIT 1`, [tenantId]);
+      if (!run) {
+        // ⛔ No se devuelve una simulación vacía: un cero acá se leería como «no cambia nada».
+        throw new ConflictException(
+          'No hay ninguna quincena pagada sobre la cual simular. Sin una base medida, cualquier '
+          + 'número que devolviera sería inventado.');
+      }
+
+      const { rows: lineas } = await trx.raw(
+        `SELECT route_code, beneficiario_nombre, venta, subtotal, pct_aplicado, comision,
+                motivo_no_pago
+           FROM commercial.commission_run_lines
+          WHERE run_id = ? AND deleted_at IS NULL AND beneficiario = 'chofer'
+          ORDER BY route_code`, [run.id]);
+
+      const filas: SimulacionFila[] = lineas.map((l: any) => {
+        const venta = Number(l.venta) || 0;
+        const subtotal = Number(l.subtotal) || 0;
+        const tier = this.pickTier(tiers, venta);
+        const pctNuevo = tier ? Number(tier.pct) : null;
+        const comisionHoy = Number(l.comision) || 0;
+        const comisionNueva = pctNuevo === null ? 0 : (subtotal * pctNuevo) / 100;
+        return {
+          route_code: l.route_code,
+          beneficiario_nombre: l.beneficiario_nombre ?? null,
+          venta, subtotal,
+          pct_hoy: l.pct_aplicado === null ? null : Number(l.pct_aplicado),
+          pct_nuevo: pctNuevo,
+          comision_hoy: Number(comisionHoy.toFixed(2)),
+          comision_nueva: Number(comisionNueva.toFixed(2)),
+          delta: Number((comisionNueva - comisionHoy).toFixed(2)),
+          // ⭐ Las dos caras del acantilado, con nombre propio. Un delta negativo grande y
+          // «se queda sin escalón» se leen distinto, y se arreglan distinto.
+          cae_del_acantilado: pctNuevo === null && (l.pct_aplicado !== null),
+          sube_al_escalon: pctNuevo !== null && l.pct_aplicado === null,
+          motivo_no_pago: l.motivo_no_pago ?? null,
+        };
+      });
+
+      const suma = (f: (x: SimulacionFila) => number) => Number(
+        filas.reduce((s, x) => s + f(x), 0).toFixed(2));
+      return {
+        base: {
+          anio: run.anio, period_no: run.period_no,
+          date_from: run.date_from, date_to: run.date_to, rutas: filas.length,
+        },
+        total_hoy: suma((f) => f.comision_hoy),
+        total_nuevo: suma((f) => f.comision_nueva),
+        delta: suma((f) => f.delta),
+        caen: filas.filter((f) => f.cae_del_acantilado).length,
+        suben: filas.filter((f) => f.sube_al_escalon).length,
+        filas,
+      };
+    });
+  }
+
   /** min inclusivo, max exclusivo, `max IS NULL` = sin techo (FASE_RD §4.6). */
   private pickTier(tiers: Tier[], gate: number): Tier | null {
     for (const t of tiers) {
@@ -1322,4 +1418,37 @@ export class CommercialCommissionsService {
       .orderBy([{ column: 'route_code' }, { column: 'beneficiario' }]).select('*');
     return { ...run, lines: lines.map((l: Record<string, unknown>) => this.numerizar(l)) };
   }
+}
+
+/**
+ * `[RD.86]` Lo que un tabulador propuesto le haría a la última quincena pagada.
+ *
+ * ⚠️ `base` no es decoración: dice **sobre qué quincena** se simuló. Un delta sin su base no se
+ * puede citar — es el mismo defecto que un porcentaje sin denominador.
+ */
+export interface SimulacionEscala {
+  base: { anio: number; period_no: number; date_from: string; date_to: string; rutas: number };
+  total_hoy: number;
+  total_nuevo: number;
+  delta: number;
+  /** Rutas que HOY cobran y con el tabulador propuesto quedarían **sin escalón**, o sea en $0. */
+  caen: number;
+  /** Rutas que hoy no alcanzan ningún escalón y con el propuesto sí. */
+  suben: number;
+  filas: SimulacionFila[];
+}
+
+export interface SimulacionFila {
+  route_code: string;
+  beneficiario_nombre: string | null;
+  venta: number;
+  subtotal: number;
+  pct_hoy: number | null;
+  pct_nuevo: number | null;
+  comision_hoy: number;
+  comision_nueva: number;
+  delta: number;
+  cae_del_acantilado: boolean;
+  sube_al_escalon: boolean;
+  motivo_no_pago: string | null;
 }

@@ -19,7 +19,7 @@ import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
   CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
-  PadronRuta, PadronAvisoPagadas, BonoRD,
+  PadronRuta, PadronAvisoPagadas, BonoRD, EscalasRD, TierRD, SimulacionEscalaRD,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -940,6 +940,176 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               @if (bonoErr(); as e) {
                 <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
               }
+            } @else if (tab() === 'tabulador') {
+              <!-- [RD.86] El tabulador. ⛔ Hasta hoy NINGUNA pantalla consumia /scales: el
+                   endpoint existia desde [RD.66] y el numero que decide el porcentaje de cada
+                   peso solo se podia cambiar por curl.
+
+                   La regla de esta pestana: NO se puede estrenar sin simular antes. El
+                   tabulador es un acantilado y mover un escalon no cambia un porcentaje --
+                   apaga depositos enteros. -->
+              <div class="cm-padron-tit">
+                <div>
+                  <p class="cm-eyebrow">El tabulador</p>
+                  <p class="cm-muted cm-micro">
+                    Lo que decide el porcentaje de cada peso. La compuerta la abre la
+                    <strong>venta</strong>; el porcentaje se aplica sobre el
+                    <strong>subtotal</strong>.
+                    @if (escalas()?.piso_editable; as piso) {
+                      Una versión nueva no puede empezar antes del
+                      <strong>{{ dia(piso) }}</strong>: lo pagado no se recalcula.
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <p class="cm-warn bad">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>
+                  <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
+                  hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
+                  menos». Mover el piso no baja un pago — <strong>lo apaga</strong>.
+                </span>
+              </p>
+
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain">
+                  <thead><tr>
+                    <th class="comm-num">Desde (venta)</th>
+                    <th class="comm-num">Hasta</th>
+                    <th class="comm-num">Paga sobre el subtotal</th>
+                    <th></th>
+                  </tr></thead>
+                  <tbody>
+                    @for (t of borrador(); track $index) {
+                      <tr>
+                        <td class="comm-num">
+                          <input type="number" step="0.01" class="cm-tier-in"
+                                 [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="setTier($index, 'min_amount', $event)" />
+                        </td>
+                        <td class="comm-num">
+                          <input type="number" step="0.01" class="cm-tier-in"
+                                 [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="setTier($index, 'max_amount', $event)"
+                                 [placeholder]="$index === borrador().length - 1 ? 'sin techo' : ''" />
+                        </td>
+                        <td class="comm-num">
+                          <input type="number" step="0.0001" class="cm-tier-in"
+                                 [ngModel]="t.pct" [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="setTier($index, 'pct', $event)" />
+                        </td>
+                        <td>
+                          @if (puedeGestionar()) {
+                            <button type="button" class="cm-btn-sec cm-btn-min"
+                                    (click)="quitarTier($index)">Quitar</button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              @if (huecoTabulador(); as h) {
+                <p class="cm-err">
+                  <i class="pi pi-times-circle" aria-hidden="true"></i> {{ h }}
+                </p>
+              }
+
+              @if (puedeGestionar()) {
+                <div class="cm-tabul-pie">
+                  <button type="button" class="cm-btn-sec" (click)="agregarTier()">
+                    <i class="pi pi-plus" aria-hidden="true"></i> Escalón
+                  </button>
+                  <button type="button" class="cm-btn-sec" (click)="restaurarTabulador()">
+                    Descartar cambios
+                  </button>
+                  <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
+                          (click)="simularTabulador()">
+                    {{ simulando() ? 'Simulando…' : 'Ver qué pasaría' }}
+                  </button>
+                </div>
+              }
+
+              @if (simulacion(); as s) {
+                <section class="cm-sim">
+                  <p class="cm-eyebrow">
+                    Sobre Q{{ s.base.period_no }}/{{ s.base.anio }} — la última quincena pagada
+                    ({{ dia(s.base.date_from) }} a {{ dia(s.base.date_to) }}, {{ s.base.rutas }} rutas)
+                  </p>
+                  <p class="cm-sim-grito" [class.cm-neg]="s.delta < 0">
+                    {{ s.delta >= 0 ? 'Pagaría' : 'Dejaría de pagar' }}
+                    <strong>{{ money(s.delta < 0 ? -s.delta : s.delta) }}</strong>
+                    @if (s.caen) {
+                      · <strong class="cm-neg">{{ s.caen }}</strong>
+                      ruta(s) se quedan <strong class="cm-neg">sin escalón</strong>
+                    }
+                    @if (s.suben) { · {{ s.suben }} ruta(s) alcanzan uno }
+                  </p>
+                  <p class="cm-muted cm-micro">
+                    {{ money(s.total_hoy) }} hoy &rarr; {{ money(s.total_nuevo) }} con el
+                    tabulador propuesto. <strong>Sólo se mueve el tabulador</strong>: bonos y
+                    deducciones quedan como están, para que el número conteste qué hace
+                    <em>este</em> escalón y no otra cosa.
+                  </p>
+                  <div class="cm-table-wrap">
+                    <table class="surf-table surf-table--plain surf-table--sticky">
+                      <thead><tr>
+                        <th>Ruta</th><th>Chofer</th>
+                        <th class="comm-num">Vendió</th>
+                        <th class="comm-num">% hoy</th><th class="comm-num">% nuevo</th>
+                        <th class="comm-num">Cobra hoy</th><th class="comm-num">Cobraría</th>
+                        <th class="comm-num">Δ</th>
+                      </tr></thead>
+                      <tbody>
+                        @for (f of simulacion()!.filas; track f.route_code) {
+                          <tr [class.cm-fila-grito]="f.cae_del_acantilado">
+                            <td class="comm-num">{{ f.route_code }}</td>
+                            <td class="cm-name">{{ f.beneficiario_nombre || '—' }}</td>
+                            <td class="comm-num cm-mono">{{ money(f.venta) }}</td>
+                            <td class="comm-num">{{ f.pct_hoy != null ? pct(f.pct_hoy) + '%' : '—' }}</td>
+                            <td class="comm-num" [class.cm-neg]="f.cae_del_acantilado">
+                              {{ f.pct_nuevo != null ? pct(f.pct_nuevo) + '%' : 'sin escalón' }}
+                            </td>
+                            <td class="comm-num cm-mono">{{ money(f.comision_hoy) }}</td>
+                            <td class="comm-num cm-mono">{{ money(f.comision_nueva) }}</td>
+                            <td class="comm-num cm-mono is-strong" [class.cm-neg]="f.delta < 0">
+                              {{ f.delta === 0 ? '—' : money(f.delta) }}
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+
+                  @if (puedeGestionar()) {
+                    <div class="cm-tabul-pie">
+                      <label class="cm-campo">
+                        <span>Rige desde</span>
+                        <input type="date" [ngModel]="desdeTabulador()"
+                               [ngModelOptions]="{ standalone: true }"
+                               (ngModelChange)="desdeTabulador.set($event)"
+                               [min]="minTabulador()" />
+                      </label>
+                      <button type="button" class="cm-btn cm-btn--baja"
+                              [disabled]="!desdeTabulador() || estrenando()"
+                              (click)="confirmarEstreno()">
+                        {{ estrenando() ? 'Estrenando…' : 'Estrenar esta versión' }}
+                      </button>
+                    </div>
+                  }
+                </section>
+              } @else if (puedeGestionar()) {
+                <p class="cm-muted cm-micro">
+                  <strong>No se puede estrenar sin simular antes.</strong> El botón de estrenar
+                  aparece cuando ya viste a quién le cambia el depósito y en cuánto.
+                </p>
+              }
+
+              @if (tabErr(); as e) {
+                <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+              }
             } @else if (tab() === 'fuera') {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
@@ -1237,6 +1407,12 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       font:inherit; font-size:var(--fs-sm); }
     .cm-campo--check { flex-direction:row; align-items:center; gap:.4rem; }
     .cm-campo--check input { width:auto; }
+    .cm-tier-in { width:7.5rem; padding:.2rem .4rem; text-align:right; font:inherit;
+      font-size:var(--fs-sm); border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      background:var(--c-surface-0); color:var(--c-text-1); }
+    .cm-tabul-pie { display:flex; gap:var(--sp-2,.5rem); align-items:flex-end; flex-wrap:wrap; margin:.7rem 0 0; }
+    .cm-sim { margin:1.1rem 0 0; padding-top:.8rem; border-top:1px solid var(--border-color); }
+    .cm-sim-grito { margin:.2rem 0 .1rem; font-size:var(--fs-body); color:var(--c-text-1); }
     .cm-form-pie { display:flex; gap:var(--sp-2,.5rem); justify-content:flex-end; margin-top:.8rem; }
   `],
 })
@@ -1459,6 +1635,8 @@ export class ComercialComisionesComponent {
     this.cargarPadron();
     // [RD.85] Los bonos cuelgan de la escala, no de la quincena: se piden una vez.
     this.cargarBonos();
+    // [RD.86] El tabulador tampoco depende de la quincena: cuelga de su propia vigencia.
+    this.cargarEscalas();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
@@ -1580,6 +1758,8 @@ export class ComercialComisionesComponent {
       // un tabulador sin bonos es el síntoma de `[RD.85.0]`, y esconder la pestaña lo volvería
       // invisible justo cuando hay que verlo. La cuenta es de los ACTIVOS, que son los que pagan.
       { label: `Bonos · ${this.bonos().filter((b) => b.activo).length}`, value: 'bonos' },
+      // [RD.86] Siempre visible: es el numero que decide el porcentaje de cada peso.
+      { label: 'Tabulador', value: 'tabulador' },
     ];
   }
 
@@ -2358,6 +2538,177 @@ export class ComercialComisionesComponent {
     }
     this.api.commissionBonoEditar(edit.id, { ...comun, activo: this.bActivo() })
       .subscribe({ next: (b) => listo(`${b.nombre} actualizado.`), error: falla });
+  }
+
+  // ── [RD.86] El tabulador, con simulación obligatoria ───────────────────────────────────
+  //
+  // ⛔ Medido el 2026-10-20: `GET/POST /commissions/scales` existen desde `[RD.66]` y **ninguna
+  // pantalla los consumía**. El número que decide el porcentaje de cada peso sólo se podía
+  // cambiar por curl.
+  //
+  // ⭐⭐ **La regla de esta pestaña: no se puede estrenar sin simular antes.** No es fricción
+  // decorativa — el tabulador es un acantilado (debajo del primer escalón `pickTier()` devuelve
+  // `null` y la comisión es $0), así que mover el piso no baja un pago: **lo apaga**. Hoy hay
+  // 9 ruta-periodo del contraste del lado malo, por $26,932.74.
+
+  readonly escalas = signal<EscalasRD | null>(null);
+  readonly borrador = signal<TierRD[]>([]);
+  readonly simulacion = signal<SimulacionEscalaRD | null>(null);
+  readonly simulando = signal(false);
+  readonly estrenando = signal(false);
+  readonly tabErr = signal<string | null>(null);
+  readonly desdeTabulador = signal<string | null>(null);
+
+  /** La escala nueva no puede empezar antes de lo ya pagado. El servidor lo exige igual. */
+  readonly minTabulador = computed(() => {
+    const piso = this.escalas()?.piso_editable;
+    if (!piso) return undefined;
+    const d = new Date(`${piso.slice(0, 10)}T12:00:00`);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  });
+
+  /**
+   * ⛔ Los escalones tienen que **tocarse exactamente**: una venta que cayera en un hueco no
+   * cobraría nada. El servidor lo rechaza, pero decirlo recién al guardar es reportar el error
+   * en vez de prevenirlo (poka-yoke, §10). Se valida mientras se escribe.
+   */
+  readonly huecoTabulador = computed<string | null>(() => {
+    const t = this.borrador();
+    if (!t.length) return 'Un tabulador sin escalones paga $0 a todos.';
+    for (let i = 0; i < t.length; i++) {
+      const min = Number(t[i].min_amount);
+      const max = t[i].max_amount === null ? null : Number(t[i].max_amount);
+      if (!Number.isFinite(min)) return `El escalón ${i + 1} no tiene desde.`;
+      if (!Number.isFinite(Number(t[i].pct))) return `El escalón ${i + 1} no tiene porcentaje.`;
+      const ultimo = i === t.length - 1;
+      if (ultimo && max !== null) {
+        return 'El último escalón no lleva techo: una venta arriba de él no cobraría nada.';
+      }
+      if (!ultimo) {
+        if (max === null) return `El escalón ${i + 1} necesita un hasta.`;
+        if (max <= min) return `El escalón ${i + 1} termina antes de empezar.`;
+        if (Number(t[i + 1].min_amount) !== max) {
+          return `Hueco entre el escalón ${i + 1} y el ${i + 2}: uno termina en ${max} y el `
+            + `siguiente empieza en ${t[i + 1].min_amount}. Una venta en medio no cobraría nada.`;
+        }
+      }
+    }
+    return null;
+  });
+
+  cargarEscalas(): void {
+    this.api.commissionScales().subscribe({
+      next: (e) => { this.escalas.set(e); this.restaurarTabulador(); },
+      error: (err) => this.tabErr.set(
+        err?.error?.message ?? 'No se pudo leer el tabulador. No es que no haya: no se pudo leer.'),
+    });
+  }
+
+  /** Vuelve al tabulador vigente. Descartar también borra la simulación: era de otro borrador. */
+  restaurarTabulador(): void {
+    const vigente = this.escalas()?.escalas.find((e) => e.vigente)
+      ?? this.escalas()?.escalas[0];
+    this.borrador.set((vigente?.tiers ?? []).map((t) => ({
+      min_amount: Number(t.min_amount),
+      max_amount: t.max_amount === null ? null : Number(t.max_amount),
+      pct: Number(t.pct),
+    })));
+    this.simulacion.set(null);
+    this.tabErr.set(null);
+  }
+
+  setTier(i: number, campo: keyof TierRD, valor: unknown): void {
+    const t = [...this.borrador()];
+    const n = valor === '' || valor === null ? null : Number(valor);
+    t[i] = { ...t[i], [campo]: campo === 'max_amount' ? n : (n ?? 0) };
+    this.borrador.set(t);
+    // ⚠️ Tocar el borrador INVALIDA la simulación: dejarla en pantalla haría estrenar una
+    // versión mirando los números de otra. Es el mismo defecto que un delta sin su base.
+    this.simulacion.set(null);
+  }
+
+  agregarTier(): void {
+    const t = [...this.borrador()];
+    const ultimo = t[t.length - 1];
+    if (ultimo) {
+      // El que era último pierde su «sin techo», que pasa al nuevo: si no, quedan dos abiertos.
+      const corte = Number(ultimo.min_amount) + 1;
+      t[t.length - 1] = { ...ultimo, max_amount: corte };
+      t.push({ min_amount: corte, max_amount: null, pct: Number(ultimo.pct) });
+    } else {
+      t.push({ min_amount: 0, max_amount: null, pct: 0 });
+    }
+    this.borrador.set(t);
+    this.simulacion.set(null);
+  }
+
+  quitarTier(i: number): void {
+    const t = this.borrador().filter((_, j) => j !== i);
+    // El nuevo último se queda sin techo, o el tabulador tendría un tope por donde se escapa.
+    if (t.length) t[t.length - 1] = { ...t[t.length - 1], max_amount: null };
+    this.borrador.set(t);
+    this.simulacion.set(null);
+  }
+
+  simularTabulador(): void {
+    if (this.simulando() || this.huecoTabulador()) return;
+    this.simulando.set(true);
+    this.tabErr.set(null);
+    this.api.commissionScaleSimular(this.borrador()).subscribe({
+      next: (s) => { this.simulando.set(false); this.simulacion.set(s); },
+      error: (e) => {
+        this.simulando.set(false);
+        this.tabErr.set(e?.error?.message ?? 'No se pudo simular.');
+      },
+    });
+  }
+
+  confirmarEstreno(): void {
+    const s = this.simulacion();
+    const desde = this.desdeTabulador();
+    if (!s || !desde || this.estrenando()) return;
+    // ⭐ El mensaje dice el daño en pesos y en personas, no «¿estás seguro?». Von Restorff: la
+    // confirmación de un acto que mueve nómina tiene que nombrar lo que mueve.
+    const caen = s.caen
+      ? ` ${s.caen} ruta(s) se quedan SIN ESCALÓN, o sea cobran $0.` : '';
+    this.confirm.confirm({
+      header: 'Estrenar el tabulador',
+      message: `Rige desde el ${this.dia(desde)} y la versión actual se cierra ese día. `
+        + `Sobre Q${s.base.period_no} habría significado ${this.money(s.delta)}.${caen} `
+        + 'Lo ya pagado no se recalcula. Los bonos se heredan a la versión nueva.',
+      acceptLabel: 'Estrenar', rejectLabel: 'Cancelar',
+      accept: () => this.estrenar(desde),
+    });
+  }
+
+  private estrenar(desde: string): void {
+    this.estrenando.set(true);
+    this.tabErr.set(null);
+    this.api.commissionScaleEstrenar({ valid_from: desde, tiers: this.borrador() }).subscribe({
+      next: (r) => {
+        this.estrenando.set(false);
+        this.simulacion.set(null);
+        // ⚠️ `bonos_heredados` se DICE, y un 0 no se dibuja como éxito: significa que la escala
+        // nueva no paga ningún bono. Es `[RD.85.0]`, y quien la estrena tiene que verlo ahora,
+        // no cuando llegue la quincena.
+        this.toast.add({
+          severity: r.bonos_heredados ? 'success' : 'warn',
+          summary: 'Tabulador estrenado',
+          detail: `${r.escalones} escalón(es) desde el ${this.dia(r.valid_from)} · `
+            + (r.bonos_heredados
+              ? `${r.bonos_heredados} bono(s) heredado(s).`
+              : 'SIN BONOS: esta versión no paga ninguno. Revisá la pestaña Bonos.'),
+          life: r.bonos_heredados ? 5000 : 12000,
+        });
+        this.cargarEscalas();
+        this.cargarBonos();
+      },
+      error: (e) => {
+        this.estrenando.set(false);
+        this.tabErr.set(e?.error?.message ?? 'No se pudo estrenar el tabulador.');
+      },
+    });
   }
 
   diasCortos(l: CommissionLine): boolean {
