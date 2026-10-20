@@ -115,7 +115,7 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 **CB.1-backfill (pendiente de insumos):** el importer ya es genérico; falta **cargar los workbooks de feb–jul 2026** (solo tengo enero). Cuando Edgar los provea, se corre el importer una vez por mes (o un loop) → histórico completo. Ver [`CB.1b`] abajo.
 
 ## 4. Diferido / decisiones abiertas
-- **CB.52.1 — pendiente OPERATIVO (un comando):** aplicar `20261020155755_bank_rules_comision_tpv_prioridad.js` a prod. La hermana `20261020151727` ya entró (**batch 976**, 15:40 MX) y alcanzó al **98 %**; faltan los **28 movimientos ($8,229.81)** capturados con el código del depósito. Sin DDL → la compuerta la clasifica **NO_MEDIDO y frena al equipo**: va **antes** de mergear. Comando en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). El archivo ya está en `md:/tmp`, **hash verificado** `740cf832eea8e698`.
+- ~~**CB.52.1 — pendiente OPERATIVO:** aplicar~~ ✅ **APLICADA** (batch 977, 2026-10-20 16:04 MX). Era: `20261020155755_bank_rules_comision_tpv_prioridad.js` a prod. La hermana `20261020151727` ya entró (**batch 976**, 15:40 MX) y alcanzó al **98 %**; faltan los **28 movimientos ($8,229.81)** capturados con el código del depósito. Sin DDL → la compuerta la clasifica **NO_MEDIDO y frena al equipo**: va **antes** de mergear. Comando en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). El archivo ya está en `md:/tmp`, **hash verificado** `740cf832eea8e698`.
 - **CB.47 — pendiente OPERATIVO (lo que de verdad cierra el descuadre):** cargar los estados de cuenta que faltan — **mar y may: 1604, 1621, 2169, 4885, 5565**; feb: 4885; abr/jun/sep: 3660. Y revisar la **1604**, que en abril tiene `bank_statement` pero **cero movimientos**. Mientras falten, sus traspasos seguirán sin contraparte por diseño: el sistema ya no los acusa de «sin origen», pero tampoco puede inventar la pata que no está.
 - **CB.46 — pendiente HUMANO:** ¿quién captura los **14 movimientos de CAJA GENERAL** ($43,285) con fecha **19-ago** dentro del corte de **sep-2026** y **sin concepto**? No son desfase de corte ni typo de año, y ningún umbral puede decidirlo solo.
 - **CB.46 — pendiente OPERATIVO (requiere ventana + OK):** los **23 movimientos ya en prod** con el año mal (**$1,579,507**: 17 en `2027-08-06` de la cuenta 7744, 6 en el año `0206` de la 4176). La compuerta evita que entren **nuevos**; los que ya están sólo se arreglan corrigiendo la celda y re-importando el mes, o con un UPDATE puntual. **No se tocó**: es escritura a prod en horario hábil.
@@ -134,10 +134,26 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 
 ## 5. `[CB.52]` 🚀 La comisión de terminal dejaba de ser comisión porque el banco dice «CREDITO»
 
-**EN PROD al 98 % desde el 2026-10-20** (`20261020151727`, **batch 976**, 15:40 MX): 1,561
-movimientos a `comision_bancaria` y 1,587 a `iva_acreditable`.
-🧪 **`[CB.52.1]` pendiente prod** (`20261020155755`): los **28 restantes** ($8,229.81).
-Commits locales sin push: `10c7c5a3d` · `73332d8c7` · `092189e5b`.
+**✅ EN PROD, COMPLETO, 2026-10-20** — `20261020151727` (**batch 976**, 15:40 MX) llevó el 98 % y
+`20261020155755` (**batch 977**, 16:04 MX) cerró el resto. Verificado leyendo prod con la misma
+consulta del antes:
+
+| | Antes | Después |
+|---|---:|---:|
+| `comision_bancaria` | 0 | **1,590 · $342,603.91** |
+| `iva_acreditable` | 1,567 | 1,586 · $54,834.41 |
+| atorados en `cobranza` | 25 · $8,209.04 | **0** |
+| sin categoría | 800 | **0** |
+
+**Controles, los dos intactos:** los **647 depósitos** de venta con tarjeta siguen en `cobranza`
+con **$4,975,481.93**, y el pago de crédito real sigue en `pago_credito` (**36 movs ·
+$2,109,268**). Commits locales sin push: `10c7c5a3d` · `73332d8c7` · `092189e5b` · `2e3f2c25e` ·
+`ac01b6d2f`.
+
+⚠️ **Observación de paso, NO de esta fase:** 2 `PAGO DE INTERESES` ($33,403.47) están en
+`iva_acreditable` porque llegaron con `code 147`. Son de antes (15-oct) y esta migración no los
+tocó; si son el IVA del interés están bien, y si no, es otra captura con el código cambiado.
+**No medido.**
 
 > ⛔⛔ **Lo que costó, y la lección que vale más que el arreglo.** El archivo se copió a
 > `md:/tmp` **antes** de corregirle las prioridades, y al aplicarlo corrió **la versión vieja**:
