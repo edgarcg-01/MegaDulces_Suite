@@ -348,8 +348,22 @@ que contabilidad apruebe R1–R4 y el armador las implemente, **no se entregan p
 Caso concreto: la póliza de prueba de 52,339.34 del 19-oct corresponde a una factura del 26-ago con
 IEPS 3,876.99 → R1 → le faltaban dos renglones. No se importó.
 
-⚠️ **Sin explicar:** 709 facturas de mes anterior se pagaron por R2. El proveedor explica ~70 %
-(24 siempre R2, 50 siempre R1, 51 mezclan). Queda como pregunta a contabilidad.
+~~⚠️ Sin explicar: 709 facturas de mes anterior se pagaron por R2.~~ ⭐⭐ **Explicado el mismo día —
+lo propuso el usuario: el monto.** Sólo se provisionan (y se pagan contra `2120`) las facturas de
+**$20 mil o más**. Medido sobre 4,508 facturas pagadas en 2026:
+
+| factura | contra 2120 | compra directa 501/502 |
+|---|--:|--:|
+| ≥ 20 mil, mes anterior (2,382) | **98 %** | 2 % |
+| < 20 mil, mes anterior (1,410) | 0 % | **100 %** |
+| ≥ 20 mil, mismo mes (426) | 2 % | **98 %** |
+| < 20 mil, mismo mes (290) | 0 % | **100 %** |
+
+Y **501 vs 502 = la tasa de IVA del concepto**: de las facturas que sólo usan 501, 98.7 % son
+100 % IVA 0 %; de las que sólo usan 502, 97.8 % son 100 % IVA 16 %; cuando usan las dos, 85 % se
+reparten como las bases 0 %/16 % del CFDI. Con eso la regla del armador queda determinista desde
+el CFDI (monto, mes, tasas), salvo lo que contabilidad corrija. La hipótesis anterior —«depende del
+proveedor»— explicaba ~70 % y era un efecto: hay proveedores que facturan siempre poco.
 
 **Los demás egresos:** cinco tipos con cuenta fija (seguros `5200530000`, caja de ahorro
 `2140290000`, comisión bancaria `5200650000`, renta `5200510002`, traslado de valores
