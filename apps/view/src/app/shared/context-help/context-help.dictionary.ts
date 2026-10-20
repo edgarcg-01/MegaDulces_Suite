@@ -1777,68 +1777,87 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
-  // ⭐ `[CGS.2]` La pestaña «Arqueos»: el mismo cajón contado dos veces. Todo lo de acá está
-  // medido sobre los 7 cortes del 12 al 19-oct-2026, no redactado de memoria. Es un tópico
-  // APARTE de `caja-general` a propósito: aquél explica cómo se captura, éste explica cómo se
-  // lee una diferencia entre dos sistemas — y quien revisa de mañana sólo necesita el segundo.
+  // ⭐⭐ `[CGS.2]` La pestaña «Arqueos». Todo lo de acá está medido sobre los 7 cortes del 12 al
+  // 19-oct-2026 contra prod, no redactado de memoria.
+  //
+  // ⛔ La primera versión de este tópico explicaba la comparación EQUIVOCADA: decía que el arqueo
+  // es la Suite contra Control. Edgar lo corrigió el 2026-10-20 — *«el arqueo se compara contra lo
+  // que dice el sistema, contra la fórmula»* — y el tópico se reescribió entero. Una ayuda que
+  // explica otra comparación es peor que no tenerla: enseña a leer mal la pantalla.
   'caja-arqueos': {
-    title: 'Arqueos — el mismo cajón, contado dos veces',
-    intro: 'Cada día el efectivo de Caja General se cuenta en dos lugares: el corte que se sella en la Suite y el arqueo que se captura en Control. Esta pantalla los pone lado a lado. No decide cuál manda: publica los dos y la diferencia, para que alguien la explique.',
+    title: 'Arqueos — lo contado contra lo que el libro dice',
+    intro: 'Arquear es contar el cajón y compararlo contra lo que el sistema dice que debería haber. Ese «debería haber» no se teclea: sale de una fórmula con seis términos, y la pantalla los muestra uno por uno para que una diferencia se pueda investigar en vez de sólo mirarse.',
     groups: [
       {
-        heading: 'Las dos cuentas',
+        heading: 'Las dos cifras que se comparan',
         entries: [
-          { term: 'Contó la Suite', def: 'El efectivo que se contó al cerrar el corte en esta plataforma, pieza por pieza. Es lo que quedó sellado: después de sellar, el conteo ya no se puede cambiar.' },
-          { term: 'Contó Control', def: 'El efectivo del arqueo de cierre capturado en la aplicación Control. Se lee, no se escribe: corregirlo se corrige allá.' },
-          { term: 'Difieren', def: 'Lo contado por la Suite menos lo contado por Control. Positivo = la Suite contó de más. No es un faltante de caja: son dos conteos del mismo dinero que no coinciden, y uno de los dos está mal.' },
-          { term: 'Esperaba el libro', def: 'Lo que el libro calculaba que debía haber (fondo + ingresos − gastos − depósitos, más o menos lo que movió la caja fuerte). Va como contraste, no como juez: es un cálculo, no un conteo, y si falta registrar cobranza queda corto sin que nadie lo haya robado.' },
+          { term: 'Se contó', def: 'El efectivo que alguien contó físicamente en el cajón al cerrar el día, pieza por pieza. Queda sellado: después de sellar ya no se puede cambiar, sólo recontar, y el reconteo pide motivo y deja rastro.' },
+          { term: 'Debería haber', def: 'Lo que el libro calcula que tendría que estar en el cajón. Es un CÁLCULO, no un conteo: si alguien no capturó un movimiento, esta cifra está mal aunque el cajón esté bien.' },
+          { term: 'Diferencia', def: 'Lo contado menos lo que debería haber. Positivo sobra, negativo falta. Sólo significa algo cuando el «debería haber» es un número posible.' },
+          { term: 'Conteo ciego', def: 'Quien cuenta NO ve el «debería haber» hasta sellar su conteo. Es a propósito: si se ve el número antes, se cuenta hacia el número y el arqueo deja de medir nada.' },
         ],
       },
       {
-        heading: 'Los tres resultados',
+        heading: 'Los seis términos de la fórmula',
         entries: [
-          { term: 'Cuadran al centavo', def: 'Los dos conteos dan exactamente lo mismo. Medido el 20-oct-2026: pasó el 16 y el 17 de octubre.' },
-          { term: 'Difieren', def: 'Los dos conteos dan distinto. El total dice CUÁNTO; hay que abrir el día para ver en qué pieza.' },
-          { term: 'Sin corte en la Suite', def: 'Control contó ese día y la Suite no. NO es un descuadre y por eso no entra en la suma: pintarlo como diferencia mandaría a buscar efectivo que nadie perdió.' },
-          { term: 'El ticket de Control no cuadra consigo mismo', def: 'La suma de las piezas de ese arqueo no da su propio total. Mientras eso pase, compararlo contra la Suite no significa nada: primero se corrige en Control.' },
+          { term: 'Fondo inicial', def: 'Con cuánto arrancó la caja. Casi siempre es el conteo con el que cerró el día anterior. Puede quedar SIN MEDIR, y entonces se dice: afirmar que arrancó en cero cuando nadie lo contó haría aparecer un faltante del tamaño exacto del fondo, todos los días.' },
+          { term: 'Ingresos capturados', def: 'Todo lo que entró y alguien registró en el libro ese día: cobros de ruta, préstamos, venta de piso. En bruto, sin descontar nada.' },
+          { term: 'Gastos', def: 'Todo lo que salió y se registró: pagos, nómina, compras en efectivo.' },
+          { term: 'Depósitos', def: 'El efectivo que salió del cajón hacia el banco. Hoy esta columna vale cero en todos los cortes porque la captura manual de depósitos está apagada — y eso es parte de por qué varios «debería haber» salen negativos.' },
+          { term: 'La caja fuerte dispensó al cajón', def: 'Billetes que la máquina (CAOS) sacó de la bóveda y dejaron de estar ahí para quedar en el cajón. SUMA, porque ese dinero está donde se cuenta.' },
+          { term: 'Se depositó en la caja fuerte', def: 'Efectivo que salió del cajón y se lo tragó la máquina. RESTA, porque ya no está donde se cuenta. Un cobro de ruta entra partido: los billetes se los queda la máquina y sólo la morralla llega al cajón, porque el aparato no acepta monedas.' },
         ],
       },
       {
-        heading: 'Por qué importa el desglose y no sólo el total',
+        heading: 'Los veredictos',
         entries: [
-          { term: 'Pieza por pieza', def: 'Cuántos billetes y monedas de cada denominación anotó cada sistema. Es lo único con lo que alguien puede ir a buscar el billete.' },
-          { term: 'Un ejemplo real', def: 'El 19-oct-2026 los dos arqueos diferían $500 y parecía un faltante. Ocho denominaciones eran idénticas: la Suite había anotado un billete de $1,000 donde Control anotó uno de $500. No faltaba dinero, estaba mal clasificado.' },
-          { term: 'No se cuenta', def: 'Esa denominación existe en la reja de Control y no en la de la Suite (la moneda de $100 y los centavos de 20, 10 y 5). Esa parte no se puede cruzar — que es distinto de que coincida.' },
-          { term: 'Morralla', def: 'La Suite junta todo lo menor a 50¢ en un solo importe y no lo reporta por pieza. Si el desglose no llega a explicar la diferencia del día, ahí está el resto, y la pantalla lo dice con su monto.' },
+          { term: 'Cuadra al centavo', def: 'Lo contado coincide con lo que debería haber, con tolerancia de un centavo.' },
+          { term: 'Sobra / Falta efectivo', def: 'Hay más o menos de lo que debería. Son los dos únicos resultados que de verdad responden «¿cuadra?».' },
+          { term: 'No se puede arquear', def: 'El «debería haber» salió NEGATIVO, y un cajón no debe dinero. Con esa cifra bajo cero, lo contado menos lo esperado sale positivo SIEMPRE, así que la pantalla diría «sobra» justo donde la cuenta está más rota. No es un sobrante: es una pierna mal cruzada. Medido el 20-oct-2026: pasa en 4 de los 7 cortes.' },
+          { term: 'Sin fondo medido', def: 'Se contó, pero nadie midió con cuánto arrancó la caja. La pregunta no tiene respuesta porque el cálculo parte de un supuesto. Tampoco es un faltante: mandar a alguien a buscar ese dinero es perder el día.' },
+          { term: 'Nadie contó', def: 'No hubo conteo. NO es «cuadra»: un día sin conteo que devolviera cero contra cero se vería igual que uno que cuadró perfecto.' },
         ],
       },
       {
-        heading: 'Lo que esta pantalla no afirma',
+        heading: 'Lo demás que trae cada día',
         entries: [
-          { term: 'Cuál de los dos manda', def: 'No está decidido, así que no se elige acá. Son cortes firmados: declarar un árbitro es una decisión de negocio, no de una pantalla.' },
-          { term: 'Cuál es el arqueo de cierre', def: 'Control registra varios arqueos por día (sobres de nómina, bonos, rutas). El del cierre se reconoce porque trae la custodia completa, con dólares. Está verificado del 14-oct-2026 en adelante; antes hay días con varios arqueos con dólares y podría estar eligiendo el que no es.' },
-          { term: 'Sin la segunda llave', def: 'El corte de la Suite se cerró y nadie lo autorizó. Quien cierra no puede autorizar: son dos personas, y el candado vive en la base. Medido el 20-oct-2026: 7 cortes cerrados y cero autorizados.' },
+          { term: 'Segunda llave', def: 'Quien cierra el corte no puede autorizarlo: son dos personas y dos permisos distintos, y el candado vive en la base, no en el botón. Medido el 20-oct-2026: 7 cortes cerrados y cero autorizados.' },
+          { term: 'Segundo testigo (Control)', def: 'La aplicación Control arquea el mismo cajón por su cuenta. Cuando discrepa del conteo de la Suite eso es una PISTA, no un veredicto: cuál de los dos manda no está decidido, así que la pantalla publica los dos. El 19-oct-2026 difirieron $500 y resultó ser un billete mal clasificado: la Suite anotó un $1,000 donde Control anotó un $500.' },
+          { term: 'Los movimientos de ese día', def: 'Cada movimiento que Control registró, con su ticket por denominación. Antes vivía en una pantalla aparte; está aquí porque es lo que explica los términos de arriba.' },
+          { term: 'Morralla', def: 'El suelto menor a 50¢. Se cuenta como un importe, no por pieza, así que no aparece en el desglose de denominaciones.' },
+          { term: 'Dotar y vaciar', def: 'La caja fuerte también recibe efectivo de afuera (dotar) y se lo llevan (vaciar). Esas dos NO entran en la fórmula: entran y salen por fuera del cajón, y meterlas movería el arqueo por dinero que nunca pasó por aquí.' },
         ],
       },
     ],
     resolve: [
       {
-        heading: 'Si un día difiere',
+        heading: 'Si el día dice «No se puede arquear»',
         kind: 'fix',
-        intro: 'El orden importa: buscar el billete antes de revisar el ticket es perder el rato.',
+        intro: 'No hay efectivo que buscar: hay una cuenta que arreglar. El orden importa.',
         steps: [
-          'Abrir el día y mirar el desglose: si una sola denominación carga toda la diferencia, casi siempre es una pieza mal clasificada, no dinero que falta.',
-          'Si el ticket de Control no cuadra consigo mismo, corregir ese arqueo en Control primero. Hasta entonces la comparación no dice nada.',
-          'Si el desglose no explica la diferencia entera, el resto está en la morralla o en las denominaciones que la Suite no captura: eso no se resuelve mirando, se resuelve recontando.',
-          'El conteo de la Suite no se edita: si está mal, se recuenta en Captura y queda el rastro de los dos conteos.',
+          'Abrir el día y mirar los seis términos: casi siempre hay uno desproporcionado contra los otros.',
+          'Si los gastos son enormes contra los ingresos, revisar si una salida se registró sin su entrada.',
+          'Si «se depositó en la caja fuerte» es enorme, puede que el mismo dinero esté contado dos veces: una como ingreso y otra como depósito a la bóveda.',
+          'Los depósitos al banco en cero son sospechosos por sí solos: si el efectivo salió al banco y nadie lo registró, el cálculo lo sigue dando por dentro del cajón.',
         ],
       },
       {
-        heading: 'Si un día dice «sin corte en la Suite»',
-        kind: 'info',
+        heading: 'Si sobra o falta de verdad',
+        kind: 'fix',
         steps: [
-          'No hay nada que buscar: ese día nadie selló un corte de este lado.',
-          'Lo que falta es el conteo, no el dinero. Se abre y se cierra el corte de ese día en Captura.',
+          'Mirar el conteo pieza por pieza: una sola denominación que cargue toda la diferencia suele ser una pieza mal clasificada, no dinero que falte.',
+          'Comparar con el segundo testigo: si Control contó lo mismo que la Suite, el problema está en la cuenta, no en el conteo.',
+          'Revisar los movimientos del día: una diferencia redonda casi siempre tiene un movimiento del mismo monto.',
+          'El conteo sellado no se edita. Si está mal, se recuenta en Captura y quedan los dos conteos registrados.',
+        ],
+      },
+      {
+        heading: 'Si nadie autorizó',
+        kind: 'fix',
+        steps: [
+          'La autorización es la única revisión que tiene el efectivo, y la hace una persona distinta de la que cerró.',
+          'Se autoriza desde Captura, sobre el corte de ese día.',
+          'Quien revisa los arqueos se configura por rol en /admin/roles, con el permiso de autorizar caja.',
         ],
       },
     ],

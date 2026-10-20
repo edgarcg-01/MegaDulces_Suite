@@ -439,6 +439,28 @@ export class CashLedgerController {
   }
 
   /**
+   * ⭐⭐ `[CGS.2]` **El arqueo desglosado**: cada corte sellado con los SEIS términos de los que
+   * sale su esperado, su conteo pieza por pieza y su veredicto.
+   *
+   * ⛔ Va ANTES de cualquier `cortes/:id` por la misma razón que `fondo-sugerido` y
+   * `jornadas-pendientes`: Nest resuelve por orden de declaración y una ruta con parámetro se
+   * come a la literal que venga después.
+   *
+   * ⚠️ `FINANCE_CAJA_VER`, igual que el resto de las lecturas del módulo, y **no** `AUTORIZAR`:
+   * el conteo ciego protege el esperado de un corte que alguien está contando, y acá sólo salen
+   * cortes con el conteo **ya sellado** — su esperado ya se reveló a quien lo selló.
+   */
+  @Get('cortes/arqueos')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CGS.2 — Arqueos: lo contado contra la fórmula, término por término' })
+  arqueos(
+    @Query('desde') desde?: string, @Query('hasta') hasta?: string,
+    @Query('sucursal') sucursal?: string, @Query('limit') limit?: string,
+  ): ReturnType<CashCutService['arqueos']> {
+    return this.cortes.arqueos({ desde, hasta, sucursal, limit: limit ? Number(limit) : undefined });
+  }
+
+  /**
    * `[CG.39]` Con qué se propone que arranque la caja: el conteo con el que quedó el último
    * corte cerrado de esa sucursal. Es LECTURA — no abre nada.
    */
