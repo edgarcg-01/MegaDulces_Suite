@@ -1917,6 +1917,22 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        // `[AUD]` La pestaña «Cobro vs venta» publica cuatro veredictos derivados y el estado de
+        // la fuente. Entró sin About, que es la misma falla que `check:pantalla` ya marca en la
+        // pantalla hermana (regla P): jerga derivada sin dónde consultarla.
+        heading: 'Cobro vs venta — cuando el padrón y la venta no coinciden',
+        entries: [
+          { term: 'De dónde sale', def: 'Del padrón derivado: TODAS las rutas que existen, comisionen o no, con su venta de los últimos 30 días. NO sale de la quincena, así que no cambia al elegir otro periodo ni necesita que haya corrida. Es otra pregunta que la pestaña «No comisionan», que sí habla sólo del periodo elegido.' },
+          { term: 'Comisiona', def: 'Si la ruta está dada de alta y encendida en la configuración de nómina de Ruta Directa. Es una decisión escrita, no algo que se deduzca de si vendió.' },
+          { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
+          { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
+          { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
+          { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
+        ],
+      },
+      {
         heading: 'La calidad del costo',
         entries: [
           { term: 'Sin costo', def: 'No hay costo en la fuente para esos días: el markup no se puede medir y el bono del supervisor no paga.' },
