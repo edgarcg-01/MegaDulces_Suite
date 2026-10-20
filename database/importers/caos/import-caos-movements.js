@@ -441,7 +441,7 @@ const WATCH_SEG = WATCH_ARG ? Math.max(1, Number(WATCH_ARG.split('=')[1] || 60))
 const HB_MIN_MS = Math.max(0, Number(process.env.CAOS_HB_SEG || 30)) * 1000;
 const CONTEO_MIN_MS = Math.max(30, Number(process.env.CAOS_CONTEO_SEG || 300)) * 1000;
 const KEY_CONTEO = 'caos_conteo';
-const ETIQUETA_CONTEO = 'CAOS — foto del contenido (reporte Contenidos)';
+const ETIQUETA_CONTEO = 'CAOS — lectura del reporte Contenidos';
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
