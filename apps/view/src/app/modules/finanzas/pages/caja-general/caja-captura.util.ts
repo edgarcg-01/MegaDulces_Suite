@@ -559,6 +559,20 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
       texto: 'Se contó, pero la revelación de ese conteo no quedó guardada: se puede cerrar, sin poder decir si cuadra.',
     };
   }
+  // ⛔⛔ `[CG.195]` `esperado_imposible` TAMPOCO cae en "no cuadra", por la misma razón que las dos
+  // de arriba: el esperado salió bajo cero y un cajón no debe dinero. La diferencia contra ese
+  // número es positiva siempre, así que la rama de abajo diría «no cuadra, la diferencia queda
+  // registrada» sobre un sobrante que nadie puede ir a buscar.
+  //
+  // ⚠️ Se DEJA cerrar, igual que `sin_base`: el servidor lo permite y esta compuerta sólo puede ser
+  // igual o más estricta. Bloquearlo acá trabaría la jornada sin arreglar la cuenta, que es lo que
+  // de verdad está mal.
+  if (veredicto === 'esperado_imposible') {
+    return {
+      ok: true,
+      texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: la cuenta del esperado dio bajo cero y un cajón no debe dinero.',
+    };
+  }
   return {
     ok: true,
     texto: veredicto === 'cuadra'
