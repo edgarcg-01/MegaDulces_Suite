@@ -11,7 +11,7 @@ import {
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
   conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError, separarPorFlujo,
-  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe,
+  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, puedeSellarUI,
   type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -651,5 +651,51 @@ describe('[CGA11Y-O3b] grupos de la cola', () => {
         .toBeGreaterThan(0);
       expect(g.label.trim().length).toBeGreaterThan(2);
     }
+  });
+});
+
+/**
+ * ⭐⭐ `[CGP-V.3b]` **El conteo no se sella en una jornada atrasada sin declarar de qué día es.**
+ *
+ * Medido en prod el 2026-10-20 con tres fotos del usuario y los arqueos de Control: **4 de 7
+ * cortes quedaron con el conteo de OTRO día**, $19,811.50 de diferencia. El 16 y el 17 cuadran al
+ * centavo, que es la prueba de que el procedimiento funciona cuando no hay atraso.
+ */
+describe('[CGP-V.3b] puedeSellarUI — la jornada atrasada se declara', () => {
+  const base = { contado: 3340, ceroDeclarado: false, atrasado: false, jornadaConfirmada: false };
+
+  it('jornada de HOY: se sella sin pedir nada más', () => {
+    expect(puedeSellarUI(base)).toEqual({ ok: true, motivo: null });
+  });
+
+  it('⛔ PRUEBA NEGATIVA: jornada ATRASADA sin confirmar NO se sella', () => {
+    // Es el defecto exacto: el 15-oct se contó el cajón de ese día y se selló en el corte del 13.
+    const r = puedeSellarUI({ ...base, atrasado: true });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe('jornada_sin_confirmar');
+  });
+
+  it('jornada atrasada CONFIRMADA sí se sella', () => {
+    expect(puedeSellarUI({ ...base, atrasado: true, jornadaConfirmada: true }))
+      .toEqual({ ok: true, motivo: null });
+  });
+
+  it('⛔ sin conteo no se sella, y el motivo es ÉSE — no la jornada', () => {
+    // Decirle «confirmá la jornada» a quien todavía no contó lo manda a arreglar lo que no está
+    // mal. El orden de las dos preguntas no es intercambiable.
+    expect(puedeSellarUI({ ...base, contado: 0 }).motivo).toBe('sin_conteo');
+    expect(puedeSellarUI({ ...base, contado: 0, atrasado: true }).motivo).toBe('sin_conteo');
+  });
+
+  it('`[CGP-V.9]` un cero DECLARADO es un conteo, y sigue exigiendo la jornada', () => {
+    expect(puedeSellarUI({ ...base, contado: 0, ceroDeclarado: true }).ok).toBe(true);
+    expect(puedeSellarUI({ ...base, contado: 0, ceroDeclarado: true, atrasado: true }).motivo)
+      .toBe('jornada_sin_confirmar');
+  });
+
+  it('⚠️ confirmar NO alcanza por sí solo: sin efectivo contado sigue sin sellarse', () => {
+    // Si la confirmación saltara el conteo, el candado nuevo abriría un agujero en el viejo.
+    expect(puedeSellarUI({ contado: 0, ceroDeclarado: false, atrasado: true, jornadaConfirmada: true }).ok)
+      .toBe(false);
   });
 });

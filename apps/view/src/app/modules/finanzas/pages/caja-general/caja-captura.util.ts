@@ -752,3 +752,48 @@ export function separarPorFlujo(
   }
   return { recibido, devuelto };
 }
+
+/**
+ * ⭐⭐ `[CGP-V.3b]` **¿Se puede sellar el conteo?** — la decisión, separada de la pantalla.
+ *
+ * Vive acá y no como un `computed` del componente por lo mismo que `puedeCerrarUI` y
+ * `puedeAutorizarUI`: una regla que decide sobre dinero necesita prueba, y un `computed` dentro de
+ * un componente de 8,000 líneas no la tiene.
+ *
+ * ── El defecto que cierra, medido en prod el 2026-10-20 ─────────────────────────────────────
+ *
+ * «Cerrar jornada y rendir cuentas» abre **la jornada atrasada más vieja** (`[CGP-V.3]`), no la de
+ * hoy. La pantalla pide contar el efectivo **antes** de decir a qué día se pega ese conteo, así que
+ * con atraso lo pega al día equivocado y nada avisa:
+ *
+ *     corte del 12-oct  selló $3,653.50   = el conteo del 13 (idéntico pieza por pieza)
+ *     corte del 13-oct  selló $57,571.00  = el conteo del 15
+ *     corte del 14-oct  selló $24,960.00  = sin corroboración en ningún lado
+ *     corte del 15-oct  selló $11,820.00  = sin corroboración en ningún lado
+ *     ────────────────────────────────────────────────────────────────────
+ *     4 de 7 cortes con el conteo de otro día · $19,811.50 de diferencia
+ *
+ * ⭐ El 16 y el 17 cuadran **al centavo** contra los arqueos de Control: el procedimiento funciona
+ * cuando no hay atraso. Falla exactamente en el caso que esta regla cubre.
+ *
+ * ⚠️ La confirmación se pide **sólo con jornada atrasada**. Pedirla todos los días la convierte en
+ * un clic reflejo, y entonces no defiende nada el día que importa.
+ */
+export interface SellarUI {
+  /** Lo que suma la reja más la morralla. */
+  readonly contado: number;
+  /** `[CGP-V.9]` «Conté y no hay efectivo»: un cero declarado es un conteo. */
+  readonly ceroDeclarado: boolean;
+  /** La jornada del corte ya pasó. */
+  readonly atrasado: boolean;
+  /** La persona declaró que el efectivo contado es de ESA jornada. */
+  readonly jornadaConfirmada: boolean;
+}
+
+export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'jornada_sin_confirmar' | null } {
+  // ⛔ El orden importa: sin conteo no hay nada que sellar, y decirle «confirmá la jornada» a
+  // quien todavía no contó manda a arreglar lo que no está mal.
+  if (!(Number(i.contado) > 0 || i.ceroDeclarado)) return { ok: false, motivo: 'sin_conteo' };
+  if (i.atrasado && !i.jornadaConfirmada) return { ok: false, motivo: 'jornada_sin_confirmar' };
+  return { ok: true, motivo: null };
+}
