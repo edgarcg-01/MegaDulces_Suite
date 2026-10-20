@@ -115,7 +115,7 @@ Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
 **CB.1-backfill (pendiente de insumos):** el importer ya es genérico; falta **cargar los workbooks de feb–jul 2026** (solo tengo enero). Cuando Edgar los provea, se corre el importer una vez por mes (o un loop) → histórico completo. Ver [`CB.1b`] abajo.
 
 ## 4. Diferido / decisiones abiertas
-- **CB.52 — pendiente OPERATIVO (un comando):** aplicar la migración `20261020151727` a prod. Es INSERT de 2 reglas + UPDATE de 1,581 movimientos, sin DDL → la compuerta de despliegue la clasifica **NO_MEDIDO y frena al equipo** hasta que alguien la aplique a mano: va **antes** de mergear. El comando canónico está en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). Pre-vuelo del 2026-10-20: rollout de `api` terminado, sin transacciones largas.
+- **CB.52 — pendiente OPERATIVO (un comando):** aplicar la migración `20261020151727` a prod. Es INSERT de 2 reglas (prioridad 54/55) + UPDATE de 1,616 movimientos, sin DDL → la compuerta de despliegue la clasifica **NO_MEDIDO y frena al equipo** hasta que alguien la aplique a mano: va **antes** de mergear. El comando canónico está en la cabecera de [`apply-one-migration-prod.js`](../../../database/scripts/apply-one-migration-prod.js). Pre-vuelo del 2026-10-20: rollout de `api` terminado, sin transacciones largas.
 - **CB.47 — pendiente OPERATIVO (lo que de verdad cierra el descuadre):** cargar los estados de cuenta que faltan — **mar y may: 1604, 1621, 2169, 4885, 5565**; feb: 4885; abr/jun/sep: 3660. Y revisar la **1604**, que en abril tiene `bank_statement` pero **cero movimientos**. Mientras falten, sus traspasos seguirán sin contraparte por diseño: el sistema ya no los acusa de «sin origen», pero tampoco puede inventar la pata que no está.
 - **CB.46 — pendiente HUMANO:** ¿quién captura los **14 movimientos de CAJA GENERAL** ($43,285) con fecha **19-ago** dentro del corte de **sep-2026** y **sin concepto**? No son desfase de corte ni typo de año, y ningún umbral puede decidirlo solo.
 - **CB.46 — pendiente OPERATIVO (requiere ventana + OK):** los **23 movimientos ya en prod** con el año mal (**$1,579,507**: 17 en `2027-08-06` de la cuenta 7744, 6 en el año `0206` de la 4176). La compuerta evita que entren **nuevos**; los que ya están sólo se arreglan corrigiendo la celda y re-importando el mes, o con un UPDATE puntual. **No se tocó**: es escritura a prod en horario hábil.
@@ -144,14 +144,27 @@ contra `1020080000`. Lo que no cuadraba era **nuestra clasificación**.
 
 La regla `priority 142` (`code ^612$`, concepto `CAPITAL|CREDITO|CRÉDITO|PRESTAMO|…`) se lleva
 los cargos `APLI TASA DE DES CREDITO/1750968xx TERMINALES PUNTO DE VENTA`, que son **la comisión
-que cobra el banco por cobrar con tarjeta**. Medido en prod (sólo lectura):
+que cobra el banco por cobrar con tarjeta**. Medido en prod (sólo lectura) — la misma comisión
+estaba repartida en **cuatro** estados, igual que midió `[CP.8.46]`:
 
 | | Movs | Importe |
 |---|---:|---:|
-| mal en `pago_credito` | 781 | $203,047.77 |
-| variante `DEBITO`, **sin categoría** (ninguna regla la tomaba) | 800 | $132,252.69 |
-| **recategoriza la migración** | **1,581** | **$335,300.46** |
+| mal en `pago_credito` | 770 | $202,130.82 |
+| variante `DEBITO`, **sin categoría** (ninguna regla la tomaba) | 792 | $131,849.15 |
+| capturadas con `code 102`, perdidas en `cobranza` | 21 | $8,124.85 |
+| en `iva_acreditable` sin ser IVA | 7 | $499.09 |
+| **→ `comision_bancaria`** | **1,590** | **$342,603.91** |
+| el IVA de esa comisión que llegó con otro código **→ `iva_acreditable`** | 26 | $1,425.45 |
 | pago de crédito REAL (`PAGO DE CAPITAL`/`DE INTERESES`), **no se toca** | ~4/mes | $230k/mes |
+
+⚠️ **Las reglas van en prioridad 54 y 55, no en los 130.** La `61` (`type ^I$`) y la `70`
+(`code ^102$`) mandan a `cobranza` antes de llegar ahí, y 21 de esas comisiones vienen
+capturadas justamente con el código del depósito. Por eso tampoco llevan `match_code`: el
+código del renglón es lo que viene mal.
+
+⚠️ **Falso positivo declarado:** de los ~3,176 movimientos con esa frase, **uno** trae el
+importe en depósito ($114.01, 24-jul — parece devolución de comisión) y queda en
+`comision_bancaria`. El motor clasifica por texto y no ve el importe.
 
 Contabilidad ya las lleva bien: **85 de 85** de la muestra jul–sep >$500 tienen su línea en
 `611-003 COMISIONES BANCARIAS`, a **−3 a +14 días** del movimiento bancario (⭐ sirve para
@@ -166,9 +179,11 @@ dos reglas nuevas exigen `code = 612` **y** `TASA DE DES(C)? (CREDITO|DEBITO)`.
 llegaron con `code 612`** y quedaban sin categoría → los toma la regla `138`.
 
 Candado: [`bank-classify-comision-tpv.spec.ts`](../../../libs/finance/src/lib/bank/bank-classify-comision-tpv.spec.ts)
-— 8 casos con conceptos textuales de prod + **2 pruebas negativas** (sin la regla 139 la comisión
-vuelve a `pago_credito` y la variante `DEBITO` a `sin_clasificar`). **10/10 verde, mutado a rojo
-una vez** (quitarle `DEBITO` al regex tira el caso de débito).
+— 11 casos con conceptos textuales de prod + **3 pruebas negativas**: sin la regla, la comisión
+vuelve a `pago_credito` y la variante `DEBITO` a `sin_clasificar`; y **con la regla correcta pero
+colocada en 139**, la comisión con `code 102` se pierde en `cobranza` mientras la de `612` sigue
+bien — o sea, el defecto de prioridad sería invisible sin ese caso. **14/14 verde, mutado a rojo
+dos veces** (quitarle `DEBITO` al regex, y bajar la regla a prioridad 139).
 
 ⛔ **Lo que NO cierra:** el motor de clasificación vive **duplicado** — `classifyWith` en
 `finance-bank.service.ts` y una copia en `import-bank-statement.js`. El candado prueba la del
