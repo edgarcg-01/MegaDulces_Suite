@@ -1452,9 +1452,10 @@ export class CommercialOrdersService {
           title: 'Pedido por armar',
           message: `${order.code} — ${customerName}`,
           // [MCP.3] La campana navega a `data.route`: tocar el aviso abre el pedido para surtirlo.
+          // [MCP.3.1] En Surtir (la pantalla donde aterriza el surtidor), no en otra aparte.
           data: {
             order_id: order.id, code: order.code, warehouse_id: order.warehouse_id,
-            route: `/almacen/surtir-preventa?pedido=${order.id}`,
+            route: `/almacen/surtir?pedido=${order.id}`,
           },
         });
       }

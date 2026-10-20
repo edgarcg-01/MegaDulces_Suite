@@ -5,6 +5,29 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Volver al inicio desde «Pedido agendado» (MCP.3.3, 2026-10-19)
+
+### El problema
+
+Después de agendar un pedido, la pantalla de éxito sólo mostraba «Capturar exhibición». El botón que regresa al
+inicio («Finalizar visita») existía, pero la barra de abajo de la app lo tapaba: el vendedor no tenía cómo volver.
+
+### La solución
+
+El botón se ve y dice lo que hace: **«Finalizar visita e ir al inicio»**, con ícono de casa. Cierra la visita y
+regresa a Mi ruta.
+
+### Cómo se implementó
+
+- Los botones (fijos) suben por encima de la barra: `bottom` de 5rem + 0.75rem y `z-index` 11 (la barra es 10).
+- Si cerrar la visita falla, igual lleva al inicio.
+
+### Por qué así
+
+- **No se agregó un segundo botón** que vaya al inicio sin cerrar la visita: dejaría visitas abiertas en la ruta.
+
+---
+
 ## Abrir el cliente sin esperar el catálogo (VTK.11, 2026-10-15)
 
 ### El problema
