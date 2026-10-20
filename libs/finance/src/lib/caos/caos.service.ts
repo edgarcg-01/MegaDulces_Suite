@@ -9,6 +9,26 @@ import {
 
 // ── `[CGA-A.33]` La forma del saldo ──────────────────────────────────────────────────────────
 
+/**
+ * `[CGA-A.33]` Una fila del KPI de CAOS, tal como la devuelve el `select` de `kpi()`.
+ *
+ * ⚠️ Los `sum(...)` se declaran **string**, no `number`: node-pg entrega `numeric` como TEXTO.
+ * Tiparlos de número invita a sumarlos sin convertirlos, que es como se fabrica un total
+ * equivocado que se lee igual que uno correcto.
+ */
+export interface CaosKpiFila {
+  movimientos: number;
+  depositos: string;
+  dispensado: string;
+  dotado: string;
+  vaciado: string;
+  neto: string;
+  fotos_n: number;
+  indeterminados_n: number;
+  indeterminados_total: string;
+  datos_al: Date | null;
+}
+
 export interface CaosLatidoConteo { cuando: string | null; al: Date | null; status: string; nota: string | null; error: string | null }
 export interface CaosLatidos { movimientos: CaosLatidoConteo | null; conteo: CaosLatidoConteo | null; atribucion: CaosLatidoConteo | null }
 export interface CaosDenomFila { denom: number; billetes: number; importe: number }
@@ -219,7 +239,7 @@ export class CaosService {
        */
       const signo = sqlSignoPorTipo();
       const indet = tiposIndeterminados().join(',') || '-1';
-      const kpi: any = await filtros(trx('analytics.caos_cash_movements'))
+      const kpi: CaosKpiFila | undefined = await filtros(trx('analytics.caos_cash_movements'))
         .select(trx.raw(`
           count(*)::int AS movimientos,
           coalesce(sum(total) FILTER (WHERE type_id = 0), 0) AS depositos,
