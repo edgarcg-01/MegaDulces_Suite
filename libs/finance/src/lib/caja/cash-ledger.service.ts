@@ -23,6 +23,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
 };
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
+import { primerCorteDelLibro } from './caja-relevo';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
@@ -1342,7 +1343,13 @@ export class CashLedgerService {
       // más viejo de 2025-01-01**, porque `finance.cash_ledger` está vacío y entonces "pendiente"
       // es todo lo que Kepler registró desde que hay ODS. Es cierto y es inútil como cola de
       // trabajo. Se puede pedir explícitamente un `from` anterior; el default no lo hace.
-      const desde = q.from
+      //
+      // ⭐ `[CGA-A.43]` Sin `from`, la cola arranca en el PRIMER CORTE DEL LIBRO, no en una ventana
+      // de días: lo anterior es de la era Control (el Access), que ya lo saldó — medido, de 541
+      // documentos del 1 al 11-oct, Control saldó todos salvo 15 — y desde el corte la cola es
+      // exacta. Sólo si todavía no hay ningún corte se usa la ventana de siempre.
+      const relevo = q.from ? null : await primerCorteDelLibro(trx, tenantId);
+      const desde = q.from || relevo
         || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
 
       /**
@@ -1610,7 +1617,10 @@ export class CashLedgerService {
         // subtítulo tiene que decir; `rows.length` es cuánto cupo en la página.
         total,
         desde,
-        ventana_dias: q.from ? null : CAJA_VENTANA_DIAS,
+        ventana_dias: q.from || relevo ? null : CAJA_VENTANA_DIAS,
+        // `[CGA-A.43]` De dónde sale `desde`: lo pidió la pantalla, es el primer corte del libro, o
+        // es la ventana de siempre (no hay libro todavía). La pantalla lo dice con estas palabras.
+        desde_motivo: (q.from ? 'pedido' : relevo ? 'relevo' : 'ventana') as 'pedido' | 'relevo' | 'ventana',
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
         // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
@@ -2014,20 +2024,24 @@ export class CashLedgerService {
     const tenantId = this.tenantCtx.requireTenantId();
     const dias = Math.min(Math.max(Number(q.dias) || 180, 1), 730);
     return this.tk.run(async (trx) => {
+      // `[CGA-A.43]` Sin `dias`, el volumen se cuenta desde el primer corte del libro: el mismo
+      // borde que la cola, o el número entre paréntesis contradiría a la lista de abajo.
+      const relevo = q.dias ? null : await primerCorteDelLibro(trx, tenantId);
       const cat = await trx('analytics.v_kepler_cajas')
         .where('tenant_id', tenantId)
         .orderBy('clave')
         .select('clave', 'nombre', 'cuenta_contable');
       const vol = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).andWhere('tipo_cuenta', 'caja')
-        .andWhereRaw(`fecha_valor >= (now()::date - ${dias})`)
+        .andWhere((w: Knex.QueryBuilder) => (relevo ? w.where('fecha_valor', '>=', relevo) : w.whereRaw(`fecha_valor >= (now()::date - ${dias})`)))
         .groupBy('clave_banco')
         .select('clave_banco')
         .count({ documentos: '*' });
       const m = new Map(vol.map((v: any) => [String(v.clave_banco), Number(v.documentos)]));
       return {
         rows: cat.map((c: any) => ({ ...c, documentos: m.get(String(c.clave)) ?? 0 })),
-        ventana_dias: dias,
+        ventana_dias: relevo ? null : dias,
+        desde: relevo,
       };
     });
   }
