@@ -111,6 +111,71 @@ sensación de "revisado" y deja violaciones vivas.
 
 ---
 
+## 3b. Jerarquía del dato — las 7 reglas §Q (BINDING)
+
+> ⛔ **Esta sección faltaba hasta el 2026-10-20**, y era el hueco más caro de esta skill: casi toda
+> pantalla de Operations es **densa en cifras**, y acá sólo aparecía `Q.1` como fila de una tabla
+> de estadísticas. `Q.2`–`Q.7` no se mencionaban. La fuente es `DESIGN.md:1428`, **BINDING**.
+
+Donde hay muchos números, el riesgo #1 no es el estilo: es que la persona **no entienda qué mira,
+qué significa, dónde está el problema y qué hacer**. Estas siete convierten «muchos valores» en
+«una respuesta».
+
+| | Regla | Cómo se viola |
+|---|---|---|
+| **Q.1** | **Answer-first.** Abre con la conclusión —veredicto / total / «¿cuadra? · cuánto · qué falta»—, no con la herramienta cruda. El dato primario domina por **tamaño + peso + posición**. | la pantalla abre en el grid |
+| **Q.2** | **Explicar el número, no sólo mostrarlo.** Su lectura en llano al lado («de $X, Kepler reconoce $Y → difieren $Z»), no el Δ crudo. | se publica un delta sin decir qué significa |
+| **Q.3** | **Señalar dónde está la diferencia.** La fila exacta, no sólo el total agregado. | «no cuadra $X» sin apuntar al renglón |
+| **Q.4** | **Redirección desde el dato.** Todo número que evidencia algo es navegable **a su lugar de arreglo con el filtro ya puesto**. | el número denuncia y no lleva a arreglarlo |
+| **Q.5** | ⭐ **Tres niveles explícitos.** Cada pantalla declara **primario / secundario / terciario** y lo expresa por **escala de tipo** (`--fs-*` + peso) **+ contraste de texto** (`--fg-1/2/3`). Nunca por color ni por más cajas. `tabular-nums` innegociable. | «jerarquía» hecha con colores y recuadros |
+| **Q.6** | **Color de grupo al servicio del entendimiento.** Determinista, sutil, dark-safe, con leyenda, **nunca único portador**. | fill saturado, sin leyenda, el color es el dato |
+| **Q.7** | **Abouts donde haya jerga.** `<app-context-help>` desde el diccionario versionado. | la definición vive en un `title` |
+
+### ⛔ Lo que la compuerta NO mide, y por qué importa
+
+`check:pantalla` tiene una sola regla de esta familia —`Q.1`— y lo que busca es literalmente
+`/<app-metric-strip|<app-metric-card/`: **mide que exista la pieza, no que haya jerarquía.** Una
+pantalla con `MetricStrip` arriba y un muro gris abajo **pasa en verde**.
+
+**`Q.5` no tiene instrumento**, y eso es exactamente lo que costó:
+
+> **Medido el 2026-10-19** en el diálogo «Tu jornada» de Caja General: **41 textos atenuados
+> contra 5 enfatizados**, 39 cifras y 3 rejillas en un solo desplazamiento. Ninguna compuerta
+> dijo nada. ⭐ **Cuando todo es secundario, nada es primario** y la vista rebota sin encontrar
+> dónde empezar.
+
+**Entonces `Q.2`–`Q.7` se revisan a ojo, siempre, y se declaran.** Y al nombrar los tres niveles
+de una pantalla, escribilos: *«primario = el saldo; secundario = la cola; terciario = el folio»*.
+Una jerarquía que no se puede decir en una línea no existe — se está maquetando, no jerarquizando.
+
+---
+
+## 3c. Lo demás que es BINDING y esta skill no traía
+
+⛔ **Auditado el 2026-10-20: de las 13 secciones `BINDING` de `DESIGN.md`, SEIS no llegaban a
+ninguna capa ejecutable** — ni a esta skill, ni al estándar, ni a la de auditoría. Se nombran acá
+con su regla en una línea; el detalle está en su sección.
+
+⚠️ **Tres de las seis daban «cubierta» en una primera medición por palabra suelta** y no lo
+estaban: `overlay` caía en los tokens de interacción, `pwa` en una fila de índice y `data-viz` en
+la excepción de la regla de color. **Una mención no es cobertura** — es el mismo defecto que
+`Q.1` midiendo presencia de `MetricStrip`.
+
+| Sección | Lo que exige, en una línea |
+|---|---|
+| **§Plataforma web moderna** `:1137` (R·S·T·U·V·W) | Responsividad por capas (4 herramientas, 4 trabajos) · **cascada con `@layer`** en vez de pelear especificidad · **overlays y controles nativos** (`<dialog>`, popover) antes que JS de plomería · motion nativo · **presupuesto de interacción: INP < 200 ms** |
+| **§Layouts por sector** `:1366` (O·P) | Cada sector tiene su **layout canónico** (O.1 fiscal/contable, O.4 rejilla en `p-table`) · **P: la jerga va al diccionario versionado** con `<app-context-help>`, no a un `title` |
+| **§Gráficas — data-viz** `:1456` (§G) | Contrato completo de gráficas: qué gráfica para qué pregunta, ejes, paleta `--chart-*` dark-safe, leyenda, y **el color nunca como único portador**. Acá sólo estaba nombrada como «la excepción» a quiet-luxury |
+| **§Superficies con IA** `:1282` (X) | Contrato de agentic UX: las seis reglas de cómo se presenta lo que propone un motor —y **que se vea que lo propuso un motor**, no la persona |
+| **§PWA / App instalable** `:1520` | Service worker obligatorio · manifest **por app, nunca copiado** · chrome del SO · **offline con contrato de UI** · a11y de superpuestos sin chrome del navegador |
+| **§Safe-area** `:1546` | Notch y home indicator: nada pegado al borde sin `env(safe-area-inset-*)`. La flota incluye tablet y PWA instalada |
+
+> ⭐ **Por qué importa que estuvieran afuera:** esta skill es la capa que se carga antes de tocar
+> frontend. Una regla binding que no llega acá existe en el papel y no en el trabajo — que es,
+> exactamente, lo que pasó con las siete `§Q` de jerarquía hasta el mismo día.
+
+---
+
 ## 4. Lo que no se negocia (cada una ya cobró)
 
 - **Iconos, nunca emojis** en la UI — `<i class="pi pi-pencil">`, no ✏️. Vale también cuando hablás

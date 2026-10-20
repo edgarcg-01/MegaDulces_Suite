@@ -59,15 +59,31 @@ de entregar.
 
 ## 2. Los cuatro ejes, y qué compuerta cubre cada uno
 
-Medido el 2026-10-19: **41 reglas ejecutables** (32 compuertas en `scripts/compuertas.js` + las 10
-de `check-pantalla.js`). Reparten desigual:
+Medido el 2026-10-20: **41 reglas ejecutables** — 31 compuertas en `scripts/compuertas.js` más la
+nº 32, `pantalla`, que por dentro son las 10 reglas de `check-pantalla.js`. ⚠️ No son 42: `pantalla`
+ya está entre las 32 y sumarla otra vez la cuenta dos veces. Reparten desigual:
 
 | Eje | Documentado en `DESIGN.md` | Compuerta |
 |---|---|---|
-| **Visual** | §Typography:507 · §Color:544 · §Motion:685 · §R:1155 | ✅ `estilos` · `tokens CSS` · `motion` |
-| **Accesibilidad** | §Ing.UI 3:1084 (WCAG AA piso, APCA Lc≥75) | ⚠️ sólo `teclado` y `sin emojis` — **contraste y `forced-colors`: nada** (`[AUD.4]`) |
-| **Comprensión** | §Jerarquía del dato:1428 · §Ing.UI 2:1078 · §P:1411 | ✅ `pantalla` (desde `[AUD.3]`) |
-| **Sencillez** | **§10 Leyes de interacción:1318 (BINDING)** | ❌ ninguna (`[AUD.5]`) |
+| **1 · Veracidad** | §Jerarquía del dato:1428 · ADR-056 | ❌ **ninguna.** Los seis cruces de §3 son todo lo que hay |
+| **2 · Alcance** | §10:1318 (Tesler) · §D.7 teclado · §O:1366 | ⚠️ sólo `teclado` y `sin emojis` |
+| **3 · Comprensión** | §Jerarquía del dato:1428 · §Ing.UI 2:1078 · §P:1411 | ⚠️ `pantalla` (desde `[AUD.3]`) — pero mide **presencia de piezas**, no jerarquía |
+| **4 · Sencillez** | **§10 Leyes de interacción:1318 (BINDING)** | ❌ ninguna (`[AUD.5]`) |
+| **5 · Respeto** | §10:1338 (estado sucio) · §Ing.UI 9 · §V (INP) | ❌ ninguna |
+| *(transversal)* **Visual** | §Typography:507 · §Color:544 · §Motion:685 · §R:1155 | ✅ `estilos` · `tokens CSS` · `motion` |
+| *(transversal)* **Accesibilidad** | §Ing.UI 3:1084 (WCAG AA piso, APCA Lc≥75) | ⚠️ **contraste y `forced-colors`: nada** (`[AUD.4]`) |
+
+> ⛔⛔ **ESTA TABLA SE CORRIGIÓ EL 2026-10-20 Y EL ERROR VALE CONTARLO.** Nació con cuatro ejes
+> —visual, accesibilidad, comprensión, sencillez— que son los que Edgar nombró al pedir la
+> auditoría, y se escribió **antes** que el estándar. O sea que **no nombraba VERACIDAD**… y
+> veracidad es donde vivió **cada uno** de los defectos grandes de esa semana: una columna
+> rotulada «Origen» que mostraba otra cosa, un libro que publicaba 248 y pintaba 100, un cero
+> publicado por una lectura fallida.
+>
+> ⭐ Quien siguiera esta tabla auditaría cuatro ejes y **no miraría el que más cobra**. Los seis
+> cruces de §3 sí lo cubren, pero un mapa que no nombra el territorio manda a otro lado. Las
+> cinco capas de acá son las del estándar, en su orden; **visual** y **accesibilidad** son
+> transversales —se verifican en las cinco— y por eso quedan abajo, no porque importen menos.
 
 ⛔ **`DESIGN.md` no cabe en una ventana de contexto** (1,767 líneas). Entrá por su «Mapa del
 documento» (línea 70) y leé el tramo con `sed -n`. *Leer un fragmento por grep y dar la regla por
@@ -168,6 +184,11 @@ Y dos corolarios que ya costaron:
 - ⛔ **Si una compuerta te dice «esto no es tuyo» sobre un archivo que SÍ tocaste, no le creas.**
   `check-template-types` clasificó 4 errores míos como «de otras sesiones» porque mis cambios
   estaban sin commitear. **Un verde sobre el universo equivocado se lee igual que un verde.**
+- ⛔⛔ **«tipa (0 errores)» de `check:pantalla` NO tipa la plantilla, y `check-template-types.js`
+  sin commits pendientes revisa el árbol COMMITEADO.** Medido el 2026-10-20 con un control
+  (`{{ metodoQueNoExiste() }}` en `/finanzas/caos`): las dos dijeron verde. `npx ngc -p
+  apps/view/tsconfig.app.json --noEmit` sí lo marcó (`TS2339`). Para lo que acabás de escribir,
+  ése es el instrumento — y arrancalo con el mismo control.
 - ⛔ **Cruzá toda cifra nueva contra una que ya mediste.** Un conteo diario de «178 capturas» convivía
   con un total de 236 filas en todo el libro: **imposible, y se reportó igual**. El cruce lo habría
   cazado en el momento (el real era 40).
@@ -245,6 +266,23 @@ Cada uno lleva las cuatro, o no se entrega:
 ## 8. Lo que esta skill NO cubre todavía
 
 Declarado para que nadie lo dé por hecho:
+
+- ⛔⛔ **`check:pantalla` SÓLO MIRA `apps/view`.** Su `ROOT` está fijo en
+  `apps/view/src/app/modules`, así que **`apps/portal` y `apps/vendor` no tienen ninguna
+  compuerta de contrato de producto**. Medido el 2026-10-20:
+
+  | App | Pantallas | Compuerta de contrato |
+  |---|---:|---|
+  | `apps/view` | 267 | ✅ `pantalla` |
+  | `apps/vendor` | 17 | ❌ **ninguna** |
+  | `apps/portal` | 9 | ❌ **ninguna** |
+
+  ⚠️ Y por eso la línea base «247 de 267 con falla» **es de una sola app**, no del repo. Las 26
+  pantallas de las otras dos no están medidas: **no se sabe si cumplen**, que no es lo mismo que
+  decir que cumplen (ADR-056). ⭐ Se agrava porque `DESIGN.md` ya declara que esas dos apps tienen
+  **0 componentes compartidos** — o sea que son justo donde más probable es que haya deuda.
+  ⚠️ Y `apps/portal` es **Storefront**, otro surface: varias reglas de acá (densidad compacta, sin
+  ilustraciones) **no aplican tal cual**. Extender la compuerta no es cambiar una ruta.
 
 - **`[AUD.4]` contraste** — cero compuertas. Ni WCAG AA ni `forced-colors` (Alto Contraste de
   Windows, que `DESIGN.md` llama «el tercer modo» y la flota **es** Windows). Hoy se mide a mano.
