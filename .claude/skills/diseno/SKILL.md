@@ -111,6 +111,38 @@ sensación de "revisado" y deja violaciones vivas.
 
 ---
 
+## 3a. «Está saturada» — el diagnóstico va ANTES de la cura
+
+⛔ **No empieces a acomodar cajas.** «Hay demasiada información» son **tres enfermedades
+distintas** y la cura equivocada empeora la pantalla — queda igual de ilegible pero con mejor
+tipografía. El detalle está en
+[`ESTANDAR_DE_INTERFACES` §4.0](../../../docs/ESTANDAR_DE_INTERFACES.md); acá, lo operativo:
+
+| | Enfermedad | Cura | ⛔ Si te equivocás |
+|---|---|---|---|
+| **A** | **Conflación**: contesta varias preguntas | **partir** | jerarquizarla deja 4 preguntas bien tipografiadas |
+| **B** | **Ruido**: casi nada de lo que muestra es trabajo | **sacarlo** | paginar ruido lo deja igual de irrelevante |
+| **C** | **Aplanamiento**: todo pesa lo mismo | **jerarquizar** (§3b, Q.5) | partir pierde información que sí hacía falta |
+
+> **Las tres, medidas la misma semana en la misma pantalla:** «Tu jornada» contestaba **cuatro**
+> preguntas (A) · la cola ofrecía **13,245 movimientos con 20 de trabajo real**, 1 de cada 662 (B)
+> · el mismo diálogo tenía **41 atenuados contra 5 enfatizados** (C).
+
+⭐ **La prueba de la frase, que cuesta diez segundos:** escribí en **una** oración la pregunta que
+contesta la pantalla. **Si necesitás «y», son dos.** Es la forma más barata de cazar conflación
+antes de maquetar nada.
+
+⭐⭐ **Y la jugada más fuerte no es esconder: es DERIVAR.** En vez de mostrar cinco números para
+que alguien los compare, mostrá la comparación. El arqueo no pide un monto *y* un desglose para
+que la persona los cuadre: pide **sólo las piezas** y calcula el importe. Un número que el sistema
+puede sacar solo es un número que nadie tiene que leer.
+
+⛔ **Lo que NO es cura:** paginar (mueve el problema a la página 2, y si la lista se topa, miente)
+· plegar (si era vital lo escondiste; si no, sobraba) · achicar la tipografía (entra más y se lee
+menos) · quitar una columna sin más (el trabajo se traslada a la cabeza de alguien).
+
+---
+
 ## 3b. Jerarquía del dato — las 7 reglas §Q (BINDING)
 
 > ⛔ **Esta sección faltaba hasta el 2026-10-20**, y era el hueco más caro de esta skill: casi toda
