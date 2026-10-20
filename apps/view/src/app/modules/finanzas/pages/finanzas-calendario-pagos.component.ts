@@ -10,6 +10,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
+import { MessageModule } from 'primeng/message';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
@@ -21,11 +22,13 @@ import type {
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, filasAgrupadas, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -39,8 +42,31 @@ interface Obligation {
   branch_code: string | null;
   /** `[TP.16.4]` Id del proveedor (sólo facturas de proveedor): la llave del pago es el id, no el nombre. */
   payee_id: string | null;
+  /**
+   * `[TP.20.4]` La ventana de pronto pago de esta factura: hasta cuándo conviene pagarla y cuánto
+   * se gana si se paga antes. ⚠️ La fecha es **observada, no pactada** — sale de los pagos que de
+   * hecho obtuvieron descuento. `sin_medir` significa que no hay observaciones suficientes, que
+   * **no es lo mismo** que «este proveedor no da descuento».
+   */
+  pronto_fecha_limite?: string | null;
+  pronto_beneficio?: number | null;
+  pronto_estado?: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
+  /**
+   * `[TP.20.5]` **El ref de la ficha de esta factura.** Lo arma el backend, que es el único que
+   * conoce la clave natural del documento de Kepler. Viene `null` en los orígenes que no tienen
+   * documento detrás (un gasto presupuestado, un compromiso financiero) y en una obligación
+   * capturada a la que nadie le anotó el folio del ERP: ahí no hay ficha que abrir y el nombre
+   * **no se pinta como enlace**, que es la única forma honesta de decirlo.
+   */
+  entity_ref?: string | null;
 }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
+/**
+ * `[TP.17.2]` La lista de obligaciones viaja con su TOTAL. El endpoint tiene un techo (1,000 por
+ * omisión) y sin este dato la pantalla no puede distinguir «hay mil» de «te muestro mil de tres mil»
+ * — que es la diferencia entre informar y mentir (ADR-056).
+ */
+interface ObligationPage { rows: Obligation[]; total: number; limit: number; offset: number }
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   compromiso_financiero: 'Compromiso financiero', gasto: 'Gasto', proveedor_mercancia: 'Proveedor',
@@ -88,10 +114,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, TagModule, MessageModule, CheckboxModule, ToastModule, TooltipModule, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in cal-page">
+      <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
       <header class="surf-page-head cal-head">
         <div class="surf-page-head-text">
@@ -136,6 +165,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (dayUnprepared(d) > 0) { <span class="cal-warn-txt"> · {{ dayUnprepared(d) }} sin preparar</span> }
                 } @else { <span class="cal-muted">Sin pagos</span> }
               </span>
+              <!-- [TP.21.2] LA COSTURA. El libro de Tesoreria y este calendario son la misma
+                   linea de tiempo partida en dos: el pasado en un Excel, el futuro aqui. Medido:
+                   cero dias en comun y 53 dias en medio que ninguna pantalla contaba. Esta linea
+                   es ese pasado, en el mismo dia, declarado como OTRO universo (suma por fecha,
+                   no casa renglones: casar por monto+mes es lo de PP.4). -->
+              @if (d.libro; as lb) {
+                @if (!lb.mes_cargado && isPast(d.date)) {
+                  <span class="cal-day-libro is-gap" title="El Excel de Tesoreria no tiene ese mes. NO quiere decir que no se haya pagado.">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> libro sin cargar
+                  </span>
+                } @else if (lb.n > 0) {
+                  <span class="cal-day-libro" [title]="'Segun el LIBRO de Tesoreria salieron ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) ese dia. Es otro universo que lo de arriba: se suma por fecha, no se casa renglon por renglon.'">
+                    <i class="pi pi-book" aria-hidden="true"></i> libro: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
+                  </span>
+                }
+              }
             </button>
           }
         </div>
@@ -145,12 +190,28 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <!-- ── Obligaciones disponibles ─────────────────────────────────── -->
         <section class="cal-panel cal-oblig" aria-label="Obligaciones disponibles">
           <div class="cal-panel-head">
-            <h2>Obligaciones disponibles <span class="cal-count">{{ obligations().length | number }} {{ obligations().length === 1 ? 'factura' : 'facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}</span></h2>
+            <!-- [TP.17.2] Cuando el techo recorta, el contador dice "N de M": un "1,000 facturas"
+                 a secas sobre 2,931 es el numero que miente, no el que falta. -->
+            <h2>Obligaciones disponibles <span class="cal-count">@if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} } @else { {{ obligations().length | number }} }{{ obligations().length === 1 && !obligationsTruncated() ? ' factura' : ' facturas' }} · {{ obligationGroups().length | number }} {{ obligationGroups().length === 1 ? 'proveedor' : 'proveedores' }}</span></h2>
           </div>
+          <!-- [TP.17.2] El techo se DECLARA (ADR-056). Medido el 2026-10-16: con la deuda derivada
+               el corte de 1,000 dejaba fuera 1,895 documentos por $105,683,725 -el 79% del dinero-
+               y, como la lista va por vencimiento, lo oculto era lo MAS RECIENTE. -->
+          @if (obligationsTruncated()) {
+            <p-message severity="info" class="cal-techo">
+              <span>
+                Se muestran las <b>{{ obligations().length | number }}</b> más próximas a vencer, de
+                <b>{{ obligationsTotal() | number }}</b>. Las demás no faltan por error: usá la búsqueda
+                o el filtro de tipo para llegar a cualquiera.
+              </span>
+            </p-message>
+          }
           <div class="cal-filters">
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadObligations()" placeholder="Buscar beneficiario o factura…" class="p-inputtext-sm cal-search" aria-label="Buscar beneficiario o factura" />
             <p-select [options]="classificationOpts" [(ngModel)]="classificationFilter" (onChange)="loadObligations()" optionLabel="label" optionValue="value" placeholder="Tipo" [showClear]="true" styleClass="cal-sel p-inputtext-sm" />
             <label class="cal-check"><p-checkbox [(ngModel)]="onlyCritical" [binary]="true" (onChange)="loadObligations()" />Críticos</label>
+            <!-- [TP.20.4] Armar el dia mirando lo que CADUCA, sin salir a otra pantalla. -->
+            <label class="cal-check" title="Solo facturas cuyo descuento por pronto pago vence en 5 dias o menos"><p-checkbox [(ngModel)]="soloPorVencer" [binary]="true" (onChange)="loadObligations()" />Descuento por vencer</label>
           </div>
           <p-table [value]="obligationRows()" [loading]="loadingObligations()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm surf-table cal-table cal-oblig-table">
             <ng-template #header>
@@ -182,7 +243,27 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 </tr>
               } @else if (r.kind === 'item') {
                 <tr class="cal-grp-item" [class.cal-row-critical]="r.o.is_critical">
-                  <td class="cal-c-name"><div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div></td>
+                  <td class="cal-c-name">
+                    <!-- [TP.20.5] La factura abre su FICHA: deuda + ventana + lo programado +
+                         el pago que la liquido + su comprobante, sin salir de aqui. -->
+                    @if (r.o.entity_ref) {
+                      <button type="button" class="cal-item-concept cal-reflink" [title]="'Ver la ficha completa de ' + r.o.concept"
+                              (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}</button>
+                    } @else {
+                      <div class="cal-item-concept" [title]="r.o.concept">{{ r.o.concept }}</div>
+                    }
+                    <!-- [TP.20.4] La urgencia del DESCUENTO, aqui y no en una columna nueva: esta
+                         tabla es un panel estrecho de cuatro columnas y tres mas la romperian.
+                         Solo aparece cuando hay algo que ganar; lo demas no dice nada. -->
+                    @if (r.o.pronto_beneficio && (r.o.pronto_estado === 'por_vencer' || r.o.pronto_estado === 'capturable')) {
+                      <span class="cal-pp" [class.cal-pp-urge]="r.o.pronto_estado === 'por_vencer'"
+                            [title]="'Descuento por pronto pago estimado. La fecha limite es OBSERVADA, no pactada.'">
+                        <i class="pi" [class.pi-bolt]="r.o.pronto_estado === 'por_vencer'" [class.pi-tag]="r.o.pronto_estado === 'capturable'" aria-hidden="true"></i>
+                        ahorra {{ money(r.o.pronto_beneficio) }}
+                        @if (r.o.pronto_fecha_limite) { <span class="cal-muted">· antes del {{ shortDate(r.o.pronto_fecha_limite) }}</span> }
+                      </span>
+                    }
+                  </td>
                   <td class="cal-c-due cal-mono" [class.cal-overdue]="isOverdue(vence(r.o))">{{ shortDate(vence(r.o)) }}@if (r.o.negotiated_date) { <span class="cal-muted" aria-label="fecha renegociada">*</span> }</td>
                   <td class="comm-num cal-c-amt">{{ money(r.o.available_amount) }}</td>
                   <td class="cal-c-add"><button pButton type="button" class="p-button-sm p-button-text" [attr.aria-label]="'Agregar ' + r.o.concept + ' a un día'" (click)="quickAdd(r.o)"><span class="pi pi-plus" aria-hidden="true"></span></button></td>
@@ -192,7 +273,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <tr [class.cal-row-critical]="r.critical">
                   <td class="cal-c-name">
                     <div class="cal-benef" [title]="r.o.beneficiary">@if (r.critical) { <i class="pi pi-flag cal-crit-flag" aria-label="Crítico"></i> }{{ r.o.beneficiary }}</div>
-                    <div class="cal-concept" [title]="r.o.concept"><span class="cal-suc">{{ branchLabel(r.o.branch_code) }}</span> {{ r.o.concept }}</div>
+                    <div class="cal-concept" [title]="r.o.concept"><span class="cal-suc">{{ branchLabel(r.o.branch_code) }}</span>
+                      @if (r.o.entity_ref) {
+                        <button type="button" class="cal-reflink" [title]="'Ver la ficha completa de ' + r.o.concept"
+                                (click)="inspect.set(r.o.entity_ref!)">{{ r.o.concept }}</button>
+                      } @else { {{ r.o.concept }} }
+                    </div>
                   </td>
                   <td class="cal-c-due cal-mono" [class.cal-overdue]="isOverdue(vence(r.o))">{{ shortDate(vence(r.o)) }}@if (r.o.negotiated_date) { <span class="cal-muted" aria-label="fecha renegociada">*</span> }</td>
                   <td class="comm-num cal-c-amt">{{ money(r.o.available_amount) }}</td>
@@ -474,6 +560,23 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-nav { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
     .cal-week-label { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); font-weight:600; color:var(--text-main); min-width:10.5rem; text-align:center; }
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
+    /* [TP.20.4] El ahorro por pronto pago en la fila: discreto, y urgente cuando caduca.
+       El estado no viaja solo en el color -lleva icono y la palabra "antes del"-. */
+    .cal-pp { display:inline-flex; align-items:center; gap:.25rem; margin-top:.15rem;
+      font-size: var(--fs-xs); color: var(--text-muted); }
+    .cal-pp-urge { color: var(--warn-fg); font-weight: 600; }
+    /* [TP.20.5] La factura es un enlace a su ficha. No se pinta de color en reposo: en una
+       lista densa, 2,900 enlaces azules son ruido; el afordance aparece al pasar y al foco. */
+    /* [TP.21.2] La costura con el libro de Tesoreria. Discreta a proposito: es CONTEXTO del dia
+       (lo que ya salio segun el Excel), no la cifra con la que se arma el pago. El hueco -un mes
+       sin cargar- si toma color, porque es lo unico de aqui que pide accion. */
+    .cal-day-libro { display:inline-flex; align-items:center; gap:.25rem; margin-top:.15rem;
+      font-size: var(--fs-micro, .72rem); color: var(--text-faint); }
+    .cal-day-libro.is-gap { color: var(--warn-fg); }
+    .cal-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0;
+      font:inherit; text-align:left; }
+    .cal-reflink:hover { color: var(--action); text-decoration: underline; }
+    .cal-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cal-neg { color:var(--bad-fg); }
@@ -503,7 +606,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* ── Área de trabajo: obligaciones | ordenar y pagar */
     /* La lista de obligaciones gana ancho (2 de 5): nombre completo sin desplazamiento lateral. */
     .cal-work { display:grid; grid-template-columns:minmax(26rem, 2fr) minmax(0, 3fr); gap:var(--sp-4); align-items:start; }
-    @media (max-width: 70rem) { .cal-work { grid-template-columns:minmax(0, 1fr); } }
+    @container (max-width: 70rem) { .cal-work { grid-template-columns:minmax(0, 1fr); } }
     .cal-panel { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:var(--sp-3); min-width:0; }
     .cal-oblig { display:flex; flex-direction:column; height:clamp(24rem, calc(100vh - 22rem), 40rem); }
     .cal-panel-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-2); }
@@ -605,6 +708,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   `],
 })
 export class FinanzasCalendarioPagosComponent implements OnInit {
+  /**
+   * `[TP.20.5]` El ref abierto en la ficha. El propio panel lo publica en la URL (`?ref=`), así
+   * que una factura se puede pegar en un chat y el otro abre exactamente el mismo documento.
+   */
+  readonly inspect = signal<string | null>(null);
+
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -682,6 +791,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   classificationFilter: string | null = null;
   search = '';
   onlyCritical = false;
+  /** `[TP.20.4]` Filtra a lo que pierde descuento en 5 días o menos. */
+  soloPorVencer = false;
 
   obligations = signal<Obligation[]>([]);
   /** Proveedores plegados (por clave de grupo). */
@@ -693,6 +804,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return filasAgrupadas(this.obligationGroups(), plegados);
   });
   loadingObligations = signal(false);
+  /** `[TP.17.2]` Cuántas obligaciones hay de verdad, más allá del techo que devolvió el servidor. */
+  readonly obligationsTotal = signal(0);
+  /**
+   * ⚠️ Lee los DOS signals siempre: nada de `&&` que corte antes del segundo. Un `computed()` que
+   * no alcanza a leer una señal se queda sin esa dependencia y **no vuelve a recalcular**
+   * (la compuerta `reactividad` existe por eso).
+   */
+  readonly obligationsTruncated = computed(() => {
+    const total = this.obligationsTotal();
+    const mostradas = this.obligations().length;
+    return total > mostradas;
+  });
   saving = signal(false);
   selected = signal<Obligation[]>([]);
 
@@ -766,6 +889,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   shortDate(iso: string | null): string { return iso ? this.fmt(iso.slice(0, 10), { day: 'numeric', month: 'short' }) : '—'; }
   isOverdue(iso: string | null): boolean { return !!iso && iso.slice(0, 10) < this.todayIso; }
 
+  /** `[TP.21.2]` Un dia ya pasado. Solo ahi un libro vacio dice algo: hacia adelante no hay nada que registrar. */
+  isPast(iso: string): boolean { return iso < this.todayIso; }
+
   shiftWeek(delta: number): void {
     this.armado.set(null); this.bulkSel.set(new Set());
     this.selectedDate.set(this.addDays(this.selectedDate(), delta * 7));
@@ -815,8 +941,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.classificationFilter) p.set('classification', this.classificationFilter);
     if (this.search.trim()) p.set('search', this.search.trim());
     if (this.onlyCritical) p.set('onlyCritical', 'true');
-    this.http.get<Obligation[]>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.obligations.set(rows); this.loadingObligations.set(false); },
+    if (this.soloPorVencer) p.set('prontoPago', 'por_vencer');
+    this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.obligations.set(r.rows); this.obligationsTotal.set(r.total); this.loadingObligations.set(false); },
       error: () => { this.loadingObligations.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las obligaciones.' }); },
     });
   }
@@ -943,7 +1070,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const day = this.selectedDay();
     if (!day) return;
     try {
-      const all = await firstValueFrom(this.http.get<Obligation[]>(`${this.base}/obligations`));
+      // [TP.17.2] Techo alto a proposito: el armado PROPONE que pagar, y con la primera pagina
+      // propondria sobre las 1,000 mas viejas en vez de sobre toda la deuda.
+      const page = await firstValueFrom(this.http.get<ObligationPage>(`${this.base}/obligations?limit=5000`));
+      const all = page.rows;
       const groups = sugerirArmado(all, day.date, Number(day.summary.remaining_amount ?? 0));
       this.armado.set(groups);
       this.armadoOn.set(new Set(groups.filter((g) => g.fits).map((g) => g.key)));

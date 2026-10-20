@@ -139,3 +139,16 @@ export function armarRespuesta(
     generado_en: generadoEn.toISOString(),
   };
 }
+
+/**
+ * `[MCP.3.2]` La respuesta del tablero sin dinero, para quien la ve sólo como surtidor (no tiene
+ * `ALMACEN_PEDIDOS_VER`). Su pantalla muestra pedido y cliente; los importes no tienen por qué
+ * viajar al celular aunque no se pinten. Se quitan en el servidor, no en la pantalla.
+ */
+export function sinImportes(r: WarehouseOrdersResponse): WarehouseOrdersResponse {
+  return {
+    ...r,
+    totales: { ...r.totales, importe: null },
+    items: r.items.map((x) => ({ ...x, importe: null })),
+  };
+}

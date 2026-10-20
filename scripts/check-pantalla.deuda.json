@@ -1,0 +1,1125 @@
+{
+  "apps/view/src/app/modules/admin/pages/admin-puestos.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/admin/pages/admin-responsabilidades.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-analisis-bi.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-autoabasto-pedido.component.ts": [
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-autoabasto.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-bi-documento.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-caducidades-por-fechar.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-checar.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-cuadre.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-existencia.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-llegadas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-monitoreo.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-movimientos.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-pedidos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-por-capturar.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-prevencion.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-preventa-guias.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-preventa.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-recepcion-auditor.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesion.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesiones.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-riesgo.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-rutas-contar.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-rutas-conteos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-surtido-consola.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-surtir-preventa.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-surtir.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-ubicaciones-mapa.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-ubicaciones.component.ts": [
+    "Q.1",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/almacen/pages/ubicaciones-captura.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-analisis.component.ts": [
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-cartera.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-comisiones-objetivo.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-competencia.component.ts": [
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-customers-360.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-customers.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-dead-stock.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-documentos.component.ts": [
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-egreso-detalle.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-erp-promos.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-expedientes.component.ts": [
+    "Q.1",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-experimentos-precio.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-expiry-review-detail.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-expiry-reviews.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-abc.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-aisles.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-count.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-expiring.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-health.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-ira.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-session-detail.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-sessions.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-teams.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory-variance.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-motor-margen-expediente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-motor-margen.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-order-detail.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-orders.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-pricing.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-promotions.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-razonamiento.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-rentabilidad.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-reporte-cliente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-route-closure-recon.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-route-credit.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-route-promo.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-route-tickets.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-ruta-directa-flota.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-ruta-directa-gastos.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-salidas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-sell-out.component.ts": [
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-thot-chat.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-thot-curation.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-thot-directives.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-tickets.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-vendor-sales.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-warehouses.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-wincaja.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/mkt-acuerdos.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/mkt-resultado.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/comercial/pages/ventas-generales.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-asistente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-captura-lote.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-apartado.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-codigos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-costos.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-mantenimiento.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-no-registrados.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-nuevos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo-reporte.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-catalogo.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.4c"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-categorias.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-costo-estandar.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-costo-neto.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-costos-historial.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-cuadre-proveedor.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-cuentas-pago.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-descuentos.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entrada-expediente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-ajustes.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-control.component.ts": [
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-gemelas.component.ts": [
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-pendientes.component.ts": [
+    "Q.1",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-revision.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-sin-oc.component.ts": [
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entrega-pendientes.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entregas.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-existencia-critica.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-faltantes.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-flujo.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-hallazgos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-obligaciones.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-oc-abiertas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-orden-detalle.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-ordenes.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-plazos-pago.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-proveedores.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-reclamos.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-red.component.ts": [
+    "§2",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-requisicion-detalle.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-requisiciones.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-vencimientos.component.ts": [
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/compras/pages/producto-flujo-panel.component.ts": [
+    "Q.1",
+    "§2",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-cfdi.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-cierre.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-conciliacion.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-contabilidad.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-contpaqi-puente.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-contpaqi.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-credenciales.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-descarga.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-diagnostico.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-diot.component.ts": [
+    "§2",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-facturar.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-impuestos.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-listas-sat.component.ts": [
+    "§2",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-materialidad.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-mi-cierre.component.ts": [
+    "Q.1",
+    "§2",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-polizas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/libro-compras/libro-compras.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/libro-compras/movimientos-no-asociados.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/desarrolladores/pages/dev-proyectos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-admin.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-capturas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-cierre.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-concentrado.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-conciliacion.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-contpaqi.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-cuentas.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-movimientos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/bancos-three-way.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/bancos/caja-ingreso-ref.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/caja-general/finanzas-caja-firma.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/captura-gasto-link.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-aprobacion-gastos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.4c"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-bancos.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-caja.component.ts": [
+    "§2",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-calendario-pagos.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-cancelados.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-capturar-gasto.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-capturas-sin-folio.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-cartera-dia.component.ts": [
+    "§2",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-cartera.component.ts": [
+    "§2",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-cobranza.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-comisiones-logistica.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-cortes-sucursales.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-estado-cuenta-acreedores.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-expediente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-gastos-historial.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-gastos.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-hallazgos.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-maat-chat.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-mis-gastos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-pagos-comprobantes.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-pagos-control.component.ts": [
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-presupuesto.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-programa-pagos.component.ts": [
+    "§2",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-pronto-pago.component.ts": [
+    "§2",
+    "§9",
+    "D.4c"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-solicitudes.component.ts": [
+    "Q.1"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-tareas.component.ts": [
+    "§9"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/presupuesto/presupuesto-decision.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/presupuesto/presupuesto-direccion.component.ts": [
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/presupuesto/presupuesto-ventas.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/tesoreria-diagnostico.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-actividad.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-auditoria-ruta.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-checklist.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-config.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-costs.component.ts": [
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-dashboard.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-driver-assignments.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-fleet.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-gasto-ruta.component.ts": [
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts": [
+    "§2",
+    "§9",
+    "D.7",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-live.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-nuevo-embarque-form.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-nuevo-embarque.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-payroll.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-photos.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-planner.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-rastreo.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-reports.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-shipment-detail.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-shipments.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-staff.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-traspasos.component.ts": [
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/reparto/pages/home-delivery-dispatch.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/reparto/pages/home-delivery-tracking.component.ts": [
+    "§2",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/reparto/pages/reparto-surtido.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/reparto/pages/rider-liquidation.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/reparto/pages/whatsapp-orders.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-asistencia.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-candidatos.component.ts": [
+    "Q.1",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-faltas.component.ts": [
+    "Q.1",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-horas-extra.component.ts": [
+    "Q.1",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-incidencias.component.ts": [
+    "Q.1",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-reclutamiento-revisiones.component.ts": [
+    "Q.1",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-relojes.component.ts": [
+    "Q.1",
+    "§9"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-tolerancia.component.ts": [
+    "Q.1",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/rh/pages/rh-vacantes.component.ts": [
+    "Q.1",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/servicio/pages/servicio-bandeja.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/servicio/pages/servicio-configuracion.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/servicio/pages/servicio-reportes.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/servicio/pages/servicio-solicitudes.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-dashboard.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-lead.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-queue.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-quote-detail.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-quote-new.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-quotes.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-take-order.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.8"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-arqueo-historial.component.ts": [
+    "Q.1",
+    "§2",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-arqueo.component.ts": [
+    "Q.1",
+    "§2"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-branches.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-caducidad-hoja.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-caducidades-expediente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-caducidades.component.ts": [
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-cajas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-cambios-precio.component.ts": [
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-etiquetas.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "D.7"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-faltantes.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-live.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-pace.component.ts": [
+    "§2"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-retiros.component.ts": [
+    "Q.1",
+    "§2",
+    "§9",
+    "O.4"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-verificador.component.ts": [
+    "Q.1",
+    "§2"
+  ]
+}

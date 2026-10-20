@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -8,11 +9,18 @@ import { environment } from '../../../../../environments/environment';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { MetricCardComponent, type MetricChip } from '../../../../shared/components/metric-card/metric-card.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import type { Freshness } from '@megadulces/contracts';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
+import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
+import { forkJoin } from 'rxjs';
+import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import { CajaSocketService } from '../../caja-socket.service';
+import { CaosSocketService } from '../../caos-socket.service';
+import { encuestarVisible } from '../../../../core/utils/poll-visible';
 
 /** Un renglón del historial: un día, con el corte de ese día. */
 export interface CorteDia {
@@ -27,6 +35,8 @@ export interface CorteDia {
   corte_folio: string | null;
   corte_hora: string | null;
   corte_capturo: string | null;
+  /** `[CGA-A.47]` La nota del conteo del corte (p. ej. «CORTE 19/10/2026» en una recaptura). */
+  corte_observaciones?: string | null;
   corte_cuadra_ticket: boolean | null;
   total_billetes: number | string | null;
   total_monedas: number | string | null;
@@ -125,8 +135,11 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ButtonModule, TableModule, TagModule,
-    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent],
+    LoadStateComponent, SidePeekComponent, MetricStripComponent, MetricCardComponent, FreshnessPillComponent, SegmentedComponent,
+    CajaTabsComponent],
   template: `
+    <!-- [CG.121] Captura / Expediente / Caja Fuerte son UN area, no tres reportes sueltos. -->
+    <app-caja-tabs />
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -155,105 +168,110 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                      ariaLabel="Qué quieres revisar" />
 
       @if (vista() === 'corte') {
-      <!-- Q.1 answer-first: la pregunta de la mañana, antes de la rejilla. -->
+      <!-- [CGA-A.43] DESIGN Q.1 — la pregunta que trae quien abre esto a medio dia no es «cuanto se
+           conto ayer» sino «cuanto hay AHORA». Sin corte abierto el libro dice «sin medir»; aca se
+           compone lo que veria quien lo abriera: el cierre anterior + lo de hoy, DECLARADO como
+           provisional, y al lado el ultimo conteo de Control para que una discrepancia se vea. -->
+      <section class="cx-ahora" aria-labelledby="cx-h-ahora">
+        <div class="cx-ahora-cab">
+          <h2 id="cx-h-ahora" class="cx-ahora-h">¿Cuánto hay en el cajón ahora?</h2>
+          <!-- DESIGN §9 — la cifra es DERIVADA al pedirla: la edad que importa es cuándo se calculó.
+               Se recalcula con cada aviso del libro o de CAOS y cada 60 s. -->
+          <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado"></app-freshness-pill>
+        </div>
+        <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
+                        [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
+          <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora"></app-metric-strip>
+          @if (cajonNota(); as nota) { <p class="cx-ahora-nota">{{ nota }}</p> }
+        </app-load-state>
+      </section>
+      <!-- [CGA-A.47] El ultimo corte, COMPACTO. Medido en vivo el 2026-10-20 (nivel A): el bloque
+           anterior eran tres niveles de cajas, 430 px, ~150 px vacios bajo dos columnas, y a 1366 px
+           ocupaba toda la primera pantalla. Y afirmaba de mas: «la caja se conto el 20/10» sobre un
+           cierre del 19/10 recapturado, «Tarjeta» bajo «no es efectivo», y dolares y papeles como
+           si se contaran. -->
       @if (ultimo(); as u) {
-        <section class="cx-veredicto" [class.cx-veredicto-bad]="!u.tiene_corte"
-                 aria-labelledby="cx-h-ver">
-          <div class="cx-ver-head">
-            <h2 id="cx-h-ver">
-              @if (u.tiene_corte) { La caja se contó el {{ dmy(u.fecha) }} }
+        <section class="cx-corte" aria-labelledby="cx-h-ver">
+          <div class="cx-corte-cab">
+            <h2 id="cx-h-ver" class="cx-h2">
+              @if (u.tiene_corte) { Último corte: {{ corteDe(u) }} }
               @else { El {{ dmy(u.fecha) }} nadie contó la caja }
             </h2>
             @if (u.tiene_corte) {
               <p-tag [value]="u.corte_cuadra_ticket ? 'El ticket cuadra' : 'El ticket NO cuadra'"
                      [severity]="u.corte_cuadra_ticket ? 'success' : 'danger'" styleClass="cx-tag" />
-              <span class="cx-ver-meta">{{ u.corte_folio }} · {{ hhmm(u.corte_hora) }}</span>
+              <span class="cx-ver-meta">{{ u.corte_folio }} · capturado el {{ dmy(u.fecha) }} a las {{ hhmm(u.corte_hora) }}</span>
             } @else {
               <p-tag value="Sin conteo" severity="warn" styleClass="cx-tag" />
-              <span class="cx-ver-meta">{{ u.movimientos }} movimiento(s) ese día</span>
+              <span class="cx-ver-meta">{{ u.movimientos }} movimiento(s) ese día — no es cero: no se midió</span>
             }
           </div>
           @if (u.tiene_corte) {
-            <div class="cx-apartados">
-              <!-- 1) EFECTIVO EN PESOS. Lo UNICO que se cuadra contra lo que hay en el cajon. -->
-              <section class="cx-grupo cx-grupo-efe" aria-labelledby="cx-g-efe">
-                <h3 id="cx-g-efe" class="cx-grupo-h">
-                  <i class="pi pi-wallet" aria-hidden="true"></i> Efectivo en pesos
-                  <span class="cx-grupo-sub">esto es lo que se cuenta y lo que tiene que cuadrar</span>
-                </h3>
-                <div class="cx-grupo-body">
-                  <div class="cx-ap cx-ap-fuerte">
-                    <span class="cx-ap-lbl">En el cajón</span>
-                    <strong class="comm-num">{{ mx(u.total_efectivo) }}</strong>
-                    <small>{{ mx(u.total_billetes) }} en billetes · {{ mx(u.total_monedas) }} en monedas</small>
+            <!-- [CGA-A.47] Tarjetas compactas (propuesta aprobada por Edgar, 2026-10-20): cada una dice
+                 CON QUE se midio -- borde solido = contado, punteado = se arrastra sin recontar, chip
+                 «por confirmar» = interpretacion sin validar -- y trae su linea de 14 dias, donde un
+                 dia sin conteo es un HUECO, no un cero. -->
+            <div class="cx-cards">
+              <app-metric-card class="cx-card-principal" label="Efectivo en el cajón" format="text" [valueText]="mx(u.total_efectivo)"
+                               [compact]="true" [large]="true" tone="brand" variant="sparkline"
+                               [series]="serie('total_efectivo')" [seriesLabels]="serieFechas()"
+                               [deltaLabel]="deltaDe('total_efectivo').texto" [deltaDir]="deltaDe('total_efectivo').dir"
+                               [chips]="[{ texto: 'contado', tono: 'mute' }]">
+                @if (denoms().length) {
+                  <div class="cx-denoms" role="img" [attr.aria-label]="'Por denominación: ' + denomsTexto()">
+                    @for (s of denoms(); track s.etiqueta) {
+                      <span [style.width.%]="s.pct" [style.background]="s.color" [attr.title]="s.etiqueta + ' = ' + mx(s.monto)"></span>
+                    }
                   </div>
-                </div>
-              </section>
-
-              <!-- 2) DOLARES. Moneda distinta: el peso que muestra depende de un tipo de cambio
-                   que alguien tecleo, asi que se dice en USD Y en pesos, nunca solo en pesos. -->
-              <section class="cx-grupo cx-grupo-usd" aria-labelledby="cx-g-usd">
-                <h3 id="cx-g-usd" class="cx-grupo-h">
-                  <i class="pi pi-dollar" aria-hidden="true"></i> Dólares
-                  <span class="cx-grupo-sub">otra moneda — no entra al cuadre en pesos</span>
-                </h3>
-                <div class="cx-grupo-body">
-                  <div class="cx-ap">
-                    <span class="cx-ap-lbl">En custodia</span>
-                    <strong class="comm-num">{{ usd(u.dolares_usd) }} USD</strong>
-                    <small>
-                      @if (u.tipo_cambio) {
-                        ≈ {{ mx(u.total_dolares) }} al tipo de cambio {{ u.tipo_cambio }}
-                      } @else {
-                        sin tipo de cambio declarado: el valor en pesos no se puede publicar
-                      }
-                    </small>
+                  <div class="cx-leyenda">
+                    @for (s of denoms(); track s.etiqueta) { <span><i [style.background]="s.color"></i>{{ s.etiqueta }}</span> }
                   </div>
-                </div>
-              </section>
-
-              <!-- 3) CREDITO Y DEMAS PAPEL. No es dinero todavia: es una promesa. -->
-              <section class="cx-grupo cx-grupo-cre" aria-labelledby="cx-g-cre">
-                <h3 id="cx-g-cre" class="cx-grupo-h">
-                  <i class="pi pi-file-edit" aria-hidden="true"></i> Crédito y papel
-                  <span class="cx-grupo-sub">no es efectivo: es lo que alguien debe o todavía no se cobra</span>
-                </h3>
-                <div class="cx-grupo-body">
-                  <div class="cx-ap">
-                    <span class="cx-ap-lbl">Papeles por pagar</span>
-                    <strong class="comm-num">{{ mx(u.total_papeles) }}</strong>
-                  </div>
-                  <div class="cx-ap">
-                    <span class="cx-ap-lbl">Cheques</span>
-                    <strong class="comm-num">{{ mx(u.total_cheques) }}</strong>
-                  </div>
-                  <div class="cx-ap">
-                    <span class="cx-ap-lbl">Tarjeta</span>
-                    <strong class="comm-num">{{ mx(u.total_tarjeta) }}</strong>
-                  </div>
-                </div>
-              </section>
+                }
+              </app-metric-card>
+              <app-metric-card label="Cheques" format="text" [valueText]="mx(u.total_cheques)" [compact]="true" variant="sparkline"
+                               [series]="serie('total_cheques')" [seriesLabels]="serieFechas()" [accent]="'var(--text-faint)'"
+                               [deltaLabel]="deltaDe('total_cheques').texto" [deltaDir]="deltaDe('total_cheques').dir" />
+              <app-metric-card label="Tarjeta" format="text" [valueText]="mx(u.total_tarjeta)" [compact]="true" variant="sparkline"
+                               [series]="serie('total_tarjeta')" [seriesLabels]="serieFechas()" [accent]="'var(--text-faint)'"
+                               [deltaLabel]="deltaDe('total_tarjeta').texto" [deltaDir]="deltaDe('total_tarjeta').dir"
+                               [chips]="chipsTarjeta" />
+              <app-metric-card label="Dólares" format="text" [valueText]="usd(u.dolares_usd) + ' USD'" [compact]="true" medicion="arrastre"
+                               [sub]="u.tipo_cambio ? '≈ ' + mx(u.total_dolares) + ' · tipo de cambio ' + u.tipo_cambio : 'sin tipo de cambio declarado'"
+                               [chips]="[{ texto: 'sin recontar', tono: 'mute', icono: 'pi-replay' }]">
+                <div class="cx-repite"><span class="cx-repite-barra"><b [style.width.%]="repite('dolares_usd').pct"></b></span>igual en {{ repite('dolares_usd').n }} de {{ repite('dolares_usd').de }} cortes</div>
+              </app-metric-card>
+              <app-metric-card label="Papeles" format="text" [valueText]="mx(u.total_papeles)" [compact]="true" medicion="arrastre" sub="por pagar"
+                               [chips]="[{ texto: 'sin recontar', tono: 'mute', icono: 'pi-replay' }]">
+                <div class="cx-repite"><span class="cx-repite-barra"><b [style.width.%]="repite('total_papeles').pct"></b></span>igual en {{ repite('total_papeles').n }} de {{ repite('total_papeles').de }} cortes</div>
+              </app-metric-card>
             </div>
-
-            <p class="cx-ver-total">
-              Suma de los tres: <strong class="comm-num">{{ mx(u.total_declarado) }}</strong>
-              <span class="cx-dim"> — es el total que declaró Control, no lo que hay en el cajón.</span>
-            </p>
-          } @else {
-            <p class="cx-ver-hint">
-              Ese día hubo movimientos pero nadie dejó un conteo de la caja completa, así que
-              no hay con qué comparar lo que hay físicamente. No es cero: es que no se midió.
+            <!-- El total que declaro Control, como COMPOSICION: se ve de que esta hecho y que no es el cajon. -->
+            <div class="cx-total">
+              <div class="cx-total-t">Total declarado por Control<strong class="comm-num">{{ mx(u.total_declarado) }}</strong>no es lo que hay en el cajón</div>
+              <div class="cx-total-g">
+                <div class="cx-comp" role="img" [attr.aria-label]="'De qué está hecho el total: ' + composicionTexto()">
+                  @for (p of composicion(); track p.nombre) {
+                    <span [style.width.%]="p.pct" [style.background]="p.color" [attr.title]="p.nombre + ' ' + mx(p.monto)"></span>
+                  }
+                </div>
+                <div class="cx-leyenda">
+                  @for (p of composicion(); track p.nombre) { <span><i [style.background]="p.color"></i>{{ p.nombre }} {{ p.pctTexto }}</span> }
+                </div>
+              </div>
+            </div>
+            <p class="cx-codigo">
+              <span><i class="cx-mini"></i>borde sólido: se contó</span>
+              <span><i class="cx-mini cx-mini-d"></i>punteado: se arrastra, nadie lo recontó</span>
+              <span>la línea: últimos 14 días · una marca abajo = día sin conteo</span>
             </p>
           }
         </section>
       }
 
-      <app-metric-strip [items]="kpis()" ariaLabel="Resumen del historial de cortes" />
-
       <section class="cx-block dt-scope" aria-labelledby="cx-h-hist">
         <div class="cx-bh">
-          <h2 id="cx-h-hist">Historial de cortes</h2>
-          <span class="cx-hint">Elige un día para ver su expediente</span>
+          <h2 id="cx-h-hist" class="cx-h2">Historial de cortes</h2>
+          <span class="cx-hint">{{ resumenHistorial() }}</span>
         </div>
 
         <app-load-state [loading]="cargando() && !dias().length" [error]="error()"
@@ -263,29 +281,24 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                         (retry)="recargar()" />
 
         @if (dias().length) {
+          <!-- [CG.127] Paginada: un renglon por DIA; 30 por pagina es un mes. -->
+          <!-- [CGA-A.47] De 11 columnas a 8: USD, «≈ pesos» y Papeles tuvieron 1, 1 y 2 valores
+               distintos en 80 cortes (medido) — 240 celdas con la misma cifra. Su valor se dice UNA
+               vez arriba, declarado como arrastrado. -->
           <p-table [value]="dias()" size="small" dataKey="fecha" [rowHover]="true"
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
+                   [paginator]="dias().length > 30" [rows]="30"
+                   [rowsPerPageOptions]="[30, 60, 90]"
+                   [showCurrentPageReport]="true"
+                   currentPageReportTemplate="{first}–{last} de {totalRecords} días"
                    selectionMode="single" [selection]="diaSel()" (selectionChange)="abrir($event)">
             <ng-template #header>
-              <!-- Las tres familias, rotuladas. Sin esta fila, efectivo, dolares y credito se
-                   leen como una sola cifra corrida y el que revisa en la mañana suma lo que no
-                   se suma: solo la primera columna cuadra contra lo que hay en el cajon. -->
-              <tr class="cx-grp-row">
-                <th scope="colgroup" colspan="2"></th>
-                <th scope="colgroup" class="cx-grp cx-grp-efe">Efectivo en pesos</th>
-                <th scope="colgroup" class="cx-grp cx-grp-usd" colspan="2">Dólares</th>
-                <th scope="colgroup" class="cx-grp cx-grp-cre" colspan="3">Crédito y papel</th>
-                <th scope="colgroup" colspan="3"></th>
-              </tr>
               <tr>
                 <th scope="col">Día</th>
                 <th scope="col">Corte</th>
-                <th scope="col" class="comm-num cx-grp-efe">En el cajón</th>
-                <th scope="col" class="comm-num cx-grp-usd">USD</th>
-                <th scope="col" class="comm-num cx-grp-usd">≈ pesos</th>
-                <th scope="col" class="comm-num cx-grp-cre">Papeles</th>
-                <th scope="col" class="comm-num cx-grp-cre">Cheques</th>
-                <th scope="col" class="comm-num cx-grp-cre">Tarjeta</th>
+                <th scope="col" class="comm-num">Efectivo en el cajón</th>
+                <th scope="col" class="comm-num">Cheques</th>
+                <th scope="col" class="comm-num">Tarjeta (Control)</th>
                 <th scope="col" class="comm-num">Total declarado</th>
                 <th scope="col" class="comm-num">Movimientos</th>
                 <th scope="col">Revisar</th>
@@ -298,31 +311,19 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                   @if (d.tiene_corte) {
                     <span class="cx-mono">{{ d.corte_folio }}</span>
                     <span class="cx-dim"> · {{ hhmm(d.corte_hora) }}</span>
+                    @if (d.corte_observaciones) { <span class="cx-dim"> · «{{ d.corte_observaciones }}»</span> }
                   } @else { <span class="cx-dim">sin conteo</span> }
                 </td>
-                <td role="cell" data-label="Efectivo en el cajón" class="comm-num cx-grp-efe cx-strong">
+                <td role="cell" data-label="Efectivo en el cajón" class="comm-num cx-strong">
                   @if (d.tiene_corte) { {{ mx(d.total_efectivo) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Dólares (USD)" class="comm-num cx-grp-usd">
-                  @if (d.tiene_corte) { {{ usd(d.dolares_usd) }} } @else { <span class="cx-dim">—</span> }
-                </td>
-                <td role="cell" data-label="Dólares en pesos" class="comm-num cx-grp-usd">
-                  @if (d.tiene_corte && d.tipo_cambio) { {{ mx(d.total_dolares) }} }
-                  <!-- El texto va VISIBLE, no en un title: un title solo existe para quien
-                       tiene mouse, y esta pantalla se revisa tambien desde el telefono. -->
-                  @else if (d.tiene_corte) { <span class="cx-dim">sin tipo de cambio</span> }
-                  @else { <span class="cx-dim">—</span> }
-                </td>
-                <td role="cell" data-label="Papeles" class="comm-num cx-grp-cre">
-                  @if (d.tiene_corte) { {{ mx(d.total_papeles) }} } @else { <span class="cx-dim">—</span> }
-                </td>
-                <td role="cell" data-label="Cheques" class="comm-num cx-grp-cre">
+                <td role="cell" data-label="Cheques" class="comm-num">
                   @if (d.tiene_corte) { {{ mx(d.total_cheques) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Tarjeta" class="comm-num cx-grp-cre">
+                <td role="cell" data-label="Tarjeta (Control)" class="comm-num">
                   @if (d.tiene_corte) { {{ mx(d.total_tarjeta) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Total declarado" class="comm-num cx-strong">
+                <td role="cell" data-label="Total declarado" class="comm-num cx-dim">
                   @if (d.tiene_corte) { {{ mx(d.total_declarado) }} } @else { <span class="cx-dim">—</span> }
                 </td>
                 <td role="cell" data-label="Movimientos" class="comm-num">{{ d.movimientos }}</td>
@@ -440,60 +441,39 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
 
     .cx-actions { display:flex; gap:var(--sp-2); align-items:center; }
 
-    .cx-veredicto {
-      border:1px solid var(--border-color); border-radius:var(--r-lg);
-      padding:var(--sp-4); margin-block:var(--sp-4);
-      background:var(--overlay-hover);
-    }
-    .cx-veredicto-bad { border-color:var(--warn-fg); }
-    .cx-ver-head { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; }
-    .cx-ver-head h2 { margin:0; font-size:var(--fs-h3); }
+    .cx-ahora { margin-block:var(--sp-4) var(--sp-2); }
+    .cx-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
+    .cx-ahora-h { font-size:var(--fs-h3); font-weight:600; margin:0; }
+    .cx-ahora-nota { font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 0; max-width:60rem; }
+    /* [CGA-A.47] El ultimo corte, compacto: una cabecera de una linea y una tira de cifras, sin
+       paneles anidados. La jerarquia la lleva el peso (DESIGN Q.5), no mas cajas. */
+    .cx-corte { margin-block:var(--sp-4); padding-block:var(--sp-3); border-block:1px solid var(--border-color); }
+    .cx-corte-cab { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; margin-bottom:var(--sp-2); }
+    .cx-h2 { margin:0; font-size:var(--fs-h3); font-weight:600; }
     .cx-ver-meta { color:var(--text-muted); font-size:var(--fs-sm); }
-    .cx-ver-hint { margin:var(--sp-3) 0 0; color:var(--text-muted); max-width:52rem; }
-
-    .cx-apartados {
-      display:grid; gap:var(--sp-3); margin-top:var(--sp-4);
-      grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr));
-      align-items:start;
-    }
-
-    /* [CG.107] Las TRES familias separadas. Edgar: "separemos dls, efectivo y credito".
-       No es cosmetico: solo la primera cuadra contra lo que hay en el cajon, la segunda esta
-       en otra moneda y la tercera todavia no es dinero. Verlas corridas invita a sumarlas. */
-    .cx-grupo {
-      border:1px solid var(--border-color); border-radius:var(--r-md);
-      padding:var(--sp-3); background:var(--surface-card);
-      border-top-width:3px;
-    }
-    .cx-grupo-efe { border-top-color:var(--action); }
-    .cx-grupo-usd { border-top-color:var(--text-muted); }
-    .cx-grupo-cre { border-top-color:var(--warn-fg); }
-    .cx-grupo-h {
-      margin:0 0 var(--sp-3); font-size:var(--fs-sm); display:flex; flex-wrap:wrap;
-      align-items:baseline; gap:var(--sp-2);
-    }
-    .cx-grupo-h i { color:var(--text-muted); }
-    .cx-grupo-sub { flex:1 1 100%; font-weight:400; color:var(--text-faint); font-size:var(--fs-micro); }
-    .cx-grupo-body { display:flex; flex-direction:column; gap:var(--sp-2); }
-    .cx-ver-total { margin:var(--sp-3) 0 0; font-size:var(--fs-sm); }
-
-    /* En la tabla las familias se rotulan con una fila de grupo. El tinte es AYUDA, no la
-       señal: la señal es el texto del encabezado, que sobrevive a Alto Contraste. */
-    .cx-grp { font-size:var(--fs-micro); color:var(--text-muted); text-align:center; font-weight:400; }
-    .cx-grp-row th { border-bottom:none; padding-bottom:0; }
-    .cx-grp-efe { background:color-mix(in srgb, var(--action) 7%, transparent); }
-    .cx-grp-usd { background:var(--overlay-hover); }
-    .cx-grp-cre { background:color-mix(in srgb, var(--warn-fg) 7%, transparent); }
-    .cx-ap {
-      display:flex; flex-direction:column; gap:var(--sp-1);
-      padding:var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md);
-      background:var(--surface-card);
-    }
-    .cx-ap-lbl { color:var(--text-muted); font-size:var(--fs-sm); }
-    .cx-ap strong { font-size:var(--fs-lg); }
-    .cx-ap small { color:var(--text-faint); font-size:var(--fs-micro); }
-    .cx-ap-fuerte { border-color:var(--action); }
-    .cx-ap-total strong { color:var(--text-main); }
+    /* Tarjetas: llenan el ancho; la del efectivo ocupa dos columnas (es la que se cuadra). */
+    .cx-cards { display:grid; gap:var(--sp-2); grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr)); }
+    .cx-card-principal { grid-column:span 2; }
+    .cx-denoms { display:flex; height:8px; border-radius:999px; overflow:hidden; background:var(--overlay-hover); margin-top:var(--sp-1); }
+    .cx-denoms span { height:100%; }
+    .cx-leyenda { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); font-size:var(--fs-micro); color:var(--text-muted); }
+    .cx-leyenda i { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:var(--sp-1); }
+    .cx-repite { display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-xs); color:var(--text-muted); }
+    .cx-repite-barra { flex:1; height:4px; border-radius:999px; background:var(--overlay-hover); overflow:hidden; }
+    .cx-repite-barra b { display:block; height:100%; background:var(--text-faint); }
+    .cx-total { display:grid; grid-template-columns:auto 1fr; gap:var(--sp-2) var(--sp-4); align-items:center; margin-top:var(--sp-2);
+                padding:var(--sp-3) var(--sp-4); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
+    .cx-total-t { font-size:var(--fs-xs); color:var(--text-muted); }
+    .cx-total-t strong { display:block; font-size:var(--fs-lg); color:var(--text-main); }
+    .cx-total-g { display:flex; flex-direction:column; gap:var(--sp-2); min-width:0; }
+    .cx-comp { display:flex; height:10px; border-radius:999px; overflow:hidden; }
+    .cx-comp span { height:100%; }
+    .cx-comp span + span { box-shadow:inset 1px 0 0 var(--card-bg); }
+    .cx-codigo { display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); margin:var(--sp-2) 0 0; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cx-codigo span { display:inline-flex; align-items:center; gap:var(--sp-2); }
+    .cx-mini { display:inline-block; width:18px; height:12px; border-radius:3px; border:1.5px solid var(--text-faint); }
+    .cx-mini-d { border-style:dashed; }
+    @container (max-width: 44rem) { .cx-card-principal { grid-column:auto; } .cx-total { grid-template-columns:1fr; } }
 
     /* [CG.106] Los dias como atajo del Expediente. Botones de verdad, no divs con click:
        asi llegan por teclado y el lector de pantalla dice cual esta elegido (aria-pressed). */
@@ -548,7 +528,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
     .cx-cust small { color:var(--text-faint); font-size:var(--fs-micro); }
   `],
 })
-export class FinanzasCajaExpedienteComponent implements OnInit {
+export class FinanzasCajaExpedienteComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/caja-control`;
 
@@ -590,32 +570,111 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
   /** El día más reciente: es el que se revisa en la mañana. */
   readonly ultimo = computed<CorteDia | null>(() => this.dias()[0] ?? null);
 
-  readonly kpis = computed<MetricStripItem[]>(() => {
+  /**
+   * ⛔ `[CGA-A.47]` **Qué cierre es, de verdad.** La vista agrupa por la fecha en que Control
+   * CAPTURÓ el conteo, y a veces recaptura un cierre al día siguiente: el 2026-10-20 la pantalla
+   * decía «La caja se contó el 20/10/26» sobre A23678, cuya nota dice «CORTE 19/10/2026». Si la
+   * nota nombra otro día, se dice ese día y que se recapturó; si no, la fecha de captura.
+   */
+  corteDe(u: CorteDia): string {
+    const m = /CORTE\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i.exec(u.corte_observaciones ?? '');
+    if (m) {
+      const dia = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+      if (dia !== String(u.fecha).slice(0, 10)) return `cierre del ${this.dmy(dia)}, recapturado`;
+      return `cierre del ${this.dmy(dia)}`;
+    }
+    return `se contó el ${this.dmy(u.fecha)}`;
+  }
+
+  // ── `[CGA-A.47]` Las tarjetas del último corte ────────────────────────────────────────────
+
+  /** Los últimos 14 días, del más viejo al más nuevo (así se lee una línea de tiempo). */
+  private readonly ultimos14 = computed<CorteDia[]>(() => this.dias().slice(0, 14).reverse());
+  readonly serieFechas = computed<string[]>(() => this.ultimos14().map((d) => this.dmy(d.fecha)));
+
+  /** La serie de una columna: `null` el día que nadie contó — la sparkline lo pinta como hueco, no como cero. */
+  serie(k: keyof CorteDia): (number | null)[] {
+    return this.ultimos14().map((d) => (d.tiene_corte && d[k] != null ? Number(d[k]) : null));
+  }
+
+  /** Contra el corte ANTERIOR que sí se contó: flecha + texto, no sólo color (estándar 2.3). */
+  deltaDe(k: keyof CorteDia): { texto: string; dir: 'up' | 'down' | 'flat' } {
+    const contados = this.dias().filter((d) => d.tiene_corte && d[k] != null);
+    if (contados.length < 2) return { texto: '', dir: 'flat' };
+    const a = Number(contados[0][k]);
+    const b = Number(contados[1][k]);
+    const dif = Math.round((a - b) * 100) / 100;
+    const cuando = this.dmy(contados[1].fecha).slice(0, 5);
+    if (Math.abs(dif) < 0.005) return { texto: `igual que el ${cuando}`, dir: 'flat' };
+    return { texto: `${this.mx(Math.abs(dif))} vs ${cuando}`, dir: dif > 0 ? 'up' : 'down' };
+  }
+
+  /** Cuántos cortes repiten el valor del último: lo que NO cambia no se está contando. */
+  repite(k: keyof CorteDia): { n: number; de: number; pct: number } {
+    const u = this.ultimo();
+    const d = this.dias().filter((x) => x.tiene_corte);
+    if (!u?.tiene_corte || !d.length) return { n: 0, de: 0, pct: 0 };
+    const n = d.filter((x) => String(x[k]) === String(u[k])).length;
+    return { n, de: d.length, pct: Math.round((n / d.length) * 100) };
+  }
+
+  /**
+   * ⚠️ «Tarjeta» de Control: en los cortes del 19 y 20-oct-2026 coincidió AL PESO con el saldo de
+   * la caja fuerte ($360,020), medido con el replay de CAOS ya validado. Probablemente el cajero
+   * anota ahí la caja fuerte; NO está confirmado con operación. Va como chip «por confirmar», con
+   * la fecha en el title para que no se lea como regla.
+   */
+  readonly chipsTarjeta: MetricChip[] = [
+    { texto: 'según Control', tono: 'mute' },
+    { texto: '¿caja fuerte? · por confirmar', tono: 'info', icono: 'pi-info-circle',
+      title: 'En los cortes del 19 y 20-oct-2026 coincidió al peso con el saldo de la caja fuerte (CAOS). Falta confirmarlo con operación.' },
+  ];
+
+  /** Barra por denominación del efectivo contado. Escala TONAL del color de acción: sin arcoíris. */
+  readonly denoms = computed<{ etiqueta: string; monto: number; pct: number; color: string }[]>(() => {
+    const u = this.ultimo();
+    if (!u?.tiene_corte) return [];
+    const total = Number(u.total_efectivo ?? 0);
+    if (!total) return [];
+    const tono = (p: number) => `color-mix(in srgb, var(--action) ${p}%, var(--border-color))`;
+    const filas: { d: number; k: string; color: string }[] = [
+      { d: 1000, k: 'b1000', color: 'var(--text-muted)' }, { d: 500, k: 'b500', color: 'var(--action)' },
+      { d: 200, k: 'b200', color: tono(70) }, { d: 100, k: 'b100', color: tono(48) },
+      { d: 50, k: 'b50', color: tono(32) }, { d: 20, k: 'b20', color: tono(20) },
+    ];
+    const out = filas
+      .map((f) => ({ q: Number(u[f.k] ?? 0), ...f }))
+      .filter((f) => f.q > 0)
+      .map((f) => ({ etiqueta: `$${f.d} ×${f.q}`, monto: f.d * f.q, pct: ((f.d * f.q) / total) * 100, color: f.color }));
+    const mon = Number(u.total_monedas ?? 0);
+    if (mon > 0) out.push({ etiqueta: `monedas ${this.mx(mon)}`, monto: mon, pct: Math.max((mon / total) * 100, 0.6), color: 'var(--text-faint)' });
+    return out;
+  });
+  readonly denomsTexto = computed(() => this.denoms().map((s) => s.etiqueta).join(', '));
+
+  /** El total que declaró Control, como composición: se ve de qué está hecho. */
+  readonly composicion = computed<{ nombre: string; monto: number; pct: number; pctTexto: string; color: string }[]>(() => {
+    const u = this.ultimo();
+    if (!u?.tiene_corte) return [];
+    const partes = [
+      { nombre: 'Efectivo', monto: Number(u.total_efectivo ?? 0), color: 'var(--action)' },
+      { nombre: 'Tarjeta', monto: Number(u.total_tarjeta ?? 0), color: 'var(--chart-2)' },
+      { nombre: 'Dólares', monto: Number(u.total_dolares ?? 0), color: 'var(--chart-8)' },
+      { nombre: 'Papeles', monto: Number(u.total_papeles ?? 0), color: 'color-mix(in srgb, var(--chart-8) 45%, transparent)' },
+      { nombre: 'Cheques', monto: Number(u.total_cheques ?? 0), color: 'var(--chart-7)' },
+    ].filter((p) => p.monto > 0);
+    const t = partes.reduce((a, p) => a + p.monto, 0) || 1;
+    return partes.map((p) => ({ ...p, pct: (p.monto / t) * 100, pctTexto: `${Math.round((p.monto / t) * 100)}%` }));
+  });
+  readonly composicionTexto = computed(() => this.composicion().map((p) => `${p.nombre} ${p.pctTexto}`).join(', '));
+
+  /** `[CGA-A.47]` Lo que antes era una tira de 4 KPI (dos repetían cifras de arriba), en una línea. */
+  readonly resumenHistorial = computed<string>(() => {
     const d = this.dias();
-    if (!d.length) return [];
+    if (!d.length) return 'Elige un día para ver su expediente';
     const sinConteo = d.filter((x) => !x.tiene_corte).length;
     const sinCuadrar = d.reduce((a, x) => a + Number(x.tickets_que_no_cuadran || 0), 0);
-    const u = d[0];
-    return [
-      { label: 'Días en el historial', value: d.length, format: 'number' },
-      {
-        label: 'Días sin conteo', value: sinConteo, format: 'number',
-        tone: sinConteo ? 'warn' : 'ok',
-        sub: sinConteo ? 'nadie contó la caja esos días' : 'todos los días tienen su conteo',
-      },
-      {
-        label: 'Tickets que no cuadran', value: sinCuadrar, format: 'number',
-        tone: sinCuadrar ? 'bad' : 'ok',
-        sub: 'las piezas no dan el efectivo declarado',
-      },
-      {
-        label: 'Efectivo del último corte',
-        value: u.tiene_corte ? Number(u.total_efectivo ?? 0) : 0,
-        format: 'currency2',
-        state: u.tiene_corte ? 'medido' : 'no_medido',
-        stateNote: u.tiene_corte ? undefined : 'ese día nadie contó la caja',
-      },
-    ];
+    return `${d.length} días · ${sinConteo} sin conteo · ${sinCuadrar} ticket(s) sin cuadrar · elige un día para ver su expediente`;
   });
 
   readonly subtituloPeek = computed<string | null>(() => {
@@ -628,15 +687,160 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
     return partes.join(' · ');
   });
 
-  ngOnInit(): void { this.recargar(); }
+  // ── `[CGA-A.43]` El cajón AHORA ──────────────────────────────────────────────────────────
+  //
+  // ⚠️ La caja de oficinas es la sucursal `00` (la misma que usa Captura para CAOS y el corte).
+  private readonly cajas = inject(CashLedgerService);
+  readonly cajonFondo = signal<FondoSugerido | null>(null);
+  readonly cajonSaldo = signal<SaldoResponse | null>(null);
+  readonly cajonCargando = signal(false);
+  readonly cajonError = signal<string | null>(null);
 
-  recargar(): void {
-    this.cargando.set(true);
-    this.error.set(null);
+  /** Cuándo se calculó el cajón por última vez (hora del navegador: la cifra es DERIVADA al pedirla). */
+  readonly cajonAl = signal<string | null>(null);
+
+  cargarCajon(): void {
+    this.cajonCargando.set(true);
+    forkJoin({ f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00') }).subscribe({
+      next: ({ f, s }) => {
+        this.cajonFondo.set(f); this.cajonSaldo.set(s);
+        this.cajonError.set(null); this.cajonCargando.set(false);
+        this.cajonAl.set(new Date().toISOString());
+      },
+      error: () => { this.cajonError.set('No se pudo leer el saldo del libro de Caja General.'); this.cajonCargando.set(false); },
+    });
+  }
+
+  /**
+   * ⭐ `[CGA-A.43]` Tres cifras, y cada una dice con qué se calculó:
+   *
+   *  · **corte abierto** → el esperado del corte (fondo + lo capturado). Derivado, no contado.
+   *  · **sin corte** → el cierre anterior + el efecto de los movimientos de hoy (el `esperado` del
+   *    motor con fondo `null` ES ese efecto: `(fondo ?? 0) + ingresos − gastos − depósitos +
+   *    dispensado − depositado`). Es exactamente lo que vería quien abriera el corte ahora, sin
+   *    fórmula nueva. Se marca **provisional**: nadie lo contó hoy.
+   *  · **arqueo ciego** → a quien no autoriza el servidor no le manda el esperado, y aquí se dice
+   *    en vez de dibujar un cero.
+   *
+   * La tercera es el último conteo de Control, como CONTRASTE: el 2026-10-20 el cierre del 19-oct
+   * existía en dos versiones ($88,272.50 en la suite, $288,972.50 recapturado en Control) y un
+   * provisional que callara la otra afirmaría una certeza que nadie tiene.
+   */
+  readonly cajonKpis = computed<MetricStripItem[]>(() => {
+    const f = this.cajonFondo();
+    const s = this.cajonSaldo();
+    const items: MetricStripItem[] = [];
+    const efecto = s && !s.saldo_oculto && s.totales?.esperado != null ? Number(s.totales.esperado) : null;
+    let base: number | null = null;
+
+    if (!s) {
+      items.push({ label: 'En el cajón ahora', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
+    } else if (s.saldo_oculto) {
+      items.push({ label: 'En el cajón ahora', value: 'oculto', state: 'no_medido',
+        stateNote: 'Arqueo ciego: el esperado sólo lo ve quien autoriza el corte.' });
+    } else if (s.corte_abierto && s.saldo != null) {
+      base = Number(s.saldo);
+      items.push({ label: 'En el cajón ahora', value: money(base), state: 'derivado',
+        method: `fondo del corte ${s.corte_abierto.folio} + lo capturado; no es un conteo`,
+        sub: `según el corte abierto ${s.corte_abierto.folio}` });
+    } else if (f?.monto != null && efecto != null) {
+      base = Number(f.monto) + efecto;
+      items.push({ label: 'En el cajón ahora', value: money(base), state: 'derivado', tone: 'warn',
+        method: `cierre anterior (${f.procedencia ?? 'su conteo'}) + ${s.totales.movimientos} movimiento(s) de hoy`,
+        sub: 'provisional · nadie ha abierto ni contado el corte de hoy' });
+    } else {
+      items.push({ label: 'En el cajón ahora', value: 'sin medir', state: 'no_medido',
+        stateNote: 'No hay cierre anterior medido del que partir.' });
+    }
+
+    if (efecto != null && s && !s.corte_abierto) {
+      const disp = Number(s.cajero?.dispensado ?? 0);
+      items.push({ label: 'Lo de hoy', value: `${efecto < 0 ? '−' : '+'}${money(Math.abs(efecto))}`,
+        sub: `${s.totales.movimientos} capturado(s)` + (disp ? ` · CAOS dispensó ${money(disp)}` : '') });
+    }
+
+    // `[CGA-A.47]` El último conteo de Control ya NO va en esta tira: la sección «Último corte»,
+    // justo abajo, publica la misma cifra. La discrepancia contra el cierre del que parte el
+    // provisional se sigue diciendo, con sus dos montos, en `cajonNota`.
+    return items;
+  });
+
+  /** Lo que el provisional NO sabe, dicho en una línea — y la discrepancia, si la hay. */
+  readonly cajonNota = computed<string | null>(() => {
+    const f = this.cajonFondo();
+    const s = this.cajonSaldo();
+    const u = this.ultimo();
+    const partes: string[] = [];
+    if (u?.tiene_corte && f?.monto != null) {
+      const dif = Math.round((Number(u.total_efectivo ?? 0) - Number(f.monto)) * 100) / 100;
+      if (Math.abs(dif) > 0.005) {
+        partes.push(`El cierre del que parte (${money(Number(f.monto))}) y el último conteo de Control ${u.corte_folio} `
+          + `(${money(Number(u.total_efectivo ?? 0))}) difieren ${money(Math.abs(dif))}: uno de los dos está mal o falta registrar algo. `
+          + 'Sólo un conteo lo resuelve.');
+      }
+    }
+    if (s && !s.corte_abierto && !s.saldo_oculto) {
+      partes.push('Para que deje de ser provisional: Captura → «Abrir corte» y contar.');
+      const ant = s.sueltos_fuera?.anteriores;
+      if (ant?.movimientos) partes.push(`No incluye ${ant.movimientos} movimiento(s) sueltos de días anteriores (neto ${money(ant.neto)}).`);
+    }
+    return partes.length ? partes.join(' ') : null;
+  });
+
+  private readonly sockCaja = inject(CajaSocketService);
+  private readonly sockCaos = inject(CaosSocketService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
+
+  ngOnInit(): void {
+    this.recargar();
+    this.enVivo();
+  }
+
+  ngOnDestroy(): void {
+    this.sockCaja.disconnect();
+    this.sockCaos.disconnect();
+  }
+
+  /**
+   * `[CGA-A.43]` **El cajón se recalcula solo.** Antes cargaba al abrir y al apretar
+   * «Actualizar»: con la pantalla abierta, los movimientos seguían entrando y la cifra se quedaba
+   * vieja sin decirlo. Tres disparadores, cada uno por una razón:
+   *
+   *  · aviso del LIBRO (`/caja`): alguien capturó algo → el efecto del día cambió;
+   *  · aviso de CAOS (`/caos`): la máquina dispensó o recibió billetes → el cajón cambió aunque
+   *    nadie capture nada (en el corte, lo dispensado está en el cajón hasta que se registre);
+   *  · repaso de 60 s con la pestaña visible: un conteo nuevo de Control llega por réplica y NO
+   *    avisa; y un aviso perdido no deja rastro. Medido 2026-10-20: cajón ~100 ms, historial de
+   *    Control ~300 ms.
+   *
+   * Los avisos sólo recalculan el CAJÓN (barato); el historial entra con el repaso.
+   */
+  private enVivo(): void {
+    try {
+      this.sockCaja.connect();
+      this.sockCaja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.cargarCajon());
+      this.sockCaos.connect();
+      this.sockCaos.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.cargarCajon());
+    } catch (e) {
+      console.warn('[expediente] sin avisos en vivo; queda el repaso:', e);
+    }
+    encuestarVisible(60000, () => this.recargar(true), { destroyRef: this.destroyRef, zone: this.zone });
+  }
+
+  /**
+   * @param silencioso `[CGA-A.43]` El repaso de 60 s NO vuelve a pintar el esqueleto sobre una tabla
+   *   que ya tiene datos (parpadearía cada minuto), y un fallo de ese repaso no borra lo que se ve:
+   *   se declara en `error` sólo si no había nada que mostrar.
+   */
+  recargar(silencioso = false): void {
+    this.cargarCajon();
+    const conDatos = this.dias().length > 0;
+    if (!(silencioso && conDatos)) { this.cargando.set(true); this.error.set(null); }
     this.http.get<{ rows: CorteDia[]; frescura?: Freshness }>(`${this.base}/cortes?limit=90`).subscribe({
-      next: (r) => { this.dias.set(r?.rows ?? []); this.frescura.set(r?.frescura ?? null); this.cargando.set(false); },
+      next: (r) => { this.dias.set(r?.rows ?? []); this.frescura.set(r?.frescura ?? null); this.cargando.set(false); this.error.set(null); },
       error: () => {
-        this.error.set('No se pudo traer el historial de cortes.');
+        if (!(silencioso && conDatos)) this.error.set('No se pudo traer el historial de cortes.');
         this.cargando.set(false);
       },
     });

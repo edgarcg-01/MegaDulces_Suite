@@ -28,6 +28,23 @@ export interface ProntoPagoRow {
   fecha_limite: string | null;
   dias_restantes: number | null;
   estado: EstadoPronto;
+  /**
+   * `[TP.18.3]` **Con qué se programa esta factura en el Calendario** (O2). Lo decide el servidor
+   * con la misma regla de dedupe del Calendario: si Compras ya la capturó como entrega manda esa
+   * obligación; si no, va por la deuda derivada de Kepler con su llave determinística.
+   */
+  obligation_source: 'supplier_payable' | 'kepler_payable';
+  obligation_id: string;
+  /**
+   * `[TP.20.5]` **El ref de la ficha de esta factura** — la vida completa del documento: deuda,
+   * ventana, en qué día quedó programada, con qué pago de Kepler salió y si hay comprobante. Lo
+   * arma el servidor; acá sólo se abre.
+   */
+  entity_ref: string;
+  reservado: number;
+  pagado: number;
+  /** Lo que todavía se puede mandar al Calendario: `pendiente − reservado − pagado`. */
+  programable: number;
   /** `[PP.2]` Por qué. Lo arma el SERVIDOR: es el único que sabe con qué evidencia se calculó. */
   motivo: MotivoPronto;
   /** La misma razón, en una frase que se lee sin saber de dónde salió el número. */

@@ -164,6 +164,50 @@ const COMPUERTAS = [
   // parrafo sale distinto en Windows, en Android y en el navegador del vendedor.
   { nombre: 'sin emojis', script: 'check-no-emoji-ui.js', que: 'el texto que ve el usuario no lleva emojis (iconos, nunca emojis)', push: true, ms: 420 },
   { nombre: 'teclado', script: 'check-keyboard-nav.js', que: 'lo que se hace con el mouse se puede hacer con el teclado (DESIGN D.7)', push: true, ms: 197 },
+  /**
+   * `[AUD.3]` — **Las 10 reglas de contrato de producto existían y NO LAS CORRÍA NADIE.**
+   *
+   * `check-pantalla.js` nació en `[AUD.1]` y quedó fuera de los dos runners: no estaba en este
+   * registro, así que ni `npm run check` ni el push lo tocaban. Verificado el 2026-10-19: cero
+   * menciones en `ci.yml` y cero en el `pre-push`. Corría sólo si alguien se acordaba — y la
+   * skill `diseno` lo pide, pero una skill es una instrucción, no un mecanismo. Es la misma
+   * forma de fallar que el encabezado de este archivo ya documenta dos veces (`tablas densas` y
+   * `tokens CSS` sólo en el push; `motion` y `estilos` sólo en `ci.yml`), y la misma lección que
+   * costó los 9 Python huérfanos: **no faltaba la regla, faltaba el mecanismo.**
+   *
+   * Lo que midió el no-ejecutarse: **247 de 267 pantallas con falla, 629 fallas** (§2 matriz de
+   * estados 206 · §9 frescura 198 · Q.1 answer-first 152).
+   *
+   * ⛔ Por eso NACE CON DEUDA SELLADA (`check-pantalla.deuda.json`, 2026-10-19) y frena sólo lo
+   * NUEVO. Encendida en duro sobre el árbol entero, nacería roja para los cuatro y la apagarían
+   * el primer día — que es exactamente cómo se muere una compuerta.
+   *
+   * ⚠️ Tres cambios hicieron falta para que pudiera ser compuerta, y los tres eran defectos:
+   * sin argumento salía con `exit 1` y un texto sin rutas (que `gate-push` lee como deuda ajena
+   * y deja pasar), imprimía el nombre del componente en vez de la ruta, y terminaba en
+   * `process.exit(0)` SIEMPRE — o sea que no podía ponerse roja ni queriendo.
+   */
+  { nombre: 'pantalla', script: 'check-pantalla.js', que: 'ninguna falla NUEVA de contrato de producto: answer-first, 3 estados, frescura, teclado (DESIGN)', push: true, ms: 241 },
+  /**
+   * `[AUD.10]` — **La PRIMERA compuerta de la capa Veracidad**, que no tenía ninguna.
+   *
+   * Las 32 de arriba verifican **presencia de piezas** o propiedades del archivo. Ninguna caza
+   * que la pantalla **afirme algo que no es** — y ahí vivió todo el daño medido esta semana.
+   *
+   * El caso, en producción el 2026-10-20: el libro de Caja General publicaba **248 movimientos
+   * y pintaba 100**. **148 filas, $1,943,998.57**, invisibles y sin aviso. Dos omisiones de una
+   * línea: no se mandaba `limit` y `has_more` llegaba y nadie lo miraba.
+   *
+   * ⛔ Y un paginador lo habría EMPEORADO: publica «1–25 de 100» con total seguridad mientras el
+   * encabezado dice 248. La confianza que da un control es parte de lo que afirma.
+   *
+   * Marca sólo cuando se dan **las dos** cosas: llama a un método con tope sin mandarlo **y** no
+   * mira ninguna señal (`has_more`, `truncad`…). Nace con **27 pantallas selladas** y frena lo
+   * NUEVO. ⚠️ El primer intento dio 41 **con falsos adentro** —`this.cortes()` es una lectura de
+   * signal, no una llamada— y se arregló exigiendo DOS segmentos (`this.svc.x(`). Lo destapó
+   * verificar dos hallazgos a mano antes de sellar, no el `--self-test`.
+   */
+  { nombre: 'cifra recorrible', script: 'check-cifra-recorrible.js', que: 'ninguna lista NUEVA se topa en silencio: o manda limit, o declara que se topó (ESTANDAR §1.2)', push: true, ms: 900 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },
   // `[DS.1]` / `[DS.3]` Las dos de la auditoría del design system (2026-10-02/03). ⚠️ Nacieron
   // cableadas SÓLO en `ci.yml` — o sea que `npm run check` no las corría y el push tampoco, que
@@ -176,7 +220,7 @@ const COMPUERTAS = [
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
-  { nombre: 'docker-ctx', cmd: 'node scripts/check-docker-context.js', que: 'los Dockerfiles copian lo que los configs de proyecto importan de la raíz' },
+  { nombre: 'docker-ctx', script: 'check-docker-context.js', que: 'los Dockerfiles copian lo que los configs de proyecto importan de la raíz', push: true, ms: 235 },
   // `[CT.9]` El handle que dice "producción" tiene que SER producción. Medido el 2026-09-25,
   // tres días después del corte: `FLEET_DB_URL` seguía apuntando a Railway, **que no se apagó**.
   // Los dos clústeres tienen una base llamada `railway`, los dos responden, y el equivocado va
@@ -189,7 +233,7 @@ const COMPUERTAS = [
   // typecheck sale rojo con TS2307 "Cannot find module", que se lee como un error del código y
   // no lo es. Medido el 2026-09-18: así estaba —5 errores, cero de ellos reales— porque a
   // `tsconfig.ts7.json` le faltaban 6 alias y le sobraban 3 de una lib que ya no existe.
-  { nombre: 'ts7-paths', cmd: 'node scripts/check-ts7-paths.js', que: 'el mapa de `paths` del typecheck no se desfasó del build' },
+  { nombre: 'ts7-paths', script: 'check-ts7-paths.js', que: 'el mapa de `paths` del typecheck no se desfasó del build', push: true, ms: 105 },
   // Un `.ps1` con ParserError no falla una línea: NO COMPILA ENTERO y el script no ejecuta ni su
   // primera instrucción. Medido el 2026-09-22: así estuvo `backup-db.ps1` durante 12 días, con la
   // tarea "corriendo" a diario y cero respaldos de prod. Y hay 26 `.ps1` versionados, varios
@@ -238,7 +282,7 @@ const COMPUERTAS = [
   // recorre menos ramas de las que hay, no da error, y no puede reportar faltantes porque una rama
   // que no mira no puede faltarle nada. Ya cobró dos veces (Morelia fuera de `mv_sales_blended`
   // por $1.64M; y el reconciliador nocturno sin mirar 07/08, con 2,987 pedidos fantasma en el ODS).
-  { nombre: 'sucursales', cmd: 'node scripts/check-branch-catalog.js', que: 'la lista de sucursales sale del catálogo canónico, no de una cadena a mano' },
+  { nombre: 'sucursales', script: 'check-branch-catalog.js', que: 'la lista de sucursales sale del catálogo canónico, no de una cadena a mano', push: true, ms: 668 },
   // [VL.16] Postgres rechaza parámetros ligados en `SET` (42601). El 2026-09-23 esa forma en
   // `login-core.ts` dejó el login de PROD devolviendo 500 a todo el mundo y hubo que volver la
   // versión anterior en caliente. El mismo defecto en `freshness.ts` era peor: caía en un `catch`

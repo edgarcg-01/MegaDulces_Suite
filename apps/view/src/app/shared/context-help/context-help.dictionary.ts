@@ -1777,6 +1777,73 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // ⭐ `[CGS.2]` La pestaña «Arqueos»: el mismo cajón contado dos veces. Todo lo de acá está
+  // medido sobre los 7 cortes del 12 al 19-oct-2026, no redactado de memoria. Es un tópico
+  // APARTE de `caja-general` a propósito: aquél explica cómo se captura, éste explica cómo se
+  // lee una diferencia entre dos sistemas — y quien revisa de mañana sólo necesita el segundo.
+  'caja-arqueos': {
+    title: 'Arqueos — el mismo cajón, contado dos veces',
+    intro: 'Cada día el efectivo de Caja General se cuenta en dos lugares: el corte que se sella en la Suite y el arqueo que se captura en Control. Esta pantalla los pone lado a lado. No decide cuál manda: publica los dos y la diferencia, para que alguien la explique.',
+    groups: [
+      {
+        heading: 'Las dos cuentas',
+        entries: [
+          { term: 'Contó la Suite', def: 'El efectivo que se contó al cerrar el corte en esta plataforma, pieza por pieza. Es lo que quedó sellado: después de sellar, el conteo ya no se puede cambiar.' },
+          { term: 'Contó Control', def: 'El efectivo del arqueo de cierre capturado en la aplicación Control. Se lee, no se escribe: corregirlo se corrige allá.' },
+          { term: 'Difieren', def: 'Lo contado por la Suite menos lo contado por Control. Positivo = la Suite contó de más. No es un faltante de caja: son dos conteos del mismo dinero que no coinciden, y uno de los dos está mal.' },
+          { term: 'Esperaba el libro', def: 'Lo que el libro calculaba que debía haber (fondo + ingresos − gastos − depósitos, más o menos lo que movió la caja fuerte). Va como contraste, no como juez: es un cálculo, no un conteo, y si falta registrar cobranza queda corto sin que nadie lo haya robado.' },
+        ],
+      },
+      {
+        heading: 'Los tres resultados',
+        entries: [
+          { term: 'Cuadran al centavo', def: 'Los dos conteos dan exactamente lo mismo. Medido el 20-oct-2026: pasó el 16 y el 17 de octubre.' },
+          { term: 'Difieren', def: 'Los dos conteos dan distinto. El total dice CUÁNTO; hay que abrir el día para ver en qué pieza.' },
+          { term: 'Sin corte en la Suite', def: 'Control contó ese día y la Suite no. NO es un descuadre y por eso no entra en la suma: pintarlo como diferencia mandaría a buscar efectivo que nadie perdió.' },
+          { term: 'El ticket de Control no cuadra consigo mismo', def: 'La suma de las piezas de ese arqueo no da su propio total. Mientras eso pase, compararlo contra la Suite no significa nada: primero se corrige en Control.' },
+        ],
+      },
+      {
+        heading: 'Por qué importa el desglose y no sólo el total',
+        entries: [
+          { term: 'Pieza por pieza', def: 'Cuántos billetes y monedas de cada denominación anotó cada sistema. Es lo único con lo que alguien puede ir a buscar el billete.' },
+          { term: 'Un ejemplo real', def: 'El 19-oct-2026 los dos arqueos diferían $500 y parecía un faltante. Ocho denominaciones eran idénticas: la Suite había anotado un billete de $1,000 donde Control anotó uno de $500. No faltaba dinero, estaba mal clasificado.' },
+          { term: 'No se cuenta', def: 'Esa denominación existe en la reja de Control y no en la de la Suite (la moneda de $100 y los centavos de 20, 10 y 5). Esa parte no se puede cruzar — que es distinto de que coincida.' },
+          { term: 'Morralla', def: 'La Suite junta todo lo menor a 50¢ en un solo importe y no lo reporta por pieza. Si el desglose no llega a explicar la diferencia del día, ahí está el resto, y la pantalla lo dice con su monto.' },
+        ],
+      },
+      {
+        heading: 'Lo que esta pantalla no afirma',
+        entries: [
+          { term: 'Cuál de los dos manda', def: 'No está decidido, así que no se elige acá. Son cortes firmados: declarar un árbitro es una decisión de negocio, no de una pantalla.' },
+          { term: 'Cuál es el arqueo de cierre', def: 'Control registra varios arqueos por día (sobres de nómina, bonos, rutas). El del cierre se reconoce porque trae la custodia completa, con dólares. Está verificado del 14-oct-2026 en adelante; antes hay días con varios arqueos con dólares y podría estar eligiendo el que no es.' },
+          { term: 'Sin la segunda llave', def: 'El corte de la Suite se cerró y nadie lo autorizó. Quien cierra no puede autorizar: son dos personas, y el candado vive en la base. Medido el 20-oct-2026: 7 cortes cerrados y cero autorizados.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si un día difiere',
+        kind: 'fix',
+        intro: 'El orden importa: buscar el billete antes de revisar el ticket es perder el rato.',
+        steps: [
+          'Abrir el día y mirar el desglose: si una sola denominación carga toda la diferencia, casi siempre es una pieza mal clasificada, no dinero que falta.',
+          'Si el ticket de Control no cuadra consigo mismo, corregir ese arqueo en Control primero. Hasta entonces la comparación no dice nada.',
+          'Si el desglose no explica la diferencia entera, el resto está en la morralla o en las denominaciones que la Suite no captura: eso no se resuelve mirando, se resuelve recontando.',
+          'El conteo de la Suite no se edita: si está mal, se recuenta en Captura y queda el rastro de los dos conteos.',
+        ],
+      },
+      {
+        heading: 'Si un día dice «sin corte en la Suite»',
+        kind: 'info',
+        steps: [
+          'No hay nada que buscar: ese día nadie selló un corte de este lado.',
+          'Lo que falta es el conteo, no el dinero. Se abre y se cierra el corte de ese día en Captura.',
+        ],
+      },
+    ],
+  },
+
   // `[AUD.1]` Las comisiones de Ruta Directa. Este topico nace de una auditoria que midio que
   // la pantalla publicaba SIETE explicaciones dentro de atributos `title` -- o sea, sólo
   // alcanzables con el mouse encima. En tactil no hay hover: para quien abre esto en una
@@ -1917,6 +1984,22 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        // `[AUD]` La pestaña «Cobro vs venta» publica cuatro veredictos derivados y el estado de
+        // la fuente. Entró sin About, que es la misma falla que `check:pantalla` ya marca en la
+        // pantalla hermana (regla P): jerga derivada sin dónde consultarla.
+        heading: 'Cobro vs venta — cuando el padrón y la venta no coinciden',
+        entries: [
+          { term: 'De dónde sale', def: 'Del padrón derivado: TODAS las rutas que existen, comisionen o no, con su venta de los últimos 30 días. NO sale de la quincena, así que no cambia al elegir otro periodo ni necesita que haya corrida. Es otra pregunta que la pestaña «No comisionan», que sí habla sólo del periodo elegido.' },
+          { term: 'Comisiona', def: 'Si la ruta está dada de alta y encendida en la configuración de nómina de Ruta Directa. Es una decisión escrita, no algo que se deduzca de si vendió.' },
+          { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
+          { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
+          { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
+          { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
+        ],
+      },
+      {
         heading: 'La calidad del costo',
         entries: [
           { term: 'Sin costo', def: 'No hay costo en la fuente para esos días: el markup no se puede medir y el bono del supervisor no paga.' },
@@ -2046,11 +2129,23 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     intro: 'CAOS es el dispositivo que recibe y entrega el efectivo de OFICINAS. Esta pantalla es un espejo de lo que la máquina registró: no corrige nada, no escribe nada y no decide nada. Cuando un número no se pudo calcular, lo dice en vez de poner cero.',
     groups: [
       {
-        heading: 'La tira de arriba',
+        heading: '¿Cuánto hay en la caja fuerte? — tres testigos, separados',
         entries: [
-          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Es el único número que cuenta los siete tipos.' },
-          { term: 'Depósitos − dispensado', def: 'La resta de los dos tipos que mueven efectivo hacia y desde las rutas. NO es el saldo de la caja fuerte: deja fuera Dotar, Vaciar Stocks y los ajustes, que también mueven dinero. Por eso se llama por la resta que hace y no "balance".' },
-          { term: 'Otros movimientos', def: 'Lo que la máquina registró y no es depósito ni dispensación: dotarla, vaciar sus cajetines, los cierres de día y los ajustes de contenido. Aparece con su monto y aparte porque su dirección (entra o sale) no está decodificada contra el dispositivo; sumarla al neto con un signo supuesto daría una cifra con la que alguien intentaría cuadrar.' },
+          { term: 'En la caja fuerte', def: 'Lo que la máquina dice tener: la última lectura de su reporte «Contenidos», casete por casete. Si después de esa lectura entraron movimientos, se le suman o restan y la línea de abajo lo dice.' },
+          { term: 'Cuadre con los movimientos', def: 'Cada lectura nueva de «Contenidos» se compara contra la anterior más lo que se movió entre las dos, billete por billete. «12 de 12» quiere decir que la máquina nunca cambió sin un movimiento que lo explique. Un descuadre aparece con su monto y sus denominaciones.' },
+          { term: 'Sin registrar en Caja General', def: 'Depósitos y dispensaciones de la caja fuerte que el libro de Caja General todavía no tiene, contados desde el día en que se registró el primero (el 9 de octubre de 2026). Antes de esa fecha no se registraban: contarlos sería acusar de un faltante que no existe.' },
+          { term: 'Conteo físico', def: 'Una persona contando los billetes. Hoy no existe en ningún dato, y por eso dice «sin medir»: que la máquina y sus movimientos coincidan no prueba que el billete esté adentro — en septiembre la propia máquina corrigió su registro por −$25,420. Se cierra contando a ciegas lo que salga en el próximo «Vaciar Stocks».' },
+        ],
+      },
+      {
+        heading: 'La tira del rango',
+        entries: [
+          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Los «Fin de Dia» se cuentan aparte: son lecturas del contenido que hace la propia máquina al cerrar el día, no dinero.' },
+          { term: 'Dotar − vaciar', def: 'Mantenimiento de casetes en el rango: Dotar los carga (suma) y Vaciar Stocks saca su contenido (resta). Aparece sólo cuando hubo.' },
+          { term: 'Neto del rango', def: 'Lo que entró menos lo que salió en las fechas elegidas, con el signo de cada tipo medido contra la máquina (Depósito y Dotar suman; Dispensar y Vaciar Stocks restan). Es un flujo, NO el saldo: el rango casi nunca empieza con la máquina vacía. Si hubo Cambio o Contenido Modificado —cuya dirección no está probada— lo dice aparte con su monto.' },
+          { term: 'Fecha y hora', def: 'Cuándo pasó el movimiento en la máquina, en hora de México. Hasta el 2026-10-20 la columna mostraba sólo el día y lo calculaba en hora UTC: lo de después de las 18:00 aparecía con el día siguiente.' },
+          { term: 'Caja General (columna)', def: 'El folio con el que ese depósito o dispensación quedó registrado en Caja General. «Sin registrar» quiere decir que el libro todavía no tiene ese movimiento: o falta capturarlo, o falta enlazarlo al gasto que pagó.' },
+          { term: 'El color del tipo', def: 'Verde entra, rojo sale, gris es una lectura del contenido (no mueve dinero) y ámbar es un tipo cuya dirección no está decodificada. Pasando el cursor por la celda se ve por qué.' },
           { term: 'La píldora de frescura', def: 'La edad del DATO, no la de la pantalla: mide la última vez que el carril trajo movimientos de la máquina. Si se pone ámbar, lo que ves puede estar viejo aunque la página se acabe de cargar.' },
         ],
       },

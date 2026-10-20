@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
@@ -305,6 +305,26 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     return fx;
   };
 
+  /**
+   * `[CG.123]` **Abre la jornada EN una de sus tres partes.**
+   *
+   * Desde que el diálogo tiene selector, «la jornada está abierta» ya no implica que todo esté
+   * pintado: cada parte se monta cuando se la elige. Las pruebas que miran «Pendientes» o
+   * «Historial» tienen que decir dónde están paradas — que es exactamente lo que hace la persona.
+   *
+   * ⚠️ Lo que esto **no** afloja: que una parte exista sigue comprobándose. Si un bloque se
+   * perdiera en la mudanza, elegir su sección lo dejaría vacío y la prueba se pondría roja igual.
+   */
+  const montarJornadaEn = (
+    seccion: 'hoy' | 'pendientes' | 'historial',
+    svcPatch?: Record<string, unknown>,
+  ) => {
+    const fx = montarJornada(svcPatch);
+    comp.seccionJornada.set(seccion);
+    fx.detectChanges();
+    return fx;
+  };
+
   const contar = (piezas: Record<string, number>): void => {
     for (const [k, n] of Object.entries(piezas)) comp.setPiezas(den(k), n);
   };
@@ -366,7 +386,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // se desmonta la persona queda encerrada con el filtro puesto y sin forma de sacarlo.
     const bandeja: Element | null = fixture.nativeElement.querySelector('.cg-bandeja');
     expect(bandeja).not.toBeNull();
-    expect(bandeja!.querySelectorAll('p-select').length).toBe(2);   // ventana + caja
+    // [CGA-A.43] La ventana se quitó: queda sólo el selector de caja.
+    expect(bandeja!.querySelectorAll('p-select').length).toBe(1);   // caja
     expect(bandeja!.querySelectorAll('app-segmented').length).toBe(1); // entra / sale
     expect(bandeja!.querySelectorAll('input[type="search"], input.cg-buscar').length).toBe(1);
   });
@@ -1714,35 +1735,181 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // o sea un contenedor de ~486px contra un umbral de 736px — la condición para mostrar las dos
   // columnas era **inalcanzable por construcción**, y por eso el formulario se apilaba.
 
-  // ⭐⭐ [CG.60] ESTA PRUEBA SE DA VUELTA, y es el punto de la entrega.
+  // ⭐⭐ ESTA PRUEBA SE DA VUELTA POR SEGUNDA VEZ, 2026-10-16. Lo que cambió es el REQUISITO,
+  // no el código, así que se reescribe entera en vez de aflojarle un número.
   //
-  // Antes exigía que el panel se ENSANCHARA al capturar (`.cg-split-capturando`, 24rem → 42rem).
-  // Ese arreglo era correcto para el diseño viejo y aun así el ancho del arqueo quedaba colgado de
-  // una condición — y esa condición ya falló dos veces: `[CG.49]` descubrió que el umbral de dos
-  // columnas era inalcanzable por construcción, y `[CG.57]` que la consulta medía el panel en vez
-  // de la columna. Las dos veces el defecto llegó a la pantalla con todos los gates en verde.
+  // Historia, porque importa para no volver atrás:
+  //   `[CG.49]` el umbral de dos columnas era INALCANZABLE por construcción (486px vs 736px).
+  //   `[CG.57]` la consulta medía el panel en vez de la columna.
+  //   `[CG.60]` respondió clavando DOS MITADES FIJAS: «una condición que no existe no se puede
+  //             romper». Correcto entonces.
   //
-  // Lo que se exige ahora es más fuerte: el arqueo tiene media pantalla SIEMPRE, y NADA de lo que
-  // pase en la captura cambia el reparto. Una condición que no existe no se puede romper.
+  // Edgar, 2026-10-16: *"necesito que el paso uno ocupe toda la pantalla"*. El reparto vuelve a
+  // ser condicional — pero la condición ya NO es un ancho medido, que es lo que fallaba las dos
+  // veces: es `capturaAbierta()`, un signal que el componente declara y del que no hay nada que
+  // medir. Y lo que `[CG.60]` protegía se cumple mejor: cuando el arqueo aparece toma su mitad
+  // entera, y cuando no hay nada que contar no le roba media pantalla a la cola.
 
-  it('el reparto de la pantalla NO depende de la captura: dos mitades, pase lo que pase', () => {
+  it('⭐ la lista ocupa la pantalla SIEMPRE: una sola columna, pase lo que pase', () => {
     const fx = montar();
-    const split: HTMLElement | null = fx.nativeElement.querySelector('.cg-split');
-    expect(split).not.toBeNull();
-    const antes = split!.className;
-    expect(split!.querySelectorAll(':scope > .cg-ap').length, 'dos apartados').toBe(2);
+    const split: HTMLElement = fx.nativeElement.querySelector('.cg-split');
+    expect(split.querySelectorAll(':scope > .cg-ap').length, 'un solo apartado en el flujo').toBe(1);
 
     comp.abrirCaptura();
     fx.detectChanges();
-    expect(split!.className, 'capturar NO cambia el reparto').toBe(antes);
-    expect(split!.querySelectorAll(':scope > .cg-ap').length).toBe(2);
+    expect(split.querySelectorAll(':scope > .cg-ap').length,
+      'el arqueo volvió a meterse en el flujo y le quitó ancho a la lista').toBe(1);
+  });
 
-    comp.cerrarConFoco(comp.capturaAbierta);
+  it('⭐ el arqueo entra por un cajón a la DERECHA, no como columna', () => {
+    /**
+     * ⚠️ Esta prueba afirmaba **la izquierda**, y la afirmación era mía: el cajón nació ahí
+     * porque a la derecha tapa la columna del IMPORTE de la cola. Edgar pidió la derecha el
+     * 2026-10-19, así que el lado es una DECISIÓN SUYA, no una propiedad del diseño — y lo que
+     * se prueba acá es que el cajón sale por donde se decidió, no que un lado sea el correcto.
+     *
+     * Lo que se pierde con la derecha, dicho para que no se redescubra: el panel tapa el
+     * importe de la fila. No es grave porque el importe del movimiento elegido se repite
+     * DENTRO del arqueo (la ficha y el renglón «documento»): cambia de lugar, no desaparece.
+     */
+    const fx = montar();
+    comp.abrirCaptura();
     fx.detectChanges();
-    expect(split!.className).toBe(antes);
-    // Y el apartado del arqueo sigue en pantalla con la captura cerrada: es media pantalla
-    // reservada, no un panel que aparece y se va moviendo la lista debajo del cursor.
-    expect(fx.nativeElement.querySelector('.cg-ap-arqueo')).not.toBeNull();
+
+    const cajon: HTMLElement | null = fx.nativeElement.querySelector('app-side-peek .sp-root');
+    expect(cajon, 'no se montó el cajón').not.toBeNull();
+    expect(cajon!.classList.contains('is-open'), 'el cajón no abrió con la captura').toBe(true);
+    expect(cajon!.classList.contains('is-izq'), 'el cajón salió por el lado equivocado').toBe(false);
+    // Y el contenido del arqueo viaja adentro: la reja es lo que se teclea.
+    expect(fx.nativeElement.querySelectorAll('app-side-peek input.cg-pieza').length)
+      .toBeGreaterThan(0);
+  });
+
+  it('⭐ [CGA-LEG.9] el recorrido con teclado está ESCRITO, y lo escrito existe', async () => {
+    /**
+     * D.5: un atajo que nadie sabe que existe no existe — y para quien cuenta con las manos
+     * ocupadas el atajo **es** la interfaz. Medido el 2026-10-19: la plantilla tiene 23 bindings
+     * de teclado y sólo 5 teclas estaban anunciadas, todas dentro del arqueo. El bucle que la
+     * persona repite decenas de veces al día —elegir, arquear, volver— no decía una palabra.
+     *
+     * ⛔ **Lo que esta prueba protege de verdad es la segunda mitad: que lo anunciado funcione.**
+     * El prototipo tenía `/ buscar` y esta pantalla NO lo tiene: no hay ningún manejador global
+     * de `/`. Un atajo escrito que no responde es peor que ninguno — se prueba una vez, no pasa
+     * nada, y deja de creerse el resto del renglón.
+     */
+    // Con cola sembrada: el atajo promete algo SOBRE UNA FILA, así que sin filas la mitad que
+    // importa no se podría comprobar — y una prueba que no puede fallar no prueba nada.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const atajo: HTMLElement | null = fx.nativeElement.querySelector('.cg-atajo-cola');
+    expect(atajo, 'el recorrido de la cola no se anuncia en ninguna parte').not.toBeNull();
+    const teclas = Array.from(atajo!.querySelectorAll('kbd')).map((k) => (k.textContent ?? '').trim());
+    expect(teclas, 'falta alguna de las cuatro teclas del recorrido')
+      .toEqual(expect.arrayContaining(['←', '→', '↑', '↓', 'Enter', 'Esc']));
+
+    // ⛔ [negativa] No se promete lo que no existe.
+    expect(atajo!.textContent, 'se anuncia «/ buscar» y esta pantalla no tiene ese atajo')
+      .not.toContain('/');
+
+    // Y lo prometido RESPONDE: Enter sobre una fila abre el arqueo.
+    const fila: HTMLElement | null = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila, 'no hay fila con la cual comprobar lo que el atajo promete').not.toBeNull();
+    expect(comp.capturaAbierta()).toBe(false);
+    fila!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fx.detectChanges();
+    expect(comp.capturaAbierta(), 'el atajo dice «Enter arquear» y Enter no abrió el arqueo').toBe(true);
+  });
+
+  it('⛔ [CG.120] la captura A MANO no se ofrece, pero la puerta compartida sigue viva', () => {
+    /**
+     * La captura a mano se retiró el 2026-10-19: un movimiento tecleado nace **sin
+     * `origen_ref`**, o sea sin nada contra qué cuadrarlo — no lo alcanza el candado de
+     * duplicados del servidor (que es por `origen_tipo + origen_ref`), no entra en el descuento
+     * de la cola, y en la conciliación aparece como una fila que no corresponde a ningún
+     * documento. Era la única puerta de esta pantalla por la que entraba dinero sin procedencia.
+     *
+     * ⛔ **Lo segundo que se afirma acá es lo que casi se rompe.** `abrirCaptura()` es la puerta
+     * COMPARTIDA de cuatro caminos: la cola del ERP (`capturarDesde`), la bóveda
+     * (`capturarDesdeCaos`), un recurrente sin regla (`declararDesdeRecurrente`) y el botón
+     * retirado. Guardarla por dentro —que es lo que parece pedir «inhabilitar la captura
+     * manual»— apagaría **el arqueo entero**. Por eso se apagó el botón y nada más, y por eso
+     * esta prueba comprueba las dos mitades juntas: que la puerta manual no está Y que la
+     * compartida sigue abriendo.
+     *
+     * ⚠️ Si alguien pone `CAPTURA_MANUAL_HABILITADA` en `true`, esta prueba se pone roja. Es a
+     * propósito: devolver esa puerta es una decisión, no un descuido, y tiene que tocarse acá.
+     */
+    const fx = montar();
+    fx.detectChanges();
+
+    const botones: HTMLElement[] = Array.from(fx.nativeElement.querySelectorAll('button'));
+    const manual = botones.find((b) => /Registrar movimiento/i.test(b.textContent ?? ''));
+    expect(comp.puedeGestionar(), 'la prueba no sirve sin permiso de captura').toBe(true);
+    expect(manual, 'se sigue ofreciendo capturar un movimiento a mano').toBeUndefined();
+
+    // Y la puerta compartida NO se tocó: sin esto, el arqueo de la cola moriría en silencio.
+    comp.abrirCaptura();
+    expect(comp.capturaAbierta(), 'abrirCaptura() dejó de abrir: se guardó la puerta compartida')
+      .toBe(true);
+  });
+
+  it('⭐ al elegir un movimiento el foco cae en el PRIMER campo de piezas', async () => {
+    /**
+     * ⛔ `[CG.117]` `enfocarDetalle()` buscaba `.cg-detail`, que se retiró al mudar el arqueo al
+     * cajón. `querySelector` devolvía `null`, el `?.` se lo tragaba **en silencio** y el foco se
+     * quedaba donde estuviera — medido en el navegador, terminaba en un botón del control
+     * segmentado. Para empezar a contar había que ir al primer campo con el mouse.
+     *
+     * ⚠️ Un selector que no encuentra nada no es un error: es una función que se vuelve muda, y
+     * el código sigue pareciendo correcto. Por eso la prueba mira **dónde quedó el foco**, no si
+     * la función se llamó.
+     */
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+    // ⚠️ Se ESPERA el macrotask real, no se adelantan timers: esta suite no instala
+    // `vi.useFakeTimers()`, y `runAllTimers` sin mocks lanza. `enfocarDetalle()` difiere con
+    // `setTimeout(…, 0)` a propósito — el campo todavía no existe en el tick del `detectChanges`.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const primera: HTMLElement | null =
+      fx.nativeElement.querySelector('app-side-peek input.cg-pieza');
+    expect(primera, 'no hay reja a la cual mandar el foco').not.toBeNull();
+    expect(document.activeElement, 'el foco no cayó en el primer campo de piezas').toBe(primera);
+  });
+
+  it('⭐ al cerrar el cajón se cierra la captura: una sola fuente de verdad', () => {
+    // El cajón cierra por Esc y por clic en el fondo, no sólo por «Cancelar». Si `openChange`
+    // no estuviera cableado, cerrar por Esc dejaría `capturaAbierta()` en true y la pantalla
+    // creería que se sigue capturando con el panel ya invisible.
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+    expect(comp.capturaAbierta()).toBe(true);
+
+    const peek: HTMLElement = fx.nativeElement.querySelector('app-side-peek .sp-backdrop');
+    peek.click();
+    fx.detectChanges();
+
+    expect(comp.capturaAbierta(), 'cerrar el cajón no cerró la captura').toBe(false);
+    expect(fx.nativeElement.querySelector('app-side-peek .sp-root')!.classList.contains('is-open'))
+      .toBe(false);
+  });
+
+  it('⛔ el rótulo del apartado 1 DICE que la cola se toca cuando no hay nada elegido', () => {
+    // La guía vivía en el vacío del arqueo («elige uno de la cola»), que se retiró al dejar de
+    // pintarse. Si no la recoge el rótulo, la cola queda sin decir que es clicable.
+    const fx = montar();
+    const hint: HTMLElement = fx.nativeElement.querySelector('.cg-ap-que .cg-ap-hint');
+    expect(hint, 'el apartado 1 no tiene rótulo').not.toBeNull();
+    expect(hint.textContent, 'sin captura el rótulo tiene que decir qué hacer').toContain('cola');
+
+    comp.abrirCaptura();
+    fx.detectChanges();
+    expect(hint.textContent, 'con captura abierta el rótulo dice qué se está cuadrando')
+      .toContain('ERP');
   });
 
   // ── [CG.59] La pantalla es la tarea ──────────────────────────────────────────────────────
@@ -1774,17 +1941,59 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.querySelector('.cg-conc')).toBeNull();
   });
 
+  /**
+   * `[CG.123]` **La misma protección, repartida en las tres partes del selector.**
+   *
+   * Lo que esta prueba cuida no cambió: *la diferencia entre MOVER y borrar*. Lo que cambió es
+   * que el diálogo ya no pinta todo de una vez — Edgar lo llamó «un asco» y lo medido le daba la
+   * razón (3 rejillas, 39 cifras y 41 textos atenuados contra 5 enfatizados, en un solo
+   * desplazamiento). Así que cada bloque se busca **en la parte donde vive**, y si alguno se
+   * hubiera perdido en la mudanza, elegir su sección lo dejaría vacío y esto se pondría rojo.
+   */
   it('⛔ [negativa] abrir la jornada NO pierde nada: todo lo que se mudó sigue ahí', () => {
     const fx = montarJornada();
     expect(comp.jornadaAbierta()).toBe(true);
 
-    // Los cinco bloques que se mudaron al desplegable. Si alguno se cayó en la mudanza, esto
-    // se pone rojo — que es la diferencia entre MOVER y borrar.
-    const panel: Element = fx.nativeElement.querySelector('.cg-jornada');
-    expect(panel.querySelector('.cg-conc')).not.toBeNull();        // el cierre del día
-    expect(panel.querySelector('.cg-rec')).not.toBeNull();         // los que repiten sin cuenta
-    expect(panel.querySelector('.cg-historial')).not.toBeNull();   // el libro y los cortes
-    expect(panel.textContent).toContain('Cerrar jornada');         // la acción de rendir cuentas
+    // «Hoy» es la parte por default: el cierre del día y su acción de rendir cuentas.
+    const panel = (): Element => fx.nativeElement.querySelector('.cg-jornada');
+    expect(comp.seccionJornada()).toBe('hoy');
+    expect(panel().querySelector('.cg-conc')).not.toBeNull();
+    expect(panel().textContent).toContain('Cerrar jornada');
+
+    comp.seccionJornada.set('pendientes'); fx.detectChanges();
+    expect(panel().querySelector('.cg-rec')).not.toBeNull();       // los que repiten sin cuenta
+
+    comp.seccionJornada.set('historial'); fx.detectChanges();
+    expect(panel().querySelector('.cg-historial')).not.toBeNull(); // el libro y los cortes
+  });
+
+  /**
+   * ⛔⛔ `[CG.123]` **PRUEBA NEGATIVA DEL SELECTOR: lo que DECLARA un hueco no se esconde.**
+   *
+   * El primer intento de este cambio metió las tres regiones detrás del selector y listo. Nueve
+   * pruebas se pusieron rojas y **tenían razón**: con los cortes caídos, el aviso «no se pudieron
+   * leer» vivía DENTRO de la sección Historial, así que en la vista por default una lectura
+   * **fallida quedaba invisible**. Publicar nada es peor que publicar un cero (ADR-056) — es el
+   * mismo defecto que `[CG.181]` vino a arreglar, con una capa encima.
+   *
+   * Por eso las declaraciones subieron sobre el selector. Esto lo fija: parado en «Hoy», que es
+   * donde la persona abre, los tres huecos se leen igual.
+   */
+  it('⛔ [negativa] parado en «Hoy», lo que no se pudo medir se sigue diciendo', () => {
+    const fx = montarJornada({
+      libro: vi.fn(() => throwError(() => new Error('timeout'))),
+      cortes: vi.fn(() => throwError(() => new Error('timeout'))),
+      // ⚠️ `recurrentesSinRegla`, NO `recurrentes`: un doble que nombra un método que el
+      // servicio no tiene no simula nada — el componente llama al real y la prueba verde
+      // estaría midiendo el camino sano. Lo delató el selector publicando «Pendientes 57».
+      recurrentesSinRegla: vi.fn(() => throwError(() => new Error('timeout'))),
+    });
+    expect(comp.seccionJornada()).toBe('hoy');
+
+    const txt: string = fx.nativeElement.querySelector('.cg-jornada').textContent;
+    expect(txt).toContain('el libro no se pudo leer');
+    expect(txt).toContain('los cortes no se pudieron leer');
+    expect(txt).toContain('Sin medir');
   });
 
   /**
@@ -1921,18 +2130,35 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(reordena, 'una regla reordena los apartados: ' + reordena.join(' | ')).toEqual([]);
   });
 
-  it('el apartado 1 es el QUÉ y el 2 es el ARQUEO, en ese orden', async () => {
+  /**
+   * ⚠️ 2026-10-16 — REESCRITA PARA EL CAJÓN. Antes afirmaba dos `.cg-ap` hermanos dentro del
+   * split. Ya no son hermanos: la lista ocupa la pantalla y el arqueo entra por un cajón.
+   *
+   * ⭐ Lo que se afirma NO se afloja, se traslada: el ORDEN DE LECTURA sigue siendo primero
+   * qué se va a arquear y después el arqueo — y en un cajón modal eso importa MÁS que antes,
+   * porque un `aria-modal` que aparece ANTES de la lista en el DOM deja al lector de pantalla
+   * entrando por el panel sin haber visto de qué es.
+   */
+  it('el QUÉ va primero y el ARQUEO después: el DOM es el orden de lectura', async () => {
     const fx = montar();
     comp.abrirCaptura();
     await Promise.resolve();
     fx.detectChanges();
 
+    const que: HTMLElement = fx.nativeElement.querySelector('.cg-ap-que');
+    const cajon: HTMLElement = fx.nativeElement.querySelector('app-side-peek');
+    expect(que, 'no está el apartado 1').not.toBeNull();
+    expect(cajon, 'no está el cajón del arqueo').not.toBeNull();
+
+    // `DOCUMENT_POSITION_FOLLOWING` = el cajón viene DESPUÉS del apartado 1 en el documento.
+    // eslint-disable-next-line no-bitwise
+    const despues = !!(que.compareDocumentPosition(cajon) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(despues, 'el cajón se montó ANTES de la lista en el DOM').toBe(true);
+
+    // Y la lista sigue siendo el único apartado del flujo: el cajón no le quita ancho.
     const aps = Array.from(fx.nativeElement.querySelectorAll('.cg-split > .cg-ap')) as HTMLElement[];
-    expect(aps.length).toBe(2);
-    // Lado a lado y sin reordenar, el DOM ES el orden de lectura: primero qué se va a arquear,
-    // después el arqueo. Es textualmente lo que pidió Edgar al aprobar el tablero.
+    expect(aps.length).toBe(1);
     expect(aps[0].classList.contains('cg-ap-que')).toBe(true);
-    expect(aps[1].classList.contains('cg-ap-arqueo')).toBe(true);
   });
 
   it('cerrar un diálogo DEVUELVE el foco a donde estaba (PrimeNG no lo hace)', async () => {
@@ -2081,19 +2307,37 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
    * *"la morralla se cuenta por denominación"*. Lo que cambió es el REQUISITO, no el código:
    * por eso la prueba se reescribe entera en vez de aflojarle un número.
    */
-  it('son cinco billetes y SEIS monedas, más el resto suelto', async () => {
+  /**
+   * ⭐ 2026-10-16 — Y SE DA VUELTA OTRA VEZ, por el mismo motivo: cambió el requisito. Edgar
+   * pidió el billete de $1,000. El código ya decía qué costaba —*"agregar su llave a esta
+   * lista, sin migración"*— porque el CHECK de `finance.cash_ledger_denominations` siempre
+   * admitió las 14 denominaciones; la reja ofrecía 5 por decisión, no por límite.
+   *
+   * ⚠️ Lo que se gana no es comodidad: mientras el de $1,000 no estuvo, un billete de mil que
+   * entraba sólo podía declararse partido en otras denominaciones o volcado en morralla. El
+   * arqueo cuadraba en el TOTAL y mentía en la COMPOSICIÓN — y la composición es lo único que
+   * permite reconstruir qué había en la mano.
+   */
+  it('son SEIS billetes y seis monedas, más el resto suelto', async () => {
     const fx = await capturaEnPantalla();
-    // 5 billetes + 6 monedas + 1 de resto suelto.
-    expect(inputsPieza(fx).length).toBe(12);
+    // 6 billetes + 6 monedas + 1 de resto suelto.
+    expect(inputsPieza(fx).length).toBe(13);
 
     // Acotado AL BLOQUE del arqueo: sobre el innerHTML de la página entera, "$1,000" aparece
     // en la tira de KPIs y la prueba fallaba por un importe que no tiene nada que ver.
     const reja: string = fx.nativeElement.querySelector('.cg-arqueo').innerHTML;
-    for (const b of ['$500', '$200', '$100', '$50', '$20']) expect(reja).toContain(b);
+    for (const b of ['$1,000', '$500', '$200', '$100', '$50', '$20']) expect(reja).toContain(b);
     expect(reja).toContain('50¢');          // el metal AHORA sí se desglosa
     expect(reja).toContain('Morralla');     // y queda el campo suelto para lo de menos de 50¢
-    // El billete de $1,000 sigue fuera: esta caja no lo maneja.
-    expect(reja).not.toContain('$1,000');
+  });
+
+  it('⭐ el de $1,000 CUENTA: dos billetes son $2,000 en el monto del movimiento', async () => {
+    // Ofrecerlo en la reja y que no sume sería peor que no ofrecerlo: el desglose diría mil
+    // y el monto diría cero. Se ejercita el camino completo, no la presencia del renglón.
+    await capturaEnPantalla();
+    contar({ 1000: 2 });
+    expect(comp.f().monto).toBe(2000);
+    expect(comp.f().denominaciones.find((d) => d.denom_key === '1000')?.piezas).toBe(2);
   });
 
   /**
@@ -2199,7 +2443,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       fx.detectChanges();
       const dev = fx.nativeElement.querySelectorAll('input.cg-pieza-dev');
       const ent = fx.nativeElement.querySelectorAll('input.cg-pieza');
-      expect(dev.length).toBe(11);                    // 5 billetes + 6 monedas
+      expect(dev.length).toBe(12);                    // 6 billetes (con el de $1,000) + 6 monedas
       // ⛔ Si compartieran selector, contar en una columna movería el foco a la otra.
       expect([...dev].some((i: Element) => i.classList.contains('cg-pieza'))).toBe(false);
       expect(ent.length).toBeGreaterThan(0);
@@ -2577,9 +2821,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const piezas = inputsPieza(fx);
     const denoms = piezas.filter((i) => !i.classList.contains('cg-morralla-in'));
     const morralla = piezas.find((i) => i.classList.contains('cg-morralla-in'))!;
-    // ⚠️ `[CG.38]` Eran 5 (los billetes); hoy son 11 (5 billetes + 6 monedas). Lo que se afirma
+    // ⚠️ `[CG.38]` Eran 5 (los billetes); hoy son 12 (6 billetes + 6 monedas, con el de $1,000 desde el 16-oct). Lo que se afirma
     // —que la reja queda EDITABLE porque es la diferencia— no cambió.
-    expect(denoms.length).toBe(11);
+    expect(denoms.length).toBe(12);
     expect(denoms.every((i) => !i.readOnly)).toBe(true);  // editables: la reja es la DIFERENCIA
     expect(morralla.readOnly).toBe(false);
     expect(comp.hayCajero()).toBe(true);                     // el cajero se muestra aparte
@@ -3054,7 +3298,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ausencias distintas —"no propone" y "no hay de dónde proponer"— no se pinten igual.
 
   it('el contador va SIEMPRE visible, aunque la lista esté plegada', () => {
-    const fx = montarJornada();
+    // `[CG.123]` Vive en «Pendientes»: no es la jornada de hoy, es trabajo que espera.
+    const fx = montarJornadaEn('pendientes');
     expect(comp.recAbierto()).toBe(false);          // nace plegada: son 57 filas
 
     const html: string = fx.nativeElement.innerHTML;
@@ -3113,7 +3358,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('abrir la lista pinta las filas, con el par propuesto y su respaldo', async () => {
-    const fx = montarJornada();
+    const fx = montarJornadaEn('pendientes');
     comp.recAbierto.set(true);
     fx.detectChanges();
     await Promise.resolve();
@@ -3155,19 +3400,21 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // eran justamente los del futuro: el ERP captura con 3 dias de mediana y ninguno legitimo
   // tiene `fecha_valor` de hoy.
 
-  it('la ventana por default es la MEDIDA, no la de pruebas ni «hoy»', () => {
-    // Estuvo en 1 dia desde el 22-sep "para las pruebas de CG.21", con un comentario que decia
-    // que tenia que volver. Se quedo ocho dias.
-    //
-    // `[CG.51]` Y ahora arranca en LA JORNADA (3 dias) por pedido de Edgar -- "por default solo
-    // deben ser los movimientos del dia"-- pero NO en 1 dia, que es lo que esa frase pide al pie
-    // de la letra. Medido contra prod el 2026-10-07 antes de cambiarlo: hoy = 0 movimientos, y el
-    // dia mas reciente con volumen real es el 05/10. `fecha_valor` es la fecha del DOCUMENTO y el
-    // ERP captura con 3 dias de mediana, asi que "hoy" abre la pantalla VACIA todos los dias.
-    montar();
-    expect(comp.ventanaDias()).toBe(CAJA_JORNADA_DIAS);
-    expect(comp.ventanaDias()).not.toBe(1);
-    expect(comp.ventanaDias()).toBeLessThan(CAJA_VENTANA_DIAS);
+  it('[CGA-A.43] la cola no manda ventana: la acota el servidor en el primer corte del libro', () => {
+    // Antes arrancaba en «La jornada» (3 días) con un selector. Medido el 2026-10-20: desde el
+    // primer corte del libro la cola es exacta (61 documentos) y los 3 días escondían 32.
+    const movimientosPendientes = vi.fn(() => of({ ...VACIA, desde: '2026-10-01', ventana_dias: null, desde_motivo: 'relevo', relevo: '2026-10-12', saldados_por_control: 495 }));
+    montar({ movimientosPendientes });
+    const pedidos = movimientosPendientes.mock.calls as unknown as Array<[{ from?: string }]>;
+    expect(pedidos.length).toBeGreaterThan(0);
+    // NEGATIVA: si la pantalla volviera a mandar una ventana, el servidor dejaría de acotar en el relevo.
+    for (const [q] of pedidos) expect(q.from).toBeUndefined();
+    expect((comp as unknown as Record<string, unknown>)['opcionesVentana']).toBeUndefined();
+    expect(comp.textoAlcance()).toContain('primer corte del libro');
+    expect(comp.textoAlcance()).toContain('12/10/26');
+    // [CGA-A.44] Arranca el 1 del mes del relevo y dice qué entra de la era Control.
+    expect(comp.textoAlcance()).toContain('01/10/26');
+    expect(comp.textoAlcance()).toContain('el Control no concilió');
   });
 
   // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
@@ -3176,11 +3423,20 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const fx = montarJornada();
     expect(comp.historialAbierto()).toBe(false);
     // La tabla del libro y la de los cortes no estan en el DOM mientras este cerrado.
-    expect(fx.nativeElement.querySelector('app-metric-strip')).toBeNull();
+    // ⚠️ ACOTADO A LA TIRA DEL LIBRO desde el 2026-10-16: la cola tiene ahora SU PROPIA tira
+    // answer-first arriba (regla Q.1), asi que "no hay NINGUNA app-metric-strip" dejo de ser la
+    // pregunta. Lo que esta prueba afirma -- que el archivo no cuelga 800px debajo del area de
+    // trabajo -- no cambio; lo que cambio es que hay dos tiras y cada una tiene su clase.
+    expect(fx.nativeElement.querySelector('app-metric-strip.cg-kpis-libro')).toBeNull();
+    expect(fx.nativeElement.querySelector('.cg-kpi-h'),
+      'el titulo del libro no deberia estar con el historial cerrado').toBeNull();
+    // Y la de la cola SI esta: es el veredicto de lo que se esta mirando, no archivo.
+    expect(fx.nativeElement.querySelector('app-metric-strip.cg-kpis-cola')).not.toBeNull();
   });
 
   it('cerrado NO es escondido: la cabecera dice el rango y cuanto hay adentro', () => {
-    const fx = montarJornada();
+    // `[CG.123]` El libro y los cortes son OTRO rango de fechas: viven en «Historial».
+    const fx = montarJornadaEn('historial');
     const h: HTMLElement | null = fx.nativeElement.querySelector('.cg-historial-h');
     expect(h).not.toBeNull();
     // Plegar algo sin decir que tiene adentro lo vuelve indistinguible de que no exista.
@@ -3193,7 +3449,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('al abrirlo aparece el libro, y el aria-expanded lo acompana', () => {
-    const fx = montarJornada();
+    const fx = montarJornadaEn('historial');
     comp.historialAbierto.set(true);
     fx.detectChanges();
     expect(fx.nativeElement.querySelector('app-metric-strip')).not.toBeNull();
@@ -3702,19 +3958,46 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // glosa, monto, la reja de 16 denominaciones y el panel del cajero: 397 lineas de formulario
   // dentro de un dialogo de 62rem que tapaba la bandeja entera mientras se capturaba.
   describe('[CG.46] la captura vive en el detalle, no en un modal', () => {
-    it('el panel de detalle es PERMANENTE: existe sin nada elegido, y dice que espera', () => {
+    /**
+     * ⚠️ 2026-10-16 — SE DA VUELTA. `[CG.46]` exigía un detalle PERMANENTE con su vacío
+     * operacional («Nada elegido todavía» + una acción), y era correcto cuando el detalle
+     * compartía la pantalla con la cola a mitades.
+     *
+     * Edgar, sobre la pantalla ya armada: *"usemos toda la pantalla para presentar los
+     * movimientos"*. Ese vacío ocupaba ~200px ARRIBA de la cola — le explicaba a la persona
+     * lo que estaba mirando quitándole el espacio para mirarlo. Con la lista a pantalla
+     * completa es justo lo que no se puede gastar.
+     *
+     * ⭐ Lo que `[CG.46]` protegía NO se pierde y por eso esta prueba no se borra, se invierte:
+     * la guía sigue en pantalla (en el rótulo del apartado, que cambia con el estado) y la
+     * acción de registrar sigue existiendo (el CTA de la cabecera, que siempre estuvo ahí y
+     * era *la misma acción* — eso lo había medido `[CG.47]`).
+     */
+    it('⭐ sin nada elegido NO hay panel de detalle: la lista ocupa la pantalla', () => {
       const fx = montar();
-      const panel = fx.nativeElement.querySelector('.cg-detail');
-      expect(panel, 'el detalle tiene que existir siempre, no aparecer al elegir').toBeTruthy();
-      // ⚠️ `querySelector` encuentra el nodo aunque este ESCONDIDO, asi que existir no alcanza:
-      // la primera version de esta prueba seguia en verde con un `[hidden]` puesto a proposito.
-      // "Permanente" quiere decir VISIBLE sin nada elegido, no presente en el DOM.
-      expect(panel.hidden, 'el detalle esta en el DOM pero escondido: eso no es permanente')
-        .toBe(false);
       expect(comp.capturaAbierta()).toBe(false);
-      // Vacio operacional: no "sin datos" a secas -- dice que hacer y ofrece una accion.
-      expect(panel.textContent).toContain('Nada elegido');
-      expect(panel.querySelector('p-button'), 'el vacio lleva su accion').toBeTruthy();
+      expect(fx.nativeElement.querySelector('.cg-detail'),
+        'el detalle vacío volvió a ocupar ~200px arriba de la cola').toBeNull();
+      expect(fx.nativeElement.querySelector('.cg-detail-nada')).toBeNull();
+
+      // Y la guía no se perdió: la dice el rótulo, que es donde la persona está mirando.
+      const hint: HTMLElement = fx.nativeElement.querySelector('.cg-ap-que .cg-ap-hint');
+      expect(hint.textContent, 'sin el vacío, nada dice que la cola se toca').toContain('cola');
+
+      // La acción tampoco: el CTA de la cabecera es la MISMA que ofrecía el vacío ([CG.47]).
+      const cta: HTMLElement | null = fx.nativeElement.querySelector('.cg-jornada-barra p-button, .surf-page-head p-button');
+      expect(cta ?? fx.nativeElement.textContent, 'no quedó forma de registrar desde cero').toBeTruthy();
+    });
+
+    it('⭐ al elegir, el detalle aparece en el MISMO lugar (no en un modal)', () => {
+      // Lo que `[CG.46]` vino a arreglar sigue vigente: la captura NO es un diálogo encima.
+      const fx = montar();
+      comp.abrirCaptura();
+      fx.detectChanges();
+      const panel = fx.nativeElement.querySelector('.cg-detail');
+      expect(panel, 'el detalle tiene que aparecer en el flujo de la página').toBeTruthy();
+      expect(panel.closest('p-dialog'), 'la captura volvió a ser un modal').toBeNull();
+      expect(panel.closest('.cg-ap-que'), 'el detalle salió del apartado 1').toBeTruthy();
     });
 
     it('⛔ la captura NO se pinta dentro de un p-dialog', () => {
@@ -3799,13 +4082,29 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       expect(conMarcas.textContent).toContain('2');
     });
 
-    it('⛔ el vacio del detalle no compite con el CTA de la cabecera: es la MISMA accion', () => {
+    /**
+     * ⭐ 2026-10-16 — `[CG.47]` midió que el vacío del detalle y el CTA de la cabecera eran la
+     * MISMA acción llamando al mismo método, y bajó uno a secundario para que no hubiera dos
+     * naranjas compitiendo. Al retirarse el vacío (la lista ocupa la pantalla), **el problema
+     * desaparece en vez de resolverse**: queda un solo botón.
+     *
+     * La prueba no se borra, se convierte en lo que de verdad importaba: que haya **UNA sola
+     * acción de marca** en la pantalla en reposo. Borrarla dejaría libre el camino para que
+     * mañana entren tres naranjas otra vez.
+     */
+    it('⛔ en reposo hay UNA sola acción de marca en pantalla', () => {
       const fx = montar();
-      const nada = fx.nativeElement.querySelector('.cg-detail-nada');
-      const boton = nada.querySelector('button') as HTMLElement;
-      expect(boton.textContent).toContain('Registrar uno nuevo');
-      expect(boton.className, 'dos botones de marca para el mismo metodo')
-        .toContain('p-button-secondary');
+      const marcados = Array.from(
+        fx.nativeElement.querySelectorAll('button'),
+      ).filter((b) => {
+        const c = (b as HTMLElement).className || '';
+        // El naranja de marca es el botón primario de PrimeNG: ni secondary, ni text, ni outlined.
+        return c.includes('p-button') && !/secondary|text|outlined|p-button-icon-only/.test(c);
+      });
+      expect(marcados.length,
+        'más de una acción de marca: cuando hay cuatro naranjas ninguna lo es — ' +
+        marcados.map((b) => (b as HTMLElement).textContent?.trim()).join(' | '))
+        .toBeLessThanOrEqual(1);
     });
 
     it('⛔ la marca de fila no levanta un muro ambar: el ambar es del contador agrupado', () => {
@@ -3929,15 +4228,18 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       expect(txt, 'un cero afirma lo que nadie midió').not.toContain('0 corte(s)');
     });
 
+    // `[CG.123]` El CONTEO vive en la cabecera del Historial, que es su sección. Lo que no
+    // depende de la sección es la DECLARACIÓN de un hueco: eso se comprueba parado en «Hoy»,
+    // en la prueba negativa del selector.
     it('[control] con los cortes sanos el conteo se publica igual que siempre', () => {
-      const fx = montarJornada({
+      const fx = montarJornadaEn('historial', {
         cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
       });
       expect(fx.nativeElement.textContent).toContain('1 corte(s)');
     });
 
     it('⛔ y las dos mitades son independientes: el libro caído no tapa los cortes medidos', () => {
-      const fx = montarJornada({
+      const fx = montarJornadaEn('historial', {
         libro: vi.fn(() => throwError(() => ({ status: 500 }))),
         cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
       });
@@ -4088,6 +4390,63 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     it('el servidor diciendo `cajon: null` (sin cajero) manda sobre los planos', () => {
       montar({ arqueoDia: conCajon({ cajon: null, en_el_cajon: 120.5, a_la_boveda: 900 }) });
       expect(comp.cajon()).toBeNull();
+    });
+  });
+
+  /**
+   * ⭐⭐ `[CG.194]` — **LO QUE LA TABLA YA DESCONTÓ TIENE QUE TENER NOMBRE Y CIFRA.**
+   *
+   * Medido en producción el 2026-10-19: el libro tenía **$8,179.00** de gastos y la pantalla
+   * publicaba **$3,109.00** bajo un renglón rotulado «Gastos», dentro de una tabla titulada
+   * «Caja general (nuestro libro)». Los **$5,070.00** de diferencia son un gasto pagado con
+   * efectivo que dispensó la máquina: el servidor los resta bien —ese dinero nunca pasó por el
+   * cajón— pero no lo decía, y el MISMO importe reaparecía sumado del otro lado («de eso, a la
+   * bóveda $270,200.00» contra «Movimiento de la bóveda $265,130.00»). Tres cifras correctas y
+   * ninguna explicando a las otras.
+   *
+   * ⚠️ Las pruebas afirman los TRES casos, no la cifra. El que importa es el primero: `undefined`
+   * tiene que dar «sin medir» y no `null`, porque `null` apaga el renglón igual que un cero y
+   * volvería a esconder el recorte sin decirlo — el defecto que esto vino a cerrar.
+   */
+  describe('[CG.194] el recorte de la bóveda se declara, no se omite', () => {
+    const conBoveda = (cg: Record<string, unknown>) =>
+      vi.fn(() => of({ ...ARQUEO, caja_general: { ...ARQUEO.caja_general, ...cg } }));
+
+    it('con las dos piernas en cero no pinta nada: es un cero de verdad', () => {
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 0, gastos: 0, movimientos: 0 } }) });
+      expect(comp.boveda()).toBeNull();
+      expect(comp.bovedaCifras()).toBeNull();
+    });
+
+    it('con una pierna > 0 publica el objeto entero, con su conteo', () => {
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 0, gastos: 5070, movimientos: 1 } }) });
+      expect(comp.bovedaCifras()).toEqual({ ingresos: 0, gastos: 5070, movimientos: 1 });
+    });
+
+    it('⛔ [negativa] el campo AUSENTE da «sin_medir», nunca null', () => {
+      // Una API vieja no manda `se_fue_a_boveda`. Devolver `null` acá apagaría el renglón igual
+      // que un cero, y los de arriba seguirían viniendo recortados SIN avisar: exactamente el
+      // defecto original, reintroducido por la vía del deploy parcial.
+      // ⚠️ Se parte de un arqueo que SÍ trae el campo y se le quita. Hacerlo desde el fixture
+      // base —que nunca lo tuvo— daría verde sin probar nada: la prueba tiene que ejercer la
+      // AUSENCIA, no coincidir con ella.
+      const conCampo = { ...ARQUEO.caja_general, se_fue_a_boveda: { ingresos: 0, gastos: 5070, movimientos: 1 } };
+      expect(conCampo.se_fue_a_boveda).toBeDefined();
+      const { se_fue_a_boveda: _omitido, ...sinCampo } = conCampo;
+      expect('se_fue_a_boveda' in sinCampo).toBe(false);
+      montar({ arqueoDia: vi.fn(() => of({ ...ARQUEO, caja_general: sinCampo })) });
+      expect(comp.boveda()).toBe('sin_medir');
+      expect(comp.bovedaCifras()).toBeNull();
+    });
+
+    it('⛔ [negativa] las dos piernas NO se suman en un total', () => {
+      // Un ingreso que se tragó la máquina y un gasto que salió de ella van en sentidos
+      // contrarios: un total único los compensaría y volvería a esconder el recorte. Cada
+      // pierna viaja por su lado y corrige SU renglón.
+      montar({ arqueoDia: conBoveda({ se_fue_a_boveda: { ingresos: 5070, gastos: 5070, movimientos: 2 } }) });
+      const b = comp.bovedaCifras()!;
+      expect(b.ingresos).toBe(5070);
+      expect(b.gastos).toBe(5070);
     });
   });
 
@@ -4474,15 +4833,37 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(comp.desgloseSellado()).toBeNull();
     });
 
-    it('⛔ un desglose con una pieza que la reja no tiene ($1,000) se declara, no se pinta a medias', () => {
+    /**
+     * ⚠️ 2026-10-16 — ESTA PRUEBA CAMBIÓ DE EJEMPLO, NO DE REGLA. Usaba el billete de $1,000
+     * como «la pieza que la reja no tiene», y desde hoy la reja SÍ lo tiene (pedido de Edgar).
+     *
+     * ⭐ Y al buscarle reemplazo salió un hecho que vale anotar: la caja ahora ofrece **las 12
+     * llaves del catálogo compartido**, así que ya no existe ninguna denominación catalogada
+     * fuera de la reja. La regla igual sigue viva, porque el desglose sellado viene de la BASE
+     * y su CHECK no se deriva de este catálogo: un corte viejo, o una llave que el catálogo
+     * deje de publicar mañana, entran por acá igual. Por eso el ejemplo pasa a una llave que
+     * NO está en el catálogo en vez de a una que todavía no se ofrecía.
+     */
+    it('⛔ un desglose con una pieza que la reja no tiene se declara, no se pinta a medias', () => {
       // La reja de sólo lectura no tendría dónde ponerla, y lo que se ve no sumaría lo sellado.
+      montar({ saldo: vi.fn(() => of(abierto({
+        ...SELLADO_FALTA, contado: 5400,
+        desglose: [{ denom_key: '5000', denominacion: 5000, piezas: 1 }, { denom_key: '200', denominacion: 200, piezas: 2 }],
+      }))) });
+      comp.abrirCierre();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.desgloseSellado()).toBeNull();
+    });
+
+    it('⭐ [control] el MISMO desglose, con el $1,000 que la reja ya ofrece, SÍ se pinta', () => {
+      // Sin este control la prueba de arriba pasaría aunque el guard rechazara todo: hay que
+      // ver que distingue «llave desconocida» de «llave que la reja tiene».
       montar({ saldo: vi.fn(() => of(abierto({
         ...SELLADO_FALTA, contado: 1400,
         desglose: [{ denom_key: '1000', denominacion: 1000, piezas: 1 }, { denom_key: '200', denominacion: 200, piezas: 2 }],
       }))) });
       comp.abrirCierre();
-      expect(comp.rejaEditable()).toBe(false);
-      expect(comp.desgloseSellado()).toBeNull();
+      expect(comp.desgloseSellado(), 'el $1,000 ya es parte de la reja: tiene dónde pintarse').not.toBeNull();
     });
 
     it('abrir desde «rendir cuentas»: el diálogo ya sabe qué corte es aunque el saldo no haya vuelto', () => {
@@ -4772,6 +5153,59 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(ta).not.toBeNull();
       expect(ta!.classList.contains('p-textarea')).toBe(true);
       expect(document.querySelector('label[for="cg-sin-doc"]') ?? fx.nativeElement.querySelector('label[for="cg-sin-doc"]')).not.toBeNull();
+    });
+  });
+  /**
+   * `[CGA11Y-O3b]` LA TIRA DE ACCESOS RAPIDOS.
+   *
+   * El eje es `doc_tipo` y el conteo viene DEL SERVIDOR. Contar las filas cargadas es el
+   * defecto que [CG.30] midio: la bandeja publicaba «31 de 100» teniendo 1,887 en esa caja.
+   */
+  describe('[CGA11Y-O3b] la tira de accesos', () => {
+    const CON_GRUPOS = {
+      ...VACIA,
+      grupos: [
+        { doc_tipo: 'X-D-26', tipo: 'gasto', movimientos: 117, monto: 369989 },
+        { doc_tipo: 'U-A-5', tipo: 'ingreso', movimientos: 6, monto: 109556 },
+      ],
+    };
+
+    it('⭐ el acceso lleva su conteo, y Todos suma el universo', () => {
+      montar({ movimientosPendientes: vi.fn(() => of(CON_GRUPOS as never)) });
+      const ops = comp.opcionesGrupo();
+      expect(ops[0]).toEqual({ label: 'Todos', value: '', count: 123 });
+      expect(ops.find((o) => o.value === 'egreso')?.count).toBe(117);
+      expect(ops.find((o) => o.value === 'deposito')?.count).toBe(6);
+    });
+
+    it('⛔ [negativa] sin grupos del servidor la tira NO se dibuja (ni con ceros)', () => {
+      const fx = montar();
+      expect(comp.grupos(), 'grupos tiene que quedar null, no []').toBeNull();
+      expect(comp.opcionesGrupo()).toEqual([]);
+      fx.detectChanges();
+      const tiras = fx.nativeElement.querySelectorAll('app-segmented');
+      const conGrupo = Array.from(tiras).filter((t) =>
+        (t.getAttribute('ariaLabel') || t.getAttribute('aria-label') || '').includes('Grupo'));
+      expect(conGrupo.length, 'se dibujo una tira sin medicion detras').toBe(0);
+    });
+
+    it('⛔ un doc_tipo desconocido entra como Sin clasificar, no se reparte', () => {
+      montar({ movimientosPendientes: vi.fn(() => of({
+        ...VACIA,
+        grupos: [{ doc_tipo: 'X-D-99', tipo: 'gasto', movimientos: 4, monto: 100 }],
+      } as never)) });
+      const ops = comp.opcionesGrupo();
+      expect(ops.find((o) => o.value === 'sin_clasificar')?.count).toBe(4);
+      expect(ops.find((o) => o.value === 'egreso'), 'se colo en Egresos por empezar con X')
+        .toBeUndefined();
+    });
+
+    it('elegir un grupo manda su doc_tipo al servidor', () => {
+      const esp = vi.fn(() => of(CON_GRUPOS as never));
+      montar({ movimientosPendientes: esp });
+      comp.setGrupo('egreso');
+      const ult = esp.mock.calls[esp.mock.calls.length - 1][0] as { doc_tipo?: string };
+      expect(ult.doc_tipo).toBe('X-D-26');
     });
   });
   describe('[CGP-L.8] el comprobante del detalle', () => {

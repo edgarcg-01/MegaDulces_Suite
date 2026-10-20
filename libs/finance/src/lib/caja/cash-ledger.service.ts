@@ -23,6 +23,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
 };
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
+import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
@@ -105,6 +106,62 @@ function llaveDeValor(valor: number): string {
   return v === 0.5 ? '0.5' : String(v);
 }
 
+/**
+ * `[CG.116]` El término del buscador leído **como importe**.
+ *
+ * El buscador de la bandeja pegaba contra seis columnas de TEXTO (beneficiario, entidad,
+ * concepto, folio, origen_ref, doc_tipo) y contra ninguna de dinero. Pero el papel que la
+ * persona tiene en la mano — el ticket, la ficha de depósito, el comprobante — lo que trae
+ * grande es **el monto**, y era justo lo único con lo que no se podía buscar.
+ *
+ * ⚠️ **No se busca el importe con `ILIKE`.** Un `monto::text ILIKE '%500%'` devolvería
+ * `$1,500.00`, `$25,003.00` y `$500,000.00` en la misma lista: el importe es una cantidad, no
+ * una cadena, y tratarlo como cadena produce coincidencias que nadie pidió.
+ *
+ * **Las dos formas, y por qué son dos:**
+ *
+ *   `9781.50`  con decimales  -> exacto. La persona copió el importe completo.
+ *   `9781`     sin decimales  -> el peso entero: `[9781, 9782)`, así encuentra `$9,781.50`.
+ *                               Es como se lee un total redondeado, y exigir los centavos
+ *                               haría que el caso más común no encuentre nada.
+ *
+ * Se limpia lo que una persona escribe al copiar dinero: el signo de pesos, los espacios
+ * (incluido el duro que traen los PDF) y los separadores de miles.
+ *
+ * ⛔ Devuelve el número **como cadena** a propósito: se liga con `?::numeric` para que lo
+ * redondee Postgres y no el `double` de JavaScript. `monto` en la vista es `numeric`, y
+ * comparar dinero contra un flotante es la forma de que `0.1 + 0.2` decida un arqueo.
+ *
+ * ⚠️ `null` cuando el término no es un importe — ahí la búsqueda queda como estaba, sólo texto.
+ * Un término de puros dígitos (`90`) SÍ es un importe candidato y además sigue pegando contra
+ * folio: el buscador es universal, así que suma resultados, no los reemplaza.
+ */
+export function montoBuscado(search: string | null | undefined): { valor: string; entero: boolean } | null {
+  const limpio = String(search ?? '').trim().replace(/[$\s\u00a0]/g, '').replace(/,/g, '');
+  // Tope de 12 enteros: más que eso no es un importe de caja, es un folio largo.
+  if (!/^\d{1,12}(\.\d{1,2})?$/.test(limpio)) return null;
+  return { valor: limpio, entero: !limpio.includes('.') };
+}
+
+/** El `OR` de importe que se le cuelga al buscador. Sin término numérico no agrega nada. */
+/**
+ * `[CG.116.1]` Las formas que devuelven las consultas de la bandeja. Se DECLARAN en vez de
+ * dejarlas en `any`: lo que vuelve de knex no tiene forma, y abajo se leen campo por campo.
+ * `count()/sum()` de pg devuelven TEXTO, por eso el `string | number`.
+ */
+interface Agregado { n?: string | number | null; monto?: string | number | null }
+interface GrupoPendiente { doc_tipo?: string | null; tipo?: string | null; n?: string | number | null; monto?: string | number | null }
+
+function agregaMonto(b: Knex.QueryBuilder, columna: string, m: { valor: string; entero: boolean } | null): void {
+  if (!m) return;
+  if (m.entero) {
+    // Rango semiabierto en vez de `trunc(monto)`: así el filtro sigue pudiendo usar un índice.
+    b.orWhereRaw(`${columna} >= ?::numeric AND ${columna} < ?::numeric + 1`, [m.valor, m.valor]);
+  } else {
+    b.orWhereRaw(`${columna} = ?::numeric`, [m.valor]);
+  }
+}
+
 export interface CreateMovementInput {
   tipo: 'ingreso' | 'gasto' | 'deposito';
   fecha: string;
@@ -159,6 +216,20 @@ export interface CreateMovementInput {
   origen_tipo?: string;
   origen_ref?: string;
   origen_uuid?: string;
+  /**
+   * ⭐⭐ `[CGA-A.10]` **El documento que esta captura DECLARA estar pagando, por LLAVE.**
+   * Misma forma que `origen_ref` del lado de Kepler: `sucursal|doc_tipo|folio|clave_banco`.
+   *
+   * Sólo tiene sentido cuando el movimiento NO nace del documento (típicamente `origen_tipo =
+   * 'caos'`, cuyo `origen_ref` es `device|external_id`). Antes esa declaración vivía en la
+   * **prosa de la glosa**, y comparar prosa escondió **157 movimientos · $1,325,687.43**
+   * porque el folio de camioneta es consecutivo **por unidad**: `GOTCHAS` §86.
+   *
+   * ⚠️ Mientras la pantalla no lo mande (`[CGA-A.10b]`), llega `undefined` y el descuento cae
+   * en la rama vieja del `LIKE`. Eso es lo que mantiene vivo el hueco de **16 movimientos ·
+   * $211,548.14** — lo cuenta `npm run check:cobro-escondido`.
+   */
+  declared_doc_ref?: string;
   autofill?: Record<string, unknown>;
   client_uuid?: string;
   legacy_cuenta_access?: string;
@@ -179,6 +250,35 @@ const ORIGEN_ANCLADO = ['cobro', 'pago_proveedor'];
 
 /** La clase de hallazgo que le toca a cada signo. Ver `ClaseDescuadre`. */
 const CLASE_DESCUADRE: Record<string, ClaseDescuadre> = { ingreso: 'caja_entrega', gasto: 'caja_egreso' };
+
+/**
+ * ⭐⭐ `[CGA-A.17u]` **LOS UMBRALES YA NO VIVEN ACÁ.** Estaban en estas tres constantes y, a la
+ * vez, escritos de nuevo en SQL dentro de la matvista `mv_caja_autofill_entidad` — dos sesiones
+ * el mismo día, el mismo código de ticket, dos respuestas a la misma pregunta.
+ *
+ * La regla entera (soporte ≥ 5 · dominancia ≥ 80 % · ≥ 3 entidades distintas · sin cuentas de
+ * CAJA/BANCO · sólo capturas de personas · sin empate) vive en **un solo lugar**:
+ * `analytics.v_caja_concepto_por_cuenta`, creada por la migración `20261019154654`, que es
+ * donde está cada guarda con su medición al lado.
+ *
+ * ⛔ Dejar acá un umbral muerto sería peor que no tenerlo: el próximo que quiera aflojar la regla
+ * lo cambiaría aquí, vería que no pasa nada, y terminaría cambiándola en el otro lado también.
+ */
+
+
+/** La cuenta de servicio del autollenado (`20261016105305`). Sus filas NO cuentan como historia. */
+const SVC_AUTOLLENADO_ID = '00000000-0000-0000-0000-0000000ca11e';
+
+/** `[CGA-A.18]` Una fila de `finance.caja_autofill_declarada`: lo que la empresa DECIDIÓ. */
+export interface EntidadDeclarada {
+  entidad_code: string;
+  kepler_cuenta: string;
+  kepler_concepto: string;
+  motivo: string;
+  declarada_por_username: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
 
 @Injectable()
 export class CashLedgerService {
@@ -352,12 +452,74 @@ export class CashLedgerService {
 
   /** Resuelve el par contra el catálogo vivo. Devuelve los nombres para el snapshot. */
   private async resolveConcept(trx: any, tenantId: string, sucursal: string, cuenta: string, concepto: string) {
-    const row = await trx('analytics.v_kepler_conceptos')
-      .where({ tenant_id: tenantId, sucursal, cuenta, concepto })
+    /**
+     * ⛔⛔ `[CG.193]` **EL RESOLVEDOR Y EL ESCRITOR TENÍAN DOS REGLAS PARA LA MISMA PREGUNTA, Y LA
+     * BANDEJA OFRECÍA FILAS QUE NO SE PODÍAN GUARDAR.**
+     *
+     * Lo destapó el canario del autollenado el 2026-10-16: la primera corrida escribió **0 filas**
+     * y latió `error` con *«El par cuenta/concepto 201/201 no existe en el catálogo de Kepler para
+     * la sucursal 01»*. Medido sobre la cola en alcance: de **120** que `resolverCuentas()` daba
+     * por confirmables, `create()` sólo aceptaba **20**.
+     *
+     *     ⛔ rechazadas por concepto de otra plaza ... 97  $322,773.25   (todas el par 201/201)
+     *        · sucursal 08 ×43 · 06 ×30 · 07 ×22 · 01 ×2
+     *     ⛔ rechazadas por sucursal compuesta ......  3  $ 32,083.89
+     *
+     * ⚠️ **Y esto NO lo trajo el autollenado: lo hizo visible.** El mismo rechazo le pasaba a una
+     * persona que apretara «confirmar» en la bandeja — con 97 de 120 filas ofrecidas como listas y
+     * un 400 al tocarlas. Es parte de por qué el módulo lleva 89 capturados contra un rezago que no
+     * baja.
+     *
+     * ── Las dos causas, y por qué la respuesta es la MISMA ──────────────────────────────────────
+     *  1. **El catálogo viene recortado en 01, 06, 07 y 08** (`[CS.3.11]`, medido: 126-128 cuentas
+     *     contra 158-168). `conceptosDeCuenta()` ya resuelve eso prestando el concepto de otras
+     *     plazas **sólo cuando el código es UNÁNIME** en todas donde la cuenta existe, y lo declara
+     *     con `de_otra_sucursal`. El escritor no conocía esa regla y exigía la tupla exacta.
+     *  2. **La sucursal llega COMPUESTA** (`01-001`…): el catálogo no tiene compuestas (`[CG.189]`),
+     *     así que la tupla exacta no puede existir **nunca** para esas filas.
+     *
+     * ⭐ **No se afloja el candado: se le enseña al escritor la regla que el resolvedor ya usaba.**
+     * Tener dos verdades sobre «¿este par es válido?» es el defecto que `[CG.27-B.0]` ya pagó entre
+     * la bandeja y el autofill. Lo que NO cambia: si el código no es unánime entre plazas, esto
+     * sigue tirando — `[CS.3.11]` midió que **69 cuentas tienen de 2 a 6 códigos distintos** y
+     * copiar a ciegas las habría clasificado mal.
+     */
+    const sucursalCat = this.sucursalBase(sucursal);
+    let row = await trx('analytics.v_kepler_conceptos')
+      .where({ tenant_id: tenantId, sucursal: sucursalCat, cuenta, concepto })
       .first('cuenta', 'concepto', 'concepto_nombre', 'cuenta_mayor');
+
+    if (!row) {
+      /**
+       * Respaldo, con la MISMA regla de `conceptosDeCuenta()`: se acepta el par sólo si esta plaza
+       * **no tiene la cuenta** (su catálogo viene recortado) y el código es **unánime** en todas
+       * las plazas donde sí existe. Si la plaza SÍ tiene la cuenta con otro concepto, eso no es un
+       * catálogo incompleto: es un par equivocado, y sigue siendo un error.
+       */
+      const tieneLaCuenta = await trx('analytics.v_kepler_conceptos')
+        .where({ tenant_id: tenantId, sucursal: sucursalCat, cuenta })
+        .first('cuenta');
+      if (!tieneLaCuenta) {
+        const otras = await trx('analytics.v_kepler_conceptos')
+          .where({ tenant_id: tenantId, cuenta })
+          .groupBy('cuenta')
+          .select('cuenta')
+          .count({ codigos: trx.raw('DISTINCT concepto') })
+          .select(trx.raw('min(concepto) AS concepto'), trx.raw('min(concepto_nombre) AS concepto_nombre'))
+          .first();
+        if (otras && Number(otras.codigos) === 1 && String(otras.concepto) === String(concepto)) {
+          row = { cuenta, concepto, concepto_nombre: otras.concepto_nombre, cuenta_mayor: null };
+          this.logger.warn(
+            `[CG.193] par ${cuenta}/${concepto} aceptado para la sucursal ${sucursalCat} desde el `
+            + 'catálogo de otras plazas (unánime): el catálogo de esta plaza viene recortado.',
+          );
+        }
+      }
+    }
+
     if (!row) {
       throw new BadRequestException(
-        `El par cuenta/concepto ${cuenta}/${concepto} no existe en el catálogo de Kepler para la sucursal ${sucursal}. `
+        `El par cuenta/concepto ${cuenta}/${concepto} no existe en el catálogo de Kepler para la sucursal ${sucursalCat}. `
         + 'No se guarda un movimiento con una cuenta que la contabilidad no reconoce.',
       );
     }
@@ -1023,6 +1185,10 @@ export class CashLedgerService {
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
         origen_uuid: input.origen_uuid ?? null,
+        // `[CGA-A.10]` La declaración por LLAVE. Se normaliza el vacío a NULL: una cadena vacía
+        // haría casar `declared_doc_ref = origen_ref` con nada y, peor, apagaría la rama del
+        // `LIKE` — una captura dejaría de descontar sin que nadie lo pidiera.
+        declared_doc_ref: input.declared_doc_ref?.trim() || null,
         /**
          * `[CG.124]` Sólo se guarda cuando de verdad explicó algo: si el movimiento quedó
          * enlazado, el motivo sobra y escribirlo ensuciaría la columna que sirve para ENCONTRAR
@@ -1167,6 +1333,8 @@ export class CashLedgerService {
 
   async movimientosPendientes(q: {
     tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number;
+    /** `[CGA11Y-O3b]` El grupo elegido en la tira de accesos (`U-A-5`, `X-D-26`, `D-23-1`…). */
+    doc_tipo?: string;
   }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
@@ -1175,14 +1343,53 @@ export class CashLedgerService {
       // más viejo de 2025-01-01**, porque `finance.cash_ledger` está vacío y entonces "pendiente"
       // es todo lo que Kepler registró desde que hay ODS. Es cierto y es inútil como cola de
       // trabajo. Se puede pedir explícitamente un `from` anterior; el default no lo hace.
-      const desde = q.from
+      //
+      // ⭐ `[CGA-A.43]` Sin `from`, la cola arranca en el PRIMER CORTE DEL LIBRO, no en una ventana
+      // de días: lo anterior es de la era Control (el Access), que ya lo saldó — medido, de 541
+      // documentos del 1 al 11-oct, Control saldó todos salvo 15 — y desde el corte la cola es
+      // exacta. Sólo si todavía no hay ningún corte se usa la ventana de siempre.
+      const relevo = q.from ? null : await primerCorteDelLibro(trx, tenantId);
+      /**
+       * ⭐ `[CGA-A.44]` Pero el mes del relevo todavía tiene pendientes de la era Control (Edgar,
+       * 2026-10-20: «este mes aún existían movimientos en Control que no se conciliaban»). La cola
+       * arranca el PRIMERO DE ESE MES, y de los días anteriores al corte quita lo que el Control ya
+       * saldó — con el mismo casamiento del Cuadre de `/finanzas/caja` (`saldadosPorControl`), así que
+       * las dos pantallas no pueden decir cosas distintas. Medido: del 1 al 10-oct quedan ~46 de 541.
+       */
+      const inicio = relevo ? inicioDelMes(relevo) : null;
+      const controlSaldo = relevo && inicio && inicio < relevo
+        ? await saldadosPorControl(trx, tenantId, inicio, diaAnterior(relevo))
+        : { llaves: new Set<string>(), ruta_disponible: true };
+      const saldados = [...controlSaldo.llaves];
+      const desde = q.from || inicio
         || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
 
-      const filtros = (b: any) => {
+      /**
+       * `conTipo` existe por los CONTEOS POR GRUPO, y es la parte fácil de equivocar.
+       *
+       * ⛔ Si la tira de accesos («Depósitos 6 · Egresos 117 · …») heredara el filtro de tipo,
+       * cada grupo mostraría su número **sólo mientras está elegido** y cero el resto del
+       * tiempo. O sea: para saber cuántos egresos hay habría que ir a egresos — que es
+       * exactamente lo que la tira viene a evitar. Los conteos se piden con `conTipo:false`;
+       * la lista y sus totales siguen con el filtro puesto.
+       *
+       * ⚠️ `caja` y `sucursal` SÍ se conservan en los dos casos: acotan el universo del que
+       * se cuenta, no el grupo. Contar egresos de otra caja al lado de los de ésta sería
+       * publicar una cifra de un universo distinto, que es el defecto que este archivo ya
+       * persigue en otro lado («un total que no corresponde a lo filtrado es otra forma de
+       * mentir, más difícil de ver»).
+       */
+      const filtrosCon = (b: Knex.QueryBuilder, conTipo = true) => {
         let x = b.where('tenant_id', tenantId);
-        if (q.tipo) x = x.where('tipo', q.tipo);
+        if (q.tipo && conTipo) x = x.where('tipo', q.tipo);
+        // `doc_tipo` viaja junto con `tipo`: los dos ACOTAN AL GRUPO, así que los conteos de la
+        // tira (conTipo:false) tampoco lo heredan — si no, el grupo elegido sería el único con
+        // número y los demás saldrían en cero.
+        if (q.doc_tipo && conTipo) x = x.where('doc_tipo', q.doc_tipo);
         if (q.caja) x = x.where('clave_banco', q.caja);
         if (q.sucursal) x = x.where('sucursal', q.sucursal);
+        // `[CGA-A.44]` Lo que el Control ya saldó en los días anteriores al corte no es trabajo del libro.
+        if (saldados.length) x = x.whereNotIn('origen_ref', saldados);
         /**
          * ⛔⛔ `[CG.85]` **LO YA CAPTURADO DESDE LA OTRA FUENTE SEGUÍA EN LA COLA.**
          *
@@ -1221,19 +1428,60 @@ export class CashLedgerService {
          *
          * ⚠️ Límite abierto: mientras declarar el documento desde CAOS sea opcional, lo que no se
          * declare vuelve a duplicarse. Eso se cierra haciéndolo obligatorio, y va aparte.
+         *
+         * ⛔⛔ `[CGA-A.9]` **EL `AND yac.origen_tipo = 'caos'` NO ES COSMÉTICO: SIN ÉL, ESTE
+         * FILTRO ESCONDE DINERO DE OTRA CAMIONETA.**
+         *
+         * Medido en prod el 2026-10-16, con las camionetas recién cableadas:
+         *
+         *     01-006 ruta_28  U-A-5 0000013  $13,699.00  ← capturado, glosa "U-A-5 0000013 · CONTADO"
+         *     01-002 ruta_22  U-A-5 0000013  $15,321.00  ← DESAPARECIÓ de la bandeja
+         *
+         * ⭐ **`doc_tipo + folio` NO IDENTIFICA UN COBRO.** El folio de la camioneta es
+         * consecutivo **por unidad**, no global: que dos coincidan el mismo día es lo normal, no
+         * la excepción. Con 4 camionetas ya colisionan; con las 11 del censo sería diario. La
+         * identidad completa lleva la **sucursal** (`01-002` vs `01-006`), y está en `origen_ref`.
+         *
+         * ⚠️ Y el modo de fallar es el peor de todos: **el dinero no se pierde, se vuelve
+         * invisible**. La fila sigue en la vista, correcta, y la pantalla no la ofrece — así que
+         * nadie la captura y nadie se entera. $15,321.00 así.
+         *
+         * **Por qué acotar a `caos` es la corrección correcta y no un parche:** este descuento
+         * existe SÓLO para lo capturado desde la otra fuente (CAOS), que declara el documento en
+         * la glosa porque no tiene `origen_ref` propio. Un movimiento con `origen_tipo` de Kepler
+         * YA lo excluye la vista por `origen_ref`, que es exacto. O sea que el `LIKE` sobre la
+         * glosa nunca debió mirar esas filas.
+         *
+         * ⭐⭐ `[CGA-A.10]` **EL HUECO QUE A.9 DEJÓ ABIERTO SE CIERRA ACÁ: por LLAVE.**
+         * La captura desde CAOS ahora puede declarar el documento en una **columna**,
+         * `declared_doc_ref`, con la misma forma que `origen_ref` del lado de Kepler
+         * (`01-005|U-A-5|0000015|0011`). Donde hay llave, se compara la llave — y la sucursal
+         * deja de poder confundirse.
+         *
+         * ⚠️ **La rama del `LIKE` sigue viva SÓLO para lo histórico** (`declared_doc_ref IS
+         * NULL`): las capturas que declararon el documento en la prosa antes de que existiera
+         * la columna. Medido al migrar: **12 capturas declaran documento; 7 se resolvieron
+         * solas y 5 ($80,541.00) quedaron ambiguas** y las tiene que decir una persona.
+         * **Cuando ese resto llegue a cero, este `OR` se borra** — y con él la última
+         * comparación por texto del módulo. Lo cuenta `npm run check:cobro-escondido`.
          */
         return x.whereNotExists((sub: any) => sub
           .select(trx.raw('1'))
           .from('finance.cash_ledger as yac')
           .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
              AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-             AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                                || ' ' || v_caja_movimientos_pendientes.folio || '%'`));
+             AND yac.origen_tipo = 'caos'
+             AND (
+               yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
+               OR (yac.declared_doc_ref IS NULL
+                   AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                                      || ' ' || v_caja_movimientos_pendientes.folio || '%')
+             )`));
       };
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
       // dónde cortó es indistinguible de una bandeja vacía (ADR-056).
-      const atras: any = await filtros(trx('finance.v_caja_movimientos_pendientes'))
+      const atras: Agregado | undefined = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '<', desde)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
@@ -1254,11 +1502,40 @@ export class CashLedgerService {
        * que es lo único que las saca de verdad (`[CG.25]` las sigue cuando eso pasa).
        */
       const hoy = await this.hoyMx(trx);
-      const adelante: any = await filtros(trx('finance.v_caja_movimientos_pendientes'))
+      const adelante: Agregado | undefined = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>', hoy)
         .count({ n: '*' }).sum({ monto: 'monto' }).first();
 
-      let qb = filtros(trx('finance.v_caja_movimientos_pendientes'))
+      /**
+       * ⭐ `[CGA11Y-O3a]` LOS CONTEOS POR GRUPO, para la tira de accesos rápidos.
+       *
+       * Sin esto la pantalla sólo puede contar **las filas que cargó**, y eso ya fue un defecto
+       * medido: `[CG.30]` encontró la bandeja publicando «31 de 100» con **1,887** en esa caja y
+       * **12,793** en total. *El tamaño de la página no es el trabajo.*
+       *
+       * El eje es `doc_tipo`, que es el que de verdad separa: `U-A-5` es el depósito de efectivo
+       * (el 95% del ingreso), `X-D-26` el pago/egreso (el 92% de la salida), `D-23-1` el cobro de
+       * ruta de detalle. ⛔ **NO se usa `origen_tipo`**: en esta vista sale del signo
+       * (`signo > 0 ? 'cobro' : 'pago_proveedor'`), así que es un sinónimo de `tipo` y no
+       * distingue nada — medido el 2026-10-16.
+       *
+       * Costo medido contra prod el 2026-10-16: **21 ms**, `HashAggregate` sobre
+       * `Index Scan using ix_mv_caja_movimientos_bandeja`, 55 buffers. Es un `GROUP BY` sobre un
+       * índice que ya existía, no una consulta nueva que haya que sostener.
+       *
+       * ⚠️ `conTipo:false`: ver la nota de `filtrosCon`. Y comparte la MISMA ventana que la
+       * lista (`desde`..`hoy`), porque un conteo de otro período al lado de la lista es
+       * justamente la cifra que no corresponde a lo filtrado.
+       */
+      const grupos: GrupoPendiente[] = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'), false)
+        .where('fecha_valor', '>=', desde)
+        .where('fecha_valor', '<=', hoy)
+        .select('doc_tipo', 'tipo')
+        .count({ n: '*' })
+        .sum({ monto: 'monto' })
+        .groupBy('doc_tipo', 'tipo');
+
+      let qb = filtrosCon(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>=', desde)
         .where('fecha_valor', '<=', hoy);
 
@@ -1266,14 +1543,18 @@ export class CashLedgerService {
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
         const s = `%${String(q.search).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-        qb = qb.where((b: any) => b
-          .whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
-          // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
-          .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
-          .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]));
+        // `[CG.116]` El importe entra al mismo OR: lo que el papel trae grande es el monto.
+        const m = montoBuscado(q.search);
+        qb = qb.where((b: Knex.QueryBuilder) => {
+          b.whereRaw(`beneficiario ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`entidad_code ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`concepto ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`folio ILIKE ? ESCAPE '\\'`, [s])
+            // CS.3.9 — el mismo buscador universal cae acá (por confirmar): folio/doc de Kepler.
+            .orWhereRaw(`origen_ref ILIKE ? ESCAPE '\\'`, [s])
+            .orWhereRaw(`doc_tipo ILIKE ? ESCAPE '\\'`, [s]);
+          agregaMonto(b, 'monto', m);
+        });
       }
       /**
        * ⛔ `[CG.30]` **CUÁNTOS HAY DE VERDAD dentro de la ventana.**
@@ -1350,7 +1631,16 @@ export class CashLedgerService {
         // subtítulo tiene que decir; `rows.length` es cuánto cupo en la página.
         total,
         desde,
-        ventana_dias: q.from ? null : CAJA_VENTANA_DIAS,
+        ventana_dias: q.from || relevo ? null : CAJA_VENTANA_DIAS,
+        // `[CGA-A.43]` De dónde sale `desde`: lo pidió la pantalla, es el primer corte del libro, o
+        // es la ventana de siempre (no hay libro todavía). La pantalla lo dice con estas palabras.
+        desde_motivo: (q.from ? 'pedido' : relevo ? 'relevo' : 'ventana') as 'pedido' | 'relevo' | 'ventana',
+        // `[CGA-A.44]` El primer corte del libro, y cuántos documentos de la era Control se quitaron
+        // por estar ya saldados en el Control. `control_ruta_disponible:false` = no se pudieron leer
+        // los cobros de camioneta, y ésos se dejaron VISIBLES (lado seguro).
+        relevo,
+        saldados_por_control: saldados.length,
+        control_ruta_disponible: controlSaldo.ruta_disponible,
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
         // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
@@ -1358,6 +1648,23 @@ export class CashLedgerService {
         // no son trabajo de caja, son un error de captura de Kepler que alguien tiene que ir a
         // corregir allá.
         mal_fechados: { movimientos: Number(adelante?.n ?? 0), monto: Number(adelante?.monto ?? 0) },
+        /**
+         * ⭐ `[CGA11Y-O3a]` Los conteos por grupo, para que la tira de accesos no tenga que
+         * contar las filas que cargó. Van **ordenados por volumen**: la pantalla pinta los
+         * accesos en el orden que recibe, y el grupo con más trabajo tiene que ir primero.
+         *
+         * ⚠️ `numeric` de Postgres llega como STRING por JSON: se convierte acá, no en la
+         * pantalla. Sin esto el monto se concatena en vez de sumarse — el gotcha que
+         * `DESIGN.md` llama «dinero con Number() antes de formatear».
+         */
+        grupos: grupos
+          .map((g: GrupoPendiente) => ({
+            doc_tipo: String(g.doc_tipo ?? ''),
+            tipo: String(g.tipo ?? ''),
+            movimientos: Number(g.n ?? 0),
+            monto: Number(g.monto ?? 0),
+          }))
+          .sort((a, b) => b.movimientos - a.movimientos),
       };
     });
   }
@@ -1378,17 +1685,21 @@ export class CashLedgerService {
    * ⛔ Ni un `?` en el subquery de exclusión: knex lo tomaría como binding (ya costó una columna en
    * `20260819220000`). Se guarda con `to_regclass` para entornos sin la vista (idempotente).
    */
-  private async buscarPagables(trx: any, tenantId: string, search: string, limit: number) {
+  private async buscarPagables(trx: Knex.Transaction, tenantId: string, search: string, limit: number) {
     const existe = await trx.raw(`SELECT to_regclass('analytics.expense_documents') AS t`);
     if (!existe.rows[0]?.t) return [];
     const s = `%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     const rows = await trx('analytics.expense_documents as e')
       .where('e.tenant_id', tenantId)
       .whereIn('e.doc_tipo', ['XA1001', 'XA2001'])
-      .where((b: any) => b
-        .whereRaw(`e.beneficiario ILIKE ? ESCAPE '\\'`, [s])
-        .orWhereRaw(`e.concepto ILIKE ? ESCAPE '\\'`, [s])
-        .orWhereRaw(`e.doc_folio ILIKE ? ESCAPE '\\'`, [s]))
+      // `[CG.116]` El importe también acá: es el MISMO término del mismo cuadro de búsqueda, y
+      // dejar que encuentre por monto en una lista y no en la otra se lee como que no funciona.
+      .where((b: Knex.QueryBuilder) => {
+        b.whereRaw(`e.beneficiario ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`e.concepto ILIKE ? ESCAPE '\\'`, [s])
+          .orWhereRaw(`e.doc_folio ILIKE ? ESCAPE '\\'`, [s]);
+        agregaMonto(b, 'e.importe', montoBuscado(search));
+      })
       .whereRaw(`NOT EXISTS (
         SELECT 1 FROM finance.cash_ledger l
          WHERE l.tenant_id = e.tenant_id
@@ -1733,20 +2044,26 @@ export class CashLedgerService {
     const tenantId = this.tenantCtx.requireTenantId();
     const dias = Math.min(Math.max(Number(q.dias) || 180, 1), 730);
     return this.tk.run(async (trx) => {
+      // `[CGA-A.43]` Sin `dias`, el volumen se cuenta desde el primer corte del libro: el mismo
+      // borde que la cola, o el número entre paréntesis contradiría a la lista de abajo.
+      // `[CGA-A.44]` …desde el primero de ese mes, igual que la cola.
+      const relevoCorte = q.dias ? null : await primerCorteDelLibro(trx, tenantId);
+      const relevo = relevoCorte ? inicioDelMes(relevoCorte) : null;
       const cat = await trx('analytics.v_kepler_cajas')
         .where('tenant_id', tenantId)
         .orderBy('clave')
         .select('clave', 'nombre', 'cuenta_contable');
       const vol = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).andWhere('tipo_cuenta', 'caja')
-        .andWhereRaw(`fecha_valor >= (now()::date - ${dias})`)
+        .andWhere((w: Knex.QueryBuilder) => (relevo ? w.where('fecha_valor', '>=', relevo) : w.whereRaw(`fecha_valor >= (now()::date - ${dias})`)))
         .groupBy('clave_banco')
         .select('clave_banco')
         .count({ documentos: '*' });
       const m = new Map(vol.map((v: any) => [String(v.clave_banco), Number(v.documentos)]));
       return {
         rows: cat.map((c: any) => ({ ...c, documentos: m.get(String(c.clave)) ?? 0 })),
-        ventana_dias: dias,
+        ventana_dias: relevo ? null : dias,
+        desde: relevo,
       };
     });
   }
@@ -1789,10 +2106,17 @@ export class CashLedgerService {
     for (const r of rows) {
       const cc = contra.get(this.claveDoc(r));
       if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
-        paresCuenta.set(`${r.sucursal}|${cc.contra_cuenta}`, { sucursal: String(r.sucursal), cuenta: cc.contra_cuenta });
+        // `[CG.189]` La llave del catálogo de conceptos usa la sucursal BASE: `v_kepler_conceptos`
+        // tampoco tiene compuestas. Se normaliza acá Y al leer, para que no puedan divergir.
+        const sucCat = this.sucursalBase(r.sucursal);
+        paresCuenta.set(`${sucCat}|${cc.contra_cuenta}`, { sucursal: sucCat, cuenta: cc.contra_cuenta });
       }
     }
     const conceptos = await this.conceptosDeCuenta(trx, tenantId, [...paresCuenta.values()]);
+    // `[CGA-A.17]` En LOTE, como el resto: una consulta para todas las cuentas de la página.
+    // Dentro del `map` no se puede esperar, y una consulta por fila volvería la bandeja inusable.
+    const dominantes = await this.conceptoDominantePorCuenta(
+      trx, tenantId, [...new Set([...paresCuenta.values()].map((p) => p.cuenta))]);
     const hoy = await this.hoyMx(trx);
 
     const conCuenta = rows.map((r: any) => {
@@ -1810,7 +2134,8 @@ export class CashLedgerService {
       // Piso CS.3.1b — la contra del propio documento, cuando regla/ruta no alcanzaron.
       const cc = contra.get(this.claveDoc(r));
       if (cc && cc.contra_n === 1 && cc.contra_cuenta) {
-        const cs = conceptos.get(`${r.sucursal}|${cc.contra_cuenta}`) ?? [];
+        // `[CG.189]` Misma normalización que al construir `paresCuenta`. Ver `sucursalBase()`.
+        const cs = conceptos.get(`${this.sucursalBase(r.sucursal)}|${cc.contra_cuenta}`) ?? [];
         if (cs.length === 1) {
           return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: cs[0].concepto,
             kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
@@ -1852,6 +2177,64 @@ export class CashLedgerService {
           return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: porNombre[0].concepto,
             kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
         }
+        /**
+         * ⭐⭐ `[CGA-A.17]` **EL CONCEPTO SE DERIVA DE LO QUE LAS PERSONAS YA ELIGIERON PARA ESA
+         * CUENTA — antes, había que declararlo a mano por entidad, con un INSERT en psql.**
+         *
+         * Lo disparó Edgar el 2026-10-19: *«te pedí que nunca ningún movimiento tuviera llenado
+         * manual o que no se lograra hacer»*, después de tener que correr a mano:
+         *
+         *     INSERT INTO finance.caja_autofill_declarada … ('CP036','511','059',
+         *       'matvista daba 511 unánime y concepto NULL; 059 sale de 27 de 28 capturas')
+         *
+         * ⭐ **El motivo que escribió ES una derivación hecha a mano.** Si 28 de 29 capturas con
+         * la cuenta `511` eligieron `059`, eso no hay que declararlo: hay que leerlo.
+         *
+         * ── Lo medido (prod, 2026-10-19) ───────────────────────────────────────────────────────
+         * `analytics.mv_caja_autofill_entidad` deriva la CUENTA de las pólizas pero sólo saca el
+         * CONCEPTO cuando Kepler nombra al tercero en su catálogo (el puente por nombre).
+         * Resultado: **241 de 285 entidades (85 %) con cuenta y concepto NULL**, frenando
+         * **89 movimientos / $706,476.32** en el alcance vigente.
+         *
+         * ⛔ **Y el hecho NO es de la entidad, es de la CUENTA**: declarar `CP036→511/059` obliga a
+         * repetir el mismo renglón 114 veces, una por cada entidad que usa `511`.
+         *
+         * ── ⛔⛔ El control que refutó la versión ingenua, y de ahí salen las guardas ───────────
+         * Contrastada contra el **puente por nombre de Kepler** (otra fuente, otro camino) sobre
+         * las 44 entidades con respuesta conocida: **coincidió 0, discrepó 1**. El caso que
+         * discrepa lo explica todo — `GG015`, cuenta **`102`**: Kepler dice `037` (CAJA CHICA
+         * MORELIA ABASTOS) y la dominancia del libro diría `011`. **En una cuenta de CAJA el
+         * concepto identifica CUÁL caja**, o sea que es de la entidad. Proponerlo por cuenta
+         * mandaría el dinero a la caja de otra plaza.
+         *
+         * La migración `20261013102052` ya lo había escrito: *«nótese CUÁL es: 102, o sea CAJA.
+         * Mandarle dinero a una caja chica NO es un gasto, es un traspaso entre cajas»*.
+         *
+         * ── Las tres guardas, cada una con su medición ────────────────────────────────────────
+         *  1. **Nunca una cuenta de CAJA ni de banco** (`102*`, `122*`): ahí el concepto es de la
+         *     entidad. Es la MISMA exclusión que la matvista ya aplica para derivar la cuenta.
+         *  2. **≥ 3 entidades distintas** eligieron ese concepto para esa cuenta. Es lo que vuelve
+         *     «el concepto es de la cuenta» una medición y no una suposición: `511` tiene **19
+         *     entidades** y `115` **16**; `601-001` tiene **1**, y por eso NO se propone aunque dé
+         *     13/13 — una sola entidad no prueba nada sobre la cuenta.
+         *  3. **Soporte ≥ 5 capturas y dominancia ≥ 80 %**, sin empate.
+         *
+         * ⚠️ **Sólo cuentan las capturas de PERSONAS** (`created_by <> svc_caja_autollenado`).
+         * Derivar de lo que el propio motor escribió sería pedirle que se confirme solo — el
+         * espejo de ADR-059. Medido hoy: las 229 filas del libro son de personas, cero del motor;
+         * el filtro existe para que siga siendo cierto cuando el motor empiece a escribir.
+         *
+         * **Efecto medido:** destraba **114 entidades · 49 movimientos · ~$360 K** (la cuenta
+         * `511`). Lo que no alcanza el umbral **sigue cayendo a declaración** — que ahora tiene
+         * puerta propia (`POST /autofill/declarar`), no psql.
+         */
+        const porLibro = dominantes.get(cc.contra_cuenta);
+        if (porLibro) {
+          return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: porLibro.concepto,
+            kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'libro_dominante',
+            concepto_soporte: porLibro.soporte, concepto_entidades: porLibro.entidades };
+        }
+
         // La CUENTA es autoritativa (del documento) → se bloquea. El CONCEPTO es una elección
         // acotada a esa cuenta (o manual, si la cuenta no está en el catálogo de conceptos). NO es
         // "faltan datos": el dato de Kepler ya está, sólo se afina el concepto.
@@ -1891,9 +2274,177 @@ export class CashLedgerService {
     return String(r.rows[0].d);
   }
 
+  /**
+   * ⛔⛔ `[CG.189]` **LA SUCURSAL COMPUESTA DEJABA SIN RESOLVER TODO EL INGRESO DE PADRE HIDALGO.**
+   *
+   * `finance.v_caja_movimientos_pendientes` trae la sucursal del documento, y en Padre Hidalgo
+   * viene **compuesta** (`01-001`, `01-002`, `01-004`, `01-005`) — los códigos que nacieron del
+   * corte del 1-oct. Pero `analytics.v_caja_doc_contracuenta` y `analytics.v_kepler_conceptos`
+   * están indexadas por la sucursal **base** (`01`): medido en prod, **ninguna de las dos tiene
+   * una sola fila con sucursal compuesta** (9 sucursales, `00`…`08`, cero con guion).
+   *
+   * Resultado: el piso de resolución de `CS.3.1b` no encontraba NADA para esas filas y caían a
+   * `sin_mapa`, que se lee como *«falta declarar la ruta»* cuando en realidad **la póliza del
+   * propio documento ya traía la cuenta**. Medido sobre el alcance vigente (desde el 10-oct):
+   * eran **3 de los 7 ingresos pendientes, $32,083.89**, y sobre la bandeja completa **29
+   * movimientos / $527,631.59**.
+   *
+   * ⭐ Es exactamente la misma trampa que el contrato `CajaCobertura` ya había documentado para el
+   * DENOMINADOR (*«`sucursal` se normaliza con `split_part(sucursal,'-',1)` en LOS DOS lados»*) —
+   * sólo que acá nadie la había aplicado, y del lado que decide **a qué cuenta va el dinero**.
+   *
+   * ── Por qué normalizar es SEGURO, medido y con control ──────────────────────────────────────
+   *  · `v_caja_doc_contracuenta`: 0 filas con sucursal compuesta → no hay fila más específica que
+   *    normalizar pueda tapar.
+   *  · Unicidad verificada: las 8 llaves `(base, tipo_pol, folio)` de las compuestas resuelven a
+   *    **exactamente 1 fila** cada una (0 con varias, 0 sin fila). Si alguna hubiera devuelto 2,
+   *    normalizar habría elegido una al azar y esto no se podría hacer.
+   *  · Las 4 sub-sucursales **comparten folio** (`U-A-5 0000008` existe en `01-001`, `01-002` y
+   *    `01-005` con montos distintos) — por eso esto normaliza **sólo la búsqueda de la cuenta**.
+   *    La identidad del movimiento sigue siendo `origen_ref`, que SÍ lleva la sub-sucursal
+   *    (`01-001|U-A-5|0000008|0011`), y `cash_ledger.sucursal` sigue guardando el valor CRUDO: es
+   *    la plaza del documento (regla 1 de `CGP` §1.4), no la llave del catálogo contable.
+   *
+   * ⚠️ Si mañana alguna de las dos vistas empieza a traer sucursales compuestas, esto hay que
+   * revisarlo: pasaría a tapar la fila específica con la general. El candado que lo detecta está
+   * en `database/tests/test-newdb-caja-autollenado.js`.
+   */
+  private sucursalBase(sucursal: unknown): string {
+    return String(sucursal ?? '').split('-')[0];
+  }
+
+  /**
+   * ⭐⭐ `[CGA-A.18]` **DECLARAR la cuenta/concepto de una entidad, desde la app.**
+   *
+   * Lo disparó Edgar el 2026-10-19: *«te pedí que nunca ningún movimiento tuviera llenado manual
+   * **o que no se lograra hacer**»*, después de tener que abrir psql y correr a mano un
+   * `INSERT INTO finance.caja_autofill_declarada` para `CP036`.
+   *
+   * ⛔ **Y tenía razón: no era una preferencia, era que NO HABÍA OTRA PUERTA.** Medido: la tabla
+   * existe desde el 2026-10-13 y **ningún endpoint la escribía** — cuatro lugares del repo la
+   * LEEN y cero la escriben. Es el mismo defecto exacto que `[CG.22.6]` ya había encontrado en
+   * `caja_classify_rules`: *«el bloqueo no era falta de trabajo, era que NO EXISTÍA NINGUNA
+   * PANTALLA para cargarlas»*. Se repitió, en la tabla de al lado, seis días después.
+   *
+   * ⚠️ Esto es el **residuo**, no el camino principal. `[CGA-A.17]` deriva el concepto cuando el
+   * libro lo prueba (114 entidades, 49 movimientos); esto es para lo que de verdad no se puede
+   * derivar — una caja chica, una entidad sin historia. Que el residuo exista está bien; lo que
+   * no puede ser es que se atienda con un cliente de base de datos.
+   *
+   * ⛔ El `motivo` es obligatorio y la base exige ≥10 caracteres: una regla sin motivo es un
+   * número que alguien puso y que nadie puede revisar después.
+   */
+  async declararEntidad(
+    input: { entidad_code?: string; kepler_cuenta?: string; kepler_concepto?: string; motivo?: string; sucursal?: string },
+    user: { id?: string; username?: string },
+  ): Promise<EntidadDeclarada> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!user?.id) throw new BadRequestException('No se pudo identificar a quien declara.');
+    const entidad = String(input.entidad_code ?? '').trim();
+    const cuenta = String(input.kepler_cuenta ?? '').trim();
+    const concepto = String(input.kepler_concepto ?? '').trim();
+    const motivo = String(input.motivo ?? '').trim();
+    if (!entidad) throw new BadRequestException('Sin entidad no hay a quién declararle una cuenta.');
+    if (!cuenta || !concepto) {
+      throw new BadRequestException('El par cuenta/concepto va COMPLETO: media cuenta no contabiliza nada.');
+    }
+    if (motivo.length < 10) {
+      throw new BadRequestException(
+        'Escribí POR QUÉ es esta cuenta (10 caracteres o más). Una regla sin motivo no se puede revisar después.',
+      );
+    }
+
+    return this.tk.run(async (trx) => {
+      // El par tiene que existir en el catálogo VIVO, igual que al registrar un movimiento: una
+      // declaración que apunta a una cuenta inexistente clasificaría hacia la nada, y para todas
+      // las filas de esa entidad a la vez.
+      await this.resolveConcept(trx, tenantId, String(input.sucursal ?? SUCURSAL_CAJA_GENERAL), cuenta, concepto);
+
+      const [fila] = await trx('finance.caja_autofill_declarada')
+        .insert({
+          tenant_id: tenantId,
+          entidad_code: entidad,
+          kepler_cuenta: cuenta,
+          kepler_concepto: concepto,
+          motivo,
+          declarada_por: user.id,
+          declarada_por_username: user.username ?? null,
+        })
+        .onConflict(['tenant_id', 'entidad_code'])
+        .merge(['kepler_cuenta', 'kepler_concepto', 'motivo', 'declarada_por', 'declarada_por_username'])
+        .returning('*');
+
+      this.logger.log(`[CGA-A.18] ${user.username ?? user.id} declaró ${entidad} → ${cuenta}/${concepto}`);
+      // Cambia lo que la bandeja propone para TODA esa entidad: quien la tenga abierta al lado
+      // no puede quedarse con la propuesta vieja.
+      this.avisarLibro(tenantId);
+      return fila;
+    });
+  }
+
+  /** `[CGA-A.18]` Lo declarado, para que se pueda revisar y corregir desde la pantalla. */
+  async declaradas(): Promise<EntidadDeclarada[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => trx('finance.caja_autofill_declarada')
+      .where('tenant_id', tenantId)
+      .orderBy('entidad_code')
+      .select('entidad_code', 'kepler_cuenta', 'kepler_concepto', 'motivo',
+        'declarada_por_username', 'created_at', 'updated_at'));
+  }
+
+  /**
+   * `[CGA-A.17]` El concepto DOMINANTE de una cuenta, según lo que las PERSONAS ya capturaron.
+   *
+   * El porqué, las mediciones y el control que fijó las guardas están en el bloque de
+   * `resolverCuentas()` que lo consume. Acá sólo vive la consulta.
+   *
+   * ⛔ Devuelve un candidato **sólo** si pasa las tres guardas. Si no, `undefined` — y la fila
+   * cae a declaración con su motivo, nunca a un concepto por descarte.
+   */
+  private async conceptoDominantePorCuenta(
+    trx: Knex.Transaction, tenantId: string, cuentas: string[],
+  ): Promise<Map<string, { concepto: string; soporte: number; entidades: number; ratio: number }>> {
+    const m = new Map<string, { concepto: string; soporte: number; entidades: number; ratio: number }>();
+    const lista = (cuentas ?? []).filter(Boolean).map(String);
+    if (!lista.length) return m;
+
+    /**
+     * ⭐⭐ `[CGA-A.17u]` **LA REGLA YA NO VIVE ACÁ: SE LEE.** Acá había un GROUP BY con sus
+     * umbrales, y la MISMA regla estaba escrita otra vez en SQL dentro de
+     * `analytics.mv_caja_autofill_entidad` (el peldaño `hist_cta`, de la migración
+     * `20261019135141`). Dos sesiones, el mismo día, el mismo código de ticket, dos respuestas.
+     *
+     * Contrastadas contra prod: coincidían en las 3 cuentas que mueven el dinero
+     * (`115→071`, `201→201`, `511→059`) y **nunca proponían distinto** — o sea que no había
+     * un error activo, pero sí uno latente: la de SQL proponía 7 cuentas más, entre ellas
+     * `102→011`, que el control contra el catálogo de Kepler ya había refutado (en una cuenta
+     * de CAJA el concepto dice CUÁL caja chica).
+     *
+     * Ahora las dos leen `analytics.v_caja_concepto_por_cuenta`. Las guardas y su porqué medido
+     * viven en la migración `20261019154654`, que es el único lugar donde se pueden cambiar.
+     *
+     * ⚠️ La vista filtra por `tenant_id` en su propia columna, pero el filtro va igual acá: no
+     * tiene RLS propio y heredar el del llamador sería suponer.
+     */
+    const filas = await trx('analytics.v_caja_concepto_por_cuenta')
+      .where('tenant_id', tenantId)
+      .whereIn('cuenta', lista)
+      .select('cuenta', 'concepto', 'n', 'total', 'entidades', 'dominancia');
+
+    for (const f of filas as Array<Record<string, unknown>>) {
+      m.set(String(f.cuenta), {
+        concepto: String(f.concepto),
+        soporte: Number(f.n),
+        entidades: Number(f.entidades),
+        ratio: Number(f.dominancia),
+      });
+    }
+    return m;
+  }
+
   /** CS.3.1b — Llave del documento de caja = la misma que la póliza usa (doc_tipo COMPACTO). */
   private claveDoc(r: { sucursal: any; doc_tipo: any; folio: any }): string {
-    return `${r.sucursal}|${this.tipoPolCompacto(r.doc_tipo)}|${r.folio}`;
+    return `${this.sucursalBase(r.sucursal)}|${this.tipoPolCompacto(r.doc_tipo)}|${r.folio}`;
   }
 
   /**
@@ -1915,7 +2466,9 @@ export class CashLedgerService {
   private async contraDeDocumentos(trx: any, tenantId: string, rows: any[]) {
     const m = new Map<string, { contra_n: number; contra_cuenta: string; contra_cuenta_nombre: string | null }>();
     const tuplas = rows
-      .map((r) => [String(r.sucursal), this.tipoPolCompacto(r.doc_tipo), String(r.folio)] as [string, string, string])
+      // `[CG.189]` La sucursal va NORMALIZADA, igual que en `claveDoc()`: la vista está indexada
+      // por la base (`01`) y la bandeja trae compuestas (`01-001`). Ver `sucursalBase()`.
+      .map((r) => [this.sucursalBase(r.sucursal), this.tipoPolCompacto(r.doc_tipo), String(r.folio)] as [string, string, string])
       .filter((t) => t[1]);
     if (!tuplas.length) return m;
     const filas = await trx('analytics.v_caja_doc_contracuenta')
@@ -2100,6 +2653,33 @@ export class CashLedgerService {
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
+          /**
+           * ⭐ `[CG.196]` **CADA FILA DECLARA DE DÓNDE SALIÓ SU CUENTA.** ADR-056: *un campo
+           * lleno sin saber de dónde salió es indistinguible de uno inventado.*
+           *
+           * Faltaba, y lo encontró la verificación de la primera corrida real del autollenado
+           * (2026-10-19): las **43 filas** que escribió cuadraban al centavo contra su documento
+           * de Kepler, pero **ninguna decía por qué camino se había resuelto su par contable**.
+           * El motor ya lo sabía —`resolverCuentas()` devuelve `cuenta_fuente` desde `[CS.3.1b]`—
+           * y se tiraba al guardar.
+           *
+           * ⚠️ Importa más en el camino automático que en el manual: cuando una persona captura,
+           * ella es la procedencia; cuando escribe la máquina, esto es lo ÚNICO que permite
+           * contestar después *«¿por qué este movimiento quedó en 201/201?»* — y medir la tasa de
+           * corrección por fuente, que es la regla 4 de ADR-070 §8.5.
+           */
+          autofill: {
+            motor: 'autollenado',
+            // 'documento' · 'documento_nombre' · 'libro_dominante' · 'regla' · 'ruta'
+            cuenta_fuente: conCuenta.cuenta_fuente ?? null,
+            kepler_cuenta: conCuenta.kepler_cuenta ?? null,
+            kepler_concepto: conCuenta.kepler_concepto ?? null,
+            // Sólo viajan cuando la fuente fue `libro_dominante` ([CGA-A.17]): es el soporte que
+            // justificó el concepto, para que la decisión se pueda revisar sin re-derivarla.
+            concepto_soporte: conCuenta.concepto_soporte ?? null,
+            concepto_entidades: conCuenta.concepto_entidades ?? null,
+            decidido_en: new Date().toISOString(),
+          },
         }, user);
 
         montos.set(it.origen_ref, Number(mov.monto));
@@ -2333,13 +2913,21 @@ export class CashLedgerService {
     }
 
     try {
+      // ⭐ `[CGA-A.10]` Misma regla que en `movimientosPendientes()`: por LLAVE donde la hay,
+      // y el `LIKE` sólo para lo histórico sin `declared_doc_ref`. **Las dos tienen que decir
+      // lo mismo**: si una se cambia y la otra no, la cobertura mide contra otra cola.
       const yaCapturado = (sub: Knex.QueryBuilder) => sub
         .select(trx.raw('1'))
         .from('finance.cash_ledger as yac')
         .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
            AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-           AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                              || ' ' || v_caja_movimientos_pendientes.folio || '%'`);
+           AND yac.origen_tipo = 'caos'
+           AND (
+             yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
+             OR (yac.declared_doc_ref IS NULL
+                 AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                                    || ' ' || v_caja_movimientos_pendientes.folio || '%')
+           )`);
 
       let qb = trx('finance.v_caja_movimientos_pendientes')
         .where('tenant_id', tenantId)
@@ -2442,7 +3030,73 @@ export class CashLedgerService {
         return qb;
       };
 
+      /**
+       * ⭐⭐ `[CG.126]` **EL LIBRO NO DECÍA A QUÉ CAJA ENTRÓ EL DINERO.**
+       *
+       * Edgar, 2026-10-19: *«debemos diferenciar lo que entra a caja general vs lo que entra a
+       * CAOS»*. El cuadre del día ya lo separa desde `[CG.139]` —un cobro de ruta es UN
+       * movimiento con dos destinos: los billetes a la máquina y la morralla al cajón—, pero el
+       * libro publicaba sólo `monto`, o sea el total, y leerlo como «entró a caja general»
+       * **sobredeclara el efectivo del cajón por todo lo que se fue a la bóveda**.
+       *
+       * ⛔ Sale de `analytics.v_caja_reparto_movimiento`, que es el MISMO resolvedor que usa el
+       * cuadre (`cash-cut.service.ts`, `movimientosDelDia`). No se recalcula acá: dos derivaciones
+       * del mismo reparto es la forma de que el libro y el cuadre discrepen un día sin que nadie
+       * sepa cuál manda.
+       *
+       * ⭐ **Las DOS mitades se leen de la vista, ninguna se resta acá.** El primer intento
+       * derivaba `en_cajon` como `monto - en_boveda` —que es lo que hace el cuadre— hasta que la
+       * verificación contra prod mostró que **la vista ya publica `en_cajon`**. Restarlo igual
+       * sería la tercera versión del mismo número.
+       *
+       * ⚠️ Va en ESTA consulta y **no en `base()`**: `base()` lo reusa el KPI con su propio
+       * `.select()` de agregados, y Postgres rechaza una columna no agregada ahí. Un `select` en
+       * el lugar equivocado habría roto el encabezado del libro, no esta lista.
+       *
+       * ⚠️ `'*'` explícito porque la consulta no tenía `select` ninguno: sin él, agregar la
+       * columna derivada dejaría la fila **sólo** con esa columna y la pantalla entera en blanco.
+       *
+       * 🧪 **Verificado contra prod en sólo lectura el 2026-10-19** (no se compila local): la
+       * vista existe con `cash_ledger_id · en_boveda · en_cajon`, el subselect corre, y de las
+       * **236 filas del libro hay 0 sin reparto y 64 que tocan la bóveda**. El caso que lo
+       * justifica, textual de prod: `CI-2026-00112` vale $19,313.00 y se parte en **$19,250.00
+       * a la máquina y $63.00 al cajón** — publicar el total como «entró a caja general»
+       * sobredeclaraba ese renglón en un 99.7 %.
+       */
+      /**
+       * ⛔⛔ `[CG.127]` **EL LISTADO BAJABA LAS FIRMAS, Y SON EL 98.8 % DEL PESO.**
+       *
+       * Era `select('*')`, así que cada fila traía `firma_png` —un PNG en base64— y **la tabla
+       * no pinta ninguna**. Medido contra prod el 2026-10-20, periodo 01→19 oct:
+       *
+       *     248 filas · 39 con firma · firmas 1,386 kB · texto 17 kB · 5,723 bytes/fila
+       *
+       * O sea que traer el periodo entero costaba ~1.4 MB de los cuales 1.386 MB no se usan.
+       * Eso es lo que hacía caro subir el tope, y por lo tanto lo que mantenía la lista topada
+       * en 100 con 148 filas invisibles.
+       *
+       * ⭐ **Nadie la leía de acá.** Recorridos los consumidores antes de sacarla: el único es
+       * esta pantalla, y su botón de reimprimir pide el detalle aparte (`svc.detalle(id)`), que
+       * sí la trae. `firma_estado` y `firma_nombre` se quedan — el desplegable los muestra.
+       *
+       * ⚠️ La lista es EXPLÍCITA a propósito: con `select('*')` una columna nueva y pesada vuelve
+       * a entrar sola el día que alguien la agregue, sin que nadie lo decida.
+       */
       const rows = await base()
+        .select(
+          'id', 'folio', 'tipo', 'fecha', 'hora', 'sucursal', 'centro_costo',
+          'kepler_cuenta', 'kepler_concepto', 'kepler_cuenta_nombre', 'kepler_concepto_nombre',
+          'glosa', 'beneficiario', 'beneficiario_rfc', 'monto', 'morralla', 'venta_credito',
+          'origen_tipo', 'origen_ref', 'origen_uuid', 'declared_doc_ref', 'sin_documento_motivo',
+          'autofill', 'estado', 'corte_id',
+          'firma_estado', 'firma_nombre', 'firma_at',
+          'cancel_reason', 'cancelled_by_username', 'cancelled_at',
+          'created_by', 'created_by_username', 'created_at', 'updated_at',
+          trx.raw(`COALESCE((SELECT r.en_boveda FROM analytics.v_caja_reparto_movimiento r
+                              WHERE r.cash_ledger_id = finance.cash_ledger.id), 0) AS en_boveda`),
+          trx.raw(`COALESCE((SELECT r.en_cajon FROM analytics.v_caja_reparto_movimiento r
+                              WHERE r.cash_ledger_id = finance.cash_ledger.id), monto) AS en_cajon`),
+        )
         .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(limit).offset(offset);
 

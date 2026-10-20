@@ -1,6 +1,8 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
 import { GASTOS_TABS } from './gastos-tabs';
+import { PAGOS_TABS } from './pagos-tabs';
+import { CAJA_TABS } from './caja-tabs';
 
 /**
  * Tabs del proyecto Finanzas. Aquí crece lo contable (documentos, hallazgos,
@@ -39,21 +41,15 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-calculator',
     permission: Permission.FINANCE_BANK_VER,
   },
-  {
-    // CG.14 — la mitad que ESCRIBE. 'Caja General' (arriba) es la lectura del espejo del
-    // Access y se retira en CG.16; las dos conviven durante el traslape a propósito.
-    label: 'Caja (captura)',
-    route: '/finanzas/caja-general',
-    icon: 'pi pi-pencil',
-    permission: Permission.FINANCE_CAJA_VER,
-  },
-  {
-    // CS.2 — Reporte de la caja fuerte de efectivo (CAOS). Sólo lectura, permiso propio.
-    label: 'Caja Fuerte',
-    route: '/finanzas/caos',
-    icon: 'pi pi-lock',
-    permission: Permission.FINANCE_CAOS_VER,
-  },
+  // `[CG.121]` Las TRES pantallas del efectivo viven en `caja-tabs.ts`: la MISMA lista que pinta
+  // la barra de pestañas de las tres y a la que lleva la entrada «Caja» del menú.
+  //
+  // ⚠️ Acá había dos entradas a mano —«Caja (captura)» y «Caja Fuerte»— y el **Expediente no
+  // estaba**: tenía ruta y permiso, pero ni pestaña ni renglón en el sidebar, así que se llegaba
+  // sólo escribiendo la URL. Es la falla de `[GX.17]` y `[LC.6.2]` otra vez, y el candado de
+  // `[IG.2]` no la vio porque sólo recorre lo que ESTA lista declara: una pantalla ausente de
+  // acá es invisible para él. Al entrar en la lista, queda cubierta.
+  ...CAJA_TABS,
   {
     label: 'Cancelados',
     route: '/finanzas/cancelados',
@@ -89,12 +85,11 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-send',
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
-  {
-    label: 'Calendario de pagos',
-    route: '/finanzas/calendario-pagos',
-    icon: 'pi pi-calendar',
-    permission: Permission.FINANCE_PAYMENTS_VER,
-  },
+  // `[TP.20.3]` ⬆️ Esa entrada queda por compatibilidad del registro, pero las CUATRO pantallas
+  // del ciclo de pago viven en `pagos-tabs.ts`: la MISMA lista que pinta la barra de cada una y a
+  // la que lleva la entrada «Pagos» del menú. Antes acá había dos sueltas (Pagos a proveedor y
+  // Calendario) y las otras dos —Pronto pago y Programa— no estaban en ningún registro.
+  ...PAGOS_TABS.filter((t) => t.route !== '/finanzas/pagos-comprobantes'),
   // Presupuesto se movió a su MÓDULO propio (`/presupuesto`, Fase PU) — ya no es tab de Finanzas.
   {
     label: 'Hallazgos',

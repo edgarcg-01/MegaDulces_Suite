@@ -136,6 +136,9 @@ database/importers/wincaja/.wincaja-agent-*.json
 # ── Higiene de working tree (2026-08-24) — scratch/diagnóstico, NO versionar ──
 # Dumps de sesión del navegador (Playwright MCP).
 .playwright-mcp/
+# Trazas y capturas que deja una prueba e2e ROJA. Se regeneran con cada corrida;
+# versionarlas metería un .zip binario en el árbol cada vez que algo falla.
+e2e/**/.resultados/
 # Scripts de diagnóstico one-off (viven en el árbol, no son código de producto).
 _diag-*.js
 database/**/_diag-*.js

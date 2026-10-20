@@ -1,18 +1,56 @@
 # Runbook — corte de asistencia: Mega Talento → Suite (Fase RH, `[RH.1.8]`)
 
 > **Quién:** Edgar (prod en `md`), David (agente de relojes y Mega Talento), RH (valida y empieza a usarlo).
-> **Cuándo:** sábado **7-nov-2026**, fuera de horario hábil (después de las 20:00). La semana de nómina corre de jueves a
-> miércoles: la semana del 5 al 11 de noviembre queda mitad en Mega Talento y mitad en la Suite, y la carga trae todo.
+> **Cuándo:** ~~sábado 7-nov-2026~~ → **en cuanto Edgar pueda** (adelantado a pedido de David, 14-oct; el 14 no se hizo).
+> Cualquier día sirve: la carga trae la semana completa desde Mega Talento. Las migraciones (§2.1–§2.3) en el día, salvo
+> la de `identity.users` (`20261012094356`, candado exclusivo: de noche); lo que escribe la carga o reinicia pods, de
+> preferencia fuera de horario.
 > **Escrito el 2026-10-07** con los guiones ya probados contra la base local y contra Mega Talento real (sólo lectura).
 > Nada de esto se ha corrido contra prod todavía: desde la máquina de trabajo no hay acceso a `md`.
+
+## 0.0 Antes de empezar: decisiones del 14 y 16-oct
+
+- **El lector sigue en la laptop de David (`LapSistemasA`)** — decisión de David, 16-oct. Es la **opción A** del paso 4:
+  el mismo servicio («Mega Talento Agente de Checadas») cambia de dirección; no queda un segundo lector. La B (lector en
+  `md`) queda para después y exige medir antes que `md` alcanza los 12 relojes (`[RH.0.3]`). ⛔ No aplicar
+  `ops/k3s/29-hr-relojes.deployment.yaml` con la laptop viva: un ZKTeco acepta **una sola** sesión TCP.
+- **Mismo token** — decisión de David, 16-oct: `HR_INGEST_KEY` toma el valor del token que el lector ya usa con Mega
+  Talento (ver §2.4). El cambio en la laptop es sólo la dirección. Rotarlo cuando se apague Mega Talento.
+- **La migración del #410 ya debería estar:** `20261014141356_talent_bot_documentos` (el código ya corre en prod). Si
+  aparece pendiente, se aplica con el mismo comando del §2.2.
+- **Personas nuevas después del corte:** las liga RH en `/rh/relojes` (PR #418, `[RH.1.12]`, ya mergeado).
+- **Antes de cortar, revisar (auditoría del 16-oct):**
+  - `horas_extra_ajustes` de Mega Talento: la carga **no** la trae. Hoy tiene 0 filas; si RH captura un ajuste antes del
+    corte, se pierde. Confirmar que sigue en 0.
+  - **BOT-RH lee `checadas` y escribe `horarios_confirmados` en la base de Mega Talento.** Después del corte calcularía con
+    datos viejos y sus horarios no llegarían a la Suite. Decidir antes: apagar esas funciones del bot o apuntarlas a la
+    Suite.
+  - **CEDIS (`CLXK225060395`) sin leerse desde el 15-oct 15:05** (no abre el 4370). No bloquea, pero sale en rojo en
+    `/rh/relojes` hasta que se revise en sitio.
+- **Acceso a `md` para David (sólo si Edgar lo aprueba):** dar de alta la llave de la laptop con el guion de `[SEG.1]`,
+  y quitarla después del corte si no debe quedarse:
+
+  ```sh
+  # en md, con la llave pública de la descripción del PR guardada en /tmp/david.pub
+  sh ~/ops/prod/ssh-llaves.sh agregar /tmp/david.pub david@lapsistemasa
+  # al terminar, si no se queda:
+  sh ~/ops/prod/ssh-llaves.sh quitar david@lapsistemasa
+  ```
+
+  Sin el acceso, Edgar corre los pasos de `md` y David los del lector y la revisión.
 
 ---
 
 ## 0. Las reglas que no se negocian
 
 1. **Nada se borra de Mega Talento.** Su asistencia queda de sólo lectura dos semanas después del corte.
-2. **La reversa limpia dura 36 horas.** El agente reenvía las últimas 36 h en cada respaldo. Si se regresa a Mega
-   Talento dentro de ese plazo, no falta nada. Después de 36 h, regresar deja un hueco: se arregla hacia adelante.
+2. **⚠️ Corregido el 16-oct: el lector NO reenvía solo lo que ya mandó.** Su cola (`cola.db`) descarta para siempre lo
+   ya enviado (`UNIQUE(serie, codigo, fecha_hora)` + `ON CONFLICT DO NOTHING`, y lo enviado se conserva 30 días), sin
+   importar a qué servidor fue. El backfill relee 36 h del reloj, pero esas checadas ya están en la cola como enviadas. Por
+   eso **cambiar de dirección no reenvía nada, ni en la ida ni en la reversa**: se reenvía a mano con
+   `corte-lector.js reenviar <desde>` (con el servicio detenido). Y con **401/403/409** el lector **marca el lote como
+   enviado y sigue** (`reloj.js`, rama `!e.reintentable`): una llave mala o un reloj fuera del padrón vacían la cola sin
+   entregar. Por eso, **antes de cambiar el lector, `corte-lector.js probar`** (sólo lee).
 3. **Todo se aplica a mano y una cosa a la vez**: las migraciones, una por una (nunca `migrate:latest`: hay dos
    `knex_migrations` en prod). El despliegue se suelta con `soltar.sh`.
 4. **Cada paso se verifica antes del siguiente.** El pre-vuelo es el que dice si se puede seguir.
@@ -127,21 +165,29 @@ Esperado: **migraciones OK** (las 7). «padrón: NO MEDIDO» (todavía no hay ca
 ### 2.4 La llave de la ingesta (`HR_INGEST_KEY`)
 
 El agente se presenta con esta llave (cabecera `X-Agente-Token`). Va en el secreto `prod-env`, que comparten `api`
-y `worker`. **Una llave nueva**, no la de Mega Talento.
+y `worker`. ~~Una llave nueva~~ → **el MISMO token que el lector ya usa con Mega Talento** (decisión de David, 16-oct):
+el cambio en la laptop es sólo la dirección. David se lo pasa a Edgar por privado (está en el `config.json` del lector).
 
 ```sh
 # en md: respaldo del secreto ANTES de tocarlo (es la reversa)
 kubectl -n prod get secret prod-env -o yaml > ~/secrets/prod-env.respaldo-$(date +%Y%m%d-%H%M).yaml
 chmod 600 ~/secrets/prod-env.respaldo-*.yaml
-# la llave, a un archivo (no a la pantalla ni al historial)
-install -m 600 /dev/null ~/secrets/hr-ingest.key && openssl rand -hex 32 > ~/secrets/hr-ingest.key
+# el token del lector (lo manda David por privado), a un archivo: no a la pantalla ni al historial
+chmod 600 ~/secrets/hr-ingest.key
 kubectl -n prod patch secret prod-env --type merge \
   -p "{\"stringData\":{\"HR_INGEST_KEY\":\"$(cat ~/secrets/hr-ingest.key)\"}}"
 kubectl -n prod rollout restart deploy/api && kubectl -n prod rollout status deploy/api
 ```
 
-Pasarle la llave a David **por un canal privado**: nunca en el repo, un chat de grupo ni un correo.
-Verificar: el pre-vuelo dice «HR_INGEST_KEY presente».
+El token viaja **por un canal privado**: nunca en el repo, un chat de grupo ni un correo.
+Verificar: el pre-vuelo dice «HR_INGEST_KEY presente», y la prueba **negativa**: sin la llave tiene que dar 401 (el
+guardián compara la llave recibida contra `HR_INGEST_KEY`; sin llave no coincide). La prueba positiva con el token real
+la hace David desde su laptop con `corte-lector.js probar`, que no imprime el token.
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{}' \
+  https://megadulcessuite.com/api/hr/attendance/ingest/mt/checador/ingesta/latido   # esperado: 401
+```
 
 ### 2.5 Las personas: `[RH.1.4]` es prerrequisito, no «después»
 
@@ -226,15 +272,17 @@ Antes del corte (David, en `md`):
 | 1 | Edgar | **Pre-vuelo** con Mega Talento (§2.3 + `MT_DATABASE_URL`) | Sin BLOQUEA. «padrón» puede seguir NO MEDIDO: todavía no hay carga |
 | 2 | Edgar | **Carga real**: lo mismo que §2.6 con `--aplicar`. Guardar la salida | El cuadre coincide con el del ensayo (las checadas crecen un poco) |
 | 3 | Edgar | **Ligar personas** (`[RH.1.4]`): el comando de §2.5 con `--aplicar`, y otra vez el pre-vuelo | «padrón» en OK o AVISO, **nunca BLOQUEA**; `por_decidir` del cuadre = lista para RH |
-| 4 | David | **El lector → Suite.** Una de dos (ver §2.7):<br>**B (recomendada, lector en `md`):** (a) detener el servicio «Mega Talento Agente de Checadas» en `LapSistemasA` y dejarlo **deshabilitado** (no desinstalado: es la reversa); (b) copiar `cola.db`, `cola.db-wal` y `cola.db-shm` de `api\agente\` de la laptop a `md:/home/superoot/rh-relojes/datos/` — **con el servicio ya detenido** — para que el pod arranque con la marca de agua de cada reloj y lo pendiente, en vez de releer años de log; (c) commit que cambia `migracion: preparado-externo` → `migrado` en `29-hr-relojes.deployment.yaml` y desplegar.<br>**A (mínima, lector en la laptop):** copiar `config.json` a `config.json.antes-corte`; en `config.json` poner `apiUrl = https://megadulcessuite.com/api/hr/attendance/ingest/mt` y `token = <HR_INGEST_KEY>`; reiniciar el servicio | **B:** `kubectl -n ingesta logs deploy/hr-relojes` muestra «Relojes a cargo: …» y lotes aceptados, sin 401; el servicio de la laptop sigue detenido. **A:** su log muestra el respaldo inicial y respuestas 200, sin 401 |
+| 4 | David | **El lector → Suite.** Una de dos (ver §2.7):<br>**B (recomendada, lector en `md`):** (a) detener el servicio «Mega Talento Agente de Checadas» en `LapSistemasA` y dejarlo **deshabilitado** (no desinstalado: es la reversa); (b) copiar `cola.db`, `cola.db-wal` y `cola.db-shm` de `api\agente\` de la laptop a `md:/home/superoot/rh-relojes/datos/` — **con el servicio ya detenido** — para que el pod arranque con la marca de agua de cada reloj y lo pendiente, en vez de releer años de log; (c) commit que cambia `migracion: preparado-externo` → `migrado` en `29-hr-relojes.deployment.yaml` y desplegar.<br>**A (la elegida, lector en la laptop; guion `corte-lector.js` en la carpeta `corte-lector` de David):** (a) `probar`: la Suite responde 200 y trae los 12 relojes del padrón con `modo: agente` (si no, NO se corta); (b) `a-suite`: respalda `config.json.antes-corte` y cambia sólo la dirección (mismo token); (c) detener el servicio y `reenviar <hora de inicio de la carga del paso 2 − 1 h>` para cerrar el hueco entre la carga y el cambio; (d) arrancar el servicio | **B:** `kubectl -n ingesta logs deploy/hr-relojes` muestra «Relojes a cargo: …» y lotes aceptados, sin 401; el servicio de la laptop sigue detenido. **A:** su log muestra el respaldo inicial y respuestas 200, sin 401 |
 | 5 | Edgar | **La ingesta late** | Salud BD: `hr_attendance_ingest` con latido reciente. `/rh/relojes`: los relojes «Al día» en ~10 min |
 | 6 | David | **Mega Talento dejó de recibir** | En su base, `max(recibido_en)` de `checadas` se queda quieto |
 | 7 | Edgar | **Encender el agente de alertas**: respaldo de `prod-env`; `ENABLE_HR_ATTENDANCE_AGENT=true` (mismo `patch` que §2.4); `kubectl -n prod rollout restart deploy/worker`. Mergear y soltar el PR de `CRON_JOBS` (§3.1) | En ≤30 min, `hr_attendance_agent` late en Salud BD |
 | 8 | RH | Abre `/rh/asistencia` de dos sitios y compara la semana anterior contra Mega Talento | Mismos retardos, faltas y horas |
 | 9 | David | Mega Talento: asistencia **de sólo lectura** (se avisa a quien captura incidencias: desde ahora, en la Suite) | — |
 
-**Por qué no falta nada entre el paso 2 y el 4:** lo que llegó a Mega Talento después de la carga lo reenvía el
-agente en su respaldo (desde su marca menos 36 h), y la Suite descarta lo repetido. Ojo: al reiniciarse, los
+**El hueco entre el paso 2 y el 4 (corregido el 16-oct):** lo que llega a Mega Talento después de que arranca la carga
+queda en la cola del lector como enviado y **no** se reenvía solo. Lo cierra el `reenviar <inicio de la carga − 1 h>`
+del paso 4 A(c); la Suite descarta lo repetido (`ON CONFLICT` + el puente con el histórico). **Anotar la hora en que
+arranca la carga real.** Ojo: al reiniciarse, los
 respaldos de los 12 relojes **se escalonan a lo largo de la primera hora** (`backfillMin` 60, ver
 `api/agente/reloj.js`). Lo de un reloj puede tardar hasta ~1 h en aparecer. Lo que se checa después del reinicio
 llega al momento. Ni lo que la carga
@@ -259,18 +307,18 @@ No se agregan antes: dos filas de jobs que todavía no corren pondrían el table
 
 ## 4. Reversa
 
-**Dentro de las primeras 36 horas** (limpia):
+**Mientras la cola conserve lo enviado (30 días desde que se mandó)** (limpia, corregido el 16-oct):
 1. David: si se usó **B**, primero `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` (y devolver la etiqueta a
    `preparado-externo`, para que el siguiente deploy no lo reviva). En los dos casos, restaurar
-   `config.json.antes-corte` y arrancar el servicio de la laptop. El agente reenvía las últimas 36 h a Mega Talento, así
-   que no le falta nada.
+   `config.json.antes-corte` (`corte-lector.js a-mega-talento`), **con el servicio detenido `reenviar <hora del corte −
+   1 h>`** y arrancar el servicio. Sin el `reenviar`, Mega Talento se queda sin todo lo que pasó durante el corte.
 2. Edgar: `ENABLE_HR_ATTENDANCE_AGENT=false` (o restaurar el respaldo de `prod-env`) y reiniciar el `worker`.
 3. Las incidencias capturadas en la Suite durante ese tiempo se recapturan en Mega Talento:
    `GET /api/hr/attendance/incidents?site_code=…&date_from=…&date_to=…` las lista.
 4. Lo cargado en la Suite **no se borra**: no estorba, y sirve para el siguiente intento (la carga es idempotente).
 
-**Después de 36 horas:** Mega Talento tiene un hueco que el agente ya no rellena. No hay reversa limpia: se arregla
-hacia adelante en la Suite.
+**Después de 30 días:** lo enviado ya salió de la cola; para reponerlo habría que releer el log completo de cada reloj.
+Se arregla hacia adelante en la Suite.
 
 ---
 

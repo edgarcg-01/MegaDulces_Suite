@@ -11,6 +11,7 @@ import {
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
   conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError, separarPorFlujo,
+  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, puedeSellarUI,
   type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -30,9 +31,9 @@ const formOk = (o: Partial<FormularioCaja> = {}): FormularioCaja => ({
   ...o,
 });
 
-describe('BILLETES_CAJA — los cinco que la caja cuenta, salidos del catálogo compartido', () => {
-  it('son 500, 200, 100, 50 y 20, del mayor al menor', () => {
-    expect(BILLETES_CAJA.map((b) => b.valor)).toEqual([500, 200, 100, 50, 20]);
+describe('BILLETES_CAJA — los seis que la caja cuenta, salidos del catálogo compartido', () => {
+  it('son 1000, 500, 200, 100, 50 y 20, del mayor al menor', () => {
+    expect(BILLETES_CAJA.map((b) => b.valor)).toEqual([1000, 500, 200, 100, 50, 20]);
   });
 
   it('no son una lista propia: cada uno es el objeto del catálogo de @megadulces/contracts', () => {
@@ -588,5 +589,113 @@ describe('[CGP-L.8] separarPorFlujo', () => {
   it('el numeric de Postgres llega como texto: se convierte', () => {
     const r = separarPorFlujo([{ denominacion: '500.00' as unknown as number, piezas: '2' as unknown as number }]);
     expect(r.recibido).toEqual([{ denominacion: 500, piezas: 2 }]);
+  });
+});
+
+/**
+ * `[CGA11Y-O3b]` LA TAXONOMÍA DE LA TIRA DE ACCESOS.
+ *
+ * El grupo de un movimiento NO existe como dato: en la vista de pendientes `origen_tipo` sale
+ * del signo, así que es un sinónimo de `tipo`. El eje real es `doc_tipo`, y el mapa que lo
+ * traduce a grupos de negocio es una DECLARACIÓN — por eso se prueba como tal.
+ */
+describe('[CGA11Y-O3b] grupos de la cola', () => {
+  it('los seis doc_tipo medidos en prod caen en un grupo', () => {
+    // El universo completo de 365 días (ver la tabla en caja-captura.util.ts).
+    expect(grupoDe('U-A-5')).toBe('deposito');
+    expect(grupoDe('X-D-26')).toBe('egreso');
+    expect(grupoDe('X-A-45')).toBe('otros_in');
+    expect(grupoDe('U-A-25')).toBe('otros_in');
+    expect(grupoDe('X-D-60')).toBe('otros_eg');
+    expect(grupoDe('X-D-25')).toBe('otros_eg');
+  });
+
+  it('⛔ [negativa] un doc_tipo DESCONOCIDO se declara, no se reparte a ojo', () => {
+    // Es la regla de ADR-056 puesta acá: un grupo inventado es peor que un grupo que falta.
+    // Si mañana Kepler publica un doctype nuevo, tiene que aparecer como «sin clasificar» en
+    // pantalla — no sumarse en silencio a «Egresos» porque empieza con X.
+    expect(grupoDe('X-D-99')).toBe(GRUPO_SIN_CLASIFICAR);
+    expect(grupoDe('U-A-9')).toBe(GRUPO_SIN_CLASIFICAR);
+    expect(grupoDe('')).toBe(GRUPO_SIN_CLASIFICAR);
+    expect(grupoDe(null)).toBe(GRUPO_SIN_CLASIFICAR);
+    expect(grupoDe(undefined)).toBe(GRUPO_SIN_CLASIFICAR);
+  });
+
+  it('⛔ ningún doc_tipo pertenece a DOS grupos: el mapa es una función', () => {
+    // Un doctype en dos grupos haría que la suma de los accesos no dé el universo, y la tira
+    // publicaría más trabajo del que hay.
+    const vistos = new Map<string, string>();
+    for (const g of GRUPOS_COLA) {
+      for (const d of g.docTipos) {
+        expect(vistos.has(d), `${d} está en ${vistos.get(d)} y en ${g.clave}`).toBe(false);
+        vistos.set(d, g.clave);
+      }
+    }
+  });
+
+  it('⛔ «Vecinal» NO es un grupo de esta cola', () => {
+    /**
+     * Medido el 2026-10-16: el cierre de ruta vecinal se timbra en la caja de su sucursal y
+     * llega a Caja General como un `U-A-5` YA AGREGADO por día y plaza (`VEC.10`). Un acceso
+     * propio pondría 572 cierres encima de 3,648 depósitos: ~$9 M contados dos veces.
+     * Esta prueba existe para que no vuelva a entrar por parecer que falta.
+     */
+    const claves = GRUPOS_COLA.map((g) => g.clave);
+    expect(claves).not.toContain('vecinal');
+    expect(GRUPOS_COLA.some((g) => /vecinal/i.test(g.label))).toBe(false);
+  });
+
+  it('cada grupo declara al menos un doc_tipo y una etiqueta legible', () => {
+    for (const g of GRUPOS_COLA) {
+      expect(g.docTipos.length, `${g.clave} sin doc_tipo: sería un acceso que nunca tiene filas`)
+        .toBeGreaterThan(0);
+      expect(g.label.trim().length).toBeGreaterThan(2);
+    }
+  });
+});
+
+/**
+ * ⭐⭐ `[CGP-V.3b]` **El conteo no se sella en una jornada atrasada sin declarar de qué día es.**
+ *
+ * Medido en prod el 2026-10-20 con tres fotos del usuario y los arqueos de Control: **4 de 7
+ * cortes quedaron con el conteo de OTRO día**, $19,811.50 de diferencia. El 16 y el 17 cuadran al
+ * centavo, que es la prueba de que el procedimiento funciona cuando no hay atraso.
+ */
+describe('[CGP-V.3b] puedeSellarUI — la jornada atrasada se declara', () => {
+  const base = { contado: 3340, ceroDeclarado: false, atrasado: false, jornadaConfirmada: false };
+
+  it('jornada de HOY: se sella sin pedir nada más', () => {
+    expect(puedeSellarUI(base)).toEqual({ ok: true, motivo: null });
+  });
+
+  it('⛔ PRUEBA NEGATIVA: jornada ATRASADA sin confirmar NO se sella', () => {
+    // Es el defecto exacto: el 15-oct se contó el cajón de ese día y se selló en el corte del 13.
+    const r = puedeSellarUI({ ...base, atrasado: true });
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toBe('jornada_sin_confirmar');
+  });
+
+  it('jornada atrasada CONFIRMADA sí se sella', () => {
+    expect(puedeSellarUI({ ...base, atrasado: true, jornadaConfirmada: true }))
+      .toEqual({ ok: true, motivo: null });
+  });
+
+  it('⛔ sin conteo no se sella, y el motivo es ÉSE — no la jornada', () => {
+    // Decirle «confirmá la jornada» a quien todavía no contó lo manda a arreglar lo que no está
+    // mal. El orden de las dos preguntas no es intercambiable.
+    expect(puedeSellarUI({ ...base, contado: 0 }).motivo).toBe('sin_conteo');
+    expect(puedeSellarUI({ ...base, contado: 0, atrasado: true }).motivo).toBe('sin_conteo');
+  });
+
+  it('`[CGP-V.9]` un cero DECLARADO es un conteo, y sigue exigiendo la jornada', () => {
+    expect(puedeSellarUI({ ...base, contado: 0, ceroDeclarado: true }).ok).toBe(true);
+    expect(puedeSellarUI({ ...base, contado: 0, ceroDeclarado: true, atrasado: true }).motivo)
+      .toBe('jornada_sin_confirmar');
+  });
+
+  it('⚠️ confirmar NO alcanza por sí solo: sin efectivo contado sigue sin sellarse', () => {
+    // Si la confirmación saltara el conteo, el candado nuevo abriría un agujero en el viejo.
+    expect(puedeSellarUI({ contado: 0, ceroDeclarado: false, atrasado: true, jornadaConfirmada: true }).ok)
+      .toBe(false);
   });
 });

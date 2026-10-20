@@ -18,7 +18,12 @@ import {
   type ConsultaFaltante,
   type ReportarResultado,
 } from '../faltantes.service';
-import { VerificadorService } from '../verificador.service';
+import {
+  VerificadorService,
+  type HalladoCatalogo,
+  type MayoreoTier,
+  type UnidadPrecio,
+} from '../verificador.service';
 import {
   MOTIVO_AUTOMATICO,
   anotaSolo,
@@ -26,13 +31,42 @@ import {
   porcentajeReloj,
   type VeredictoExistencia,
 } from '../faltante-express';
+import {
+  ETIQUETA_CAMPO,
+  escalonesDe,
+  presentacionesDe,
+  tramoNormal,
+} from '../mostrador-catalogo';
 
-/** Lo que devuelve el catálogo local, y lo que se pinta en cada renglón del desplegable. */
-type Hallado = { codigo: string; nombre: string; precio: number | null; unidad: string | null };
+/**
+ * El producto que se está mostrando. `[MOS.1]` Lleva TODAS sus presentaciones (con lo que trae
+ * cada una) y su mayoreo, no sólo el precio de la base: es lo que el cliente pregunta.
+ */
+type Hallado = {
+  codigo: string;
+  nombre: string;
+  proveedor: string | null;
+  unidades: UnidadPrecio[];
+  mayoreo: MayoreoTier[];
+};
 
 type Aviso = { tono: 'warn' | 'bad'; texto: string } | null;
 
-/** De dónde salió el precio que se está mostrando. Un precio sin procedencia no se puede defender. */
+/**
+ * `[MOS.2]` Un código escaneado que Kepler no tiene: en ninguna sucursal (`no_en_catalogo`) o no
+ * en ésta (`no_en_sucursal`). Se anota solo en la lista de No registrados de Compras.
+ */
+type NoRegistradoAviso = {
+  kind: 'no_en_catalogo' | 'no_en_sucursal';
+  codigo: string;
+  sku: string | null;
+  nombre: string | null;
+  enviando: boolean;
+  anotado: ReportarResultado | null;
+  descrito: string | null;
+};
+
+/** De dónde salieron los precios que se están mostrando. Un precio sin procedencia no se puede defender. */
 type OrigenPrecio = 'vivo' | 'respaldo' | 'sin_dato';
 
 const PASO_MS = 100;
@@ -56,28 +90,45 @@ const PASO_MS = 100;
                [ngModel]="termino()" (ngModelChange)="alEscribir($event)"
                (keydown)="alTeclear($event)"
                [disabled]="!sucursal()"
-               [placeholder]="sucursal() ? 'Escanea, o escribe la clave o el nombre' : 'Elige la sucursal para poder buscar'"
+               [placeholder]="sucursal() ? 'Nombre, proveedor, SKU o código de barras' : 'Elige la sucursal para poder buscar'"
                [attr.aria-describedby]="sucursal() ? 'fx-ayuda' : null" />
         @if (buscando()) { <i class="pi pi-spin pi-spinner fx-spin" aria-hidden="true"></i> }
 
-        <!-- Desplegable: nombre, clave, unidad y PRECIO. El precio en el renglón es lo que
-             convierte esta caja en el verificador, sin mandar a nadie a otra pantalla. -->
+        <!-- [MOS.1] Desplegable: nombre, POR QUÉ salió, clave, proveedor y TODAS las
+             presentaciones con su precio, mayoreo incluido. Es lo que convierte esta caja en el
+             verificador: el cliente pregunta "¿y por caja?" y la respuesta ya está a la vista. -->
         @if (listaAbierta()) {
           <ul class="fx-lista" role="listbox" aria-label="Productos encontrados">
-            @for (r of resultados(); track r.codigo; let i = $index) {
+            @for (r of filas(); track r.codigo; let i = $index) {
               <li>
                 <button type="button" class="fx-fila" role="option"
                         [attr.aria-selected]="i === resaltado()"
                         [class.on]="i === resaltado()"
                         (mouseenter)="resaltado.set(i)"
                         (click)="elegir(r)">
-                  <span class="fx-fila-n">{{ r.nombre }}</span>
-                  <span class="fx-fila-sku">{{ r.codigo }}</span>
-                  @if (r.unidad) { <span class="fx-fila-u">{{ r.unidad }}</span> }
-                  <span class="fx-fila-p num">
-                    @if (r.precio !== null) {
-                      {{ r.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}
-                    } @else { <em class="fx-muted">sin precio</em> }
+                  <span class="fx-fila-top">
+                    <span class="fx-fila-n">{{ r.nombre }}</span>
+                    <span class="fx-por">{{ r.porEtiqueta }}</span>
+                  </span>
+                  <span class="fx-fila-meta">
+                    <span class="num">SKU {{ r.codigo }}</span>
+                    @if (r.proveedor) { <span>{{ r.proveedor }}</span> }
+                  </span>
+                  <span class="fx-pres">
+                    @for (p of r.pres; track p.u) {
+                      <span class="fx-pz">
+                        <b>{{ p.u }}</b>
+                        @if (p.trae) { <span class="fx-pz-x">{{ p.trae.n }} {{ p.trae.u }}</span> }
+                        <span class="num">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
+                      </span>
+                    } @empty { <em class="fx-muted">sin precio</em> }
+                    @for (e of r.esc; track $index) {
+                      <span class="fx-pz fx-pz-may">
+                        <b>Mayoreo</b>
+                        <span class="num">{{ e.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
+                        <span class="fx-pz-x">{{ e.etiqueta }}</span>
+                      </span>
+                    }
                   </span>
                 </button>
               </li>
@@ -115,6 +166,52 @@ const PASO_MS = 100;
         <div class="fx-aviso" [class]="'t-' + a.tono" role="status">{{ a.texto }}</div>
       }
 
+      <!-- [MOS.2] El código no está en Kepler (o no en esta sucursal). Se anota SOLO en la lista
+           de No registrados de Compras; aquí se dice, y se puede quitar si fue un error. -->
+      @if (noReg(); as n) {
+        <section class="fx-nr" role="status" aria-live="polite">
+          <i class="pi pi-exclamation-triangle fx-nr-ico" aria-hidden="true"></i>
+          <div class="fx-nr-cuerpo">
+            @if (n.kind === 'no_en_sucursal') {
+              <strong>{{ n.nombre || n.codigo }} no está dado de alta en esta sucursal.</strong>
+              <span>Existe en Kepler (SKU {{ n.sku }}), pero no aquí: no se le puede dar precio.
+                @if (n.anotado) { Quedó en No registrados para Compras. }</span>
+            } @else {
+              <strong>El código {{ n.codigo }} no está registrado en Kepler.</strong>
+              @if (n.anotado) {
+                <span>Quedó en No registrados para Compras.</span>
+                @if (n.descrito) {
+                  <span>Guardado: «{{ n.descrito }}».</span>
+                } @else {
+                  <label class="fx-nr-lbl" for="fx-nr-desc">Si sabes qué es, escríbelo (opcional):</label>
+                  <div class="fx-nr-form">
+                    <input id="fx-nr-desc" class="fx-input fx-nr-input" type="text" autocomplete="off"
+                           maxlength="120" placeholder="Ej. gomita enchilada 1 kg"
+                           [ngModel]="descripcion()" (ngModelChange)="descripcion.set($event)"
+                           (keydown.enter)="guardarDescripcion()" />
+                    <button type="button" class="fx-igual" (click)="guardarDescripcion()"
+                            [disabled]="describiendo() || !descripcion().trim()">
+                      {{ describiendo() ? 'Guardando…' : 'Guardar' }}
+                    </button>
+                  </div>
+                }
+              }
+            }
+            @if (!n.anotado && n.enviando) { <span>Anotando…</span> }
+          </div>
+          <div class="fx-nr-acc">
+            @if (n.anotado) {
+              <button type="button" class="fx-quitar" (click)="quitarNoRegistrado()" [disabled]="deshaciendo()">
+                {{ deshaciendo() ? 'Quitando…' : 'Quitar' }}
+              </button>
+            }
+            <button type="button" class="fx-cerrar" (click)="cerrarNoRegistrado()" aria-label="Cerrar aviso">
+              <i class="pi pi-times" aria-hidden="true"></i>
+            </button>
+          </div>
+        </section>
+      }
+
       <!-- ── La ventana con tiempo ──────────────────────────────────────────────────────── -->
       @if (ventana()) {
         <section class="fx-ventana" role="status" aria-live="polite"
@@ -125,13 +222,48 @@ const PASO_MS = 100;
               <div class="fx-v-nom">
                 <strong>{{ elegido()?.nombre }}</strong>
                 <span class="fx-v-sku">{{ elegido()?.codigo }}</span>
+                @if (elegido()?.proveedor) { <span class="fx-v-prov">{{ elegido()?.proveedor }}</span> }
               </div>
-              <div class="fx-v-precio num">
-                @if (precioValor() !== null) {
-                  {{ precioValor() | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}
-                } @else { <span class="fx-sin">sin precio</span> }
-                @if (elegido()?.unidad) { <span class="fx-v-un">por {{ elegido()?.unidad }}</span> }
-              </div>
+
+              <!-- [MOS.1] Cada presentación con lo que trae: la caja en paquetes cuando se puede. -->
+              @if (presentaciones().length) {
+                <ul class="fx-tab" aria-label="Presentaciones y precio">
+                  <li class="fx-tab-h" aria-hidden="true">
+                    <span>Presentación</span><span class="r">Trae</span><span class="r">Precio</span><span class="r"></span>
+                  </li>
+                  @for (p of presentaciones(); track p.u) {
+                    <li>
+                      <span>{{ p.nombre }}</span>
+                      <span class="r num fx-muted-n">{{ p.trae ? p.trae.n + ' ' + p.trae.palabra : '—' }}</span>
+                      <span class="r num fx-tab-p">{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
+                      <span class="r num fx-muted-n">
+                        @if (p.precioPorTrae !== null) {
+                          {{ p.precioPorTrae | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }} {{ p.etiquetaPorTrae }}
+                        }
+                      </span>
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <span class="fx-sin">sin precio</span>
+              }
+
+              <!-- [MOS.1] El mayoreo, en la presentación en que Kepler lo captura. -->
+              @if (escalones().length) {
+                <div class="fx-escs">
+                  @for (e of escalones(); track $index) {
+                    <div class="fx-esc">
+                      <span class="fx-esc-t">Mayoreo por <strong>{{ e.singular }}</strong></span>
+                      @if (e.precioNormal !== null) {
+                        <span class="fx-esc-f"><span>{{ e.tramo }}</span>
+                          <span class="num">{{ e.precioNormal | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }} {{ e.etiqueta }}</span></span>
+                      }
+                      <span class="fx-esc-f fx-esc-on"><span>{{ e.desde }} {{ e.plural }} o más</span>
+                        <span class="num"><strong>{{ e.precio | currency:'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</strong> {{ e.etiqueta }}</span></span>
+                    </div>
+                  }
+                </div>
+              }
               <div class="fx-v-origen">
                 @switch (origenPrecio()) {
                   @case ('vivo') { <span class="fx-chip ok"><i class="pi pi-circle-fill" aria-hidden="true"></i> Precio en vivo</span> }
@@ -247,6 +379,7 @@ const PASO_MS = 100;
     /* La ventana con el precio y la existencia NO entra en el renglon: baja a su
        propia linea y ocupa todo el ancho. Es la respuesta, y dura unos segundos. */
     .fx.fx-compacto .fx-ventana { flex: 1 1 100%; }
+    .fx.fx-compacto .fx-nr { flex: 1 1 100%; }
     /* ⚠️ Lo compacto es para el MOUSE. Con el dedo vuelve el minimo de 44px
        (DESIGN §11, Ley de Fitts): un campo de 30px en una tablet es un objetivo
        que se falla, y esta caja la usa alguien con un cliente enfrente. El
@@ -277,20 +410,32 @@ const PASO_MS = 100;
       color: var(--warn-soft-fg); border: 1px solid var(--warn-border); }
     .fx-sin-suc i { font-size: .8rem; margin-top: .1rem; flex: 0 0 auto; }
 
-    .fx-lista { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
-      list-style: none; margin: 0; padding: 0; max-height: 17rem; overflow-y: auto;
+    /* [MOS.1] Mas ancha que la caja: cada renglon lleva las presentaciones con su precio. */
+    .fx-lista { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50;
+      width: max(100%, min(36rem, 92vw));
+      list-style: none; margin: 0; padding: 0; max-height: 24rem; overflow-y: auto;
       background: var(--card-bg); border: 1px solid var(--border-color);
       border-radius: var(--r-sm, 8px); box-shadow: var(--shadow-float); }
     .fx-lista li + li .fx-fila { border-top: 1px solid var(--border-color); }
-    .fx-fila { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto 5.5rem;
-      align-items: center; gap: .6rem; padding: .55rem .75rem; background: none; border: 0;
+    .fx-fila { width: 100%; display: flex; flex-direction: column; gap: .25rem;
+      padding: .55rem .75rem; background: none; border: 0;
       cursor: pointer; text-align: left; color: var(--text-main); font: inherit; font-size: var(--fs-sm); }
     .fx-fila:hover, .fx-fila.on { background: var(--hover-bg); }
-    .fx-fila-n { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fx-fila-sku { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); }
-    .fx-fila-u { font-size: .68rem; font-weight: 700; color: var(--text-muted);
-      background: var(--neutral-100); border-radius: 4px; padding: .05rem .3rem; }
-    .fx-fila-p { text-align: right; font-weight: 700; }
+    .fx-fila:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+    .fx-fila-top { display: flex; align-items: flex-start; justify-content: space-between; gap: .6rem; min-width: 0; }
+    .fx-fila-n { font-weight: 600; min-width: 0; }
+    .fx-por { flex: 0 0 auto; font-size: var(--fs-micro); font-weight: 600; white-space: nowrap;
+      color: var(--text-muted); background: var(--neutral-100); border-radius: var(--r-pill, 999px);
+      padding: .05rem .45rem; }
+    .fx-fila-meta { display: flex; flex-wrap: wrap; gap: .1rem .7rem; font-size: var(--fs-xs); color: var(--text-muted); }
+    .fx-pres { display: flex; flex-wrap: wrap; gap: .3rem; }
+    .fx-pz { display: inline-flex; align-items: baseline; gap: .35rem; padding: .1rem .45rem;
+      border: 1px solid var(--border-color); border-radius: 6px; font-size: var(--fs-xs); }
+    .fx-pz b { font-size: var(--fs-micro); font-weight: 700; color: var(--text-muted); letter-spacing: .03em; }
+    .fx-pz .num { font-weight: 600; }
+    .fx-pz-x { font-size: var(--fs-micro); color: var(--text-faint); }
+    .fx-pz-may { border-color: var(--ok-border); }
+    .fx-pz-may b { color: var(--ok-soft-fg); }
     .fx-muted, .fx-sin { color: var(--text-muted); font-style: italic; font-weight: 400; }
     .num { font-variant-numeric: tabular-nums; }
 
@@ -309,9 +454,40 @@ const PASO_MS = 100;
     .fx-v-nom strong { font-size: .95rem; }
     .fx-v-sku { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted);
       background: var(--neutral-100); border-radius: 4px; padding: .05rem .35rem; }
-    .fx-v-precio { font-size: 2rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; margin-top: .4rem;
-      display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
-    .fx-v-un { font-size: .82rem; font-weight: 500; color: var(--text-muted); letter-spacing: 0; }
+    .fx-v-prov { font-size: var(--fs-xs); color: var(--text-muted); }
+
+    /* [MOS.1] Presentaciones: lista con forma de tabla chica (4 columnas alineadas). */
+    .fx-tab { list-style: none; margin: .5rem 0 0; padding: 0; font-size: var(--fs-sm); }
+    .fx-tab li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: .2rem .9rem;
+      align-items: baseline; padding: .3rem 0; border-bottom: 1px solid var(--border-color); }
+    .fx-tab li:last-child { border-bottom: 0; }
+    .fx-tab .fx-tab-h { font-size: var(--fs-micro); font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-faint); padding-top: 0; }
+    .fx-tab .r { text-align: right; }
+    .fx-tab-p { font-size: 1.05rem; font-weight: 700; }
+    .fx-muted-n { color: var(--text-muted); font-size: var(--fs-xs); }
+
+    /* [MOS.1] Escaleras de mayoreo. */
+    .fx-escs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); gap: .45rem; margin-top: .55rem; }
+    .fx-esc { display: flex; flex-direction: column; gap: .2rem; padding: .45rem .55rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); font-size: var(--fs-xs); }
+    .fx-esc-t { color: var(--text-muted); }
+    .fx-esc-t strong { color: var(--text-main); }
+    .fx-esc-f { display: flex; justify-content: space-between; gap: .5rem; padding: .15rem .35rem; border-radius: 6px; }
+    .fx-esc-on { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .fx-esc-on strong { font-size: var(--fs-sm); }
+
+    /* [MOS.2] Aviso de codigo no registrado. Tono de aviso, no de error: no es culpa de nadie. */
+    .fx-nr { display: flex; align-items: flex-start; gap: .6rem; padding: .6rem .75rem;
+      border-radius: var(--r-sm, 8px); background: var(--warn-soft-bg); color: var(--warn-soft-fg);
+      border: 1px solid var(--warn-border); }
+    .fx-nr-ico { margin-top: .15rem; }
+    .fx-nr-cuerpo { display: flex; flex-direction: column; gap: .3rem; min-width: 0; flex: 1 1 auto; font-size: var(--fs-xs); }
+    .fx-nr-cuerpo strong { font-size: var(--fs-sm); }
+    .fx-nr-lbl { font-weight: 600; }
+    .fx-nr-form { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .fx-nr-input { flex: 1 1 14rem; max-width: 24rem; padding-left: .75rem; }
+    .fx-nr-acc { display: flex; align-items: center; flex: 0 0 auto; }
     .fx-v-origen { margin-top: .35rem; }
     .fx-chip { display: inline-flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 600;
       border-radius: var(--r-sm, 8px); padding: .1rem .4rem; }
@@ -410,12 +586,25 @@ export class FaltanteExpressComponent {
   private get totalMs(): number { return this.segundosVentana * 1000; }
 
   readonly termino = signal('');
-  readonly resultados = signal<Hallado[]>([]);
+  readonly resultados = signal<HalladoCatalogo[]>([]);
   readonly resaltado = signal(0);
   readonly buscando = signal(false);
   readonly aviso = signal<Aviso>(null);
+  /**
+   * `[MOS.1]` La persona eligió con las flechas. Sólo entonces Enter toma el renglón resaltado
+   * cuando lo tecleado son números: la pistola también manda dígitos y Enter, y ahí lo que manda
+   * es el código exacto contra Kepler, no el primer parecido de la lista.
+   */
+  private navego = false;
+
+  /** `[MOS.2]` El código escaneado que Kepler no tiene, y lo que se hizo con él. */
+  readonly noReg = signal<NoRegistradoAviso | null>(null);
+  readonly descripcion = signal('');
+  readonly describiendo = signal(false);
 
   readonly elegido = signal<Hallado | null>(null);
+  /** `[MOS.1]` De dónde salieron las presentaciones que se ven: del ODS o del respaldo local. */
+  readonly origenPres = signal<'vivo' | 'respaldo'>('respaldo');
   readonly consulta = signal<ConsultaFaltante | null>(null);
   readonly anotado = signal<ReportarResultado | null>(null);
   readonly deshecho = signal(false);
@@ -454,18 +643,31 @@ export class FaltanteExpressComponent {
   readonly segundos = computed(() => Math.ceil(this.restante() / 1000));
 
   /**
-   * El precio y su procedencia. El del servidor manda; el local es respaldo y se DECLARA como
-   * tal, porque puede estar viejo. Sin ninguno de los dos no se dibuja un cero.
+   * `[MOS.1]` Los renglones del desplegable, ya con sus presentaciones y su mayoreo calculados:
+   * se calculan una vez por búsqueda, no en cada pintada.
    */
-  readonly precioValor = computed<number | null>(() => {
-    const srv = this.consulta()?.precio;
-    if (srv !== null && srv !== undefined) return srv;
-    return this.elegido()?.precio ?? null;
+  readonly filas = computed(() => this.resultados().map((r) => ({
+    ...r,
+    porEtiqueta: ETIQUETA_CAMPO[r.por],
+    pres: presentacionesDe(r.unidades),
+    esc: escalonesDe(r.unidades, r.mayoreo),
+  })));
+
+  /** `[MOS.1]` Las presentaciones del producto elegido, con lo que trae cada una. */
+  readonly presentaciones = computed(() => presentacionesDe(this.elegido()?.unidades ?? []));
+  /** `[MOS.1]` Su mayoreo, en la presentación en que Kepler lo captura, con el tramo normal. */
+  readonly escalones = computed(() => {
+    const h = this.elegido();
+    return escalonesDe(h?.unidades ?? [], h?.mayoreo ?? []).map((e) => ({ ...e, tramo: tramoNormal(e) }));
   });
+
+  /**
+   * La procedencia de los precios. El del ODS manda; el local es respaldo y se DECLARA como tal,
+   * porque puede estar viejo. Sin precio no se dibuja un cero.
+   */
   readonly origenPrecio = computed<OrigenPrecio>(() => {
-    const srv = this.consulta()?.precio;
-    if (srv !== null && srv !== undefined) return 'vivo';
-    return (this.elegido()?.precio ?? null) !== null ? 'respaldo' : 'sin_dato';
+    if (!this.presentaciones().length) return 'sin_dato';
+    return this.origenPres();
   });
 
   /**
@@ -479,57 +681,71 @@ export class FaltanteExpressComponent {
   // ── Búsqueda ────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * El criterio es «tiene letras»: un código de barras y una clave son dígitos, un nombre no.
-   * La pistola dispara y manda Enter, así que ese camino no pasa por acá — lo resuelve
-   * `alTeclear`. Con menos de 3 caracteres no se busca o entra el catálogo entero.
+   * `[MOS.1]` Busca desde 3 caracteres, letras o números: el nombre, el proveedor, el SKU o un
+   * pedazo del código de barras. La pistola dispara dígitos y Enter casi al mismo tiempo; ese
+   * camino lo resuelve `alTeclear` contra Kepler, no esta lista.
    */
   alEscribir(v: string): void {
     this.termino.set(v ?? '');
     this.aviso.set(null);
+    this.navego = false;
     if (this.debounce) clearTimeout(this.debounce);
     const q = (v ?? '').trim();
-    if (q.length < 3 || !/[a-zá-úñ]/i.test(q)) { this.resultados.set([]); return; }
-    this.debounce = setTimeout(() => { void this.porNombre(q); }, 250);
+    if (q.length < 3) { this.resultados.set([]); return; }
+    this.debounce = setTimeout(() => { void this.porTexto(q); }, 250);
   }
 
   alTeclear(ev: KeyboardEvent): void {
     const n = this.resultados().length;
     if (ev.key === 'ArrowDown' && n) {
-      ev.preventDefault(); this.resaltado.set((this.resaltado() + 1) % n);
+      ev.preventDefault(); this.navego = true; this.resaltado.set((this.resaltado() + 1) % n);
     } else if (ev.key === 'ArrowUp' && n) {
-      ev.preventDefault(); this.resaltado.set((this.resaltado() - 1 + n) % n);
+      ev.preventDefault(); this.navego = true; this.resaltado.set((this.resaltado() - 1 + n) % n);
     } else if (ev.key === 'Escape') {
       this.resultados.set([]);
     } else if (ev.key === 'Enter') {
       ev.preventDefault();
+      const q = this.termino().trim();
+      // Con letras, o si la persona eligió con las flechas, Enter toma el renglón resaltado. Con
+      // sólo números y sin flechas es un código (la pistola, o alguien tecleándolo completo): va
+      // contra Kepler, que es quien sabe si existe.
       const r = this.resultados()[this.resaltado()];
-      if (r) { this.elegir(r); return; }
-      // Sin desplegable: lo que hay en la caja es un código. Es el camino de la pistola.
-      this.porCodigo(this.termino().trim());
+      if (r && (this.navego || /[^0-9]/.test(q))) { this.elegir(r, 'respaldo'); return; }
+      if (this.debounce) clearTimeout(this.debounce);
+      this.resultados.set([]);
+      this.porCodigo(q);
     }
   }
 
-  private async porNombre(q: string): Promise<void> {
+  private async porTexto(q: string): Promise<void> {
     const suc = this.sucursal();
     if (!suc) return;
     this.buscando.set(true);
     try {
-      let r = await this.verificador.buscarPorNombre(suc, q);
+      let r = await this.verificador.buscarEnCatalogo(suc, q);
       if (r === null) {
         // `null` = no hay catálogo bajado, que NO es lo mismo que «no hay resultados». Se baja
         // una vez y se reintenta; si tampoco, se dice.
         await new Promise<void>((ok, fail) =>
           this.verificador.descargarSnapshot(suc).subscribe({ next: () => ok(), error: fail }));
-        r = await this.verificador.buscarPorNombre(suc, q);
+        r = await this.verificador.buscarEnCatalogo(suc, q);
       }
+      // La persona siguió escribiendo mientras se buscaba: esta respuesta ya no es de lo que hay
+      // en la caja.
+      if (this.termino().trim() !== q) return;
       this.resultados.set(r ?? []);
       this.resaltado.set(0);
       if (r !== null && r.length === 0) {
-        this.aviso.set({ tono: 'warn', texto: 'Nada coincide. Si no lo vendemos, usa "Producto no catalogado".' });
+        this.aviso.set({
+          tono: 'warn',
+          texto: /^[0-9]+$/.test(q)
+            ? 'Nada coincide en esta sucursal. Si es un código, presiona Enter para buscarlo en Kepler.'
+            : 'Nada coincide en el catálogo de esta sucursal.',
+        });
       }
     } catch {
       this.resultados.set([]);
-      this.aviso.set({ tono: 'bad', texto: 'No se pudo buscar por nombre. Revisa la conexión.' });
+      this.aviso.set({ tono: 'bad', texto: 'No se pudo buscar en el catálogo. Revisa la conexión.' });
     } finally {
       this.buscando.set(false);
     }
@@ -539,24 +755,32 @@ export class FaltanteExpressComponent {
     const suc = this.sucursal();
     if (!code || !suc) return;
     this.buscando.set(true);
+    this.noReg.set(null);
     this.verificador.buscar(code, suc).subscribe({
       next: (r) => {
         this.buscando.set(false);
         if (r.estado === 'encontrado') {
-          const base = r.producto.unidades?.[0];
-          this.elegir({
-            codigo: r.producto.codigo,
-            nombre: r.producto.nombre,
-            precio: base?.precio_con_iva ?? null,
-            unidad: base?.u ?? null,
-          });
+          if (r.plazaSinDato) {
+            // `[MOS.2]` Existe en Kepler, pero NO en esta sucursal. Antes la ventana mostraba el
+            // precio de la otra plaza como si fuera de aquí; ahora se dice y se anota para Compras.
+            this.anotarNoRegistrado({
+              kind: 'no_en_sucursal', codigo: code, sku: r.producto.codigo, nombre: r.producto.nombre,
+            });
+            return;
+          }
+          this.elegir(this.desdeProducto(r.producto), r.origen === 'live' ? 'vivo' : 'respaldo', true);
         } else if (r.estado === 'no_encontrado') {
-          // El catálogo contestó que no existe: es autoritativo, y NO se anota nada solo. Un
-          // producto fuera de catálogo es otro motivo, con su propia pantalla.
-          this.aviso.set({
-            tono: 'warn',
-            texto: 'Ese código no está en el catálogo. Usa "Producto no catalogado" para avisarle a Compras.',
-          });
+          if (r.origen === 'live') {
+            // `[MOS.2]` Kepler contestó que no existe: es autoritativo, y se anota SOLO en la
+            // lista de No registrados. Sale de ahí en cuanto lo den de alta en Kepler.
+            this.anotarNoRegistrado({ kind: 'no_en_catalogo', codigo: code, sku: null, nombre: null });
+          } else {
+            // Sin red, el «no está» sale del respaldo, que puede ser viejo: no se anota nada.
+            this.aviso.set({
+              tono: 'warn',
+              texto: 'Ese código no está en el respaldo de esta sucursal, y sin conexión no se pudo confirmar con Kepler.',
+            });
+          }
         } else {
           this.aviso.set({ tono: 'bad', texto: 'No se pudo consultar el catálogo. Revisa la conexión.' });
         }
@@ -568,13 +792,100 @@ export class FaltanteExpressComponent {
     });
   }
 
+  private desdeProducto(p: { codigo: string; nombre: string; proveedor?: string | null; unidades: UnidadPrecio[]; mayoreo: MayoreoTier[] }): Hallado {
+    return {
+      codigo: p.codigo,
+      nombre: p.nombre,
+      proveedor: p.proveedor ?? null,
+      unidades: p.unidades ?? [],
+      mayoreo: p.mayoreo ?? [],
+    };
+  }
+
+  // ── No registrados ──────────────────────────────────────────────────────────────────────────
+
+  private anotarNoRegistrado(o: Pick<NoRegistradoAviso, 'kind' | 'codigo' | 'sku' | 'nombre'>): void {
+    const suc = this.sucursal();
+    if (!suc) return;
+    this.cerrar(false);
+    this.termino.set('');
+    this.descripcion.set('');
+    this.noReg.set({ ...o, enviando: true, anotado: null, descrito: null });
+    this.api.reportar({
+      warehouse_code: suc,
+      kind: o.kind,
+      scanned_code: o.codigo,
+      ...(o.sku ? { sku: o.sku } : {}),
+      source: 'verificador',
+    }).subscribe({
+      next: (r) => {
+        this.noReg.update((n) => (n ? { ...n, enviando: false, anotado: r } : n));
+        this.cambio.emit();
+      },
+      error: () => {
+        this.noReg.update((n) => (n ? { ...n, enviando: false } : n));
+        // Un no registrado que se creyó anotado y no lo está es peor que uno que nunca se intentó.
+        this.aviso.set({ tono: 'bad', texto: 'No se pudo anotar el código para Compras. Revisa la conexión y vuelve a escanear.' });
+      },
+    });
+  }
+
+  guardarDescripcion(): void {
+    const n = this.noReg();
+    const texto = this.descripcion().trim();
+    if (!n?.anotado || !texto || this.describiendo()) return;
+    this.describiendo.set(true);
+    this.api.describir(n.anotado.id, texto).subscribe({
+      next: (r) => {
+        this.describiendo.set(false);
+        this.noReg.update((x) => (x ? { ...x, descrito: r.product_name } : x));
+        this.cambio.emit();
+      },
+      error: () => {
+        this.describiendo.set(false);
+        this.aviso.set({ tono: 'bad', texto: 'No se pudo guardar la descripción. El código sí quedó anotado.' });
+      },
+    });
+  }
+
+  quitarNoRegistrado(): void {
+    const n = this.noReg();
+    if (!n?.anotado || this.deshaciendo()) return;
+    this.deshaciendo.set(true);
+    this.api.deshacer(n.anotado.id).subscribe({
+      next: () => {
+        this.deshaciendo.set(false);
+        this.noReg.set(null);
+        this.aviso.set({ tono: 'warn', texto: 'Quitado. No quedó nada anotado.' });
+        this.cambio.emit();
+        this.caja()?.nativeElement.focus();
+      },
+      error: () => {
+        this.deshaciendo.set(false);
+        this.aviso.set({ tono: 'bad', texto: 'No se pudo quitar. Pídele a Compras que lo marque como "no era faltante".' });
+      },
+    });
+  }
+
+  cerrarNoRegistrado(): void {
+    this.noReg.set(null);
+    this.caja()?.nativeElement.focus();
+  }
+
   // ── La ventana ──────────────────────────────────────────────────────────────────────────────
 
-  elegir(h: Hallado): void {
+  /**
+   * Abre la ventana del producto. `origen` dice de dónde vienen sus precios; si vienen del
+   * respaldo y hay red, se piden en vivo y la ventana se actualiza sola (`[MOS.1]`).
+   */
+  elegir(h: Hallado, origen: 'vivo' | 'respaldo' = 'respaldo', yaEnVivo = false): void {
     const suc = this.sucursal();
     if (!suc) return;
 
+    this.noReg.set(null);
+    this.origenPres.set(origen);
     this.elegido.set(h);
+    if (!yaEnVivo && origen === 'respaldo') this.refrescarEnVivo(h.codigo, suc);
     this.resultados.set([]);
     this.termino.set('');
     this.aviso.set(null);
@@ -598,6 +909,24 @@ export class FaltanteExpressComponent {
         this.consulta.set(c);
         this.trasConsultar(c);
       },
+    });
+  }
+
+  /**
+   * `[MOS.1]` Lo elegido de la lista sale del respaldo local, que puede tener horas. Se pide en
+   * vivo y, si contesta el ODS, se reemplazan los precios y la procedencia pasa a «en vivo». Si
+   * para entonces la persona ya eligió otro producto, la respuesta se descarta.
+   */
+  private refrescarEnVivo(codigo: string, suc: string): void {
+    this.verificador.buscar(codigo, suc).subscribe({
+      next: (r) => {
+        if (r.estado !== 'encontrado' || r.origen !== 'live' || r.plazaSinDato) return;
+        if (this.elegido()?.codigo !== codigo) return;
+        this.elegido.set(this.desdeProducto(r.producto));
+        this.origenPres.set('vivo');
+      },
+      // Sin red se queda lo del respaldo, que ya está rotulado como tal.
+      error: () => undefined,
     });
   }
 
@@ -658,7 +987,7 @@ export class FaltanteExpressComponent {
 
   pausar(v: boolean): void { this.pausado.set(v); }
 
-  cerrar(): void {
+  cerrar(enfocar = true): void {
     this.pararReloj();
     this.ventana.set(false);
     this.elegido.set(null);
@@ -666,7 +995,7 @@ export class FaltanteExpressComponent {
     this.anotado.set(null);
     this.deshecho.set(false);
     // De vuelta a la caja: en un mostrador lo que sigue es el próximo escaneo.
-    this.caja()?.nativeElement.focus();
+    if (enfocar) this.caja()?.nativeElement.focus();
   }
 
   private arrancarReloj(): void {

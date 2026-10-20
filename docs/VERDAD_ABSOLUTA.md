@@ -1,46 +1,47 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 321 KB, 4856 líneas, 34 secciones.
+> **Índice navegable** — 328 KB, 4968 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 47 | 62 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 63 | 79 | 1 | 0. Qué es este documento, y qué NO es |
-| 80 | 188 | 6 | 1. Las siete reglas |
-| 189 | 222 | 8 | 2. El estado, en una tabla |
-| 223 | 385 | 10 | 3. Existencia |
-| 386 | 610 | 12 | 4. Ventas y unidades |
-| 611 | 642 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 643 | 719 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 720 | 790 | 5 | 6. Las trampas que ya cobraron |
-| 791 | 848 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 849 | 893 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 894 | 1095 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1096 | 1201 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1202 | 1402 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1403 | 1708 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1709 | 1728 | 2 | 10. Cómo se verifica |
-| 1729 | 1751 | 1 | 11. Lo que este documento no cubre |
-| 1752 | 1827 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1828 | 1987 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 1988 | 2371 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2372 | 2612 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2613 | 2805 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2806 | 2848 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2849 | 2947 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2948 | 3421 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3422 | 3529 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3530 | 3684 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3685 | 3836 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3837 | 4042 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4043 | 4132 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4133 | 4322 | 10 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4323 | 4391 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4392 | 4686 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4687 | 4902 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 48 | 63 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 64 | 80 | 1 | 0. Qué es este documento, y qué NO es |
+| 81 | 189 | 6 | 1. Las siete reglas |
+| 190 | 223 | 8 | 2. El estado, en una tabla |
+| 224 | 386 | 10 | 3. Existencia |
+| 387 | 611 | 12 | 4. Ventas y unidades |
+| 612 | 643 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 644 | 720 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 721 | 791 | 5 | 6. Las trampas que ya cobraron |
+| 792 | 849 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 850 | 894 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 895 | 1096 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1097 | 1202 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1203 | 1403 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1404 | 1709 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1710 | 1729 | 2 | 10. Cómo se verifica |
+| 1730 | 1752 | 1 | 11. Lo que este documento no cubre |
+| 1753 | 1828 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1829 | 1988 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 1989 | 2372 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2373 | 2613 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2614 | 2806 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2807 | 2849 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2850 | 2948 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2949 | 3422 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3423 | 3530 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3531 | 3685 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3686 | 3837 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3838 | 4043 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4044 | 4133 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4134 | 4323 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4324 | 4392 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4393 | 4687 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4688 | 4905 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4906 | 5015 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4271,7 +4272,7 @@ movimiento, y el libro más las dos piernas de CAOS. Coinciden al centavo.
 | dispensaciones del **13-oct** sin dueño (día abierto) | **$53,573.00** | operación |
 | **dólares** sin recontar desde el 2-abr | $230,338.96 declarados | operación: hay que contarlos |
 | **papeles** sin recontar desde el 2025-10-06 | $20,782.00 declarados | operación |
-| **saldo de la bóveda** | — | ⛔ **límite de la fuente**: CAOS no lo publica |
+| **saldo de la bóveda** | **$360,020.00 al 20-oct 10:04** — replay de flujos = inventario de casetes de la máquina (`getCounting`), al billete · sin conteo humano todavía | ⚠️ *Corregido 2026-10-20 (`[CGA-A.33]`):* CAOS **sí** publica su contenido — en `Fin de Dia` y en el detalle de cada `Vaciar Stocks` —, y el replay por denominación cierra a 0 contra él en 3 tramos. Falta el conteo humano: operación, en el próximo vaciado. Ver `FASE_CGA_PLAN_IMPLEMENTACION §11.2.1` |
 | faltante del arqueo del 12-oct | $62.45 | operación |
 
 ### 28.9 El corte del 12-oct no se podía sellar con el código desplegado — ⭐ el impedimento de CÓDIGO se levantó el 2026-10-15
@@ -4899,3 +4900,115 @@ de ahí**: acierta menos de 1 de cada 10 veces que opina.
 - ⚠️ **`etiquetera` sin segundo testigo** (79,321 celdas): no es un defecto medido, es una
   **fragilidad estructural**. Si algún día el ERP empieza a declarar factor para esos SKUs, hay que
   cruzarlos antes de celebrar la coincidencia.
+
+---
+
+## 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2026-10-20)
+
+> **Por qué existe esta sección.** Hasta hoy este documento tenía **cero menciones** de la
+> comisión. Y no es un número de reporte: es **el depósito quincenal de once choferes**. El
+> objetivo `O0` de la fase —*una verdad absoluta de comisiones generada 100 % por el motor*— **no
+> se puede afirmar mientras no esté escrito qué arbitra cada uno de los seis**.
+>
+> **Medido contra prod** (`pg-prod`, `system_identifier 7688376744939610156`) el **2026-10-20**,
+> sólo lectura.
+
+### 32.0 El estado, antes de cualquier otra cosa
+
+| | |
+|---|---:|
+| corridas en el libro mayor | **20**, todas `origen = 'libro'` |
+| corridas producidas por **el motor** | **0** |
+| `commission_engine_lines` | **0 filas**, en los 16 periodos |
+| filas de contraste con el lado del motor | **0 de 238** |
+| corridas con `approved_at` | **0 de 20** |
+| lo que el libro pagó | **$937,781.87** en 238 ruta-periodo |
+
+⛔ **El motor nunca ha escrito un peso.** Las 20 corridas son la transcripción del workbook
+*INDICADORES RD*. Lo que esta sección arbitra es, por lo tanto, **lo que el motor va a pagar**,
+no lo que pagó — y por eso se escribe **antes**, no después.
+
+⚠️ **Y una advertencia sobre una cifra que circula.** La cabecera de
+`commission-contrast.service.ts` publica un contraste detallado (*111 filas cuadran al peso ·
+delta −$76,453.42*). **Esos números salieron del SQL exploratorio que reimplementaba el
+tabulador, no del motor** — el propio archivo dice que esa copia «no sirve para la pantalla».
+Mientras `commission_engine_lines` esté en cero, **nadie ha comparado el motor con el libro**.
+
+### 32.1 Los seis resolvedores
+
+| # | Número | Resolvedor único | Testigo independiente | La trampa |
+|---|---|---|---|---|
+| 1 | **venta** (la compuerta) | `analytics.v_rd_commission_sales.venta` | el corte de caja de la camioneta (Wincaja, caja 98) | la caja viaja en el camión y al cortar a Kepler **cambia de código** (`[RD.61]`) |
+| 2 | **subtotal** (la base) | `analytics.v_rd_commission_sales.subtotal` | `commission_scales.base_field` | **subtotal ≠ venta**: difieren 6.4 %, **$399,857 en 30 días**. La comisión va sobre el subtotal y la compuerta la abre la venta |
+| 3 | **costo** | `cogs_ruta ?? cogs_erp ?? costo_wincaja` | el COGS del embarque | el markup se calcula sobre **los mismos días** que tienen costo; dividir 14 días de subtotal entre los días con costo infló la razón **~27 %** contra un umbral de bono de 25 % |
+| 4 | **escalón** | `commission_scale_tiers` vigente a la fecha | el tabulador firmado | **es un acantilado**, ver §32.2 |
+| 5 | **bono** | `commission_bonuses` con `periodo` y `activo` | el recibo | sin el filtro `periodo`, un bono mensual entra a **las dos quincenas** y se paga dos veces (`[RD.59]`). Y los bonos **cuelgan de la escala**: una versión nueva del tabulador los perdía entera (`[RD.85.0]`) |
+| 6 | **deducción** (nómina de banco) | `commission_route_config.nomina_banco`, por ruta | el recibo de nómina | el recibo del supervisor **se contradice a sí mismo** (decisión **D3**, abierta) |
+
+### 32.2 ⛔⛔ El tabulador es un ACANTILADO, no una rampa
+
+El tabulador vigente desde 2026-01-01, medido:
+
+| desde (venta) | hasta | paga sobre el subtotal |
+|---:|---:|---:|
+| **$189,999.99** | $194,999.99 | 3.7500 % |
+| $194,999.99 | $199,999.99 | 4.2500 % |
+| $199,999.99 | $215,999.99 | 4.5620 % |
+| $215,999.99 | *(sin techo)* | 5.0000 % |
+
+⭐ **Debajo de $189,999.99 no hay escalón, y `pickTier()` devuelve `null`: la comisión es $0.**
+No «un poco menos» — **cero**. Un centavo de venta separa $0 de 3.75 % del subtotal.
+
+⛔ **Esto NO es una opinión de diseño: es lo que la tabla dice hoy, y es la decisión `D7`
+abierta.** Medido sobre el contraste: **9 filas, $26,932.74**, que el libro pagó y el motor
+pondría en cero por quedar del lado malo del corte. O el tabulador recibe un piso suave, o esas
+nueve no cobran — y **las dos son decisiones de Dirección, no del código**.
+
+⚠️ **`min` es inclusivo y `max` exclusivo** (`pickTier`), y los escalones tienen que **tocarse
+exactamente**: `createScaleVersion` rechaza un hueco, porque una venta que cayera en medio no
+cobraría nada. Eso se verifica al guardar, no al pagar.
+
+### 32.3 El universo: quién cobra, y desde cuándo
+
+El padrón (`commission_route_config`, **13 filas, 11 activas**) decide quién entra. Dos reglas
+que ya costaron dinero:
+
+- ⛔ **El padrón se lee A LA FECHA DEL PERIODO, no a hoy** (`[RD.84.0]`). La vista
+  `v_rd_commission_universe` resuelve `comisiona = (está en config AND activo)` **sin ninguna
+  fecha**, y el motor la consumía así. Con las rutas **321/322** dadas de baja correctamente
+  (`activo_hasta = 2026-07-15`), recalcular las quincenas en que sí eran Ruta Directa daba **$0
+  contra los $19,096.84 que el libro pagó en 5 quincenas**. *Una baja correcta reescribía la
+  historia.*
+- ⭐ **La comisión sigue al TIPO DE RUTA, no al chofer** (decisión de Edgar, 2026-10-20). Las
+  321/322 operan hoy como `2V001`/`2V003`, vecinales. Que el chofer sea el mismo **no** las
+  devuelve a Ruta Directa — ésa es justamente la lectura que ya se equivocó una vez.
+
+### 32.4 Lo que NO se puede medir, y por lo tanto se declara
+
+Siguiendo ADR-056, el motor **no dibuja un cero** en ninguno de estos casos: los nombra.
+
+| Situación | Lo que se declara | ⛔ Lo que NO se hace |
+|---|---|---|
+| la fuente no dio ningún día | `sin_dato_en_la_fuente` | pintar $0 de venta |
+| la ruta vendió menos días que sus hermanas de plaza | `dias_con_venta` < `dias_esperados` | tacharla: de 22 marcadas, **8 no descuadran** — el camión en serio no salió |
+| no hay costo en el periodo | `costo_veredicto` | calcular markup sobre un costo inventado |
+| la quincena cerró y nadie la calculó | `sin_calcular` | pintarla igual que `en_curso` |
+| la corrida pagada no tiene sello de aprobación | «entró como espejo del libro» | un hueco en blanco |
+
+⭐ **Y la distinción que más cuesta:** `sin_calcular` **no es** `en_curso`. Al primero le falta
+que alguien lo calcule; al segundo, que termine el periodo. Pintarlos igual hacía que una
+quincena olvidada se viera normal.
+
+### 32.5 Los huecos, con nombre
+
+| | Hueco | Monto o tamaño |
+|---|---|---:|
+| **D7** | el acantilado de $189,999.99 | **9 filas · $26,932.74** |
+| **D3** | la línea del supervisor: su recibo se contradice | el libro tiene **238 líneas y las 238 son `chofer`** — el supervisor no aparece en ninguna |
+| **D5** | N quincenas y X % para promover el motor de auditor a pagador | sin fijar |
+| **D6** | quién calcula, quién aprueba y quién paga | hoy **un solo permiso** hace las tres |
+| — | las rutas vecinales: ¿comisionan? | **$2.2M en 30 días** sin configurar |
+| — | el contraste | **0 de 238** filas con el lado del motor |
+
+> ⛔ **Mientras estos seis estén abiertos, «100 % por el motor» describe una meta, no un estado.**
+> El motor puede calcular; lo que todavía no puede es **defender** cada peso contra un testigo.

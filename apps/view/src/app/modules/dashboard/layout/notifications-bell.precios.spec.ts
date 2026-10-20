@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { Router, UrlTree, provideRouter } from '@angular/router';
 import { signal } from '@angular/core';
 import { of, Subject, throwError } from 'rxjs';
 import type { PriceChangeNoticeDto } from '@megadulces/contracts';
@@ -68,10 +68,17 @@ describe('NotificationsBellComponent · avisos de cambios de precio', () => {
     const t = root().textContent ?? '';
     expect(t).toContain('Cambios de precio · Padre Hidalgo');
     expect(t).toContain('47 productos cambiaron de precio');
-    const navegar = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const router = TestBed.inject(Router);
+    const navegar = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     const item = Array.from(root().querySelectorAll('li button')).find((b) => /Cambios de precio/.test(b.textContent ?? '')) as HTMLButtonElement;
     item.click();
-    expect(navegar).toHaveBeenCalledWith('/tienda/etiquetas/cambios?plaza=01&fecha=2026-10-08');
+    // `[MT.5.4]` Se afirma sobre el DESTINO, no sobre el mecanismo: desde que la
+    // campana pasa por `irConservandoPanel` (una alerta no debe tirar la pantalla
+    // partida que tenías al lado) el argumento es un `UrlTree`, no el texto.
+    expect(navegar).toHaveBeenCalledTimes(1);
+    expect(router.serializeUrl(navegar.mock.calls[0][0] as UrlTree)).toBe(
+      '/tienda/etiquetas/cambios?plaza=01&fecha=2026-10-08',
+    );
   });
 
   it('⛔ quien NO puede ver la etiquetera ni siquiera los pide (evita un 403 por cada ciclo)', async () => {

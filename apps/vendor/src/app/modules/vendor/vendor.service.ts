@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map, of, switchMap, forkJoin, from } from 'rxjs';
+import { Observable, map, of, switchMap, forkJoin, from, catchError, shareReplay, throwError } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   PortalService,
@@ -284,6 +284,31 @@ export class VendorService {
    */
   private readonly catalogosEnMemoria = new Map<string, { prices: PriceRow[]; at: number }>();
 
+  /**
+   * `[VTK.13]` Respuestas que son iguales para todos los clientes de la ruta (listas de precio,
+   * fuentes de existencia del vendedor): se piden una vez y se reusan `ttlMs`. Una petición en
+   * vuelo se comparte, y un error no se guarda (la siguiente apertura vuelve a pedir).
+   */
+  private readonly enSesion = new Map<string, { at: number; obs: Observable<unknown> }>();
+  private deSesion<T>(clave: string, ttlMs: number, pedir: () => Observable<T>): Observable<T> {
+    const hit = this.enSesion.get(clave);
+    if (hit && Date.now() - hit.at < ttlMs) return hit.obs as Observable<T>;
+    const obs = pedir().pipe(
+      catchError((e: unknown) => {
+        this.enSesion.delete(clave);
+        return throwError(() => e);
+      }),
+      shareReplay(1),
+    );
+    this.enSesion.set(clave, { at: Date.now(), obs });
+    return obs;
+  }
+
+  /** Listas de precio del tenant: cambian rara vez y cada apertura de cliente las pedía. */
+  private listasDePrecio(): Observable<Array<{ id: string; is_default?: boolean }>> {
+    return this.deSesion(`listas|${this.vendorUserId ?? ''}`, 10 * 60_000, () => this.portal.listPriceLists());
+  }
+
   /** sub del JWT del vendedor logueado. Lo usamos para scoping de drafts / "Mi día". */
   private get vendorUserId(): string | null {
     return this.auth.user()?.sub || null;
@@ -379,7 +404,7 @@ export class VendorService {
     customer: VendorCustomer,
     warehouseId?: string,
   ): Observable<{ priceListId: string; prices: PriceRow[] }> {
-    return this.portal.listPriceLists().pipe(
+    return this.listasDePrecio().pipe(
       switchMap((priceLists) => {
         const list = this.listaDelCliente(customer, priceLists);
         if (!list) return of({ priceListId: '', prices: [] as PriceRow[] });
@@ -419,7 +444,7 @@ export class VendorService {
    */
   catalogInstant(customer: VendorCustomer, warehouseId?: string): Observable<CatalogoAlAbrir> {
     const wh = warehouseId || '';
-    return this.portal.listPriceLists().pipe(
+    return this.listasDePrecio().pipe(
       switchMap((priceLists) => {
         const list = this.listaDelCliente(customer, priceLists);
         if (!list) return of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() });
@@ -820,10 +845,21 @@ export class VendorService {
     sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
     camioneta: { id: string; code: string; name: string } | null;
   }> {
-    return this.http.get<{
-      sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
-      camioneta: { id: string; code: string; name: string } | null;
-    }>(`${this.base}/vendor-routes/my-stock-sources`);
+    // [VTK.13] Son las mismas para todos los clientes de la ruta: una vez cada 5 min, no por apertura.
+    return this.deSesion(`fuentes|${this.vendorUserId ?? ''}`, 5 * 60_000, () =>
+      this.http.get<{
+        sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
+        camioneta: { id: string; code: string; name: string } | null;
+      }>(`${this.base}/vendor-routes/my-stock-sources`),
+    );
+  }
+
+  /**
+   * `[VTK.13]` Pide las listas de precio YA, en paralelo con el cliente, para que `catalogInstant`
+   * las encuentre resueltas en vez de abrir otro salto de red después de tener al cliente.
+   */
+  precalentarListas(): Observable<unknown> {
+    return this.listasDePrecio();
   }
 
   // ─── Cierre de ruta: 3 tickets (venta/carga/combustible) ───

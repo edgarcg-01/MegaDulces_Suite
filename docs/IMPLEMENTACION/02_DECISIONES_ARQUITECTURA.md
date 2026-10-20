@@ -1,3 +1,109 @@
+<!-- INDICE-AUTO:INICIO -->
+
+> **Índice navegable** — 376 KB, 2968 líneas, 94 secciones.
+> ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
+> Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
+> Lo genera `npm run docs:indices` — no lo edites a mano.
+
+| Desde | Hasta | KB | Sección |
+|---:|---:|---:|---|
+| 107 | 114 | 1 | Decisiones de Arquitectura (ADR Log) |
+| 115 | 133 | 1 | ADR-000 — Plantilla |
+| 134 | 158 | 1 | ADR-001 — Tracking via markdown en repo (no Linear/Jira) |
+| 159 | 180 | 1 | ADR-002 — Orden de fases (limitaciones primero) |
+| 181 | 190 | 1 | ADR-003 — Decisión: single-tenant vs multi-tenant (SUPERSEDED) |
+| 191 | 253 | 4 | ADR-010 — Multi-tenancy ACEPTADO con DB nueva limpia |
+| 254 | 263 | 1 | ADR-004 — Integración con ERP Kepler (SUPERSEDED) |
+| 264 | 303 | 3 | ADR-009 — Integración con ERP Kepler (Postgres) |
+| 304 | 334 | 2 | ADR-005 — Stack mobile (Ionic actual vs React Native nuevo) |
+| 335 | 356 | 2 | ADR-006 — WhatsApp BSP |
+| 357 | 373 | 1 | ADR-007 — Selección de LLM para bot conversacional |
+| 374 | 390 | 1 | ADR-008 — Partner financiero para YomWallet |
+| 391 | 419 | 2 | ADR-011 — Provider de embeddings: Voyage AI `voyage-3` |
+| 420 | 446 | 2 | ADR-012 — pgvector en DB legacy, portar con la tabla cuando se migre a multi-tenant |
+| 447 | 489 | 4 | ADR-013 — Estado intermedio `pending_approval` en state machine de orders (flujo B2B) |
+| 490 | 531 | 3 | ADR-014 — App del Portal B2B: Capacitor (Android primero), no Ionic; extraer a `apps/b2b-portal` |
+| 532 | 581 | 5 | ADR-016 — Motor de Inteligencia Comercial: el motor decide, el agente comunica, el LLM fuera del camino del di |
+| 582 | 618 | 4 | ADR-017 — Autodetección de llegada del vendedor: geo en customers + detección por lista + doble anti-traslape |
+| 619 | 675 | 6 | ADR-018 — **Thot**: motor de inteligencia comercial multi-señal (evoluciona ADR-016) |
+| 676 | 714 | 4 | ADR-020 — **Horus**: Supervisor AI de ejecución en campo (Trade) |
+| 715 | 749 | 4 | ADR-021 — **Aprendizaje de Horus**: motor que aprende, no LLM que decide (track Horus.L) |
+| 750 | 791 | 6 | ADR-022 — Caducidad / lote / FEFO: sub-ledger de lotes **aditivo**, FEFO en el consumo, rollout por fases |
+| 792 | 824 | 4 | ADR-023 — **Autonomía acotada de Thot** (L3): el motor auto-ejecuta dentro de límites, el LLM sigue fuera del  |
+| 825 | 862 | 4 | ADR-024 — Conteo zonificado: pasillos 2D + equipos (1 supervisor/pasillo, contadores proporcionales) |
+| 863 | 885 | 2 | ADR-025 — INEGI DENUE como fuente primaria de prospección de PdV |
+| 886 | 909 | 2 | ADR-026 — **Thot Chat**: analítica conversacional por tool-use, no RAG sobre la DB |
+| 910 | 933 | 3 | ADR-027 — **Última milla** (entrega a domicilio local): orquestación, no módulo nuevo |
+| 934 | 956 | 3 | ADR-028 — **Maat**: AI de Finanzas (conocimiento + chat + patrones), sin fine-tuning |
+| 957 | 980 | 2 | ADR-029 — **Supervisor de Movimientos** (cuadre / reconciliación caja-inventario) |
+| 981 | 1004 | 2 | ADR-030 — **Compras / Reabastecimiento** (punto de reorden · existencia crítica · sugerido de compra) |
+| 1005 | 1030 | 3 | ADR-031 — **Cadena de compra real** (RA.15): Requisición → Orden de Compra → Orden de Entrada (la OE mueve sto |
+| 1031 | 1064 | 4 | ADR-031 — Wincaja (POS Access 97): landing schema separado `wincaja.*` + crosswalk, NO merge |
+| 1065 | 1094 | 3 | ADR-033 — **Conciliación bancaria** (Fase CB): reemplazar el workbook Excel por interfaz + catálogo limpio |
+| 1095 | 1124 | 4 | ADR-034 — **Comercio conversacional por WhatsApp** (Fase F): el bot arma, el humano confirma, el pedido cae en |
+| 1125 | 1134 | 2 | ADR-035 — **Bot WhatsApp avanzado** (Fase FIQ): model-tiering + candados de canal público, el motor sigue poni |
+| 1135 | 1144 | 1 | ADR-036 — **Identidad del contacto por E.164 canónico** (Fase FIQ, raíz del 10x) |
+| 1145 | 1154 | 1 | ADR-037 — **Trust-score determinista + gate** (Fase FIQ): el motor decide, el LLM comunica y nunca acusa |
+| 1155 | 1164 | 1 | ADR-038 — **Apartado con TTL** (Fase FIQ): reserva temporal de stock, el motor reserva y un cron libera |
+| 1165 | 1176 | 1 | ADR-039 — **Geolocalización del pedido** (Fase FIQ): captura de pin en `delivery_address`, ETA/geocode diferid |
+| 1177 | 1188 | 2 | ADR-040 — **Conector ContPAQi** (Fase CP): ContPAQi = SoR contable externo, la plataforma = engagement |
+| 1189 | 1202 | 2 | ADR-041 — **Validación y Cuadre de Pólizas** (Fase PV): partida doble completa desde el SoR + detectores deter |
+| 1203 | 1216 | 3 | ADR-042 — **Captura bancaria por WhatsApp** (Fase CBW): la foto es comprobante en staging, nunca asiento direc |
+| 1217 | 1244 | 3 | ADR-043 — **Endurecimiento de infra + worker-tier** (Fase INFRA): activar/separar, no re-arquitecturar |
+| 1245 | 1253 | 1 | Cómo agregar un ADR nuevo |
+| 1254 | 1278 | 4 | ADR-046 — **Motor de Rentabilidad** (Fase MR): tres márgenes con dueño, no un margen con opinión |
+| 1279 | 1359 | 13 | ADR-045 — **Transportes de comunicación** (cliente↔servidor y in-process): REST + Socket.IO como columna, el r |
+| 1360 | 1389 | 3 | ADR-049 — **Anexo de venta** (Fase AX): el documento al cliente se DERIVA del ODS, no se copia |
+| 1390 | 1452 | 10 | ADR-044 — **Estación de recepción**: la app es dueña de lote/caducidad/evidencia, Kepler SoR de la cantidad; c |
+| 1453 | 1486 | 4 | ADR-050 — **Permiso ≠ alcance** (Fase ID): el rol dice qué acción, el scope dice sobre qué filas |
+| 1487 | 1529 | 5 | ADR-052 — **Contratos de tipos del boundary REST**: fuente única en `libs/contracts`, importada por los dos la |
+| 1530 | 1582 | 6 | ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo del hecho de venta, no con el de catálogo |
+| 1583 | 1617 | 4 | ADR-053 |
+| 1618 | 1654 | 6 | ADR-054 |
+| 1655 | 1717 | 7 | ADR-055 |
+| 1718 | 1779 | 8 | ADR-056 |
+| 1780 | 1834 | 8 | ADR-057 |
+| 1835 | 1871 | 6 | ADR-059 |
+| 1872 | 1903 | 6 | ADR-053 — **Reclamo de recepción** (WMS-REC.8): el faltante tiene responsable, no ajusta stock, y le pega al f |
+| 1904 | 1921 | 3 | ADR-060 |
+| 1922 | 1945 | 4 | ADR-061 |
+| 1946 | 1971 | 4 | ADR-062 |
+| 1972 | 2024 | 6 | ADR-063 |
+| 2025 | 2055 | 7 | ADR-064 |
+| 2056 | 2090 | 6 | ADR-065 |
+| 2091 | 2122 | 5 | ADR-066 |
+| 2123 | 2154 | 5 | ADR-067 |
+| 2155 | 2185 | 4 | ADR-068 |
+| 2186 | 2214 | 4 | ADR-069 |
+| 2215 | 2245 | 6 | ADR-070 |
+| 2246 | 2271 | 3 | ADR-071 |
+| 2272 | 2294 | 3 | ADR-072 |
+| 2295 | 2320 | 4 | ADR-073 |
+| 2321 | 2344 | 4 | ADR-074 |
+| 2345 | 2380 | 4 | ADR-075 |
+| 2381 | 2421 | 6 | ADR-076 |
+| 2422 | 2466 | 7 | ADR-077 |
+| 2467 | 2496 | 5 | ADR-078 |
+| 2497 | 2626 | 9 | ADR-080 — El sustrato: Compose hoy, K3s cuando haya un segundo nodo. Podman no. |
+| 2627 | 2648 | 5 | ADR-081 — Mesa de Servicio: el ticket ES la tarea, la prioridad se sugiere y se confirma, y el SLA primero mid |
+| 2649 | 2670 | 4 | ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor,  |
+| 2671 | 2688 | 3 | ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones |
+| 2689 | 2709 | 4 | ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, u |
+| 2710 | 2733 | 4 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
+| 2734 | 2754 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
+| 2755 | 2774 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
+| 2775 | 2794 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
+| 2795 | 2815 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
+| 2816 | 2833 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
+| 2834 | 2857 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
+| 2858 | 2884 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
+| 2885 | 2923 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
+| 2924 | 2961 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
+| 2962 | 3033 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
+| 3036 | 3074 | 20 | ADRs vigentes (resumen) |
+
+<!-- INDICE-AUTO:FIN -->
+
 # Decisiones de Arquitectura (ADR Log)
 
 > Cada decisión técnica importante se registra como ADR (Architecture Decision Record). Formato simplificado: contexto → decisión → consecuencias.
@@ -2746,3 +2852,222 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Rechazado:** imponer `c11='CJA'` (escribe un documento que el ERP acepta y que significa otra cosa que los otros 17,786); escribir sólo las líneas resueltas (deja un pedido incompleto **que parece completo**); caer a una unidad por defecto (es el error de 50×); **borrar la regla de ADR-016** en vez de superseder-la — un ADR borrado se lleva el *porqué*, y quien encuentre el adapter dentro de seis meses lo leería como permiso general.
 
 **Abierto:** por qué Kepler se niega a dar de baja un documento escrito así (dos hipótesis medidas y refutadas: las columnas de etapa están en cero en los 17,810 renglones, y el puntero al padre está vacío en las 3,110 requisiciones). ⭐ **Criterio de aceptación: un documento que no se puede cancelar es peor que uno que no se puede crear.** Plan en [`FASE_KR`](FASES/FASE_KR_REQUISICION_A_KEPLER.md).
+
+---
+
+## ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contable sigue saliendo sólo del documento
+
+**Fecha:** 2026-10-16 · **Estado:** ⏳ propuesto · **Fase:** CG · **Supersede en parte:** ADR-070 §8.5 regla 1 · **Hereda:** ADR-056 · ADR-040 · ADR-053 · ADR-059
+
+**Contexto.** ADR-070 §8.5 escribió como regla 1: *«⛔ Nada se guarda sin que un humano lo vea. El motor propone, el humano confirma — es el patrón de la casa (ADR-016) y aquí además hay dinero»*. Edgar la deroga para este camino el 2026-10-16: *«nada de registrar movimientos a mano en `/finanzas/caja-general`… automatiza el 100 % del llenado de los movimientos pasados, actuales y futuros»*, reafirmando el pedido del mismo día (*«cero procesos manuales»*).
+
+⭐ **La regla vieja no era un principio, era una compensación — y lo que compensaba ya no existe.** Se escribió cuando el movimiento se **tecleaba** y el motor *adivinaba* campos. Desde `[CG.20]`/`[CG.21]` el movimiento **nace de un documento del ERP** y su cuenta sale de **la póliza de ese mismo documento**, no de una inferencia. El humano no estaba validando un juicio del motor: estaba **retecleando un acuse**. Medido el 2026-10-16 sobre la bandeja en alcance (130 movimientos, $530,341.82), corriendo el resolvedor real fila por fila: **117 (90.0 %) se resolvían sin que nadie eligiera nada**, y **113 de esos 117 por la póliza del propio documento**. Y el costo de exigir el clic estaba medido: el libro llevaba **89 movimientos capturados contra 110 pendientes**, con el **78 % del rezago en un solo día**, y el corte `CC-2026-00002` cerró con un esperado **negativo de −$149,915.32** porque los gastos entraban y los ingresos no.
+
+**Decisión (usuario; medición y propuesta de Claude).**
+
+1. **El autollenado escribe sin supervisión, y escribe por EL MISMO camino que la pantalla.** `CajaAutollenadoService` no tiene resolvedor propio: llama a `movimientosPendientes()` (que corre `resolverCuentas()`) y confirma con `crearLote()`, el método del botón. ⛔ **Un motor paralelo está prohibido acá**: `[CG.27-B.0]` ya encontró la bandeja y el autofill clasificando distinto el mismo movimiento por tener cada uno su copia del matcher.
+2. **Lo que el motor automatiza es el CLIC, no el criterio.** Si `resolverCuentas()` no llega a un par `(cuenta, concepto)` sin que alguien elija, el movimiento **no se registra**: se declara con su motivo. El motor nunca elige una cuenta.
+3. **⛔ El humano no desaparece: cambia de lugar.** Deja de confirmar lo que el ERP ya dijo y pasa a tres cosas que la máquina no puede: **contar el efectivo** (arqueo ciego), **autorizar el corte** (doble llave, y quien cierra no autoriza) y **resolver las excepciones** que el motor declara. La revisión no se elimina — se concentra donde hay juicio.
+4. **Tres frenos duros sobreviven a la automatización**, y los tres son los que ya existían: fecha futura (`[CG.24]`), ningún movimiento sin vincular (`[CG.124]`), y el lote espeja al ERP sin aceptar montos contados (`[CG.48]`). Se agrega un cuarto: **un piso de alcance** (`2026-10-10`, el último día del Access), sin el cual el motor escribiría 13,206 movimientos por **$162,080,748.92** que ya están conciliados del otro lado.
+5. **La máquina firma con cuenta propia** (`svc_caja_autollenado`, `kind='servicio'`, sin contraseña). Sin eso el libro no puede contestar *«¿esto lo puso una persona o el motor?»*, y esa pregunta es la que permite medir la tasa de corrección por fuente (ADR-070 §8.5 regla 4).
+6. **Arranca apagado y simula por default.** `ENABLE_CAJA_AUTOLLENADO` debe valer `'true'`; el endpoint sin `?aplicar=1` contesta **qué haría** sin escribir una fila. Desplegar no puede ser, por sí solo, empezar a registrar dinero.
+
+**⛔⛔ Rechazado por medición, y queda escrito para que nadie lo reconstruya: usar el Nivel 2 (lo que contabilidad ya posteó) para rellenar lo que la póliza no cubre.** Parecía el siguiente paso natural de ADR-070 §8.3. Control sobre los 120 pendientes donde la póliza SÍ resuelve —o sea donde hay respuesta correcta contra la cual medir—: la historia de `analytics.expense_entries` coincidió en **0 de 120 (0.0 %)**, discrepó en 25 y no propuso en 95. ⭐ Y la causa no es ruido: **contestan preguntas distintas**. La póliza del pago dice `201 PASIVO A PROVEEDORES` (el pago **salda** un pasivo); la historia dice `602-013`, `611-002`, `611-006` (dónde se **devengó** el costo). Las dos son correctas, y usar la segunda habría registrado cada pago como si fuera el gasto original — **contando el costo dos veces**. El testigo del mismo grano lo confirma: para esos mismos beneficiarios, la póliza de sus documentos hermanos postea `201` en el **96.0 % / 98.6 % / 99.6 %**.
+
+**⭐ Y el corolario que vuelve innecesaria una capa entera:** lo que hoy no resuelve, **resuelve solo**. La cobertura de `analytics.v_caja_doc_contracuenta` sube con la edad del documento — **90.5 % a 0-2 días · 99.4 % a 3-7 · 100.0 % a 8-30 · 99.8 % a +30** — porque la póliza se postea unos días después. ⇒ **el mecanismo correcto es REINTENTAR, no adivinar**, y por eso esto es un cron cada 15 minutos y no un botón.
+
+**Rechazado también:** un permiso nuevo para disparar el autollenado (reusa `FINANCE_CAJA_GESTIONAR`: hace exactamente lo que ese permiso autoriza, y uno nuevo nacería repartido en 0 roles, como `[ETQ-AVISOS.3]`); automatizar los documentos mal fechados por Kepler (entrarían al libro en un mes que no llegó — se corrigen allá, ADR-040); y **borrar** la regla 1 de ADR-070 en vez de superseder-la en parte — borrarla se lleva el *porqué*, y quien encuentre el cron dentro de seis meses lo leería como permiso general para escribir dinero sin revisión.
+
+**Abierto, y no se arregla con código:** `[H9]` — **por qué Kepler dejó de registrar depósitos `U-A-5` el 12-oct** (de ~90-115 por semana a **3**, con el feed sano y las salidas normales). Mientras eso siga así, la bandeja se vacía sola y un autollenado sano va a reportar cero con toda razón. Por eso el latido distingue «no había nada» de «no pude con nada» — pero **el latido no sustituye la pregunta en operación**.
+
+---
+
+## ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no un acto por documento
+
+**Fecha:** 2026-10-16 · **Estado:** ⏳ propuesto · **Fase:** TP · **Supersede en parte:** ADR-064 (el calendario sólo consume obligaciones **capturadas** y autorizadas en su módulo de origen) · **Hereda:** ADR-065 · ADR-056 · ADR-059 · ADR-040
+
+**Contexto.** ADR-064 fijó que el Calendario es un **consumidor**: cada obligación nace precargada y autorizada en su módulo de origen, y el calendario sólo le asigna una fecha. La tesis se sostiene; lo que no se sostuvo es el **alcance** que produjo. Medido en prod el 2026-10-16 (sólo lectura): la deuda de proveedor en Kepler es de **2,960 documentos / $136,322,731 / 377 proveedores**, y lo que el calendario puede programar son **37 obligaciones / $2,738,088** — todas creadas ese mismo día por `[TP.15]`. **Cobertura: 2.0 %.** Los otros dos orígenes están vacíos por la misma causa: `budget.expense_obligations` tiene 312 filas y **todas en `propuesta`** (el calendario sólo consume autorizadas), y `finance.financial_commitments` tiene **0 filas**.
+
+⭐ **La causa no es que falte capturar: es que se eligió capturar lo que ya está derivable.** La obligación llega hoy por `/compras/obligaciones` → Entregas, un camino que **sólo existe para mercancía que pasa por Compras**. Un flete, un servicio o un crédito bancario no tienen por dónde entrar. Y el propio `[TP.15]` ya lo había escrito como pendiente: *«la opción B (elegir desde la deuda de Kepler lo que no pasa por Entregas: servicios, fletes)»*.
+
+⚠️ **El punto fino que esto obliga a decidir.** `[TP.15]` ancló la autorización en un acto concreto — `authorized_by` = quien aceptó el renglón de la entrega, *«aceptar el papel es la autorización para programarlo»*. Una factura **derivada** no tiene ese acto: nadie la aceptó, está en Kepler porque se devengó.
+
+**Decisión (usuario, 2026-10-16; medición y propuesta de Claude).**
+
+1. **Cuarto origen `kepler_payable`, derivado y sin importer.** Sale de `analytics.v_supplier_payables` (que ya deriva de `kepler_ods.kdxe`/`kdxf`), con las mismas cuatro llaves que `assertKeplerBalance` ya usa para topar el monto: `sucursal · doc_tipo · doc_sub · folio` + proveedor. ⛔ No se materializa una segunda tabla de deuda: ya existe una y el ERP es su dueño (ADR-040).
+2. **⭐ La autorización es LIBERAR EL DÍA, no un acto por documento.** Programar un pago pasa a ser una **propuesta**; el compromiso nace cuando Gerencia/Dirección libera el lote con `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` — las dos firmas que ADR-065 ya construyó, con su folio y su instrucción a Caja General. **Se rechaza un paso de aceptación propio** (ver abajo). `[TP.15]` no se deroga: lo que entra por Entregas conserva su `authorized_by`, que es información **adicional**, no un requisito del que carezca lo derivado.
+3. **La reserva no se muda de lugar.** Sigue en `finance.payment_allocation_items`, igual que para los tres orígenes existentes. Para el origen derivado **no hay tabla propia que actualizar**, así que `recalcObligation` lo saltea y el disponible se calcula al vuelo: `pendiente`(Kepler) − reservado(items) — que es literalmente la cuenta que `assertKeplerBalance` ya hacía.
+4. **La llave del origen derivado es un UUID determinístico** (`md5('kepler_payable|'||sucursal||…)::uuid`), porque `payment_allocation_items.obligation_id` es `uuid` y la llave natural de la deuda es compuesta. **Se rechaza cambiar el tipo de esa columna**: toca los tres orígenes vivos para resolver un problema que una función determinística resuelve sin migrar datos.
+5. **Dedupe por las cuatro llaves `kepler_*`, y manda la capturada.** Medido: las 37 obligaciones capturadas traen **todas** la llave completa (la dejó la mig `20261016002604`) y **las 37 casan** con deuda viva — sin dedupe serían 37 duplicados exactos. La capturada gana porque aporta lo que la vista no tiene: fecha negociada, acuerdo y `authorized_by`.
+6. **Los acreedores internos (`TI*`) se excluyen: no son deuda.** Son las sucursales dadas de alta como proveedor — traspasos entre almacenes. Son **58 documentos / $1,155,161** que estaban inflando el denominador.
+7. **Los compromisos financieros también se derivan.** Medido: los **41 documentos / $38,012,268** que no clasificaban como mercancía ni servicios son créditos BBVA y BanBajío, préstamos de personas físicas y tarjetas de crédito — es decir, el origen `financial_commitment` (hoy **0 filas**) es derivable con la misma mecánica. Se daba por hecho que dependía de captura manual.
+
+**Lo medido que lo sostiene (2026-10-16, prod, sólo lectura).**
+
+| | |
+|---|---:|
+| Arbitraje de la vista contra la regla del ECA (`[ECA.7]`) | desviación **$172,180 · 30 docs · 0.13 %** |
+| Universo pagable, sin internos | **2,911 docs · $135,356,617** |
+| Filas que entrega el origen derivado (sin internos, sin duplicados) | **2,890 · $133,045,503 · 364 proveedores** |
+| Costo de la lista con `ORDER BY` + `LIMIT 200` | **325–377 ms** (3 corridas) · sin límite: 613 ms → **la pantalla pagina** |
+
+⛔ **Hipótesis refutada, y queda escrita para que nadie la reconstruya:** *«la vista publica deuda cancelada como viva»*. Es **falso por dos órdenes de magnitud**: 3 documentos y **$293**. El riesgo real va en sentido contrario — 467 aplicaciones por **$13,944,150** provienen de un abono cancelado y siguen restando, pero casi todas caen sobre documentos ya saldados, así que sólo $172,180 tocan deuda viva.
+
+**⛔ Rechazado: un paso de aceptación propio para lo derivado** (una bandeja donde Finanzas acepta cada factura antes de que sea programable, calcando Entregas). Duplicaría el control que ADR-065 ya construyó y agregaría un trámite diario sobre **2,890 documentos** para producir el mismo efecto que ya produce liberar el día. ⚠️ **Lo que se pierde al rechazarlo, dicho:** con esta decisión, cualquiera con `FINANCE_PAYMENTS_GESTIONAR` puede **proponer** el pago de cualquier factura de Kepler. Es el mismo alcance que ya tiene hoy sobre las capturadas, y el candado sigue siendo el mismo: nada sale sin que otra persona libere el día.
+
+**⛔ Abierto, y no se arregla con código:** ese candado **nunca se ha ejercido**. Medido el 2026-10-16: **5 lotes, todos en `draft`, cero días autorizados en toda la historia y ningún folio emitido jamás**. Mientras nadie libere un día, esta decisión traslada la autorización a un acto que todavía no ocurre — y subir la cobertura del 2 % al 95 % hace que eso importe más, no menos. Dueño: Gerencia de Finanzas / Dirección.
+
+Plan en [`FASE_TP`](FASES/FASE_TP_CALENDARIO_PAGOS.md) §TP.17–TP.20.
+
+---
+
+## ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP
+
+**Fecha:** 2026-10-19 · **Estado:** ⏳ propuesto · **Fase:** VEC · **Relacionado:** ADR-056 (lo que no se midió se declara), ADR-059 (arbitrar contra un testigo del mismo ERP)
+
+**Contexto.** Para decir «cuánto vendió esta ruta» hay que saber qué tipos de documento de Kepler SON una venta, cuáles la **re-emiten** (y por lo tanto duplican si se suman) y cuáles no son venta. Hasta `[VEC.25]` eso vivía como condiciones sueltas dentro de las consultas: `c4::integer = 8` escrito en **tres CTEs** de `v_route_credit_sales`, `c4::integer = 10` en `v_kepler_vecinal_sales_docs`, y un `CASE WHEN 8 THEN 'Factura Telemarketing' ELSE 'Venta a crédito'` **copiado en seis migraciones**.
+
+Lo que eso costaba, medido en prod sobre 2026, sólo en rutas vecinales: **$3,245,522.84 de venta a crédito (`UD1301`) fuera de toda pantalla**, y **una ruta entera** —`1V006`, $721,860.44— invisible por no emitir nunca un ticket de caja. Ninguna alarma: un tipo de documento que nadie enumeró simplemente no existe para el sistema.
+
+**⛔ Lo que se intentó primero, y por qué NO se pudo derivar.** La respuesta correcta sería que el ERP declare la clase. `kepler_ods.kdmm` trae banderas por tipo, y la hipótesis era `c8='S' → contado`, `c7='S' → crédito`. Probada contra el catálogo completo, **falla**:
+
+| tipo | banderas | lo que la regla diría | lo que es |
+|---|---|---|---|
+| `UD0901 'Ticket Crédito'` | c7=S **y** c8=S | contado | crédito |
+| `UD4501 'Remisión'` | c8=S | contado | no es venta |
+| `UD2301 'Corte de Caja POS'` | c7=S | crédito | agregado de los tickets |
+
+`c8` resultó ser **«se folia por caja»** y `c7` **«afecta cartera»** — los 9,167 tickets de contado de 2026 generan cargo en `kdue`, medido. Ninguna de las dos es contado-vs-crédito. ⚠️ Y `UD1201` tiene **`c7` distinto entre las nueve sucursales**, así que una regla sobre esa bandera se comportaría distinto por plaza.
+
+**Decisión (medición y propuesta de Claude, 2026-10-16/19).**
+
+1. **La clase es un dato propio, no una derivación inventada.** Tabla `analytics.kepler_sale_doc_class` (`tenant_id`, `doc_code`, `clase`, `nota`, auditoría, PK). Es una decisión humana sobre el negocio, y las reglas del proyecto permiten tabla real justamente para eso. ⛔ Lo que **no** se hace es fabricar una derivación que parezca objetiva y no lo sea.
+2. **El UNIVERSO sí sale del ERP.** `v_kepler_sale_doc_class` cruza `kdmm` (los 38 tipos que existen) contra la tabla de clases. **Un tipo nuevo en Kepler aparece solo**, como `sin_clasificar`, en vez de desaparecer.
+3. **Cinco clases, y ninguna es «otros»:** `contado_caja` · `credito` · `espejo_factura` · `agregado` · `no_venta`. ⭐ `agregado` existe aparte de `espejo_factura` porque **un espejo re-emite UN documento y un corte de caja suma MUCHOS**: guardar uno por el otro almacena un hecho falso, y el día que alguien liste «las re-facturas» le saldría un corte de caja.
+4. **Lo que nadie clasificó se DECLARA con su importe** (ADR-056), y una compuerta se pone roja. No se asume ni venta ni no-venta.
+5. **El lente cubre todas las rutas, no una familia.** `v_sale_doc_coverage` mira el universo entero; acotarla fue un defecto medido: durante tres días la compuerta decía «ninguna venta sin clasificar» vigilando **$20 M de $1,094 M — el 2 %**, y afuera había **$22,062,513** sin clase.
+
+**⚠️ Lo que esta decisión obliga, y es la parte incómoda.** Una clase es una **afirmación sobre el negocio**, y afirmar sin medir es exactamente lo que ADR-059 prohíbe. Al sembrar `[VEC.25]` marqué `UD0601 «Factura global»` como espejo **por su nombre**: son **$116,358,053**. Si hubiera estado mal, el lente general habría **escondido $116 M de venta real**. Medida después contra los tickets de contado, por sucursal y mes, todo 2026 — 93 · 98 · 93 · 86 · 91 · 92 · 89 · 90 · 89 · 87 %, **total 90 %, y nunca los excede** — resultó correcta. **La corazonada acertó; el método no.**
+
+Por eso: **cada clase se sostiene con una medición, y la medición vive en la columna `nota`.** Las que ya la tienen: `UD2301` (99 % de los tickets del día, 56 de 145 días iguales al peso), `UD0501`/`UD1201` (93.9 % y 61.1 % de cruce documento a documento, **placebo 0.1 %**, y exceso que colapsa a $0 al grano mes), `UD0601` (90 %), `UD6001` (los 4 abren cargo con vencimiento y saldo).
+
+**Consecuencias.**
+
+- `v_route_credit_sales` pregunta **«¿es crédito?»** en vez de «¿es el tipo 8?»: 61 → 401 documentos, $429,680.65 → **$3,675,203.49**, 3 → 7 rutas.
+- La compuerta `test-newdb-clase-documento-venta.js` vigila cuatro cosas con **prueba negativa** (borra la clase de `UD1301` en una transacción, exige que la vista lo declare, y revierte).
+- ⛔ **Queda abierto:** las clases se decidieron mirando el comportamiento **agregado**. Si un tipo cambiara de rol por canal —por ejemplo que `UD0501` fuera primario en una plaza y espejo en otra— esta tabla no sabría expresarlo: su llave es `doc_code`, no `(doc_code, canal)`. Hoy no pasa (medido), pero si pasa, la tabla necesita una llave más larga, no un parche en la consulta.
+
+---
+
+## ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecanismo es `entity-ref`
+
+**Fecha:** 2026-10-19 · **Estado:** aceptada · **Contexto:** `[TP.20.5]`, tras el inventario de `[TP.20.4]` §23.
+
+### El problema
+
+Cuatro pantallas de Pagos —*Pronto pago*, *Calendario de pagos*, *Pagos a proveedor*, *Programa de
+pagos*— hablaban del mismo sustantivo (la factura del proveedor) y cada una guardaba un pedazo de
+su vida. Responder *«¿esta factura ya se pagó?»* pedía abrir tres y cruzarlas a ojo.
+
+El intento natural —**fusionar las listas**— se midió y se descartó: el Calendario **agrupa por
+beneficiario** (un pago es una transferencia a una cuenta) y Pronto pago **ordena por urgencia**
+(cada factura tiene su propia fecha límite, y agruparlas esconde la que vence mañana detrás de la
+que vence en tres semanas). Fusionarlas obliga a elegir un orden, y cualquiera rompe la que pierde.
+
+⚠️ Con esa medición correcta en la mano, la pregunta quedó cerrada cuatro días con un «no se puede».
+
+### La decisión
+
+**«Unificar» tiene dos unidades, y hay que nombrar cuál.**
+
+1. **La lista** se unifica sólo si las dos responden la misma pregunta y admiten el mismo orden. Si
+   no, **no se fusiona**, y el inventario feature×feature lo decide **antes** de tocar código.
+2. **El registro** se unifica siempre que las pantallas hablen de la misma entidad. Cada lista
+   conserva su pregunta, su orden y sus columnas; lo que vive junto es **la información de un
+   registro**, en un panel que se abre desde cualquiera de ellas.
+
+**El mecanismo de la casa para (2) es `entity-ref`**, no un panel nuevo por módulo: un `ref`
+estable (`<kind>:<parte>|…`), un resolvedor que devuelve siempre la misma forma
+(`{title, badges, fields[], relations[], notes[]}`) y relaciones que a su vez son refs, de modo que
+el panel navega la cadena sin saber de tablas. Agregar una entidad es **un caso más en el
+resolvedor y cero cambios en la UI**.
+
+### Las reglas que vienen con esto
+
+- ⛔ **Un vínculo entre registros se publica sólo si es ESTRUCTURAL**, es decir, si lo pone el
+  sistema de origen. Para factura↔pago eso es `kepler_ods.kdxf`, la tabla con la que el propio ERP
+  aplica un pago contra un documento — y la misma que alimenta el saldo, así que el panel y el
+  pendiente no pueden discrepar. Un cruce por **monto + mes** no es un vínculo: es lo que produjo
+  los **$273 M indefendibles** de `[PP.4]`.
+- ⛔ **Lo que no se puede ligar se NOMBRA y no se enlaza.** Un documento que el espejo no publica se
+  cita con folio, fecha e importe en `notes`. Un enlace muerto es peor que ningún enlace, y dibujar
+  el vínculo que no existe es dibujar un cero (ADR-056).
+- ⛔ **El permiso de entrada al resolvedor no es un pase libre.** Cada dominio que lo consume agrega
+  **su** permiso a la puerta, y adentro se sigue filtrando **por tipo de entidad**; los enlaces que
+  el rol no puede abrir no se pintan y se dice al pie.
+- ⭐ **La regla compartida se muda a `libs/contracts`, no se copia.** Cuando el resolvedor necesita
+  una regla que vive en otro dominio (la ventana de pronto pago, la llave derivada de la factura),
+  la compuerta de fronteras prohíbe el import cruzado: la regla baja a `contracts`, **por subruta**
+  si arrastra algo de Node, porque el barrel raíz lo cargan las 3 apps Angular (`[ID.28]`, +225 kB
+  medidos).
+
+### Lo que esto NO autoriza
+
+No autoriza **inventar** una llave para unificar lo que no la tiene. *Programa de pagos* (el libro
+de Tesorería) queda fuera de la ficha porque no guarda el folio del pago de Kepler: sólo
+`invoice_folios` (de *factura*), `kepler_flag` (24.8 %) y `kepler_matched` (NULL). **Tres de cuatro
+pantallas se unifican; la cuarta queda declarada con nombre, causa y monto** — que es la forma de
+este proyecto de decir «todavía no».
+
+### Consecuencias
+
+- Una factura se abre desde el Calendario y desde Pronto pago; un pago, desde Pagos a proveedor, y
+  desde ahí se llega a las facturas que liquidó. El ref viaja en la URL (`?ref=`), así que se puede
+  pegar en un chat y el otro abre el mismo documento.
+- El costo de sumar la quinta pantalla a esta ficha es **un caso en el resolvedor**, no un panel.
+- ⚠️ La contracara: el resolvedor concentra consultas de varios dominios en `libs/commercial`. Es
+  deuda con nombre — la ruta ya es neutral (`/entity-ref`), y el día que moleste, el módulo se muda
+  entero sin tocar a ningún consumidor.
+
+---
+
+# Resumen de ADRs movido de CLAUDE.md (2026-10-14)
+
+## ADRs vigentes (resumen)
+
+- **ADR-001** ✅ Tracking via markdown en repo (no Linear/Jira).
+- **ADR-002** ✅ Orden de fases: limitaciones primero.
+- **ADR-003** ❌ Superseded by ADR-010.
+- **ADR-004** ❌ Superseded by ADR-009.
+- **ADR-005** ✅ Stack mobile: extender `apps/view` con módulo `vendor/` (no app RN separada). Decidido 2026-05-26.
+- **ADR-006** ⏳ WhatsApp BSP — pendiente.
+- **ADR-007** ⏳ LLM provider — pendiente.
+- **ADR-008** ⏳ Partner fintech — pendiente.
+- **ADR-009** ⚠️ Superseded por pivot 2026-05-26: Kepler no existe, core comercial se construye desde cero. El plan FDW se reactiva si aparece ERP externo.
+- **ADR-010** ✅ Multi-tenancy aceptado: shared DB + `tenant_id` desde DB nueva.
+- **ADR-011** ✅ 2026-05-27 — Embeddings: Voyage AI `voyage-3` (1024 dims, multilingual). Necesita `VOYAGE_API_KEY`.
+- **ADR-012** ✅ 2026-05-27 — pgvector en DB legacy ahora; la columna `embedding` se mueve con la tabla cuando se migre TM a multi-tenant.
+- **ADR-016** ✅ 2026-06-10 — Motor de Inteligencia Comercial (respuesta a comparativa yom.ai): **el motor decide, el agente comunica, el LLM fuera del camino del dinero**. 5 capas (Customer 360 → Decisión → Agente → Canales → Feedback). Build por rebanada vertical. Plan en [`FASE_M`](docs/IMPLEMENTACION/FASES/FASE_M_MOTOR_INTELIGENCIA.md).
+- **ADR-018** ✅ 2026-06-11 — **Thot**: motor comercial multi-señal (rotación/margen/afinidad/zona/momentum/whitespace), heurístico→ML→agente, feedback loop = entrenamiento. Evoluciona ADR-016.
+- **ADR-020** ✅ 2026-06-16 — **Horus**: Supervisor AI de ejecución en Trade. Hereda ADR-016 (motor decide / agente comunica / LLM fuera de lo laboral). Nivel **co-piloto** (acción → `pending_approval`). Motor SEPARADO de Thot (`libs/trade`). 3 capacidades: parte diario, visión de fotos, fraude. Plan en [`FASE_HORUS`](docs/IMPLEMENTACION/FASES/FASE_HORUS_SUPERVISOR_AI.md).
+- **ADR-021** ✅ 2026-06-17 — **Aprendizaje de Horus** (track Horus.L): el motor aprende (determinista/auditable/overridable), el LLM sigue fuera del lazo. Taxonomía L0 memoria→L1 baselines→L2 auto-calibración→L3 efectividad (diff-in-diff)→L4 pesos adaptativos→L5/L6 diferidos. **Ship-collector-before-learner** (gate por calendario, no código). L2 ✅ en código (precisión por regla → suprime/capa ruidosas; pin humano). Plan en [`FASE_HORUS`](docs/IMPLEMENTACION/FASES/FASE_HORUS_SUPERVISOR_AI.md).
+- **ADR-027** ⏳ 2026-07-02 — **Última milla** (entrega a domicilio local): orquestación, no módulo nuevo. Pedido = `commercial.orders (delivery_type='home_delivery')`, entrega = `logistics.*` (guías/POD/GPS/ETA ya existen), moto = `logistics.vehicles`. Lo nuevo = el dinero: `PaymentsService` multi-método + corte de caja con arqueo. Quita cash-only global (cierra deuda Fase B). Hereda ADR-016/020. Propuesto. Plan en [`FASE_LM`](docs/IMPLEMENTACION/FASES/FASE_LM_ULTIMA_MILLA.md).
+- **ADR-034** ✅ 2026-07-27 — **Rastreo de flota**: el proveedor GPS (MagniTracking/GPS-Server.net) vive detrás de `FleetProviderPort`; como **no hay API oficial**, el adapter replica el login de sesión + poll de la web. Cambiar de proveedor = cambiar solo el adapter. Hereda ADR-016. Plan en [`FASE_LT`](docs/IMPLEMENTACION/FASES/FASE_LT_RASTREO_FLOTA.md).
+- **ADR-028** ⏳ 2026-07-06 — **Maat**: AI de Finanzas SIN fine-tuning. Conocimiento curado + chat tool-use (cero números del LLM) + motor determinista de patrones (riesgo/error/oportunidad) + aprendizaje Horus-L (baselines → auto-supresión por feedback). `libs/finance`, hereda ADR-016/021/026. Propuesto. Plan en [`FASE_MAAT`](docs/IMPLEMENTACION/FASES/FASE_MAAT_FINANZAS_AI.md).
+- **ADR-040** ✅ 2026-07-27 — **Conector ContPAQi** (Fase CP): integrar, NO construir. ContPAQi (SQL Server, instancia COMPAC @ .35) = SoR contable/fiscal; la plataforma = engagement (lee balanza/bancos/proveedores → Maat+CB; jamás escribe directo; push por import de archivo HITL diferido). Hereda ADR-016/028. Plan en [`FASE_CP`](docs/IMPLEMENTACION/FASES/FASE_CP_CONTPAQI.md).
+- **ADR-051** ✅ 2026-08-29 · ⚠️ **enmendado 2026-08-31** — **Rentabilidad** (Fase MR): el margen se mide con el costo del **hecho de venta** (`analytics.sales_daily.cost`), NO con `catalog.products.cost_base` — que viene por CAJA y mezclaba unidades. **La enmienda:** el fact no es "el costo del PdV" — en la mitad Kepler es `revenue/(1+markup_pct)`, álgebra ciega al precio. El costo canónico pasa a ser `kdm2.c62`/`c63` × `v_supplier_cost_ladder`, y eso **exige persistir primero el peldaño cobrado**. `cost_base` queda sólo para valuar inventario; lo que no tiene fuente o unidad confirmada **se declara**, no se dibuja como cero. Plan en [`FASE_MR`](docs/IMPLEMENTACION/FASES/FASE_MR_MOTOR_RENTABILIDAD.md) · diagnóstico en [`FASE_MR_COSTO_Y_UNIDAD`](docs/IMPLEMENTACION/FASES/FASE_MR_COSTO_Y_UNIDAD.md).
+- **ADR-055** ✅ 2026-09-03 — **La cantidad se muestra en la unidad MÁS GRANDE (la caja), y el divisor es el del ERP que manda en ESE almacén** (Fase RA, `/compras/pedido`). Kepler guarda la existencia en su unidad base; Wincaja en **su unidad de venta** (el PAQUETE en multipack). La pantalla dividía todo por un factor por PRODUCTO → en Wincaja salía ~10× más chica. **Y no era cosmético:** `analytics.product_demand.daily_pieces` normaliza la demanda a la base y `replenishment_plan.stock_pz` **no** (el nombre miente) → el motor restaba piezas menos paquetes: **$866,805 de sobre-pedido** y **$2.68M de inventario invisible** (~355 SKUs; las 6 sucursales Kepler, cero cambio). Resolvedor canónico `analytics.v_warehouse_box_factor` (vista) → `replenishment_plan.display_bf`; `transferPlan`/`overstockList` pasan a calcular **en cajas** (la única unidad que los dos ERPs declaran). ⚠️ **Es divisor de PRESENTACIÓN: el dato base NO se convierte** — ya se intentó y rompió el pedido. ⚠️ **La unidad de una columna NO se hereda de su fuente**: probarla en la tabla que el consumidor lee, con el precio realizado contra `v_product_unit_ladder`. ⚠️ **Colisión: ADR-052 está triple-ocupado** (contratos de tipos + Fase LC + BFF Command Center) — esta línea se renumeró a 055; LC y Command Center siguen sin resolver. Detalle en [`UNIDADES_DE_MEDIDA.md`](docs/UNIDADES_DE_MEDIDA.md) §8ter.
+- **ADR-057** OK 2026-09-07 - **La unidad se resuelve UNA vez, con testigo y con metodo** (Fase U). El resolvedor `analytics.v_unit_truth` (vista, tenant x almacen x producto) **no reimplementa la precedencia**: la LEE de `v_warehouse_box_factor` + `v_product_box_factor` y agrega lo que faltaba, el **testigo** y el **veredicto**. **El testigo que nadie habia buscado:** `v_supplier_cost_ladder.units_per_box` = lo que se le PAGO al proveedor (derivado de `kepler_ods.kdpv_prov_prod`, independiente de la etiquetera). La doc marcaba la etiquetera con "no verificable" y coincide con lo pagado en **5,569 de 5,578 SKUs (99.84%)**; la cobertura verificable de la venta pasa de 44.8% a **93.1%**. **Y se da vuelta la sospecha: la fuente PEOR es el override manual** (62 de 277 contradicen, $6.17M). `metodo_cajas` **ORDENA los testigos** en vez de elegir uno: dinero (87.8%, inmune a la unidad del numerador) > peso > divisor verificado > unidad_es_caja > **sin_metodo (NULL con motivo, NUNCA 0)** = 91.7% de la venta con cifra defendible. El arbitro de dinero refuto la solucion obvia: en **296 SKUs ($78.3M) ningun divisor acierta**, porque `sales_daily.units` mezcla peldanos dentro de un mismo almacen. `sales_daily` gana `rung_factor`/`rung_mixed`/`units_unresolved` (el importer ya lo calculaba y lo tiraba a un console.log). ⚠️ **Lo que el resolvedor no cubre se ENUMERA** en `v_unit_truth_coverage`: una fila ausente llega NULL a un LEFT JOIN y se lee como sana. ⚠️ **Tras cada `CREATE OR REPLACE VIEW` sobre una vista con RLS, re-aplicar `security_invoker` y el `GRANT`** - no se heredan (una mig de esta fase lo perdio y solo lo vio la asercion de metadata del candado). ⚠️ **Cuando un CASE mezcla dos preguntas, la precedencia le miente a una** - paso 3 veces en una fase. Detalle en [`UNIDADES_DE_MEDIDA.md`](docs/UNIDADES_DE_MEDIDA.md) 8sexies.
+- **ADR-059** ✅ 2026-09-09 — **La verdad absoluta se ARBITRA, y lo que no se puede arbitrar se DECLARA** (Fases K + KE). El dato canónico no alcanza: cada número publicado necesita un **árbitro del mismo ERP y del mismo grano**, un **veredicto por fila** y un **hueco declarado con nombre y monto**. Cinco reglas: (1) cada ERP se juzga con SU evidencia — Kepler contra Kepler, Wincaja contra Wincaja; (2) el **dinero arbitra la cantidad** y el **costo arbitra mejor que el precio** por razón estructural (el precio tiene niveles y descuentos: contradice **9× más** que el costo, 59,612 vs 9,102) — el precio **se conserva pero no vota**; (3) el costo viene del **mismo ERP y almacén** que la cantidad; (4) lo que no se puede medir se **declara** (NULL, nunca 0, y las ausencias distintas con etiquetas distintas); (5) **un árbitro que nunca contradice es un espejo** — hay que probarlo contra un conjunto que otro testigo ya juzgó mal. **Dos cifras publicadas se movieron:** la venta **+$15.8M/90 d (+30.6%)** porque el fact contaba sólo el ticket, y el inventario **−$4.47M (−6.71%)** porque se valuaba con el catálogo (con impuesto) en vez del costo de Kepler por sucursal×SKU. ⛔ **`U-D-8` no es arbitrable y el límite es de la fuente** (`c62` y `c63` vacíos en el 98.81%). ⚠️ Wincaja fuera por decisión, con su árbitro ya medido. Detalle en [`docs/VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md).
+- **ADR-056** ✅ 2026-09-05 — **Verdad y procedencia** (Fase VP): un número publicado carga con qué se calculó, y **lo que no se pudo medir se DECLARA**. La auditoría midió que **no falta arquitectura** — cada primitivo (frescura, cobertura, unidad, versión de la regla, valor anterior, cuadre contra árbitro, latido) **ya existía bien hecho en UN solo dominio y nunca se generalizó**: frescura en **4 de 171** endpoints, latido en **13 de 109** importers y **0** de los de datos maestros, **6** menciones de `as_of` en **874** interfaces de respuesta. Reglas: la forma la define un contrato (`libs/contracts/http/provenance.contract.ts`), el veredicto es **ternario** (`fresh|stale|unknown` — un booleano no puede decir "no sé"), **poblado ≠ fresco** y **ordenar ≠ depender**, un primitivo no cierra la fase hasta vivir en `libs/`, y **un gate sin prueba negativa es una intención**. ⚠️ Rechazado explícitamente: reordenar en capas (MR.5 tenía capas limpias y publicaba 3.3 pp de margen falso), golden-master como cimiento, y tomar el Excel de contabilidad como verdad (traía un typo de $183M). Detalle en [`02_DECISIONES_ARQUITECTURA`](docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md) · plan en [`FASE_VP`](docs/IMPLEMENTACION/FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md).
+- **ADR-054** ✅ 2026-09-02 — **El permiso es una CLAVE, no una tupla acción/sujeto: CASL se retira** (Fase AUTHZ). El gating —back y front— es lookup por **clave exacta** sobre el mapa de permisos, y el god-mode se resuelve por **nombre de rol** (`isPlatformAdminRole`). Medido antes de decidir: **4 compuertas muertas** porque sólo 1 de 32 `*_GESTIONAR` concedía `'manage'` (y en CASL `manage` es comodín de la REGLA, no de la consulta) → **5 usuarios activos en prod** con un permiso que no se honraba; **51 de 164** claves del enum sin regla; **cero** `conditions` en todo el repo; `rules` duplicaba el mapa en un JWT de ~11.6 KB. ⚠️ Al agregar un permiso, cablearlo en el enum + `authz-tree` + el gate por clave — **no** hay mapas de subject/action que actualizar. Detalle en [`02_DECISIONES_ARQUITECTURA`](docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md).
+- **ADR-058** ✅ 2026-09-01 — **Migración de `megadulces-api-ready`** (Fase CV): migración física (no absorción funcional) del catálogo/verificador/tienda mayorista externo a `apps/catalogo-kp`, preservando lógica y conexión directa a `KP_CONCENTRADA`. Deployment **on-prem, no Railway** (hereda el principio A1 de Fase KV: ninguna base Kepler es alcanzable desde Railway). Rol de base **dedicado** (`catalogo_kp_runtime`), nunca `app_runtime` — GOTCHAS.md §24 documenta que ese rol es del cluster `.245`, compartido con `postgres_platform`. Plan en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+- **ADR-060** ⏳ 2026-09-10 — **La capa de ingesta se muda a un servidor Linux dedicado, y se muda como una UNIDAD: fuente + carriles + agenda** (Fase VL). El sustrato es **Docker Compose declarado en el repo**, no tareas del sistema operativo: el defecto no es el lenguaje del lanzador (`.vbs`/`.cmd`) sino que la agenda vive fuera del repo y **no declara entrega**. Medido en `.249`: 6 contenedores (volumen de **54.73 GB**) + **21 tareas**, 17 de ellas atadas a una sesión de usuario. **⚠️ Mover "el contenedor del ODS" solo NO rinde** — su fuente es el `pgvector-md` de la misma máquina con **8 suscripciones lógicas vivas**; la unidad mínima es el **par fuente + carriles**. La fuente se muda por **copia física del volumen** (misma major PG 18): preserva `pg_replication_origin` y las 8 suscripciones **retoman desde su slot sin hueco**; se rechaza `copy_data=true` como plan A (re-sincroniza 55 GB por los enlaces que ya son el cuello de botella). **Lo que no corra en Linux se DECLARA con dueño y fecha** (hoy: los 3 carriles Wincaja con PS32+Jet sobre `Z:`). Hereda ADR-053 (el latido mide **entrega**; el veredicto necesita brazo) y ADR-056 (migrado = **latido verde en prod**, no "el contenedor arrancó"). Se rechaza mover prod antes que la ingesta: el riesgo está de este lado. Plan en [`FASE_VL`](docs/IMPLEMENTACION/FASES/FASE_VL_VPS_LOCAL.md).
+- **ADR-081** ⏳ 2026-10-01 — **Mesa de Servicio** (Fase MS): el **ticket ES la tarea** (`servicedesk.requests` declarada en el contrato de tarea, `assigned_by` uuid), la **prioridad se sugiere y la confirma quien atiende** (nadie se autodeclara Urgente), el **SLA primero mide** (escalamiento apagado ~30 días: `cash-count-sla` se retiró por mal calibrado) y el aviso se mide por **entrega**. `SERVICIO_REPORTAR` es una clave repartida a todos pero **no un destino del mapa** (rompería la auto-entrada de `/projects`). Lo que nace en el worker no puede emitir por WebSocket → canal `app` por poll. Bitácora↔task: se PREPARA (`work_log`, `BITACORA_PORT` no-op), no se ejecuta. Propuesto. Plan en [`FASE_MS`](docs/IMPLEMENTACION/FASES/FASE_MS_MESA_DE_SERVICIO.md).
+- **ADR-076** ⏳ 2026-09-21 — **Un KPI directivo se publica sólo si (1) alguien OCUPA el puesto que responde de él, (2) su cifra sale de la MISMA fuente que la pantalla a la que enlaza, y (3) su veredicto lo emite el SERVIDOR contra un umbral registrado — sin umbral el estado es `sin_meta`, NUNCA `ok`** (Fase CDRP). Lo obliga la medición: `direccion` y `direccion_comercial` tienen **0 personas**, así que tres commits de tablero directivo están en prod **sin que los vea nadie**; y los renglones de presupuesto siguen en **0**, o sea que **13 de 16 KPIs primarios no pueden tener semáforo**. Contra la spec: sus **tres** estados (§12) dejan que un KPI sin meta salga verde — es el `cfg ? classify : 'ok'` que la Fase VP midió — y su umbral **porcentual** (§13) se rompe con meta 0, que es un objetivo real acá; van **cinco** estados y umbrales **absolutos** con CHECK de coherencia. Las dos ausencias no son la misma (`sin_medir` la arregla Sistemas, `sin_meta` Dirección) y `ORDEN_KPI_ESTADO` pone `ok` **último**, para que un tablero ordenado por estado no esconda justo lo que nadie puede juzgar. ⭐ Corolario: **ocupar la silla no exige mover a nadie de puesto** — `identity.user_responsibilities` ya tiene endpoint y UI. **Se rechaza:** el tablero como pantalla aparte (rompería `[SN.30]`), sembrar umbrales «de ejemplo» (la tabla nace vacía **con candado**), aflojar un umbral para que un mosaico salga verde (con 89.7% de cartera vencida medida, la primera fila nace `bad` y **eso es correcto**), y construir liquidez/EBITDA/capital de trabajo — no son consultas, son decisiones contables, y se **declaran con dueño**. ⚠️ **Una medición con fecha es código que caduca**: la que justificaba la tabla vacía duró tres días y vivía en un `COMMENT ON TABLE` de prod — si sostiene una decisión, va en un test que se ponga rojo. Hereda ADR-056/053/021/057/061 y `[JZ.6]`. Plan en [`FASE_CDRP`](docs/IMPLEMENTACION/FASES/FASE_CDRP_CUADRO_RESULTADOS.md).
+
+- **ADR-093** ⏳ 2026-10-16 — **El movimiento de caja lo registra la máquina; el humano pasa a revisar EXCEPCIONES** (Fase CG). Supersede en parte la regla 1 de ADR-070 §8.5 (*«nada se guarda sin que un humano lo vea»*), que era una **compensación por un motor que adivinaba** — desde `[CG.20]`/`[CG.21]` el movimiento nace de un documento del ERP y su cuenta sale de **la póliza de ese mismo documento**: el humano no validaba un juicio, reteclaba un acuse. Medido: **117 de 130 (90.0 %) ya se resolvían sin que nadie eligiera**, 113 de ellos por la póliza; y el precio del clic eran **89 capturados contra 110 pendientes** con el 78 % del rezago en un día y un corte cerrado con esperado **−$149,915.32**. El motor **no tiene resolvedor propio** (llama a `crearLote()`, el del botón: un motor paralelo ya divergió en `[CG.27-B.0]`), automatiza **el clic y no el criterio**, firma con cuenta de servicio propia, **arranca apagado y simula por default**, y conserva los cuatro frenos: fecha futura, nada sin vincular, el lote espeja al ERP, y un **piso de alcance** sin el cual escribiría **$162,080,748.92** ya conciliados en el Access. ⛔⛔ **Rechazado por medición: rellenar con el Nivel 2** (lo que contabilidad posteó) — control sobre 120 casos con respuesta conocida: **0 % de coincidencia**, porque la póliza dice `201 PASIVO` (el pago **salda**) y la historia dice `602-013`/`611-002` (dónde se **devengó**): usarla contaría el costo **dos veces**. ⭐ Y lo que hoy no resuelve **resuelve solo**: la cobertura de la póliza va de **90.5 % a 0-2 días a 100 % a 8-30**, así que el mecanismo es **reintentar, no adivinar** — de ahí el cron cada 15 min. **Abierto `[H9]`:** por qué Kepler dejó de registrar depósitos `U-A-5` el 12-oct (de ~90-115/semana a **3**); mientras siga así la bandeja se vacía sola y un motor sano reporta cero con razón. Plan en [`FASE_CG`](docs/IMPLEMENTACION/FASES/FASE_CG_CAJA_GENERAL.md).
+
+- **ADR-094** ⏳ 2026-10-16 — **La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es LIBERAR EL DÍA** (Fase TP). Supersede en parte ADR-064 (que exigía obligación **capturada** y autorizada en su módulo de origen): la tesis del calendario-consumidor se sostiene, el **alcance** que produjo no — medido, la deuda de proveedor es **$136,322,731 (2,960 docs)** y el calendario podía programar **$2,738,088 (37)**, o sea **2.0 %**, porque la única puerta es Entregas de Compras y un flete, un servicio o un crédito **no tienen por dónde entrar**. `[TP.15]` ya lo había escrito como pendiente («la opción B»). **Programar pasa a ser proponer**; el compromiso nace cuando Gerencia/Dirección libera el lote con las dos firmas que ADR-065 ya construyó. La reserva **no se muda** (sigue en `payment_allocation_items`; el disponible se calcula al vuelo, que es la cuenta que `assertKeplerBalance` ya hacía), la llave es un **uuid determinístico** (`md5(...)::uuid`, porque `obligation_id` es uuid y la natural es compuesta), el dedupe va por las 4 llaves `kepler_*` (**las 37 capturadas casan: sin dedupe serían 37 duplicados exactos**) y los internos `TI*` **se excluyen: no son deuda** (58 docs, $1,155,161, inflaban el denominador). ⭐ Corolario medido: los **41 docs / $38,012,268** sin clasificar son créditos BBVA/BanBajío, préstamos y tarjetas → **`financial_commitments` (0 filas) también es derivable**. Arbitrado contra la regla del ECA: desviación **0.13 % ($172,180 / 30 docs)**. ⛔ **Hipótesis refutada:** «la vista publica deuda cancelada como viva» es falso — 3 docs, **$293**; el riesgo va al revés (467 aplicaciones por $13.9M de abonos cancelados, casi todas sobre documentos ya saldados). **Rechazado:** una bandeja de aceptación propia (duplicaría ADR-065 y agregaría un trámite diario sobre 2,890 documentos); lo que se pierde está dicho: cualquiera con `FINANCE_PAYMENTS_GESTIONAR` puede **proponer** el pago de cualquier factura — el candado sigue siendo que otro libere el día. ⛔ **Abierto, y no es código:** ese candado **nunca se ejerció** — 5 lotes `draft`, **0 días autorizados en toda la historia**. Plan en [`FASE_TP`](FASES/FASE_TP_CALENDARIO_PAGOS.md) §TP.17–TP.20.
+
+- **ADR-095** ⏳ 2026-10-19 — **Que ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP** (Fase VEC): la clase vive en una tabla propia porque el ERP no la trae (probado: las banderas de kdmm NO distinguen contado de credito, y una de ellas difiere entre sucursales); el universo sale de kdmm, asi que un tipo nuevo aparece solo como sin_clasificar; cinco clases y ninguna es «otros»; lo que nadie clasifico se DECLARA con su importe. ⚠️ Cada clase exige su MEDICION: UD0601 «Factura global» ($116 M) se habia marcado espejo por el nombre.

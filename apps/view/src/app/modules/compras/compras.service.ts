@@ -731,6 +731,15 @@ export interface CreateRequisitionLine {
   supplier_id?: string | null;
   source_type?: SourceType;
   source_warehouse_id?: string | null;
+  /**
+   * `[RA-FIX.1]` La sucursal que NECESITA esta cantidad — el renglón del desglose del que salió.
+   *
+   * ⛔ No es `source_warehouse_id` (el ORIGEN de un traspaso). En una compra consolidada el
+   * encabezado lleva el CEDIS donde entrega el proveedor y esto la sucursal destino. Sin este
+   * campo el desglose se perdía al guardar: 1,269 renglones indistinguibles del mismo SKU en 74
+   * requisiciones (medido en prod el 2026-10-19).
+   */
+  destination_warehouse_id?: string | null;
   on_hand?: number;
   in_transit?: number;
   min_stock?: number;
@@ -844,8 +853,53 @@ export interface PurchaseOrderRow {
   created_at: string;
   closed_at: string | null;
   warehouse_code: string | null;
+  /** `[OC.1]` El ID, no sólo el nombre: agrupar por nombre junta homónimos y separa variantes. */
+  supplier_id: string | null;
   supplier_name: string | null;
   source_code: string | null;
+}
+
+/** `[OC.1]` Un proveedor con todo lo que se le debe, agregado en el servidor (no en la página). */
+export interface OrdenesPorProveedorRow {
+  supplier_id: string;
+  supplier_code: string | null;
+  supplier_name: string;
+  ordenes: number;
+  unidades: number | string;
+  pendiente: number | string;
+  importe: number | string;
+  mas_vieja: string;
+  proxima_entrega: string | null;
+  estados: string[];
+}
+
+/** `[OC.2]` Una fila del pedido consolidado: el mismo SKU sumado entre las órdenes del proveedor. */
+export interface ConsolidadoLinea {
+  sku: string;
+  nombre: string;
+  /** Cantidad pedida, sumada. Numeric de Postgres → puede llegar como texto. */
+  cantidad: number | string;
+  /** Lo que todavía no llega (pedido − recibido, nunca negativo). */
+  pendiente: number | string;
+  importe: number | string;
+  /** Costo por unidad, **ponderado por cantidad** cuando el SKU viene a dos precios. */
+  unit_cost: number | string;
+  /** ⚠️ `true` = el costo NO es único entre órdenes; el de arriba es un promedio. */
+  costo_varia: boolean;
+  /** Códigos de los almacenes a los que va este renglón. */
+  destinos: string[];
+  /** En cuántas órdenes aparece. */
+  ordenes: number;
+  /** `[OC.4]` Los folios de esas órdenes. La liga que la consolidación borra, para el CSV. */
+  folios?: string[];
+}
+export interface ConsolidadoProveedor {
+  supplier: { id: string; code: string | null; name: string };
+  /** Qué estados se consolidaron (por omisión `open` + `partial`). */
+  estados: string[];
+  ordenes: Array<{ id: string; folio: string; estado: PurchaseOrderEstado; expected_date: string | null; total_cost: number | string; created_at: string; warehouse_code: string | null }>;
+  lineas: ConsolidadoLinea[];
+  totales: { ordenes: number; renglones: number; cantidad: number; pendiente: number; importe: number };
 }
 export interface PurchaseOrderLine {
   id: string;
@@ -1582,6 +1636,27 @@ export class ComprasService {
   }
   getPurchaseOrder(id: string): Observable<PurchaseOrderDetail> {
     return this.http.get<PurchaseOrderDetail>(`${this.poBase}/${id}`);
+  }
+  /**
+   * `[OC.1]` Las órdenes agrupadas por proveedor. Lo agrega el SERVIDOR porque la lista viene
+   * paginada de 50 sobre 152 órdenes: agrupar la página daría totales de mentira.
+   */
+  ordenesPorProveedor(estado?: string, warehouseId?: string): Observable<{ estados: string[]; total: number; rows: OrdenesPorProveedorRow[] }> {
+    const p = new URLSearchParams();
+    if (estado) p.set('estado', estado);
+    if (warehouseId) p.set('warehouse_id', warehouseId);
+    const qs = p.toString();
+    return this.http.get<{ estados: string[]; total: number; rows: OrdenesPorProveedorRow[] }>(`${this.poBase}/por-proveedor${qs ? '?' + qs : ''}`);
+  }
+  /**
+   * `[OC.2]` Todo lo que falta pedirle a un proveedor, ya consolidado por SKU — una sola llamada.
+   * Pedir el detalle de cada orden desde acá serían N viajes para un botón, y el papel saldría
+   * distinto según cuál conteste primero.
+   */
+  consolidadoProveedor(supplierId: string, estado?: string): Observable<ConsolidadoProveedor> {
+    const p = new URLSearchParams({ supplier_id: supplierId });
+    if (estado) p.set('estado', estado);
+    return this.http.get<ConsolidadoProveedor>(`${this.poBase}/consolidado?${p.toString()}`);
   }
   /** Export XLSX con diseño de una orden de compra (por id). */
   exportPurchaseOrderXlsx(id: string) {

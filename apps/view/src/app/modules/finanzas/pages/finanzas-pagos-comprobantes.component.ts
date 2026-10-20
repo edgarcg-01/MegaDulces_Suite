@@ -19,8 +19,11 @@ import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail } from '../pagos-comprobantes.service';
 import { PagosCapturaLoteComponent, type LoteGuardado } from '../components/pagos-captura-lote.component';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
+import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { CRITERIOS_PAGO, ETIQUETA_CRITERIO_PAGO, type Chequeo } from '@megadulces/contracts';
 import { PagosComprobantesSocketService, PaymentProofEvent } from '../pagos-comprobantes-socket.service';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 
 /** PC.2 — una foto del gasto (factura/ticket/mercancía). Se lee su total para validar Σ gastos ≈ pago. */
 interface GastoFile {
@@ -40,11 +43,14 @@ interface GastoFile {
 @Component({
   selector: 'app-finanzas-pagos-comprobantes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent],
+  imports: [PagosTabsComponent, RouterLink, CommonModule, FormsModule, TableModule, TagModule, InputTextModule, SelectModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, PagosCapturaLoteComponent, EntityInspectorComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in">
+      <app-entity-inspector [(ref)]="inspect" />
       <p-toast />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -100,7 +106,22 @@ interface GastoFile {
           <ng-template #body let-c>
             <tr>
               <td>{{ c.pago_date | date:'dd/MM/yy' }}</td>
-              <td class="mono">{{ c.folio }}</td>
+              <td class="mono"><!-- [TP.20.5] El folio abre la ficha del PAGO, y desde ahi se
+                     llega a las facturas que liquido: la liga la pone Kepler (kdxf), no un
+                     cruce por monto y mes. Ese cruce es el de los $273 M indefendibles de PP.4. -->
+                <button type="button" class="cb-reflink" (click)="inspect.set(refPago(c))"
+                        [title]="'Ver la ficha del pago ' + c.folio">{{ c.folio }}</button>
+                <!-- [TP.19.3] El ORIGEN del pago: de que dia autorizado del Calendario salio y
+                     con que folio de lote. Hasta hoy este pago se leia como un hecho sin origen.
+                     Si no nacio en el Calendario no se pinta nada: la ausencia es lo normal y
+                     poner "—" aqui agregaria ruido en cada renglon. -->
+                @if (c.origen_calendario; as o) {
+                  <a class="cb-origen" routerLink="/finanzas/calendario-pagos"
+                     [title]="'Pago ' + o.folio + ' del calendario' + (o.fecha ? ', dia ' + (o.fecha | date:'dd/MM/yy') : '')">
+                    <i class="pi pi-calendar-plus" aria-hidden="true"></i> {{ o.folio }}
+                  </a>
+                }
+              </td>
               <!-- [PP.9] Manda el MEDIO real, no el tipo de documento: "Transferencia" sobre un
                    pago hecho en efectivo era la mentira más cara de esta pantalla. El documento
                    de Kepler no se pierde, va en el tooltip. -->
@@ -416,6 +437,11 @@ interface GastoFile {
     .cb-table .strong { font-weight: 600; color: var(--text-main); }
     .cb-table .muted { color: var(--text-muted); }
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
+    /* [TP.19.3] El origen en el Calendario: discreto, pero enlazable. */
+    .cb-origen { display: inline-flex; align-items: center; gap: .25rem; margin-top: .15rem;
+      font-size: var(--fs-xs); color: var(--text-muted); text-decoration: none; }
+    .cb-origen:hover { color: var(--action); text-decoration: underline; }
+    .cb-origen:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; border-radius: var(--r-sm); }
     .cb-metodo { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
     .cb-metodo i { font-size: .7rem; }
     .cb-metodo.tra { color: var(--action); }
@@ -450,6 +476,10 @@ interface GastoFile {
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
     .cb-cobro > div { display: flex; flex-direction: column; gap: .15rem; }
     .cb-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    /* [TP.20.5] El folio del pago es un enlace a su ficha, sin color en reposo. */
+    .cb-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
+    .cb-reflink:hover { color: var(--action); text-decoration: underline; }
+    .cb-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cb-monto { color: var(--action); font-size: 1.05rem; font-family: var(--font-mono); }
     .cb-f { display: flex; flex-direction: column; gap: .3rem; }
     .cb-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -571,6 +601,14 @@ interface GastoFile {
   `],
 })
 export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
+  /** `[TP.20.5]` El ref abierto en la ficha (el panel lo publica en `?ref=`). */
+  readonly inspect = signal<string | null>(null);
+
+  /** El pago, como ref. Las tres partes son las que ya usa el detalle: sucursal, prefijo, folio. */
+  refPago(c: { sucursal: string; doc_prefix: string; folio: string }): string {
+    return entityRef('pay', c.sucursal, c.doc_prefix, c.folio);
+  }
+
   /** `[MT.3]` Con la preferencia prendida, el detalle abre en otra ventana. */
   readonly multitarea = inject(MultitareaService);
   private readonly svc = inject(PagosComprobantesService);

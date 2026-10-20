@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import type { CruceArqueosResponse } from '@megadulces/contracts';
 import { CajaControlService } from './caja-control.service';
 
 /**
@@ -22,6 +23,24 @@ export class CajaControlController {
   @ApiOperation({ summary: 'Historial de cortes diarios de Caja General (Control)' })
   cortes(@Query('desde') desde?: string, @Query('hasta') hasta?: string, @Query('limit') limit?: string) {
     return this.svc.cortes({ desde, hasta, limit: limit ? Number(limit) : undefined });
+  }
+
+  /**
+   * ⭐⭐ `[CGS.2]` **El arqueo de la Suite contra el de Control, pieza por pieza.**
+   *
+   * Es la pestaña «Arqueos» que pidió Edgar para que el supervisor vea el cruce sin bajar hasta
+   * el fondo del Expediente. ⛔ Va ANTES de `@Get('expediente/:fecha')` por el mismo motivo que
+   * todo el resto del módulo: Nest resuelve por orden de declaración y una ruta genérica con
+   * parámetro se come a la literal que venga después.
+   *
+   * `FINANCE_CAJA_VER`, igual que las otras dos: es lectura, y el supervisor que revisa de mañana
+   * no tiene por qué poder capturar para poder mirar.
+   */
+  @Get('cruce')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Arqueo de la Suite contra el de Control, día por día y pieza por pieza' })
+  cruce(@Query('desde') desde?: string, @Query('hasta') hasta?: string, @Query('limit') limit?: string): Promise<CruceArqueosResponse> {
+    return this.svc.cruce({ desde, hasta, limit: limit ? Number(limit) : undefined });
   }
 
   /**

@@ -61,6 +61,8 @@ export interface PresalePickLine {
   line_id: string;
   product_id: string;
   sku: string | null;
+  /** `[MCP.3.1]` Código de barras del catálogo: el surtidor escanea la etiqueta para encontrar el renglón. */
+  barcode?: string | null;
   product_name: string;
   /** Cantidad pedida en la unidad en que se capturó (`qty_unit`); si no hay sello, en unidad base. */
   qty: number;

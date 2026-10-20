@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { FINANZAS_TABS } from './finanzas-tabs';
 import { GASTOS_TABS } from './gastos-tabs';
+import { PAGOS_TABS } from './pagos-tabs';
+import { CAJA_TABS } from './caja-tabs';
 import { Permission } from '../../core/constants/permissions';
 
 /**
@@ -34,6 +36,24 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
   }
 
   /**
+   * `[CG.121]` El fuente de una pantalla de `modules/finanzas/pages/`, por su ruta relativa a
+   * esa carpeta. Las dos candidatas son por dónde corre vitest (raíz del repo o de la app).
+   *
+   * ⛔ Si no encuentra el archivo **lanza**, no devuelve cadena vacía: un `''` haría pasar en
+   * verde todo `not.toContain` y fallar todo `toContain`, que es ruido en los dos sentidos.
+   */
+  function fuentePagina(relativa: string): string {
+    const CANDIDATAS = [
+      'src/app/modules/finanzas/pages/' + relativa,
+      'apps/view/src/app/modules/finanzas/pages/' + relativa,
+    ];
+    for (const c of CANDIDATAS) {
+      try { return readFileSync(c, 'utf8'); } catch { /* siguiente */ }
+    }
+    throw new Error('NO MEDIDO: no se pudo leer ' + relativa + ' desde ' + process.cwd());
+  }
+
+  /**
    * `[GX.42]` Eran TRES (levantar, firmar, consultar). **Levantar salió del nav** por pedido
    * del usuario: el gasto ya no se busca, LLEGA — Kepler lo asigna por la caja «Solicita» y
    * aparece en «Mis gastos» con su botón para subirle la evidencia.
@@ -52,6 +72,161 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     expect(fuenteSidebar()).toContain('tabs: GASTOS_TABS');
     const deGastos = GASTOS_TABS.map((t) => t.route);
     for (const r of RUTAS) expect(deGastos).toContain(r);
+  });
+
+  /**
+   * `[TP.20.3]` **Las cuatro pantallas de Pagos entran por UNA puerta, y ninguna se queda sin
+   * ella** (objetivo O5).
+   *
+   * Es el mismo riesgo que `[GX.18]` ya cobró en Gastos: al juntar renglones del menú en una sola
+   * entrada, basta olvidar una ruta en la lista para que esa pantalla quede **viva pero sin puerta
+   * alguna** — sólo alcanzable escribiendo la URL. Acá además hay una trampa propia: la barra de
+   * Pagos **no tiene shell de ruta**, se embebe pantalla por pantalla, así que una pantalla nueva
+   * puede nacer sin barra y nadie se entera.
+   */
+  describe('[TP.20.3] la puerta única de Pagos', () => {
+    const DE_PAGOS = [
+      '/finanzas/pronto-pago',
+      '/finanzas/calendario-pagos',
+      '/finanzas/pagos-comprobantes',
+      '/finanzas/programa-pagos',
+    ] as const;
+
+    it('el sidebar tiene UNA entrada «Pagos» que lleva las cuatro pestañas', () => {
+      const src = fuenteSidebar();
+      expect(src).toContain('tabs: PAGOS_TABS');
+      // ⛔ Y ya NO las lista como renglones sueltos: si alguien vuelve a agregarlas, son dos
+      // puertas a lo mismo y el menú deja de decir que son un ciclo.
+      for (const r of DE_PAGOS.filter((x) => x !== '/finanzas/pronto-pago')) {
+        expect(src).not.toContain("route: '" + r + "'");
+      }
+    });
+
+    it('las cuatro rutas están en PAGOS_TABS, en el orden del ciclo del dinero', () => {
+      expect(PAGOS_TABS.map((t) => t.route)).toEqual([...DE_PAGOS]);
+    });
+
+    /**
+     * ⛔ Sin shell de ruta, la barra vive en cada pantalla: esto comprueba que las cuatro la
+     * tengan. Una pantalla sin barra queda encerrada — se entra, pero no se sale a sus hermanas.
+     */
+    it('las cuatro pantallas embeben la barra de pestañas', () => {
+      const ARCHIVOS: Record<string, string> = {
+        '/finanzas/pronto-pago': 'finanzas-pronto-pago.component.ts',
+        '/finanzas/calendario-pagos': 'finanzas-calendario-pagos.component.ts',
+        '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
+        '/finanzas/programa-pagos': 'finanzas-programa-pagos.component.ts',
+      };
+      for (const ruta of DE_PAGOS) {
+        const base = ARCHIVOS[ruta];
+        const CANDIDATAS = [
+          'src/app/modules/finanzas/pages/' + base,
+          'apps/view/src/app/modules/finanzas/pages/' + base,
+        ];
+        let src: string | null = null;
+        for (const c of CANDIDATAS) { try { src = readFileSync(c, 'utf8'); break; } catch { /* siguiente */ } }
+        if (src === null) throw new Error('NO MEDIDO: no se pudo leer ' + base);
+        expect(src).toContain('<app-pagos-tabs />');
+        expect(src).toContain('PagosTabsComponent');
+      }
+    });
+  });
+
+  /**
+   * `[CG.121]` **Las tres pantallas del efectivo entran por UNA puerta.**
+   *
+   * Pedido de Edgar (2026-10-19): un selector en Caja (captura) para cambiar entre Captura,
+   * Expediente y Caja Fuerte, con las tres en un solo módulo.
+   *
+   * El riesgo es el mismo que `[GX.18]` y `[TP.20.3]` ya cobraron, más uno propio: **el
+   * Expediente ya estaba sin puerta antes de este cambio** — tenía ruta y permiso, pero ni
+   * pestaña ni renglón en el sidebar. Y como `[IG.2]` sólo recorre lo que `FINANZAS_TABS`
+   * declara, una pantalla ausente de esa lista le es invisible: el candado pasaba en verde.
+   */
+  describe('[CG.121] la puerta única de Caja', () => {
+    // `[CGS.2]` Arqueos entra SEGUNDA, pegada a Captura: lo que la motivó es que el arqueo
+    // estaba al fondo de la pantalla de Captura, y mandarla al final movería el scroll de
+    // sitio en vez de quitarlo.
+    const DE_CAJA = [
+      '/finanzas/caja-general',
+      '/finanzas/caja-general/arqueos',
+      '/finanzas/caja-general/expediente',
+      '/finanzas/caos',
+    ] as const;
+
+    it('el sidebar tiene UNA entrada «Caja» que lleva todas las pestañas', () => {
+      const src = fuenteSidebar();
+      expect(src).toContain('tabs: CAJA_TABS');
+      // ⛔ Y ya NO las lista como renglones sueltos: dos puertas a lo mismo y el menú deja de
+      // decir que son un área. `/finanzas/caja-general` queda exento: es el `route` por
+      // omisión de la propia entrada del área, el que `conDestino()` reemplaza.
+      for (const r of DE_CAJA.filter((x) => x !== '/finanzas/caja-general')) {
+        expect(src).not.toContain("route: '" + r + "'");
+      }
+    });
+
+    it('las rutas están en CAJA_TABS, en el orden del recorrido del dinero', () => {
+      expect(CAJA_TABS.map((t) => t.route)).toEqual([...DE_CAJA]);
+    });
+
+    /**
+     * ⛔ Cada pestaña con EL MISMO gate que su ruta. Una pestaña más floja ofrece una pantalla
+     * que al abrirse manda a `/sin-acceso`; una más dura esconde una que sí se puede abrir.
+     */
+    it('cada pestaña lleva el permiso de su ruta', () => {
+      const t = (r: string) => CAJA_TABS.find((x) => x.route === r);
+
+      // Ruta: anyPermissionGuard(VER, GESTIONAR, AUTORIZAR).
+      expect(t('/finanzas/caja-general')?.anyOf).toEqual([
+        Permission.FINANCE_CAJA_VER,
+        Permission.FINANCE_CAJA_GESTIONAR,
+        Permission.FINANCE_CAJA_AUTORIZAR,
+      ]);
+      // Con `anyOf`, `permission` sería letra muerta: el filtro devuelve antes de mirarlo.
+      expect(t('/finanzas/caja-general')?.permission).toBeUndefined();
+
+      // Ruta: permissionGuard(FINANCE_CAJA_VER).
+      expect(t('/finanzas/caja-general/expediente')?.permission).toBe(Permission.FINANCE_CAJA_VER);
+      // `[CGS.2]` Ruta: permissionGuard(FINANCE_CAJA_VER). Es lectura: quien revisa de mañana no
+      // tiene por qué poder capturar para poder mirar.
+      expect(t('/finanzas/caja-general/arqueos')?.permission).toBe(Permission.FINANCE_CAJA_VER);
+      expect(t('/finanzas/caja-general/arqueos')?.anyOf).toBeUndefined();
+      // Ruta: anyPermissionGuard(FINANCE_CAOS_VER) — permiso PROPIO, otro circuito de efectivo.
+      expect(t('/finanzas/caos')?.permission).toBe(Permission.FINANCE_CAOS_VER);
+    });
+
+    /**
+     * ⛔ Sin shell de ruta —el padre con `path: ''` de `/finanzas` ya lo ocupa Gastos— la barra
+     * vive embebida en cada pantalla. Una que nazca sin ella queda **encerrada**: se entra,
+     * pero no se sale a sus hermanas.
+     */
+    it('todas las pantallas embeben la barra de pestañas', () => {
+      const ARCHIVOS: Record<string, string> = {
+        '/finanzas/caja-general': 'caja-general/finanzas-caja-general.component.ts',
+        '/finanzas/caja-general/arqueos': 'caja-general/finanzas-caja-arqueos.component.ts',
+        '/finanzas/caja-general/expediente': 'caja-general/finanzas-caja-expediente.component.ts',
+        '/finanzas/caos': 'caos/finanzas-caos.component.ts',
+      };
+      for (const ruta of DE_CAJA) {
+        const src = fuentePagina(ARCHIVOS[ruta]);
+        expect(src).toContain('<app-caja-tabs');
+        expect(src).toContain('CajaTabsComponent');
+      }
+    });
+
+    /**
+     * ⭐ **Prueba negativa del candado de arriba.** Si `fuentePagina` leyera el archivo
+     * equivocado, o si `toContain` se aplicara a algo que siempre está, el bucle pasaría sin
+     * comprobar nada. La pantalla de la FIRMA es del área y no monta la barra **a propósito**
+     * —es el teléfono del mostrador, se entra por el código de seis y se le presta a quien
+     * viene a firmar—, así que sirve de control: acá el candado tiene que decir que NO está.
+     */
+    it('detecta una pantalla del área que NO monta la barra', () => {
+      const firma = fuentePagina('caja-general/finanzas-caja-firma.component.ts');
+      expect(firma).not.toContain('<app-caja-tabs');
+      // Y que el control sea el archivo correcto, no uno vacío por una ruta mal escrita.
+      expect(firma).toContain('app-finanzas-caja-firma');
+    });
   });
 
   /**
@@ -197,7 +372,13 @@ describe('[IG.2] toda pestaña de Finanzas tiene su entrada en el sidebar', () =
     // `[GX.80]` Una pantalla también tiene puerta si es pestaña de un ÁREA que el sidebar lleva como
     // UNA entrada con `tabs:` (Gastos): esa entrada lleva al área y la barra de arriba a cada pantalla.
     // Sólo cuenta si la entrada existe de verdad en el fuente: sin ella, las cuatro vuelven a faltar.
-    const porArea = fuente.includes('tabs: GASTOS_TABS') ? GASTOS_TABS.map((t) => t.route) : [];
+    // `[TP.20.3]` Pagos sigue la misma regla desde hoy: UNA entrada con `tabs: PAGOS_TABS`.
+    // `[CG.121]` Caja sigue la misma regla desde hoy: UNA entrada con `tabs: CAJA_TABS`.
+    const porArea = [
+      ...(fuente.includes('tabs: GASTOS_TABS') ? GASTOS_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: PAGOS_TABS') ? PAGOS_TABS.map((t) => t.route) : []),
+      ...(fuente.includes('tabs: CAJA_TABS') ? CAJA_TABS.map((t) => t.route) : []),
+    ];
     const ausentes = FINANZAS_TABS
       .map((t) => t.route)
       // Las rutas que redirigen o viven fuera de /finanzas no se exigen acá.

@@ -22,6 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
+import { mensajeFraccion, renglonesConFraccion } from './fraccion-caja';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -285,6 +286,16 @@ interface RequisitionLineDto {
   supplier_id?: string | null;
   source_type?: string;               // RA.11 — 'supplier' (default) | 'branch' (traspaso)
   source_warehouse_id?: string | null; // RA.11 — almacén origen si source_type='branch'
+  /**
+   * `[RA-FIX.1]` La sucursal que NECESITA esta cantidad.
+   *
+   * ⛔ No es `source_warehouse_id`: ése es de dónde SALE un traspaso. En una compra consolidada
+   * el encabezado dice dónde ENTREGA el proveedor (el CEDIS) y esto dice a qué sucursal va — son
+   * dos almacenes distintos en la misma fila, y por no tener dónde escribir el segundo el
+   * desglose por sucursal se guardaba como N renglones indistinguibles del mismo SKU (medido:
+   * 1,269 renglones de más en 74 requisiciones).
+   */
+  destination_warehouse_id?: string | null;
   on_hand?: number;
   in_transit?: number;
   min_stock?: number;
@@ -3757,11 +3768,19 @@ export class CommercialReplenishmentService {
         })
         .returning(['id', 'folio', 'estado']);
 
+      // `[RA-FIX.1]` El destino sólo se escribe si la columna existe: el código llega a prod por
+      // despliegue y la migración se aplica aparte, así que entre una cosa y la otra la API tiene
+      // que seguir creando requisiciones. Lo que falta mientras tanto es el dato nuevo, no el
+      // servicio — y se dice en el log, no se traga.
+      const destListo = await this.destinoColLista(trx);
       await trx('commercial.purchase_requisition_lines').insert(lines.map((l) => ({
         tenant_id: tenantId, requisition_id: req.id, product_id: l.product_id,
         supplier_id: l.supplier_id && UUID_RX.test(l.supplier_id) ? l.supplier_id : null,
         source_type: l.source_type === 'branch' ? 'branch' : 'supplier',
         source_warehouse_id: l.source_type === 'branch' && l.source_warehouse_id && UUID_RX.test(l.source_warehouse_id) ? l.source_warehouse_id : null,
+        ...(destListo
+          ? { destination_warehouse_id: l.destination_warehouse_id && UUID_RX.test(l.destination_warehouse_id) ? l.destination_warehouse_id : null }
+          : {}),
         on_hand: Number(l.on_hand || 0), in_transit: Number(l.in_transit || 0),
         min_stock: Number(l.min_stock || 0), reorder_point: Number(l.reorder_point || 0), max_stock: Number(l.max_stock || 0),
         suggested_qty: Number(l.suggested_qty || 0), final_qty: Number(l.final_qty),
@@ -3940,7 +3959,6 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
         .leftJoin('commercial.warehouses as sw', (j) => j.on('sw.tenant_id', 'r.tenant_id').andOn('sw.id', 'r.source_warehouse_id'))
         .where('r.tenant_id', tenantId);
-      if (q.estado) base.andWhere('r.estado', q.estado);
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('r.warehouse_id', q.warehouse_id);
       if (q.source_type && (q.source_type === 'supplier' || q.source_type === 'branch')) {
         base.andWhere('r.source_type', q.source_type);
@@ -3956,6 +3974,23 @@ export class CommercialReplenishmentService {
           if (loteCols) w.orWhereRaw("COALESCE(r.batch_folio, '') ILIKE ?", [t]);
         });
       }
+      // `[RQ.16]` ⛔ **EL RESUMEN SE MIDE ANTES DE APLICAR EL ESTADO, y es la corrección.**
+      //
+      // Hasta acá el resumen salía del universo **ya filtrado por estado**, y la pantalla abre
+      // fija en `pending_approval`. El 2026-10-19, con la cola de pendientes en **0** —Arizbeth
+      // la vació: 14 el 16-oct, 0 hoy— la bandeja se veía ASÍ: los cuatro indicadores en cero,
+      // la tabla diciendo *«Sin lotes con este filtro»* y, al lado, *«75 lote(s) armado(s)»*.
+      // Detrás había **1,049 requisiciones** (529 aprobadas, 131 ordenadas, 20 recibidas). Se
+      // reportó como *"requisiciones salía vacía"*, y no era un error: era la pantalla diciendo
+      // la verdad sobre un filtro y nada sobre el resto.
+      //
+      // ⭐ Una tira que se llama «Requisiciones por estado» existe para contestar **dónde está
+      // lo que hay**; medida dentro de un estado no puede contestarlo nunca — los otros tres
+      // valen 0 por construcción, no por medición. Los demás filtros (almacén, tipo, búsqueda,
+      // lote) **sí** la acotan: ésos son el universo del que se pregunta.
+      const baseResumen = base.clone();
+      if (q.estado) base.andWhere('r.estado', q.estado);
+
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
         .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.source_warehouse_id', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
@@ -3988,12 +4023,13 @@ export class CommercialReplenishmentService {
       const vig = await this.vigenciaDeRequisiciones(trx, tenantId, rows.map((r: any) => r.id));
       for (const r of rows as any[]) r.vigencia = vig.get(r.id) ?? null;
 
-      // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO FILTRADO (no sobre la pagina).
+      // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO (no sobre la pagina, y desde
+      // `[RQ.16]` tampoco sobre el estado filtrado — ver arriba).
       // Es lo que faltaba para que alguien pueda ver que hay 610 esperando: la lista devolvia
       // un `total` y nada mas, y con el filtro por defecto en "todos los estados" las pendientes
       // quedaban mezcladas con las canceladas y las recibidas, 50 por pagina, ordenadas por
       // fecha — o sea que las mas viejas, que son las que importan, caian en la pagina 12.
-      const resumenRows = await base.clone().clearSelect().clearOrder()
+      const resumenRows = await baseResumen.clone().clearSelect().clearOrder()
         .groupBy('r.estado')
         .select('r.estado',
           trx.raw('count(*)::int AS n'),
@@ -4043,6 +4079,27 @@ export class CommercialReplenishmentService {
    * materializada del workbook.
    */
   private rqVigenciaCols: boolean | null = null;
+  /**
+   * `[RA-FIX.1]` ¿Existe ya `purchase_requisition_lines.destination_warehouse_id`?
+   *
+   * Mismo patrón (y mismo motivo) que {@link vigenciaColsListas}: el despliegue y la migración
+   * no llegan juntos. Se memoiza porque la respuesta no cambia dentro de un proceso salvo por
+   * una migración, que reinicia los pods.
+   */
+  private rqDestinoCol: boolean | null = null;
+  private async destinoColLista(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqDestinoCol != null) return this.rqDestinoCol;
+    try {
+      const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema='commercial' AND table_name='purchase_requisition_lines'
+          AND column_name='destination_warehouse_id') AS t`);
+      this.rqDestinoCol = !!r.rows?.[0]?.t;
+    } catch { this.rqDestinoCol = false; }
+    if (!this.rqDestinoCol)
+      this.logger.warn('[RA-FIX.1] falta la migración 20261019084231 — el renglón de compra NO guarda la sucursal que lo necesita (la requisición se crea igual; lo que no queda es el desglose).');
+    return this.rqDestinoCol;
+  }
+
   private async vigenciaColsListas(trx: Knex.Transaction): Promise<boolean> {
     if (this.rqVigenciaCols != null) return this.rqVigenciaCols;
     try {
@@ -4496,6 +4553,12 @@ export class CommercialReplenishmentService {
       }
       lineas = [...porSku.values()];
     }
+
+    // `[RA-FIX.3]` ⛔ **Una fracción de caja no se le escribe al ERP.** El criterio y el mensaje
+    // viven en `fraccion-caja.ts` —con la medición que los justifica— para que no se repitan
+    // escritos a mano el día que otro camino escriba al ERP. Fail-closed, nombrando los SKUs.
+    const fraccion = renglonesConFraccion(lineas);
+    if (fraccion.length) throw new BadRequestException(mensajeFraccion(fraccion));
 
     const res = await this.keplerSink.entregar({
       requisition_id: cab.id, folio_suite: cab.folio, tipo,

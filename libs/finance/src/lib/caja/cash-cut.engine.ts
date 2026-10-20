@@ -178,9 +178,41 @@ export function veredictoDe(input: {
   huboConteo: boolean;
   fondoSinMedir: boolean;
   diferencia: number;
+  /**
+   * ⭐⭐ `[CG.195]` El esperado contra el que se comparó. **Requerido a propósito**, aunque sólo se
+   * use para una comparación: los dos llamadores de producción ya lo tenían a mano y hacerlo
+   * opcional dejaría que el tercero lo omitiera sin enterarse. `null` = no hay esperado guardado,
+   * y entonces no hay nada que declarar imposible (ese caso ya lo cubre `sin_medir` en el servicio).
+   */
+  esperado: number | null;
 }): VeredictoCorte {
   if (!input.huboConteo) return 'sin_contar';
   if (input.fondoSinMedir) return 'sin_base';
+  /**
+   * ⛔⛔ `[CG.195]` **UN CAJÓN NO DEBE DINERO.**
+   *
+   * Medido en prod el 2026-10-20 (`system_identifier` 7688376744939610156): de los **7** cortes
+   * cerrados, **4 publicaron un `esperado` negativo** —hasta −$149,915.32— y los 7 publicaron una
+   * diferencia de cinco o seis cifras (de −$208,594.59 a +$94,830.30) sobre conteos reales de
+   * entre $618.50 y $88,272.50. Con el esperado bajo cero, `contado − esperado` es positivo
+   * **siempre** (el conteo es una suma de piezas, nunca negativa), así que la pantalla afirmaba
+   * «sobra efectivo» por cien mil pesos exactamente cuando la cuenta estaba más rota.
+   *
+   * La causa de fondo NO se arregla acá: el libro no tiene **una sola** fila `tipo='deposito'` en
+   * toda su vida, así que nada registra el efectivo que sale del cajón hacia el banco, y el
+   * esperado arrastra la entrada entera como si se hubiera quedado adentro. Eso es una decisión de
+   * negocio (ver `[CG.120]`, que apagó la captura manual —la única puerta por la que se podía
+   * registrar un depósito— el 2026-10-19).
+   *
+   * Lo que sí es de este motor: **no publicar como veredicto un número que no puede ser cierto**
+   * (ADR-056). Se declara, igual que `sin_base` y por el mismo motivo — la diferencia contra un
+   * esperado imposible no mide un sobrante, mide que la cuenta cruzó mal una pierna.
+   *
+   * ⚠️ Va DESPUÉS de `sin_base`: sin fondo medido el esperado no tiene base de la que partir, y
+   * ése es el hecho más específico. Y va ANTES de `cuadra` por claridad, no por necesidad: con el
+   * esperado negativo la rama de `cuadra` es inalcanzable.
+   */
+  if (input.esperado != null && Number(input.esperado) < 0) return 'esperado_imposible';
   if (Math.abs(Number(input.diferencia)) <= CORTE_EPSILON) return 'cuadra';
   return Number(input.diferencia) > 0 ? 'sobra' : 'falta';
 }
@@ -333,7 +365,7 @@ export function calcularCorte(input: {
   const contado = redondea(piezas.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + morralla);
   const diferencia = redondea(contado - esperado);
 
-  const veredicto = veredictoDe({ huboConteo, fondoSinMedir: fondo_sin_medir, diferencia });
+  const veredicto = veredictoDe({ huboConteo, fondoSinMedir: fondo_sin_medir, diferencia, esperado });
 
   return {
     ingresos, gastos, depositos, esperado,

@@ -110,10 +110,208 @@ function rowHash(mov, det) {
 let ADAPTER = null;
 const adapterVivo = () => (ADAPTER || (ADAPTER = new CaosAdapter()));
 
+/**
+ * ⭐ `[CGA-A.14]` **Qué latido le corresponde a un ciclo que no movió filas.** Está afuera, en
+ * una función pura, para poder PROBARLA: la regla que importa acá —«no poder correr late en
+ * ERROR, no en verde»— vivía incrustada en un ternario dentro de un `catch`, donde nadie la
+ * podía ejercer sin credenciales, sin red y sin escribir en prod.
+ *
+ *   node database/importers/caos/import-caos-movements.js --probar-latido
+ */
+function latidoDe(r) {
+  return r.fatal
+    ? { status: 'error', rows: 0, error: r.nota }
+    : { status: 'ok', rows: 0, note: r.nota };
+}
+
+// ── `[CGA-A.33]` La FOTO del contenido (reporte «Contenidos» del equipo) ───────────────────────
+
+/**
+ * Normaliza la respuesta de `getCounting` a renglones planos + un hash de su CONTENIDO.
+ *
+ * Pura a propósito, por la misma razón que `latidoDe`: es la pieza que decide qué se guarda como
+ * «lo que la máquina dice tener», y tiene que poder ejercerse sin red ni base.
+ *
+ * ⚠️ El hash NO incluye `online`: que el equipo parpadee de conexión no es una foto distinta.
+ * ⚠️ Acepta UNA sola máquina. Con dos no sabríamos a qué `device` de los movimientos atarla, y
+ *    adivinarlo mezclaría dos cajas — se declara en vez de elegir (`maquinas` en la salida).
+ */
+function normalizarConteo(j) {
+  const maquinas = Array.isArray(j && j.machineCashList) ? j.machineCashList : [];
+  if (maquinas.length !== 1) return { maquinas: maquinas.length, lines: [] };
+  const m = maquinas[0];
+  const lines = [];
+  const tomar = (kind, conts) => {
+    for (const ct of conts || []) {
+      for (const d of ct.content || []) {
+        const denom = Number(d.denom);
+        const quantity = Number(d.quantity);
+        if (!Number.isFinite(denom) || denom <= 0 || !Number.isFinite(quantity) || quantity < 0) continue;
+        lines.push({
+          kind, index: Number(ct.index), currency: String(d.currency || 'MXN'),
+          denom, pieza: String(d.type || 'B'), quantity, miscount: Boolean(ct.miscount),
+        });
+      }
+    }
+  };
+  tomar('stock', m.stocksContent);
+  tomar('bag', m.bagsContent);
+  lines.sort((a, b) => a.kind.localeCompare(b.kind) || a.index - b.index || b.denom - a.denom);
+  const total = Math.round(lines.reduce((s, l) => s + l.denom * l.quantity, 0) * 100) / 100;
+  const hash = crypto.createHash('md5')
+    .update(JSON.stringify(lines.map((l) => [l.kind, l.index, l.currency, l.denom, l.pieza, l.quantity, l.miscount])))
+    .digest('hex');
+  return {
+    maquinas: 1, online: m.online == null ? null : Boolean(m.online),
+    anyMiscount: lines.some((l) => l.miscount), total, lines, hash,
+  };
+}
+
+if (process.argv.includes('--probar-conteo')) {
+  // Fixture: la respuesta REAL del 2026-10-20 10:04:38 MX, recortada a lo que se lee.
+  const casete = (index, denom, quantity, miscount = false) => ({
+    index, miscount, content: [{ currency: 'MXN', denom, type: 'B', quantity }],
+  });
+  const real = { machineCashList: [{ online: true, bagsContent: [], stocksContent: [
+    casete(1, 20, 121), casete(2, 50, 46), casete(3, 100, 252), casete(4, 200, 191),
+    casete(5, 200, 192), casete(6, 500, 194), casete(7, 500, 139), casete(8, 500, 174),
+  ] }] };
+  const n = normalizarConteo(real);
+  const desordenado = { machineCashList: [{ ...real.machineCashList[0], online: false,
+    stocksContent: [...real.machineCashList[0].stocksContent].reverse() }] };
+  const conMiscount = { machineCashList: [{ ...real.machineCashList[0],
+    stocksContent: [casete(1, 20, 121, true), ...real.machineCashList[0].stocksContent.slice(1)] }] };
+  const dos = { machineCashList: [real.machineCashList[0], real.machineCashList[0]] };
+  const casos = [
+    ['el total de la foto real es $360,020', n.total === 360020],
+    ['8 renglones, sin bolsas', n.lines.length === 8 && n.lines.every((l) => l.kind === 'stock')],
+    ['sin miscount en la foto real', n.anyMiscount === false],
+    ['el orden y `online` NO cambian el hash', normalizarConteo(desordenado).hash === n.hash],
+    // ⛔ Negativos: si el hash ignorara el miscount, o si dos máquinas se mezclaran, esto se pone rojo.
+    ['un miscount SÍ cambia el hash y se marca', (() => { const x = normalizarConteo(conMiscount); return x.anyMiscount && x.hash !== n.hash; })()],
+    ['dos máquinas NO se mezclan: se declaran', (() => { const x = normalizarConteo(dos); return x.maquinas === 2 && x.lines.length === 0; })()],
+  ];
+  let fallas = 0;
+  console.log('\n[prueba] la foto del contenido de CAOS\n');
+  for (const [que, ok] of casos) { if (!ok) fallas++; console.log(`  ${ok ? '✓' : '✗'} ${que}`); }
+  console.log('');
+  process.exit(fallas ? 1 : 0);
+}
+
+/**
+ * Toma la foto y la guarda amarrada al último movimiento sincronizado.
+ *
+ * ⛔ **La foto sólo vale si se sabe qué movimientos contiene.** Se lee el watermark ANTES, se pide
+ * el contenido, y se vuelve a preguntar al equipo por movimientos: si entró uno mientras tanto, la
+ * foto puede contenerlo o no, y no hay forma de saberlo — **se descarta** y la toma el ciclo
+ * siguiente. Guardarla igual fabricaría un descuadre (o lo escondería) en el cuadre continuo.
+ */
+async function capturarConteo(c) {
+  const adapter = adapterVivo();
+  if (!adapter.isConfigured()) return { nota: 'CAOS sin credenciales', fatal: true };
+
+  const dev = await c.query(
+    `SELECT device, max(external_id)::bigint AS wm FROM analytics.caos_cash_movements
+      WHERE tenant_id = $1 GROUP BY device ORDER BY max(occurred_at) DESC`, [TENANT],
+  );
+  if (dev.rows.length !== 1) {
+    return { nota: `conteo omitido: ${dev.rows.length} dispositivos en los movimientos — no se adivina a cuál pertenece la foto` };
+  }
+  const { device } = dev.rows[0];
+  const wm = Number(dev.rows[0].wm);
+
+  const j = await adapter.getCounting();
+  const n = normalizarConteo(j);
+  if (n.maquinas !== 1) return { nota: `conteo omitido: el equipo reporta ${n.maquinas} máquinas` };
+
+  // ¿Entró un movimiento mientras se leía? Se pregunta al EQUIPO, no a la base: la base es la que
+  // todavía no lo tendría.
+  const hoy = new Date();
+  const recientes = await adapter.getTransactions({ from: new Date(hoy.getTime() - 86400000), to: hoy });
+  const maxEquipo = recientes.reduce((mx, t) => Math.max(mx, Number(t.id) || 0), 0);
+  if (maxEquipo > wm) return { nota: `conteo descartado: el equipo ya tiene el movimiento #${maxEquipo} y la base llega a #${wm}` };
+
+  await c.query('BEGIN');
+  try {
+    const ya = await c.query(
+      `UPDATE analytics.caos_cash_counts SET confirmed_at = now(), online = $5, updated_at = now()
+        WHERE tenant_id = $1 AND device = $2 AND after_external_id = $3 AND content_hash = $4
+        RETURNING id`,
+      [TENANT, device, wm, n.hash, n.online],
+    );
+    if (ya.rows.length) { await c.query('COMMIT'); return { nueva: false, total: n.total, wm }; }
+
+    const ins = await c.query(
+      `INSERT INTO analytics.caos_cash_counts
+         (tenant_id, device, after_external_id, captured_at, confirmed_at, online, any_miscount,
+          total, content_hash, raw)
+       VALUES ($1,$2,$3, now(), now(), $4,$5,$6,$7,$8::jsonb) RETURNING id`,
+      [TENANT, device, wm, n.online, n.anyMiscount, n.total, n.hash, JSON.stringify(j)],
+    );
+    const id = ins.rows[0].id;
+    for (const l of n.lines) {
+      await c.query(
+        `INSERT INTO analytics.caos_cash_count_lines
+           (tenant_id, count_id, container_kind, container_index, currency, denom, pieza_tipo, quantity, miscount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [TENANT, id, l.kind, l.index, l.currency, l.denom, l.pieza, l.quantity, l.miscount],
+      );
+    }
+    await c.query('COMMIT');
+    // La pantalla escucha el mismo canal: una foto nueva es una novedad que tiene que ver.
+    await c.query(`SELECT pg_notify('${CANAL}', $1)`, [JSON.stringify({
+      tenant_id: TENANT, device, firma: `conteo|${wm}|${n.hash}`,
+    })]);
+    return { nueva: true, total: n.total, wm };
+  } catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+  }
+}
+
+if (process.argv.includes('--probar-latido')) {
+  const casos = [
+    ['sin credenciales (NO puede correr)', { fatal: true, nota: 'CAOS sin credenciales' }, 'error'],
+    ['sin novedad (corrió y no hubo nada)', { nota: 'nada nuevo' }, 'ok'],
+  ];
+  let fallas = 0;
+  console.log('\n[prueba] un carril que NO PUEDE correr late en error, no en verde\n');
+  for (const [que, r, esperado] of casos) {
+    const got = latidoDe(r).status;
+    const bien = got === esperado;
+    if (!bien) fallas++;
+    console.log(`  ${bien ? '✓' : '✗'} ${que} → ${got} (esperado ${esperado})`);
+  }
+  // ⛔ El defecto, explícito: si alguien quita el `fatal`, esto tiene que ponerse rojo.
+  if (latidoDe({ nota: 'CAOS sin credenciales' }).status !== 'ok') fallas++;
+  console.log('');
+  process.exit(fallas ? 1 : 0);
+}
+
 async function ciclo(c) {
   const adapter = adapterVivo();
   if (!adapter.isConfigured()) {
-    return { nota: 'CAOS sin credenciales (CAOS_USER/CAOS_PASS) — feed inactivo en este entorno', filas: 0, nuevos: 0 };
+    /**
+     * ⛔⛔ `[CGA-A.14]` **ESTO LATÍA EN VERDE, y por eso nadie vio 24 horas sin CAOS.**
+     *
+     * Hasta el 2026-10-16 este caso devolvía sólo `nota` y el lazo escribía
+     * `status: 'ok', rows: 0`. O sea que un carril que **no puede correr** —el pod arrancó sin
+     * `CAOS_USER`/`CAOS_PASS` porque el secreto `ingest-env` no las tenía— se publicaba como
+     * sano, con cero filas. Y «cero filas porque no hay credenciales» se ve **exactamente
+     * igual** que «cero filas porque hoy no hubo movimientos».
+     *
+     * ⭐ Es la violación directa de ADR-056: **lo que no se pudo medir se DECLARA, nunca se
+     * dibuja como verde.** Un latido verde no es una cortesía: es lo que mira el vigilante
+     * para decidir que no hay nada que arreglar.
+     *
+     * `fatal` lo marca para que el lazo escriba `status: 'error'` —el único de los tres
+     * estados que dice la verdad acá— y lo haga **sin acotar por tiempo**: una falla de
+     * configuración es el hecho que hay que ver, no ruido a espaciar.
+     */
+    return {
+      nota: 'CAOS sin credenciales (CAOS_USER/CAOS_PASS) — el feed NO puede correr en este entorno',
+      fatal: true, filas: 0, nuevos: 0,
+    };
   }
 
   const fromArg = argVal('from');
@@ -241,6 +439,9 @@ const WATCH_ARG = ARGS.find((a) => a === '--watch' || a.startsWith('--watch='));
 // `pg_notify` contra prod dejan de ser despreciables.
 const WATCH_SEG = WATCH_ARG ? Math.max(1, Number(WATCH_ARG.split('=')[1] || 60)) : 0;
 const HB_MIN_MS = Math.max(0, Number(process.env.CAOS_HB_SEG || 30)) * 1000;
+const CONTEO_MIN_MS = Math.max(30, Number(process.env.CAOS_CONTEO_SEG || 300)) * 1000;
+const KEY_CONTEO = 'caos_conteo';
+const ETIQUETA_CONTEO = 'CAOS — lectura del reporte Contenidos';
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
@@ -255,6 +456,37 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
   }
 
   let ultimoLatido = 0;
+
+  /**
+   * `[CGA-A.33]` La foto del contenido, con SU latido (`caos_conteo`). Separado a propósito: si
+   * el reporte «Contenidos» falla, el carril de movimientos sigue sano y lo tiene que decir — un
+   * latido compartido tiñe de rojo lo que sí está funcionando.
+   *
+   * Ritmo: después de cada ciclo con movimientos nuevos (es cuando el contenido cambia) y, si no
+   * pasó nada, cada `CAOS_CONTEO_SEG` (300 s) para CONFIRMAR que sigue igual. Una foto igual no se
+   * reescribe: sólo mueve `confirmed_at`.
+   */
+  let ultimoConteo = 0;
+  const conteo = async (hubo) => {
+    if (!hubo && Date.now() - ultimoConteo < CONTEO_MIN_MS) return;
+    ultimoConteo = Date.now();
+    await hb.begin(KEY_CONTEO, ETIQUETA_CONTEO).catch((e) => console.warn(`[latido] begin ${KEY_CONTEO}: ${e.message}`));
+    try {
+      const r = await capturarConteo(c);
+      if (r.nota) {
+        console.log(r.nota);
+        // «descartado porque entró un movimiento» es normal y se resuelve solo: late ok con nota.
+        await hb.end(KEY_CONTEO, latidoDe(r)).catch((x) => console.warn(`[latido] end ${KEY_CONTEO}: ${x.message}`));
+        return;
+      }
+      if (r.nueva) console.log(`CAOS conteo: foto nueva $${r.total} tras el movimiento #${r.wm}`);
+      await hb.end(KEY_CONTEO, { status: 'ok', rows: r.nueva ? 1 : 0 }).catch((x) => console.warn(`[latido] end ${KEY_CONTEO}: ${x.message}`));
+    } catch (e) {
+      console.error('conteo falló:', e.message);
+      await hb.end(KEY_CONTEO, { status: 'error', error: e.message }).catch((x) => console.warn(`[latido] end ${KEY_CONTEO}: ${x.message}`));
+    }
+  };
+
   /** Una pasada con su latido. Devuelve false sólo si hay que abortar el proceso entero. */
   const pasada = async () => {
     const debeLatir = (hubo) => hubo || Date.now() - ultimoLatido >= HB_MIN_MS;
@@ -263,7 +495,13 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
       const hubo = !r.nota && (r.nuevos + r.actualizados) > 0;
       if (r.nota) {
         console.log(r.nota);
-        if (debeLatir(false)) { ultimoLatido = Date.now(); await hb.begin(KEY, ETIQUETA).catch(() => {}); await hb.end(KEY, { status: 'ok', rows: 0, note: r.nota }).catch(() => {}); }
+        // `[CGA-A.14]` Un carril que NO PUEDE correr late en `error`, y late SIEMPRE: el
+        // acotado por tiempo es para el ruido, no para una falla de configuración.
+        if (r.fatal || debeLatir(false)) {
+          ultimoLatido = Date.now();
+          await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+          await hb.end(KEY, latidoDe(r)).catch((e) => console.warn(`[latido] end ${KEY}: ${e.message}`));
+        }
         return true;
       }
       // En modo demonio sólo se imprime cuando hay novedad: a 1 s, un renglón por ciclo son
@@ -273,16 +511,17 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
       }
       if (debeLatir(hubo)) {
         ultimoLatido = Date.now();
-        await hb.begin(KEY, ETIQUETA).catch(() => {});
-        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch(() => {});
+        await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch((x) => console.warn(`[latido] end ${KEY}: ${x.message}`));
       }
+      await conteo(hubo);
       return true;
     } catch (e) {
       console.error('falló:', e.message);
       // Una falla SIEMPRE late, sin importar el acotado: es el hecho que hay que ver.
       ultimoLatido = Date.now();
-      await hb.begin(KEY, ETIQUETA).catch(() => {});
-      await hb.end(KEY, { status: 'error', error: e.message }).catch(() => {});
+      await hb.begin(KEY, ETIQUETA).catch((e) => console.warn(`[latido] begin ${KEY}: ${e.message}`));
+      await hb.end(KEY, { status: 'error', error: e.message }).catch((x) => console.warn(`[latido] end ${KEY}: ${x.message}`));
       if (!WATCH_SEG) { process.exitCode = 1; return false; }
       // En demonio: la sesión del aparato puede haber caducado de una forma que el adapter no
       // detectó. Se tira y el próximo ciclo abre una nueva — 759 ms una vez, no por ciclo.

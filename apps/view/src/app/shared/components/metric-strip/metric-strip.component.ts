@@ -164,7 +164,11 @@ export interface MetricStripItem {
        distinguen por GLIFO + TEXTO, así que sobreviven a forced-colors (donde los
        fondos se fuerzan y la forma es lo único que queda) y a quien no distingue
        colores. El glifo es decorativo: el texto ya dice el estado. */
-    .ms-st { display:inline-flex; align-items:center; gap:.25rem; font-size:var(--fs-nano);
+    /* [CGA-LEG.3] --fs-nano son 10px y el propio tokens.css lo marca "ultimo recurso". Esta
+       pastilla dice la PROCEDENCIA del numero (medido / parcial / derivado / no medido), o sea
+       cuanto hay que confiar en el: es lo ultimo que debe costar leer. Sube al mismo 12px que
+       el rotulo. */
+    .ms-st { display:inline-flex; align-items:center; gap:.25rem; font-size:var(--fs-xs);
              font-weight:var(--fw-bold,700); letter-spacing:.04em; text-transform:uppercase;
              color:var(--text-muted); border:1px solid var(--border-color);
              border-radius:var(--r-sm); padding:0 .3rem; line-height:1.5; white-space:nowrap; }
@@ -174,7 +178,15 @@ export interface MetricStripItem {
                                  background:linear-gradient(90deg,currentColor 50%,transparent 50%); }
     .ms-st.st-derivado::before { border:none; width:0; height:0; border-left:.26rem solid transparent;
                                  border-right:.26rem solid transparent; border-bottom:.42rem solid currentColor; }
-    .ms-st.st-no_medido        { border-style:dashed; color:var(--text-faint); }
+    /* ⛔⛔ [CGA-LEG.5] "NO MEDIDO" ERA LO MENOS LEGIBLE, Y ESO INVIERTE ADR-056.
+       Medido el 2026-10-19: --text-faint da contraste 2.33 sobre el fondo vivo, la mitad del
+       minimo AA. O sea que la marca cuya unica razon de existir es AVISAR que un numero no se
+       pudo medir se publicaba mas tenue que el numero -- y una advertencia que no se lee es
+       indistinguible de no haberla puesto, que es exactamente el cero dibujado que el ADR
+       prohibe.
+       El borde punteado se queda: es la senal que NO depende del color y la que sobrevive en
+       Alto Contraste. Lo que cambia es que ahora ademas se lee. */
+    .ms-st.st-no_medido        { border-style:dashed; color:var(--text-muted); }
     .ms-st.st-no_medido::before{ border-radius:var(--r-pill,50%); background:transparent; }
 
     /* ── fila de métricas sin caja ── */
@@ -182,18 +194,43 @@ export interface MetricStripItem {
     .ms-item { display:flex; flex-direction:column; justify-content:center; gap:.2rem; padding:.15rem 1.4rem; position:relative; }
     .ms-item:first-child { padding-left:.15rem; }
     .ms-item:not(:first-child)::before { content:''; position:absolute; left:0; top:.3rem; bottom:.3rem; width:1px; background:var(--border-color); }
-    .ms-l { display:flex; align-items:center; gap:.4rem; font-size:.68rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
+    /* ⛔⛔ [CGA-LEG.1] ACA DECIA ".68rem", Y ESO NO EXISTE EN LA ESCALA. Medido el 2026-10-19
+       en Caja General: 10.88px, el rotulo de un KPI de encabezado. Un valor en rem clavado no
+       solo es mas chico que el piso -- INVENTA UN PELDANO: la pantalla llego a tener 23
+       combinaciones tamano/peso distintas, y con tantas ninguna se lee como mas importante.
+       La jerarquia la da el contraste entre POCOS niveles, no la cantidad de niveles.
+       --fs-xs es 12px, el peldano que el sistema ya tiene para metadatos.
+       ⚠️ Esto lo montan 107 pantallas. Medido el impacto antes de tocarlo: la tira crece 4px
+       de alto y NO desborda a lo ancho. */
+    .ms-l { display:flex; align-items:center; gap:.4rem; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
     .ms-row { display:flex; align-items:baseline; gap:.5rem; }
     .ms-v { font-family:var(--font-mono); font-size:1.55rem; font-weight:600; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text-main); }
     /* valores de texto (nombres/fechas): no mono, más chico, para que no griten. */
-    .ms-v.is-text { font-family:var(--font-body,inherit); font-size:1.05rem; font-weight:700; letter-spacing:-.01em; }
+    /* [CGA-LEG.8] 1.05rem = 16.8px, otro peldano inventado. --fs-h3 (16px) es el que el sistema
+       tiene para un titulo de panel y conserva la intencion del comentario de arriba: el valor de
+       TEXTO va mas chico que el numerico (24.8) para que no grite. */
+    .ms-v.is-text { font-family:var(--font-body,inherit); font-size:var(--fs-h3); font-weight:700; letter-spacing:-.01em; }
     .ms-item.tone-ok .ms-v { color:var(--ok-fg); }
     .ms-item.tone-warn .ms-v { color:var(--warn-fg); }
     .ms-item.tone-bad .ms-v { color:var(--bad-fg); }
     .ms-item.tone-brand .ms-v { color:var(--action); }
     /* El valor que no se pudo medir baja de peso, no desaparece: sigue leyendose. */
     .ms-item.tone-muted .ms-v { color:var(--text-muted); }
-    .ms-sub { font-size:.7rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+    /* ⛔⛔ [CGA-LEG.2] ESTA LINEA ERA LA MENOS LEGIBLE DE LA PANTALLA, Y ES LA QUE EXPLICA.
+       Medido el 2026-10-19 en Caja General: .7rem = 11.2px con --text-faint, contraste
+       REAL 2.33 sobre su fondo -- la mitad del minimo AA (4.5). Y lo que lleva es
+       justamente la instruccion:
+
+           "el resto necesita su cuenta declarada"
+           "se corrigen en Kepler, no aca"
+
+       O sea que quien no sabe que hacer es exactamente quien no puede leer la linea que se
+       lo dice. No es un detalle de estilo: es el texto que convierte un numero en una tarea.
+
+       --text-faint falla AA en las 4 superficies x 2 temas y vive en 112 archivos; retirarlo
+       del todo es decision de Edgar y queda como deuda. Lo que NO se negocia es que el texto
+       que INSTRUYE lo use. */
+    .ms-sub { font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
     /* delta multimodal */
     .ms-delta { font-family:var(--font-mono); font-size:.72rem; font-weight:600; color:var(--text-faint); }
     .ms-delta.up { color:var(--ok-fg); } .ms-delta.down { color:var(--bad-fg); }
@@ -248,7 +285,7 @@ export interface MetricStripItem {
     .ms--compact .ms-sub { order:3; font-size:var(--fs-micro); }
     .ms--compact .ms-v { font-size:var(--fs-lg); }
     /* móvil: grid 2 columnas con un divisor central por fila */
-    @media (max-width:35rem) {
+    @container (max-width:35rem) {
       .ms:not(.ms--composition) { display:grid; grid-template-columns:1fr 1fr; row-gap:.85rem; }
       .ms-item { padding:.1rem 1rem; }
       .ms-item:not(:first-child)::before { display:none; }

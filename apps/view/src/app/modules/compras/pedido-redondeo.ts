@@ -58,6 +58,22 @@ export function cajasYPiezas(cajas: number, uxc: number): { cj: number; pz: numb
 }
 
 /**
+ * `[RA-FIX.4]` **Cuántas piezas son esas cajas** — el total, sin partirlo en cj + pz.
+ *
+ * Es la conversión más chica que existe y por eso estaba escrita a mano en tres sitios (la
+ * columna «Piezas» del acuse y las dos exportaciones a XLSX). Tres copias de una multiplicación
+ * son tres lugares donde cambiar el criterio, y el criterio ya está acá: `uxc` es piezas por
+ * caja y la conversión vive con el resto del redondeo.
+ *
+ * ⚠️ **Arrastra el mismo comportamiento que tenían los tres sitios, a propósito**: sin `uxc`
+ * válido devuelve 0, no `null` ni un fallback a 1. Cambiarlo acá movería tres números de
+ * pantalla en un commit que sólo venía a unificar — y eso va aparte, medido.
+ */
+export function piezasDeCajas(cajas: number, uxc: number): number {
+  return (Number(cajas) || 0) * (Number(uxc) || 0);
+}
+
+/**
  * `[RA-PRO.52]` La misma cantidad, ya como texto: "6 cj 6 pz", "147 cj", "8 pz". Es lo que
  * imprimen el acuse de la pantalla y el PDF de requisición, para que nunca digan cosas distintas.
  * Sin factor de caja válido se muestra en cajas con un decimal, como antes.

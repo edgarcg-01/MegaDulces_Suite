@@ -14,6 +14,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, NavigationEnd, Router, RouterModule, UrlTree } from '@angular/router';
 import { MenuModule } from 'primeng/menu';
+import type { Menu } from 'primeng/menu';
 import type { MenuItem } from 'primeng/api';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs/operators';
@@ -38,8 +39,10 @@ import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
+import { CAJA_TABS } from '../../finanzas/caja-tabs';
+import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
-import { RUTA_DIRECTA_TABS } from '../../comercial/ruta-directa-tabs';
+import { RUTA_DIRECTA_TABS, RUTA_DIRECTA_LABEL } from '../../comercial/ruta-directa-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
 import { PRECIOS_TABS } from '../../comercial/precios-tabs';
@@ -241,7 +244,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
   });
 
   // ── Data Update / WS ──────────────────────────────────────────────
-  hasPendingUpdate = this.dataUpdateService.hasPendingUpdate;
   wsConnected = this.wsService.connected;
 
   // ── Router-aware signal — alimenta `currentPageTitle` y permite
@@ -288,11 +290,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    // `[MT.5]` El outlet `panel` vive en el nivel de ESTA ruta (el área), así que
-    // el servicio necesita esta `ActivatedRoute` para poder armar el enlace que
-    // abre algo al lado. Se registra acá y no en el servicio porque el servicio
-    // es de la app entera y no sabe en qué área está parado el usuario.
-    this.multitarea.registrarRutaDelArea(this.rutaDelArea);
+    // `[MT.5]` ⛔ Acá se registraba ESTA ruta (el área) como el nivel del outlet
+    // `panel`. Ya no: el outlet se mudó a la raíz y lo registra el shell. Si el
+    // layout siguiera registrando la suya, pisaría la del shell —el padre corre
+    // primero— y los enlaces al panel volverían a armarse un nivel adentro, que
+    // es exactamente lo que hacía que el split muriera al cambiar de área.
     // ⛔ La condición va acá y no dentro de `init()`: el servicio es `providedIn: 'root'` y lo
     // usan otros; el que sabe en qué pantalla está el usuario es la shell, no el servicio.
     if (this.tiempoRealAplica()) this.dataUpdateService.init();
@@ -304,7 +306,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // en qué rama se encendió. Encender condicional y apagar incondicional es el lado seguro.
     this.dataUpdateService.destroy();
     this.mobileMql?.removeEventListener('change', this.mobileMqlListener);
+    // `[MT.5]` Se apaga al salir: el panel vive en la raíz y sobrevive a este layout.
+    // Dejarlo prendido haría que el kiosco de un área se le pegara a la pantalla siguiente.
+    this.multitarea.declararKiosco(false);
   }
+
+  /**
+   * `[MT.5]` El kiosco lo deduce el layout —de cuántos items le quedan en el nav— y lo
+   * necesita el panel, que vive en la raíz y no ve esa cuenta. Se declara en vez de pasarse
+   * por input porque entre los dos ya no hay relación de padre a hijo.
+   */
+  private readonly declararKiosco = effect(() => this.multitarea.declararKiosco(this.isRestricted()));
 
   /**
    * `[SW.2]` El punto de «conectado en tiempo real» sólo se pinta donde hay tiempo real. Antes se
@@ -313,15 +325,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   readonly muestraTiempoReal = computed(() => this.tiempoRealAplica());
 
-  // ── Data Update Methods ────────────────────────────────────────────
-  /**
-   * El botón "refresh" del topbar marca el indicador de actualización como
-   * visto. No recarga datos: cada módulo se suscribe al WS y se actualiza
-   * por su cuenta.
-   */
-  dismissPendingUpdate(): void {
-    this.dataUpdateService.dismissUpdate();
-  }
+  // `[HF.1]` `dismissPendingUpdate()` se fue con su botón: sólo apagaba su propio
+  // indicador. El motivo completo está donde vivía el botón, en la plantilla.
 
   // ── Listeners ────────────────────────────────────────────────────
   /**
@@ -470,7 +475,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // equivocada dos veces: no son reportes, y no son siete cosas — son un sub-módulo,
         // la misma operación mirada por siete lados. La tira de arriba es la que mueve entre
         // ellas, y por eso cada una de esas pantallas la pinta.
-        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
+        // ⛔ [AUD-A5] Se llamaba «Ventas por ruta», que es el nombre de UNA de sus siete
+        // pestañas. Medido en prod el 2026-10-20: estando en `/comercial/comisiones` la migaja
+        // decía «Comercial / Ventas / **Ventas por ruta**» — porque `currentPageTitle()`
+        // resuelve por `isNavActive()` y devuelve la etiqueta del ítem, no la de la pestaña.
+        // O sea que el eslabón con `aria-current="page"` nombraba otra pantalla.
+        //
+        // ⭐ El arreglo no es parchear `currentPageTitle`: es que el ítem diga lo que agrupa.
+        // El propio archivo de las pestañas ya lo tenía escrito — «el sub-módulo **Ruta
+        // Directa**, que cuelgan de Ventas por ruta» y «ahora hay un nombre para el conjunto»—
+        // pero el conjunto se quedó con el nombre de su primera parte. La ruta NO cambia.
+        { label: RUTA_DIRECTA_LABEL, icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
       ],
     },
     {
@@ -681,12 +696,28 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Caja (captura)', icon: 'pi pi-pencil', route: '/finanzas/caja-general', permission: Permission.FINANCE_CAJA_VER },
-        // [IG.2] Faltaba en el sidebar: tenía pestaña desde CS.2 pero no entrada acá, así que se
-        // llegaba sólo escribiendo la URL. Lo destapó el candado nuevo de `finanzas-tabs.spec.ts`,
-        // que ahora recorre TODAS las pestañas en vez de nombrar tres rutas a mano.
-        { label: 'Caja Fuerte', icon: 'pi pi-lock', route: '/finanzas/caos', permission: Permission.FINANCE_CAOS_VER },
+        // `[CGA-A.38]` Era «Caja General», y ése es el nombre que el árbol de permisos le da al motor
+        // NUEVO (`/finanzas/caja-general`). Esta es el espejo del Access Control: movimientos hasta
+        // el 10-oct; desde el 12 la caja se opera en «Caja».
+        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        /**
+         * `[CG.121]` **UNA entrada para las tres pantallas del efectivo** (pedido de Edgar,
+         * 2026-10-19): Captura · Expediente · Caja Fuerte. Adentro se cambia con la barra de
+         * pestañas: `CAJA_TABS`, la MISMA lista que leen la barra y esta entrada.
+         *
+         * Eran dos renglones sueltos acá —«Caja (captura)» y «Caja Fuerte»— y el **Expediente
+         * no tenía ninguno**: se llegaba sólo escribiendo la URL. Es lo que `[IG.2]` ya había
+         * cobrado con Caja Fuerte, repetido en la pantalla de al lado.
+         *
+         * ⚠️ `route` queda como valor por omisión: `conDestino()` la reemplaza por la PRIMERA
+         * pestaña que la persona ve, así que quien sólo tiene `FINANCE_CAOS_VER` entra por Caja
+         * Fuerte y no rebota contra `/sin-acceso`.
+         *
+         * ⛔ NO se toca «Caja General» (`/finanzas/caja`), el renglón de arriba: es otra
+         * pantalla —la LECTURA del espejo del Access, de Tesorería— y se retira en `CG.16`.
+         * Nombres parecidos, circuitos distintos.
+         */
+        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
         { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
         { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
         /**
@@ -720,12 +751,21 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Pagos',
       items: [
-        { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
-        // [PP.1] Primero de la sección a propósito: es lo ÚNICO de Pagos que caduca. El resto
-        // sigue ahí mañana; el descuento por pronto pago no.
-        { label: 'Pronto pago', icon: 'pi pi-bolt', route: '/finanzas/pronto-pago', permission: Permission.FINANCE_PAYMENTS_VER },
-        { label: 'Calendario de pagos', icon: 'pi pi-calendar', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
-        { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
+        /**
+         * `[TP.20.3]` **UNA entrada para las cuatro pantallas del ciclo de pago** (objetivo O5).
+         *
+         * Eran cuatro renglones con nombres que se parecen —*Pagos a proveedor*, *Pronto pago*,
+         * *Calendario de pagos*, *Programa de pagos*— y que hacen cosas distintas: dos miran lo ya
+         * pagado, una el plazo que vence y una lo que se va a pagar. Juntarlas dice que son un
+         * ciclo, no cuatro reportes sueltos.
+         *
+         * Lleva a la **primera pestaña que la persona ve** y queda marcada en las cuatro. La lista
+         * es `PAGOS_TABS`, la MISMA que pinta la barra de arriba de cada pantalla.
+         *
+         * ⚠️ A diferencia de «Gastos» no hay shell de ruta: `/finanzas` sólo admite un padre con
+         * `path: ''` al final y ya lo ocupa el área Gastos. El porqué, en `pagos-tabs.ts`.
+         */
+        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/pronto-pago', tabs: PAGOS_TABS },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
         // [ECA.2] Junto a "Cuadre y deuda" (decisión de Francisco, 2026-10-07): el mismo tema
         // —cuánto se debe— visto documento por documento y para todos los tipos de acreedor.
@@ -1254,6 +1294,27 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * llega a las otras ventanas es una preferencia que miente.
    */
   readonly mtMenuOpen = signal(false);
+
+  /**
+   * `[MT.3]` Clic DERECHO sobre el botón = el menú de opciones.
+   *
+   * El par de botones del ratón se reparte como en cualquier cosa que se pueda
+   * abrir: **izquierdo hace lo de siempre** —abrir esta pantalla en otra
+   * pestaña, que es la acción y lo que la gente viene a hacer— y **derecho
+   * ofrece las opciones**, que es donde se elige el predeterminado para los
+   * detalles. Un menú de preferencias no debería cobrarse el clic principal.
+   *
+   * `preventDefault` no es ceremonia: sin él el navegador dibuja SU menú
+   * contextual encima del nuestro y el gesto hace dos cosas a la vez.
+   *
+   * ⭐ El teclado NO se queda afuera: `Shift+F10` y la tecla de menú emiten
+   * `contextmenu` de forma nativa, así que quien navega sin ratón llega al
+   * mismo sitio. Por eso el botón conserva su `aria-haspopup`.
+   */
+  abrirMenuConClicDerecho(ev: MouseEvent, menu?: Menu): void {
+    ev.preventDefault();
+    menu?.toggle(ev);
+  }
   readonly mtMenu = computed<MenuItem[]>(() => {
     const modo = this.multitarea.modo();
     /** El modo se dice con el ícono Y con la palabra: un check solo obliga a
@@ -1278,73 +1339,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     ];
   });
 
-  // ── `[MT.5]` Pantalla partida ──────────────────────────────────────────────
-  /** ¿Hay algo en el panel? Lo dice el propio outlet al activarse, no la URL. */
-  readonly panelAbierto = signal(false);
-
-  /** El camino que vive en el panel, leído de la URL (que es donde vive el split). */
-  private readonly panelUrl = computed<string | null>(() => {
-    const m = /panel:([^)]*)/.exec(this.currentUrl());
-    if (!m) return null;
-    const ruta = m[1].split('//')[0];
-    return ruta ? '/' + ruta : null;
-  });
-
-  readonly panelTitulo = computed(() => {
-    const u = this.panelUrl();
-    if (!u) return '';
-    return resolveProjectForUrl(u)?.label ?? u;
-  });
-
-  /**
-   * `[MT.5]` Los 47 que se declaran en vez de bloquearse.
-   *
-   * `dashboard` (28 rutas) y `tienda` (19) comparten estado de PANTALLA entre
-   * sus páginas — `FiltersStateService`, `TiendaStateService` y
-   * `AnalisisStateService` son `providedIn: 'root'`, o sea uno solo para toda
-   * la app. Dos paneles de la MISMA familia se pisan los filtros.
-   *
-   * Se avisa en vez de impedirlo: comparar dos reportes es un caso legítimo, y
-   * el que lo abre tiene que saber qué está viendo. Medido: 47 de 225 rutas, y
-   * sólo cuando los dos lados caen en la misma familia — los cruces que
-   * motivaron la pantalla partida (cartera|documento, existencia|pedido) no
-   * están afectados.
-   */
-  private static readonly FAMILIAS_QUE_COMPARTEN_ESTADO = ['dashboard', 'tienda'];
-  readonly panelMismaFamilia = computed(() => {
-    const p = this.panelUrl();
-    if (!p) return false;
-    const areaPanel = p.split('/')[1] ?? '';
-    const areaPrimaria = (this.currentUrl().split('/')[1] ?? '').split('(')[0];
-    return areaPanel === areaPrimaria && LayoutComponent.FAMILIAS_QUE_COMPARTEN_ESTADO.includes(areaPanel);
-  });
-
-  /** Vaciar el outlet del panel, sin tocar lo de la izquierda. */
-  readonly enlaceCerrarPanel = computed(() => [{ outlets: { panel: null } }]);
-  /**
-   * Llevar lo del panel a pantalla completa.
-   *
-   * ⚠️ Un camino absoluto NO alcanza, y esto se midió: `createUrlTree` conserva
-   * los outlets que los comandos no nombran, así que `/finanzas/bancos` daba
-   * `/compras/(finanzas/bancos//panel:finanzas/bancos)` — la misma pantalla dos
-   * veces y el split intacto. Un `UrlTree` parseado del camino es el árbol
-   * COMPLETO, sin outlets heredados: es la única forma de que maximizar deshaga
-   * la partición.
-   */
-  readonly enlacePanelACompleto = computed<UrlTree | string>(() => {
-    const u = this.panelUrl();
-    return u ? this.router.parseUrl(u) : '.';
-  });
-
-  /**
-   * En kiosco o en móvil no hay ancho que partir. El CSS ya lo esconde, pero
-   * esconder no es cerrar: el componente del panel seguiría vivo consultando.
-   */
-  private readonly cerrarPanelDondeNoCabe = effect(() => {
-    if (!this.panelAbierto()) return;
-    if (!this.isMobile() && !this.isRestricted()) return;
-    void this.router.navigate([{ outlets: { panel: null } }], { relativeTo: this.rutaDelArea });
-  });
+  // ── [MT.5] Pantalla partida ────────────────────────────────────────────────
+  // El panel se fue entero a core/panel/panel-lateral.component.ts para que lo
+  // comparta el shell de «Mi trabajo». El layout sólo le pasa el kiosco.
 
   userMenu = computed<MenuItem[]>(() => {
     const isDark = this.themeService.isMonochrome();
