@@ -555,7 +555,8 @@ export class CommercialCommissionsService {
           .whereNull('deleted_at')
           .select<Bonus[]>('beneficiario', 'nombre', 'metrica', 'comparador', 'umbral', 'monto',
             'route_code', 'gate_venta_min'),
-        this.universo(trx, tenantId),
+        // `[RD.84.0]` El padron VIGENTE en la quincena, no el de hoy.
+        this.universo(trx, tenantId, from, to),
         this.ventaPorRuta(trx, tenantId, from, to),
         this.deducciones(trx, scale.id, to),
         this.frescura(trx, tenantId),
@@ -784,12 +785,54 @@ export class CommercialCommissionsService {
   }
 
   /** El universo DERIVADO. `analytics.*` no lleva RLS -> filtro de tenant explicito. */
-  private async universo(trx: any, tenantId: string): Promise<RutaUniverso[]> {
+  /**
+   * `[RD.84.0]` El universo **vigente en el periodo**, no el de hoy.
+   *
+   * ⛔ **El defecto que esto cierra, medido contra prod el 2026-10-20.** La vista resuelve
+   * `comisiona = (está en config AND activo)` — **sin fecha** — y este método la consumía sin
+   * pasarle el periodo. Con la baja de las rutas 321/322 ya aplicada (`activo_hasta =
+   * 2026-07-15`), recalcular las quincenas en que SÍ eran Ruta Directa daba:
+   *
+   *     el libro les pagó ........ 14 quincenas, $19,096.84
+   *     el motor, hoy ............                   $0.00
+   *
+   * O sea: **una baja correcta reescribía la historia**. Y `recalculate-from` es el único
+   * camino que el módulo tiene para escribir, así que no era hipotético.
+   *
+   * ⭐ **La regla vive acá y no en la vista**, a propósito: una vista no toma parámetros, y
+   * congelarle una fecha adentro la volvería mentira para los otros ocho consumidores — que
+   * preguntan por el universo **de hoy**, que es lo correcto para ellos.
+   *
+   * ⚠️ `activo = false` **sin** `activo_hasta` no comisiona en ningún periodo: una baja sin
+   * fecha es una baja de la que no sabemos desde cuándo, y pagar sobre un «no sabemos» es lo
+   * que ADR-056 prohíbe. Es además el comportamiento que ya había.
+   */
+  private async universo(
+    trx: any, tenantId: string, from: string, to: string,
+  ): Promise<RutaUniverso[]> {
     const { rows } = await trx.raw(
-      `SELECT route_code, comisiona, veredicto, route_kind, plaza_o_zona,
-              nomina_banco, chofer_nombre, supervisor_nombre
-         FROM analytics.v_rd_commission_universe
-        WHERE tenant_id = ? ORDER BY route_code`, [tenantId]);
+      `SELECT u.route_code, u.route_kind, u.plaza_o_zona,
+              u.nomina_banco, u.chofer_nombre, u.supervisor_nombre,
+              v.vigente AS comisiona,
+              -- El veredicto sigue a la vigencia DEL PERIODO. Sin esto, la 321 saldría
+              -- 'config_inactiva' en una quincena que sí comisionó, y la pantalla publicaría
+              -- un motivo de exclusión para una línea que SÍ paga.
+              CASE WHEN v.vigente THEN 'comisiona'
+                   WHEN u.veredicto = 'comisiona' THEN 'config_inactiva'
+                   ELSE u.veredicto END AS veredicto
+         FROM analytics.v_rd_commission_universe u
+         LEFT JOIN commercial.commission_route_config c
+                ON c.tenant_id = u.tenant_id
+               AND c.route_code = u.route_code
+               AND c.deleted_at IS NULL
+         CROSS JOIN LATERAL (
+           SELECT (c.route_code IS NOT NULL
+                   AND (c.activo_desde IS NULL OR c.activo_desde <= ?::date)
+                   AND (c.activo
+                        OR (c.activo_hasta IS NOT NULL AND c.activo_hasta >= ?::date))
+                  ) AS vigente
+         ) v
+        WHERE u.tenant_id = ? ORDER BY u.route_code`, [to, from, tenantId]);
     return rows as RutaUniverso[];
   }
 

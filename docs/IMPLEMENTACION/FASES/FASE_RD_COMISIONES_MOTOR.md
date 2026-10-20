@@ -588,6 +588,31 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 
 #### C2 — Los insumos entran aquí (el corazón del pedido)
 
+- **`[RD.84.0]` 🧪 ⛔⛔ El padrón se lee A LA FECHA DEL PERIODO — prerequisito del resto.**
+  Medido el 2026-10-20: `v_rd_commission_universe` resuelve `comisiona = (en config AND activo)`
+  **sin ninguna fecha**, y el motor la consumía sin pasarle el periodo. Con la baja de las rutas
+  321/322 ya aplicada, recalcular las quincenas en que sí eran Ruta Directa daba:
+
+  | | |
+  |---|---:|
+  | el libro les pagó, 14 quincenas | **$19,096.84** |
+  | el motor, al recalcularlas hoy | **$0.00** |
+
+  ⭐⭐ **Una baja correcta reescribía la historia**, y por el único camino que el módulo tiene
+  para escribir (`recalculate-from`). Va **antes** de `[RD.84]`: darle el botón a Comercial sin
+  esto es repartir la trampa — cada baja hecha desde la pantalla borraría lo ya pagado en el
+  siguiente recálculo.
+  - Migración `20261020140919`: agrega **`activo_desde`** (la mitad que faltaba del par; sin
+    ella un alta de hoy comisionaría la quincena 1). Aditiva, `NULL` = «desde siempre», **no
+    cambia un solo resultado por sí sola**.
+  - La regla vive en el motor (`universo(trx, tenantId, from, to)`), **no en la vista**: una
+    vista no toma parámetros y los otros ocho consumidores preguntan por el universo **de hoy**,
+    que es lo correcto para ellos.
+  - Candado `test-newdb-rd-padron-vigencia.js`, con **prueba negativa**: la regla vieja tiene que
+    equivocarse sobre estos mismos datos. Verificado contra prod — Q14 `vigente` ✓ / Q15 ✗.
+  - ⚠️ Una baja **a mitad de quincena** paga la quincena entera: el tabulador no se prorratea sin
+    inventar un escalón. `[RD.84]` tiene que avisarlo y proponer el cierre del periodo.
+
 - **`[RD.84]` El padrón se administra en la pantalla.** Alta, baja y edición de una ruta, con
   `activo_hasta`, **motivo obligatorio** y bitácora de quién lo cambió. Las columnas ya existen
   (batch 968); falta el endpoint y la pantalla.
