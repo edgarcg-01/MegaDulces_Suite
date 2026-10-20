@@ -961,3 +961,142 @@ y en el mismo día; `A.25` es su causa pero depende de una decisión que no me t
 no mueven dinero.
 
 ---
+
+## 11. ⭐⭐ PLAN MAESTRO — un objetivo por sesión (Edgar, 2026-10-20)
+
+> *«Necesito que avancemos más rápido. Te reporto los problemas para que los subdividamos en
+> tareas. Genera un plan maestro donde le asignemos una tarea u objetivo a cada sesión. Tu
+> objetivo ahora es ser el auditor.»*
+>
+> Edgar reparte las tareas; esta sesión **audita y no implementa**. El reparto nace de tres
+> problemas que él reportó —la caja trabada, el saldo que debe existir en CAOS y en caja real, y
+> qué movimientos faltan contra Control— más lo que la auditoría del mismo día ya había medido
+> (§10.13).
+
+### 11.0 La línea base, medida el 2026-10-20 contra prod (sólo lectura)
+
+| Hecho | Cifra |
+|---|---|
+| Cortes cerrados / autorizados | **7 / 0** |
+| Jornadas sin corte, eje canónico `created_at` (`[CGP-L.12]`) | **0** ⬅ el bloqueo **no** es éste |
+| Cortes con `esperado` negativo | **4 de 7**, hasta −$149,915.32 |
+| Movimientos `tipo='deposito'` | **0 de 250**, en toda la vida del módulo |
+| Movimientos sin vínculo (`origen_tipo IS NULL`) | **15 · $380,449.10** |
+| CAOS, último movimiento | 2026-10-19 18:03 |
+| Caja real, último conteo sellado | **$88,272.50** (`CC-2026-00007`, 19-oct) |
+| Control (`analytics.caja_general_movimientos`), oct-2026 | **567** movimientos, contra **250** en todo el libro nuevo |
+
+### 11.1 `[CGA-A.32]` · S1 — Destrabar la caja ⛔ **hoy, antes que nada**
+
+**Objetivo:** que Carmen pueda capturar hoy.
+
+⛔ **Primero reproducir, no suponer.** El reporte dice *«ya no se puede usar la caja si no hubo un
+corte ayer»*, pero **el bloqueo no se explica desde los datos**: las jornadas sin corte por el eje
+canónico son **0** y no hay ningún borrador abierto. Las dos consultas que lo buscaban volvieron
+vacías.
+
+**Entregable:** el **mensaje literal** que ve Carmen y el `archivo:línea` que lo emite. A descartar
+en orden: `puedeAbrirCorte` (`fecha_invalida` · `fecha_futura` · `ya_existe` · `hay_posterior`), el
+candado de un-solo-borrador-por-sucursal, y `gateCierre` en la pantalla.
+
+**DoD:** el motivo nombrado con su línea **más** la condición de prod que lo dispara.
+⛔ **Si resulta ser `hay_posterior`, no se toca:** choca de frente con la decisión abierta
+`[CGP-0.6]` (capturar días anteriores al primer corte) y es de Edgar.
+
+⚠️ **El error que esta sesión cometió y hay que no repetir:** medí las jornadas pendientes con
+`cash_ledger.fecha` y la definición canónica es `created_at` — *el día en que se movió el
+efectivo*. Los dos ejes dan dos respuestas distintas y **una es falsa**: por `fecha` salían 5
+jornadas pendientes, por `created_at` salen **0**.
+
+### 11.2 `[CGA-A.33]` · S2 — El saldo de CAOS ⛔ **no es una resta de dos piernas**
+
+**Objetivo:** el saldo que **debe** existir en la máquina, defendible.
+
+La resta de dos piernas da **$570,800.00** (depositado $19,320,360.00 − dispensado
+$18,749,560.00). ⛔ **No se publica: está incompleta.** Hay cuatro tipos de movimiento más, sin
+clasificar, que suman mucho más que el supuesto saldo:
+
+```
+Vaciar Stocks          $2,915,150.00     13 movimientos
+Dotar                  $1,701,890.00     16
+Fin de Dia               $279,110.00      1
+Contenido Modificado     −$25,420.00      3
+```
+
+**Entregable:** qué `type_label` **suma, resta o es neutro**, contrastado contra un **arqueo físico
+de la máquina** — no contra sí mismo. Es la regla 10 del proyecto: probar la unidad y contrastar
+contra un hecho independiente.
+
+**DoD:** el saldo con su fecha de corte **más** el arqueo que lo confirma. Sin arqueo se reporta
+`NO MEDIDO` (ADR-056), nunca un número redondo que parezca una respuesta.
+
+### 11.3 `[CGA-A.34]` · S3 — Cuadrar caja real contra CAOS
+
+**Objetivo:** cerrar la ecuación de `[CGA-A.24]` — `lo que contó la MÁQUINA + lo que quedó en el
+CAJÓN = lo que dice KEPLER`.
+
+Arranca con el cajón en **$88,272.50** (19-oct) más lo que entregue S2.
+
+⛔ **Depende de S2 y no se adelanta.** Sin saldo de máquina defendible esto no cierra, y la
+tentación exacta es rellenarlo con la resta de dos piernas que S2 ya declaró incompleta.
+
+**DoD:** la ecuación al centavo, o la brecha **con monto y con nombre**.
+
+### 11.4 `[CGA-A.35]` · S4 — Qué falta ingresar, contra Control
+
+**Objetivo:** los movimientos que están en `/finanzas/caja` (el espejo del Access `Control`) y no
+en el libro nuevo.
+
+⚠️ **La trampa que ya frenó a esta sesión:** `analytics.caja_general_movimientos` **no tiene
+columna `importe`** — tiene `ingreso`, `gasto`, `deposito` y `efectivo` por separado. La consulta
+murió ahí. Hay que resolver cómo se arma el importe **antes** de comparar nada.
+
+**DoD:** lista con folio, fecha, importe y **por qué falta cada uno**. Todo cruce por importe lleva
+**control placebo** obligatorio (§11.5).
+
+### 11.5 `[CGA-A.31]` · S5 — Aplicar la migración, que ya está escrita y verificada
+
+**Objetivo:** que los 15 desvinculados queden con vínculo o con declaración.
+
+Hecho: **11 vínculos** (6 gastos de Kepler + 5 cobros de ruta) y **4 declarados**. Las **tres
+guardas pasaron contra prod real** — el ensayo en transacción revertida llegó hasta la primera
+escritura y murió con `cannot execute UPDATE in a read-only transaction`, porque la credencial de
+esta sesión es el rol `dev_ro`.
+
+**Falta:** commitear, empujar y aplicar con `apply-one-migration-prod.js`.
+⛔ **Sólo hace `UPDATE`**, así que la compuerta del despliegue la clasifica `NO_MEDIDO` y **frena
+al equipo entero** hasta que alguien la aplique a mano: **va antes de mergear**.
+
+⭐⭐ **Dos lecciones que esta migración ya dejó pagadas, y que S4 hereda:**
+
+1. **La prosa miente.** `CG-2026-00028` nombra `X-D-26 0023047` en su glosa; ese documento
+   **existe y es de $1,250.00**, no de $10,490.00. Creerle habría amarrado un movimiento a un
+   documento ocho veces menor. Es la causa raíz §10.2 atrapada en vivo.
+2. **`v_caja_movimientos_pendientes` tiene DOS ramas** unidas por `UNION ALL`. Esta sesión buscó
+   en una (`mv_caja_movimientos`), declaró **8 movimientos «inexistentes en Kepler»** y **5 sí
+   existían** en `analytics.route_collections`, con almacén **compuesto** (`01-001`, `06-003`), no
+   un código de dos dígitos. **$106,602.00 de falsos negativos.** Lo delató que Carmen ya había
+   declarado tres de ellos en `declared_doc_ref`: **la persona que capturó sabía más que la
+   consulta.**
+
+### 11.6 `[CGA-A.25]` · S6 — La pierna del depósito ⏸️ **en pausa por decisión de Edgar**
+
+Es la causa de fondo del `esperado` negativo (§10.13). No se abre hasta que se responda **`D7`**
+(§7): por dónde entra un depósito al banco.
+
+### 11.7 El rol de auditor — qué se verifica y qué se rechaza
+
+Esta sesión **no escribe el código de A.32–A.35**. De cada entregable comprueba cuatro cosas:
+
+1. **El universo, no sólo el número** — cuántas filas de cuántas, y qué quedó fuera.
+2. **El control placebo en todo cruce por importe.** Hoy salvó la migración: en CAOS con ±$99 los
+   importes **inventados** casaron **5/8** contra **3/8** de los reales, mientras que en Kepler con
+   importe exacto los reales casaron **5/6** y los inventados **0/6**. Un cruce sin placebo no se
+   acepta aunque la aritmética cierre.
+3. **La dirección y la unidad** — que el signo y el eje sean los que el texto dice que son (es
+   justo lo que falló con `fecha` contra `created_at`).
+4. **Que lo no medido se declare**, nunca como cero ni como verde.
+
+⛔ Se rechaza un entregable que traiga una cifra sin su medición, **por plausible que suene**.
+
+---
