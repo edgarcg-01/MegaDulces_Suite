@@ -3027,9 +3027,35 @@ export class CashLedgerService {
        * a la máquina y $63.00 al cajón** — publicar el total como «entró a caja general»
        * sobredeclaraba ese renglón en un 99.7 %.
        */
+      /**
+       * ⛔⛔ `[CG.127]` **EL LISTADO BAJABA LAS FIRMAS, Y SON EL 98.8 % DEL PESO.**
+       *
+       * Era `select('*')`, así que cada fila traía `firma_png` —un PNG en base64— y **la tabla
+       * no pinta ninguna**. Medido contra prod el 2026-10-20, periodo 01→19 oct:
+       *
+       *     248 filas · 39 con firma · firmas 1,386 kB · texto 17 kB · 5,723 bytes/fila
+       *
+       * O sea que traer el periodo entero costaba ~1.4 MB de los cuales 1.386 MB no se usan.
+       * Eso es lo que hacía caro subir el tope, y por lo tanto lo que mantenía la lista topada
+       * en 100 con 148 filas invisibles.
+       *
+       * ⭐ **Nadie la leía de acá.** Recorridos los consumidores antes de sacarla: el único es
+       * esta pantalla, y su botón de reimprimir pide el detalle aparte (`svc.detalle(id)`), que
+       * sí la trae. `firma_estado` y `firma_nombre` se quedan — el desplegable los muestra.
+       *
+       * ⚠️ La lista es EXPLÍCITA a propósito: con `select('*')` una columna nueva y pesada vuelve
+       * a entrar sola el día que alguien la agregue, sin que nadie lo decida.
+       */
       const rows = await base()
         .select(
-          '*',
+          'id', 'folio', 'tipo', 'fecha', 'hora', 'sucursal', 'centro_costo',
+          'kepler_cuenta', 'kepler_concepto', 'kepler_cuenta_nombre', 'kepler_concepto_nombre',
+          'glosa', 'beneficiario', 'beneficiario_rfc', 'monto', 'morralla', 'venta_credito',
+          'origen_tipo', 'origen_ref', 'origen_uuid', 'declared_doc_ref', 'sin_documento_motivo',
+          'autofill', 'estado', 'corte_id',
+          'firma_estado', 'firma_nombre', 'firma_at',
+          'cancel_reason', 'cancelled_by_username', 'cancelled_at',
+          'created_by', 'created_by_username', 'created_at', 'updated_at',
           trx.raw(`COALESCE((SELECT r.en_boveda FROM analytics.v_caja_reparto_movimiento r
                               WHERE r.cash_ledger_id = finance.cash_ledger.id), 0) AS en_boveda`),
           trx.raw(`COALESCE((SELECT r.en_cajon FROM analytics.v_caja_reparto_movimiento r
