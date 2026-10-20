@@ -37,6 +37,76 @@ const TECHO = 75;
 const RAICES = ['apps'];
 const hallazgos = [];
 
+/**
+ * ── Prueba negativa ──────────────────────────────────────────────────────────────────────────
+ *
+ * ⛔ Esta compuerta vivio sin una, y por eso conto 103 emojis que nadie ve. El caso 3 es el que
+ * faltaba: una linea de CONTINUACION de un comentario HTML.
+ *
+ *   node scripts/check-no-emoji-ui.js --self-test
+ */
+function selfTest() {
+  const casos = [
+    { nombre: 'emoji en texto visible -> DEBE contarlo', esperado: 1,
+      src: '<p>⚠️ cuidado</p>' },
+    { nombre: 'emoji en comentario de UNA linea -> NO debe contarlo', esperado: 0,
+      src: '<!-- ⚠️ esto no se ve -->' },
+    { nombre: 'emoji en linea de CONTINUACION de comentario -> NO debe contarlo', esperado: 0,
+      src: '<!-- nota larga\n     ⛔ sigue el comentario\n     y aca cierra -->' },
+    { nombre: 'texto real DESPUES de cerrar el comentario -> SI debe contarlo', esperado: 1,
+      src: '<!-- nota\n     sigue --> <b>⛔ esto si se ve</b>' },
+  ];
+
+  let fallas = 0;
+  for (const c of casos) {
+    const estado = { abierto: false };
+    let n = 0;
+    for (const l of c.src.split('\n')) {
+      if (/^\s*(\/\/|\*)/.test(l)) continue;
+      const m = soloVisible(l, estado).match(EMOJI);
+      if (m) n += m.filter((e) => !TIPOGRAFICAS.has(e)).length;
+    }
+    const ok = n === c.esperado;
+    if (!ok) fallas++;
+    console.log(`   ${ok ? 'ok  ' : 'FALLA'} ${c.nombre}  (esperado ${c.esperado}, dio ${n})`);
+  }
+
+  if (fallas) {
+    console.error(`\n✖ self-test: ${fallas} caso(s) fallaron — la compuerta no sirve.`);
+    process.exit(1);
+  }
+  console.log('\n✓ self-test: cuenta lo que se ve y deja pasar lo comentado.');
+  process.exit(0);
+}
+
+/**
+ * Devuelve lo que de la linea SE RENDERIZA, quitando los tramos dentro de `<!-- -->`.
+ *
+ * `estado.abierto` viaja entre lineas: un comentario HTML abarca varias, y mirar cada linea
+ * sola es justo lo que producia los 103 falsos positivos. Una misma linea puede cerrar un
+ * comentario y seguir con texto real (`--> <b>hola</b>`), asi que se recorre por tramos en vez
+ * de decidir con un solo `test()`.
+ */
+function soloVisible(linea, estado) {
+  let fuera = '';
+  let i = 0;
+  while (i < linea.length) {
+    if (!estado.abierto) {
+      const abre = linea.indexOf('<!--', i);
+      if (abre < 0) { fuera += linea.slice(i); break; }
+      fuera += linea.slice(i, abre);
+      i = abre + 4;
+      estado.abierto = true;
+    } else {
+      const cierra = linea.indexOf('-->', i);
+      if (cierra < 0) break;            // el comentario sigue en la linea siguiente
+      i = cierra + 3;
+      estado.abierto = false;
+    }
+  }
+  return fuera;
+}
+
 function recorrer(dir) {
   for (const f of fs.readdirSync(dir)) {
     const p = path.join(dir, f);
@@ -63,11 +133,22 @@ function recorrer(dir) {
 
     for (const t of tramos) {
       let linea = src.slice(0, t.desde).split('\n').length;
+      const estado = { abierto: false };
       for (const l of t.texto.split('\n')) {
         linea++;
-        // Comentario: no se renderiza.
-        if (!/^\s*(<!--|\/\/|\*)/.test(l)) {
-          const m = l.match(EMOJI);
+        // ⛔ Antes acá bastaba con `/^\s*(<!--|\/\/|\*)/`, que saltea la linea que ABRE el
+        // comentario y cuenta todas las de CONTINUACION como si se renderizaran.
+        //
+        // Medido el 2026-10-20: de los 165 que reportaba, **103 eran falsos positivos** por eso.
+        // Los emojis que de verdad llegan a la pantalla son 62 — por DEBAJO del techo de 75.
+        // O sea que el trinquete llevaba tiempo bloqueando pushes por un defecto propio, y el
+        // trabajo que parecia pedir («sacar 90 emojis de la UI») no existia.
+        //
+        // ⚠️ Un gate que grita en falso ensena a ignorarlo y empuja al `--no-verify`: es peor
+        // que no tenerlo. Ahora se sigue el estado del comentario y se mira SOLO lo visible.
+        const visible = soloVisible(l, estado);
+        if (!/^\s*(\/\/|\*)/.test(l)) {
+          const m = visible.match(EMOJI);
           if (m) {
             const reales = m.filter((e) => !TIPOGRAFICAS.has(e));
             for (const e of reales) {
@@ -79,6 +160,8 @@ function recorrer(dir) {
     }
   }
 }
+
+if (process.argv.includes('--self-test')) selfTest();
 
 for (const r of RAICES) if (fs.existsSync(r)) recorrer(r);
 

@@ -17,7 +17,7 @@ import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key'
  */
 
 const n = (v: any) => Number(v) || 0;
-const normKey = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+const normKey = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 
 /**
  * CB.46 — Cuántos meses separan la fecha del movimiento del periodo de SU estado de cuenta.
@@ -119,7 +119,7 @@ export function compileRules(rules: ClassifyRuleRow[]): CompiledRule[] {
     .map((r) => ({ reType: safe(r.match_type), reCode: safe(r.match_code), reConcept: safe(r.match_concept), category: r.category_code }));
 }
 
-export function classifyWith(compiled: CompiledRule[], M: any, C: any, concept: any): string {
+export function classifyWith(compiled: CompiledRule[], M: unknown, C: unknown, concept: unknown): string {
   const m = normKey(M), c = normKey(C), t = normKey(concept);
   for (const r of compiled) {
     if (r.reType && !r.reType.test(m)) continue;

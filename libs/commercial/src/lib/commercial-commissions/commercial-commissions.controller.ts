@@ -5,7 +5,7 @@ import { CommercialCommissionsService, type SimulacionEscala } from './commercia
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
 import {
-  CommissionPadronService, type PadronFila, type AltaRuta, type EditarRuta,
+  CommissionPadronService, type PadronFila, type AltaRuta, type EditarRuta, type AvisoPagadas,
 } from './commission-padron.service';
 import {
   CommissionBonosService, type BonoFila, type AltaBono, type EditarBono,
@@ -253,7 +253,7 @@ export class CommercialCommissionsController {
       + 'PAGADA devuelve 409 nombrando cuales y por cuanto: se repite con `confirmar: true` '
       + 'cuando esa correccion es justamente la intencion.',
   })
-  editarRuta(@Param('id') id: string, @Body() body: EditarRuta) {
+  editarRuta(@Param('id') id: string, @Body() body: EditarRuta): Promise<{ fila: PadronFila; aviso: AvisoPagadas | null }> {
     return this.padronSvc.editar(id, body);
   }
 

@@ -60,6 +60,18 @@ export interface ParCasado<T extends MovCuadre> {
   candidatos: number;
   /** `candidatos > 1`: pudo haber casado con otro. La pantalla tiene que poder decirlo. */
   ambiguo: boolean;
+  /**
+   * `[CGA-A.39]` El par salió de la **LLAVE** del libro, no de un parecido de importe.
+   *
+   * ⭐ No es lo mismo y la pantalla no puede mostrarlos igual: un casamiento por importe es una
+   * conjetura con tolerancia; uno por llave es el mismo documento. Lo pone
+   * `caja-kepler-libro.engine.ts` al armar los pares por identidad.
+   *
+   * ⚠️ **Opcional a propósito**: los pares que vienen del casamiento por importe lo dejan sin
+   * poner, y su prueba exige justamente eso (`expect(r.pares[0].identidad).toBeUndefined()`).
+   * `undefined` aquí significa «casó por importe», no «no se midió».
+   */
+  identidad?: boolean;
 }
 
 export interface ResultadoCuadre<T extends MovCuadre> {

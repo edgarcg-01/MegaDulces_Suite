@@ -2,7 +2,7 @@ import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-core';
-import { HEALTH_NOTIFIER_PORT, HealthNotifierPort } from '@megadulces/contracts';
+import { HEALTH_NOTIFIER_PORT, type HealthNotifierPort } from '@megadulces/contracts';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
@@ -53,6 +53,9 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
  * que una persona lo apruebe —`setStatus` lo exige— así que el alcance de un error acá es *«hay
  * una corrida de más para revisar»*, nunca *«se depositó algo»*.
  */
+/** `[RD.87]` Una ruta que no se puede calcular porque su fuente no esta viva. */
+interface RutaRezagada { route_code: string; fuente_estado: string; dias_sin_dato: number | null }
+
 @Injectable()
 export class CommissionAutoRunService {
   private readonly logger = new Logger(CommissionAutoRunService.name);
@@ -122,7 +125,7 @@ export class CommissionAutoRunService {
 
       if (rezagadas.length) {
         const detalle = rezagadas
-          .map((r: any) => `${r.route_code} (${r.fuente_estado}`
+          .map((r: RutaRezagada) => `${r.route_code} (${r.fuente_estado}`
             + `${r.dias_sin_dato == null ? '' : `, ${r.dias_sin_dato} d`})`)
           .join(', ');
         this.logger.warn(
@@ -132,7 +135,7 @@ export class CommissionAutoRunService {
           period_id: p.id, anio: p.anio, period_no: p.period_no,
           estado: 'esperando_fuente',
           detalle: `${rezagadas.length} ruta(s) sin fuente viva: ${detalle}`,
-          rutas: rezagadas.map((r: any) => r.route_code),
+          rutas: rezagadas.map((r: RutaRezagada) => r.route_code),
         });
         // ⭐ El aviso es RARO por diseño. Una quincena que cierra el lunes y espera el martes es
         // normal; una que lleva tres días esperando es una ruta que dejó de reportar, y eso lo
@@ -155,7 +158,7 @@ export class CommissionAutoRunService {
           () => this.commissions.computeRun(p.id),
         );
         this.logger.log(
-          `[RD.87] Q${p.period_no}/${p.anio} calculada en BORRADOR (${(run as any)?.id ?? '?'}) `
+          `[RD.87] Q${p.period_no}/${p.anio} calculada en BORRADOR (${(run as { id?: string } | null)?.id ?? '?'}) `
           + `por ${source}. No se aprueba ni se paga sola.`);
         resultados.push({
           period_id: p.id, anio: p.anio, period_no: p.period_no,
