@@ -3,6 +3,16 @@ import type { Knex } from 'knex';
 import {
   CONTPAQI_POLIZA_SINK_PORT, type ContpaqiPolizaSinkPort,
 } from '@megadulces/contracts';
+import { AlcanceTenant } from './alcance-tenant';
+import { compararArchivo, filasDeEntrega, huellaArchivo, type LoteArchivo } from './entrega';
+
+/**
+ * `[CP.8.52]` La entrega se niega con un motivo que quien marca tiene que leer (archivo distinto,
+ * sin autor). El controlador la traduce a 409/400; cualquier otro error es nuestro.
+ */
+export class EntregaRechazada extends Error {
+  readonly code = 'entrega_rechazada';
+}
 import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
 } from './poliza-egreso';
@@ -133,9 +143,25 @@ export class ContpaqiArmadoService {
   private readonly log = new Logger(ContpaqiArmadoService.name);
 
   constructor(
-    @Inject('KNEX_NEW_DB') private readonly db: Knex,
+    @Inject('KNEX_NEW_DB') private readonly pool: Knex,
     @Optional() @Inject(CONTPAQI_POLIZA_SINK_PORT) private readonly sink?: ContpaqiPolizaSinkPort,
   ) {}
+
+  /**
+   * ⛔⛔ `[CP.8.58]` — **Toda lectura y escritura pasa por `conTenant()`.** Las siete tablas que
+   * este servicio toca tienen RLS forzado y la API corre como `app_runtime`, sin tenant por
+   * default: sin fijarlo, la bandeja sale vacía sin error. Ver `alcance-tenant.ts`. Candado:
+   * `test-newdb-contpaqi-tenant.js`.
+   */
+  private readonly alcance = new AlcanceTenant();
+
+  private get db(): Knex {
+    return this.alcance.db;
+  }
+
+  private conTenant<T>(fn: () => Promise<T>): Promise<T> {
+    return this.alcance.run(this.pool, MEGA, fn);
+  }
 
   /**
    * Arma (y entrega, si hay sink) los egresos de un periodo.
@@ -144,6 +170,10 @@ export class ContpaqiArmadoService {
    * mostrar el "qué entraría" antes de que alguien apriete nada.
    */
   async armarPeriodo(anioMes: string, soloSimular = true): Promise<ResultadoArmado[]> {
+    return this.conTenant(() => this.armarPeriodoEnAlcance(anioMes, soloSimular));
+  }
+
+  private async armarPeriodoEnAlcance(anioMes: string, soloSimular: boolean): Promise<ResultadoArmado[]> {
     const egresos = await this.leerEgresos(anioMes);
     const reglas = await this.leerReglas();
     const out: ResultadoArmado[] = [];
@@ -285,9 +315,11 @@ export class ContpaqiArmadoService {
      */
     let alias: AliasProveedor[] = [];
     try {
-      alias = await this.db('contpaqi.supplier_aliases')
+      // ⛔ `[CP.8.58]` En SAVEPOINT: ahora corre dentro de una transacción, y un error atrapado sin
+      // savepoint deja la transacción abortada — todo lo que sigue moriría con 25P02.
+      alias = await this.db.transaction((sp) => sp('contpaqi.supplier_aliases')
         .where({ tenant_id: MEGA, active: true })
-        .select('alias_normalizado', 'cuenta');
+        .select('alias_normalizado', 'cuenta'));
     } catch (e) {
       /**
        * ⛔ `[CP.8.39]` — **Las dos ausencias NO son la misma** (ADR-056), y este `catch` las
@@ -332,6 +364,10 @@ export class ContpaqiArmadoService {
    * se aplican solas nunca: una cuenta equivocada **cuadra igual** y no se ve hasta la balanza.
    */
   async proveedoresPendientes(anioMes: string): Promise<PendienteProveedor[]> {
+    return this.conTenant(() => this.proveedoresPendientesEnAlcance(anioMes));
+  }
+
+  private async proveedoresPendientesEnAlcance(anioMes: string): Promise<PendienteProveedor[]> {
     const egresos = await this.leerEgresos(anioMes);
     const reglas = await this.leerReglas();
     const indices = await this.leerIndicesProveedor(reglas);
@@ -392,6 +428,12 @@ export class ContpaqiArmadoService {
    * importaría como basura.
    */
   async confirmarAlias(entrada: {
+    concepto_banco: string; cuenta: string; rubro?: string; nota?: string; confirmado_por: string;
+  }): Promise<{ alias_normalizado: string; cuenta: string }> {
+    return this.conTenant(() => this.confirmarAliasEnAlcance(entrada));
+  }
+
+  private async confirmarAliasEnAlcance(entrada: {
     concepto_banco: string; cuenta: string; rubro?: string; nota?: string; confirmado_por: string;
   }): Promise<{ alias_normalizado: string; cuenta: string }> {
     const alias = normalizarNombre(entrada.concepto_banco);
@@ -486,6 +528,74 @@ export class ContpaqiArmadoService {
     mes: string; contenido: string; polizas: number; movimientos: number; total: number;
     nombre: string; entregado: false;
   }> {
+    return this.conTenant(() => this.generarArchivoMesEnAlcance(anioMes));
+  }
+
+  private async generarArchivoMesEnAlcance(anioMes: string): Promise<{
+    mes: string; contenido: string; polizas: number; movimientos: number; total: number;
+    nombre: string; entregado: false;
+  }> {
+    const a = await this.armarArchivo(anioMes);
+    return {
+      mes: a.mes, contenido: a.contenido, polizas: a.polizas, movimientos: a.movimientos,
+      total: a.total, nombre: a.nombre, entregado: false,
+    };
+  }
+
+  /**
+   * `[CP.8.52]` — **Contabilidad dice que ya cargó el archivo del mes en ContPAQi.**
+   *
+   * ⛔⛔ Se registra sólo lo que se cargó: `archivoBase64` es el archivo que importó, y tiene que
+   * ser **idéntico, byte a byte**, al que la Suite genera hoy para ese mes (`compararArchivo`).
+   * Si no, `EntregaRechazada` — se pide regenerar, no se aproxima.
+   *
+   * ⭐ Idempotente: `ON CONFLICT DO NOTHING` por evento. Marcar dos veces no duplica y **no toca**
+   * lo ya registrado: el cuadre usa `updated_at` como hora de entrega, y reescribirla reiniciaría su
+   * plazo; una póliza ya `aplicada` tampoco puede volver a `entregada`. (El `registrar()` de abajo
+   * hace `merge`, por eso éste no lo usa.)
+   */
+  async marcarEntregado(anioMes: string, archivoBase64: string, por: string): Promise<{
+    mes: string; polizas: number; nuevas: number; ya_registradas: number; total: number;
+    archivo_sha256: string;
+  }> {
+    return this.conTenant(async () => {
+      if (!por) throw new EntregaRechazada('no se pudo identificar quién marca la entrega');
+      const recibido = Buffer.from(String(archivoBase64 ?? ''), 'base64');
+      if (!recibido.length) throw new EntregaRechazada('falta el archivo que se cargó en ContPAQi');
+
+      const arm = await this.armarArchivo(anioMes);
+      const generado = Buffer.from(arm.contenido, 'latin1');
+      const cmp = compararArchivo(recibido, generado);
+      if (!cmp.igual) throw new EntregaRechazada(cmp.motivo);
+
+      const huella = huellaArchivo(generado);
+      const filas = filasDeEntrega({ tenantId: MEGA, mes: anioMes, lotes: arm.lotes, por, huella });
+      const insertadas = await this.db('contpaqi.poliza_exports')
+        .insert(filas)
+        .onConflict(['tenant_id', 'evento_tipo', 'evento_id'])
+        .ignore()
+        .returning('evento_id');
+      this.log.log(`entrega ${anioMes}: ${insertadas.length} nuevas · `
+        + `${filas.length - insertadas.length} ya registradas · ${por}`);
+      return {
+        mes: anioMes,
+        polizas: filas.length,
+        nuevas: insertadas.length,
+        ya_registradas: filas.length - insertadas.length,
+        total: arm.total,
+        archivo_sha256: huella,
+      };
+    });
+  }
+
+  /**
+   * El archivo del mes y los lotes que lo forman. ⭐ **Un solo camino** para descargar y para
+   * marcar entregado: si fueran dos, lo registrado podría no ser lo que se cargó.
+   */
+  private async armarArchivo(anioMes: string): Promise<{
+    mes: string; contenido: string; polizas: number; movimientos: number; total: number;
+    nombre: string; entregado: false; lotes: LoteArchivo[];
+  }> {
     if (!this.sink) throw new Error('no hay sink de pólizas conectado');
     const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
     const conAsiento = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
@@ -497,6 +607,7 @@ export class ContpaqiArmadoService {
     }
 
     const partes: string[] = [];
+    const lotesArchivo: LoteArchivo[] = [];
     let movimientos = 0;
     let total = 0;
     for (const l of conAsiento) {
@@ -513,6 +624,7 @@ export class ContpaqiArmadoService {
         throw new Error(`el lote ${clave} no se pudo serializar: ${r.motivo ?? 'sin motivo'}`);
       }
       partes.push(r.archivo.contenido);
+      lotesArchivo.push({ clave, asiento: l.asiento!, movimientos: l.resumen.incluidas });
       movimientos += l.resumen.incluidas;
       total = Math.round((total + l.asiento!.total) * 100) / 100;
     }
@@ -527,12 +639,15 @@ export class ContpaqiArmadoService {
       total,
       nombre: `egresos-banco-${anioMes}.txt`,
       entregado: false,
+      lotes: lotesArchivo,
     };
   }
 
   async simularLotes(anioMes: string): Promise<ResumenMes> {
-    const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
-    return { lotes: lotes.map((l) => l.resumen), fuera_de_lote };
+    return this.conTenant(async () => {
+      const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
+      return { lotes: lotes.map((l) => l.resumen), fuera_de_lote };
+    });
   }
 
   /**
