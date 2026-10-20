@@ -10,6 +10,7 @@ import {
 import {
   CommissionBonosService, type BonoFila, type AltaBono, type EditarBono,
 } from './commission-bonos.service';
+import { CommissionAutoRunService, type RevisionAuto } from './commission-auto-run.service';
 import {
   CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
   type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
@@ -36,6 +37,7 @@ export class CommercialCommissionsController {
     private readonly objetivo: CommissionObjectiveService,
     private readonly padronSvc: CommissionPadronService,
     private readonly bonosSvc: CommissionBonosService,
+    private readonly autoRunSvc: CommissionAutoRunService,
   ) {}
 
   /**
@@ -308,6 +310,25 @@ export class CommercialCommissionsController {
   })
   recalculateFrom(@Body() body: { period_id: string }): Promise<RecalcResultado> {
     return this.recalc.recalcularDesde(body?.period_id);
+  }
+
+  /**
+   * `[RD.87]` Dispara **a mano** la misma revisión que corre a las 07:30 MX.
+   *
+   * ⭐ Existe para poder **ejercerla** sin esperar al día siguiente, que es la única forma de
+   * verificar un automatismo antes de confiarle una quincena.
+   */
+  @Post('auto-run')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Revisa las quincenas cerradas sin corrida y calcula las que tienen fuente completa',
+    description:
+      'RD.87. Deja BORRADOR: no aprueba ni paga (ADR-016). Si alguna ruta vigente no tiene '
+      + 'fuente viva NO calcula y la nombra -- calcular sin dias completos no da "un numero '
+      + 'aproximado", da $0, porque el tabulador es un acantilado.',
+  })
+  autoRun(): Promise<RevisionAuto> {
+    return this.autoRunSvc.revisar('manual');
   }
 
   @Get('periods')
