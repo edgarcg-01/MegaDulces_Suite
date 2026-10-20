@@ -241,11 +241,11 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | 🔨 |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
-| **MS** | Mesa de Servicio (tickets de servicio) | 🟢 |
+| **MS** | Mesa de Servicio (tickets de servicio) | 🔨 |
 | **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
-| **RH** | Recursos Humanos: migración de Mega Talento | 🔴 |
+| **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
 | **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 
