@@ -1777,6 +1777,73 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // ⭐ `[CGS.2]` La pestaña «Arqueos»: el mismo cajón contado dos veces. Todo lo de acá está
+  // medido sobre los 7 cortes del 12 al 19-oct-2026, no redactado de memoria. Es un tópico
+  // APARTE de `caja-general` a propósito: aquél explica cómo se captura, éste explica cómo se
+  // lee una diferencia entre dos sistemas — y quien revisa de mañana sólo necesita el segundo.
+  'caja-arqueos': {
+    title: 'Arqueos — el mismo cajón, contado dos veces',
+    intro: 'Cada día el efectivo de Caja General se cuenta en dos lugares: el corte que se sella en la Suite y el arqueo que se captura en Control. Esta pantalla los pone lado a lado. No decide cuál manda: publica los dos y la diferencia, para que alguien la explique.',
+    groups: [
+      {
+        heading: 'Las dos cuentas',
+        entries: [
+          { term: 'Contó la Suite', def: 'El efectivo que se contó al cerrar el corte en esta plataforma, pieza por pieza. Es lo que quedó sellado: después de sellar, el conteo ya no se puede cambiar.' },
+          { term: 'Contó Control', def: 'El efectivo del arqueo de cierre capturado en la aplicación Control. Se lee, no se escribe: corregirlo se corrige allá.' },
+          { term: 'Difieren', def: 'Lo contado por la Suite menos lo contado por Control. Positivo = la Suite contó de más. No es un faltante de caja: son dos conteos del mismo dinero que no coinciden, y uno de los dos está mal.' },
+          { term: 'Esperaba el libro', def: 'Lo que el libro calculaba que debía haber (fondo + ingresos − gastos − depósitos, más o menos lo que movió la caja fuerte). Va como contraste, no como juez: es un cálculo, no un conteo, y si falta registrar cobranza queda corto sin que nadie lo haya robado.' },
+        ],
+      },
+      {
+        heading: 'Los tres resultados',
+        entries: [
+          { term: 'Cuadran al centavo', def: 'Los dos conteos dan exactamente lo mismo. Medido el 20-oct-2026: pasó el 16 y el 17 de octubre.' },
+          { term: 'Difieren', def: 'Los dos conteos dan distinto. El total dice CUÁNTO; hay que abrir el día para ver en qué pieza.' },
+          { term: 'Sin corte en la Suite', def: 'Control contó ese día y la Suite no. NO es un descuadre y por eso no entra en la suma: pintarlo como diferencia mandaría a buscar efectivo que nadie perdió.' },
+          { term: 'El ticket de Control no cuadra consigo mismo', def: 'La suma de las piezas de ese arqueo no da su propio total. Mientras eso pase, compararlo contra la Suite no significa nada: primero se corrige en Control.' },
+        ],
+      },
+      {
+        heading: 'Por qué importa el desglose y no sólo el total',
+        entries: [
+          { term: 'Pieza por pieza', def: 'Cuántos billetes y monedas de cada denominación anotó cada sistema. Es lo único con lo que alguien puede ir a buscar el billete.' },
+          { term: 'Un ejemplo real', def: 'El 19-oct-2026 los dos arqueos diferían $500 y parecía un faltante. Ocho denominaciones eran idénticas: la Suite había anotado un billete de $1,000 donde Control anotó uno de $500. No faltaba dinero, estaba mal clasificado.' },
+          { term: 'No se cuenta', def: 'Esa denominación existe en la reja de Control y no en la de la Suite (la moneda de $100 y los centavos de 20, 10 y 5). Esa parte no se puede cruzar — que es distinto de que coincida.' },
+          { term: 'Morralla', def: 'La Suite junta todo lo menor a 50¢ en un solo importe y no lo reporta por pieza. Si el desglose no llega a explicar la diferencia del día, ahí está el resto, y la pantalla lo dice con su monto.' },
+        ],
+      },
+      {
+        heading: 'Lo que esta pantalla no afirma',
+        entries: [
+          { term: 'Cuál de los dos manda', def: 'No está decidido, así que no se elige acá. Son cortes firmados: declarar un árbitro es una decisión de negocio, no de una pantalla.' },
+          { term: 'Cuál es el arqueo de cierre', def: 'Control registra varios arqueos por día (sobres de nómina, bonos, rutas). El del cierre se reconoce porque trae la custodia completa, con dólares. Está verificado del 14-oct-2026 en adelante; antes hay días con varios arqueos con dólares y podría estar eligiendo el que no es.' },
+          { term: 'Sin la segunda llave', def: 'El corte de la Suite se cerró y nadie lo autorizó. Quien cierra no puede autorizar: son dos personas, y el candado vive en la base. Medido el 20-oct-2026: 7 cortes cerrados y cero autorizados.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si un día difiere',
+        kind: 'fix',
+        intro: 'El orden importa: buscar el billete antes de revisar el ticket es perder el rato.',
+        steps: [
+          'Abrir el día y mirar el desglose: si una sola denominación carga toda la diferencia, casi siempre es una pieza mal clasificada, no dinero que falta.',
+          'Si el ticket de Control no cuadra consigo mismo, corregir ese arqueo en Control primero. Hasta entonces la comparación no dice nada.',
+          'Si el desglose no explica la diferencia entera, el resto está en la morralla o en las denominaciones que la Suite no captura: eso no se resuelve mirando, se resuelve recontando.',
+          'El conteo de la Suite no se edita: si está mal, se recuenta en Captura y queda el rastro de los dos conteos.',
+        ],
+      },
+      {
+        heading: 'Si un día dice «sin corte en la Suite»',
+        kind: 'info',
+        steps: [
+          'No hay nada que buscar: ese día nadie selló un corte de este lado.',
+          'Lo que falta es el conteo, no el dinero. Se abre y se cierra el corte de ese día en Captura.',
+        ],
+      },
+    ],
+  },
+
   // `[AUD.1]` Las comisiones de Ruta Directa. Este topico nace de una auditoria que midio que
   // la pantalla publicaba SIETE explicaciones dentro de atributos `title` -- o sea, sólo
   // alcanzables con el mouse encima. En tactil no hay hover: para quien abre esto en una
