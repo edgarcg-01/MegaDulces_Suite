@@ -2,7 +2,20 @@
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.up = function(knex) {
+exports.up = async function(knex) {
+  // [CI.LEGACY] Estas tablas de logística se crearon a mano en la base legacy; ninguna migración
+  // las crea. Sobre una base vacía (el CI) no existen: se declara y no se hace nada. En la base
+  // legacy existen y esta migración ya estaba aplicada, así que ahí no cambia nada.
+  for (const t of ['logistica_checklists','logistica_fotos_entrega']) {
+    if (!(await knex.schema.hasTable(t))) {
+      console.log(`[20260427000003_fix_checklists_fotos_foreign_keys_v2] NO MEDIDO: falta la tabla ${t} (creada a mano en la base legacy); se omite.`);
+      return;
+    }
+  }
+  return upOriginal(knex);
+};
+
+async function upOriginal(knex) {
   return knex.transaction(async (trx) => {
     // Primero eliminar datos que violan la foreign key en logistica_checklists
     await trx('logistica_checklists')
