@@ -183,6 +183,53 @@ verbo ni un guion explicativo.
 
 ## Capa 4 · Sencillez — el mínimo esfuerzo mental
 
+### 4.0 ⭐⭐ Antes de la cura, el diagnóstico: «está saturada» son TRES enfermedades
+
+«Hay demasiada información» es un síntoma, no un diagnóstico. Son tres causas distintas, con
+curas distintas — y **aplicar la cura equivocada empeora la pantalla**, que es lo que hace que un
+rediseño quede igual de ilegible pero con mejor tipografía.
+
+| | La enfermedad | Cómo se reconoce | La cura | ⛔ Si te equivocás |
+|---|---|---|---|---|
+| **A** | **Conflación** — la superficie contesta **varias preguntas** | podés nombrar 2+ preguntas distintas que se responden ahí | **partir** | jerarquizarla te deja cuatro preguntas bien tipografiadas |
+| **B** | **Ruido** — casi nada de lo que muestra es trabajo | la proporción de filas accionables es chica | **sacarlo** | paginar o jerarquizar ruido lo deja igual de irrelevante, ordenado |
+| **C** | **Aplanamiento** — la cantidad está bien, **todo pesa lo mismo** | contás atenuados contra enfatizados y no hay ganador | **jerarquizar** (3.7) | partir o esconder pierde información que sí hacía falta |
+
+> **Los tres, medidos la misma semana en la misma pantalla:**
+> **A** — «Tu jornada» contestaba cuatro preguntas: cómo va el día · si cuadra la caja · qué
+> capturé · qué pasó antes. Las dos últimas ni siquiera eran «tu jornada».
+> **B** — la cola ofrecía **13,245 movimientos de los que 20 eran trabajo real**: 1 de cada 662.
+> Ninguna tipografía arregla eso.
+> **C** — el mismo diálogo tenía **41 textos atenuados contra 5 enfatizados**. Cuando todo es
+> secundario, nada es primario.
+
+### 4.0b La prueba de la frase
+
+> **Escribí en UNA oración la pregunta que contesta la pantalla. Si necesitás «y», son dos
+> pantallas — o dos secciones con un selector.**
+
+Es la forma más barata de detectar **conflación** antes de maquetar nada. *«¿Qué me falta por
+confirmar y cuánto es?»* es una pregunta. *«Cómo va mi día **y** qué pendientes hay **y** qué pasó
+el mes pasado»* son tres, y por eso ese diálogo no se podía salvar acomodando cajas.
+
+### 4.0c Lo que de verdad baja la carga: derivar, no mostrar
+
+⭐ La jugada más fuerte contra la saturación no es esconder: es **que la persona no tenga que
+hacer la cuenta**. Tesler dice que la complejidad se traslada al código; en concreto, **en vez de
+mostrar cinco números para que alguien los compare, mostrá la comparación**.
+
+> **El caso que funciona:** el arqueo no pide un monto y además un desglose para que la persona
+> los cuadre. Pide **sólo las piezas** y calcula el importe. Un total tecleado al lado de un
+> conteo son dos versiones de la verdad y nadie decide cuál gana — y además son dos cosas que
+> leer en vez de una.
+
+### 4.0d Lo que NO es cura
+
+- **Paginar.** Mueve el problema a la página 2. Y si la lista se topa, *miente* (§1.2).
+- **Plegar.** Si lo plegado era vital, lo escondiste (§2.1); si no lo era, sobraba.
+- **Achicar la tipografía.** Entra más y se lee menos: eso es más saturación, no menos.
+- **Quitar una columna sin más.** El trabajo se traslada a otra pantalla o a la cabeza de alguien.
+
 ### 4.1 Nada de más de ~6 elementos seguidos sin separador
 
 Agrupá en bloques con su título. Vale para campos de un formulario y para cifras de un tablero.
