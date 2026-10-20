@@ -5961,6 +5961,27 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // ⚠️ Se avisa: si no, el cajero se queda mirando un codigo que ya no sirve.
       this.firmaAviso.set('Se cortó la conexión con el teléfono. Pide un código nuevo o firma acá.');
     });
+    /**
+     * ⭐⭐ `[CG.196]` **EL TELÉFONO SE FUE, LA FIRMA NO.**
+     *
+     * Acá estaba el defecto que Edgar reportó: al bloquearse el teléfono, el servidor emitía
+     * `firma:cortada` y esta pantalla llamaba a `firmaCerrarRemota()` — que borra el código, el
+     * pase y el QR, **y encima le manda `firma:cerrar` al servidor**. O sea que una pantalla
+     * apagada destruía el emparejamiento, y el mismo teléfono al volver recibía `no_existe`.
+     *
+     * ⛔ **No se desarma nada.** El emparejamiento vive en el socket de la PC, que sigue acá: el
+     * código sigue siendo reclamable y el QR en pantalla sigue sirviendo. Lo único que cambia es
+     * que vuelve a estar libre —al caer su socket, el teléfono salió de la room, así que
+     * `decidirTomar` ya no lo ve como `ya_tomado`— y por eso se baja `firmaTelefonoListo`.
+     *
+     * ⚠️ Se dice, igual que todo lo demás: sin el aviso, el cajero ve el «listo» apagarse solo y
+     * no sabe si tiene que hacer algo. Acá no tiene que hacer nada más que esperar.
+     */
+    this.caja.firmaTelefonoSalio$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.codigo !== this.firmaCodigo()) return;
+      this.firmaTelefonoListo.set(false);
+      this.firmaAviso.set('El teléfono se desconectó. El código sigue sirviendo: que vuelva a escanear el QR.');
+    });
   }
 
   // ── Avisos ───────────────────────────────────────────────────────────────────────────────────
