@@ -1228,7 +1228,9 @@ export class CashCutService {
       // Un corte sellado antes de que el veredicto se guardara: se DECLARA, no se recalcula.
       veredicto: esperado == null || diferencia == null
         ? ('sin_medir' as const)
-        : veredictoDe({ huboConteo: true, fondoSinMedir: c.fondo_inicial == null, diferencia }),
+        // `[CG.195]` Con el esperado guardado en negativo se declara `esperado_imposible` en vez de
+        // afirmar un sobrante: acá el `esperado` ya se sabe no-nulo (lo garantiza la guarda de arriba).
+        : veredictoDe({ huboConteo: true, fondoSinMedir: c.fondo_inicial == null, diferencia, esperado }),
       ya_reconto: c.conteo_previo != null,
       /**
        * `[CGP-V.2]` Lo que se selló, pieza por pieza. Sin esto la pantalla sólo tenía el total: al

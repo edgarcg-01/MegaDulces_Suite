@@ -61,7 +61,7 @@ Menú superior: **Usuarios · Reportes · Ajustes · Autorizaciones · Herramien
 
 ### Reportes (submenú)
 - **Transacciones** (`/Reports/report-TransactionsList`) — el reporte principal.
-- **Contenidos** — presumiblemente el efectivo cargado por canal/cassette (no abierto).
+- **Contenidos** (`/Reports/report-Countings`) — el inventario VIVO por casete. Datos: `GET /Reports/report-Countings/getCounting` → `machineCashList[].stocksContent[]` (`index`, `content[]` denom×quantity, `miscount`, `fillPerc`) + `bagsContent[]`. Abierto el 2026-10-20: 8 casetes, $360,020.00, igual al replay de flujos (`FASE_CGA_PLAN_IMPLEMENTACION §11.2.1`).
 - **Estatus** · **Info Equipo** · **Visor de Eventos** · **Balance de Usuarios** ·
   **Contabilidad de Canales** (no abiertos en esta pasada).
 
@@ -182,7 +182,7 @@ concretos, en orden de valor:
 **El modelo vigente son dos cajas** (`VERDAD_ABSOLUTA §28`, `FASE_CG_PLAN_POR_CAPAS §1.1`):
 
 - **el cajón** — el efectivo de oficina, que **se cuenta a mano** por denominación; y
-- **la bóveda CAOS** — la máquina, que **publica flujos y nunca el saldo**.
+- **la bóveda CAOS** — la máquina. ⚠️ Acá decía que «publica flujos y nunca el saldo»: es falso, publica su contenido por casete (ver «El saldo de la máquina», 2026-10-20).
 
 ⭐ **El propio documento ya lo había medido tres párrafos más abajo y la cabecera no se actualizó:**
 por CAOS pasa **~40%** del efectivo de la Caja General, sin llave común con la contabilidad. Un
@@ -291,7 +291,30 @@ Para hacerlo viable haría falta: los datos de recolección/ficha de depósito (
 depósito bancario) **o** una definición operativa del mapeo. Hasta entonces, CS.5 queda declarado
 como no construible — no se hace un cuadre hueco.
 
+### ⭐ El saldo de la máquina (`[CGA-A.33]`, 2026-10-20)
+
+**Lo que decía `VERDAD_ABSOLUTA §28.8` —«la bóveda publica flujos y nunca el saldo»— era falso.**
+El equipo publica su contenido en tres lugares: el reporte «Contenidos» (`getCounting`, vivo, por
+casete), cada `Fin de Dia` (una foto) y el detalle de cada `Vaciar Stocks` (lo que sacó).
+
+- **Signos, medidos contra el equipo:** Depósito y Dotar suman; Dispensar y Vaciar Stocks restan;
+  Fin de Dia es una foto (no mueve dinero); Cambio y Contenido Modificado quedan sin decodificar.
+  El mapa vive en `libs/finance/src/lib/caos/caos-saldo.ts` y es la única fuente.
+- **El 2026-10-20 10:04 MX la máquina dijo $360,020.00** (8 casetes, sin `miscount`) y el replay
+  de los 44 movimientos desde el último vaciado dio el mismo vector, billete por billete.
+- **En la suite:** el demonio `caos-live` guarda la foto en `analytics.caos_cash_counts` y
+  `/finanzas/caos` publica el saldo con sus tres testigos separados (máquina · cuadre contra
+  movimientos · conteo físico, que no existe y se declara). Detalle y prueba:
+  `IMPLEMENTACION/FASES/FASE_CGA_PLAN_IMPLEMENTACION.md` §11.2.1–11.2.3.
+- ⛔ **Lo que falta para la verdad absoluta:** un conteo humano a ciegas en el próximo vaciado.
+  Que dos lecturas del mismo equipo coincidan no prueba que el billete esté adentro — en
+  septiembre el equipo corrigió su propio registro −$25,420.
+
 ### Pendiente
+
+- ⛔ **La clave de fábrica `admin`/`caos` SIGUE ACTIVA** — verificado el 2026-10-20 al leer el
+  reporte «Contenidos» desde la LAN. Rotarla exige actualizar el secreto `ingest-env` de `caos-live`
+  en la misma ventana, o el demonio queda sin sesión (y lo dice: late en `error`, `[CGA-A.14]`).
 
 - **Mapear operadores** (`003`/`006`/`002`) a `identity.users` — para CS.7.
 - **Desplegar app** (`prod-api` + `view` en `md`) para que el reporte + CS.4/CS.6/CS.7 se vean —

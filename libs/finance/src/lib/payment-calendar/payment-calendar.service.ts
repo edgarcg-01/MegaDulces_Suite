@@ -3,7 +3,8 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
-import { sqlKeplerPayableId } from '../shared/kepler-payable-key';
+import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
+import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import type { PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
@@ -13,7 +14,7 @@ export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supp
  * pago, y tener una función pura dentro de un servicio obligaba al otro módulo a importar el
  * servicio entero (ADR-056). Se re-exporta porque ya hay código y pruebas que la toman de acá.
  */
-export { keplerPayableId, sqlKeplerPayableId } from '../shared/kepler-payable-key';
+export { keplerPayableId, sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
 
 /**
@@ -328,6 +329,8 @@ export class PaymentCalendarService {
     source?: ObligationSource; classification?: string; search?: string;
     dueFrom?: string; dueTo?: string; onlyCritical?: boolean; onlyAvailable?: boolean;
     limit?: number; offset?: number;
+    /** [TP.20.4] Solo facturas cuyo descuento por pronto pago esta por vencer o aun es capturable. */
+    prontoPago?: 'por_vencer' | 'capturable';
   }) {
     // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
     // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
@@ -347,6 +350,11 @@ export class PaymentCalendarService {
         'area_code', 'original_due_date', 'negotiated_date', 'original_amount', 'reserved_amount',
         'paid_amount', 'available_amount', 'is_critical', 'critical_reason', 'authorized_by',
         'authorized_at', 'status', 'notes', 'created_at', 'branch_code', 'payee_id',
+        // [TP.20.4] la ventana de pronto pago viaja con la fila
+        'pronto_fecha_limite', 'pronto_beneficio', 'pronto_estado',
+        // [TP.20.5] el ref de la ficha. NULL en los orígenes que no tienen documento de Kepler
+        // detrás: un ref inventado abriría un panel que no existe.
+        'entity_ref',
       ];
       const legBudget = trx('budget.expense_obligations as o').select(
         trx.raw(`'budget_expense'::text AS obligation_source`), 'o.id AS obligation_id',
@@ -355,6 +363,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
       ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
@@ -364,6 +373,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw('NULL::text AS branch_code'), trx.raw('NULL::uuid AS payee_id'),
+        trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"), trx.raw('NULL::text AS entity_ref'),
       ).whereNotIn('o.status', ['cancelled']);
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
@@ -376,6 +386,12 @@ export class PaymentCalendarService {
           'o.reserved_amount', 'o.paid_amount',
           trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
+          trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
+          // [TP.20.5] La obligacion CAPTURADA por Entregas tambien tiene ficha, pero solo si
+          // alguien le anoto el documento de Kepler. Sin esos cuatro campos no hay a que apuntar.
+          trx.raw(`CASE WHEN o.kepler_sucursal IS NOT NULL AND o.kepler_folio IS NOT NULL
+                        THEN 'oblig:' || o.kepler_sucursal || '|' || o.kepler_doc_tipo || '|'
+                                      || o.kepler_doc_sub || '|' || btrim(o.kepler_folio) END AS entity_ref`),
         ).whereNotIn('o.status', ['cancelled']);
 
       /**
@@ -395,6 +411,17 @@ export class PaymentCalendarService {
        */
       const legKepler = trx('analytics.v_supplier_payables as v')
         .leftJoin('catalog.suppliers as s', 's.code', 'v.proveedor')
+        /**
+         * `[TP.20.4]` **La urgencia del descuento, donde se arma el día.**
+         *
+         * El inventario de §23 descartó fusionar Pronto pago con esta pantalla: ordenan y agrupan
+         * al revés, y fusionarlas rompía una de las dos. Lo que sí viaja son **los tres campos que
+         * deciden** — hasta cuándo conviene pagar, cuánto se gana y en qué estado está la ventana.
+         *
+         * ⛔ La regla **no se reimplementa**: sale de `sqlVentanaProntoPago()`, la misma que usa
+         * Pronto pago. Si mañana cambia el mínimo de observaciones, cambia en las dos.
+         */
+        .leftJoin('analytics.mv_supplier_prompt_discount as d', 'd.proveedor_code', 'v.proveedor')
         // `[TP.18.5]` Lo reservado se agrega **una vez** y se une por id. Era un LATERAL, que es
         // lo natural de escribir y costaba 2,892 evaluaciones para leer un puñado de filas:
         // medido contra prod, 476 ms de mediana contra 399 así (−16 %).
@@ -438,6 +465,11 @@ export class PaymentCalendarService {
           trx.raw(`'pending'::text AS status`), trx.raw('NULL::text AS notes'),
           trx.raw('v.fecha::timestamptz AS created_at'), trx.raw('v.sucursal AS branch_code'),
           trx.raw('s.id AS payee_id'),
+          trx.raw(sqlVentanaProntoPago('v', 'd')),
+          // [TP.20.5] La ficha de la factura: la arma el backend porque es el unico que sabe
+          // las cuatro partes de la clave natural (sucursal, tipo, subtipo, folio).
+          trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub
+                             || '|' || btrim(v.folio) AS entity_ref`),
         );
 
       const unionSql = `(${legBudget.toQuery()} UNION ALL ${legCommitment.toQuery()} UNION ALL ${legSupplier.toQuery()} UNION ALL ${legKepler.toQuery()}) AS ob`;
@@ -445,6 +477,8 @@ export class PaymentCalendarService {
       if (q.source) base.where('ob.obligation_source', q.source);
       if (q.classification) base.where('ob.classification', q.classification);
       if (q.onlyCritical) base.where('ob.is_critical', true);
+      // [TP.20.4] El filtro que faltaba para armar el dia mirando lo que caduca.
+      if (q.prontoPago) base.where('ob.pronto_estado', q.prontoPago);
       if (q.search?.trim()) {
         const s = q.search.trim();
         base.andWhere((w: any) => w.whereILike('ob.beneficiary', `%${s}%`).orWhereILike('ob.concept', `%${s}%`));
@@ -473,6 +507,52 @@ export class PaymentCalendarService {
         .orderByRaw('ob.original_due_date ASC NULLS LAST, ob.available_amount DESC')
         .limit(limit).offset(offset);
       return { rows, total: Number(total), limit, offset };
+    });
+  }
+
+  /**
+   * `[TP.21.1]` **El libro de Tesorería, sumado por día, para una semana.**
+   *
+   * El *Programa de pagos* y el *Calendario* son la misma línea de tiempo —el día en que sale el
+   * dinero— cortada en dos: el pasado lo lleva un Excel y el futuro lo lleva el sistema. Medido el
+   * 2026-10-20: el libro llega al **2026-08-28**, el calendario empieza el **2026-10-16**, hay
+   * **0 días en común** y **53 días** en medio de los que ninguna pantalla dice nada.
+   *
+   * ⛔ **No casa renglones.** El libro no guarda el folio del pago de Kepler; casarlo por
+   * monto+mes es lo de `[PP.4]` ($273 M indefendibles). Acá se suma por `pay_date`, que es la
+   * única llave que las dos comparten de verdad, y el resultado se publica como **otro universo**,
+   * no como la misma fila.
+   *
+   * ⚠️ `mes_cargado` es la mitad del valor: un día de un mes que el Excel no tiene da `0` por
+   * ausencia, no porque no se haya pagado. Es el mismo defecto que `[PP.10]` encontró escondiendo
+   * $91,720,679 — pintarlos igual es dibujar un cero que nadie midió (ADR-056).
+   */
+  private async weekBook(from: string, to: string): Promise<Record<string, { monto: number; n: number; mes_cargado: boolean }>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const porDia = await trx('finance.payment_program')
+        .select(trx.raw(`to_char(pay_date,'YYYY-MM-DD') AS dia`))
+        .sum({ monto: 'amount' }).count({ n: '*' })
+        .where({ tenant_id: tenantId })
+        .whereBetween('pay_date', [from, to])
+        .groupByRaw('1');
+      // Qué MESES tiene el libro. Se pregunta aparte porque la respuesta para un día sin filas
+      // depende de esto: sin mes no es "no se pagó", es "no sabemos".
+      const meses = await trx('finance.payment_program')
+        .distinct('source_month').where({ tenant_id: tenantId })
+        .whereNotNull('source_month');
+      const cargados = (meses as { source_month: string }[]).map((m) => m.source_month);
+
+      const out: Record<string, { monto: number; n: number; mes_cargado: boolean }> = {};
+      for (const d of weekDates(from)) {
+        const fila = (porDia as { dia: string; monto: string | null; n: string }[]).find((x) => x.dia === d);
+        out[d] = {
+          monto: Number(fila?.monto ?? 0),
+          n: Number(fila?.n ?? 0),
+          mes_cargado: cargados.indexOf(d.slice(0, 7)) >= 0,
+        };
+      }
+      return out;
     });
   }
 
@@ -593,6 +673,11 @@ export class PaymentCalendarService {
       const lot = await this.getLot(d);
       out.push({ date: d, summary, allocations, lot_folio: (lot?.folio as string | undefined) ?? null });
     }
+    // `[TP.21.1]` El pasado de esta misma semana, según el libro de Tesorería. UNA consulta para
+    // los siete días, no una por día: la nota de arriba ya cuenta 21 transacciones en serie y
+    // sumar siete más por una tira de encabezado sería pagar el doble por la mitad del dato.
+    const libro = await this.weekBook(days[0], days[6]);
+    for (const day of out) day.libro = libro[day.date] ?? null;
     return { from: days[0], to: days[6], days: out };
   }
 

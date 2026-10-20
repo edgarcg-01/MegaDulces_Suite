@@ -442,6 +442,7 @@ lo mira **no filtra nada**; lo único que defiende es el veredicto `dia_en_curso
 | **D4** | **¿Quién es el dueño de la bandera de efectivo** — Compras (que negocia) o Finanzas/Tesorería (que paga)? | Decide el permiso de escritura. Con `COMPRAS_PROVEEDORES_GESTIONAR` ya entran `finanzas` y `tesorería` sin crear clave |
 | **D5** | **¿Cuál es el resolvedor único del saldo a proveedor** — la vista o el motor de ECA? Re-medido el 16-oct: difieren **$171,832.92**, y son **26 facturas que la vista da por PAGADAS y se deben** (84 % de un solo proveedor) | **El de ECA**: la vista subestima porque cuenta como aplicados pagos que Kepler canceló. ⚠️ Ya **no bloquea al frente C** (ahí difieren $299.70 sobre $38.5 M). Lo urgente es otra cosa: que **Finanzas mire esas 26 facturas**, empezando por las 8 de `CE003` Embotelladora AGA, **$142,875.97** |
 | **D6** | **¿Qué se hace con `CGP-VEC.1`** — se muda a `CSU` o se declara deuda? | Declararlo deuda con nombre ahora, mudarlo cuando `CSU` lo pida |
+| **D7** | ⛔⛔ **¿POR DÓNDE ENTRA UN DEPÓSITO AL BANCO?** Medido el 20-oct: `finance.cash_ledger` tiene **0 de 250** movimientos `tipo='deposito'` — cero en toda la vida del módulo — y `total_depositos = 0.00` en los 7 cortes. Nada registra el efectivo que **sale** del cajón, así que el `esperado` arrastra la entrada entera como si se hubiera quedado adentro (causa de fondo de `[CG.195]`, ver §10.13) | **Reabrir la captura manual SÓLO para `tipo='deposito'`.** Es la opción que respeta el motivo de `[CG.120]`: lo que aquella decisión frenó fue *dinero sin procedencia*, y un depósito **sí tiene respaldo** — la ficha de depósito que Fase `CC` ya guarda con su OCR. ⚠️ Las otras dos salidas tienen costo: *derivarlo del movimiento bancario* lo ata a la conciliación (`CB`) y no existe hoy; *declarar que el depósito no va en Caja General* deja el arqueo sin poder cuadrar nunca, y entonces hay que decirlo en pantalla en vez de publicar un veredicto. ⛔ **Y esto hay que contestarlo antes de interpretar las diferencias de ±$100K**: hasta saber si la pierna falta por modelo o por proceso, no se puede distinguir un defecto de un faltante real — la regla del propio proyecto (*descartar el defecto antes de culpar a la gente*) |
 
 ---
 
@@ -842,7 +843,260 @@ Commit `29067cf49`. Probado: 307 en `view` (4 nuevas, con la negativa **ejercida
 
 | Hallazgo | Medido | Estado |
 |---|---|---|
-| **6 cortes cerrados, CERO autorizados** | `CC-2026-00001`…`00006`, 12→17-oct, `authorized_by IS NULL` | ⬜ el último paso del flujo nunca se completó; la pantalla lo dice de a uno y nunca «van seis» |
+| **6 cortes cerrados, CERO autorizados** | `CC-2026-00001`…`00006`, 12→17-oct, `authorized_by IS NULL` | ⬜ el último paso del flujo nunca se completó; la pantalla lo dice de a uno y nunca «van seis». ⭐ **Re-medido el 20-oct: ya son 7 y sigue en cero** — y NO es hueco de permiso, ver `CGA-A.26` en §10.13 |
 | **La cobertura no cierra** | `2,850 de 3,020 · 114 sin subcuenta` → faltan **56** sin nombrar | ⬜ enumera una de dos exclusiones |
 | **«Fuera de esta jornada»** | 11 sueltos previos, 1 cancelado → **10 · −$1,704.47** | ✅ exacto, verificado al centavo. Falta **salida**: el del 28-sep lleva 21 días y no hay camino para abrir su corte |
 | **Contraparte «CONTADO»** en el historial | mismo defecto de `GOTCHAS` §86 | ⚠️ lo resuelve la columna `ruta` de `20261019094522`, **sin aplicar** |
+
+### 10.13 ⛔⛔ `[CG.195]` — un cajón no debe dinero: 4 de 7 cortes afirmaban un sobrante imposible (2026-10-20)
+
+Auditoría de **estructura** de `/finanzas/caja-general`, midiendo prod en sólo lectura
+(`system_identifier` `7688376744939610156`, 20-oct 08:58 hora de México).
+
+⭐⭐ **Empiezo por lo que me salió mal, porque es la lección del método.** Entré con dos hallazgos
+de lectura de código: el monolito de 502 KB y el endpoint `POST /cortes/:id/contar` —el que tiró
+prod el 14-oct—. **El segundo estaba equivocado y la medición lo desmintió en diez minutos:**
+`[CG.155]` unificó los TRES caminos de escritura en `filasDenominacion()`, la migración
+`20261014212702` puso los invariantes, y `cash-cut.servicio-real.spec.ts` ejerce
+`abrir → contar → cerrar → autorizar` con el payload de la pantalla contra Postgres real como
+`app_runtime`. Prod: **7 cortes cerrados, 49 filas de denominación, 0 cortes trabados.**
+
+**Lo grave no estaba en ninguno de mis dos hallazgos. Apareció al mirar las cifras.**
+
+#### Qué publicaba la pantalla
+
+```
+folio            esperado        contado      diferencia     veredicto
+CC-2026-00001    3,402.45       3,653.50        +251.05      sobra   ← creíble
+CC-2026-00002  -149,915.32     57,571.00    +207,486.32      sobra   ← IMPOSIBLE
+CC-2026-00003   87,781.66      24,960.00     -62,821.66      falta
+CC-2026-00004   -68,199.86     11,820.00     +80,019.86      sobra   ← IMPOSIBLE
+CC-2026-00005   -62,631.80     32,198.50     +94,830.30      sobra   ← IMPOSIBLE
+CC-2026-00006   -81,227.27        618.50     +81,845.77      sobra   ← IMPOSIBLE
+CC-2026-00007  296,867.09      88,272.50    -208,594.59      falta
+```
+
+**4 de 7 cortes afirmaban «sobra efectivo»** por decenas de miles de pesos, con un `esperado`
+**negativo** — o sea, con el libro diciendo que en el cajón debería haber **menos que cero**
+efectivo. Y no podía ser otra cosa: `contado` es una suma de piezas, **nunca negativa**, así que
+contra un esperado bajo cero la diferencia es positiva **siempre**. ⭐ **Cuanto más rota la cuenta,
+más grande el «sobrante» que la pantalla afirmaba** — el error se presentaba como su propio
+contrario.
+
+El motor ya había peleado esto una vez: su propio comentario en `[CG.96]` dice *«con esto el
+esperado de hoy pasa de −$45,990.05 (imposible) a $3,357.45»*. Eso arregló el **12-oct** —y es por
+eso que `CC-2026-00001` es el único creíble—. **Desde el 13-oct volvió a pasar**, por otra causa.
+
+#### El arreglo: el séptimo veredicto
+
+`veredictoDe` **nunca miraba el `esperado`**: devolvía `sobra`/`falta` leyendo sólo la diferencia.
+Ahora lo recibe, y con el esperado bajo cero declara **`esperado_imposible`**, que entra a
+`VEREDICTOS_SIN_RESPUESTA` junto a `sin_contar`, `sin_base` y `sin_medir`.
+
+⭐ **No se inventó un primitivo** (ADR-056 §5): el vocabulario para decir *«la pregunta no tiene
+respuesta»* ya existía, lo construyeron `[CG.42]` y `[CG.156]`, y vive en `libs/contracts` desde
+`[CG.42.1]` justamente para que el motor y la pantalla no puedan divergir. Esto es una entrada más
+en ese tipo, no un mecanismo nuevo.
+
+⛔ **El `esperado` es un campo REQUERIDO del input, no opcional.** Los dos llamadores de producción
+ya lo tenían a mano; hacerlo opcional dejaría que un tercero lo omitiera sin enterarse — que es
+**exactamente** cómo nació el defecto de `[CG.155]` (una migración que actualizó uno de tres
+caminos). El tipo protege al código.
+
+Commit `71a66e18f`. Verde: **504** pruebas en `libs/finance`, **690** en contracts, **1,010** en
+view finanzas; `check:templates` y `check:spec-vivo` en verde. Prueba negativa con los 4 cortes
+reales al centavo, **más el corte creíble que NO debe cambiar** — sin ese contraste, «ninguno dice
+sobra» se cumpliría también rompiéndolos todos. ⚠️ **Sin validación visual.**
+
+#### ⛔⛔ Lo que esto NO arregla — y es la causa de fondo
+
+**`finance.cash_ledger` no tiene UNA SOLA fila `tipo='deposito'` en toda su vida.**
+
+```
+gasto     en_corte      163    $1,592,713.65
+gasto     registrado      4      $139,560.00
+gasto     cancelado       3          $121.00
+ingreso   en_corte       74    $1,772,411.60
+ingreso   registrado      6      $137,855.53
+deposito  —               0            $0.00   ← la pierna que falta
+```
+
+$1.77 M entró al cajón en el modelo, $1.59 M salió como gasto, **$0.00 se registró como depósito**,
+y el cajón físicamente guarda entre $618.50 y $88,272.50. `total_depositos = 0.00` en los **7**
+cortes.
+
+El esperado se apoya hoy **sólo** en las dos piernas del cajero CAOS (`[CG.96]`,
+`dispensadoCajero − depositadoCajero`), que explican el efectivo que pasa por la AST700. **Lo que
+sale del cajón hacia el banco sin pasar por la máquina no tiene cómo registrarse.** Reconstruido,
+esa pierna neta explica toda la distancia entre la suma ingenua y el esperado guardado (−$320,720
+en `CC-2026-00007`), así que **la aritmética funciona como está diseñada**: lo que falta es un
+hecho, no una cuenta.
+
+⚠️ Y `[CG.120]` apagó la captura manual el **19-oct** —por una razón buena, *dinero sin
+procedencia*— que era la **única** puerta de esta pantalla para registrar un depósito al banco.
+Nota: los depósitos ya eran **cero antes** del 19-oct, así que `[CG.120]` no es la causa; es lo que
+hoy cierra la salida.
+
+⛔ **No se puede concluir desde acá si las diferencias de ±$100K son modelo roto o efectivo real
+perdido**, y ésa es justamente la distinción que la regla del proyecto exige resolver antes de
+leerlo como desuso o como descuido de nadie. **Va como decisión `D7` en §7.**
+
+#### Los otros cinco hallazgos, medidos y NO tocados
+
+| Item | Hallazgo | Medición |
+|---|---|---|
+| **`CGA-A.25`** | ⛔⛔ **La pierna del depósito no existe** | 0 de 250 movimientos · `total_depositos = 0.00` en los 7 cortes → **D7** |
+| **`CGA-A.26`** | **Cero cortes autorizados, ahora son 7** (eran 6 en §10.12) | `carmen_rodriguez` abre y cierra los 7. ⭐ **NO es hueco de permiso**: `FINANCE_CAJA_AUTORIZAR` está repartido en `direccion` (2) y `superadmin` (9), y `direccion` lo tiene **sin** `GESTIONAR` — diseñado como segunda llave. La llave existe y nadie la usa: es proceso |
+| **`CGA-A.27`** | **Movimiento fechado 2026-12-10, vivo hace 3 semanas** | `CG-2026-00002`, $1,060, `pago_proveedor` `X-D-26\|0001298`, creado el 29-sep por `superoot`, sin `corte_id`. `[CG.25]` avisa y nada lo corrige. Mismo síntoma que **G8** |
+| **`CGA-A.28`** | **Dos movimientos de prueba E2E en un corte de prod** | `CG-2026-00042` ($100) y `CG-2026-00043` ($1), glosa «AUDITORIA E2E», cancelados el 14-oct, colgados de `CC-2026-00003`. **Bien excluidos** del total guardado |
+| **`CGA-A.29`** | **El job `caja-db` corre, se pone rojo y no bloquea nada** | Sin `continue-on-error` (tiñe la corrida), pero `sellar` depende sólo de `[build, secret-scan]` y la protección de rama exige esos dos. La única prueba que cubre el defecto que tiró prod dos veces es, de hecho, informativa |
+| **`CGA-A.30`** | **Deuda de estructura, con nombre** | 8,152 líneas / 502 KB en un archivo; 109 signals, 56 computed. ⭐ **No es deuda de calidad** —la lógica pura ya vive afuera en `caja-captura.util.ts` con su spec— sino de **concurrencia**: el archivo cambió en disco entre dos comandos de esta misma sesión, y commitear 2 líneas exigió `git apply --cached` de un solo hunk para no llevarse 5 ajenos. ⛔ **No se abre como fase** (Fase 0 en curso) |
+
+#### Por qué el orden es ése y no otro
+
+La jerarquía del proyecto es *dinero que se para hoy > cifra publicada falsa > cerrar lo que está a
+un paso > deuda invisible > lo nuevo*. `[CG.195]` calificaba por **dos** criterios a la vez: era
+una cifra falsa publicada **y** el número que decide si la caja cuadra. Por eso se arregló primero
+y en el mismo día; `A.25` es su causa pero depende de una decisión que no me toca, y `A.26`–`A.30`
+no mueven dinero.
+
+---
+
+## 11. ⭐⭐ PLAN MAESTRO — un objetivo por sesión (Edgar, 2026-10-20)
+
+> *«Necesito que avancemos más rápido. Te reporto los problemas para que los subdividamos en
+> tareas. Genera un plan maestro donde le asignemos una tarea u objetivo a cada sesión. Tu
+> objetivo ahora es ser el auditor.»*
+>
+> Edgar reparte las tareas; esta sesión **audita y no implementa**. El reparto nace de tres
+> problemas que él reportó —la caja trabada, el saldo que debe existir en CAOS y en caja real, y
+> qué movimientos faltan contra Control— más lo que la auditoría del mismo día ya había medido
+> (§10.13).
+
+### 11.0 La línea base, medida el 2026-10-20 contra prod (sólo lectura)
+
+| Hecho | Cifra |
+|---|---|
+| Cortes cerrados / autorizados | **7 / 0** |
+| Jornadas sin corte, eje canónico `created_at` (`[CGP-L.12]`) | **0** ⬅ el bloqueo **no** es éste |
+| Cortes con `esperado` negativo | **4 de 7**, hasta −$149,915.32 |
+| Movimientos `tipo='deposito'` | **0 de 250**, en toda la vida del módulo |
+| Movimientos sin vínculo (`origen_tipo IS NULL`) | **15 · $380,449.10** |
+| CAOS, último movimiento | 2026-10-19 18:03 |
+| Caja real, último conteo sellado | **$88,272.50** (`CC-2026-00007`, 19-oct) |
+| Control (`analytics.caja_general_movimientos`), oct-2026 | **567** movimientos, contra **250** en todo el libro nuevo |
+
+### 11.1 `[CGA-A.32]` · S1 — Destrabar la caja ⛔ **hoy, antes que nada**
+
+**Objetivo:** que Carmen pueda capturar hoy.
+
+⛔ **Primero reproducir, no suponer.** El reporte dice *«ya no se puede usar la caja si no hubo un
+corte ayer»*, pero **el bloqueo no se explica desde los datos**: las jornadas sin corte por el eje
+canónico son **0** y no hay ningún borrador abierto. Las dos consultas que lo buscaban volvieron
+vacías.
+
+**Entregable:** el **mensaje literal** que ve Carmen y el `archivo:línea` que lo emite. A descartar
+en orden: `puedeAbrirCorte` (`fecha_invalida` · `fecha_futura` · `ya_existe` · `hay_posterior`), el
+candado de un-solo-borrador-por-sucursal, y `gateCierre` en la pantalla.
+
+**DoD:** el motivo nombrado con su línea **más** la condición de prod que lo dispara.
+⛔ **Si resulta ser `hay_posterior`, no se toca:** choca de frente con la decisión abierta
+`[CGP-0.6]` (capturar días anteriores al primer corte) y es de Edgar.
+
+⚠️ **El error que esta sesión cometió y hay que no repetir:** medí las jornadas pendientes con
+`cash_ledger.fecha` y la definición canónica es `created_at` — *el día en que se movió el
+efectivo*. Los dos ejes dan dos respuestas distintas y **una es falsa**: por `fecha` salían 5
+jornadas pendientes, por `created_at` salen **0**.
+
+### 11.2 `[CGA-A.33]` · S2 — El saldo de CAOS ⛔ **no es una resta de dos piernas**
+
+**Objetivo:** el saldo que **debe** existir en la máquina, defendible.
+
+La resta de dos piernas da **$570,800.00** (depositado $19,320,360.00 − dispensado
+$18,749,560.00). ⛔ **No se publica: está incompleta.** Hay cuatro tipos de movimiento más, sin
+clasificar, que suman mucho más que el supuesto saldo:
+
+```
+Vaciar Stocks          $2,915,150.00     13 movimientos
+Dotar                  $1,701,890.00     16
+Fin de Dia               $279,110.00      1
+Contenido Modificado     −$25,420.00      3
+```
+
+**Entregable:** qué `type_label` **suma, resta o es neutro**, contrastado contra un **arqueo físico
+de la máquina** — no contra sí mismo. Es la regla 10 del proyecto: probar la unidad y contrastar
+contra un hecho independiente.
+
+**DoD:** el saldo con su fecha de corte **más** el arqueo que lo confirma. Sin arqueo se reporta
+`NO MEDIDO` (ADR-056), nunca un número redondo que parezca una respuesta.
+
+### 11.3 `[CGA-A.34]` · S3 — Cuadrar caja real contra CAOS
+
+**Objetivo:** cerrar la ecuación de `[CGA-A.24]` — `lo que contó la MÁQUINA + lo que quedó en el
+CAJÓN = lo que dice KEPLER`.
+
+Arranca con el cajón en **$88,272.50** (19-oct) más lo que entregue S2.
+
+⛔ **Depende de S2 y no se adelanta.** Sin saldo de máquina defendible esto no cierra, y la
+tentación exacta es rellenarlo con la resta de dos piernas que S2 ya declaró incompleta.
+
+**DoD:** la ecuación al centavo, o la brecha **con monto y con nombre**.
+
+### 11.4 `[CGA-A.35]` · S4 — Qué falta ingresar, contra Control
+
+**Objetivo:** los movimientos que están en `/finanzas/caja` (el espejo del Access `Control`) y no
+en el libro nuevo.
+
+⚠️ **La trampa que ya frenó a esta sesión:** `analytics.caja_general_movimientos` **no tiene
+columna `importe`** — tiene `ingreso`, `gasto`, `deposito` y `efectivo` por separado. La consulta
+murió ahí. Hay que resolver cómo se arma el importe **antes** de comparar nada.
+
+**DoD:** lista con folio, fecha, importe y **por qué falta cada uno**. Todo cruce por importe lleva
+**control placebo** obligatorio (§11.5).
+
+### 11.5 `[CGA-A.31]` · S5 — Aplicar la migración, que ya está escrita y verificada
+
+**Objetivo:** que los 15 desvinculados queden con vínculo o con declaración.
+
+Hecho: **11 vínculos** (6 gastos de Kepler + 5 cobros de ruta) y **4 declarados**. Las **tres
+guardas pasaron contra prod real** — el ensayo en transacción revertida llegó hasta la primera
+escritura y murió con `cannot execute UPDATE in a read-only transaction`, porque la credencial de
+esta sesión es el rol `dev_ro`.
+
+**Falta:** commitear, empujar y aplicar con `apply-one-migration-prod.js`.
+⛔ **Sólo hace `UPDATE`**, así que la compuerta del despliegue la clasifica `NO_MEDIDO` y **frena
+al equipo entero** hasta que alguien la aplique a mano: **va antes de mergear**.
+
+⭐⭐ **Dos lecciones que esta migración ya dejó pagadas, y que S4 hereda:**
+
+1. **La prosa miente.** `CG-2026-00028` nombra `X-D-26 0023047` en su glosa; ese documento
+   **existe y es de $1,250.00**, no de $10,490.00. Creerle habría amarrado un movimiento a un
+   documento ocho veces menor. Es la causa raíz §10.2 atrapada en vivo.
+2. **`v_caja_movimientos_pendientes` tiene DOS ramas** unidas por `UNION ALL`. Esta sesión buscó
+   en una (`mv_caja_movimientos`), declaró **8 movimientos «inexistentes en Kepler»** y **5 sí
+   existían** en `analytics.route_collections`, con almacén **compuesto** (`01-001`, `06-003`), no
+   un código de dos dígitos. **$106,602.00 de falsos negativos.** Lo delató que Carmen ya había
+   declarado tres de ellos en `declared_doc_ref`: **la persona que capturó sabía más que la
+   consulta.**
+
+### 11.6 `[CGA-A.25]` · S6 — La pierna del depósito ⏸️ **en pausa por decisión de Edgar**
+
+Es la causa de fondo del `esperado` negativo (§10.13). No se abre hasta que se responda **`D7`**
+(§7): por dónde entra un depósito al banco.
+
+### 11.7 El rol de auditor — qué se verifica y qué se rechaza
+
+Esta sesión **no escribe el código de A.32–A.35**. De cada entregable comprueba cuatro cosas:
+
+1. **El universo, no sólo el número** — cuántas filas de cuántas, y qué quedó fuera.
+2. **El control placebo en todo cruce por importe.** Hoy salvó la migración: en CAOS con ±$99 los
+   importes **inventados** casaron **5/8** contra **3/8** de los reales, mientras que en Kepler con
+   importe exacto los reales casaron **5/6** y los inventados **0/6**. Un cruce sin placebo no se
+   acepta aunque la aritmética cierre.
+3. **La dirección y la unidad** — que el signo y el eje sean los que el texto dice que son (es
+   justo lo que falló con `fecha` contra `created_at`).
+4. **Que lo no medido se declare**, nunca como cero ni como verde.
+
+⛔ Se rechaza un entregable que traiga una cifra sin su medición, **por plausible que suene**.
+
+---

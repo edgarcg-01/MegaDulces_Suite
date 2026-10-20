@@ -1917,6 +1917,22 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        // `[AUD]` La pestaña «Cobro vs venta» publica cuatro veredictos derivados y el estado de
+        // la fuente. Entró sin About, que es la misma falla que `check:pantalla` ya marca en la
+        // pantalla hermana (regla P): jerga derivada sin dónde consultarla.
+        heading: 'Cobro vs venta — cuando el padrón y la venta no coinciden',
+        entries: [
+          { term: 'De dónde sale', def: 'Del padrón derivado: TODAS las rutas que existen, comisionen o no, con su venta de los últimos 30 días. NO sale de la quincena, así que no cambia al elegir otro periodo ni necesita que haya corrida. Es otra pregunta que la pestaña «No comisionan», que sí habla sólo del periodo elegido.' },
+          { term: 'Comisiona', def: 'Si la ruta está dada de alta y encendida en la configuración de nómina de Ruta Directa. Es una decisión escrita, no algo que se deduzca de si vendió.' },
+          { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
+          { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
+          { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
+          { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
+        ],
+      },
+      {
         heading: 'La calidad del costo',
         entries: [
           { term: 'Sin costo', def: 'No hay costo en la fuente para esos días: el markup no se puede medir y el bono del supervisor no paga.' },
@@ -2046,11 +2062,20 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     intro: 'CAOS es el dispositivo que recibe y entrega el efectivo de OFICINAS. Esta pantalla es un espejo de lo que la máquina registró: no corrige nada, no escribe nada y no decide nada. Cuando un número no se pudo calcular, lo dice en vez de poner cero.',
     groups: [
       {
-        heading: 'La tira de arriba',
+        heading: '¿Cuánto hay en la caja fuerte? — tres testigos, separados',
         entries: [
-          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Es el único número que cuenta los siete tipos.' },
-          { term: 'Depósitos − dispensado', def: 'La resta de los dos tipos que mueven efectivo hacia y desde las rutas. NO es el saldo de la caja fuerte: deja fuera Dotar, Vaciar Stocks y los ajustes, que también mueven dinero. Por eso se llama por la resta que hace y no "balance".' },
-          { term: 'Otros movimientos', def: 'Lo que la máquina registró y no es depósito ni dispensación: dotarla, vaciar sus cajetines, los cierres de día y los ajustes de contenido. Aparece con su monto y aparte porque su dirección (entra o sale) no está decodificada contra el dispositivo; sumarla al neto con un signo supuesto daría una cifra con la que alguien intentaría cuadrar.' },
+          { term: 'En la caja fuerte', def: 'Lo que la máquina dice tener: la última foto de su inventario, casete por casete (su reporte «Contenidos»). Si después de la foto entraron movimientos, se le suman o restan y la línea de abajo lo dice.' },
+          { term: 'Cuadre con los movimientos', def: 'Cada foto nueva se compara contra la anterior más lo que se movió entre las dos, billete por billete. «12 de 12» quiere decir que la máquina nunca cambió sin un movimiento que lo explique. Un descuadre aparece con su monto y sus denominaciones.' },
+          { term: 'Conteo físico', def: 'Una persona contando los billetes. Hoy no existe en ningún dato, y por eso dice «sin medir»: que la máquina y sus movimientos coincidan no prueba que el billete esté adentro — en septiembre la propia máquina corrigió su registro por −$25,420. Se cierra contando a ciegas lo que salga en el próximo «Vaciar Stocks».' },
+        ],
+      },
+      {
+        heading: 'La tira del rango',
+        entries: [
+          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Los «Fin de Dia» se cuentan aparte: son fotos del contenido, no dinero.' },
+          { term: 'Dotar − vaciar', def: 'Mantenimiento de casetes en el rango: Dotar los carga (suma) y Vaciar Stocks saca su contenido (resta). Aparece sólo cuando hubo.' },
+          { term: 'Neto del rango', def: 'Lo que entró menos lo que salió en las fechas elegidas, con el signo de cada tipo medido contra la máquina (Depósito y Dotar suman; Dispensar y Vaciar Stocks restan). Es un flujo, NO el saldo: el rango casi nunca empieza con la máquina vacía. Si hubo Cambio o Contenido Modificado —cuya dirección no está probada— lo dice aparte con su monto.' },
+          { term: 'El color del tipo', def: 'Verde entra, rojo sale, gris es una foto (no mueve dinero) y ámbar es un tipo cuya dirección no está decodificada. Pasando el cursor por la celda se ve por qué.' },
           { term: 'La píldora de frescura', def: 'La edad del DATO, no la de la pantalla: mide la última vez que el carril trajo movimientos de la máquina. Si se pone ámbar, lo que ves puede estar viejo aunque la página se acabe de cargar.' },
         ],
       },

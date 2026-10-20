@@ -1159,6 +1159,9 @@ jobs:
           psql -h localhost -U postgres -c "CREATE DATABASE megadulces_logistica;"
           psql -h localhost -U postgres -c "CREATE DATABASE postgres_platform;"
           psql -h localhost -U postgres -c "CREATE ROLE app_runtime LOGIN PASSWORD 'app_runtime';"
+          # El rol de lectura de prod. Muchas migraciones hacen `GRANT ... TO dev_ro`; sin el
+          # rol, el arranque las SALTA (medido 2026-10-20: 9 de 169) en vez de ejecutarlas.
+          psql -h localhost -U postgres -c "CREATE ROLE dev_ro NOLOGIN;"
 
       - name: Migrar la base legacy
         run: npm run migrate:latest
@@ -1181,11 +1184,16 @@ jobs:
       # `--cluster-compartido` porque el servicio de Postgres del runner trae su base
       # `postgres` ademas de las dos nuestras, y el script se niega por defecto cuando ve
       # bases ajenas al stack (la caida de 6 h del 27-ago nacio de compartir `app_runtime`).
+      #
+      # `--max-skips 220`: el tope por omision (120) se quedo corto -- medido 2026-10-20 sobre
+      # pgvector:pg18 vacio, con `dev_ro`: 1,284 migraciones, **160 saltadas** (asertan datos
+      # reales del ERP o cuelgan de una que si). Cada semana entran migraciones asi; el margen
+      # evita que el paso muera por crecimiento. Si se pasa de 220, MEDIR antes de subirlo.
       - name: Levantar la base multi-tenant desde cero
         run: |
           node database/scripts/dev-bootstrap-empty-db.js \
             --url postgresql://postgres:postgres@127.0.0.1:5432/postgres_platform \
-            --cluster-compartido
+            --cluster-compartido --max-skips 220
 
       - name: Sembrar
         run: |
@@ -1228,7 +1236,11 @@ jobs:
           # ⛔ El filtro es una SUBCADENA del path, no un glob: `'src/lib/**/*.it.spec.ts'`
           # devuelve «No test files found» y **exit 0** — un verde que no corrió nada. Probado
           # en la máquina de trabajo antes de cablearlo (2026-10-16).
+          # `[TP.20.5]` Dos raíces, no una: la ficha de la obligación vive en `libs/commercial`
+          # (el resolvedor de refs es neutral y está ahí). Dejarla fuera habría sido una suite
+          # escrita que no corre en ningún lado — que es la deuda que este job vino a cerrar.
           npx vitest run --root libs/finance it.spec 2>&1 | tee integracion.log
+          npx vitest run --root libs/commercial it.spec 2>&1 | tee -a integracion.log
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           set -e
           # Una suite que no encontró archivos NO es una suite verde.

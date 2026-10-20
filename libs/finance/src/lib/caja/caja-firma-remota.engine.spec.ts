@@ -20,6 +20,7 @@ import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma,
   hayQueFrenar, TOPE_INTENTOS,
   firmaSigueValiendo, VIDA_MS, type SocketEnRoom, type MarcaPc, CLAVE_PASE, esPaseDeFirma,
+  avisoAlDesconectar,
 } from './caja-firma-remota.engine';
 import type { ContextoFirma } from '@megadulces/contracts';
 
@@ -295,5 +296,63 @@ describe('esPaseDeFirma · [CG.84] el pase que reemplaza al login', () => {
     expect(esPaseDeFirma(undefined)).toBe(false);
     expect(esPaseDeFirma('A2B3C4')).toBe(false);
     expect(esPaseDeFirma(42)).toBe(false);
+  });
+});
+
+/**
+ * ⭐⭐ `[CG.196]` **Bloquear el teléfono no puede perder la firma.**
+ *
+ * Reportado por Edgar el 2026-10-20: *«el token de la firma caduca muy rápido, o si se bloquea el
+ * teléfono se pierde»*. Eran DOS cosas y sólo una era un parámetro.
+ */
+describe('[CG.196] quién se fue decide si la firma sigue viva', () => {
+  it('se va la PC → se corta: su marca se fue con ella', () => {
+    expect(avisoAlDesconectar({ firma: { codigo: 'ABC234' } }))
+      .toEqual({ evento: 'firma:cortada', codigo: 'ABC234' });
+  });
+
+  it('⛔ PRUEBA NEGATIVA: se va el TELÉFONO → NO se corta', () => {
+    // Éste es el defecto exacto. El gateway hacía `firma?.codigo ?? firmaTel` y emitía
+    // `firma:cortada` para las dos puntas, así que una pantalla bloqueada destruía el
+    // emparejamiento: la PC lo oía, desarmaba el panel y mandaba `firma:cerrar` al servidor.
+    const r = avisoAlDesconectar({ firmaTel: 'ABC234' });
+    expect(r).toEqual({ evento: 'firma:telefono_salio', codigo: 'ABC234' });
+    // Lo que de verdad importa, dicho como aserción y no como comentario:
+    expect(r?.evento).not.toBe('firma:cortada');
+  });
+
+  it('sin firma abierta no se avisa nada', () => {
+    expect(avisoAlDesconectar({})).toBeNull();
+    expect(avisoAlDesconectar(null)).toBeNull();
+    expect(avisoAlDesconectar(undefined)).toBeNull();
+    expect(avisoAlDesconectar({ firma: null, firmaTel: null })).toBeNull();
+  });
+
+  it('con las dos marcas gana la PC: perder el vínculo es el hecho más grave', () => {
+    expect(avisoAlDesconectar({ firma: { codigo: 'PCPC22' }, firmaTel: 'TELTEL' }))
+      .toEqual({ evento: 'firma:cortada', codigo: 'PCPC22' });
+  });
+
+  it('⭐ el teléfono que vuelve puede reclamar de nuevo: al caer salió de la room', () => {
+    // Es lo que hace que «que vuelva a escanear» sea cierto y no una promesa: `ya_tomado` mira
+    // los sockets que ESTÁN en la room, y el del teléfono bloqueado no está.
+    const pc: SocketEnRoom = {
+      id: 'pc', tenantId: 'T', pc: { codigo: 'ABC234', ctx: {} as never, creado: 1000 },
+    };
+    const telViejo: SocketEnRoom = { id: 'tel', tenantId: 'T', telefono: 'ABC234' };
+    // Con el teléfono todavía en la room, un segundo no entra.
+    expect(decidirTomar([pc, telViejo], 'ABC234', 'T', 1000).fallo).toBe('ya_tomado');
+    // Caído su socket, sale de la room y el MISMO teléfono vuelve a reclamar.
+    expect(decidirTomar([pc], 'ABC234', 'T', 1000).ok).toBe(true);
+  });
+
+  it('⭐ y le alcanza el reloj: 8 horas, no 3 minutos', () => {
+    const pc: SocketEnRoom = {
+      id: 'pc', tenantId: 'T', pc: { codigo: 'ABC234', ctx: {} as never, creado: 0 },
+    };
+    // Con los 3 minutos viejos, un teléfono bloqueado 10 minutos llegaba a un código vencido.
+    expect(decidirTomar([pc], 'ABC234', 'T', 10 * 60 * 1000).ok).toBe(true);
+    // El tope sigue existiendo: un panel abandonado no sirve al día siguiente.
+    expect(decidirTomar([pc], 'ABC234', 'T', VIDA_MS + 1).fallo).toBe('vencido');
   });
 });

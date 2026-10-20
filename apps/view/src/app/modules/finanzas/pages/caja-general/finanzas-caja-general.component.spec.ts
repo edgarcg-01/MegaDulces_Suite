@@ -305,6 +305,26 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     return fx;
   };
 
+  /**
+   * `[CG.123]` **Abre la jornada EN una de sus tres partes.**
+   *
+   * Desde que el diálogo tiene selector, «la jornada está abierta» ya no implica que todo esté
+   * pintado: cada parte se monta cuando se la elige. Las pruebas que miran «Pendientes» o
+   * «Historial» tienen que decir dónde están paradas — que es exactamente lo que hace la persona.
+   *
+   * ⚠️ Lo que esto **no** afloja: que una parte exista sigue comprobándose. Si un bloque se
+   * perdiera en la mudanza, elegir su sección lo dejaría vacío y la prueba se pondría roja igual.
+   */
+  const montarJornadaEn = (
+    seccion: 'hoy' | 'pendientes' | 'historial',
+    svcPatch?: Record<string, unknown>,
+  ) => {
+    const fx = montarJornada(svcPatch);
+    comp.seccionJornada.set(seccion);
+    fx.detectChanges();
+    return fx;
+  };
+
   const contar = (piezas: Record<string, number>): void => {
     for (const [k, n] of Object.entries(piezas)) comp.setPiezas(den(k), n);
   };
@@ -1764,6 +1784,43 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toBeGreaterThan(0);
   });
 
+  it('⭐ [CGA-LEG.9] el recorrido con teclado está ESCRITO, y lo escrito existe', async () => {
+    /**
+     * D.5: un atajo que nadie sabe que existe no existe — y para quien cuenta con las manos
+     * ocupadas el atajo **es** la interfaz. Medido el 2026-10-19: la plantilla tiene 23 bindings
+     * de teclado y sólo 5 teclas estaban anunciadas, todas dentro del arqueo. El bucle que la
+     * persona repite decenas de veces al día —elegir, arquear, volver— no decía una palabra.
+     *
+     * ⛔ **Lo que esta prueba protege de verdad es la segunda mitad: que lo anunciado funcione.**
+     * El prototipo tenía `/ buscar` y esta pantalla NO lo tiene: no hay ningún manejador global
+     * de `/`. Un atajo escrito que no responde es peor que ninguno — se prueba una vez, no pasa
+     * nada, y deja de creerse el resto del renglón.
+     */
+    // Con cola sembrada: el atajo promete algo SOBRE UNA FILA, así que sin filas la mitad que
+    // importa no se podría comprobar — y una prueba que no puede fallar no prueba nada.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const atajo: HTMLElement | null = fx.nativeElement.querySelector('.cg-atajo-cola');
+    expect(atajo, 'el recorrido de la cola no se anuncia en ninguna parte').not.toBeNull();
+    const teclas = Array.from(atajo!.querySelectorAll('kbd')).map((k) => (k.textContent ?? '').trim());
+    expect(teclas, 'falta alguna de las cuatro teclas del recorrido')
+      .toEqual(expect.arrayContaining(['←', '→', '↑', '↓', 'Enter', 'Esc']));
+
+    // ⛔ [negativa] No se promete lo que no existe.
+    expect(atajo!.textContent, 'se anuncia «/ buscar» y esta pantalla no tiene ese atajo')
+      .not.toContain('/');
+
+    // Y lo prometido RESPONDE: Enter sobre una fila abre el arqueo.
+    const fila: HTMLElement | null = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila, 'no hay fila con la cual comprobar lo que el atajo promete').not.toBeNull();
+    expect(comp.capturaAbierta()).toBe(false);
+    fila!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fx.detectChanges();
+    expect(comp.capturaAbierta(), 'el atajo dice «Enter arquear» y Enter no abrió el arqueo').toBe(true);
+  });
+
   it('⛔ [CG.120] la captura A MANO no se ofrece, pero la puerta compartida sigue viva', () => {
     /**
      * La captura a mano se retiró el 2026-10-19: un movimiento tecleado nace **sin
@@ -1883,17 +1940,59 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.querySelector('.cg-conc')).toBeNull();
   });
 
+  /**
+   * `[CG.123]` **La misma protección, repartida en las tres partes del selector.**
+   *
+   * Lo que esta prueba cuida no cambió: *la diferencia entre MOVER y borrar*. Lo que cambió es
+   * que el diálogo ya no pinta todo de una vez — Edgar lo llamó «un asco» y lo medido le daba la
+   * razón (3 rejillas, 39 cifras y 41 textos atenuados contra 5 enfatizados, en un solo
+   * desplazamiento). Así que cada bloque se busca **en la parte donde vive**, y si alguno se
+   * hubiera perdido en la mudanza, elegir su sección lo dejaría vacío y esto se pondría rojo.
+   */
   it('⛔ [negativa] abrir la jornada NO pierde nada: todo lo que se mudó sigue ahí', () => {
     const fx = montarJornada();
     expect(comp.jornadaAbierta()).toBe(true);
 
-    // Los cinco bloques que se mudaron al desplegable. Si alguno se cayó en la mudanza, esto
-    // se pone rojo — que es la diferencia entre MOVER y borrar.
-    const panel: Element = fx.nativeElement.querySelector('.cg-jornada');
-    expect(panel.querySelector('.cg-conc')).not.toBeNull();        // el cierre del día
-    expect(panel.querySelector('.cg-rec')).not.toBeNull();         // los que repiten sin cuenta
-    expect(panel.querySelector('.cg-historial')).not.toBeNull();   // el libro y los cortes
-    expect(panel.textContent).toContain('Cerrar jornada');         // la acción de rendir cuentas
+    // «Hoy» es la parte por default: el cierre del día y su acción de rendir cuentas.
+    const panel = (): Element => fx.nativeElement.querySelector('.cg-jornada');
+    expect(comp.seccionJornada()).toBe('hoy');
+    expect(panel().querySelector('.cg-conc')).not.toBeNull();
+    expect(panel().textContent).toContain('Cerrar jornada');
+
+    comp.seccionJornada.set('pendientes'); fx.detectChanges();
+    expect(panel().querySelector('.cg-rec')).not.toBeNull();       // los que repiten sin cuenta
+
+    comp.seccionJornada.set('historial'); fx.detectChanges();
+    expect(panel().querySelector('.cg-historial')).not.toBeNull(); // el libro y los cortes
+  });
+
+  /**
+   * ⛔⛔ `[CG.123]` **PRUEBA NEGATIVA DEL SELECTOR: lo que DECLARA un hueco no se esconde.**
+   *
+   * El primer intento de este cambio metió las tres regiones detrás del selector y listo. Nueve
+   * pruebas se pusieron rojas y **tenían razón**: con los cortes caídos, el aviso «no se pudieron
+   * leer» vivía DENTRO de la sección Historial, así que en la vista por default una lectura
+   * **fallida quedaba invisible**. Publicar nada es peor que publicar un cero (ADR-056) — es el
+   * mismo defecto que `[CG.181]` vino a arreglar, con una capa encima.
+   *
+   * Por eso las declaraciones subieron sobre el selector. Esto lo fija: parado en «Hoy», que es
+   * donde la persona abre, los tres huecos se leen igual.
+   */
+  it('⛔ [negativa] parado en «Hoy», lo que no se pudo medir se sigue diciendo', () => {
+    const fx = montarJornada({
+      libro: vi.fn(() => throwError(() => new Error('timeout'))),
+      cortes: vi.fn(() => throwError(() => new Error('timeout'))),
+      // ⚠️ `recurrentesSinRegla`, NO `recurrentes`: un doble que nombra un método que el
+      // servicio no tiene no simula nada — el componente llama al real y la prueba verde
+      // estaría midiendo el camino sano. Lo delató el selector publicando «Pendientes 57».
+      recurrentesSinRegla: vi.fn(() => throwError(() => new Error('timeout'))),
+    });
+    expect(comp.seccionJornada()).toBe('hoy');
+
+    const txt: string = fx.nativeElement.querySelector('.cg-jornada').textContent;
+    expect(txt).toContain('el libro no se pudo leer');
+    expect(txt).toContain('los cortes no se pudieron leer');
+    expect(txt).toContain('Sin medir');
   });
 
   /**
@@ -3198,7 +3297,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ausencias distintas —"no propone" y "no hay de dónde proponer"— no se pinten igual.
 
   it('el contador va SIEMPRE visible, aunque la lista esté plegada', () => {
-    const fx = montarJornada();
+    // `[CG.123]` Vive en «Pendientes»: no es la jornada de hoy, es trabajo que espera.
+    const fx = montarJornadaEn('pendientes');
     expect(comp.recAbierto()).toBe(false);          // nace plegada: son 57 filas
 
     const html: string = fx.nativeElement.innerHTML;
@@ -3257,7 +3357,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('abrir la lista pinta las filas, con el par propuesto y su respaldo', async () => {
-    const fx = montarJornada();
+    const fx = montarJornadaEn('pendientes');
     comp.recAbierto.set(true);
     fx.detectChanges();
     await Promise.resolve();
@@ -3332,7 +3432,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('cerrado NO es escondido: la cabecera dice el rango y cuanto hay adentro', () => {
-    const fx = montarJornada();
+    // `[CG.123]` El libro y los cortes son OTRO rango de fechas: viven en «Historial».
+    const fx = montarJornadaEn('historial');
     const h: HTMLElement | null = fx.nativeElement.querySelector('.cg-historial-h');
     expect(h).not.toBeNull();
     // Plegar algo sin decir que tiene adentro lo vuelve indistinguible de que no exista.
@@ -3345,7 +3446,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('al abrirlo aparece el libro, y el aria-expanded lo acompana', () => {
-    const fx = montarJornada();
+    const fx = montarJornadaEn('historial');
     comp.historialAbierto.set(true);
     fx.detectChanges();
     expect(fx.nativeElement.querySelector('app-metric-strip')).not.toBeNull();
@@ -4124,15 +4225,18 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       expect(txt, 'un cero afirma lo que nadie midió').not.toContain('0 corte(s)');
     });
 
+    // `[CG.123]` El CONTEO vive en la cabecera del Historial, que es su sección. Lo que no
+    // depende de la sección es la DECLARACIÓN de un hueco: eso se comprueba parado en «Hoy»,
+    // en la prueba negativa del selector.
     it('[control] con los cortes sanos el conteo se publica igual que siempre', () => {
-      const fx = montarJornada({
+      const fx = montarJornadaEn('historial', {
         cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
       });
       expect(fx.nativeElement.textContent).toContain('1 corte(s)');
     });
 
     it('⛔ y las dos mitades son independientes: el libro caído no tapa los cortes medidos', () => {
-      const fx = montarJornada({
+      const fx = montarJornadaEn('historial', {
         libro: vi.fn(() => throwError(() => ({ status: 500 }))),
         cortes: vi.fn(() => of({ rows: [{ id: 'c1', folio: 'CC-2026-00001' }], limit: 50 })),
       });

@@ -20,6 +20,7 @@ import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
 import { PaymentProgramService } from '../payment-program/payment-program.service';
+import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -488,6 +489,64 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
   });
 
   /**
+   * `[TP.20.4]` **La ventana de pronto pago, la MISMA para las dos pantallas.**
+   *
+   * El inventario descartó fusionar Pronto pago con el Calendario (ordenan y agrupan al revés);
+   * lo que viaja son los tres campos que deciden. La regla vive en `@megadulces/contracts` y
+   * acá se ejerce **el SQL que genera**, contra casos construidos — así se prueba la regla sin
+   * depender de que la matview del ERP tenga datos.
+   */
+  describe('[TP.20.4] la ventana de pronto pago decide igual en las dos pantallas', () => {
+    /** Evalúa el SQL real de `sqlVentanaProntoPago()` sobre una fila armada a mano. */
+    const evaluar = async (diasDesdeFactura: number, nObs: number, diasMediana: number, tasa = 0.05) => {
+      const { rows } = await trx.raw(`
+        SELECT ${sqlVentanaProntoPago('v', 'd')}
+          FROM (SELECT (CURRENT_DATE - ${diasDesdeFactura})::date AS fecha, 10000::numeric AS pendiente) v,
+               (SELECT ${nObs}::int AS n_observaciones, ${diasMediana}::int AS dias_mediana,
+                       ${tasa}::numeric AS tasa_observada) d`);
+      return rows[0] as { pronto_fecha_limite: string | null; pronto_beneficio: string | null; pronto_estado: string };
+    };
+
+    it('todavía capturable: el límite está lejos', async () => {
+      const r = await evaluar(2, 10, 30);
+      expect(r.pronto_estado).toBe('capturable');
+      expect(Number(r.pronto_beneficio)).toBeCloseTo(500, 2);   // 10,000 × 5 %
+    });
+
+    it('por vencer: entra dentro de los días de aviso', async () => {
+      expect((await evaluar(28, 10, 30)).pronto_estado).toBe('por_vencer');
+    });
+
+    it('⛔ fuera de ventana — que NO quiere decir perdido', async () => {
+      expect((await evaluar(40, 10, 30)).pronto_estado).toBe('fuera_de_ventana');
+    });
+
+    it('⛔ sin medir con menos observaciones que el mínimo, y el límite queda NULL', async () => {
+      const r = await evaluar(2, 2, 30);
+      expect(r.pronto_estado).toBe('sin_medir');
+      // ⛔ NULL y no «hoy»: un COALESCE a la fecha actual diría «vence hoy» sobre algo que nadie midió.
+      expect(r.pronto_fecha_limite).toBeNull();
+      expect(r.pronto_beneficio).toBeNull();
+    });
+
+    it('el borde del aviso cae del lado correcto', async () => {
+      // Límite exactamente a 5 días (el aviso) → por vencer; a 6 → todavía capturable.
+      expect((await evaluar(25, 10, 30)).pronto_estado).toBe('por_vencer');
+      expect((await evaluar(24, 10, 30)).pronto_estado).toBe('capturable');
+    });
+
+    it('la lista del Calendario trae los tres campos y el filtro los usa', async () => {
+      const todas = await cal.listObligations({ search: 'TPIT', onlyAvailable: false });
+      expect(todas.rows.length).toBeGreaterThan(0);
+      for (const r of todas.rows as { pronto_estado: string }[]) expect(r.pronto_estado).toBeTruthy();
+      // La matview nace vacía en esta base, así que todo es `sin_medir` — y el filtro lo respeta.
+      const porVencer = await cal.listObligations({ search: 'TPIT', onlyAvailable: false, prontoPago: 'por_vencer' });
+      expect(porVencer.rows).toHaveLength(0);
+      expect(porVencer.total).toBe(0);
+    });
+  });
+
+  /**
    * `[PP.10]` **La conciliación del Programa de pagos no puede ser ciega a un mes sin libro.** (O4)
    *
    * Recorría los meses que el Excel de Tesorería tiene, así que un mes sin cargar **no salía
@@ -538,6 +597,74 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const ms = r.months.map((m) => m.month);
       expect(ms).toEqual([...ms].sort());
       expect(new Set(ms).size).toBe(ms.length);
+    });
+  });
+
+  /**
+   * `[TP.21]` **La costura: el libro de Tesorería y el Calendario son la misma línea de tiempo.**
+   *
+   * Medido en prod el 2026-10-20: el libro llega al **2026-08-28**, el calendario empieza el
+   * **2026-10-16**, **0 días en común** y **53 días** en medio de los que ninguna de las dos
+   * pantallas decía nada. Lo que se prueba acá es que el día sabe de su propio pasado — y que
+   * **«no se pagó» y «el Excel no tiene ese mes» no se pintan igual** (`[PP.10]`, ADR-056).
+   *
+   * ⛔ No se casa un renglón del libro con una asignación: no hay llave. Se **suma por fecha**.
+   */
+  describe('[TP.21] el día del calendario sabe lo que el libro dice de ese mismo día', () => {
+    const SEM = '2029-05-16';            // miércoles de una semana lejos de todo dato
+    const LUN = '2029-05-14';
+    const MAR = '2029-05-15';
+    const MES = '2029-05';
+
+    beforeAll(async () => {
+      await trx('finance.payment_program').insert([
+        { tenant_id: M, source_month: MES, client_uuid: 'tp21-a', supplier_text: 'TP21 UNO', amount: 1200, pay_date: LUN },
+        { tenant_id: M, source_month: MES, client_uuid: 'tp21-b', supplier_text: 'TP21 DOS', amount: 800, pay_date: LUN },
+        { tenant_id: M, source_month: MES, client_uuid: 'tp21-c', supplier_text: 'TP21 TRES', amount: 500, pay_date: MAR },
+      ]);
+    }, 60_000);
+
+    it('⭐ suma por fecha: el lunes trae sus dos pagos, el martes el suyo', async () => {
+      const w = await cal.weekView(SEM);
+      const lun = w.days.find((d) => d.date === LUN)!;
+      const mar = w.days.find((d) => d.date === MAR)!;
+      expect(lun.libro!.n).toBe(2);
+      expect(Number(lun.libro!.monto)).toBeCloseTo(2000, 2);
+      expect(mar.libro!.n).toBe(1);
+      expect(Number(mar.libro!.monto)).toBeCloseTo(500, 2);
+    });
+
+    it('⭐ un día SIN pagos de un mes que SÍ está cargado es un cero de verdad', async () => {
+      const w = await cal.weekView(SEM);
+      const mie = w.days.find((d) => d.date === SEM)!;
+      expect(mie.libro!.n).toBe(0);
+      expect(mie.libro!.mes_cargado).toBe(true);     // ⇒ la pantalla puede decir "no se pagó"
+    });
+
+    it('⛔ un día de un mes que el libro NO tiene se marca, no se dibuja en cero', async () => {
+      // La semana siguiente cae en un mes que nadie cargó: mismo `monto: 0`, significado opuesto.
+      const w = await cal.weekView('2029-07-18');
+      for (const d of w.days) {
+        expect(d.libro!.n).toBe(0);
+        expect(d.libro!.mes_cargado).toBe(false);    // ⇒ la pantalla DEBE decir "sin cargar"
+      }
+    });
+
+    it('⛔ la costura no inventa una liga: el libro no toca lo asignado del día', async () => {
+      // Mismo día, las dos fuentes. El resumen del calendario NO puede moverse por el libro:
+      // son universos distintos y mezclarlos es lo que produjo los $273 M de [PP.4].
+      const antes = await cal.daySummary(LUN);
+      const w = await cal.weekView(SEM);
+      const lun = w.days.find((d) => d.date === LUN)!;
+      expect(lun.libro!.n).toBe(2);
+      expect(Number(lun.summary.assigned_amount)).toBe(Number(antes.assigned_amount));
+      expect(Number(lun.summary.assigned_amount)).toBe(0);
+    });
+
+    it('la semana entera trae su bloque de libro, los siete días', async () => {
+      const w = await cal.weekView(SEM);
+      expect(w.days.length).toBe(7);
+      expect(w.days.every((d) => d.libro != null)).toBe(true);
     });
   });
 

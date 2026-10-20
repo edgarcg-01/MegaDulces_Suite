@@ -4728,6 +4728,24 @@ export interface CommissionUniverseRow {
   plaza_o_zona: string | null; en_identidad: boolean; en_config: boolean;
   chofer_nombre: string | null; supervisor_nombre: string | null;
   nomina_banco: string | number | null; carga_desde: string | null;
+  /**
+   * `[RD.71]` El estado de la FUENTE de cada ruta — lo que el veredicto no mira.
+   *
+   * `veredicto` sale de la config, así que una ruta con `activo = true` dice `comisiona`
+   * **sin preguntarle nunca a la venta**. Estas cinco columnas son la otra mitad del hecho, y
+   * por eso se publican por separado en vez de mezclarse en el veredicto: a quién se le paga
+   * es decisión de Dirección, no de una vista.
+   *
+   * ⛔ `dias_sin_dato` es **NULL** cuando no hay fuente, nunca 0: un 0 se leería como
+   * «reportó hoy». Y `tiene_dato_futuro` va aparte de la frescura porque una venta con fecha
+   * adelantada **no es un dato fresco, es un dato imposible** — la ruta 22 tiene una fechada
+   * 2026-12-06, y pegados en una sola columna el segundo hecho desaparece dentro del primero.
+   */
+  ultimo_dia_con_dato: string | null;
+  dias_sin_dato: number | null;
+  subtotal_30d: string | number;
+  fuente_estado: 'viva' | 'rezagada' | 'muerta' | 'sin_fuente';
+  tiene_dato_futuro: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────

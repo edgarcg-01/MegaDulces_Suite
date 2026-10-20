@@ -63,15 +63,19 @@ import { SkeletonModule } from 'primeng/skeleton';
     }
     .ls-error-ic { font-size: 1.25rem; color: var(--bad-fg); flex: none; }
     .ls-error-txt { flex: 1 1 auto; min-width: 0; }
-    .ls-error-title { margin: 0; font-weight: var(--fw-bold, 700); color: var(--text-main); font-size: .9rem; }
-    .ls-error-detail { margin: .15rem 0 0; color: var(--text-muted); font-size: .8rem; }
+    /* [CGA-LEG.7] .9rem y .8rem son 14.4px y 12.8px: dos peldanos que NO existen en
+       tokens.css. Mismo defecto que .ms-l/.ms-sub -- un rem clavado inventa un nivel, y con
+       muchos niveles ninguno se lee como mas importante. Van a --fs-body (14) y --fs-sm (13),
+       que son los peldanos que el sistema ya tiene para titulo corto y texto de apoyo. */
+    .ls-error-title { margin: 0; font-weight: var(--fw-bold, 700); color: var(--text-main); font-size: var(--fs-body); }
+    .ls-error-detail { margin: .15rem 0 0; color: var(--text-muted); font-size: var(--fs-sm); }
     .ls-empty {
       display: flex; flex-direction: column; align-items: center; text-align: center;
       gap: .5rem; padding: 2.5rem 1.5rem; color: var(--text-muted);
     }
     .ls-empty-ic { font-size: 1.9rem; color: var(--text-faint); }
-    .ls-empty-title { margin: 0; font-weight: var(--fw-bold, 700); color: var(--text-main); font-size: .95rem; }
-    .ls-empty-hint { margin: 0; font-size: .82rem; color: var(--text-muted); max-width: 30rem; }
+    .ls-empty-title { margin: 0; font-weight: var(--fw-bold, 700); color: var(--text-main); font-size: var(--fs-body); }
+    .ls-empty-hint { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 30rem; }
     .ls-empty button, .ls-error button { margin-top: .35rem; }
   `],
 })

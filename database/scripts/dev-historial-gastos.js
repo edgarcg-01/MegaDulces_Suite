@@ -24,9 +24,9 @@
  * espejo de lectura.
  *
  * ## Uso
- *   node database/seeds-newdb/dev-historial-gastos.js --mio=superoot   # 60, varias personas
- *   node database/seeds-newdb/dev-historial-gastos.js --n=120 --mio=david_cisneros
- *   node database/seeds-newdb/dev-historial-gastos.js --limpiar        # borra SOLO lo sembrado
+ *   node database/scripts/dev-historial-gastos.js --mio=superoot   # 60, varias personas
+ *   node database/scripts/dev-historial-gastos.js --n=120 --mio=david_cisneros
+ *   node database/scripts/dev-historial-gastos.js --limpiar        # borra SOLO lo sembrado
  */
 'use strict';
 
@@ -214,7 +214,7 @@ async function main() {
         .where('comentarios', 'like', `%${MARCA}%`).count({ n: '*' }).first();
       console.log(`   de «${mio}»: ${mios.n}  (la pestaña «Míos»)`);
     }
-    console.log('\nPara retirarlos: node database/seeds-newdb/dev-historial-gastos.js --limpiar');
+    console.log('\nPara retirarlos: node database/scripts/dev-historial-gastos.js --limpiar');
   } finally {
     await knex.destroy();
   }

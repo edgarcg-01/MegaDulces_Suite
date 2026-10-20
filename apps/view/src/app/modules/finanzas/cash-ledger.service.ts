@@ -56,6 +56,51 @@ export interface MovimientoCaja {
   created_at: string;
   /** Procedencia de lo que autorrellenó el motor. Ausente = lo tecleó una persona. */
   autofill: Record<string, unknown> | null;
+
+  /**
+   * `[CG.125]` **Esto YA VIAJABA y la interfaz no lo declaraba.**
+   *
+   * La consulta del libro (`cash-ledger.service.ts`, el `base()` del listado) **no tiene
+   * `.select()`**: es un `SELECT *` sobre `finance.cash_ledger`. O sea que estas columnas
+   * llegaban al navegador en cada fila desde siempre, y la pantalla no podía pintarlas sólo
+   * porque el tipo no las nombraba. No hace falta tocar el servidor para mostrarlas.
+   *
+   * ⚠️ **Opcionales a propósito.** Son aditivas: ningún consumidor de hoy cambia. Y opcionales,
+   * no obligatorias, porque un servidor viejo —o una respuesta de otro endpoint que arme este
+   * tipo a mano— no las trae, y declararlas requeridas convertiría un campo ausente en un
+   * `undefined` que el tipo jura que existe.
+   *
+   * ⛔ **Hallazgo de paso, sin arreglar acá:** ese `SELECT *` también baja `firma_png`, que es un
+   * PNG en base64, **por cada fila del libro**. Con 233 movimientos en el periodo de la captura
+   * de Edgar eso es carga que nadie pinta. Acotar el `SELECT` es trabajo de servidor y va aparte.
+   */
+  /** Parte del monto que NO entró en efectivo (cliente de crédito). Efectivo = `monto` − esto. */
+  venta_credito?: number | null;
+  /**
+   * `[CG.126]` **A qué caja entró este dinero.** Un movimiento puede repartirse entre las dos:
+   * un cobro de ruta deja los billetes en la máquina (bóveda/CAOS) y la morralla en el cajón.
+   *
+   * ⛔ Los calcula el SERVIDOR desde `analytics.v_caja_reparto_movimiento`, el mismo resolvedor
+   * que usa el cuadre del día. No se derivan en la pantalla: dos derivaciones del mismo reparto
+   * terminan discrepando sin que nadie sepa cuál manda.
+   *
+   * ⚠️ Opcionales: un servidor anterior a `[CG.126]` no los manda, y ahí **no se dibuja un cero**
+   * —diría que a esa caja no llegó nada— sino que se declara que no se pudo repartir.
+   */
+  en_boveda?: number | null;
+  en_cajon?: number | null;
+  /** Por qué este movimiento no trae documento. El servidor lo exige desde `[CG.124]`. */
+  sin_documento_motivo?: string | null;
+  /** El documento que se DECLARÓ cuando el origen es CAOS y la llave no lo identifica. */
+  declared_doc_ref?: string | null;
+  /** A qué corte quedó amarrado. `null` = todavía no se cerró ninguno que lo incluya. */
+  corte_id?: string | null;
+  beneficiario_rfc?: string | null;
+  /** ⛔ `hora` NO se declara acá: ya existe arriba como requerida. Duplicarla da TS2300/TS2717. */
+  cancel_reason?: string | null;
+  cancelled_by_username?: string | null;
+  firma_estado?: string | null;
+  firma_nombre?: string | null;
 }
 
 export interface LibroResponse {

@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CaosService, type CaosQuery } from './caos.service';
+import { CaosService, type CaosQuery, type CaosSaldo } from './caos.service';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
 
@@ -60,6 +60,19 @@ export class CaosController {
   @ApiOperation({ summary: 'CS.6/CS.7 — resumen de CAOS por ruta (del ref) y por operador.' })
   resumen(@Query() q: CaosQuery) {
     return this.svc.resumen(q);
+  }
+
+  @Get('saldo')
+  @RequirePermissions(Permission.FINANCE_CAOS_VER)
+  @ApiOperation({
+    summary:
+      '[CGA-A.33] Saldo de la caja fuerte con sus tres testigos SEPARADOS: la ultima foto del '
+      + 'inventario de casetes del equipo, el cuadre de cada foto contra la anterior mas los '
+      + 'movimientos (por denominacion), y el conteo fisico -- que hoy NO existe y se declara '
+      + 'medido:false. estado sin_tabla/sin_foto si la foto todavia no se capturo.',
+  })
+  saldo(): Promise<CaosSaldo> {
+    return this.svc.saldo();
   }
 
   @Get('conciliacion')

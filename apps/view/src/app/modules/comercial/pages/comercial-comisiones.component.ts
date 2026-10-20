@@ -12,7 +12,7 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
-  CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload,
+  CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -471,11 +471,93 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   </tbody>
                 </table>
               </div>
+              <!-- [AUD-A] El span NO es decorativo. La clase cm-warn es display:flex en fila con
+                   flex-wrap:nowrap, asi que CADA nodo de texto y CADA strong o em suelto se
+                   vuelve un item flex propio. Sin el span, esta nota se pintaba como CINCO
+                   columnas con la frase entrelazada entre ellas, ilegible. Medido en prod el
+                   2026-10-20: los hijos quedaban en x=577 (persona) y x=909 (contribucion)
+                   sobre un ancho de 926 px. Las otras cuatro notas de esta pantalla si traian
+                   su span; esta era la unica sin el, y por eso era la unica rota. -->
               <p class="cm-warn">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
-                ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
-                arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+                <span>
+                  La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
+                  ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
+                  arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+                </span>
+              </p>
+            } @else if (tab() === 'padron') {
+              <!-- [RD.80] El padron NO mira la corrida: mira quien esta dado de alta para cobrar
+                   y si su fuente sigue viva. La pestana "No comisionan" no podia contestar esto
+                   porque sale de las lineas del espejo del libro. -->
+              @if (padronEnRiesgo(); as n) {
+                <p class="cm-falto-grito">
+                  <strong class="cm-neg">{{ n }}</strong>
+                  ruta(s) <strong>cobran comision y su fuente no da senal</strong>.
+                  El tabulador es escalonado: sin dias no se paga &laquo;un poco menos&raquo;,
+                  se paga <strong class="cm-neg">$0</strong>.
+                </p>
+              }
+              @if (padronVendeSinCobrar(); as m) {
+                <p class="cm-muted cm-micro">
+                  Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
+                  <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
+                  Directa — pero con el monto al lado la exclusion se puede revisar.
+                </p>
+              }
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <!-- [AUD] "Vendio" decia una cosa y la celda pintaba otra: el valor es
+                         subtotal_30d, y subtotal y venta difieren 6.4% ($399,857 en 30 dias).
+                         El diccionario de esta misma pantalla ya ensena la diferencia, y el
+                         subtotal es ademas la BASE con que se calcula la comision. -->
+                    <th>Ruta</th><th>Chofer</th><th>Plaza o zona</th>
+                    <th>Comisiona</th><th>Ultimo dia con dato</th>
+                    <th class="comm-num">Subtotal (30 d)</th><th>Que pasa</th>
+                  </tr></thead>
+                  <tbody>
+                    @for (r of padronHallazgos(); track r.route_code) {
+                      <tr [class.cm-fila-grito]="r.problema === 'cobra_sin_fuente'">
+                        <td class="comm-num">{{ r.route_code }}</td>
+                        <td class="cm-name">{{ r.chofer_nombre || '—' }}</td>
+                        <td class="cm-muted">{{ r.plaza_o_zona || '—' }}</td>
+                        <td>
+                          <p-tag [severity]="r.comisiona ? 'success' : 'secondary'"
+                                 [value]="r.comisiona ? 'si' : 'no'" />
+                        </td>
+                        <td [class.cm-corta]="r.fuente_estado !== 'viva'">
+                          {{ etiquetaFuente(r) }}
+                          @if (r.ultimo_dia_con_dato) {
+                            <span class="cm-muted cm-micro"> · {{ dia(r.ultimo_dia_con_dato) }}</span>
+                          }
+                        </td>
+                        <td class="comm-num cm-mono">{{ money(r.subtotal_30d) }}</td>
+                        <td class="cm-nota">
+                          <p-tag [severity]="sevProblema(r.problema)"
+                                 [value]="etiquetaProblema(r.problema)" />
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="cm-warn">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>
+                  <strong>Esta lista no decide nada: lo declara.</strong> Que una ruta siga
+                  cobrando con la fuente muerta, o que una que vende quede fuera, son
+                  <strong>decisiones de Direccion</strong> — la 321 y la 322 operan hoy en el ERP
+                  con codigo nuevo, y si la comision sigue al chofer o al tipo de ruta no lo puede
+                  resolver una pantalla. Lo que la pantalla si puede hacer es que la contradiccion
+                  deje de ser invisible.
+                  <br />
+                  <strong>De donde sale:</strong> del <em>padron derivado</em> —todas las rutas que
+                  existen, comisionen o no— y de su venta de los ultimos <strong>30 dias</strong>.
+                  <strong>No sale de la quincena</strong>, asi que no depende de que haya corrida
+                  ni cambia al elegir otro periodo. La pestana <em>No comisionan</em> es otra cosa:
+                  sale de las <strong>lineas de la corrida</strong> y habla solo de ese periodo.
+                </span>
               </p>
             } @else if (tab() === 'fuera') {
               <div class="cm-table-wrap">
@@ -626,7 +708,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
 
     .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
-    @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
+    @container (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
 
     .cm-rail { display:flex; flex-direction:column; max-height:78vh; overflow-y:auto; }
     .cm-mes { margin:.9rem 0 .35rem; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase;
@@ -664,7 +746,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-ciclo { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:0;
       padding:0; list-style:none; background:var(--border-color); border:1px solid var(--border-color);
       border-radius:var(--r-md,8px); overflow:hidden; }
-    @media (max-width:46rem) { .cm-ciclo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @container (max-width:46rem) { .cm-ciclo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
     .cm-ciclo li { display:flex; flex-direction:column; gap:.3rem; padding:.7rem .8rem;
       background:var(--card-bg); font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-3); }
     .cm-ciclo li.act { background:color-mix(in srgb, var(--action) 7%, var(--card-bg)); color:var(--action); }
@@ -861,6 +943,8 @@ export class ComercialComisionesComponent {
     this.cargarContraste();
     this.falto.set(null);
     this.cargarFalto();
+    this.padron.set([]);
+    this.cargarPadron();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
@@ -967,8 +1051,125 @@ export class ComercialComisionesComponent {
       ...(this.faltoDelPeriodo().length
         ? [{ label: `Lo que faltó · ${this.faltoDelPeriodo().length}`, value: 'falto' }] : []),
       ...(c.length ? [{ label: `Libro vs motor · ${c.length}`, value: 'contraste' }] : []),
+      // `[RD.80]` No depende de la corrida: si hay hallazgos, se muestran aunque la quincena
+      // elegida no tenga número. Son dos preguntas distintas y la segunda no espera.
+      //
+      // ⛔ **Se llamaba «Padrón» y era un nombre falso.** Medido: de sus 13 filas, **8 NO están
+      // en el padrón** (`en_config = false`: las vecinales). Un título que nombra el registro
+      // mientras la mayoría de su contenido es justamente lo que quedó FUERA del registro
+      // desorienta — es el caso `[CG.123]`. Lo que la pestaña compara de verdad son las dos
+      // caras del mismo hecho: quién cobra y quién vende. El nombre nuevo además rima con
+      // «Libro vs motor», que es la otra comparación de esta misma pantalla.
+      ...(this.padronHallazgos().length
+        ? [{ label: `Cobro vs venta · ${this.padronHallazgos().length}`, value: 'padron' }] : []),
     ];
   }
+
+  /**
+   * `[RD.80]` El problema en palabras de quien paga, no en las de la vista.
+   *
+   * ⛔ Sin esto la pantalla publicaría `cobra_sin_fuente`, que es vocabulario de la base. El
+   * usuario de esta pantalla autoriza una nómina: tiene que leer qué está mal, no cómo se llama
+   * la columna.
+   */
+  etiquetaProblema(p: string | null): string {
+    switch (p) {
+      case 'cobra_sin_fuente':  return 'Cobra y su fuente no da señal';
+      case 'fuente_rezagada':   return 'Le faltan días';
+      case 'vende_sin_cobrar':  return 'Vende y no comisiona';
+      case 'dato_imposible':    return 'Trae venta con fecha futura';
+      default:                  return '—';
+    }
+  }
+
+  sevProblema(p: string | null): 'danger' | 'warn' | 'info' | 'secondary' {
+    if (p === 'cobra_sin_fuente') return 'danger';
+    if (p === 'fuente_rezagada' || p === 'dato_imposible') return 'warn';
+    if (p === 'vende_sin_cobrar') return 'info';
+    return 'secondary';
+  }
+
+  /**
+   * ⛔ `sin_fuente` NO se pinta como «hace mucho»: son dos cosas distintas. Una ruta sin ninguna
+   * fila nunca reportó, y `dias_sin_dato` viene NULL justamente para no dibujar un cero que se
+   * leería como «reportó hoy» (ADR-056).
+   */
+  etiquetaFuente(r: CommissionUniverseRow): string {
+    if (r.fuente_estado === 'sin_fuente') return 'sin fuente';
+    if (r.dias_sin_dato == null) return 'sin medir';
+    if (r.dias_sin_dato === 0) return 'hoy';
+    return r.dias_sin_dato === 1 ? 'hace 1 día' : `hace ${r.dias_sin_dato} días`;
+  }
+
+  // ── `[RD.71/RD.80]` El padrón — quién cobra y si su fuente sigue viva ─────────────────────
+  //
+  // ⛔ **`GET /commissions/universe` existía desde `[RD.17]` y NO tenía un solo consumidor en el
+  // frontend.** El universo se derivaba, se publicaba y la pantalla nunca lo mostraba — por eso
+  // la 321 pudo pasar **139 días** cobrando sin vender y nadie lo vio. La pestaña «No comisionan»
+  // no servía: sale de las LÍNEAS DE LA CORRIDA, o sea del espejo del libro, y el libro no tiene
+  // filas para las rutas nuevas (2V001, 2V003) ni para una ruta que dejó de aparecer.
+  //
+  // Esta pestaña no mira la corrida: mira el padrón entero, exista o no la quincena.
+
+  readonly padron = signal<CommissionUniverseRow[]>([]);
+
+  private cargarPadron() {
+    // Mismo criterio que el contraste: no bloquea el tablero y si falla la pestaña no aparece.
+    this.api.commissionUniverse().subscribe({
+      next: (u) => this.padron.set(u ?? []),
+      error: () => this.padron.set([]),
+    });
+  }
+
+  /**
+   * ⭐ Las filas que contradicen al padrón, y nada más. Dos hechos distintos, y por eso van con
+   * `problema` explícito en vez de mezclarse en una lista de «rutas raras»:
+   *
+   *  · `cobra_sin_fuente` — comisiona y su fuente no da señal. Es dinero que se va a calcular
+   *    sobre nada: el tabulador es un acantilado, así que «sin días» no paga «un poco menos»,
+   *    paga CERO.
+   *  · `vende_sin_cobrar` — no comisiona y sí vende. Puede ser correcto (las vecinales no son
+   *    Ruta Directa), pero con el monto al lado la exclusión se puede revisar; sin él es una
+   *    lista de códigos raros que nadie mira.
+   *  · `dato_imposible` — trae venta con fecha futura.
+   */
+  readonly padronHallazgos = computed(() => this.padron()
+    .map((r) => ({
+      ...r,
+      problema: r.comisiona && (r.fuente_estado === 'muerta' || r.fuente_estado === 'sin_fuente')
+        ? 'cobra_sin_fuente'
+        : r.tiene_dato_futuro ? 'dato_imposible'
+          : !r.comisiona && Number(r.subtotal_30d) > 0 ? 'vende_sin_cobrar'
+            : r.comisiona && r.fuente_estado === 'rezagada' ? 'fuente_rezagada' : null,
+    }))
+    .filter((r) => r.problema !== null)
+    // Lo que cobra sin fuente primero: es lo único de esta lista que mueve un depósito.
+    .sort((a, b) => {
+      const peso = (p: string | null) =>
+        p === 'cobra_sin_fuente' ? 0 : p === 'fuente_rezagada' ? 1 : p === 'dato_imposible' ? 2 : 3;
+      const d = peso(a.problema) - peso(b.problema);
+      return d !== 0 ? d : Number(b.subtotal_30d) - Number(a.subtotal_30d);
+    }));
+
+  /** Lo que se va a calcular sobre nada, en pesos de los últimos 30 días. */
+  readonly padronEnRiesgo = computed(() => this.padronHallazgos()
+    .filter((r) => r.problema === 'cobra_sin_fuente').length);
+
+  /**
+   * ⛔ **Suma sobre el HECHO, no sobre la etiqueta** — y la diferencia no es de estilo.
+   *
+   * `padronHallazgos()` asigna **una sola** etiqueta por fila con una cadena de ternarios, así
+   * que una ruta que venda sin cobrar **y además** traiga una venta con fecha futura se queda
+   * con `dato_imposible` y **desaparecía de este total sin avisar**. Es el Cruce 1: una cifra
+   * publicada que no se puede recorrer hasta su lista.
+   *
+   * ⚠️ Era **latente, no vivo**: hoy la única con dato futuro es la 22, que sí comisiona. Se
+   * arregla ahora porque el día que deje de ser latente, el síntoma es un total más chico —
+   * y un total más chico no se nota.
+   */
+  readonly padronVendeSinCobrar = computed(() => this.padron()
+    .filter((r) => !r.comisiona && Number(r.subtotal_30d) > 0)
+    .reduce((s, r) => s + Number(r.subtotal_30d), 0));
 
   // ── `[RD.52]` El contraste ────────────────────────────────────────────────────────────────
 
