@@ -595,7 +595,7 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 
   | | |
   |---|---:|
-  | el libro les pagó, 14 quincenas | **$19,096.84** |
+  | el libro les pagó, 5 quincenas con pago | **$19,096.84** |
   | el motor, al recalcularlas hoy | **$0.00** |
 
   ⭐⭐ **Una baja correcta reescribía la historia**, y por el único camino que el módulo tiene
