@@ -194,6 +194,28 @@ class CaosAdapter {
     if (r.code < 200 || r.code >= 300) throw new Error(`getConfiguration → HTTP ${r.code}`);
     return JSON.parse(r.body);
   }
+
+  /**
+   * `[CGA-A.33]` El reporte «Contenidos»: lo que la máquina dice tener AHORA, casete por casete
+   * (`machineCashList[].stocksContent[]` y `bagsContent[]`, cada uno con `content[]`
+   * denom×quantity y su bandera `miscount`). Sólo lectura — es el mismo GET que hace la consola.
+   */
+  async getCounting() {
+    await this.ensureSession();
+    const ruta = '/Reports/report-Countings/getCounting';
+    let r = await pedir('GET', ruta, { cookie: this.cookie });
+    if (r.code === 401 || r.code === 302 || /<title>\s*CAOS\s*-\s*Login/i.test(r.body || '')) {
+      this.reset();
+      await this.ensureSession();
+      r = await pedir('GET', ruta, { cookie: this.cookie });
+    }
+    if (r.code < 200 || r.code >= 300) throw new Error(`getCounting → HTTP ${r.code}`);
+    const j = JSON.parse(r.body);
+    if (!j || !Array.isArray(j.machineCashList)) {
+      throw new Error('getCounting: forma inesperada (sin machineCashList)');
+    }
+    return j;
+  }
 }
 
 module.exports = { CaosAdapter };
