@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
 import { Permission } from '@megadulces/contracts/authz/permissions';
 import {
-  CAJA_VENTANA_DIAS,
+  CAJA_CONFIRMAR_UMBRAL_DIAS,
   parseHHMM,
   resumenEjercicioPendiente,
   type BusinessCalendar,
@@ -9,7 +9,7 @@ import {
   type MeFlujo,
   type MeVeredicto,
 } from '@megadulces/contracts';
-import { branchKeySql, ejercicioNoEsDePruebaSql, obligacionNoEsDePruebaSql } from '@megadulces/platform-core';
+import { branchKeySql, cajaColaDelLibroSql, ejercicioNoEsDePruebaSql, obligacionNoEsDePruebaSql } from '@megadulces/platform-core';
 
 /**
  * `[SN.7]` — El registro de BANDEJAS de trabajo pendiente que alimenta `GET /users/me/work`.
@@ -603,7 +603,7 @@ export const BANDEJAS: readonly BandejaDef[] = [
   {
     id: 'caja-por-confirmar',
     label: 'Movimientos de caja por confirmar',
-    detalle: 'lo que Kepler ya registró en la caja y el libro todavía no aplicó',
+    detalle: 'lo que Kepler registró en la caja desde el primer corte del libro y todavía no se aplicó',
     ruta: '/finanzas/caja-general',
     icono: 'pi pi-wallet',
     alcance: 'bandeja',
@@ -615,8 +615,9 @@ export const BANDEJAS: readonly BandejaDef[] = [
      * mismo día y el peor caso fueron **34**. El umbral se pone POR DEBAJO del promedio actual a
      * propósito — la bandeja existe para bajarlo, así que calibrarlo en 5 sería declarar sano
      * justo el rezago que esta fase vino a eliminar.
+     * `[CGA-A.49]` El número vive en `contracts`: la bandeja pinta la antigüedad con el mismo.
      */
-    umbral_dias: 3,
+    umbral_dias: CAJA_CONFIRMAR_UMBRAL_DIAS,
     anyOf: [Permission.FINANCE_CAJA_VER],
     /*
      * ⛔ **No usa `medirCola`, y no es capricho.** La fuente es una VISTA que por construcción sólo
@@ -651,19 +652,26 @@ export const BANDEJAS: readonly BandejaDef[] = [
        * veinte meses de atraso sobre un libro que no existía. Lo anterior a la ventana es una
        * decisión de migración histórica, no trabajo del día, y se declara en la pantalla
        * (`fuera_de_ventana`), no acá.
+       *
+       * ⛔⛔ `[CGA-A.49]` **Y LOS 45 DÍAS QUEDARON VIEJOS CUANDO EL LIBRO ARRANCÓ.** Medido el
+       * 2026-10-20: esta bandeja publicaba **1,782 pendientes por $16,182,680.78** —toda la era
+       * Control, que el Access ya había saldado— contra **106** de la bandeja real. La
+       * responsable veía diecisiete veces su trabajo. Ahora la cola es `cajaColaDelLibroSql`, la
+       * MISMA del aviso horario y de la bandeja: desde el primer corte, hasta hoy, sin lo ya
+       * capturado desde la caja fuerte. El rezago de la era Control lo publica la bandeja aparte.
        */
+      // Una sola pasada sobre la cola (con `FILTER`), no cuatro subconsultas. Medido el 2026-10-20
+      // contra prod: ~9 ms (la versión de 45 días tardaba ~29 ms), mismo resultado que cuatro pasadas.
       const r = await knex.raw(`
-        select (select count(*) from finance.v_caja_movimientos_pendientes
-                 where fecha_valor >= now()::date - ${CAJA_VENTANA_DIAS})                         as n,
-               (select min(fecha_valor) from finance.v_caja_movimientos_pendientes
-                 where fecha_valor >= now()::date - ${CAJA_VENTANA_DIAS})                         as viejo,
-               (select count(*) from finance.v_caja_movimientos_pendientes
-                 where fecha_valor > now()::date - 7)                                             as e7,
-               (select count(*) from finance.v_caja_movimientos_pendientes
-                 where fecha_valor > now()::date - 30)                                            as e30,
+        select count(*)                                                    as n,
+               min(v.fecha_valor)                                          as viejo,
+               count(*) filter (where v.fecha_valor > now()::date - 7)     as e7,
+               count(*) filter (where v.fecha_valor > now()::date - 30)    as e30,
                (select count(*) from finance.cash_ledger
                  where origen_tipo is not null and deleted_at is null and estado <> 'cancelado'
-                   and created_at > now() - interval '30 days')                                   as c30`);
+                   and created_at > now() - interval '30 days')            as c30
+          from finance.v_caja_movimientos_pendientes v
+         where ${cajaColaDelLibroSql('v')}`);
       const row = r.rows?.[0] ?? {};
       const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
       return {
