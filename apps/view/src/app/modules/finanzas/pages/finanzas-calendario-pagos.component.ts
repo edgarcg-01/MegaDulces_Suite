@@ -165,6 +165,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (dayUnprepared(d) > 0) { <span class="cal-warn-txt"> · {{ dayUnprepared(d) }} sin preparar</span> }
                 } @else { <span class="cal-muted">Sin pagos</span> }
               </span>
+              <!-- [TP.21.2] LA COSTURA. El libro de Tesoreria y este calendario son la misma
+                   linea de tiempo partida en dos: el pasado en un Excel, el futuro aqui. Medido:
+                   cero dias en comun y 53 dias en medio que ninguna pantalla contaba. Esta linea
+                   es ese pasado, en el mismo dia, declarado como OTRO universo (suma por fecha,
+                   no casa renglones: casar por monto+mes es lo de PP.4). -->
+              @if (d.libro; as lb) {
+                @if (!lb.mes_cargado && isPast(d.date)) {
+                  <span class="cal-day-libro is-gap" title="El Excel de Tesoreria no tiene ese mes. NO quiere decir que no se haya pagado.">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> libro sin cargar
+                  </span>
+                } @else if (lb.n > 0) {
+                  <span class="cal-day-libro" [title]="'Segun el LIBRO de Tesoreria salieron ' + money(lb.monto) + ' en ' + lb.n + ' pago(s) ese dia. Es otro universo que lo de arriba: se suma por fecha, no se casa renglon por renglon.'">
+                    <i class="pi pi-book" aria-hidden="true"></i> libro: <span class="comm-num">{{ moneyShort(lb.monto) }}</span> · {{ lb.n }}
+                  </span>
+                }
+              }
             </button>
           }
         </div>
@@ -551,6 +567,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-pp-urge { color: var(--warn-fg); font-weight: 600; }
     /* [TP.20.5] La factura es un enlace a su ficha. No se pinta de color en reposo: en una
        lista densa, 2,900 enlaces azules son ruido; el afordance aparece al pasar y al foco. */
+    /* [TP.21.2] La costura con el libro de Tesoreria. Discreta a proposito: es CONTEXTO del dia
+       (lo que ya salio segun el Excel), no la cifra con la que se arma el pago. El hueco -un mes
+       sin cargar- si toma color, porque es lo unico de aqui que pide accion. */
+    .cal-day-libro { display:inline-flex; align-items:center; gap:.25rem; margin-top:.15rem;
+      font-size: var(--fs-micro, .72rem); color: var(--text-faint); }
+    .cal-day-libro.is-gap { color: var(--warn-fg); }
     .cal-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0;
       font:inherit; text-align:left; }
     .cal-reflink:hover { color: var(--action); text-decoration: underline; }
@@ -866,6 +888,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   dayLong(iso: string): string { return this.fmt(iso, { weekday: 'long', day: 'numeric', month: 'short' }); }
   shortDate(iso: string | null): string { return iso ? this.fmt(iso.slice(0, 10), { day: 'numeric', month: 'short' }) : '—'; }
   isOverdue(iso: string | null): boolean { return !!iso && iso.slice(0, 10) < this.todayIso; }
+
+  /** `[TP.21.2]` Un dia ya pasado. Solo ahi un libro vacio dice algo: hacia adelante no hay nada que registrar. */
+  isPast(iso: string): boolean { return iso < this.todayIso; }
 
   shiftWeek(delta: number): void {
     this.armado.set(null); this.bulkSel.set(new Set());

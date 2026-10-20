@@ -459,6 +459,7 @@ reaparece en Kepler como un evento sin origen.
 | **O3** | Un pago se lee de punta a punta | pagos ejecutados ligados a Kepler **0 % → 100 %** | TP.19.3 · TP.20.2 |
 | **O4** | El libro de Tesorería deja de teclearse | meses del libro derivados del calendario **0 → el mes en curso** | TP.19.4 · TP.20.4 |
 | **O5** | Una sola puerta a Pagos | renglones de menú **4 → 1 entrada con 4 pestañas**; pantallas en `FINANZAS_TABS` **2/4 → 4/4** | TP.20.3 |
+| **O6** | **Las pantallas que se pueden fusionar, fusionadas** (agregado 2026-10-20) | días con pasado visible **0 → los 7 de la semana**; hueco entre libro y calendario **53 días invisibles → declarado** | TP.21 |
 
 ---
 
@@ -1555,3 +1556,94 @@ encima del diálogo de «Programar» en Pronto pago (`aboveModals` ya está pues
 ⚠️ **El enlace no se pinta de color en reposo** (sólo al pasar y al foco). Es deliberado: en una
 lista de 2,900 renglones, 2,900 enlaces de color compiten con la señal que **sí** decide. Si en uso
 resulta que nadie descubre que la factura se puede abrir, el ajuste es ése.
+
+---
+
+## 26. O6 / TP.21 — Fusionar lo que SÍ se puede: el libro y el calendario son una sola línea de tiempo (2026-10-20)
+
+Pedido de Edgar: *«fusionemos las interfaces que se puedan fusionar — Programa de pagos y Calendario
+de pagos: ver su estructura y cómo los hacemos vivir en uno solo»*.
+
+El inventario va **antes** de tocar código. Éste es.
+
+### La estructura de cada una
+
+| | **Calendario de pagos** (1,292 líneas) | **Programa de pagos** (382 líneas) |
+|---|---|---|
+| Eje | **la semana** — 7 días con presupuesto/comprometido/disponible | **el mes** — filtros Mes · Banco · Método · Tipo · Kepler |
+| Qué responde | *¿qué vamos a pagar y con qué capacidad?* | *¿qué ya se pagó y qué no está asentado en el ERP?* |
+| Tiempo | **prospectivo** | **retrospectivo** |
+| Escribe | **sí** (agrega, ordena, prepara, ejecuta, libera el día) | **no** — read-only |
+| Fuente | `finance.payment_calendar_lots/allocations/items` + 4 orígenes de obligación | `finance.payment_program` (el Excel de Tesorería, importado) |
+| Organismos propios | tira de semana con barra de capacidad · panel de obligaciones agrupadas por beneficiario · panel del día con orden/método/cuenta y acciones · PDF de instrucción a Caja General | KPIs · desglose **por banco** y **por método** · aviso de **meses faltantes** · píldora de frescura del libro · **conciliación mensual** (Programa vs Kepler 201 vs Bancos CB vs «pagado no en Kepler») |
+
+### ⭐ Lo que la medición de hoy cambia
+
+No son dos temas: son **la misma línea de tiempo —el día en que sale el dinero— cortada en dos**,
+con el pasado en un Excel y el futuro en el sistema. Medido en prod (sólo lectura, 2026-10-20):
+
+| | |
+|---|---|
+| El libro | 2,716 filas · **175 días** · $375,117,550 · hasta el **2026-08-28** |
+| El calendario | **6 días**, todos de octubre, **todos en borrador** |
+| **Días en común** | **0** |
+| **Hueco entre los dos** | **53 días** (29-ago → 15-oct) de los que **ninguna de las dos pantallas dice nada** |
+
+Ese hueco no se veía desde ninguna parte. No es un detalle estético: es el mes y medio en que
+Tesorería pagó y el sistema no lo sabe.
+
+### Qué se fusiona, y qué no
+
+✅ **El eje.** La llave que las dos comparten de verdad es **la fecha**. El día del calendario
+puede decir qué dice el libro de ese mismo día — y lo dice **como otro universo**, sumado por
+fecha, no casado renglón por renglón.
+
+⛔ **Los renglones, no.** El libro no guarda el folio del pago de Kepler (sólo `invoice_folios`, de
+*factura*; `kepler_flag` 24.8 %; `kepler_matched` NULL). Casarlos por **monto + mes** es exactamente
+lo que produjo los **$273 M indefendibles de `[PP.4]`**. Esto no cambió hoy y no se fuerza.
+
+⛔ **Los organismos propios del libro, tampoco — todavía.** Desglose por banco y por método,
+conciliación mensual de cuatro columnas, frescura del libro, aviso de meses faltantes: **nueve
+piezas** que no tienen lugar en una tira de semana. La regla del repo es explícita: *no se unifican
+dos vistas perdiendo columnas, chips o subtotales*. Se absorben en `TP.21.3`, con su propio
+inventario, **o no se absorben**.
+
+### `[TP.21.1]` + `[TP.21.2]` — la costura, hecha hoy
+
+`weekView()` publica, por día, `libro: { monto, n, mes_cargado }`, en **una** consulta para los
+siete días (la nota del propio método ya contaba 21 transacciones en serie; sumar siete más por una
+tira de encabezado sería pagar el doble por la mitad del dato).
+
+⚠️ **`mes_cargado` es la mitad del valor.** Un día de un mes que el Excel no tiene da `0` por
+ausencia, no porque no se haya pagado. Pintar las dos cosas igual es el mismo defecto que `[PP.10]`
+encontró escondiendo **$91,720,679**. En pantalla: *«libro: $X · N»* cuando hay pagos, y
+**«libro sin cargar»** en ámbar cuando el mes no está — nunca un cero mudo.
+
+La señal va en el pie del día, discreta: es **contexto**, no la cifra con la que se arma el pago.
+Lo único que toma color es el hueco, porque es lo único que pide acción.
+
+### Probado
+
+- **49/49** contra Postgres real (44 antes + **5** de la costura).
+- Ejercen **la distinción que importa**: el lunes suma sus dos pagos y el martes el suyo; un día sin
+  pagos de un mes **cargado** es un cero **de verdad**; un día de un mes **no cargado** sale marcado;
+  y —la que protege de `[PP.4]`— **el libro no mueve lo asignado del día**: son universos distintos
+  y mezclarlos es el defecto, no la feature.
+- ⭐ **Compuerta rota a propósito**: forzando `mes_cargado: true` la suite se pone **roja en la
+  prueba correcta** (1 failed / 48 passed), y verde al revertir.
+- `api:typecheck` verde · `check:templates` verde · `check:pantalla -- calendario-pagos`:
+  **0 fallas NUEVAS**.
+
+### Lo que falta de O6
+
+| Sprint | Qué | Estado |
+|---|---|---|
+| `TP.21.1` | el día publica su pasado (`libro` en `weekView`) | 🧪 hecho |
+| `TP.21.2` | la costura en la tira de semana + el hueco declarado | 🧪 hecho |
+| `TP.21.3` | absorber los **nueve** organismos del libro (banco, método, conciliación, frescura, meses faltantes) y redirigir `/finanzas/programa-pagos` | ⬜ **con su propio inventario antes** |
+
+⛔ **Sin validación visual** (`nx serve` prohibido): el pie del día ya tenía dos líneas y ahora puede
+llevar tres. Es lo primero que habría que mirar, porque son siete botones en una tira horizontal.
+
+⚠️ **Y el número de O6 no se moverá hasta desplegar**, como los otros cinco: hoy el hueco de 53 días
+está medido y declarado en el código, no en la pantalla que usa Tesorería.
