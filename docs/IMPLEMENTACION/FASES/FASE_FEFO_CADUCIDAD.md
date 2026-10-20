@@ -140,6 +140,100 @@ Un código sin match también pasa al paso 2 (la hoja acepta el renglón raw, re
 
 **Pendiente prod:** mig `20260810120000` a Railway + redeploy api+view + asignar permisos en `/admin/roles` + re-login.
 
+### P2.9 — Unidades de medida de la captura: pieza · paquete · caja · bulto · kg · bolsa de 250 g · bolsa de 500 g (2026-10-19)
+
+> **Estado: ⬜ DECISIONES TOMADAS (2026-10-19) — sin código.** Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
+
+```
+OBJETIVO:  que quien captura una caducidad pueda decir en qué unidad la contó, y que se guarde ESA y no otra
+MÉTRICA:   % de renglones de caducidad cuya unidad capturada coincide con una de las unidades DEL PRODUCTO
+           (su base o sus ranuras) — HOY: NO MEDIDO (es el paso 0) → META: se fija con la medición, antes de abrir C3
+CAPA TOPE: C3   (con C2 ejercida contra base real: la captura ESCRIBE)
+ÁREA:      Trade / Tienda
+DUEÑO:     por asignar
+```
+
+#### 1. Lo que ya existe (hallazgos, con su fuente)
+
+| # | Hallazgo | Fuente |
+|---|---|---|
+| 1 | Hoy hay **4 unidades cerradas** (`caja`, `pieza`, `bulto`, `kg`) escritas **a mano en 8 archivos** que no se hablan: el CHECK de la base (`20260825180000_expiry_review_lines_unit.js`), `VALID_UNITS` y `unitHint` del servicio, `expiry-voice.service.ts` (tipo, prompt y plural) y `expiry-voice-match.ts`, los 4 tipos de `comercial.service.ts`, la captura de tienda, el detalle de Almacén y `formatUnidad` (que pluraliza con `${u}s`, lo que dejaría «g250s»). **De las 7 pedidas, `kg` ya existe: faltan `paquete`, `250 g` y `500 g`.** | código |
+| 2 | **`unitHint` convierte `PAQ*` en `caja`** (`u.startsWith('PAQ') → 'caja'`). Según `UNIDADES_DE_MEDIDA.md` §3 (medido 2026-08-29) `PAQ` es la unidad base de **~7,132 SKUs**, la dominante: escanear un paquete sugiere «caja». **El PM confirmó que `PAQ` es paquete (D2).** | `libs/commercial/.../commercial-expiry-reviews.service.ts`; `UNIDADES_DE_MEDIDA.md` §3 |
+| 3 | **Los gramajes ya están verificados**: «un `500` son 500 gramos, aritmética» — en **51 de 51** SKUs con ranura `KG` se cumple `base × factor_KG = 1000`: la base es la **bolsa** (`500`/`250`) y el kilo es su ranura. Hay ~75 SKUs con base `500` y ~34 con `250`. Y el propio contrato exige que *«agregar una unidad exige medirla primero, no suponerla»*. | `libs/contracts/src/http/price-presentation.contract.ts` (`unidadLegible`); `UNIDADES_DE_MEDIDA.md` §3 |
+| 4 | **El repo ya sabe qué unidades tiene cada producto**: `PresentacionPrecio` = unidad base + las 2 ranuras de `kdii` + la escalera, cada una con su **factor contra la base** (17,102 presentaciones en `kdii` y escalera · 1,493 sólo `kdii` · 1,662 sólo escalera; medido 2026-09-24). Es la fuente para **filtrar el selector** (D3) y para **convertir** en FEFO (D4). | `price-presentation.contract.ts` |
+| 5 | El **Andén ya cuenta en la unidad del vale**, y casi nunca es la pieza: **68,440 de 93,030 renglones (73.6 %)** se cuentan en otra unidad (`PAQ` 60,468 · `PZA` 24,587 · `KG` 4,455 · `CJA` 168 · `BTO` 8, y gramajes `500`/`250`). Es el precedente a seguir. | `apps/view/.../almacen/shared/unidad-vale.ts` |
+| 6 | **FEFO suma lo capturado sin convertir.** `feedLine` mueve `quantity` tal cual contra existencia que es un «conteo pelón sin unidad» (`UNIDADES_DE_MEDIDA.md` §8quinquies). Con 7 unidades el riesgo crece, no se reduce. Ya declarado en #426. | `feedLine`; `UNIDADES_DE_MEDIDA.md` §8quinquies |
+| 7 | **~28 SKUs tienen una base que NO es ninguna de las 7**: `400` (6) · `SER` (14) · `CUB` (6) · `IND` (1) · `2KG` (1). Filtrar el selector por el producto los dejaría sin opción; por eso el filtro lleva salida (§2). | `UNIDADES_DE_MEDIDA.md` §3 |
+
+#### 2. Propuesta
+
+**Una sola definición compartida** en `libs/contracts` (`caducidad-unidad`): código guardado, etiqueta, plural, tipo (conteo/peso), código Kepler equivalente y pista de uso. Backend y frontend la importan; agregar una unidad pasa a ser **un archivo + una migración** en vez de 8 archivos. Las etiquetas salen de `unidadLegible()` (no se reescribe el vocabulario: ADR-056, un primitivo vive en `libs/`).
+
+| Unidad | Se guarda | Se muestra | Kepler |
+|---|---|---|---|
+| Pieza | `pieza` | pieza / piezas | `PZA` |
+| **Paquete** | **`paquete`** | paquete / paquetes | `PAQ` |
+| Caja | `caja` | caja / cajas | `CJA` |
+| Bulto | `bulto` | bulto / bultos | `BTO` |
+| Kilogramo | `kg` | kg | `KG` |
+| **Bolsa de 250 g** | **`g250`** | «250 g» (chip) · «3 bolsas de 250 g» (texto) | `250` |
+| **Bolsa de 500 g** | **`g500`** | «500 g» (chip) · «3 bolsas de 500 g» (texto) | `500` |
+
+- **D1 — la bolsa es la presentación y el kilo es lo que se vende.** `g250`/`g500` cuentan **bolsas**; el kilo es otra unidad del **mismo** producto (ranura `KG`). Así el producto «se vende por kilo» y se captura en bolsas, o en kilos, según lo que el anaquel tenga a la vista.
+- **Los valores existentes no cambian**: no hay reescritura de datos; el CHECK sólo se amplía (migración aditiva, idempotente, generada con `scripts/nueva-migracion.js` y aplicada en prod **una por una y antes del código**; la tabla es chica).
+- **Pista de unidad** (reemplaza `unitHint`): `PAQ → paquete`, `250 → g250`, `500 → g500`, `CJA → caja`, `PZA → pieza`, `KG → kg`, `BTO → bulto`; sin unidad declarada y sin factor, **no inventa** (hoy ya es así). Sin código escaneado se sugiere la **unidad base del producto** y no «pieza».
+- **D3 — el selector se filtra por las unidades del producto.** El servidor devuelve, junto al producto (`resolve` y búsqueda), sus **presentaciones** (base + ranuras + escalera) ya traducidas a las 7 y con su factor contra la base; la pantalla ofrece **sólo esas**. Ej.: un producto de base `500` con ranura `KG` ofrece «500 g» y «kg»; uno de base `PAQ` con ranura `CJA` ofrece «paquete» y «caja». **Con salida siempre**: un enlace «otra unidad» muestra las 7 — porque el catálogo se equivoca (143 SKUs que dicen `PZA` y Kepler vende por `KG`; ~28 con base fuera de las 7) y un filtro que oculta la unidad correcta bloquea la captura. Lo que se capture **fuera** de las unidades del producto cuenta en la métrica.
+- **Plural/etiqueta** por el contrato (hoy `${u}s`).
+
+#### 3. Decisiones (respondidas por el PM, 2026-10-19)
+
+| # | Pregunta | Respuesta | Qué implica |
+|---|---|---|---|
+| **D1** | ¿«250 g»/«500 g» son presentaciones o pesos? | ✅ *«Se vende por kileado y la presentación es en bolsa; depende del producto puede ser 250 g o 500 g.»* | Se captura en **bolsas** (`g250`/`g500`); el kilo es otra unidad del mismo producto. Calza con el dato verificado (51/51): base `500`/`250` + ranura `KG`. |
+| **D2** | ¿`PAQ` pasa a sugerir `paquete` (hoy `caja`)? | ✅ *«PAQ efectivamente es paquete.»* | Se corrige `unitHint`. Las hojas viejas **no se tocan**; las «caja» sobre un producto de base `PAQ` se **miden** (paso 0). |
+| **D3** | ¿Selector con las 7 siempre? | ✅ *«¿Se puede filtrar dependiendo de la unidad del producto?»* → **sí**, con las presentaciones del producto (hallazgo 4) y una salida «otra unidad» | §2. Cambia el paso 2: `resolve`/búsqueda devuelven `unidades`. |
+| **D4** | FEFO sólo cuando la unidad sea convertible, en un PR aparte | ✅ *«Así está bien.»* | Paso 4. La conversión usa el **factor de la presentación** contra la base (hallazgo 4); sin presentación o sin factor → **no se alimenta y se dice**. |
+| **D5** | ¿Cubeta (`CUB`)? | ✅ Fuera, *«a menos que alguna sucursal lo solicite más adelante»* | Agregarla después = un archivo + una migración (por eso el contrato). |
+| **D6** | ¿Se borra el código de voz? | ✅ *«Si no se ocupa, bórralo.»* | **Verificado: nadie lo llama** (ni un componente, ni un llamador de los 3 métodos del cliente). Va en **su propio PR** (paso 1b), antes del contrato. |
+
+#### 4. Plan por pasos (un PR por paso; el orden importa)
+
+| Paso | Capa | Qué | Se cierra cuando… |
+|---|---|---|---|
+| **0** | C0 | **Medir HOY** (solo lectura, §5): renglones por unidad, cuántos son «caja» sobre un producto cuya base es paquete, cuántos sin catálogo, cuántos FEFO parciales, **cuántos productos capturados tienen una escalera traducible a las 7**. | Hay una cifra con fecha. **Necesita la cuenta de sólo lectura de prod.** Define la META de la métrica. |
+| **1b** | C2 | **Retirar el asistente de voz** (D6): `expiry-voice.service.ts`, `expiry-voice-match.ts` (+ spec), los 3 endpoints `/voice/*` y sus providers, los 3 métodos del cliente y los checks 2c del smoke. | Typecheck y pruebas del módulo verdes; el smoke sin los checks de voz; **nada más cambia**. |
+| **1** | C1 | Contrato `caducidad-unidad` + reemplazo de `unitHint` (sin cambio visible). | Tabla de casos Kepler → unidad; el caso «`PAQ` ya no da `caja`» **falla con el código viejo** (prueba negativa); todos los consumidores de los tipos recorridos, plantillas incluidas. |
+| **2** | C2 | Migración que amplía el CHECK + el servicio valida con el contrato + `resolve`/búsqueda devuelven `unidades` (presentaciones del producto traducidas). | Prueba **contra Postgres real con el payload de la pantalla** para **cada una de las 7 unidades** (`POST /entries`); una unidad inválida da 400 **y** la base la rechaza; un producto de base `500` con ranura `KG` devuelve `g500` y `kg`. Se aplica **antes** que el código (si la pantalla manda `paquete` a un servidor viejo, recibe 400). |
+| **3** | C3 | Selector filtrado por producto (con «otra unidad»), plural/etiqueta, hoja impresa, expediente, «Capturas por día» y detalle de Almacén. | Skill `diseno` antes; `check:pantalla` antes y después sin fallas nuevas; validación visual a 390 px; spec del texto de la hoja por unidad y del filtro (producto con 2 unidades ofrece 2; sin escalera ofrece las 7). |
+| **4** | C2 | FEFO con conversión (D4): `cantidad × factor` a la unidad base del producto; sin factor, no alimenta y lo dice. Y, si el PM lo quiere, equivalencias «esto son N …». | Antes/después de lo que entra a FEFO con la **misma** consulta del paso 0. Las equivalencias **no** se publican sobre producto de peso sin factor verificado (`UNIDADES_DE_MEDIDA.md` §7.3). |
+
+#### 5. Consulta de medición del paso 0 (solo lectura — **no se ha ejecutado**)
+
+```sql
+-- C0.1 · SELECT puro, con la sesión nacida con app.tenant_id (cuenta dev_ro, RLS forzada: sin él sale vacío SIN error)
+SELECT COALESCE(unit, '(sin unidad)')                              AS unidad,
+       count(*)                                                    AS renglones,
+       count(*) FILTER (WHERE product_id IS NULL)                  AS sin_catalogo,
+       count(*) FILTER (WHERE fed_to_fefo)                         AS alimentaron_fefo,
+       count(*) FILTER (WHERE fed_to_fefo AND fefo_qty < quantity) AS fefo_parcial,
+       min(created_at)::date AS desde, max(created_at)::date AS hasta
+  FROM commercial.expiry_review_lines
+ GROUP BY 1 ORDER BY 2 DESC;
+```
+
+La segunda consulta (unidad capturada contra **las unidades del producto**) cruza con las presentaciones (`PresentacionPrecio`) y con `analytics.v_unit_truth` (`base_label`, `is_weight`, `box_factor`, `base_per_box`, `metodo_cajas`): se escribe al validar sus columnas contra el esquema real, **no antes**.
+
+#### 6. Riesgos y qué NO incluye
+
+- **Historial.** Si se revierte el código tras guardar `g250`, una pantalla vieja mostraría el código crudo: `formatUnidad` lleva un respaldo.
+- **PAQ histórico.** No se puede saber cuántas «caja» eran paquetes sin medir (paso 0); no se corrige por regla.
+- **El filtro depende del catálogo.** Si la escalera de un producto está mal, el selector ofrece lo equivocado; por eso la salida «otra unidad» y la métrica de capturas fuera de la escalera.
+- **No incluye:** cubetas (D5), cambiar `feedLine` antes del paso 4, ni tocar la captura del Andén (ya cuenta en la unidad del vale).
+
+#### 7. Definición de Terminado (los 7 puntos de `METODO_DE_TRABAJO` §5, aplicados)
+
+1. La métrica se mide **otra vez** con la consulta del paso 0 y se publica el antes/después. 2. Cada capa verificada o declarada NO MEDIDA. 3. El endpoint que escribe (`POST /entries`) ejercido contra base real con el payload de la pantalla, **una por unidad**. 4. Cada compuerta/regla nueva rota a propósito una vez. 5. El contrato `caducidad-unidad` vive en `libs/contracts` (no 8 copias). 6. Tracker, `03_LOG_REVISIONES.md` y el roadmap de `CLAUDE.md` al día, con ADR si hay decisión (D4 lo amerita). 7. En prod, o escrito por qué no.
+
 ## Riesgos / decisiones abiertas
 
 - **Doble escritura `stock`↔`stock_lots`:** todo path que mueva stock debe tocar ambos en la misma trx (mismo riesgo que hoy `stock`↔ledger). Mitigar con un helper único; nunca escribir uno sin el otro. Considerar un trigger DB que valide el invariante al cerrar la trx (defense-in-depth).
