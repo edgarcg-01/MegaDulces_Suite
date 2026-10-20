@@ -5,6 +5,12 @@ description: Protocolo para AUDITAR una pantalla ya construida de esta suite (no
 
 # Auditoría de diseño — el protocolo
 
+> ⭐⭐ **La ley está en [`docs/ESTANDAR_DE_INTERFACES.md`](../../../docs/ESTANDAR_DE_INTERFACES.md),
+> no acá.** Ese documento define **cuándo una interfaz está bien** —cinco capas: veracidad,
+> alcance, comprensión, sencillez, respeto— y vale para cualquier pantalla de cualquier app. Esta
+> skill es su **procedimiento**: con qué comandos de ESTE repo se comprueba cada capa. Si los dos
+> se contradicen, gana el estándar y hay que corregir acá.
+>
 > **Para quién es esto:** la próxima sesión o el próximo dev que tenga que juzgar una pantalla de
 > esta suite. No enseña a diseñar — eso es [`diseno`](../diseno/SKILL.md) y `DESIGN.md`. Enseña a
 > **encontrar lo que está mal en algo que ya existe**, que es otro oficio.
