@@ -324,6 +324,46 @@ local del candado (`test-newdb-contpaqi-firma.js` [C]) — **NO MEDIDO** hasta `
 
 ---
 
+## 3.5 ⛔⛔ `[CP.8.60]` El catálogo de asientos: el pago a proveedor que arma el puente es el 1.7 % de los reales
+
+Medido sobre las **4,813 pólizas de egreso de ContPAQi de 2026** con abono a banco: 4,216 (87.6 %)
+se ligan a su movimiento del banco por cuenta, ±3 días e importe exacto; placebo (fecha +45)
+**2.2 %**. Los impuestos de cada pago se compararon contra el XML del CFDI: el traspaso es
+**exactamente** el impuesto de la factura, y en pagos parciales va en proporción.
+
+**Pago a proveedor** (1,853 pólizas, $349.0M = 81 % del dinero de egresos): 166 formas, 4 reglas
+cubren el 64 %:
+
+| | forma real | evidencia |
+|---|---|---|
+| R1 | factura ya provisionada → cargo `2120` + traspaso IEPS `1470100000`/`1470110000` e IVA `1060000000`/`1470040000` + abono banco | 99.6 % de las pagadas contra 2120 son de un mes anterior (1,416/1,421) |
+| R2 | factura del mismo mes → cargo `5010`/`5020` del proveedor + IEPS/IVA acreditable directo | 817 facturas del mismo mes |
+| R3 | nota de crédito en el pago → abono `5050`/`5060`/`5070` + reversa del impuesto | ejemplos con CFDI de egreso |
+| R4 | cada renglón lleva el UUID de su CFDI | 98 % |
+
+⛔ **El puente arma sólo «2120 / banco», sin traspaso ni UUID: 32 de 1,853 (1.7 %).** O sea que
+los 958 pagos que «arman solos» (§39.1) **salen incompletos**. El armador ya lo declaraba
+(`iva_traspaso: 'no_emitido'`), pero nadie había medido que es la norma y no la excepción. Hasta
+que contabilidad apruebe R1–R4 y el armador las implemente, **no se entregan pagos a proveedor**.
+Caso concreto: la póliza de prueba de 52,339.34 del 19-oct corresponde a una factura del 26-ago con
+IEPS 3,876.99 → R1 → le faltaban dos renglones. No se importó.
+
+⚠️ **Sin explicar:** 709 facturas de mes anterior se pagaron por R2. El proveedor explica ~70 %
+(24 siempre R2, 50 siempre R1, 51 mezclan). Queda como pregunta a contabilidad.
+
+**Los demás egresos:** cinco tipos con cuenta fija (seguros `5200530000`, caja de ahorro
+`2140290000`, comisión bancaria `5200650000`, renta `5200510002`, traslado de valores
+`5200680000`), dos con pasivo + intereses (factoraje, crédito), y el resto por sucursal (nómina,
+IMSS), por concepto del CFDI (tarjeta) o mal clasificado en la Suite (servicios, impuestos, 676
+sin categoría). ⚠️ **Caja de ahorro carga a pasivo `2140`**: `firma-regla.ts` hoy sólo acepta
+gasto `52*` y la rechazaría — si contabilidad la aprueba, hay que ampliar la regla de firma.
+
+El documento con el detalle y las aprobaciones (privado, con nombres de proveedores) es el doc
+«Catálogo de asientos de egresos de banco». Script de la medición: no versionado, en el scratchpad
+de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
+
+---
+
 ## 4. Decisiones a firmar
 
 | # | Decisión | Opciones | Recomendación | Firma |
