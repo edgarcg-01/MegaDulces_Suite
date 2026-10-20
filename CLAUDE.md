@@ -262,6 +262,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | Archivo | KB | Para qué |
 |---|---:|---|
 | [`ONBOARDING.md`](ONBOARDING.md) | 36 | **Empezar acá** — de cero a API+view corriendo (Docker local, flujo git) |
+| [`docs/ESTANDAR_DE_INTERFACES.md`](docs/ESTANDAR_DE_INTERFACES.md) | 14 | ⭐⭐ **Cuándo una interfaz está BIEN**, para cualquier app. 5 capas, cada regla con su caso medido. Arriba de `DESIGN.md` en la pila: si se contradicen, gana éste |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 12 | Mapa de código: apps, dominios (libs), módulos, DBs, feeds, servicios externos |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 7 | Términos de dominio + nombres internos (Thot/Horus/Maat, Kepler, fases) |
 | [`docs/VERDAD_ABSOLUTA.md`](docs/VERDAD_ABSOLUTA.md) | 296 | ⭐⭐ **FUENTE PRINCIPAL DE RAZÓN** (ADR-059). Qué ARBITRA cada número, cuánto aguanta y qué se declara. Resolvedores únicos, las trampas que ya cobraron, los huecos con nombre y monto, y las **hipótesis refutadas** para que nadie las reconstruya. **Antes de publicar una cifra, abrí su índice y leé la sección de ese número** |
@@ -347,7 +348,17 @@ Los que gobiernan el trabajo diario: **ADR-010** multi-tenancy (`tenant_id` + RL
 
 ## Design System ("Mercado" — 2 surfaces)
 
-Antes de cualquier decisión visual/UI, leer [`DESIGN.md`](DESIGN.md). Un solo sistema, dos modes:
+> ⭐⭐⭐ **LA LEY ESTÁ EN [`docs/ESTANDAR_DE_INTERFACES.md`](docs/ESTANDAR_DE_INTERFACES.md)**, y es
+> lo primero que se lee. Define **cuándo una interfaz está bien** —para cualquier app, sin hablar
+> de colores ni componentes— en cinco capas: **veracidad · alcance · comprensión · sencillez ·
+> respeto**. Su ley 0, de la que deriva todo lo demás:
+>
+> > **Nada afirma lo que no es, y todo lo que importa se puede alcanzar.**
+>
+> `DESIGN.md` y las skills son **cómo se cumple ese estándar con el sistema «Mercado»**. Si se
+> contradicen, **gana el estándar** y hay que corregir lo otro.
+
+Después, para toda decisión visual/UI, leer [`DESIGN.md`](DESIGN.md). Un solo sistema, dos modes:
 
 > ⭐⭐ **Y son DOS skills, porque construir y auditar son oficios distintos:**
 > [`diseno`](.claude/skills/diseno/SKILL.md) para **escribir o cambiar** frontend ·

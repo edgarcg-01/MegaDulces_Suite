@@ -5,6 +5,12 @@ description: Sistema de diseño "Mercado" de Mega Dulces. OBLIGATORIO antes de c
 
 # Mercado — el sistema de diseño de esta suite
 
+> ⭐⭐ **Arriba de todo esto está [`docs/ESTANDAR_DE_INTERFACES.md`](../../../docs/ESTANDAR_DE_INTERFACES.md):**
+> cuándo una interfaz está bien, para cualquier app, sin hablar de colores ni componentes. Su ley 0
+> —*nada afirma lo que no es, y todo lo que importa se puede alcanzar*— es de la que derivan las
+> reglas de acá. `DESIGN.md` y esta skill son **cómo se cumple ese estándar con el sistema
+> «Mercado»**; si se contradicen, gana el estándar.
+
 `DESIGN.md` (raíz del repo) es la fuente operativa y es **binding**. Esta skill no lo reemplaza: lo
 vuelve ejecutable. Dice **qué medir antes de opinar, en qué orden revisar, y qué comando lo prueba**.
 
