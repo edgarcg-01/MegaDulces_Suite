@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1813 KB, 11785 líneas, 72 secciones.
+> **Índice navegable** — 1823 KB, 11872 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -55,30 +55,30 @@
 | 7816 | 7868 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
 | 7869 | 7935 | 20 | Fase WMS-BI — Análisis BI de Almacén |
 | 7936 | 8098 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8099 | 8274 | 15 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8275 | 8442 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 8443 | 10251 | 134 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 10252 | 10260 | 1 | Fase RR — Ventas por ruta |
-| 10261 | 10556 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 10557 | 10567 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 10568 | 10588 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 10589 | 10599 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 10600 | 10611 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 10612 | 10671 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 10672 | 11099 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 11100 | 11114 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 11115 | 11156 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 11157 | 11298 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 11299 | 11329 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 11330 | 11377 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 11378 | 11390 | 10 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 11391 | 11420 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 11427 | 11436 | 1 | 📝 Convenciones |
-| 11437 | 11473 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 11474 | 11492 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 11493 | 11545 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 11546 | 11848 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 11849 | 11869 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
+| 8099 | 8358 | 22 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8359 | 8526 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 8527 | 10335 | 134 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 10336 | 10344 | 1 | Fase RR — Ventas por ruta |
+| 10345 | 10640 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 10641 | 10651 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 10652 | 10672 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 10673 | 10683 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 10684 | 10695 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 10696 | 10755 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 10756 | 11183 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 11184 | 11198 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 11199 | 11240 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 11241 | 11382 | 59 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 11383 | 11413 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 11414 | 11461 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 11462 | 11477 | 12 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 11478 | 11507 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 11514 | 11523 | 1 | 📝 Convenciones |
+| 11524 | 11560 | 11 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 11561 | 11579 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 11580 | 11632 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 11633 | 11935 | 24 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 11936 | 11956 | 1 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -8265,6 +8265,90 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
   17,455.80 y no por 27,455.80; **mutado a «importe de la entrega» → 2 ✗**). Correr ambas:
   `TP_IT_DB=<conexión a la base local de Docker> npx vitest run <spec> --config libs/<lib>/vitest.config.ts`. Deuda: `weekView` son 21 transacciones en serie y cada guardado recarga
   la semana entera; `todayIso` no se actualiza si la pantalla queda abierta tras medianoche.
+
+### TP.17–TP.20 — Los cinco objetivos del plan del 16-oct — 🧪 en local, **nada desplegado** (2026-10-16 → 2026-10-19)
+
+> Plan completo, medición y bitácora: [`FASES/FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md)
+> §10–§25. ADR-094 (la deuda se DERIVA; autorizar = liberar el día) y ADR-096 (dos pantallas del
+> mismo registro se unifican por el REGISTRO, no por la lista).
+> ⛔ **Ninguno de estos items está en producción.** `auto-deploy.sh` tiene su renglón del `crontab`
+> comentado y no se pidió push. La métrica de cada objetivo **no se movió**: lo construido vive en
+> `main` local y en el CI, no en `md`.
+
+- [ ] 🧪 **TP.17 + TP.18** — **O1: la deuda que se ve es la que se puede programar.** El Calendario
+  veía el **2.0 %** de la deuda (37 obligaciones capturadas) contra **2,894 documentos ·
+  $133,131,122** vivos en Kepler. Se agregó un **cuarto origen derivado** (`kepler_payable`) sobre
+  `analytics.v_supplier_payables` — **sin importer y sin tabla nueva** (ADR-094), con llave
+  determinista `md5(…)::uuid` para puentear la clave natural compuesta al `uuid` del motor.
+  **Arbitrado contra el ECA**: desviación **0.13 %**. Mig `20261016171340` (CHECK del cuarto
+  origen) **aplicada en prod, lote 950**. ⚠️ Métrica remedida: **sigue 2.0 %** — no desplegado.
+  **Deudas con nombre:** (a) el techo de 1,000 filas ocultaba **1,895 docs · $105,683,725** (79 %
+  del dinero) y ahora se **declara** («N de M») pero **no hay paginación real**; (b) latencia p90
+  **555 ms** contra el límite duro de 500 — el arreglo es un índice sobre
+  `kepler_ods.kdxf (sucursal, c7, c8, btrim(c9))`, que es **DDL en prod y necesita autorización +
+  ventana fuera de horario**.
+- [ ] 🧪 **TP.18.3 + TP.20.1** — **O2: el descuento que vence se puede accionar.** Pronto pago veía
+  vencer **$2,420,559** todavía dentro de ventana y no tenía a dónde mandarlos. Ahora publica
+  `obligation_source`/`obligation_id`/`reservado`/`pagado`/`programable` y tiene botón
+  **«Programar»** (gated por `FINANCE_PAYMENTS_GESTIONAR`) que escribe en el Calendario con la
+  **misma regla de dedupe**: si Compras ya capturó la factura, manda esa obligación; si no, la
+  derivada.
+- [ ] 🧪 **TP.19.3 + TP.19.4 + TP.20.2** — **O3: un pago se lee de punta a punta.** `linkKeplerPayment()`
+  + `sugerirKeplerPayment()` (el documento del ERP se **propone**, no se teclea) y «Pagos a
+  proveedor» muestra **de qué día autorizado salió** cada pago. Mig `20261016185746`
+  (`kepler_payment_*` + índice único parcial). ⚠️ Métrica: **0 % → 0 %**, porque **nunca se ha
+  autorizado un día** (0 de 5 lotes liberados) y no hay pago ejecutado que ligar.
+- [ ] ⏸️ **TP.19.4 / TP.20.4-original** — **O4: el libro de Tesorería deja de teclearse. NO se
+  construyó, y la razón está medida.** Derivar el libro del calendario habría producido un libro
+  **vacío**: cero días autorizados. En su lugar se arregló lo que sí estaba roto —**PP.10**: la
+  conciliación era ciega a los meses sin libro cargado y escondía **$91,720,679**. El libro lleva
+  **72 días sin actualizarse** y hacerlo auto-alimentado exige refactorizar
+  `import-payment-program.js` (un IIFE único): **es una fase, no un item**.
+- [ ] 🧪 **TP.20.3** — **O5: una sola puerta a Pagos.** Las cuatro pantallas (Pronto pago ·
+  Calendario · Pagos a proveedor · Programa de pagos) pasan de **4 renglones de menú a 1 entrada
+  con 4 pestañas**, en el orden del ciclo del dinero (se debe → se programa → se paga → se audita).
+  ⛔ **Sin shell de ruta a propósito**: `/finanzas` ya gastó su único padre `path: ''` en Gastos, y
+  meter un segundo arriesga que `/finanzas/mis-gastos` deje de resolver — y eso **no se puede
+  comprobar sin levantar la app**, que está prohibido. La barra se embebe en cada pantalla.
+- [ ] 🧪 **TP.20.4** — **La urgencia del descuento, donde se arma el día** (2026-10-19). El
+  inventario feature×feature (§23) **contradijo** la propuesta que lo originó: fusionar las listas
+  rompe una de las dos (el Calendario agrupa por beneficiario, Pronto pago ordena por urgencia).
+  En su lugar, la ventana viaja con la fila del Calendario y hay filtro **«Descuento por vencer»**.
+  ⚠️ Cambió la forma respecto de lo acordado: eran **tres columnas**, y al abrir la tabla resultó un
+  panel estrecho de cuatro con texto cortado — la señal va **dentro de la celda**, como chip, y
+  **sólo cuando hay algo que ganar**. ⚠️ Las 37 obligaciones **capturadas** salen `sin_medir`: darles
+  ventana es un join más en una consulta que ya está en el límite de latencia.
+- [ ] 🧪 **TP.20.5** — **La ficha de la obligación: la información de una factura vive junta**
+  (2026-10-19, ADR-096). Lo que §23 no vio: **la lista no es la unidad de unificación, el registro
+  sí**. Las cuatro pantallas son cuatro preguntas sobre el mismo sustantivo. Se agregó el tipo
+  `oblig` al resolvedor `entity-ref` —el primitivo **ya existía** y Finanzas era la única que no lo
+  usaba, porque **la puerta exigía sólo permisos de Compras** y a Tesorería le daba **403** sobre
+  una ficha que es suya—. El vínculo factura↔pago es **estructural** (`kepler_ods.kdxf`, la tabla
+  con la que el ERP aplica un pago contra un documento, y la misma que alimenta el saldo), **no un
+  cruce por monto+mes**: ese cruce es el de los **$273 M indefendibles de PP.4**. Medido en prod:
+  **2,974 facturas con saldo · $139,829,081**, 333 con pago parcial; de 752 aplicaciones de
+  facturas vivas, **103 (13.7 %)** resuelven a ficha de pago — y ese 13.7 % es el **alcance** del
+  espejo, no un defecto (las 498 que faltan son nómina/comisiones y notas de crédito X-D-55 /
+  ajustes X-D-40, que aplican contra la factura pero **no son un pago con comprobante**): se
+  **nombran** y no se enlazan. **10/10** de integración contra Postgres real con **tres pruebas
+  negativas**. ⛔ **Programa de pagos queda fuera y no por olvido**: sigue sin llave (no guarda el
+  folio del pago de Kepler).
+- [x] **TP.18.7** — **deuda saldada el 2026-10-19:** `keplerPayableId()` ya no vive dentro del
+  service. Junto con la ventana de pronto pago, bajó a `libs/contracts` **por subruta** (el barrel
+  raíz lo cargan las 3 apps Angular y esto importa `node:crypto`). De paso, *Pronto pago* tenía
+  **dos copias más** del cálculo de la ventana en su propio archivo: ahora **cuatro consultas
+  llaman a la misma función**.
+
+**Lo que falta para que TP pase de 🧪 a 🚀, y de quién depende:**
+
+| # | Qué | De quién depende |
+|---|---|---|
+| 1 | **Desplegar.** Nada de TP.17–TP.20.5 está en `md`; las tres métricas de objetivo siguen en su valor de partida | push + despliegue (Edgar) |
+| 2 | **Autorizar un día.** 0 de 5 lotes liberados en toda la historia: sin eso O3 no puede medirse ni con el código en prod | Gerencia/Dirección |
+| 3 | **Índice en `kepler_ods.kdxf`** para bajar el p90 de 555 ms | DDL en prod, fuera de horario |
+| 4 | **Dueño y fecha** — sin eso la fase no puede pasar a 🔨 (§7 del método) | Edgar / Tablero PM |
+| 5 | **Validación visual** de las 4 pantallas: el chip de ahorro y el folio vuelto botón no los vio nadie | `nx serve` prohibido — hace falta el entorno desplegado |
+
 
 **Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
 cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
