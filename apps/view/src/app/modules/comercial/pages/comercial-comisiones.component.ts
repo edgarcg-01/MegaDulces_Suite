@@ -3,6 +3,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
+import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { ComercialComisionesObjetivoComponent } from './comercial-comisiones-objetivo.component';
@@ -62,9 +65,12 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule],
+  providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
+      <p-toast />
+      <p-confirmdialog />
       <app-page-tabs [tabs]="tabsRD" />
       <header class="cm-head">
         <div>
@@ -96,7 +102,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
            elegir otra quincena. Por eso el conmutador va a este nivel, sobre el eje del tiempo.
            ⚠️ La de Logistica (/finanzas/comisiones-logistica) NO entra: otro permiso, otra
            poblacion (choferes de embarque) y otro dominio. Fundirla filtraria nomina de RD. -->
-      <app-segmented [options]="vistas" [value]="vista()" (valueChange)="vista.set($event)"
+      <!-- ⚠️ app-segmented emite string (sirve a toda la suite) y el signal es de una union de
+           dos. Se estrecha en un metodo: vista.set($event) tipa mal, y vitest NO tipa las
+           plantillas — el error solo sale en Build & typecheck o en check-template-types. -->
+      <app-segmented [options]="vistas" [value]="vista()" (valueChange)="verVista($event)"
                      ariaLabel="Qué comisión" />
 
       @if (vista() === 'objetivo') {
@@ -338,6 +347,50 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               · corrida {{ cuando(r.updated_at) }}
               @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
             </p>
+
+            <!-- [RD.83] El ciclo deja de ser un dibujo. Los cuatro pasos estaban pintados como
+                 una lista explicativa y sólo el primero tenía botón: la pantalla CONTABA el
+                 trámite en vez de hacerlo. Medido contra prod el 2026-10-20: de 20 corridas,
+                 **0 tienen approved_at** — el paso de aprobar no se ha ejercido NUNCA, porque no
+                 había dónde apretarlo.
+
+                 ⛔ El acto se ofrece sólo cuando la máquina de estados del servidor lo permite
+                 (setStatus ya lo valida), y 'Aprobar' desaparece si hay compuertas que
+                 bloquean: una compuerta que se puede saltar es decorativa. -->
+            @if (!esProyeccion()) {
+              <section class="cm-actos" aria-label="Qué sigue con esta corrida">
+                <div class="cm-actos-txt">
+                  <p class="cm-eyebrow">{{ tituloActo(r) }}</p>
+                  <p class="cm-actos-dice">{{ explicaActo(r) }}</p>
+                  @if (selloAprobacion(r); as s) { <p class="cm-micro cm-muted">{{ s }}</p> }
+                </div>
+                @if (puedeGestionar()) {
+                  <div class="cm-actos-btns">
+                    @if (proximoActo(r) === 'approve') {
+                      <button type="button" class="cm-btn" [disabled]="actuando()"
+                              (click)="confirmarActo(r, 'approve')">
+                        {{ actuando() ? 'Aprobando…' : 'Aprobar' }}
+                      </button>
+                    }
+                    @if (proximoActo(r) === 'pay') {
+                      <button type="button" class="cm-btn" [disabled]="actuando()"
+                              (click)="confirmarActo(r, 'pay')">
+                        {{ actuando() ? 'Marcando…' : 'Marcar pagada' }}
+                      </button>
+                    }
+                    @if (sePuedeAnular(r)) {
+                      <button type="button" class="cm-btn cm-btn--ghost" [disabled]="actuando()"
+                              (click)="confirmarActo(r, 'void')">Anular</button>
+                    }
+                  </div>
+                } @else if (proximoActo(r)) {
+                  <p class="cm-micro cm-muted">
+                    No tenés permiso para {{ proximoActo(r) === 'approve' ? 'aprobar' : 'pagar' }} —
+                    lo hace quien tiene <b>gestionar comisiones</b>.
+                  </p>
+                }
+              </section>
+            }
 
             @if (faltoDelPeriodo().length) {
               <section class="cm-falto">
@@ -844,11 +897,21 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-err { display:flex; gap:.4rem; align-items:center; color:var(--bad-fg); font-size:var(--fs-sm); margin:.4rem 0; }
     .cm-empty { color:var(--c-text-2); font-size:var(--fs-sm); }
     .cm-muted { color:var(--c-text-2); }
+    /* [RD.83] la barra de actos: el trámite se ejecuta donde se lee el número, no en otra pantalla */
+    .cm-actos { display:flex; gap:var(--sp-3,.75rem); align-items:center; justify-content:space-between;
+      flex-wrap:wrap; margin:.7rem 0 0; padding:.6rem .75rem; border:1px solid var(--border-color);
+      border-radius:var(--r-md,8px); background:var(--overlay-hover); }
+    .cm-actos-txt { min-width:0; }
+    .cm-actos-dice { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .cm-actos-btns { display:flex; gap:var(--sp-2,.5rem); flex-shrink:0; }
+    .cm-btn--ghost { background:transparent; color:var(--c-text-2); border:1px solid var(--border-color); }
   `],
 })
 export class ComercialComisionesComponent {
   private readonly api = inject(ComercialService);
   private readonly perms = inject(PermissionsService);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
 
   /**
    * ⭐ El ÚNICO control de esta pantalla, y aparece sólo cuando hay un hueco que llenar.
@@ -903,6 +966,12 @@ export class ComercialComisionesComponent {
     { label: 'Nómina quincenal', value: 'quincena' },
     { label: 'Bono por objetivo (mensual)', value: 'objetivo' },
   ];
+
+  /** Estrecha el `string` del control segmentado a la unión del signal. Cualquier otro valor
+   *  se ignora en vez de ensuciar el estado: el control sólo ofrece esos dos. */
+  verVista(v: string): void {
+    if (v === 'quincena' || v === 'objetivo') this.vista.set(v);
+  }
 
   readonly tab = signal<string>('chofer');
   /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
@@ -1547,6 +1616,138 @@ export class ComercialComisionesComponent {
       error: (e) => {
         this.recalculando.set(false);
         this.err.set(e?.error?.message ?? 'No se pudo calcular.');
+      },
+    });
+  }
+
+  // ── [RD.83] Los actos ──────────────────────────────────────────────────────────────────
+  //
+  // ⭐ **Por qué esto no contradice el "sin botones" de la cabecera.** Lo que se quitó en
+  // `[RD.22]` fue *calcular* desde el hilo de la petición: costaba 5,762 ms y hacía lenta la
+  // lectura. Aprobar, pagar y anular son `UPDATE` de una fila — ni leen venta ni materializan
+  // nada. El argumento de rendimiento no los alcanza, y sin ellos el ciclo de cuatro pasos que
+  // la pantalla dibuja no se puede recorrer en ningún lado.
+  //
+  // ⛔ **La máquina de estados NO se reimplementa acá.** El servidor ya la tiene en `setStatus`
+  // y es la que manda; esto sólo decide qué ofrecer. Si las dos discrepan, gana el 409 del
+  // servidor y se muestra su mensaje tal cual — una copia de la regla en el front se
+  // desincroniza y termina ofreciendo un botón que siempre falla.
+
+  /** El acto que toca, o `null` si no hay nada que hacer con esta corrida. */
+  proximoActo(r: CommissionRunDetail): 'approve' | 'pay' | null {
+    // ⛔ Una corrida con compuertas que bloquean NO se aprueba. La compuerta ya se pinta arriba
+    // con su motivo; ofrecer el botón igual la volvería decorativa.
+    if (r.status === 'borrador' && !this.bloqueantes(r).length) return 'approve';
+    if (r.status === 'aprobado') return 'pay';
+    return null;
+  }
+
+  /** Anular existe mientras el dinero no se haya ido. Lo pagado no se revive ni se deshace. */
+  sePuedeAnular(r: CommissionRunDetail): boolean {
+    return r.status === 'borrador' || r.status === 'bloqueada' || r.status === 'aprobado';
+  }
+
+  tituloActo(r: CommissionRunDetail): string {
+    switch (this.proximoActo(r)) {
+      case 'approve': return 'Falta aprobarla';
+      case 'pay': return 'Falta marcarla pagada';
+      default:
+        if (r.status === 'pagado') return 'Pagada y congelada';
+        if (r.status === 'bloqueada') return 'Bloqueada';
+        if (r.status === 'anulado') return 'Anulada';
+        return 'Sin acto pendiente';
+    }
+  }
+
+  explicaActo(r: CommissionRunDetail): string {
+    switch (this.proximoActo(r)) {
+      case 'approve':
+        return 'El motor ya produjo el número y las compuertas pasan. Aprobar es un acto humano: '
+          + 'el motor nunca aprueba solo.';
+      case 'pay':
+        return 'Aprobada. Al marcarla pagada queda congelada — lo pagado no se recalcula.';
+      default:
+        if (r.status === 'pagado') return 'No se recalcula. Para corregirla hay que anularla y volver a calcular.';
+        if (r.status === 'bloqueada')
+          return 'No se aprueba con compuertas abiertas: se anula, se resuelve el motivo y se vuelve a calcular.';
+        if (r.status === 'anulado') return 'Quedó fuera del libro. Volver a calcular la quincena produce una nueva.';
+        return 'Esta quincena todavía corre: no se aprueba ni se paga media quincena.';
+    }
+  }
+
+  /**
+   * ⚠️ Se DECLARA quién y cuándo, no se dibuja un hueco. Medido el 2026-10-20: las 20 corridas
+   * de prod tienen `approved_at` en NULL — entraron como espejo del libro, sin pasar por el
+   * trámite. Una corrida pagada sin sello de aprobación no es un error de pintura: es historia
+   * que no tuvo ese paso, y decirlo es distinto de callarlo.
+   */
+  selloAprobacion(r: CommissionRunDetail): string | null {
+    if (r.status !== 'aprobado' && r.status !== 'pagado') return null;
+    const partes: string[] = [];
+    if (r.approved_at) partes.push(`aprobada ${this.cuando(r.approved_at)}`);
+    if (r.paid_at) partes.push(`pagada ${this.cuando(r.paid_at)}`);
+    if (!partes.length) return 'sin sello de aprobación — entró como espejo del libro';
+    return partes.join(' · ');
+  }
+
+  readonly actuando = signal(false);
+
+  confirmarActo(r: CommissionRunDetail, accion: 'approve' | 'pay' | 'void'): void {
+    const q = r.period ? `Q${r.period.period_no}` : 'esta quincena';
+    const monto = this.money(r.total_neto ?? r.total_a_pagar);
+    const textos: Record<typeof accion, { header: string; message: string; accept: string }> = {
+      approve: {
+        header: `Aprobar ${q}`,
+        message: `Se aprueba ${q} por ${monto} (${this.pagan()} chofer(es) que cobran). `
+          + 'Aprobar no paga: habilita el paso de pago. Queda registrado con tu nombre y la hora.',
+        accept: 'Aprobar',
+      },
+      pay: {
+        header: `Marcar ${q} como pagada`,
+        message: `Se marca ${q} por ${monto} como PAGADA y queda congelada: no se recalcula, `
+          + 'ni cuando cambie el tabulador ni cuando llegue dato nuevo. Esto no mueve dinero — '
+          + 'registra que ya se pagó.',
+        accept: 'Marcar pagada',
+      },
+      void: {
+        header: `Anular ${q}`,
+        message: `Se anula la corrida de ${q} por ${monto}. Sale del libro y la quincena vuelve a `
+          + 'quedar sin número, para volver a calcularla con el motivo resuelto.',
+        accept: 'Anular',
+      },
+    };
+    const t = textos[accion];
+    this.confirm.confirm({
+      header: t.header, message: t.message,
+      acceptLabel: t.accept, rejectLabel: 'Cancelar',
+      accept: () => this.actuar(r.id, accion),
+    });
+  }
+
+  private actuar(runId: string, accion: 'approve' | 'pay' | 'void'): void {
+    if (this.actuando()) return;
+    this.actuando.set(true);
+    this.err.set(null);
+    this.api.commissionSetStatus(runId, accion).subscribe({
+      next: (detalle) => {
+        this.actuando.set(false);
+        this.run.set(detalle);
+        this.toast.add({
+          severity: 'success',
+          summary: accion === 'approve' ? 'Aprobada' : accion === 'pay' ? 'Marcada pagada' : 'Anulada',
+          detail: `Queda en estado "${detalle.status}".`,
+        });
+        // El tablero trae el estado y el monto de cada quincena: si no se recarga, la tira de
+        // arriba sigue diciendo lo de antes del acto.
+        this.cargar();
+      },
+      error: (e) => {
+        this.actuando.set(false);
+        // ⭐ El 409 del servidor trae la razón exacta (qué transición no se permite, y qué
+        // compuertas bloquean). Se muestra tal cual: un "no se pudo" propio la borraría.
+        const msg = e?.error?.message ?? 'No se pudo completar el trámite.';
+        this.err.set(msg);
+        this.toast.add({ severity: 'error', summary: 'No se completó', detail: msg, life: 8000 });
       },
     });
   }
