@@ -403,9 +403,35 @@ corrigió $9.5 M). Mientras falle, cualquier corrección tardía de Kepler no ll
 `analytics.sales_daily`. **No medido:** desde qué noche exacta falla; el renglón de `cron_runs` se
 sobreescribe y el log del pod sólo guarda la vida del pod actual.
 
-**Arreglo propuesto (sin aplicar):** subir la memoria del pod y darle al nocturno un heap explícito.
-**Medir antes la memoria libre del nodo**, porque comparte máquina con `pg-prod`. A futuro, que el
-importer procese por lotes en vez de cargar 13 meses en memoria.
+**Por qué empezó a fallar:** el proceso cargaba los 13 meses en memoria **cuatro veces** (`agg`,
+`tk`, `acc` y `rows`). Su comentario habla de ~695 mil filas de origen; **hoy son 1,051,987**. La
+venta creció y dejó de caber.
+
+**Se descartó subir la memoria.** Medido el 2026-10-20: el nodo tiene 29.5 GB, con **6.8 GB
+disponibles** y 3 GB de swap en uso; `pg-prod` usa 13.7 GB y `pgvector-md` 4.6 GB. Cabría, pero
+vuelve a romperse cuando crezcan los datos, y le quita margen a la base de prod.
+
+**Arreglo (commit de este item): procesar por mes.** `runCycle` arma ventanas mensuales y corre la
+lectura, la conversión y el UPSERT de cada una por separado (`cargarVentana`). La memoria baja a
+~1/13. El modo de N días de `livefast` queda como una sola ventana, igual que antes.
+
+- **Por qué es exacto:** la carga es sólo UPSERT (sin DELETE) y la llave
+  (`product, warehouse, channel, sale_date`) incluye la fecha; `tickets` también agrupa por fecha.
+  `mart.ventas_enriched.fecha` es `date` (verificado), así que `< current_date + 1` es idéntico al
+  `<= current_date` de antes.
+- **Equivalencia medida en prod** (`kepler_consolidado`, sólo lectura, 2026-10-20): **14 ventanas**,
+  0 solapes, 396 días cubiertos = 396 del rango viejo; agregado de una vez contra suma por
+  ventanas: **1,051,987 filas y $203,763,445.31 en los dos**.
+- **Lo que sí cambia:** cada mes es su propia transacción. Si falla el mes 7, los 6 anteriores
+  quedan escritos. Es idempotente: la corrida siguiente los repite sin efecto. El `ANALYZE`
+  condicional se hace una sola vez al final, no por mes.
+- **NO probado de punta a punta:** el importer no se corrió (ni en seco) con el código nuevo. La
+  prueba real es el nocturno de las 03:00 **después de que `feeds-cron` tome la imagen nueva**:
+  `kepler_sales_fact_full` tiene que cerrar en `ok`, y el log tiene que mostrar 14 líneas
+  `[APPLY] COMMIT <desde> → <hasta>`.
+
+**Cómo revertir:** `git revert` del commit y reconstruir la imagen de `feeds-cron`. Volvería a
+fallar por memoria.
 
 ## OPS.LIMPIEZA.10 — `cdc_reconcile_full`: `kdij` de la sucursal 00 querría borrar el 94 %
 
