@@ -6,8 +6,9 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import {
   denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
   type JornadasPendientes, type CorteCajaDto,
-  type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza,
+  type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo,
 } from '@megadulces/contracts';
+import { depositosEnElExceso, excesoDeBilletes, type BilletesPorDenominacion, type DepositoCaos } from './caja-cajon-caos.engine';
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
@@ -1214,10 +1215,19 @@ export class CashCutService {
        */
       const hayControl = (await trx.raw(`SELECT to_regclass('analytics.v_caja_control_cortes') AS t`)).rows?.[0]?.t;
       const porDiaControl = new Map<string, { folio: string | null; efectivo: number | null; cuadra: boolean | null }>();
+      // `[CGA-A.48]` Una sola lectura de la vista (~170 ms cada una, medido el 2026-10-20) sirve a
+      // los dos lectores: el testigo de cada día del libro y el ÚLTIMO conteo de Control, que puede
+      // ser de un día sin corte en el libro (hoy). Por eso es `>=` el primer día y no `IN dias`.
+      let ultimoControl: Record<string, unknown> | null = null;
       if (hayControl && sucursal === SUCURSAL_CAJA_GENERAL) {
-        const filas = await trx('analytics.v_caja_control_cortes')
-          .where('tiene_corte', true).whereIn(trx.raw('fecha'), dias)
-          .select(trx.raw(`to_char(fecha,'YYYY-MM-DD') AS dia`), 'corte_folio', 'total_efectivo', 'corte_cuadra_ticket');
+        const desdeDia = [...dias].sort()[0];
+        const todas: Array<Record<string, unknown>> = await trx('analytics.v_caja_control_cortes')
+          .where('tiene_corte', true).where('fecha', '>=', desdeDia).orderBy('fecha', 'desc')
+          .select(trx.raw(`to_char(fecha,'YYYY-MM-DD') AS dia`), 'corte_folio', 'corte_hora', 'total_efectivo',
+            'corte_cuadra_ticket', 'b1000', 'b500', 'b200', 'b100', 'b50', 'b20');
+        ultimoControl = todas[0] ?? null;
+        const enDias = new Set(dias);
+        const filas = todas.filter((f) => enDias.has(String(f['dia']))) as Array<{ dia: string; corte_folio: unknown; total_efectivo: unknown; corte_cuadra_ticket: unknown }>;
         for (const f of filas) {
           porDiaControl.set(String(f.dia), {
             folio: (f.corte_folio ?? null) as string | null,
@@ -1285,13 +1295,115 @@ export class CashCutService {
         };
       });
 
+      // `[CGA-A.48]` El último conteo de Control y la parte que está en la caja fuerte. Opcional:
+      // si falla, el arqueo se publica igual y el bloque sale `null` (en SAVEPOINT).
+      let control_ultimo: ArqueoControlUltimo | null = null;
+      if (ultimoControl && hayCaos && sucursal === SUCURSAL_CAJA_GENERAL) {
+        await trx.raw('SAVEPOINT cga_a48_control');
+        try {
+          control_ultimo = await this.controlUltimoContraLibro(trx, tenantId, sucursal, ultimoControl);
+          await trx.raw('RELEASE SAVEPOINT cga_a48_control');
+        } catch (e) {
+          await trx.raw('ROLLBACK TO SAVEPOINT cga_a48_control').catch(() => undefined);
+          this.logger.warn(`[CGA-A.48] control_ultimo no se pudo leer: ${(e as Error).message}`);
+          limites.push('No se pudo leer el último conteo de Control: la parte que está en la caja fuerte sale sin medir.');
+        }
+      }
+
       return {
-        rows, limit,
+        rows, limit, control_ultimo,
         fuente: 'finance.cash_ledger_cuts + analytics.caos_cash_movements',
         frescura: null,
         limites,
       };
     });
+  }
+
+  /**
+   * ⭐ `[CGA-A.48]` **El último conteo de Control contra el último cierre del libro, y qué parte de
+   * la diferencia está en la caja fuerte.** La regla y su control están en `caja-cajon-caos.engine`.
+   *
+   * Medido el 2026-10-20: Control `A23678` (20-oct 09:56) $288,972.50 contra `CC-2026-00007`
+   * $88,272.50 → +$200,700. De eso, el depósito a CAOS #1646 «caja ahorro» (19-oct 14:12, 400 ×
+   * $500) explica $200,000; quedan $700 sin explicar.
+   *
+   * ⚠️ Los depósitos candidatos son los de la jornada del cierre en adelante y ANTERIORES al
+   * conteo de Control: un depósito posterior al conteo era efectivo del cajón cuando se contó.
+   * `null` si Control no ha contado desde el último cierre del libro (no hay nada que separar).
+   */
+  private async controlUltimoContraLibro(
+    trx: Knex.Transaction, tenantId: string, sucursal: string, ctl: Record<string, unknown>,
+  ): Promise<ArqueoControlUltimo | null> {
+    const BILLETES_CONTROL: Array<[string, string]> = [
+      ['b1000', '1000'], ['b500', '500'], ['b200', '200'], ['b100', '100'], ['b50', '50'], ['b20', '20'],
+    ];
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const libro: { id: string; folio: string; fecha: unknown; contado: unknown } | undefined = await trx('finance.cash_ledger_cuts')
+      .where({ tenant_id: tenantId, sucursal }).whereNotNull('contado')
+      .orderBy('fecha', 'desc').orderBy('folio', 'desc').first('id', 'folio', 'fecha', 'contado');
+    if (!libro) return null;
+    const libroDia = diaDeFecha(libro.fecha) ?? '';
+    const ctlDia = String(ctl['dia']);
+    if (!libroDia || ctlDia < libroDia) return null;
+    const hora = ctl['corte_hora'] == null ? null : String(ctl['corte_hora']).slice(0, 8);
+
+    const enLibro: BilletesPorDenominacion = {};
+    const dens: Array<{ denom_key: unknown; denominacion: unknown; piezas: unknown }> = await trx('finance.cash_ledger_cut_denominations')
+      .where({ tenant_id: tenantId, momento: 'cierre', cut_id: libro.id })
+      .select('denom_key', 'denominacion', 'piezas');
+    for (const d of dens) {
+      const cat = denomDe(String(d.denom_key));
+      if ((cat?.familia ?? 'billete') !== 'billete') continue;
+      const v = String(cat?.valor ?? Number(d.denominacion));
+      enLibro[v] = (enLibro[v] ?? 0) + Number(d.piezas);
+    }
+    const enControl: BilletesPorDenominacion = {};
+    for (const [col, v] of BILLETES_CONTROL) enControl[v] = Number(ctl[col]) || 0;
+
+    // Sin hora del conteo, sólo cuentan los depósitos de jornadas ANTERIORES a la del conteo.
+    let qb = trx('analytics.caos_cash_movements as m')
+      .leftJoin('analytics.caos_cash_denominations as d', (j: Knex.JoinClause) => j.on('d.movement_id', 'm.id').andOn('d.tenant_id', 'm.tenant_id'))
+      .where('m.tenant_id', tenantId).where('m.type_id', CAOS.DEPOSITO)
+      .whereRaw('m.accounting_date >= ?::date', [libroDia]);
+    qb = hora
+      ? qb.whereRaw(`m.occurred_at < ((?::date + ?::time) AT TIME ZONE 'America/Mexico_City')`, [ctlDia, hora])
+      : qb.whereRaw('m.accounting_date < ?::date', [ctlDia]);
+    const filas: Array<{ external_id: unknown; dia: string; hora: string | null; total: unknown; ref: string | null; denom: unknown; pieza_tipo: string | null; quantity: unknown }> = await qb.select(
+      'm.external_id', 'm.total', 'm.ref', 'd.denom', 'd.pieza_tipo', 'd.quantity',
+      trx.raw(`to_char(m.accounting_date,'YYYY-MM-DD') AS dia`),
+      trx.raw(`to_char(m.occurred_at AT TIME ZONE 'America/Mexico_City','HH24:MI') AS hora`),
+    );
+    const deps = new Map<string, DepositoCaos>();
+    for (const f of filas) {
+      const id = String(f.external_id);
+      const d = deps.get(id) ?? { id, dia: f.dia, hora: f.hora, total: Number(f.total), ref: f.ref, billetes: {}, con_monedas: false };
+      if (f.denom != null) {
+        if (f.pieza_tipo === 'B') {
+          const v = String(Number(f.denom));
+          d.billetes[v] = (d.billetes[v] ?? 0) + Number(f.quantity);
+        } else d.con_monedas = true;
+      }
+      deps.set(id, d);
+    }
+
+    const { en_caos } = depositosEnElExceso(excesoDeBilletes(enControl, enLibro), [...deps.values()]);
+    const efectivo = ctl['total_efectivo'] == null ? null : Number(ctl['total_efectivo']);
+    const contado = libro.contado == null ? null : Number(libro.contado);
+    const diferencia = efectivo == null || contado == null ? null : r2(efectivo - contado);
+    const en_caos_total = r2(en_caos.reduce((s, d) => s + d.total, 0));
+    return {
+      folio: (ctl['corte_folio'] ?? null) as string | null,
+      dia: ctlDia,
+      hora: hora ? hora.slice(0, 5) : null,
+      efectivo,
+      libro_folio: libro.folio,
+      libro_dia: libroDia,
+      libro_contado: contado,
+      diferencia,
+      en_caos: en_caos.map(({ id, dia, hora: h, total, ref }) => ({ id, dia, hora: h, total, ref })),
+      en_caos_total,
+      sin_explicar: diferencia == null ? null : r2(diferencia - en_caos_total),
+    };
   }
 
   /**

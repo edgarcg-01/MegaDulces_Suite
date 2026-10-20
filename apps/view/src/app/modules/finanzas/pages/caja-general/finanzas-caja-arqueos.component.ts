@@ -13,8 +13,10 @@ import { FreshnessPillComponent } from '../../../../shared/components/freshness-
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import {
   veredictoConcluyente,
-  type Freshness, type ArqueoDia, type ArqueosResponse, type VeredictoCorte,
+  type Freshness, type ArqueoDia, type ArqueosResponse, type VeredictoCorte, type ArqueoControlUltimo,
 } from '@megadulces/contracts';
+import { CaosService, type CaosSaldo } from '../../caos.service';
+import { catchError, of } from 'rxjs';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
@@ -181,13 +183,31 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
            «cuanto hay AHORA». Se compone el cierre anterior + lo de hoy, DECLARADO como provisional. -->
       <section class="cq-ahora" aria-labelledby="cq-h-ahora">
         <div class="cq-ahora-cab">
-          <h2 id="cq-h-ahora" class="cq-h2">¿Cuánto hay en el cajón ahora?</h2>
+          <h2 id="cq-h-ahora" class="cq-h2">¿Cuánto hay ahora en el cajón y en la caja fuerte?</h2>
           <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado" />
         </div>
         <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
           <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora" />
           @if (cajonNota(); as nota) { <p class="cq-nota">{{ nota }}</p> }
+          <!-- [CGA-A.48] Lo que Control contó y está en la caja fuerte, no en el cajón. -->
+          @if (controlUltimo(); as cu) {
+            @if (cu.diferencia) {
+              <p class="cq-nota">
+                Control contó <b>{{ mx(cu.efectivo) }}</b> el {{ dmy(cu.dia) }}{{ cu.hora ? ' a las ' + cu.hora : '' }}
+                ({{ cu.folio || 'sin folio' }}): {{ firmado(cu.diferencia) }} sobre el cierre del libro {{ cu.libro_folio }}.
+                @if (cu.en_caos.length) {
+                  De eso, <b>{{ mx(cu.en_caos_total) }}</b> coincide billete por billete con
+                  @for (d of cu.en_caos; track d.id; let ultimo = $last) {
+                    el depósito a la caja fuerte #{{ d.id }}{{ d.ref ? ' «' + d.ref + '»' : '' }} ({{ dmy(d.dia) }} {{ d.hora }}){{ ultimo ? '' : ', ' }}
+                  }: ese dinero está en CAOS, no en el cajón de Caja General.
+                  @if (cu.sin_explicar) { Quedan <b>{{ firmado(cu.sin_explicar) }}</b> que ningún depósito a la caja fuerte explica. }
+                } @else {
+                  Ningún depósito a la caja fuerte lo explica.
+                }
+              </p>
+            }
+          }
         </app-load-state>
       </section>
 
@@ -498,6 +518,8 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly arqueos = signal<ArqueoDia[]>([]);
   readonly dias = signal<CorteDia[]>([]);
   readonly limites = signal<string[]>([]);
+  /** `[CGA-A.48]` El último conteo de Control y la parte de él que está en la caja fuerte. */
+  readonly controlUltimo = signal<ArqueoControlUltimo | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly frescura = signal<Freshness | null>(null);
@@ -682,11 +704,21 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly cajonError = signal<string | null>(null);
   readonly cajonAl = signal<string | null>(null);
 
+  /**
+   * `[CGA-A.48]` La caja fuerte, leída APARTE del cajón. `null` = no se pudo leer (o el puesto no
+   * tiene permiso de CAOS): se declara «sin medir», y el cajón se publica igual.
+   */
+  private readonly caos = inject(CaosService);
+  readonly caosSaldo = signal<CaosSaldo | null>(null);
+
   cargarCajon(): void {
     this.cajonCargando.set(true);
-    forkJoin({ f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00') }).subscribe({
-      next: ({ f, s }) => {
-        this.cajonFondo.set(f); this.cajonSaldo.set(s);
+    forkJoin({
+      f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00'),
+      c: this.caos.saldo().pipe(catchError(() => of(null))),
+    }).subscribe({
+      next: ({ f, s, c }) => {
+        this.cajonFondo.set(f); this.cajonSaldo.set(s); this.caosSaldo.set(c);
         this.cajonError.set(null); this.cajonCargando.set(false);
         this.cajonAl.set(new Date().toISOString());
       },
@@ -701,20 +733,20 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     const efecto = s && !s.saldo_oculto && s.totales?.esperado != null ? Number(s.totales.esperado) : null;
 
     if (!s) {
-      items.push({ label: 'En el cajón ahora', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
+      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
     } else if (s.saldo_oculto) {
-      items.push({ label: 'En el cajón ahora', value: 'oculto', state: 'no_medido',
+      items.push({ label: 'Cajón de Caja General', value: 'oculto', state: 'no_medido',
         stateNote: 'Arqueo ciego: el esperado sólo lo ve quien autoriza el corte.' });
     } else if (s.corte_abierto && s.saldo != null) {
-      items.push({ label: 'En el cajón ahora', value: money(Number(s.saldo)), state: 'derivado',
+      items.push({ label: 'Cajón de Caja General', value: money(Number(s.saldo)), state: 'derivado',
         method: `fondo del corte ${s.corte_abierto.folio} + lo capturado; no es un conteo`,
         sub: `según el corte abierto ${s.corte_abierto.folio}` });
     } else if (f?.monto != null && efecto != null) {
-      items.push({ label: 'En el cajón ahora', value: money(Number(f.monto) + efecto), state: 'derivado', tone: 'warn',
+      items.push({ label: 'Cajón de Caja General', value: money(Number(f.monto) + efecto), state: 'derivado', tone: 'warn',
         method: `cierre anterior (${f.procedencia ?? 'su conteo'}) + ${s.totales.movimientos} movimiento(s) de hoy`,
         sub: 'provisional · nadie ha abierto ni contado el corte de hoy' });
     } else {
-      items.push({ label: 'En el cajón ahora', value: 'sin medir', state: 'no_medido',
+      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido',
         stateNote: 'No hay cierre anterior medido del que partir.' });
     }
 
@@ -722,6 +754,28 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
       const disp = Number(s.cajero?.dispensado ?? 0);
       items.push({ label: 'Lo de hoy', value: `${efecto < 0 ? '−' : '+'}${money(Math.abs(efecto))}`,
         sub: `${s.totales.movimientos} capturado(s)` + (disp ? ` · la caja fuerte dispensó ${money(disp)}` : '') });
+    }
+
+    // ⭐ [CGA-A.48] La caja fuerte, SEPARADA del cajón (Edgar, 2026-10-20). El efectivo de las rutas
+    // entra a CAOS y de CAOS sale a los proveedores: al cajón de Caja General sólo le queda la
+    // morralla, así que su cifra casi no se mueve aunque el día mueva cientos de miles. Lo que se
+    // mueve es la caja fuerte, y sin esta cifra no se veía en ningún lado.
+    const c = this.caosSaldo();
+    const cj = s?.cajero;
+    const flujo = cj ? `${dmy(cj.dia)}: entró ${money(cj.depositado)} · salió ${money(cj.dispensado)}` : undefined;
+    if (c?.estado === 'medido' && c.saldo) {
+      const exacto = c.saldo.origen === 'maquina' && !c.saldo.parcial;
+      items.push({ label: 'Caja fuerte (CAOS)', value: money(c.saldo.total),
+        state: c.saldo.parcial ? 'parcial' : exacto ? 'medido' : 'derivado',
+        method: exacto ? undefined : 'última lectura de la máquina + los movimientos posteriores',
+        stateNote: c.saldo.parcial ? 'Algún movimiento posterior a la lectura no tiene dirección decodificada.' : undefined,
+        sub: flujo });
+    } else {
+      items.push({ label: 'Caja fuerte (CAOS)', value: 'sin medir', state: 'no_medido',
+        stateNote: c
+          ? 'La máquina todavía no publica cuánto tiene adentro: de la caja fuerte sólo se sabe lo que entró y salió.'
+          : 'No se pudo leer la caja fuerte.',
+        sub: flujo });
     }
     return items;
   });
@@ -791,6 +845,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
       next: (r) => {
         this.arqueos.set(r?.rows ?? []);
         this.limites.set(r?.limites ?? []);
+        this.controlUltimo.set(r?.control_ultimo ?? null);
         this.cargando.set(false);
         this.error.set(null);
         const s = this.sel();
