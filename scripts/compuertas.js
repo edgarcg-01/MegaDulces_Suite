@@ -188,6 +188,26 @@ const COMPUERTAS = [
    * `process.exit(0)` SIEMPRE — o sea que no podía ponerse roja ni queriendo.
    */
   { nombre: 'pantalla', script: 'check-pantalla.js', que: 'ninguna falla NUEVA de contrato de producto: answer-first, 3 estados, frescura, teclado (DESIGN)', push: true, ms: 241 },
+  /**
+   * `[AUD.10]` — **La PRIMERA compuerta de la capa Veracidad**, que no tenía ninguna.
+   *
+   * Las 32 de arriba verifican **presencia de piezas** o propiedades del archivo. Ninguna caza
+   * que la pantalla **afirme algo que no es** — y ahí vivió todo el daño medido esta semana.
+   *
+   * El caso, en producción el 2026-10-20: el libro de Caja General publicaba **248 movimientos
+   * y pintaba 100**. **148 filas, $1,943,998.57**, invisibles y sin aviso. Dos omisiones de una
+   * línea: no se mandaba `limit` y `has_more` llegaba y nadie lo miraba.
+   *
+   * ⛔ Y un paginador lo habría EMPEORADO: publica «1–25 de 100» con total seguridad mientras el
+   * encabezado dice 248. La confianza que da un control es parte de lo que afirma.
+   *
+   * Marca sólo cuando se dan **las dos** cosas: llama a un método con tope sin mandarlo **y** no
+   * mira ninguna señal (`has_more`, `truncad`…). Nace con **27 pantallas selladas** y frena lo
+   * NUEVO. ⚠️ El primer intento dio 41 **con falsos adentro** —`this.cortes()` es una lectura de
+   * signal, no una llamada— y se arregló exigiendo DOS segmentos (`this.svc.x(`). Lo destapó
+   * verificar dos hallazgos a mano antes de sellar, no el `--self-test`.
+   */
+  { nombre: 'cifra recorrible', script: 'check-cifra-recorrible.js', que: 'ninguna lista NUEVA se topa en silencio: o manda limit, o declara que se topó (ESTANDAR §1.2)', push: true, ms: 900 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },
   // `[DS.1]` / `[DS.3]` Las dos de la auditoría del design system (2026-10-02/03). ⚠️ Nacieron
   // cableadas SÓLO en `ci.yml` — o sea que `npm run check` no las corría y el push tampoco, que

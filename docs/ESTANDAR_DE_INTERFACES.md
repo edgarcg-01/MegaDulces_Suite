@@ -58,6 +58,10 @@ Si el encabezado dice **N**, la lista tiene que poder llegar a **N**. Si no lleg
 > ⛔ **Y paginar, solo, lo empeora:** un paginador diría «1–25 de 100» con total seguridad mientras
 > el encabezado dice 248. **La confianza que da un control es parte de lo que afirma.**
 
+⭐ **Es la única regla de esta capa con compuerta** (`npm run check:cifra`, desde el 2026-10-20):
+marca la lista que llama a un método con tope **sin mandarlo** y **sin mirar la señal**. Las otras
+cinco de Veracidad se siguen comprobando a mano.
+
 ### 1.3 Lo que no se midió se DECLARA — nunca se dibuja como cero ni como verde
 
 `0` afirma *«no hubo»*. `—`, *«no lo sé»*. Son hechos distintos y la diferencia suele ser el
@@ -134,26 +138,43 @@ Una pantalla abre con **la respuesta a la pregunta que trae quien la abre**, no 
 cruda. Si lo primero que se ve son N filas, la persona tiene que sumarlas con la vista para saber
 si el día va bien.
 
-### 3.2 Los tres estados se pintan distinto
+### 3.2 Un número se explica, no sólo se muestra
+
+Todo número no trivial lleva su lectura en llano al lado: *«de $X, el ERP reconoce $Y → difieren
+$Z»*. Un delta crudo obliga a cada persona a reconstruir el porqué, y cada una lo reconstruye
+distinto. Si el sistema ya calculó la causa, **se muestra**.
+
+### 3.3 Se señala la fila, no sólo el total
+
+En una conciliación o un descuadre, la interfaz apunta al **renglón exacto** del problema. *«No
+cuadra $X»* sin decir dónde convierte un hallazgo en una búsqueda manual.
+
+### 3.4 Todo dato que evidencia algo lleva a arreglarlo
+
+Un número, un chip de estado o una fila que denuncia un problema es **navegable a su lugar de
+arreglo con el filtro ya puesto**. Quien lee no debería volver a buscar lo que el sistema ya sabe
+señalar.
+
+### 3.5 Los tres estados se pintan distinto
 
 *Cargando*, *vacío* y *falló* no son lo mismo y la persona necesita saber si reintentar. Un
 esqueleto dimensionado, un vacío que dice qué hacer, un error que dice qué pasó.
 
-### 3.3 El dato volátil declara su edad
+### 3.6 El dato volátil declara su edad
 
 Sin edad, un dato viejo se lee como «al día». «hace 3 min» y «hace 9 horas» tienen que **verse**
 distinto, no sólo decirlo: como prosa gris son idénticos.
 
-### 3.4 La jerarquía la lleva el peso, no el color
+### 3.7 La jerarquía la lleva el peso, no el color
 
 > **Costó:** un diálogo tenía **41 textos atenuados contra 5 enfatizados**. Cuando todo es
 > secundario, nada es primario, y la vista rebota sin encontrar dónde empezar.
 
-### 3.5 La jerga del dominio va a un diccionario versionado, no a un `title`
+### 3.8 La jerga del dominio va a un diccionario versionado, no a un `title`
 
 Una definición fija escondida en un `title` sólo existe para quien tiene mouse.
 
-### 3.6 Se nombran las cosas como las nombra quien las usa
+### 3.9 Se nombran las cosas como las nombra quien las usa
 
 El estado es *Por revisar* → la pantalla se llama **Revisión**. Sustantivo del dominio, no un
 verbo ni un guion explicativo.

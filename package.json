@@ -105,7 +105,12 @@
     "doc:build": "npm run doc:generate",
     "postinstall": "patch-package",
     "check:templates-types": "node scripts/check-template-types.js",
-    "check:templates-types:self": "node scripts/check-template-types.js --self-test"
+    "check:templates-types:self": "node scripts/check-template-types.js --self-test",
+    "docs:indices": "node scripts/docs-indices.js",
+    "check:docs-indices": "node scripts/docs-indices.js --check",
+    "audit:memoria": "node scripts/audit-memoria.js",
+    "check:cifra": "node scripts/check-cifra-recorrible.js",
+    "check:cifra:self": "node scripts/check-cifra-recorrible.js --self-test"
   },
   "dependencies": {
     "@angular/cdk": "22.0.6",

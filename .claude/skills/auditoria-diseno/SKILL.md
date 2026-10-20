@@ -65,7 +65,7 @@ ya está entre las 32 y sumarla otra vez la cuenta dos veces. Reparten desigual:
 
 | Eje | Documentado en `DESIGN.md` | Compuerta |
 |---|---|---|
-| **1 · Veracidad** | §Jerarquía del dato:1428 · ADR-056 | ❌ **ninguna.** Los seis cruces de §3 son todo lo que hay |
+| **1 · Veracidad** | §Jerarquía del dato:1428 · ADR-056 | ⚠️ **una**: `cifra recorrible` cubre el Cruce 1. Los otros cinco de §3, a mano |
 | **2 · Alcance** | §10:1318 (Tesler) · §D.7 teclado · §O:1366 | ⚠️ sólo `teclado` y `sin emojis` |
 | **3 · Comprensión** | §Jerarquía del dato:1428 · §Ing.UI 2:1078 · §P:1411 | ⚠️ `pantalla` (desde `[AUD.3]`) — pero mide **presencia de piezas**, no jerarquía |
 | **4 · Sencillez** | **§10 Leyes de interacción:1318 (BINDING)** | ❌ ninguna (`[AUD.5]`) |
@@ -101,8 +101,21 @@ lista esconda la mitad de sus filas. Estos seis cruces sí, y los seis encontrar
 
 > Si el encabezado dice **N**, la lista tiene que poder llegar a **N**.
 
+⭐ **Desde el 2026-10-20 esto tiene compuerta** (`[AUD.10]`), la primera de la capa Veracidad:
+
 ```bash
-# El número del KPI y el de la lista salen de consultas distintas: comprobá que cierren.
+npm run check:cifra        # ninguna lista NUEVA se topa en silencio
+npm run check:cifra:self   # los cinco controles de la compuerta
+```
+
+Marca cuando se dan **las dos**: llama a un método con tope **sin mandarlo**, y **no mira la
+señal** (`has_more`…) en la vecindad de esa llamada. Nace con **34 pantallas selladas**.
+
+⛔ **Lo que la compuerta NO ve, y por eso el cruce se sigue haciendo a mano:** si el contrato no
+tiene señal de tope **ninguna**. Medido: de 35 servicios con `limit`, **sólo 2 respuestas declaran
+`has_more`**. Para esas, el cruce manual sigue siendo lo único:
+
+```bash
 grep -n "limit" <el servicio del backend>        # ¿la lista tiene tope?
 grep -n "has_more\|total" <el componente>        # ¿alguien mira el aviso de tope?
 ```
