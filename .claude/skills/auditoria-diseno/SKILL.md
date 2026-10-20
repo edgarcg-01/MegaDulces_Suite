@@ -171,6 +171,25 @@ SELECT count(*), pg_size_pretty(sum(length(<columna_gorda>))::bigint) FROM <tabl
 
 ---
 
+## 3b. Las 18 leyes, con su pregunta de auditoría
+
+⛔ **Medido el 2026-10-20: diez de las dieciocho no aparecían en ninguna capa ejecutable.** Viven
+en `DESIGN.md` `§Ing.UI 1:1068` (fundamento cognitivo) y `§10:1318` (interacción + resiliencia),
+y **la tabla completa —qué exige cada una al generar y qué se mira al auditar— está en
+[`diseno` §3d](../diseno/SKILL.md).** Acá va el recorrido, para no auditar sólo las que uno recuerda:
+
+| Bloque | Las leyes | En una línea, qué buscás |
+|---|---|---|
+| **Percepción** `§Ing.UI 1` | Gestalt · Hick · Fitts · Doherty · Carga cognitiva · Lectura Z/F | grupos por espacio y no por cajas · decisiones simultáneas · 44px en touch · INP medido · **¿hace falta explicarla para entenderla?** |
+| **Interacción** `§10.1–7` | Tesler · Miller · Jakob · Proximidad numérica · Von Restorff · Poka-yoke · Keyboard-first | qué se escondió «por limpieza» · bloques de >6 · patrones reinventados · «Borrar» pegado a «Guardar» · el error como primer recurso · la tarea sin mouse |
+| **Resiliencia** `§10.8–12` | Estado sucio · Datos añejos · Fallos parciales · Idempotencia visual · Postel | ¿se pierde lo tecleado? · ¿se ve la edad del dato? · ¿un lote parcial se reporta como falla total? · ¿el doble clic cobra dos veces? · ¿rechaza `1,250.00` por la coma? |
+
+> ⭐ **La ley no se cita como etiqueta.** «Viola Hick» no es un hallazgo; «hay 23 acciones planas
+> en la barra y ninguna curaduría» sí. `DESIGN.md` lo pide textual: *el mecanismo perceptual, no
+> la ley suelta*.
+
+---
+
 ## 4. ⛔⛔ Disciplina de instrumento
 
 **Tres instrumentos fallaron en una sola sesión**, y los tres habrían metido una conclusión falsa
