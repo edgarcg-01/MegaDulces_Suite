@@ -1,9 +1,11 @@
+import { Router } from '@angular/router';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
+import { ComercialComisionesObjetivoComponent } from './comercial-comisiones-objetivo.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -60,7 +62,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent],
   template: `
     <div class="cm-page">
       <app-page-tabs [tabs]="tabsRD" />
@@ -86,6 +88,20 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                               [staleAfterSec]="172800" />
         }
       </header>
+
+      <!-- [AUD-A6] Todo lo que es comision de Ruta Directa vive aca. El Objetivo mensual tenia
+           pantalla propia y era la misma nomina mirada por otro lado: el bono que entra a la
+           quincena. ⛔ Pero NO es una pestana mas de las de abajo: aquellas son vistas de UNA
+           quincena y el objetivo es MENSUAL. Colgarlo ahi haria que cambiara de significado al
+           elegir otra quincena. Por eso el conmutador va a este nivel, sobre el eje del tiempo.
+           ⚠️ La de Logistica (/finanzas/comisiones-logistica) NO entra: otro permiso, otra
+           poblacion (choferes de embarque) y otro dominio. Fundirla filtraria nomina de RD. -->
+      <app-segmented [options]="vistas" [value]="vista()" (valueChange)="vista.set($event)"
+                     ariaLabel="Qué comisión" />
+
+      @if (vista() === 'objetivo') {
+        <app-comercial-comisiones-objetivo [embebido]="true" />
+      } @else {
 
       @if (destacada(); as d) {
         <section class="cm-answer" [class.abierta]="d.status === 'en_curso'">
@@ -165,45 +181,45 @@ import { PermissionsService } from '../../../core/services/permissions.service';
         }
       }
 
-      <div class="cm-split">
-        <aside class="cm-rail">
-          <app-load-state
-            [loading]="cargando()" [isEmpty]="!board().length" [skeletonRows]="6"
-            emptyIcon="pi-calendar" emptyTitle="Sin quincenas"
-            [emptyHint]="'El calendario de ' + anio() + ' no tiene periodos cargados.'">
-            @for (g of porMes(); track g.mes) {
-              <p class="cm-mes">{{ g.mes }}</p>
-              @for (p of g.filas; track p.period_id) {
-                <button type="button" class="cm-per" [class.sel]="sel()?.period_id === p.period_id"
-                        [class.hoy]="esHoy(p)" (click)="elegir(p)">
-                  <span class="cm-per-top">
-                    <span class="cm-per-no">Q{{ p.period_no }}</span>
-                    <span class="cm-per-fechas">{{ rango(p) }}</span>
-                    @if (esHoy(p)) { <span class="cm-hoy">hoy</span> }
-                  </span>
-                  <span class="cm-per-bot">
-                    <p-tag [severity]="sev(p)" [value]="etiquetaEstado(p)" />
-                    <!-- ⛔ Decia money(total_neto) a secas y el rail entero mostraba un guion:
-                         las 20 quincenas del espejo traen el neto en NULL (falta la deduccion
-                         del supervisor) y el monto quedaba invisible. Cae al BRUTO, que si se
-                         conoce, y lo dice en el titulo en vez de hacerlos pasar por lo mismo.
-                         (sin acentos graves: esto vive dentro de un template literal de JS) -->
-                    <span class="cm-per-monto" [class.cm-tras-nomina]="esTrasNomina(p)" [title]="tipMonto(p)">
-                      {{ p.run_id ? money(p.total_neto ?? p.total_a_pagar) : '—' }}
-                    </span>
-                  </span>
-                </button>
-              }
+      <!-- [AUD-A3] LA TIRA DEL ANO, que reemplaza al riel de 240-300 px de ancho.
+           Medido en prod el 2026-10-20: el riel mostraba 599 px de 1,757 -- el 34% -- y la
+           pantalla NUNCA decia cuantas quincenas habia, asi que nadie sabia que le faltaban 23.
+           Y los 240 px que se llevaba eran justo los que le faltaban a la tabla densa para
+           caber a 1366: "Nomina" quedaba cortada contra el borde.
+           La tira muestra las 27 de un golpe en 53 px de alto. El monto va como ALTURA DE
+           BARRA y no como texto: el numero exacto vive en el detalle, y lo que una tira tiene
+           que dar es el patron del ano. Con texto medimos 77 px y seguia scrolleando. -->
+      <div class="cm-tira" role="radiogroup" aria-label="Quincena">
+        <app-load-state
+          [loading]="cargando()" [isEmpty]="!board().length" [skeletonRows]="1"
+          emptyIcon="pi-calendar" emptyTitle="Sin quincenas"
+          [emptyHint]="'El calendario de ' + anio() + ' no tiene periodos cargados.'">
+          <div class="cm-tira-celdas">
+            @for (p of board(); track p.period_id) {
+              <button type="button" role="radio" class="cm-q"
+                      [class.sel]="sel()?.period_id === p.period_id"
+                      [class.hoy]="esHoy(p)" [class.fut]="esFutura(p)"
+                      [attr.aria-checked]="sel()?.period_id === p.period_id"
+                      [attr.tabindex]="sel()?.period_id === p.period_id ? 0 : -1"
+                      [title]="tituloQuincena(p)" (click)="elegir(p)">
+                <span class="cm-q-n">Q{{ p.period_no }}</span>
+                <!-- La barra es decoracion del dato, no el dato: el lector de pantalla recibe
+                     el monto por el title de arriba, que es texto de verdad. -->
+                <span class="cm-q-bar" aria-hidden="true"
+                      [style.height.px]="alturaBarra().get(p.period_id) ?? 1"></span>
+              </button>
             }
-            @if (futuras().length) {
-              <p class="cm-futuras">
-                Q{{ futuras()[0].period_no }}–Q{{ futuras()[futuras().length - 1].period_no }} ·
-                {{ futuras().length }} quincena(s) que aún no empiezan
-              </p>
-            }
-          </app-load-state>
-        </aside>
+          </div>
+          <p class="cm-tira-pie">
+            {{ board().length }} quincenas ·
+            <b>{{ pagadas() }} pagadas</b> ·
+            {{ futuras().length }} por venir
+            @if (sinCalcular().length) { · <b class="cm-neg">{{ sinCalcular().length }} cerradas sin calcular</b> }
+          </p>
+        </app-load-state>
+      </div>
 
+      <div class="cm-split">
         <section class="cm-detail">
           @if (!sel()) {
             <p class="cm-empty">Elige una quincena.</p>
@@ -657,6 +673,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
           }
         </section>
       </div>
+
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -665,19 +683,19 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-page { padding:1rem 1.1rem 2rem; }
     .cm-head { display:flex; align-items:flex-start; gap:1rem; margin-bottom:1rem; }
     .cm-head h1 { margin:0; font-size:var(--fs-h2); font-weight:var(--fw-bold); color:var(--c-text-1); }
-    .cm-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-3); }
+    .cm-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-sub strong { color:var(--c-text-2); font-weight:var(--fw-medium); }
     .cm-year { margin-left:auto; display:inline-flex; gap:.4rem; align-items:center; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-year select { padding:.3rem .45rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
 
-    .cm-answer { display:flex; flex-wrap:wrap; align-items:center; gap:1rem 1.75rem; margin-bottom:1rem;
-      padding:.9rem 1.1rem; border:1px solid var(--border-color); border-left:3px solid var(--action);
+    .cm-answer { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem 1.4rem; margin-bottom:.6rem;
+      padding:.5rem .8rem; border:1px solid var(--border-color); border-left:3px solid var(--action);
       border-radius:var(--r-md,8px); background:var(--card-bg); }
     .cm-answer.abierta { border-left-color:var(--c-text-3); }
     .cm-answer-que { flex:1 1 16rem; min-width:0; }
-    .cm-eyebrow { margin:0; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase; color:var(--c-text-3); }
+    .cm-eyebrow { margin:0; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase; color:var(--c-text-2); }
     .cm-answer-q { margin:.2rem 0 0; font-size:var(--fs-h3); font-weight:var(--fw-bold); color:var(--c-text-1); }
-    .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-answer-monto { margin:.1rem 0 0; font-family:var(--font-mono,'Geist Mono',monospace);
       font-size:1.5rem; font-weight:var(--fw-bold); font-variant-numeric:tabular-nums; color:var(--c-text-1); }
 
@@ -698,8 +716,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-btn-sec { background:transparent; color:var(--c-text-1); border:1px solid var(--border-color); }
 
     /* RD.56 - "Lo que falto". Va ARRIBA de la tabla porque es la respuesta, no un anexo. */
-    .cm-falto { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem 1.5rem; margin:.9rem 0;
-      padding:.8rem 1rem; border:1px solid var(--border-color); border-left:3px solid var(--c-warn);
+    .cm-falto { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem 1.2rem; margin:.6rem 0;
+      padding:.5rem .8rem; border:1px solid var(--border-color); border-left:3px solid var(--c-warn);
       border-radius:var(--r-md,8px); background:var(--card-bg); }
     .cm-falto-tit { flex:1 1 22rem; min-width:0; }
     /* El token --fs-base NO existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
@@ -707,16 +725,44 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-falto-monto { text-align:right; }
     .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
 
-    .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
-    @container (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
+    /* [AUD-A3] El split deja de ser riel + detalle. El detalle se queda con TODO el ancho,
+       que es lo que hace que la tabla densa quepa a 1366 sin cortar "Nomina". */
+    .cm-split { display:grid; grid-template-columns:1fr; gap:1rem; align-items:start; }
+
+    /* La tira del ano: las 27 quincenas en 53 px de alto, sin scroll horizontal.
+       El flex 1 1 0 con min-width 0 es lo que las hace repartirse el ancho en vez de
+       desbordar: con un min-width fijo de 46 px medimos que 27 celdas NO entran en 1366.
+       (sin acentos graves aca dentro: esto vive en un template literal de JS) */
+    .cm-tira { margin:.6rem 0 .9rem; }
+    .cm-tira-celdas { display:flex; gap:2px; }
+    .cm-q { flex:1 1 0; min-width:0; height:34px; border:0; border-bottom:2px solid var(--border-color);
+      background:transparent; padding:.1rem 0 .15rem; cursor:pointer; display:flex; flex-direction:column;
+      align-items:center; justify-content:flex-end; gap:2px; font:inherit; color:var(--c-text-2); }
+    .cm-q:hover { background:var(--overlay-hover, rgba(0,0,0,.04)); }
+    .cm-q:focus-visible { outline:2px solid var(--focus-ring, var(--action)); outline-offset:-2px; border-radius:4px; }
+    .cm-q-n { font-size:var(--fs-micro); font-weight:var(--fw-medium); line-height:1; }
+    .cm-q-bar { display:block; width:60%; background:var(--c-text-3); border-radius:1px; }
+    .cm-q.sel { border-bottom-color:var(--action); color:var(--c-text-1); }
+    .cm-q.sel .cm-q-n { font-weight:var(--fw-bold); }
+    .cm-q.sel .cm-q-bar { background:var(--action); }
+    .cm-q.hoy { border-bottom-style:dashed; border-bottom-color:var(--action); }
+    .cm-q.fut { opacity:.45; }
+    .cm-q.fut .cm-q-bar { background:transparent; border-top:1px dashed var(--c-text-3); }
+    .cm-tira-pie { margin:.3rem 0 0; font-size:var(--fs-micro); color:var(--c-text-2); }
+    .cm-tira-pie b { color:var(--c-text-1); }
+    /* En pantalla angosta las 27 no caben legibles: se deja scrollar en vez de aplastarlas. */
+    @container (max-width:48rem) {
+      .cm-tira-celdas { overflow-x:auto; }
+      .cm-q { flex:0 0 34px; }
+    }
 
     .cm-rail { display:flex; flex-direction:column; max-height:78vh; overflow-y:auto; }
     .cm-mes { margin:.9rem 0 .35rem; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase;
-      color:var(--c-text-3); font-weight:var(--fw-medium); }
+      color:var(--c-text-2); font-weight:var(--fw-medium); }
     .cm-mes:first-child { margin-top:0; }
     .cm-colapso { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); margin-bottom:.4rem; }
-    .cm-colapso summary { padding:.5rem .7rem; font-size:var(--fs-sm); color:var(--c-text-3); cursor:pointer; }
-    .cm-colapso p { margin:0; padding:0 .7rem .55rem; font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-colapso summary { padding:.5rem .7rem; font-size:var(--fs-sm); color:var(--c-text-2); cursor:pointer; }
+    .cm-colapso p { margin:0; padding:0 .7rem .55rem; font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-per { display:flex; flex-direction:column; gap:.3rem; text-align:left; margin-bottom:.3rem;
       padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px);
       background:var(--card-bg); font:inherit; cursor:pointer; }
@@ -725,7 +771,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-per-top { display:flex; align-items:baseline; gap:.45rem; }
     .cm-per-bot { display:flex; align-items:center; justify-content:space-between; gap:.4rem; }
     .cm-per-no { font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); font-family:var(--font-mono,'Geist Mono',monospace); }
-    .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
     /* Marca la cifra que es BRUTO y no neto: el subrayado punteado la distingue sin color. */
     .cm-per-monto.cm-tras-nomina { text-decoration:underline dotted; text-underline-offset:3px; }
@@ -734,7 +780,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-hoy { margin-left:auto; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
       color:var(--action); font-weight:var(--fw-bold); }
     .cm-futuras { margin:.7rem 0 0; padding:.5rem .6rem; border:1px dashed var(--border-color);
-      border-radius:var(--r-md,8px); font-size:var(--fs-micro); color:var(--c-text-3); text-align:center; }
+      border-radius:var(--r-md,8px); font-size:var(--fs-micro); color:var(--c-text-2); text-align:center; }
 
     .cm-detail { min-width:0; }
     .cm-card { border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); padding:1rem 1.1rem; }
@@ -747,16 +793,16 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       padding:0; list-style:none; background:var(--border-color); border:1px solid var(--border-color);
       border-radius:var(--r-md,8px); overflow:hidden; }
     @container (max-width:46rem) { .cm-ciclo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    .cm-ciclo li { display:flex; flex-direction:column; gap:.3rem; padding:.7rem .8rem;
-      background:var(--card-bg); font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-3); }
+    .cm-ciclo li { display:flex; flex-direction:column; gap:.15rem; padding:.45rem .6rem;
+      background:var(--card-bg); font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-2); }
     .cm-ciclo li.act { background:color-mix(in srgb, var(--action) 7%, var(--card-bg)); color:var(--action); }
-    .cm-ciclo li span:last-child { font-size:var(--fs-micro); font-weight:400; color:var(--c-text-3); }
+    .cm-ciclo li span:last-child { font-size:var(--fs-micro); font-weight:400; color:var(--c-text-2); }
     .cm-paso { display:inline-flex; align-items:center; justify-content:center; width:1.15rem; height:1.15rem;
       border:1px solid currentColor; border-radius:50%; font-family:var(--font-mono,'Geist Mono',monospace);
       font-size:var(--fs-micro); }
 
     .cm-table-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); margin-top:.6rem; }
-    .cm-table-wrap tbody tr.muted td { color:var(--c-text-3); }
+    .cm-table-wrap tbody tr.muted td { color:var(--c-text-2); }
     .cm-neg { color:var(--bad-fg); }
     /* Ambar y no rojo a proposito: 8 de cada 22 marcadas son legitimas (el camion no salio). */
     .cm-corta { color:var(--warn-fg); font-weight:var(--fw-medium); }
@@ -775,7 +821,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-mono { font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-micro { font-size:var(--fs-micro); }
 
-    .cm-gate { display:block; margin:0 0 .6rem; padding:.55rem .7rem; border-radius:var(--r-md,8px); font-size:var(--fs-sm); }
+    .cm-gate { display:block; margin:0 0 .4rem; padding:.4rem .6rem; border-radius:var(--r-md,8px); font-size:var(--fs-sm); }
     .cm-gate strong { display:flex; gap:.4rem; align-items:center; }
     .cm-gate ul { margin:.35rem 0 0; padding-left:1.4rem; color:var(--c-text-2); }
     .cm-gate.bad { border:1px solid color-mix(in srgb, var(--bad-fg) 45%, transparent);
@@ -785,10 +831,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 
     /* [RD.65] El aviso de proyeccion: franja de atencion, no de error. Usa el token de aviso
        y nunca un hex -- la cifra de abajo es correcta, solo que no es definitiva. */
-    .cm-proy { margin:0 0 8px; padding:8px 12px; display:flex; align-items:center; gap:8px;
+    .cm-proy { margin:0 0 6px; padding:5px 10px; display:flex; align-items:center; gap:8px;
       border-left:3px solid var(--c-warn); border-radius:var(--r-md,8px);
       background:var(--card-bg); color:var(--c-text-2); font-size:var(--fs-sm); }
-    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-3);
+    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-2);
       font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-warn.bad { border-color:color-mix(in srgb, var(--bad-fg) 45%, transparent);
       background:color-mix(in srgb, var(--bad-fg) 9%, transparent); }
@@ -796,8 +842,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
       background:color-mix(in srgb, var(--warn-fg) 8%, transparent); font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-err { display:flex; gap:.4rem; align-items:center; color:var(--bad-fg); font-size:var(--fs-sm); margin:.4rem 0; }
-    .cm-empty { color:var(--c-text-3); font-size:var(--fs-sm); }
-    .cm-muted { color:var(--c-text-3); }
+    .cm-empty { color:var(--c-text-2); font-size:var(--fs-sm); }
+    .cm-muted { color:var(--c-text-2); }
   `],
 })
 export class ComercialComisionesComponent {
@@ -839,6 +885,25 @@ export class ComercialComisionesComponent {
    * para dar flechas, Home/End y roving tabindex.
    */
   filaSel: CommissionLine | null = null;
+  /**
+   * `[AUD-A6]` El eje del tiempo de la pantalla: la **quincena** o el **mes**.
+   *
+   * ⛔ No es una pestaña más de `tab()`. Aquellas son vistas de UNA quincena —cambiarlas no
+   * cambia el periodo—, y el objetivo es **mensual**: colgarlo ahí haría que su contenido
+   * cambiara al elegir otra quincena, que es afirmar algo falso.
+   */
+  /**
+   * ⭐ Arranca en la vista por la que entraste: `/comercial/comisiones/objetivo` abre el bono,
+   * y la ruta corta abre la nómina. Los favoritos y enlaces viejos siguen llevando a donde
+   * llevaban, y no al inicio de otra cosa.
+   */
+  readonly vista = signal<'quincena' | 'objetivo'>(
+    inject(Router).url.includes('/objetivo') ? 'objetivo' : 'quincena');
+  readonly vistas: SegOption[] = [
+    { label: 'Nómina quincenal', value: 'quincena' },
+    { label: 'Bono por objetivo (mensual)', value: 'objetivo' },
+  ];
+
   readonly tab = signal<string>('chofer');
   /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
   readonly tabsRD = RUTA_DIRECTA_TABS;
@@ -898,6 +963,48 @@ export class ComercialComisionesComponent {
 
   /** Lo que todavia no empieza no es "sin corrida": es futuro, y ocupa una linea. */
   readonly futuras = computed(() => this.board().filter((p) => p.date_from > this.hoy));
+
+  // ── [AUD-A3] La tira del año ──────────────────────────────────────────────────────────────
+
+  esFutura(p: CommissionBoardRow): boolean { return p.date_from > this.hoy; }
+
+  readonly pagadas = computed(() => this.board().filter((p) => p.status === 'pagado').length);
+
+  /**
+   * La altura de cada barra, en píxeles, proporcional al monto de su quincena.
+   *
+   * ⭐ Es un `computed` que devuelve un **Map**, no un método. Un método en la plantilla se
+   * ejecuta en CADA ciclo de detección y por cada una de las 27 celdas; acá el cálculo corre
+   * una vez por cambio del tablero.
+   *
+   * ⛔ El piso de 3 px no es cosmético: una quincena pagada con monto bajo tiene que **verse
+   * distinta de una sin corrida**, que vale 1 px. Sin el piso, la más chica del año se
+   * confundiría con una vacía — que es dibujar un cero sobre algo que sí se midió (ADR-056).
+   *
+   * ⚠️ Y el monto cae a `total_a_pagar` cuando el neto es NULL, igual que lo hacía el riel:
+   * las 20 quincenas del espejo no traen neto porque falta la deducción del supervisor.
+   */
+  readonly alturaBarra = computed(() => {
+    const MIN = 3; const MAX = 16;
+    const monto = (p: CommissionBoardRow) => Number(p.total_neto ?? p.total_a_pagar ?? 0) || 0;
+    const vivos = this.board().filter((p) => p.run_id);
+    const tope = Math.max(...vivos.map(monto), 0);
+    const out = new Map<string, number>();
+    for (const p of this.board()) {
+      out.set(p.period_id, !p.run_id || tope <= 0 ? 1 : MIN + Math.round((monto(p) / tope) * (MAX - MIN)));
+    }
+    return out;
+  });
+
+  /** Lo que la barra NO puede decir: va al `title`, que es lo que lee un lector de pantalla. */
+  tituloQuincena(p: CommissionBoardRow): string {
+    const cuando = `Q${p.period_no} · ${this.rango(p)}`;
+    if (this.esFutura(p)) return `${cuando} · todavía no empieza`;
+    if (this.esHoy(p)) return `${cuando} · en curso, cierra el ${this.dia(p.date_to)}`;
+    if (!p.run_id) return `${cuando} · cerrada y SIN calcular`;
+    const m = p.total_neto ?? p.total_a_pagar;
+    return `${cuando} · ${this.etiquetaEstado(p)} · ${m != null ? this.money(m) : 'sin monto'}`;
+  }
 
   esHoy(p: CommissionBoardRow): boolean {
     return p.date_from <= this.hoy && this.hoy <= p.date_to;
