@@ -159,7 +159,7 @@ export class CaosService {
         }
         if (q.buscar) {
           const b = `%${String(q.buscar).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-          x = x.where((w: any) => w.whereRaw(`ref ILIKE ? ESCAPE '\\'`, [b]).orWhereRaw(`user_external ILIKE ? ESCAPE '\\'`, [b]));
+          x = x.where((w: Knex.QueryBuilder) => w.whereRaw(`ref ILIKE ? ESCAPE '\\'`, [b]).orWhereRaw(`user_external ILIKE ? ESCAPE '\\'`, [b]));
         }
         if (q.tipo) x = x.where((b: any) => b.where('type_label', q.tipo).orWhere('type_id', Number(q.tipo) || -999));
         if (q.usuario) x = x.whereILike('user_external', `%${q.usuario}%`);
