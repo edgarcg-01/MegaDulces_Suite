@@ -3,13 +3,14 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { diaMxDeInstante } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import {
-  CAOS_EFECTO_POR_TIPO, aplicarMovimientos, cuadrarFotos, importeDeVector, sqlSignoPorTipo, tiposIndeterminados,
+  CAOS_EFECTO_POR_TIPO, aplicarMovimientos, sqlFolioCajaGeneral, cuadrarFotos, importeDeVector, sqlSignoPorTipo, tiposIndeterminados,
   type CaosFoto, type CaosMovDenom, type CaosParCuadre, type Vector,
 } from './caos-saldo';
 
 // ── `[CGA-A.33]` La forma del saldo ──────────────────────────────────────────────────────────
 
-export interface CaosLatidoConteo { cuando: string | null; status: string; nota: string | null; error: string | null }
+export interface CaosLatidoConteo { cuando: string | null; al: Date | null; status: string; nota: string | null; error: string | null }
+export interface CaosLatidos { movimientos: CaosLatidoConteo | null; conteo: CaosLatidoConteo | null; atribucion: CaosLatidoConteo | null }
 export interface CaosDenomFila { denom: number; billetes: number; importe: number }
 
 export interface CaosSaldo {
@@ -25,6 +26,16 @@ export interface CaosSaldo {
   cuadre: { pares: number; cuadran: number; descuadres: CaosParCuadre[]; no_verificables: CaosParCuadre[] } | null;
   conteo_fisico: { medido: false; motivo: string };
   latido: CaosLatidoConteo | null;
+  /** Los tres carriles: la pantalla avisa una falla aunque su panel esté plegado. */
+  latidos: CaosLatidos;
+  /** [CGA-A.41] Lo que falta registrar en Caja General (con su fecha de inicio derivada). */
+  pendientes: CaosPendientes;
+}
+
+export interface CaosPendientes {
+  medido: boolean; desde: string | null; movimientos: number; monto: number;
+  depositos: { n: number; monto: number }; dispensaciones: { n: number; monto: number };
+  mas_viejo: Date | null;
 }
 
 interface FotoCruda {
@@ -37,8 +48,8 @@ const aFilas = (v: Vector): CaosDenomFila[] => Object.entries(v)
   .map(([d, q]) => ({ denom: Number(d), billetes: q, importe: Number(d) * q }))
   .sort((a, b) => b.denom - a.denom);
 
-const saldoSinFoto = (estado: 'sin_tabla' | 'sin_foto', latido: CaosLatidoConteo | null): CaosSaldo => ({
-  estado, maquina: null, posteriores: null, saldo: null, cuadre: null, latido,
+const saldoSinFoto = (estado: 'sin_tabla' | 'sin_foto', latidos: CaosLatidos, pendientes: CaosPendientes): CaosSaldo => ({
+  estado, maquina: null, posteriores: null, saldo: null, cuadre: null, latido: latidos.conteo, latidos, pendientes,
   conteo_fisico: { medido: false, motivo: 'Ningún dato registra un conteo a mano de la máquina.' },
 });
 
@@ -76,6 +87,10 @@ export interface CaosQuery {
   tipo?: string;       // type_label o type_id
   usuario?: string;    // busca en user_external
   ref?: string;        // busca en ref
+  /** `[CGA-A.41]` Una sola caja de búsqueda: referencia u operador. */
+  buscar?: string;
+  /** `[CGA-A.41]` 'sin_registrar' = lo que falta en Caja General desde que se registra CAOS (ignora el rango). */
+  estado?: string;
   limit?: number;
 }
 
@@ -123,9 +138,29 @@ export class CaosService {
     const hasta = q.to ? diaSiguiente(q.to) : null;
 
     return this.tk.run(async (trx) => {
+      const T = 'analytics.caos_cash_movements';
+      const folio = sqlFolioCajaGeneral(T);
+      const registroDesde = await this.registroDesde(trx, tenantId);
+      const sinRegistrar = q.estado === 'sin_registrar';
       const filtros = (qb: any) => {
-        let x = qb.where('tenant_id', tenantId).where('occurred_at', '>=', desde);
-        if (hasta) x = x.where('occurred_at', '<', hasta);
+        let x = qb.where('tenant_id', tenantId);
+        /**
+         * ⭐ `[CGA-A.41]` «Sin registrar» tiene su PROPIO universo y no el rango: desde el primer
+         * movimiento de CAOS que se registró en Caja General (derivado, 2026-10-09). Antes de esa
+         * fecha la práctica no existía y nada está registrado: contar 45 días daba **279 movs /
+         * $8.23 M** «sin registrar», una acusación falsa del tamaño de la de `[CG.162]`.
+         */
+        if (sinRegistrar) {
+          x = x.whereIn('type_id', [0, 4]).whereRaw(`${folio} IS NULL`);
+          x = registroDesde ? x.where('occurred_at', '>=', registroDesde) : x.whereRaw('false');
+        } else {
+          x = x.where('occurred_at', '>=', desde);
+          if (hasta) x = x.where('occurred_at', '<', hasta);
+        }
+        if (q.buscar) {
+          const b = `%${String(q.buscar).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+          x = x.where((w: any) => w.whereRaw(`ref ILIKE ? ESCAPE '\\'`, [b]).orWhereRaw(`user_external ILIKE ? ESCAPE '\\'`, [b]));
+        }
         if (q.tipo) x = x.where((b: any) => b.where('type_label', q.tipo).orWhere('type_id', Number(q.tipo) || -999));
         if (q.usuario) x = x.whereILike('user_external', `%${q.usuario}%`);
         if (q.ref) x = x.whereILike('ref', `%${q.ref}%`);
@@ -142,7 +177,9 @@ export class CaosService {
          * que alguien algún día va a usar.
          */
         .select('id', 'device', 'external_id', 'type_id', 'type_label', 'occurred_at',
-          'accounting_date', 'user_external', 'total', 'currency', 'ref');
+          'accounting_date', 'user_external', 'total', 'currency', 'ref',
+          // `[CGA-A.41]` En qué folio de Caja General quedó (NULL = falta registrarlo).
+          trx.raw(`CASE WHEN type_id IN (0, 4) THEN ${folio} END AS folio_caja_general`));
 
       /**
        * ⛔⛔ `[CG.163]` **EL KPI «BALANCE» CORRÍA SOBRE 2 DE LOS 7 TIPOS Y NO LO DECLARABA.**
@@ -221,6 +258,7 @@ export class CaosService {
         // `[CGA-A.33]` El efecto de cada tipo viaja con la respuesta: la pantalla pinta la
         // dirección con el MISMO mapa que suma el neto, en vez de copiarlo a mano.
         efectos: CAOS_EFECTO_POR_TIPO,
+        registro_desde: registroDesde,
         desde,
         limit,
         has_more: rows.length === limit,
@@ -376,14 +414,16 @@ export class CaosService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx): Promise<CaosSaldo> => {
       const reg = await trx.raw(`SELECT to_regclass('analytics.caos_cash_counts') IS NOT NULL AS hay`);
-      const latido = await this.latidoConteo(trx, tenantId);
-      if (!reg.rows?.[0]?.hay) return saldoSinFoto('sin_tabla', latido);
+      const latidos = await this.latidos(trx, tenantId);
+      const pendientes = await this.pendientes(trx, tenantId);
+      const latido = latidos.conteo;
+      if (!reg.rows?.[0]?.hay) return saldoSinFoto('sin_tabla', latidos, pendientes);
 
       const ult: FotoCruda | undefined = await trx('analytics.caos_cash_counts')
         .where({ tenant_id: tenantId })
         .orderBy([{ column: 'after_external_id', order: 'desc' }, { column: 'captured_at', order: 'desc' }])
         .first('id', 'device', 'after_external_id', 'captured_at', 'confirmed_at', 'online', 'any_miscount', 'total');
-      if (!ult) return saldoSinFoto('sin_foto', latido);
+      if (!ult) return saldoSinFoto('sin_foto', latidos, pendientes);
 
       const lineas: LineaCruda[] = await trx('analytics.caos_cash_count_lines')
         .where({ tenant_id: tenantId, count_id: ult.id })
@@ -476,18 +516,76 @@ export class CaosService {
           motivo: 'Ningún dato registra un conteo a mano de la máquina. Lo cierra contar a ciegas lo que salga en el próximo «Vaciar Stocks».',
         },
         latido,
+        latidos,
+        pendientes,
       };
     });
   }
 
-  private async latidoConteo(trx: Knex, tenantId: string): Promise<CaosLatidoConteo | null> {
-    const l = await trx('analytics.cron_runs')
-      .where({ tenant_id: tenantId, job_key: 'caos_conteo' })
-      .first(
-        trx.raw(`to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS cuando`),
-        'status', 'note', 'error',
-      );
-    return l ? { cuando: l.cuando ?? null, status: l.status, nota: l.note ?? null, error: l.error ?? null } : null;
+  /**
+   * `[CGA-A.41]` Desde cuándo se registra CAOS en Caja General: el día (México) del primer
+   * movimiento que tiene folio. DERIVADO, no escrito a mano — medido 2026-10-09. `null` si
+   * nunca se registró ninguno (y entonces «sin registrar» no se puede medir: se declara).
+   */
+  private async registroDesde(trx: Knex, tenantId: string): Promise<string | null> {
+    const r = await trx.raw(
+      `SELECT min((m.occurred_at AT TIME ZONE 'America/Mexico_City')::date)::text AS d
+         FROM analytics.caos_cash_movements m
+        WHERE m.tenant_id = ? AND m.type_id IN (0, 4) AND ${sqlFolioCajaGeneral('m')} IS NOT NULL`,
+      [tenantId],
+    );
+    return r.rows?.[0]?.d ?? null;
+  }
+
+  /** `[CGA-A.41]` Lo que falta registrar en Caja General, desde `registroDesde`. */
+  private async pendientes(trx: Knex, tenantId: string): Promise<CaosPendientes> {
+    const desde = await this.registroDesde(trx, tenantId);
+    if (!desde) return { medido: false, desde: null, movimientos: 0, monto: 0, depositos: { n: 0, monto: 0 }, dispensaciones: { n: 0, monto: 0 }, mas_viejo: null };
+    const r = await trx.raw(
+      `SELECT count(*)::int AS n, coalesce(sum(total), 0)::text AS monto,
+              count(*) FILTER (WHERE type_id = 0)::int AS dep_n,
+              coalesce(sum(total) FILTER (WHERE type_id = 0), 0)::text AS dep_monto,
+              count(*) FILTER (WHERE type_id = 4)::int AS dis_n,
+              coalesce(sum(total) FILTER (WHERE type_id = 4), 0)::text AS dis_monto,
+              min(occurred_at) AS mas_viejo
+         FROM analytics.caos_cash_movements m
+        WHERE m.tenant_id = ? AND m.type_id IN (0, 4) AND m.occurred_at >= ?
+          AND ${sqlFolioCajaGeneral('m')} IS NULL`,
+      [tenantId, desde],
+    );
+    const x = r.rows[0];
+    return {
+      medido: true, desde, movimientos: Number(x.n), monto: Number(x.monto),
+      depositos: { n: Number(x.dep_n), monto: Number(x.dep_monto) },
+      dispensaciones: { n: Number(x.dis_n), monto: Number(x.dis_monto) },
+      mas_viejo: x.mas_viejo ?? null,
+    };
+  }
+
+  /**
+   * ⭐ `[CGA-A.33]` Los latidos de los TRES carriles de CAOS, en una sola lectura barata.
+   *
+   * ⛔ Por qué viajan acá y no en cada panel: el carril de atribución (`caos_ingreso_conciliar`)
+   * estaba en `error` el 2026-10-20 y `finance.caos_ingreso_atribucion` tenía **0 filas en toda
+   * su vida** — pero el panel que lo declara nace PLEGADO y sólo pide su estado al abrirse. Plegar
+   * no es esconder (estándar §2.1): la pantalla tiene que poder avisar con el panel cerrado.
+   */
+  private async latidos(trx: Knex, tenantId: string): Promise<CaosLatidos> {
+    const filas: { job_key: string; cuando: string | null; al: Date | null; status: string; note: string | null; error: string | null }[] =
+      await trx('analytics.cron_runs')
+        .where({ tenant_id: tenantId })
+        .whereIn('job_key', ['caos_movimientos', 'caos_conteo', 'caos_ingreso_conciliar'])
+        .select(
+          'job_key',
+          trx.raw(`to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS cuando`),
+          trx.raw('last_finish AS al'),
+          'status', 'note', 'error',
+        );
+    const de = (k: string): CaosLatidoConteo | null => {
+      const l = filas.find((f) => f.job_key === k);
+      return l ? { cuando: l.cuando ?? null, al: l.al ?? null, status: l.status, nota: l.note ?? null, error: l.error ?? null } : null;
+    };
+    return { movimientos: de('caos_movimientos'), conteo: de('caos_conteo'), atribucion: de('caos_ingreso_conciliar') };
   }
 
   /** Detalle por denominación de un movimiento (para el drill del reporte). */
