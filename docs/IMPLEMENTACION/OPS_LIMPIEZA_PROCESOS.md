@@ -435,10 +435,34 @@ fallar por memoria.
 
 ## OPS.LIMPIEZA.10 — `cdc_reconcile_full`: `kdij` de la sucursal 00 querría borrar el 94 %
 
-El latido nuevo funcionó: `kdij@00 61026/65146 (94%) > 60% — ABORTADO`. El freno hizo lo correcto
-(94 % es casi seguro una lectura incompleta o una poda en origen, no 61 mil bajas reales). **Falta
-investigar:** qué es `kdij` en Kepler, si la réplica de la `00` (OFICINAS) poda esa tabla por
-antigüedad (entonces se declara con `podaCol`) o si la lectura de la réplica está incompleta.
+El latido nuevo funcionó: `kdij@00 61026/65146 (94%) > 60% — ABORTADO`. El freno hizo lo correcto.
+
+**Qué es:** `kdij` es el kardex de movimientos de inventario por almacén (`docs/ERP_KEPLER.md` §3.x).
+`00/kdij` **ya estaba declarada como podada** (`ODS_PODA_POR_EDAD` vale `00/kdij:c10` por
+defecto, `[OBS.12]` del 01-oct). El problema era **dónde se ponía el corte**.
+
+**Causa, medida el 2026-10-20 en sólo lectura:** el corte era `min(c10)` del origen. La réplica
+`kepler_md_00` tiene hoy **3,681 filas: 2 de dic-2025 y 16 de abr-2026 sueltas**, y después nada
+hasta fines de septiembre. Esas rezagadas corrían el corte al **2025-12-03**, y las ~61 mil filas
+del ODS entre diciembre y septiembre se leían como «borradas». Día por día, réplica y ODS
+**coinciden exacto desde el 22-sep** (22/22, 3/3, 127/127…); antes la réplica está vacía o casi
+(21-sep: 4 contra 247). Dentro de ese tramo sólo difieren 8 filas (07-oct: 240/241; 13-oct:
+140/147).
+
+**Arreglo (`reconcile-ods-window.js`, `corteDeCobertura`):** el corte es el primer día del tramo
+final (hacia hoy) en que la réplica cubre **≥ 90 %** del ODS todos los días
+(`ODS_PODA_COBERTURA`, default 0.9). Lo anterior es historia y se conserva; lo de adentro se
+evalúa como siempre. Si ni el día más reciente cubre, el corte queda `null` → `poda_no_medida`
+→ no se borra nada (igual que antes). Un día borrado entero corta el tramo y deja **más**
+historia: si hay error, cae del lado seguro.
+
+**Resultado esperado con los datos del 20-oct** (simulado a mano sobre la tabla diaria medida, no
+corrido): corte = **2026-09-22** · ~61 mil filas conservadas como historia · **8 candidatas**
+(0.01 %, lejos del freno del 60 %) que se propagan como bajas reales. Se ve en el próximo
+`cdc_reconcile_full` (02:10) **después de que la imagen de ingesta tome el cambio**: el latido
+tiene que salir `ok` con `conservadas_por_poda` y `borrados 8` (o cerca).
+
+**Cómo revertir:** `git revert` del commit. Volvería a abortar cada noche, sin borrar nada.
 
 ---
 
