@@ -65,17 +65,31 @@ donde sí.
   `ODS_SOURCE_BASE`, `FEEDS_INGEST_KEY`, `KEPLER_REPLICA_BASE`, `DISABLE_CRONS`. Un dev nuevo no
   sabe que existen.
 
-## Propuesta de nombres (pendiente de decisión — no aplicada)
+## La convención (corregida el 2026-10-20)
 
-Que **el nombre diga el permiso y el destino**:
+⛔ **El permiso NO lo puede decir el nombre de la variable**, porque el mismo nombre vive en
+todos los entornos con usuarios distintos: en **producción (k3s)** `DATABASE_URL*` lleva el
+usuario **con escritura** de la API; en una **máquina de trabajo** llevaba uno de sólo lectura.
+Una primera versión de este documento proponía renombrar a `PROD_DB_URL_LECTURA`: medido el
+alcance, eran **~700 archivos** (`DATABASE_URL_NEW` sola, 561) más los secretos de k3s, y el
+nombre nuevo **mentiría en producción**. Se descartó.
 
-| Hoy | Propuesto | Por qué |
+**La convención es por entorno:**
+
+| Entorno | `DATABASE_URL`, `DATABASE_URL_NEW`, `DATABASE_URL_NEW_RUNTIME`, `FLEET_DB_URL` | Para leer producción |
 |---|---|---|
-| `PROD_DB_URL`, `DATABASE_URL_NEW`, `DATABASE_URL_NEW_RUNTIME`, `FLEET_DB_URL` (y `DATABASE_URL` en la máquina de trabajo) | **`PROD_DB_URL_LECTURA`** — una sola | Cinco nombres para lo mismo es la trampa |
-| `DATABASE_URL` | La base **local de desarrollo** (Docker, `npm run dev:up`), con escritura | Que el nombre estándar nunca lleve a prod |
-| `KEPLER_REPLICA_BASE` (superusuario) | **`REPLICAS_DB_URL_LECTURA`** con un usuario de sólo lectura; el superusuario **fuera** del `.env` de trabajo | Nadie necesita superusuario para leer réplicas desde una laptop |
-| `DB_*` / `NEW_DB_*` por partes | Retirar; todo por URL | Dos descripciones de la base que no coinciden |
-| `S3_ACCESS_KEY` vs `S3_ACCESS_KEY_ID` | Un solo nombre | — |
+| **Producción (k3s)** | pg-prod, usuario **con escritura** de la app (secretos de `ops/k3s/`) | — |
+| **Máquina de trabajo** | La base **local de desarrollo** (Docker, `npm run dev:up`) — **nunca** prod | **Sólo `PROD_DB_URL`**, con usuario de **sólo lectura** |
 
-⛔ Renombrar variables **toca credenciales** (regla 7 de `CLAUDE.md`): requiere autorización
-explícita, cambiar el código que las lee **en el mismo commit**, y los manifiestos de `ops/`.
+Así, en una máquina de trabajo, **cualquier** nombre `DATABASE_URL*` es seguro por construcción,
+y el único camino a prod se llama como lo que es.
+
+## Pendiente (no aplicado — necesita coordinación)
+
+| # | Qué | Por qué no se aplicó todavía |
+|---|---|---|
+| 1 | El `.env` de la máquina de trabajo: `DATABASE_URL*` y `FLEET_DB_URL` → base local; dejar sólo `PROD_DB_URL` a prod | Varias sesiones usan ese `.env` a la vez: un script que hoy lee prod por `DATABASE_URL_NEW` pasaría a leer la base local sin aviso. Avisar antes |
+| 2 | `KEPLER_REPLICA_BASE`: superusuario → usuario de sólo lectura | Hay que **crear** ese usuario en el servidor de réplicas (escritura en prod, la hace Edgar) |
+| 3 | Retirar `DB_*` / `NEW_DB_*` por partes | 13 + 2 archivos los leen; revisar uno por uno |
+| 4 | Un solo nombre para S3 (`S3_ACCESS_KEY` vs `S3_ACCESS_KEY_ID`) | Toca credenciales de almacenamiento (regla 7) |
+| 5 | Quitar `DB_POOL_MAX` del `.env` | Ningún código lo lee; sin riesgo, pero es el `.env` compartido |
