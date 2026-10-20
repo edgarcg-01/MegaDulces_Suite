@@ -13,9 +13,9 @@ import { ContextHelpComponent } from '../../../../shared/context-help/context-he
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
-import { todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
+import { MX_TZ, todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
-import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo } from '../../caos.service';
+import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
 
 /**
@@ -68,6 +68,81 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
         <app-freshness-pill measures="data" [since]="kpi()?.datos_al ?? null" [staleAfterSec]="3600"
                             label="caja fuerte"></app-freshness-pill>
       </header>
+
+      <!-- [CGA-A.33] DESIGN Q.1 answer-first: la pregunta de esta pantalla es cuanto hay en la
+           caja fuerte, y no depende del rango de abajo. Tres testigos SEPARADOS: lo que dice la
+           maquina, si eso cuadra con sus movimientos, y el conteo fisico (que hoy no existe). -->
+      <section class="cs-saldo" aria-labelledby="cs-saldo-h">
+        <h2 id="cs-saldo-h" class="cs-h2">¿Cuánto hay en la caja fuerte?</h2>
+        <app-load-state [loading]="saldoCargando() && !saldoResp()" [error]="saldoError()" [isEmpty]="false"
+                        [skeletonRows]="2" errorTitle="No se pudo leer el saldo de la caja fuerte"
+                        (retry)="cargarSaldo()">
+          <app-metric-strip [items]="saldoKpis()" ariaLabel="Saldo de la caja fuerte"></app-metric-strip>
+          @if (saldoResp(); as s) {
+            @if (s.saldo; as sd) {
+              <table class="cs-tbl cs-mini cs-denoms">
+                <caption class="sr-only">Billetes en la caja fuerte por denominación</caption>
+                <thead><tr>
+                  <th scope="col">Denominación</th>
+                  <th scope="col" class="cs-r">Billetes</th>
+                  <th scope="col" class="cs-r">Importe</th>
+                  <th scope="col">Casetes</th>
+                </tr></thead>
+                <tbody>
+                  @for (d of sd.por_denominacion; track d.denom) {
+                    <tr>
+                      <td class="mono">{{ money(d.denom) }}</td>
+                      <td class="cs-r mono">{{ d.billetes }}</td>
+                      <td class="cs-r mono">{{ money(d.importe) }}</td>
+                      <td class="fin-dim">{{ casetesDe(d.denom) }}</td>
+                    </tr>
+                  }
+                </tbody>
+                <tfoot><tr>
+                  <td>Total</td><td></td>
+                  <td class="cs-r mono">{{ money(sd.total) }}</td><td></td>
+                </tr></tfoot>
+              </table>
+            }
+            @if (s.cuadre?.descuadres?.length) {
+              <div class="cs-err cs-hallazgos" role="status">
+                <strong>La máquina cambió sin un movimiento que lo explique:</strong>
+                <ul>
+                  @for (p of s.cuadre!.descuadres; track p.desde_id + '-' + p.hasta_id) {
+                    <li>
+                      entre el movimiento #{{ p.desde_id }} y el #{{ p.hasta_id }}
+                      ({{ horaMx(p.desde_at) }} → {{ horaMx(p.hasta_at) }}):
+                      <span class="mono">{{ money(p.diferencia) }}</span> —
+                      @for (x of p.por_denominacion; track x.denom) {
+                        <span class="mono">{{ x.diferencia > 0 ? '+' : '' }}{{ x.diferencia }} × {{ money(x.denom) }}</span>{{ $last ? '' : ', ' }}
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (s.cuadre?.no_verificables?.length) {
+              <p class="fin-dim cs-nota">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                {{ s.cuadre!.no_verificables.length }} tramo(s) no se pueden verificar porque llevan un
+                movimiento sin decodificar: {{ s.cuadre!.no_verificables[0].motivo }}
+              </p>
+            }
+            <!-- [CG.162] el latido de quien toma la foto va con las cifras: si falla, la foto se
+                 queda vieja y el numero de arriba deja de ser de hoy. -->
+            <p class="cs-latido" [class.cs-latido-mal]="s.latido?.status === 'error' || !s.latido">
+              <i class="pi pi-camera" aria-hidden="true"></i>
+              @if (s.latido; as l) {
+                Foto del contenido: última lectura <span class="mono">{{ l.cuando }}</span>
+                @if (l.error) { — <strong class="cs-err-inline">falla: {{ l.error }}</strong> }
+                @else if (l.nota) { · {{ l.nota }} }
+              } @else {
+                <span class="cs-err-inline">la suite todavía no lee el contenido de la máquina.</span>
+              }
+            </p>
+          }
+        </app-load-state>
+      </section>
 
       <!-- Filtros -->
       <div class="fin-form fin-filtros">
@@ -295,7 +370,9 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
               <td class="mono">{{ dmy(r.occurred_at) }}</td>
               <td class="mono">{{ r.accounting_date || '—' }}</td>
               <td>{{ r.user_external || '—' }}</td>
-              <td><p-tag [value]="r.type_label" [severity]="sev(r.type_id)"></p-tag></td>
+              <!-- [CGA-A.33] el color dice la DIRECCION (entra / sale / foto / sin decodificar) con el
+                   mismo mapa que suma el neto; el motivo queda en el title. -->
+              <td [attr.title]="efectoDe(r.type_id)?.motivo ?? null"><p-tag [value]="r.type_label" [severity]="sev(r.type_id)"></p-tag></td>
               <td class="mono cs-r">{{ money(r.total) }}</td>
               <td>{{ r.ref || '—' }}</td>
             </tr>
@@ -384,6 +461,12 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
     .cs-latido-mal { color:var(--bad-fg); border-left:2px solid var(--bad-fg); padding-left:.5rem; }
     .cs-grano { font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
     .cs-grano-flojo { color:var(--warn-fg); }
+    .cs-saldo { margin:0 0 1rem; }
+    .cs-h2 { font-size:var(--fs-h3); font-weight:600; margin:0 0 .5rem; }
+    .cs-denoms { max-width:34rem; margin-top:.6rem; }
+    .cs-denoms tfoot td { border-top:1px solid var(--border-color); border-bottom:0; font-weight:600; }
+    .cs-hallazgos { border-left:2px solid var(--bad-fg); padding-left:.5rem; }
+    .cs-hallazgos ul { margin:.25rem 0 0; padding-left:1.1rem; }
     /* #9 — la pantalla se embebe a anchos distintos según el sidebar: en angosto las dos mitades
        del resumen se apilan y la rejilla deja de competir por el ancho. */
     @container (max-width: 44rem) {
@@ -458,48 +541,134 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
       { label: 'Movimientos', value: 'sin medir', state: 'no_medido' },
       { label: 'Depósitos', value: 'sin medir', state: 'no_medido' },
       { label: 'Dispensado', value: 'sin medir', state: 'no_medido' },
-      { label: 'Depósitos − dispensado', value: 'sin medir', state: 'no_medido' },
+      { label: 'Neto del rango', value: 'sin medir', state: 'no_medido' },
     ];
-    const otros = Number(k.otros_n) || 0;
+    const indet = Number(k.indeterminados_n) || 0;
+    const dotado = Number(k.dotado) || 0;
+    const vaciado = Number(k.vaciado) || 0;
     const items: MetricStripItem[] = [
-      { label: 'Movimientos', value: Number(k.movimientos) || 0, format: 'number' },
+      { label: 'Movimientos', value: Number(k.movimientos) || 0, format: 'number',
+        sub: Number(k.fotos_n) ? `${k.fotos_n} foto(s) de fin de día, no son dinero` : undefined },
       { label: 'Depósitos', value: money(k.depositos) },
       { label: 'Dispensado', value: money(k.dispensado) },
-      /**
-       * ⛔ `[CG.163]` Se llamaba «Balance» y **no es un balance**: es `depósitos − dispensado`,
-       * dos de los siete tipos que registra la máquina. Mientras el signo de `Dotar` y
-       * `Vaciar Stocks` no esté decodificado contra el dispositivo, llamarle balance invita a
-       * cuadrar con una cifra que no cierra. El nombre dice la resta que hace.
-       */
-      {
-        label: 'Depósitos − dispensado',
-        value: money(k.balance),
-        state: otros ? 'parcial' : undefined,
-        stateNote: otros
-          ? `No incluye ${otros} movimiento(s) de otros tipos por ${money(k.otros_total)}: `
-            + 'su dirección contra el dispositivo no está decodificada. No es el saldo de la máquina.'
-          : undefined,
-      },
     ];
-    // Sólo aparece cuando hay algo que declarar: un «$0.00 · 0 mov.» fijo sería ruido.
-    if (otros) {
-      items.push({
-        label: 'Otros movimientos',
-        value: money(k.otros_total),
-        sub: `${otros} mov. · Dotar, Vaciar Stocks, …`,
-        state: 'parcial',
-        stateNote: 'Mueven efectivo de la máquina, pero su signo no está decodificado: '
-          + 'se declaran aparte en vez de sumarse al neto.',
-      });
+    // Sólo cuando hubo mantenimiento de casetes en el rango: un «$0.00» fijo sería ruido.
+    if (dotado || vaciado) {
+      items.push({ label: 'Dotar − vaciar', value: money(dotado - vaciado),
+        sub: `dotó ${money(dotado)} · vació ${money(vaciado)}` });
     }
+    /**
+     * ⭐ `[CGA-A.33]` Antes «Depósitos − dispensado», con una nota que decía que el signo de
+     * `Dotar` y `Vaciar Stocks` no estaba decodificado. Ya lo está (medido contra el equipo), así
+     * que el neto los incluye. ⛔ Y sigue sin ser el saldo: es lo que se movió EN EL RANGO, y el
+     * rango casi nunca arranca con la máquina vacía. El saldo es el bloque de arriba.
+     */
+    items.push({
+      label: 'Neto del rango',
+      value: money(k.neto),
+      state: indet ? 'parcial' : undefined,
+      stateNote: indet
+        ? `No incluye ${indet} movimiento(s) sin decodificar (Cambio, Contenido Modificado) por ${money(k.indeterminados_total)}.`
+        : 'Lo que entró menos lo que salió en estas fechas. No es el saldo: el saldo está arriba.',
+    });
     return items;
   });
+
+  // ── `[CGA-A.33]` El saldo de la caja fuerte ───────────────────────────────────────────────
+  readonly saldoResp = signal<CaosSaldo | null>(null);
+  readonly saldoError = signal<string | null>(null);
+  readonly saldoCargando = signal(false);
+  /** El mapa tipo → efecto llega del backend con los movimientos (una sola fuente). */
+  readonly efectos = signal<Record<string, CaosTipoEfecto>>({});
+
+  readonly saldoKpis = computed<MetricStripItem[]>(() => {
+    const s = this.saldoResp();
+    const fisico: MetricStripItem = {
+      label: 'Conteo físico', value: 'sin medir', state: 'no_medido',
+      stateNote: s?.conteo_fisico.motivo ?? 'Ningún dato registra un conteo a mano de la máquina.',
+    };
+    if (!s || s.estado !== 'medido' || !s.saldo || !s.maquina || !s.cuadre || !s.posteriores) {
+      return [
+        {
+          label: 'En la caja fuerte', value: 'sin medir', state: 'no_medido',
+          stateNote: s?.estado === 'sin_tabla'
+            ? 'La suite todavía no guarda la foto del contenido de la máquina: falta aplicar su migración.'
+            : 'La máquina todavía no ha reportado su contenido a la suite.',
+        },
+        { label: 'Cuadre con los movimientos', value: 'sin medir', state: 'no_medido',
+          stateNote: 'Se mide comparando dos fotos de la máquina contra lo que se movió entre ellas.' },
+        fisico,
+      ];
+    }
+    const { maquina: m, saldo, cuadre: c, posteriores: p } = s;
+    const notas: string[] = [];
+    if (m.con_miscount) notas.push('La máquina marca conteo dudoso en algún casete.');
+    if (saldo.parcial) notas.push(`Después de la foto hay movimientos sin decodificar: ${p.ambiguos.join(' · ')}`);
+    const descuadre = c.descuadres.reduce((a, x) => a + Number(x.diferencia), 0);
+    return [
+      {
+        label: 'En la caja fuerte',
+        value: money(saldo.total),
+        sub: saldo.origen === 'maquina'
+          ? `según la máquina · ${this.horaMx(m.confirmada_at)}`
+          : `foto de ${this.horaMx(m.tomada_at)} · ${p.movimientos} mov. después (${p.neto < 0 ? '−' : '+'}${money(Math.abs(p.neto))})`,
+        state: notas.length ? 'parcial' : 'medido',
+        stateNote: notas.length ? notas.join(' ') : undefined,
+        tone: m.con_miscount ? 'warn' : undefined,
+      },
+      c.pares
+        ? {
+            label: 'Cuadre con los movimientos',
+            value: `${c.cuadran} de ${c.pares}`,
+            tone: c.descuadres.length ? 'bad' : 'ok',
+            sub: c.descuadres.length
+              ? `${c.descuadres.length} descuadre(s) por ${money(descuadre)}`
+              : 'fotos de 30 días, billete por billete',
+          }
+        : {
+            label: 'Cuadre con los movimientos', value: 'sin medir', state: 'no_medido',
+            stateNote: 'Hace falta una segunda foto de la máquina para comparar.',
+          },
+      fisico,
+    ];
+  });
+
+  /** Qué casetes guardan una denominación, según la última foto («#6, #7, #8»). */
+  casetesDe(denom: number): string {
+    const cs = this.saldoResp()?.maquina?.contenedores ?? [];
+    const lst = cs.filter((x) => Number(x.denom) === Number(denom) && x.billetes > 0)
+      .map((x) => `${x.tipo === 'bag' ? 'bolsa ' : ''}#${x.indice}${x.miscount ? ' (dudoso)' : ''}`);
+    return lst.length ? lst.join(', ') : '—';
+  }
+
+  private readonly fmtHora = new Intl.DateTimeFormat('es-MX', {
+    timeZone: MX_TZ, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  /** Instante → «20/10 10:04», en hora de México. */
+  horaMx(v: string | null | undefined): string {
+    if (!v) return '—';
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? String(v) : this.fmtHora.format(d);
+  }
+
+  efectoDe(typeId: number): CaosTipoEfecto | null {
+    return this.efectos()[String(typeId)] ?? null;
+  }
+
+  cargarSaldo(): void {
+    this.saldoCargando.set(true);
+    this.svc.saldo().subscribe({
+      next: (s) => { this.saldoResp.set(s); this.saldoError.set(null); this.saldoCargando.set(false); },
+      error: (e) => { this.saldoResp.set(null); this.saldoError.set(this.textoError(e)); this.saldoCargando.set(false); },
+    });
+  }
 
   ngOnInit(): void {
     // `[CG.163]` El día de negocio es México. `toISOString()` daba el día en UTC mientras `to`
     // usaba `todayMx()`, así que después de las 18:00 la ventana por omisión se corría un día.
     this.from = toMxDateKey(new Date(Date.now() - 7 * 86400000));
     this.cargar();
+    this.cargarSaldo();
     this.enVivo();
   }
 
@@ -514,6 +683,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
           this.rows.set((r.rows || []) as FilaUI[]);
           this.kpi.set(r.kpi ?? null);
           this.tipos.set(r.tipos || []);
+          this.efectos.set(r.efectos ?? {});
           this.hasMore.set(!!r.has_more);
           this.expandidas = {};
           this.err.set(null);
@@ -615,10 +785,18 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     });
   }
 
-  sev(typeId: number): 'success' | 'danger' | 'info' | 'warn' {
-    if (typeId === 0) return 'success';   // Depósito (entra)
-    if (typeId === 4) return 'danger';    // Dispensar (sale)
-    return 'info';                        // Dotar/Cambio/administrativos
+  /**
+   * `[CGA-A.33]` El color dice la dirección, con el mapa del backend: antes `Vaciar Stocks`
+   * salía igual que `Dotar` (los dos «info») y la etiqueta no decía que uno saca y otro mete.
+   */
+  sev(typeId: number): 'success' | 'danger' | 'info' | 'warn' | 'secondary' {
+    switch (this.efectoDe(typeId)?.efecto) {
+      case 'suma': return 'success';
+      case 'resta': return 'danger';
+      case 'foto': return 'secondary';
+      case 'indeterminado': return 'warn';
+      default: return 'info';               // el mapa todavía no llegó
+    }
   }
 
   private enVivo(): void {
@@ -630,12 +808,14 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
         if (firma === this.firmaVista) return;
         this.firmaVista = firma;
         this.cargar();
+        // Un movimiento o una foto nueva cambian el saldo; el rango de abajo no lo filtra.
+        this.cargarSaldo();
       });
     } catch (e) {
       console.warn('[caos] sin avisos en vivo; queda el repaso:', e);
     }
     // Red de seguridad: NOTIFY no se persiste, un socket caído no deja rastro.
-    encuestarVisible(60000, () => this.cargar(), { destroyRef: this.destroyRef, zone: this.zone });
+    encuestarVisible(60000, () => { this.cargar(); this.cargarSaldo(); }, { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private textoError(e: unknown): string {

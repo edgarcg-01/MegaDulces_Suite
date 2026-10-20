@@ -2062,11 +2062,20 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     intro: 'CAOS es el dispositivo que recibe y entrega el efectivo de OFICINAS. Esta pantalla es un espejo de lo que la máquina registró: no corrige nada, no escribe nada y no decide nada. Cuando un número no se pudo calcular, lo dice en vez de poner cero.',
     groups: [
       {
-        heading: 'La tira de arriba',
+        heading: '¿Cuánto hay en la caja fuerte? — tres testigos, separados',
         entries: [
-          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Es el único número que cuenta los siete tipos.' },
-          { term: 'Depósitos − dispensado', def: 'La resta de los dos tipos que mueven efectivo hacia y desde las rutas. NO es el saldo de la caja fuerte: deja fuera Dotar, Vaciar Stocks y los ajustes, que también mueven dinero. Por eso se llama por la resta que hace y no "balance".' },
-          { term: 'Otros movimientos', def: 'Lo que la máquina registró y no es depósito ni dispensación: dotarla, vaciar sus cajetines, los cierres de día y los ajustes de contenido. Aparece con su monto y aparte porque su dirección (entra o sale) no está decodificada contra el dispositivo; sumarla al neto con un signo supuesto daría una cifra con la que alguien intentaría cuadrar.' },
+          { term: 'En la caja fuerte', def: 'Lo que la máquina dice tener: la última foto de su inventario, casete por casete (su reporte «Contenidos»). Si después de la foto entraron movimientos, se le suman o restan y la línea de abajo lo dice.' },
+          { term: 'Cuadre con los movimientos', def: 'Cada foto nueva se compara contra la anterior más lo que se movió entre las dos, billete por billete. «12 de 12» quiere decir que la máquina nunca cambió sin un movimiento que lo explique. Un descuadre aparece con su monto y sus denominaciones.' },
+          { term: 'Conteo físico', def: 'Una persona contando los billetes. Hoy no existe en ningún dato, y por eso dice «sin medir»: que la máquina y sus movimientos coincidan no prueba que el billete esté adentro — en septiembre la propia máquina corrigió su registro por −$25,420. Se cierra contando a ciegas lo que salga en el próximo «Vaciar Stocks».' },
+        ],
+      },
+      {
+        heading: 'La tira del rango',
+        entries: [
+          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Los «Fin de Dia» se cuentan aparte: son fotos del contenido, no dinero.' },
+          { term: 'Dotar − vaciar', def: 'Mantenimiento de casetes en el rango: Dotar los carga (suma) y Vaciar Stocks saca su contenido (resta). Aparece sólo cuando hubo.' },
+          { term: 'Neto del rango', def: 'Lo que entró menos lo que salió en las fechas elegidas, con el signo de cada tipo medido contra la máquina (Depósito y Dotar suman; Dispensar y Vaciar Stocks restan). Es un flujo, NO el saldo: el rango casi nunca empieza con la máquina vacía. Si hubo Cambio o Contenido Modificado —cuya dirección no está probada— lo dice aparte con su monto.' },
+          { term: 'El color del tipo', def: 'Verde entra, rojo sale, gris es una foto (no mueve dinero) y ámbar es un tipo cuya dirección no está decodificada. Pasando el cursor por la celda se ve por qué.' },
           { term: 'La píldora de frescura', def: 'La edad del DATO, no la de la pantalla: mide la última vez que el carril trajo movimientos de la máquina. Si se pone ámbar, lo que ves puede estar viejo aunque la página se acabe de cargar.' },
         ],
       },

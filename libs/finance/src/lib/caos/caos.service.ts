@@ -2,6 +2,45 @@ import { Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { diaMxDeInstante } from '@megadulces/contracts';
 import type { Knex } from 'knex';
+import {
+  CAOS_EFECTO_POR_TIPO, aplicarMovimientos, cuadrarFotos, importeDeVector, sqlSignoPorTipo, tiposIndeterminados,
+  type CaosFoto, type CaosMovDenom, type CaosParCuadre, type Vector,
+} from './caos-saldo';
+
+// ── `[CGA-A.33]` La forma del saldo ──────────────────────────────────────────────────────────
+
+export interface CaosLatidoConteo { cuando: string | null; status: string; nota: string | null; error: string | null }
+export interface CaosDenomFila { denom: number; billetes: number; importe: number }
+
+export interface CaosSaldo {
+  /** `sin_tabla`: la migración no está aplicada · `sin_foto`: el demonio aún no tomó ninguna. */
+  estado: 'medido' | 'sin_tabla' | 'sin_foto';
+  maquina: {
+    tomada_at: Date; confirmada_at: Date; tras_movimiento: number; online: boolean | null;
+    con_miscount: boolean; total: number; por_denominacion: CaosDenomFila[];
+    contenedores: { tipo: string; indice: number; denom: number; billetes: number; miscount: boolean }[];
+  } | null;
+  posteriores: { movimientos: number; neto: number; ambiguos: string[]; ultimo_at: Date | null } | null;
+  saldo: { total: number; por_denominacion: CaosDenomFila[]; origen: 'maquina' | 'foto_mas_movimientos'; parcial: boolean } | null;
+  cuadre: { pares: number; cuadran: number; descuadres: CaosParCuadre[]; no_verificables: CaosParCuadre[] } | null;
+  conteo_fisico: { medido: false; motivo: string };
+  latido: CaosLatidoConteo | null;
+}
+
+interface FotoCruda {
+  id: string; device: string; after_external_id: string; captured_at: Date; confirmed_at: Date;
+  online: boolean | null; any_miscount: boolean; total: string;
+}
+interface LineaCruda { container_kind: string; container_index: number; denom: string; quantity: number; miscount: boolean }
+
+const aFilas = (v: Vector): CaosDenomFila[] => Object.entries(v)
+  .map(([d, q]) => ({ denom: Number(d), billetes: q, importe: Number(d) * q }))
+  .sort((a, b) => b.denom - a.denom);
+
+const saldoSinFoto = (estado: 'sin_tabla' | 'sin_foto', latido: CaosLatidoConteo | null): CaosSaldo => ({
+  estado, maquina: null, posteriores: null, saldo: null, cuadre: null, latido,
+  conteo_fisico: { medido: false, motivo: 'Ningún dato registra un conteo a mano de la máquina.' },
+});
 
 /**
  * ⚠️ `[CG.163]` El default de la ventana se calculaba con
@@ -121,6 +160,9 @@ export class CaosService {
        * de $1.7 M o un `Vaciar Stocks` de $2.9 M mueven efectivo de la máquina igual que un
        * depósito.
        *
+       * ⚠️ SUPERADO el 2026-10-20 por `[CGA-A.33]` (abajo): el signo se decodificó contra el
+       * equipo. Lo que sigue es el razonamiento de entonces, que era correcto con lo que se sabía.
+       *
        * ⛔ Lo que NO se hace acá: sumarlos al balance. El **signo** de `Vaciar Stocks` y `Dotar`
        * no está decodificado contra el dispositivo (ambos llegan con `total` positivo), y meterlos
        * con un signo supuesto sería inventar la cifra que la gente va a usar para cuadrar. Se
@@ -128,15 +170,29 @@ export class CaosService {
        * que es: depósitos − dispensado. Declarar el hueco con su monto es la regla; dibujarlo como
        * cero o como parte del balance es el defecto (ADR-056).
        */
+      /**
+       * ⭐ `[CGA-A.33]` **El signo ya está decodificado** (`caos-saldo.ts`, medido contra el
+       * equipo), así que el KPI deja de apartar `Dotar` y `Vaciar Stocks` como «otros»: entran
+       * con su signo al NETO del rango. Lo que sigue sin decodificar —`Cambio`, `Contenido
+       * Modificado`, un tipo nuevo— se declara aparte, y el `Fin de Dia` se cuenta como lo que
+       * es: una foto, no dinero. El neto es un FLUJO del rango; el saldo vive en `/saldo`.
+       *
+       * ⛔ Antes `otros_total` era `sum(abs(total))` de todo eso junto: sumaba entradas, salidas
+       * y una foto en una sola cifra ($4.87 M en el histórico) que no significaba nada.
+       */
+      const signo = sqlSignoPorTipo();
+      const indet = tiposIndeterminados().join(',') || '-1';
       const kpi: any = await filtros(trx('analytics.caos_cash_movements'))
         .select(trx.raw(`
           count(*)::int AS movimientos,
           coalesce(sum(total) FILTER (WHERE type_id = 0), 0) AS depositos,
           coalesce(sum(total) FILTER (WHERE type_id = 4), 0) AS dispensado,
-          coalesce(sum(total) FILTER (WHERE type_id = 0), 0)
-            - coalesce(sum(total) FILTER (WHERE type_id = 4), 0) AS balance,
-          count(*) FILTER (WHERE type_id NOT IN (0, 4))::int AS otros_n,
-          coalesce(sum(abs(total)) FILTER (WHERE type_id NOT IN (0, 4)), 0) AS otros_total,
+          coalesce(sum(total) FILTER (WHERE type_id = 8), 0) AS dotado,
+          coalesce(sum(total) FILTER (WHERE type_id = 5), 0) AS vaciado,
+          coalesce(sum(${signo} * total), 0) AS neto,
+          count(*) FILTER (WHERE type_id = 2)::int AS fotos_n,
+          count(*) FILTER (WHERE type_id IN (${indet}) OR ${signo} = 0 AND type_id <> 2)::int AS indeterminados_n,
+          coalesce(sum(total) FILTER (WHERE type_id IN (${indet}) OR ${signo} = 0 AND type_id <> 2), 0) AS indeterminados_total,
           max(synced_at) AS datos_al
         `)).first();
 
@@ -162,6 +218,9 @@ export class CaosService {
         rows,
         kpi,
         tipos,
+        // `[CGA-A.33]` El efecto de cada tipo viaja con la respuesta: la pantalla pinta la
+        // dirección con el MISMO mapa que suma el neto, en vez de copiarlo a mano.
+        efectos: CAOS_EFECTO_POR_TIPO,
         desde,
         limit,
         has_more: rows.length === limit,
@@ -297,6 +356,138 @@ export class CaosService {
 
       return { dias: rows, totales: tot, cobertura, desde, hasta };
     });
+  }
+
+  /**
+   * ⭐ `[CGA-A.33]` **El saldo de la caja fuerte, con sus tres testigos separados.**
+   *
+   *  1. **La máquina** — la última foto de su inventario de casetes (`getCounting`, la escribe
+   *     el demonio `caos-live` en `analytics.caos_cash_counts`).
+   *  2. **Los movimientos** — cada foto se cuadra contra la anterior más lo que entró entre las
+   *     dos, por denominación (`cuadrarFotos`). Si no cierra, es un hallazgo con monto.
+   *  3. **El conteo físico** — no existe en ningún dato. Se publica `medido: false`, nunca un
+   *     verde (ADR-056): dos lecturas del mismo equipo que coinciden no prueban que el billete
+   *     esté adentro; en septiembre el equipo se corrigió solo −$25,420.
+   *
+   * ⚠️ Si la migración de las fotos todavía no se aplicó, se DECLARA (`estado: 'sin_tabla'`) en
+   * vez de tirar un 500: el despliegue del código y el de la migración pueden no caer juntos.
+   */
+  async saldo(): Promise<CaosSaldo> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx): Promise<CaosSaldo> => {
+      const reg = await trx.raw(`SELECT to_regclass('analytics.caos_cash_counts') IS NOT NULL AS hay`);
+      const latido = await this.latidoConteo(trx, tenantId);
+      if (!reg.rows?.[0]?.hay) return saldoSinFoto('sin_tabla', latido);
+
+      const ult: FotoCruda | undefined = await trx('analytics.caos_cash_counts')
+        .where({ tenant_id: tenantId })
+        .orderBy([{ column: 'after_external_id', order: 'desc' }, { column: 'captured_at', order: 'desc' }])
+        .first('id', 'device', 'after_external_id', 'captured_at', 'confirmed_at', 'online', 'any_miscount', 'total');
+      if (!ult) return saldoSinFoto('sin_foto', latido);
+
+      const lineas: LineaCruda[] = await trx('analytics.caos_cash_count_lines')
+        .where({ tenant_id: tenantId, count_id: ult.id })
+        .orderBy([{ column: 'container_kind', order: 'desc' }, { column: 'container_index' }])
+        .select('container_kind', 'container_index', 'denom', 'quantity', 'miscount');
+
+      // Las fotos de los últimos 30 días, para el cuadre continuo (con tope: ~10 por día).
+      const fotosCrudas: { id: string; after_external_id: string; captured_at: Date; denom: string; q: string }[] =
+        await trx.raw(`
+          WITH f AS (
+            SELECT id, after_external_id, captured_at FROM analytics.caos_cash_counts
+             WHERE tenant_id = ? AND device = ? AND captured_at >= now() - interval '30 days'
+             ORDER BY after_external_id DESC, captured_at DESC LIMIT 400)
+          SELECT f.id, f.after_external_id, f.captured_at, l.denom::text AS denom, sum(l.quantity)::text AS q
+            FROM f LEFT JOIN analytics.caos_cash_count_lines l ON l.tenant_id = ? AND l.count_id = f.id
+           GROUP BY f.id, f.after_external_id, f.captured_at, l.denom`,
+        [tenantId, ult.device, tenantId]).then((r: { rows: never[] }) => r.rows);
+      const fotos = new Map<string, CaosFoto>();
+      for (const r of fotosCrudas) {
+        const f = fotos.get(r.id) ?? { id: r.id, after_external_id: Number(r.after_external_id), captured_at: r.captured_at, por_denominacion: {} };
+        if (r.denom != null) f.por_denominacion[String(Number(r.denom))] = Number(r.q);
+        fotos.set(r.id, f);
+      }
+      const desdeId = Math.min(...[...fotos.values()].map((f) => f.after_external_id), Number(ult.after_external_id));
+
+      // Los movimientos desde la foto más vieja del cuadre, con su desglose.
+      const movsCrudos: { external_id: string; type_id: number; total: string; occurred_at: Date; denom: string | null; q: string | null }[] =
+        await trx.raw(`
+          SELECT m.external_id, m.type_id, m.total::text AS total, m.occurred_at,
+                 d.denom::text AS denom, d.quantity::text AS q
+            FROM analytics.caos_cash_movements m
+            LEFT JOIN analytics.caos_cash_denominations d ON d.tenant_id = m.tenant_id AND d.movement_id = m.id
+           WHERE m.tenant_id = ? AND m.device = ? AND m.external_id > ?
+           ORDER BY m.external_id`,
+        [tenantId, ult.device, desdeId]).then((r: { rows: never[] }) => r.rows);
+      const movs = new Map<number, CaosMovDenom & { occurred_at: Date }>();
+      for (const r of movsCrudos) {
+        const id = Number(r.external_id);
+        const m = movs.get(id) ?? { external_id: id, type_id: Number(r.type_id), total: Number(r.total), occurred_at: r.occurred_at, por_denominacion: {} };
+        if (r.denom != null) m.por_denominacion[String(Number(r.denom))] = (m.por_denominacion[String(Number(r.denom))] ?? 0) + Number(r.q);
+        movs.set(id, m);
+      }
+      const listaMovs = [...movs.values()];
+
+      // La foto vale por sí sola; lo que entró DESPUÉS de tomarla se suma y se dice.
+      const base: Vector = {};
+      for (const l of lineas) base[String(Number(l.denom))] = (base[String(Number(l.denom))] ?? 0) + Number(l.quantity);
+      const despues = listaMovs.filter((m) => m.external_id > Number(ult.after_external_id));
+      const { vector, ambiguos } = aplicarMovimientos(base, despues);
+
+      const pares = cuadrarFotos([...fotos.values()], listaMovs);
+      const ultimoMov = listaMovs.length ? listaMovs[listaMovs.length - 1] : null;
+
+      return {
+        estado: 'medido',
+        maquina: {
+          tomada_at: ult.captured_at,
+          confirmada_at: ult.confirmed_at,
+          tras_movimiento: Number(ult.after_external_id),
+          online: ult.online,
+          con_miscount: ult.any_miscount,
+          total: Number(ult.total),
+          por_denominacion: aFilas(base),
+          contenedores: lineas.map((l) => ({
+            tipo: l.container_kind, indice: Number(l.container_index), denom: Number(l.denom),
+            billetes: Number(l.quantity), miscount: Boolean(l.miscount),
+          })),
+        },
+        posteriores: {
+          movimientos: despues.length,
+          neto: Math.round((importeDeVector(vector) - importeDeVector(base)) * 100) / 100,
+          ambiguos,
+          ultimo_at: ultimoMov?.occurred_at ?? null,
+        },
+        saldo: {
+          total: importeDeVector(vector),
+          por_denominacion: aFilas(vector),
+          // 'maquina' = la foto ya contiene todo; 'foto_mas_movimientos' = se le sumaron flujos.
+          origen: despues.length ? 'foto_mas_movimientos' : 'maquina',
+          parcial: ambiguos.length > 0,
+        },
+        cuadre: {
+          pares: pares.length,
+          cuadran: pares.filter((p) => p.estado === 'cuadra').length,
+          descuadres: pares.filter((p) => p.estado === 'descuadre'),
+          no_verificables: pares.filter((p) => p.estado === 'no_verificable'),
+        },
+        conteo_fisico: {
+          medido: false,
+          motivo: 'Ningún dato registra un conteo a mano de la máquina. Lo cierra contar a ciegas lo que salga en el próximo «Vaciar Stocks».',
+        },
+        latido,
+      };
+    });
+  }
+
+  private async latidoConteo(trx: Knex, tenantId: string): Promise<CaosLatidoConteo | null> {
+    const l = await trx('analytics.cron_runs')
+      .where({ tenant_id: tenantId, job_key: 'caos_conteo' })
+      .first(
+        trx.raw(`to_char(last_finish AT TIME ZONE 'America/Mexico_City','YYYY-MM-DD HH24:MI') AS cuando`),
+        'status', 'note', 'error',
+      );
+    return l ? { cuando: l.cuando ?? null, status: l.status, nota: l.note ?? null, error: l.error ?? null } : null;
   }
 
   /** Detalle por denominación de un movimiento (para el drill del reporte). */
