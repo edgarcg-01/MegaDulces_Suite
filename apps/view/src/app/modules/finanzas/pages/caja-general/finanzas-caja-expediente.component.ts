@@ -14,6 +14,8 @@ import type { Freshness } from '@megadulces/contracts';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
+import { forkJoin } from 'rxjs';
+import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
 
 /** Un renglón del historial: un día, con el corte de ese día. */
 export interface CorteDia {
@@ -159,6 +161,18 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                      ariaLabel="Qué quieres revisar" />
 
       @if (vista() === 'corte') {
+      <!-- [CGA-A.43] DESIGN Q.1 — la pregunta que trae quien abre esto a medio dia no es «cuanto se
+           conto ayer» sino «cuanto hay AHORA». Sin corte abierto el libro dice «sin medir»; aca se
+           compone lo que veria quien lo abriera: el cierre anterior + lo de hoy, DECLARADO como
+           provisional, y al lado el ultimo conteo de Control para que una discrepancia se vea. -->
+      <section class="cx-ahora" aria-labelledby="cx-h-ahora">
+        <h2 id="cx-h-ahora" class="cx-ahora-h">¿Cuánto hay en el cajón ahora?</h2>
+        <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
+                        [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
+          <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora"></app-metric-strip>
+          @if (cajonNota(); as nota) { <p class="cx-ahora-nota">{{ nota }}</p> }
+        </app-load-state>
+      </section>
       <!-- Q.1 answer-first: la pregunta de la mañana, antes de la rejilla. -->
       @if (ultimo(); as u) {
         <section class="cx-veredicto" [class.cx-veredicto-bad]="!u.tiene_corte"
@@ -451,6 +465,9 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
 
     .cx-actions { display:flex; gap:var(--sp-2); align-items:center; }
 
+    .cx-ahora { margin-block:var(--sp-4) var(--sp-2); }
+    .cx-ahora-h { font-size:var(--fs-h3); font-weight:600; margin:0 0 var(--sp-2); }
+    .cx-ahora-nota { font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 0; max-width:60rem; }
     .cx-veredicto {
       border:1px solid var(--border-color); border-radius:var(--r-lg);
       padding:var(--sp-4); margin-block:var(--sp-4);
@@ -639,9 +656,112 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
     return partes.join(' · ');
   });
 
+  // ── `[CGA-A.43]` El cajón AHORA ──────────────────────────────────────────────────────────
+  //
+  // ⚠️ La caja de oficinas es la sucursal `00` (la misma que usa Captura para CAOS y el corte).
+  private readonly cajas = inject(CashLedgerService);
+  readonly cajonFondo = signal<FondoSugerido | null>(null);
+  readonly cajonSaldo = signal<SaldoResponse | null>(null);
+  readonly cajonCargando = signal(false);
+  readonly cajonError = signal<string | null>(null);
+
+  cargarCajon(): void {
+    this.cajonCargando.set(true);
+    forkJoin({ f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00') }).subscribe({
+      next: ({ f, s }) => {
+        this.cajonFondo.set(f); this.cajonSaldo.set(s);
+        this.cajonError.set(null); this.cajonCargando.set(false);
+      },
+      error: () => { this.cajonError.set('No se pudo leer el saldo del libro de Caja General.'); this.cajonCargando.set(false); },
+    });
+  }
+
+  /**
+   * ⭐ `[CGA-A.43]` Tres cifras, y cada una dice con qué se calculó:
+   *
+   *  · **corte abierto** → el esperado del corte (fondo + lo capturado). Derivado, no contado.
+   *  · **sin corte** → el cierre anterior + el efecto de los movimientos de hoy (el `esperado` del
+   *    motor con fondo `null` ES ese efecto: `(fondo ?? 0) + ingresos − gastos − depósitos +
+   *    dispensado − depositado`). Es exactamente lo que vería quien abriera el corte ahora, sin
+   *    fórmula nueva. Se marca **provisional**: nadie lo contó hoy.
+   *  · **arqueo ciego** → a quien no autoriza el servidor no le manda el esperado, y aquí se dice
+   *    en vez de dibujar un cero.
+   *
+   * La tercera es el último conteo de Control, como CONTRASTE: el 2026-10-20 el cierre del 19-oct
+   * existía en dos versiones ($88,272.50 en la suite, $288,972.50 recapturado en Control) y un
+   * provisional que callara la otra afirmaría una certeza que nadie tiene.
+   */
+  readonly cajonKpis = computed<MetricStripItem[]>(() => {
+    const f = this.cajonFondo();
+    const s = this.cajonSaldo();
+    const u = this.ultimo();
+    const items: MetricStripItem[] = [];
+    const efecto = s && !s.saldo_oculto && s.totales?.esperado != null ? Number(s.totales.esperado) : null;
+    let base: number | null = null;
+
+    if (!s) {
+      items.push({ label: 'En el cajón ahora', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
+    } else if (s.saldo_oculto) {
+      items.push({ label: 'En el cajón ahora', value: 'oculto', state: 'no_medido',
+        stateNote: 'Arqueo ciego: el esperado sólo lo ve quien autoriza el corte.' });
+    } else if (s.corte_abierto && s.saldo != null) {
+      base = Number(s.saldo);
+      items.push({ label: 'En el cajón ahora', value: money(base), state: 'derivado',
+        method: `fondo del corte ${s.corte_abierto.folio} + lo capturado; no es un conteo`,
+        sub: `según el corte abierto ${s.corte_abierto.folio}` });
+    } else if (f?.monto != null && efecto != null) {
+      base = Number(f.monto) + efecto;
+      items.push({ label: 'En el cajón ahora', value: money(base), state: 'derivado', tone: 'warn',
+        method: `cierre anterior (${f.procedencia ?? 'su conteo'}) + ${s.totales.movimientos} movimiento(s) de hoy`,
+        sub: 'provisional · nadie ha abierto ni contado el corte de hoy' });
+    } else {
+      items.push({ label: 'En el cajón ahora', value: 'sin medir', state: 'no_medido',
+        stateNote: 'No hay cierre anterior medido del que partir.' });
+    }
+
+    if (efecto != null && s && !s.corte_abierto) {
+      const disp = Number(s.cajero?.dispensado ?? 0);
+      items.push({ label: 'Lo de hoy', value: `${efecto < 0 ? '−' : '+'}${money(Math.abs(efecto))}`,
+        sub: `${s.totales.movimientos} capturado(s)` + (disp ? ` · CAOS dispensó ${money(disp)}` : '') });
+    }
+
+    if (u?.tiene_corte) {
+      const ctl = Number(u.total_efectivo ?? 0);
+      const dif = f?.monto != null ? Math.round((ctl - Number(f.monto)) * 100) / 100 : null;
+      items.push({ label: 'Último conteo de Control', value: money(ctl),
+        sub: `${u.corte_folio} · ${this.dmy(u.fecha)} ${this.hhmm(u.corte_hora)}`,
+        // La diferencia en sí va en la nota de abajo, con sus dos cifras: el tono sólo la señala.
+        tone: dif ? 'warn' : undefined });
+    }
+    return items;
+  });
+
+  /** Lo que el provisional NO sabe, dicho en una línea — y la discrepancia, si la hay. */
+  readonly cajonNota = computed<string | null>(() => {
+    const f = this.cajonFondo();
+    const s = this.cajonSaldo();
+    const u = this.ultimo();
+    const partes: string[] = [];
+    if (u?.tiene_corte && f?.monto != null) {
+      const dif = Math.round((Number(u.total_efectivo ?? 0) - Number(f.monto)) * 100) / 100;
+      if (Math.abs(dif) > 0.005) {
+        partes.push(`El cierre del que parte (${money(Number(f.monto))}) y el último conteo de Control ${u.corte_folio} `
+          + `(${money(Number(u.total_efectivo ?? 0))}) difieren ${money(Math.abs(dif))}: uno de los dos está mal o falta registrar algo. `
+          + 'Sólo un conteo lo resuelve.');
+      }
+    }
+    if (s && !s.corte_abierto && !s.saldo_oculto) {
+      partes.push('Para que deje de ser provisional: Captura → «Abrir corte» y contar.');
+      const ant = s.sueltos_fuera?.anteriores;
+      if (ant?.movimientos) partes.push(`No incluye ${ant.movimientos} movimiento(s) sueltos de días anteriores (neto ${money(ant.neto)}).`);
+    }
+    return partes.length ? partes.join(' ') : null;
+  });
+
   ngOnInit(): void { this.recargar(); }
 
   recargar(): void {
+    this.cargarCajon();
     this.cargando.set(true);
     this.error.set(null);
     this.http.get<{ rows: CorteDia[]; frescura?: Freshness }>(`${this.base}/cortes?limit=90`).subscribe({
