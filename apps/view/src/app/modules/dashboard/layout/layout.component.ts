@@ -42,7 +42,7 @@ import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
 import { CAJA_TABS } from '../../finanzas/caja-tabs';
 import { PAGOS_TABS } from '../../finanzas/pagos-tabs';
 import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
-import { RUTA_DIRECTA_TABS } from '../../comercial/ruta-directa-tabs';
+import { RUTA_DIRECTA_TABS, RUTA_DIRECTA_LABEL } from '../../comercial/ruta-directa-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
 import { PRECIOS_TABS } from '../../comercial/precios-tabs';
@@ -475,7 +475,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // equivocada dos veces: no son reportes, y no son siete cosas — son un sub-módulo,
         // la misma operación mirada por siete lados. La tira de arriba es la que mueve entre
         // ellas, y por eso cada una de esas pantallas la pinta.
-        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
+        // ⛔ [AUD-A5] Se llamaba «Ventas por ruta», que es el nombre de UNA de sus siete
+        // pestañas. Medido en prod el 2026-10-20: estando en `/comercial/comisiones` la migaja
+        // decía «Comercial / Ventas / **Ventas por ruta**» — porque `currentPageTitle()`
+        // resuelve por `isNavActive()` y devuelve la etiqueta del ítem, no la de la pestaña.
+        // O sea que el eslabón con `aria-current="page"` nombraba otra pantalla.
+        //
+        // ⭐ El arreglo no es parchear `currentPageTitle`: es que el ítem diga lo que agrupa.
+        // El propio archivo de las pestañas ya lo tenía escrito — «el sub-módulo **Ruta
+        // Directa**, que cuelgan de Ventas por ruta» y «ahora hay un nombre para el conjunto»—
+        // pero el conjunto se quedó con el nombre de su primera parte. La ruta NO cambia.
+        { label: RUTA_DIRECTA_LABEL, icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
       ],
     },
     {
@@ -686,7 +696,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
-        { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        // `[CGA-A.38]` Era «Caja General», y ése es el nombre que el árbol de permisos le da al motor
+        // NUEVO (`/finanzas/caja-general`). Esta es el espejo del Access Control: movimientos hasta
+        // el 10-oct; desde el 12 la caja se opera en «Caja».
+        { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
         /**
          * `[CG.121]` **UNA entrada para las tres pantallas del efectivo** (pedido de Edgar,
          * 2026-10-19): Captura · Expediente · Caja Fuerte. Adentro se cambia con la barra de
