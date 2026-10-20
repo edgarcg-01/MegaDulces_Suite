@@ -674,6 +674,101 @@ export const BANDEJAS: readonly BandejaDef[] = [
     },
   },
   {
+    /**
+     * ⭐⭐ `[CGS.1]` — **Los arqueos que esperan la segunda llave.**
+     *
+     * Pedido de Edgar (2026-10-20): *«que todas las mañanas le llegue una notificación a María
+     * Gutiérrez, a su puesto, que tiene que revisar el arqueo de caja general y autorizar»*.
+     *
+     * ⛔ **No es una notificación nueva: es la bandeja que faltaba.** El puesto `tesoreria` —el de
+     * `maria_gutierrez`— ya es responsable **principal** de `finanzas.caja` en
+     * `identity.position_responsibilities`. Lo que no existía es la cola de lo que le toca
+     * autorizar, así que la responsabilidad estaba declarada y no apuntaba a nada.
+     *
+     * ── Lo que esto hace visible, medido en prod el 2026-10-20 ──────────────────────────────
+     *
+     * **7 cortes cerrados, CERO autorizados**, del 12 al 19-oct. `carmen_rodriguez` los abrió y
+     * los cerró todos; nadie ejerció la segunda llave — con diferencias de hasta **−$208,594.59**
+     * que, por eso mismo, nadie miró.
+     *
+     * ⭐ **Y no era desidia: el puesto no podía.** `tesoreria` tenía `FINANCE_CAJA_VER` y
+     * `GESTIONAR`, y **`FINANCE_CAJA_AUTORIZAR` en `null`**. Autorizar sólo podían `direccion` (2
+     * personas) y `superadmin` (8), ninguno supervisor de caja. *Una responsabilidad sin el
+     * permiso que la ejerce es un reclamo, no un proceso.*
+     *
+     * ── ⛔ Por qué `closed_by <> userId` NO es un filtro cosmético ───────────────────────────
+     *
+     * `cut_doble_llave_chk` prohíbe en la BASE que quien cerró autorice. Si la bandeja contara
+     * también los cortes que vos cerraste, te pediría todas las mañanas un trabajo que el servidor
+     * te va a rechazar con 403 — y una bandeja que no se puede vaciar se deja de mirar. Acá el
+     * `userId` no acota por dueño: acota por **lo que esta persona puede efectivamente resolver**.
+     *
+     * ⚠️ Efecto declarado: para `carmen_rodriguez`, que cerró los 7, esta bandeja sale en **0**.
+     * No es que esté al día — es que no es suya. La distinción la hace el permiso: ella no tiene
+     * `AUTORIZAR`, así que la bandeja ni se le ofrece.
+     */
+    id: 'caja-por-autorizar',
+    label: 'Arqueos de caja por autorizar',
+    detalle: 'cortes cerrados que esperan la segunda llave · no podés autorizar los que cerraste vos',
+    ruta: '/finanzas/caja-general',
+    icono: 'pi pi-verified',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.caja',
+    acotablePorSucursal: false,
+    /**
+     * **1 día**, y el umbral lo fijó Edgar, no yo: *«todas las mañanas»*. Un corte que se cerró
+     * ayer se autoriza hoy; a las 24 h ya está atrasado.
+     *
+     * ⚠️ Es el umbral más duro de las nueve bandejas, y a propósito: las otras acumulan trabajo
+     * que se puede repartir, ésta es una firma que tarda un minuto y es la única revisión que
+     * tiene el efectivo. Medido: los 7 cortes llevan entre 1 y 8 días sin ella.
+     */
+    umbral_dias: 1,
+    anyOf: [Permission.FINANCE_CAJA_AUTORIZAR],
+    /**
+     * ⚠️ No usa `medirCola`: sus ejes son un par estado/cierre y acá el «cierre» de la cola es
+     * `authorized_at`, mientras `estado` sigue diciendo `cerrado`. Forzarlo pediría declarar que
+     * `autorizado` es el estado abierto, que es justo al revés.
+     *
+     * ⛔ `tenant_id` va EXPLÍCITO. `finance.cash_ledger_cuts` tiene RLS y este `knex` es el crudo:
+     * sin el filtro, una sesión sin tenant devolvería 0 filas **sin error** y la bandeja publicaría
+     * «al día» sobre siete cortes sin firmar. Es el mismo cero mudo que `caja-por-confirmar`
+     * documenta arriba, y acá saldría con cara de buena noticia.
+     */
+    medir: async (knex, { tenantId, userId }) => {
+      /**
+       * Los ejes de esta cola, declarados aunque no pase por `medirCola`. ⛔ No es ceremonia: el
+       * candado de `test-newdb-me-context.js` los exige **porque una cola sin eje de cierre
+       * calcula `cerradas_30d` por el `else` del helper sin que nadie lo haya decidido**. Acá se
+       * deciden, y se USAN en la consulta de abajo — si fueran un comentario, la declaración
+       * podría quedar vieja sin que nada lo note.
+       */
+      const ejes = {
+        estadoCol: 'estado', estadoAbierto: 'cerrado',
+        fecha: 'closed_at', cierre: 'authorized_at',
+      } as const;
+      const row = await knex('finance.cash_ledger_cuts')
+        .where({ tenant_id: tenantId, [ejes.estadoCol]: ejes.estadoAbierto })
+        .whereNull(ejes.cierre)
+        // La doble llave: lo que cerró esta persona no lo puede autorizar ella.
+        .whereRaw('(closed_by IS NULL OR closed_by <> ?)', [userId])
+        .select(
+          knex.raw('count(*) as n'),
+          knex.raw('min(??) as viejo', [ejes.fecha]),
+          knex.raw("count(*) filter (where ?? >= now() - interval '7 days') as e7", [ejes.fecha]),
+          knex.raw("count(*) filter (where ?? >= now() - interval '30 days') as e30", [ejes.fecha]),
+          knex.raw("count(*) filter (where ?? >= now() - interval '30 days') as c30", [ejes.cierre]),
+        )
+        .first<{ n: string; viejo: Date | null; e7: string; e30: string; c30: string }>();
+      const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+      return {
+        total: Number(row?.n ?? 0),
+        mas_viejo_at: row?.viejo ? new Date(row.viejo).toISOString() : null,
+        flujo: { entradas_7d: num(row?.e7), entradas_30d: num(row?.e30), cerradas_30d: num(row?.c30) },
+      };
+    },
+  },
+  {
     id: 'salud-datos',
     label: 'Fuentes de datos con falla',
     detalle: 'bases, réplicas y feeds que dejaron de actualizarse · sin resolver',
