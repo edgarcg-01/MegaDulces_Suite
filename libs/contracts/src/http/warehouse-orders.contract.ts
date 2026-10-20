@@ -76,7 +76,8 @@ export interface WarehouseOrdersResponse {
    * estatus: son los números de los botones de filtro.
    */
   conteos: Array<{ estatus: string; pedidos: number; renglones: number; mas_antiguo_horas: number | null }>;
-  totales: { pedidos: number; renglones: number; importe: number };
+  /** `importe` null = quien consulta no ve dinero (`[MCP.3.2]`: el surtidor, sin `ALMACEN_PEDIDOS_VER`). */
+  totales: { pedidos: number; renglones: number; importe: number | null };
   items: WarehouseOrderRow[];
   /** `true` si `items` se recortó al tope; los conteos y totales NO se recortan. */
   truncado: boolean;

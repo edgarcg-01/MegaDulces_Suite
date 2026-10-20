@@ -1,8 +1,14 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequireAuthGuard, RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import {
+  RequireAuthGuard, RolesGuard, RequireAnyPermission, RequirePermissions, Permission,
+} from '@megadulces/platform-core';
 import type { WarehouseOrderDetail, WarehouseOrdersResponse } from '@megadulces/contracts';
 import { WarehouseOrdersService } from './warehouse-orders.service';
+import { sinImportes } from './warehouse-orders.engine';
+
+/** Lo que `RolesGuard` deja en la petición: los permisos FRESCOS (no los del token). */
+type ReqUsuario = { user?: { permissions?: Record<string, boolean> } };
 
 /**
  * `[GP.1]` Tablero de pedidos del almacén (`/almacen/pedidos`): pedidos Kepler `U-D-40`
@@ -19,8 +25,13 @@ import { WarehouseOrdersService } from './warehouse-orders.service';
 export class WarehouseOrdersController {
   constructor(private readonly svc: WarehouseOrdersService) {}
 
+  /**
+   * `[MCP.3.2]` El surtidor (`COMMERCIAL_PICKING_GESTIONAR`) también lo lee, para su lista de
+   * pedidos con folio y cliente; a él se le responde SIN importes. El detalle sigue siendo sólo del
+   * tablero.
+   */
   @Get()
-  @RequirePermissions(Permission.ALMACEN_PEDIDOS_VER)
+  @RequireAnyPermission(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({
     summary:
       'Pedidos Kepler U-D-40 del periodo. Filtros: month (AAAA-MM, default mes en curso) o from+to; status (estatus Kepler, separados por coma), origin (TELEMARK|SUCURSAL), branch (sucursal, 2 dígitos), q.',
@@ -33,8 +44,12 @@ export class WarehouseOrdersController {
     @Query('origin') origin?: string,
     @Query('branch') branch?: string,
     @Query('q') q?: string,
+    @Req() req?: ReqUsuario,
   ): Promise<WarehouseOrdersResponse> {
-    return this.svc.list({ month, from, to, estatus: status, origen: origin, sucursal: branch, q });
+    const ve = req?.user?.permissions?.[Permission.ALMACEN_PEDIDOS_VER] === true;
+    return this.svc
+      .list({ month, from, to, estatus: status, origen: origin, sucursal: branch, q })
+      .then((r) => (ve ? r : sinImportes(r)));
   }
 
   @Get(':branch/:serie/:folio')

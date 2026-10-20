@@ -1627,9 +1627,10 @@ export const routes: Routes = [
       },
       {
         // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
+        // [MCP.3.2] El surtidor también entra, a una vista de sólo folio y cliente (sin dinero).
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
-        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+        canActivate: [anyPermissionGuard(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
       },
       {
         // [GP.3d] Entrega del surtido a Facturación: qué corregir en Kepler y si ya se pasó a
