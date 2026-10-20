@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, ageHuman } from '@megadulces/platform-core';
+import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
 
 /**
  * `[CG.105]` — **El expediente diario de Caja General y el historial de cortes.**
@@ -64,6 +65,180 @@ export class CajaControlService {
     });
   }
 
+
+  /**
+   * ⭐⭐ `[CGS.2]` — **El arqueo de la Suite contra el de Control, pieza por pieza.**
+   *
+   * Pedido de Edgar (2026-10-20): *«el supervisor necesita mejor visibilidad… una pestaña extra
+   * que diga Arqueos, donde muestre más desglosados los cortes»*.
+   *
+   * ── Por qué hacía falta, medido ─────────────────────────────────────────────────────────────
+   *
+   * El mismo cajón se cuenta en DOS sistemas y **ninguna pantalla los pone lado a lado**: el
+   * Expediente lee sólo Control, la pestaña Captura lee sólo la Suite. Por eso un desfase de
+   * **$19,811.50** vivió ocho días sin que nadie lo viera — para encontrarlo hubo que cruzar a
+   * mano dos tablas que el producto nunca cruza.
+   *
+   *     dia      Suite        Control      diferencia
+   *     12-oct    3,653.50          —         (Control no tiene cierre ese dia)
+   *     13-oct   57,571.00          —
+   *     14-oct   24,960.00   14,128.50     +10,831.50
+   *     15-oct   11,820.00   57,571.00     −45,751.00
+   *     16-oct   32,198.50   32,198.50           0.00   ✔
+   *     17-oct      618.50      618.50           0.00   ✔
+   *     19-oct   88,272.50   87,772.50        +500.00
+   *
+   * ⭐ **El total solo no alcanza, y el 19-oct lo prueba:** $500 de diferencia que parecen un
+   * descuadre y son **un billete mal clasificado** — la Suite anotó un $1,000 donde Control anotó
+   * un $500, con las otras ocho denominaciones idénticas pieza por pieza. Por eso esto devuelve el
+   * desglose y no sólo el delta (regla `Q.3`: señalar la fila, no el agregado).
+   *
+   * ── Cuál es el arqueo de CIERRE, y por qué no es ambiguo ────────────────────────────────────
+   *
+   * Control registra **varios arqueos por día** —hasta 10— y casi todos son el conteo de UN sobre:
+   * su `observaciones` lo nombra (`NOM MORELIA`, `BONOS MKT`, `gnf PH`, `r22`, `PAL ALMA JAIME`).
+   * El del cierre es el único que trae la **custodia completa**: dólares, cheques y tarjeta.
+   *
+   * ⚠️ El discriminante es `total_dolares <> 0`, y **se declara como heurística, no como ley**:
+   * funciona del 14-oct en adelante (un cierre por día, verificado contra los 7 cortes) pero el
+   * 1-oct hay TRES arqueos con dólares y el 6-oct dos. Para esos días `cierre` sale con
+   * `ambiguo: true` y la pantalla tiene que decirlo en vez de elegir uno.
+   *
+   * ── ⛔ Lo que esto NO hace ──────────────────────────────────────────────────────────────────
+   *
+   * **No decide quién tiene razón.** Publica las dos cifras y su diferencia; cuál arbitra el
+   * conteo es una decisión de negocio sobre cortes firmados, y mientras no esté tomada, afirmarla
+   * acá sería inventar un árbitro (ADR-059). La pantalla declara la diferencia, no la resuelve.
+   */
+  async cruce(q: { desde?: string; hasta?: string; limit?: number }) {
+    const limit = Math.min(Number(q.limit) || 60, this.TOPE);
+    return this.tk.run(async (trx) => {
+      /**
+       * El mapeo entre las dos rejas. ⚠️ **No es simétrico y eso se declara:** Control tiene
+       * `m100` (moneda de $100) y centavos de 20/10/5 que la reja de la Suite no ofrece, y la
+       * Suite agrupa todo lo menor a 50¢ en `morralla`. Una denominación sin par se publica con
+       * `solo_en: 'control'` en vez de desaparecer — que es como se pierde dinero de vista.
+       */
+      const MAPA: Array<{ suite: string | null; control: string; valor: number }> = [
+        { suite: '1000', control: 'b1000', valor: 1000 },
+        { suite: '500', control: 'b500', valor: 500 },
+        { suite: '200', control: 'b200', valor: 200 },
+        { suite: '100', control: 'b100', valor: 100 },
+        { suite: '50', control: 'b50', valor: 50 },
+        { suite: '20', control: 'b20', valor: 20 },
+        { suite: null, control: 'm100', valor: 100 },
+        { suite: '20m', control: 'm20', valor: 20 },
+        { suite: '10', control: 'm10', valor: 10 },
+        { suite: '5', control: 'm5', valor: 5 },
+        { suite: '2', control: 'm2', valor: 2 },
+        { suite: '1', control: 'm1', valor: 1 },
+        { suite: '0.5', control: 'm50c', valor: 0.5 },
+        { suite: null, control: 'm20c', valor: 0.2 },
+        { suite: null, control: 'm10c', valor: 0.1 },
+        { suite: null, control: 'm5c', valor: 0.05 },
+      ];
+
+      let qc = trx('analytics.v_caja_control_cortes as v').where('v.tiene_corte', true);
+      if (q.desde) qc = qc.where('v.fecha', '>=', q.desde);
+      if (q.hasta) qc = qc.where('v.fecha', '<=', q.hasta);
+      const ctrl = await qc.orderBy('v.fecha', 'desc').limit(limit);
+
+      /**
+       * ⛔ Los cortes de la Suite se traen en UNA consulta, no una por día. Con 60 días serían 60
+       * viajes en serie sobre la pantalla que el supervisor abre cada mañana — el mismo error que
+       * `me-cycles` documenta haber retirado por costar 9 segundos.
+       */
+      const dias = ctrl.map((r: { fecha: Date | string }) => this.soloFecha(r.fecha));
+      const cortes = dias.length
+        ? await trx('finance.cash_ledger_cuts')
+          .whereIn('fecha', dias).where('sucursal', SUCURSAL_CAJA_GENERAL)
+          .select('id', 'folio', 'fecha', 'estado', 'contado', 'morralla', 'esperado',
+            'diferencia', 'authorized_at', 'closed_by_username')
+        : [];
+      const porDia = new Map<string, Record<string, unknown>>();
+      for (const c of cortes) porDia.set(this.soloFecha(c.fecha as Date), c);
+
+      const dens = cortes.length
+        ? await trx('finance.cash_ledger_cut_denominations')
+          .whereIn('cut_id', cortes.map((c: { id: string }) => c.id))
+          .where('momento', 'cierre')
+          .select('cut_id', 'denom_key', 'piezas')
+        : [];
+      const porCorte = new Map<string, Map<string, number>>();
+      for (const d of dens) {
+        const m = porCorte.get(d.cut_id as string) ?? new Map<string, number>();
+        m.set(String(d.denom_key), Number(d.piezas));
+        porCorte.set(d.cut_id as string, m);
+      }
+
+      const rows = ctrl.map((v: Record<string, unknown>) => {
+        const dia = this.soloFecha(v.fecha as Date);
+        const c = porDia.get(dia);
+        const reja = c ? (porCorte.get(c.id as string) ?? new Map<string, number>()) : new Map<string, number>();
+        const num = (x: unknown) => (x === null || x === undefined ? 0 : Number(x));
+
+        const desglose = MAPA.map((m) => {
+          const control = num(v[m.control]);
+          const suite = m.suite ? (reja.get(m.suite) ?? 0) : null;
+          const difPiezas = suite === null ? null : suite - control;
+          return {
+            valor: m.valor,
+            control,
+            suite,
+            dif_piezas: difPiezas,
+            dif_importe: difPiezas === null ? null : Math.round(difPiezas * m.valor * 100) / 100,
+            // ⚠️ Lo que la reja de la Suite no puede contar se DICE, no se calla.
+            solo_en: m.suite ? null : 'control',
+          };
+        }).filter((d) => d.control !== 0 || (d.suite ?? 0) !== 0);
+
+        const efeControl = num(v.total_efectivo);
+        const contado = c?.contado === null || c?.contado === undefined ? null : Number(c.contado);
+        return {
+          fecha: dia,
+          control: {
+            folio: v.corte_folio, efectivo: efeControl,
+            cuadra_ticket: v.corte_cuadra_ticket ?? null, hora: v.corte_hora ?? null,
+          },
+          suite: c
+            ? {
+              folio: c.folio, estado: c.estado, contado,
+              esperado: c.esperado === null ? null : Number(c.esperado),
+              diferencia: c.diferencia === null ? null : Number(c.diferencia),
+              autorizado: c.authorized_at != null, cerro: c.closed_by_username ?? null,
+            }
+            : null,
+          /**
+           * ⛔ Tres estados, no dos (ADR-056). `sin_corte` NO es «difieren en todo»: es que ese día
+           * la Suite no tiene corte, y pintarlo como un descuadre del tamaño del arqueo entero
+           * mandaría a buscar efectivo que nadie perdió.
+           */
+          cruce: c == null || contado === null
+            ? { estado: 'sin_corte' as const, diferencia: null }
+            : Math.abs(contado - efeControl) < 0.005
+              ? { estado: 'cuadran' as const, diferencia: 0 }
+              : { estado: 'difieren' as const, diferencia: Math.round((contado - efeControl) * 100) / 100 },
+          desglose,
+        };
+      });
+
+      return {
+        rows, limit, fuente: 'analytics.v_caja_control_cortes + finance.cash_ledger_cuts',
+        frescura: await this.frescura(trx),
+      };
+    });
+  }
+
+  /**
+   * `[CGS.2]` Una columna `date` de pg llega como `Date` a la medianoche LOCAL del proceso, así que
+   * `toISOString()` da el día anterior al este de UTC. Es el defecto que `[CGP-L.5]` midió en Tokio
+   * y `[CGP-L.12]` volvió a encontrar vivo: acá se arma el día con los getters locales.
+   */
+  private soloFecha(f: Date | string): string {
+    if (typeof f === 'string') return f.slice(0, 10);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${f.getFullYear()}-${p(f.getMonth() + 1)}-${p(f.getDate())}`;
+  }
   /**
    * ⭐ `[CG.105]` **La edad del dato, declarada.** Sin esto la pantalla se lee como "al día" aunque
    * el carril lleve días parado — el defecto que la Fase OBS midió costando seis días de precios
