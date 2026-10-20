@@ -53,6 +53,25 @@ export class ContpaqiPuenteService {
     return this.http.post<EntregaResp>(`${this.base}/entregas`, { mes, archivo_base64: archivoBase64 });
   }
 
+  /** `[CP.8.14]` Las reglas de cuenta con su evidencia y lo que traban en el mes. `_VER`. */
+  reglas(mes: string): Observable<ReglasResp> {
+    return this.http.get<ReglasResp>(`${this.base}/reglas?mes=${encodeURIComponent(mes)}`);
+  }
+
+  /** Las cuentas de gasto `52*` afectables que puede llevar una regla por categoría. */
+  cuentasGasto(): Observable<{ cuentas: CuentaGasto[] }> {
+    return this.http.get<{ cuentas: CuentaGasto[] }>(`${this.base}/cuentas-gasto`);
+  }
+
+  /** ⛔ Firmar es del contador: `_GESTIONAR`, y queda su nombre. */
+  firmarRegla(categoria: string, cuenta: string): Observable<ReglaVista> {
+    return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/firma`, { cuenta });
+  }
+
+  revocarRegla(categoria: string): Observable<ReglaVista> {
+    return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/revocar`, {});
+  }
+
   cuadre(): Observable<CuadreResp> {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }
@@ -97,6 +116,37 @@ export interface LotesResp {
   fuera_de_lote: FueraDeLote;
   /** Ya viene ordenado de mayor a menor: lo primero que se ve es lo que más trabajo representa. */
   motivos: { motivo: string; movimientos: number; dueno: string }[];
+}
+
+/** `[CP.8.53]` Una regla como la ve el contador (espejo de `ReglaVista` del backend). */
+export interface ReglaVista {
+  categoria_code: string;
+  tipo_regla: string;
+  estado: string;
+  tiene_fila: boolean;
+  cuenta_gasto: string | null;
+  cuenta_nombre: string | null;
+  aprobada_por: string | null;
+  aprobada_en: string | null;
+  firmable: boolean;
+  motivo_no_firmable: string | null;
+  /** ⛔ Indicio del derivador. Nunca se preselecciona. */
+  indicio: string | null;
+  evidencia: string | null;
+  salvedad: string | null;
+  pareados: number | null;
+  movimientos_mes: number;
+  importe_mes: number;
+}
+
+export interface ReglasResp {
+  mes: string;
+  reglas: ReglaVista[];
+}
+
+export interface CuentaGasto {
+  codigo: string;
+  nombre: string;
 }
 
 /** `[CP.8.52]` Lo que se registró. `ya_registradas` = marcar dos veces no duplica. */
