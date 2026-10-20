@@ -129,8 +129,44 @@ export interface ArqueoDia {
   testigo_control: ArqueoTestigoControl | null;
 }
 
+/** `[CGA-A.48]` Un depósito a la caja fuerte que coincide con billetes que Control contó de más. */
+export interface ArqueoDepositoEnCaos {
+  id: string;
+  dia: string;
+  hora: string | null;
+  total: number;
+  ref: string | null;
+}
+
+/**
+ * ⭐ `[CGA-A.48]` El ÚLTIMO conteo de Control contra el último cierre del libro, con lo que de la
+ * diferencia está en la caja fuerte (CAOS) y no en el cajón. Caso que lo motivó: Control contó
+ * $288,972.50 el 20-oct y 400 × $500 de eso eran el depósito «caja ahorro» que estaba en CAOS.
+ *
+ * ⚠️ `en_caos` es una COINCIDENCIA por denominación (todos los billetes del depósito caben en lo
+ * que Control contó de más, y el depósito es anterior al conteo), no una prueba física.
+ */
+export interface ArqueoControlUltimo {
+  folio: string | null;
+  dia: string;
+  hora: string | null;
+  efectivo: number | null;
+  /** El último cierre sellado del libro contra el que se compara. */
+  libro_folio: string;
+  libro_dia: string;
+  libro_contado: number | null;
+  /** Control − libro. `null` = falta un lado. */
+  diferencia: number | null;
+  en_caos: ArqueoDepositoEnCaos[];
+  en_caos_total: number;
+  /** `diferencia − en_caos_total`: lo que ningún depósito a CAOS explica. */
+  sin_explicar: number | null;
+}
+
 export interface ArqueosResponse {
   rows: ArqueoDia[];
+  /** `[CGA-A.48]` `null` = no hay conteo de Control o no hay cierre del libro con qué compararlo. */
+  control_ultimo?: ArqueoControlUltimo | null;
   limit: number;
   fuente: string;
   frescura: Freshness | null;
