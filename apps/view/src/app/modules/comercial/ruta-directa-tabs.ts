@@ -54,15 +54,18 @@ export const RUTA_DIRECTA_TABS: PageTab[] = [
     icon: 'pi pi-percentage',
     permission: Permission.COMMERCIAL_COMMISSIONS_VER,
   },
-  {
-    // `[RD.59]` — el bono por objetivo mensual. Tab propio y no una pestaña dentro de
-    // Comisiones: configurar un bono y verificar una corrida de nómina son dos trabajos
-    // distintos. Mismo permiso de lectura; editar exige GESTIONAR, que gatea el servidor.
-    label: 'Objetivo RD',
-    route: '/comercial/comisiones/objetivo',
-    icon: 'pi pi-flag',
-    permission: Permission.COMMERCIAL_COMMISSIONS_VER,
-  },
+  // ⛔ `[AUD-A6]` Acá estaba «Objetivo RD» como pestaña propia, con este argumento:
+  // *«configurar un bono y verificar una corrida de nómina son dos trabajos distintos»*.
+  //
+  // ⭐ Se retiró el 2026-10-20 por pedido de Edgar: **todo lo que es comisión de Ruta Directa
+  // vive en una sola interfaz**. El argumento de arriba describía bien dos TAREAS, pero las
+  // dos son el mismo número mirado por sus dos lados — el bono **entra a la quincena**, no es
+  // un vecino. Hoy es la vista «Bono por objetivo» dentro de Comisiones RD.
+  //
+  // ⚠️ La ruta `/comercial/comisiones/objetivo` **sigue viva** y abre esa vista directamente,
+  // así que los enlaces y favoritos que ya existen no se rompen: se retira la pestaña, no el
+  // camino. Y ⛔ `/finanzas/comisiones-logistica` NO entró a la fusión: otro permiso, otra
+  // población (choferes de embarque) y otro dominio.
   {
     // `[RD.57]` — la misma operacion mirada por el resultado: utilidad bruta, kilometros del
     // GPS y gasto del departamento. Permiso PROPIO y mas estrecho que Comisiones: publica el

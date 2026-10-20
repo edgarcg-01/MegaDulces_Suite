@@ -356,6 +356,166 @@ nunca publicar $0 como si fuera un resultado.
 
 ---
 
+## 7.1 Revisión de las tres capas antes de entregar (2026-10-20)
+
+> Pedido de Edgar: *«antes de dar un entregable en prod tenemos que revisar el backend, la
+> estructura de datos y el frontend»*. Todo lo de abajo es medición contra prod, sólo lectura.
+
+### C0 — Estructura de datos: **sólida**, con tres huecos
+
+Lo que está bien, y conviene decirlo porque es lo que permite confiar en el resto:
+
+| Comprobación | Resultado |
+|---|---|
+| RLS | **forzado en las 9 tablas**, 1 política cada una |
+| Constraints | **36** entre FK y CHECK — los estados, los beneficiarios, los rangos de escalón y el `valid_to > valid_from` están en la base, no sólo en el código |
+| Índices naturales | las 9 tablas, más `commission_runs_una_viva_por_periodo` (parcial, excluye `anulado`) |
+| ⭐ Cabecera vs líneas | **las 20 corridas cuadran**: `total_a_pagar` = suma de `a_pagar`, 0 diferencias > medio centavo |
+| Huérfanos | **0** en las cuatro relaciones |
+
+**Los tres huecos:**
+
+1. ⛔ **`commission_engine_lines` no tiene audit fields** — sin `created_at`, `updated_at`,
+   `deleted_at` ni `created_by`, y **sin FK a `tenant_id`**. Es la única de las nueve. Viola la
+   regla dura de `CLAUDE.md` («tablas nuevas: `tenant_id` + audit fields completos»). Tiene
+   `computed_at`, que no es lo mismo: no dice **quién** la escribió.
+2. ⛔⛔ **`commission_route_config` no tiene vigencia.** No hay `valid_from`/`valid_to`, así que
+   **no se puede representar «la 321 fue de RD hasta el 2026-07-15»** — sólo se puede apagar, que
+   pierde la fecha. La escala sí tiene vigencia (`[RD.66]`); el padrón de rutas no. Es lo que
+   obligó a que `[RD.71.1]` escriba la fecha dentro de un texto libre en vez de en una columna.
+   ⚠️ Y hasta esa migración **tampoco tenía `notes`**: una ruta apagada no tenía dónde decir por qué.
+3. **`commission_beneficiary_config` está vacía** (0 filas) desde que existe. Declarada y nunca
+   usada: el beneficiario sale de `commission_route_config`. O se usa o se retira — una tabla
+   vacía con FK y constraints parece un mecanismo y no lo es.
+
+### C1/C2 — Backend: **correcto en lo que decide el dinero**, con dos huecos
+
+⭐ **Lo más importante del módulo está bien resuelto, y hay que decirlo porque yo mismo afirmé lo
+contrario tres veces en esta fase:** el motor **distingue no tener fuente de vender poco**.
+
+```ts
+if (!v) { ... 'sin_dato_en_la_fuente' ... }   // subtotal NULL, no 0
+if (!tier) { ... 'bajo_umbral' ... }          // y SIEMPRE con dias_esperados al lado
+```
+
+O sea que la **504**, con cero días, **no va a «cobrar $0»**: sale declarada como sin fuente, con
+`subtotal = null`. Es exactamente ADR-056, aplicado donde más importa.
+
+1. ⛔ **RETIRADO el 2026-10-20 — este hallazgo era mío y estaba mal.** Dije que `bajo_umbral` no
+   distingue *«vendió poco»* de *«le faltan días»* y que el veredicto necesitaba un valor nuevo
+   (`bajo_umbral_con_cobertura_corta`). **Al ir a construirlo, la distinción ya estaba hecha**:
+   cada línea publica `dias_con_venta` y `dias_esperados` —la mediana de **sus hermanas de
+   plaza**, no un número fijo—, la pantalla pinta la celda en alerta (`diasCortos`) y su tooltip
+   dice exactamente lo que hay que decir:
+
+   > *«{N} días contra los {M} que trabajaron sus hermanas de plaza. Puede ser que el camión no
+   > salió, o que la fuente perdió el día: **el motor no los distingue, porque la fuente es el
+   > único testigo de las dos cosas**.»*
+
+   ⭐ Y agregar el valor al enum **habría roto algo**: `esFuera()` del componente clasifica con
+   `DENTRO = new Set(['sin_dato_en_la_fuente','bajo_umbral'])`, así que un motivo nuevo habría
+   mandado la ruta a la pestaña «No comisionan» — o sea, habría **escondido** la fila que yo
+   quería hacer más visible. *Recorrer los consumidores antes de agregar un valor a un enum no
+   es burocracia: acá era la diferencia entre mejorar y romper.*
+2. ⛔ **Cinco endpoints que ESCRIBEN sin una sola prueba que los ejerza** contra base real:
+   `/compute`, `/recalculate-from`, `/contrast/run`, `/scales`, `/objective/marks`. Es la regla
+   dura que costó el arqueo de caja 8 días en cero.
+3. ⛔ **El cálculo vive en el request** (~4 min, sin progreso ni reintento) — `[RD.54]`, abierto.
+
+### C3 — Frontend: **pasa la compuerta**, con dos huecos
+
+| Pantalla | Estado |
+|---|---|
+| `comercial-comisiones` | ✔ tipa · **✔ cumple las 10 reglas** · distingue `sin dato en la fuente` de `bajo umbral` con etiquetas propias |
+| `comercial-comisiones-objetivo` | ✖ **Q.1 answer-first** — abre con el grid crudo · ⚠ falta su entrada del diccionario |
+
+4. ⛔ **La pestaña «Padrón» de `[RD.80]` no tiene validación visual.** Pasa el auditor estático,
+   pero nadie la ha visto renderizada. Es el hueco que `ONBOARDING §8.0b.14` manda declarar.
+5. ⚠️ `GET /commissions/universe` tuvo **cero consumidores durante tres semanas** y nadie lo
+   notó. No hay nada que detecte un endpoint publicado y no consumido.
+
+### Lo que esta revisión concluye
+
+⭐ **Las tres capas están mejor de lo que yo venía diciendo.** El módulo no está roto: está
+**incompleto y sin ejercitar**. La estructura es sólida, el motor decide bien, y la pantalla
+cumple. Lo que falta es que **nada de esto se ha ejercido de punta a punta ni una vez en
+producción** — el motor jamás calculó una quincena, el contraste está vacío y cinco escrituras no
+tienen prueba.
+
+⛔ **Entonces el bloqueante del entregable no es un defecto: es la ausencia de ejercicio.** Y la
+revisión estática no lo puede cerrar — hace falta correr `/preview` sobre una quincena real y
+comparar contra el libro, que es la única prueba que vale.
+
+**Qué bloquea qué, para decidir:**
+
+| Entregable | ¿Bloqueado? |
+|---|---|
+| `[RD.71.1]` apagar 321/322 | **No** por la revisión — es `UPDATE` de 2 filas, idempotente, probado con su `down`. Bloqueado sólo por el push |
+| Pagar Q21 con el motor | **Sí**: la 504 y la 501 sin fuente, y ninguna escritura ejercida |
+| Pestaña «Padrón» | **Sí**: falta verla renderizada |
+
+---
+
+## 7.2 `[AUD-A6]` Todo lo que es comisión de RD, en una sola interfaz (2026-10-20)
+
+> Pedido de Edgar: *«necesito que comisiones y objetivo RD, o todo lo que involucre las
+> comisiones, viva en una misma interfaz»*.
+
+### Dónde está el límite, medido por el PERMISO
+
+| ruta | permiso | ¿entra? |
+|---|---|---|
+| `/comercial/comisiones` | `COMMERCIAL_COMMISSIONS_VER` | — |
+| `/comercial/comisiones/objetivo` | **el mismo** | ✅ |
+| `/finanzas/comisiones-logistica` | `FINANCE_EXPENSES_COMPROBAR` **ó** `LOGISTICS_SHIPMENTS_GESTIONAR` | ⛔ **no** |
+
+⛔ **La de Logística queda fuera, y no es una preferencia:** tiene **otro permiso**, otra
+población (choferes de **embarque**, no de Ruta Directa) y otro dominio (Fase J). Fundirla haría
+una de dos cosas, las dos malas: **filtrar la nómina de RD** a quien sólo comprueba gastos, o
+**dejar fuera** a quien hoy la ve. *El permiso es el que dice dónde termina una interfaz.*
+
+### ⭐⭐ Se COMPONE, no se funde — y el número lo decidió
+
+Copiar las 572 líneas del Objetivo dentro de la clase de 1,545 habría producido **10 colisiones
+de nombre**, medidas:
+
+```
+tabsRD · perms · cargando · filaSel · anio · anios
+puedeGestionar · constructor · cargar · etiquetaEstado
+```
+
+Entre ellas **`cargar()`** y **`etiquetaEstado()`**, que hacen cosas distintas en cada pantalla.
+Es la trampa que la skill `diseno` nombra: *«reusar un nombre de propiedad en una clase larga no
+da error: gana la última declaración»*.
+
+Así que el Objetivo **sigue siendo su propio componente** y se embebe con una entrada nueva,
+`embebido`, que sólo apaga su cromo (la tira de pestañas y el H1, que el anfitrión ya pinta).
+**Control del cambio: los 11 métodos y las 2 tablas del Objetivo siguen existiendo**, uno por
+uno, porque nada se copió.
+
+### El conmutador va SOBRE el eje del tiempo, no entre las pestañas
+
+⛔ El Objetivo **no** es una séptima pestaña de las de abajo. Aquellas son vistas de **UNA
+quincena**; el objetivo es **mensual**. Colgarlo ahí haría que su contenido **cambiara al elegir
+otra quincena** — afirmaría algo falso. Por eso el conmutador —*Nómina quincenal · Bono por
+objetivo*— vive un nivel arriba.
+
+### Lo que NO se rompe
+
+- `/comercial/comisiones/objetivo` **sigue viva** y abre directamente la vista del bono: los
+  enlaces y favoritos existentes llegan a donde llegaban. *Se retira la pestaña, no el camino.*
+- La pestaña «Objetivo RD» sale de `RUTA_DIRECTA_TABS` — el sub-módulo pasa de 7 a 6.
+- Mismo permiso en las dos puertas: **nadie necesita re-login**.
+
+### Lo que esto corrige del argumento anterior
+
+El comentario que justificaba la separación decía: *«configurar un bono y verificar una corrida
+de nómina son dos trabajos distintos»*. Describía bien dos **tareas** — y sacaba de ahí la
+conclusión equivocada: son **el mismo número mirado por sus dos lados**, porque el bono **entra a
+la quincena**. Dos tareas no son dos pantallas.
+
+---
+
 ## 8. Definición de hecho (los 7 del método)
 
 Cada item cierra con: (1) métrica **antes/después** medida, (2) **prueba negativa** del gate,
