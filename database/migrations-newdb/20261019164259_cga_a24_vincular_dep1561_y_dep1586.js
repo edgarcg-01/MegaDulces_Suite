@@ -137,6 +137,24 @@ const CASOS = [ /* 3 casos: dos con deposito, uno sin el y con motivo declarado 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
 
+  // ⛔ `GOTCHAS §87.1` — `finance.v_caja_movimientos_pendientes` filtra por `current_tenant_id()`,
+  // que sale de `current_setting('app.tenant_id')`. **El rol de la migración no la trae puesta.**
+  //
+  // Medido en prod el 2026-10-20, y es la causa de que esta migración abortara dos veces con
+  // «el documento 01-005|U-A-5|0000011|0011 no existe en Kepler»:
+  //
+  //     edgar        rolconfig = app.tenant_id=...d01c   ← por eso a mano SÍ se encuentra
+  //     app_runtime  rolconfig = (sin app.tenant_id)     ← la migración corre así
+  //     postgres     rolconfig = (sin app.tenant_id)
+  //
+  // Sin el tenant la vista devuelve CERO filas, el UNION queda sólo con `mv_caja_movimientos`
+  // —que no tiene el formato `01-005`— y el documento parece inexistente cuando sí está, con el
+  // importe exacto ($17,692.00). Un filtro vacío se lee igual que un dato ausente.
+  //
+  // ⚠️ `set_config(...)` y NO `SET LOCAL app.tenant_id = ?`: una sentencia `SET` no admite
+  // parámetros ligados (Postgres la rechaza con `42601`). El tercer argumento `true` = LOCAL.
+  await knex.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
+
   for (const c of CASOS) {
     // ── Guarda 1: el movimiento existe, vive, y sigue apuntando a ESE depósito.
     const { rows: [l] } = await knex.raw(
