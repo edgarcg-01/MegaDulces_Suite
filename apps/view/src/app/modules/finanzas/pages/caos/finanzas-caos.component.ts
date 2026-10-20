@@ -253,10 +253,16 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
                       (retry)="cargar()">
         <!-- DESIGN O.4/D.7 — rejilla en p-table: sin ella no hay recorrido con teclado ni
              encabezado fijo, y el detalle por denominación se abría con un botón suelto. -->
+        <!-- [CG.127] Paginada: son los movimientos del dispositivo, y el rango lo elige quien
+             consulta. Sin paginador la unica forma de llegar al final es la rueda. -->
         <p-table [value]="rows()" dataKey="id" [expandedRowKeys]="expandidas"
                  (onRowExpand)="alExpandir($event.data)"
                  size="small" class="cs-grid surf-table--sticky"
-                 [scrollable]="true" scrollHeight="flex">
+                 [scrollable]="true" scrollHeight="flex"
+                 [paginator]="rows().length > 25" [rows]="25"
+                 [rowsPerPageOptions]="[25, 50, 100]"
+                 [showCurrentPageReport]="true"
+                 currentPageReportTemplate="{first}–{last} de {totalRecords}">
           <ng-template #caption>
             <span class="sr-only">Movimientos de la caja fuerte CAOS</span>
           </ng-template>

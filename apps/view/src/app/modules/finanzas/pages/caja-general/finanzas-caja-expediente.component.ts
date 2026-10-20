@@ -267,8 +267,15 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                         (retry)="recargar()" />
 
         @if (dias().length) {
+          <!-- [CG.127] Paginada: es un renglon por DIA, asi que su largo lo fija el rango que
+               elija quien revisa -- un trimestre son ~90 renglones. 30 por pagina es un mes,
+               que es la unidad con la que se revisa un corte diario. -->
           <p-table [value]="dias()" size="small" dataKey="fecha" [rowHover]="true"
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
+                   [paginator]="dias().length > 30" [rows]="30"
+                   [rowsPerPageOptions]="[30, 60, 90]"
+                   [showCurrentPageReport]="true"
+                   currentPageReportTemplate="{first}–{last} de {totalRecords} días"
                    selectionMode="single" [selection]="diaSel()" (selectionChange)="abrir($event)">
             <ng-template #header>
               <!-- Las tres familias, rotuladas. Sin esta fila, efectivo, dolares y credito se

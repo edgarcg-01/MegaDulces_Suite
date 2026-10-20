@@ -91,6 +91,8 @@ const ETIQUETA_VEREDICTO: Record<string, string> = {
   // `[CG.160]` Sin esta entrada el tag imprimía la clave cruda `sin_medir` — el mapa cae a `?? v`.
   // Y NO dice "no cuadra": el efectivo se contó, lo que falta es el esperado con que compararlo.
   sin_medir: 'Conteo sellado, sin veredicto guardado',
+  // `[CG.195]` Tampoco dice "no cuadra": el esperado dio bajo cero, así que no hay con qué comparar.
+  esperado_imposible: 'Esperado bajo cero, sin veredicto',
 };
 
 /**
@@ -1728,7 +1730,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                (valueChange)="dondeEntro.set($any($event))"
                                ariaLabel="A qué caja fue el dinero"></app-segmented>
               </div>
-              <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl">
+              <!-- [CG.127] Paginada: el servidor la topa en 200 y el dia mas cargado de las
+                   ultimas dos semanas tuvo 52 filas (medido en prod). Dentro de un dialogo de
+                   78vh, 52 renglones empujan el pie fuera de la vista y el total deja de poder
+                   revisarse contra la lista -- que es para lo que el pie existe. -->
+              <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl"
+                       [paginator]="(a.movimientos_del_dia || []).length > 20" [rows]="20"
+                       [showCurrentPageReport]="true"
+                       currentPageReportTemplate="{first}–{last} de {totalRecords}">
                 <ng-template #header>
                   <!-- [CG.91.2] El orden sigue a lo que la persona RECONOCE: la hora, con quien
                        fue y cuanto. El folio interno (CI-2026-00007) y la cuenta son respaldo, no
@@ -2072,8 +2081,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            vias falla con NG8007 y Angular lo lee como un evento NATIVO del elemento. La tabla
            muta el objeto en el lugar, que es todo lo que hace falta para recordar que esta
            desplegado. -->
+      <!-- ⛔⛔ [CG.127] EL AVISO DE TOPE VA ARRIBA DE LA TABLA, NO ABAJO.
+           Si el servidor topo en 500, hay movimientos del periodo que NO estan en la pantalla y
+           el encabezado igual publica el total. Abajo del paginador nadie lo ve: quien llega al
+           pie ya saco su conclusion. -->
+      @if (libroTopado()) {
+        <p-message severity="warn" class="cg-full">
+          La lista está topada en 500 movimientos y este periodo tiene más. Lo de arriba cuenta
+          TODO el periodo; la lista no. Achicá el rango de fechas o usá los filtros.
+        </p-message>
+      }
+
+      <!-- ⭐ [CG.127] PAGINADOR. Pedido de Edgar: "hay que paginar las tablas que se generen".
+           25 por pagina: la rejilla vive dentro de un dialogo con max-height 78vh, asi que una
+           pagina tiene que caber sin pelearle el alto a la ventana.
+           [rowsPerPageOptions] porque 248 movimientos se revisan distinto que 20.
+           ⚠️ Pagina lo TRAIDO. Por eso lo de arriba: sin el aviso de tope, un paginador es la
+           forma mas convincente de esconder lo que falta -- dice "1-25 de 100" con total
+           seguridad mientras el encabezado dice 248. -->
       <p-table [value]="filasLibro()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
                [scrollable]="true" scrollHeight="flex"
+               [paginator]="filasLibro().length > 25" [rows]="25"
+               [rowsPerPageOptions]="[25, 50, 100]"
+               [showCurrentPageReport]="true"
+               currentPageReportTemplate="{first}–{last} de {totalRecords}"
                [expandedRowKeys]="libroDesplegado">
         <ng-template #header>
           <tr>
@@ -4815,6 +4846,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   libroDesplegado: Record<string, boolean> = {};
 
   /**
+   * ⛔⛔ `[CG.127]` **¿El servidor topó la lista?** `true` = hay movimientos del periodo que NO
+   * están en la pantalla.
+   *
+   * Es la pieza que faltaba: `has_more` venía en la respuesta desde siempre y `cargar()` lo
+   * descartaba, así que la lista se cortaba **en silencio**. Medido en prod: 248 movimientos
+   * del 01→19 oct y 100 pintados — 148 filas, $1,943,998.57, invisibles.
+   *
+   * ⚠️ Un paginador NO arregla esto por sí solo: paginaría lo traído y publicaría «de 100»
+   * mientras el encabezado dice 248. Lo que hace falta es traer el periodo y DECLARAR cuando ni
+   * así alcanza (ADR-056).
+   */
+  libroTopado = signal(false);
+
+  /**
    * `[CG.125]` Filtro por cómo se concilió. Es el que faltaba: la pregunta operativa de la
    * supervisión es «¿qué entró sin documento?», y hasta hoy había que leer 233 filas para saberlo.
    */
@@ -6657,7 +6702,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargar(): void {
     this.cargando.set(true);
-    this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined,
+    this.svc.libro({
+      /**
+       * ⛔⛔ `[CG.127]` **ACÁ NO SE MANDABA `limit`, Y EL DEFECTO ERA GRANDE.**
+       *
+       * Sin `limit` el servidor usa 100 (tope 500). Medido contra prod el 2026-10-20, en el
+       * MISMO periodo de la captura de Edgar (01→19 oct): **248 movimientos, la pantalla pintaba
+       * 100, y 148 filas por $1,943,998.57 no se veían** — del 7 al 15 de octubre, o sea en
+       * medio del rango, no al final. El encabezado publicaba «248» porque el KPI se calcula sin
+       * tope: la pantalla decía un número y mostraba otro, sin una sola señal de que faltaba.
+       *
+       * ⚠️ Y `armarReporte()`, dos métodos más abajo, **ya pedía 500**. O sea que el reporte
+       * impreso y la pantalla venían mostrando universos distintos del mismo periodo.
+       *
+       * ⭐ Subir el tope es barato **recién desde `[CG.127]`**: sacar `firma_png` del listado
+       * bajó la fila de 5,723 bytes a texto (las firmas eran el 98.8 % del peso).
+       *
+       * ⚠️ 500 es el tope DURO del servidor, así que todavía es posible toparse. Por eso la
+       * respuesta mira `has_more` y lo DECLARA: una lista topada en silencio es justo lo que
+       * este item vino a arreglar, y dejarla topada sin aviso sería repetirlo con otro número.
+       */
+      limit: 500,
+      from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined,
       // [CG.86] El filtro viaja como BANDERA, no como nombre ni como id: el servidor resuelve
       // quién es "yo" desde el token de la petición. Mandar el id desde acá volvería "los míos"
       // en "los de cualquiera que yo escriba".
@@ -6665,6 +6731,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi);
+          // `[CG.127]` `has_more` LLEGABA Y NADIE LO MIRABA. Esa es la mitad del defecto: el
+          // servidor avisaba que había topado y la pantalla descartaba el aviso.
+          this.libroTopado.set(!!r.has_more);
           this.errLibro.set(null); this.cargando.set(false);
           // ⛔ [CG.181] ACÁ COLGABA `cargarCortes()` y era la MITAD del 429 de producción: al
           // entrar, `ngOnInit` pedía los cortes y `cargar()` los volvía a pedir con los MISMOS
