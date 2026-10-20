@@ -15,6 +15,21 @@ import { Permission } from '../../core/constants/permissions';
  * cambia. Lo que cambia es que ahora hay un nombre para el conjunto, y el sidebar puede
  * agruparlas como lo que son sin que nadie tenga que mantener una segunda lista.
  */
+/**
+ * ⛔ `[AUD-A5]` **El conjunto se llama «Ruta Directa»; «Ventas por ruta» es UNA de sus siete.**
+ *
+ * Durante tres semanas el ítem del sidebar se llamó como su primera pestaña, y eso salía en la
+ * migaja: estando en `/comercial/comisiones`, el eslabón con `aria-current="page"` decía
+ * **«Ventas por ruta»** — nombraba otra pantalla. La causa es que `currentPageTitle()` del
+ * layout resuelve por `isNavActive()` y devuelve la etiqueta del **ítem**, no la de la pestaña
+ * activa; con un ítem bien nombrado la migaja dice la verdad sin tocar esa lógica.
+ *
+ * ⚠️ Si alguna vez hace falta que la migaja diga la **pestaña** y no el sub-módulo, el lugar es
+ * `currentPageTitle()`, no esta lista. Renombrar la primera pestaña para «arreglar» la migaja
+ * volvería a mezclar el nombre de la parte con el del todo.
+ */
+export const RUTA_DIRECTA_LABEL = 'Ruta Directa';
+
 export const RUTA_DIRECTA_TABS: PageTab[] = [
   {
     label: 'Ventas por ruta',
