@@ -522,3 +522,110 @@ Cada item cierra con: (1) métrica **antes/después** medida, (2) **prueba negat
 (3) escritura ejercida contra base real si el item escribe, (4) procedencia declarada de cada
 número publicado, (5) `01_TRACKER_PROGRESO.md` + `03_LOG_REVISIONES.md` actualizados, (6) ADR si
 hubo decisión, (7) permiso **repartido** en prod si el item agrega superficie.
+
+---
+
+## 9. ⭐⭐ El giro del 2026-10-20 — el motor deja de auditar y pasa a producir
+
+> **Edgar, 2026-10-20:** *«la información pasada ya se pagó y ya se registró. Ahora que tenemos
+> acceso a esta información de primera mano, necesito que ahora todo ese proceso se haga aquí. El
+> principal: una verdad absoluta de comisiones generada 100 % por el motor.»*
+
+Esto **cambia el destino de la fase**, no sólo su orden. Hasta hoy el submódulo se construyó para
+**verificar** una nómina que se hacía afuera. A partir de acá la nómina **se hace aquí**, y lo de
+afuera queda como historia cerrada.
+
+### 9.1 Lo que el giro resuelve, y lo que NO
+
+**Resuelve `D4`.** La historia anterior está pagada y registrada: el motor **no la reabre, no la
+corrige y no la vuelve a pagar**. Las 20 corridas con `origen = 'libro'` son un **archivo**.
+
+⛔ **No resuelve `O4`, y confundirlos sería el error caro.** Que lo pasado no se corrija no
+significa que no sirva: son **238 ruta-periodo con su depósito real**, y es el **único testigo
+independiente** que el motor va a tener nunca (ADR-059: una cifra se arbitra contra un testigo del
+mismo ERP y grano). El libro pasa de **destino** a **banco de calibración**. Se lee, se compara, y
+no se escribe.
+
+> **El criterio que separa las dos cosas:** si una fila del contraste discrepa, lo que se corrige
+> es **el motor**, nunca el libro.
+
+### 9.2 ⛔⛔ El hallazgo que bloquea «que todo el proceso se haga aquí»
+
+Medido contra prod el 2026-10-20. El módulo de comisiones **sólo puede insertar en 5 tablas**:
+`commission_scales`, `commission_scale_tiers`, `commission_runs`, `commission_run_lines` y
+`commission_engine_lines`. De los insumos que deciden un depósito:
+
+| Insumo | Quién lo decide | ¿Se captura en la app hoy? |
+|---|---|---|
+| venta · subtotal | derivado del ODS | ✅ automático |
+| costo (COGS) | derivado, con veredicto | ✅ automático |
+| tabulador y escalones | Dirección | ✅ `POST /commissions/scales` |
+| **padrón de rutas** (quién comisiona, su nómina de banco, su chofer y su supervisor) | Comercial | ❌ **sólo por migración** |
+| **bonos** | Dirección | ❌ hay `UPDATE`, **no hay `INSERT`** |
+| **criterios del objetivo** | Dirección | ⚠️ `PATCH` edita; **no se pueden crear** |
+| `commission_beneficiary_config` | — | ❌ **0 filas**: tabla que nadie usa |
+
+⭐ **La prueba de que esto no es teórico es esta misma fase.** Mover las rutas **321 y 322** de
+Ruta Directa a Vecinal —un hecho operativo, decidido por Comercial— costó **escribir una migración,
+commitearla, empujarla y aplicarla a prod a mano**. Un cambio de padrón no puede necesitar un
+desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el repositorio.
+
+### 9.3 El objetivo principal, enunciado para que se pueda medir
+
+> **O0 — Una quincena de comisiones se produce entera dentro de la aplicación: sus insumos se
+> capturan aquí, el motor la calcula, una persona la aprueba aquí y el chofer recibe su recibo
+> desde aquí. Cero Excel, cero migración, cero SQL a mano.**
+
+| | Hoy | Meta |
+|---|---|---|
+| corridas con `origen = 'motor'` | **0 de 20** | **todas** desde Q21 |
+| insumos capturables en la app | **3 de 7** | **7 de 7** |
+| cambios de padrón que exigen un despliegue | **el 100 %** | **0** |
+| corridas con `approved_at` | **0 de 20** | **todas** las del motor |
+| filas de contraste con el lado del motor | **0 de 238** | **238** |
+
+### 9.4 Los items nuevos
+
+#### C2 — Los insumos entran aquí (el corazón del pedido)
+
+- **`[RD.84]` El padrón se administra en la pantalla.** Alta, baja y edición de una ruta, con
+  `activo_hasta`, **motivo obligatorio** y bitácora de quién lo cambió. Las columnas ya existen
+  (batch 968); falta el endpoint y la pantalla.
+  ⛔ **Prueba negativa:** dar de baja una ruta **sin motivo** tiene que fallar, y una baja **no**
+  puede alterar una corrida ya pagada.
+- **`[RD.85]` Los bonos se capturan aquí.** Alta y baja con su vigencia por periodo.
+  ⚠️ El filtro por `periodo` es lo que impidió que un bono mensual se pagara **dos veces**
+  (`[RD.59]`): el alta tiene que exigirlo, no ofrecerlo.
+- **`[RD.86]` El tabulador se edita con simulación.** Cambiar un escalón muestra, **antes de
+  guardar**, a quién le cambia el depósito y en cuánto. El tabulador es un **acantilado**: hoy
+  $356.77 de menos convierten $4,827.96 en **$0**, y eso no se puede firmar a ciegas.
+- **`[RD.87]` La automatización por evento** — ya descrita en `[RD.78]`, más el estado consultable
+  de `[RD.79]`. **Nunca aprueba ni paga sola**: deja `borrador`.
+
+#### C3 — La pantalla cierra el ciclo
+
+- **`[RD.83]` ✅ hecho el 2026-10-20** (`518a4b306`): aprobar, marcar pagada y anular se ejecutan
+  en la pantalla. El ciclo de cuatro pasos dejó de ser un dibujo.
+- **`[RD.88]` El recibo por chofer**, emitido desde aquí. Era `[RD.82]`, en espera. Mientras el
+  recibo venga de afuera, el chofer cobra contra un papel que el motor no produjo — y **O0 no se
+  cumple aunque el número sea correcto**.
+- **`[RD.89]` La bandeja: qué falta hoy para que la quincena se pague.** Un solo lugar que
+  responda, sin que nadie recorra pestañas: qué quincena cerró sin número, qué corrida espera
+  aprobación, qué ruta va a comisionar sobre nada y qué ruta vende sin comisionar.
+
+#### Transversal
+
+- **`[RD.90]` La verdad absoluta de la comisión** en `VERDAD_ABSOLUTA.md` — hoy **cero menciones**.
+  Los seis resolvedores de §`[RD.77]`, cada uno con su testigo y su trampa.
+  ⛔ **Sin esto `O0` no se puede afirmar**: «generada 100 % por el motor» es una frase hasta que
+  está escrito **qué arbitra cada uno de los seis números** que deciden el depósito.
+
+### 9.5 Lo que necesita firma antes de que el motor pague
+
+| | Decisión | Por qué no la puedo tomar yo |
+|---|---|---|
+| **D5** | **N** quincenas y **X** % para promover el motor de auditor a pagador | es el apetito de riesgo sobre la nómina de 11 personas |
+| **D7** | el acantilado de $189,999.99 | **9 filas, $26,932.74** que el libro pagó y el motor no. O el tabulador tiene un piso suave, o esas 9 no cobran |
+| **D3** | la línea del supervisor | el recibo de FRANCISCO **se contradice a sí mismo**; el motor no puede elegir cuál de las dos versiones es la buena |
+| **D6** | ¿quién calcula, quién aprueba y quién paga? | hoy **un solo permiso** hace las tres, y eso anula el control de los cuatro pasos |
+| **nueva** | **¿Q21 la paga el motor o el libro?** | **cierra el 21 de octubre**. Es la primera quincena que puede nacer del motor |
