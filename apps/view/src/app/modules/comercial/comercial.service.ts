@@ -2235,6 +2235,29 @@ export class ComercialService {
   commissionUniverse() {
     return this.http.get<CommissionUniverseRow[]>(`${this.base}/commissions/universe`);
   }
+
+  /**
+   * `[RD.84]` El padrón **editable**. ⛔ No es `commissionUniverse()`: aquél es el universo
+   * DERIVADO del ERP —todas las rutas que existen, comisionen o no— y es de sólo lectura. Esto
+   * devuelve las filas de `commission_route_config`, que son las únicas que se pueden cambiar.
+   * Mezclarlos haría creer que una ruta `camion_sin_config` se edita desde acá, cuando lo que
+   * hay que hacer con ella es **darla de alta**.
+   */
+  commissionPadron() {
+    return this.http.get<PadronRuta[]>(`${this.base}/commissions/routes`);
+  }
+  commissionPadronAlta(dto: PadronAlta) {
+    return this.http.post<PadronRuta>(`${this.base}/commissions/routes`, dto);
+  }
+  /**
+   * La **baja** es un caso de esto: `{ activo:false, activo_hasta, notes }`, las tres juntas.
+   * ⚠️ Si la vigencia toca una quincena ya pagada el servidor devuelve **409** nombrando
+   * cuáles y por cuánto; se repite con `confirmar: true` cuando esa corrección es la intención.
+   */
+  commissionPadronEditar(id: string, dto: PadronEdicion) {
+    return this.http.patch<{ fila: PadronRuta; aviso: PadronAvisoPagadas | null }>(
+      `${this.base}/commissions/routes/${id}`, dto);
+  }
   /**
    * RD.22 — calcula esa quincena y todas las cerradas que le siguen. Es el único camino que
    * escribe. **No toca lo pagado** (lo salta con su motivo y sigue) ni lo aprobado. No aprueba.
@@ -4732,6 +4755,36 @@ export interface CommissionBoardRow {
   updated_at: string | null;
 }
 /** RD.17 — una fila del universo derivado de rutas. */
+/**
+ * `[RD.84]` Una fila del padrón **editable**, con lo que ya produjo al lado.
+ *
+ * ⭐ `quincenas_pagadas` y `pagado_historico` no son decoración: son lo que convierte una baja
+ * en una decisión informada. Dar de baja una ruta que pagó $19,096.84 y una que nunca pagó nada
+ * son dos actos distintos, y sin la cifra al lado se ven iguales.
+ */
+export interface PadronRuta {
+  id: string; route_code: string; scale_id: string; zona: string | null;
+  chofer_nombre: string | null; supervisor_nombre: string | null;
+  nomina_banco: string | number; activo: boolean; notes: string | null;
+  /** `YYYY-MM-DD`. NULL = «desde siempre» / «sin cierre». Ver `[RD.84.0]`. */
+  activo_desde: string | null; activo_hasta: string | null;
+  updated_at: string | null; updated_by: string | null;
+  quincenas_pagadas: number; pagado_historico: string | number;
+}
+export interface PadronAlta {
+  route_code: string; nomina_banco: number; activo_desde: string;
+  zona?: string | null; chofer_nombre?: string | null;
+  supervisor_nombre?: string | null; notes?: string | null;
+}
+export interface PadronEdicion {
+  zona?: string | null; chofer_nombre?: string | null; supervisor_nombre?: string | null;
+  nomina_banco?: number; activo?: boolean;
+  activo_desde?: string | null; activo_hasta?: string | null;
+  notes?: string | null; confirmar?: boolean;
+}
+/** Lo que una vigencia nueva dejaría fuera, en quincenas ya PAGADAS y en pesos. */
+export interface PadronAvisoPagadas { quincenas: number; pagado: string; detalle: string }
+
 export interface CommissionUniverseRow {
   route_code: string; comisiona: boolean; veredicto: string; route_kind: string | null;
   plaza_o_zona: string | null; en_identidad: boolean; en_config: boolean;

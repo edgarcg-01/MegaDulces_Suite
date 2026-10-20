@@ -5,6 +5,9 @@ import { CommercialCommissionsService } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
 import {
+  CommissionPadronService, type PadronFila, type AltaRuta, type EditarRuta,
+} from './commission-padron.service';
+import {
   CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
   type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
 } from './commission-objective.service';
@@ -28,6 +31,7 @@ export class CommercialCommissionsController {
     private readonly recalc: CommissionRecalcService,
     private readonly contraste: CommissionContrastService,
     private readonly objetivo: CommissionObjectiveService,
+    private readonly padronSvc: CommissionPadronService,
   ) {}
 
   /**
@@ -177,6 +181,49 @@ export class CommercialCommissionsController {
   })
   universe() {
     return this.service.listUniverse();
+  }
+
+  /**
+   * `[RD.84]` El padrón EDITABLE. ⛔ No es `/universe`: aquél es el universo derivado del ERP y
+   * es de sólo lectura. Éste devuelve las filas que se pueden cambiar, cada una con lo que ya
+   * produjo (quincenas pagadas y monto), para que una baja no se decida a ciegas.
+   */
+  @Get('routes')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'El padron editable de rutas que comisionan' })
+  padron(): Promise<PadronFila[]> {
+    return this.padronSvc.listar();
+  }
+
+  @Post('routes')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Da de alta una ruta en el padron',
+    description:
+      'RD.84. Body: `{ route_code, nomina_banco, activo_desde, zona?, chofer_nombre?, '
+      + 'supervisor_nombre?, notes?, scale_id? }`. `activo_desde` es OBLIGATORIA: sin ella la '
+      + 'ruta comisionaria tambien las quincenas anteriores a su alta. `scale_id` se resuelve '
+      + 'solo con el tabulador vigente a esa fecha. Un codigo repetido NO crea una segunda fila: '
+      + 'devuelve 409 y manda a reactivar la que ya existe, para que conserve su historia.',
+  })
+  altaRuta(@Body() body: AltaRuta): Promise<PadronFila> {
+    return this.padronSvc.crear(body);
+  }
+
+  @Patch('routes/:id')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Edita una ruta del padron — la baja es un caso de esto',
+    description:
+      'RD.84. Dar de baja es `{ activo: false, activo_hasta, notes }`, y las TRES son '
+      + 'obligatorias juntas: sin fecha la ruta deja de comisionar tambien las quincenas que si '
+      + 'trabajo (ver [RD.84.0], costaba $19,096.84 en las rutas 321/322), y sin motivo nadie '
+      + 'va a poder explicar la fila dentro de seis meses. Si la vigencia toca una quincena YA '
+      + 'PAGADA devuelve 409 nombrando cuales y por cuanto: se repite con `confirmar: true` '
+      + 'cuando esa correccion es justamente la intencion.',
+  })
+  editarRuta(@Param('id') id: string, @Body() body: EditarRuta) {
+    return this.padronSvc.editar(id, body);
   }
 
   @Post('recalculate-from')

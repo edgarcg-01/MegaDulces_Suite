@@ -12,7 +12,7 @@
  * **sin mirar ninguna fecha**, y el motor la consumía sin pasarle el periodo. Medido contra
  * prod ese mismo día:
  *
- *     el libro le pagó a la 321 ... 14 quincenas, $19,096.84 (2026-01-01 → 2026-07-15)
+ *     el libro le pagó a la 321 ... 5 quincenas con pago, $19,096.84 (2026-01-01 → 2026-07-15)
  *     el motor, al recalcularlas ..                   $0.00
  *
  * O sea: **una baja correcta reescribía la historia en silencio**, y por el único camino que
@@ -180,6 +180,65 @@ const fin = async (db) => {
   check('las corridas pagadas conservan su propio route_code por línea',
     pagadas.n > 0 && huerfanas.n === 0,
     `${pagadas.n} pagada(s) · ${huerfanas.n} línea(s) sin ruta`);
+
+  // ── 7. `[RD.84]` El AVISO de quincenas pagadas usa la regla NEGADA, y acierta ────────────
+  //
+  // ⛔ Es la consulta que decide si `PATCH /commissions/routes/:id` pide `confirmar`. Si se
+  // equivoca en un sentido, el aviso no sale nunca y la confirmación es decorativa; si se
+  // equivoca en el otro, sale siempre y se aprende a apretar «sí» sin leer. Acá se le pide que
+  // reproduzca un número que ya conocemos por otro camino: lo que el libro le pagó a la ruta de
+  // la trampa. Es el CONTROL del instrumento.
+  const { rows: [esperado] } = await db.query(
+    `SELECT count(DISTINCT r.period_id)::int AS quincenas,
+            COALESCE(sum(l.a_pagar), 0)::numeric(14,2) AS pagado
+       FROM commercial.commission_run_lines l
+       JOIN commercial.commission_runs r ON r.id = l.run_id
+      WHERE r.tenant_id = $1 AND r.status = 'pagado'
+        AND r.deleted_at IS NULL AND l.deleted_at IS NULL
+        AND l.route_code = $2 AND l.a_pagar > 0`, [TENANT, t.route_code]);
+
+  // La misma ruta, pero apagada SIN fecha: la vigencia nueva la saca de TODAS las quincenas, así
+  // que el aviso tiene que nombrarlas todas.
+  const { rows: avisadas } = await db.query(
+    `SELECT p.period_no, sum(l.a_pagar)::numeric(14,2) AS pagado
+       FROM commercial.commission_run_lines l
+       JOIN commercial.commission_runs r    ON r.id = l.run_id
+       JOIN commercial.commission_periods p ON p.id = r.period_id
+      WHERE r.tenant_id = $1 AND r.status = 'pagado'
+        AND r.deleted_at IS NULL AND l.deleted_at IS NULL
+        AND l.route_code = $2 AND l.a_pagar > 0
+        AND NOT (
+              (NULL::date IS NULL OR NULL::date <= p.date_to)
+          AND (false OR (NULL::date IS NOT NULL AND NULL::date >= p.date_from))
+        )
+      GROUP BY 1`, [TENANT, t.route_code]);
+  const sumaAviso = avisadas.reduce((s, r) => s + Number(r.pagado), 0).toFixed(2);
+  check('el aviso de quincenas pagadas reproduce lo que el libro pagó (control)',
+    avisadas.length === esperado.quincenas && sumaAviso === String(esperado.pagado),
+    `aviso ${avisadas.length}q/$${sumaAviso} vs libro ${esperado.quincenas}q/$${esperado.pagado}`);
+
+  // Y con la vigencia REAL de la fila (que respeta su historia), el aviso NO debe disparar: si
+  // disparara igual, la confirmación saldría en cada edición y dejaría de significar algo.
+  const { rows: sinAviso } = await db.query(
+    `SELECT p.period_no
+       FROM commercial.commission_run_lines l
+       JOIN commercial.commission_runs r    ON r.id = l.run_id
+       JOIN commercial.commission_periods p ON p.id = r.period_id
+       JOIN ${TABLA} c ON c.route_code = l.route_code AND c.tenant_id = r.tenant_id
+      WHERE r.tenant_id = $1 AND r.status = 'pagado'
+        AND r.deleted_at IS NULL AND l.deleted_at IS NULL AND c.deleted_at IS NULL
+        AND l.route_code = $2 AND l.a_pagar > 0
+        AND NOT (
+              (c.activo_desde IS NULL OR c.activo_desde <= p.date_to)
+          AND (c.activo OR (c.activo_hasta IS NOT NULL AND c.activo_hasta >= p.date_from))
+        )`, [TENANT, t.route_code]);
+  check('con la vigencia real de la fila, el aviso NO dispara', sinAviso.length === 0,
+    `disparó en ${sinAviso.length} quincena(s): la confirmación saldría siempre`);
+
+  // ⛔ Lo que esto NO prueba, y se declara en vez de darse por verde.
+  noMedido('los tres endpoints de /commissions/routes',
+    'GET/POST/PATCH no se ejercieron: escribir exige API arriba, y este repo prohíbe levantar '
+    + 'backend local. Van al job `pruebas-db` del CI (deuda VP.5, 65 suites HTTP fuera)');
 
   return fin(db);
 })().catch((e) => { console.error('\n✖ error:', e.message); process.exit(1); });

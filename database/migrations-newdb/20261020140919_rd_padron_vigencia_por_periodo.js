@@ -12,7 +12,7 @@
  * vista **sin pasarle el periodo**. O sea que el padrón de HOY se aplica hacia atrás a toda la
  * historia:
  *
- *     el libro le pagó a la 321 ...... 14 quincenas, $19,096.84 (2026-01-01 -> 2026-07-15)
+ *     el libro le pagó a la 321 ...... 5 quincenas con pago, $19,096.84 (2026-01-01 -> 2026-07-15)
  *     el motor hoy, al recalcularlas ..                   $0.00
  *
  * **$19,096.84 que una baja correcta convierte en cero.** No es un error de pintura: es el

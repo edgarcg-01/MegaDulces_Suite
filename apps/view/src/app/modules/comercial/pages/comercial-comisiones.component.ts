@@ -5,6 +5,7 @@ import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
@@ -18,6 +19,7 @@ import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
   CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
+  PadronRuta, PadronAvisoPagadas,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -65,12 +67,107 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
       <p-toast />
       <p-confirmdialog />
+
+      <!-- [RD.84] Alta y edicion del padron. Un solo dialogo para los dos actos: dar de baja es
+           editar con fecha y motivo, no un boton aparte — tenerlo aparte invitaba a la baja sin
+           motivo, que es la que se traga la historia entera ([RD.84.0], $19,096.84).
+
+           Poka-yoke (§10): el envio esta deshabilitado mientras falte algo, en vez de dejar
+           cometer el error y reportarlo. Von Restorff: la baja NO comparte color con guardar. -->
+      <p-dialog [(visible)]="padronAbierto" [modal]="true" [draggable]="false"
+                [style]="{ width: '34rem' }"
+                [header]="padronEditando() ? ('Ruta ' + padronEditando()!.route_code) : 'Dar de alta una ruta'">
+        <form class="cm-form" (ngSubmit)="guardarPadron()">
+          @if (!padronEditando()) {
+            <label class="cm-campo">
+              <span>Código de ruta</span>
+              <input type="text" name="route_code" inputmode="numeric"
+                     [(ngModel)]="fRuta" required />
+            </label>
+          }
+
+          <p class="cm-form-sep">Quién</p>
+          <label class="cm-campo"><span>Chofer</span>
+            <input type="text" name="chofer" [(ngModel)]="fChofer" /></label>
+          <label class="cm-campo"><span>Supervisor</span>
+            <input type="text" name="supervisor" [(ngModel)]="fSupervisor" /></label>
+          <label class="cm-campo"><span>Plaza o zona</span>
+            <input type="text" name="zona" [(ngModel)]="fZona" /></label>
+
+          <p class="cm-form-sep">Cuánto se le deduce</p>
+          <label class="cm-campo">
+            <span>Nómina de banco <span class="cm-muted">(se resta de la comisión)</span></span>
+            <input type="number" name="nomina" min="0" step="0.01" [(ngModel)]="fNomina" required />
+          </label>
+
+          <p class="cm-form-sep">Desde cuándo y hasta cuándo</p>
+          <label class="cm-campo">
+            <span>Empieza a comisionar</span>
+            <input type="date" name="desde" [(ngModel)]="fDesde" />
+            <small class="cm-muted">
+              Vacío = desde siempre. Con fecha, las quincenas anteriores no le pagan.
+            </small>
+          </label>
+          @if (padronEditando()) {
+            <label class="cm-campo">
+              <span>Deja de comisionar</span>
+              <input type="date" name="hasta" [(ngModel)]="fHasta" />
+              <small class="cm-muted">
+                Es el último día en que cobra. Una baja a mitad de quincena paga la quincena
+                entera: el tabulador es escalonado y no se prorratea.
+              </small>
+            </label>
+            <label class="cm-campo cm-campo--check">
+              <input type="checkbox" name="activo" [(ngModel)]="fActivo" />
+              <span>Sigue activa</span>
+            </label>
+          }
+
+          <label class="cm-campo">
+            <span>Motivo {{ esBaja() ? '' : '(opcional)' }}</span>
+            <textarea name="notes" rows="2" [(ngModel)]="fNotas"></textarea>
+            @if (esBaja()) {
+              <small class="cm-muted">
+                Obligatorio en una baja: es lo único que va a explicar esta fila dentro de seis
+                meses, cuando alguien pregunte por qué esta ruta dejó de cobrar.
+              </small>
+            }
+          </label>
+
+          @if (padronAviso(); as a) {
+            <div class="cm-gate bad">
+              <strong><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                Toca {{ a.quincenas }} quincena(s) ya pagada(s)</strong>
+              <p class="cm-micro">
+                {{ a.detalle }} — <strong>{{ a.pagado }}</strong>. Lo pagado no se recalcula solo,
+                pero si alguien corre «calcular desde», esas quincenas saldrían distintas.
+              </p>
+              <label class="cm-campo cm-campo--check">
+                <input type="checkbox" name="confirmar" [(ngModel)]="fConfirmar" />
+                <span>Sí, es justamente lo que estoy corrigiendo</span>
+              </label>
+            </div>
+          }
+
+          @if (padronErr(); as e) {
+            <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+          }
+
+          <div class="cm-form-pie">
+            <button type="button" class="cm-btn-sec" (click)="padronAbierto.set(false)">Cancelar</button>
+            <button type="submit" [disabled]="!formOk() || padronGuardando()"
+                    [class]="esBaja() ? 'cm-btn cm-btn--baja' : 'cm-btn'">
+              {{ padronGuardando() ? 'Guardando…' : (esBaja() ? 'Dar de baja' : 'Guardar') }}
+            </button>
+          </div>
+        </form>
+      </p-dialog>
       <app-page-tabs [tabs]="tabsRD" />
       <header class="cm-head">
         <div>
@@ -611,15 +708,77 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   </tbody>
                 </table>
               </div>
+              <!-- [RD.84] El padron EDITABLE. Va DEBAJO de los hallazgos a proposito: primero
+                   que pasa, despues con que se arregla. Y es otra tabla, no la misma: la de
+                   arriba es el universo DERIVADO del ERP (todas las rutas que existen) y no se
+                   puede editar; esta son las filas de commission_route_config, que si. -->
+              <section class="cm-padron">
+                <div class="cm-padron-tit">
+                  <div>
+                    <p class="cm-eyebrow">El padrón</p>
+                    <p class="cm-muted cm-micro">
+                      Quién cobra comisión de Ruta Directa, desde cuándo y hasta cuándo.
+                      Hasta hoy esto se cambiaba con una migración: mover las rutas 321 y 322 a
+                      Vecinal —una decisión de Comercial— costó un despliegue.
+                    </p>
+                  </div>
+                  @if (puedeGestionar()) {
+                    <button type="button" class="cm-btn" (click)="abrirAlta()">
+                      <i class="pi pi-plus" aria-hidden="true"></i> Dar de alta una ruta
+                    </button>
+                  }
+                </div>
+                <div class="cm-table-wrap">
+                  <table class="surf-table surf-table--plain surf-table--sticky">
+                    <thead><tr>
+                      <th>Ruta</th><th>Chofer</th><th>Supervisor</th>
+                      <th class="comm-num">Nómina de banco</th>
+                      <th>Vigencia</th><th class="comm-num">Ya pagado</th><th></th>
+                    </tr></thead>
+                    <tbody>
+                      @for (p of padronFilas(); track p.id) {
+                        <tr [class.cm-fila-baja]="!p.activo">
+                          <td class="comm-num">{{ p.route_code }}</td>
+                          <td class="cm-name">{{ p.chofer_nombre || '—' }}</td>
+                          <td class="cm-muted">{{ p.supervisor_nombre || '—' }}</td>
+                          <td class="comm-num cm-mono">{{ money(p.nomina_banco) }}</td>
+                          <td>{{ vigencia(p) }}</td>
+                          <td class="comm-num cm-mono">
+                            @if (p.quincenas_pagadas) {
+                              {{ money(p.pagado_historico) }}
+                              <span class="cm-muted cm-micro"> · {{ p.quincenas_pagadas }} q</span>
+                            } @else { <span class="cm-muted">—</span> }
+                          </td>
+                          <td>
+                            @if (puedeGestionar()) {
+                              <button type="button" class="cm-btn-sec cm-btn-min"
+                                      (click)="abrirEdicion(p)">Editar</button>
+                            }
+                          </td>
+                        </tr>
+                      } @empty {
+                        <tr><td colspan="7" class="cm-empty">
+                          El padrón está vacío: ninguna ruta cobra comisión de Ruta Directa.
+                        </td></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                @if (padronErr(); as e) {
+                  <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+                }
+              </section>
+
               <p class="cm-warn">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
                 <span>
-                  <strong>Esta lista no decide nada: lo declara.</strong> Que una ruta siga
+                  <strong>La lista de arriba no decide nada: lo declara.</strong> Que una ruta siga
                   cobrando con la fuente muerta, o que una que vende quede fuera, son
                   <strong>decisiones de Direccion</strong> — la 321 y la 322 operan hoy en el ERP
                   con codigo nuevo, y si la comision sigue al chofer o al tipo de ruta no lo puede
                   resolver una pantalla. Lo que la pantalla si puede hacer es que la contradiccion
-                  deje de ser invisible.
+                  deje de ser invisible — y, desde <strong>[RD.84]</strong>, que la decision
+                  <strong>se registre aqui</strong>: la tabla de abajo es el padron, y se edita.
                   <br />
                   <strong>De donde sale:</strong> del <em>padron derivado</em> —todas las rutas que
                   existen, comisionen o no— y de su venta de los ultimos <strong>30 dias</strong>.
@@ -905,6 +1064,27 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-actos-dice { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-actos-btns { display:flex; gap:var(--sp-2,.5rem); flex-shrink:0; }
     .cm-btn--ghost { background:transparent; color:var(--c-text-2); border:1px solid var(--border-color); }
+    /* [RD.84] el padron editable y su dialogo */
+    .cm-padron { margin:1.1rem 0 0; }
+    .cm-padron-tit { display:flex; gap:var(--sp-3,.75rem); align-items:flex-start;
+      justify-content:space-between; flex-wrap:wrap; margin:0 0 .5rem; }
+    /* Von Restorff: una baja NO se pinta como una fila normal, y NO depende solo del color --
+       lleva tambien el texto "de baja" en su columna de vigencia (forced-colors). */
+    .cm-fila-baja > td { color:var(--c-text-2); }
+    .cm-btn-min { padding:.15rem .5rem; font-size:var(--fs-xs); border-radius:var(--r-sm,6px); }
+    .cm-btn--baja { background:var(--bad-fg); border-color:var(--bad-fg); }
+    .cm-form { display:flex; flex-direction:column; gap:.55rem; }
+    /* Miller: >6 campos seguidos se parten con un titulo. El formulario tiene nueve. */
+    .cm-form-sep { margin:.5rem 0 0; font-size:var(--fs-xs); font-weight:600;
+      text-transform:uppercase; letter-spacing:.04em; color:var(--c-text-2); }
+    .cm-campo { display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-sm); }
+    .cm-campo > span { color:var(--c-text-1); }
+    .cm-campo input, .cm-campo textarea { padding:.35rem .5rem; border:1px solid var(--border-color);
+      border-radius:var(--r-sm,6px); background:var(--c-surface-0); color:var(--c-text-1);
+      font:inherit; font-size:var(--fs-sm); }
+    .cm-campo--check { flex-direction:row; align-items:center; gap:.4rem; }
+    .cm-campo--check input { width:auto; }
+    .cm-form-pie { display:flex; gap:var(--sp-2,.5rem); justify-content:flex-end; margin-top:.8rem; }
   `],
 })
 export class ComercialComisionesComponent {
@@ -1120,6 +1300,9 @@ export class ComercialComisionesComponent {
     this.falto.set(null);
     this.cargarFalto();
     this.padron.set([]);
+    this.cargarUniverso();
+    // `[RD.84]` El padrón EDITABLE va junto al universo — la pestaña muestra los dos. Pedirlo
+    // sólo al abrir el diálogo dejaría la tabla vacía hasta el primer clic.
     this.cargarPadron();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
@@ -1289,7 +1472,14 @@ export class ComercialComisionesComponent {
 
   readonly padron = signal<CommissionUniverseRow[]>([]);
 
-  private cargarPadron() {
+  /**
+   * ⛔ `[RD.84]` **Se llamaba `cargarPadron()` y carga el UNIVERSO**, que es otra cosa: todas las
+   * rutas que existen según el ERP, comisionen o no. El padrón editable —las filas de
+   * `commission_route_config`— lo carga `cargarPadron()` de verdad, que ahora existe. Dos
+   * métodos con el mismo nombre en una clase de 2,000 líneas **no dan error: gana el último**,
+   * y la pestaña habría quedado leyendo la lista equivocada en silencio.
+   */
+  private cargarUniverso() {
     // Mismo criterio que el contraste: no bloquea el tablero y si falla la pestaña no aparece.
     this.api.commissionUniverse().subscribe({
       next: (u) => this.padron.set(u ?? []),
@@ -1749,6 +1939,146 @@ export class ComercialComisionesComponent {
         this.err.set(msg);
         this.toast.add({ severity: 'error', summary: 'No se completó', detail: msg, life: 8000 });
       },
+    });
+  }
+
+  // ── [RD.84] El padrón se administra acá ────────────────────────────────────────────────
+  //
+  // ⛔ **Lo que esto cierra.** Medido el 2026-10-20: el módulo sólo podía `INSERT` en cinco
+  // tablas y `commission_route_config` no era una de ellas. Cada cambio de padrón —una ruta que
+  // entra, un chofer que cambia, una nómina que sube— exigía escribir una migración, empujarla
+  // y aplicarla a prod a mano. Mover las rutas 321 y 322 a Vecinal costó exactamente eso.
+  //
+  // ⚠️ Las reglas duras las hace cumplir el SERVIDOR (`CommissionPadronService`), no esta
+  // pantalla. Acá se previene —el botón no se habilita hasta que el formulario está completo,
+  // que es poka-yoke— pero la verdad vive del otro lado: una validación que sólo existe en el
+  // front es una sugerencia.
+
+  readonly padronFilas = signal<PadronRuta[]>([]);
+  readonly padronAbierto = signal(false);
+  readonly padronEditando = signal<PadronRuta | null>(null);
+  readonly padronGuardando = signal(false);
+  readonly padronErr = signal<string | null>(null);
+  readonly padronAviso = signal<PadronAvisoPagadas | null>(null);
+
+  readonly fRuta = signal('');
+  readonly fChofer = signal<string | null>(null);
+  readonly fSupervisor = signal<string | null>(null);
+  readonly fZona = signal<string | null>(null);
+  readonly fNomina = signal<number | null>(null);
+  readonly fDesde = signal<string | null>(null);
+  readonly fHasta = signal<string | null>(null);
+  readonly fActivo = signal(true);
+  readonly fNotas = signal<string | null>(null);
+  readonly fConfirmar = signal(false);
+
+  /** Esta edición ES una baja: cambia el color del botón y vuelve obligatorio el motivo. */
+  readonly esBaja = computed(() => !!this.padronEditando() && !this.fActivo());
+
+  /**
+   * ⭐ Poka-yoke, no validación tardía: el envío está deshabilitado **mientras falte algo**, en
+   * vez de dejar cometer el error y reportarlo. Las tres condiciones de la baja —apagada, con
+   * fecha y con motivo— se exigen **juntas**, que es como el servidor las exige.
+   */
+  readonly formOk = computed(() => {
+    const nom = this.fNomina();
+    if (nom == null || Number(nom) < 0) return false;
+    if (!this.padronEditando()) {
+      // Alta: código y fecha de inicio. Sin `activo_desde` la ruta cobraría la quincena 1.
+      return !!this.fRuta().trim() && !!this.fDesde();
+    }
+    if (this.esBaja() && (!this.fHasta() || !String(this.fNotas() ?? '').trim())) return false;
+    // Si el servidor ya avisó que toca quincenas pagadas, hay que confirmarlo a propósito.
+    return !this.padronAviso() || this.fConfirmar();
+  });
+
+  cargarPadron(): void {
+    this.api.commissionPadron().subscribe({
+      next: (f) => this.padronFilas.set(f ?? []),
+      // ⛔ Error NO es vacío: un padrón vacío significa «nadie cobra», que es una afirmación
+      // muy distinta de «no se pudo leer». Se DECLARA (ADR-056).
+      error: (e) => this.padronErr.set(
+        e?.error?.message ?? 'No se pudo leer el padrón. No es que esté vacío: no se pudo leer.'),
+    });
+  }
+
+  /** `YYYY-MM-DD` → `DD/MM`, cortando la cadena. Ver la nota de fechas de la cabecera. */
+  vigencia(p: PadronRuta): string {
+    const d = p.activo_desde ? this.dia(p.activo_desde) : null;
+    const h = p.activo_hasta ? this.dia(p.activo_hasta) : null;
+    if (p.activo) return d ? `desde ${d}` : 'siempre';
+    if (h) return `hasta ${h}`;
+    // ⚠️ Baja SIN fecha: no comisiona en NINGÚN periodo, ni en los que sí trabajó. Se dice.
+    return 'de baja, sin fecha';
+  }
+
+  abrirAlta(): void {
+    this.padronEditando.set(null);
+    this.padronAviso.set(null); this.padronErr.set(null); this.fConfirmar.set(false);
+    this.fRuta.set(''); this.fChofer.set(null); this.fSupervisor.set(null);
+    this.fZona.set(null); this.fNomina.set(null); this.fDesde.set(null);
+    this.fHasta.set(null); this.fActivo.set(true); this.fNotas.set(null);
+    this.padronAbierto.set(true);
+  }
+
+  abrirEdicion(p: PadronRuta): void {
+    this.padronEditando.set(p);
+    this.padronAviso.set(null); this.padronErr.set(null); this.fConfirmar.set(false);
+    this.fRuta.set(p.route_code);
+    this.fChofer.set(p.chofer_nombre); this.fSupervisor.set(p.supervisor_nombre);
+    this.fZona.set(p.zona); this.fNomina.set(Number(p.nomina_banco));
+    this.fDesde.set(p.activo_desde); this.fHasta.set(p.activo_hasta);
+    this.fActivo.set(p.activo); this.fNotas.set(p.notes);
+    this.padronAbierto.set(true);
+  }
+
+  guardarPadron(): void {
+    // ⚠️ Idempotencia visual (§10): se bloquea en el PRIMER clic, antes de esperar respuesta.
+    // Sin esto el doble clic del pánico manda dos altas y el UNIQUE devuelve un 409 confuso.
+    if (this.padronGuardando() || !this.formOk()) return;
+    this.padronGuardando.set(true);
+    this.padronErr.set(null);
+
+    const listo = (resumen: string) => {
+      this.padronGuardando.set(false);
+      this.padronAbierto.set(false);
+      this.toast.add({ severity: 'success', summary: 'Padrón actualizado', detail: resumen });
+      this.cargarPadron();
+      // El universo derivado lee la config: si no se recarga, los hallazgos de arriba siguen
+      // describiendo el padrón anterior.
+      this.cargarUniverso();
+    };
+    const falla = (e: any) => {
+      this.padronGuardando.set(false);
+      const msg = e?.error?.message ?? 'No se pudo guardar.';
+      this.padronErr.set(msg);
+      // ⭐ El 409 de quincenas pagadas no es un error: es una pregunta. Se convierte en el
+      // bloque de confirmación en vez de un mensaje rojo que no ofrece salida.
+      const m = /cambia (\d+) quincena\(s\) YA PAGADA\(S\) por \$([\d.,]+) \(([^)]+)\)/.exec(msg);
+      if (m) this.padronAviso.set({ quincenas: Number(m[1]), pagado: `$${m[2]}`, detalle: m[3] });
+    };
+
+    const edit = this.padronEditando();
+    if (!edit) {
+      this.api.commissionPadronAlta({
+        route_code: this.fRuta().trim(),
+        nomina_banco: Number(this.fNomina()),
+        activo_desde: String(this.fDesde()),
+        zona: this.fZona(), chofer_nombre: this.fChofer(),
+        supervisor_nombre: this.fSupervisor(), notes: this.fNotas(),
+      }).subscribe({ next: (f) => listo(`Ruta ${f.route_code} dada de alta.`), error: falla });
+      return;
+    }
+    this.api.commissionPadronEditar(edit.id, {
+      zona: this.fZona(), chofer_nombre: this.fChofer(),
+      supervisor_nombre: this.fSupervisor(), nomina_banco: Number(this.fNomina()),
+      activo: this.fActivo(), activo_desde: this.fDesde(), activo_hasta: this.fHasta(),
+      notes: this.fNotas(), confirmar: this.fConfirmar(),
+    }).subscribe({
+      next: (r) => listo(this.fActivo()
+        ? `Ruta ${r.fila.route_code} actualizada.`
+        : `Ruta ${r.fila.route_code} de baja desde el ${this.dia(String(this.fHasta()))}.`),
+      error: falla,
     });
   }
 

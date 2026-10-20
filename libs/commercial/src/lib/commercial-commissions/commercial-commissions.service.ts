@@ -793,7 +793,7 @@ export class CommercialCommissionsService {
    * pasarle el periodo. Con la baja de las rutas 321/322 ya aplicada (`activo_hasta =
    * 2026-07-15`), recalcular las quincenas en que SÍ eran Ruta Directa daba:
    *
-   *     el libro les pagó ........ 14 quincenas, $19,096.84
+   *     el libro les pagó ........ 5 quincenas con pago, $19,096.84
    *     el motor, hoy ............                   $0.00
    *
    * O sea: **una baja correcta reescribía la historia**. Y `recalculate-from` es el único
