@@ -16,6 +16,10 @@
  * quien lo afirmó. Acá sólo sale el trabajo pendiente, ordenado por dinero.
  *
  *   node database/scripts/alias-proveedor-pendientes.js [--mes=2026-01] [--csv=ruta.csv]
+ *   node database/scripts/alias-proveedor-pendientes.js --desde=2026-01 --hasta=2026-09
+ *
+ * `[CP.8.47]` — con `--desde/--hasta` saca la lista ÚNICA del rango: un alias confirmado sirve
+ * para todos los meses, así que pedir la lista mes por mes repite trabajo (ene 53 nombres, sep 51).
  *
  * Solo lectura.
  */
@@ -39,6 +43,9 @@ const arg = (n, d) => {
   return p ? p.split('=').slice(1).join('=') : d;
 };
 const MES = arg('mes', '2026-01');
+const DESDE = arg('desde', MES);
+const HASTA = arg('hasta', DESDE);
+const PERIODO = DESDE === HASTA ? DESDE : `${DESDE} → ${HASTA}`;
 const CSV = arg('csv', null);
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 
@@ -69,10 +76,10 @@ function parecido(a, b) {
   const movs = await knex('finance.bank_movements as m')
     .join('finance.movement_categories as c', 'c.id', 'm.category_id')
     .join('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
-    .select('m.concept', 'm.amount_out')
+    .select('m.concept', 'm.amount_out', knex.raw(`to_char(m.movement_date,'YYYY-MM') as mes`))
     .where('m.tenant_id', MEGA).whereNull('m.deleted_at').where('m.amount_out', '>', 0)
     .where('c.code', 'compra_mercancia').whereNotNull('ba.contpaqi_cuenta')
-    .whereRaw(`to_char(m.movement_date,'YYYY-MM') = ?`, [MES]);
+    .whereRaw(`to_char(m.movement_date,'YYYY-MM') BETWEEN ? AND ?`, [DESDE, HASTA]);
 
   // Agrupado por nombre: compras confirma UN alias, no 12 movimientos.
   const pend = new Map();
@@ -81,16 +88,17 @@ function parecido(a, b) {
     const r = resolverProveedor(idx, m.concept);
     if (r.veredicto === 'resuelto') { resueltos += 1; impResuelto += Number(m.amount_out); continue; }
     const k = normalizarNombre(m.concept) || '(sin concepto)';
-    const y = pend.get(k) ?? { norm: k, texto: m.concept, movs: 0, importe: 0, veredicto: r.veredicto, motivo: r.motivo };
+    const y = pend.get(k) ?? { norm: k, texto: m.concept, movs: 0, importe: 0, meses: new Set(), veredicto: r.veredicto, motivo: r.motivo };
     y.movs += 1;
     y.importe += Number(m.amount_out);
+    y.meses.add(m.mes);
     pend.set(k, y);
   }
 
   const filas = [...pend.values()].sort((a, b) => b.importe - a.importe);
   const totalPend = filas.reduce((a, f) => a + f.importe, 0);
 
-  console.log(`\n[CP.8.36] alias de proveedor pendientes · ${MES}`);
+  console.log(`\n[CP.8.36] alias de proveedor pendientes · ${PERIODO}`);
   console.log(`  resuelto : ${resueltos} movs · $${Math.round(impResuelto).toLocaleString('es-MX')}`);
   console.log(`  PENDIENTE: ${movs.length - resueltos} movs en ${filas.length} nombres · `
     + `$${Math.round(totalPend).toLocaleString('es-MX')}`);
@@ -105,14 +113,14 @@ function parecido(a, b) {
       .sort((a, b) => b.s - a.s)
       .slice(0, 3);
     console.log(`$${Math.round(f.importe).toLocaleString('es-MX').padStart(12)}  ${String(f.movs).padStart(3)} movs  `
-      + `[${f.veredicto}]  "${f.texto}"`);
+      + `${String(f.meses.size).padStart(2)} meses  [${f.veredicto}]  "${f.texto}"`);
     if (!sug.length) console.log('      sin candidato parecido — hay que buscarlo en ContPAQi');
     for (const s of sug) {
       console.log(`      ¿${s.p.cuenta}  ${String(s.p.proveedor_nombre ?? s.p.cuenta_nombre).slice(0, 44)}`
         + `  (${(s.s * 100).toFixed(0)}% de palabras en común, ${s.p.veredicto})`);
     }
     salida.push({
-      concepto_banco: f.texto, alias_normalizado: f.norm, movimientos: f.movs,
+      concepto_banco: f.texto, alias_normalizado: f.norm, movimientos: f.movs, meses: f.meses.size,
       importe: Math.round(f.importe), veredicto: f.veredicto,
       sugerencia_1: sug[0] ? sug[0].p.cuenta : '', sugerencia_1_nombre: sug[0] ? sug[0].p.proveedor_nombre : '',
     });
