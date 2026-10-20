@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Route, Router, RouterOutlet, Routes, provideRouter } from '@angular/router';
-import { routes } from '../../app.routes';
+import { routes, rutasDeLaApp } from '../../app.routes';
 import { espejarParaPanel, olvidarEspejo } from './panel-routes';
 
 /**
@@ -99,6 +99,17 @@ function montar(rs: Routes): { router: Router; fix: ComponentFixture<Raiz> } {
   return { router: TestBed.inject(Router), fix };
 }
 
+/**
+ * `[MT.5]` El nivel donde vive el outlet `panel`: el shell de la RAÍZ, que es
+ * el primer hijo del árbol. Es lo que `SplitShellComponent` le registra al
+ * servicio, y contra lo que se arman cerrar y abrir-al-lado.
+ */
+function shell(router: Router): ActivatedRoute {
+  const s = router.routerState.root.firstChild;
+  if (!s) throw new Error('no se encontró el shell de la raíz');
+  return s;
+}
+
 function area(router: Router, path: string): ActivatedRoute {
   const pila = [router.routerState.root];
   while (pila.length) {
@@ -110,7 +121,14 @@ function area(router: Router, path: string): ActivatedRoute {
 }
 
 const esLayoutReal = (r: Route) => !!r.children?.length && /LayoutComponent/.test(String(r.component));
-const SPLIT = '/compras/(requisiciones//panel:compras/requisiciones/abc)';
+/**
+ * ⚠️ La FORMA cambió cuando el panel se mudó del área a la RAÍZ:
+ *   antes  /compras/(requisiciones//panel:compras/requisiciones/abc)
+ *   ahora  /compras/requisiciones(panel:compras/requisiciones/abc)
+ * El panel ya no es hijo del área sino hermano del outlet primario, y por eso
+ * sobrevive al cambiar de área — que es el defecto que la mudanza vino a cerrar.
+ */
+const SPLIT = '/compras/requisiciones(panel:compras/requisiciones/abc)';
 
 describe('[MT.5.2] abrir al lado y cerrar', () => {
   let router: Router;
@@ -124,7 +142,7 @@ describe('[MT.5.2] abrir al lado y cerrar', () => {
 
   beforeEach(() => {
     olvidarEspejo();
-    ({ router, fix } = montar(desnudar(routes)));
+    ({ router, fix } = montar(desnudar(rutasDeLaApp)));
   });
 
   it('una pantalla normal NO abre el panel', async () => {
@@ -147,7 +165,8 @@ describe('[MT.5.2] abrir al lado y cerrar', () => {
     expect(panel.abierto).toBe(true);
 
     // El gesto, con el mismo comando que arma el enlace de la X.
-    const cerrar = router.createUrlTree([{ outlets: { panel: null } }], { relativeTo: area(router, 'compras') });
+    // El nivel del outlet `panel` ya no es el área: es el shell de la raíz.
+    const cerrar = router.createUrlTree([{ outlets: { panel: null } }], { relativeTo: shell(router) });
     expect(router.serializeUrl(cerrar)).toBe('/compras/requisiciones');
 
     expect(await router.navigateByUrl(cerrar)).toBe(true);
@@ -167,7 +186,7 @@ describe('[MT.5.2] abrir al lado y cerrar', () => {
   });
 
   it('un destino de panel inventado NO tumba la navegación', async () => {
-    expect(await ir('/compras/(requisiciones//panel:esto/no/existe)')).toBe(true);
+    expect(await ir('/compras/requisiciones(panel:esto/no/existe)')).toBe(true);
     expect(router.url).toContain('requisiciones');
     expect(panel.abierto).toBe(true);
     // ⚠️ Se mira lo PINTADO, no `(activate)`: el outlet activa el componente del
@@ -217,5 +236,82 @@ describe('[MT.5.2] abrir al lado y cerrar', () => {
     const llamar = (segs: unknown[]) => (cola.matcher as (s: unknown[]) => unknown)(segs);
     expect(llamar([])).toBeNull();
     expect(llamar([{ path: 'x', parameters: {} }])).not.toBeNull();
+  });
+
+  /**
+   * `[MT.5.3]` **El split SOBREVIVE al cambiar de pantalla**, incluso saliendo
+   * del área.
+   *
+   * ── El defecto, reportado por Edgar el 2026-10-16 ────────────────────────────
+   * «si le doy en Mi trabajo las dos pestañas se cierran, y sólo debería cerrarse
+   * una». El outlet `panel` colgaba del ÁREA, así que al navegar a `/projects`
+   * —que ni siquiera usa el layout— el panel no tenía dónde existir y la
+   * partición se perdía entera.
+   *
+   * ⭐ Lo que lo arregla NO es un enlace nuevo: es DÓNDE vive el outlet.
+   * `createUrlTree` conserva los outlets que los comandos no nombran, en el grupo
+   * donde están. Colgando de la raíz, el panel es hermano del primario y
+   * cualquier `routerLink` normal lo deja intacto. Medido antes de mover nada:
+   *
+   *   panel en el ÁREA  → createUrlTree(['/projects']) = '/projects'
+   *   panel en la RAÍZ  → createUrlTree(['/projects']) = '/projects(panel:…)'
+   *
+   * Por eso se afirma sobre `createUrlTree` y no sólo sobre `navigateByUrl`: el
+   * gesto real es un enlace, y un test que escribiera la URL a mano pasaría
+   * aunque el enlace la perdiera — que es exactamente el caso que falló.
+   */
+  describe('[MT.5.3] el panel sobrevive al salir del área', () => {
+    /** Lo que arma un `routerLink` normal del sidebar o de la migaja. */
+    const comoUnEnlace = (destino: string) => router.createUrlTree([destino]);
+
+    it('ir a «Mi trabajo» con un enlace normal CONSERVA el panel', async () => {
+      await ir(SPLIT);
+      expect(panel.abierto).toBe(true);
+
+      const arbol = comoUnEnlace('/projects');
+      expect(router.serializeUrl(arbol)).toContain('panel:compras/requisiciones/abc');
+
+      expect(await router.navigateByUrl(arbol)).toBe(true);
+      fix.detectChanges();
+      expect(router.url).toContain('/projects');
+      expect(panel.abierto).toBe(true); // ⛔ esto es lo que se perdía
+    });
+
+    it('cruzar a OTRA área con un enlace normal también lo conserva', async () => {
+      await ir(SPLIT);
+      const arbol = comoUnEnlace('/comercial/command-center');
+      expect(router.serializeUrl(arbol)).toContain('panel:compras/requisiciones/abc');
+      expect(await router.navigateByUrl(arbol)).toBe(true);
+      fix.detectChanges();
+      expect(panel.abierto).toBe(true);
+    });
+
+    /**
+     * NEGATIVA — que la compuerta sepa ponerse roja. Se rearma el cableado como
+     * estaba (el aux route colgando del ÁREA) y se comprueba que el defecto
+     * vuelve: el enlace a `/projects` pierde el panel. Sin esto, las dos pruebas
+     * de arriba pasarían igual con un router que conservara outlets por su
+     * cuenta, y no probarían que lo que arregla es la mudanza a la raíz.
+     */
+    it('NEGATIVA: con el panel colgando del ÁREA, el enlace lo pierde', async () => {
+      const viejo = montar(
+        desnudar([
+          {
+            path: 'compras',
+            component: Anfitrion,
+            children: [
+              { path: 'requisiciones', component: Vacio },
+              { matcher: (s) => (s.length > 0 ? { consumed: [] } : null), outlet: 'panel',
+                children: [{ path: 'compras/requisiciones/abc', component: Vacio }] },
+            ],
+          },
+          { path: 'projects', component: Vacio },
+        ]),
+      );
+      expect(
+        await viejo.router.navigateByUrl('/compras/(requisiciones//panel:compras/requisiciones/abc)'),
+      ).toBe(true);
+      expect(viejo.router.serializeUrl(viejo.router.createUrlTree(['/projects']))).toBe('/projects');
+    });
   });
 });
