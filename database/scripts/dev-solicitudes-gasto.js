@@ -26,9 +26,9 @@
  * está parado, aborta — un candado que no sabe es un candado abierto (ADR-056).
  *
  * ## Uso
- *   node database/seeds-newdb/dev-solicitudes-gasto.js            # siembra 6
- *   node database/seeds-newdb/dev-solicitudes-gasto.js --n=20     # siembra 20
- *   node database/seeds-newdb/dev-solicitudes-gasto.js --limpiar  # borra SOLO lo sembrado
+ *   node database/scripts/dev-solicitudes-gasto.js            # siembra 6
+ *   node database/scripts/dev-solicitudes-gasto.js --n=20     # siembra 20
+ *   node database/scripts/dev-solicitudes-gasto.js --limpiar  # borra SOLO lo sembrado
  */
 'use strict';
 
@@ -157,7 +157,7 @@ async function main() {
     for (const v of vistas.slice(0, 10)) {
       console.log(`   ${v.folio}  suc ${v.sucursal}  $${Number(v.importe).toFixed(2)}  ${v.beneficiario}`);
     }
-    console.log('\nPara retirarlas: node database/seeds-newdb/dev-solicitudes-gasto.js --limpiar');
+    console.log('\nPara retirarlas: node database/scripts/dev-solicitudes-gasto.js --limpiar');
   } finally {
     await knex.destroy();
   }
