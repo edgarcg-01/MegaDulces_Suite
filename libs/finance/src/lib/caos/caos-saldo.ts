@@ -35,7 +35,7 @@ export const CAOS_EFECTO_POR_TIPO: Readonly<Record<number, CaosTipoEfecto>> = {
   4: { efecto: 'resta', signo: -1, motivo: 'Dispensar: sale efectivo de la máquina.' },
   8: { efecto: 'suma', signo: 1, motivo: 'Dotar: se cargan casetes.' },
   5: { efecto: 'resta', signo: -1, motivo: 'Vaciar Stocks: se saca el contenido de los casetes.' },
-  2: { efecto: 'foto', signo: 0, motivo: 'Fin de Dia: es una foto del contenido, no mueve efectivo.' },
+  2: { efecto: 'foto', signo: 0, motivo: 'Fin de Dia: la máquina lee su propio contenido al cerrar el día; no mueve efectivo.' },
   7: { efecto: 'indeterminado', signo: 0, motivo: 'Cambio: total $0; la dirección por denominación no está probada.' },
   13: { efecto: 'indeterminado', signo: 0, motivo: 'Contenido Modificado: ajuste del registro del equipo, sin denominaciones.' },
 };
@@ -61,6 +61,32 @@ export function tiposIndeterminados(): number[] {
   return Object.entries(CAOS_EFECTO_POR_TIPO)
     .filter(([, e]) => e.efecto === 'indeterminado')
     .map(([id]) => Number(id));
+}
+
+// ── ¿Ya está en Caja General? ───────────────────────────────────────────────────────────────
+
+/**
+ * `[CGA-A.41]` El folio de Caja General que registra un movimiento de CAOS, o `NULL`.
+ *
+ * La regla es la MISMA de la bandeja de Captura (`cash-ledger.service#caosCapturables`): está
+ * registrado si el libro tiene una fila viva con `origen_tipo='caos'` y su identidad, **o** si
+ * quedó enlazado a un gasto en `finance.caos_cash_links`. ⚠️ Deuda declarada: `caosCapturables`
+ * todavía la escribe aparte; hasta que lea de acá, si una cambia la otra no se entera.
+ *
+ * `m` es el alias de `analytics.caos_cash_movements` en la consulta que la usa.
+ */
+export function sqlFolioCajaGeneral(m = 'm'): string {
+  return `COALESCE(
+    (SELECT l.folio FROM finance.cash_ledger l
+      WHERE l.tenant_id = ${m}.tenant_id AND l.origen_tipo = 'caos'
+        AND l.origen_ref = ${m}.device || '|' || ${m}.external_id
+        AND l.deleted_at IS NULL AND l.estado <> 'cancelado'
+      ORDER BY l.created_at LIMIT 1),
+    (SELECT l.folio FROM finance.caos_cash_links k
+       JOIN finance.cash_ledger l ON l.id = k.cash_ledger_id AND l.deleted_at IS NULL
+      WHERE k.tenant_id = ${m}.tenant_id AND k.caos_device = ${m}.device
+        AND k.caos_external_id = ${m}.external_id AND k.deleted_at IS NULL
+      ORDER BY k.created_at LIMIT 1))`;
 }
 
 // ── El cuadre continuo: foto contra foto más movimientos ────────────────────────────────────

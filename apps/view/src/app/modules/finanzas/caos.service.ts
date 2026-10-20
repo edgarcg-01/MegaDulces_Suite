@@ -17,6 +17,8 @@ export interface CaosMovimiento {
   total: number;
   currency: string;
   ref: string | null;
+  /** `[CGA-A.41]` Folio de Caja General que lo registra; `null` = falta registrarlo (sólo depósitos y dispensaciones). */
+  folio_caja_general?: string | null;
 }
 
 export interface CaosKpi {
@@ -58,8 +60,16 @@ export interface CaosSaldo {
   saldo: { total: number; por_denominacion: CaosDenomFila[]; origen: 'maquina' | 'foto_mas_movimientos'; parcial: boolean } | null;
   cuadre: { pares: number; cuadran: number; descuadres: CaosParCuadre[]; no_verificables: CaosParCuadre[] } | null;
   conteo_fisico: { medido: false; motivo: string };
-  latido: { cuando: string | null; status: string; nota: string | null; error: string | null } | null;
+  latido: CaosLatido | null;
+  /** Los tres carriles de CAOS: la pantalla avisa una falla aunque su panel esté plegado. */
+  latidos: { movimientos: CaosLatido | null; conteo: CaosLatido | null; atribucion: CaosLatido | null };
+  /** `[CGA-A.41]` Lo que falta registrar en Caja General, desde el primer movimiento registrado. */
+  pendientes: {
+    medido: boolean; desde: string | null; movimientos: number; monto: number;
+    depositos: { n: number; monto: number }; dispensaciones: { n: number; monto: number }; mas_viejo: string | null;
+  };
 }
+export interface CaosLatido { cuando: string | null; al: string | null; status: string; nota: string | null; error: string | null }
 
 /** `[CG.163]` Los tipos que de verdad existen en la ventana. El combo ya no los adivina. */
 export interface CaosTipo { type_id: number; type_label: string; n: number }
@@ -71,6 +81,8 @@ export interface CaosMovimientosResponse {
   tipos: CaosTipo[];
   /** `[CGA-A.33]` Qué hace cada `type_id` con el saldo (el mapa del backend, no una copia). */
   efectos?: Record<string, CaosTipoEfecto>;
+  /** `[CGA-A.41]` Desde cuándo se registra CAOS en Caja General (derivado). */
+  registro_desde?: string | null;
   desde: string;
   limit: number;
   has_more: boolean;
@@ -95,7 +107,7 @@ export class CaosService {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/finance/caos`;
 
-  movimientos(f: { from?: string; to?: string; tipo?: string; usuario?: string; ref?: string; limit?: number }): Observable<CaosMovimientosResponse> {
+  movimientos(f: { from?: string; to?: string; tipo?: string; usuario?: string; ref?: string; buscar?: string; estado?: 'sin_registrar'; limit?: number }): Observable<CaosMovimientosResponse> {
     let p: Record<string, string> = {};
     for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
     return this.http.get<CaosMovimientosResponse>(`${this.base}/movimientos`, { params: p });
