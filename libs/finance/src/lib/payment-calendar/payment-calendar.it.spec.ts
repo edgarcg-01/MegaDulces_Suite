@@ -601,6 +601,74 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
   });
 
   /**
+   * `[TP.21]` **La costura: el libro de Tesorería y el Calendario son la misma línea de tiempo.**
+   *
+   * Medido en prod el 2026-10-20: el libro llega al **2026-08-28**, el calendario empieza el
+   * **2026-10-16**, **0 días en común** y **53 días** en medio de los que ninguna de las dos
+   * pantallas decía nada. Lo que se prueba acá es que el día sabe de su propio pasado — y que
+   * **«no se pagó» y «el Excel no tiene ese mes» no se pintan igual** (`[PP.10]`, ADR-056).
+   *
+   * ⛔ No se casa un renglón del libro con una asignación: no hay llave. Se **suma por fecha**.
+   */
+  describe('[TP.21] el día del calendario sabe lo que el libro dice de ese mismo día', () => {
+    const SEM = '2029-05-16';            // miércoles de una semana lejos de todo dato
+    const LUN = '2029-05-14';
+    const MAR = '2029-05-15';
+    const MES = '2029-05';
+
+    beforeAll(async () => {
+      await trx('finance.payment_program').insert([
+        { tenant_id: M, source_month: MES, client_uuid: 'tp21-a', supplier_text: 'TP21 UNO', amount: 1200, pay_date: LUN },
+        { tenant_id: M, source_month: MES, client_uuid: 'tp21-b', supplier_text: 'TP21 DOS', amount: 800, pay_date: LUN },
+        { tenant_id: M, source_month: MES, client_uuid: 'tp21-c', supplier_text: 'TP21 TRES', amount: 500, pay_date: MAR },
+      ]);
+    }, 60_000);
+
+    it('⭐ suma por fecha: el lunes trae sus dos pagos, el martes el suyo', async () => {
+      const w = await cal.weekView(SEM);
+      const lun = w.days.find((d) => d.date === LUN)!;
+      const mar = w.days.find((d) => d.date === MAR)!;
+      expect(lun.libro!.n).toBe(2);
+      expect(Number(lun.libro!.monto)).toBeCloseTo(2000, 2);
+      expect(mar.libro!.n).toBe(1);
+      expect(Number(mar.libro!.monto)).toBeCloseTo(500, 2);
+    });
+
+    it('⭐ un día SIN pagos de un mes que SÍ está cargado es un cero de verdad', async () => {
+      const w = await cal.weekView(SEM);
+      const mie = w.days.find((d) => d.date === SEM)!;
+      expect(mie.libro!.n).toBe(0);
+      expect(mie.libro!.mes_cargado).toBe(true);     // ⇒ la pantalla puede decir "no se pagó"
+    });
+
+    it('⛔ un día de un mes que el libro NO tiene se marca, no se dibuja en cero', async () => {
+      // La semana siguiente cae en un mes que nadie cargó: mismo `monto: 0`, significado opuesto.
+      const w = await cal.weekView('2029-07-18');
+      for (const d of w.days) {
+        expect(d.libro!.n).toBe(0);
+        expect(d.libro!.mes_cargado).toBe(false);    // ⇒ la pantalla DEBE decir "sin cargar"
+      }
+    });
+
+    it('⛔ la costura no inventa una liga: el libro no toca lo asignado del día', async () => {
+      // Mismo día, las dos fuentes. El resumen del calendario NO puede moverse por el libro:
+      // son universos distintos y mezclarlos es lo que produjo los $273 M de [PP.4].
+      const antes = await cal.daySummary(LUN);
+      const w = await cal.weekView(SEM);
+      const lun = w.days.find((d) => d.date === LUN)!;
+      expect(lun.libro!.n).toBe(2);
+      expect(Number(lun.summary.assigned_amount)).toBe(Number(antes.assigned_amount));
+      expect(Number(lun.summary.assigned_amount)).toBe(0);
+    });
+
+    it('la semana entera trae su bloque de libro, los siete días', async () => {
+      const w = await cal.weekView(SEM);
+      expect(w.days.length).toBe(7);
+      expect(w.days.every((d) => d.libro != null)).toBe(true);
+    });
+  });
+
+  /**
    * `[TP.19.4]` **El sistema PROPONE el documento de Kepler; no lo adivina.** (O3)
    *
    * Teclear la terna `(sucursal, doc_prefix, folio)` es el trabajo que la liga venía a evitar. El

@@ -510,6 +510,52 @@ export class PaymentCalendarService {
     });
   }
 
+  /**
+   * `[TP.21.1]` **El libro de Tesorería, sumado por día, para una semana.**
+   *
+   * El *Programa de pagos* y el *Calendario* son la misma línea de tiempo —el día en que sale el
+   * dinero— cortada en dos: el pasado lo lleva un Excel y el futuro lo lleva el sistema. Medido el
+   * 2026-10-20: el libro llega al **2026-08-28**, el calendario empieza el **2026-10-16**, hay
+   * **0 días en común** y **53 días** en medio de los que ninguna pantalla dice nada.
+   *
+   * ⛔ **No casa renglones.** El libro no guarda el folio del pago de Kepler; casarlo por
+   * monto+mes es lo de `[PP.4]` ($273 M indefendibles). Acá se suma por `pay_date`, que es la
+   * única llave que las dos comparten de verdad, y el resultado se publica como **otro universo**,
+   * no como la misma fila.
+   *
+   * ⚠️ `mes_cargado` es la mitad del valor: un día de un mes que el Excel no tiene da `0` por
+   * ausencia, no porque no se haya pagado. Es el mismo defecto que `[PP.10]` encontró escondiendo
+   * $91,720,679 — pintarlos igual es dibujar un cero que nadie midió (ADR-056).
+   */
+  private async weekBook(from: string, to: string): Promise<Record<string, { monto: number; n: number; mes_cargado: boolean }>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const porDia = await trx('finance.payment_program')
+        .select(trx.raw(`to_char(pay_date,'YYYY-MM-DD') AS dia`))
+        .sum({ monto: 'amount' }).count({ n: '*' })
+        .where({ tenant_id: tenantId })
+        .whereBetween('pay_date', [from, to])
+        .groupByRaw('1');
+      // Qué MESES tiene el libro. Se pregunta aparte porque la respuesta para un día sin filas
+      // depende de esto: sin mes no es "no se pagó", es "no sabemos".
+      const meses = await trx('finance.payment_program')
+        .distinct('source_month').where({ tenant_id: tenantId })
+        .whereNotNull('source_month');
+      const cargados = (meses as { source_month: string }[]).map((m) => m.source_month);
+
+      const out: Record<string, { monto: number; n: number; mes_cargado: boolean }> = {};
+      for (const d of weekDates(from)) {
+        const fila = (porDia as { dia: string; monto: string | null; n: string }[]).find((x) => x.dia === d);
+        out[d] = {
+          monto: Number(fila?.monto ?? 0),
+          n: Number(fila?.n ?? 0),
+          mes_cargado: cargados.indexOf(d.slice(0, 7)) >= 0,
+        };
+      }
+      return out;
+    });
+  }
+
   // ── Resumen del día (capacidad + asignado + restante + ejecutado + pendiente) ────────
   async daySummary(date: string) {
     this.assertDate(date);
@@ -627,6 +673,11 @@ export class PaymentCalendarService {
       const lot = await this.getLot(d);
       out.push({ date: d, summary, allocations, lot_folio: (lot?.folio as string | undefined) ?? null });
     }
+    // `[TP.21.1]` El pasado de esta misma semana, según el libro de Tesorería. UNA consulta para
+    // los siete días, no una por día: la nota de arriba ya cuenta 21 transacciones en serie y
+    // sumar siete más por una tira de encabezado sería pagar el doble por la mitad del dato.
+    const libro = await this.weekBook(days[0], days[6]);
+    for (const day of out) day.libro = libro[day.date] ?? null;
     return { from: days[0], to: days[6], days: out };
   }
 

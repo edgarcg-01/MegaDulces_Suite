@@ -61,11 +61,38 @@ export interface PaymentCalendarAllocation {
   items: PaymentCalendarAllocationItem[];
 }
 
+/**
+ * `[TP.21.1]` **Lo que el libro de Tesorería dice de ESE día.**
+ *
+ * El Calendario y el *Programa de pagos* no son dos temas: son **la misma línea de tiempo** —el
+ * día en que sale el dinero— cortada en dos, con el pasado en un Excel y el futuro en el sistema.
+ * Medido el 2026-10-20: el libro llega hasta el **2026-08-28** y el calendario empieza el
+ * **2026-10-16**; **0 días en común** y **53 días** en medio de los que ninguna de las dos
+ * pantallas dice nada.
+ *
+ * ⛔ Esto **no casa renglones**: el libro no guarda el folio del pago de Kepler, y casar por
+ * monto+mes es lo que produjo los $273 M indefendibles de `[PP.4]`. Acá sólo se **suma por
+ * fecha**, que es la única llave que las dos comparten de verdad.
+ */
+export interface PaymentCalendarDayBook {
+  /** Lo que el libro registra ese día. `0` con `mes_cargado: true` sí significa «no se pagó». */
+  monto: number;
+  n: number;
+  /**
+   * ⚠️ Si el mes de ese día **no está cargado** en el libro, `monto` es `0` por ausencia, no por
+   * ausencia de pagos. Sin esta bandera las dos cosas se pintan igual — que es exactamente el
+   * defecto que `[PP.10]` encontró escondiendo $91,720,679 en la conciliación mensual.
+   */
+  mes_cargado: boolean;
+}
+
 export interface PaymentCalendarWeekDay {
   date: string;
   summary: PaymentCalendarDaySummary;
   allocations: PaymentCalendarAllocation[];
   lot_folio: string | null;
+  /** `[TP.21.1]` El pasado de este mismo día, según el libro. `null` = no se pudo medir. */
+  libro?: PaymentCalendarDayBook | null;
 }
 
 export interface PaymentCalendarWeek {
