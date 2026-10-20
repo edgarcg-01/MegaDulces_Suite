@@ -221,7 +221,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🔨 |
 | **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
 | **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
-| **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | 🔨 |
+| **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | ⏸️ |
 | **RE** | Recepción de Mercancía 360 (digitaliza el Excel de recepción) | 🟢 |
 | **CA** | CEDIS (Kepler Access 97) → ODS | 🟢 |
 | **WR** | Réplica cruda Wincaja (Access 97 → Postgres, continua) | 🟢 |
