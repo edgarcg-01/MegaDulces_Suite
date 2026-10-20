@@ -93,7 +93,11 @@ const fin = async (db) => {
 
   // ── 1. La trampa EXISTE: una baja CON fecha y CON pago histórico ─────────────────────────
   const { rows: trampas } = await db.query(
-    `SELECT c.route_code, c.activo_hasta::date AS hasta,
+    // ⚠️ `to_char`, NO `::date`: node-pg devuelve un `date` como OBJETO Date, y `String(d)`
+    // da "Wed Jul 15 2026 …", que comparado contra "YYYY-MM-DD" nunca ordena bien. El
+    // candado se declaraba NO MEDIDO por eso -- el instrumento roto, no el dato. Es el mismo
+    // defecto que `[LC.16]`, en la otra dirección.
+    `SELECT c.route_code, to_char(c.activo_hasta, 'YYYY-MM-DD') AS hasta,
             COALESCE(sum(l.a_pagar), 0)::numeric(14,2) AS pagado,
             count(DISTINCT r.period_id) AS quincenas
        FROM ${TABLA} c
