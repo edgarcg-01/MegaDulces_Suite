@@ -8,40 +8,24 @@
  *  · La regla `priority 142` (`code ^612$`, concepto `CAPITAL|CREDITO|CRÉDITO|PRESTAMO|…`)
  *    se lleva los cargos `APLI TASA DE DES CREDITO/1750968xx TERMINALES PUNTO DE VENTA`,
  *    que son la **comisión que BBVA cobra por cobrar con tarjeta**, no un pago de crédito.
- *  · **La misma comisión está repartida en CUATRO estados** (lo mismo que midió
- *    [`FASE_CP8_ATERRIZAJE`](../../docs/IMPLEMENTACION/FASES/FASE_CP8_ATERRIZAJE.md) `[CP.8.46]`,
- *    que delega el arreglo a esta fase):
- *
- *      770 en `pago_credito`     $202,130.82   ← la palabra "CREDITO"
- *      792 sin categoría         $131,849.15   ← la variante DEBITO: no la tomaba ninguna regla
- *       21 en `cobranza`           $8,124.85   ← capturadas con `code 102`
- *        7 en `iva_acreditable`      $499.09
- *    ─────────────────────────────────────────
- *    **1,590 movimientos · $342,603.91** → `comision_bancaria`
- *
- *  · Y **26 movimientos del IVA de esa comisión** (`$1,425.45`) llegan con el código del gasto
- *    o del depósito y no con el suyo; van a `iva_acreditable`, que es donde ya están los otros
- *    1,560 que sí traen `code 147`.
+ *  · **781 movimientos / $203,047.77** mal clasificados como `pago_credito`.
+ *  · **800 movimientos / $132,252.69** de la variante `DEBITO` quedaban **sin categoría**
+ *    (ninguna regla las tomaba: no dicen "COMISI" ni "CREDITO").
+ *  · Total que esta migración recategoriza: **1,581 movimientos / $335,300.46**.
  *  · El pago de crédito REAL (`PAGO DE CAPITAL …`, `PAGO DE INTERESES …`) son ~4 al mes y
  *    **no los toca**: no dicen "TASA DE DES".
  *  · Contabilidad ya las lleva bien: **85 de 85** de una muestra jul–sep >$500 tienen su
  *    línea en `611-003 COMISIONES BANCARIAS` (distancia −3 a +14 días; control placebo con un
  *    importe inventado: 0 coincidencias en ContPAQi y en el mayor).
  *
- * ⚠️ **Por qué el regex nombra la tasa de descuento y no la terminal.** `TERMINALES PUNTO DE
- * VENTA` a secas también está en el concepto del **depósito** de la venta con tarjeta: **647
- * movimientos / $4,975,481.93** hoy correctos en `cobranza`, que este cambio **no toca**
- * (medido). Lo que identifica a la comisión es la frase `TASA DE DES(C)? (CREDITO|DEBITO)`.
+ * ⚠️ **Por qué el regex es estrecho.** `TERMINALES PUNTO DE VENTA` a secas también aparece en
+ * el concepto del **depósito** de la venta con tarjeta: 672 movimientos / **$4,983,804.98** hoy
+ * correctamente en `cobranza`. Por eso las dos reglas exigen `code = 612` (egreso) **y** la
+ * frase `TASA DE DES(C)? (CREDITO|DEBITO)`. Medido: con ese acote, cero ingresos entran.
  *
- * ⚠️ **Las prioridades son 54 y 55, no 138/139.** La regla `70` (`code ^102$` → `cobranza`) y la
- * `61` (`type ^I$` → `cobranza`) se evalúan antes, así que una regla en los 130 nunca vería las
- * 21 comisiones capturadas con `code 102`. Por eso van arriba, y **sin** `match_code`: el código
- * del renglón es justamente lo que viene mal capturado.
- *
- * ⚠️ **Falso positivo conocido y declarado:** de los ~3,176 movimientos que dicen esa frase,
- * **uno** trae el importe en DEPÓSITO (`$114.01`, 24-jul, `APLI TASA DE DES DEBITO`) — parece
- * una devolución de comisión. El motor clasifica por texto y **no ve el importe**, así que ese
- * queda en `comision_bancaria`. Se prefiere eso a dejar 1,589 mal por cuidar uno.
+ * ⚠️ El IVA de esa comisión ya va bien a `iva_acreditable` cuando viene con `code 147` (1,567
+ * movimientos). Pero **9 llegaron capturados con `code 612`** y se quedaban sin categoría; la
+ * regla `138` los manda a `iva_acreditable`, que es como el libro trata todos los demás IVA.
  *
  * ⚠️ Esta migración **no crea objetos de esquema** (INSERT de 2 reglas + UPDATE de movimientos):
  *    la compuerta de despliegue la clasifica NO_MEDIDO. Aplicar a prod ANTES de mergear.
@@ -64,13 +48,15 @@ exports.up = async function up(knex) {
 
   const reglas = [
     {
-      priority: 54,
+      priority: 138,
+      match_code: '^612$',
       match_concept: RE_IVA,
       category_code: 'iva_acreditable',
-      note: 'IVA de la comisión de TPV, venga con el código que venga (CB.52)',
+      note: 'IVA de comisión TPV capturado con código de gasto (CB.52)',
     },
     {
-      priority: 55,
+      priority: 139,
+      match_code: '^612$',
       match_concept: RE_COMISION,
       category_code: 'comision_bancaria',
       note: 'Tasa de descuento TPV crédito/débito = comisión bancaria, no pago de crédito (CB.52)',
@@ -81,12 +67,12 @@ exports.up = async function up(knex) {
     await knex.raw(
       `INSERT INTO finance.bank_classify_rules
          (tenant_id, priority, match_type, match_code, match_concept, category_code, note, active)
-       VALUES (?, ?, NULL, NULL, ?, ?, ?, true)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, true)
        ON CONFLICT (tenant_id, priority) DO UPDATE
-         SET match_type = NULL, match_code = NULL,
+         SET match_type = NULL, match_code = EXCLUDED.match_code,
              match_concept = EXCLUDED.match_concept, category_code = EXCLUDED.category_code,
              note = EXCLUDED.note, active = true, updated_at = now()`,
-      [TENANT, r.priority, r.match_concept, r.category_code, r.note],
+      [TENANT, r.priority, r.match_code, r.match_concept, r.category_code, r.note],
     );
   }
 
@@ -97,7 +83,7 @@ exports.up = async function up(knex) {
         SET category_id = c.id, classified_by = 'rule', updated_at = now()
        FROM finance.movement_categories c
       WHERE c.tenant_id = m.tenant_id AND c.code = 'iva_acreditable'
-        AND m.tenant_id = ?
+        AND m.tenant_id = ? AND m.raw_code = '612'
         AND m.concept ~* ? AND m.deleted_at IS NULL
         AND m.category_id IS DISTINCT FROM c.id
         AND COALESCE(m.classified_by, '') <> 'manual'`,
@@ -109,7 +95,7 @@ exports.up = async function up(knex) {
         SET category_id = c.id, classified_by = 'rule', updated_at = now()
        FROM finance.movement_categories c
       WHERE c.tenant_id = m.tenant_id AND c.code = 'comision_bancaria'
-        AND m.tenant_id = ?
+        AND m.tenant_id = ? AND m.raw_code = '612'
         AND m.concept ~* ? AND m.concept !~* ? AND m.deleted_at IS NULL
         AND m.category_id IS DISTINCT FROM c.id
         AND COALESCE(m.classified_by, '') <> 'manual'`,
@@ -133,7 +119,20 @@ exports.down = async function down(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
   await knex.raw(
     `DELETE FROM finance.bank_classify_rules
-      WHERE tenant_id = ? AND priority IN (54, 55) AND note LIKE '%CB.52%'`,
+      WHERE tenant_id = ? AND priority IN (138, 139) AND note LIKE '%CB.52%'`,
     [TENANT],
   );
 };
+
+/**
+ * ⚠️⚠️ **ESTE ARCHIVO ES EL QUE CORRIÓ EN PROD (batch 976, 2026-10-20 15:40 MX) Y NO SE TOCA.**
+ *
+ * Alcanzó al 98 %: dejó **1,561 movimientos en `comision_bancaria`** y 1,587 en
+ * `iva_acreditable`. Lo que NO alcanzó son los **28 capturados con `code 102` o sin código**
+ * ($8,229.81), porque sus reglas exigen `^612$` y viven en 138/139 — debajo de la `61`
+ * (`type ^I$`) y la `70` (`code ^102$`), que mandan a `cobranza` antes de llegar ahí.
+ *
+ * Eso lo completa la migración hermana `..._bank_rules_comision_tpv_prioridad.js`, que mueve
+ * las reglas a 54/55 sin `match_code`. **Acá no se corrige nada**: una migración ya aplicada
+ * que cambia de contenido deja el ledger describiendo algo que nunca corrió.
+ */
