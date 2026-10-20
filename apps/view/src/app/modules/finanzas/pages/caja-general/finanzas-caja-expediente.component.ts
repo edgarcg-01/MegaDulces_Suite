@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -16,6 +17,9 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import { CajaSocketService } from '../../caja-socket.service';
+import { CaosSocketService } from '../../caos-socket.service';
+import { encuestarVisible } from '../../../../core/utils/poll-visible';
 
 /** Un renglón del historial: un día, con el corte de ese día. */
 export interface CorteDia {
@@ -166,7 +170,12 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
            compone lo que veria quien lo abriera: el cierre anterior + lo de hoy, DECLARADO como
            provisional, y al lado el ultimo conteo de Control para que una discrepancia se vea. -->
       <section class="cx-ahora" aria-labelledby="cx-h-ahora">
-        <h2 id="cx-h-ahora" class="cx-ahora-h">¿Cuánto hay en el cajón ahora?</h2>
+        <div class="cx-ahora-cab">
+          <h2 id="cx-h-ahora" class="cx-ahora-h">¿Cuánto hay en el cajón ahora?</h2>
+          <!-- DESIGN §9 — la cifra es DERIVADA al pedirla: la edad que importa es cuándo se calculó.
+               Se recalcula con cada aviso del libro o de CAOS y cada 60 s. -->
+          <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado"></app-freshness-pill>
+        </div>
         <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
           <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora"></app-metric-strip>
@@ -466,7 +475,8 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
     .cx-actions { display:flex; gap:var(--sp-2); align-items:center; }
 
     .cx-ahora { margin-block:var(--sp-4) var(--sp-2); }
-    .cx-ahora-h { font-size:var(--fs-h3); font-weight:600; margin:0 0 var(--sp-2); }
+    .cx-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
+    .cx-ahora-h { font-size:var(--fs-h3); font-weight:600; margin:0; }
     .cx-ahora-nota { font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 0; max-width:60rem; }
     .cx-veredicto {
       border:1px solid var(--border-color); border-radius:var(--r-lg);
@@ -576,7 +586,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
     .cx-cust small { color:var(--text-faint); font-size:var(--fs-micro); }
   `],
 })
-export class FinanzasCajaExpedienteComponent implements OnInit {
+export class FinanzasCajaExpedienteComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/caja-control`;
 
@@ -665,12 +675,16 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
   readonly cajonCargando = signal(false);
   readonly cajonError = signal<string | null>(null);
 
+  /** Cuándo se calculó el cajón por última vez (hora del navegador: la cifra es DERIVADA al pedirla). */
+  readonly cajonAl = signal<string | null>(null);
+
   cargarCajon(): void {
     this.cajonCargando.set(true);
     forkJoin({ f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00') }).subscribe({
       next: ({ f, s }) => {
         this.cajonFondo.set(f); this.cajonSaldo.set(s);
         this.cajonError.set(null); this.cajonCargando.set(false);
+        this.cajonAl.set(new Date().toISOString());
       },
       error: () => { this.cajonError.set('No se pudo leer el saldo del libro de Caja General.'); this.cajonCargando.set(false); },
     });
@@ -758,16 +772,60 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
     return partes.length ? partes.join(' ') : null;
   });
 
-  ngOnInit(): void { this.recargar(); }
+  private readonly sockCaja = inject(CajaSocketService);
+  private readonly sockCaos = inject(CaosSocketService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
-  recargar(): void {
+  ngOnInit(): void {
+    this.recargar();
+    this.enVivo();
+  }
+
+  ngOnDestroy(): void {
+    this.sockCaja.disconnect();
+    this.sockCaos.disconnect();
+  }
+
+  /**
+   * `[CGA-A.43]` **El cajón se recalcula solo.** Antes cargaba al abrir y al apretar
+   * «Actualizar»: con la pantalla abierta, los movimientos seguían entrando y la cifra se quedaba
+   * vieja sin decirlo. Tres disparadores, cada uno por una razón:
+   *
+   *  · aviso del LIBRO (`/caja`): alguien capturó algo → el efecto del día cambió;
+   *  · aviso de CAOS (`/caos`): la máquina dispensó o recibió billetes → el cajón cambió aunque
+   *    nadie capture nada (en el corte, lo dispensado está en el cajón hasta que se registre);
+   *  · repaso de 60 s con la pestaña visible: un conteo nuevo de Control llega por réplica y NO
+   *    avisa; y un aviso perdido no deja rastro. Medido 2026-10-20: cajón ~100 ms, historial de
+   *    Control ~300 ms.
+   *
+   * Los avisos sólo recalculan el CAJÓN (barato); el historial entra con el repaso.
+   */
+  private enVivo(): void {
+    try {
+      this.sockCaja.connect();
+      this.sockCaja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.cargarCajon());
+      this.sockCaos.connect();
+      this.sockCaos.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.cargarCajon());
+    } catch (e) {
+      console.warn('[expediente] sin avisos en vivo; queda el repaso:', e);
+    }
+    encuestarVisible(60000, () => this.recargar(true), { destroyRef: this.destroyRef, zone: this.zone });
+  }
+
+  /**
+   * @param silencioso `[CGA-A.43]` El repaso de 60 s NO vuelve a pintar el esqueleto sobre una tabla
+   *   que ya tiene datos (parpadearía cada minuto), y un fallo de ese repaso no borra lo que se ve:
+   *   se declara en `error` sólo si no había nada que mostrar.
+   */
+  recargar(silencioso = false): void {
     this.cargarCajon();
-    this.cargando.set(true);
-    this.error.set(null);
+    const conDatos = this.dias().length > 0;
+    if (!(silencioso && conDatos)) { this.cargando.set(true); this.error.set(null); }
     this.http.get<{ rows: CorteDia[]; frescura?: Freshness }>(`${this.base}/cortes?limit=90`).subscribe({
-      next: (r) => { this.dias.set(r?.rows ?? []); this.frescura.set(r?.frescura ?? null); this.cargando.set(false); },
+      next: (r) => { this.dias.set(r?.rows ?? []); this.frescura.set(r?.frescura ?? null); this.cargando.set(false); this.error.set(null); },
       error: () => {
-        this.error.set('No se pudo traer el historial de cortes.');
+        if (!(silencioso && conDatos)) this.error.set('No se pudo traer el historial de cortes.');
         this.cargando.set(false);
       },
     });

@@ -19,6 +19,7 @@ import { MX_TZ, todayMx, toMxDateKey } from '../../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import { CaosService, type CaosMovimiento, type CaosKpi, type CaosDenominacion, type CaosPorRuta, type CaosPorOperador, type CaosConciliacion, type CaosIngresosEstado, type CaosTipo, type CaosSaldo, type CaosTipoEfecto } from '../../caos.service';
 import { CaosSocketService } from '../../caos-socket.service';
+import { CajaSocketService } from '../../caja-socket.service';
 
 /**
  * CS.2 — Reporte de movimientos de la caja fuerte CAOS (sistema externo, ADR Fase CS).
@@ -525,6 +526,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
 export class FinanzasCaosComponent implements OnInit, OnDestroy {
   private svc = inject(CaosService);
   private sock = inject(CaosSocketService);
+  private sockCaja = inject(CajaSocketService);
   private destroyRef = inject(DestroyRef);
   private zone = inject(NgZone);
 
@@ -782,7 +784,7 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     this.enVivo();
   }
 
-  ngOnDestroy(): void { this.sock.disconnect(); }
+  ngOnDestroy(): void { this.sock.disconnect(); this.sockCaja.disconnect(); }
 
   /** La consulta barata: es la única que corre al entrar y en cada repaso. */
   cargar(): void {
@@ -925,6 +927,16 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
         this.cargar();
         // Un movimiento o una foto nueva cambian el saldo; el rango de abajo no lo filtra.
         this.cargarSaldo();
+      });
+      /**
+       * [CGA-A.43] «Sin registrar en Caja General» baja cuando alguien registra el movimiento EN
+       * CAPTURA, y eso avisa por el canal del libro, no por el de CAOS. Sin esto la cifra tardaba
+       * hasta 60 s (el repaso) en reflejar un registro hecho en la otra pestaña.
+       */
+      this.sockCaja.connect();
+      this.sockCaja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+        this.cargarSaldo();
+        if (this.vista() === 'sin_registrar') this.cargar();
       });
     } catch (e) {
       console.warn('[caos] sin avisos en vivo; queda el repaso:', e);
