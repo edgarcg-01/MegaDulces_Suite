@@ -225,7 +225,7 @@ exports.up = async function up(knex) {
            (tenant_id, cash_ledger_id, caos_device, caos_external_id, monto_enlazado, senales)
          VALUES (?::uuid, ?::uuid, ?, ?, ?::numeric,
                  jsonb_build_object('origen','CGA-A.24','por','conciliacion_uno_a_uno',
-                                    'cajon', ?::numeric, 'nota', ?))
+                                    'cajon', ?::numeric, 'nota', ?::text))
          ON CONFLICT (tenant_id, caos_device, caos_external_id) WHERE deleted_at IS NULL
          DO NOTHING`,
         [TENANT, l.id, DEVICE, c.deposito, c.maquina, c.cajon, c.nota]);
