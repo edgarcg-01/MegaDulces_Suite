@@ -1,5 +1,9 @@
 import { Global, Injectable, Logger, Module } from '@nestjs/common';
-import { MAILER_PORT, MailerPort, MailMessage } from '@megadulces/contracts';
+// ⚠️ `MailerPort` y `MailMessage` son INTERFACES: van con `type`. Sin él, webpack busca un valor
+// que no existe en tiempo de ejecución y el build cae con
+// «export 'MailerPort' was not found in '@megadulces/contracts'».
+// `MAILER_PORT` sí es un valor (el token de inyección) y va sin `type`.
+import { MAILER_PORT, type MailerPort, type MailMessage } from '@megadulces/contracts';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 
