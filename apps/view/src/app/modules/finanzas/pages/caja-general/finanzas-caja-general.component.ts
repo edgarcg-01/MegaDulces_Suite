@@ -58,7 +58,7 @@ import {
   textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
   pasoDelCorte, textoPaso, type PasoCorte, textoDeError, separarPorFlujo,
-  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, CAPTURA_MANUAL_HABILITADA,
+  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, CAPTURA_MANUAL_HABILITADA, puedeSellarUI,
 } from './caja-captura.util';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 import { CajaTabsComponent } from '../../caja-tabs.component';
@@ -1132,6 +1132,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-declara span { font-size:var(--fs-sm); }
     .cg-full { width:100%; }
     .cg-sel { min-width:9rem; }
+    /* [CGP-V.3b] La jornada del corte, en PRIMARIO: escala + peso + contraste, nunca color (Q.5).
+       Era un .fin-dim terciario y es el dato que decide a que dia se pega el conteo. */
+    .cg-jornada { margin:0; font-size:var(--fs-lg); font-weight:600; color:var(--text-main);
+                  font-variant-numeric:tabular-nums; }
+    /* El borde marca la jornada atrasada. El color NO es el unico portador: el texto lo dice,
+       el aviso lo repite y la confirmacion lo exige (forced-colors lo respeta). */
+    .cg-jornada-atrasada { border-left:3px solid var(--warn-fg); padding-left:var(--sp-2); }
+    .fin-check { display:flex; align-items:flex-start; gap:var(--sp-2); }
+    .fin-check label { font-size:var(--fs-sm); color:var(--text-main); cursor:pointer; }
     /* El input interno del autocomplete SI es un descendiente real, y no estira solo. */
     :host ::ng-deep .cg-full .p-autocomplete-input { width:100%; }
   `],
@@ -3114,9 +3123,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              poder leer que el trabajo está del otro lado del corte. -->
         @if (rezago(); as rz) {
           <p class="fin-dim cg-rezago">
-            Quedan <strong>{{ rz.movimientos }}</strong> movimientos de Kepler anteriores al primer corte
-            del libro, por {{ money(rz.monto) }}. Son de la era Control (el Access), que ya los saldó:
-            se revisan en Control (histórico), no aquí.
+            Quedan <strong>{{ rz.movimientos }}</strong> movimientos de Kepler anteriores al
+            {{ ventanaSrv()?.desde ? dmy(ventanaSrv()!.desde!) : 'inicio de la cola' }}, por {{ money(rz.monto) }}. Son de la era
+            Control (el Access), que ya los saldó: se revisan en Control (histórico), no aquí.
           </p>
         }
         @if (malFechados(); as mf) {
@@ -3836,11 +3845,28 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         @if (errorCierre(); as er) {
           <p-message severity="error" class="cg-full">{{ er }}</p-message>
         }
+        <!-- ⭐⭐ [CGP-V.3b] DE QUE JORNADA ES ESTE CORTE, EN PRIMARIO.
+             Estaba como <small class="fin-dim"> -- terciario -- y es el dato que MAS importa
+             mientras se cuenta: la pantalla pide contar el efectivo ANTES de decir de que dia es
+             el corte, y despues lo pega a la jornada atrasada mas vieja. Medido: de 7 cortes, 4
+             quedaron con el conteo de otro dia ($19,811.50 de diferencia). Q.5: el primario se
+             expresa por escala + peso + contraste, no por color. -->
         @if (rotuloCorte(); as rc) {
-          <small class="fin-dim">{{ rc }}</small>
-          @if (corteAtrasado()) {
-            <p-message severity="warn" class="cg-full">Este corte es de una jornada que ya pasó, no de hoy.</p-message>
-          }
+          <p class="cg-jornada" [class.cg-jornada-atrasada]="corteAtrasado()">{{ rc }}</p>
+        }
+        @if (corteAtrasado()) {
+          <p-message severity="warn" class="cg-full">Esta jornada ya pasó. El efectivo que tienes
+            enfrente puede ser de hoy, no de ese día.</p-message>
+          <!-- ⛔ El candado: con jornada atrasada no se sella sin decir que el efectivo es de ESE
+               dia. No es burocracia -- es el unico momento en que alguien puede notarlo, y es
+               exactamente lo que no ocurrio el 15-oct. -->
+          <div class="fin-check">
+            <p-checkbox inputId="cg-conf-jornada" [binary]="true"
+                        [ngModel]="jornadaConfirmada()" (ngModelChange)="jornadaConfirmada.set($event)"
+                        [ngModelOptions]="{ standalone: true }"></p-checkbox>
+            <label for="cg-conf-jornada">El efectivo que conté es de la jornada del
+              {{ diaDelCorte() }}, no de otro día.</label>
+          </div>
         }
         <!-- CG.19 Capa 1b: el arqueo es CIEGO. Acá se pintaba "Esperado / Diferencia" mientras la
              persona tecleaba, o sea que contaba hasta que la diferencia diera cero. Ahora sólo se
@@ -4513,7 +4539,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Lo que el SERVIDOR dijo que acotó. La píldora publicaba el selector local, o sea su propia
    * intención: si el backend corta distinto (y tiene su propio default), la pantalla mentía.
    */
-  ventanaSrv = signal<{ desde?: string; dias?: number | null; motivo?: 'pedido' | 'relevo' | 'ventana' } | null>(null);
+  ventanaSrv = signal<{ desde?: string; dias?: number | null; motivo?: 'pedido' | 'relevo' | 'ventana'; relevo?: string | null; saldados?: number } | null>(null);
   /** La lista viene topada. Sin decirlo, un movimiento más allá del tope es invisible para siempre. */
   truncada = signal(false);
   /**
@@ -5277,10 +5303,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return declarado && suma === 0;
   });
   /** Se sella con algo contado, o con el cero declarado. */
+  /**
+   * ⚠️ Los CUATRO signals se leen INCONDICIONALMENTE, antes de cualquier corto-circuito: un `&&`
+   * que corta antes deja al computed sin esa dependencia y **no vuelve a recalcular nunca** — la
+   * regla de reactividad que ya dejó muerto el botón «Guardar» en esta misma pantalla.
+   *
+   * La decisión vive en `puedeSellarUI` (util puro, con su prueba negativa): acá sólo se le pasan
+   * los signals.
+   */
   puedeSellar = computed(() => {
-    const suma = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
-    const cero = this.ceroVigente();
-    return suma > 0 || cero;
+    const contado = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
+    const ceroDeclarado = this.ceroVigente();
+    const atrasado = this.corteAtrasado();
+    const jornadaConfirmada = this.jornadaConfirmada();
+    return puedeSellarUI({ contado, ceroDeclarado, atrasado, jornadaConfirmada }).ok;
   });
   /** La reja se teclea mientras se cuenta o se recuenta; revelado el conteo, muestra lo sellado. */
   rejaEditable = computed(() => {
@@ -5758,7 +5794,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const partes: string[] = [];
     if (ok < enPagina) partes.push('el resto necesita que su cuenta esté declarada');
     // [CGA-A.43] El alcance lo dice el servidor: desde el primer corte del libro, o su ventana.
-    if (srv?.motivo === 'relevo' && srv.desde) partes.push(`desde el ${dmy(srv.desde)} (primer corte del libro)`);
+    // [CGA-A.44] Desde el 1 del mes del relevo; antes del corte, sólo lo que el Control no concilió
+    // (por día, como el Cuadre: un cobro que el Control anotó otro día sigue apareciendo).
+    if (srv?.motivo === 'relevo' && srv.desde && srv.relevo && srv.desde < srv.relevo) {
+      partes.push(`desde el ${dmy(srv.desde)}; antes del ${dmy(srv.relevo)} (primer corte del libro) sólo lo que el Control no concilió`);
+    } else if (srv?.motivo === 'relevo' && srv.desde) partes.push(`desde el ${dmy(srv.desde)} (primer corte del libro)`);
     else if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
     else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
     return partes.join(' · ');
@@ -6257,6 +6297,41 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return !!c?.fecha && c.fecha < hoy;
   });
 
+  /**
+   * ⭐⭐ `[CGP-V.3b]` **Confirmar que el efectivo contado ES de la jornada del corte.**
+   *
+   * ── El defecto que esto cierra, medido ──────────────────────────────────────────────────
+   *
+   * «Cerrar jornada y rendir cuentas» abre **la jornada atrasada más vieja** (`[CGP-V.3]`), no la
+   * de hoy. O sea que la pantalla pide contar el efectivo **antes** de decidir a qué día se pega
+   * ese conteo — y cuando hay atraso, lo pega al día equivocado sin que nada avise.
+   *
+   * Medido en prod el 2026-10-20 contra tres fotos del usuario y los arqueos de Control:
+   *
+   *     corte del 12-oct  sello $3,653.50  = el conteo del 13 (idéntico pieza por pieza)
+   *     corte del 13-oct  sello $57,571.00 = el conteo del 15
+   *     corte del 14-oct  sello $24,960.00 = sin corroboración en ningún lado
+   *     corte del 15-oct  sello $11,820.00 = sin corroboración en ningún lado
+   *     ──────────────────────────────────────────────────────────────────────
+   *     4 de 7 cortes con el conteo de otro día · $19,811.50 de diferencia
+   *
+   * ⭐ El 16 y el 17 cuadran al centavo con Control: **el procedimiento funciona cuando no hay
+   * atraso.** Lo que falla es exactamente el caso que esta confirmación cubre.
+   *
+   * ⚠️ Se pide **sólo con jornada atrasada**. Pedirla todos los días la volvería un clic reflejo
+   * —el usuario la tildaría sin leer— y entonces no defendería nada el día que importa.
+   *
+   * ⛔ Y no reemplaza al aviso: el aviso DICE y esto EXIGE. Un aviso que no frena nada es lo que
+   * ya había (`<small class="fin-dim">`) y es lo que no alcanzó.
+   */
+  jornadaConfirmada = signal(false);
+
+  /** El día del corte que se está cerrando, para nombrarlo en la confirmación. */
+  diaDelCorte = computed(() => {
+    const f = this.corteEnCierre()?.fecha;
+    return f ? diaCorto(f) : '';
+  });
+
   // ── `[CGP-V.1]` En qué paso va el corte ────────────────────────────────────────────────────
   //
   // El paso sale de lo que dice el servidor: corte abierto, conteo sellado, corte por autorizar.
@@ -6559,6 +6634,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.conteoCorte.set([]); this.morrallaCorte.set(0);
     this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
     this.errorCierre.set(null); this.ceroDeclarado.set(false);
+    // `[CGP-V.3b]` Se baja SIEMPRE: una confirmación heredada de otro corte no confirma nada.
+    this.jornadaConfirmada.set(false);
     /**
      * `[CG.160]` Si el corte YA tiene conteo sellado, el diálogo abre mostrándolo y ofreciendo
      * «Cerrar corte». Sin esto sólo ofrecía «Guardar conteo», que el servidor rechaza.
@@ -7345,7 +7422,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.totalPend.set(typeof r.total === 'number' ? r.total : null);
         // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
         // en la respuesta desde el primer día y no se leía ninguno.
-        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null, motivo: r.desde_motivo });
+        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null, motivo: r.desde_motivo, relevo: r.relevo ?? null, saldados: r.saldados_por_control });
         this.datosAl.set(r.datos_al ?? null);
         this.truncada.set(!!r.has_more);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.

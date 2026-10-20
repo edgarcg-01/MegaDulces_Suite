@@ -23,7 +23,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
 };
 import { CajaGateway } from './caja.gateway';
 import { buildFolio } from './caja-autofill.engine';
-import { primerCorteDelLibro } from './caja-relevo';
+import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
@@ -1349,7 +1349,19 @@ export class CashLedgerService {
       // documentos del 1 al 11-oct, Control saldó todos salvo 15 — y desde el corte la cola es
       // exacta. Sólo si todavía no hay ningún corte se usa la ventana de siempre.
       const relevo = q.from ? null : await primerCorteDelLibro(trx, tenantId);
-      const desde = q.from || relevo
+      /**
+       * ⭐ `[CGA-A.44]` Pero el mes del relevo todavía tiene pendientes de la era Control (Edgar,
+       * 2026-10-20: «este mes aún existían movimientos en Control que no se conciliaban»). La cola
+       * arranca el PRIMERO DE ESE MES, y de los días anteriores al corte quita lo que el Control ya
+       * saldó — con el mismo casamiento del Cuadre de `/finanzas/caja` (`saldadosPorControl`), así que
+       * las dos pantallas no pueden decir cosas distintas. Medido: del 1 al 10-oct quedan ~46 de 541.
+       */
+      const inicio = relevo ? inicioDelMes(relevo) : null;
+      const controlSaldo = relevo && inicio && inicio < relevo
+        ? await saldadosPorControl(trx, tenantId, inicio, diaAnterior(relevo))
+        : { llaves: new Set<string>(), ruta_disponible: true };
+      const saldados = [...controlSaldo.llaves];
+      const desde = q.from || inicio
         || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
 
       /**
@@ -1376,6 +1388,8 @@ export class CashLedgerService {
         if (q.doc_tipo && conTipo) x = x.where('doc_tipo', q.doc_tipo);
         if (q.caja) x = x.where('clave_banco', q.caja);
         if (q.sucursal) x = x.where('sucursal', q.sucursal);
+        // `[CGA-A.44]` Lo que el Control ya saldó en los días anteriores al corte no es trabajo del libro.
+        if (saldados.length) x = x.whereNotIn('origen_ref', saldados);
         /**
          * ⛔⛔ `[CG.85]` **LO YA CAPTURADO DESDE LA OTRA FUENTE SEGUÍA EN LA COLA.**
          *
@@ -1621,6 +1635,12 @@ export class CashLedgerService {
         // `[CGA-A.43]` De dónde sale `desde`: lo pidió la pantalla, es el primer corte del libro, o
         // es la ventana de siempre (no hay libro todavía). La pantalla lo dice con estas palabras.
         desde_motivo: (q.from ? 'pedido' : relevo ? 'relevo' : 'ventana') as 'pedido' | 'relevo' | 'ventana',
+        // `[CGA-A.44]` El primer corte del libro, y cuántos documentos de la era Control se quitaron
+        // por estar ya saldados en el Control. `control_ruta_disponible:false` = no se pudieron leer
+        // los cobros de camioneta, y ésos se dejaron VISIBLES (lado seguro).
+        relevo,
+        saldados_por_control: saldados.length,
+        control_ruta_disponible: controlSaldo.ruta_disponible,
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
         // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
@@ -2026,7 +2046,9 @@ export class CashLedgerService {
     return this.tk.run(async (trx) => {
       // `[CGA-A.43]` Sin `dias`, el volumen se cuenta desde el primer corte del libro: el mismo
       // borde que la cola, o el número entre paréntesis contradiría a la lista de abajo.
-      const relevo = q.dias ? null : await primerCorteDelLibro(trx, tenantId);
+      // `[CGA-A.44]` …desde el primero de ese mes, igual que la cola.
+      const relevoCorte = q.dias ? null : await primerCorteDelLibro(trx, tenantId);
+      const relevo = relevoCorte ? inicioDelMes(relevoCorte) : null;
       const cat = await trx('analytics.v_kepler_cajas')
         .where('tenant_id', tenantId)
         .orderBy('clave')

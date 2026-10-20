@@ -3403,7 +3403,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   it('[CGA-A.43] la cola no manda ventana: la acota el servidor en el primer corte del libro', () => {
     // Antes arrancaba en «La jornada» (3 días) con un selector. Medido el 2026-10-20: desde el
     // primer corte del libro la cola es exacta (61 documentos) y los 3 días escondían 32.
-    const movimientosPendientes = vi.fn(() => of({ ...VACIA, desde: '2026-10-12', ventana_dias: null, desde_motivo: 'relevo' }));
+    const movimientosPendientes = vi.fn(() => of({ ...VACIA, desde: '2026-10-01', ventana_dias: null, desde_motivo: 'relevo', relevo: '2026-10-12', saldados_por_control: 495 }));
     montar({ movimientosPendientes });
     const pedidos = movimientosPendientes.mock.calls as unknown as Array<[{ from?: string }]>;
     expect(pedidos.length).toBeGreaterThan(0);
@@ -3412,6 +3412,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect((comp as unknown as Record<string, unknown>)['opcionesVentana']).toBeUndefined();
     expect(comp.textoAlcance()).toContain('primer corte del libro');
     expect(comp.textoAlcance()).toContain('12/10/26');
+    // [CGA-A.44] Arranca el 1 del mes del relevo y dice qué entra de la era Control.
+    expect(comp.textoAlcance()).toContain('01/10/26');
+    expect(comp.textoAlcance()).toContain('el Control no concilió');
   });
 
   // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
