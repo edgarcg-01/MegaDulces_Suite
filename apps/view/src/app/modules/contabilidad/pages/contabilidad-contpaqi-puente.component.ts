@@ -25,10 +25,10 @@ import {
  * de nadie**: los 148 de `no_aplica` ya se midieron y NO generan póliza. Mezclarlos con el resto
  * haría que la bandeja pida trabajo que no existe.
  *
- * ── ⛔ Qué NO hace esta pantalla ────────────────────────────────────────────────────────────
- * **No entrega.** `contpaqi.poliza_exports` está vacía porque nunca se importó un archivo a
- * ContPAQi (`[CP.8.24]`). Un botón de entregar sería ofrecer un camino que nadie recorrió, así
- * que no existe — y `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` ya está repartido para el día que lo haya.
+ * ── Entregar ────────────────────────────────────────────────────────────────────────────────
+ * **No manda nada a ContPAQi.** `[CP.8.54]` «Marcar como entregado» registra que contabilidad ya
+ * CARGÓ el archivo, y sólo acepta ese mismo archivo (el backend lo compara byte a byte con el que
+ * genera hoy). Va separado de «Generar» porque descargar no es entregar. Exige `_GESTIONAR`.
  *
  * ── ⚠️ Ruta propia, no un tab de `/contabilidad/contpaqi` ───────────────────────────────────
  * Esa página ya existe desde CP.1–CP.4 y es el **otro sentido** (lee los libros que ContPAQi ya
@@ -122,6 +122,27 @@ import {
             </button>
           </div>
           @if (avisoArchivo(); as a) {
+            <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+          }
+
+          <!-- [CP.8.54] Marcar entregado: separado de Generar, y sólo con el archivo que se cargó. -->
+          <div class="cpp-archivo cpp-entrega">
+            <div>
+              <strong>&iquest;Ya lo cargaste en ContPAQi?</strong>
+              <div class="cpp-archivo-n">
+                Elige el mismo archivo que importaste. La Suite lo compara con el que genera hoy para
+                {{ mes() }} y, si es id&eacute;ntico, empieza a buscar esas p&oacute;lizas en ContPAQi;
+                a los {{ plazoDias() }} d&iacute;as avisa de las que no aparezcan.
+              </div>
+            </div>
+            <input #archivoCargado type="file" accept=".txt,text/plain" class="cpp-file"
+                   (change)="marcarEntregado(archivoCargado)" aria-label="Archivo que se cargó en ContPAQi" />
+            <button type="button" class="cpp-btn-ok" [disabled]="entregando()" (click)="archivoCargado.click()">
+              <i class="pi pi-check" aria-hidden="true"></i>
+              {{ entregando() ? 'Comparando…' : 'Marcar como entregado' }}
+            </button>
+          </div>
+          @if (avisoEntrega(); as a) {
             <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
           }
         }
@@ -476,6 +497,8 @@ import {
       border-radius: var(--r-lg); background: var(--c-surface-1); font-size: var(--fs-sm); }
     .cpp-archivo > div:first-child { flex: 1 1 24rem; min-width: 0; }
     .cpp-archivo-n { color: var(--c-text-3); font-size: var(--fs-xs); margin-top: .25rem; max-width: 72ch; }
+    .cpp-entrega { margin-top: .5rem; }
+    .cpp-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
     /* [CP.8.37] confirmar el alias */
     .cpp-nota-dura { margin: 0 0 .8rem; padding-left: .8rem; border-left: 2px solid var(--c-warn);
@@ -522,6 +545,10 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly guardando = signal<string | null>(null);
   readonly bajando = signal(false);
   readonly avisoArchivo = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly entregando = signal(false);
+  readonly avisoEntrega = signal<{ texto: string; mal: boolean } | null>(null);
+  /** El plazo del motor, del backend: repetir la constante acá la dejaría divergir. */
+  readonly plazoDias = computed(() => this.cuadre()?.plazo_dias ?? 5);
   readonly avisoAlias = signal<{ texto: string; mal: boolean } | null>(null);
   /**
    * Confirmar exige `_GESTIONAR`; mirar el pendiente sólo `_VER`.
@@ -650,6 +677,47 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     });
   }
 
+  /**
+   * `[CP.8.54]` Marca entregado el archivo que se cargó en ContPAQi.
+   *
+   * ⭐ Se deshabilita en el primer clic, antes de leer el archivo: el doble clic no manda dos
+   * veces (y aunque mandara, el backend no duplica). Los bytes viajan tal cual en base64 — el
+   * archivo es latin1 de ancho fijo y cualquier decodificación a texto podría cambiarlo.
+   */
+  async marcarEntregado(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.entregando()) return;
+    this.entregando.set(true);
+    this.avisoEntrega.set(null);
+    let b64: string;
+    try {
+      b64 = aBase64(new Uint8Array(await file.arrayBuffer()));
+    } catch {
+      this.entregando.set(false);
+      this.avisoEntrega.set({ texto: 'No se pudo leer el archivo elegido.', mal: true });
+      return;
+    }
+    const mes = this.mes();
+    this.api.entregar(mes, b64).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.entregando.set(false);
+        const ya = r.ya_registradas ? ` (${r.ya_registradas} ya estaban registradas)` : '';
+        this.avisoEntrega.set({
+          texto: `${r.nuevas} pólizas de ${r.mes} quedaron como entregadas${ya}. `
+            + `La Suite las buscará en ContPAQi; las que no aparezcan en ${this.plazoDias()} días se avisan aquí.`,
+          mal: false,
+        });
+        this.api.cuadre().pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
+      },
+      error: (e) => {
+        this.entregando.set(false);
+        this.avisoEntrega.set({ texto: e?.error?.message ?? 'No se pudo marcar como entregado', mal: true });
+      },
+    });
+  }
+
   elegir(alias: string, cuenta: string): void {
     this.elegido.update((m) => ({ ...m, [alias]: cuenta }));
   }
@@ -758,6 +826,18 @@ export function participacion(n: number, total: number): number {
 /** Cuántos movimientos ya están decididos y por lo tanto NO esperan a nadie. */
 export function contarDeNadie(motivos: { motivo: string; movimientos: number }[]): number {
   return motivos.filter((m) => esDeNadie(m.motivo)).reduce((a, m) => a + m.movimientos, 0);
+}
+
+/**
+ * `[CP.8.54]` Bytes → base64, por tramos: `String.fromCharCode(...bytes)` de un golpe revienta
+ * la pila con un archivo de unos cientos de KB.
+ */
+export function aBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
 }
 
 /** El mes cerrado más reciente. ⚠️ No el actual: el mes en curso siempre se ve incompleto. */

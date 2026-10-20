@@ -5,6 +5,7 @@ import { join } from 'node:path';
 // búsqueda devuelve `null` y el candado parece decir "el nodo no existe".
 import { AUTHZ_TREE } from '@megadulces/contracts/authz/authz-tree';
 import {
+  aBase64,
   contarDeNadie,
   esDeNadie,
   etiquetaMotivo,
@@ -149,6 +150,21 @@ describe('[CP.8.33] bandeja del puente — la clasificación', () => {
     expect(suma).toBeCloseTo(100, 6);
     // ⛔ Sin esta guarda la tabla imprime `NaN%`, que se lee como datos rotos.
     expect(participacion(0, 0)).toBe(0);
+  });
+});
+
+describe('[CP.8.54] marcar entregado — los bytes viajan intactos', () => {
+  it('⭐ base64 de un archivo de más de un tramo (0x8000) reproduce los bytes exactos', () => {
+    // Bytes de 0 a 255, incluido lo que en latin1 es un acento: el archivo es de ancho fijo y
+    // un solo byte cambiado corre todas las columnas del renglón.
+    const bytes = new Uint8Array(0x8000 * 2 + 17).map((_, i) => i % 256);
+    const vuelta = Uint8Array.from(atob(aBase64(bytes)), (c) => c.charCodeAt(0));
+    expect(vuelta.length).toBe(bytes.length);
+    expect(vuelta.every((b, i) => b === bytes[i])).toBe(true);
+  });
+
+  it('el archivo vacío no revienta', () => {
+    expect(aBase64(new Uint8Array(0))).toBe('');
   });
 });
 

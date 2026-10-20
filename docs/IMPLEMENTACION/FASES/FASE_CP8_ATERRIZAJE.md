@@ -193,6 +193,79 @@ otra cosa:
 - La comisión de terminal es dinero chico ($130K en 8 meses) y mucho volumen (532 renglones). Es el
   caso perfecto para que el puente lo arme, **si** se arma como lo arma contabilidad.
 
+## 3.2 ⛔⛔ `[CP.8.58]` Visto como lo ve la API, el puente estaba vacío — por tercera vez, el rol equivocado
+
+Al ir a escribir la primera entrega apareció algo que tumbaba todo lo de arriba:
+
+- Las **siete** tablas que lee el puente (`finance.bank_movements`, `bank_accounts`,
+  `movement_categories`, `contpaqi.account_rules`, `supplier_accounts`, `supplier_aliases`,
+  `poliza_exports`) tienen **RLS forzado**: `tenant_id = current_tenant_id()`.
+- La API corre como **`app_runtime`** — verificado en los pods `api` **y** `worker`:
+  `DATABASE_URL_NEW_RUNTIME` (el de `KNEX_NEW_DB`) es `app_runtime`; sólo el pool admin es
+  `postgres`. (Corrige una lectura del 2026-10-09 que daba el RLS por inerte mirando sólo el
+  admin.) `app_runtime` **no** trae `app.tenant_id` por default. Los roles
+  personales (`edgar`, `david`, `francisco`, `sistemas`) **sí** lo traen (`pg_db_role_setting`).
+- `ContpaqiArmadoService` y `ContpaqiCuadreService` inyectaban `KNEX_NEW_DB` pelado: un
+  `knex(config)` sin `SET LOCAL`. Sólo los servicios nuevos (`cierre`, `mi-cierre`) usan
+  `TenantKnexService`.
+
+**Consecuencia, reproducida en rojo** (candado nuevo, sesión con el tenant borrado para quedar
+como `app_runtime`): `simularLotes('2026-01')` → **0 lotes**; `proveedoresPendientes` → **0
+nombres**. En prod eso es bandeja vacía, «ningún lote produce asiento» al generar, el alias
+rechazado por la política al guardar, y **un cuadre que juzga cero entregas para siempre** y
+late `ok` — *«sin eventos pendientes»* —, indistinguible de que no hubiera nada.
+
+⭐ Nadie lo vio por la razón de `[CP.8.44]`: **todo se midió como `edgar`**, que ve los datos
+porque trae el tenant puesto. Los logs de la API de los últimos 10 días no muestran ni una
+apertura de la bandeja, así que **no se ejerció en prod** — se deriva del código y del mecanismo,
+que sí se probó.
+
+**Arreglo:** `alcance-tenant.ts`. Cada método público corre en una transacción con
+`set_config('app.tenant_id', MEGA, true)`, y `db` **lanza** fuera de ese alcance en vez de caer al
+pool (un acceso olvidado se ve en el primer candado, no como una pantalla vacía). Sin tocar los
+constructores, que es lo que tiró la API en #414. El `try/catch` sobre `supplier_aliases` va ahora
+en SAVEPOINT (si no, un error envenena la transacción: 25P02), y el latido del cuadre se escribe
+por el pool, fuera de la transacción, para que un fallo no se lleve su propio registro.
+
+| candado | antes | después |
+|---|---|---|
+| `test-newdb-contpaqi-tenant.js` (nuevo) | 3 ✓ / **3 ✗** | **6 ✓ / 0 ✗** |
+| bandeja · proveedor · puente · lote · cuadre | — | 34 · 30 · 43 · 38 · 35 ✓, 0 ✗ |
+
+⚠️ **¿Caso aislado o clase?** Otros **20 servicios** inyectan `KNEX_NEW_DB` sin ningún mecanismo
+de tenant en el archivo (lista en el tracker, `[CP.8.58]`). Son **candidatos, no defectos
+medidos**: varios pueden leer sólo tablas sin RLS. Medirlos es de Plataforma, no de este anexo.
+
+---
+
+## 3.3 F1b — «Marcar como entregado» (`[CP.8.50]` · `[CP.8.52]` · `[CP.8.54]`)
+
+- **C1 `entrega.ts`** (puro): huella SHA-256 de los bytes, comparación byte a byte con el motivo
+  de dónde difiere, y las filas de `poliza_exports` (token, guid, autor y huella en el `asiento`).
+- **C2 `POST /finance/contpaqi/entregas`** `{ mes, archivo_base64 }`, `_GESTIONAR`. Regenera el
+  mes con el **mismo** `armarArchivo` que la descarga; si el archivo subido no es idéntico →
+  **409** con el motivo. `ON CONFLICT DO NOTHING`: marcar dos veces no duplica, **no toca
+  `updated_at`** (el reloj del cuadre) y no degrada una `aplicada`. (El `registrar()` viejo hace
+  `merge` y habría hecho las tres cosas mal; por eso éste no lo usa.)
+- **C3** en `/contabilidad/contpaqi-puente`: «¿Ya lo cargaste en ContPAQi?» → elegir el archivo
+  → resultado (nuevas / ya registradas) o el motivo del 409. Separado de «Generar».
+  `check:pantalla` **2 → 2 fallas, 0 nuevas**; tipa sin errores. **Sin validación visual**: lo más
+  probable de ajustar es el espaciado entre las dos cajas del archivo.
+
+**Lo medido, y lo que no:**
+
+| | |
+|---|---|
+| determinismo: enero generado dos veces | **idéntico**, 88 pólizas, 80,024 bytes (contra prod, sólo lectura) |
+| un byte alterado | rechazado **antes** de escribir, 0 → 0 filas |
+| `aBase64` (pantalla) | 2 pruebas; mutada a rojo una vez |
+| ⛔ **el registro de la entrega** | **NO MEDIDO.** `test-newdb-contpaqi-entrega.js` lo ejerce completo **sólo** contra destino local (job `pruebas-db` del CI) como `app_runtime`, con el payload de la pantalla. No hay base local en esta máquina y contra prod no se escribe desde una prueba. **Hasta que ese job corra en verde, el endpoint no está probado (regla 13).** |
+| typecheck del backend | **NO MEDIDO** en local (regla 3); lo mide `Build & typecheck` del CI |
+
+Deuda con nombre: el autor y la huella viajan en el `asiento` (JSON) y no en columnas, para no
+pedir una migración; `AlcanceTenant` vive en `contpaqi/` y va a `platform-core` si aparece un
+tercer consumidor.
+
 ---
 
 ## 4. Decisiones a firmar
@@ -251,14 +324,14 @@ Los códigos siguen la numeración de CP.8 (el último usado es `[CP.8.45]`).
 
 | # | Entregable | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| `CP.8.50` | **`registrarEntrega`**: de los mismos `construirLotes` del archivo (un solo camino, §36.2) salen las filas de `poliza_exports` en `entregada`, con token y `guid`. **Idempotente**: re-entregar el mismo mes no duplica (el token es determinista) | ⬜ | candado puro; mutar la idempotencia a rojo una vez |
+| `CP.8.50` | **`registrarEntrega`**: de los mismos `construirLotes` del archivo (un solo camino, §36.2) salen las filas de `poliza_exports` en `entregada`, con token y `guid`. **Idempotente**: re-entregar el mismo mes no duplica (el token es determinista) | 🧪 2026-10-20 (§3.3) | candado puro; mutar la idempotencia a rojo una vez |
 | `CP.8.51` | **Firma de regla**: transición `derivada → aprobada` con quién y cuándo; se niega sin `cuenta_gasto` y se niega si la forma no coincide con `tipo_regla` (D4) | ⬜ | candado puro con los dos rechazos |
 
 ### C2 · API (`contpaqi-bridge.controller.ts`, hoy 5 endpoints, ninguno escribe `poliza_exports`)
 
 | # | Entregable | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| `CP.8.52` | `POST /finance/contpaqi/entregas` `{ mes }` — marca entregado lo que se descargó; arranca el reloj de 5 días del cuadre. `GESTIONAR` | ⬜ | **sí** | ⛔ obligatoria, con el payload de la pantalla: 0 → N filas, y N → N al repetir |
+| `CP.8.52` | `POST /finance/contpaqi/entregas` `{ mes, archivo_base64 }` — marca entregado el archivo que se cargó (idéntico al que genera hoy, si no 409); arranca el reloj de 5 días del cuadre. `GESTIONAR` | 🧪 2026-10-20 (§3.3) | **sí** | ⛔ obligatoria, con el payload de la pantalla: 0 → N filas, y N → N al repetir |
 | `CP.8.53` | `GET /finance/contpaqi/reglas` (con su evidencia) + `POST /reglas/:id/aprobar` | ⬜ | **sí** | ⛔ obligatoria; incluir el rechazo de D4 |
 | `[CP.8.11]` | `GET /finance/contpaqi/divergencias` — lo entregado que no aparece, o aparece con otro importe | ⬜ (existente) | no | contra las entregas reales de F1 |
 
@@ -266,7 +339,7 @@ Los códigos siguen la numeración de CP.8 (el último usado es `[CP.8.45]`).
 
 | # | Entregable | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| `CP.8.54` | **«Marcar como entregado»**, separado de «Generar», con confirmación que dice qué arranca (*«a los 5 días la Suite empieza a preguntar por qué no aparece»*) | ⬜ | medir antes de tocar |
+| `CP.8.54` | **«Marcar como entregado»**, separado de «Generar», con confirmación que dice qué arranca (*«a los 5 días la Suite empieza a preguntar por qué no aparece»*) | 🧪 2026-10-20 (§3.3) | medir antes de tocar |
 | `[CP.8.14]` | **Reglas con su evidencia y botón de aprobar** — la pantalla que el 37.6 % necesita | ⬜ (existente) | ídem |
 | `[CP.8.11]` | **Bandeja de divergencias** | ⬜ (existente) | ídem |
 
@@ -315,3 +388,7 @@ falta uno nuevo.
   clasificada, y los pagos de crédito **sí** están en ContPAQi, en una póliza mensual a fin de mes →
   D6 · `[CP.8.47]` ✅ 324 nombres, 14 hacen el 50 % · `[CP.8.48]` ✅ línea base ene–sep 5.9 %
   arma solo, con script versionado. `[CP.8.49]` sigue esperando la prueba A.
+- **2026-10-20** — `[CP.8.58]` 🧪 el puente leía con un pool sin tenant: visto como `app_runtime`,
+  bandeja con 0 lotes y cuadre ciego (reproducido en rojo, arreglado, 6 ✓). F1b en código:
+  `[CP.8.50]` · `[CP.8.52]` · `[CP.8.54]` 🧪 — ⛔ la escritura sigue **NO MEDIDA** hasta que
+  `test-newdb-contpaqi-entrega.js` corra en el job `pruebas-db`. §3.2 y §3.3.
