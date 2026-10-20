@@ -66,10 +66,10 @@ export class CaosController {
   @RequirePermissions(Permission.FINANCE_CAOS_VER)
   @ApiOperation({
     summary:
-      '[CGA-A.33] Saldo de la caja fuerte con sus tres testigos SEPARADOS: la ultima foto del '
-      + 'inventario de casetes del equipo, el cuadre de cada foto contra la anterior mas los '
+      '[CGA-A.33] Saldo de la caja fuerte con sus tres testigos SEPARADOS: la ultima lectura del '
+      + 'reporte Contenidos (casete por casete), el cuadre de cada lectura contra la anterior mas los '
       + 'movimientos (por denominacion), y el conteo fisico -- que hoy NO existe y se declara '
-      + 'medido:false. estado sin_tabla/sin_foto si la foto todavia no se capturo.',
+      + 'medido:false. estado sin_tabla/sin_foto si todavia no hay ninguna lectura.',
   })
   saldo(): Promise<CaosSaldo> {
     return this.svc.saldo();
