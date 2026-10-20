@@ -882,7 +882,7 @@ export class AlmacenSurtirComponent implements OnInit {
 
   /** `[MCP.3.2]` La lista de pedidos de Kepler por surtir (folio y cliente). */
   verLista(): void {
-    this.router.navigateByUrl('/almacen/pedidos');
+    irConservandoPanel(this.router, '/almacen/pedidos');
   }
 
   volverALista(): void {

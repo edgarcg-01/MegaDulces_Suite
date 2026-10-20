@@ -247,7 +247,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     await montar();
     const nav = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
     clic('Ver la lista de pedidos');
-    expect(nav).toHaveBeenCalledWith('/almacen/pedidos');
+    expect(String(nav.mock.calls[0][0])).toBe('/almacen/pedidos');
   });
 
   it('lo guardado del viejo "Todos" (vacío) cae en Telemarketing', async () => {
