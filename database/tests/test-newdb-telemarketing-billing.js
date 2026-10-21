@@ -108,6 +108,56 @@ const noMedido = (n, motivo) => { skip++; console.log(`  NO MEDIDO  ${n} — ${m
   check('sigue sin existir columna que ligue usuario ↔ vendedor del ERP', puente === 0,
     `apareció la columna: ya se puede cruzar, actualizar el aviso de la pantalla`);
 
+  // ── 5. [E.14] el vencido es de TODA la cartera, y la cola declara su universo ──
+  // El tablero recorre la vista UNA vez con «30 días OR vencida» (mismo SQL que el servicio).
+  // Se cruza contra una consulta INDEPENDIENTE, sin el OR: si divergen, el atajo pierde filas.
+  const V = `vencimiento < current_date AND estatus_cobro IN ('pendiente','parcial')`;
+  const t5 = Date.now();
+  const s = (await c.query(`
+    WITH sel AS MATERIALIZED (
+      SELECT fecha, saldo, cliente_code, sucursal, (${V}) AS vencida
+      FROM analytics.erp_sales_invoices ${W} AND (fecha >= current_date - 30 OR (${V})))
+    SELECT coalesce(sum(saldo) FILTER (WHERE vencida), 0)::numeric saldo_canal,
+           count(*) FILTER (WHERE vencida)::int facturas_canal,
+           coalesce(sum(saldo) FILTER (WHERE vencida AND fecha >= current_date - 30), 0)::numeric saldo_30d,
+           count(DISTINCT cliente_code) FILTER (WHERE fecha >= current_date - 30)::int clientes,
+           (SELECT count(DISTINCT x.cliente_code) FROM sel x
+             WHERE x.fecha >= current_date - 30 AND EXISTS (
+               SELECT 1 FROM commercial.customers cu
+               WHERE cu.tenant_id = $1 AND cu.active AND cu.deleted_at IS NULL
+                 AND cu.erp_customer_code = x.cliente_code AND cu.erp_source_branch = x.sucursal))::int en_cola
+    FROM sel`, [T])).rows[0];
+  const ms5 = Date.now() - t5;
+  const ind = (await c.query(`
+    SELECT coalesce(sum(saldo), 0)::numeric saldo, count(*)::int facturas
+    FROM analytics.erp_sales_invoices ${W} AND ${V}`, [T])).rows[0];
+  console.log(`\n4) vencido del canal: $${Number(s.saldo_canal).toLocaleString('en-US')} en ${s.facturas_canal} facturas`
+    + ` (de ellas $${Number(s.saldo_30d).toLocaleString('en-US')} emitidas en 30 d) · cola: ${s.en_cola} de ${s.clientes} clientes [${ms5} ms]`);
+  check('el vencido del canal cuadra con la consulta independiente',
+    Math.abs(Number(s.saldo_canal) - Number(ind.saldo)) < 0.01 && s.facturas_canal === ind.facturas,
+    `tablero=${s.saldo_canal}/${s.facturas_canal} independiente=${ind.saldo}/${ind.facturas}`);
+  check('el vencido de 30 días es parte del vencido del canal', Number(s.saldo_30d) <= Number(s.saldo_canal) + 0.01,
+    `30d=${s.saldo_30d} canal=${s.saldo_canal}`);
+  check('el vencido de 30 días es el mismo que publica el bloque 1',
+    Math.abs(Number(s.saldo_30d) - Number(b.saldo_vencido)) < 0.01, `aqui=${s.saldo_30d} bloque1=${b.saldo_vencido}`);
+  check('los clientes en cola nunca superan a los facturados', s.en_cola <= s.clientes,
+    `en_cola=${s.en_cola} clientes=${s.clientes}`);
+  // La llave del cruce se verifica contra un hecho independiente: el NOMBRE. Si algún empate
+  // por código+sucursal trae otro nombre, la llave no identifica al cliente y la cifra miente.
+  const llave = (await c.query(`
+    WITH tm AS (SELECT DISTINCT cliente_code, sucursal, cliente_nombre
+                FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
+    SELECT count(*)::int empates,
+           count(*) FILTER (WHERE upper(btrim(cu.name)) <> upper(btrim(tm.cliente_nombre)))::int nombre_distinto
+    FROM tm JOIN commercial.customers cu ON cu.tenant_id = $1 AND cu.active AND cu.deleted_at IS NULL
+      AND cu.erp_customer_code = tm.cliente_code AND cu.erp_source_branch = tm.sucursal`, [T])).rows[0];
+  if (llave.empates === 0) {
+    noMedido('la llave cliente ERP ↔ padrón', 'no hay ningún empate con qué comprobar el nombre');
+  } else {
+    check('la llave (erp_customer_code + sucursal) identifica al mismo cliente', llave.nombre_distinto === 0,
+      `${llave.nombre_distinto} de ${llave.empates} empates con otro nombre`);
+  }
+
   await c.end();
   console.log(`\n  ${ok} OK · ${fail} FAIL · ${skip} NO MEDIDO`);
   process.exit(fail ? 1 : 0);

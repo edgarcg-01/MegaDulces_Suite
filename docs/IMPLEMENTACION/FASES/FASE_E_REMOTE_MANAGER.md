@@ -188,4 +188,44 @@ Dos cosas que el gate encontró y que no se veían a ojo:
 
 - ⬜ **E.10 — re-apuntar la cola al ERP.** Hoy prioriza 412 clientes de campo que no son de telemarketing; debería trabajar los 206 reales, ordenados por su historial de facturación (última factura, saldo, días sin comprar). Es el trabajo que hace que el módulo sirva para operar, no sólo para mirar. Se pospuso a propósito para entregar la facturación primero.
 - ⬜ **E.11 — puente operador↔usuario.** Sin un `vendedor_code` en `identity.users` no hay forma de medir a un operador de punta a punta (sus llamadas y sus facturas). Mientras no exista, el tablero muestra dos atribuciones distintas y lo dice.
-- ⬜ Los bloques de actividad siguen en el tablero aunque publiquen ceros: se declaran, no se retiran. Si la captura no arranca, conviene quitarlos.
+- ✅ ~~Los bloques de actividad siguen en el tablero aunque publiquen ceros~~ → resuelto en **E.14** (abajo): sin captura ya no se pintan.
+
+## E.14 — auditoría de `/telemarketing/dashboard`: cinco cosas que la pantalla afirmaba y no eran (2026-10-21)
+
+Disparador: *"auditemos /telemarketing/dashboard"* → *"resolvamos estos hallazgos"*. Auditoría con la skill `auditoria-diseno`, nivel **B** (prod en sólo lectura, `system_identifier 7688376744939610156`) + **C** (fuente). ⛔ **Nivel A no**: la pantalla no se midió viva.
+
+### Lo que se encontró, medido
+
+| # | Qué afirmaba | Qué era | Cruce |
+|---|---|---|---|
+| 1 | «Cola **priorizada** · próximos a llamar» | consulta propia con `.limit(5)` **sin `ORDER BY`**: los 5 primeros en orden físico. Los 5 de ese día: **ninguno con teléfono ni pedidos**. La cola real (`getQueue`) sí ordena por motivo | 2 — rótulo |
+| 2 | la cola como «los clientes del canal» | sale de `commercial.customers` (1,858 activos, 211 con teléfono). De los **317 clientes facturados en 30 días, 11 están en ella**; los otros 307 pares cliente/sucursal **no existen** en el padrón (ni inactivos). Llave `erp_customer_code + erp_source_branch`, verificada por nombre: **11 de 11 iguales** | 5 — universo |
+| 3 | 8 indicadores de actividad + «0.0% conversión» | `commercial.call_logs` = **0 filas en toda la historia**. El aviso lo decía y debajo se dibujaban los ceros igual | ADR-056 |
+| 4 | etiquetas de «Outcomes» | el mapa esperaba `pedido_tomado`, `no_contesto`…; el backend manda `sale`, `no_sale`… → una venta se habría pintado **«sale» en amarillo**. La ficha del cliente tenía el mapa bueno: dos copias que divergieron | 2 — rótulo |
+| 5 | «Vencido por cobrar» **$3,725,351.90** | sólo facturas **emitidas** en 30 días. Faltaban **$2,827,229.04 de 696 facturas** más viejas: el número cubría el **57 %** de **$6,552,580.94** | 3 — contenedor |
+| 6 | sin `LoadState` ni frescura | primer error = pantalla vacía con un toast; error al recargar = dato viejo sin aviso | §2 · §9 |
+
+### Qué se hizo
+
+- **La vista previa de la cola ES `getQueue(5)`**: mismo orden, misma exclusión de reservas, mismo «último pedido» (antes `confirmed_at` aquí y `created_at` allá).
+- **La cola declara su universo**: *«de los 317 clientes facturados en 30 días, 11 están en ella»* (`billing.clientes_en_cola`, en vivo). El arreglo de fondo sigue siendo **E.10** (abajo), que no se hizo aquí.
+- **Sin captura de llamadas no se pinta actividad**: sólo el aviso. Con captura, la conversión sin llamadas se declara `no_medido` («sin llamadas hoy»), no 0 %.
+- **Un solo mapa de resultados** (`modules/televenta/call-outcomes.ts`), tipado como `Record<CallOutcome, …>`: si el backend suma un resultado, deja de compilar. Lo usan tablero y ficha.
+- **«Vencido · toda la cartera»** ($6.55M, 1,245 facturas) con el de 30 días en el subtítulo. «Cobrado 30d» pasa a **«Ya cobrado»** *«N % de lo facturado en 30 días»*: era importe − saldo de lo emitido, no el dinero que entró en esos días. Cada cifra dice su ventana; la sección deja de decir «últimos 30 días» porque ya no es cierto para todas.
+- `LoadState` (cargando / error con Reintentar), `FreshnessPill measures="fetch"`, sin emoji en «Cola al día 🎉» (que además era falso: vacía = todos reservados), «Reservas activas» deja de ir siempre en amarillo, rótulos en español, una sola forma de fecha, tokens canónicos (`--radius-md` era dialecto fantasma).
+
+### Costo medido (regla 15)
+
+El vencido de toda la cartera obliga a evaluar `analytics.erp_receivable_doc()` sobre la historia entera del canal (~5,200 facturas). Medido en prod, 3 corridas: consulta de totales **≈ 100 ms → ≈ 390 ms**. Para no pagarlo en serie, **cola, facturación y actividad corren en paralelo**, cada una en su transacción (sobre un solo `trx` se encolan y el tiempo es la suma: 670 ms medidos). La facturación pasa de ~380 ms en serie a ≈ 390 ms (la más lenta). ⛔ Se descartó prefiltrar por `c43` (estatus del ERP): **3,371 facturas pagadas siguen en `N`** y hay 6 en `F` con saldo — borraría deuda real.
+
+### Verificación
+
+- `test-newdb-telemarketing-billing.js` **14/14** dentro del pod `api`, como `app_runtime` con RLS (el cruce con el padrón da 11 también bajo RLS, no 0). Bloque nuevo: el vencido del canal cuadra al centavo con una consulta **independiente** sin el atajo del `OR`, y la llave del padrón se verifica por nombre.
+- **Prueba negativa**: quitando la deuda vieja del barrido, el candado se pone rojo con exactamente el defecto original (`tablero=3725351.90/549 independiente=6552580.94/1245`).
+- `ngc --noEmit` sobre `apps/view` con control (`{{ metodoQueNoExisteControl() }}` → TS2339, el **único** error de la app); `check:pantalla -- televenta` 0 nuevas y el tablero sale de la deuda §2/§9; `check:templates`, `check:estilos`, `check-css-tokens --todo`, `sin emojis`, `lint:boundary` verdes.
+- ⛔ **No verificado**: el backend no se tipó localmente (lo tipa el CI) · **sin validación visual** (lo más probable de ajustar: el aviso de universo dentro de la tarjeta de la cola y el ancho de la tira de 4 cifras).
+
+### Lo que sigue abierto
+
+- ⬜ **E.10 — re-apuntar la cola al ERP**, re-medido el 2026-10-21: el padrón creció de 412 a 1,858 clientes (1,300 importados `K0…`) y **sigue sin cubrir el canal: 11 de 317**. Y la prioridad lee `commercial.orders` (52 pedidos), así que **1,786 de 1,858 salen «nunca pidió»** aunque compren por el ERP.
+- ⬜ `ONLINE` (125 facturas en 30 días) cuenta como **un** cliente en «Clientes». No se tocó: no se midió qué es.
