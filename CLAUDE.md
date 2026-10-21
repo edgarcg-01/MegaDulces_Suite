@@ -194,7 +194,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 
 > ⭐ **El control de estado lo lleva el PM** en el GitHub Project privado [«Tablero PM»](https://github.com/users/edgarcg-01/projects/2) (una tarjeta por fase: dueño, revisión, motivo de cada cambio). Primera revisión fase por fase: **2026-10-19** (16 🔨 → 5 🔨 + VP 🟡). Si esta tabla y el tablero discrepan, **manda el tablero** y se corrige acá.
 
-🟢 cerrada (beta) · 🚀 en prod · 🧪 en código, probada · 🔨 en curso / diseñada · 🟡 parcial · 🔴 planeada, sin código · ⏸️ en espera · ⬜ TODO
+🟢 cerrada (beta) · 🚀 en prod · 🧪 en código, probada · 🔨 en curso / diseñada · 🟡 parcial · 🔴 planeada, sin código · ⏸️ en espera · ⚠️ bloqueada (espera a alguien con nombre) · ⬜ TODO
 
 | Fase | Tema | Estado |
 |---|---|---|
@@ -226,12 +226,12 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **CA** | CEDIS (Kepler Access 97) → ODS | 🟢 |
 | **WR** | Réplica cruda Wincaja (Access 97 → Postgres, continua) | 🟢 |
 | **AX** | Anexo de venta imprimible (detalle + pagaré) | 🟢 |
-| **MR** | Motor de Rentabilidad (cascada de margen) | 🧪 |
+| **MR** | Motor de Rentabilidad (cascada de margen) | ⚠️ |
 | **VP** | Verdad y Procedencia (el número declara con qué se calculó) | 🟡 |
 | **OBS** | Ingesta que no se cae en silencio | 🟢 |
 | **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🟢 |
 | **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🟢 |
-| **TP** | Calendario de Pagos | 🧪 |
+| **TP** | Calendario de Pagos | 🟢 |
 | **SN** | Suite: navegación por espacios ("Mi trabajo" en `/projects`) | 🧪 |
 | **CDRP** | Cuadro de Resultados por Puesto (el tablero directivo, DENTRO de «Mi trabajo») | 🟢 |
 | **FLT** | Lista de faltantes (la venta que NO ocurrió) | 🧪 |

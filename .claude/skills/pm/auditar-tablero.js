@@ -17,7 +17,7 @@ const porNum = Object.fromEntries(issues.map((x) => [x.number, x]));
 const vistas = JSON.parse(gh(['api', 'graphql', '-f', `query={ user(login:"${OWNER}"){ projectV2(number:2){ views(first:30){ nodes { name layout } } } } }`])).data.user.projectV2.views.nodes;
 const roadmap = Object.fromEntries(fs.readFileSync(path.join(raiz, 'CLAUDE.md'), 'utf8').split('\n')
   .map((l) => l.match(/^\| \*\*([^*]+)\*\* \| .+? \| (.+?) \|\s*$/)).filter(Boolean).map((m) => [m[1], m[2].trim()]));
-const EQUIV = { '🔨': ['En curso'], '🟡': ['En curso'], '🧪': ['Probado'], '🚀': ['En producción'], '🟢': ['Cerrado'], '⏸️': ['En pausa'], '⬜': ['Por hacer'], '🔴': ['Por hacer'] };
+const EQUIV = { '🔨': ['En curso'], '🟡': ['En curso'], '🧪': ['Probado'], '🚀': ['En producción'], '🟢': ['Cerrado'], '⏸️': ['En pausa'], '⚠️': ['Bloqueado'], '⬜': ['Por hacer'], '🔴': ['Por hacer'] };
 const prioEsperada = (d, e) => {
   const D = /^Alto/.test(d || '') ? 'A' : /^Medio/.test(d || '') ? 'M' : /^Bajo/.test(d || '') ? 'B' : null;
   const E = (e || '').slice(0, 2).trim();
@@ -66,9 +66,12 @@ for (const i of items) {
 }
 // La regla dinero × esfuerzo a nivel tablero: ¿se trabaja lo de prioridad baja antes que lo de alta?
 const prioNum = (i) => { const p = campo(i, /^prioridad$/i); return p ? Number(String(p)[0]) : null; };
-const altasSinTrabajar = vivas.filter((i) => [0, 1].includes(prioNum(i)) && i.status !== 'En curso' && i.status !== 'En pausa');
+// Bloqueado = espera a alguien con nombre (una firma, un secreto), no a un dev: no compite por el cupo, pero se reporta aparte.
+const altasSinTrabajar = vivas.filter((i) => [0, 1].includes(prioNum(i)) && !['En curso', 'En pausa', 'Bloqueado'].includes(i.status));
+const altasBloqueadas = vivas.filter((i) => [0, 1].includes(prioNum(i)) && i.status === 'Bloqueado');
 const bajasEnCurso = items.filter((i) => i.status === 'En curso' && prioNum(i) === 4);
 if (altasSinTrabajar.length && bajasEnCurso.length) anota('Se trabaja prioridad 4 mientras prioridad 0–1 espera', `en curso P4: ${bajasEnCurso.map((i) => '#' + i.content.number).join(', ')} · esperando P0–1: ${altasSinTrabajar.map((i) => '#' + i.content.number).join(', ')}`);
+for (const i of altasBloqueadas) anota('Prioridad 0–1 bloqueada (empujar al que la destraba)', `#${i.content.number} ${i.content.title.match(/^\[[^\]]+\]/)?.[0] || ''}`);
 const codigos = {};
 for (const i of items) { const c = (i.content.title.match(/^\[([^\]]+)\]/) || [])[1]; if (c) (codigos[c] ||= []).push('#' + i.content.number); }
 for (const [c, ns] of Object.entries(codigos)) if (ns.length > 1) anota('Código repetido en dos tarjetas', `[${c}] ${ns.join(', ')}`);
