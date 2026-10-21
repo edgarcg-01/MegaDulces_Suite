@@ -17,6 +17,9 @@
  *
  * Sin las tres variables se declara NO MEDIDO (se salta). La base de Mega Talento sólo se lee.
  *
+ * `[RH.1.15]` El JSON tiene que salir del código ACTUAL de Mega Talento (8396d3c o posterior: marca sin
+ * pareja, varios horarios, «Descanso»). Uno exportado antes de eso compara contra la lógica vieja.
+ *
  * ── Medido el 2026-10-07 (foto de Mega Talento de las 09:57 MX) ──
  *   · Asistencia: 72 cálculos (12 sitios × 3 semanas de nómina × planta/promotoras), 1,464
  *     personas, 5,464 días → 0 diferencias, nadie de más ni de menos. La primera corrida se puso
@@ -67,7 +70,9 @@ const igual = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) ===
 const dias = (p: Persona): Map<string, string> => new Map(p.semanas.flatMap((s) => s.dias).map((d) =>
   [d.fecha, JSON.stringify([d['estado'], d['retardoRealMin'], d['atrasoMin'], d['netasMin'] ?? null, d['referencia'] ?? null, d['justificacion'] ?? null,
     // `[RH.1.10]`
-    d['extraMin'] ?? 0, d['salidaEsperada'] ?? null, d['descansoCambio'] ?? null, d['comidaExcesoMin'] ?? null, d['desayunoExcesoMin'] ?? null])]));
+    d['extraMin'] ?? 0, d['salidaEsperada'] ?? null, d['descansoCambio'] ?? null, d['comidaExcesoMin'] ?? null, d['desayunoExcesoMin'] ?? null,
+    // `[RH.1.15]` la marca sin pareja (se ve en la comida del día) y contra qué horario se midió.
+    d['comida'] ?? null, d['turno'] ?? null, d['esperadoMin'] ?? null, d['horasExtraUsadasMin'] ?? null])]));
 
 (listo ? describe : describe.skip)('paridad contra Mega Talento (datos reales)', () => {
   it('la Suite da el mismo número que Mega Talento, persona por persona', async () => {
@@ -93,7 +98,7 @@ const dias = (p: Persona): Map<string, string> => new Map(p.semanas.flatMap((s) 
         // Lo que la carga de personas supone y una base local atrasada puede no tener (en prod ya está).
         const aplicadas = new Set((await trx.raw('SELECT name FROM public.knex_migrations')).rows.map((x: { name: string }) => x.name.replace(/\.js$/, '')));
         for (const m of ['20260910120000_kind_dispositivo_y_hash_nullable', '20261001120000_zn8_alcance_por_area',
-          cargaPersonas.MIGRACION_PERSONAS, cargaPersonas.MIGRACION_FICHAS]) {
+          cargaPersonas.MIGRACION_PERSONAS, cargaPersonas.MIGRACION_FICHAS, carga.MIGRACION_VARIOS_HORARIOS]) {
           if (!aplicadas.has(m)) await mig(m).up(trx);
         }
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);

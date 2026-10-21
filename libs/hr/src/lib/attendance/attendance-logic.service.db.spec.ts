@@ -23,6 +23,7 @@ const migs = [
   '20261008094812_hr_agente_corridas',
   '20261008094813_hr_ordenes_quien',
   '20261012151620_hr_secciones_por_ficha',
+  '20261021090942_hr_person_schedules_varios_horarios', // [RH.1.15] el lector selecciona shifts
 ].map((n) => require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${n}.js`)));
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;
@@ -123,6 +124,23 @@ suite('lógica de asistencia contra la base', () => {
         r['juanAsignado'] = (await report.asistencia(sem)).personas.find((p) => p.codigo === '17')?.horarioAsignado?.entrada;
         r['horarioMalo'] = await fallo(() => schedules.asignar({ site_code: site, person_codes: ['17'], starts_at: '18:00', ends_at: '09:00', lunch_minutes: 60 }));
 
+        // `[RH.1.15]` Varios horarios: se guardan en `shifts` (forma de Mega Talento) y el lector los devuelve
+        // en el orden capturado; con uno solo `shifts` queda NULL. «18» no checa: no toca lo demás.
+        await schedules.asignar({ site_code: site, person_codes: ['18'], shifts: [
+          { starts_at: '13:00', ends_at: '20:00', lunch_minutes: 60 }, { starts_at: '07:00', ends_at: '15:00', lunch_minutes: 30 }] });
+        const fila18 = await trx('hr.person_schedules').where({ site_code: site, person_code: '18' })
+          .first('shifts', trx.raw(`to_char(ends_at, 'HH24:MI') AS salida`), 'lunch_minutes', trx.raw('cardinality(shift_starts) AS n'));
+        const conf = await (await import('./attendance-reader')).confirmados(trx, site);
+        r['varios'] = [fila18?.shifts, fila18?.salida, fila18?.lunch_minutes, fila18?.n, conf.asignados.get('18')?.horarios.map((h) => h.entrada),
+          conf.asignados.get('18')?.entrada, conf.asignados.get('17')?.horarios.length,
+          (await trx('hr.person_schedules').where({ site_code: site, person_code: '17' }).first('shifts'))?.shifts];
+        r['variosMismaEntrada'] = await fallo(() => schedules.asignar({ site_code: site, person_codes: ['18'], shifts: [
+          { starts_at: '07:00', ends_at: '15:00', lunch_minutes: 30 }, { starts_at: '07:00', ends_at: '16:00', lunch_minutes: 30 }] }));
+        r['checkUnoSolo'] = await fallo(() => trx.transaction(async (sp) => {
+          await sp('hr.person_schedules').where({ site_code: site, person_code: '18' })
+            .update({ shifts: JSON.stringify([{ entrada: '07:00', salida: '15:00', comidaMin: 30 }]) });
+        }));
+
         // ── Agente de alertas ───────────────────────────────────────────────────────────────
         const an1 = await agent.analizar({ siteCode: site, desde: '2026-09-10', hasta: '2026-09-16' });
         const claves = (await alerts.listar({ site_code: site }) as Array<{ person_code: string; work_date: string; rule: string }>)
@@ -218,6 +236,11 @@ suite('lógica de asistencia contra la base', () => {
     expect(r['promotoraEnSuVista']).toEqual(['16']);
     expect(r['juanAsignado']).toBe('09:30');
     expect(r['horarioMalo']).toBe('400');
+    expect(r['varios']).toEqual([
+      [{ entrada: '13:00', salida: '20:00', comidaMin: 60 }, { entrada: '07:00', salida: '15:00', comidaMin: 30 }],
+      '20:00', 60, 2, ['13:00', '07:00'], '13:00', 1, null]);
+    expect(r['variosMismaEntrada']).toBe('400');
+    expect(r['checkUnoSolo']).toBe('23514');
 
     // Sin horarios de sitio no hay retardo ni falta que el detector pueda medir (Mega Talento igual):
     // quedan la doble lectura y la entrada sin salida del jueves 10 de Juan.
