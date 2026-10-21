@@ -11,10 +11,6 @@
 ## [Unreleased]
 ### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
 - Ya no es un elemento suelto del menú: es la primera opción del selector de **Control de entradas**. Quien sube facturas entra directo a Captura; quien sólo consulta entra a Cobertura por sucursal.
-### Fixed — Movimientos no asociados: ya no se puede bajar ni entregar un TXT que ContPAQi rechaza (LC.17, 2026-10-21)
-- El archivo de julio-2026 se había guardado con el formato anterior al 8 de octubre y se seguía descargando. Ahora la pantalla dice **«El archivo guardado ya no sirve»** con el motivo, esconde la descarga y pide generarlo de nuevo. Lo mismo para un mes con firma pero sin archivo (junio-2026).
-- Al generar, el sistema registra qué facturas lleva el archivo. Antes sólo quedaban las marcadas a mano, y un complemento ya entregado podía volver a ofrecer las mismas facturas (doble registro).
-- No se puede volver a generar encima de un archivo ya entregado, ni saltar pasos del trámite (por ejemplo, marcar «aplicado» algo que nadie entregó). Nuevo botón **«Cancelar entrega»**, con motivo obligatorio, para cuando ContPAQi rechazó el archivo.
 ### Changed — «Costo por compra» ahora se llama «Revisión de facturas» y está en Recepción (RE.47, 2026-10-21)
 - La pantalla abre en las facturas **por revisar**: el nombre ahora dice ese trabajo. Sigue siendo la misma lista, con las columnas de factura, ajuste y neto de cada compra. Los enlaces viejos (`/compras/costo-por-compra`) siguen funcionando.
 - El aviso de **posible duplicado** aparece en esta pantalla, en la evidencia de cada entrada (antes se había puesto en una pantalla que ya no se usa).
