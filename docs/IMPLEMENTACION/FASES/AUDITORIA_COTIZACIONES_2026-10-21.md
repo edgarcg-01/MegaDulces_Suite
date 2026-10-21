@@ -234,7 +234,7 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
 
 | # | Qué | Por qué primero | Esfuerzo |
 |---|---|---|---|
-| 1 | **C1 + C2 + M1 + M5 + M7**: una sola función de entregable que reciba del servidor `{suma de renglones, descuento, base sin IVA, IVA, total}` y no recalcule nada; fecha de la cotización; sin `$0.00`; sin el mensaje crudo | Es el precio que se le promete por escrito al cliente: $8,539.97 de diferencia en 18 cotizaciones | Chico |
+| 1 | ✅ **`[E.19]` hecho (2026-10-21, ver §7)** · **C1 + C2 + M1 + M5 + M7**: una sola función de entregable que reciba del servidor `{suma de renglones, descuento, base sin IVA, IVA, total}` y no recalcule nada; fecha de la cotización; sin `$0.00`; sin el mensaje crudo | Es el precio que se le promete por escrito al cliente: $8,539.97 de diferencia en 18 cotizaciones | Chico |
 | 2 | **A1 + A2 + A3**: `contactoNombre` como signal, decimales para lo que se vende por kilo, cantidad del detalle al salir del campo | Errores de 10× y un botón que no se habilita, en el uso diario | Chico |
 | 3 | **C3**: `POST /quotes` con renglones en una transacción | Cotizaciones a medias y folios duplicados | Medio |
 | 4 | **A4 + A5 + A6 + A8**: candados, `rung`, renglón sin catálogo, y las escrituras a una suite que corra en CI | Precondición de la edición; hoy nada protege las escrituras | Medio |
@@ -250,3 +250,33 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
 - **M1 del backend (promos apiladas)** quedó como inferencia: hace falta contrastarlo contra ventas
   reales del ERP (ADR-059) antes de decidir.
 - El costo de las ~6 lecturas por renglón agregado no se midió (`EXPLAIN ANALYZE` pendiente).
+
+---
+
+## 7. `[E.19]` Paso 1 hecho: el entregable cierra (2026-10-21)
+
+- **Una sola cuenta**: `totalesCotizacion()` en `libs/contracts/src/money/quote-totals.ts`. Importe =
+  Σ renglones con precio; descuento = el % del **cliente** (capa de documento); total =
+  `round(importe × (1 − %))`; base = `round(total / 1.16)`; IVA = la diferencia; y los netos por
+  renglón repartidos por mayor residuo para que **la columna sume el total al centavo**.
+  **Verificada contra las 22 cotizaciones reales de prod**: reproduce total, base e IVA guardados
+  al centavo en las 22 (prueba temporal con control, borrada después).
+- **El entregable ya no hace aritmética al dibujar**: `modeloEntregable()` arma filas y totales; el
+  PDF y el Excel sólo pintan. Requerimiento #4 de Dirección se conserva (columna «Descuento» +
+  «P. Unitario Neto / Importe Neto»), pero el descuento de la columna es **sólo el del cliente**:
+  el de volumen/promo ya está en el precio (C2). Totales: «Importe de los artículos − Descuento
+  cliente = Total», con «incluye IVA» (C1).
+- **Si el total del papel no es el que guardó el servidor, el papel no se genera** (el detalle
+  manda `totalGuardado`; error visible en un toast).
+- Emisión = fecha de la cotización; título «COTIZACIÓN VENCIDA / CANCELADA» en rojo (M1) · «Sin
+  precio» y «Regalo» en vez de `$0.00`, y una condición «N artículos sin precio: no están en el
+  total» (M5) · el mensaje crudo del cliente ya no se imprime (M7) · el vendedor sale de
+  `salesperson_name` (M6, de paso) · fuera el emoji del renglón de regalo.
+- **El riel de la pantalla de alta** usa la misma función: antes calculaba su descuento sin
+  redondear (otra vista del mismo dato, Cruce 5).
+- Pruebas: `quote-totals.spec` 6/6 (con COT-2026-00021 de prod como referencia),
+  `quote-deliverable-export.spec` 10/10 con **prueba negativa** (sin el descuento del cliente,
+  C1 y C2 se ponen rojos), `contracts` completo 701/701, `ngc --noEmit` con control.
+- ⚠️ **Deuda con nombre**: el servidor (`recalcTotals`) todavía hace su propia cuenta; la spec fija
+  que coincidan. Mudarlo a `totalesCotizacion` va en el paso 4 (escrituras), con prueba contra base.
+- ⛔ **Sin validación visual**: el PDF y el Excel no se abrieron.

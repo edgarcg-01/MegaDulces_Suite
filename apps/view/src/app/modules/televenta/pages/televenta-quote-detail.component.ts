@@ -1416,13 +1416,18 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       line_total: Number(l.line_total) || 0,
       price_source: this.fuenteLabel(l.price_source),
       free_goods: null,
-      discount_pct: this.num(l.discount_pct) ?? (Number(q.terms_discount_pct) || null),
+      // [E.19] El regalo del ERP se imprime «Regalo», no $0.00. Y ya no viaja un descuento por
+      // renglón: el de volumen/promo YA está en `unit_price`, y pasarlo lo aplicaba dos veces
+      // (auditoría C2: 123 renglones de 18 cotizaciones impresos $8,539.97 por debajo).
+      regalo: l.price_source === 'free_goods',
     }));
 
-    const subtotal = Number(q.subtotal) || 0;
-    const discountPct = Number(q.terms_discount_pct) || 0;
-    const discountAmount = discountPct > 0 ? (subtotal * discountPct) / 100 : 0;
-    const total = Number(q.total) || subtotal - discountAmount;
+    // [E.19] El papel hace la MISMA cuenta que el servidor y se niega a salir si no reproduce el
+    // total guardado. Antes restaba el descuento a un subtotal que ya lo traía y no traía IVA (C1).
+    const estado: QuoteDeliverableData['estado'] =
+      q.status === 'cancelled' ? 'cancelada'
+      : (q.status === 'draft' || q.status === 'sent') && q.days_to_expiry < 0 ? 'vencida'
+      : 'vigente';
 
     return {
       // Esta cotización YA existe: su folio es lo primero que va al papel.
@@ -1434,15 +1439,16 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       branchCode: sucursalCod,
       branchName: branchName(sucursalCod),
       salespersonCode: q.salesperson_code || null,
-      salespersonName: this.vendedorAsignado(q) || null,
+      // [E.19] El vendedor viaja en su columna; la regex sobre `notes` nunca lo encontraba.
+      salespersonName: q.salesperson_name || this.vendedorAsignado(q) || null,
       quoteDate: q.quote_date || new Date(),
       validUntil: q.valid_until,
       items,
-      subtotal,
-      discountPct,
-      discountAmount,
-      total,
-      notes: q.customer_request || q.notes || null,
+      discountPct: this.num(q.terms_discount_pct),
+      totalGuardado: this.num(q.total),
+      estado,
+      // Notas PARA EL CLIENTE. ⛔ No `customer_request`: es el mensaje crudo que pegó el operador.
+      notes: q.notes || null,
     };
   }
 
