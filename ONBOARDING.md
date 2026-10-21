@@ -399,7 +399,7 @@ Una prueba que no llega a comparar sale con un código distinto y lo dice. La mu
 **53. Un buscador entiende los folios como los escribe la gente, no como los guarda el sistema.** *Origen: PM — «au501-00076» para `UA0501-0000076`.* Las letras van al revés, al tipo le falta el cero y el folio trae otra cantidad de ceros. Con búsqueda por fragmentos, ninguna de esas formas casa. Un folio se compara **por número**: el documento publica sus variantes cortas, la consulta se lleva a esa forma, y un terminador evita que el 76 traiga el 761. Pruébalo con lo que escribió la persona, no con el folio bien escrito.
 
 **54. Una pantalla no está lista hasta verla en un navegador real, con la consola limpia.** *Origen: PM — «¿por qué la búsqueda no me aparece?».* Al abrir `localhost:4200` con el navegador del agente aparecieron dos defectos que ninguna compuerta vio:
-- la **lupa en 0 px**: PrimeNG 22 pisa el `class` de `p-inputicon`, así que el ícono va adentro como `<i>`;
+- la **lupa en 0 px**: `p-inputicon` no tiene `styleClass` en PrimeNG 22, así que `styleClass="pi pi-search"` queda como atributo muerto; va `class="pi pi-search"` estático (corregido en CSU.15: el `class` sí llega, ver punto 59);
 - **NG0955** por `track i` sobre un esqueleto de `undefined`: va `track $index`.
 
 El criterio de cierre es la pantalla abierta, la acción probada y `list_console_messages` sin advertencias. «Sin validación visual» se declara (punto 17) sólo cuando de verdad no se pudo abrir.
@@ -431,6 +431,22 @@ Lo que funcionó:
    - comprobar que ningún archivo quedó con marcas de conflicto;
    - comprobar que la compuerta que tocaron los dos conserva los cambios de ambos;
    - revisar el remoto con `ls-remote`, porque el lead pudo haber fusionado otra vez.
+
+**58. Un defecto que encontraste en UNA pantalla se busca en todo el repo y se cierra con una compuerta, no sólo donde lo viste.** *Lección de CSU.13 → CSU.15 (2026-10-21).* La lupa en 0 px y el NG0955 aparecieron en Cortes, pero eran el mismo renglón copiado en otras pantallas:
+- 36 `p-inputicon` y 28 `p-iconfield` con `styleClass`;
+- 27 `@for … track i` sobre un esqueleto, en 15 archivos.
+
+Mi primer conteo decía «3 pantallas» porque busqué una sola forma de escribirlo. La forma que funcionó:
+1. **Inventario con comando sobre `origin/main`**, con todas las variantes, no sobre tu árbol.
+2. **Arreglo mecánico**, con un script que imprime cada cambio, y el conteo del diff contra el inventario.
+3. **La compuerta va en la familia que ya existe** (punto 12). `p-inputicon`/`p-iconfield` entraron a `SIN_STYLECLASS` de `check:primeng` con techo 0. El `track` no es de PrimeNG y tiene su compuerta propia, `check:track`.
+4. **La negativa se corre contra el `main` sin barrer**, y debe salir roja con el número exacto del inventario (36 + 28 y 28). Si sale otro número, el detector o el inventario están mal.
+
+**59. Antes de escribir POR QUÉ falla una API, mídelo: la explicación también es una cifra.** *Lección de CSU.15.* En CSU.13 escribí que «PrimeNG 22 pisa el `class` de `p-inputicon`» y receté meter un `<i>` adentro. En el navegador, el `class` estático **sí** llega: lupa de 14 px con su glifo. Lo único que se pierde es `styleClass`, porque el componente no tiene esa entrada; su única entrada es `hostName`.
+
+La explicación sin medir empujaba a un arreglo más grande (reescribir 64 etiquetas) cuando bastaba con cambiar una palabra, y se copió al protocolo (punto 54). La evidencia barata son dos:
+- las `inputs` del componente en `node_modules/primeng/fesm2022/*.mjs`;
+- `getBoundingClientRect().width` y `getComputedStyle(el, '::before').content` en el navegador.
 
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
