@@ -402,7 +402,13 @@ facturas **anteriores** al pago y erraba 1.7 %: en 8 de 10 la contadora asoció 
 **días después** del pago, de importe recurrente (p. ej. $128,222.22 mensuales). Abrir la ventana a
 +30 días bajó el error a 0.1 %.
 
-### `[CP.8.62]` ⛔⛔ Por qué no se llega al 100 %: **ningún sistema guarda qué facturas paga cada pago**
+### `[CP.8.62]` ~~Por qué no se llega al 100 %: ningún sistema guarda qué facturas paga cada pago~~ ⛔ **REFUTADO el mismo día por `[CP.8.63]`: Kepler SÍ lo guarda (`kdxf`)**
+
+> ⛔⛔ **Lo que esta sección concluyó está mal, y se deja escrito para que nadie lo reconstruya.** Se
+> buscó en `kdm1`, `kdm2`, `kduf` y `kdfe*` y no en **`kdxe`/`kdxf`**, que la Fase ECA ya había
+> decodificado el 2026-10-07 y que el propio comentario de `armarPagoProveedor` citaba. *El dato
+> estaba en el repo; la búsqueda lo saltó.* Las filas del banco, REP y Tesorería siguen siendo
+> ciertas; la de Kepler no. Ver `[CP.8.63]` abajo.
 
 Pregunta del usuario: *«¿no podemos generar un 100 %?»*. Se buscó el dato en todas las fuentes,
 re-medido hoy y no copiado de memorias:
@@ -447,6 +453,47 @@ Caja General, no de banco, y no tienen CFDI.
    casos: es mover ese paso, no inventarlo. Con eso la liga es **exacta por construcción**.
 3. **Notas de crédito**: medir en Kepler (`X-D-55` nota, `X-D-40` devolución de compra) si se
    distingue descuento de devolución; si sí, entran a la combinación.
+
+### ⭐⭐ `[CP.8.63]` La cadena estructural: banco → pago Kepler → entradas (`kdxf`) → CFDI
+
+`database/scripts/cadena-pago-kepler-contpaqi.js`. El UUID sale **sólo** de Kepler y del CFDI; la
+asociación de la contadora se usa para calificar, nunca para resolver.
+
+```
+banco (Banorte 3041 · 19-oct · 52,339.34)
+  │ L1  c45 del pago = últimos dígitos de la cuenta · importe ±$1 · fecha Kepler −2…+7 días
+pago Kepler X-D-26 0023458 (20-oct · 52,339.13)
+  │ L2  kdxf: «el cargo (pago) se aplicó al abono (documento) por c10» — estructural
+entrada X-A-20 0009546 (4-sep · 52,339.13 · referencia «0-F-2734»)
+  │ L3  RFC del acreedor + total ±$1; si no, el folio de la referencia (≤ 3 % de diferencia)
+CFDI folio 262734 (26-ago · 52,339.34) → UUID
+```
+
+| eslabón | resultado (1,837 pólizas de pago a proveedor 2026) |
+|---|---|
+| L1 banco → UN pago Kepler | **89.5 %** · placebo (+$137) **0.0 %** |
+| L2 pago → entradas (`kdxf`) | **89.0 %** |
+| L3 entrada → CFDI | el cuello: 45 % de las entradas tienen el acreedor **sin RFC** en `kdxd` (149 acreedores se recuperan por el nombre de su CFDI); el folio de la referencia liga 1,186 entradas que el importe no |
+| **cadena completa** | **911 correctas (49.6 %) · 55 con otras facturas (3.0 %)** |
+| **+ compuerta «Σ facturas − Σ notas = pagado»** (no mira la respuesta) | **700 correctas (38.1 %) · 12 equivocadas (0.7 %)** · 254 a revisión, de las que 211 eran correctas |
+
+De los 55 errores sin compuerta, **37 son desacuerdos entre Kepler y la contadora**, no del método:
+21 pagos en que Kepler aplicó **más** facturas de las que ella asoció y 16 en que aplicó **menos**.
+
+**Por qué todavía no es 100 %, ahora sí con causa:**
+
+| dónde se corta | magnitud | qué lo destraba |
+|---|---|---|
+| la nota de crédito no encuentra su CFDI de egreso | 211 cadenas correctas frenadas por la compuerta; sólo 83 de 667 notas casan | ligar `kdxe` 55/40 → CFDI `E` igual que las facturas (RFC + importe + referencia); y Kepler ya distingue **nota (X-D-55)** de **devolución (X-D-40)** — lo que contabilidad pidió revisar |
+| entrada sin CFDI que cuadre | ~1,500 entradas | descuento al facturar, varias facturas por entrada, o el proveedor no factura (remisión) |
+| acreedor sin RFC en Kepler | 97 pólizas | dar de alta el RFC en `kdxd` (es un dato de catálogo, una vez por proveedor) |
+| pago del banco sin pago en Kepler | 183 pólizas (10 %) | se capturó tarde, en otra cuenta de tesorería, o no se capturó |
+| Kepler y la contadora no coinciden | 37 pólizas | revisión: una de las dos está mal, y hoy nadie lo ve |
+
+**Lo que cambia del plan:** la propuesta a Tesorería (`[CP.8.62]`, paso 2) **deja de ser necesaria**:
+la decisión «qué facturas paga» ya queda registrada en Kepler cuando Mayra aplica el pago. Lo que
+falta es leerla bien. Siguiente medición: notas de crédito por la misma cadena, y la unión con
+`[CP.8.61]` (dos métodos independientes: si coinciden se arma, si discrepan a revisión).
 
 **Decisión de diseño que se propone:** armar sola sólo «una factura, candidato único»
 (**584 pagos, 32 %**); las combinaciones van como **propuesta a confirmar** en pantalla; nota de
