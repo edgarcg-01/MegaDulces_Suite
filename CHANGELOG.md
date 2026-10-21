@@ -9,6 +9,31 @@
 ---
 
 ## [Unreleased]
+### Added — Caducidades: «Capturas por día», qué sucursal subió hojas cada día (P2.8.1, 2026-10-16)
+- Vista nueva `/tienda/caducidades/dias` (permiso `COMMERCIAL_EXPIRY_VER`, enlazada desde el expediente) y `GET /commercial/expiry-reviews/expediente/dias?sucursal=&dias=7|30|90` (o `from`/`to`; tope de un año). Muestra por día cuántas hojas se subieron, de qué sucursales y quién las subió, con filtro por sucursal (el selector compartido) y por «Todos / Completos / Con huecos».
+- **Qué cuenta como hueco.** Las sucursales cierran un solo día al año (dato del negocio), así que un día sin hojas de una sucursal es una falta de captura, no un descanso. Se compara contra las sucursales del **alcance** de quien mira, no contra una lista fija. El día en curso no cuenta hasta que termina. Si el alcance todavía no contestó, **no se afirma «completo»** ni «con huecos»: se muestra sólo lo que se ve. El día del cierre anual no está en el código (el sistema no lo conoce): aparecerá como hueco en todas.
+- **El CEDIS `00` captura «al menos cada mes», así que NO cuenta como hueco diario.** Sale del cálculo de huecos y tiene su panel «Captura mensual»: días desde su última captura contra un límite de 31 días («al corriente» / «atrasada»; «sin registro» si nunca ha subido una hoja). Para eso el endpoint devuelve también `hoy` y `ultimas` (la última captura de cada sucursal del alcance, sin importar la ventana). La cadencia es una constante de la pantalla (`CAPTURA_MENSUAL`), no un dato del almacén. «Mínimo cada mes» se tomó como 31 días corridos, no como mes calendario.
+- Sale de las hojas que ya existen (`expiry_review_lines`), agrupadas por `review_date`: **sin tabla ni importer nuevos**. El día es el de la columna «Fecha» del expediente y cada día enlaza al expediente ya filtrado (`?fecha=AAAA-MM-DD&sucursal=NN`).
+### Changed — Caducidades: el expediente filtra sucursales con la misma llave que el alcance (P2.6.9, 2026-10-16)
+- La lista de hojas, la portada por sucursal y el historial pasan a `branchKeyFilterSql` + `ScopeService.warehouseIds()` (la llave canónica de 2 dígitos) en lugar de `w.code ~ '^[0-9]{2}$'` escrito a mano en tres sitios. La **escritura** conserva la regla sobre `code`: el folio `CAD-<code>-…` y su CHECK exigen 2 dígitos.
+- Comentarios «7 sucursales» corregidos: hoy son `00` CEDIS y `01`–`08`; el código nunca las contó.
+- ⚠️ **Cambio de alcance posible, NO MEDIDO contra prod:** un almacén vivo con `code` no numérico y `wincaja_source_branch` de 2 dígitos ahora entra a las lecturas (antes no). Con `MD-30` fundida en `08` y `MD-32` dada de baja no debería haber ninguno, pero no hubo acceso de lectura a prod para confirmarlo.
+### Fixed — fechas imposibles (P2.8.1, 2026-10-16)
+- `to=2026-13-45` en el endpoint nuevo pasaba el formato y reventaba al castear `::date` en Postgres (**500**): ahora contesta 400 con su frase. Lo cazó la primera corrida contra una base real.
+- El expediente ignora un `?fecha=2026-13-45` en vez de correrlo en silencio a otra fecha (`new Date(2026, 12, 45)` es febrero de 2027).
+### Internal — pruebas (P2.8.1)
+- 34 pruebas nuevas: 17 de la pantalla, 7 del expediente (lo que lee de la URL) y 10 del **servicio real contra Postgres** (conexión como `app_runtime`; se salta sin `CADUCIDADES_TEST_DB_URL` y **no corre en el CI**: deuda VP.5). Las reglas con efecto observable tienen prueba negativa ejecutada: se rompió cada una a propósito y la prueba se puso roja.
+- ⬜ **Declarado y no resuelto:** (1) se sabe que el CEDIS captura cada mes, pero no si por esta pantalla o por Almacén, ni si `commercial.stock` tiene filas del `00` (sin ellas sus hojas no alimentan FEFO); (2) todo se probó con datos sembrados en una base local, no con datos de prod; (3) el apilado de la tabla en teléfono (`dt-stack`) y el panel «Captura mensual» pasan sus pruebas y compuertas pero no se vieron en pantalla.
+### Internal — Protocolo previo al PR: puntos 46–51 (CSU.12, 2026-10-21)
+- `ONBOARDING.md` §8.0b: medir en el catálogo qué suma de verdad antes de corregir; la cabecera cancelada no pone en cero descuento, agregado contable ni líneas; regenerar el índice tras fusionar `main`; no forzar una rama que otro tocó; medir en local con las mismas llaves que prod; un rojo que no compara es NO MEDIDO.
+### Fixed — Gastos y pronto pago dejan de contar documentos cancelados en Kepler (CSU.12, 2026-10-21)
+- **Comprobaciones, pagables de Caja, materialidad y MAAT**: salen **1,021 gastos/entradas cancelados** que todavía cargaban **$3,177,101.13** por el agregado contable. Un gasto cancelado ya no se ofrece como pagable.
+- **Pronto pago**: deja de contar **$1,450,384.26 de descuento** de 101 pagos cancelados; la tasa observada baja a lo real en 8+ proveedores (ej. CF004 de 7.39 % a 6.20 %).
+- **Internal**: `check:kdm5-vigente:db` también revisa las cabeceras de `kdm1` con dinero que no miran el estatus de cancelación.
+### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
+- `POST /commercial/analytics/sell-out/ask` (el chat «Pregúntale al Sell-Out») y `sales-by-route/promo` (+ `.xlsx` y `.pdf`) declaraban 15 y 20 por minuto con `@Throttle({ default })`, pero los tiers del servidor se llaman `short/medium/long` y el guard ignora cualquier otro nombre **sin avisar**: nunca limitaron. Ahora el tope existe (tier `long`).
+- **Cambio de comportamiento:** desde un mismo origen, la petición 16.ª (chat) o 21.ª (incentivo de ruta) en un minuto responde **429**. Antes, nada. El chat llama a un LLM de pago por uso.
+- Internal: compuerta `check:throttle-names` (en el pre-push y en el CI, con su `:self`): todo `@Throttle`/`@SkipThrottle` del repo usa un tier configurado. Deja **declarada** una deuda con ratchet: `@SkipThrottle()` a secas (equivale a `{ default: true }`) en los dos controladores de ingesta de checadas de `libs/hr`, que tampoco salta nada.
 ### Changed — Revisión de facturas carga más rápido (RE.49 paso 1, 2026-10-21)
 - La lista calculaba la misma información de Kepler hasta siete veces por cada carga. Ahora la calcula una sola vez y el resto sale de ahí: la parte de la lista pasa de ~2 s a ~0.4–0.5 s (medido en producción). Las cifras y filas que muestra no cambian.
 ### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
@@ -36,6 +61,9 @@
 - **Ninguna cifra cambia**: misma salida, campo por campo, comprobada con datos a escala y con casos borde.
 - Nuevos scripts para volver a medir: `database/scripts/csu-cortes-bench-local.js`, `csu-cortes-paridad-local.js` y `csu-cortes-paridad-prod.js` (sólo lectura).
 ### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.4, 2026-10-19/20)
+### Changed — Arqueo de caja: RD y RV se capturan por ruta, sin caja (SM.46, 2026-10-21)
+- `/tienda/arqueo`, pestañas RD y RV: se quita el campo «Caja». La entrega de un vendedor se identifica por la **ruta**; para guardar basta sucursal + ruta. La confirmación y el ticket muestran la ruta en lugar de la caja. Retiro, Cierre y Relevo no cambian.
+
 ### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
 - `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
 
