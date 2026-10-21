@@ -66,8 +66,8 @@ for (const i of items) {
 }
 // La regla dinero × esfuerzo a nivel tablero: ¿se trabaja lo de prioridad baja antes que lo de alta?
 const prioNum = (i) => { const p = campo(i, /^prioridad$/i); return p ? Number(String(p)[0]) : null; };
-// Bloqueado = espera a alguien con nombre (una firma, un secreto), no a un dev: no compite por el cupo, pero se reporta aparte.
-const altasSinTrabajar = vivas.filter((i) => [0, 1].includes(prioNum(i)) && !['En curso', 'En pausa', 'Bloqueado'].includes(i.status));
+// Bloqueado = espera a alguien con nombre (una firma, un secreto); En producción = ya se usa y queda medir. Ninguna espera a un dev.
+const altasSinTrabajar = vivas.filter((i) => [0, 1].includes(prioNum(i)) && !['En curso', 'En pausa', 'Bloqueado', 'En producción'].includes(i.status));
 const altasBloqueadas = vivas.filter((i) => [0, 1].includes(prioNum(i)) && i.status === 'Bloqueado');
 const bajasEnCurso = items.filter((i) => i.status === 'En curso' && prioNum(i) === 4);
 if (altasSinTrabajar.length && bajasEnCurso.length) anota('Se trabaja prioridad 4 mientras prioridad 0–1 espera', `en curso P4: ${bajasEnCurso.map((i) => '#' + i.content.number).join(', ')} · esperando P0–1: ${altasSinTrabajar.map((i) => '#' + i.content.number).join(', ')}`);
