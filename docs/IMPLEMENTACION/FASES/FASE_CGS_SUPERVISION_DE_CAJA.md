@@ -209,8 +209,8 @@ Orden obligatorio: ninguna capa sube hasta que la de abajo está verificada. Seg
 | CGS.3 | **Candado 2** (ya aprobado), con suplente y plazo según **D2** | ⬜ | Dos jornadas cerradas sin revisar → cerrar la tercera falla |
 | CGS.15 | **Llave de emergencia**: la da alguien con `AUTORIZAR` distinto de quien la pide, con motivo ≥ 10 caracteres, vence al final del día. Queda en la bitácora | ⬜ | Quien la pide no puede dársela a sí mismo (prueba negativa) |
 | CGS.16 | **Segregación ampliada**: quien autoriza o da la llave no puede ser quien cerró **ni quien capturó algún movimiento del corte**. Regla en el motor **y** en la base | 🔨 | María con 29 capturas del 20-oct no puede autorizar el corte del 20-oct |
-| CGS.17 | **Autorizar exige la lista de verificación**: rechaza si V4 no cumple; cada «no cumple» exige nota | ⬜ | Autorizar CC-00002 (esperado −$149,915.32) falla con «se observa, no se autoriza» |
-| CGS.18 | **Estado `observado`** + respuesta de la cajera + vuelta a «por revisar». Ajustar `cash_cut_guardia` para permitir `cerrado → observado → cerrado` **sin** cambiar cifras | ⬜ | Observar no altera ningún importe (prueba que compara antes/después) |
+| CGS.17 | **Autorizar exige la lista de verificación**: rechaza si V4 no cumple; cada «no cumple» exige nota | 🔨 | Autorizar CC-00002 (esperado −$149,915.32) falla con «se observa, no se autoriza» |
+| CGS.18 | **Estado `observado`** + respuesta de la cajera + vuelta a «por revisar». Ajustar `cash_cut_guardia` para permitir `cerrado → observado → cerrado` **sin** cambiar cifras | 🔨 | Observar no altera ningún importe (prueba que compara antes/después) |
 
 ### C2 · API (`/finance/cash-ledger`)
 
@@ -220,7 +220,7 @@ real con el payload de la pantalla. Cada uno de estos va en `cash-ledger.http-re
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
 | CGS.19 | `GET cortes/:id/verificacion` — la lista V1–V11 de un corte | ⬜ | no | Contra la base sembrada de `preparar-base-caja.js` |
-| CGS.20 | `POST cortes/:id/autorizar` acepta `notas` por verificación; `POST cortes/:id/observar` {motivo}; `POST cortes/:id/responder` {respuesta} | ⬜ | sí | Payload de la pantalla; 403 para quien cerró o capturó; 409 si cambió la verificación desde que se mostró |
+| CGS.20 | `POST cortes/:id/autorizar` acepta `notas` por verificación; `POST cortes/:id/observar` {motivo}; `POST cortes/:id/responder` {respuesta} | 🔨 | sí | Payload de la pantalla; 403 para quien cerró o capturó; 409 si cambió la verificación desde que se mostró |
 | CGS.21 | `POST caja/llave-emergencia` {motivo, para_usuario} y que `POST /` y `POST lote` devuelvan **423** con el motivo literal cuando el candado aplica | ⬜ | sí | Captura bloqueada → llave → captura pasa → vence → bloqueada otra vez |
 | CGS.22 | `POST caos/conteos` — el conteo físico de la caja fuerte, ciego, por denominación | ⬜ | sí | Llena `analytics.caos_cash_counts` (hoy 0 filas) |
 | CGS.23 | Traducir `cut_doble_llave_chk` y los errores nuevos en `caja-errores.ts` (hoy un choque directo con la base sale como 500) | 🔨 | no | La violación devuelve la frase, no un 500 |
@@ -319,3 +319,4 @@ Operación:                 CGS.29–31 arrancan con la Tanda 2
 |---|---|---|
 | 2026-10-21 | Plan escrito: entender → auditar (código + prod en sólo lectura) → planear. Línea base de la §1 medida con `dev_ro` | sesión de seguridad de Caja General |
 | 2026-10-21 | D1–D4 decididos por Edgar. CGS.10/11/16/23 en código: migración 20261021110252 (bitácora reusando master_data_history, candado de base sobre lo firmado, quien autoriza ajeno al corte) + servicio + suite test-newdb-caja-supervision.js en el job caja-db. **Sin aplicar en prod** | sesión de seguridad de Caja General |
+| 2026-10-21 | CGS.17/18/20 en código: estado `observado` (migración 20261021111319), observar/responder por API, autorizar rechaza veredictos sin respuesta y pide nota con diferencia. ⚠️ D5 (tolerancia) sigue abierta: mientras, **toda** diferencia ≠ 0 exige nota. **Sin aplicar en prod**; hasta que Arqueos tenga los botones (CGS.24), el «Autorizar» de Captura devuelve la frase «escribe una nota» en cortes con diferencia | sesión de seguridad de Caja General |

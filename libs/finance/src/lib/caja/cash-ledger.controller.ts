@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
+import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto } from '@megadulces/contracts';
 import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
@@ -518,9 +518,23 @@ export class CashLedgerController {
 
   @Post('cortes/:id/autorizar')
   @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
-  @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio).' })
-  autorizarCorte(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.cortes.autorizar(id, this.user(req));
+  @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio). [CGS.16] Tampoco quien lo abrio ni quien capturo o cancelo en el. [CGS.17] Un veredicto sin respuesta no se autoriza (se observa) y con diferencia exige nota de 10+ caracteres.' })
+  autorizarCorte(@Param('id') id: string, @Body() body: { nota?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
+    return this.cortes.autorizar(id, this.user(req), body ?? {});
+  }
+
+  @Post('cortes/:id/observar')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGS.18] La supervisora devuelve el corte con lo que encontro (motivo de 10+). No cambia ninguna cifra. Misma segregacion que autorizar.' })
+  observarCorte(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
+    return this.cortes.observar(id, body ?? {}, this.user(req));
+  }
+
+  @Post('cortes/:id/responder')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[CGS.18] La caja responde la observacion (10+) y el corte vuelve a por revisar. Quien observo no se responde a si misma.' })
+  responderCorte(@Param('id') id: string, @Body() body: { respuesta?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
+    return this.cortes.responder(id, body ?? {}, this.user(req));
   }
 
   @Post(':id/cancelar')

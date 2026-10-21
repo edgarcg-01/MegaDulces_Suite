@@ -166,6 +166,34 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(autorizado.estado).toBe('autorizado');
   });
 
+  it('⭐ `[CGS.17][CGS.18]` con diferencia: sin nota no se autoriza; se observa, la caja responde y se autoriza con nota', async () => {
+    const SUPERVISORA = { id: '00000000-0000-0000-0000-0000000000c6', username: 'supervisora_revisa' };
+    const f = dia('03-14');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('S18'), fondo_inicial: 500 }, CAJERA);
+    await movimiento(f, suc('S18'), 'ingreso', 1000);
+    // Se cuentan $1,000: faltan $500.
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1]), morralla: 0 }, CAJERA);
+    await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
+
+    await expect(svc.autorizar(c.id, SUPERVISORA)).rejects.toThrow(/escribe una nota/);
+    await expect(svc.observar(c.id, { motivo: 'corto' }, SUPERVISORA)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.observar(c.id, { motivo: 'Faltan 500 y nadie lo explica' }, CAJERA))
+      .rejects.toBeInstanceOf(ForbiddenException);
+
+    const obs = await svc.observar(c.id, { motivo: 'Faltan 500 y nadie lo explica' }, SUPERVISORA);
+    expect(obs).toMatchObject({ estado: 'observado', observacion: 'Faltan 500 y nadie lo explica', observed_by_username: 'supervisora_revisa' });
+    // Observado: no se autoriza, y sus cifras no se movieron.
+    await expect(svc.autorizar(c.id, AUTORIZA, { nota: 'Autorizo con faltante' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(Number((await corte(c.id)).diferencia)).toBe(-500);
+
+    await expect(svc.responder(c.id, { respuesta: 'Me respondo a mí misma' }, SUPERVISORA)).rejects.toBeInstanceOf(ForbiddenException);
+    const res = await svc.responder(c.id, { respuesta: 'Se pagó un flete de 500 sin capturarlo; va como ajuste hoy' }, CAJERA);
+    expect(res).toMatchObject({ estado: 'cerrado', responded_by_username: CAJERA.username });
+
+    const aut = await svc.autorizar(c.id, SUPERVISORA, { nota: 'Flete de 500 explicado, ajuste en la jornada siguiente' });
+    expect(aut).toMatchObject({ estado: 'autorizado', authorization_note: 'Flete de 500 explicado, ajuste en la jornada siguiente' });
+  });
+
   it('cerrar con el MISMO conteo sellado en el cuerpo (lo que manda la pantalla sin recargar) también cierra', async () => {
     const f = dia('03-02');
     const c = await svc.abrir({ fecha: f, sucursal: suc('L2'), fondo_inicial: 500 }, CAJERA);

@@ -336,6 +336,16 @@ describe('puedeAutorizarUI — la doble llave en el botón', () => {
     expect(puedeAutorizarUI(null, 'u1').ok).toBe(false);
     expect(puedeAutorizarUI(corteCerrado, null).ok).toBe(false);
   });
+  // `[CGS.18]` Antes caía en «Primero hay que cerrar el corte», que es falso: ya está cerrado.
+  it('[negativa] uno observado dice quién lo observó y qué encontró, no «primero ciérralo»', () => {
+    const r = puedeAutorizarUI({
+      ...corteCerrado, estado: 'observado', observed_by_username: 'maria', observacion: 'Falta el depósito',
+    }, 'u-gerente');
+    expect(r.ok).toBe(false);
+    expect(r.texto).toContain('maria');
+    expect(r.texto).toContain('Falta el depósito');
+    expect(r.texto).not.toContain('Primero hay que cerrar');
+  });
 });
 
 describe('puedeCerrarUI', () => {
