@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Internal — Protocolo previo al PR: puntos 46–51 (CSU.12, 2026-10-21)
+- `ONBOARDING.md` §8.0b: medir en el catálogo qué suma de verdad antes de corregir; la cabecera cancelada no pone en cero descuento, agregado contable ni líneas; regenerar el índice tras fusionar `main`; no forzar una rama que otro tocó; medir en local con las mismas llaves que prod; un rojo que no compara es NO MEDIDO.
+### Fixed — Gastos y pronto pago dejan de contar documentos cancelados en Kepler (CSU.12, 2026-10-21)
+- **Comprobaciones, pagables de Caja, materialidad y MAAT**: salen **1,021 gastos/entradas cancelados** que todavía cargaban **$3,177,101.13** por el agregado contable. Un gasto cancelado ya no se ofrece como pagable.
+- **Pronto pago**: deja de contar **$1,450,384.26 de descuento** de 101 pagos cancelados; la tasa observada baja a lo real en 8+ proveedores (ej. CF004 de 7.39 % a 6.20 %).
+- **Internal**: `check:kdm5-vigente:db` también revisa las cabeceras de `kdm1` con dinero que no miran el estatus de cancelación.
 ### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
 - `POST /commercial/analytics/sell-out/ask` (el chat «Pregúntale al Sell-Out») y `sales-by-route/promo` (+ `.xlsx` y `.pdf`) declaraban 15 y 20 por minuto con `@Throttle({ default })`, pero los tiers del servidor se llaman `short/medium/long` y el guard ignora cualquier otro nombre **sin avisar**: nunca limitaron. Ahora el tope existe (tier `long`).
 - **Cambio de comportamiento:** desde un mismo origen, la petición 16.ª (chat) o 21.ª (incentivo de ruta) en un minuto responde **429**. Antes, nada. El chat llama a un LLM de pago por uso.
