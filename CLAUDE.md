@@ -215,10 +215,10 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **K** | AI product match en captures (pgvector + Voyage + Haiku) | 🟢 |
 | **Horus** | Supervisor AI de ejecución (Trade) | ⏸️ |
 | **LM** | Última Milla (entrega a domicilio local en moto) | ⏸️ |
-| **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | 🔨 |
+| **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | ⏸️ |
 | **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
 | **RA** | Compras / Reabastecimiento (punto de reorden + existencia crítica + sugerido) | 🟢 |
-| **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🔨 |
+| **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🚀 |
 | **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
 | **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
 | **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | ⏸️ |
@@ -227,7 +227,7 @@ El historial de los sprints A.0mt.1 → D.5 (cerrados) se movió a [`00_ROADMAP_
 | **WR** | Réplica cruda Wincaja (Access 97 → Postgres, continua) | 🟢 |
 | **AX** | Anexo de venta imprimible (detalle + pagaré) | 🟢 |
 | **MR** | Motor de Rentabilidad (cascada de margen) | ⚠️ |
-| **VP** | Verdad y Procedencia (el número declara con qué se calculó) | 🟡 |
+| **VP** | Verdad y Procedencia (el número declara con qué se calculó) | ⏸️ |
 | **OBS** | Ingesta que no se cae en silencio | 🟢 |
 | **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🟢 |
 | **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🟢 |
