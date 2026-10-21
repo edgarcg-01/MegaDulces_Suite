@@ -7,6 +7,12 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { TextareaModule } from 'primeng/textarea';
+import { DENOMINACIONES_CAOS, type CaosConteoFisicoDto } from '@megadulces/contracts';
+import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
@@ -49,6 +55,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, ButtonModule, InputTextModule, SelectModule, DatePickerModule, TableModule, TagModule,
+    DialogModule, InputNumberModule, TextareaModule,
     MetricStripComponent, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
     CajaTabsComponent],
   template: `
@@ -84,6 +91,15 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
                         [skeletonRows]="1" errorTitle="No se pudo leer el estado de la caja fuerte"
                         (retry)="cargarSaldo()">
           <app-metric-strip [items]="saldoKpis()" ariaLabel="Estado de la caja fuerte"></app-metric-strip>
+          <!-- [CGS.22] El testigo que faltaba: una persona cuenta la maquina, a ciegas. Lo cuenta quien
+               supervisa, no la caja. -->
+          @if (puedeContar()) {
+            <div class="cs-conteo-acc">
+              <p-button label="Contar la caja fuerte" icon="pi pi-calculator" size="small" severity="secondary" [outlined]="true"
+                        (onClick)="abrirConteo()"></p-button>
+              <small class="cs-conteo-hint">Se cuenta a ciegas: lo que dice la máquina aparece hasta guardar.</small>
+            </div>
+          }
           @if (saldoResp(); as s) {
             <!-- Estandar 2.1 — una falla se ve sin abrir nada. Solo aparece si hay algo que decir. -->
             @for (a of avisos(); track a) {
@@ -473,8 +489,52 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
 
       </section>
     </div>
+    <!-- [CGS.22] El conteo fisico. Ciego: la referencia y la diferencia se ven al guardar. -->
+    <p-dialog [visible]="conteoAbierto()" (visibleChange)="$event ? null : cerrarConteo()" [modal]="true"
+              [style]="{ width: '30rem', maxWidth: '96vw' }" [draggable]="false" header="Contar la caja fuerte">
+      @if (!conteoGuardado()) {
+        <p class="cs-conteo-hint">Anota cuántos billetes hay de cada denominación. El total se calcula solo.</p>
+        <div class="cs-conteo-reja">
+          @for (d of denominaciones; track d) {
+            <label [for]="'cs-den-' + d">{{ mx(d) }}</label>
+            <p-inputNumber [inputId]="'cs-den-' + d" [min]="0" [useGrouping]="false" [showButtons]="false"
+                           [ngModel]="piezasDe(d)" (ngModelChange)="ponerPiezas(d, $event)" />
+          }
+        </div>
+        <p class="cs-conteo-total">Contaste <b>{{ mx(totalConteo()) }}</b></p>
+        <label class="cs-conteo-hint" for="cs-conteo-nota">Nota (opcional)</label>
+        <textarea pTextarea id="cs-conteo-nota" rows="2" class="cs-conteo-nota"
+                  [ngModel]="notaConteo()" (ngModelChange)="notaConteo.set($event)"></textarea>
+      } @else {
+        @if (conteoGuardado(); as g) {
+          <p>Contaste <b>{{ mx(g.total) }}</b>.</p>
+          @if (g.referencia_total === null) {
+            <p class="cs-conteo-hint">La máquina no publicaba su saldo en ese momento: el conteo quedó guardado, pero no hay contra qué compararlo.</p>
+          } @else {
+            <p>La máquina decía <b>{{ mx(g.referencia_total) }}</b>{{ g.referencia_parcial ? ' (lectura parcial)' : '' }}.</p>
+            <p [class.cs-mal]="g.diferencia !== 0"><b>{{ g.diferencia === 0 ? 'Cuadra al peso.' : 'Diferencia: ' + firmado(g.diferencia ?? 0) }}</b></p>
+          }
+        }
+      }
+      @if (errConteo()) { <p class="cs-mal" role="alert">{{ errConteo() }}</p> }
+      <ng-template #footer>
+        @if (!conteoGuardado()) {
+          <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="cerrarConteo()"></p-button>
+          <p-button label="Guardar conteo" icon="pi pi-lock" size="small" [disabled]="guardandoConteo() || !hayPiezas()"
+                    [loading]="guardandoConteo()" (onClick)="guardarConteo()"></p-button>
+        } @else {
+          <p-button label="Listo" size="small" (onClick)="cerrarConteo()"></p-button>
+        }
+      </ng-template>
+    </p-dialog>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
+    .cs-conteo-acc { display:flex; gap:var(--sp-3); align-items:center; flex-wrap:wrap; margin-top:var(--sp-2); }
+    .cs-conteo-hint { color:var(--text-muted); font-size:var(--fs-sm); }
+    .cs-conteo-reja { display:grid; grid-template-columns:6rem 1fr; gap:var(--sp-2) var(--sp-3); align-items:center; margin-block:var(--sp-3); }
+    .cs-conteo-total { font-size:var(--fs-lg); }
+    .cs-conteo-nota { width:100%; }
+    .cs-mal { color:var(--bad-fg); }
     /* #9 — la consulta por contenedor necesita un contenedor declarado, o es inerte. */
     :host { display:block; min-width:0; container-type:inline-size; }
     .cs-det td { background:color-mix(in srgb, var(--text-muted) 6%, var(--card-bg)); }
@@ -674,10 +734,22 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
       : { label: 'Sin registrar en Caja General', value: 'sin medir', state: 'no_medido',
           stateNote: 'Todavía no se registró ningún movimiento de CAOS en Caja General: no hay desde cuándo contar.' });
 
-    items.push({
-      label: 'Conteo físico', value: 'sin medir', state: 'no_medido',
-      stateNote: s?.conteo_fisico.motivo ?? 'Ningún dato registra un conteo a mano de la máquina.',
-    });
+    // `[CGS.22]` El último conteo físico, si existe. Sin él se declara, no se pinta en cero.
+    const cf = this.conteoUltimo();
+    if (cf) {
+      items.push({
+        label: 'Conteo físico', value: money(cf.total), state: 'medido',
+        sub: `${dmy(cf.contado_at)} · ${cf.contado_por ?? '—'} · `
+          + (cf.diferencia === null ? 'sin lectura de la máquina contra qué compararlo'
+            : cf.diferencia === 0 ? 'cuadró con la máquina' : `difiere ${this.firmado(cf.diferencia)} de la máquina`),
+        tone: cf.diferencia === null ? 'warn' : cf.diferencia === 0 ? 'ok' : 'bad',
+      });
+    } else {
+      items.push({
+        label: 'Conteo físico', value: 'sin medir', state: 'no_medido',
+        stateNote: 'Nunca se ha contado a mano: el saldo de la caja fuerte sólo lo afirma la máquina.',
+      });
+    }
     return items;
   });
 
@@ -774,7 +846,55 @@ export class FinanzasCaosComponent implements OnInit, OnDestroy {
     });
   }
 
+  // ── `[CGS.22]` El conteo físico ─────────────────────────────────────────────────────────
+  private perms = inject(PermissionsService);
+  readonly denominaciones = DENOMINACIONES_CAOS;
+  readonly conteoUltimo = signal<CaosConteoFisicoDto | null>(null);
+  readonly conteoAbierto = signal(false);
+  readonly conteoPiezas = signal<Record<number, number>>({});
+  readonly notaConteo = signal('');
+  readonly guardandoConteo = signal(false);
+  readonly conteoGuardado = signal<CaosConteoFisicoDto | null>(null);
+  readonly errConteo = signal<string | null>(null);
+  /** Lo cuenta quien supervisa (AUTORIZAR), no la caja. ⚠️ Sin permisos cargados no se ofrece. */
+  readonly puedeContar = computed(() => this.perms.cargado() && this.perms.has(Permission.FINANCE_CAJA_AUTORIZAR));
+  readonly totalConteo = computed(() => {
+    const p = this.conteoPiezas();
+    return Object.entries(p).reduce((a, [d, n]) => a + Number(d) * (Number(n) || 0), 0);
+  });
+  readonly hayPiezas = computed(() => Object.values(this.conteoPiezas()).some((n) => n != null && Number(n) >= 0));
+  protected readonly mx = (v: unknown): string => money(Number(v ?? 0) || 0);
+  protected firmado(v: number): string { return `${v < 0 ? '−' : '+'}${money(Math.abs(Number(v) || 0))}`; }
+  piezasDe(d: number): number | null { return this.conteoPiezas()[d] ?? null; }
+  ponerPiezas(d: number, n: number | null): void {
+    const p = { ...this.conteoPiezas() };
+    if (n == null) delete p[d]; else p[d] = n;
+    this.conteoPiezas.set(p);
+  }
+  cargarConteoUltimo(): void {
+    this.svc.conteoFisicoUltimo().subscribe({ next: (c) => this.conteoUltimo.set(c), error: () => this.conteoUltimo.set(null) });
+  }
+  abrirConteo(): void {
+    this.conteoPiezas.set({}); this.notaConteo.set(''); this.conteoGuardado.set(null); this.errConteo.set(null);
+    this.conteoAbierto.set(true);
+  }
+  cerrarConteo(): void { if (!this.guardandoConteo()) this.conteoAbierto.set(false); }
+  guardarConteo(): void {
+    if (this.guardandoConteo() || !this.hayPiezas()) return;
+    this.guardandoConteo.set(true); this.errConteo.set(null);
+    const piezas = this.denominaciones.map((d) => ({ denominacion: d, piezas: Number(this.conteoPiezas()[d] ?? 0) }));
+    this.svc.registrarConteoFisico(piezas, this.notaConteo().trim()).subscribe({
+      next: (g) => { this.guardandoConteo.set(false); this.conteoGuardado.set(g); this.conteoUltimo.set(g); },
+      error: (e) => {
+        this.guardandoConteo.set(false);
+        const m = e?.error?.message;
+        this.errConteo.set(Array.isArray(m) ? m.join(' ') : (m || 'No se pudo guardar el conteo.'));
+      },
+    });
+  }
+
   ngOnInit(): void {
+    this.cargarConteoUltimo();
     // `[CG.163]` El día de negocio es México. `toISOString()` daba el día en UTC mientras `to`
     // usaba `todayMx()`, así que después de las 18:00 la ventana por omisión se corría un día.
     this.from = toMxDateKey(new Date(Date.now() - 7 * 86400000));

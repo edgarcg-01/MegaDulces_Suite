@@ -189,3 +189,4 @@ export * from './finance/historial-filtro.contract';
 // subruta.
 export * from './finance/caja-firma.contract';
 export * from './finance/arqueo-caja.contract';
+export * from './finance/caos-conteo-fisico.contract';
