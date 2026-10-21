@@ -239,6 +239,19 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
                     <p class="rv-v-s">{{ q.lectura }}</p>
                   </div>
                 </div>
+                <!-- [RE.42.1] El posible duplicado que no frenó la subida: el capturista lo vio y
+                     envió igual, y la decisión de si es la misma factura es de quien revisa. -->
+                @for (a of avisosDup(d); track a.clave) {
+                  <div class="rv-verdict is-warn" role="status">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    <div>
+                      <p class="rv-v-t">Posible duplicado de la entrada
+                        <button type="button" class="rv-ref mono" (click)="inspect.set(refEnt(a.sucursal, a.folio))"
+                                title="Abrir la otra entrada para compararla">{{ a.sucursal }}/{{ a.folio }}</button></p>
+                      <p class="rv-v-s">{{ a.mensaje }}</p>
+                    </div>
+                  </div>
+                }
                 <!--
                   Las cifras dejaron de ser cuatro cajitas iguales. Q.5 pide tres niveles por
                   **tipo y contraste, no por más cajas**: arriba la comparación que decide
@@ -1122,6 +1135,26 @@ export class ComprasEntradasRevisionComponent {
     (this.detail()?.deposits || []).flatMap((dep) =>
       (dep.files || []).map((f) => ({ url: f.url, name: f.name, role: f.role, kind: f.kind }))));
   readonly hojaIdx = signal(0);
+
+  /**
+   * `[RE.42.1]` Los posibles duplicados que el servidor dejó escritos en las hojas al subirlas
+   * (`files[].dup_aviso`). Antes se guardaban y nadie los veía: «avisar en vez de bloquear» sólo
+   * protege si quien decide se entera. Se excluyen los depósitos devueltos (ya no están en juego) y
+   * se repite una vez por entrada aunque el aviso venga en dos hojas.
+   */
+  avisosDup(d: EntradaDetail): { clave: string; sucursal: string; folio: string; mensaje: string }[] {
+    const vistos = new Map<string, { clave: string; sucursal: string; folio: string; mensaje: string }>();
+    for (const dep of d.deposits || []) {
+      if (dep.status === 'rechazado') continue;
+      for (const f of dep.files || []) {
+        const a = f.dup_aviso;
+        if (!a?.sucursal || !a.folio) continue;
+        const clave = `${a.sucursal}/${a.folio}`;
+        if (!vistos.has(clave)) vistos.set(clave, { clave, sucursal: a.sucursal, folio: a.folio, mensaje: a.mensaje || '' });
+      }
+    }
+    return [...vistos.values()];
+  }
 
   refProv(code: string): string { return entityRef('prov', code); }
   refEnt(sucursal: string, folio: string): string { return entityRef('ent', sucursal, 'XA2001', folio); }

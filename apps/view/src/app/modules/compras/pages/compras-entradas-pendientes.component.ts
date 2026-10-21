@@ -33,6 +33,7 @@ import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
+import { escalaDeLectura } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -608,6 +609,10 @@ interface Hoja {
                   } @else if (cuadre(h)) {
                     <i class="pi pi-check-circle" aria-hidden="true"></i>
                     <span>La factura <b>cuadra</b> con el total de Kepler.</span>
+                  } @else if (cuadre(h) === false && escalaHoja(h)) {
+                    <!-- [RE.44] La misma cifra con el separador corrido: error de lectura, no descuadre. -->
+                    <i class="pi pi-search" aria-hidden="true"></i>
+                    <span>Se leyó <b>{{ money(h.total ?? h.subtotal) }}</b> y Kepler dice <b>{{ money(h.entrada!.monto) }}</b>: parece la misma cifra con el separador corrido. Confirma el total en el papel; se puede enviar.</span>
                   } @else if (cuadre(h) === false) {
                     <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                     <span>La factura difiere <b>{{ money(dif(h)) }}</b> del total de Kepler. Se puede enviar igual: el revisor decide.</span>
@@ -1997,6 +2002,11 @@ export class ComprasEntradasPendientesComponent {
     if (!h.entrada || h.entrada.gemela_monto == null) return false;
     const conSuc = this.cerca(h.total, h.entrada.monto) || this.cerca(h.subtotal, h.entrada.monto);
     return !conSuc && (this.cerca(h.total, h.entrada.gemela_monto) || this.cerca(h.subtotal, h.entrada.gemela_monto));
+  }
+  /** `[RE.44]` ¿El total leído es el de Kepler con el separador corrido (`22.50` ↔ `22,500`)? */
+  escalaHoja(h: Hoja): boolean {
+    if (!h.entrada) return false;
+    return escalaDeLectura(h.total, h.entrada.monto) != null || escalaDeLectura(h.subtotal, h.entrada.monto) != null;
   }
   dif(h: Hoja): number {
     if (!h.entrada) return 0;

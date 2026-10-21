@@ -485,6 +485,8 @@ export interface DocPresence {
 export interface ProofFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
   sha256?: string; ocr_folio?: string | null; ocr_total?: number | null; ocr_fecha?: string | null; ocr_rfc?: string | null;
+  /** `[RE.42]` Posible duplicado que no se pudo probar: no frenó la subida y queda para que el revisor lo vea. */
+  dup_aviso?: { sucursal: string; folio: string; motivo: string; mensaje: string } | null;
 }
 
 /** Línea de detalle de una orden de entrada (kdm2) para auditar renglón por renglón. */
