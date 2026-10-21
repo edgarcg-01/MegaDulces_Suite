@@ -411,6 +411,27 @@ El criterio de cierre es la pantalla abierta, la acción probada y `list_console
 
 Revisa en ese orden: `curl` del *chunk*, DevTools › Application › Service Workers, `curl` a `/api/health`. Y avisa antes de tocar el backend mientras alguien prueba.
 
+**56. En una pantalla resumen → detalle, elegir un elemento deja a la vista sólo ESE elemento: el resto se oculta, no se queda ocupando el espacio.** *Origen: PM, sobre «Por sucursal» en Cortes: «cuando se seleccione una sucursal las demás se oculten para optimizar la vista y el espacio».*
+
+Con una sucursal elegida, las otras 7 filas empujaban la lista de cortes, que es lo que se vino a ver, fuera de la pantalla. La forma:
+- un `computed` con lo visible (todas, o sólo la elegida);
+- el encabezado dice cuántas quedaron ocultas, con «ver todas»;
+- otro clic sobre la misma fila también las regresa.
+
+Que se pueda volver sin buscar el botón es parte del requisito. Lo oculto se declara con su número; no desaparece en silencio.
+
+**57. Si dos PR abiertos tocan el mismo bloque de documentación, el segundo en entrar resuelve con una FUSIÓN ordenada y `npm run docs:indices`, sin renumerar lo que ya entró.** *Lo que costó el 2026-10-21.* #439 (puntos 46–51, CSU.12) y #441 (52–55, CSU.13) insertaban en el mismo lugar de §8.0b y de la fase. Además, cada fusión de `main` en la rama del PR volvió a intercalar el índice: el log quedó en 2/229, dos veces el mismo día.
+
+Lo que funcionó:
+1. **Anticiparlo:** declarar el choque y el orden de fusión en el PR, comprobado con `git merge-tree`.
+2. **Cuando el primero entra:** fusionar `main` en la rama del segundo con un commit cuyo árbol se arma así:
+   - la versión de `main` de cada documento, más SÓLO lo que agrega este PR, en orden numérico;
+   - después, regenerar los índices con el generador de `main`.
+3. **Antes de empujar:**
+   - comprobar que ningún archivo quedó con marcas de conflicto;
+   - comprobar que la compuerta que tocaron los dos conserva los cambios de ambos;
+   - revisar el remoto con `ls-remote`, porque el lead pudo haber fusionado otra vez.
+
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
 ---

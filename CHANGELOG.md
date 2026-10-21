@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Internal — Protocolo previo al PR: puntos 56–57 (CSU.14, 2026-10-21)
+- `ONBOARDING.md` §8.0b: en una pantalla resumen → detalle, elegir deja sólo lo elegido (con «N ocultas · ver todas»); dos PR que tocan el mismo bloque de docs se resuelven con fusión ordenada y `npm run docs:indices`, sin renumerar lo que entró primero.
 ### Added — Cortes / Sucursales: buscador, y los cobros cancelados se ven marcados sin sumar (CSU.13, 2026-10-21)
 - **Buscar corte**: encuentra un corte de cualquier sucursal del mes por:
   - folio, caja-turno, monto o fecha;
