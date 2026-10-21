@@ -83,6 +83,20 @@ juego** (Alto ≥ \$1 M o una cifra que decide dinero · Medio \$100 mil–\$1 M
 - Si se decide abrir algo de prioridad 3–4 antes que uno de 1–2, **se escribe por qué** en la tarjeta.
 - Detalle y casos en la skill `pm` (`.claude/skills/pm/references/criterios.md` §1).
 
+### 3.2 Todo cambio se comunica (Edgar, 2026-10-21) — regla para todos
+
+**Cada título de commit lleva el código de su tarjeta:** `tipo([CÓDIGO]): qué cambia`
+(`feat([CGA-A.16]): …`, `fix([OPS]): …`, `docs([ADR-095]): …`). De esos títulos se genera sola, cada
+día a las 19:00, la **[bitácora de cambios del equipo](https://github.com/edgarcg-01/MegaDulces_PM/blob/main/CAMBIOS.md)**:
+qué cambió cada persona, por día y por tarjeta. Nadie escribe dos veces.
+
+- **Se cobra, no se pide:** `.githooks/commit-msg` **no deja crear** un commit sin código (y el
+  `pre-push` avisa si alguno se coló). Requiere `npm run hooks:install` en cada máquina.
+- **¿No hay tarjeta?** Se usa el código del área (`[OPS]`, `[CI]`, `[DOCS]`) o se crea la tarjeta.
+- ⛔ **Lo que llegue sin código no se reescribe** (`--amend`/`rebase` están prohibidos en el
+  checkout compartido): queda en la bitácora como **«sin tarjeta»**, con su autor.
+- Medido al ponerla: ya la cumplía el 91–98 % de los commits de cada persona.
+
 ---
 
 ## 4. El ciclo de vida de una fase
