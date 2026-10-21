@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -446,6 +446,16 @@ export class CashLedgerService {
     return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/observar`, { motivo });
   }
 
+  /** `[CGS.14]` ¿La caja está bloqueada para mí? Por qué, qué la destraba, y si hay llave. */
+  candado(): Observable<CandadoCaja> {
+    return this.http.get<CandadoCaja>(`${this.base}/candado`);
+  }
+
+  /** `[CGS.15]` Llave de emergencia para OTRA persona, hasta el fin del día, con motivo. */
+  darLlave(para_usuario: string, motivo: string): Observable<{ vence_at: string; para: string | null }> {
+    return this.http.post<{ vence_at: string; para: string | null }>(`${this.base}/llaves`, { para_usuario, motivo });
+  }
+
   /** `[CGS.18]` La caja responde la observación y el corte vuelve a «por revisar». */
   responderCorte(id: string, respuesta: string): Observable<CorteCaja> {
     return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/responder`, { respuesta });
@@ -486,6 +496,7 @@ export class CashLedgerService {
  * `fondo_inicial: number` cuando el servidor manda `null` si no se midió.
  */
 export type CorteCaja = CorteCajaDto;
+export type CandadoCaja = CandadoCajaDto;
 
 export interface TotalesCorte {
   ingresos: number; gastos: number; depositos: number;

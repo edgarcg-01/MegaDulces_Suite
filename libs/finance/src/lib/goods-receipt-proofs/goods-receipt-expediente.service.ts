@@ -151,12 +151,16 @@ export class GoodsReceiptExpedienteService {
    * `[RE.35.5]` El veredicto compacto de cada llave + los conteos de la Bandeja y del Hallazgo.
    * Se llama DENTRO de la transacción del listado (ya con el alcance aplicado a las llaves).
    */
-  async resumenLote(trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[]): Promise<{ filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos }> {
+  async resumenLote(
+    trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[],
+    /** `[RE.49]` Tabla de donde leer las entradas (la temporal del listado). Default: la vista viva. */
+    fuente = 'analytics.erp_goods_receipts',
+  ): Promise<{ filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos }> {
     const t0 = Date.now();
     const clave = tenantId + '|' + keys.map((k) => llave(k.sucursal, k.folio)).sort().join(',');
     const hit = this.cache.get(clave);
     if (hit && t0 - hit.at < GoodsReceiptExpedienteService.CACHE_MS) return { filas: hit.valor.filas, conteos: { ...hit.valor.conteos, ms: Date.now() - t0 } };
-    const lote = await this.calcularLote(trx, tenantId, keys);
+    const lote = await this.calcularLote(trx, tenantId, keys, fuente);
     const filas = new Map<string, ExpedienteResumenFila>();
     const porCubo: Record<ExpedienteCubo, number> = { auto: 0, revisar: 0, sin_cfdi_aun: 0, sin_documento: 0, fuera_de_alcance: 0 };
     const porHallazgo: Record<ExpedienteHallazgo, number> = { cobrar_nc: 0, mal_emitida: 0, incompleta: 0, sin_oc: 0, nc_aplicada: 0, comercial: 0 };
@@ -176,7 +180,14 @@ export class GoodsReceiptExpedienteService {
    * Cada entrada ve SÓLO los CFDI de su ventana (±60 días de su fecha) más los que la nombran por
    * UUID o por asignación confirmada — exactamente lo mismo que vería sola.
    */
-  async calcularLote(trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[]): Promise<Map<string, ExpedienteCalculado>> {
+  async calcularLote(
+    trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[],
+    /**
+     * `[RE.49]` De dónde salen las entradas. El listado pasa su tabla temporal (ya trae el universo):
+     * pedirlas a la vista otra vez costaba ~1.2 s (media en prod). El panel y `identificar` usan la vista.
+     */
+    fuente = 'analytics.erp_goods_receipts',
+  ): Promise<Map<string, ExpedienteCalculado>> {
     const out = new Map<string, ExpedienteCalculado>();
     if (!keys.length) return out;
     const pares = keys.map((k) => [k.sucursal, k.folio]);
@@ -184,7 +195,7 @@ export class GoodsReceiptExpedienteService {
 
     // 1. Entradas
     const tieneRecepcion = await this.existeColumna(trx, 'analytics', 'erp_goods_receipts', 'fecha_recepcion');
-    const entradas: EntradaFila[] = await trx('analytics.erp_goods_receipts')
+    const entradas: EntradaFila[] = await trx(fuente)
       .where({ tenant_id: tenantId })
       .whereIn(['sucursal', 'folio'], pares)
       .select(

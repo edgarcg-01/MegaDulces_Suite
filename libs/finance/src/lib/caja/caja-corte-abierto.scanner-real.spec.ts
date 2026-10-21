@@ -51,7 +51,11 @@ if (!URL) {
 describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', () => {
   let knex: Knex;
   let tk: TenantKnexService;
-  const avisos: FinanceNotice[] = [];
+  const todos: FinanceNotice[] = [];
+  // `[CGS.3b]` Desde el 2026-10-21 el sensor también ESCALA los cortes sin revisar a las 12:00
+  // (otra clave, por persona). Estas pruebas miden el aviso del corte abierto: cuentan sólo ése.
+  const avisos = { get length() { return todos.filter((n) => n.key === 'caja_corte_abierto').length; },
+    at: (i: number) => todos.filter((n) => n.key === 'caja_corte_abierto').at(i) };
   let sensor: CajaCorteAbiertoScannerService;
   let folioTrabado = '';
 
@@ -61,7 +65,7 @@ describe.skipIf(!URL)('[CGP-L.10] el sensor del corte abierto contra Postgres', 
     tk = new TenantKnexService(knex, ctx);
     sensor = new CajaCorteAbiertoScannerService(knex, {
       notifyCritical: async () => undefined,
-      notify: async (_t: string, n: FinanceNotice) => { avisos.push(n); },
+      notify: async (_t: string, n: FinanceNotice) => { todos.push(n); },
     });
 
     ANIO = await anioLibre(tk, 1200, 790);

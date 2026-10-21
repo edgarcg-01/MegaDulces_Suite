@@ -4,6 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { TextareaModule } from 'primeng/textarea';
+import { SelectModule } from 'primeng/select';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -24,7 +25,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
-import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
@@ -167,7 +168,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   selector: 'app-finanzas-caja-arqueos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule, SelectModule,
     LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent,
     ContextHelpComponent, CajaTabsComponent],
   template: `
@@ -238,6 +239,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     <span class="p-button-label">{{ dmy(a.fecha) }} · {{ a.folio }}</span>
                   </button>
                   <p-tag [value]="tagVeredicto(a).texto" [severity]="tagVeredicto(a).sev" styleClass="cq-tag" />
+                  @if (fallas(a)) { <span class="cq-dim">{{ fallas(a) }} sin cumplir</span> }
                 </li>
               }
             </ul>
@@ -247,6 +249,32 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
           }
           @if (observados().length) {
             <p class="cq-nota">{{ observados().length }} observado(s) esperan la respuesta de la caja.</p>
+          }
+
+          <!-- [CGS.15] La llave de emergencia: la caja no captura mientras una jornada anterior siga
+               sin corte. Si hace falta pagar antes de cerrarla, se le da a OTRA persona, con motivo,
+               hasta que termine el dia. -->
+          @if (candado(); as k) {
+            @if (k.jornada) {
+              <div class="cq-llave">
+                <h3 class="cq-h3">La caja está bloqueada por la jornada del {{ dmy(k.jornada) }}</h3>
+                <p class="cq-hint">Lo normal es que se cierre ese corte. Si hace falta capturar antes, da una llave de emergencia: queda escrita con tu nombre y vence al terminar el día.</p>
+                <label class="cq-rev-label" for="cq-llave-para">Para quién</label>
+                <p-select inputId="cq-llave-para" [options]="k.pueden_recibir_llave" optionLabel="username" optionValue="id"
+                          [ngModel]="llavePara()" (ngModelChange)="llavePara.set($event)" placeholder="Elige a la persona"
+                          appendTo="body" [style]="{ minWidth: '16rem' }" />
+                <label class="cq-rev-label" for="cq-llave-motivo">Por qué hace falta capturar sin cerrar</label>
+                <textarea pTextarea id="cq-llave-motivo" rows="2" class="cq-rev-texto"
+                          [ngModel]="llaveMotivo()" (ngModelChange)="llaveMotivo.set($event)"></textarea>
+                <div class="cq-rev-acciones">
+                  <p-button label="Dar llave hasta el fin del día" icon="pi pi-key" size="small" severity="secondary" [outlined]="true"
+                            [disabled]="!puedeDarLlave() || dandoLlave()" [loading]="dandoLlave()" (onClick)="darLlave()" />
+                </div>
+                @if (!puedeDarLlave()) { <small class="cq-hint">{{ motivoSinLlave() }}</small> }
+                @if (errLlave()) { <p class="cq-nota cq-mal" role="alert">{{ errLlave() }}</p> }
+                @if (okLlave()) { <p class="cq-nota" role="status">{{ okLlave() }}</p> }
+              </div>
+            }
           }
         </section>
       }
@@ -364,6 +392,17 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                    El resto del cajon es la evidencia para decidir. -->
               <section class="cq-rev" aria-labelledby="cq-h-rev-dia">
                 <h3 id="cq-h-rev-dia" class="cq-h3">La revisión</h3>
+                <!-- [CGS.12] Lo que se revisa, calculado por el servidor. Cada renglon dice su estado EN
+                     PALABRAS (no solo color) y su detalle con la cifra. -->
+                <ul class="cq-verif" aria-label="Lo que se revisa de este corte">
+                  @for (x of a.verificacion; track x.id) {
+                    <li>
+                      <p-tag [value]="etiquetaVerif(x.estado)" [severity]="sevVerif(x.estado)" styleClass="cq-tag" />
+                      <span class="cq-verif-q">{{ x.pregunta }}</span>
+                      <span class="cq-verif-d">{{ x.detalle }}</span>
+                    </li>
+                  }
+                </ul>
                 @if (a.observacion) {
                   <p class="cq-nota">
                     Observado por {{ a.observo || '—' }}{{ a.observed_at ? ' el ' + dmy(a.observed_at) : '' }}: «{{ a.observacion }}».
@@ -494,9 +533,51 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
               <p class="cq-dim">Ese día nadie selló un corte en el libro, así que no hay arqueo que mostrar.</p>
             }
 
-            <!-- 4. LOS MOVIMIENTOS DEL DIA. Lo que antes vivia en la pantalla de al lado. -->
+            <!-- 4. [CGS.25] LOS MOVIMIENTOS DEL LIBRO DE LA SUITE: los que el corte suma. Antes esta
+                 seccion mostraba SOLO los de Control, aun para dias que ya viven en la Suite, y la
+                 supervisora revisaba un libro distinto del que firmaba. -->
+            <section aria-labelledby="cq-h-libro">
+              <h3 id="cq-h-libro" class="cq-h3">Lo que el libro registró esa jornada</h3>
+              @if (cargandoLibro()) {
+                <app-load-state [loading]="true" [skeletonRows]="4" />
+              } @else if (errLibro()) {
+                <p class="cq-nota cq-mal" role="alert">{{ errLibro() }}</p>
+              } @else if (libroDia(); as movs) {
+                @if (!movs.length) {
+                  <p class="cq-dim">El libro de la Suite no tiene movimientos de ese día.</p>
+                } @else {
+                  <table class="cq-reja">
+                    <caption class="cq-reja-cap">{{ movs.length }} movimiento(s) · por la hora en que se movió el efectivo</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Folio</th><th scope="col">Hora</th><th scope="col">Qué</th>
+                        <th scope="col" class="comm-num">Monto</th><th scope="col">Capturó</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (m of movs; track m.id) {
+                        <tr [class.cq-mov-cancel]="m.estado === 'cancelado'">
+                          <td class="cq-mono">{{ m.folio }}</td>
+                          <td>{{ m.hora }}</td>
+                          <td>
+                            {{ m.tipo === 'ingreso' ? 'Entra' : m.tipo === 'gasto' ? 'Sale' : 'Depósito' }}
+                            · {{ m.beneficiario || m.concepto || '—' }}
+                            @if (m.documento) { <span class="cq-dim cq-mono">{{ m.documento }}</span> }
+                            @if (m.estado === 'cancelado') { <p-tag value="Cancelado" severity="danger" styleClass="cq-tag" /> }
+                          </td>
+                          <td class="comm-num">{{ m.tipo === 'ingreso' ? '+' : '−' }}{{ mx(m.monto) }}</td>
+                          <td>{{ m.quien || '—' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+              }
+            </section>
+
+            <!-- 5. EL SEGUNDO TESTIGO: lo que registro Control ese dia. Subordinado a proposito. -->
             <section aria-labelledby="cq-h-movs">
-              <h3 id="cq-h-movs" class="cq-h3">Los movimientos de ese día</h3>
+              <h3 id="cq-h-movs" class="cq-h3">Segundo testigo: los movimientos de Control</h3>
               @if (cargandoExp()) {
                 <app-load-state [loading]="true" [skeletonRows]="6" />
               } @else if (exp(); as e) {
@@ -557,6 +638,12 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-rev-label { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .cq-rev-texto { width:100%; max-width:60ch; }
     .cq-rev-acciones { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+    .cq-verif { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+    .cq-verif li { display:grid; grid-template-columns:7rem minmax(10rem, 16rem) 1fr; gap:var(--sp-2); align-items:baseline; }
+    .cq-verif-q { font-weight:600; color:var(--text-main); }
+    .cq-verif-d { color:var(--text-muted); font-size:var(--fs-sm); }
+    @container (max-width: 40rem) { .cq-verif li { grid-template-columns:1fr; } }
+    .cq-llave { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-4); padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
     .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
@@ -944,6 +1031,11 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     return k === 1 ? '1 corte espera tu revisión' : `${k} cortes esperan tu revisión`;
   });
 
+  /** `[CGS.12]` El estado de una verificación, en palabras: el color nunca va solo. */
+  etiquetaVerif(e: string): string { return e === 'cumple' ? 'Cumple' : e === 'no_cumple' ? 'No cumple' : 'Sin medir'; }
+  sevVerif(e: string): 'success' | 'danger' | 'secondary' { return e === 'cumple' ? 'success' : e === 'no_cumple' ? 'danger' : 'secondary'; }
+  fallas(a: ArqueoDia): number { return (a.verificacion ?? []).filter((v) => v.estado === 'no_cumple').length; }
+
   puertas(a: ArqueoDia): PuertasRevision {
     return puertasRevision(a, this.uid(), this.esRevisora(), this.textoRevision());
   }
@@ -974,6 +1066,45 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     this.cajas.observarCorte(a.corte_id, this.textoRevision().trim()).subscribe({
       next: () => this.alTerminar(`${a.folio} observado: la caja lo ve con tu motivo.`),
       error: (e) => { this.revisando.set(null); this.errRevision.set(textoDeError(e)); },
+    });
+  }
+
+  // ── `[CGS.15]` La llave de emergencia ─────────────────────────────────────────────────
+  readonly candado = signal<CandadoCaja | null>(null);
+  readonly llavePara = signal<string | null>(null);
+  readonly llaveMotivo = signal('');
+  readonly dandoLlave = signal(false);
+  readonly errLlave = signal<string | null>(null);
+  readonly okLlave = signal<string | null>(null);
+
+  readonly motivoSinLlave = computed<string>(() => {
+    const para = this.llavePara();
+    const motivo = this.llaveMotivo().trim();
+    if (!para) return 'Elige para quién es la llave.';
+    if (para === this.uid()) return 'Nadie se abre su propio candado: la llave es para otra persona.';
+    if (motivo.length < MINIMO_TEXTO_REVISION) return `Escribe por qué (al menos ${MINIMO_TEXTO_REVISION} caracteres).`;
+    return '';
+  });
+  readonly puedeDarLlave = computed<boolean>(() => this.esRevisora() && this.motivoSinLlave() === '');
+
+  cargarCandado(): void {
+    this.cajas.candado().subscribe({
+      next: (c) => this.candado.set(c),
+      error: () => this.candado.set(null),
+    });
+  }
+
+  darLlave(): void {
+    const para = this.llavePara();
+    if (!para || !this.puedeDarLlave() || this.dandoLlave()) return;
+    this.dandoLlave.set(true); this.errLlave.set(null); this.okLlave.set(null);
+    this.cajas.darLlave(para, this.llaveMotivo().trim()).subscribe({
+      next: (r) => {
+        this.dandoLlave.set(false); this.llaveMotivo.set(''); this.llavePara.set(null);
+        this.okLlave.set(`Llave dada a ${r.para ?? 'la persona'} hasta que termine el día.`);
+        this.cargarCandado();
+      },
+      error: (e) => { this.dandoLlave.set(false); this.errLlave.set(textoDeError(e)); },
     });
   }
 
@@ -1024,6 +1155,9 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
    */
   recargar(silencioso = false): void {
     this.cargarCajon();
+    // Se pide siempre (pide VER): la sección que la usa ya sólo se pinta para quien autoriza, y
+    // al abrir la pantalla los permisos pueden no haber llegado todavía.
+    this.cargarCandado();
     const conDatos = this.filas().length > 0;
     if (!(silencioso && conDatos)) { this.cargando.set(true); this.error.set(null); }
 
@@ -1075,7 +1209,26 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
    * ⚠️ `exp` se limpia ANTES de pedir: si no, mientras carga el día nuevo el cajón sigue mostrando
    * los movimientos del anterior con el título ya cambiado.
    */
+  // ── `[CGS.25]` El libro de la Suite del día ──────────────────────────────────────────────
+  readonly libroDia = signal<ArqueoMovimientoDia[] | null>(null);
+  readonly cargandoLibro = signal(false);
+  readonly errLibro = signal<string | null>(null);
+
+  private cargarLibroDia(fecha: string): void {
+    this.libroDia.set(null); this.errLibro.set(null); this.cargandoLibro.set(true);
+    this.cajas.arqueoDia({ fecha: fecha.slice(0, 10), sucursal: '00' }).subscribe({
+      next: (r) => {
+        this.cargandoLibro.set(false);
+        // `undefined` = el servidor no lo manda: se DECLARA, no se dibuja como «sin movimientos».
+        if (r?.movimientos_del_dia === undefined) { this.errLibro.set('El servidor no publicó los movimientos del libro de ese día.'); return; }
+        this.libroDia.set(r.movimientos_del_dia);
+      },
+      error: () => { this.cargandoLibro.set(false); this.errLibro.set('No se pudieron leer los movimientos del libro de ese día.'); },
+    });
+  }
+
   private cargarExpediente(fecha: string): void {
+    this.cargarLibroDia(fecha);
     this.exp.set(null);
     this.cargandoExp.set(true);
     this.http.get<Expediente>(`${this.baseControl}/expediente/${fecha.slice(0, 10)}`).subscribe({

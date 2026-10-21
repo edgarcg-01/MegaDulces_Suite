@@ -490,8 +490,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   'compras-360': {
-    title: 'Costo por compra — guía',
-    intro: 'El "Excel" de recepción, vivo: una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es lectura sobre el ERP, no lo edita. Es la MISMA pantalla que el Listado de Control de entradas, con el otro lente: acá la pregunta es "¿cuánto pagamos?" y allá "¿tengo el papel?". El selector de arriba cambia entre las dos sin perder los filtros.',
+    title: 'Revisión de facturas — guía',
+    intro: 'Aquí se revisa la factura de cada compra antes de entregarla a Finanzas: abre en «Por revisar», las que ya se subieron y nadie ha validado. Una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es la MISMA lista que el Listado de Control de entradas: allá abre en «Sin papel» (¿falta subir?), acá en «Por revisar» (¿está bien lo que se subió?). Antes se llamaba «Costo por compra».',
     groups: [
       {
         heading: 'Qué es cada columna',
@@ -516,7 +516,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   'compras-costo-neto': {
     title: 'Costo por proveedor — guía',
-    intro: 'Tu costo neto con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada. Compra por compra está en Costo por compra.',
+    intro: 'Tu costo neto con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada. Compra por compra (factura, ajuste y neto de cada orden de entrada) está en Recepción › Revisión de facturas.',
     groups: [
       {
         heading: 'Los números',

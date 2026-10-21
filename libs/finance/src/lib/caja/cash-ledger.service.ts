@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql,
@@ -22,6 +22,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
   mv_caja_refresh: 'Refresco de la cola de caja',
 };
 import { CajaGateway } from './caja.gateway';
+import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
 import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
@@ -170,6 +171,13 @@ export interface CreateMovementInput {
   centro_costo?: string;
   kepler_cuenta: string;
   kepler_concepto: string;
+  /**
+   * `[CGS.8]` Por qué este movimiento entra SIN cuenta ni concepto. Con texto (5+ caracteres), el
+   * par se guarda vacío y el movimiento queda en la cola de «sin clasificar»; sin él, el par se
+   * valida como siempre. ⛔ No es un campo opcional más: es la única forma de que el hueco quede
+   * contable y buscable en vez de desaparecer.
+   */
+  sin_clasificar_motivo?: string;
   glosa: string;
   beneficiario?: string;
   beneficiario_rfc?: string;
@@ -1103,6 +1111,20 @@ export class CashLedgerService {
       const conc = conciliacion(input as never);
       if (!conc.ok) throw new BadRequestException(conc.texto);
 
+      /**
+       * ⛔⛔ `[CGS.14]` **SIN CORTE DE AYER, HOY NO SE CAPTURA** (D1 de Edgar, 2026-10-21).
+       *
+       * Medido ese día: el 20-oct quedó con 30 movimientos y sin corte, y el 21 ya se capturaban
+       * gastos encima. Va DESPUÉS de la repetición idempotente (un reintento de algo que ya se
+       * guardó no es una captura nueva) y de la conciliación, que es pura y tiene que disparar sin
+       * tocar la base (`cash-ledger.conciliacion.spec.ts` lo exige), y ANTES de resolver nada. 423 y no 400: no es que el dato
+       * esté mal, es que la caja está cerrada hasta rendir cuentas. La salida va en la frase.
+       */
+      const candado = await leerCandado(trx, tenantId, user.id ?? null);
+      if (candado.bloqueado) {
+        throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+      }
+
       // ⭐ El monto del documento MANDA sobre el del formulario…
       const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
       const doc = anclado ? await this.resolveMovimiento(trx, tenantId, input.origen_ref as string) : null;
@@ -1144,7 +1166,30 @@ export class CashLedgerService {
           + 'efectivo. Un movimiento fechado adelante desaparece del libro hasta que llegue ese mes.');
       }
 
-      const snap = await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
+      /**
+       * ⭐⭐ `[CGS.8]` **El movimiento puede entrar SIN clasificar, si dice por qué.**
+       *
+       * Edgar: *«no hagamos que sea obligatorio agregar concepto, para no frenar el proceso de
+       * caja general»*. El par contable existe en Kepler pero vive en el documento de
+       * **comprobación**, y el que mueve la caja es el **pago**, que no guarda a cuál salda —
+       * medido: emparejarlos por su llave natural cubre 7.5 %.
+       *
+       * ⛔ El hueco se DECLARA, no se finge (ADR-056). Con motivo, el par va vacío y el `CHECK`
+       * `cash_ledger_clasificacion_chk` exige que sea **todo o nada**: nada de cuenta puesta y
+       * concepto vacío, que no sirve ni para contabilizar ni para buscar.
+       *
+       * ⚠️ Y se SALTA `resolveConcept` a propósito: ese resolvedor valida contra el catálogo vivo
+       * y rechazaría la cadena vacía. No es aflojarlo — es que acá no hay par que validar.
+       */
+      const sinClasificar = String(input.sin_clasificar_motivo ?? '').trim();
+      if (sinClasificar && sinClasificar.length < 5) {
+        throw new BadRequestException(
+          'Para dejar el movimiento sin clasificar hay que decir por qué, con al menos 5 caracteres. '
+          + 'Ese motivo es lo que después permite encontrarlo y cerrarlo.');
+      }
+      const snap = sinClasificar
+        ? { cuenta_nombre: null as string | null, concepto_nombre: null as string | null }
+        : await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
 
@@ -1171,10 +1216,13 @@ export class CashLedgerService {
         hora: input.hora ?? null,
         sucursal: input.sucursal,
         centro_costo: input.centro_costo ?? null,
-        kepler_cuenta: input.kepler_cuenta,
-        kepler_concepto: input.kepler_concepto,
+        // `[CGS.8]` Sin clasificar: el par va VACÍO, nunca nulo. La cadena vacía es el marcador y
+        // las columnas siguen `NOT NULL`, así que ninguna fila se cuela por un insert descuidado.
+        kepler_cuenta: sinClasificar ? '' : input.kepler_cuenta,
+        kepler_concepto: sinClasificar ? '' : input.kepler_concepto,
         kepler_cuenta_nombre: snap.cuenta_nombre,
         kepler_concepto_nombre: snap.concepto_nombre,
+        sin_clasificar_motivo: sinClasificar || null,
         glosa,
         beneficiario: input.beneficiario ?? (doc?.beneficiario ?? null),
         beneficiario_rfc: input.beneficiario_rfc ?? null,
@@ -1267,7 +1315,8 @@ export class CashLedgerService {
       return await this.create(input, user);
     } catch (e) {
       // Un `BadRequestException` ya es una frase nuestra: no se vuelve a traducir.
-      if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+      // `[CGS.14]` Tampoco el 423 del candado: ya trae su frase y su salida.
+      if (e instanceof HttpException) throw e;
       return traducirErrorDeCaja(e);
     }
   }
@@ -2610,6 +2659,13 @@ export class CashLedgerService {
     if (!user?.id) throw new BadRequestException('No se pudo identificar al usuario que confirma.');
     const items = (input?.items ?? []).filter((i) => i && i.origen_ref);
     if (!items.length) throw new BadRequestException('No se marcó ninguna entrega.');
+
+    // `[CGS.14]` Con la caja bloqueada el lote entero se rechaza con UNA frase, no con un error
+    // idéntico por renglón. `create()` lo vuelve a revisar por si cambió a mitad del lote.
+    const candado = await this.tk.run((trx) => leerCandado(trx, tenantId, user.id ?? null));
+    if (candado.bloqueado) {
+      throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+    }
 
     const filas: FilaLote[] = [];
     const montos = new Map<string, number>();

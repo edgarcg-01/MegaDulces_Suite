@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import type { CaosConteoFisicoDto, CaosConteoPieza } from '@megadulces/contracts';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -138,6 +139,16 @@ export class CaosService {
   /** `[CGA-A.33]` El saldo: la foto de la máquina, su cuadre contra los movimientos y el conteo físico. */
   saldo(): Observable<CaosSaldo> {
     return this.http.get<CaosSaldo>(`${this.base}/saldo`);
+  }
+
+  /** `[CGS.22]` El último conteo físico de la caja fuerte; `null` = nunca se contó a mano. */
+  conteoFisicoUltimo(): Observable<CaosConteoFisicoDto | null> {
+    return this.http.get<CaosConteoFisicoDto | null>(`${this.base}/conteos-fisicos/ultimo`);
+  }
+
+  /** `[CGS.22]` Guarda el conteo físico (a ciegas): la diferencia contra la máquina llega en la respuesta. */
+  registrarConteoFisico(piezas: CaosConteoPieza[], nota?: string): Observable<CaosConteoFisicoDto> {
+    return this.http.post<CaosConteoFisicoDto>(`${this.base}/conteos-fisicos`, { piezas, nota: nota || undefined });
   }
 
   conciliacion(f: { from?: string; to?: string }): Observable<CaosConciliacion> {

@@ -928,13 +928,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
       title: 'Recepción',
       items: [
-        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
-        { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
-        // `[RE.24]` "Revisión de facturas" salió de uso (2026-09-02): validar y rechazar ya
-        // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
-        // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
+        // `[RE.48]` «Captura de facturas» ya no es item propio: es la primera pestaña de Control de
+        // entradas (selector tipo iOS). Quien sube aterriza ahí; quien sólo observa, en Cobertura.
+        // Control va PRIMERO en Recepción (decisión del PM): el proceso empieza en la captura que
+        // vive adentro.
         // [NAV.1] El control de entradas en UNA entrada: su padre era también la pestaña «Cobertura por sucursal».
         { label: 'Control de entradas', icon: 'pi pi-sitemap', route: '/compras/entradas/control', tabs: ENTRADAS_CONTROL_TABS },
+        // `[RE.24]` La pantalla aparte "Revisión de facturas" salió de uso (2026-09-02): validar y
+        // rechazar viven en la lista de órdenes — un solo lugar donde se decide. Eso se mantiene.
+        // ⭐ `[RE.47]` Lo que se perdió fue la PUERTA: la lista se llegaba por Control o por un
+        // item llamado «Costo por compra» que abría en «Por revisar». Medido en prod (2026-10-21):
+        // 1,201 facturas en «recibido», **8 validadas en toda la historia, la última el
+        // 2026-09-01** — el día antes de retirar la puerta. Vuelve con el nombre del trabajo, a la
+        // MISMA lista (no es otra pantalla), y desde Recepción, donde vive el flujo.
+        { label: 'Revisión de facturas', icon: 'pi pi-check-square', route: '/compras/revision-facturas', permission: Permission.COMPRAS_ENTRADAS_VER },
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
@@ -947,10 +954,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // al que lo construyó y nada al comprador.
       title: 'Análisis',
       items: [
-        // RE.20.1 — la fusión: es la MISMA pantalla que `Control de entradas · Listado`, con el
-        // otro lente. Y pide `COMPRAS_ENTRADAS_VER` y no `COMPRAS_360_VER` porque el primero es
-        // superconjunto del segundo (medido): así nadie pierde acceso al fusionar.
-        { label: 'Costo por compra',    icon: 'pi pi-table',      route: '/compras/costo-por-compra', permission: Permission.COMPRAS_ENTRADAS_VER },
+        // `[RE.47]` «Costo por compra» se fue a Recepción como «Revisión de facturas»: abría en
+        // la cola de revisión, no en un análisis. El neto por compra sigue en sus columnas.
         { label: 'Costo por proveedor', icon: 'pi pi-dollar',     route: '/compras/costo-neto',  permission: Permission.COMPRAS_COSTO_NETO_VER },
         { label: 'Costo estándar',     icon: 'pi pi-book',       route: '/compras/costo-estandar', permission: Permission.COMPRAS_COSTO_ESTANDAR_VER },
         { label: 'Descuentos y apoyos', icon: 'pi pi-percentage', route: '/compras/descuentos',  permission: Permission.COMPRAS_DESCUENTOS_VER },

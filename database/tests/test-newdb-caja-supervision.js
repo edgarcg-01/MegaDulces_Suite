@@ -187,6 +187,57 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
           `[negativa] y sus movimientos tampoco → cash_ledger_en_corte_firmado_chk (${dijo(e4j)})`);
       }
 
+      console.log('\n── 4c. CGS.15 — la llave de emergencia ──');
+      const hayLlaves = (await trx.raw(`SELECT to_regclass('finance.cash_ledger_llaves') IS NOT NULL AS t`)).rows[0].t;
+      if (!hayLlaves) {
+        skip('la migración 20261021112928 (llave de emergencia) no está aplicada en esta base.');
+      } else {
+        const llave = (over = {}) => ({
+          tenant_id: T, sucursal: '00', para_usuario: CAJERA, otorgada_por: AUTORIZA,
+          motivo: 'Pago urgente de prueba CGS', created_by: AUTORIZA,
+          vence_at: trx.raw(`now() + interval '1 hour'`), ...over,
+        });
+        const e5a = await intento(trx, () => trx('finance.cash_ledger_llaves').insert(llave()));
+        ok(e5a === null, `dar una llave a OTRA persona, con motivo, pasa (${dijo(e5a)})`);
+        const e5b = await intento(trx, () => trx('finance.cash_ledger_llaves').insert(llave({ para_usuario: AUTORIZA })));
+        ok(es(e5b, '23514', 'llave_ajena_chk'), `[negativa] darse la llave a sí misma → llave_ajena_chk (${dijo(e5b)})`);
+        const e5c = await intento(trx, () => trx('finance.cash_ledger_llaves').insert(llave({ motivo: 'ya' })));
+        ok(es(e5c, '23514', 'llave_motivo_chk'), `[negativa] sin motivo de 10+ → llave_motivo_chk (${dijo(e5c)})`);
+        if (hayRol) {
+          const e5d = await intento(trx, async () => {
+            await trx('finance.cash_ledger_llaves').insert(llave());
+            await trx('finance.cash_ledger_llaves').where({ otorgada_por: AUTORIZA }).update({ motivo: 'Lo cambio despues de darla' });
+          });
+          ok(!!e5d && e5d.code === '42501', `[negativa] la app no puede EDITAR una llave dada: sólo se agrega (${dijo(e5d)})`);
+        } else {
+          skip('sin app_runtime no se puede medir que la llave sea sólo-agregar.');
+        }
+      }
+
+      console.log('\n── 4d. CGS.22 — el conteo físico de la caja fuerte ──');
+      const hayConteos = (await trx.raw(`SELECT to_regclass('finance.caos_conteos_fisicos') IS NOT NULL AS t`)).rows[0].t;
+      if (!hayConteos) {
+        skip('la migración 20261021135209 (conteo físico de CAOS) no está aplicada en esta base.');
+      } else {
+        const conteo = (over = {}) => ({
+          tenant_id: T, piezas: JSON.stringify([{ denominacion: 500, piezas: 2 }]), total: 1000,
+          referencia_total: 1200, diferencia: -200, created_by: AUTORIZA, ...over,
+        });
+        const e6a = await intento(trx, () => trx('finance.caos_conteos_fisicos').insert(conteo()));
+        ok(e6a === null, `guardar un conteo con su referencia y su diferencia exacta pasa (${dijo(e6a)})`);
+        const e6b = await intento(trx, () => trx('finance.caos_conteos_fisicos').insert(conteo({ diferencia: 0 })));
+        ok(es(e6b, '23514', 'caos_conteo_dif_chk'), `[negativa] una diferencia que no es total − referencia → caos_conteo_dif_chk (${dijo(e6b)})`);
+        const e6c = await intento(trx, () => trx('finance.caos_conteos_fisicos').insert(conteo({ referencia_total: null, diferencia: 0 })));
+        ok(es(e6c, '23514', 'caos_conteo_dif_chk'), `[negativa] sin referencia la diferencia NO es cero: es NULL → caos_conteo_dif_chk (${dijo(e6c)})`);
+        if (hayRol) {
+          const e6d = await intento(trx, async () => {
+            await trx('finance.caos_conteos_fisicos').insert(conteo());
+            await trx('finance.caos_conteos_fisicos').where({ created_by: AUTORIZA }).update({ total: 1200 });
+          });
+          ok(!!e6d && e6d.code === '42501', `[negativa] un conteo guardado no se edita: sólo se agrega (${dijo(e6d)})`);
+        }
+      }
+
       console.log('\n── 5. ⛔ MUTACIONES: sin cada regla, la violación SÍ pasa ──');
       if (hayRol) await trx.raw('RESET ROLE');
       // Postgres no deja ALTER TABLE con eventos de trigger diferidos pendientes (el desglose del

@@ -19,6 +19,16 @@
   Los folios se encuentran como se escriben a mano (`au501-00076` = `UA0501-0000076`). `/` enfoca el buscador y `Esc` lo limpia.
 - **Cobros cancelados en Kepler**: el detalle del corte los muestra como «Cancelado en Kepler — no suma», con el monto tachado; la lista los señala y el buscador los encuentra. El cobrado no cambia.
 - **Fixed**: la lupa del buscador no se dibujaba (`p-inputicon` en PrimeNG 22), y el esqueleto de carga dejaba avisos NG0955 en la consola.
+### Changed — Revisión de facturas carga más rápido (RE.49 paso 1, 2026-10-21)
+- La lista calculaba la misma información de Kepler hasta siete veces por cada carga. Ahora la calcula una sola vez y el resto sale de ahí: la parte de la lista pasa de ~2 s a ~0.4–0.5 s (medido en producción). Las cifras y filas que muestra no cambian.
+### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
+- Ya no es un elemento suelto del menú: es la primera opción del selector de **Control de entradas**. Quien sube facturas entra directo a Captura; quien sólo consulta entra a Cobertura por sucursal.
+### Changed — «Costo por compra» ahora se llama «Revisión de facturas» y está en Recepción (RE.47, 2026-10-21)
+- La pantalla abre en las facturas **por revisar**: el nombre ahora dice ese trabajo. Sigue siendo la misma lista, con las columnas de factura, ajuste y neto de cada compra. Los enlaces viejos (`/compras/costo-por-compra`) siguen funcionando.
+- El aviso de **posible duplicado** aparece en esta pantalla, en la evidencia de cada entrada (antes se había puesto en una pantalla que ya no se usa).
+### Fixed — Centro de control de entradas: «quién sube» ya no dice «nadie» donde alguien sube (RE.46, 2026-10-21)
+- CEDIS aparecía con «nadie con permiso» aunque una persona subía todas sus facturas: la pantalla sólo miraba el rol principal y no los roles complementarios ni los permisos dados a la persona. Ahora cuenta igual que el sistema que deja subir.
+- Cuando nadie tiene asignada una sucursal pero alguien con alcance de toda la red la está subiendo, la celda dice **«sin asignar · sube [persona]»**: lo que falta es asignarle la sucursal, no un permiso.
 ### Fixed — Revisión de entradas: los avisos que faltaban (RE.42.1, RE.43.1, RE.44, 2026-10-21)
 - **Revisión** muestra «Posible duplicado de la entrada X» cuando quien subió la factura vio ese aviso y la envió igual, con liga a la otra entrada para compararlas.
 - Cuando el total leído es la misma cifra que Kepler con el separador corrido (se leyó `$22.50` por `$22,500`), la pantalla lo dice como **probable error de lectura** en vez de «cobra de menos $22,477».
@@ -36,6 +46,9 @@
 - **Ninguna cifra cambia**: misma salida, campo por campo, comprobada con datos a escala y con casos borde.
 - Nuevos scripts para volver a medir: `database/scripts/csu-cortes-bench-local.js`, `csu-cortes-paridad-local.js` y `csu-cortes-paridad-prod.js` (sólo lectura).
 ### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.4, 2026-10-19/20)
+### Changed — Arqueo de caja: RD y RV se capturan por ruta, sin caja (SM.46, 2026-10-21)
+- `/tienda/arqueo`, pestañas RD y RV: se quita el campo «Caja». La entrega de un vendedor se identifica por la **ruta**; para guardar basta sucursal + ruta. La confirmación y el ticket muestran la ruta en lugar de la caja. Retiro, Cierre y Relevo no cambian.
+
 ### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
 - `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
 

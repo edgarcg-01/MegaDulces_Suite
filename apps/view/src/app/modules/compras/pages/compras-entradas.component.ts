@@ -33,7 +33,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import type { ReceiptExpediente } from '@megadulces/contracts';
-import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, ReceiptDeposit, DuplicateHit, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
@@ -1174,6 +1174,17 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 }
                 <span class="cb-view-meta">{{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
               </div>
+              <!-- [RE.42.1] El posible duplicado que NO frenó la subida: quien subió lo vio y envió
+                   igual; decidir si es la misma factura le toca a quien valida, aquí. -->
+              @for (a of avisosDupDe(dep); track a.clave) {
+                <p class="cb-view-dupaviso" role="status">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  <span><b>Posible duplicado de la entrada
+                    <button type="button" class="cb-reflink mono" (click)="inspect.set(refEnt(a.sucursal, a.folio))"
+                            [attr.aria-label]="'Abrir la entrada ' + a.clave + ' para compararla'">{{ a.clave }}</button></b>
+                    · {{ a.mensaje }}</span>
+                </p>
+              }
               <div class="cb-view-files">
                 @for (f of dep.files; track f.url) {
                   <button type="button" class="cb-view-filebtn" [class.on]="hojaIdx() === indiceHoja(f)"
@@ -1679,6 +1690,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-view-none { padding: .3rem 0; }
     .cb-view-dep { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .8rem .9rem; display: flex; flex-direction: column; gap: .6rem; }
     .cb-view-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .cb-view-dupaviso { display: flex; gap: .4rem; align-items: flex-start; margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--warn-fg); }
+    .cb-view-dupaviso .pi { margin-top: .15rem; }
     .cb-view-meta { font-size: .74rem; color: var(--text-muted); margin-left: auto; }
     .cb-view-files { display: flex; flex-wrap: wrap; gap: .6rem; }
     .cb-view-filebtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); background: var(--card-bg); font-size: .85rem; cursor: pointer; transition: border-color .15s, color .15s; }
@@ -2056,6 +2069,22 @@ export class ComprasEntradasComponent {
 
   refProv(code: string | null): string { return entityRef('prov', code); }
   refEnt(sucursal: string, folio: string): string { return entityRef('ent', sucursal, 'XA2001', folio); }
+  /**
+   * `[RE.42.1]` Los posibles duplicados que el servidor dejó escritos en las hojas de ESTA evidencia
+   * (`files[].dup_aviso`), uno por entrada. Va en esta pantalla y no en la de Revisión: ésa quedó
+   * sin ruta (`/compras/entradas/revision` redirige aquí), y ahí el aviso no lo veía nadie.
+   */
+  avisosDupDe(dep: ReceiptDeposit): { clave: string; sucursal: string; folio: string; mensaje: string }[] {
+    if (dep.status === 'rechazado') return [];
+    const vistos = new Map<string, { clave: string; sucursal: string; folio: string; mensaje: string }>();
+    for (const f of dep.files || []) {
+      const a = f.dup_aviso;
+      if (!a?.sucursal || !a.folio) continue;
+      const clave = `${a.sucursal}/${a.folio}`;
+      if (!vistos.has(clave)) vistos.set(clave, { clave, sucursal: a.sucursal, folio: a.folio, mensaje: a.mensaje || '' });
+    }
+    return [...vistos.values()];
+  }
   refLin(sucursal: string, folio: string, linea: string): string { return entityRef('lin', sucursal, folio, linea); }
   refSku(sku: string): string { return entityRef('sku', sku); }
   refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
@@ -2113,7 +2142,8 @@ export class ComprasEntradasComponent {
     // el dinero sólo agrega Ajuste, Neto y el total al pie. La ruta sólo decide el título.
     const deRuta = this.route.snapshot.data?.['lente'];
     this.lente.set('dinero');
-    this.titulo = deRuta === 'dinero' ? 'Costo por compra' : 'Control de entradas · Listado';
+    // `[RE.47]` La puerta que abre en «Por revisar» se llama por ese trabajo (antes «Costo por compra»).
+    this.titulo = deRuta === 'dinero' ? 'Revisión de facturas' : 'Control de entradas · Listado';
     const est = qp.get('estado');
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
     // [RE.35.5] La Bandeja manda. Un ?estado= de un link viejo se traduce; ?bandeja= gana.
@@ -2234,7 +2264,7 @@ export class ComprasEntradasComponent {
    */
   /** [RE.35.4] Selección múltiple: vacía = todas las sucursales que la persona puede ver. */
   readonly sucursalesSel = signal<string[]>([]);
-  titulo = 'Costo por compra';
+  titulo = 'Revisión de facturas';
   /**
    * `[RE.25]` — el cuadre del documento. `sin_evidencia` NO se ofrece acá: para eso ya está
    * `Estado = Pendientes`, y dos controles que contestan lo mismo con nombres distintos es la
