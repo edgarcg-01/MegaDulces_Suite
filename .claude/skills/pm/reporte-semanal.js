@@ -48,7 +48,7 @@ async function saludProcesos() {
   const hoy = hoyMx();
   // Las sub-tareas no son tarjetas: el workflow "auto-add" las mete al tablero, así que se excluyen aquí.
   const items = JSON.parse(gh(['project', 'item-list', '2', '--owner', OWNER, '--limit', '300', '--format', 'json'])).items
-    .filter((i) => !(i.labels || []).includes('sub-tarea'));
+    .filter((i) => !(i.labels || []).some((l) => l === 'sub-tarea' || l === 'auto-error'));
   const fases = items.filter((i) => (i.labels || []).includes('fase'));
   const enCurso = items.filter((i) => i.status === 'En curso');
   const fasesEnCurso = enCurso.filter((i) => (i.labels || []).includes('fase'));
