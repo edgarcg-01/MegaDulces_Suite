@@ -17,7 +17,8 @@
  * varias notas en un renglón).
  *
  * Medido 2026-10-21 (1,907 pólizas): se reproducen 1,435 (75.2 %) — A 1,172/1,293 · B 192/236 · C 47/85 ·
- * D 24/83 — y 293 no entran (76 con varios bancos, 33 proveedor sin mapa, 59 parciales con nota sin regla…).
+ * D hasta 23/82 con H5 (umbral 30 % elegido sobre los mismos datos: riesgo de sobreajuste) — y el resto
+ * no entra (76 sin un banco: 44 son factoraje, 33 proveedor sin mapa, ~59 parciales con nota sin regla).
  *
  *   CONTPAQI_SQL_PASSWORD=… node database/scripts/reproduce-asiento-proveedor-contpaqi.js
  *
@@ -58,14 +59,14 @@ const dia = (s) => Math.floor(Date.parse(String(s instanceof Date ? s.toISOStrin
   m = await sql.connect(SRC(ADD));
   const rel = (await m.request().query(`SELECT cm.UUID nota, r.UUID rel, r.TipoRelacion tr FROM Comprobante cm JOIN CfdiRelacionados r ON r.GuidDocument=cm.GuidDocument
      WHERE cm.RFCReceptor='${RFC}' AND cm.TipoComprobante='E' AND cm.Fecha>='2025-06-01'`)).recordset;
-  const rep = (await m.request().query(`SELECT c.UUID rep, p.IdPago, p.FechaPago fp, p.Monto monto, d.IdDocumento doc, d.ImpPagado pagado
+  const rep = (await m.request().query(`SELECT c.UUID rep, p.IdPago, p.FechaPago fp, p.Monto monto, d.IdDocumento doc, d.ImpPagado pagado, d.ImpSaldoAnt ant, d.ImpSaldoInsoluto ins
       FROM Comprobante c JOIN Pagos p ON p.GuidDocument=c.GuidDocument JOIN Pagos_Doc_Rel d ON d.GuidDocument=c.GuidDocument AND d.IdPago=p.IdPago
      WHERE c.RFCReceptor='${RFC}' AND c.TipoComprobante='P' AND p.FechaPago>='2025-12-01'`)).recordset;
   await m.close();
   const notasDe = new Map(); const trNota = new Map();
   for (const x of rel) { trNota.set(U(x.nota), x.tr); if (!['01', '03', '07'].includes(x.tr)) continue; const k = U(x.rel); if (!notasDe.has(k)) notasDe.set(k, new Set()); notasDe.get(k).add(U(x.nota)); }
   const repPorDoc = new Map();
-  for (const x of rep) { const k = U(x.doc); if (!repPorDoc.has(k)) repPorDoc.set(k, []); repPorDoc.get(k).push({ id: `${U(x.rep)}|${x.IdPago}`, monto: Number(x.monto), fp: x.fp, pagado: Number(x.pagado) }); }
+  for (const x of rep) { const k = U(x.doc); if (!repPorDoc.has(k)) repPorDoc.set(k, []); repPorDoc.get(k).push({ id: `${U(x.rep)}|${x.IdPago}`, monto: Number(x.monto), fp: x.fp, pagado: Number(x.pagado), ant: Number(x.ant), ins: Number(x.ins) }); }
 
   const esCompra = (cta) => /^(2120|5010|5020)/.test(cta); const esNota = (cta) => /^(505|506|507|508)/.test(cta);
   const asentar = (p, F, factor, N, B, banco, suf) => {
@@ -107,7 +108,11 @@ const dia = (s) => Math.floor(Date.parse(String(s instanceof Date ? s.toISOStrin
   for (const l of lineas) { const k = `${l.periodo}|${l.folio}`; if (!pol.has(k)) pol.set(k, { fecha: l.fecha, ls: [] }); pol.get(k).ls.push(l); }
   const t = {}; const sum = (caso, campo) => { (t[caso] ??= { polizas: 0, estricta: 0, agregada: 0, distinta: 0 })[campo] += 1; };
   const fuera = {}; const fu = (k) => { fuera[k] = (fuera[k] || 0) + 1; };
-  let total = 0; const ejNota = {};
+  let total = 0; const ejNota = {}; const h4 = {}; const dFall = []; const h5 = {}; const h5f = [];
+  const notasRfc = new Map(); for (const x of cf.values()) if (x.tc === 'E') { if (!notasRfc.has(x.rfc)) notasRfc.set(x.rfc, []); notasRfc.get(x.rfc).push(x); }
+  const pagosRfc = new Map();
+  for (const [, p] of pol) { const u = p.ls.find((l) => l.ca === 'C' && esCompra(l.cuenta) && l.u && cf.has(l.u))?.u; if (!u) continue; const rf = cf.get(u).rfc; if (!pagosRfc.has(rf)) pagosRfc.set(rf, []); pagosRfc.get(rf).push(p.fecha); }
+  for (const v of pagosRfc.values()) v.sort();
   const usadaEn = new Map(); for (const l of lineas) if (l.u && l.ca === 'A' && esNota(l.cuenta)) usadaEn.set(l.u, `${l.periodo}|${l.folio}`);
   for (const [k, p] of pol) {
     const ls = p.ls;
@@ -143,6 +148,16 @@ const dia = (s) => Math.floor(Date.parse(String(s instanceof Date ? s.toISOStrin
         else { fu(ok.length > 1 ? 'parcial: REP ambiguo' : 'parcial: sin REP que cuadre (PUE, tardío o no emitido)'); continue; }
       } else {
         const d = r2(sumF - Nor.reduce((a, u) => a + cf.get(u).tot, 0) - B);
+        // H4: patrón del histórico — TODAS las notas del proveedor timbradas desde su pago anterior hasta éste.
+        {
+          const prev = (pagosRfc.get(rfc) || []).filter((f) => f < p.fecha).pop() || '0000';
+          const ven = (notasRfc.get(rfc) || []).filter((n) => n.f > prev && n.f <= p.fecha && !(usadaEn.has(n.u) && usadaEn.get(n.u) !== k));
+          const s4 = ven.reduce((a, n) => a + n.tot, 0);
+          const cuadra = Math.abs(sumF - s4 - B) <= tolN(F.length + ven.length);
+          let res4 = 'no cuadra';
+          if (cuadra && suf === usada) { const g = asentar(p, F, new Map(), ven.map((n) => n.u), B, bancos[0].cuenta, suf); res4 = estricta(ls, g) ? 'estricta' : agregada(ls, g) ? 'agregada' : 'DISTINTA'; }
+          h4[res4] = (h4[res4] || 0) + 1;
+        }
         // B2: TODAS las notas relacionadas a estas facturas, timbradas hasta el pago, no usadas en otra póliza.
         const todas = [...new Set(F.flatMap((u) => [...(notasDe.get(u) || [])]))]
           .filter((n) => cf.has(n) && cf.get(n).f <= p.fecha && !(usadaEn.has(n) && usadaEn.get(n) !== k));
@@ -173,6 +188,28 @@ const dia = (s) => Math.floor(Date.parse(String(s instanceof Date ? s.toISOStrin
             g3.push({ ca: 'A', cuenta: bancos[0].cuenta, imp: B });
             const dif3 = r2(g3.filter((g) => g.ca === 'C').reduce((a, g) => a + g.imp, 0) - g3.filter((g) => g.ca === 'A').reduce((a, g) => a + g.imp, 0));
             if (dif3 > 0) g3.push({ ca: 'A', cuenta: '4200010000', imp: dif3 }); else if (dif3 < 0) g3.push({ ca: 'C', cuenta: '5201000000', imp: -dif3 });
+            // H5: por factura, con el REP. Pendiente (insoluto) = descuento si hay nota relacionada por ese importe
+            // (o es < $1) → factura completa; si no, es parcialidad real → sólo la parte. Nota = base − pagado.
+            // Lo que el banco pagó de más sobre las facturas → cargo a anticipo 1050 del proveedor.
+            const idOk = [...reps.entries()].find(([, mm]) => mm === ok[0])[0];
+            const fac5 = new Map(); const g5n = []; let pagadoF = 0;
+            for (const u of F) {
+              const x = cf.get(u); const rc = repPorDoc.get(u).find((z) => z.id === idOk); pagadoF += rc.pagado;
+              const esDesc = rc.ins / x.tot <= 0.3;  // ⚠️ umbral elegido sobre los mismos datos: riesgo de sobreajuste
+              const base = esDesc ? x.tot : x.tot - rc.ins; fac5.set(u, base / x.tot);
+              const q = (base - rc.pagado) / x.tot; if (q * x.tot < 0.5) continue;
+              const b16 = x.iva > 0 ? (x.s16 > 0 ? x.s16 : x.iva / 0.16) : 0;
+              for (const [cta, v] of [['5070' + suf, b16], ['1060000000', x.iva], ['1470100000', x.ieps], ['5050' + suf, x.tot - b16 - x.iva - x.ieps]]) if (r2(v * q) > 0.004) g5n.push({ ca: 'A', cuenta: cta, imp: r2(v * q) });
+            }
+            const g5 = asentar(p, F, fac5, [], B, bancos[0].cuenta, suf).filter((g) => !/^(4200010000|5201000000)$/.test(g.cuenta) && !g.cuenta.startsWith('102'));
+            g5.push(...g5n);
+            if (B - pagadoF > 1) g5.push({ ca: 'C', cuenta: '1050' + suf, imp: r2(B - pagadoF) });
+            g5.push({ ca: 'A', cuenta: bancos[0].cuenta, imp: B });
+            const dif5 = r2(g5.filter((g) => g.ca === 'C').reduce((a, g) => a + g.imp, 0) - g5.filter((g) => g.ca === 'A').reduce((a, g) => a + g.imp, 0));
+            if (dif5 > 0) g5.push({ ca: 'A', cuenta: '4200010000', imp: dif5 }); else if (dif5 < 0) g5.push({ ca: 'C', cuenta: '5201000000', imp: -dif5 });
+            h5[res(g5) ? 'SÍ' : 'no'] = (h5[res(g5) ? 'SÍ' : 'no'] || 0) + 1;
+            if (!res(g5) && h5f.length < 4) h5f.push(k);
+            if (!res(g1) && !res(g2) && !res(g3) && dFall.length < 6) dFall.push(k);
             fu(`D parcial con nota (REP) · H1 ${res(g1) ? 'SÍ' : 'no'} · H2 ${res(g2) ? 'SÍ' : 'no'} · H3 nota = total − pagado ${res(g3) ? 'SÍ' : 'no'}`);
             continue;
           }
@@ -191,5 +228,5 @@ const dia = (s) => Math.floor(Date.parse(String(s instanceof Date ? s.toISOStrin
   }
   console.log(`pólizas de pago a proveedor 2026: ${total}`);
   console.table(t);
-  console.log('fuera del simulador:'); console.table(fuera); console.log(ejNota);
+  console.log('fuera del simulador:'); console.table(fuera); console.log('H4 notas del proveedor desde su pago anterior (sobre las que no cuadran con nota):'); console.table(h4); console.log('D fallidos', dFall.join(' ')); console.log('H5', h5, 'fallan', h5f.join(' '));
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
