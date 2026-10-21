@@ -1058,7 +1058,14 @@ export class CashCutService {
         .where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!c) throw new NotFoundException('Corte no encontrado');
 
-      const gate = puedeAutorizar(c, u.id);
+      // `[CGS.16]` Quién capturó o canceló algo de este corte: tampoco lo autoriza (D3).
+      const manos = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, corte_id: id })
+        .select('created_by', 'cancelled_by');
+      const capturistas = manos.flatMap((m: { created_by: string | null; cancelled_by: string | null }) =>
+        [m.created_by, m.cancelled_by]).filter((x): x is string => !!x);
+
+      const gate = puedeAutorizar(c, u.id, capturistas);
       if (!gate.ok) {
         // 403 y no 400: no es que el dato esté mal, es que esta persona no puede.
         throw new ForbiddenException(TEXTO_NO_AUTORIZA[gate.motivo!]);

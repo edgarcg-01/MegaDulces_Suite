@@ -380,18 +380,25 @@ export interface CorteEstado {
   estado: 'borrador' | 'cerrado' | 'autorizado';
   closed_by?: string | null;
   authorized_by?: string | null;
+  /** Quien ABRIÓ el corte. `[CGS.16]` tampoco lo autoriza. */
+  created_by?: string | null;
 }
 
 export type MotivoNoAutoriza =
   | 'no_esta_cerrado'
   | 'ya_autorizado'
   | 'misma_persona_que_cerro'
+  | 'abrio_el_corte'
+  | 'capturo_en_el_corte'
   | 'sin_usuario';
 
 export const TEXTO_NO_AUTORIZA: Record<MotivoNoAutoriza, string> = {
   no_esta_cerrado: 'El corte todavía no se cierra.',
   ya_autorizado: 'Este corte ya está autorizado.',
   misma_persona_que_cerro: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+  abrio_el_corte: 'Quien abrió el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+  capturo_en_el_corte:
+    'Capturaste o cancelaste movimientos de este corte: lo tiene que autorizar otra persona.',
   sin_usuario: 'No se pudo identificar quién autoriza.',
 };
 
@@ -427,11 +434,24 @@ export function avisoLibroVacio(
  * que el botón se apague con su motivo en vez de que el usuario descubra el candado con un
  * error de Postgres.
  */
-export function puedeAutorizar(c: CorteEstado, userId: string | null | undefined): { ok: boolean; motivo?: MotivoNoAutoriza } {
+export function puedeAutorizar(
+  c: CorteEstado,
+  userId: string | null | undefined,
+  /**
+   * ⛔ `[CGS.16]` Quienes capturaron o cancelaron un movimiento del corte. Decisión D3 de Edgar
+   * (2026-10-21): la supervisora *«captura, pero no firma lo suyo»*. Medido ese día: autorizaba
+   * `tesoreria`, y su titular capturó 29 de los 30 movimientos del 20-oct — la doble llave de
+   * `closed_by` no lo veía. La base lo frena igual (`cut_autoriza_lo_ajeno_chk`); esto existe
+   * para que el motivo llegue con su frase y no como un error de Postgres.
+   */
+  capturistas: readonly string[] = [],
+): { ok: boolean; motivo?: MotivoNoAutoriza } {
   if (!userId) return { ok: false, motivo: 'sin_usuario' };
   if (c.estado === 'autorizado') return { ok: false, motivo: 'ya_autorizado' };
   if (c.estado !== 'cerrado') return { ok: false, motivo: 'no_esta_cerrado' };
   if (c.closed_by && c.closed_by === userId) return { ok: false, motivo: 'misma_persona_que_cerro' };
+  if (c.created_by && c.created_by === userId) return { ok: false, motivo: 'abrio_el_corte' };
+  if (capturistas.includes(userId)) return { ok: false, motivo: 'capturo_en_el_corte' };
   return { ok: true };
 }
 
