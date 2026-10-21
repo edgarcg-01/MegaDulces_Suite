@@ -75,11 +75,16 @@ const DEUDA_DECLARADA = [
 ];
 
 /** El archivo que documenta la trampa puede nombrarla sin ser culpable de ella. */
-const EXENTOS = new Set([rel('scripts', 'check-kdm5-vigente.js')]);
+const EXENTOS = new Set([
+  rel('scripts', 'check-kdm5-vigente.js'),
+  // [CSU.13] Define la vista HERMANA (sólo lo cancelado): es la otra lectora legítima de la tabla cruda.
+  rel('database', 'migrations-newdb', '20261021135510_kepler_kdm5_cancelado.js'),
+]);
 
 /** En `--db`: objetos que leen kdm5 crudo A PROPÓSITO, con el porqué. */
 const DB_PERMITIDOS = new Map([
   [VISTA, 'es la vista canónica: la única que debe leer la tabla cruda'],
+  ['analytics.kepler_kdm5_cancelado', '[CSU.13] su complemento exacto: SÓLO lo cancelado, para MOSTRARLO marcado — nunca se suma'],
   ['md.kdm5', 'espejo de compatibilidad 1:1 de la tabla (importadores legados), no suma nada'],
   ['analytics.income_bridge_src', 'casa cada aplicación con su documento y MARCA el cancelado a propósito ([CXC] casar_cancelados)'],
 ]);

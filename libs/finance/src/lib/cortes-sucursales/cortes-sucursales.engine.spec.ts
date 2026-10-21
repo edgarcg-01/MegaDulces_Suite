@@ -294,3 +294,28 @@ describe('[CSU.9] el conteo por denominación contra el efectivo declarado', () 
     expect(a.conteo_fisico).not.toBe(8460 + 2077 + 74000 + 4052.05);
   });
 });
+
+describe('[CSU.13] cobros cancelados en Kepler: se publican y NO suman', () => {
+  // El caso real: corte 06/UD2301-0000033, el UA0501-0000075 ($10,962.00) se canceló en Kepler.
+  const c = construirCorte(base({
+    sucursal: '06', folio: '0000033', monto: '36407.84', cobrado: '36407.84',
+    cobros: [{ doc_prefix: 'UA0501', folio: '0000072', fecha: '2026-10-14', monto: '36407.84', forma_pago: 'otro', concepto: null }],
+    cobros_cancelados: [{ doc_prefix: 'UA0501', folio: '0000075', fecha: '2026-10-08T06:00:00.000Z', monto: '10962.00', concepto: 'VTA 10-10-26' }],
+  }), NOMBRES);
+
+  it('el cancelado viaja aparte, con monto numérico y fecha corta', () => {
+    expect(c.cobros_cancelados).toEqual([{ doc_prefix: 'UA0501', folio: '0000075', fecha: '2026-10-08', monto: 10962, concepto: 'VTA 10-10-26' }]);
+  });
+
+  it('⛔ NEGATIVA: el cancelado NO entra a cobrado ni al saldo (sin él el corte queda cobrado exacto, no sobrecobrado)', () => {
+    expect(c.cobrado).toBe(36407.84);
+    expect(c.saldo).toBe(0);
+    expect(c.estado_cobro).toBe('cobrado');
+    expect(c.cobros.map((x) => x.folio)).toEqual(['0000072']);
+  });
+
+  it('sin cancelados llega vacío, nunca undefined (la pantalla lo recorre sin preguntar)', () => {
+    expect(construirCorte(base({}), NOMBRES).cobros_cancelados).toEqual([]);
+    expect(construirCorte(base({ cobros_cancelados: null }), NOMBRES).cobros_cancelados).toEqual([]);
+  });
+});

@@ -139,7 +139,7 @@ const CARGA = [
     const total = L.mediana(tn.slice(1).map((x, i) => x + tnom[i + 1]));
     console.log(`MEDIANA en caliente (corridas 2-4): vieja ${L.mediana(tv.slice(1))} ms · nueva ${L.mediana(tn.slice(1))} ms · nueva + nombres ${total} ms`);
     console.log(total <= 500 ? 'OBJETIVO ≤ 500 ms: CUMPLE (en local)' : `OBJETIVO ≤ 500 ms: NO CUMPLE (${total} ms)`);
-    if (L.iguales(a, b)) console.log('PARIDAD OK a escala: salida idéntica');
+    if (L.iguales(a, L.sinCancelados(b))) console.log('PARIDAD OK a escala: salida idéntica');
     else { console.log('PARIDAD ROTA a escala'); console.log(L.diferencias(a, b).join('\n')); process.exitCode = 1; }
     if (total > 500) process.exitCode = 1;
     const dir = process.env.PLANES_DIR;

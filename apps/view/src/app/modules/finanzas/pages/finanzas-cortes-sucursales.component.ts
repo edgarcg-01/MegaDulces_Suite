@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -10,6 +10,10 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type {
   CorteArqueo, CorteCobro, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
 } from '@megadulces/contracts';
@@ -34,6 +38,61 @@ const CUADRE: Record<CorteCuadre, { label: string; sev: Sev }> = {
   sin_arqueo: { label: 'Sin arqueo', sev: 'info' },
 };
 
+/** La etiqueta del cuadre como se pinta (con la diferencia cuando la hay). La usan la tabla y el buscador. */
+export function etiquetaCuadre(c: CorteRow): string {
+  const base = CUADRE[c.cuadre].label;
+  return c.cuadre === 'cuadra' || c.cuadre === 'sin_arqueo' || c.diferencia === null ? base : `${base} ${money(c.diferencia)}`;
+}
+
+/**
+ * `[CSU.13]` Todo lo que una persona puede traer en la mano para encontrar un corte: el folio (con y sin
+ * ceros: «12» encuentra UD2301-0000012), la caja-turno, la sucursal, la fecha como se ve, los montos como
+ * se ven («1,203» encuentra $1,203.36), los estados, el cajero, y los cobros y devoluciones del corte.
+ */
+export function camposBuscablesDeCorte(c: CorteRow): (string | number | null | undefined)[] {
+  const sinCeros = (f: string | null | undefined): string => (f && /^\d+$/.test(f) ? String(Number(f)) : '');
+  return [
+    c.documento, c.folio, sinCeros(c.folio), c.referencia, c.caja && c.turno ? `${c.caja}-${c.turno}` : null,
+    ...variantesDeFolio('UD2301', c.folio),
+    c.sucursal, c.sucursal_nombre, dmy(c.fecha), c.fecha,
+    money(c.monto), money(c.cobrado), money(c.saldo),
+    COBRO[c.estado_cobro].label, etiquetaCuadre(c), c.arqueo?.cajero,
+    ...c.cobros.flatMap((x) => [`${x.doc_prefix}-${x.folio}`, ...variantesDeFolio(x.doc_prefix, x.folio), x.folio, sinCeros(x.folio),
+      money(x.monto), x.forma_pago, x.concepto, x.cuenta_tesoreria]),
+    ...c.devoluciones.flatMap((x) => [`${x.doc_prefix}-${x.folio}`, ...variantesDeFolio(x.doc_prefix, x.folio), sinCeros(x.folio),
+      money(x.monto), x.cliente, x.motivo, x.cajero]),
+    // [CSU.13] Los cancelados también se encuentran (por folio, monto o concepto), y «cancelado» lista
+    // todos los cortes que tienen alguno.
+    ...(c.cobros_cancelados ?? []).flatMap((x) => [`${x.doc_prefix}-${x.folio}`, ...variantesDeFolio(x.doc_prefix, x.folio), sinCeros(x.folio),
+      money(x.monto), x.concepto, 'cancelado en kepler']),
+  ];
+}
+
+/**
+ * `[CSU.13]` Cómo se ESCRIBE un folio de Kepler a mano, medido en lo que reportó el PM: «au501-00076» para
+ * el cobro `UA0501-0000076`. Tres diferencias contra el folio real, las tres comunes:
+ *   · las letras al revés (`AU` por `UA`: el documento es U-A-5-1),
+ *   · el tipo sin su cero (`501` por `0501`, o hasta `51`),
+ *   · el folio con otra cantidad de ceros (`00076` por `0000076`).
+ * Como la búsqueda compara FRAGMENTOS de texto, ninguna de esas formas encontraba nada. La regla: un folio
+ * se compara por NÚMERO, no por texto. El documento publica sus variantes cortas (folio sin ceros) y la
+ * consulta se lleva a esa misma forma corta con `consultaDeCortes`.
+ */
+export function variantesDeFolio(prefijo: string | null | undefined, folio: string | null | undefined): string[] {
+  const m = (prefijo ?? '').toUpperCase().match(/^([A-Z])([A-Z])(\d{2})(\d{2})$/);
+  if (!m || !folio || !/^\d+$/.test(folio)) return [];
+  const [, a, b, tipo, serie] = m;
+  const n = String(Number(folio));
+  const tipos = [...new Set([`${tipo}${serie}`, `${Number(tipo)}${serie}`, `${Number(tipo)}${Number(serie)}`])];
+  // `#` cierra el número: sin él, `ua0501-76` sería fragmento de `ua0501-761` y el folio 76 traería el 761.
+  return [`${a}${b}`, `${b}${a}`].flatMap((letras) => tipos.map((t) => `${letras}${t}-${n}#`));
+}
+
+/** Lleva cada palabra con forma de folio (`au501-00076`, `UA0501-0000076`) a su forma corta (`au501-76#`). */
+export function consultaDeCortes(q: string | null | undefined): string {
+  return (q ?? '').split(/\s+/).map((t) => t.replace(/^([a-z]{2}\d{1,4})-0*(\d+)$/i, '$1-$2#')).join(' ');
+}
+
 /** El corte de caja POS (U-D-23) arrancó en Kepler con el cambio del 1-oct-2026. */
 const INICIO_CORTES = '2026-10-01';
 
@@ -53,7 +112,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   selector: 'app-finanzas-cortes-sucursales',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule,
+    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -67,6 +127,20 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
       </header>
 
       <div class="cs-filters">
+        <!-- [CSU.13] Buscador sobre la lista COMPLETA del periodo (no paginada en el servidor): token por
+             token, sin acentos y en todos los campos del corte, sus cobros y sus devoluciones. -->
+        <div class="cs-field cs-buscar"><label for="cs-q">Buscar corte <kbd class="cs-kbd" aria-hidden="true">/</kbd></label>
+          <p-iconfield>
+            <!-- El ícono va ADENTRO. Medido en el navegador: PrimeNG 22 pisa el class del host de p-inputicon
+                 (host [class] = cx root) y su plantilla es sólo ng-content, así que styleClass y class se pierden y
+                 la lupa queda en 0 px. Las otras 3 pantallas que usan styleClass tienen la lupa invisible igual. -->
+            <p-inputicon><i class="pi pi-search" aria-hidden="true"></i></p-inputicon>
+            <input #buscador pInputText id="cs-q" type="search" class="cs-q" autocomplete="off" [ngModel]="q()" (ngModelChange)="q.set($event)"
+                   (keydown.escape)="limpiarBusqueda()" placeholder="Folio, caja-turno, cobro, monto, cajero…"
+                   aria-describedby="cs-q-ayuda" />
+          </p-iconfield>
+          <span id="cs-q-ayuda" class="sr-only">Busca en todas las sucursales del periodo. Varias palabras en cualquier orden. Escape limpia.</span>
+        </div>
         <div class="cs-field"><label for="cs-mes">Mes</label>
           <p-select inputId="cs-mes" [options]="mesOpts" optionLabel="label" optionValue="value" [ngModel]="mes()" (onChange)="pickMes($event.value)" placeholder="Rango" appendTo="body" class="cs-sel" /></div>
         <div class="cs-field"><label for="cs-rango">Rango específico</label>
@@ -77,7 +151,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 
       @if (err(); as e) { <div class="cs-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="cs-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
-      @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="fb-skel-row"></div> }</div> }
       @else if (data(); as d) {
         <p class="cs-periodo">Periodo {{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }}@if (d.ultimo_corte) { · último corte {{ dmy(d.ultimo_corte) }} }@if (d.cortes_en_blanco) { · {{ d.cortes_en_blanco }} corte(s) en blanco (menos de $1) no se listan }</p>
         @if (!d.alcance.todas) {
@@ -120,7 +194,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 
         <div class="cs-split">
           <section class="cs-block dt-scope" aria-labelledby="cs-h-cortes">
-            <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2><span class="cs-hint">{{ cortes().length }} corte(s) · pendiente {{ money(pendienteVisible()) }}</span></div>
+            <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2>
+              <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}</span></div>
             <p-table [value]="cortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" selectionMode="single" [selection]="selCorte()" (selectionChange)="selCorte.set($event)" dataKey="clave" [paginator]="cortes().length > 200" [rows]="200">
               <ng-template #header><tr><th>Corte</th><th>Fecha</th>@if (!selSuc()) { <th>Suc</th> }<th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Cobro</th><th>Cuadre</th></tr></ng-template>
               <ng-template #body let-c>
@@ -132,11 +207,20 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   <td class="ta-r num" role="cell" data-label="Monto">{{ money(c.monto) }}</td>
                   <td class="ta-r num" role="cell" data-label="Cobrado" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>
                   <td class="ta-r num cs-strong" role="cell" data-label="Saldo">{{ money(c.saldo) }}</td>
-                  <td role="cell" data-label="Cobro"><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" /></td>
+                  <td role="cell" data-label="Cobro"><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" />
+                    @if (c.cobros_cancelados.length) { <p-tag [value]="c.cobros_cancelados.length + ' cancelado' + (c.cobros_cancelados.length > 1 ? 's' : '')" severity="secondary" styleClass="cs-tag" [attr.title]="'Cobros cancelados en Kepler: no suman'" /> }</td>
                   <td role="cell" data-label="Cuadre"><p-tag [value]="cuadreLabel(c)" [severity]="cuadreSev(c.cuadre)" styleClass="cs-tag" /></td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td [attr.colspan]="selSuc() ? 8 : 9"><div class="cs-empty"><i class="pi pi-check-circle" aria-hidden="true"></i><span>{{ soloSaldo() ? 'Ningún corte con saldo pendiente.' : 'Sin cortes en el periodo.' }}</span></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td [attr.colspan]="selSuc() ? 8 : 9">
+                @if (q().trim()) {
+                  <div class="cs-empty"><i class="pi pi-search" aria-hidden="true"></i><span>Ningún corte coincide con «{{ q().trim() }}»{{ soloSaldo() ? ' entre los que tienen saldo' : '' }}.</span>
+                    @if (enOtrasSucursales()) { <span>Hay {{ enOtrasSucursales() }} en otras sucursales · <button type="button" class="cs-link" (click)="pickSuc(null)">ver todas</button></span> }
+                    <button type="button" class="cs-link" (click)="limpiarBusqueda()">Limpiar búsqueda</button></div>
+                } @else {
+                  <div class="cs-empty"><i class="pi pi-check-circle" aria-hidden="true"></i><span>{{ soloSaldo() ? 'Ningún corte con saldo pendiente.' : 'Sin cortes en el periodo.' }}</span></div>
+                }
+              </td></tr></ng-template>
             </p-table>
           </section>
 
@@ -202,6 +286,15 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   <p class="cs-hint">Ningún cobro aplicado a este corte.</p>
                 }
                 <div class="cs-row cs-tot"><span>Saldo del corte</span><span class="num" [class.cs-bad]="c.saldo > 0.005">{{ money(c.saldo) }}</span></div>
+                <!-- [CSU.13] Cancelados en Kepler: se VEN, marcados, y no entran a la cuenta de arriba. -->
+                @if (c.cobros_cancelados.length) {
+                  <div class="cs-cancelados" role="group" aria-label="Cobros cancelados en Kepler, no suman">
+                    @for (x of c.cobros_cancelados; track x.doc_prefix + x.folio) {
+                      <div class="cs-row cs-cancelado"><span>{{ x.doc_prefix }}-{{ x.folio }}@if (x.fecha) { · {{ dmy(x.fecha) }} }@if (x.concepto) { <span class="muted"> · {{ x.concepto }}</span> }
+                        <p-tag value="Cancelado en Kepler — no suma" severity="secondary" styleClass="cs-tag" /></span><span class="num cs-tachado">{{ money(x.monto) }}</span></div>
+                    }
+                  </div>
+                }
               </div>
 
               <div class="cs-step">
@@ -223,6 +316,15 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-filters { display:flex; flex-wrap:wrap; gap:.8rem; align-items:flex-end; margin:.4rem 0 .6rem; }
     .cs-field { display:flex; flex-direction:column; gap:.25rem; }
     .cs-field label { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); }
+    /* [CSU.13] El buscador es el primer filtro y el más ancho: es por donde se entra a un corte. */
+    .cs-buscar { flex:1 1 20rem; max-width:28rem; }
+    .cs-buscar p-iconfield, .cs-q { width:100%; }
+    /* [CSU.13] Cobro cancelado: se lee como «ya no cuenta» por el texto de la etiqueta y por el tachado,
+       nunca sólo por el color (Alto Contraste de Windows). */
+    .cs-cancelados { margin-top:var(--sp-2); padding-top:var(--sp-2); border-top:1px dashed var(--border-color); }
+    .cs-cancelado { color:var(--text-muted); }
+    .cs-tachado { text-decoration:line-through; }
+    .cs-kbd { font:inherit; font-family:var(--font-mono); font-size:var(--fs-micro); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 var(--sp-1); margin-left:var(--sp-1); color:var(--text-muted); }
     :host ::ng-deep .cs-sel { min-width:11rem; }
     .cs-toggle { align-items:flex-start; }
     .cs-periodo { margin:.2rem 0 .4rem; font-size:var(--fs-xs); color:var(--text-muted); }
@@ -302,12 +404,53 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   readonly selSuc = signal<CorteSucursalResumen | null>(null);
   readonly selCorte = signal<CorteRow | null>(null);
 
-  readonly cortes = computed<CorteRow[]>(() => {
+  /** `[CSU.13]` Lo que escribió la persona en el buscador. */
+  readonly q = signal('');
+  private readonly buscador = viewChild<ElementRef<HTMLInputElement>>('buscador');
+
+  /** Los cortes antes de buscar: sucursal elegida + «sólo con saldo». */
+  readonly cortesBase = computed<CorteRow[]>(() => {
     const d = this.data();
-    if (!d) return [];
     const s = this.selSuc();
-    return d.cortes.filter((c) => (!s || c.sucursal === s.sucursal) && (!this.soloSaldo() || c.saldo > 0.005));
+    const soloSaldo = this.soloSaldo();
+    if (!d) return [];
+    return d.cortes.filter((c) => (!s || c.sucursal === s.sucursal) && (!soloSaldo || c.saldo > 0.005));
   });
+
+  /**
+   * `[CSU.13]` La lista que se ve. Se filtra en el cliente porque llega COMPLETA (el periodo entero, sin
+   * paginar en el servidor): `filtrarPorBusqueda` exige cada palabra, en cualquier orden y en cualquier
+   * campo, sin acentos — la misma semántica que `applySmartSearch` del servidor.
+   */
+  readonly cortes = computed<CorteRow[]>(() => filtrarPorBusqueda(this.cortesBase(), consultaDeCortes(this.q()), (c) => this.camposBuscables(c)));
+
+  /** Con una sucursal elegida y la búsqueda sin resultados ahí: cuántos casan en las demás. */
+  readonly enOtrasSucursales = computed<number>(() => {
+    const d = this.data();
+    const s = this.selSuc();
+    const q = this.q();
+    const soloSaldo = this.soloSaldo();
+    if (!d || !s || !q.trim()) return 0;
+    const otras = d.cortes.filter((c) => c.sucursal !== s.sucursal && (!soloSaldo || c.saldo > 0.005));
+    return filtrarPorBusqueda(otras, consultaDeCortes(q), (c) => this.camposBuscables(c)).length;
+  });
+
+  camposBuscables(c: CorteRow): (string | number | null | undefined)[] { return camposBuscablesDeCorte(c); }
+
+  limpiarBusqueda(): void {
+    this.q.set('');
+    this.buscador()?.nativeElement.focus();
+  }
+
+  /** `/` lleva al buscador desde cualquier parte de la pantalla (si no se está escribiendo en otro campo). */
+  @HostListener('document:keydown', ['$event'])
+  atajoBuscar(e: KeyboardEvent): void {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+    e.preventDefault();
+    this.buscador()?.nativeElement.focus();
+  }
   readonly kpiItems = computed<MetricStripItem[]>(() => { const d = this.data(); return d ? this.kpis(d) : []; });
   readonly pendienteVisible = computed(() => this.cortes().reduce((t, c) => t + Math.max(c.saldo, 0), 0));
 
@@ -381,10 +524,7 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   cuadraPorBruto(c: CorteRow, a: CorteArqueo): boolean {
     return c.cuadre === 'cuadra' && c.devoluciones_total > 0 && Math.abs(c.monto - a.esperado_neto) >= 1;
   }
-  cuadreLabel(c: CorteRow): string {
-    const base = CUADRE[c.cuadre].label;
-    return c.cuadre === 'cuadra' || c.cuadre === 'sin_arqueo' || c.diferencia === null ? base : `${base} ${money(c.diferencia)}`;
-  }
+  cuadreLabel(c: CorteRow): string { return etiquetaCuadre(c); }
 
   /**
    * `[CSU.8]` A qué cuenta entró el cobro.
