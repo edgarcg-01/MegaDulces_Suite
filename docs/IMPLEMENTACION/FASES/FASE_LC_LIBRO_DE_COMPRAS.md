@@ -186,6 +186,7 @@ vínculo formal.
 | **LC.13** | ⬜ pantalla de `gl_supplier_accounts`. **Gate corrido 2026-09-03: no urge** — ningún proveedor de jul/ago necesita una cuenta 501/502 que no exista. Sí hay 207 facturas de ago (~$2.0M) cuyo RFC no está en el catálogo | — |
 | **LC.14** | ✅ **2026-09-03** — **tercera puerta, exacta por UUID** hasta jul-2026: `finance.purchase_book_history` + 2 vistas + sembrador con auto-chequeos. Bloqueo duro para la certeza, blando y auditado para la sospecha | LC.9 |
 | **LC.15** | ✅ **2026-09-03** — `analytics.gl_poliza_lines.concepto`: leer de vuelta el UUID que nosotros ponemos → **cuarta puerta**, desde ContPAQi mismo. Más el CSV para su Asociador de CFDI | LC.7, LC.14 |
+| **LC.17** | 🧪 **2026-10-21** — el trámite deja de mentir: un TXT guardado en formato legado o sin contenido no se descarga ni se entrega; `generar` registra las facturas que lleva (la puerta exacta «ya se entregó» por fin las ve) y no regenera encima de una entrega; `marcar` con máquina de estados; botón «Cancelar entrega». Candado `test-newdb-libro-compras-tramite.js` | LC.9 |
 
 **MVP = LC.0 → LC.6.1**, y ahí está el valor: LC.6.1 es el propósito del módulo (sacar lo no
 asociado en TXT). LC.7 lo vuelve confiable.
@@ -793,6 +794,75 @@ vista nueva, no un filtro de ésta. (Y ojo: en la contabilidad 2026 **`201` y `2
 existen** — sólo `212`, `501`, `502` y `147x`.)
 
 ---
+
+## LC.17 — auditoría del 2026-10-21: el módulo no se usa, y lo que tiene guardado no se puede entregar
+
+Auditoría pedida por Edgar (*"¿cuál es el objetivo, se completó el plan, qué falta?"*). Medido en
+pg-prod, sólo lectura.
+
+### Lo que se encontró
+
+| Hecho | Prod 2026-10-21 |
+|---|---|
+| Corridas del módulo | **3 en total**, ninguna llegó a `entregado` ni `aplicado`; la última se tocó el 4-sep |
+| ago-2026 y sep-2026 | **Ya tienen la póliza mensual de compras** (folio 1: 625 y 428 renglones) — **sin corrida nuestra y con 0 UUID** en el concepto: se armaron a mano |
+| Complemento 2026-07 (`generado`) | TXT guardado en **formato legado** (P=147/M=211; el real es 185/272 desde `[CP.8.13]`, 8-oct). **La descarga lo servía tal cual** → ContPAQi lo rechaza |
+| Complemento 2026-06 (`generado`) | Firma sin contenido: los botones se veían y la descarga daba 404 |
+| Sin marca y ya posteadas por importe | ago 91 de 279 (**$10.2M**) · sep 142 de 392 (**$20.3M**) — el TXT a mano sin UUID sigue ensuciando la marca |
+| Histórico exacto por UUID (puerta c) | llega hasta **2026-07**: ago y sep sólo los protege el importe |
+
+### Los defectos del código (leídos, no supuestos)
+
+- **B1** `generar` no registraba las facturas incluidas por default: la puerta «ya se entregó»
+  (`v_purchase_book_uuids` lee `run_items`) sólo veía las marcadas a mano. Un complemento entregado en
+  folio 2 no lo atrapa la puerta (a), que mira el folio 1 → el mes las volvía a ofrecer.
+- **B3** `generar` aceptaba una corrida `entregado` y pisaba archivo y firma ya entregados.
+- **B4** `marcar` sin máquina de estados: `aplicado` desde `generado`, `entregado` desde `aplicado`,
+  `cancelado` desde `aplicado` (devuelve a pendientes un asiento que ContPAQi ya tiene); sin botón para
+  cancelar aunque el error decía «cancélala»; una cancelada seguía sirviendo su archivo; `notas` se pisaba.
+
+### Lo que se hizo (LC.17)
+
+- `vigenciaArchivo()` en `poliza-txt.ts`, con el MISMO criterio de formato que el parser. El parser
+  sigue tolerante (los cuadres lo necesitan); la vigencia decide si se entrega.
+- `obtenerArchivo` rechaza legado, sin contenido y `cancelado`. `marcar('entregado')` exige archivo vigente.
+- `getMes` manda a la pantalla `archivo_vigente` + `archivo_motivo` y ya no los ~77 KB del TXT.
+- `generar` registra una fila por factura con `origen = 'generado'`; `getMes` **no** las toma como
+  decisión (si contaran, el default del mes quedaría congelado aunque luego aparezca la póliza).
+  `invalidar` las borra. No pisa una decisión manual (`onConflict.ignore`).
+- `generar` rechaza `entregado`; al regenerar una cancelada limpia los datos de la entrega anterior.
+- `TRANSICIONES_RUN`: borrador→cancelado · generado→entregado|cancelado · entregado→aplicado|cancelado ·
+  aplicado y cancelado terminales. Cancelar una entrega se niega si ContPAQi ya tiene ese folio.
+- `notas` se suma (`concat_ws`), no se pisa.
+- Pantalla: los botones del archivo sólo si es vigente; veredicto «El archivo guardado ya no sirve» con
+  su motivo; «Generar» apagado en entregado/aplicado; **«Cancelar entrega»** (rojo, con diálogo y motivo
+  obligatorio).
+
+### Verificación
+
+- `test-newdb-libro-compras-tramite.js` **contra prod, sólo lectura: 11 ✓ / 0 ✗ · 1 NO MEDIDO** — jul y
+  jun se declaran no entregables y las guardas rechazan antes de escribir (sesión read-only).
+- **Modo completo (siembra 2031-03 y ejerce generar/entregar/cancelar/aplicar como `app_runtime`) NO
+  MEDIDO**: sólo corre en el job `pruebas-db` del CI; en esta máquina no hay Postgres local.
+- ⚠️ **La prueba negativa de la guarda de descarga no se hizo** (romperla a propósito fue bloqueado por el
+  clasificador de permisos). Sí hay negativa sobre `vigenciaArchivo` mismo.
+- `check:pantalla` 0 fallas nuevas · `check:templates` ✅ · `lint-boundary-gate` sin violaciones en purchase-book.
+- `test-newdb-libro-compras-caratula.js` 66/66 (se ajustó su regex: la consulta del folio se mudó a
+  `folioOcupado()`) · `test-newdb-libro-compras-txt.js` 49/49.
+- **Sin validación visual** (lo más probable de ajustar: el lugar del botón rojo dentro de la barra de acciones).
+
+### Lo que sigue abierto (no es LC.17)
+
+1. **Decisión de producto antes que código:** preguntarle a la contadora por qué armó ago y sep a mano. Sin
+   eso, el resto es para una pantalla que nadie abre. Y pedirle **un TXT de compras aceptado por ContPAQi**
+   (el bloque 4 del candado del TXT sigue en SKIP: el único real es una póliza tipo 2 de egresos).
+2. Volver a sembrar el histórico exacto con ago/sep, o leer la puerta (d) (el UUID en el concepto de
+   ContPAQi), que hoy es código muerto.
+3. B2 (puerta b compara una pata contra el neto partido 501+502) · B5 (cambiar de mes no limpia el detalle
+   ni cancela la petición) · B6 (choque de UNIQUE de folio → 500) · override con motivo sin UI.
+4. 428,309 CFDIs con `estatus_sat = 'desconocido'`: nadie valida cancelaciones.
+
+**Falta para prod:** commit + CI + redeploy api+view. No hay migración.
 
 ## Estado
 

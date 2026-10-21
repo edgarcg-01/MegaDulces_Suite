@@ -415,7 +415,7 @@ export function parsearTxt(txt: string): PolizaTxtParseada {
   // la negativa no hay nada que discrimine y caía a legado, rompiendo el parseo de lo que el
   // emisor acaba de escribir. El default correcto es el formato ACTUAL; el legado es la
   // excepción, y se declara sola con su etiqueta.
-  const legado = lineas.some((l) => l.slice(0, 2) === 'M ');
+  const legado = esLegado(lineas);
 
   lineas.forEach((cruda, idx) => {
     const nro = idx + 1;
@@ -497,4 +497,29 @@ export function parsearTxt(txt: string): PolizaTxtParseada {
     out.invalidos.push({ linea: 0, motivo: 'el archivo no tiene encabezado P', texto: '' });
   }
   return out;
+}
+
+/** El criterio de formato legado, UNO solo para el parser y para la vigencia (ver arriba). */
+const esLegado = (lineas: readonly string[]) => lineas.some((l) => l.slice(0, 2) === 'M ');
+
+/**
+ * `[LC.17]` — ¿El archivo GUARDADO de una corrida todavía se puede entregar?
+ *
+ * ⛔ Medido en prod el 2026-10-21: el complemento de 2026-07 seguía en `generado` con su TXT en
+ * el formato legado (P=147/M=211), y la descarga lo servía tal cual — `parsearTxt` lo lee bien,
+ * pero **ContPAQi lo rechaza**. El de 2026-06 tenía la firma y no el contenido (es anterior a
+ * que se guardara). Leerlo no es lo mismo que poder entregarlo: el parser se queda tolerante
+ * (los cuadres de LC lo necesitan) y esta función es la que dice si el archivo sirve.
+ */
+export function vigenciaArchivo(contenido: string | null | undefined): { vigente: boolean; motivo: string | null } {
+  if (!contenido) {
+    return { vigente: false, motivo: 'la corrida guardó la firma pero no el archivo: hay que generarlo de nuevo' };
+  }
+  if (esLegado(contenido.split(/\r?\n/))) {
+    return {
+      vigente: false,
+      motivo: 'el archivo se generó con el formato anterior al 8-oct-2026 (CP.8.13) y ContPAQi lo rechaza: hay que generarlo de nuevo',
+    };
+  }
+  return { vigente: true, motivo: null };
 }

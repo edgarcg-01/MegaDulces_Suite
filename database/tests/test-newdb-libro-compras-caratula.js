@@ -150,7 +150,10 @@ const SRC = path.resolve(__dirname, '../../libs/finance/src/lib/purchase-book');
     ok(!dentroDeIf, 'el bloqueo NO está condicionado por tipo de corrida');
     ok(/tipo === 'libro'/.test(gen) && /throw new BadRequestException/.test(gen),
       'generar() rechaza el modo libro (arrastra los CFDIs que ContPAQi ya tiene asociados)');
-    ok(/gl_polizas/.test(gen), 'generar() vuelve a mirar si el folio está ocupado antes de escribir');
+    // [LC.17] la consulta se mudó a folioOcupado(), que comparte con marcar('cancelado').
+    const ocupadoFn = svc.slice(svc.indexOf('  private async folioOcupado('), svc.indexOf('  private async folioOcupado(') + 900);
+    ok(/this\.folioOcupado\(/.test(gen) && /analytics\.gl_polizas/.test(ocupadoFn),
+      'generar() vuelve a mirar si el folio está ocupado antes de escribir');
 
     const car = svc.slice(svc.indexOf('  async setCaratula('), svc.indexOf('  private async ensureRun('));
     ok(/gl_polizas/.test(car), 'setCaratula() consulta si ContPAQi ya tiene ese folio');
