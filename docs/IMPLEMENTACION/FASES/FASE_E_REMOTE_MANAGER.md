@@ -292,3 +292,35 @@ Cierra los hallazgos 3 y 4 de E.15. Decisión del PM: *"sigamos"* sobre la propu
 - La consulta de descuentos pasa a devolver **una fila por factura** con las mismas columnas que antes devolvía agrupadas: `armarDescuentos()` suma igual y además arma el detalle. Medido en prod: 1,375 filas, **58 + 39** con diferencia, folios distintos, cierre 0.00.
 - **La vista previa de la cola salió del Resumen**: queda una línea con el enlace a la cola y la declaración de su universo (*11 de 317*). El endpoint ya no llama a `getQueue` (una conexión menos: ahora abre hasta 5).
 - Spec `armar-descuentos` 5/5 (caso nuevo: la lista llega a N y va de mayor a menor).
+
+## E.17 — la auditoría de diseño que faltaba: componentes fuera de PrimeNG y una API muerta (2026-10-21)
+
+Disparador: *"ni siquiera auditaste bien el diseño, existen muchos componentes que no son de primeng"*. ⛔ **Tenía razón**: las auditorías de E.14 y E.15 se saltaron el paso 1 del recorrido de la skill (el inventario de piezas) y miraron sólo veracidad. Peor: E.15 **agregó** piezas a mano (una `<table>` propia, botones crudos, un aviso `.aviso` casero).
+
+### El inventario del módulo, medido (escáner con control: 1 crudo en la línea 2)
+
+Controles crudos = sin la directiva de PrimeNG que les corresponde (`<button>` sin `pButton`, `<input>` sin `pInputText`, `<select>`, `<textarea>` sin `pTextarea`, `<table>` sin la base `surf-table--plain`).
+
+| Pantalla | Crudos | Qué |
+|---|---:|---|
+| `televenta-quote-new` | **33** | 20 botones (píldoras de modo, filas de resultado, pasos ±, cantidades rápidas, quitar), 8 `<input>` (incluido `type="date"` donde va `p-datepicker`), **3 `<select>`** donde va `p-select`, 1 `<textarea>`, 1 `<table>` |
+| `televenta-quote-detail` | **14** | 12 botones, 2 `<input>` |
+| `televenta-quotes` | 2 | filtros-«chip» propios (donde va `app-segmented`) y el buscador |
+| `televenta-take-order` | 1 | buscador |
+| `televenta-dashboard` | 3 → **0** | ver abajo |
+| `televenta-lead`, `televenta-queue` | 0 | — |
+
+⛔ **Y una falla muda que ninguna auditoría vio:** en PrimeNG 22 **`styleClass` no existe en `p-table`** (tampoco en `p-message`, `p-select`), y como atributo estático queda **muerto** (`check-primeng-api.js`). Las 4 tablas del tablero declaraban `styleClass="p-datatable-sm …"`: ni la densidad ni `surf-table` se aplicaban. En el repo hay **303** usos así, bajo techo.
+
+### Lo que se corrigió en el tablero
+
+- Encabezado canónico `surf-page` + `surf-page-head` (191 pantallas lo usan; éste tenía uno propio).
+- Las 4 `p-table` con la API de v22: `size="small" class="surf-table dt-stack"`, cifras con `comm-num` en celda y encabezado (40 clases), y **tabla estrecha** `dt-stack`: `.dt-scope` envolviendo y `data-label` + `role="cell"` en cada celda (23). Se fue la advertencia #9 de responsividad: `check:pantalla` **10 de 10 reglas**.
+- La cuenta del descuento sobre la base oficial de tabla cruda `surf-table--plain` (no una `.cuenta` propia), con el total en `<tfoot>`.
+- Avisos con `p-message` (no `.aviso` casero); los botones crudos de las cifras → `p-button [link]` «Ver facturas». **Sin `::ng-deep`** nuevo (`DESIGN.md` §S lo lleva como deuda: 481).
+- `check-primeng-api` 651 → **647** heredadas.
+
+### Lo que sigue abierto
+
+- ⬜ **Las pantallas de cotizaciones (47 controles crudos)**: van con el pedido *"hagamos que cotizaciones se puedan editar"*, que toca justo esas dos.
+- ⬜ Sin validación visual (nivel A).

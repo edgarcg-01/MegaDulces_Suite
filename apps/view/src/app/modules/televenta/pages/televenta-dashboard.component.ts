@@ -6,6 +6,7 @@ import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ProgressBarModule } from 'primeng/progressbar';
+import { MessageModule } from 'primeng/message';
 import { DiferenciaMaestro, TeleventaDashboard, TeleventaService } from '../televenta.service';
 import { callOutcomeLabel, callOutcomeSeverity } from '../call-outcomes';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -30,21 +31,22 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
   standalone: true,
   imports: [
     CommonModule, RouterLink,
-    ButtonModule, CardModule, TableModule, TagModule, ProgressBarModule,
+    ButtonModule, CardModule, TableModule, TagModule, ProgressBarModule, MessageModule,
     MetricStripComponent, LoadStateComponent, FreshnessPillComponent, SidePeekComponent,
   ],
   template: `
     <!-- [E.13] El encabezado nombra la PÁGINA, no el proyecto: la migaja ya dice Telemarketing. -->
-    <div class="header-row">
-      <div>
+    <div class="surf-page">
+    <header class="surf-page-head">
+      <div class="surf-page-head-text">
         <h1>Resumen del canal</h1>
-        <p class="muted">Facturación del canal (ERP) y actividad de llamadas.</p>
+        <p class="surf-page-sub">Facturación del canal (ERP) y actividad de llamadas.</p>
       </div>
       <div class="header-actions">
         <app-freshness-pill measures="fetch" [since]="loadedAt()" />
         <button pButton severity="secondary" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
       </div>
-    </div>
+    </header>
 
     <app-load-state [loading]="loading() && !data()" [error]="error()" [skeletonRows]="8"
       errorTitle="No se pudo cargar el resumen" (retry)="reload()">
@@ -68,40 +70,42 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
               <span class="muted">{{ ds.facturas | number }} facturas · {{ ds.renglones | number }} renglones</span>
             </div>
             <div class="desc-grid">
-              <table class="cuenta" aria-label="Del precio de lista a lo facturado">
+              <table class="surf-table surf-table--plain is-dense cuenta" aria-label="Del precio de lista a lo facturado">
                 <tbody>
                   <tr>
                     <th scope="row">Precio de lista</th>
-                    <td class="num">{{ ds.lista | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                    <td class="num pct"></td>
+                    <td class="comm-num">{{ ds.lista | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="comm-num pct"></td>
                   </tr>
-                  <tr class="resta">
+                  <tr>
                     <th scope="row">
                       − Descuento de producto
                       <span class="def">precio de lista del renglón contra lo cobrado</span>
                     </th>
-                    <td class="num">{{ ds.producto | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                    <td class="num pct">{{ pct(ds.producto, ds.lista) }} de la lista</td>
+                    <td class="comm-num">{{ ds.producto | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="comm-num pct">{{ pct(ds.producto, ds.lista) }} de la lista</td>
                   </tr>
                   <tr class="parcial">
                     <th scope="row">= Subtotal</th>
-                    <td class="num">{{ ds.subtotal | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                    <td class="num pct"></td>
+                    <td class="comm-num">{{ ds.subtotal | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="comm-num pct"></td>
                   </tr>
-                  <tr class="resta">
+                  <tr>
                     <th scope="row">
                       − Descuento de cliente
                       <span class="def">el % negociado del cliente, sobre el documento</span>
                     </th>
-                    <td class="num">{{ ds.cliente | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                    <td class="num pct">{{ pct(ds.cliente, ds.subtotal) }} del subtotal</td>
-                  </tr>
-                  <tr class="final">
-                    <th scope="row">= Facturado</th>
-                    <td class="num">{{ ds.facturado | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                    <td class="num pct">descontado {{ pct(ds.producto + ds.cliente, ds.lista) }} de la lista</td>
+                    <td class="comm-num">{{ ds.cliente | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="comm-num pct">{{ pct(ds.cliente, ds.subtotal) }} del subtotal</td>
                   </tr>
                 </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row">= Facturado</th>
+                    <td class="comm-num">{{ ds.facturado | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="comm-num pct">descontado {{ pct(ds.producto + ds.cliente, ds.lista) }} de la lista</td>
+                  </tr>
+                </tfoot>
               </table>
 
               <div class="negociado">
@@ -110,19 +114,25 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                   <div>
                     <dt>Con menos % del negociado</dt>
                     <dd>
-                      <button type="button" class="link-cifra" [disabled]="!ds.negociado_no_aplicado.facturas"
-                        (click)="abrirPeek('menos')"><strong class="num">{{ ds.negociado_no_aplicado.facturas | number }}</strong> facturas</button> ·
-                      <span class="num">{{ ds.negociado_no_aplicado.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
+                      <strong class="comm-num">{{ ds.negociado_no_aplicado.facturas | number }}</strong> facturas ·
+                      <span class="comm-num">{{ ds.negociado_no_aplicado.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
                       menos de descuento que el negociado
+                      @if (ds.negociado_no_aplicado.facturas) {
+                        <p-button [link]="true" size="small" label="Ver facturas" icon="pi pi-arrow-right" iconPos="right"
+                          (onClick)="abrirPeek('menos')" />
+                      }
                     </dd>
                   </div>
                   <div>
                     <dt>Con más % del que tiene el maestro</dt>
                     <dd>
-                      <button type="button" class="link-cifra" [disabled]="!ds.sin_respaldo_maestro.facturas"
-                        (click)="abrirPeek('mas')"><strong class="num">{{ ds.sin_respaldo_maestro.facturas | number }}</strong> facturas</button> ·
-                      <span class="num">{{ ds.sin_respaldo_maestro.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
+                      <strong class="comm-num">{{ ds.sin_respaldo_maestro.facturas | number }}</strong> facturas ·
+                      <span class="comm-num">{{ ds.sin_respaldo_maestro.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
                       más de descuento que el registrado
+                      @if (ds.sin_respaldo_maestro.facturas) {
+                        <p-button [link]="true" size="small" label="Ver facturas" icon="pi pi-arrow-right" iconPos="right"
+                          (onClick)="abrirPeek('mas')" />
+                      }
                     </dd>
                   </div>
                 </dl>
@@ -134,8 +144,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
               </div>
             </div>
             @if (ds.renglones_sin_lista > 0 || ds.facturas_sin_renglones > 0) {
-              <p class="nota">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <div class="aviso"><p-message severity="warn" size="small">
                 <span>
                   @if (ds.renglones_sin_lista > 0) {
                     {{ ds.renglones_sin_lista | number }} renglones no tienen precio de lista en el ERP:
@@ -147,7 +156,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                     renglones todavía y quedan fuera de esta cuenta.
                   }
                 </span>
-              </p>
+              </p-message></div>
             }
           </p-card>
         }
@@ -161,27 +170,27 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
               <h3>Por vendedor del ERP · 30 días</h3>
               <span class="muted">{{ d.billing.por_operador.length | number }} vendedores</span>
             </div>
-            <p-table [value]="d.billing.por_operador" styleClass="p-datatable-sm">
+            <div class="dt-scope"><p-table [value]="d.billing.por_operador" size="small" class="surf-table dt-stack">
               <ng-template #header>
                 <tr>
                   <th>Vendedor</th>
-                  <th class="num">Facturas</th>
-                  <th class="num">Clientes</th>
-                  <th class="num">Facturado</th>
-                  <th class="num">Descuento</th>
-                  <th class="num">Por cobrar</th>
+                  <th class="comm-num">Facturas</th>
+                  <th class="comm-num">Clientes</th>
+                  <th class="comm-num">Facturado</th>
+                  <th class="comm-num">Descuento</th>
+                  <th class="comm-num">Por cobrar</th>
                 </tr>
               </ng-template>
               <ng-template #body let-o>
                 <tr>
-                  <td>
+                  <td data-label="Vendedor" role="cell" class="dt-id">
                     <strong>{{ o.vendedor_nombre || 'Sin vendedor asignado' }}</strong>
                     @if (o.vendedor_code) { <span class="sub mono">{{ o.vendedor_code }}</span> }
                   </td>
-                  <td class="num">{{ o.facturas }}</td>
-                  <td class="num">{{ o.clientes }}</td>
-                  <td class="num">{{ +o.importe | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
-                  <td class="num">
+                  <td data-label="Facturas" role="cell" class="comm-num dt-num">{{ o.facturas }}</td>
+                  <td data-label="Clientes" role="cell" class="comm-num dt-num">{{ o.clientes }}</td>
+                  <td data-label="Facturado" role="cell" class="comm-num dt-num">{{ +o.importe | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
+                  <td data-label="Descuento" role="cell" class="comm-num dt-num">
                     @if (o.importe_lista != null) {
                       {{ (o.descuento_producto ?? 0) + (o.descuento_cliente ?? 0) | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}
                       <span class="sub-linea">{{ pct((o.descuento_producto ?? 0) + (o.descuento_cliente ?? 0), o.importe_lista) }} de la lista</span>
@@ -189,13 +198,13 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                       <span class="muted">sin renglones</span>
                     }
                   </td>
-                  <td class="num debe">{{ +o.saldo | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
+                  <td data-label="Por cobrar" role="cell" class="comm-num debe dt-num">{{ +o.saldo | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
                 <tr><td colspan="6" class="muted">Sin facturas de telemarketing en los últimos 30 días.</td></tr>
               </ng-template>
-            </p-table>
+            </p-table></div>
             <p class="nota">
               <i class="pi pi-info-circle" aria-hidden="true"></i>
               El vendedor lo pone el ERP en la factura (<code>vendedor_code</code>), y no todos son
@@ -212,19 +221,19 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                 ><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span
               ></a>
             </div>
-            <p-table [value]="d.billing.ultimas" styleClass="p-datatable-sm">
+            <div class="dt-scope"><p-table [value]="d.billing.ultimas" size="small" class="surf-table dt-stack">
               <ng-template #header>
-                <tr><th>Folio</th><th>Cliente</th><th class="num">Total</th><th>Cobro</th></tr>
+                <tr><th>Folio</th><th>Cliente</th><th class="comm-num">Total</th><th>Cobro</th></tr>
               </ng-template>
               <ng-template #body let-f>
                 <tr>
-                  <td>
+                  <td data-label="Folio" role="cell" class="dt-id">
                     <code>{{ f.sucursal }} {{ f.doc_prefix }}-{{ f.folio }}</code>
                     <span class="sub">{{ f.fecha | date: 'dd/MM/yy' }}</span>
                   </td>
-                  <td>{{ f.cliente_nombre }}</td>
-                  <td class="num">{{ +f.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                  <td>
+                  <td data-label="Cliente" role="cell">{{ f.cliente_nombre }}</td>
+                  <td data-label="Total" role="cell" class="comm-num dt-num">{{ +f.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                  <td data-label="Cobro" role="cell">
                     <p-tag [severity]="COBRO_TONE[f.estatus_cobro]" [value]="COBRO_LABEL[f.estatus_cobro]"></p-tag>
                     @if (f.vencida) { <span class="sub bad">vencida</span> }
                   </td>
@@ -233,7 +242,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
               <ng-template #emptymessage>
                 <tr><td colspan="4" class="muted">Sin facturas en el periodo.</td></tr>
               </ng-template>
-            </p-table>
+            </p-table></div>
           </p-card>
         </div>
 
@@ -241,14 +250,13 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
              indicadores: un cero sin registro no es desempeño (ADR-056). -->
         <h2 class="section-title"><i class="pi pi-phone" aria-hidden="true"></i> Actividad de llamadas</h2>
         @if (!d.actividad.registrada) {
-          <p class="aviso">
-            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <div class="aviso"><p-message severity="warn">
             <span>
               <strong>No hay llamadas capturadas en este módulo</strong>, así que no hay actividad
               que medir. Los indicadores aparecen cuando los operadores registren sus llamadas
               desde la cola. La facturación de arriba no depende de esto: sale del ERP.
             </span>
-          </p>
+          </p-message></div>
         } @else {
           @if (d.my_stats) {
             <h3 class="sub-title"><i class="pi pi-user" aria-hidden="true"></i> Mis llamadas · hoy</h3>
@@ -259,31 +267,31 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
           <div class="two-col">
             <p-card>
               <h3>Operadores con más llamadas · hoy</h3>
-              <p-table [value]="d.top_operators" styleClass="p-datatable-sm">
+              <div class="dt-scope"><p-table [value]="d.top_operators" size="small" class="surf-table dt-stack">
                 <ng-template #header>
                   <tr>
                     <th>#</th>
                     <th>Operador</th>
-                    <th class="num">Llamadas</th>
-                    <th class="num">Ventas</th>
-                    <th class="num">Min</th>
-                    <th class="num">Conv.</th>
+                    <th class="comm-num">Llamadas</th>
+                    <th class="comm-num">Ventas</th>
+                    <th class="comm-num">Min</th>
+                    <th class="comm-num">Conv.</th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-op let-i="rowIndex">
                   <tr>
-                    <td><strong>{{ i + 1 }}</strong></td>
-                    <td>{{ op.username || '—' }}</td>
-                    <td class="num">{{ op.calls }}</td>
-                    <td class="num pos">{{ op.orders }}</td>
-                    <td class="num">{{ op.minutes }}</td>
-                    <td class="num">{{ opConversion(op) | number:'1.1-1' }}%</td>
+                    <td data-label="#" role="cell"><strong>{{ i + 1 }}</strong></td>
+                    <td data-label="Operador" role="cell" class="dt-id">{{ op.username || '—' }}</td>
+                    <td data-label="Llamadas" role="cell" class="comm-num dt-num">{{ op.calls }}</td>
+                    <td data-label="Ventas" role="cell" class="comm-num pos dt-num">{{ op.orders }}</td>
+                    <td data-label="Min" role="cell" class="comm-num dt-num">{{ op.minutes }}</td>
+                    <td data-label="Conv." role="cell" class="comm-num dt-num">{{ opConversion(op) | number:'1.1-1' }}%</td>
                   </tr>
                 </ng-template>
                 <ng-template #emptymessage>
                   <tr><td colspan="6" class="muted">Nadie ha registrado llamadas hoy.</td></tr>
                 </ng-template>
-              </p-table>
+              </p-table></div>
             </p-card>
             <p-card>
               <h3>Resultado de las llamadas · 7 días</h3>
@@ -306,8 +314,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
         <!-- [E.16] La vista previa de la cola salió del Resumen: era trabajo del operador (a quién
              llamar) dentro del resumen del dinero del canal, y la cola tiene su pestaña. Queda la
              puerta y la declaración de su universo, que es lo que este tablero sí puede afirmar. -->
-        <p class="cola-linea">
-          <i class="pi pi-list" aria-hidden="true"></i>
+        <div class="aviso cola-linea"><p-message severity="info">
           <span>
             La cola de llamadas está en su pestaña.
             @if (d.billing.clientes_en_cola < d.billing.d30.clientes) {
@@ -317,7 +324,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
             }
           </span>
           <a pButton routerLink="/telemarketing/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ir a la cola</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
-        </p>
+        </p-message></div>
 
         <!-- [E.16] Las facturas detrás de cada conteo de «negociado contra aplicado»: el encabezado
              dice N y la lista llega a N (sin tope). Cada folio abre el documento. -->
@@ -329,45 +336,44 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
               <i class="pi pi-info-circle" aria-hidden="true"></i>
               Contra el maestro de clientes de hoy. Diferencia = subtotal × la diferencia de %.
             </p>
-            <p-table [value]="lista" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="flex">
+            <div class="dt-scope"><p-table [value]="lista" size="small" class="surf-table dt-stack">
               <ng-template #header>
                 <tr>
                   <th>Folio</th>
                   <th>Cliente</th>
                   <th>Vendedor</th>
-                  <th class="num">Maestro</th>
-                  <th class="num">Factura</th>
-                  <th class="num">Subtotal</th>
-                  <th class="num">Diferencia</th>
+                  <th class="comm-num">Maestro</th>
+                  <th class="comm-num">Factura</th>
+                  <th class="comm-num">Subtotal</th>
+                  <th class="comm-num">Diferencia</th>
                 </tr>
               </ng-template>
               <ng-template #body let-f>
                 <tr>
-                  <td>
+                  <td data-label="Folio" role="cell" class="dt-id">
                     <a [routerLink]="['/comercial/documentos']" [queryParams]="{ doc: f.folio_digital }"><code>{{ f.folio_digital }}</code></a>
                     <span class="sub">{{ f.fecha | date: 'dd/MM/yy' }}</span>
                   </td>
-                  <td>{{ f.cliente_nombre || f.cliente_code || '—' }}</td>
-                  <td>{{ f.vendedor_nombre || 'Sin vendedor asignado' }}</td>
-                  <td class="num">{{ f.pct_maestro | number: '1.0-2' }} %</td>
-                  <td class="num">{{ f.pct_documento | number: '1.0-2' }} %</td>
-                  <td class="num">{{ f.subtotal | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-                  <td class="num"><strong>{{ f.diferencia | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</strong></td>
+                  <td data-label="Cliente" role="cell">{{ f.cliente_nombre || f.cliente_code || '—' }}</td>
+                  <td data-label="Vendedor" role="cell">{{ f.vendedor_nombre || 'Sin vendedor asignado' }}</td>
+                  <td data-label="Maestro" role="cell" class="comm-num dt-num">{{ f.pct_maestro | number: '1.0-2' }} %</td>
+                  <td data-label="Factura" role="cell" class="comm-num dt-num">{{ f.pct_documento | number: '1.0-2' }} %</td>
+                  <td data-label="Subtotal" role="cell" class="comm-num dt-num">{{ f.subtotal | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                  <td data-label="Diferencia" role="cell" class="comm-num dt-num"><strong>{{ f.diferencia | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</strong></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
                 <tr><td colspan="7" class="muted">Ninguna factura en este grupo.</td></tr>
               </ng-template>
-            </p-table>
+            </p-table></div>
           }
         </app-side-peek>
       }
     </app-load-state>
+    </div>
   `,
   styles: [`
     :host { display:block; }
-    .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:var(--sp-4); flex-wrap:wrap; margin-bottom:var(--sp-4); }
-    .header-row h1 { margin:0 0 var(--sp-1); font-size:var(--fs-h2); font-weight:var(--fw-bold); }
     .header-actions { display:flex; align-items:center; gap:var(--sp-3); }
     .muted { color: var(--text-muted); font-size:var(--fs-sm); margin:0; }
     .section-title { margin: var(--sp-6) 0 var(--sp-3); font-size: var(--fs-micro); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
@@ -377,35 +383,26 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
 
     .two-col { display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:var(--sp-4); }
     .two-col h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-h3); }
-    .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .num.pos { color: var(--ok-fg); font-weight: var(--fw-bold); }
-    .num.debe { color: var(--bad-fg); font-weight: var(--fw-bold); }
+    .comm-num.pos { color: var(--ok-fg); font-weight: var(--fw-bold); }
+    .comm-num.debe { color: var(--bad-fg); font-weight: var(--fw-bold); }
     .sub-title { margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--text-muted); }
     .sub-title i { margin-right: .35rem; }
     .sub { display: inline-block; margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .sub.bad { color: var(--bad-fg); }
     .mono { font-family: var(--font-mono); }
     .nota { display: flex; gap: .4rem; margin: var(--sp-3) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
-    /* Lo que no se pudo medir o no cubre el universo se DECLARA (ADR-056). */
-    .aviso {
-      display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0 0 var(--sp-3);
-      padding: .625rem .75rem; border-radius: var(--r-md);
-      background: var(--warn-soft-bg); border: 1px solid var(--warn-border);
-      font-size: var(--fs-sm); line-height: 1.45;
-    }
-    .aviso i { margin-top: .1rem; color: var(--warn-fg); }
+    /* Lo que no se pudo medir o no cubre el universo se DECLARA (ADR-056), con p-message. */
+    .aviso { margin: 0 0 var(--sp-3); }
 
     /* [E.15] La cuenta del descuento: etiqueta a la izquierda, cifra alineada, base del % al lado. */
     .descuentos { display:block; margin-bottom: var(--sp-4); }
     .desc-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-6); align-items: start; }
-    .cuenta { width:100%; border-collapse: collapse; font-size: var(--fs-sm); }
-    .cuenta th, .cuenta td { padding: var(--sp-1) 0; text-align:left; font-weight: var(--fw-regular); vertical-align: top; }
-    .cuenta td.num { text-align:right; padding-left: var(--sp-3); white-space: nowrap; }
-    .cuenta td.pct { color: var(--text-muted); font-size: var(--fs-xs); }
+    /* La cuenta: base surf-table--plain; sólo lo propio de una cuenta (subtotal, definición, base del %). */
+    .cuenta th { text-align:left; font-weight: var(--fw-regular); }
+    .cuenta td.pct { color: var(--text-muted); font-size: var(--fs-xs); white-space: nowrap; }
     .cuenta .def { display:block; font-size: var(--fs-xs); color: var(--text-muted); }
-    .cuenta tr.resta td:not(.pct) { color: var(--text-muted); }
-    .cuenta tr.parcial th, .cuenta tr.parcial td, .cuenta tr.final th, .cuenta tr.final td { border-top: 1px solid var(--border-color); }
-    .cuenta tr.final th, .cuenta tr.final td:not(.pct) { font-weight: var(--fw-bold); font-size: var(--fs-body); }
+    .cuenta tr.parcial th, .cuenta tr.parcial td { font-weight: var(--fw-bold); }
+    .cuenta tfoot th { text-align:left; }
     .negociado h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
     .negociado dl { margin: 0; display:flex; flex-direction:column; gap: var(--sp-2); }
     .negociado dt { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -416,12 +413,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
     .outcome-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-1); }
     .outcome-count { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
 
-    .cola-linea { display:flex; align-items:center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-4) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
-    .cola-linea strong { color: var(--text-main); }
-    /* La cifra que denuncia lleva a sus filas (Q.4): un boton que se lee como texto. */
-    .link-cifra { background:none; border:0; padding:0; font:inherit; color: var(--action); cursor:pointer; text-decoration: underline; text-underline-offset: 2px; }
-    .link-cifra:disabled { color: inherit; cursor: default; text-decoration: none; }
-    .link-cifra:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm); }
+    .aviso.cola-linea { margin-top: var(--sp-4); }
     .card-header-row { display:flex; justify-content:space-between; align-items:center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .card-header-row h3 { margin: 0; }
   `],
