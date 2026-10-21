@@ -712,6 +712,21 @@ de 182 así, 107 iguales (59 %). Coincidir en el importe de la nota no asegura e
 **Qué sube el techo ahora:** (1) D8 (el REP en la Suite), (2) **corregir el RFC de 369 acreedores en Kepler**
 — una vez por proveedor —, (3) que Tesorería escriba el nombre del proveedor en el concepto (ya lo hace).
 
+**De los 369, sólo 125 recibieron pagos en 2026 ($69.8 M)**, y no todos son problema de RFC (lista privada
+para Compras, con nombres, fuera del repo):
+
+| grupo | acreedores | pagado 2026 | qué es |
+|---|--:|--:|---|
+| RFC correcto confirmado por las facturas de la contadora | 14 | $29.98 M | capturarlo en Kepler (2 traen el RFC de **otra razón social**) |
+| candidato por nombre (parecido 50–60 %) | 7 | $4.02 M | confirmar; varios parecen otra persona |
+| **sin CFDI, pagados en efectivo desde Caja General** (`c45 = 0011`) | **103** | **$35.67 M** (2,725 pagos) | proveedores de **remisión**: no facturan (confirmado por el PM) |
+| sin CFDI, pagado por banco | 1 | $0.12 M | revisar |
+
+⛔ **Hallazgo para contabilidad:** ninguno de esos 2,725 pagos en efectivo tiene póliza en ContPAQi por su
+importe, y la cuenta `1010000000 CAJA` registra sólo **$471,739** de salidas en todo 2026. Las compras en
+efectivo con remisión **no llegan a la contabilidad**. Si es a propósito o falta registrarlas lo decide
+contabilidad; el puente (bancos) no las toca — son del flujo de Caja General (fase CGA).
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
@@ -870,3 +885,6 @@ falta uno nuevo.
 - **2026-10-21** — `[CP.8.71]` el RFC de 249 proveedores en Kepler estaba mal capturado; reparado por
   formato, parecido y nombre. De punta a punta se arman solas 1,142 de 1,831 (62.4 %), error del puente
   2.5 %. Quedan 369 acreedores sin RFC resoluble (dato de catálogo).
+- **2026-10-21** — lista de RFC por corregir para Compras (doc privado): 21 acreedores ($34.0 M). Los 104
+  sin CFDI: 103 son proveedores de remisión pagados en efectivo desde Caja General ($35.67 M), y esas
+  compras no tienen póliza en ContPAQi (CAJA registra $0.47 M en 2026) — hallazgo para contabilidad.
