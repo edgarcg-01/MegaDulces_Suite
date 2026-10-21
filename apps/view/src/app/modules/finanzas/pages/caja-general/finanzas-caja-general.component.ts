@@ -588,6 +588,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-reporte { margin:0; max-height:60vh; overflow:auto; font-family:var(--font-mono);
                   font-size:var(--fs-xs); line-height:1.45; white-space:pre; color:var(--text); }
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
+    /* [CGS.7] El folio para anotar. Mono y tabular porque se copia DIGITO POR DIGITO a un papel:
+       con tipografia proporcional el 0 y la O, y el 1 y la l, se confunden al transcribir. */
+    .cg-folio-num { margin:0; text-align:center; font-family:var(--font-mono);
+                    font-size:var(--fs-display); font-variant-numeric:tabular-nums;
+                    letter-spacing:.04em; color:var(--text-main); overflow-wrap:anywhere; }
+    .cg-folio-pie { margin:var(--sp-2) 0 0; text-align:center; font-size:var(--fs-xs);
+                    color:var(--text-muted); }
     /* [CG.56] La columna de la MARCA. Ya no hay casilla: la fila es el control y esta celda sólo
        publica el estado. Angosta a proposito -- es una senial, no un boton. */
     .cg-th-marca, .cg-td-marca { width:2.25rem; text-align:center; padding-left:var(--sp-2); }
@@ -3794,6 +3801,24 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       </ng-template>
     </p-dialog>
 
+    <!-- ⭐ [CGS.7] EL FOLIO EN GRANDE, PARA ANOTARLO. Pedido de Edgar: al pagar algo hay que
+         escribir el folio en el papel, y hasta hoy salia en un aviso de 4 s junto al monto --
+         tipografia de cuerpo, esquina de la pantalla y se iba solo mientras la persona buscaba
+         la pluma.
+         ⚠️ Sin boton de cerrar a proposito: sin la X, el unico elemento enfocable del dialogo es
+         el boton, y PrimeNG enfoca el primero al abrir (focusOnShow, verificado en node_modules
+         por [CG.46]). Asi ENTER lo activa sin escribir una sola linea de teclado -- es el
+         navegador haciendo el trabajo. -->
+    <p-dialog [visible]="folioPagado() !== null" (visibleChange)="$event ? null : cerrarFolio()"
+              [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
+              header="Anota este folio" [draggable]="false" [resizable]="false" [closable]="false">
+      <p class="cg-folio-num">{{ folioPagado() }}</p>
+      <p class="cg-folio-pie">Se cierra solo en 10 segundos · Enter para cerrarlo ya</p>
+      <ng-template #footer>
+        <p-button label="Listo" size="small" (onClick)="cerrarFolio()"></p-button>
+      </ng-template>
+    </p-dialog>
+
     <!-- [CG.87] El reporte del dia EN PANTALLA. El cuerpo es el MISMO que sale a la termica
          (cuerpoReporteDia, funcion pura): dos superficies, un solo armador. Va en <pre> con fuente
          mono porque el texto esta alineado en columnas de ancho fijo -- renderizarlo con tipografia
@@ -4129,6 +4154,32 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const el = this.focoPrevio;
     this.focoPrevio = null;
     if (el && typeof el.focus === 'function') setTimeout(() => el.focus(), 0);
+  }
+
+  /**
+   * ⭐ `[CGS.7]` **El folio del movimiento recién guardado, en grande, para anotarlo.**
+   *
+   * Pedido de Edgar: *«cuando se pague algo, que aparezca en pantalla el folio en grande para que
+   * lo anoten, 10 segundos y un botón de salir que se vincule con el enter»*.
+   */
+  readonly folioPagado = signal<string | null>(null);
+  private folioTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** @param folio `null`/vacío = el servidor no devolvió folio: no se abre un diálogo vacío. */
+  private mostrarFolio(folio: unknown): void {
+    const f = folio == null ? '' : String(folio).trim();
+    if (!f) return;
+    this.focoPrevio = (document.activeElement as HTMLElement) ?? null;
+    this.folioPagado.set(f);
+    // Un segundo pago antes de que cierre el anterior reinicia la cuenta; sin esto el timer viejo
+    // cerraría el folio nuevo a los pocos segundos de aparecer.
+    if (this.folioTimer) clearTimeout(this.folioTimer);
+    this.folioTimer = setTimeout(() => this.cerrarFolio(), 10000);
+  }
+
+  cerrarFolio(): void {
+    if (this.folioTimer) { clearTimeout(this.folioTimer); this.folioTimer = null; }
+    this.cerrarConFoco({ set: () => this.folioPagado.set(null) });
   }
 
   /**
@@ -5915,6 +5966,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   ngOnDestroy(): void {
     clearTimeout(this.debounce);
+    if (this.folioTimer) clearTimeout(this.folioTimer);
     this.caja.disconnect();
   }
 
@@ -8225,6 +8277,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${moneyOSinMedir(f.monto)}`);
+        // `[CGS.7]` El folio en grande, para anotarlo en el papel. Va con el que devolvió el
+        // servidor, no con uno armado acá: el folio lo asigna la base.
+        this.mostrarFolio((m as { folio?: unknown } | null)?.folio);
         // `[CG.122]` El ticket SOLO si lo pidieron en el diálogo. Va con el movimiento que
         // devolvió el servidor —que ya trae folio y fecha— y reusa el mismo camino que el botón
         // del libro, así que no hay una segunda forma de armar el papel que se desalinee.

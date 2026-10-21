@@ -270,6 +270,56 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     return fixture;
   }
 
+  /**
+   * `[CGS.7]` El folio en grande: las dos ramas que no son obvias.
+   *
+   * ⛔ La del timer importa porque un segundo pago antes de que cierre el primero reiniciaba
+   * mal: el timer viejo cerraba el folio nuevo a los pocos segundos de aparecer.
+   */
+  describe('[CGS.7] el folio para anotar', () => {
+    it('sin folio no abre el dialogo', () => {
+      montar();
+      const c = comp as unknown as { mostrarFolio(v: unknown): void };
+      for (const v of [null, undefined, '', '   ']) {
+        c.mostrarFolio(v);
+        expect(comp.folioPagado()).toBeNull();
+      }
+    });
+
+    it('se cierra solo a los 10 s, y un folio nuevo reinicia la cuenta', () => {
+      vi.useFakeTimers();
+      try {
+        montar();
+        const c = comp as unknown as { mostrarFolio(v: unknown): void };
+        c.mostrarFolio('CG-2026-00311');
+        expect(comp.folioPagado()).toBe('CG-2026-00311');
+
+        vi.advanceTimersByTime(9000);
+        expect(comp.folioPagado()).toBe('CG-2026-00311');
+
+        // Llega el segundo pago faltando 1 s: la cuenta vuelve a empezar.
+        c.mostrarFolio('CG-2026-00312');
+        vi.advanceTimersByTime(9000);
+        expect(comp.folioPagado()).toBe('CG-2026-00312');
+
+        vi.advanceTimersByTime(1000);
+        expect(comp.folioPagado()).toBeNull();
+      } finally { vi.useRealTimers(); }
+    });
+
+    it('el boton lo cierra antes, y el timer ya no dispara', () => {
+      vi.useFakeTimers();
+      try {
+        montar();
+        (comp as unknown as { mostrarFolio(v: unknown): void }).mostrarFolio('CI-2026-00117');
+        comp.cerrarFolio();
+        expect(comp.folioPagado()).toBeNull();
+        // Prueba negativa: si el timer siguiera vivo, acá reabriría o reventaría.
+        vi.advanceTimersByTime(20000);
+        expect(comp.folioPagado()).toBeNull();
+      } finally { vi.useRealTimers(); }
+    });
+  });
   // localStorage persiste entre pruebas en jsdom: un borrador de la prueba anterior haria
   // pasar (o fallar) a la siguiente por el motivo equivocado.
   beforeEach(() => { try { localStorage.clear(); } catch { /* sin storage */ } });
