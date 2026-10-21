@@ -1,3 +1,34 @@
+# Tienda › Arqueo de caja — RD y RV se capturan por ruta, sin caja (SM.46)
+
+## Problema
+
+En RD y RV la pantalla pedía «Caja» además de «Ruta que entrega». En una entrega de ruta la caja no describe
+nada: lo que se cuenta es el efectivo que trae un vendedor. Y el botón de guardar se quedaba apagado si la caja
+estaba vacía, aunque el servidor no la usa.
+
+## Solución
+
+- En RD y RV ya no aparece el campo Caja. Se elige la sucursal y la ruta.
+- Para guardar basta sucursal + ruta.
+- La confirmación y el ticket dicen la ruta (por ejemplo «Ruta RUTA 21») en vez de la caja.
+- Retiro, Cierre de día y Relevo siguen pidiendo la caja como antes.
+
+## Cómo se implementó
+
+- `tienda-arqueo.component.ts`: el campo Caja va dentro de `@if (!esRuta())`; `canSubmit()` en RD/RV exige
+  `sucursalActiva()` + `aRuta`; `rutaLabel()` da el nombre de la ruta para el diálogo y el ticket; `idxCajero` se
+  recorre una posición cuando no hay Caja (la cadena de teclado no salta a un campo que no existe).
+- `ticket-arqueo.ts`: campo opcional `ruta`; si viene, el papel imprime «Ruta» en lugar de «Caja».
+- Dos pruebas nuevas: sin Caja en RD y RV pero sí en Cierre, y RD se puede sellar sin caja mientras que Cierre
+  no. Comprobadas en rojo forzando el campo y la regla anterior.
+
+## Por qué así
+
+- El endpoint de ruta (`POST /store/arqueo/ruta`) no recibe caja: pedirla era un dato que nadie guarda.
+- Se esconde sólo en RD/RV para no cambiar las otras pestañas, que sí son de una caja.
+
+---
+
 # Tienda › Arqueo de caja — las rutas RD/RV se buscan en la sucursal elegida (SM.45)
 
 ## Problema
