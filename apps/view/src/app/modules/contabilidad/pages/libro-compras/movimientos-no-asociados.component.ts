@@ -44,6 +44,7 @@ const LC18_STYLES = `
 .na-sug li { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-sm); }
 .na-sug label { cursor: pointer; }
 .na-sug .mono { font-family: var(--font-mono); }
+.na-link-sutil { margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
 `;
 
 /**
@@ -454,12 +455,19 @@ const LC18_STYLES = `
                     } @else if (!f.account_suffix) {
                       <!-- LC.18: cada mes llegan proveedores nuevos. Sin esta salida la factura
                            quedaba fuera para siempre: el mapa no se podia tocar desde ningun lado. -->
-                      @if (puedeGestionar()) {
+                      <!-- LC.18 (e2e): en oct-2026 eran 262 sin cuenta, casi todas de GASTO, y todas
+                           ofrecian Asignar igual. Ahora la accion se destaca solo donde ContPAQi
+                           tiene una 212 libre con el mismo nombre; en las demas queda discreta.
+                           Y ya no es rojo: excluida, no impide generar. -->
+                      @if (puedeGestionar() && f.cuenta_sugerida) {
                         <button type="button" class="na-link" (click)="abrirAsignar(f)">
-                          <i class="pi pi-link" aria-hidden="true"></i> Asignar cuenta
+                          <i class="pi pi-link" aria-hidden="true"></i> Asignar {{ f.cuenta_sugerida.cuenta }}
                         </button>
                       } @else {
-                        <p-tag value="RFC sin cuenta" severity="danger" />
+                        <span class="na-cero">Sin cuenta</span>
+                        @if (puedeGestionar()) {
+                          <button type="button" class="na-link na-link-sutil" (click)="abrirAsignar(f)">asignar</button>
+                        }
                       }
                     } @else if (!f.cuenta_existe) {
                       <p-tag value="Cuenta inexistente" severity="danger" />
@@ -751,7 +759,13 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   });
 
   estadoRun = computed(() => (this.detalle()?.run?.['estado'] as string) ?? 'sin_iniciar');
-  folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
+  // LC.18 (e2e): sin corrida, el folio que el servidor va a usar — el del rail (1 si ContPAQi no
+  // tiene el libro del mes). Caer a un 2 fijo decía «Póliza 2» y el archivo salía en folio 1.
+  folioPoliza = computed(() => {
+    const d = this.detalle();
+    const delRail = this.meses().find((m) => m.anio_mes === d?.mes)?.folio_poliza;
+    return Number(d?.run?.['folio_poliza'] ?? delRail ?? 2);
+  });
   /** LC.17 — el servidor dice si el archivo GUARDADO se puede entregar, y si no, por qué. */
   archivoVigente = computed(() => this.detalle()?.run?.['archivo_vigente'] === true);
   archivoMotivo = computed(() => (this.detalle()?.run?.['archivo_motivo'] as string | null) ?? null);
@@ -910,7 +924,8 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     // LC.17: un "Archivo generado" que ContPAQi rechaza es una afirmación falsa.
     if (estado === 'generado' && !this.archivoVigente()) {
       return { tono: 'bad', icono: 'pi pi-exclamation-circle', titulo: 'El archivo guardado ya no sirve',
-        detalle: `${this.archivoMotivo() ?? 'No se puede entregar'}. Vuelve a generarlo.` };
+        // El motivo del servidor ya termina en «hay que generarlo de nuevo»: no se repite.
+        detalle: this.mayuscula(this.archivoMotivo() ?? 'no se puede entregar: hay que generarlo de nuevo') + '.' };
     }
     if (estado === 'generado') {
       return { tono: 'warn', icono: 'pi pi-file-check', titulo: 'Archivo generado',
@@ -948,14 +963,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   }
 
   etiquetaEstado(m: MesNoAsociado) {
-    if (m.estado === 'sin_iniciar') return m.faltan ? 'Pendiente' : 'Al día';
-    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado', cancelado: 'Cancelado' }[m.estado] ?? m.estado;
+    // LC.18 (e2e): una entrega cancelada deja el mes PENDIENTE otra vez. Decir «Cancelado» en
+    // rojo se leia como un error del mes, cuando lo que hay que hacer es volver a generar.
+    if (m.estado === 'sin_iniciar' || m.estado === 'cancelado') return m.faltan ? 'Pendiente' : 'Al día';
+    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado' }[m.estado] ?? m.estado;
   }
 
   severidadEstado(m: MesNoAsociado): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
     if (m.estado === 'aplicado') return 'success';
     if (m.estado === 'entregado' || m.estado === 'generado') return 'warn';
-    if (m.estado === 'cancelado') return 'danger';
     if (!m.faltan) return 'success';
     // Un mes sin póliza de compras no es un pendiente más: es el mes entero sin contabilizar.
     return m.existe_libro ? 'warn' : 'danger';
@@ -988,7 +1004,12 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         if (this.mesSel() !== mes) return;
         this.detalle.set(d);
         this.impuestosModo = (d.run?.['impuestos_modo'] as ImpuestosModo) ?? 'global';
-        this.incluirUuid = d.run?.['incluye_uuid'] !== false;
+        // LC.18 (e2e): la opción de un archivo YA generado se respeta; la de un borrador no —
+        // su valor era el default de la columna (false) y desmarcaba el UUID sin que nadie lo
+        // pidiera. Así salió el TXT de oct-2026 sin UUID.
+        // Una cancelada tampoco cuenta: oct-2026 quedó cancelada con incluye_uuid = false.
+        const conArchivo = ['generado', 'entregado', 'aplicado'].includes(String(d.run?.['estado'] ?? ''));
+        this.incluirUuid = conArchivo ? d.run?.['incluye_uuid'] !== false : true;
         this.cargandoMes.set(false);
       },
       error: (e) => { this.cargandoMes.set(false); this.error('No se pudo abrir el mes', e); },
@@ -1009,10 +1030,18 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         // resto no: con el nombre solo, la decisión es de quien lleva el libro.
         const fuerte = s.candidatas.find((c) => c.fuerte && !c.asignada_a);
         if (fuerte) this.cuentaElegida = fuerte.cuenta;
+        // La del renglón (mismo nombre, ≥ 80 %) también se deja elegida: es la que el botón dijo.
+        else if (f.cuenta_sugerida && s.candidatas.some((c) => c.cuenta === f.cuenta_sugerida!.cuenta && !c.asignada_a)) {
+          this.cuentaElegida = f.cuenta_sugerida.cuenta;
+        }
         this.cargandoSug.set(false);
       },
       error: (e) => { this.cargandoSug.set(false); this.error('No se pudieron buscar cuentas', e); },
     });
+  }
+
+  private mayuscula(s: string) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
   }
 
   cuentaValida() {

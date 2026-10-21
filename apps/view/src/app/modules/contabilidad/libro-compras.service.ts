@@ -48,6 +48,8 @@ export interface FacturaMes {
   /** LC.18: el proveedor entró al libro en los últimos 6 meses. Sin eso no entra por default. */
   en_libro_reciente: boolean;
   origen_mapa: 'libro' | 'contpaqi' | null;
+  /** LC.18: sin cuenta, la 212 libre de ContPAQi con el mismo nombre (≥ 80 %). Sugerencia, no decisión. */
+  cuenta_sugerida?: { cuenta: string; nombre: string; parecido: number } | null;
   account_suffix: string | null;
   supplier_name: string | null;
   cuenta_proveedor: string | null;

@@ -169,14 +169,28 @@ async function soloLectura(url) {
       const top = sg.candidatas[0];
       check(top && top.cuenta === '2120000562', `sugiere 2120000562 primero para ${sg.nombre} (dio ${top ? `${top.cuenta} ${top.nombre} · ${top.razon}` : 'nada'})`);
     }
-    let e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2129999999'));
-    check(e && /no existe en ContPAQi/.test(msg(e)), 'asignar una cuenta que no existe en ContPAQi se rechaza');
-    e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2120000020'));
+    // Los rechazos se prueban con un RFC que NO esté en el mapa (si BOMBONELYZ ya se asignó, su
+    // rechazo sería «ya tiene la cuenta» antes de llegar a los demás frenos).
+    const { rows: libres } = await pool.raw(
+      `SELECT DISTINCT f.emisor_rfc AS rfc FROM fiscal.cfdis f
+        WHERE f.tenant_id = ? AND f.rol = 'recibidas' AND f.fecha >= '2026-09-01'
+          AND f.emisor_rfc ~ '^[A-Z&]{3}[0-9]{6}[A-Z0-9]{3}$'
+          AND NOT EXISTS (SELECT 1 FROM finance.gl_supplier_accounts a WHERE a.tenant_id = f.tenant_id
+                          AND a.deleted_at IS NULL AND upper(a.rfc) = upper(f.emisor_rfc))
+        LIMIT 1`, [MEGA]);
+    const rfcLibre = libres[0] && libres[0].rfc;
+    let e = await rechazo(() => svc.asignarCuenta(rfcLibre, '2129999999'));
+    check(e && /no existe en ContPAQi/.test(msg(e)), `asignar una cuenta que no existe en ContPAQi se rechaza (${rfcLibre})`);
+    e = await rechazo(() => svc.asignarCuenta(rfcLibre, '2120000020'));
     check(e && /ya es del RFC/.test(msg(e)), 'asignar la cuenta de OTRO proveedor se rechaza (2120000020 es de GIS020419575)');
     e = await rechazo(() => svc.asignarCuenta('NO-ES-RFC', '2120000562'));
     check(e && /RFC inválido/.test(msg(e)), 'un RFC mal formado se rechaza');
-    e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '5020000562'));
+    e = await rechazo(() => svc.asignarCuenta(rfcLibre, '5020000562'));
     check(e && /empieza con 212/.test(msg(e)), 'una cuenta que no es de proveedor (502…) se rechaza');
+    if (yaMapeado) {
+      e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2120000563'));
+      check(e && /ya tiene la cuenta/.test(msg(e)), `${nuevoRfc} ya asignado: cambiarle la cuenta desde aquí se rechaza`);
+    }
 
     console.log('\n[4] LC.18 — octubre-2026, el mes que toca armar');
     const t0 = Date.now();
@@ -282,18 +296,27 @@ async function completo(urlAdmin, urlRuntime) {
     const fNuevo = d.facturas.find((f) => f.uuid === UUIDS[3]);
     check(fNuevo && !fNuevo.account_suffix && !fNuevo.incluida, 'la del proveedor nuevo queda sin cuenta');
 
+    console.log('\n[1b] LC.18 (e2e) — marcar a mano crea la corrida: tiene que nacer CON UUID');
+    // Lo encontró el e2e en prod: la corrida en borrador nacía con incluye_uuid = false (el
+    // default de la columna), la pantalla lo leía y el TXT de oct-2026 salió sin UUID.
+    await svc.setInclusion(MES, [UUIDS[0]], true, undefined, 'complemento');
+    const borr = await corrida();
+    check(borr.estado === 'borrador' && borr.incluye_uuid === true, `la corrida en borrador nace con incluye_uuid = true (dio ${borr.incluye_uuid})`);
+
     console.log('\n[2] generar, con el payload de la pantalla { impuestos, uuid }');
     const g = await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
     check(g.facturas === 2 && g.cargos === g.abonos, `2 facturas, cuadra en ${g.cargos}`);
     let it = await items();
-    check(it.length === 2 && it.every((r) => r.origen === 'generado' && r.incluida),
-      `⭐ B1: las 2 incluidas por default quedan registradas (origen generado) — dio ${it.length}`);
+    check(it.length === 2 && it.every((r) => r.incluida) && it.filter((r) => r.origen === 'generado').length === 1,
+      `⭐ B1: las 2 incluidas quedan registradas — la marcada a mano conserva su decisión, la de default queda como generado (dio ${it.map((r) => r.origen).join(',')})`);
     d = await svc.getMes(MES, 'complemento');
     check(d.resumen.incluidas === 2, 'lo registrado por generar NO cuenta como decisión: siguen entrando por default');
     check(d.run.archivo_vigente === true && !('archivo_contenido' in d.run), 'la pantalla ve un archivo entregable, sin el contenido');
     const c0 = await corrida();
     check(c0.folio_poliza === 1 && c0.concepto === 'REGISTRO DE COMPRAS DEL MES DE MARZO 2031',
       `⭐ LC.18: sin libro del mes en ContPAQi la corrida nace como folio 1 «${c0.concepto}» (no complemento en el 2)`);
+    check(c0.archivo_nombre === `poliza-compras-${MES}.txt`, `el libro del mes se llama ${c0.archivo_nombre} (no «complemento-…»)`);
+    check(/1C170000-0000-4000-8000-000000000001/.test(c0.archivo_contenido), 'el TXT lleva el UUID en el concepto del renglón');
     const { parsearTxt } = require(path.join(SRC, 'poliza-txt.ts'));
     const refs212 = parsearTxt(c0.archivo_contenido).movimientos
       .filter((m) => m.cuenta === `212${SUF}`).map((m) => m.referencia).sort();
@@ -316,7 +339,8 @@ async function completo(urlAdmin, urlRuntime) {
     check(e && /ya se entregó/.test(msg(e)), '⭐ B3: generar encima de una entrega se rechaza');
     d = await svc.getMes(MES, 'complemento');
     check(d.facturas.filter((f) => UUIDS.slice(0, 2).includes(f.uuid)).every((f) => f.prueba_certeza === 'exacta' && !f.incluida),
-      '⭐ B1: el mes ya NO vuelve a ofrecer las facturas entregadas (certeza exacta, fuera)');
+      '⭐ B1: el mes ya NO vuelve a ofrecer las facturas entregadas (certeza exacta, fuera) — incluida la marcada a mano');
+    check(d.resumen.incluidas === 0, `con el mes entregado no queda nada «por entrar» (dio ${d.resumen.incluidas}; el e2e vio 1)`);
     e = await rechazo(() => svc.setInclusion(MES, [UUIDS[0]], false, 'x', 'complemento'));
     check(e && /entregado/.test(msg(e)), 'tampoco se cambia qué entra');
 
