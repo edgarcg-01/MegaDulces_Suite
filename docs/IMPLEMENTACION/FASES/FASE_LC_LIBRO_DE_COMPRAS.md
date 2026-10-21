@@ -187,6 +187,7 @@ vínculo formal.
 | **LC.14** | ✅ **2026-09-03** — **tercera puerta, exacta por UUID** hasta jul-2026: `finance.purchase_book_history` + 2 vistas + sembrador con auto-chequeos. Bloqueo duro para la certeza, blando y auditado para la sospecha | LC.9 |
 | **LC.15** | ✅ **2026-09-03** — `analytics.gl_poliza_lines.concepto`: leer de vuelta el UUID que nosotros ponemos → **cuarta puerta**, desde ContPAQi mismo. Más el CSV para su Asociador de CFDI | LC.7, LC.14 |
 | **LC.17** | 🧪 **2026-10-21** — el trámite deja de mentir: un TXT guardado en formato legado o sin contenido no se descarga ni se entrega; `generar` registra las facturas que lleva (la puerta exacta «ya se entregó» por fin las ve) y no regenera encima de una entrega; `marcar` con máquina de estados; botón «Cancelar entrega». Candado `test-newdb-libro-compras-tramite.js` | LC.9 |
+| **LC.18** | 🧪 **2026-10-21** — **el libro del mes sale solo e igual al manual.** Reparto de la contadora (`502 = IVA ÷ 0.16` con tope, sólo IEPS al 8 % acreditable), referencia = últimos 5 del folio, cuentas de IVA/IEPS del último libro, folio 1 por default, mapa de proveedores unificado + alta de proveedor nuevo, regla del historial del proveedor. Aceptación: **jul/ago/sep-2026, 1,650 de 1,650 renglones idénticos al centavo** (`test-newdb-libro-compras-replica.js`) | LC.17 |
 
 **MVP = LC.0 → LC.6.1**, y ahí está el valor: LC.6.1 es el propósito del módulo (sacar lo no
 asociado en TXT). LC.7 lo vuelve confiable.
@@ -863,6 +864,92 @@ pg-prod, sólo lectura.
 4. 428,309 CFDIs con `estatus_sat = 'desconocido'`: nadie valida cancelaciones.
 
 **Falta para prod:** commit + CI + redeploy api+view. No hay migración.
+
+## LC.18 — el libro del mes, automático e igual al que se arma a mano (2026-10-21)
+
+**Pedido de Edgar:** *«nosotros lo armamos a mano, el punto es automatizar esa tarea»*. Los libros
+de ago y sep-2026 los armó contabilidad a mano en ContPAQi (Diario folio 1). Eso los vuelve el
+**testigo perfecto**: si el módulo reproduce esas pólizas, la tarea quedó automatizada.
+
+### El criterio de aceptación, cumplido
+
+`test-newdb-libro-compras-replica.js` (sólo lectura contra prod): por cada abono a proveedor del
+libro real se busca su CFDI (cuenta + últimos 5 del folio + total) y el servicio real regenera el asiento.
+
+| Mes | Renglones reales | Generados | Distintos | IVA | IEPS |
+|---|---:|---:|---:|---|---|
+| jul-2026 | 597 | 597 | **0** | $614,102.17 = | $2,035,353.01 = |
+| ago-2026 | 625 | 625 | **0** | $837,398.41 = | $2,409,090.14 = |
+| sep-2026 | 428 | 428 | **0** | $249,348.86 = | $1,666,775.02 = |
+
+Incluye las 10 facturas de proveedores nuevos con la cuenta asignada como lo haría la pantalla.
+**Prueba negativa:** con el reparto anterior sólo coincidían 245/279, 257/293 y 188/203 facturas.
+
+### Lo que hubo que cambiar para llegar ahí (cada punto medido contra los tres libros)
+
+1. **El reparto 501/502 de la contadora.** `502 = IVA ÷ 0.16`, con tope en `total − IVA − IEPS8`
+   (en una factura 100 % gravada el IVA redondeado por concepto hace que se pase por centavos y
+   entonces no hay 501). `501` = lo que resta. **En centavos enteros**: en flotante, `4196.78 / 0.16`
+   redondeaba a .87 y lo exacto es .88 (5 facturas salían con un centavo de diferencia).
+2. **Sólo se acredita el IEPS al 8 %.** El de 26.5 % y el de cuota se quedan en el costo, como en
+   el libro manual. **Decisión de Edgar del 2026-10-21**. Se declara como aviso con su monto.
+   ⚠️ **Contradice a Fase RE**: el expediente de recepción dice del IEPS por cuota *«se acredita (no va
+   al costo)»* (`expediente-verdict.ts:452`). Alguien de contabilidad tiene que decidir cuál vale.
+3. **Referencia = últimos 5 caracteres del folio** (`361750 → 61750`, `000806268 → 06268`). Iba el folio entero.
+4. **Las cuentas de IVA e IEPS salen del último libro**, no de constantes: **en sep-2026 la contadora
+   cambió** de `1470040000 IVA POR ACREDITAR` / `1470110000 IEPS POR ACREDITAR` a `1060000000 IVA
+   ACREDITABLE` / `1470100000 IEPS ACREDITABLE`. Con las fijas, octubre salía con las de antes.
+5. **Folio 1 por default** cuando ContPAQi no tiene el libro del mes (el caso normal), con el concepto
+   `REGISTRO DE COMPRAS DEL MES DE <MES> <AÑO>`. Antes nacía como complemento en el folio 2.
+6. **Mapa de proveedores unificado** (`MAPA_PROVEEDORES_CTE`): el del libro + lo que ContPAQi resolvió
+   por UUID (`contpaqi.supplier_accounts`, veredicto firme; nunca sólo por nombre), con la existencia de
+   cada cuenta **en vivo** (catálogo O ya usada en una póliza). El mismo para tablero, mes y respaldo.
+7. **Alta de proveedor nuevo desde la pantalla** («Asignar cuenta»): sugiere la 212 por nombre / UUID
+   y valida antes de escribir — la cuenta existe en ContPAQi, no es de otro RFC, el RFC no tiene otra.
+   Cada mes entran proveedores nuevos: en jul/ago/sep fueron 1, 5 y 4 facturas ($767k) fuera del mapa.
+
+### Qué facturas entran: la parte que NO se puede reproducir al 100 %
+
+El libro es **100 % PPD** salvo unas pocas PUE al año, y ningún campo del CFDI ni de Kepler (cuenta por
+pagar `kdxe`) separa lo que entra de lo que no. Medido sobre jul/ago/sep: además de las facturas del libro,
+**~115 al mes** sin asociar, de proveedores del catálogo, **nunca entraron** al libro manual ($0.6–1.1M).
+**Decisión de Edgar (2026-10-21): separar por historial.** Entra por default sólo si el proveedor apareció
+en el libro de los últimos 6 meses; las demás van al grupo «Sin libro reciente», excluidas, para revisar.
+
+| Mes | Del libro con historial | Del libro sin historial (revisar a mano) | Extras que entran por default |
+|---|---:|---:|---:|
+| jul | 270 de 277 | 4 | 67 ($494k) |
+| ago | 281 de 291 | 7 | 48 ($448k) |
+| sep | 200 de 200 | 0 | 58 ($761k) |
+
+⚠️ **Medido con la marca de asociación de HOY**, que ContPAQi pone después de subir el libro: las cifras
+de arriba son una cota, no la foto del día en que se armó. **Octubre-2026 (el mes que toca):** propone
+**275 facturas por $31.8M** en folio 1, y deja 64 ($1.58M) en «Sin libro reciente».
+
+### También
+
+- **B6**: los choques de folio (`UNIQUE`) ya no dan 500 — savepoint + mensaje.
+- **B5**: cambiar de mes limpia la tabla y cancela la carga anterior.
+- **Override con motivo** desde la pantalla (lo pedía el servidor desde LC.14 y no había dónde escribirlo).
+- **Rendimiento**: tablero 7.3 s → **488 ms** (el historial se cruza por igualdad en vez de un `EXISTS` por
+  CFDI; `cargos` acotado a la ventana; los cruces sólo sobre lo no asociado). Mes 0.9 s → **300 ms**.
+  Medido desde la prueba, con red.
+
+### Verificación y lo que NO se midió
+
+- Réplica **27 ✓ / 0 ✗** contra prod (sólo lectura) · trámite **20 ✓** contra prod (sólo lectura; incluye
+  sugerencia real: BOMBONELYZ → `2120000562`, y los 4 rechazos del alta) · carátula 66/66 · txt 49/49.
+- **NO MEDIDO: el modo completo del trámite** (generar, entregar, cancelar, aplicar, **asignar cuenta**
+  escribiendo): sólo corre en el job `pruebas-db` del CI. En esta máquina no hay Postgres local.
+- **NO MEDIDO: el separador del TXT contra un import real.** El formato se validó en CP.8.13 contra 14
+  pólizas reales exportadas de ContPAQi, no con un import nuestro aceptado.
+- **Arranque no verificado** (`[CP.8.52]` regla 30): sólo se agregaron dos rutas al controlador, sin
+  tocar el constructor ni lo inyectado.
+- **Sin validación visual** (lo más probable de ajustar: el diálogo de «Asignar cuenta» y el lugar de la
+  línea de cuentas de impuesto).
+- **Catálogo de cuentas `analytics.contpaqi_accounts` es una foto del 2026-10-09** (lo llena un script sin
+  agenda). Una cuenta 212 recién creada se ve en cuanto aparece en cualquier póliza; antes de eso, «Asignar
+  cuenta» la rechaza como inexistente. Agendar ese refresco es una decisión de operación, no de este item.
 
 ## Estado
 

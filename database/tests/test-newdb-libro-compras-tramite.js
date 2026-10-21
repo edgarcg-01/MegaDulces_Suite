@@ -58,7 +58,15 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const MES = '2031-03';
 const RFC = 'LCX170101AAA';
 const SUF = '9990017';
-const UUIDS = ['1C170000-0000-4000-8000-000000000001', '1C170000-0000-4000-8000-000000000002'];
+// [LC.18] Un proveedor con cuenta pero SIN libro reciente, y uno NUEVO sin cuenta en el mapa.
+const RFC_SIN_HIST = 'LCY170101AAA';
+const SUF_SIN_HIST = '9990027';
+const RFC_NUEVO = 'LCZ170101AAA';
+const SUF_NUEVO = '9990037';
+const UUIDS = [
+  '1C170000-0000-4000-8000-000000000001', '1C170000-0000-4000-8000-000000000002',
+  '1C170000-0000-4000-8000-000000000003', '1C170000-0000-4000-8000-000000000004',
+];
 
 let ok = 0;
 let fail = 0;
@@ -148,11 +156,47 @@ async function soloLectura(url) {
       noMedido(`2026-06 ya no está en generado (${jun ? jun.estado : 'sin corrida'})`);
     }
 
-    noMedido('generar · registrar las facturas · entregar · cancelar · aplicar: contra prod no se escribe desde una prueba — corre completo en `pruebas-db`');
+    console.log('\n[3] LC.18 — proveedor nuevo: sugerir y asignar su cuenta');
+    // BOMBONELYZ entró al libro manual de ago y sep-2026 con la cuenta 2120000562, que no
+    // estaba en el mapa: es el caso real que motivó el alta.
+    const nuevoRfc = 'BBD250118K92';
+    const yaMapeado = await pool('finance.gl_supplier_accounts')
+      .where({ tenant_id: MEGA }).whereRaw('upper(rfc) = ?', [nuevoRfc]).whereNull('deleted_at').first();
+    if (yaMapeado) {
+      noMedido(`${nuevoRfc} ya está en el mapa (${yaMapeado.cuenta_proveedor}): alguien la asignó; la sugerencia no se mide`);
+    } else {
+      const sg = await svc.sugerirCuenta(nuevoRfc);
+      const top = sg.candidatas[0];
+      check(top && top.cuenta === '2120000562', `sugiere 2120000562 primero para ${sg.nombre} (dio ${top ? `${top.cuenta} ${top.nombre} · ${top.razon}` : 'nada'})`);
+    }
+    let e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2129999999'));
+    check(e && /no existe en ContPAQi/.test(msg(e)), 'asignar una cuenta que no existe en ContPAQi se rechaza');
+    e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '2120000020'));
+    check(e && /ya es del RFC/.test(msg(e)), 'asignar la cuenta de OTRO proveedor se rechaza (2120000020 es de GIS020419575)');
+    e = await rechazo(() => svc.asignarCuenta('NO-ES-RFC', '2120000562'));
+    check(e && /RFC inválido/.test(msg(e)), 'un RFC mal formado se rechaza');
+    e = await rechazo(() => svc.asignarCuenta(nuevoRfc, '5020000562'));
+    check(e && /empieza con 212/.test(msg(e)), 'una cuenta que no es de proveedor (502…) se rechaza');
+
+    console.log('\n[4] LC.18 — octubre-2026, el mes que toca armar');
+    const t0 = Date.now();
+    const oct = await svc.getMes('2026-10', 'complemento');
+    const ms = Date.now() - t0;
+    check(oct.cuentas_impuesto && oct.cuentas_impuesto.desde === '2026-09' && oct.cuentas_impuesto.iva.cuenta === '1060000000',
+      `IVA/IEPS a las cuentas del libro de sep-2026 (${oct.cuentas_impuesto && oct.cuentas_impuesto.iva.cuenta} / ${oct.cuentas_impuesto && oct.cuentas_impuesto.ieps.cuenta})`);
+    const sinHist = oct.facturas.filter((f) => f.cuenta_existe && !f.ya_en_poliza && !f.en_libro_reciente);
+    check(sinHist.length > 0 && sinHist.every((f) => !f.incluida && /no entró al libro/.test(String(f.motivo_exclusion))),
+      `las ${sinHist.length} de proveedores sin libro reciente no entran solas, y dicen por qué`);
+    check(oct.facturas.filter((f) => f.incluida).every((f) => r2c(f.base_exenta + f.subtotal16 + f.ieps + f.iva) === r2c(f.total)),
+      'cada factura incluida cuadra: 501 + 502 + IEPS + IVA = total');
+    check(ms < 1000, `el mes abre en ${ms} ms (< 1 s, medido desde la prueba con red incluida)`);
+
+    noMedido('generar · registrar las facturas · entregar · cancelar · aplicar · asignar cuenta: contra prod no se escribe desde una prueba — corre completo en `pruebas-db`');
   } finally {
     await pool.destroy();
   }
 }
+const r2c = (n) => Math.round(Number(n) * 100) / 100;
 
 async function completo(urlAdmin, urlRuntime) {
   console.log('\n[modo COMPLETO — destino local]');
@@ -165,10 +209,15 @@ async function completo(urlAdmin, urlRuntime) {
     if (ids.length) await admin('finance.purchase_book_run_items').whereIn('run_id', ids).del();
     await admin('finance.purchase_book_runs').where({ tenant_id: MEGA, anio_mes: MES }).del();
     await admin('fiscal.cfdis').where({ tenant_id: MEGA }).whereIn('uuid', UUIDS).del();
-    await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC }).del();
+    await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA }).whereIn('rfc', [RFC, RFC_SIN_HIST, RFC_NUEVO]).del();
+    await admin('analytics.gl_poliza_lines').where({ tenant_id: MEGA, source: 'contpaqi', anio_mes: '2031-02' })
+      .whereIn('cuenta', [`212${SUF}`]).del();
+    await admin('analytics.contpaqi_accounts').where({ tenant_id: MEGA })
+      .whereIn('codigo', [`212${SUF_NUEVO}`, `501${SUF_NUEVO}`, `502${SUF_NUEVO}`]).del();
   };
   try {
-    for (const t of ['finance.purchase_book_runs', 'finance.purchase_book_run_items', 'fiscal.cfdis', 'finance.gl_supplier_accounts']) {
+    for (const t of ['finance.purchase_book_runs', 'finance.purchase_book_run_items', 'fiscal.cfdis', 'finance.gl_supplier_accounts',
+      'analytics.gl_poliza_lines', 'analytics.contpaqi_accounts', 'contpaqi.supplier_accounts']) {
       const [s, n] = t.split('.');
       if (!(await admin.schema.withSchema(s).hasTable(n))) { noMedido(`${t} no existe en este destino`); return; }
     }
@@ -193,7 +242,29 @@ async function completo(urlAdmin, urlRuntime) {
         rol: 'recibidas', source: 'contpaqi_add', aso_contabilidad: false,
       });
     }
-    check(true, `sembrado: 1 proveedor con sus 3 cuentas · ${cfdis.length} CFDIs sin asociar en ${MES}`);
+    // [LC.18] El historial: el proveedor entró al libro (Diario folio 1) el mes anterior.
+    await admin('analytics.gl_poliza_lines').insert({
+      tenant_id: MEGA, source: 'contpaqi', sucursal: '00', ejercicio: 2031, periodo: 2, tipo_pol: '3', folio: '1',
+      num_movto: 1, cuenta: `212${SUF}`, cargo_abono: 'A', importe: 1, anio_mes: '2031-02',
+    });
+    // Uno con cuenta y sin historial, y uno sin cuenta cuya 212 sí existe en ContPAQi.
+    await admin('finance.gl_supplier_accounts').insert({
+      tenant_id: MEGA, rfc: RFC_SIN_HIST, supplier_name: 'CANDADO SIN HISTORIAL', account_suffix: SUF_SIN_HIST,
+      cuenta_proveedor: `212${SUF_SIN_HIST}`, cuenta_compra_exenta: `501${SUF_SIN_HIST}`, cuenta_compra_iva: `502${SUF_SIN_HIST}`,
+      proveedor_existe: true, compra_exenta_existe: true, compra_iva_existe: true,
+    });
+    for (const codigo of [`212${SUF_NUEVO}`, `501${SUF_NUEVO}`, `502${SUF_NUEVO}`]) {
+      await admin('analytics.contpaqi_accounts').insert({ tenant_id: MEGA, codigo, nombre: 'CANDADO PROVEEDOR NUEVO LC18', computed_at: admin.fn.now() });
+    }
+    for (const [i, [uuid, rfc, nombre]] of [[UUIDS[2], RFC_SIN_HIST, 'CANDADO SIN HISTORIAL'], [UUIDS[3], RFC_NUEVO, 'CANDADO PROVEEDOR NUEVO LC18']].entries()) {
+      await admin('fiscal.cfdis').insert({
+        tenant_id: MEGA, uuid, tipo_comprobante: 'I', serie: 'LC', folio: `18${i}`,
+        fecha: '2031-03-20', emisor_rfc: rfc, emisor_nombre: nombre,
+        subtotal: 80, descuento: 0, total: 80, impuestos: JSON.stringify({ iva_trasladado: 0, ieps_trasladado: 0 }),
+        rol: 'recibidas', source: 'contpaqi_add', aso_contabilidad: false,
+      });
+    }
+    check(true, `sembrado: 3 proveedores (con historial / sin historial / nuevo) · 4 CFDIs sin asociar en ${MES}`);
 
     const svc = servicio(runtime);
     const T = { tipo: 'complemento' };
@@ -204,7 +275,12 @@ async function completo(urlAdmin, urlRuntime) {
 
     console.log('\n[1] El mes, antes de tocar nada');
     let d = await svc.getMes(MES, 'complemento');
-    check(d.resumen.incluidas === 2, `las 2 entran por default (dio ${d.resumen.incluidas})`);
+    check(d.resumen.incluidas === 2, `las 2 del proveedor con historial entran por default (dio ${d.resumen.incluidas})`);
+    const fSinHist = d.facturas.find((f) => f.uuid === UUIDS[2]);
+    check(fSinHist && !fSinHist.incluida && /no entró al libro/.test(String(fSinHist.motivo_exclusion)),
+      '⭐ LC.18: la del proveedor sin libro reciente NO entra sola, y dice por qué');
+    const fNuevo = d.facturas.find((f) => f.uuid === UUIDS[3]);
+    check(fNuevo && !fNuevo.account_suffix && !fNuevo.incluida, 'la del proveedor nuevo queda sin cuenta');
 
     console.log('\n[2] generar, con el payload de la pantalla { impuestos, uuid }');
     const g = await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });
@@ -215,6 +291,13 @@ async function completo(urlAdmin, urlRuntime) {
     d = await svc.getMes(MES, 'complemento');
     check(d.resumen.incluidas === 2, 'lo registrado por generar NO cuenta como decisión: siguen entrando por default');
     check(d.run.archivo_vigente === true && !('archivo_contenido' in d.run), 'la pantalla ve un archivo entregable, sin el contenido');
+    const c0 = await corrida();
+    check(c0.folio_poliza === 1 && c0.concepto === 'REGISTRO DE COMPRAS DEL MES DE MARZO 2031',
+      `⭐ LC.18: sin libro del mes en ContPAQi la corrida nace como folio 1 «${c0.concepto}» (no complemento en el 2)`);
+    const { parsearTxt } = require(path.join(SRC, 'poliza-txt.ts'));
+    const refs212 = parsearTxt(c0.archivo_contenido).movimientos
+      .filter((m) => m.cuenta === `212${SUF}`).map((m) => m.referencia).sort();
+    check(refs212.join(',') === '170,171', `la referencia del renglón son los últimos 5 del folio (dio ${refs212.join(',')})`);
 
     console.log('\n[3] Las transiciones que no van');
     let e = await rechazo(() => svc.marcar(MES, 'aplicado', T));
@@ -232,7 +315,7 @@ async function completo(urlAdmin, urlRuntime) {
     e = await rechazo(() => svc.generar(MES, { impuestos: 'global', uuid: true, ...T }));
     check(e && /ya se entregó/.test(msg(e)), '⭐ B3: generar encima de una entrega se rechaza');
     d = await svc.getMes(MES, 'complemento');
-    check(d.facturas.every((f) => f.prueba_certeza === 'exacta' && !f.incluida),
+    check(d.facturas.filter((f) => UUIDS.slice(0, 2).includes(f.uuid)).every((f) => f.prueba_certeza === 'exacta' && !f.incluida),
       '⭐ B1: el mes ya NO vuelve a ofrecer las facturas entregadas (certeza exacta, fuera)');
     e = await rechazo(() => svc.setInclusion(MES, [UUIDS[0]], false, 'x', 'complemento'));
     check(e && /entregado/.test(msg(e)), 'tampoco se cambia qué entra');
@@ -273,6 +356,28 @@ async function completo(urlAdmin, urlRuntime) {
     check(e && /ya está aplicado/.test(msg(e)), '⛔ una aplicada no se cancela (sus facturas volverían a ofrecerse)');
     e = await rechazo(() => svc.marcar(MES, 'entregado', T));
     check(e && /ya está aplicado/.test(msg(e)), '⛔ ni retrocede a entregado');
+
+    console.log('\n[10] LC.18 — proveedor nuevo: sugerir, asignar y que entre al mapa');
+    const sg = await svc.sugerirCuenta(RFC_NUEVO);
+    check(sg.candidatas[0] && sg.candidatas[0].cuenta === `212${SUF_NUEVO}`,
+      `sugiere su 212 por el nombre (dio ${sg.candidatas[0] ? sg.candidatas[0].cuenta : 'nada'})`);
+    e = await rechazo(() => svc.asignarCuenta(RFC_NUEVO, '2129999998'));
+    check(e && /no existe en ContPAQi/.test(msg(e)), '⛔ una 212 que no existe en ContPAQi se rechaza, y no escribe');
+    check(!(await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC_NUEVO }).first()), 'cero filas tras el rechazo');
+    e = await rechazo(() => svc.asignarCuenta(RFC_NUEVO, `212${SUF}`));
+    check(e && /ya es del RFC/.test(msg(e)), '⛔ la cuenta de otro proveedor no se reasigna');
+    // El payload de la pantalla: { rfc, cuenta }.
+    const asig = await svc.asignarCuenta(RFC_NUEVO, `212${SUF_NUEVO}`);
+    check(asig.accion === 'alta' && asig.compra_exenta_existe && asig.compra_iva_existe,
+      `alta con sus 501/502 verificadas en ContPAQi (${asig.accion})`);
+    const fila = await admin('finance.gl_supplier_accounts').where({ tenant_id: MEGA, rfc: RFC_NUEVO }).first();
+    check(fila && fila.cuenta_proveedor === `212${SUF_NUEVO}` && fila.source === 'manual_lc', 'la fila quedó en el mapa del libro, rotulada como manual');
+    e = await rechazo(() => svc.asignarCuenta(RFC_NUEVO, `212${SUF_SIN_HIST}`));
+    check(e && /ya tiene la cuenta/.test(msg(e)), '⛔ un RFC con cuenta no se cambia desde aquí');
+    d = await svc.getMes(MES, 'complemento');
+    const fN = d.facturas.find((f) => f.uuid === UUIDS[3]);
+    check(fN && fN.account_suffix === SUF_NUEVO && fN.cuenta_existe && !fN.en_libro_reciente && !fN.incluida,
+      'el mes ya la ve con cuenta; como nunca entró al libro, espera revisión (no entra sola)');
   } finally {
     try { await limpiar(); } catch (e) { console.log(`  ⚠ limpieza incompleta: ${e.message}`); }
     await admin.destroy();
