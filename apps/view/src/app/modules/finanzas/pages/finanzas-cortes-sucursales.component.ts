@@ -169,8 +169,10 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 
         <section class="cs-block dt-scope" aria-labelledby="cs-h-suc">
           <div class="cs-bh"><h2 id="cs-h-suc">Por sucursal</h2>
-            <span class="cs-hint">@if (selSuc(); as s) { Viendo {{ s.sucursal }} {{ s.sucursal_nombre }} · <button type="button" class="cs-link" (click)="pickSuc(null)">ver todas</button> } @else { Elige una sucursal para ver sus cortes }</span></div>
-          <p-table [value]="d.sucursales" size="small" class="surf-table dt-stack" [rowHover]="true" selectionMode="single" [selection]="selSuc()" (selectionChange)="pickSuc($event)" dataKey="sucursal">
+            <span class="cs-hint" aria-live="polite">@if (selSuc(); as s) { Viendo {{ s.sucursal }} {{ s.sucursal_nombre }}@if (sucursalesOcultas()) { · {{ sucursalesOcultas() }} oculta{{ sucursalesOcultas() > 1 ? 's' : '' }} } · <button type="button" class="cs-link" (click)="pickSuc(null)">ver todas</button> } @else { Elige una sucursal para ver sus cortes }</span></div>
+          <!-- [CSU.14] Con una sucursal elegida sólo queda su fila: las demás se ocultan para dar el espacio a sus
+               cortes. Vuelven con «ver todas» o con otro clic sobre la misma fila. -->
+          <p-table [value]="sucursalesVisibles()" size="small" class="surf-table dt-stack" [rowHover]="true" selectionMode="single" [selection]="selSuc()" (selectionChange)="pickSuc($event)" dataKey="sucursal">
             <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Vendido</th><th class="ta-r">Cobrado</th><th class="ta-r">Pendiente</th><th class="ta-r">% cobrado</th><th>Abierto desde</th><th>Revisar</th></tr></ng-template>
             <ng-template #body let-s>
               <tr [pSelectableRow]="s">
@@ -402,6 +404,15 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   readonly err = signal<string | null>(null);
   readonly data = signal<CortesSucursalesResponse | null>(null);
   readonly selSuc = signal<CorteSucursalResumen | null>(null);
+
+  /** `[CSU.14]` La tabla «Por sucursal»: todas, o sólo la elegida (las demás se ocultan para dar espacio). */
+  readonly sucursalesVisibles = computed<CorteSucursalResumen[]>(() => {
+    const d = this.data();
+    const s = this.selSuc();
+    if (!d) return [];
+    return s ? d.sucursales.filter((x) => x.sucursal === s.sucursal) : d.sucursales;
+  });
+  readonly sucursalesOcultas = computed<number>(() => (this.data()?.sucursales.length ?? 0) - this.sucursalesVisibles().length);
   readonly selCorte = signal<CorteRow | null>(null);
 
   /** `[CSU.13]` Lo que escribió la persona en el buscador. */

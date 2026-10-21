@@ -17,6 +17,7 @@
   - lo que trae la devolución: folio, cliente o motivo.
 
   Los folios se encuentran como se escriben a mano (`au501-00076` = `UA0501-0000076`). `/` enfoca el buscador y `Esc` lo limpia.
+- **Por sucursal**: al elegir una sucursal, la tabla se reduce a esa fila para dar espacio a sus cortes; las demás vuelven con «ver todas».
 - **Cobros cancelados en Kepler**: el detalle del corte los muestra como «Cancelado en Kepler — no suma», con el monto tachado; la lista los señala y el buscador los encuentra. El cobrado no cambia.
 - **Fixed**: la lupa del buscador no se dibujaba (`p-inputicon` en PrimeNG 22), y el esqueleto de carga dejaba avisos NG0955 en la consola.
 ### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
