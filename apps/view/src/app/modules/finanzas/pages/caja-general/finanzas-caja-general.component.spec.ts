@@ -3208,7 +3208,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       ],
     };
 
-    const montar = () => montarJornada({ arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
+    /**
+     * `[CG.128]` Abre la jornada EN «Movimientos», que es donde vive el diario desde que se midió
+     * en la pantalla viva que pesaba **1,058px de los 2,023** de «Hoy» — el 55 %.
+     * ⚠️ El patch de datos NO se pierde: estas pruebas necesitan `CON_REPARTO`, y sin él la
+     * tabla queda vacía y la prueba pasaría a medir otra cosa.
+     */
+    const montar = () => montarJornadaEn('movimientos', { arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
 
     it('⭐ en «Caja general» suma SÓLO la morralla del cobro, no sus billetes', () => {
       montar();
@@ -3242,6 +3248,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     it('⛔ [negativa] el selector NO esconde renglones: el cobro sale en las TRES vistas', () => {
       // Esconderlo en «Caja general» sería tan falso como mostrarlo entero: el cobro ESTÁ en las
       // dos cajas. Si alguien vuelve a filtrar filas, esta cuenta cambia y la prueba se cae.
+      // `[CG.128]` Lo que esta prueba cuida no cambió: que el selector de CAJA cambie el
+      // importe y NO esconda renglones. Lo que cambió es dónde vive el diario.
       const fx = montar();
       for (const v of ['cajon', 'boveda', 'todo'] as const) {
         comp.dondeEntro.set(v);

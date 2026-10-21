@@ -1357,7 +1357,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </p>
           }
 
-          @if (seccionJornada() === 'hoy') {
+          <!-- [CG.128] Las DOS secciones cuelgan de aca porque las dos necesitan el mismo
+               bloque de arqueo de mas abajo: el cuadre y el diario salen de la misma lectura.
+               Adentro, cada bloque va a la suya. La cabecera (Cierre de la jornada, los pasos,
+               las jornadas atrasadas) se ve en las dos a proposito: son ~150px y son el contexto
+               del dia, no contenido de una seccion. -->
+          @if (seccionJornada() === 'hoy' || seccionJornada() === 'movimientos') {
           <p class="fin-dim cg-sub-dim">{{ coberturaTexto() }}</p>
 
           <!-- ⭐⭐ [CG.180] DE DONDE SALE EL AUTOLLENADO, Y SI SU FUENTE ESTA VIVA.
@@ -1505,6 +1510,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
           }
 
+          <!-- [CG.128] El cuadre (543px medidos) es de "Hoy": contesta CUANTO HAY EN CADA CAJA.
+               En "Movimientos" estorba, porque alli la pregunta es otra. -->
+          @if (seccionJornada() === 'hoy') {
           <div class="cg-conc-cols" [hidden]="!verDetalleCierre()">
 
             <!-- IZQUIERDA: nuestro libro -->
@@ -1790,6 +1798,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               }
             </div>
           </div>
+          }
 
           <!-- ⭐ [CG.91] EL HISTORIAL DE LO QUE LLEVO HECHO. Pedido dos veces.
                La primera: "un historial de movimientos para que el usuario vea que movimientos ya
@@ -1802,7 +1811,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                Va a lo ANCHO y debajo de las dos columnas a proposito: el cuadro de arriba es el
                resumen, esto es el cuerpo. De paso empareja el bloque, que tenia una tabla de un
                lado y cuatro renglones del otro. -->
-          @if (a.movimientos_del_dia?.length) {
+          <!-- ⭐⭐ [CG.128] EL DIARIO DEL DIA, EN SU PROPIA SECCION.
+               Medido en la pantalla viva: este bloque solo pesaba 1,058px de los 2,023 de "Hoy"
+               -- el 55%. Y no es el cuadre: el cuadre dice CUANTO HAY EN CADA CAJA, esto dice QUE
+               HICISTE. Dos preguntas distintas, y por eso dos secciones. -->
+          @if (seccionJornada() === 'movimientos' && a.movimientos_del_dia?.length) {
             <div class="cg-hist">
               <!-- ⭐ [CG.139] A QUE CAJA FUE EL DINERO. El eje no es el tipo -eso ya lo dicen las
                    dos columnas Cargo/Abono- sino en que caja quedo: de un cobro de ruta la maquina
@@ -5069,7 +5082,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    *    partes están nombradas y a un clic, con su cifra adentro del botón, así que la persona ve
    *    que existen y cuánto hay en cada una sin tener que entrar.
    */
-  seccionJornada = signal<'hoy' | 'pendientes' | 'historial'>('hoy');
+  seccionJornada = signal<'hoy' | 'movimientos' | 'pendientes' | 'historial'>('hoy');
 
   /**
    * `[CG.123]` Las tres partes, con cuánto hay detrás de cada una.
@@ -5081,8 +5094,27 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const rc = this.recurrentes();
     const pend = this.pagables().length + (rc?.medido?.sin_regla ?? 0);
     const movs = this.rows().length;
+    /**
+     * ⭐⭐ `[CG.128]` **«Movimientos» se separa del cuadre, y esto salió de MEDIR LA PANTALLA VIVA.**
+     *
+     * `[CG.123]` partió el diálogo en tres y dio por bueno el resultado leyendo el fuente. Medido
+     * después en el navegador, con datos reales, la sección «Hoy» **seguía siendo un muro**:
+     *
+     *     2,023 px de alto dentro de un diálogo de 577 -> 3.5 pantallas de scroll
+     *     71 cifras · 4 rejillas · 83 textos atenuados contra 4 enfatizados
+     *
+     * ⛔ Y mis cifras leídas del fuente se habían quedado **cortas casi al doble** (39 contra 71):
+     * la plantilla no sabe cuántas filas trae el día. Es, textual, la diferencia entre el nivel C
+     * y el nivel A de `docs/ESTANDAR_DE_INTERFACES.md`.
+     *
+     * ⭐ El 55 % de ese alto era UN bloque: «Movimientos que registraste en esta jornada», 1,058 px.
+     * Y no es el cuadre: el cuadre dice **cuánto hay en cada caja**, esto es **el diario de lo que
+     * hiciste**. Dos preguntas, dos secciones — la prueba de la frase del §4.0b del estándar.
+     */
+    const delDia = this.arqueo()?.movimientos_del_dia?.length ?? 0;
     return [
       { label: 'Hoy', value: 'hoy' },
+      { label: 'Movimientos', value: 'movimientos', count: this.cargandoArqueo() ? undefined : delDia },
       { label: 'Pendientes', value: 'pendientes', count: pend },
       { label: 'Historial', value: 'historial', count: this.errLibro() ? undefined : movs },
     ];
