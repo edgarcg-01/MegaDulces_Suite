@@ -1059,31 +1059,52 @@ export class GoodsReceiptProofsService {
    * Los de alcance `red` (mode `all`) se cuentan aparte: aparecen en las 7 sucursales y si
    * se mezclan, ninguna se ve nunca huérfana.
    */
-  private async responsablesPorSucursal(trx: any): Promise<Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]> & { red?: number }> {
+  private async responsablesPorSucursal(trx: Knex.Transaction): Promise<Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]> & { red?: number; redUsuarios?: Map<string, { username: string; nombre: string | null }> }> {
     const tenantId = this.tenantCtx.requireTenantId();
-    // `permissions -> 'KEY' IS NOT NULL` y NO el operador `?` de JSONB: knex no lo escapa (42P18).
+    /**
+     * ⭐ `[RE.46]` Quién PUEDE subir se resuelve igual que el guard (`RolesGuard`), no sólo con el
+     * rol base: la UNIÓN de roles (`identity.user_roles`, perfil base + complementos — `[ID.13]`) y
+     * encima el permiso puesto a mano por persona (`identity.user_permissions`, `allow` gana).
+     *
+     * Medido en prod (2026-10-21): CEDIS salía «nadie con permiso» mientras `estefania_mendez`
+     * —rol base `facturacion`, complemento `auxiliar_compras`, alcance {00, 01}— había subido 175
+     * evidencias en 30 días. El rótulo mandaba a pedir un permiso que ya existía. Con la unión, los
+     * de alcance de red pasan de 15 a 18.
+     *
+     * `permissions -> 'KEY'` y NO el operador `?` de JSONB: knex no lo escapa (42P18).
+     */
     const r = await trx.raw(`
-      WITH puede AS (
+      WITH puede_rol AS (
         SELECT lower(role_name) AS rn
           FROM identity.role_permissions
          WHERE tenant_id = ?
-           AND permissions -> 'COMPRAS_ENTRADAS_GESTIONAR' IS NOT NULL
            AND (permissions -> 'COMPRAS_ENTRADAS_GESTIONAR')::text = 'true'
+      ), roles AS (
+        SELECT u.id, lower(u.role_name) AS rn FROM identity.users u WHERE u.tenant_id = ?
+        UNION
+        SELECT ur.user_id, lower(ur.role_name) FROM identity.user_roles ur WHERE ur.tenant_id = ?
+      ), por_rol AS (
+        SELECT DISTINCT r.id FROM roles r JOIN puede_rol p ON p.rn = r.rn
+      ), ov AS (
+        SELECT user_id, allow FROM identity.user_permissions
+         WHERE tenant_id = ? AND permission_key = 'COMPRAS_ENTRADAS_GESTIONAR'
       )
       SELECT u.username, u.nombre, u.warehouse_code,
              COALESCE(us.mode_write, us.mode, rs.mode_write, rs.mode, 'none') AS modo,
              COALESCE(us.values, rs.values)                                   AS vals
         FROM identity.users u
-        JOIN puede p ON p.rn = lower(u.role_name)
+        LEFT JOIN ov ON ov.user_id = u.id
         LEFT JOIN identity.user_scopes us
                ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = 'warehouse'
         LEFT JOIN identity.role_scopes rs
                ON rs.tenant_id = u.tenant_id AND lower(rs.role_name) = lower(u.role_name) AND rs.dimension = 'warehouse'
        WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+         AND COALESCE(ov.allow, u.id IN (SELECT id FROM por_rol))
        ORDER BY u.username`,
-      [tenantId, tenantId]);
+      [tenantId, tenantId, tenantId, tenantId, tenantId]);
 
     const out = new Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]>() as any;
+    const redUsuarios = new Map<string, { username: string; nombre: string | null }>();
     let red = 0;
     const push = (suc: string, x: any, alcance: 'propio' | 'asignado') => {
       const k = String(suc).trim();
@@ -1092,11 +1113,48 @@ export class GoodsReceiptProofsService {
       out.get(k).push({ username: x.username, nombre: x.nombre ?? null, alcance });
     };
     for (const x of r.rows || []) {
-      if (x.modo === 'all') { red++; continue; }
+      if (x.modo === 'all') {
+        red++;
+        // Por username y por nombre: `created_by` guarda el que haya traído el token.
+        const u = { username: x.username, nombre: x.nombre ?? null };
+        redUsuarios.set(x.username, u);
+        if (x.nombre) redUsuarios.set(x.nombre, u);
+        continue;
+      }
       if (x.modo === 'own') { if (x.warehouse_code) push(x.warehouse_code, x, 'propio'); continue; }
       if (x.modo === 'listed') { for (const v of x.vals || []) push(v, x, 'asignado'); }
     }
     out.red = red;
+    out.redUsuarios = redUsuarios;
+    return out;
+  }
+
+  /**
+   * `[RE.46]` Quién SUBE de verdad en cada sucursal con alcance de RED (últimos 30 días).
+   *
+   * Una sucursal sin nadie asignado no siempre está huérfana: en Morelia Abastos la sube toda
+   * `janette_garcia` (281 evidencias en 30 días) con el alcance de red de su rol. «Nadie con
+   * permiso» ahí es cierto y no sirve: la acción no es «dar un permiso», es **asignarle la
+   * sucursal** a quien ya la trabaja — que además acota su búsqueda (ADR-098).
+   */
+  private async subenConRed(
+    trx: Knex.Transaction, redUsuarios: Map<string, { username: string; nombre: string | null }>,
+  ): Promise<Map<string, { username: string; nombre: string | null; n: number }[]>> {
+    const out = new Map<string, { username: string; nombre: string | null; n: number }[]>();
+    if (!redUsuarios.size) return out;
+    const r = await trx.raw(
+      `SELECT sucursal, created_by, count(*)::int AS n
+         FROM finance.goods_receipt_proofs
+        WHERE tenant_id = ? AND created_at >= now() - interval '30 days' AND created_by IS NOT NULL
+        GROUP BY 1, 2`, [this.tenantCtx.requireTenantId()]);
+    for (const x of r.rows || []) {
+      const u = redUsuarios.get(String(x.created_by));
+      if (!u) continue;
+      const k = String(x.sucursal).trim();
+      if (!out.has(k)) out.set(k, []);
+      out.get(k)!.push({ ...u, n: Number(x.n) });
+    }
+    for (const l of out.values()) l.sort((a, b) => b.n - a.n);
     return out;
   }
 
@@ -1279,6 +1337,7 @@ export class GoodsReceiptProofsService {
       // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
       // cobertura, el número deja de servir para exigirle a nadie.
       const resp = await this.responsablesPorSucursal(trx);
+      const subenRed = await this.subenConRed(trx, resp.redUsuarios ?? new Map());
 
       // RE.20.3/RE.20.6 — el rezago descuenta descartadas por la misma razón que el carril vivo,
       // y acá pesa MÁS: los 1,176 traspasos `TI*` (que nunca van a tener factura) viven todos
@@ -1299,6 +1358,8 @@ export class GoodsReceiptProofsService {
         rows: (r.rows || []).map((x: any) => ({
           sucursal: x.sucursal,
           responsables: resp.get(String(x.sucursal)) ?? [],
+          // `[RE.46]` Los de alcance de red que de hecho subieron aquí (30 días), mayor primero.
+          suben_red: subenRed.get(String(x.sucursal)) ?? [],
           // RE.20.3 — fuera del denominador de arriba, pero a la vista: un motivo que crece es
           // una señal (el ERP volvió a emitir traspasos, alguien descarta de más), no una fila menos.
           descartadas: descPorSuc.get(String(x.sucursal))?.total ?? 0,

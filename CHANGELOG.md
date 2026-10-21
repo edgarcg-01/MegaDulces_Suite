@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Centro de control de entradas: «quién sube» ya no dice «nadie» donde alguien sube (RE.46, 2026-10-21)
+- CEDIS aparecía con «nadie con permiso» aunque una persona subía todas sus facturas: la pantalla sólo miraba el rol principal y no los roles complementarios ni los permisos dados a la persona. Ahora cuenta igual que el sistema que deja subir.
+- Cuando nadie tiene asignada una sucursal pero alguien con alcance de toda la red la está subiendo, la celda dice **«sin asignar · sube [persona]»**: lo que falta es asignarle la sucursal, no un permiso.
 ### Fixed — Revisión de entradas: los avisos que faltaban (RE.42.1, RE.43.1, RE.44, 2026-10-21)
 - **Revisión** muestra «Posible duplicado de la entrada X» cuando quien subió la factura vio ese aviso y la envió igual, con liga a la otra entrada para compararlas.
 - Cuando el total leído es la misma cifra que Kepler con el separador corrido (se leyó `$22.50` por `$22,500`), la pantalla lo dice como **probable error de lectura** en vez de «cobra de menos $22,477».

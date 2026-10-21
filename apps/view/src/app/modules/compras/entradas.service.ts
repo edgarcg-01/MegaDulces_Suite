@@ -265,6 +265,12 @@ export interface CoverageRow {
    * y son dos conversaciones distintas. Sin esto el tablero acusa al inocente.
    */
   responsables: CoverageResponsable[];
+  /**
+   * `[RE.46]` Quienes SUBEN aquí con alcance de red (últimos 30 días), mayor primero. Con
+   * `responsables` vacío distingue «nadie la trabaja» (falta un permiso) de «la trabaja alguien de
+   * red sin tenerla asignada» (falta asignarla). Opcional: una API vieja no lo manda.
+   */
+  suben_red?: { username: string; nombre: string | null; n: number }[];
   entradas: number;
   con_evidencia: number;
   validadas: number;
