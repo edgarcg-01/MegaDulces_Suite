@@ -24,6 +24,43 @@ export interface PadronEmisores {
   rfcs: ReadonlySet<string>;
   /** Nombre normalizado (`normalizarNombre`) → RFC de los emisores que lo usan. */
   porNombre: ReadonlyMap<string, ReadonlySet<string>>;
+  /** `normalizarTexto` → RFC: para el nombre que escribe tesorería en el concepto del banco. */
+  porTexto?: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Los nombres (`normalizarTexto`, ≥ 8 letras) que llevan a UN solo RFC. */
+  unicosTexto?: readonly (readonly [string, string])[];
+}
+
+/** El padrón desde los CFDI recibidos. */
+export function construirPadron(cfdis: readonly { rfc: string; nom: string | null }[]): PadronEmisores {
+  const porNombre = new Map<string, Set<string>>(); const porTexto = new Map<string, Set<string>>();
+  const agregar = (m: Map<string, Set<string>>, k: string, rfc: string): void => {
+    const s = m.get(k); if (s) s.add(rfc); else m.set(k, new Set([rfc]));
+  };
+  for (const x of cfdis) {
+    const n = normalizarNombre(x.nom); if (n) agregar(porNombre, n, x.rfc);
+    const t = normalizarTexto(x.nom); if (t.length >= 5) agregar(porTexto, t, x.rfc);
+  }
+  const unicosTexto = [...porTexto.entries()].filter(([, s]) => s.size === 1).map(([k, s]) => [k, [...s][0]] as const);
+  return { rfcs: new Set(cfdis.map((x) => x.rfc)), porNombre, porTexto, unicosTexto };
+}
+
+/** Como `normalizarNombre`, quitando además artículos y conjunciones: para texto libre del banco. */
+export function normalizarTexto(s: string | null | undefined): string {
+  return String(s ?? '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\b(S\.?\s*A\.?|DE|DEL|LA|LOS|LAS|Y|C\.?\s*V\.?|S\.?\s*DE\s*R\.?\s*L\.?|SAPI|SA|CV|RL|S|R|L|SC|SPR)\b/g, ' ')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * `[CP.8.71]` El proveedor por el nombre que tesorería escribe en el concepto («Grupo Confitero de Dulces
+ * de Occidente»): igual a UN emisor, o que contenga el nombre de UN emisor (≥ 8 letras). Medido: 46 de 50
+ * bien cuando Kepler no lo da. `contpaqi.supplier_aliases` está vacía: nadie confirmó alias.
+ */
+export function rfcPorTexto(texto: string | null | undefined, padron: PadronEmisores): string | null {
+  const t = normalizarTexto(texto); if (t.length < 6 || !padron.porTexto || !padron.unicosTexto) return null;
+  const exacto = padron.porTexto.get(t); if (exacto && exacto.size === 1) return [...exacto][0];
+  const hits = new Set(padron.unicosTexto.filter(([k]) => (k.length >= 8 && t.includes(k)) || (t.length >= 8 && k.startsWith(t))).map(([, r]) => r));
+  return hits.size === 1 ? [...hits][0] : null;
 }
 
 /** Sin acentos ni razón social ni signos: «Botanas y Derivados, S.A. de C.V.» → `BOTANASYDERIVADOS`. */
