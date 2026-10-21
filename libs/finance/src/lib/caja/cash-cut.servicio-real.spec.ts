@@ -194,6 +194,30 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect(aut).toMatchObject({ estado: 'autorizado', authorization_note: 'Flete de 500 explicado, ajuste en la jornada siguiente' });
   });
 
+  it('⛔ `[CGS.3]` (D2) con dos cortes cerrados sin revisar no se cierra el tercero; revisado uno, sí', async () => {
+    const antes = process.env['CAJA_CANDADO_REVISION_DESDE'];
+    process.env['CAJA_CANDADO_REVISION_DESDE'] = dia('04-01');
+    try {
+      const S = suc('C3');
+      const cierra = async (mmdd: string) => {
+        const c = await svc.abrir({ fecha: dia(mmdd), sucursal: S, fondo_inicial: 500 }, CAJERA);
+        await svc.contar(c.id, { conteo: conteo(['500', 500, 1]), morralla: 0 }, CAJERA);
+        return c;
+      };
+      const c1 = await cierra('04-02'); await svc.cerrar(c1.id, {}, CAJERA);
+      const c2 = await cierra('04-03'); await svc.cerrar(c2.id, {}, CAJERA);
+      const c3 = await cierra('04-04');
+      await expect(svc.cerrar(c3.id, {}, CAJERA)).rejects.toThrow(/2 cerrados sin revisar/);
+      expect((await corte(c3.id)).estado).toBe('borrador');
+
+      await svc.autorizar(c1.id, AUTORIZA);
+      expect((await svc.cerrar(c3.id, {}, CAJERA)).estado).toBe('cerrado');
+    } finally {
+      if (antes === undefined) delete process.env['CAJA_CANDADO_REVISION_DESDE'];
+      else process.env['CAJA_CANDADO_REVISION_DESDE'] = antes;
+    }
+  });
+
   it('cerrar con el MISMO conteo sellado en el cuerpo (lo que manda la pantalla sin recargar) también cierra', async () => {
     const f = dia('03-02');
     const c = await svc.abrir({ fecha: f, sucursal: suc('L2'), fondo_inicial: 500 }, CAJERA);

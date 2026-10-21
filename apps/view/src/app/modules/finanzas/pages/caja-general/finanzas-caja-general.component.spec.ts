@@ -244,6 +244,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       abrirCorte: vi.fn(() => of({ id: 'c1', folio: 'CC-2026-00001' })),
       // [CGP-V.3] Sin jornadas atrasadas: el caso de todos los días.
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
+      // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
+      candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
       ...over,
     };
 
@@ -1548,6 +1550,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
+      // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
+      candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -4730,6 +4734,28 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       montar({ saldo: sinCorte(), jornadasPendientes: falla(404) });
       comp.cerrarJornada();
       expect(fechaAbierta()).toBe(todayMx());
+    });
+
+    // ⛔ `[CGS.14]` El candado se DICE antes de teclear: qué pasa y qué lo destraba, con el botón a la mano.
+    it('con la caja bloqueada, el aviso abre la pantalla con la frase y lleva a rendir cuentas', () => {
+      const fx = montarJornada({
+        saldo: sinCorte(), jornadasPendientes: pendientes([{ fecha: '2026-10-20', movimientos: 30 }]),
+        candado: vi.fn(() => of({
+          bloqueado: true, motivo: 'jornada_sin_corte', jornada: '2026-10-20', activo: true, hoy: todayMx(),
+          texto: 'No se puede capturar: la jornada del 20/10/2026 tiene 30 movimiento(s) y no tiene corte cerrado.',
+          con_llave: null, pueden_recibir_llave: [],
+        })),
+      });
+      const aviso = fx.nativeElement.querySelector('.cg-candado');
+      expect(aviso).not.toBeNull();
+      expect(aviso.getAttribute('role')).toBe('alert');
+      expect(aviso.textContent).toContain('20/10/2026');
+      expect(aviso.textContent).toContain('Rendir cuentas de esa jornada');
+    });
+
+    it('[negativa] con la caja libre no hay aviso de candado', () => {
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: pendientes([]) });
+      expect(fx.nativeElement.querySelector('.cg-candado')).toBeNull();
     });
 
     it('con un corte atrasado ABIERTO va a ese corte, y el cierre dice de qué jornada es', () => {

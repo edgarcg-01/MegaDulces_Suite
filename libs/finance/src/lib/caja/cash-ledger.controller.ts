@@ -6,6 +6,7 @@ import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada } fr
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 import type { PorReclasificar } from './cash-cut.service';
+import type { CandadoCaja } from './caja-candado.query';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaAutollenadoService, type CorridaAutollenado, type EstadoAutollenado } from './caja-autollenado.service';
 
@@ -521,6 +522,20 @@ export class CashLedgerController {
   @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio). [CGS.16] Tampoco quien lo abrio ni quien capturo o cancelo en el. [CGS.17] Un veredicto sin respuesta no se autoriza (se observa) y con diferencia exige nota de 10+ caracteres.' })
   autorizarCorte(@Param('id') id: string, @Body() body: { nota?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
     return this.cortes.autorizar(id, this.user(req), body ?? {});
+  }
+
+  @Get('candado')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CGS.14] Si la caja esta bloqueada para quien pregunta (una jornada anterior sin corte cerrado), por que, que lo destraba, y si captura con llave de emergencia. Lectura.' })
+  candado(@Req() req: AuthedRequest): Promise<CandadoCaja> {
+    return this.cortes.candado(this.user(req));
+  }
+
+  @Post('llaves')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGS.15] Llave de emergencia: permite a OTRA persona capturar hasta el fin del dia mientras una jornada anterior sigue sin corte. Motivo de 10+. Nadie se la da a si mismo. Solo se agrega.' })
+  darLlave(@Body() body: { para_usuario?: string; motivo?: string }, @Req() req: AuthedRequest): Promise<{ vence_at: string; para: string | null }> {
+    return this.cortes.darLlave(body ?? {}, this.user(req));
   }
 
   @Post('cortes/:id/observar')
