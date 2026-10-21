@@ -283,8 +283,8 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                 </td>
                 <td role="cell" data-label="Veredicto">
                   @if (f.arqueo) {
-                    <p-tag [value]="VEREDICTO[f.arqueo.veredicto].texto"
-                           [severity]="VEREDICTO[f.arqueo.veredicto].sev" styleClass="cq-tag" />
+                    <p-tag [value]="tagVeredicto(f.arqueo).texto"
+                           [severity]="tagVeredicto(f.arqueo).sev" styleClass="cq-tag" />
                   } @else {
                     <p-tag value="Sin corte en el libro" severity="warn" styleClass="cq-tag" />
                   }
@@ -530,6 +530,19 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly cargandoExp = signal(false);
 
   protected readonly VEREDICTO = VEREDICTO;
+
+  /**
+   * El rótulo del veredicto de un arqueo, resuelto en TypeScript y no en la plantilla.
+   *
+   * ⛔ Antes la plantilla hacía `VEREDICTO[f.arqueo.veredicto]` directo, y eso tiraba el build:
+   * el cuerpo de un `p-table` entra por `<ng-template #body let-f>`, donde `let-f` llega **sin
+   * tipo** (`any`). Indexar un `Record<VeredictoCorte, …>` con un `any` es `TS7053`, y rompía la
+   * compilación de `view` entera. El campo nunca falló: `ArqueoDia` del contrato sí declara
+   * `veredicto`. Lo que faltaba era un lugar tipado donde resolverlo.
+   */
+  protected tagVeredicto(a: ArqueoDia): { texto: string; sev: 'success' | 'warn' | 'danger' | 'info' } {
+    return VEREDICTO[a.veredicto];
+  }
   protected readonly mx = (v: unknown): string => money(Number(v ?? 0) || 0);
   protected readonly dmy = dmy;
   protected readonly abs = Math.abs;

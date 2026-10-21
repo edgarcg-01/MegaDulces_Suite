@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, LOCALE_ID, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, LOCALE_ID, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -336,12 +336,32 @@ interface CortesPersona {
                             optionLabel="label" optionValue="route_code" styleClass="arq-fld"
                             appendTo="body" placeholder="Elige la ruta…" />
                 </label>
-              } @else if (rutasCargadas()) {
+              } @else if (rutasEstado() === 'sin_sucursal') {
+                <!-- [SM.45] Sin sucursal no se puede preguntar: se pide, no se afirma que no haya. -->
+                <div class="arq-pide-box">
+                  <i class="pi pi-building"></i>
+                  <div><strong>Elige la sucursal para ver sus rutas.</strong></div>
+                </div>
+              } @else if (rutasEstado() === 'cargando') {
+                <p class="muted arq-msg">Buscando las rutas de la sucursal…</p>
+              } @else if (rutasEstado() === 'error') {
+                <!-- [SM.45] Un error NO es una lista vacia: antes este caso decia
+                     «tu sucursal no tiene rutas» y era falso. -->
+                <div class="arq-pide-box urge" role="alert">
+                  <i class="pi pi-exclamation-triangle"></i>
+                  <div>
+                    <strong>No se pudieron consultar las rutas de la sucursal.</strong>
+                    <p class="muted">Esto no quiere decir que no tenga rutas. Reintenta; si sigue fallando, avisa a Sistemas.</p>
+                    <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm"
+                              (click)="cargarRutas(sucursalActiva(), true)"></p-button>
+                  </div>
+                </div>
+              } @else {
                 <div class="arq-pide-box">
                   <i class="pi pi-info-circle"></i>
                   <div>
-                    <strong>Tu sucursal no tiene rutas {{ aTipo() === 'rd' ? 'de reparto' : 'vecinales' }} dadas de alta.</strong>
-                    <p class="muted">Pedile al administrador que las asigne para poder recibirles el efectivo.</p>
+                    <strong>{{ branchLabel(sucursalActiva()) }} no tiene rutas {{ aTipo() === 'rd' ? 'de reparto' : 'vecinales' }} dadas de alta.</strong>
+                    <p class="muted">Pídele al administrador que las asigne para poder recibirles el efectivo.</p>
                   </div>
                 </div>
               }
@@ -1487,7 +1507,20 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** Rutas dadas de alta en MI sucursal. Vacio = esta tienda no recibe rutas. */
   readonly rutasRd = signal<RutaArqueo[]>([]);
   readonly rutasRv = signal<RutaArqueo[]>([]);
-  readonly rutasCargadas = signal(false);
+  /**
+   * [SM.45] Cuatro estados, no «cargado sí/no»: sin sucursal elegida, buscando,
+   * respuesta del servidor (puede ser vacia de verdad) y error. Antes el error
+   * caia en «cargado» y se leia como «esta tienda no tiene rutas».
+   */
+  readonly rutasEstado = signal<'sin_sucursal' | 'cargando' | 'ok' | 'error'>('sin_sucursal');
+  /** La sucursal de la ultima consulta: descarta respuestas que llegan tarde. */
+  private rutasPedidas = '';
+  /** Vuelve a pedir las rutas cada vez que cambia la sucursal (la del turno o la elegida). */
+  private readonly rutasAlCambiarSucursal = effect(() => {
+    const suc = this.sucursalActiva();
+    if (!this.canCaptureRuta()) return;
+    untracked(() => this.cargarRutas(suc));
+  });
   /** La ruta elegida en la pestana activa. */
   aRuta = '';
 
@@ -1687,17 +1720,44 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         },
       error: () => this.cargandoTurnos.set(false),
     });
+    // [SM.45] Las rutas ya no se piden aca: las pide `rutasAlCambiarSucursal`
+    // con la sucursal elegida, y de nuevo cada vez que cambia.
+  }
 
-    // SM.36 - Las rutas de MI sucursal. Solo si tengo el permiso: sin el, la
-    // llamada devolveria 403 y ensuciaria la consola por nada.
-    if (this.canCaptureRuta()) {
-      this.svc.rutas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { this.rutasRd.set(r.rd || []); this.rutasRv.set(r.rv || []); this.rutasCargadas.set(true); },
-        // Una tienda sin sucursal resuelta responde 400: se marca cargado igual,
-        // asi la pantalla dice "no hay rutas" en vez de quedarse en blanco.
-        error: () => this.rutasCargadas.set(true),
-      });
+  /**
+   * [SM.45] Pide las rutas de UNA sucursal y separa los cuatro estados.
+   *
+   * Antes se pedian una sola vez, al abrir, SIN sucursal: con un usuario de varias
+   * sucursales (o sin sucursal fija, como `auxiliar_tienda`) el servidor respondia
+   * 400 y el error se pintaba como «Tu sucursal no tiene rutas». Medido el
+   * 2026-10-21: Padre Hidalgo tiene 7 rutas de reparto y 2 vecinales en prod.
+   * Un error no es una lista vacia: se dice distinto.
+   */
+  cargarRutas(sucursal: string | null, forzar = false) {
+    if (!this.canCaptureRuta()) return;
+    const suc = (sucursal ?? '').trim();
+    if (!suc) {
+      this.rutasPedidas = '';
+      this.rutasRd.set([]); this.rutasRv.set([]); this.aRuta = '';
+      this.rutasEstado.set('sin_sucursal');
+      return;
     }
+    if (!forzar && suc === this.rutasPedidas && this.rutasEstado() === 'ok') return;
+    if (suc !== this.rutasPedidas) this.aRuta = '';
+    this.rutasPedidas = suc;
+    this.rutasEstado.set('cargando');
+    this.svc.rutas(suc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        if (this.rutasPedidas !== suc) return; // llego tarde: ya se eligio otra sucursal
+        this.rutasRd.set(r.rd || []); this.rutasRv.set(r.rv || []);
+        this.rutasEstado.set('ok');
+      },
+      error: () => {
+        if (this.rutasPedidas !== suc) return;
+        this.rutasRd.set([]); this.rutasRv.set([]);
+        this.rutasEstado.set('error');
+      },
+    });
   }
 
   /** No se refresca mientras hay un conteo a medio capturar: pisaría el trabajo. */
@@ -2176,7 +2236,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       }
       this.svc.submitRuta({
         tipo: this.aTipo(), route_code: this.aRuta,
-        warehouse_code: this.aSuc().trim() || undefined,
+        // [SM.45] La sucursal activa (la del turno o la elegida), no solo la del
+        // selector: con turno, `aSuc` va vacio y el servidor no la puede deducir
+        // para un usuario de varias sucursales.
+        warehouse_code: this.sucursalActiva() || undefined,
         business_date: this.fmtDate(this.aDate),
         cajero_code: this.aCajero.trim() || undefined,
         denominations, medios, nota: this.aNota.trim() || undefined,

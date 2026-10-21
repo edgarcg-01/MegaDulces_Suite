@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
-  TenantKnexService, TenantContextService, evalInput, composeFreshness,
+  TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql,
 } from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
@@ -1464,19 +1464,11 @@ export class CashLedgerService {
          * solas y 5 ($80,541.00) quedaron ambiguas** y las tiene que decir una persona.
          * **Cuando ese resto llegue a cero, este `OR` se borra** — y con él la última
          * comparación por texto del módulo. Lo cuenta `npm run check:cobro-escondido`.
+         *
+         * ⭐ `[CGA-A.49]` La regla vive en `platform-core` (`cajaNoCapturadaDesdeCaosSql`): la usan
+         * también el aviso horario y «Mi trabajo», que contaban sin ella.
          */
-        return x.whereNotExists((sub: any) => sub
-          .select(trx.raw('1'))
-          .from('finance.cash_ledger as yac')
-          .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
-             AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-             AND yac.origen_tipo = 'caos'
-             AND (
-               yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
-               OR (yac.declared_doc_ref IS NULL
-                   AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                                      || ' ' || v_caja_movimientos_pendientes.folio || '%')
-             )`));
+        return x.whereRaw(cajaNoCapturadaDesdeCaosSql('v_caja_movimientos_pendientes'));
       };
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
@@ -1574,6 +1566,30 @@ export class CashLedgerService {
       const totalRow: any = await qb.clone().clearOrder().count({ n: '*' }).first();
       const total = Number(totalRow?.n ?? 0);
 
+      /**
+       * ⭐ `[CGA-A.49]` **El total, partido en sus dos colas — con el más viejo de cada una.**
+       *
+       * La campana y «Mi trabajo» miden la cola DEL LIBRO (`cajaColaDelLibroSql`: desde el primer
+       * corte). Esta bandeja además trae el rezago de la era Control (`[CGA-A.44]`). Sin partirlo,
+       * la responsable ve «54» en «Mi trabajo» y «106» acá y no sabe cuál es el bueno: los dos lo
+       * son, y la suma tiene que verse. Mismos filtros y mismo `search` que `total` (se clona `qb`),
+       * así que `del_libro + rezago_control = total` por construcción.
+       */
+      type Parte = { n: number; monto: number; mas_viejo: string | null };
+      let cola: { del_libro: Parte; rezago_control: Parte } | null = null;
+      if (relevo) {
+        const partes: Array<{ del_libro: boolean; n: unknown; monto: unknown; mas_viejo: string | null }> = await qb.clone().clearOrder()
+          .select(trx.raw('(fecha_valor >= ?::date) AS del_libro', [relevo]),
+            trx.raw(`to_char(min(fecha_valor), 'YYYY-MM-DD') AS mas_viejo`))
+          .count({ n: '*' }).sum({ monto: 'monto' })
+          .groupByRaw('1');
+        const parte = (libro: boolean): Parte => {
+          const p = partes.find((x) => Boolean(x.del_libro) === libro);
+          return { n: Number(p?.n ?? 0), monto: Number(Number(p?.monto ?? 0).toFixed(2)), mas_viejo: p?.mas_viejo ?? null };
+        };
+        cola = { del_libro: parte(true), rezago_control: parte(false) };
+      }
+
       const rows = await qb
         // ⛔ CG.23.1 — El orden salía INVERSO para lo que la bandeja es: una cola de trabajo.
         //
@@ -1641,6 +1657,8 @@ export class CashLedgerService {
         relevo,
         saldados_por_control: saldados.length,
         control_ruta_disponible: controlSaldo.ruta_disponible,
+        // `[CGA-A.49]` `null` = no hay libro todavía (no hay en qué partir).
+        cola,
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
         // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
@@ -2916,22 +2934,10 @@ export class CashLedgerService {
       // ⭐ `[CGA-A.10]` Misma regla que en `movimientosPendientes()`: por LLAVE donde la hay,
       // y el `LIKE` sólo para lo histórico sin `declared_doc_ref`. **Las dos tienen que decir
       // lo mismo**: si una se cambia y la otra no, la cobertura mide contra otra cola.
-      const yaCapturado = (sub: Knex.QueryBuilder) => sub
-        .select(trx.raw('1'))
-        .from('finance.cash_ledger as yac')
-        .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
-           AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-           AND yac.origen_tipo = 'caos'
-           AND (
-             yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
-             OR (yac.declared_doc_ref IS NULL
-                 AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                                    || ' ' || v_caja_movimientos_pendientes.folio || '%')
-           )`);
-
+      // `[CGA-A.49]` Ahora es literalmente la misma regla: un fragmento compartido, no una copia.
       let qb = trx('finance.v_caja_movimientos_pendientes')
         .where('tenant_id', tenantId)
-        .whereNotExists(yaCapturado);
+        .whereRaw(cajaNoCapturadaDesdeCaosSql('v_caja_movimientos_pendientes'));
       if (ventana.from) qb = qb.where('fecha_valor', '>=', ventana.from);
       if (ventana.to) qb = qb.where('fecha_valor', '<=', ventana.to);
       if (q.tipo) qb = qb.where('tipo', q.tipo);

@@ -12,6 +12,11 @@ import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
   HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL, COMERCIAL_CATS,
 } from './receipt-match';
+// `[RE.42]` Si un papel ya se subió: emisor + folio, nunca el folio solo. Puro y medido.
+import {
+  folioNucleo, masGrave, mensajeDuplicado, papelesDeFila, veredictoDuplicado, SQL_CANDIDATOS_DUPLICADO,
+  type FilaCandidataDup, type FuenteEmisor, type MotivoDuplicado, type PapelProveedor, type VeredictoDuplicado,
+} from './documento-duplicado';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -174,6 +179,8 @@ export interface ReceiptFile {
   ocr_total?: number | null;
   ocr_fecha?: string | null;
   ocr_rfc?: string | null;
+  /** `[RE.42]` Posible duplicado que no se pudo probar: no frenó, y se deja escrito para el revisor. */
+  dup_aviso?: { sucursal: string; folio: string; motivo: MotivoDuplicado; mensaje: string };
 }
 
 /** Coincidencia de duplicado (misma hoja por hash, o folio ya subido). */
@@ -191,9 +198,22 @@ export interface ReceiptFile {
  */
 export interface DuplicateHit {
   reason: 'file' | 'folio';
+  /**
+   * ⭐ `[RE.42]` Qué tan seguro es. `bloquea` = misma hoja, o mismo folio del MISMO emisor probado.
+   * `avisa` = mismo folio sin poder probar el emisor: se muestra, NO frena. La decisión vive en el
+   * servidor (`documento-duplicado.ts`) para que las pantallas no la reimplementen cada una.
+   */
+  nivel: 'bloquea' | 'avisa';
+  motivo: MotivoDuplicado;
+  /** Con qué se decidió quién emitió el papel (`null` = no se pudo). */
+  emisor: FuenteEmisor | null;
+  /** Texto listo para la pantalla. */
+  mensaje: string;
   sucursal: string;
   folio: string;
   proveedor?: string | null;
+  /** Total leído del papel que ya estaba. */
+  monto?: number | null;
   /** `false` = la entrada ya no existe en el espejo de Kepler. No bloquea; se avisa. */
   vigente: boolean;
 }
@@ -1487,7 +1507,9 @@ export class GoodsReceiptProofsService {
    * Además detecta DUPLICADOS: la misma hoja (hash de contenido) o un folio de remisión/factura
    * ya subido antes. Preview, no guarda. `role` afina el dedup de folio (solo remisión/factura).
    */
-  async runOcr(dataUri: string, role?: string): Promise<RemisionFields & { ocr_status: string; sha256: string; duplicate: DuplicateHit | null }> {
+  async runOcr(
+    dataUri: string, role?: string, destino?: { sucursal?: string | null; folio?: string | null } | null,
+  ): Promise<RemisionFields & { ocr_status: string; sha256: string; duplicate: DuplicateHit | null }> {
     this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
@@ -1511,61 +1533,79 @@ export class GoodsReceiptProofsService {
     this.readings.remember(this.tenantCtx.requireTenantId(), sha256, fields, ocr_status);
     // El dedup por FOLIO aplica al documento del proveedor (remisión/factura); el de HASH, a cualquier hoja.
     const checkFolio = !role || role === 'remision' || role === 'factura';
-    const duplicate = await this.findDuplicate({ sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc });
+    const duplicate = await this.findDuplicate(
+      { sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc, nombre: fields.proveedor, total: fields.total },
+      destino,
+    );
     return { ...fields, ocr_status, sha256, duplicate };
   }
 
   /**
-   * ¿Esta hoja ya se subió? Por HASH de contenido (misma imagen/PDF) o por FOLIO de
-   * remisión/factura ya capturado. Devuelve la entrada donde ya vive, o null.
+   * ¿Esta hoja ya se subió? Devuelve dónde vive la otra y QUÉ TAN SEGURO es (`nivel`), o null.
+   *
+   * ⭐ `[RE.42]` La identidad de un papel del proveedor es **emisor + folio**, no el folio solo:
+   * la regla, las señales y lo que midió cada una están en `documento-duplicado.ts`. Acá sólo se
+   * juntan los candidatos (mismo hash o mismo núcleo de folio) con lo que se sabe de su emisor.
+   *
+   * `destino` = la entrada a la que va el papel, cuando ya se sabe (al adjuntar siempre; en la
+   * vista previa, si se soltó sobre una fila). Aporta la señal más fuerte: el `proveedor_code` de
+   * Kepler. Sin ella, la vista previa puede quedarse en `avisa` y el `attach` decide con ella.
    */
-  private async findDuplicate(q: { sha256?: string | null; folio?: string | null; rfc?: string | null }): Promise<DuplicateHit | null> {
-    const sha = (q.sha256 || '').trim();
-    const folio = (q.folio || '').trim().toLowerCase();
-    const rfc = (q.rfc || '').trim().toLowerCase();
-    const folioOk = folio.length >= 3 && /[^0]/.test(folio); // evita folios triviales ("1", "000")
-    if (!sha && !folioOk) return null;
+  private async findDuplicate(
+    nuevo: PapelProveedor,
+    destino?: { sucursal?: string | null; folio?: string | null } | null,
+  ): Promise<DuplicateHit | null> {
+    const sha = (nuevo.sha256 || '').trim();
+    const nucleo = folioNucleo(nuevo.folio) ?? '';
+    if (!sha && !nucleo) return null;
     const tid = this.tenantCtx.requireTenantId();
-    /**
-     * ⭐ `[RE.31]` ¿La entrada donde ya vive esa hoja SIGUE existiendo en Kepler?
-     *
-     * ⚠️ `analytics.erp_goods_receipts` lleva el filtro de tenant EXPLÍCITO: es un schema
-     * `analytics.*` y ahí el RLS no manda (mismo criterio que `attach`, unas líneas más abajo).
-     */
-    const VIGENTE = `EXISTS (SELECT 1 FROM analytics.erp_goods_receipts g
-                              WHERE g.tenant_id = ? AND g.sucursal = p.sucursal AND g.folio = p.folio) AS vigente`;
-    /**
-     * ⛔ El ORDEN importa y no es cosmético: si la misma hoja está en una entrada VIVA y en una
-     * borrada, tiene que ganar la viva — si no, un fantasma más reciente dejaría pasar un
-     * duplicado de verdad. Por eso `vigente DESC` va ANTES que `created_at DESC`.
-     */
-    const ORDEN = 'ORDER BY vigente DESC, p.created_at DESC LIMIT 1';
     return this.tk.run(async (trx) => {
-      if (sha) {
-        const hit = await trx.raw(
-          `SELECT p.sucursal, p.folio, p.proveedor_nombre, ${VIGENTE}
-             FROM finance.goods_receipt_proofs p
-            WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e WHERE e->>'sha256' = ?)
-            ${ORDEN}`, [tid, sha]);
-        const r = hit.rows?.[0];
-        if (r) return { reason: 'file' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre, vigente: r.vigente === true };
+      // ⚠️ `analytics.*` lleva el tenant EXPLÍCITO: ahí el RLS no manda (mismo criterio que `attach`).
+      const dSuc = (destino?.sucursal || '').trim();
+      const dFol = (destino?.folio || '').trim();
+      const dest = dSuc && dFol
+        ? await trx('analytics.erp_goods_receipts').where({ tenant_id: tid, sucursal: dSuc, folio: dFol })
+          .first('proveedor_code', 'proveedor_nombre')
+        : null;
+      const papel: PapelProveedor = {
+        ...nuevo,
+        proveedorCode: dest?.proveedor_code ?? nuevo.proveedorCode ?? null,
+        proveedorNombre: dest?.proveedor_nombre ?? nuevo.proveedorNombre ?? null,
+      };
+      // Nuestro RFC: leído en un papel es el RECEPTOR. Sale de `fiscal.issuer_config`, nunca de una constante.
+      const emisora = await trx('fiscal.issuer_config')
+        .where({ tenant_id: tid, active: true }).orderBy('is_default', 'desc').first('rfc');
+      // Candidatos (mismo hash o mismo núcleo de folio) con el proveedor de su entrada. El SQL y
+      // por qué está armado así (11.7 s → 129 ms) viven en `documento-duplicado.ts`.
+      const { rows } = await trx.raw(SQL_CANDIDATOS_DUPLICADO, [sha, sha, nucleo, nucleo, nucleo, nucleo, tid]);
+      const opts = { rfcPropio: emisora?.rfc ?? null, tolerancia: TOLERANCIA_DEFAULT };
+      const hits: { v: VeredictoDuplicado; r: FilaCandidataDup; p: PapelProveedor; nivel: VeredictoDuplicado['nivel'] }[] = [];
+      for (const r of (rows || []) as FilaCandidataDup[]) {
+        for (const p of papelesDeFila(r)) {
+          const v = veredictoDuplicado(papel, p, opts);
+          if (v.nivel !== 'distinto') hits.push({ v, r, p, nivel: v.nivel });
+        }
       }
-      if (folioOk) {
-        const hit = await trx.raw(
-          `SELECT p.sucursal, p.folio, p.proveedor_nombre, ${VIGENTE}
-             FROM finance.goods_receipt_proofs p
-            WHERE (
-                    lower(btrim(COALESCE(p.ocr_folio,''))) = ?
-                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e
-                             WHERE (e->>'role') IN ('remision','factura')
-                               AND lower(btrim(COALESCE(e->>'ocr_folio',''))) = ?)
-                  )
-              AND ( ? = '' OR lower(btrim(COALESCE(p.proveedor_rfc,''))) IN ('', ?) )
-            ${ORDEN}`, [tid, folio, folio, rfc, rfc]);
-        const r = hit.rows?.[0];
-        if (r) return { reason: 'folio' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre, vigente: r.vigente === true };
-      }
-      return null;
+      /**
+       * ⛔ Gana la entrada VIVA: si la misma hoja está en una viva y en una borrada, el fantasma no
+       * puede tapar al duplicado de verdad (`[RE.31]`). Entre vivas, el más grave.
+       */
+      const peor = masGrave(hits.filter((h) => h.r.vigente === true)) ?? masGrave(hits);
+      if (!peor) return null;
+      const { v, r, p } = peor;
+      return {
+        reason: v.motivo === 'misma_hoja' ? 'file' as const : 'folio' as const,
+        nivel: v.nivel as 'bloquea' | 'avisa',
+        motivo: v.motivo,
+        emisor: v.emisor,
+        sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre,
+        monto: p.total ?? null,
+        vigente: r.vigente === true,
+        mensaje: mensajeDuplicado({
+          motivo: v.motivo, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre,
+          folioPapel: nuevo.folio ?? null, monto: p.total ?? null, montoNuevo: nuevo.total ?? null,
+        }),
+      };
     });
   }
 
@@ -1582,13 +1622,21 @@ export class GoodsReceiptProofsService {
     // zona, captura sólo en la suya". 403 explicando la dimensión y el valor, no un Forbidden mudo.
     await this.scope.assertCanWrite('warehouse', sucursal);
 
-    // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen o folio ya capturado).
+    // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen, o mismo folio
+    // del MISMO emisor — `[RE.42]`). Aquí la entrada destino siempre se conoce, así que el emisor
+    // se decide con el `proveedor_code` de Kepler, la señal más fuerte.
+    const tid = this.tenantCtx.requireTenantId();
     for (const f of files) {
+      // La lectura del modelo (por hash) manda sobre lo que trae el request, igual que en el cuadre.
+      const leida = this.readings.recall<RemisionFields>(tid, f.sha256)?.fields;
+      const fiscal = f.role === 'remision' || f.role === 'factura';
       const dup = await this.findDuplicate({
         sha256: f.sha256,
-        folio: f.role === 'remision' || f.role === 'factura' ? f.ocr_folio : null,
-        rfc: f.ocr_rfc,
-      });
+        folio: fiscal ? (leida?.folio ?? f.ocr_folio) : null,
+        rfc: leida?.rfc ?? f.ocr_rfc,
+        nombre: leida?.proveedor ?? null,
+        total: leida?.total ?? f.ocr_total,
+      }, { sucursal, folio });
       /**
        * ⭐ `[RE.31]` Sólo bloquea un duplicado **vigente**. Si la entrada donde ya vive la hoja
        * fue BORRADA en Kepler, el duplicado es un fantasma: bloquear contra él le impide al
@@ -1604,12 +1652,17 @@ export class GoodsReceiptProofsService {
           + `Se deja pasar hacia ${sucursal}/${folio}; la evidencia vieja queda huérfana.`,
         );
       }
-      if (dup?.vigente) {
-        throw new BadRequestException(
-          dup.reason === 'file'
-            ? `Una de las hojas ya se había subido (entrada ${dup.sucursal}/${dup.folio}). Quítala.`
-            : `El folio ${f.ocr_folio} ya se subió (entrada ${dup.sucursal}/${dup.folio}${dup.proveedor ? ' · ' + dup.proveedor : ''}). Quita esa hoja.`,
-        );
+      if (dup?.vigente && dup.nivel === 'bloquea') {
+        throw new BadRequestException(`${dup.mensaje} Quita esa hoja.`);
+      }
+      /**
+       * `[RE.42]` Lo que no se pudo probar NO frena: el expediente pasa igual por el revisor, que
+       * es la compuerta humana. Pero no se calla — queda escrito EN la hoja, para que quien
+       * revise vea contra qué otra entrada se parece y por qué no se decidió solo.
+       */
+      if (dup?.vigente && dup.nivel === 'avisa') {
+        this.logger.warn(`[RE.42] posible duplicado ${sucursal}/${folio} ↔ ${dup.sucursal}/${dup.folio} (${dup.motivo}); pasa al revisor.`);
+        f.dup_aviso = { sucursal: dup.sucursal, folio: dup.folio, motivo: dup.motivo, mensaje: dup.mensaje };
       }
     }
 

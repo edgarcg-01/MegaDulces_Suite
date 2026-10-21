@@ -3417,6 +3417,30 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.textoAlcance()).toContain('el Control no concilió');
   });
 
+  it('[CGA-A.49] el alcance parte el total en la cola del libro y el rezago de Control', () => {
+    // «Mi trabajo» y la campana cuentan SÓLO la del libro: sin partirlo, la responsable ve 54 allá
+    // y 100 acá y no sabe cuál es el bueno (medido el 2026-10-20: 54 + 46 = 100).
+    const cola = {
+      del_libro: { n: 54, monto: 736378.53, mas_viejo: '2026-10-12' },
+      rezago_control: { n: 46, monto: 737331.75, mas_viejo: '2026-10-02' },
+    };
+    montar({ movimientosPendientes: vi.fn(() => of({ ...VACIA, desde: '2026-10-01', ventana_dias: null, desde_motivo: 'relevo', relevo: '2026-10-12', cola })) });
+    const t = comp.textoAlcance();
+    expect(t).toContain('54 desde el 12/10/26 (primer corte del libro)');
+    expect(t).toContain('46 del 01/10/26 al 11/10/26 que el Control no concilió');
+  });
+
+  it('[CGA-A.49] la antigüedad de un pendiente se cuenta contra el día de México', () => {
+    montar({});
+    const hoy = todayMx();
+    const hace = (n: number) => { const d = new Date(`${hoy}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+    expect(comp.diasPendiente(hoy)).toBe(0);
+    expect(comp.diasPendiente(hace(4))).toBe(4);
+    // NEGATIVA: lo fechado adelante no tiene antigüedad (lo declara `esFutura`), ni lo que no tiene fecha.
+    expect(comp.diasPendiente(hace(-2))).toBeNull();
+    expect(comp.diasPendiente(null)).toBeNull();
+  });
+
   // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
 
   it('el historial arranca CERRADO: debajo del area de trabajo no hay 800px de archivo', () => {
