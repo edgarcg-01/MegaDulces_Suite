@@ -1163,6 +1163,12 @@ export const CRON_JOBS: CronCfg[] = [
   // ⚠️ Avisa por el SÍNTOMA, no por la causa: si el carril de documentos muere, esto se queda
   // viejo — pero quien lo ve de verdad es el latido del propio carril (`mv_caja_push`).
   { key: 'caja_autollenado',    label: 'Caja General: el libro se llena solo (por aviso del carril, sin reloj)', cadence: 'por evento (NOTIFY caja_movimientos)', warnH: 30, critH: 72, maxRunH: 0.25 },
+  // [CB.53] Conciliación bancaria por aviso (NOTIFY caja_fuente, el mismo carril de kdm1/kdb1).
+  // Los umbrales salen de la cadencia REAL del lado banco, no del de Kepler: el estado de cuenta
+  // se carga a mano y hay días sin carga (medido: 10 cargas en octubre, no 22). Un hueco de 30 h
+  // es normal un fin de semana; 72 h ya significa que nadie subió nada en tres días o que el
+  // oyente murió. `maxRunH` chico porque una corrida midió ~3 s de datos + pases.
+  { key: 'bank_recon_aviso',    label: 'Bancos: la conciliación corre al llegar el dato (sin reloj)', cadence: 'por evento (NOTIFY caja_fuente)', warnH: 30, critH: 72, maxRunH: 0.25 },
   // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
   { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
