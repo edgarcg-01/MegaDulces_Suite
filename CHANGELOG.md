@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Gastos y pronto pago dejan de contar documentos cancelados en Kepler (CSU.12, 2026-10-21)
+- **Comprobaciones, pagables de Caja, materialidad y MAAT**: salen **1,021 gastos/entradas cancelados** que todavía cargaban **$3,177,101.13** por el agregado contable. Un gasto cancelado ya no se ofrece como pagable.
+- **Pronto pago**: deja de contar **$1,450,384.26 de descuento** de 101 pagos cancelados; la tasa observada baja a lo real en 8+ proveedores (ej. CF004 de 7.39 % a 6.20 %).
+- **Internal**: `check:kdm5-vigente:db` también revisa las cabeceras de `kdm1` con dinero que no miran el estatus de cancelación.
 ### Fixed — Revisión de entradas: los avisos que faltaban (RE.42.1, RE.43.1, RE.44, 2026-10-21)
 - **Revisión** muestra «Posible duplicado de la entrada X» cuando quien subió la factura vio ese aviso y la envió igual, con liga a la otra entrada para compararlas.
 - Cuando el total leído es la misma cifra que Kepler con el separador corrido (se leyó `$22.50` por `$22,500`), la pantalla lo dice como **probable error de lectura** en vez de «cobra de menos $22,477».

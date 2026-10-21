@@ -84,6 +84,21 @@ const DB_PERMITIDOS = new Map([
   ['analytics.income_bridge_src', 'casa cada aplicación con su documento y MARCA el cancelado a propósito ([CXC] casar_cancelados)'],
 ]);
 
+/**
+ * En `--db`, la otra mitad del mismo defecto: vistas/funciones que leen la CABECERA `kdm1` con columnas
+ * de dinero (c14 IVA, c16 total, c84 descuento) y no mencionan `c43`. Medido el 2026-10-21: 8 objetos;
+ * `expense_documents` ($3.18 M de cancelados) y `mv_supplier_prompt_discount` ($1.45 M de descuento
+ * que no existió) se corrigen en `20261021121257`. Los demás quedan declarados con su porqué.
+ */
+const DB_KDM1_DECLARADOS = new Map([
+  ['analytics.erp_sale_tickets', 'ticket POS U-D-10: el estatus c43 del ticket NO es señal (ERP_KEPLER.md); un ticket anulado ya sale en 0'],
+  ['analytics.v_transfer_true_origin', 'traspasos: mide unidades/origen, no suma dinero'],
+  ['analytics.erp_shipment_headers', 'embarques (logística): el total de un cancelado ya es 0; pendiente que no CUENTE el documento'],
+  ['analytics.erp_shipment_billing', 'embarcado vs facturado: totales bien (c16 = 0), pero un cancelado cuenta en n_facturas — deuda CXC'],
+  ['analytics.v_cfdi_emitido_match', 'cruce CFDI: un cancelado sale como «difiere_importe» — deuda de su dueño (IG)'],
+  ['analytics.erp_sales_invoice_lines', 'líneas de factura (kdm2) de documentos cancelados — deuda: el reporte de cliente las muestra'],
+]);
+
 function archivos(dir, acc) {
   let entradas;
   try { entradas = fs.readdirSync(dir, { withFileTypes: true }); } catch { return acc; }
@@ -176,6 +191,24 @@ if (process.argv.includes('--db')) {
       }
       const vista = (await c.query(`SELECT to_regclass('${VISTA}') AS x`)).rows[0].x;
       if (!vista) { rojo = true; console.log(`⛔ ${VISTA} no existe en esta base: falta 20261021102646_kepler_kdm5_vigente.`); }
+
+      // ── Cabeceras kdm1 con dinero y sin c43 ──
+      const k = await c.query(`
+        WITH defs AS (
+          SELECT n.nspname || '.' || cl.relname AS obj, pg_get_viewdef(cl.oid) AS d FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace
+           WHERE cl.relkind IN ('v', 'm')
+          UNION ALL
+          SELECT n.nspname || '.' || p.proname, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND p.prokind = 'f')
+        SELECT obj FROM defs WHERE d ~ 'kepler_ods\\.kdm1\\M' AND d !~ '\\mc43\\M' AND d ~ '\\mc(16|84|14)\\M' ORDER BY 1`);
+      console.log('\n— cabeceras kdm1 con dinero (c14/c16/c84) que no miran c43 —');
+      const vistos = new Set();
+      for (const o of k.rows) {
+        vistos.add(o.obj);
+        if (DB_KDM1_DECLARADOS.has(o.obj)) console.log(`·  ${o.obj} — ${DB_KDM1_DECLARADOS.get(o.obj)}`);
+        else { rojo = true; console.log(`⛔ ${o.obj} suma la cabecera de kdm1 sin excluir CANCELADOS (c43 = 'C'). Agregá el filtro o declaralo con su porqué.`); }
+      }
+      for (const [o] of DB_KDM1_DECLARADOS) if (!vistos.has(o)) console.log(`·  ${o} — ya mira c43 (o no existe): quitalo de DB_KDM1_DECLARADOS.`);
       console.log(rojo ? '\n⛔ compuerta en ROJO.\n' : `\n✓ En la base, sólo ${VISTA} y lo declarado leen kdm5 crudo.\n`);
       process.exitCode = rojo ? 1 : 0;
     } finally {
