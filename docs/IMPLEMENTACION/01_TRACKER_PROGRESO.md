@@ -8849,6 +8849,90 @@ TP.6-TP.8+TP.10".
 >   dos comandos míos**, y commitear la etiqueta exigió `git apply --cached` de un solo hunk para no
 >   llevarse 5 hunks ajenos. ⛔ **No se abre como fase** (Fase 0 en curso, §7 del método).
 
+> ### 🔨 2026-10-20 — **CGS · El supervisor ve el arqueo, y puede autorizarlo**
+>
+> Edgar pidió tres cosas: *«que todas las mañanas le llegue una notificación a María Gutiérrez (a
+> su puesto) que tiene que revisar el arqueo de caja general, autorizar y permitir usar la caja»* ·
+> *«una pestaña extra que diga Arqueos … que muestre más desglosados los cortes»* · *«la caja no se
+> puede usar si el puesto de María Gutiérrez no autorizó»*.
+>
+> - [x] **[CGS.1]** 🚀 **La bandeja de arqueos por autorizar, y el permiso que la hace servir.**
+>       ⛔ **No era desidia: el puesto no podía.** Medido en prod el 2026-10-20: `tesoreria` —el de
+>       `maria_gutierrez`, ya responsable **principal** de `finanzas.caja`— tenía `FINANCE_CAJA_VER`
+>       y `GESTIONAR`, y **`AUTORIZAR` en `null`**. Autorizar sólo podían `direccion` (2 personas) y
+>       `superadmin` (8), **ninguno supervisor de caja**. Resultado: **7 cortes cerrados, CERO
+>       autorizados**, del 12 al 19-oct, con diferencias de hasta **−$208,594.59** que nadie miró.
+>       *Una responsabilidad sin el permiso que la ejerce es un reclamo, no un proceso.*
+>       Bandeja `caja-por-autorizar` en `me-work.ts` (`umbral_dias: 1` — lo fijó el «todas las
+>       mañanas», no yo) con `closed_by <> userId`: la doble llave vive en la base
+>       (`cut_doble_llave_chk`), y una bandeja que pida trabajo que el servidor va a rechazar con
+>       403 se deja de mirar. Migración batch **974**, aplicada. Hoy María vería **7 por autorizar**.
+> - [x] **[CGS.2]** 🧪 **Pestaña «Arqueos»: el mismo cajón, contado dos veces, lado a lado.**
+>       `GET /finance/caja-control/cruce` + `/finanzas/caja-general/arqueos`.
+>       ⛔ **Ninguna pantalla cruzaba los dos conteos**: el Expediente lee sólo Control, Captura
+>       sólo la Suite. Por eso **$19,811.50** de desfase vivieron ocho días sin que nadie los viera.
+>       ⭐ **El total solo no alcanza:** el 19-oct son $500 que parecen descuadre y son **un billete
+>       mal clasificado** (la Suite anotó un $1,000 donde Control anotó un $500, las otras ocho
+>       denominaciones idénticas). Por eso publica el desglose pieza por pieza, no el delta.
+>       **Dos defectos que encontró el ensayo contra prod, no el compilador:**
+>       (1) la reja tenía **dos piezas con el mismo rótulo** — $20 es billete (`b20`) y moneda
+>       (`m20`), $100 igual — y como clave de lista las fundía; ahora viajan `clave` y `tipo`;
+>       (2) el cruce arrancaba desde Control, así que **un corte de la Suite en un día que Control
+>       no cerró era invisible**: el 12 y el 13-oct, **$61,224.50**, dos de los siete. Ahora son
+>       **cuatro estados** (`cuadran · difieren · sin_corte · sin_arqueo`) y los dos huecos van
+>       declarados, nunca en cero.
+>       ⛔ **No decide quién arbitra** (ADR-059): publica las dos cifras y su diferencia. Tipos en
+>       `libs/contracts/src/finance/cruce-arqueos.contract.ts` — el frontend tenía su propia copia,
+>       que es cómo los dos lados se separan sin que nada se ponga rojo (ADR-052).
+>       Ensayo contra prod en lectura, con control de instrumento (19-oct = +$500 explicado por una
+>       pieza): **PASA**. `check:pantalla` 0 fallas · boundary gate sin violaciones propias.
+> - ⬜ **[CGS.3]** **El candado**: que no se pueda abrir jornada nueva si la anterior cerró sin
+>       autorizar. Aprobado por Edgar, sin escribir.
+>       ⭐ **2026-10-21 — D2 de Edgar lo precisa**: suplente (Dirección) a las 12:00 y, con dos
+>       jornadas cerradas sin revisar, la caja no puede *cerrar* la tercera (sí capturar). Plan:
+>       [`FASE_CGS_SUPERVISION_DE_CAJA.md`](FASES/FASE_CGS_SUPERVISION_DE_CAJA.md) §2.2.
+>
+> **2026-10-21 — Plan por capas de la supervisión** ([`FASE_CGS_SUPERVISION_DE_CAJA.md`](FASES/FASE_CGS_SUPERVISION_DE_CAJA.md)).
+> Línea base medida en prod (`dev_ro`): **7 cortes cerrados, 0 autorizados**, los 7 abiertos y
+> cerrados por la misma persona; **3 de 7** cerrados el mismo día; el **20-oct sin corte** (30
+> movimientos, $494,128.13) y el 21-oct ya con 5 gastos ($145,906.50) encima; la supervisora
+> capturó **29 de 30** movimientos del 20-oct; **20 personas** con `GESTIONAR` (capturaron 3);
+> **28** ediciones post-cierre sin autor; `CI-2026-00063` cambió de ingreso a gasto dentro de un
+> corte firmado; **0** conteos físicos de CAOS. Decisiones de Edgar el mismo día: **D1** candado
+> duro + llave de emergencia · **D2** suplente + 12:00 · **D3** la supervisora captura pero no
+> firma lo suyo · **D4** `GESTIONAR` sólo al equipo de caja.
+>
+> - [x] **[CGS.10]** 🚀 **Bitácora del libro y del corte** — reusa `analytics.master_data_history` (VP.3.1), sin
+>       tabla nueva. Migración `20261021110252` aplicada en prod (batch 983). Medido: 30 cambios del libro y 2
+>       del corte registrados al 21-oct 16:45.
+> - [x] **[CGS.11]** 🚀 **Candado de base sobre lo firmado** (`cash_ledger_en_corte_firmado_chk`). Misma migración.
+> - [x] **[CGS.16]** 🚀 **Quien autoriza es ajeno al corte** (D3): base (`cut_autoriza_lo_ajeno_chk`, aplicada) +
+>       servicio con 403 y frase (en `main`; despliegue del código NO verificado).
+> - [x] **[CGS.23]** 🧪 Frases de las reglas nuevas en `caja-errores.ts`.
+> - [x] **[CGS.12]** 🧪 **La lista V1…V11** de la revisión de la mañana. ⚠️ Motor puro y no vista (desvío declarado:
+>       la usan `arqueos()` y `autorizar()`). Sus hechos corrieron en prod en lectura: V1 3/7, V3 roto en CC-4,
+>       28 ediciones post-cierre. V9 (CAOS) se declara NO MEDIDO hasta `[CGA-A.33]`.
+> - [x] **[CGS.13]** ✅ No se hace: V3 declara el eslabón roto CC-3 → CC-4 ($10,831.50) cada vez que se lee.
+> - [x] **[CGS.14]** 🧪 Candado 1 (D1): sin corte de ayer no se captura, 423 con frase. PRENDIDO por omisión;
+>       interruptor `CAJA_CANDADO_CAPTURA=off`. **[CGS.15]** 🚀 llave de emergencia: tabla aplicada (batch 986),
+>       0 llaves dadas.
+> - [x] **[CGS.3]** 🧪 Candado 2 (D2): con 2 cortes cerrados sin revisar no se cierra el tercero. APAGADO hasta
+>       fijar `CAJA_CANDADO_REVISION_DESDE`. **[CGS.3b]** 🧪 a las 12:00 del día siguiente escala por persona a
+>       tesorería y Dirección.
+> - [x] **[CGS.17]** 🧪 Autorizar exige respuesta y nota (D5: sin tolerancia, Edgar 2026-10-21). **[CGS.18]** 🚀
+>       estado `observado` (migración aplicada, batch 985).
+> - [x] **[CGS.19]**–**[CGS.22]** 🧪 API: lista dentro de `arqueos`, observar/responder/autorizar con nota,
+>       candado y llaves, conteo físico de CAOS (tabla `finance.caos_conteos_fisicos` aplicada, batch 989; 0 conteos).
+> - [x] **[CGS.24]**–**[CGS.28]** 🧪 Pantallas: Arqueos como mesa de la supervisora, candado y respuesta en Captura,
+>       conteo de la caja fuerte. SIN validación visual. Dos builds rotos por plantilla corregidos el mismo día
+>       (`e7d0714b7`, `d6eb3d5ab`).
+> - [x] **[CGS.29]**/**[CGS.30]** 🧪 Horario (8:30–12:00, suplente Dirección) y runbook reescrito.
+>       **[CGS.31]** ⬜ primera semana acompañada (Edgar + supervisora). **[CGS.32]** ⬜ ligar operadores de CAOS
+>       003/006/002 a personas (Tesorería).
+> - [x] **[CGS.33]** 🚀 D4: a la caja entran Carmen, Mayra y María Gutiérrez, Dirección de suplente (batch 987).
+>       **[CGS.34]** ✅ los superadmins (14 cuentas) conservan el acceso (Edgar, 2026-10-21).
+> - ⚠️ Medido el 21-oct a las 16:45: CC-2026-00008 (20-oct) ya cerrado; **8 cortes esperan revisión, 0 revisados**.
+
 > ### 🔨 2026-10-19 — **EL `INSERT` A MANO NO DEBÍA EXISTIR**: el concepto se deriva, y lo que no, se declara desde la app
 >
 > Edgar: *«te pedí que nunca ningún movimiento tuviera llenado manual **o que no se lograra
