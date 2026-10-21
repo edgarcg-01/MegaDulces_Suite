@@ -305,7 +305,11 @@ interface CortesPersona {
                   </span>
                 </div>
               }
-              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
+              <!-- [SM.46] En RD/RV no hay caja: lo que se arquea es lo que entrega una RUTA,
+                   y la ruta se elige abajo. Pedir la caja ahi era un dato que no describe nada. -->
+              @if (!esRuta()) {
+                <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
+              }
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
@@ -838,10 +842,10 @@ interface CortesPersona {
       <div class="arq-cfm">
         <div class="arq-cfm-hd">
           @if (turnoSel(); as t) {
-            <span>{{ branchLabel(t.warehouse_code) }} · Caja {{ t.caja }}</span>
+            <span>{{ branchLabel(t.warehouse_code) }} · {{ esRuta() ? 'Ruta ' + (rutaLabel() || '—') : 'Caja ' + t.caja }}</span>
             <span class="muted">{{ t.cajero_code || '—' }} · {{ t.business_date | date:'dd/MM/yy' }}</span>
           } @else {
-            <span>{{ branchLabel(aSuc()) || '—' }} · Caja {{ aCaja || '—' }}</span>
+            <span>{{ branchLabel(aSuc()) || '—' }} · {{ esRuta() ? 'Ruta ' + (rutaLabel() || '—') : 'Caja ' + (aCaja || '—') }}</span>
             <span class="muted">{{ aCajero || '—' }} · {{ hoyTxt() }}</span>
           }
         </div>
@@ -1456,7 +1460,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * literal que depende de que un `@if` de más arriba sea cierto es una bomba de tiempo.
    */
   readonly idxCaja = computed(() => (this.variasSucursales() ? 1 : 0));
-  readonly idxCajero = computed(() => (this.variasSucursales() ? 2 : 1));
+  // [SM.46] Sin campo Caja en RD/RV, el cajero sube una posicion en la cadena de teclado.
+  readonly idxCajero = computed(() => (this.variasSucursales() ? 1 : 0) + (this.esRuta() ? 0 : 1));
 
   /**
    * SM.38/SM.40 - Dos cajas abiertas con el mismo usuario. Viene resuelto del
@@ -1921,6 +1926,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     const ok = imprimirTicket({
       sucursal: this.branchLabel(t?.warehouse_code ?? this.aSuc()),
       caja: t?.caja ?? this.aCaja,
+      // [SM.46] RD/RV no tienen caja: el papel dice la ruta que entrego.
+      ruta: this.esRuta() ? this.rutaLabel() || null : null,
       fecha: t?.business_date ?? this.fmtDate(this.aDate),
       folio: t?.folio ?? null,
       cajera: this.aCajero || '',
@@ -1984,8 +1991,16 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   canSubmit(): boolean {
     if (this.arqTotal() <= 0 && !this.vacio()) return false;
+    // [SM.46] RD/RV se sellan por RUTA: no piden caja (el endpoint de ruta no la recibe).
+    if (this.esRuta()) return !!this.sucursalActiva() && !!this.aRuta;
     if (this.turnoSel()) return true;
     return this.manual() && !!(this.aSuc().trim()) && !!this.aCaja.trim() && !!this.aDate;
+  }
+
+  /** [SM.46] Nombre de la ruta elegida, para la confirmacion y el ticket. Metodo: `aRuta` es campo plano. */
+  rutaLabel(): string {
+    if (!this.aRuta) return '';
+    return this.rutasDelTipo().find((r) => r.route_code === this.aRuta)?.label || this.aRuta;
   }
 
   // ─────────────────── pad de denominaciones ───────────────────
