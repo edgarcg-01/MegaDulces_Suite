@@ -26,6 +26,7 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import type { PosicionCajaDto, EstadoPosicion } from '@megadulces/contracts';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
@@ -197,12 +198,53 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
            «cuanto hay AHORA». Se compone el cierre anterior + lo de hoy, DECLARADO como provisional. -->
       <section class="cq-ahora" aria-labelledby="cq-h-ahora">
         <div class="cq-ahora-cab">
-          <h2 id="cq-h-ahora" class="cq-h2">¿Cuánto hay ahora en el cajón y en la caja fuerte?</h2>
+          <h2 id="cq-h-ahora" class="cq-h2">¿Qué hay en caja ahora?</h2>
           <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado" />
         </div>
         <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
                         [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
-          <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora" />
+          <!-- [CGS.35] Todo lo que hay en caja, rubro por rubro: cajon, caja fuerte, dolares, cheques y
+               papeles. Lo que no se puede afirmar se dice; no entra al total como si fuera cero. -->
+          <app-metric-strip [items]="posicionKpis()" ariaLabel="Lo que hay en caja" />
+          @if (posicion(); as p) {
+            <p-table [value]="p.rubros" size="small" dataKey="rubro" class="surf-table surf-table--plain cq-pos">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Rubro</th>
+                  <th scope="col" class="comm-num">Lo último contado</th>
+                  <th scope="col" class="comm-num">Desde entonces</th>
+                  <th scope="col" class="comm-num">Debería haber ahora</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td><b>{{ r.etiqueta }}</b></td>
+                  <td class="comm-num">
+                    @if (r.ultimo) {
+                      @if (r.ultimo.usd != null) { <span class="cq-mono">USD {{ usd(r.ultimo.usd) }}</span> · }
+                      {{ r.ultimo.monto === null ? 'sin medir' : mx(r.ultimo.monto) }}
+                      <span class="cq-pos-sub">{{ r.ultimo.fuente }}{{ r.ultimo.at ? ' · ' + cuando(r.ultimo.at) : '' }}</span>
+                    } @else { <span class="cq-dim">—</span> }
+                  </td>
+                  <td class="comm-num">
+                    @if (r.desde) {
+                      +{{ mx(r.desde.entra) }} · −{{ mx(r.desde.sale) }}
+                      <span class="cq-pos-sub">{{ r.desde.detalle }}</span>
+                    } @else { <span class="cq-dim">la Suite no lleva sus movimientos</span> }
+                  </td>
+                  <td class="comm-num">
+                    @if (r.ahora.monto !== null) {
+                      <b>@if (r.ahora.usd != null) { USD {{ usd(r.ahora.usd) }} · }{{ mx(r.ahora.monto) }}</b>
+                    }
+                    <p-tag [value]="etiquetaPosicion(r.ahora.estado)" [severity]="sevPosicion(r.ahora.estado)" styleClass="cq-tag" />
+                    <span class="cq-pos-sub">{{ r.ahora.nota }}</span>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          } @else if (posicionError()) {
+            <p class="cq-nota cq-mal" role="alert">{{ posicionError() }}</p>
+          }
           @if (cajonNota(); as nota) { <p class="cq-nota">{{ nota }}</p> }
           <!-- [CGA-A.48] Lo que Control contó y está en la caja fuerte, no en el cajón. -->
           @if (controlUltimo(); as cu) {
@@ -647,6 +689,8 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
     .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
+    .cq-pos { margin-top:var(--sp-3); }
+    .cq-pos-sub { display:block; color:var(--text-muted); font-size:var(--fs-sm); font-weight:400; }
     .cq-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
 
     .cq-veredicto { margin-block:var(--sp-4); padding-block:var(--sp-3); border-block:1px solid var(--border-color); }
@@ -909,6 +953,7 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly caosSaldo = signal<CaosSaldo | null>(null);
 
   cargarCajon(): void {
+    this.cargarPosicion();
     this.cajonCargando.set(true);
     forkJoin({
       f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00'),
@@ -923,60 +968,46 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     });
   }
 
-  readonly cajonKpis = computed<MetricStripItem[]>(() => {
-    const f = this.cajonFondo();
-    const s = this.cajonSaldo();
-    const items: MetricStripItem[] = [];
-    const efecto = s && !s.saldo_oculto && s.totales?.esperado != null ? Number(s.totales.esperado) : null;
+  // ── `[CGS.35]` Lo que hay en caja, rubro por rubro ──────────────────────────────────────
+  readonly posicion = signal<PosicionCajaDto | null>(null);
+  readonly posicionError = signal<string | null>(null);
 
-    if (!s) {
-      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
-    } else if (s.saldo_oculto) {
-      items.push({ label: 'Cajón de Caja General', value: 'oculto', state: 'no_medido',
-        stateNote: 'Arqueo ciego: el esperado sólo lo ve quien autoriza el corte.' });
-    } else if (s.corte_abierto && s.saldo != null) {
-      items.push({ label: 'Cajón de Caja General', value: money(Number(s.saldo)), state: 'derivado',
-        method: `fondo del corte ${s.corte_abierto.folio} + lo capturado; no es un conteo`,
-        sub: `según el corte abierto ${s.corte_abierto.folio}` });
-    } else if (f?.monto != null && efecto != null) {
-      items.push({ label: 'Cajón de Caja General', value: money(Number(f.monto) + efecto), state: 'derivado', tone: 'warn',
-        method: `cierre anterior (${f.procedencia ?? 'su conteo'}) + ${s.totales.movimientos} movimiento(s) de hoy`,
-        sub: 'provisional · nadie ha abierto ni contado el corte de hoy' });
-    } else {
-      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido',
-        stateNote: 'No hay cierre anterior medido del que partir.' });
-    }
+  cargarPosicion(): void {
+    this.cajas.posicion().subscribe({
+      next: (p) => { this.posicion.set(p); this.posicionError.set(null); },
+      error: () => this.posicionError.set('No se pudo calcular lo que hay en caja.'),
+    });
+  }
 
-    if (efecto != null && s && !s.corte_abierto) {
-      const disp = Number(s.cajero?.dispensado ?? 0);
-      items.push({ label: 'Lo de hoy', value: `${efecto < 0 ? '−' : '+'}${money(Math.abs(efecto))}`,
-        sub: `${s.totales.movimientos} capturado(s)` + (disp ? ` · la caja fuerte dispensó ${money(disp)}` : '') });
-    }
-
-    // ⭐ [CGA-A.48] La caja fuerte, SEPARADA del cajón (Edgar, 2026-10-20). El efectivo de las rutas
-    // entra a CAOS y de CAOS sale a los proveedores: al cajón de Caja General sólo le queda la
-    // morralla, así que su cifra casi no se mueve aunque el día mueva cientos de miles. Lo que se
-    // mueve es la caja fuerte, y sin esta cifra no se veía en ningún lado.
-    const c = this.caosSaldo();
-    const cj = s?.cajero;
-    const flujo = cj ? `${dmy(cj.dia)}: entró ${money(cj.depositado)} · salió ${money(cj.dispensado)}` : undefined;
-    if (c?.estado === 'medido' && c.saldo) {
-      const exacto = c.saldo.origen === 'maquina' && !c.saldo.parcial;
-      items.push({ label: 'Caja fuerte (CAOS)', value: money(c.saldo.total),
-        state: c.saldo.parcial ? 'parcial' : exacto ? 'medido' : 'derivado',
-        method: exacto ? undefined : 'última lectura de la máquina + los movimientos posteriores',
-        stateNote: c.saldo.parcial ? 'Algún movimiento posterior a la lectura no tiene dirección decodificada.' : undefined,
-        sub: flujo });
-    } else {
-      items.push({ label: 'Caja fuerte (CAOS)', value: 'sin medir', state: 'no_medido',
-        stateNote: c
-          ? 'La máquina todavía no publica cuánto tiene adentro: de la caja fuerte sólo se sabe lo que entró y salió.'
-          : 'No se pudo leer la caja fuerte.',
-        sub: flujo });
-    }
+  /** Q.1: la cifra que se puede afirmar, y en la misma línea lo que NO entra. */
+  readonly posicionKpis = computed<MetricStripItem[]>(() => {
+    const p = this.posicion();
+    if (!p) return [{ label: 'Lo que hay en caja', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se calculó.' }];
+    const fuera = p.rubros.filter((r) => p.total.fuera.includes(r.rubro)).map((r) => r.etiqueta.toLowerCase());
+    const usd = p.rubros.find((r) => r.rubro === 'dolares')?.ahora.usd ?? null;
+    const items: MetricStripItem[] = [{
+      label: p.total.completo ? 'Lo que hay en caja' : 'Lo que se puede afirmar',
+      value: money(p.total.monto),
+      state: 'derivado',
+      method: 'suma de los rubros de abajo; no es un conteo',
+      sub: p.total.completo ? 'todos los rubros' : `sin ${fuera.join(', ')}`,
+      tone: p.total.completo ? 'default' : 'warn',
+    }];
+    if (usd != null) items.push({ label: 'Dólares', value: `USD ${this.usd(usd)}`, state: 'medido', sub: 'último arqueo de Control' });
     return items;
   });
 
+  etiquetaPosicion(e: EstadoPosicion): string {
+    return ({ medido: 'Contado', derivado: 'Calculado', parcial: 'Calculado, incompleto', imposible: 'No se puede afirmar', no_medido: 'Sin medir' } as const)[e];
+  }
+  sevPosicion(e: EstadoPosicion): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
+    return ({ medido: 'success', derivado: 'info', parcial: 'warn', imposible: 'danger', no_medido: 'secondary' } as const)[e];
+  }
+  usd(n: number): string { return Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  /** Instante ISO → «20/10/26 18:12» en hora de México. */
+  cuando(iso: string): string {
+    return new Date(iso).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
   readonly cajonNota = computed<string | null>(() => {
     const f = this.cajonFondo();
     const s = this.cajonSaldo();

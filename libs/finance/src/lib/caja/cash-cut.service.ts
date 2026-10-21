@@ -5,7 +5,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
-  type JornadasPendientes, type CorteCajaDto, type VeredictoCorte,
+  type JornadasPendientes, type CorteCajaDto, type VeredictoCorte, type PosicionCajaDto,
   type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo, type VerificacionCorte,
 } from '@megadulces/contracts';
 import { depositosEnElExceso, excesoDeBilletes, type BilletesPorDenominacion, type DepositoCaos } from './caja-cajon-caos.engine';
@@ -13,6 +13,7 @@ import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
 import { leerCandado, type CandadoCaja } from './caja-candado.query';
+import { leerPosicion } from './caja-posicion.query';
 import { candadoDeCierre, puedeDarLlave, TEXTO_NO_LLAVE } from './caja-candado.engine';
 import { verificarCorte, fallasDe, type HechosVerificacion } from './caja-verificacion.engine';
 import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-vecinal.query';
@@ -1064,6 +1065,15 @@ export class CashCutService {
 
       return { ...aCorteCajaDto(cerrado), totales: t };
     }));
+  }
+
+  /**
+   * ⭐ `[CGS.35]` Lo que hay en caja, rubro por rubro: cajón, caja fuerte, dólares, cheques y papeles.
+   * Con `revela = false` el esperado del cajón se oculta (arqueo ciego) y se declara oculto.
+   */
+  async posicion(revela: boolean): Promise<PosicionCajaDto> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => leerPosicion(trx, tenantId, revela));
   }
 
   /**
