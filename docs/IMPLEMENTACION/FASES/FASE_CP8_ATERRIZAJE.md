@@ -681,6 +681,37 @@ provisión sola daba 728; (2) **el camino «REP por factura» no se arma solo**:
 proveedor saldría armada con 2.7 % de error nuestro, y otra cuarta parte como propuesta para confirmar.
 El techo lo ponen el REP (D8) y el RFC de los acreedores en Kepler.
 
+### ⭐ `[CP.8.71]` Lo que no se armaba: el RFC de Kepler está mal capturado
+
+Al abrir los 298 «sin REP y cadena incompleta», **249 tenían el proveedor identificado con otro RFC**:
+el de `kdxd.c10` no existe como emisor de CFDI. No es otra empresa: es captura — dedazos (PCP920**5**23**H**QA
+por PCP920**4**23**K**QA, DC**9** por DC**P**, CF**0** por CF**C**), guiones y cortado («CCO-820507-BV»), o el RFC de
+una persona física en el acreedor de un proveedor grande. Con ese RFC el paso L3 de la cadena no encontraba
+el CFDI: era el grueso de las 1,545 «factura sin CFDI».
+
+**Reparación** (en `cadena-pago-kepler-contpaqi.js`, sólo si el resultado es único): RFC tal cual → sin
+guiones → a ≤ 2 ediciones de un emisor → por el nombre del acreedor. De 795 acreedores: 242 tal cual, 1 por
+formato, 23 por parecido, 160 por nombre, **369 sin resolver** (un dato de catálogo para Compras).
+
+Y dos respaldos en el simulador: el **proveedor por el nombre** que tesorería escribe en el concepto del
+banco («Grupo Confitero de Dulces de Occidente»; acierta 46 de 50 — `contpaqi.supplier_aliases` está
+**vacía**, nadie confirmó alias) y las **facturas por importe** (`[CP.8.61]`) cuando no hay REP ni cadena.
+
+| de punta a punta (1,831) | antes | con `[CP.8.71]` |
+|---|--:|--:|
+| cadena Kepler completa e igual a la contadora | 701 | **855** (errores 12 → 14) |
+| **se arman solas** | 948 (51.8 %) | **1,142 (62.4 %)** |
+| iguales a la contadora | 868 | **1,051** |
+| error del puente | 26 (2.7 %) | **29 (2.5 %)** |
+| a confirmar (parcial / notas juntadas) | 443 | 505 (279 ya correctas) |
+| sin armar | 440 | 184 |
+
+⛔ Probado y descartado: armar el parcial cuando «la nota que propone el REP = la que aplicó Kepler» —
+de 182 así, 107 iguales (59 %). Coincidir en el importe de la nota no asegura el asiento.
+
+**Qué sube el techo ahora:** (1) D8 (el REP en la Suite), (2) **corregir el RFC de 369 acreedores en Kepler**
+— una vez por proveedor —, (3) que Tesorería escriba el nombre del proveedor en el concepto (ya lo hace).
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
@@ -836,3 +867,6 @@ falta uno nuevo.
 - **2026-10-21** — `[CP.8.70]` de punta a punta, sin oráculo: del banco a la póliza completa se arman
   solas 948 de 1,831 (51.8 %), 2.7 % de error del puente; 443 a confirmar (246 ya correctas). 2120 =
   regla o provisión; el parcial por REP no se arma solo.
+- **2026-10-21** — `[CP.8.71]` el RFC de 249 proveedores en Kepler estaba mal capturado; reparado por
+  formato, parecido y nombre. De punta a punta se arman solas 1,142 de 1,831 (62.4 %), error del puente
+  2.5 %. Quedan 369 acreedores sin RFC resoluble (dato de catálogo).
