@@ -101,6 +101,30 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   rojas con el bruto). Sin migración ni permisos. ⚠️ La consulta del mes tarda **~6 s** contra prod
   **desde antes de este cambio** (la parte de devoluciones cuesta ~36 ms); el "630–750 ms" de
   CSU.1 quedó viejo — revisar aparte. 🧪 2026-10-08
+- [x] **[CSU.10]** **Rendimiento: la pantalla tarda demasiado y el personal reporta que «no sirve»**
+  (objetivo pedido: **≤ 0.5 s**). Sólo forma, **ninguna cifra cambia**: la vista
+  `analytics.erp_collections` (DISTINCT ON sobre todos los cobros de la historia) se evaluaba
+  **por cada corte** dentro de un LATERAL; ahora se consulta **una vez** con la lista exacta de cobros
+  y se casa en memoria. `ap` se arma desde el corte (entra completo a `ix_kdm5_aplicacion_factura`) y
+  `dv` repite sus filtros con la forma de `ix_kdm1_abono_doc` (redundantes, con AND). Paridad
+  vieja↔nueva **idéntica campo por campo** en la base local `:5442` con fixtures (réplica cruzada,
+  folio repetido entre sucursales, cobro sin vista, devolución cancelada/fuera de fecha/U-A-35), y
+  la prueba negativa (quitar el casado por folio) se pone roja. 27/27 del motor en verde.
+  **Medido en banco LOCAL a escala de prod** (`:5442`, PG 18.6, todo en una transacción con
+  ROLLBACK: `kdm1` 880,697 filas / 825 MB, `kdue` 600k, `kdm5` 400k, 34k cobros, 504 cortes de
+  oct con 389 cobrados y 50 con devolución): **vieja 88,615 ms → nueva 192 ms** (mediana de 3 en
+  caliente con `csu-cortes-bench-local.js`; + 2 ms de nombres; otra corrida: 82,380 → 163),
+  salida **idéntica** a escala. ⭐ Primera versión de la reescritura
+  medía 456 ms con 2 % de los datos: el planner inlineaba los agregados `a`/`d` y los recalculaba
+  por corte (loops=504) — por eso van `MATERIALIZED`. Los 82–95 s de la vieja calzan con que en prod la
+  petición **falle** (el navegador mostró `cortes-sucursales` en rojo): pasa el límite del túnel.
+  ⚠️ **NO MEDIDO en prod**: hardware, `kdud`/complementos y el resto de la API (alcance, JSON) son
+  locales o sintéticos. No se cierra ✅ (regla 15) hasta correr el de prod.
+  **Re-medir** (`database/scripts/`): `csu-cortes-bench-local.js` (escala de prod, exit 1 si pasa de
+  500 ms o rompe la paridad) · `csu-cortes-paridad-local.js [--mutar]` (casos borde + prueba
+  negativa) · `csu-cortes-paridad-prod.js` (sólo lectura, candado de identidad del clúster).
+  Fuera de alcance, a propósito: el bug del arqueo mal casado (folio de turno repetido el mismo día,
+  SM.35) cambia cifras y va en su propio item. 🧪 2026-10-21
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.
