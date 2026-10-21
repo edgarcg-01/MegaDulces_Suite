@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Fixed — Un cobro cancelado en Kepler ya no cuenta como cobrado en Cortes ni en la cartera (CSU.11, 2026-10-21)
+- **Cortes / Sucursales**: el cobrado de octubre baja **$171,986.56** (14 cobros cancelados que seguían sumando). Varios cortes dejan de verse «sobrecobrados».
+- **Cartera** (`/finanzas/cartera`, CXC, flujo de caja) y **saldo de facturas** (`/comercial/documentos`, Televenta, Guía de Cobranza): reaparecen **$165,615.07** de saldo que un cobro cancelado escondía; **13 facturas** dejan de salir «pagadas».
+- **Internal**: la regla vive en una sola vista, `analytics.kepler_kdm5_vigente` (`kdm5` sin documentos cancelados). La compuerta `check:kdm5-vigente` del `pre-push` impide volver a leer `kdm5` crudo (GOTCHAS §89, ADR-098).
+### Fixed — Cortes / Sucursales vuelve a cargar: de 89 s a 192 ms con el mes completo, medido en banco local (CSU.10, 2026-10-21)
+- **Finanzas › Cortes / Sucursales** tardaba tanto que la petición fallaba y la pantalla no mostraba nada. La forma de pago de los cobros se buscaba en una vista de toda la historia **una vez por cada corte**; ahora se busca una sola vez. Medido en un banco local a escala de prod (504 cortes): **88,615 ms → 192 ms**. Falta medirlo en prod.
+- **Ninguna cifra cambia**: misma salida, campo por campo, comprobada con datos a escala y con casos borde.
+- Nuevos scripts para volver a medir: `database/scripts/csu-cortes-bench-local.js`, `csu-cortes-paridad-local.js` y `csu-cortes-paridad-prod.js` (sólo lectura).
 ### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.4, 2026-10-19/20)
 ### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
 - `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
