@@ -645,6 +645,42 @@ estructural. **Lo verifica contabilidad; nada se corrige desde la Suite (ADR-040
 mes en ContPAQi?»** (y la regla de 20 mil sólo si esa provisión todavía no existe). Así el puente no repite
 el doble registro: lo que esté provisionado se paga contra 2120, siempre.
 
+### ⭐⭐ `[CP.8.70]` El número real: de punta a punta, sin oráculo
+
+Todo lo anterior separaba liga de asiento y, en el método REP, tomaba el RFC de las facturas de la
+contadora. `database/scripts/punta-a-punta-proveedor-contpaqi.js` parte **sólo** del movimiento de banco
+(cuenta, importe, fecha) y arma la póliza completa con las reglas adoptadas arriba; la de la contadora
+sólo califica.
+
+| 1,831 pólizas de pago a proveedor 2026 con un banco | pólizas | |
+|---|--:|---|
+| **se arman solas** | **948 (51.8 %)** | iguales 868 · distintas 80 = **8.4 % de lo armado** |
+| a confirmar en pantalla (parcial o notas juntadas, por factura con el REP) | 443 | la propuesta ya acierta en 246 |
+| sin REP y con la cadena Kepler incompleta | 298 | proveedores de contado o que no emiten REP; acreedor sin RFC en Kepler |
+| sin proveedor (ni Kepler ni un REP único) | 74 | |
+| no cuadran con lo pagado | 51 | |
+| sin cuenta (ni historia ni mapa) · REP ambiguo | 9 · 8 | |
+
+**Las 80 distintas no son 80 errores nuestros:**
+
+| causa | pólizas | quién está bien |
+|---|--:|---|
+| estaba en la provisión del mes y ella la pagó como compra directa (`[CP.8.68]`) | 11 | **el puente**: no repite el doble registro |
+| par neutro de tarjeta `2140800000` | 5 | igual en saldos; falta agregar el par cuando el banco dice TDC |
+| factura mixta que ella no partió | 4 | **el puente** (lo que ella hace en 98 de 102) |
+| descuento vs devolución | 16 | discutible y **sin efecto fiscal** |
+| otros, casi todos centavos de la base al 16 % (≤ $0.10) | 18 | sin efecto material |
+| **error del puente**: otras facturas (8), frontera 2120 (11), cuenta (3), anticipo 1050 (4) | **26** | **2.7 % de lo armado** |
+
+Dos reglas salieron de esta corrida: (1) **2120 = regla de 20 mil O provisión del mes** — empata con la
+regla sola contra la contadora (743 iguales en pago completo) y además evita el doble registro; la
+provisión sola daba 728; (2) **el camino «REP por factura» no se arma solo**: armado, acertaba 237 de
+443 (53 %).
+
+**Lo que esto le da a D5** (¿qué deja de capturar la contadora?): hoy, la mitad de los pagos a
+proveedor saldría armada con 2.7 % de error nuestro, y otra cuarta parte como propuesta para confirmar.
+El techo lo ponen el REP (D8) y el RFC de los acreedores en Kepler.
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
@@ -797,3 +833,6 @@ falta uno nuevo.
 - **2026-10-21** — `[CP.8.69]` las cinco preguntas, contestadas con el dato: devolución/descuento por
   relación 03 (sin efecto fiscal), factura mixta se parte, tarjeta = pago TDC del banco, UUID por nota es
   decisión nuestra. Queda para contabilidad sólo el parcial con notas (Kepler explica 51 %).
+- **2026-10-21** — `[CP.8.70]` de punta a punta, sin oráculo: del banco a la póliza completa se arman
+  solas 948 de 1,831 (51.8 %), 2.7 % de error del puente; 443 a confirmar (246 ya correctas). 2120 =
+  regla o provisión; el parcial por REP no se arma solo.
