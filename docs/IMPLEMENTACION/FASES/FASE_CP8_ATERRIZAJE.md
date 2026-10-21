@@ -372,6 +372,18 @@ IMSS), por concepto del CFDI (tarjeta) o mal clasificado en la Suite (servicios,
 sin categoría). ⚠️ **Caja de ahorro carga a pasivo `2140`**: `firma-regla.ts` hoy sólo acepta
 gasto `52*` y la rechazaría — si contabilidad la aprueba, hay que ampliar la regla de firma.
 
+### Respuestas de contabilidad (2026-10-21), contrastadas con el dato
+
+| respuesta | el dato | efecto en el armador |
+|---|---|---|
+| el límite de $20 mil es regla, sobre el **total con impuestos** | corte exacto: 19,500–19,999 → 0 % a 2120; 20,000–20,499 → 100 %; 12 de esas 19 con subtotal < 20 mil van a 2120 | R1/R2 por `cfdi.total >= 20000` y mes de la factura |
+| descuento vs devolución lo dice el uso del CFDI; si no, a mano o en Kepler | ⛔ **no alcanza**: 905 de 915 renglones de nota son G02 en las cuatro cuentas | la nota de crédito **no se arma sola** hasta medirlo en Kepler |
+| Otros ingresos `4200010000` = diferencia de centavos pago vs factura | 304 de 334 < $1 (mediana 0.06); 30 ≥ $1, máx 118.18 | redondeo automático < $1; arriba, revisión |
+| gasto sin factura → No deducibles, salvo créditos | 97 % de No deducibles sin CFDI | `5201000000` si no hay CFDI y no es crédito |
+| nómina: póliza por registro patronal y sucursal, desglosada desde el auxiliar; IMSS mensual, Infonavit bimestral | el banco sólo trae el total | ⛔ **no derivable del banco**: necesita el auxiliar de nómina (ContPAQi Nóminas, `ctLFLG`, hoy sin leer — CP.9) |
+
+Sigue sin respuesta **D5** (¿deja de capturarse a mano lo que entre por la Suite?).
+
 El documento con el detalle y las aprobaciones (privado, con nombres de proveedores) es el doc
 «Catálogo de asientos de egresos de banco». Script de la medición: no versionado, en el scratchpad
 de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
