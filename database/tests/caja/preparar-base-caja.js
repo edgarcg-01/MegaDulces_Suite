@@ -55,7 +55,16 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   'analytics.cron_runs',
   // [CGP-L.6] Lo que lee y escribe la atribución de CAOS: el grano de cada depósito (con RLS forzado,
   // la escritura sin tenant fallaba en silencio) y lo aprendido de los enlaces.
-  'finance.caos_deposito_grano', 'analytics.v_caos_link_patterns'];
+  'finance.caos_deposito_grano', 'analytics.v_caos_link_patterns',
+  // `[CGS.10]` La bitácora del libro de caja se apoya en el historial GENÉRICO (`VP.3.1`), no en
+  // uno propio: la migración `20261021110252` **aborta a propósito** si no lo encuentra —
+  // «no se inventa otro»— y sin esta línea el job `CGP-D.1` quedaba rojo con
+  // `finance.cash_ledger_cuts does not exist`, porque la cadena se cortaba antes de crear nada.
+  //
+  // ⚠️ Se trae la TABLA y la FUNCIÓN: la guarda comprueba las dos
+  // (`to_regprocedure('analytics.log_master_data_change()')` y `to_regclass(...)`), y traer sólo
+  // una deja el mismo rojo con otro mensaje.
+  'analytics.master_data_history'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
