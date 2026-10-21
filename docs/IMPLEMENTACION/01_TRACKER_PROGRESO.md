@@ -12029,7 +12029,7 @@ contra `pg-prod` (namespace `prod`, k3s).
 
 ### E3 — El mapa firmado *(dependencia: el contador)*
 
-- [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).
+- [x] 🧪 **[CP.8.14]** UI de reglas con confianza + aprobación — hecho 2026-10-20, ver «📍 Aterrizaje» (`[CP.8.51]`/`[CP.8.53]`/`[CP.8.14]`).
 - [ ] **[CP.8.15]** Proveedor → su subcuenta por RFC (`analytics.contpaqi_suppliers`, 99.6 % con RFC).
 - [ ] **[CP.8.16]** Las categorías que no concentran (`imss_sua` 10.2 %): medir o declarar.
 
@@ -12154,6 +12154,48 @@ contra `pg-prod` (namespace `prod`, k3s).
 > ⚠️ **Tres de los cuatro bloqueos de esta lista llevaban días hechos.** Una lista de bloqueos que
 > enumera trabajo terminado **esconde el que sí bloquea**: acá quedaban dos (el clic y la firma)
 > entre cuatro renglones. *Un bloqueo se tacha el día que se cierra, no cuando alguien lo relee.*
+
+
+### 📍 Aterrizaje — de «arma» a «entrega» (plan 2026-10-20)
+
+Plan: [`FASE_CP8_ATERRIZAJE.md`](FASES/FASE_CP8_ATERRIZAJE.md). Encabeza Contabilidad. Re-medido
+hoy en prod: `poliza_exports` **0** · `supplier_aliases` **0** · reglas aprobadas **0 de 21** ·
+cuadre `ok` sobre cero eventos. ⛔ **Ningún endpoint escribe `poliza_exports`**: sin «marcar
+entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§4 del plan).
+
+- [x] ✅ `[CP.8.46]` C0 — ⛔⛔ **Los 581 «pagos de crédito sin pareo» no eran eso.** 532 son la **comisión de BBVA por venta con tarjeta en terminal** ($129,821) mal clasificada como `pago_credito` (y repartida en 3 categorías), más 10 renglones de su IVA. Los 38 pagos de crédito reales ($1.69M) **sí están en ContPAQi** los 9 meses (cargo `2140…` / abono `1020080000`, placebo 0). No pareaban por la **fecha**: contabilidad los mete en una póliza **mensual** por banco («PAGO COMISIONES BANORTE 7744») fechada a fin de mes. No es tesorería (en desuso desde 2019). → **D6** (lote cuenta × mes). Plan §3.1. 2026-10-20
+- [x] ✅ `[CP.8.47]` C0 — Unión ene–sep: **324 nombres · 760 movs · $95,553,856**; **14 nombres = 50 %**, 74 = 80 %. Control `--mes=2026-01` reproduce 53 / $6,758,575. 7 `ambiguo` ($7.8M) se arreglan en ContPAQi (cuenta duplicada); 2 `sin_concepto` ($4.5M, uno con concepto literal `"null"`) son defecto de ingesta bancaria. `alias-proveedor-pendientes.js` ganó `--desde/--hasta`. 2026-10-20
+- [x] ✅ `[CP.8.48]` C0 — Línea base ene–sep: **18,193 egresos · arma solo 1,069 (5.9 %, $244.6M)** · `sin_regla` 39.1 % · fuera 32.4 %. Script versionado `database/scripts/techo-puente-contpaqi.js` (mismo `simularLotes` que la bandeja). ⚠️ El control ene–ago da 16,097 contra 15,599 de §39.1: «fuera» idéntico (5,281), la diferencia es casi toda `sin_regla`, y coincide con 893 egresos capturados después del 12-oct; no atribuido uno por uno. Cruce: arma solo y `proveedor_sin_cuenta` idénticos al script de alias. 2026-10-20
+- [ ] ⬜ `[CP.8.49]` C0 — Confirmar que la póliza cargada «sin afectar» vuelve por `feed_contpaqi` con su `Guid`.
+- [x] 🧪 `[CP.8.58]` ⛔⛔ **Visto como lo ve la API, el puente estaba vacío.** Las 7 tablas que lee tienen RLS forzado; la API corre como `app_runtime`, que **no** trae `app.tenant_id` por default (los roles personales sí — por eso todo lo medido como `edgar` vio datos). `ContpaqiArmadoService` y `ContpaqiCuadreService` inyectaban `KNEX_NEW_DB` pelado → bandeja con **0 lotes**, alias rechazado por la política y **cuadre ciego para siempre** latiendo `ok`. Reproducido en rojo con `test-newdb-contpaqi-tenant.js` (3 ✓ / 3 ✗) → arreglado con `alcance-tenant.ts` (transacción + `set_config`, y `db` **lanza** fuera del alcance) → **6 ✓ / 0 ✗**; sin regresión en bandeja 34 · proveedor 30 · puente 43 · lote 38 · cuadre 35. Constructores intactos. No ejercido en prod (10 días de logs sin una apertura de la bandeja). ⚠️ **Clase, sin medir:** otros 20 servicios inyectan `KNEX_NEW_DB` sin mecanismo de tenant en el archivo (candidatos, no defectos: `customer-360-refresh`, `purchase-adjustments-findings-bridge`, `contact-trust-cron`, `sellout-rollup`, `finance-feed-scanner`, `goods-receipt-twins`, `goods-receipts-watcher`, `maat-scanner`, `poliza-type-findings-bridge`, `pagos-autopilot`, `fiscal-conciliacion-scanner`, `estatus-scanner`, `fiscal-listas-scanner`, `fleet-poller`, `reconciliation-scanner`, `whatsapp-ingest`, `auth-mt`, `catalogo-interno`, `kp/sucursales`, `tenants-admin`) → Plataforma. Deuda: `AlcanceTenant` a `platform-core` si aparece un 3er consumidor. 2026-10-20
+- [x] 🧪 `[CP.8.50]` C1 — `entrega.ts`: huella SHA-256 de los bytes, comparación byte a byte con motivo, filas con token/guid/autor/huella. 2026-10-20
+- [x] 🧪 `[CP.8.51]` C1 — `firma-regla.ts`: sólo `por_categoria` se firma; cuenta gasto `52*`, afectable, viva y del catálogo (173); banco/proveedor/mayor/baja/inexistente/sin autor rechazados con motivo. 19 casos puros. 2026-10-20
+- [x] 🧪 `[CP.8.59]` ⛔⛔ **El archivo habría reenviado lo ya entregado.** Firmar cambia meses que quizá ya se cargaron; el archivo traía todos los lotes → importarlo los duplicaba en ContPAQi y «marcar» los contaba como «ya registradas». Ahora `armarArchivo` sólo lleva lo no entregado (`rechazada` sí puede volver) y un lote entregado que cambió se declara (`cambiados`, `X-Cambiados-Tras-Entrega`). Defecto propio de F1b, cazado con cero entregas. Ejercido sólo en el modo local del candado — NO MEDIDO hasta `pruebas-db`. 2026-10-20
+- [x] 🧪 `[CP.8.52]` C2 — `POST /finance/contpaqi/entregas` `{ mes, archivo_base64 }`, `_GESTIONAR`: el archivo tiene que ser idéntico al que genera hoy (si no, 409); `ON CONFLICT DO NOTHING` (no duplica, no toca `updated_at`, no degrada `aplicada`). Contra prod (sólo lectura): enero **idéntico** generado dos veces (88 pólizas, 80,024 bytes) y el alterado rechazado sin escribir. ⛔ **La escritura: NO MEDIDA** — `test-newdb-contpaqi-entrega.js` la ejerce como `app_runtime` con el payload de la pantalla sólo en el job `pruebas-db`; **no pasa a ✅ sin ese verde**. 2026-10-20
+- [x] 🧪 `[CP.8.53]` C2 — `GET /reglas?mes` · `GET /cuentas-gasto` (`_VER`) · `POST /reglas/:categoria/firma` y `/revocar` (`_GESTIONAR`, 409 con motivo), sin migración (columnas `aprobada_por/en` ya existían). Prod sólo lectura como `app_runtime`: 21 reglas, 6 firmables que traban **9,757 movs ene–sep ($16.6M)**, indicio sin preselección. ⛔ Escritura NO MEDIDA hasta `pruebas-db` (`test-newdb-contpaqi-firma.js` [C]). Deuda: revocar no guarda quién revocó. Decisión abierta **D7** (¿firma sólo contabilidad?). 2026-10-20
+- [x] 🧪 `[CP.8.14]` C3 — «Reglas de cuenta» en `/contabilidad/contpaqi-puente`: respuesta primero, firmables con evidencia + selector filtrable sin preselección + «usar el indicio» sólo si está en el catálogo; no firmables con su motivo; el error de lectura se pinta. `check:pantalla` 2 → 2, 0 nuevas; spec 19 ✓, mutado a rojo. Sin validación visual. 2026-10-20
+- [x] 🧪 `[CP.8.54]` C3 — «¿Ya lo cargaste en ContPAQi?» → elegir el archivo → nuevas / ya registradas o el motivo del 409; separado de «Generar». `check:pantalla` 2 → 2, 0 nuevas; `aBase64` con 2 pruebas, mutada a rojo. Sin validación visual. 2026-10-20
+- [ ] ⬜ `[CP.8.55]` Sesión con contabilidad — prueba A/B (necesita D1).
+- [ ] ⬜ `[CP.8.56]` Sesión con contabilidad — enero real (88 pólizas, $36,718,975.48) en `aplicada` (necesita D1 + D5).
+- [ ] ⬜ `[CP.8.57]` Contabilidad confirma la lista de alias de `[CP.8.47]`.
+
+**C0 del pago a proveedor (2026-10-21) — qué hace falta para armarlo completo, medido.** Plan §3.5–§3.6.
+
+- [x] ✅ `[CP.8.60]` C0 — Catálogo de asientos de egresos (4,813 pólizas, pareo 87.6 %, placebo 2.2 %): el puente arma «2120 / banco» y la forma real es así en **1.7 %**. R1 2120 + traspaso IEPS/IVA si ≥ $20 mil con impuestos y de mes anterior; R2 5010/5020 por tasa; R3 notas; R4 UUID por renglón. Respuestas de contabilidad incorporadas. 2026-10-21
+- [x] ✅ `[CP.8.61]` C0 — Factura por importe (RFC + total ±$1, −180/+30 días): una factura 82.8 % / error 0.1 %; varias 48.4 % / 1.7 %. Placebo 0. `liga-pago-factura-contpaqi.js`. 2026-10-21
+- [x] ❌ `[CP.8.62]` ~~«Ningún sistema guarda qué facturas paga cada pago»~~ — refutado el mismo día por `[CP.8.63]`. 2026-10-21
+- [x] ✅ `[CP.8.63]` C0 — Cadena banco → pago Kepler (c45) → `kdxf` → `kdxe` → CFDI: L1 89.5 % (placebo 0), L2 89.0 %. `cadena-pago-kepler-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.64]` C0 — El ADD de ContPAQi trae el REP del proveedor (`Pagos_Doc_Rel`, 3,293 pagos) y nota → factura (`CfdiRelacionados`): facturas = contadora 97.1 %; notas en la misma póliza 98.5 %. `rep-add-pago-factura-contpaqi.js`. Abre **D8**. 2026-10-21
+- [x] ✅ `[CP.8.65]` C0 — Expediente: el simulador reproduce 1,435 de 1,907 pólizas renglón por renglón (75.2 %). `reproduce-asiento-proveedor-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.66]` C0 — Descuento vs devolución = `TipoRelacion` 03 (91.7 %); sin efecto fiscal. `nota-familia-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.67]` C0 — Histórico: la cuenta del proveedor = la ya usada con ese RFC (99.7 %, mapa 98.4 %); para lo demás no mejora la regla. `patrones-historicos-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.68]` C0 — ⛔ Hallazgo para contabilidad: 54 facturas ($8.2 M) provisionadas y vueltas a registrar como compra directa sin cancelar el 2120. `doble-registro-provision-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.69]` C0 — Cuatro de las cinco preguntas para contabilidad contestadas con el dato; queda «parcial con notas». 2026-10-21
+- [x] ✅ `[CP.8.70]` C0 — De punta a punta sin oráculo (banco → póliza): 948 de 1,831 (51.8 %). `punta-a-punta-proveedor-contpaqi.js`. 2026-10-21
+- [x] ✅ `[CP.8.71]` C0 — El RFC del acreedor en Kepler estaba mal capturado (249 casos); reparado → **1,142 de 1,831 (62.4 %), error del puente 2.5 %**. De 125 acreedores sin RFC pagados en 2026: 21 se corrigen ($34.0 M, lista privada para Compras), 103 son de remisión en efectivo ($35.67 M) y **no tienen póliza en ContPAQi** (hallazgo para contabilidad). 2026-10-21
+- [ ] ⬜ `[CP.8.72]` C1 — Armador del pago a proveedor en `libs/finance` con las reglas medidas (2120 regla o provisión · cuenta por historial · nota por relación 03 · redondeo < $1 · par de tarjeta) y la reparación del RFC de Kepler. Primero con lo que hay sin D8 (cadena Kepler + importe).
+- [ ] ⬜ `[CP.8.73]` C2/C3 — «A confirmar» en pantalla para parcial y notas juntadas (505 pólizas, 279 ya correctas).
+- [ ] ⚠️ `[CP.8.74]` D8 — traer `Pagos_Doc_Rel` y `CfdiRelacionados` del ADD sin importer nuevo. Bloquea la mayor parte de lo armado (940 de 1,142 salen del REP).
 
 ---
 

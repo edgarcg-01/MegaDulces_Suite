@@ -1149,6 +1149,41 @@ de tocarle el filtro. Dos vistas sobre `kdm1` pueden necesitar decisiones opuest
 
 ---
 
+### 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21)
+
+**Kepler sí guarda qué facturas liquida cada pago.** La cadena, medida contra las pólizas de ContPAQi
+de 2026 (`[CP.8.63]`, `database/scripts/cadena-pago-kepler-contpaqi.js`):
+
+```text
+banco (finance.bank_movements)
+  │ L1  pago kdm1 X-D-25/26/60, c10 LIKE 'C%': c45 = últimos dígitos de la cuenta (3041 = Banorte 3041),
+  │     importe ±$1 (Kepler suele traer centavos de menos), fecha Kepler −2…+7 días   → 89.5 %, placebo 0
+pago ──L2── kdxf: cargo (c4,c5,c6) aplicado al abono (c7,c8,c9) por c10              → 89.0 %
+entrada kdxe c3='A', c4=20 (Aplica Orden Entrada): c11 importe, c16 referencia = folio a mano («0-F-2734»)
+  │ L3  CFDI: RFC del acreedor + total ±$1; si no, últimos dígitos del folio de c16 (≤ 3 % de diferencia)
+CFDI → UUID
+```
+
+- Las notas también casan en `kdxf` contra la entrada: cargo **55** = nota de crédito, **40** = devolución
+  de compra. Kepler aplica las notas por entrada y registra notas internas sin CFDI: en 2026 sus X-D-55
+  suman $59.5 M contra $23.3 M de notas CFDI — **no ligan 1 a 1** con los CFDI de egreso.
+- `c45 = '0011'` en el pago = **Caja General (efectivo)**. 103 proveedores de remisión se pagan así
+  (2,725 pagos, $35.67 M en 2026) y no facturan.
+
+⛔⛔ **`kdxd.c10` (RFC del acreedor) está mal capturado a menudo** y rompe L3: dedazos (PCP920**5**23**H**QA
+por PCP920**4**23**K**QA), guiones y cortado («CCO-820507-BV»), cero por letra, el RFC de **otra razón social**
+o el de una persona física en el acreedor de un proveedor grande. Validarlo **siempre** contra los
+emisores de CFDI antes de usarlo, y repararlo sólo si la respuesta es única: tal cual → sin guiones →
+a ≤ 2 ediciones de un emisor → por el nombre (`c3`). De 795 acreedores con pagos: 242 tal cual, 1 por
+formato, 23 por parecido, 160 por nombre, **369 sin resolver**. Con la reparación la cadena completa pasa
+de 701 a 855 pólizas (`[CP.8.71]`).
+
+Lo que Kepler **no** trae y sí trae ContPAQi: el complemento de pago del proveedor (REP) y la relación
+nota → factura están en el ADD de ContPAQi (`Pagos_Doc_Rel`, `CfdiRelacionados`), no en Kepler —
+`FASE_CP8_ATERRIZAJE.md` §3.5 `[CP.8.64]`.
+
+---
+
 ### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
 
 La sucursal **01 Padre Hidalgo** empezó a capturar prospectos y cotizaciones en el módulo CRM de

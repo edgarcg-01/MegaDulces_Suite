@@ -485,6 +485,33 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-21 — `[CP.8.60]`–`[CP.8.71]` El pago a proveedor del puente ContPAQi, medido de punta a punta antes de armarlo
+
+**Qué se cerró (C0):** todo lo que hace falta para asentar un pago a proveedor como lo hace la contadora,
+medido contra sus pólizas de 2026, con un script versionado por cada afirmación. De punta a punta y sin
+oráculo (del movimiento de banco a la póliza completa) **se arman solas 1,142 de 1,831 (62.4 %)** con
+**2.5 % de error del puente**; otras 505 van a confirmar. Plan: `FASE_CP8_ATERRIZAJE.md` §3.5–§3.6.
+
+**Lo que cambió en el camino (y por qué importa la secuencia):**
+
+- El puente armaba «2120 / banco», que es la forma real en **1.7 %**: faltaban traspasos de IEPS/IVA y UUID.
+- ⛔ Se escribió «ningún sistema guarda qué facturas paga cada pago» (`[CP.8.62]`) y se **refutó el mismo
+  día**: Kepler lo guarda en `kdxf`, ya decodificado por la Fase ECA y citado en un comentario de
+  `poliza-egreso.ts`. Lección: antes de afirmar que un dato no existe, `grep` del concepto en el repo.
+- El REP del proveedor y la relación nota → factura están en el ADD de ContPAQi, no en `fiscal.cfdis` (el feed
+  sólo trae I/E). Medir «hay pocos REP» en `fiscal.cfdis` daba una cobertura falsa. Abre **D8**.
+- La nota se califica por **importe**, no por UUID: la contadora junta varias en un renglón con un UUID.
+  Calificar por UUID inventaba 205 errores que eran 18.
+- La señal de «2120 o compra directa» resultó ser también **la provisión del mes**; al buscarla apareció un
+  hallazgo para contabilidad: 54 facturas ($8.2 M) provisionadas y vueltas a registrar como compra directa.
+- El RFC del acreedor en Kepler estaba **mal capturado** en 249 de los pagos sin armar: repararlo subió lo armado
+  de 51.8 % a 62.4 %. De los acreedores sin RFC, 103 son de remisión pagados en efectivo ($35.67 M) y esas
+  compras **no tienen póliza en ContPAQi**: segundo hallazgo para contabilidad.
+
+**Lo que NO se cerró:** nada se construyó del armador nuevo (`[CP.8.72]`); el REP depende de D8 (`[CP.8.74]`);
+el parcial con notas queda a confirmar. Credenciales: los scripts nuevos exigen `CONTPAQI_SQL_PASSWORD` por
+entorno (el repo es público). Push pendiente de autorización.
+
 ## 2026-10-21 — `[E.16]` La cifra que denuncia lleva a sus facturas, y la cola sale del Resumen
 
 **Qué se cerró:** los conteos «facturas con menos / más % que el maestro» abren un panel con todas
