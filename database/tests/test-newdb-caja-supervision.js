@@ -144,9 +144,18 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
       const e4c = await intento(trx, () => autorizar(CANCELA));
       ok(es(e4c, '23514', 'cut_autoriza_lo_ajeno_chk'),
         `[negativa] autoriza quien canceló un movimiento del corte → cut_autoriza_lo_ajeno_chk (${dijo(e4c)})`);
+      // ⚠️ DOS mecanismos del MISMO día implementan esta regla, y los dos están vivos en prod:
+      //   · `cgs10` — trigger `trg_cash_cut_autoriza_ajeno` → levanta `cut_autoriza_lo_ajeno_chk`
+      //   · `cgs18` — `CHECK cut_doble_llave_chk` → `authorized_by <> closed_by`
+      // El trigger es más amplio (cubre quien capturó, abrió, canceló **y cerró**) y por eso
+      // dispara primero. Exigir UN nombre concreto ponía el job en rojo por una regla que SÍ se
+      // cumple — medir el mecanismo en vez del efecto. Acá se exige el efecto: que quien cerró
+      // NO pueda autorizar, por cualquiera de las dos vías.
+      // ⛔ Esto NO decide con cuál quedarse: esa decisión está abierta y es de autorización de
+      // dinero, no de implementación. Cuando se resuelva, este `||` vuelve a un nombre único.
       const e4d = await intento(trx, () => autorizar(CAJERA));
-      ok(es(e4d, '23514', 'cut_doble_llave_chk'),
-        `[negativa] autoriza quien cerró → sigue frenándolo la doble llave de siempre (${dijo(e4d)})`);
+      ok(es(e4d, '23514', 'cut_doble_llave_chk') || es(e4d, '23514', 'cut_autoriza_lo_ajeno_chk'),
+        `[negativa] autoriza quien cerró → cut_doble_llave_chk o cut_autoriza_lo_ajeno_chk (${dijo(e4d)})`);
       const antesCorte = await cuenta('finance.cash_ledger_cuts', c.id);
       const e4e = await intento(trx, async () => {
         await autorizar(AUTORIZA);
