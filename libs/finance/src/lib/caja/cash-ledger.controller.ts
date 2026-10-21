@@ -225,7 +225,9 @@ export class CashLedgerController {
 
   @Post()
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
-  @ApiOperation({ summary: 'Registra un movimiento. Folio atómico, par cuenta/concepto validado contra el catálogo vivo y arqueo que cuadra o no se guarda.' })
+  // `[CGS.8]` El resumen dice «salvo que venga sin clasificar» porque ahora es condicional: un
+  // resumen que afirma una validación que ya no siempre corre es peor que no tenerlo.
+  @ApiOperation({ summary: 'Registra un movimiento. Folio atómico, par cuenta/concepto validado contra el catálogo vivo —salvo que venga con `sin_clasificar_motivo`, que lo deja vacío a propósito y declarado— y arqueo que cuadra o no se guarda.' })
   create(@Body() body: CreateMovementInput, @Req() req: AuthedRequest) {
     // `[CG.154]` `createTraducido` y no `create`: las reglas de la tabla (glosa corta, monto en
     // cero, uuid mal formado) salían como **500 Internal server error** con el SQL adentro.
