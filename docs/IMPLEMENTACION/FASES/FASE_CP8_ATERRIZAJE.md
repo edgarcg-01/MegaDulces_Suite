@@ -503,6 +503,65 @@ El documento con el detalle y las aprobaciones (privado, con nombres de proveedo
 «Catálogo de asientos de egresos de banco». Script de la medición: no versionado, en el scratchpad
 de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
 
+### ⭐⭐ `[CP.8.64]` El ADD de ContPAQi ya trae las dos ligas: REP del proveedor y nota → factura
+
+`database/scripts/rep-add-pago-factura-contpaqi.js` (sólo lectura; cruza con la salida de la cadena).
+Buscando cómo ligar la nota de crédito apareció que el **ADD** (la base de metadatos de CFDI de
+ContPAQi, de donde ya sale `fiscal.cfdis`) tiene dos tablas que la Suite **no lee**:
+
+| tabla del ADD | qué es | volumen | por qué no la vimos |
+|---|---|---|---|
+| `Pagos` + `Pagos_Doc_Rel` | el **complemento de pago (REP) que emite el proveedor** al cobrarnos una factura PPD: UUID de cada factura liquidada, `ImpPagado`, `ImpSaldoAnt`, parcialidad | 3,293 pagos desde dic-2025, 266 RFC | el feed del ADD sólo trae tipos `I,E`; los 176 `P` de `fiscal.cfdis` son de descarga masiva, de julio. ⛔ La cifra «466 ligas REP» de `[CP.8.61]` medía **esa** fuente, no ésta |
+| `CfdiRelacionados` | la nota de crédito relaciona **por SAT** la factura que afecta (tipo 01 / 03) | 52,158 renglones; 97 % de las notas 2026 lo traen | `fiscal.cfdis.xml` sólo está en 129 de 2,995 notas — por el XML no se llega |
+
+**Contra la contadora (1,837 pólizas de pago a proveedor 2026):**
+
+| | resultado |
+|---|---|
+| banco → **un** REP (mismo RFC, monto ±$1, fecha de pago ±5 días) | **1,467 (79.9 %)** · placebo +$137 **0** |
+| facturas del REP = facturas de la contadora | **1,424 de 1,467 (97.1 %)** |
+| notas de la contadora relacionadas a una factura de la **misma** póliza | **728 de 739 (98.5 %)** |
+| **póliza completa** (facturas + la única combinación de notas que cuadra con lo pagado) | **1,257 correctas (68.4 %)** · **18 distintas = 1.4 % de lo armado** |
+| no cuadra con lo pagado | 186 — **174 son pagos parciales** (142 con las facturas correctas), 8 notas aplicadas en un pago anterior, 4 otros |
+
+⚠️ **La nota se califica por IMPORTE, no por UUID.** La contadora junta varias notas en un renglón y
+le pone el UUID de **una** (o de ninguna): en la póliza 1|109 las seis notas del método suman
+$23,784.74, exactamente sus renglones 505/507 más la reversa de 1060/1470100, y ella asoció un UUID.
+Calificar por UUID daba 205 «errores» que eran 18. **Consecuencia para el puente:** nuestro asiento
+llevará el UUID de **cada** nota; es más completo que el de hoy, y eso hay que decírselo a contabilidad
+antes de que lo lea como diferencia.
+
+**Los dos métodos son independientes y casi nunca se contradicen** (facturas):
+
+| | pólizas | contra la contadora |
+|---|---|---|
+| REP y cadena Kepler completos y **coinciden** | 670 | 667 iguales · **3 distintas (0.4 %)** |
+| completos y **difieren** | 16 | el REP acierta **16 de 16** |
+| sólo el REP | 589 | 585 · 4 distintas |
+| sólo la cadena Kepler | 280 | 244 · **36 distintas (13 %)** → la cadena sola **no** se arma sin confirmar |
+| ninguno | 282 | — |
+
+**El costo: el REP llega después del pago.** Timbrado respecto de la fecha de pago (3,293 REP):
+mismo día 9 % · 1–3 días 42 % · 4–7 días 20 % · 8–15 días 14 % · 16–31 días 11 % · más de 31 días 5 %.
+El SAT lo exige a más tardar el día 5 del mes siguiente, y el archivo del puente es **mensual**
+(`generarArchivoMes`). Medido sobre los 3,187 REP de pagos hasta septiembre: timbrados **al día 5 del
+mes siguiente 88.5 %**, al día 10 **91.8 %**, después 8.2 %. Armar el mes el día 10 deja fuera ~8 %
+(a confirmar, o al archivo del mes siguiente). Para un armado **diario** la fuente sería la cadena
+Kepler, con confirmación.
+
+**Por qué no es 100 %, con este método:**
+
+| dónde se corta | pólizas | qué lo destraba |
+|---|---|---|
+| pago parcial | 174 | asentar la parte pagada (`ImpPagado` del REP, proporcional, como la póliza 1\|122): medir antes de armar — 32 de 174 traen otras facturas |
+| el proveedor no emite REP (factura PUE, de contado) | 121 pólizas de RFC que no emiten nunca | la cadena Kepler o `[CP.8.61]` por importe, **con confirmación** |
+| REP ambiguo o sin REP en la ventana | 249 (55 ambiguos) | REP tardío o pagos iguales del mismo proveedor — NO MEDIDO por separado |
+| nota aplicada en un pago anterior | 8 | `ImpSaldoAnt` < total de la factura ya lo marca |
+
+⛔ **Lo que este hallazgo NO resuelve todavía:** el ADD es SQL Server de ContPAQi, **no** `kepler_ods`.
+Hoy llega a la Suite por `import-contpaqi-cfdis.js`, que es un importer (regla 1: se están retirando).
+Traer `Pagos_Doc_Rel` y `CfdiRelacionados` a Postgres es **D8** — no se arma nada con esto hasta firmarla.
+
 ---
 
 ## 4. Decisiones a firmar
@@ -516,6 +575,8 @@ de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
 | **D5** | **¿Qué deja de capturar la contadora?** | nada (el puente sólo «ayuda») · lo que entra y cuadra | **Lo que entra y cuadra.** Si la contadora sigue capturando igual, el puente **suma** trabajo en vez de quitarlo y aparecen pólizas duplicadas. Es cambio de proceso, no de código | Contabilidad + Dirección |
 | **D7** | **¿Quién puede firmar una regla de cuenta?** (sale de `[CP.8.53]`) | (a) quien tiene `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` hoy: `contabilidad`, `finanzas`, `superadmin` · (b) un permiso propio, sólo contabilidad | Hoy rige **(a)**, y la firma deja nombre. **Recomiendo (b)** si finanzas no debe elegir cuentas contables: es un permiso nuevo, migración y **reparto en prod** (regla 20), no un cambio de pantalla | Edgar + Contabilidad |
 | **D6** | **Comisiones y pagos de crédito: ¿póliza diaria o mensual?** (sale de `[CP.8.46]`) | (a) el puente las arma **mensuales por banco**, como hoy contabilidad · (b) **diarias**, como el banco | **(a) mensual**, para no cambiarle a contabilidad dos cosas a la vez. El cuadre tiene que saber que esa forma se busca por **mes**, no a ±3 días. Y antes, la Suite tiene que **clasificar bien** la comisión de terminal (hoy cae en tres categorías) — eso es de CB | Contabilidad |
+
+| **D8** | **¿Cómo llegan a la Suite el REP del proveedor y la relación nota → factura del ADD?** (sale de `[CP.8.64]`) | (a) sumar `Pagos`/`Pagos_Doc_Rel`/`CfdiRelacionados` al feed del ADD que ya llena `fiscal.cfdis` · (b) leerlas en vivo por `tds_fdw` como **vista** (derivar, no copiar) · (c) no usarlas y quedarse con la cadena Kepler | **(b) si el servidor de ContPAQi lo aguanta; si no, (a)** como extensión del feed que ya existe, declarada como deuda del mismo importer — no uno nuevo. **(c) deja sin armar las 589 pólizas de 2026 (~60 al mes) que sólo resuelve el REP, y la cadena sola trae 13 % de error donde no hay REP.** Cualquiera de las dos primeras rompe la letra de la regla 1 (no es ODS): por eso va a firma | Edgar |
 
 ⭐ **Qué NO depende de las firmas:** F2 y F3a ya se midieron (§3.1). El código de F1b puede
 arrancar hoy. **D1 bloquea sólo la prueba humana.**
@@ -633,3 +694,7 @@ falta uno nuevo.
 - **2026-10-20** — F4 en código (§3.4): `[CP.8.51]` · `[CP.8.53]` · `[CP.8.14]` 🧪 — 6 reglas
   firmables que traban 9,757 movs ene–sep ($16.6M). Destapó `[CP.8.59]`: el archivo habría
   reenviado lo ya entregado; ahora sólo lleva lo pendiente. Escritura NO MEDIDA hasta `pruebas-db`.
+- **2026-10-21** — `[CP.8.64]` C0: el ADD de ContPAQi trae el REP del proveedor (`Pagos_Doc_Rel`)
+  y la relación nota → factura (`CfdiRelacionados`). Póliza completa igual a la contadora en
+  1,257 de 1,837 (68.4 %), 1.4 % de error sobre lo armado; cruzado con la cadena Kepler coinciden
+  670 de 686. Abre **D8** (cómo entran esas tablas sin importer nuevo). Nada se arma hasta firmarla.
