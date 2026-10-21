@@ -95,7 +95,7 @@ export function verificarCorte(e: EntradaVerificacion): VerificacionCorte[] {
         : 'No se puede decir si cuadra (sin fondo medido o sin veredicto guardado). Se observa, no se autoriza.');
   } else add('V4', 'La cuenta tiene respuesta', 'cumple', 'El veredicto es concluyente.');
 
-  // V5 — la diferencia está explicada (D5, la tolerancia, sigue abierta: toda diferencia pide explicación)
+  // V5 — la diferencia está explicada. D5 (Edgar, 2026-10-21): sin tolerancia, toda diferencia pide explicación.
   if (e.diferencia == null) add('V5', 'La diferencia está explicada', 'no_medido', 'No hay diferencia calculada.');
   else if (Math.abs(e.diferencia) <= EPS) add('V5', 'La diferencia está explicada', 'cumple', 'Cuadra al centavo.');
   else if (e.explicacion && e.explicacion.trim().length >= 10) {

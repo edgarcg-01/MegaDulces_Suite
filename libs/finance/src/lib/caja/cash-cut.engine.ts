@@ -484,9 +484,10 @@ export const MINIMO_TEXTO_REVISION = 10;
  *
  *  1. Un veredicto **sin respuesta** (`VEREDICTOS_SIN_RESPUESTA`) no se autoriza nunca: no hay un
  *     número que firmar. Se OBSERVA (`puedeObservar`) con el motivo.
- *  2. Con **diferencia distinta de cero** se autoriza sólo con nota. ⚠️ La tolerancia de negocio
- *     (D5) no está decidida; hasta que lo esté, cualquier diferencia exige explicación — es lo más
- *     estricto y no bloquea a nadie: sólo pide escribir por qué.
+ *  2. Con **diferencia distinta de cero** se autoriza sólo con nota. ⭐ D5, decidida por Edgar el
+ *     2026-10-21: **no hay tolerancia** — cualquier diferencia, por chica que sea, exige que la caja
+ *     la explique y que quien autoriza escriba por qué la acepta. Un centavo de redondeo
+ *     (`CORTE_EPSILON`) no es una diferencia.
  */
 export function exigenciaParaAutorizar(input: {
   veredicto: VeredictoCorte;
