@@ -928,8 +928,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // revisión", permiso `_VALIDAR`) y quien la abría no sabía qué iba a hacer ahí.
       title: 'Recepción',
       items: [
-        // Captura pide GESTIONAR (todo lo que se hace ahí lo exige); observar es Control.
-        { label: 'Captura de facturas',  icon: 'pi pi-file-pdf', route: '/compras/entradas',          permission: Permission.COMPRAS_ENTRADAS_GESTIONAR },
+        // `[RE.48]` «Captura de facturas» ya no es item propio: es la primera pestaña de Control de
+        // entradas (selector tipo iOS). Quien sube aterriza ahí; quien sólo observa, en Cobertura.
         // `[RE.24]` La pantalla aparte "Revisión de facturas" salió de uso (2026-09-02): validar y
         // rechazar viven en la lista de órdenes — un solo lugar donde se decide. Eso se mantiene.
         // ⭐ `[RE.47]` Lo que se perdió fue la PUERTA: la lista se llegaba por Control o por un
