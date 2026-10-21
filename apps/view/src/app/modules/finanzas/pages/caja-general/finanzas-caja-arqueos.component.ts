@@ -261,11 +261,11 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                 <p class="cq-hint">Lo normal es que se cierre ese corte. Si hace falta capturar antes, da una llave de emergencia: queda escrita con tu nombre y vence al terminar el día.</p>
                 <label class="cq-rev-label" for="cq-llave-para">Para quién</label>
                 <p-select inputId="cq-llave-para" [options]="k.pueden_recibir_llave" optionLabel="username" optionValue="id"
-                          [ngModel]="llavePara()" (ngModelChange)="llavePara.set()" placeholder="Elige a la persona"
+                          [ngModel]="llavePara()" (ngModelChange)="llavePara.set($event)" placeholder="Elige a la persona"
                           appendTo="body" [style]="{ minWidth: '16rem' }" />
                 <label class="cq-rev-label" for="cq-llave-motivo">Por qué hace falta capturar sin cerrar</label>
                 <textarea pTextarea id="cq-llave-motivo" rows="2" class="cq-rev-texto"
-                          [ngModel]="llaveMotivo()" (ngModelChange)="llaveMotivo.set()"></textarea>
+                          [ngModel]="llaveMotivo()" (ngModelChange)="llaveMotivo.set($event)"></textarea>
                 <div class="cq-rev-acciones">
                   <p-button label="Dar llave hasta el fin del día" icon="pi pi-key" size="small" severity="secondary" [outlined]="true"
                             [disabled]="!puedeDarLlave() || dandoLlave()" [loading]="dandoLlave()" (onClick)="darLlave()" />
