@@ -562,6 +562,54 @@ Kepler, con confirmación.
 Hoy llega a la Suite por `import-contpaqi-cfdis.js`, que es un importer (regla 1: se están retirando).
 Traer `Pagos_Doc_Rel` y `CfdiRelacionados` a Postgres es **D8** — no se arma nada con esto hasta firmarla.
 
+## 3.6 ⭐⭐ `[CP.8.65]` El expediente: todo lo que hace falta para asentar un pago a proveedor, medido
+
+Pedido del PM el 2026-10-21: *«antes de que armemos algo, tener a la mano toda la información»*. La
+prueba no es una lista de fuentes sino **reconstruir las pólizas reales**:
+`database/scripts/reproduce-asiento-proveedor-contpaqi.js` asienta las 1,907 pólizas de pago a proveedor
+de 2026 desde las fuentes y las compara renglón por renglón con las de la contadora. Para separar la
+**regla** de la **liga**, las facturas son las que ella asoció; la liga se midió aparte (§3.5, `[CP.8.63]`,
+`[CP.8.64]`).
+
+**Resultado: 1,435 de 1,907 pólizas (75.2 %) salen iguales** (renglón ±$0.02, o Σ por cuenta cuando
+ella juntó notas). Cómo se llegó: v1 72.5 % → v2 89.1 % del pago completo al corregir la base del
+16 % y el redondeo → v3 suma notas juntadas y pagos parciales.
+
+### Pieza por pieza
+
+| pieza del asiento | fuente | medido | lo que falta |
+|---|---|---|---|
+| qué facturas paga | REP del proveedor (ADD) · cadena Kepler `kdxf` · importe | REP 97.1 % · coinciden REP y Kepler 670/686 | D8 (traer el ADD) · los proveedores que no emiten REP |
+| **2120 o compra directa** | CFDI: total ≥ $20 mil y mes anterior | coincide con la provisión real de ContPAQi en **2,771 de 2,807 facturas (98.7 %)** | 36 facturas de frontera (40 pólizas) |
+| traspaso IEPS `1470100/1470110` e IVA `1060/1470040` | CFDI `impuestos` | exacto donde aplica R1 | — |
+| **5020 vs 5010** | base al 16 % del CFDI (`subtotal_iva_16`) · el residuo < $1 **no** abre renglón 5010 | exacto salvo 8 pólizas | 8 en que ella puso todo a 5020 con factura mixta |
+| cuenta del proveedor | `finance.gl_supplier_accounts` por RFC | 33 pólizas **sin cuenta** en el mapa · 15–17 con cuenta **distinta** | corregir el mapa: es dato, una vez por proveedor |
+| **nota: descuento o devolución** | ADD `CfdiRelacionados.TipoRelacion` (`[CP.8.66]`) | **03 = devolución: 704 de 768 (91.7 %)**. El uso del CFDI no sirve (casi todas G02); Kepler liga 90 de 768; el historial del proveedor da 87.1 % | 64 notas que ella clasificó distinto: **pregunta para contabilidad** |
+| nota: tasa 0 % / 16 % | CFDI de la nota | 5050/5060 = 0 %, 5070/5080 = con IVA; las mixtas se parten | — |
+| notas que ella junta sin UUID | ADD: notas relacionadas a las facturas del pago | 192 de 236 se reconstruyen | nuestro asiento llevará **el UUID de cada nota**: avisarle que no es diferencia |
+| pago parcial | REP: `ImpPagado` de cada factura, proporcional | 47 de 85 | 29 sin REP (de contado o tardío) |
+| parcial con nota | REP: nota = total − pagado de cada factura (H3) | 24 de 83 | **59 sin regla**: proveedores de mucho volumen (uno tuvo 62 notas en dos meses) |
+| redondeo | diferencia a favor → abono `4200010000`; en contra → cargo `5201000000` | exacto | — |
+| tarjeta de crédito `2140800000` | — | 8 pólizas con cargo y abono iguales | regla sin medir |
+| varios bancos en una póliza | — | 76 pólizas | se arman por banco; sin medir |
+
+### Lo que se le pregunta a contabilidad (no se arma sin respuesta)
+
+1. **Devolución vs descuento:** ¿aceptan «relación 03 = devolución, lo demás descuento»? Coincide con
+   ustedes en 91.7 %; las 64 que difieren se les mandan para que digan quién está bien.
+2. **Factura con conceptos al 0 % y al 16 %:** ¿siempre se parte en 5010/5020 por la base del CFDI? En 8
+   pólizas va todo a 5020.
+3. **Pago parcial con notas** de proveedores grandes: ¿cómo deciden qué notas entran en cada pago? Es el
+   hueco más grande que queda (59).
+4. **Tarjeta de crédito** (`2140800000`, 8 pólizas): ¿qué asiento es?
+5. **El UUID de cada nota:** el puente los pondrá todos, ustedes hoy uno por renglón.
+
+### Fuera de este expediente
+
+Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
+cinco con cuenta fija, factoraje y crédito con pasivo e intereses, y nómina/IMSS **no derivables del
+banco** (necesitan el auxiliar de nómina, CP.9).
+
 ---
 
 ## 4. Decisiones a firmar
@@ -698,3 +746,6 @@ falta uno nuevo.
   y la relación nota → factura (`CfdiRelacionados`). Póliza completa igual a la contadora en
   1,257 de 1,837 (68.4 %), 1.4 % de error sobre lo armado; cruzado con la cadena Kepler coinciden
   670 de 686. Abre **D8** (cómo entran esas tablas sin importer nuevo). Nada se arma hasta firmarla.
+- **2026-10-21** — `[CP.8.65]` expediente del pago a proveedor (§3.6): 1,435 de 1,907 pólizas se
+  reconstruyen igual que la contadora desde las fuentes (75.2 %). `[CP.8.66]` devolución vs descuento
+  = `TipoRelacion` 03 del CFDI (91.7 %). Cinco preguntas para contabilidad antes de armar.
