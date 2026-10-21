@@ -214,6 +214,30 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
         }
       }
 
+      console.log('\n── 4d. CGS.22 — el conteo físico de la caja fuerte ──');
+      const hayConteos = (await trx.raw(`SELECT to_regclass('finance.caos_conteos_fisicos') IS NOT NULL AS t`)).rows[0].t;
+      if (!hayConteos) {
+        skip('la migración 20261021135209 (conteo físico de CAOS) no está aplicada en esta base.');
+      } else {
+        const conteo = (over = {}) => ({
+          tenant_id: T, piezas: JSON.stringify([{ denominacion: 500, piezas: 2 }]), total: 1000,
+          referencia_total: 1200, diferencia: -200, created_by: AUTORIZA, ...over,
+        });
+        const e6a = await intento(trx, () => trx('finance.caos_conteos_fisicos').insert(conteo()));
+        ok(e6a === null, `guardar un conteo con su referencia y su diferencia exacta pasa (${dijo(e6a)})`);
+        const e6b = await intento(trx, () => trx('finance.caos_conteos_fisicos').insert(conteo({ diferencia: 0 })));
+        ok(es(e6b, '23514', 'caos_conteo_dif_chk'), `[negativa] una diferencia que no es total − referencia → caos_conteo_dif_chk (${dijo(e6b)})`);
+        const e6c = await intento(trx, () => trx('finance.caos_conteos_fisicos').insert(conteo({ referencia_total: null, diferencia: 0 })));
+        ok(es(e6c, '23514', 'caos_conteo_dif_chk'), `[negativa] sin referencia la diferencia NO es cero: es NULL → caos_conteo_dif_chk (${dijo(e6c)})`);
+        if (hayRol) {
+          const e6d = await intento(trx, async () => {
+            await trx('finance.caos_conteos_fisicos').insert(conteo());
+            await trx('finance.caos_conteos_fisicos').where({ created_by: AUTORIZA }).update({ total: 1200 });
+          });
+          ok(!!e6d && e6d.code === '42501', `[negativa] un conteo guardado no se edita: sólo se agrega (${dijo(e6d)})`);
+        }
+      }
+
       console.log('\n── 5. ⛔ MUTACIONES: sin cada regla, la violación SÍ pasa ──');
       if (hayRol) await trx.raw('RESET ROLE');
       // Postgres no deja ALTER TABLE con eventos de trigger diferidos pendientes (el desglose del

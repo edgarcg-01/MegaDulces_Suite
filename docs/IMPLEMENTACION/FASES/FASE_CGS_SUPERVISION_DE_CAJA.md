@@ -222,7 +222,7 @@ real con el payload de la pantalla. Cada uno de estos va en `cash-ledger.http-re
 | CGS.19 | `GET cortes/:id/verificacion` — la lista V1–V11 de un corte | 🔨 | no | Contra la base sembrada de `preparar-base-caja.js` |
 | CGS.20 | `POST cortes/:id/autorizar` acepta `notas` por verificación; `POST cortes/:id/observar` {motivo}; `POST cortes/:id/responder` {respuesta} | 🔨 | sí | Payload de la pantalla; 403 para quien cerró o capturó; 409 si cambió la verificación desde que se mostró |
 | CGS.21 | `POST caja/llave-emergencia` {motivo, para_usuario} y que `POST /` y `POST lote` devuelvan **423** con el motivo literal cuando el candado aplica | 🔨 | sí | Captura bloqueada → llave → captura pasa → vence → bloqueada otra vez |
-| CGS.22 | `POST caos/conteos` — el conteo físico de la caja fuerte, ciego, por denominación | ⬜ | sí | Llena `analytics.caos_cash_counts` (hoy 0 filas) |
+| CGS.22 | `POST caos/conteos` — el conteo físico de la caja fuerte, ciego, por denominación | 🔨 | sí | Llena `analytics.caos_cash_counts` (hoy 0 filas) |
 | CGS.23 | Traducir `cut_doble_llave_chk` y los errores nuevos en `caja-errores.ts` (hoy un choque directo con la base sale como 500) | 🔨 | no | La violación devuelve la frase, no un 500 |
 
 ### C3 · UI
@@ -235,7 +235,7 @@ real con el payload de la pantalla. Cada uno de estos va en `cash-ledger.http-re
 | CGS.25 | En Arqueos, **los movimientos del día salen del libro de la Suite** para los días que ya viven en la Suite; Control queda como segundo testigo, rotulado | 🔨 | 0 → 0 fallas |
 | CGS.26 | La cola `caja-por-autorizar` de «Mi trabajo» lleva a `/finanzas/caja-general/arqueos?corte=<folio>`, no a Captura | 🔨 | 0 → 0 fallas (cumple las 10 reglas) |
 | CGS.27 | **Captura con candado**: aviso con el motivo literal, la única acción que lo destraba («Cerrar el corte del 20-oct») y «Pedir llave de emergencia». Las observaciones de la supervisora aparecen al entrar | 🔨 | por medir |
-| CGS.28 | **Caja Fuerte**: «Conteo físico» deja de ser «sin medir» para siempre — captura ciega del conteo de la máquina | ⬜ | por medir |
+| CGS.28 | **Caja Fuerte**: «Conteo físico» deja de ser «sin medir» para siempre — captura ciega del conteo de la máquina | 🔨 | 0 → 0 fallas |
 
 ### Operación (no es código, pero sin esto el código no sirve)
 
@@ -327,3 +327,4 @@ Operación:                 CGS.29–31 arrancan con la Tanda 2
 | 2026-10-21 | CGS.3b (D2, aviso a la suplente) en código: el sensor horario escala por persona a tesorería y Dirección cada corte cerrado que pasó las 12:00 del día siguiente sin revisar (repite cada 6 h). Simulado en prod en sólo lectura: hoy avisaría los 7 cortes a maria_gutierrez, guillermo_lopez y superuser; fijando `CAJA_CANDADO_REVISION_DESDE` cuenta desde esa fecha | sesión de seguridad de Caja General |
 | 2026-10-21 | CGS.25 en código: el panel del día de Arqueos muestra primero «Lo que el libro registró esa jornada» (`arqueo-dia`, por el día en que se movió el efectivo) y Control queda como «Segundo testigo». Si el servidor no publica la lista se declara, no se pinta «sin movimientos» | sesión de seguridad de Caja General |
 | 2026-10-21 | CGS.27 completo (la caja responde la observación desde Captura). CGS.30: runbook reescrito para Carmen, Mayra y María (candado, revisión de la mañana con la lista, observar/responder, llave, horario 8:30–12:00 y suplente). CGS.13 **no se hace**: V3 declara el eslabón roto CC-3→CC-4 cada vez que se lee el corte, y una migración sólo para escribir una nota frenaría el despliegue sin aportar nada. ⚠️ Corregido: 944cde5ad no compilaba (`$event` borrado por el shell), arreglado en el commit siguiente | sesión de seguridad de Caja General |
+| 2026-10-21 | CGS.22/28 en código: el conteo físico de la caja fuerte. ⚠️ **No usa `analytics.caos_cash_counts`**: ésa es la LECTURA de la máquina (la llena `caos-live`); el conteo de una persona es un hecho propio y va a `finance.caos_conteos_fisicos` (migración 20261021135209, sólo-agregar, diferencia exacta o NULL sin referencia). Lo cuenta quien tiene AUTORIZAR, a ciegas: la referencia (el saldo que publica la pantalla en ese instante) se revela al guardar. Servicio aparte de `CaosService` porque ése tiene cambios pendientes de otra sesión. Regla 30: `design:paramtypes` del controlador probado en `apps/api`, rojo verificado con `import type` | sesión de seguridad de Caja General |
