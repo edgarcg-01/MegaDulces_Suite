@@ -41,6 +41,8 @@
     "check:teclado:self": "node scripts/check-keyboard-nav.js --self-test",
     "check:busqueda": "node scripts/check-busqueda.js",
     "check:busqueda:self": "node scripts/check-busqueda.js --self-test",
+    "check:track": "node scripts/check-track-llave.js",
+    "check:track:self": "node scripts/check-track-llave.js --self-test",
     "check:provenance": "node scripts/check-provenance.js",
     "check:docker": "node scripts/check-docker-context.js",
     "check:k3s": "node scripts/check-k3s-manifests.js",

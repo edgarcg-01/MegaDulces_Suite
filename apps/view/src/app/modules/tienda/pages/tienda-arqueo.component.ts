@@ -579,8 +579,8 @@ interface CortesPersona {
                busqueda en todo el archivo. NO PONER ACENTOS GRAVES ACA (template literal). -->
           @if (rows().length) {
             <div class="arq-hist-bar">
-              <p-iconfield styleClass="arq-hist-search">
-                <p-inputicon styleClass="pi pi-search" />
+              <p-iconfield class="arq-hist-search">
+                <p-inputicon class="pi pi-search" />
                 <input pInputText type="search" class="p-inputtext-sm" autocomplete="off"
                        placeholder="Buscar por monto, hora, caja o cajera"
                        aria-label="Buscar arqueos por monto, hora, caja o cajera"

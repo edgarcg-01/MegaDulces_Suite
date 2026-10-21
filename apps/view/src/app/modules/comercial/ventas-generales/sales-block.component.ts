@@ -32,7 +32,7 @@ import { SalesBlock } from './dashboard-spec';
       }
 
       @if (loading()) {
-        <div class="sb-skel">@for (i of skel; track i) { <p-skeleton height="1.7rem" /> }</div>
+        <div class="sb-skel">@for (i of skel; track $index) { <p-skeleton height="1.7rem" /> }</div>
       } @else if (err()) {
         <div class="sb-err" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err() }}</div>
       } @else if (block().type === 'kpi') {

@@ -85,7 +85,7 @@ const dmy = (v: string | null | undefined): string => {
       }
 
       @if (loading() && !data()) {
-        <div class="ll-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="ll-skel-row"></div> }</div>
+        <div class="ll-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="ll-skel-row"></div> }</div>
       } @else if (data(); as d) {
         @let r = resumen();
         <div class="ll-kpis" role="group" aria-label="Resumen y filtro por estado">

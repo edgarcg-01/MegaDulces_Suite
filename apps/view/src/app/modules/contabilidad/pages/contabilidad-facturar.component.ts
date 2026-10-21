@@ -66,8 +66,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
       }
 
       <div class="fa-filters">
-        <p-iconfield iconPosition="left" styleClass="fa-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield iconPosition="left" class="fa-search">
+          <p-inputicon class="pi pi-search" />
           <input type="text" pInputText placeholder="Buscar receptor, RFC, folio, UUID…" [(ngModel)]="search" (keyup.enter)="applyFilters()" aria-label="Buscar factura" />
         </p-iconfield>
         <label class="fa-field"><span>Desde</span>

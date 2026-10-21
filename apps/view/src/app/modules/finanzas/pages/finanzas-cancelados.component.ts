@@ -48,12 +48,12 @@ const CAT_LABEL: Record<string, string> = { pago: 'Pago a proveedor', entrada: '
 
       <div class="cg-filters">
         <p-select [options]="catOpts" optionLabel="label" optionValue="value" [ngModel]="categoria()" (onChange)="onCat($event.value)" placeholder="Categoría" [showClear]="true" styleClass="cg-sel" ariaLabel="Categoría" />
-        <p-iconfield styleClass="cg-search"><p-inputicon styleClass="pi pi-search" /><input pInputText type="text" placeholder="Folio / proveedor / concepto…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar" /></p-iconfield>
+        <p-iconfield class="cg-search"><p-inputicon class="pi pi-search" /><input pInputText type="text" placeholder="Folio / proveedor / concepto…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar" /></p-iconfield>
       </div>
 
       @if (err(); as e) { <div class="cg-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="cg-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()" label="Reintentar"></button></div> }
 
-      @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="fb-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="fb-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="fb-skel-row"></div> }</div> }
       @else if (data(); as d) {
         <app-metric-strip [items]="kpis(d)" ariaLabel="Totales de cancelados" />
         <p-table [value]="d.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="62vh" [paginator]="d.rows.length>200" [rows]="200">

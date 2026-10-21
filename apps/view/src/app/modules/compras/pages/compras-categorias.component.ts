@@ -47,8 +47,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de categorías" />
 
       <div class="cat-toolbar">
-        <p-iconfield styleClass="cat-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="cat-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="onSearch($event)" placeholder="Buscar categoría o código…" aria-label="Buscar categoría" />
         </p-iconfield>
         @if (selCount() >= 2) {

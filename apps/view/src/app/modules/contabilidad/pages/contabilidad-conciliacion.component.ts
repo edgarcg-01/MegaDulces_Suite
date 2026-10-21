@@ -52,8 +52,8 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
       </div>
 
       <div class="co-filters">
-        <p-iconfield iconPosition="left" styleClass="co-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield iconPosition="left" class="co-search">
+          <p-inputicon class="pi pi-search" />
           <input type="text" pInputText placeholder="Buscar RFC del proveedor…" [(ngModel)]="rfc" (keyup.enter)="applyFilters()" aria-label="Buscar por RFC" />
         </p-iconfield>
         <label class="co-field"><span>Desde</span>
