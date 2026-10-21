@@ -69,6 +69,23 @@ export interface CorteCobro {
 }
 
 /**
+ * `[CSU.13]` Un cobro que se aplicó al corte y luego se CANCELÓ en Kepler (cabecera `kdm1.c43 = 'C'`).
+ * Sale de `analytics.kepler_kdm5_cancelado`. ⛔ **No suma**: no entra a `cobrado` ni al saldo. Se publica
+ * para que se vea marcado («Cancelado en Kepler — no suma») y para que el buscador lo encuentre: el PM
+ * pidió omitir el MONTO, no esconder el documento.
+ */
+export interface CorteCobroCancelado {
+  doc_prefix: string;
+  folio: string;
+  /** `YYYY-MM-DD` del documento cancelado (`kdm1.c9`); `null` si su cabecera no se encontró. */
+  fecha: string | null;
+  /** Lo que la aplicación decía (`kdm5.c13`): el monto que YA NO cuenta. */
+  monto: number;
+  /** Concepto que capturó Kepler en el cobro (`kdm1.c24`). */
+  concepto: string | null;
+}
+
+/**
  * `[CSU.7]` Devolución pagada en la caja del turno: nota de crédito POS de Kepler, ligada al turno
  * por `kdm1.c81` (caja) y `kdm1.c80` (folio de turno). Dos documentos:
  *  · `UA2101` — "Nota Créd/Dev POS" (fiscal).
@@ -151,6 +168,8 @@ export interface CorteRow {
   saldo: number;
   estado_cobro: CorteEstadoCobro;
   cobros: CorteCobro[];
+  /** `[CSU.13]` Cobros aplicados a este corte y cancelados en Kepler. NO suman (vacío si no hubo). */
+  cobros_cancelados: CorteCobroCancelado[];
   /** `[CSU.7]` Devoluciones pagadas en la caja de este turno (vacío si no hubo). */
   devoluciones: CorteDevolucion[];
   devoluciones_total: number;
