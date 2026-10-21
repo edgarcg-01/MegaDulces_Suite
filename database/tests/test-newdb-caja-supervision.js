@@ -155,6 +155,38 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
       });
       ok(e4e === null, `autoriza alguien ajeno: pasa y la autorización queda en el historial (${dijo(e4e)})`);
 
+      console.log('\n── 4b. CGS.18 — observar no mueve cifras ──');
+      const yaObservado = (await trx.raw(
+        `SELECT 1 FROM pg_constraint WHERE conname = 'cut_observa_ajeno_chk'`)).rows.length === 1;
+      if (!yaObservado) {
+        skip('la migración 20261021111319 (estado observado) no está aplicada en esta base.');
+      } else {
+        const observar = (u, motivo = 'Falta la pierna del depósito del banco') => trx('finance.cash_ledger_cuts')
+          .where({ id: c.id }).update({
+            estado: 'observado', observed_by: u, observed_by_username: 'quien_prueba', observed_at: trx.fn.now(), observacion: motivo,
+          });
+        const e4f = await intento(trx, () => observar(AUTORIZA));
+        ok(e4f === null, `observar con motivo, por alguien ajeno, pasa (${dijo(e4f)})`);
+        const e4g = await intento(trx, () => observar(CAJERA));
+        ok(es(e4g, '23514', 'cut_observa_ajeno_chk'),
+          `[negativa] observa quien cerró → cut_observa_ajeno_chk (${dijo(e4g)})`);
+        const e4h = await intento(trx, () => observar(AUTORIZA, 'corto'));
+        ok(es(e4h, '23514', 'cut_observado_completo_chk'),
+          `[negativa] observar sin motivo de 10+ → cut_observado_completo_chk (${dijo(e4h)})`);
+        const e4i = await intento(trx, async () => {
+          await observar(AUTORIZA);
+          await trx('finance.cash_ledger_cuts').where({ id: c.id }).update({ esperado: 999, diferencia: 400 - 999 });
+        });
+        ok(es(e4i, '23514', 'cut_firmado_inmutable_chk'),
+          `[negativa] un corte observado sigue firmado: su esperado no cambia → cut_firmado_inmutable_chk (${dijo(e4i)})`);
+        const e4j = await intento(trx, async () => {
+          await observar(AUTORIZA);
+          await trx('finance.cash_ledger').where({ id: m1.id }).update({ monto: 5 });
+        });
+        ok(es(e4j, '23514', 'cash_ledger_en_corte_firmado_chk'),
+          `[negativa] y sus movimientos tampoco → cash_ledger_en_corte_firmado_chk (${dijo(e4j)})`);
+      }
+
       console.log('\n── 5. ⛔ MUTACIONES: sin cada regla, la violación SÍ pasa ──');
       if (hayRol) await trx.raw('RESET ROLE');
       // Postgres no deja ALTER TABLE con eventos de trigger diferidos pendientes (el desglose del

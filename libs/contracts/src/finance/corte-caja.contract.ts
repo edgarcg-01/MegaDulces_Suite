@@ -11,7 +11,11 @@ import { diaDeFecha } from './dia-negocio.contract';
  *
  * ⚠️ `null` sigue significando «no se midió» (ADR-056): el mapeo nunca lo vuelve 0.
  */
-export type EstadoCorteCaja = 'borrador' | 'cerrado' | 'autorizado';
+/**
+ * `[CGS.18]` `observado`: la supervisora lo revisó y encontró algo; espera la respuesta de la caja.
+ * Sigue FIRMADO (sus cifras no cambian). Al responder vuelve a `cerrado`, o sea a «por revisar».
+ */
+export type EstadoCorteCaja = 'borrador' | 'cerrado' | 'observado' | 'autorizado';
 
 export interface CorteCajaDto {
   id: string;
@@ -41,6 +45,16 @@ export interface CorteCajaDto {
   /** Instante ISO. */
   authorized_at: string | null;
   reconteo_motivo: string | null;
+  /** `[CGS.18]` Quién observó el corte, cuándo (instante ISO) y qué encontró. La última ronda. */
+  observed_by_username: string | null;
+  observed_at: string | null;
+  observacion: string | null;
+  /** `[CGS.18]` La respuesta de la caja a esa observación. */
+  responded_by_username: string | null;
+  responded_at: string | null;
+  respuesta: string | null;
+  /** `[CGS.17]` La nota con la que se autorizó: obligatoria si hubo diferencia. */
+  authorization_note: string | null;
 }
 
 const num = (v: unknown): number | null => {
@@ -82,5 +96,12 @@ export function aCorteCajaDto(r: Record<string, unknown>): CorteCajaDto {
     authorized_by_username: txt(r['authorized_by_username']),
     authorized_at: instante(r['authorized_at']),
     reconteo_motivo: txt(r['reconteo_motivo']),
+    observed_by_username: txt(r['observed_by_username']),
+    observed_at: instante(r['observed_at']),
+    observacion: txt(r['observacion']),
+    responded_by_username: txt(r['responded_by_username']),
+    responded_at: instante(r['responded_at']),
+    respuesta: txt(r['respuesta']),
+    authorization_note: txt(r['authorization_note']),
   };
 }

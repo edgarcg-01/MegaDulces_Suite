@@ -105,7 +105,7 @@ export class CajaFechaFuturaScannerService {
           -- Congelado = atado a un corte que ya se firmó. No se toca por atrás.
           frio AS (
             SELECT id FROM finance.cash_ledger_cuts
-             WHERE tenant_id = ? AND estado IN ('cerrado','autorizado')
+             WHERE tenant_id = ? AND estado IN ('cerrado','observado','autorizado')
           ),
           candidatas AS (
             SELECT l.id, l.folio, l.fecha AS antes, m.fecha_valor AS ahora
@@ -149,7 +149,7 @@ export class CajaFechaFuturaScannerService {
           WITH hoy AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
           frio AS (
             SELECT id FROM finance.cash_ledger_cuts
-             WHERE tenant_id = ? AND estado IN ('cerrado','autorizado')
+             WHERE tenant_id = ? AND estado IN ('cerrado','observado','autorizado')
           ),
           libro AS (
             SELECT l.monto, (l.corte_id IN (SELECT id FROM frio)) AS congelado

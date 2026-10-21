@@ -5,7 +5,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
-  type JornadasPendientes, type CorteCajaDto,
+  type JornadasPendientes, type CorteCajaDto, type VeredictoCorte,
   type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo,
 } from '@megadulces/contracts';
 import { depositosEnElExceso, excesoDeBilletes, type BilletesPorDenominacion, type DepositoCaos } from './caja-cajon-caos.engine';
@@ -16,6 +16,7 @@ import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-ve
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
+  exigenciaParaAutorizar, TEXTO_EXIGENCIA, puedeObservar, TEXTO_NO_OBSERVA, puedeResponder, TEXTO_NO_RESPONDE,
   proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
   filasDenominacion, DenominacionFueraDeCatalogo, veredictoDe,
   decidirConteoDelCierre, esperadoCambio, textoConteoDistinto, textoEsperadoCambio, puedeAbrirCorte,
@@ -362,13 +363,13 @@ export class CashCutService {
    * desglose por denominación. Se separa para no repetir la consulta ni obligar a `arqueoDia` a
    * abrir otra transacción — vive en la misma `trx` que ya tiene.
    *
-   * ⚠️ Sólo `cerrado` o `autorizado`. Heredar de un borrador sería propagar un conteo que nadie
-   * selló.
+   * ⚠️ Sólo un corte firmado (`cerrado`, `observado` o `autorizado`). Heredar de un borrador
+   * sería propagar un conteo que nadie selló. `[CGS.18]` Un observado sigue firmado: su conteo es real.
    */
   private async sugerirFondoInterno(trx: any, tenantId: string, sucursal: string): Promise<number | null> {
     const previo = await trx('finance.cash_ledger_cuts')
       .where({ tenant_id: tenantId, sucursal })
-      .whereIn('estado', ['cerrado', 'autorizado'])
+      .whereIn('estado', ['cerrado', 'observado', 'autorizado'])
       .whereNotNull('contado')
       .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
       .first('contado');
@@ -625,7 +626,7 @@ export class CashCutService {
       if (monto === null) {
         const prev = await trx('finance.cash_ledger_cuts')
           .where({ tenant_id: tenantId, sucursal: input.sucursal })
-          .whereIn('estado', ['cerrado', 'autorizado'])
+          .whereIn('estado', ['cerrado', 'observado', 'autorizado'])
           .whereNotNull('contado')
           // `[CGP-L.4]` El fondo hereda del último cierre ANTERIOR a esta fecha. La regla de orden de
           // arriba ya impide que exista uno posterior; esto lo deja dicho en la consulta misma.
@@ -1040,7 +1041,82 @@ export class CashCutService {
     }));
   }
 
-  async autorizar(id: string, user: Usuario): Promise<CorteCajaDto> {
+  /** `[CGS.16]` Quiénes capturaron o cancelaron algo del corte: no lo revisan (D3). */
+  private async capturistasDelCorte(trx: Knex.Transaction, tenantId: string, id: string): Promise<string[]> {
+    const manos: Array<{ created_by: string | null; cancelled_by: string | null }> = await trx('finance.cash_ledger')
+      .where({ tenant_id: tenantId, corte_id: id })
+      .select('created_by', 'cancelled_by');
+    return manos.flatMap((m) => [m.created_by, m.cancelled_by]).filter((x): x is string => !!x);
+  }
+
+  /**
+   * El veredicto de un corte YA firmado, leído de lo que se guardó. El mismo juicio que publica
+   * `saldo()`: sin conteo es `sin_contar`, y sellado antes de `[CG.156]` se declara `sin_medir`.
+   */
+  private veredictoFirmado(c: Record<string, unknown>): VeredictoCorte {
+    if (c['contado'] == null) return 'sin_contar';
+    if (c['esperado'] == null || c['diferencia'] == null) return 'sin_medir';
+    return veredictoDe({
+      huboConteo: true, fondoSinMedir: c['fondo_inicial'] == null,
+      diferencia: Number(c['diferencia']), esperado: Number(c['esperado']),
+    });
+  }
+
+  /**
+   * ⭐ `[CGS.18]` **La supervisora revisó y encontró algo.** El corte queda `observado` con el motivo
+   * hasta que la caja responda. No cambia ninguna cifra (la base lo garantiza: está firmado).
+   * Misma segregación que autorizar: quien cerró, abrió o capturó en el corte no lo revisa.
+   */
+  async observar(id: string, body: { motivo?: string }, user: Usuario): Promise<CorteCajaDto> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.conFrase(this.tk.run(async (trx) => {
+      const c = await trx('finance.cash_ledger_cuts').where({ tenant_id: tenantId, id }).forUpdate().first();
+      if (!c) throw new NotFoundException('Corte no encontrado');
+      const gate = puedeObservar(c, u.id, await this.capturistasDelCorte(trx, tenantId, id), body?.motivo);
+      if (!gate.ok) {
+        const texto = TEXTO_NO_OBSERVA[gate.motivo!];
+        if (gate.motivo === 'sin_motivo') throw new BadRequestException(texto);
+        throw new ForbiddenException(texto);
+      }
+      const [obs] = await trx('finance.cash_ledger_cuts').where({ id }).update({
+        estado: 'observado',
+        observed_by: u.id, observed_by_username: u.username ?? null, observed_at: trx.fn.now(),
+        observacion: String(body.motivo).trim(),
+        updated_at: trx.fn.now(),
+      }).returning('*');
+      return aCorteCajaDto(obs);
+    }));
+  }
+
+  /**
+   * `[CGS.18]` **La caja responde la observación** y el corte vuelve a «por revisar» (`cerrado`).
+   * Si lo que estaba mal era un movimiento, la corrección es un ajuste en la jornada abierta; acá
+   * sólo se explica. Quien observó no se responde a sí misma.
+   */
+  async responder(id: string, body: { respuesta?: string }, user: Usuario): Promise<CorteCajaDto> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.conFrase(this.tk.run(async (trx) => {
+      const c = await trx('finance.cash_ledger_cuts').where({ tenant_id: tenantId, id }).forUpdate().first();
+      if (!c) throw new NotFoundException('Corte no encontrado');
+      const gate = puedeResponder(c, u.id, body?.respuesta);
+      if (!gate.ok) {
+        const texto = TEXTO_NO_RESPONDE[gate.motivo!];
+        if (gate.motivo === 'quien_observo') throw new ForbiddenException(texto);
+        throw new BadRequestException(texto);
+      }
+      const [res] = await trx('finance.cash_ledger_cuts').where({ id }).update({
+        estado: 'cerrado',
+        responded_by: u.id, responded_by_username: u.username ?? null, responded_at: trx.fn.now(),
+        respuesta: String(body.respuesta).trim(),
+        updated_at: trx.fn.now(),
+      }).returning('*');
+      return aCorteCajaDto(res);
+    }));
+  }
+
+  async autorizar(id: string, user: Usuario, body?: { nota?: string }): Promise<CorteCajaDto> {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.conFrase(this.tk.run(async (trx) => {
@@ -1059,20 +1135,25 @@ export class CashCutService {
       if (!c) throw new NotFoundException('Corte no encontrado');
 
       // `[CGS.16]` Quién capturó o canceló algo de este corte: tampoco lo autoriza (D3).
-      const manos = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, corte_id: id })
-        .select('created_by', 'cancelled_by');
-      const capturistas = manos.flatMap((m: { created_by: string | null; cancelled_by: string | null }) =>
-        [m.created_by, m.cancelled_by]).filter((x): x is string => !!x);
-
-      const gate = puedeAutorizar(c, u.id, capturistas);
+      const gate = puedeAutorizar(c, u.id, await this.capturistasDelCorte(trx, tenantId, id));
       if (!gate.ok) {
         // 403 y no 400: no es que el dato esté mal, es que esta persona no puede.
         throw new ForbiddenException(TEXTO_NO_AUTORIZA[gate.motivo!]);
       }
+      // `[CGS.17]` Firmar no es dar por bueno cualquier número: sin respuesta se observa, y con
+      // diferencia hace falta decir por qué.
+      const nota = String(body?.nota ?? '').trim();
+      const exige = exigenciaParaAutorizar({
+        veredicto: this.veredictoFirmado(c),
+        diferencia: c.diferencia == null ? null : Number(c.diferencia),
+        nota,
+      });
+      if (!exige.ok) throw new BadRequestException(TEXTO_EXIGENCIA[exige.motivo!]);
+
       const [aut] = await trx('finance.cash_ledger_cuts').where({ id }).update({
         estado: 'autorizado',
         authorized_by: u.id, authorized_by_username: u.username ?? null, authorized_at: trx.fn.now(),
+        authorization_note: nota || null,
         updated_at: trx.fn.now(),
       }).returning('*');
       return aCorteCajaDto(aut);

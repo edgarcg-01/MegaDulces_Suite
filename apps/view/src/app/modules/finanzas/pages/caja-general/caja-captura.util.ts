@@ -482,10 +482,13 @@ export type { VeredictoCorte };
 export interface CorteVista {
   id: string;
   folio: string;
-  estado: 'borrador' | 'cerrado' | 'autorizado';
+  estado: 'borrador' | 'cerrado' | 'observado' | 'autorizado';
   closed_by?: string | null;
   closed_by_username?: string | null;
   authorized_by_username?: string | null;
+  /** `[CGS.18]` Lo que encontró quien revisó, si el corte está observado. */
+  observacion?: string | null;
+  observed_by_username?: string | null;
   /** `[CG.42]` `null` = no se midió con qué arrancó la caja. No es `0`. */
   fondo_inicial?: number | null;
   esperado?: number | null;
@@ -521,6 +524,10 @@ export function puedeAutorizarUI(
   if (!userId) return { ok: false, texto: 'No se pudo identificar quién autoriza.' };
   if (c.estado === 'autorizado') {
     return { ok: false, texto: `Autorizado por ${c.authorized_by_username ?? 'otra persona'}.` };
+  }
+  if (c.estado === 'observado') {
+    const quien = c.observed_by_username ?? 'la supervisión';
+    return { ok: false, texto: `Observado por ${quien}: ${c.observacion ?? 'sin texto'}. Espera la respuesta de la caja.` };
   }
   if (c.estado !== 'cerrado') return { ok: false, texto: 'Primero hay que cerrar el corte.' };
   if (c.closed_by && c.closed_by === userId) {

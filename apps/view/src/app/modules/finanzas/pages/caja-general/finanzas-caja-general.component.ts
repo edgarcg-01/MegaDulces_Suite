@@ -82,6 +82,8 @@ const ETIQUETA_TIPO: Record<string, string> = {
 };
 const ETIQUETA_ESTADO_CORTE: Record<string, string> = {
   borrador: 'Abierto', cerrado: 'Cerrado', autorizado: 'Autorizado',
+  // `[CGS.18]` La supervisora lo revisó y lo devolvió con un motivo: espera la respuesta de la caja.
+  observado: 'Observado',
 };
 const ETIQUETA_VEREDICTO: Record<string, string> = {
   cuadra: 'Cuadra', sobra: 'Sobra efectivo', falta: 'Falta efectivo', sin_contar: 'Sin contar',
@@ -6126,8 +6128,10 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
-  sevEstadoCorte(e: string): 'secondary' | 'warn' | 'success' {
-    return e === 'borrador' ? 'secondary' : e === 'cerrado' ? 'warn' : 'success';
+  sevEstadoCorte(e: string): 'secondary' | 'warn' | 'danger' | 'success' {
+    // `[CGS.18]` Un observado NO es verde: caía en la rama final y se pintaba como autorizado.
+    if (e === 'observado') return 'danger';
+    return e === 'borrador' ? 'secondary' : e === 'cerrado' ? 'warn' : e === 'autorizado' ? 'success' : 'secondary';
   }
 
   // Lo que se PINTA no es el enum de la columna. La pantalla publicaba `deposito`, `borrador` y
