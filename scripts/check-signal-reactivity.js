@@ -164,7 +164,24 @@ const PERMITIDOS = new Map([
   ['apps/view/src/app/modules/comercial/pages/comercial-orders.component.ts::fromDate', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/comercial/pages/comercial-orders.component.ts::toDate', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/finanzas/pages/finanzas-capturas-sin-folio.component.ts::solSel', 'deuda CG.22 (parcial)'],
+  // `[E.20]` Destapados el 2026-10-21 al enseñarle a la compuerta que `[(ngModel)]` también muta.
+  // Son filtros/buscadores que NO filtran: el computed no se entera de lo que se teclea o elige.
+  // Verificado a mano en logistica-guides (su comentario dice «se recalcula vía signal» y
+  // ninguno de los tres campos es una señal). Deuda de esas pantallas, no de E.20.
+  ['apps/view/src/app/modules/almacen/pages/almacen-existencia.component.ts::fSupplier', 'deuda E.20 (ngModel sobre campo plano)'],
+  ['apps/view/src/app/modules/logistica/pages/logistica-config.component.ts::routeSearch', 'deuda E.20 (ngModel sobre campo plano)'],
+  ['apps/view/src/app/modules/logistica/pages/logistica-costs.component.ts::search', 'deuda E.20 (ngModel sobre campo plano)'],
+  ['apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts::search', 'deuda E.20 (ngModel sobre campo plano)'],
+  ['apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts::statusFilter', 'deuda E.20 (ngModel sobre campo plano)'],
+  ['apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts::driverFilter', 'deuda E.20 (ngModel sobre campo plano)'],
 ]);
+
+/** La plantilla del componente: la inline (va dentro de `src`) más la de `templateUrl`, si hay. */
+function plantillaDe(archivo, src) {
+  const m = src.match(/templateUrl\s*:\s*['"]([^'"]+)['"]/);
+  if (!m) return src;
+  try { return src + '\n' + fs.readFileSync(path.join(path.dirname(archivo), m[1]), 'utf8'); } catch { return src; }
+}
 
 function revisar(archivo) {
   const src = fs.readFileSync(archivo, 'utf8');
@@ -199,7 +216,14 @@ function revisar(archivo) {
       const muta = new RegExp(
         'this' + PUNTO + nombre + '(?:' + PUNTO + '[A-Za-z_$][' + BARRA + 'w$]*)*' + PUNTO + MUTADORES + BARRA + 's*' + BARRA + '(',
       ).test(code);
-      if (!reasigna && !muta) continue; // constante: no puede quedar stale
+      // `[E.20]` Un campo enlazado con `[(ngModel)]` lo cambia la PLANTILLA, no el TypeScript: no
+      // hay `this.x =` que buscar y la compuerta lo daba por constante. Así pasó el botón «Crear»
+      // de /telemarketing/cotizaciones/nueva: `puedeCrear` leía `contactoNombre`, teclear el
+      // nombre no lo recalculaba y el botón no se habilitaba (auditoría de cotizaciones, A1).
+      const enPlantilla = new RegExp(
+        '\\[\\(ngModel\\)\\]\\s*=\\s*["\']\\s*' + nombre + '\\s*["\']',
+      ).test(plantillaDe(archivo, src));
+      if (!reasigna && !muta && !enPlantilla) continue; // constante: no puede quedar stale
       const linea = code.slice(0, ini + r.index).split('\n').length;
       hallazgos.push({ archivo, linea, nombre });
     }
@@ -234,6 +258,24 @@ function selfTest() {
   // ⚠️ Los campos van CADA UNO EN SU LÍNEA: `camposDeClase` ancla con `^...$` y `gm`, así que
   // una clase escrita en un renglón no le muestra ningún campo y el caso daría verde por vacío.
   const casos = [
+    // `[E.20]` El que dejó pasar el botón «Crear» de cotizaciones: el campo no se reasigna en el
+    // TypeScript, lo cambia `[(ngModel)]` en la plantilla.
+    { nombre: 'campo plano enlazado con [(ngModel)] y leido en computed -> DEBE marcar', esperado: 1,
+      src: [
+        '@Component({ template: `<input [(ngModel)]="nombre" />` })',
+        'class A {',
+        '  nombre = "";',
+        '  readonly listo = computed(() => this.nombre.trim().length > 0);',
+        '}',
+      ].join('\n') },
+    { nombre: 'signal enlazado con [ngModel]/(ngModelChange) -> NO debe marcar', esperado: 0,
+      src: [
+        '@Component({ template: `<input [ngModel]="nombre()" (ngModelChange)="nombre.set($event)" />` })',
+        'class A {',
+        '  nombre = signal("");',
+        '  readonly listo = computed(() => this.nombre().trim().length > 0);',
+        '}',
+      ].join('\n') },
     { nombre: 'campo plano leido en computed -> DEBE marcar', esperado: 1,
       src: [
         'class A {',

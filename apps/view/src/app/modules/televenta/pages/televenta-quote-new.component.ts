@@ -23,10 +23,16 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   desglose,
+  parseCantidad,
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteBranches,
 } from '../quotes.service';
+
+/** [E.20] Un renglón de la bandeja admite fracción sólo si se pesa y va en su unidad base. */
+function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
+  return it.base_unit === 'KG' && it.rung === 'base';
+}
 import {
   exportQuotePdf,
   exportQuoteXlsx,
@@ -245,7 +251,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 <input
                   type="text"
                   class="input"
-                  [(ngModel)]="contactoNombre"
+                  [ngModel]="contactoNombre()" (ngModelChange)="contactoNombre.set($event)"
                   placeholder="Quién solicita la cotización"
                   [disabled]="guardando()"
                 />
@@ -476,7 +482,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     <input
                       #cantidadInput
                       type="text"
-                      inputmode="numeric"
+                      [attr.inputmode]="admiteFraccion() ? 'decimal' : 'numeric'"
                       class="qty-num"
                       [value]="cantidadArticulo()"
                       (input)="onCantidadTecleada($any($event.target).value)"
@@ -692,7 +698,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                           <button type="button" class="btn-table-step" (click)="ajustarCantidadBandeja(item, -1)" [disabled]="item.quantity <= 1 || guardando()" aria-label="Restar uno">−</button>
                           <input
                             type="text"
-                            inputmode="numeric"
+                            [attr.inputmode]="esPesable(item) ? 'decimal' : 'numeric'"
                             class="table-qty-val"
                             [value]="item.quantity"
                             (change)="fijarCantidadBandeja(item, $any($event.target).value)"
@@ -1342,7 +1348,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return this.vendedores().find((v) => v.code === code) ?? null;
   });
 
-  contactoNombre = '';
+  /**
+   * [E.20] Señal, no campo plano: `puedeCrear` (un computed) lo lee, y un campo que sólo cambia
+   * por `[(ngModel)]` no le avisa. Antes, en «Todavía no es cliente», teclear el nombre no
+   * habilitaba «Crear» (auditoría A1; la compuerta `reactividad` ahora lo caza).
+   */
+  contactoNombre = signal('');
   contactoTel = '';
   contactoMail = '';
   origen: QuoteOrigin = 'telemarketing';
@@ -1357,6 +1368,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
   articuloElegido = signal<QuoteCatalogRow | null>(null);
   rung = signal<Rung>('base');
   cantidadArticulo = signal<number>(1);
+  /** [E.20] La cantidad admite fracción sólo si el artículo se pesa y se cotiza en su unidad base. */
+  protected readonly esPesable = esPesable;
+  readonly admiteFraccion = computed(() => !!this.articuloElegido()?.sold_by_kg && this.rung() === 'base');
   cotizandoArticulo = signal(false);
   previaArticulo = signal<PricedLine | null>(null);
   /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
@@ -1414,7 +1428,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (this.guardando()) return false;
     if (!this.sucursal()) return false;
     if (this.modo() === 'contacto') {
-      return this.contactoNombre.trim().length > 0;
+      return this.contactoNombre().trim().length > 0;
     }
     return !!this.cliente();
   });
@@ -1747,14 +1761,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   setCantidad(val: number): void {
-    this.cantidadArticulo.set(Math.max(1, Math.floor(val)));
+    // [E.20] Sin Math.floor en lo que se pesa: «aplicar volumen» con un mínimo de 2.5 kg dejaba 2,
+    // abajo del umbral del precio por volumen.
+    this.cantidadArticulo.set(this.admiteFraccion() ? Math.max(0.001, Math.round(val * 1000) / 1000) : Math.max(1, Math.floor(val)));
     this.previa$.next();
   }
 
   /** Cantidad tecleada en la franja. Vacío o no numérico = se conserva la anterior. */
   onCantidadTecleada(valor: string): void {
-    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
-    if (!Number.isFinite(n) || n < 1) return;
+    // [E.20] Antes `replace(/\D/g,'')`: «2.5» kg se volvía 25 (se borraba el punto).
+    const n = parseCantidad(valor, this.admiteFraccion());
+    if (n === null) return;
     if (n === this.cantidadArticulo()) return;
     this.cantidadArticulo.set(n);
     this.previa$.next();
@@ -1932,8 +1949,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   /** Cantidad tecleada en la bandeja ("mejor que sean 12"). */
   fijarCantidadBandeja(item: ItemBandeja, valor: string): void {
-    const n = parseInt(String(valor).replace(/\D/g, ''), 10);
-    if (!Number.isFinite(n) || n < 1) {
+    // [E.20] Fracción sólo si el renglón se pesa (KG en su unidad base); «2.5» ya no es 25.
+    const n = parseCantidad(valor, esPesable(item));
+    if (n === null) {
       // Vacío o inválido: se vuelve a pintar la cantidad que sí tiene el renglón.
       this.bandeja.update((items) => items.map((it) => (it.id === item.id ? { ...it } : it)));
       return;
@@ -1947,7 +1965,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
    * sigue con esa cantidad — si llegan fuera de orden, la de un clic anterior no pisa la última.
    */
   private cambiarCantidadBandeja(id: string, cantidad: number): void {
-    const nuevaQty = Math.max(1, Math.floor(cantidad));
+    const item = this.bandeja().find((it) => it.id === id);
+    // [E.20] El Math.floor también cortaba los kilos: 2.5 kg tecleados bien terminaban en 2.
+    const nuevaQty = item && esPesable(item)
+      ? Math.max(0.001, Math.round(cantidad * 1000) / 1000)
+      : Math.max(1, Math.floor(cantidad));
     const actual = this.bandeja().find((it) => it.id === id);
     if (!actual || nuevaQty === actual.quantity) return;
 
@@ -2020,7 +2042,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         }
       }
     } else {
-      if (!this.contactoNombre.trim()) {
+      if (!this.contactoNombre().trim()) {
         this.toast.add({
           severity: 'warn',
           summary: 'Falta destinatario',
@@ -2044,7 +2066,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (esMayoreo) {
       payload.erp_customer_code = this.cliente()!.customer_code;
     } else {
-      payload.contact_name = this.contactoNombre.trim();
+      payload.contact_name = this.contactoNombre().trim();
       payload.contact_phone = this.contactoTel.trim() || undefined;
       payload.contact_email = this.contactoMail.trim() || undefined;
     }
@@ -2134,7 +2156,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const customerCode = esMayoreo ? (cli?.customer_code || null) : null;
     const customerName = esMayoreo
       ? (cli?.name || 'CLIENTE')
-      : (this.contactoNombre.trim() || 'PROSPECTO');
+      : (this.contactoNombre().trim() || 'PROSPECTO');
 
     const customerPhone = esMayoreo
       ? (cli?.phone || null)
