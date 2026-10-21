@@ -130,6 +130,8 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     con_nota: 0, notas_ok: 0, sin_rfc: 0 };
   const motivos = {};
   const nota = (k) => { motivos[k] = (motivos[k] || 0) + 1; };
+  // `--salida <archivo>`: lo que predijo la cadena por póliza, para cruzarla con otro método.
+  const salida = {};
   for (const p of ver) {
     const tienenNota = (p.notas || []).length > 0;
     if (tienenNota) r.con_nota += 1;
@@ -160,6 +162,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     }
     const verdad = new Set(p.facturas);
     const igual = pred.size === verdad.size && [...pred].every((u) => verdad.has(u));
+    salida[`${p.periodo}|${p.folio}`] = { facturas: [...pred], notas: [...predNotas], incompleto };
     if (incompleto) { r.cadena_inc += 1; continue; }
     // ⭐ `[CP.8.63]` Compuerta que NO mira la respuesta: Σ facturas − Σ notas tiene que dar lo que salió
     // del banco (±$1 por documento, por los centavos que van a Otros ingresos). Si no cuadra, a revisión.
@@ -192,5 +195,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
   console.log(`   de las correctas con nota de crédito, las notas también coinciden: ${r.notas_ok} de ${ver.filter((p) => (p.notas || []).length).length}`);
   console.log('\ndónde se corta:');
   for (const [k, v] of Object.entries(motivos).sort((a, b) => b[1] - a[1])) console.log(`  ${String(v).padStart(5)}  ${k}`);
+  const iSal = process.argv.indexOf('--salida');
+  if (iSal !== -1) require('fs').writeFileSync(process.argv[iSal + 1], JSON.stringify(salida));
   await c.end();
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
