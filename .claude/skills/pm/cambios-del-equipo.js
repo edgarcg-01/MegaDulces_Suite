@@ -31,7 +31,7 @@ let tarjetas = [];
 try { tarjetas = JSON.parse(gh(['issue', 'list', '-R', REPO, '--state', 'all', '--limit', '400', '--json', 'number,title'])); } catch { /* sin gh: sin ligas */ }
 const tarjetaDe = (cod) => {
   const cands = tarjetas.map((t) => ({ t, c: (t.title.match(/^\[([^\]]+)\]/) || [])[1] })).filter((x) => x.c);
-  const exacta = cands.find((x) => x.c === cod) || cands.filter((x) => cod.startsWith(x.c) && /^[.\-]/.test(cod.slice(x.c.length))).sort((a, b) => b.c.length - a.c.length)[0];
+  const exacta = cands.find((x) => x.c === cod) || cands.filter((x) => cod.startsWith(x.c) && /^[.-]/.test(cod.slice(x.c.length))).sort((a, b) => b.c.length - a.c.length)[0];
   return exacta ? `[#${exacta.t.number}](https://github.com/${REPO}/issues/${exacta.t.number})` : '';
 };
 const limpio = (t) => t.replace(/^[a-z]+(\([^)]*\))?!?:\s*/i, '');
