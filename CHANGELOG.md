@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Revisión de entradas: los avisos que faltaban (RE.42.1, RE.43.1, RE.44, 2026-10-21)
+- **Revisión** muestra «Posible duplicado de la entrada X» cuando quien subió la factura vio ese aviso y la envió igual, con liga a la otra entrada para compararlas.
+- Cuando el total leído es la misma cifra que Kepler con el separador corrido (se leyó `$22.50` por `$22,500`), la pantalla lo dice como **probable error de lectura** en vez de «cobra de menos $22,477».
+- **Captura por lote**: si ninguna entrada cuadra por importe, propone la del folio del proveedor, marcada para confirmar el total (nunca preseleccionada).
 ### Fixed — La factura se enlaza a la entrada de SU proveedor y de TU sucursal (RE.43, 2026-10-21)
 - Al subir una factura, la pantalla buscaba su número de folio entre los números de **nuestras** órdenes de entrada, y la enlazaba sola a la de otro proveedor (caso real: la nota `0666` de EL FAROLITO terminó en la entrada `0000666` de otro proveedor y otra sucursal). Ahora el folio de la factura se busca en el folio del proveedor que Kepler guarda en la entrada.
 - La búsqueda se limita a las sucursales donde la persona **puede capturar**; quien tiene alcance global sigue buscando en todas, y si hay varias posibles se le pregunta.

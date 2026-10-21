@@ -71,6 +71,16 @@ describe('[RE.35.7] identificar la entrada de un papel escaneado', () => {
     expect(clasificarIdentificacion({ ...base, hayLectura: false }).motivos).toEqual(['sin_lectura']);
     expect(clasificarIdentificacion({ ...base, candidatas: [] }).confianza).toBe('sin_entrada');
   });
+
+  it('[RE.43.1] hallada por el folio del proveedor con el importe que NO cuadra: se propone, nunca «listo»', () => {
+    const r = clasificarIdentificacion({ ...base, candidatas: [cand({ importe_ok: false })] });
+    expect(r.confianza).toBe('revisar');
+    expect(r.propuesta).toEqual({ sucursal: '00', folio: '0009872' });
+    expect(r.motivos).toContain('importe_no_cuadra');
+  });
+  it('[RE.43.1] PRUEBA NEGATIVA: sin la marca (hallada por importe) todo sigue igual', () => {
+    expect(clasificarIdentificacion(base).confianza).toBe('listo');
+  });
 });
 
 describe('[RE.35.7] sello y firma en el expediente', () => {

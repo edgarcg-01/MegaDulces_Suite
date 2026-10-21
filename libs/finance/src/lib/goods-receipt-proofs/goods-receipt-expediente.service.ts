@@ -13,6 +13,9 @@ import {
 } from './expediente-verdict';
 import { COMERCIAL_CATS, parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
 import { EntradaParaIdentificar, clasificarIdentificacion } from './identificar-entrada';
+// `[RE.43.1]` El mismo criterio que `matchByOcr`: el folio del proveedor va contra `referencia`.
+import { folioNucleo } from './documento-duplicado';
+import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
 
 /** Filas tal como las devuelven las consultas (tipadas: el boundary no admite `any`). */
 interface EntradaFila {
@@ -500,6 +503,48 @@ export class GoodsReceiptExpedienteService {
           // en un 403 al guardar.
           .filter((c) => cuadra(c.diferencia, c.monto) && c.proveedor_ok !== false && this.scope.canWrite(alcance, 'warehouse', c.sucursal))
           .sort((a, b) => a.deposits - b.deposits || Math.abs(a.diferencia) - Math.abs(b.diferencia));
+      }
+
+      /**
+       * `[RE.43.1]` Si NINGUNA cuadra por importe, se busca por el folio del PROVEEDOR, que Kepler
+       * guarda en `referencia` (y a veces sólo su cola). Es el mismo criterio que `matchByOcr`
+       * (`emparejar-papel.ts`): el importe puede no cuadrar justamente porque el OCR lo leyó mal
+       * (`22.50` por `22,500`). Lo hallado así sale con `importe_ok: false` y nunca «listo».
+       * Sólo donde la persona puede CAPTURAR.
+       */
+      const nucleo = folioNucleo(folio);
+      if (!candidatas.length && nucleo && llaveDelFolio('factura', folio) === 'proveedor') {
+        const inicio = await this.inicioRecepcion(trx, tenantId);
+        const porRef = async (where: string, b: string[]): Promise<EntradaParaIdentificar[]> => {
+          const q = trx('analytics.erp_goods_receipts as c')
+            .where('c.tenant_id', tenantId).whereNull('c.dup_of_folio')
+            .whereRaw(where, b)
+            .select('c.sucursal', 'c.folio', 'c.proveedor_nombre', 'c.proveedor_rfc', 'c.oc_folio',
+              trx.raw(`to_char(c.receipt_date, 'YYYY-MM-DD') AS receipt_date`), trx.raw('c.monto::float8 AS monto'),
+              trx.raw(`(SELECT count(*)::int FROM finance.goods_receipt_proofs p WHERE p.tenant_id = c.tenant_id
+                         AND p.sucursal = c.sucursal AND p.folio = c.folio AND p.status <> 'rechazado') AS deposits`))
+            .limit(50);
+          if (inicio) q.where('c.receipt_date', '>=', inicio);
+          if (visibles) { if (visibles.length) q.whereIn('c.sucursal', visibles); else q.whereRaw('false'); }
+          return (await q) as EntradaParaIdentificar[];
+        };
+        let filas = await porRef(`${sqlNucleoReferencia('c.referencia')} = ?`, [nucleo]);
+        if (!filas.length) filas = await porRef(sqlSufijoReferencia('c.referencia'), [nucleo, nucleo]);
+        const emisora = await trx('fiscal.issuer_config')
+          .where({ tenant_id: tenantId, active: true }).orderBy('is_default', 'desc').first('rfc');
+        candidatas = ordenarCandidatas(
+          filas.filter((e) => this.scope.canWrite(alcance, 'warehouse', e.sucursal)),
+          { rfc: rfcObj, proveedor: nombreObj, fecha: fechaObj, total: totalObj }, emisora?.rfc ?? null,
+        ).map((e) => {
+          const monto = Number(e.monto);
+          const diferencia = totalObj != null ? Math.round((totalObj - monto) * 100) / 100 : 0;
+          return {
+            sucursal: e.sucursal, folio: e.folio, receipt_date: e.receipt_date, proveedor_nombre: e.proveedor_nombre,
+            proveedor_rfc: e.proveedor_rfc, oc_folio: e.oc_folio, monto, diferencia,
+            proveedor_ok: e.proveedor_ok, deposits: Number(e.deposits) || 0,
+            importe_ok: totalObj != null && cuadra(diferencia, monto),
+          };
+        });
       }
 
       const c = clasificarIdentificacion({
