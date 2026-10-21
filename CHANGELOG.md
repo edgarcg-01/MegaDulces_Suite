@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — La factura se enlaza a la entrada de SU proveedor y de TU sucursal (RE.43, 2026-10-21)
+- Al subir una factura, la pantalla buscaba su número de folio entre los números de **nuestras** órdenes de entrada, y la enlazaba sola a la de otro proveedor (caso real: la nota `0666` de EL FAROLITO terminó en la entrada `0000666` de otro proveedor y otra sucursal). Ahora el folio de la factura se busca en el folio del proveedor que Kepler guarda en la entrada.
+- La búsqueda se limita a las sucursales donde la persona **puede capturar**; quien tiene alcance global sigue buscando en todas, y si hay varias posibles se le pregunta.
+- El aviso de «posible duplicado» se vuelve a revisar cuando ya se sabe a qué entrada va la factura, y desaparece si es de otro proveedor.
 ### Fixed — Una factura ya no se rechaza por tener el mismo número que la de otro proveedor (RE.42, 2026-10-21)
 - **Entradas** decía *«Este PDF ya está subido en la entrada…»* cuando sólo coincidía el número de folio con una nota de **otro proveedor** (caso real: la `0666` de EL FAROLITO contra la `0666` de DULCELICIAS). Ahora un papel es duplicado sólo si es el mismo archivo, o el mismo folio **del mismo proveedor**.
 - Si no se puede saber quién emitió el papel, la pantalla **avisa** dónde está el otro folio y deja enviar; la hoja queda marcada para el revisor. Vale igual en Entradas pendientes, Captura por lote y el detalle de la entrada.

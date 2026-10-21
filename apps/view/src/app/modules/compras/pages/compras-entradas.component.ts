@@ -2872,7 +2872,13 @@ export class ComprasEntradasComponent {
   private afterOcrMatch() {
     if (!this.photoFirst() || this.attachTarget()) return;
     this.matching.set(true);
-    this.svc.matchByOcr({ folio: this.ocrForm.folio || undefined, total: this.ocrForm.total ?? undefined, fecha: this.ocrForm.fecha || undefined })
+    // `[RE.43]` El rol de la hoja ★ decide la llave: la orden de entrada trae NUESTRO folio; una
+    // factura, el del proveedor (que el servidor busca en `referencia`).
+    const role = this.attachFiles().find((f) => f.primary)?.role;
+    this.svc.matchByOcr({
+      folio: this.ocrForm.folio || undefined, total: this.ocrForm.total ?? undefined, fecha: this.ocrForm.fecha || undefined,
+      role, rfc: this.ocrForm.rfc, proveedor: this.ocrForm.proveedor,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
