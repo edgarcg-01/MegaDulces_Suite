@@ -5948,10 +5948,16 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       console.warn('[caja] sin avisos en vivo; queda el repaso:', e);
     }
 
-    // El repaso lento. Va a 60 s a propósito: es la red de seguridad, no el mecanismo — si el
-    // socket anda, la bandeja ya se puso al día mucho antes y esta consulta no encuentra nada
-    // nuevo. `encuestarVisible` pausa con la pestaña oculta y se pone al día al volver.
-    encuestarVisible(60000, () => this.cargarPendientes(true), { destroyRef: this.destroyRef, zone: this.zone });
+    // El repaso. Es la red de seguridad, no el mecanismo — si el socket anda, la bandeja ya se
+    // puso al día antes y esta consulta no encuentra nada nuevo. `encuestarVisible` pausa con la
+    // pestaña oculta y se pone al día al volver.
+    //
+    // ⭐ `[CGS.6]` De 60 s a 20 s, y el motivo es que el socket NO cubre todo: `caja_movimientos`
+    // lo dispara el refresh de `kdm1`/`kdb1`, y la cobranza que empuja una camioneta entra por
+    // otro carril (tabla foránea del runner) que no avisa a nadie. Para ESA llegada el repaso es
+    // el único mecanismo, así que su periodo es el techo de latencia. Medido el 2026-10-20: el
+    // cobro de la ruta 26 aterrizó 17:02 y la pantalla no tenía forma de saberlo hasta el tick.
+    encuestarVisible(20000, () => this.cargarPendientes(true), { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private suscribirCambios(): void {
