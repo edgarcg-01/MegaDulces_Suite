@@ -951,6 +951,61 @@ de arriba son una cota, no la foto del día en que se armó. **Octubre-2026 (el 
   agenda). Una cuenta 212 recién creada se ve en cuanto aparece en cualquier póliza; antes de eso, «Asignar
   cuenta» la rechaza como inexistente. Agendar ese refresco es una decisión de operación, no de este item.
 
+## LC.18.1 — e2e en producción con el navegador (2026-10-21)
+
+Sobre prod (commit `abe5feaeb`, que ya traía LC.17 y LC.18), con Chrome DevTools en un contexto aislado y
+la sesión iniciada por Edgar. **Escrituras autorizadas por Edgar: todo, en octubre-2026, más el alta de
+BOMBONELYZ.**
+
+### Lo que pasó (✓) y lo que quedó escrito en prod
+
+| # | Paso | Resultado |
+|---|---|---|
+| 1 | Abrir oct-2026 | 275 entran · $31,829,626 · chips 275+64+262+7 = 608 · pie cuadra · IVA/IEPS «como el libro de sep» · consola sin errores · mes 243 ms, rail 557 ms (en frío, por el túnel) |
+| 2 | jul-2026 (TXT legado) | «El archivo guardado ya no sirve», sólo «Generar» (sin descargar ni entregar) |
+| 3 | jun-2026 (firma sin archivo) | igual: sin los botones que daban 404 |
+| 4 | «Sin libro reciente» | 64 filas, desmarcadas, con su motivo; pie $1,583,162.75 = el aviso |
+| 5 | «Asignar cuenta» (gasolinera) | diálogo sin sugerencia, «Asignar» apagado; cancelado sin escribir |
+| 6 | **Alta BOMBONELYZ** (API, payload del diálogo) | sugiere `2120000562` (100 %) · cuenta de otro → 400 · **alta → 201, 501/502 verificadas** · cambiarla → 400. **Queda en `finance.gl_supplier_accounts` (source `manual_lc`)** |
+| 7 | Marcar a mano 1 «sin libro reciente» | chip 275 → 276; **la corrida nace folio 1 «REGISTRO DE COMPRAS DEL MES DE OCTUBRE 2026», fecha 31-oct** |
+| 8 | Marcar 1 «Revisar» + Generar | toast «se duplicaría» · diálogo de motivo · botón apagado sin motivo · «Volver» |
+| 9 | **Generar** (sin sospechosas) | 255 ms · 276 facturas · 588 renglones · $31,838,557.64 · folio 1 |
+| 10 | Descargar TXT | 200 · P/M = 185/272 · CRLF · 587 M · cuentas 1060000000/1470100000 · referencia de 5 |
+| 11 | Respaldo / CSV | 200 · 276 facturas · cuadra al centavo con el TXT |
+| 12 | **Marcar entregado** | Generar apagado · «Cancelar entrega» · las 276 pasan a «Ya en el libro» (puerta exacta) |
+| 13 | Regenerar encima / estado inválido | 400 / 400 |
+| 14 | **Cancelar entrega** (con motivo) | motivo en notas · descarga 404 · 276 vuelven a pendientes |
+| 15 | B5: 4 clics rápidos entre meses | queda octubre, con filas sólo de octubre |
+| 16 | Desmarcar la del paso 7 | vuelve a 275 |
+
+**Queda en prod:** la corrida `2026-10 / complemento` en **folio 1, estado `cancelado`**, con motivo «Prueba e2e
+LC.18 – no se subió a ContPAQi» (la contadora la regenera normal); filas de `run_items` de esa corrida (una
+exclusión manual de RUBEN PEREZ VICTOR, que es el default) y el alta de BOMBONELYZ.
+
+### Los 7 defectos que encontró, y su arreglo (LC.18.1)
+
+| # | Defecto | Arreglo |
+|---|---|---|
+| 1 | Sin corrida, la pantalla decía «Póliza **2**» y el servidor la crea en el 1 | el folio sin corrida sale del rail (1 si ContPAQi no tiene el libro) |
+| 2 | «…hay que generarlo de nuevo. Vuelve a generarlo.» | el motivo del servidor, sin repetir |
+| 3 | Las 262 «sin cuenta» de oct (casi todas de **gasto**) ofrecían «Asignar cuenta» todas igual | el servidor sugiere por fila la 212 **libre** con el mismo nombre (≥ 80 %; con 50 % salían personas que sólo comparten nombre de pila). Destacado sólo donde hay sugerencia (oct: 3 — RODOLFO BRAVO, PRODUCTOS UVAVIÑA, SANDRA SANDOVAL); en las demás «Sin cuenta» gris + «asignar» discreto. Ya no es rojo: excluida, no impide generar |
+| 4 | El libro del mes bajaba como `complemento-compras-2026-10.txt` | el nombre lo decide el folio |
+| 5 | ⛔ **El TXT de oct salió SIN UUID**: la corrida en borrador nacía con `incluye_uuid = false` (default de la columna) y la pantalla desmarcaba la casilla sola | la corrida nace con `incluye_uuid = true`; la pantalla sólo respeta la opción de un archivo vigente (no de un borrador ni de una cancelada) |
+| 6 | Entregado el mes, el chip decía «Entran al TXT 1» (la marcada a mano) | la prueba exacta gana también sobre la decisión manual |
+| 7 | Con la entrega cancelada, la tarjeta del rail decía «Cancelado» en rojo | «Pendiente»: el trámite vuelve a estar por hacer |
+
+Y uno de rendimiento: abrir el mes bajaba los ~160 KB del TXT (`select *`) sólo para saber si servía —
+**150 ms** de cada apertura. Ahora la vigencia se calcula en SQL (`vigenciaPorBanderas` + `REGEX_LINEA_LEGADA`,
+el mismo criterio que `esLegado`): **150 → 7–16 ms**. Las cuentas candidatas se guardan 5 min por tenant
+(`asignarCuenta` las invalida). ⚠️ Lo que queda pesado es la vista `v_purchase_book_uuid_prueba` (DISTINCT ON
+sobre los 15,121 UUID del histórico, ~75 % de la consulta del mes; viene de LC.14). Se probó empujarle el filtro
+con `= ANY(ARRAY(...))` y **empeoró** (656 ms: la comparación es lineal); el arreglo real es un índice de
+expresión `upper(cfdi_uuid)` — migración, no se hizo.
+
+**Prueba del trámite:** los casos 4, 5 y 6 quedan en el modo completo (`pruebas-db`), y el de sólo lectura
+contra prod sigue verde (20 ✓). Réplica 27/27, carátula 66/66, txt 49/49. **Falta redesplegar** para que los
+arreglos de LC.18.1 lleguen a prod, y **volver a correr el e2e** (pasos 1, 7, 9, 10 y 12) para verlos ahí.
+
 ## Estado
 
 🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14, LC.15 y LC.16 cerrados. El módulo ya hace

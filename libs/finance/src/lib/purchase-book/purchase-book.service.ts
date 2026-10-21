@@ -6,8 +6,18 @@ import {
   FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput,
 } from '@megadulces/contracts';
 import {
-  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, vigenciaArchivo, type Movimiento, type PolizaTxtParseada,
+  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, vigenciaArchivo, vigenciaPorBanderas, REGEX_LINEA_LEGADA,
+  type Movimiento, type PolizaTxtParseada,
 } from './poliza-txt';
+
+/** Las columnas de la corrida que ve la pantalla: todas menos el TXT (`archivo_contenido`). */
+const COLUMNAS_RUN = [
+  'id', 'tenant_id', 'anio_mes', 'tipo', 'estado', 'folio_poliza', 'fecha_poliza', 'concepto',
+  'facturas', 'renglones', 'total_cargos', 'total_abonos', 'subtotal_exento', 'subtotal_gravado',
+  'total_iva', 'total_ieps', 'archivo_hash', 'archivo_nombre', 'impuestos_modo', 'incluye_uuid',
+  'asocia_cfdi', 'generado_at', 'generado_by', 'entregado_at', 'entregado_by', 'entregado_a',
+  'aplicado_at', 'aplicado_by', 'notas', 'created_at', 'created_by', 'updated_at', 'updated_by',
+];
 
 export { type Movimiento, type PolizaTxtParseada } from './poliza-txt';
 
@@ -151,6 +161,32 @@ const MESES_HISTORIAL = 6;
 /** Palabras que no distinguen a un proveedor de otro al comparar nombres. */
 const RUIDO_NOMBRE = new Set(['S.A.', 'SA', 'DE', 'CV', 'RL', 'SAPI', 'SRL', 'LAS', 'LOS', 'DEL', 'SPR', 'SC', 'SAS', 'MEXICO', 'COMERCIALIZADORA', 'DISTRIBUIDORA', 'GRUPO']);
 
+const tokensNombre = (s: string): Set<string> => new Set(
+  String(s ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+    .split(/\s+/).filter((t) => t.length > 2 && !RUIDO_NOMBRE.has(t)),
+);
+
+/** `[LC.18]` Qué tanto se parecen dos razones sociales (0–1), sin acentos ni «SA DE CV». */
+export function parecidoNombre(a: string, b: string): number {
+  return parecidoTokens(tokensNombre(a), tokensNombre(b));
+}
+
+function parecidoTokens(x: Set<string>, y: Set<string>): number {
+  if (!x.size || !y.size) return 0;
+  let comunes = 0;
+  for (const t of y) if (x.has(t)) comunes++;
+  return comunes / Math.max(x.size, y.size);
+}
+
+/** Desde cuánto parecido de nombre se ofrece una cuenta como sugerencia en el diálogo. */
+const PARECIDO_MINIMO = 0.5;
+/**
+ * En el RENGLÓN (sin abrir el diálogo) se exige más: medido en oct-2026, con 0.5 salían personas
+ * que sólo comparten nombre de pila («VICTOR MANUEL VELAZQUEZ» → «VICTOR MANUEL SANCHEZ»).
+ */
+const PARECIDO_FILA = 0.8;
+const CANDIDATAS_TTL_MS = 5 * 60 * 1000;
+
 export interface SugerenciasCuenta {
   rfc: string;
   /** Como lo escribe el CFDI más reciente del RFC. */
@@ -266,6 +302,8 @@ export interface FacturaMes {
   en_libro_reciente: boolean;
   /** De dónde salió la cuenta: el mapa del libro, o lo que ContPAQi resolvió por UUID. */
   origen_mapa: 'libro' | 'contpaqi' | null;
+  /** `[LC.18]` Sin cuenta: la 212 libre de ContPAQi cuyo nombre se parece al del emisor. Sugerencia, no decisión. */
+  cuenta_sugerida: { cuenta: string; nombre: string; parecido: number } | null;
   account_suffix: string | null;
   supplier_name: string | null;
   cuenta_proveedor: string | null;
@@ -699,8 +737,14 @@ export class PurchaseBookService {
   async getMes(anioMes: string, tipo: TipoCorrida = 'libro'): Promise<{ mes: string; tipo: TipoCorrida; run: Record<string, unknown> | null; facturas: FacturaMes[]; resumen: Record<string, number>; bloqueantes: string[]; avisos: string[]; cuentas_impuesto: CuentasImpuesto }> {
     this.mesValido(anioMes);
     return this.tk.run(async (knex) => {
+      // [LC.18 · e2e] Sin `archivo_contenido`: son ~160 KB que la pantalla no usa, y bajarlos
+      // costaba 150 ms de cada apertura. Lo único que hace falta del archivo son dos banderas.
       const run = await knex('finance.purchase_book_runs')
-        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at')
+        .first(COLUMNAS_RUN.map((c) => `finance.purchase_book_runs.${c}`).concat([
+          knex.raw('(archivo_contenido IS NOT NULL) AS tiene_archivo'),
+          knex.raw('coalesce(archivo_contenido ~ ?, false) AS archivo_legado', [REGEX_LINEA_LEGADA]),
+        ]));
 
       // Un RFC puede tener más de una cuenta en el mapa; DISTINCT ON evita duplicar la
       // factura por el join. Se prefiere la cuenta que ya se usó en pólizas reales.
@@ -865,6 +909,7 @@ export class PurchaseBookService {
           ieps_por_cuota: r['ieps_por_cuota'] === true,
           en_libro_reciente: enLibroReciente,
           origen_mapa: (r['origen_mapa'] as FacturaMes['origen_mapa']) ?? null,
+          cuenta_sugerida: null,
           account_suffix: (r['account_suffix'] as string) ?? null,
           supplier_name: (r['supplier_name'] as string) ?? null,
           cuenta_proveedor: (r['cuenta_proveedor'] as string) ?? null,
@@ -876,9 +921,14 @@ export class PurchaseBookService {
           // La decisión guardada manda; si no hay, el default del modo. En `complemento` el
           // default es además el criterio que LC.2 buscaba y no encontraba en el CFDI: lo
           // que falta por contabilizar es lo que ContPAQi mismo dice que no está asociado.
-          incluida: r['incluida'] === null || r['incluida'] === undefined
-            ? porDefault
-            : r['incluida'] === true,
+          // [LC.18 · e2e] La prueba EXACTA gana también sobre la decisión guardada: una factura
+          // marcada a mano que ya se entregó (mismo folio fiscal) seguía contando como «entra»
+          // y el chip decía «Entran al TXT 1» con el mes ya entregado.
+          incluida: certeza === 'exacta'
+            ? false
+            : r['incluida'] === null || r['incluida'] === undefined
+              ? porDefault
+              : r['incluida'] === true,
           motivo_exclusion: (r['motivo'] as string)
             ?? (cancelado ? 'CFDI cancelado en el SAT' : null)
             ?? detalle
@@ -893,6 +943,12 @@ export class PurchaseBookService {
           ya_en_poliza: yaEnPoliza,
         };
       });
+
+      // [LC.18 · e2e] Para las facturas sin cuenta: ¿hay una 212 de ContPAQi, libre, cuyo nombre
+      // sea el del emisor? Medido en oct-2026: 262 «sin cuenta», casi todas de GASTO (gasolineras,
+      // inmobiliarias), y TODAS ofrecían «Asignar cuenta». Con esto la pantalla sólo destaca la
+      // acción donde hay una candidata real; el resto se lee como lo que es.
+      if (tipo === 'complemento') await this.sugerirCuentasDelMes(knex, facturas);
 
       const dentro = facturas.filter((f) => f.incluida);
       const resumen = {
@@ -1040,9 +1096,9 @@ export class PurchaseBookService {
    */
   private runParaPantalla(run: Record<string, unknown> | undefined | null): Record<string, unknown> | null {
     if (!run) return null;
-    const { archivo_contenido: contenido, ...resto } = run;
+    const { tiene_archivo: tiene, archivo_legado: legado, ...resto } = run;
     const conArchivo = resto['estado'] === 'generado' || resto['estado'] === 'entregado' || resto['estado'] === 'aplicado';
-    const v = conArchivo ? vigenciaArchivo(contenido as string | null) : { vigente: false, motivo: null };
+    const v = conArchivo ? vigenciaPorBanderas(tiene === true, legado === true) : { vigente: false, motivo: null };
     return { ...resto, archivo_vigente: v.vigente, archivo_motivo: v.motivo };
   }
 
@@ -1178,18 +1234,7 @@ export class PurchaseBookService {
           WHERE length(c.cuenta) = 10
           GROUP BY c.cuenta`,
         [r, r, r]);
-      const tokens = (s: string) => new Set(
-        s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
-          .split(/\s+/).filter((t) => t.length > 2 && !RUIDO_NOMBRE.has(t)),
-      );
-      const objetivo = tokens(nombre);
-      const parecido = (s: string) => {
-        const t = tokens(s);
-        if (!objetivo.size || !t.size) return 0;
-        let comunes = 0;
-        for (const x of t) if (objetivo.has(x)) comunes++;
-        return comunes / Math.max(objetivo.size, t.size);
-      };
+      const parecido = (s: string) => parecidoNombre(nombre, s);
       const candidatas = rows
         .map((c: Record<string, unknown>) => {
           const score = r2(parecido(String(c['nombre'] ?? '')));
@@ -1207,7 +1252,7 @@ export class PurchaseBookService {
             fuerte: porUuid,
           };
         })
-        .filter((c: { fuerte: boolean; parecido: number; razon: string }) => c.fuerte || c.razon.startsWith('ContPAQi') || c.parecido >= 0.5)
+        .filter((c: { fuerte: boolean; parecido: number; razon: string }) => c.fuerte || c.razon.startsWith('ContPAQi') || c.parecido >= PARECIDO_MINIMO)
         .sort((a: { fuerte: boolean; parecido: number }, b: { fuerte: boolean; parecido: number }) =>
           Number(b.fuerte) - Number(a.fuerte) || b.parecido - a.parecido)
         .slice(0, 6);
@@ -1281,12 +1326,76 @@ export class PurchaseBookService {
         accion = 'alta';
       }
       this.logger.log(`Cuenta ${c} asignada a ${r} (${accion})`);
+      // La cuenta dejó de estar libre: que no se siga sugiriendo a otro emisor.
+      this.candidatasCache.clear();
       return {
         ok: true as const, rfc: r, cuenta_proveedor: c,
         cuenta_compra_exenta: `501${suf}`, cuenta_compra_iva: `502${suf}`,
         compra_exenta_existe: e501.ok, compra_iva_existe: e502.ok, accion,
       };
     });
+  }
+
+  /**
+   * `[LC.18 · e2e]` Una consulta para todo el mes: las cuentas 212 que no son de nadie en el
+   * mapa, y la mejor por nombre para cada emisor sin cuenta. Pone `cuenta_sugerida` en sitio.
+   */
+  private async sugerirCuentasDelMes(knex: Knex, facturas: FacturaMes[]): Promise<void> {
+    const sinCuenta = facturas.filter((f) => !f.account_suffix);
+    if (!sinCuenta.length) return;
+    const cands = await this.cuentasCandidatas(knex);
+    const porNombre = new Map<string, FacturaMes['cuenta_sugerida']>();
+    for (const f of sinCuenta) {
+      if (!porNombre.has(f.emisor_nombre)) {
+        const propios = tokensNombre(f.emisor_nombre);
+        let mejor: FacturaMes['cuenta_sugerida'] = null;
+        for (const c of cands) {
+          const p = parecidoTokens(propios, c.tokens);
+          if (p >= PARECIDO_FILA && (!mejor || p > mejor.parecido)) mejor = { cuenta: c.cuenta, nombre: c.nombre, parecido: r2(p) };
+        }
+        porNombre.set(f.emisor_nombre, mejor);
+      }
+      f.cuenta_sugerida = porNombre.get(f.emisor_nombre) ?? null;
+    }
+  }
+
+  /**
+   * Las 212 libres (de nadie en el mapa), con sus tokens. Cambian cuando se da de alta una cuenta
+   * en ContPAQi o se asigna una aquí — no a cada clic: se guardan unos minutos por tenant
+   * (medido: 70–90 ms de los ~500 de abrir el mes) y `asignarCuenta` las invalida.
+   */
+  private candidatasCache = new Map<string, { at: number; cands: { cuenta: string; nombre: string; tokens: Set<string> }[] }>();
+
+  private async cuentasCandidatas(knex: Knex): Promise<{ cuenta: string; nombre: string; tokens: Set<string> }[]> {
+    const tenant = this.ctx.get()?.tenantId ?? '';
+    const hit = tenant ? this.candidatasCache.get(tenant) : undefined;
+    if (hit && Date.now() - hit.at < CANDIDATAS_TTL_MS) return hit.cands;
+    const { rows } = await knex.raw(
+      `WITH cands AS (
+         SELECT ca.codigo AS cuenta, ca.nombre
+           FROM analytics.contpaqi_accounts ca
+          WHERE ca.tenant_id = current_tenant_id() AND ca.codigo LIKE '212%'
+         UNION
+         SELECT DISTINCT gl.cuenta, gl.cuenta_nombre
+           FROM analytics.gl_poliza_lines gl
+          WHERE gl.tenant_id = current_tenant_id() AND gl.source = 'contpaqi' AND gl.cuenta LIKE '212%'
+            AND gl.anio_mes >= to_char(now() - interval '6 months', 'YYYY-MM')
+       )
+       SELECT c.cuenta, max(c.nombre) AS nombre
+         FROM cands c
+        WHERE length(c.cuenta) = 10 AND c.cuenta <> '2120000000'
+          AND NOT EXISTS (SELECT 1 FROM finance.gl_supplier_accounts a
+                           WHERE a.tenant_id = current_tenant_id() AND a.deleted_at IS NULL
+                             AND a.rfc IS NOT NULL AND a.account_suffix = substr(c.cuenta, 4))
+        GROUP BY c.cuenta`,
+    );
+    // Tokens de cada cuenta UNA vez: el mes trae ~100 emisores sin cuenta contra ~1,000 cuentas.
+    const cands = rows.map((r: Record<string, unknown>) => {
+      const nombre = String(r['nombre'] ?? '');
+      return { cuenta: String(r['cuenta']).trim(), nombre, tokens: tokensNombre(nombre) };
+    });
+    if (tenant) this.candidatasCache.set(tenant, { at: Date.now(), cands });
+    return cands;
   }
 
   private rfcValido(rfc: string): string {
@@ -1318,6 +1427,11 @@ export class PurchaseBookService {
           folio_poliza: esComplemento ? FOLIO_COMPLEMENTO : FOLIO_LIBRO,
           fecha_poliza: this.finDeMes(anioMes).toISOString().slice(0, 10),
           concepto: esComplemento ? `COMPLEMENTO REGISTRO DE COMPRAS ${anioMes}` : conceptoLibro(anioMes),
+          // [LC.18 · e2e] El default de la columna es false, y la pantalla lo leía como la
+          // opción elegida: marcar una factura creaba la corrida y DESMARCABA «poner el UUID»
+          // sola al recargar. El TXT de oct-2026 salió así, sin UUID. El default del generador
+          // es con UUID (`opts.uuid !== false`); la corrida nace igual.
+          incluye_uuid: true,
           created_by: this.ctx.get()?.userId ?? null,
         })
         .returning('*'));
@@ -1556,9 +1670,11 @@ export class PurchaseBookService {
         : [];
       const txt = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs, asociados);
       const hash = createHash('sha256').update(txt, 'latin1').digest('hex');
-      const nombre = tipo === 'complemento'
-        ? `complemento-compras-${anioMes}.txt`
-        : `poliza-compras-${anioMes}.txt`;
+      // [LC.18 · e2e] El nombre lo decide el FOLIO, no el tipo de corrida: el libro del mes
+      // (folio 1) bajaba como «complemento-compras-2026-10.txt».
+      const nombre = Number(run.folio_poliza ?? FOLIO_LIBRO) === FOLIO_LIBRO
+        ? `poliza-compras-${anioMes}.txt`
+        : `complemento-compras-${anioMes}.txt`;
       const userId = this.ctx.get()?.userId ?? null;
 
       await knex('finance.purchase_book_runs').where({ id: run.id }).update({
