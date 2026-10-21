@@ -93,11 +93,12 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
    */
   async function movimiento(
     fecha: string, sucursal: string, tipo: 'ingreso' | 'gasto', monto: number, diaEfectivo?: string,
+    creadoPor: string = CAJERA.id,
   ) {
     await tk.run((trx) => trx('finance.cash_ledger').insert({
       tenant_id: T, folio: `CGL-${ANIO}-${Date.now()}-${(n += 1)}`, tipo, fecha, sucursal,
       kepler_cuenta: '101-001', kepler_concepto: '001', glosa: 'Movimiento de prueba del servicio',
-      monto, created_by: CAJERA.id,
+      monto, created_by: creadoPor,
       created_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [diaEfectivo ?? fecha]),
     }));
   }
@@ -143,6 +144,24 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect((await desglose(c.id)).length).toBe(2);   // el desglose sellado sigue ahí, no se borró
 
     await expect(svc.autorizar(c.id, CAJERA)).rejects.toBeInstanceOf(ForbiddenException);
+    const autorizado = await svc.autorizar(c.id, AUTORIZA);
+    expect(autorizado.estado).toBe('autorizado');
+  });
+
+  it('⛔ `[CGS.16]` quien capturó un movimiento del corte NO lo autoriza: 403 con su frase, no un 500 de la base', async () => {
+    // D3 (Edgar, 2026-10-21): la supervisora captura, pero no firma lo suyo.
+    const SUPERVISORA = { id: '00000000-0000-0000-0000-0000000000c5', username: 'supervisora_prueba' };
+    const f = dia('03-11');
+    const c = await svc.abrir({ fecha: f, sucursal: suc('S16'), fondo_inicial: 500 }, CAJERA);
+    await movimiento(f, suc('S16'), 'ingreso', 1000, undefined, SUPERVISORA.id);
+    await svc.contar(c.id, { conteo: conteo(['1000', 1000, 1], ['500', 500, 1]), morralla: 0 }, CAJERA);
+    await svc.cerrar(c.id, { conteo: [], morralla: 0 }, CAJERA);
+
+    const rechazo = svc.autorizar(c.id, SUPERVISORA);
+    await expect(rechazo).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.autorizar(c.id, SUPERVISORA)).rejects.toThrow(/Capturaste o cancelaste/);
+    expect((await corte(c.id)).estado).toBe('cerrado');
+
     const autorizado = await svc.autorizar(c.id, AUTORIZA);
     expect(autorizado.estado).toBe('autorizado');
   });
