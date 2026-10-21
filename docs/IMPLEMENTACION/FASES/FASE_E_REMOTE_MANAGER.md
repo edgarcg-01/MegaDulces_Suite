@@ -229,3 +229,57 @@ El vencido de toda la cartera obliga a evaluar `analytics.erp_receivable_doc()` 
 
 - ⬜ **E.10 — re-apuntar la cola al ERP**, re-medido el 2026-10-21: el padrón creció de 412 a 1,858 clientes (1,300 importados `K0…`) y **sigue sin cubrir el canal: 11 de 317**. Y la prioridad lee `commercial.orders` (52 pedidos), así que **1,786 de 1,858 salen «nunca pidió»** aunque compren por el ERP.
 - ⬜ `ONLINE` (125 facturas en 30 días) cuenta como **un** cliente en «Clientes». No se tocó: no se midió qué es.
+
+## E.15 — el descuento del canal, desglosado (y una segunda auditoría de diseño) (2026-10-21)
+
+Disparador: *"desglosemos los descuentos y auditemos el diseño con /auditoria-diseno"*. Evidencia: nivel **B** (prod, sólo lectura) + **C**. ⛔ **Nivel A no**: el navegador no tenía sesión y el cambio no está desplegado.
+
+### De dónde sale el descuento (no se adivinó)
+
+Se usó la regla que ya existía —**Fase TK, `TK.13`**— y el decode de [`ERP_KEPLER.md` §2.6](../../ERP_KEPLER.md): son **dos** descuentos independientes, medidos como diferencias.
+
+```
+  precio de lista       Σ kdm2.c66 × cantidad   (c66 > 0; si no, lo cobrado)
+− descuento de producto Σ (c66 − c12) × cantidad, nunca negativo
+= subtotal              Σ kdm2.c13 (importe del renglón)
+− descuento de cliente  subtotal − kdm1.c16     (el % negociado, kdud.c17 → kdm1.c19)
+= facturado             kdm1.c16
+```
+
+⛔ **`kdm1.c13` no es el descuento** (viaja sin impuesto). Prueba negativa de este item: usarlo da **$228,903 contra $248,187** medidos (−7.8 %).
+
+### Medido en prod (30 días, en vivo, 1,374 facturas al cerrar)
+
+| | |
+|---|---|
+| precio de lista | $16,232,320.57 |
+| − producto | $385,506.76 (2.37 % de la lista) |
+| − cliente | $248,187.37 (1.57 % del subtotal) |
+| = facturado | **$15,598,626.44**, igual al total de la vista de facturas |
+| cobertura | 15,121 de 15,136 renglones con precio de lista; 0 servicios; **cierre 0.00** |
+| % de cliente medido contra el declarado (`c19`) | igual al centavo, por grupo: 2 % → 2.000, 3 % → 3.000, 5 % → 5.000 |
+
+**Negociado contra aplicado**, contra el maestro de clientes de **hoy** (`kdud.c17`, llave sucursal + cliente, 0 duplicados): **57 facturas con menos %** del negociado (≈ $7,081) y **39 con más %** del registrado (≈ $11,778). Se publica sin juicio: desde el dato no se puede saber si fue una excepción autorizada o un error (`FASE_DC` §4).
+
+⚠️ **Hallado al medir:** una factura llegó con cabecera y **sin renglones** (la réplica trae la cabecera antes que el detalle): sumada, rompía el cierre por $6,289.71. La cascada se calcula sobre facturas con renglones y las otras se **declaran** aparte.
+
+### Costo
+
+La consulta por factura (`LATERAL` sobre `ix_kdm2_venta_doc`) cuesta **130–345 ms** y corre en paralelo con las otras tres de facturación. ⛔ El join en bloque contra `kdm2` tardó **46 s** y contra `analytics.erp_sales_invoice_lines` más de 110 s (además esa vista une `kdm2→kdm1` **sin la serie `c5`**, la trampa de VEC.7). ⚠️ **El endpoint abre hasta 6 conexiones a la vez** (pool de 10 por pod, 2 pods): dos tableros simultáneos en el mismo pod esperan turno.
+
+### Qué se hizo
+
+- **Tira:** «Descontado 30 días» con su % del precio de lista.
+- **Tarjeta «Descuentos · 30 días»:** la cuenta de arriba, renglón por renglón, con la base de cada % dicha (*de la lista* / *del subtotal*) y una línea que explica cada descuento; al lado, negociado contra aplicado; abajo, lo que no se pudo medir (renglones sin lista, facturas sin renglones).
+- **Columna «Descuento»** por vendedor, con su % de la lista. Sin renglones = «sin renglones», nunca $0.
+- `armarDescuentos()` (función pura) con `armar-descuentos.spec.ts` 4/4 y prueba negativa; smoke `test-newdb-telemarketing-billing.js` **19/19** en el pod `api` como `app_runtime` con RLS, con prueba negativa (`c13` como descuento → 2 FAIL).
+
+### Auditoría de diseño (skill `auditoria-diseno`)
+
+| # | Hallazgo | Nivel | Estado |
+|---|---|---|---|
+| 1 | La tabla se titulaba **«Por operador»** y **7 de sus 17 filas no son operadores**: E-COMMERCE (126 facturas), «PV SUCURSAL PADRE HIDALGO» ($592,969), código `2` sin nombre ($439,956), sin vendedor (16 facturas, $220,735), «Otros Ingresos», rutas y una sucursal. Cruce 2 | B | ✅ → «Por vendedor del ERP», y la nota lo dice |
+| 2 | Mi propio texto decía «$ que el cliente **no se ahorró**» / «descuento **extra**»: afirmaba que el maestro tiene razón, contra la nota de al lado. Cruce 2 | C | ✅ → «menos / más de descuento que el negociado / registrado» |
+| 3 | «57 facturas con menos % del negociado» **no se puede recorrer**: no hay lista ni filtro en `/comercial/documentos` que las muestre. Q.4 (redirección desde el dato) y Cruce 1 | C | ⬜ **E.16** |
+| 4 | **Conflación**: la pantalla contesta cinco preguntas (cuánto factura · cuánto descuenta · cuánto le deben · qué hicieron los operadores · a quién llamar). Las tres primeras son del mismo dinero; **la cola es trabajo de otra persona** y ya tiene su pestaña. `ESTANDAR §4.0` | C | ⬜ propuesta: sacar la vista previa de la cola del Resumen |
+| 5 | Sin nivel A: no se midió el ancho de la tabla de vendedores (ahora 6 columnas dentro de media pantalla), la tarjeta de la cuenta ni la tira de 5 cifras | — | ⬜ validación visual tras desplegar |

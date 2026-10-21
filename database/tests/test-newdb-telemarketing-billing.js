@@ -158,6 +158,53 @@ const noMedido = (n, motivo) => { skip++; console.log(`  NO MEDIDO  ${n} — ${m
       `${llave.nombre_distinto} de ${llave.empates} empates con otro nombre`);
   }
 
+  // ── 6. [E.15] la cascada del descuento: lista − producto = subtotal − cliente = facturado ──
+  // Mismo SQL por factura que el servicio (LATERAL sobre ix_kdm2_venta_doc). Dos árbitros
+  // independientes: el TOTAL que publica la vista de facturas, y el % que declara el ERP (c19),
+  // que no se usa para calcular — sólo para comprobar que el gap medido es ese %.
+  const N = (col) => `round(coalesce(nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric, 0), 2)`;
+  const t6 = Date.now();
+  const ds = (await c.query(`
+    WITH f AS MATERIALIZED (
+      SELECT sucursal, doc_prefix, folio, total, coalesce(descuento_pct, 0) pct
+      FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30),
+    x AS (
+      SELECT f.*, l.* FROM f CROSS JOIN LATERAL (
+        SELECT count(*)::int renglones, sum(${N('d.c13')}) importe,
+               sum(round(greatest(coalesce(nullif(${N('d.c66')}, 0), ${N('d.c12')}) - ${N('d.c12')}, 0)
+                   * abs(coalesce(d.c9::numeric, 0)), 2)) producto
+        FROM kepler_ods.kdm2 d
+        WHERE d.c2 = 'U' AND d.c3 = 'D' AND btrim(d.sucursal) = f.sucursal AND (d.c4)::integer = 8
+          AND (d.c5)::integer = substr(f.doc_prefix, 5, 2)::integer AND btrim(d.c6) = f.folio
+          AND btrim(d.c1) = f.sucursal AND abs(coalesce(d.c9::numeric, 0)) > 0) l)
+    SELECT count(*) FILTER (WHERE renglones > 0)::int facturas,
+           coalesce(sum(total) FILTER (WHERE renglones = 0), 0)::numeric total_sin_renglones,
+           coalesce(sum(importe) FILTER (WHERE renglones > 0), 0)::numeric subtotal,
+           coalesce(sum(producto) FILTER (WHERE renglones > 0), 0)::numeric producto,
+           coalesce(sum(importe - total) FILTER (WHERE renglones > 0), 0)::numeric cliente,
+           coalesce(sum(total) FILTER (WHERE renglones > 0), 0)::numeric facturado,
+           coalesce(sum(importe * pct / 100) FILTER (WHERE renglones > 0), 0)::numeric cliente_declarado,
+           coalesce(sum(total), 0)::numeric total_todo
+    FROM x`, [T])).rows[0];
+  const ms6 = Date.now() - t6;
+  const lista = Number(ds.subtotal) + Number(ds.producto);
+  console.log(`\n5) descuentos 30 d: lista $${lista.toLocaleString('en-US')} − producto $${Number(ds.producto).toLocaleString('en-US')}`
+    + ` − cliente $${Number(ds.cliente).toLocaleString('en-US')} = $${Number(ds.facturado).toLocaleString('en-US')}`
+    + ` (${ds.facturas} facturas) [${ms6} ms]`);
+  check('la cascada cierra: subtotal − cliente = facturado',
+    Math.abs(Number(ds.subtotal) - Number(ds.cliente) - Number(ds.facturado)) < 0.01,
+    `subtotal=${ds.subtotal} cliente=${ds.cliente} facturado=${ds.facturado}`);
+  check('facturado + facturas sin renglones = el total que publica la vista',
+    Math.abs(Number(ds.facturado) + Number(ds.total_sin_renglones) - Number(ds.total_todo)) < 0.01,
+    `facturado=${ds.facturado} sin_renglones=${ds.total_sin_renglones} vista=${ds.total_todo}`);
+  check('el descuento de producto nunca es negativo', Number(ds.producto) >= 0, `producto=${ds.producto}`);
+  // Tolerancia: 5 centavos por factura (cada documento redondea su gap por separado).
+  const tol = 0.05 * Math.max(1, ds.facturas);
+  check('el descuento de cliente medido es el % que declara el ERP',
+    Math.abs(Number(ds.cliente) - Number(ds.cliente_declarado)) <= tol,
+    `medido=${ds.cliente} declarado=${ds.cliente_declarado} tol=${tol.toFixed(2)}`);
+  check('el bloque de descuentos responde en menos de 3 s', ms6 < 3000, `${ms6} ms`);
+
   await c.end();
   console.log(`\n  ${ok} OK · ${fail} FAIL · ${skip} NO MEDIDO`);
   process.exit(fail ? 1 : 0);
