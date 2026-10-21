@@ -105,17 +105,39 @@ export interface DescuentosTelemarketing {
   facturado: number;
   /**
    * Contra el maestro de clientes de HOY (`kdud.c17`, por sucursal + cliente): facturas que
-   * salieron con MENOS % del negociado, y el monto que el cliente no se ahorró.
+   * salieron con MENOS % del negociado, y la diferencia en pesos.
+   * `[E.16]` `detalle` trae TODAS (sin tope): el encabezado dice N y la lista llega a N.
    */
-  negociado_no_aplicado: { facturas: number; monto: number };
-  /** Facturas con MÁS % del que el maestro registra hoy, y el monto de esa diferencia. */
-  sin_respaldo_maestro: { facturas: number; monto: number };
+  negociado_no_aplicado: DiferenciaMaestro;
+  /** Facturas con MÁS % del que el maestro registra hoy, y la diferencia en pesos. */
+  sin_respaldo_maestro: DiferenciaMaestro;
+}
+
+export interface FacturaDiferenciaMaestro {
+  folio_digital: string;
+  fecha: Date | string | null;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  vendedor_nombre: string | null;
+  pct_maestro: number;
+  pct_documento: number;
+  subtotal: number;
+  /** subtotal × |% maestro − % documento|, en pesos. */
+  diferencia: number;
+}
+
+export interface DiferenciaMaestro {
+  facturas: number;
+  monto: number;
+  /** Ordenadas por diferencia, de mayor a menor. */
+  detalle: FacturaDiferenciaMaestro[];
 }
 
 const NUM = (col: string): string => `round(coalesce(nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric, 0), 2)`;
 
 /**
- * Una fila por (operador, % del maestro, % del documento). Los renglones se leen de `kdm2` por
+ * Una fila por FACTURA (`[E.16]`: para poder listar cuáles difieren del maestro; antes agrupaba
+ * por operador × %). Los renglones se leen de `kdm2` por
  * factura con `ix_kdm2_venta_doc` (LATERAL): medido en prod el 2026-10-21, 150–345 ms. El join
  * en bloque contra `kdm2` (o contra `analytics.erp_sales_invoice_lines`) tardaba 46 s y más.
  * La llave del renglón incluye la serie (`c5`): sin ella se pegan renglones de documentos
@@ -123,8 +145,8 @@ const NUM = (col: string): string => `round(coalesce(nullif(regexp_replace(${col
  */
 const SQL_DESCUENTOS_TELEMARKETING_30D = `
   WITH f AS MATERIALIZED (
-    SELECT sucursal, doc_prefix, folio, total, cliente_code, vendedor_code, vendedor_nombre,
-           coalesce(descuento_pct, 0) AS pct_documento
+    SELECT sucursal, doc_prefix, folio, folio_digital, fecha, total, cliente_code, cliente_nombre,
+           vendedor_code, vendedor_nombre, coalesce(descuento_pct, 0) AS pct_documento
     FROM analytics.erp_sales_invoices
     WHERE tenant_id = ? AND doc_tipo = 'telemarketing' AND NOT cancelada
       AND fecha >= current_date - 30),
@@ -143,17 +165,18 @@ const SQL_DESCUENTOS_TELEMARKETING_30D = `
         AND (d.c5)::integer = substr(f.doc_prefix, 5, 2)::integer AND btrim(d.c6) = f.folio
         AND btrim(d.c1) = f.sucursal AND abs(coalesce(d.c9::numeric, 0)) > 0) l
     LEFT JOIN kepler_ods.kdud u ON btrim(u.sucursal) = f.sucursal AND btrim(u.c2) = f.cliente_code)
-  SELECT vendedor_code, vendedor_nombre, pct_maestro, pct_documento,
-         count(*) FILTER (WHERE renglones > 0)::int                          AS facturas,
-         count(*) FILTER (WHERE renglones = 0)::int                          AS facturas_sin_renglones,
-         coalesce(sum(total) FILTER (WHERE renglones = 0), 0)::numeric       AS total_sin_renglones,
-         coalesce(sum(renglones), 0)::int                                    AS renglones,
-         coalesce(sum(sin_lista), 0)::int                                    AS renglones_sin_lista,
-         coalesce(sum(importe) FILTER (WHERE renglones > 0), 0)::numeric     AS subtotal,
-         coalesce(sum(desc_producto) FILTER (WHERE renglones > 0), 0)::numeric AS producto,
-         coalesce(sum(importe - total) FILTER (WHERE renglones > 0), 0)::numeric AS cliente,
-         coalesce(sum(total) FILTER (WHERE renglones > 0), 0)::numeric       AS facturado
-  FROM x GROUP BY 1, 2, 3, 4`;
+  SELECT folio_digital, fecha, cliente_code, cliente_nombre,
+         vendedor_code, vendedor_nombre, pct_maestro, pct_documento,
+         (renglones > 0)::int                                                AS facturas,
+         (renglones = 0)::int                                                AS facturas_sin_renglones,
+         CASE WHEN renglones = 0 THEN total ELSE 0 END                        AS total_sin_renglones,
+         renglones,
+         sin_lista                                                           AS renglones_sin_lista,
+         CASE WHEN renglones > 0 THEN importe ELSE 0 END                      AS subtotal,
+         CASE WHEN renglones > 0 THEN desc_producto ELSE 0 END                AS producto,
+         CASE WHEN renglones > 0 THEN importe - total ELSE 0 END              AS cliente,
+         CASE WHEN renglones > 0 THEN total ELSE 0 END                        AS facturado
+  FROM x`;
 
 const llaveOperador = (code: unknown, nombre: unknown): string => `${code ?? ''}|${nombre ?? ''}`;
 const centavos = (n: number): number => Math.round(n * 100) / 100;
@@ -168,10 +191,25 @@ export function armarDescuentos(rows: Array<Record<string, unknown>>): {
   const r: DescuentosTelemarketing = {
     facturas: 0, facturas_sin_renglones: 0, total_sin_renglones: 0, renglones: 0, renglones_sin_lista: 0,
     lista: 0, producto: 0, subtotal: 0, cliente: 0, facturado: 0,
-    negociado_no_aplicado: { facturas: 0, monto: 0 },
-    sin_respaldo_maestro: { facturas: 0, monto: 0 },
+    negociado_no_aplicado: { facturas: 0, monto: 0, detalle: [] },
+    sin_respaldo_maestro: { facturas: 0, monto: 0, detalle: [] },
   };
   const porOperador = new Map<string, DescuentoOperador>();
+  // Sólo una fila por FACTURA trae folio: en filas agrupadas no hay a qué documento apuntar.
+  const anotar = (destino: DiferenciaMaestro, row: Record<string, unknown>, subtotal: number, pm: number, pd: number): void => {
+    if (!row.folio_digital) return;
+    destino.detalle.push({
+      folio_digital: String(row.folio_digital),
+      fecha: (row.fecha as Date | string | null) ?? null,
+      cliente_code: (row.cliente_code as string | null) ?? null,
+      cliente_nombre: (row.cliente_nombre as string | null) ?? null,
+      vendedor_nombre: (row.vendedor_nombre as string | null) ?? null,
+      pct_maestro: pm,
+      pct_documento: pd,
+      subtotal: centavos(subtotal),
+      diferencia: centavos((subtotal * Math.abs(pm - pd)) / 100),
+    });
+  };
   for (const row of rows) {
     const facturas = Number(row.facturas || 0);
     const subtotal = Number(row.subtotal || 0);
@@ -191,9 +229,11 @@ export function armarDescuentos(rows: Array<Record<string, unknown>>): {
     if (facturas > 0 && pm > pd) {
       r.negociado_no_aplicado.facturas += facturas;
       r.negociado_no_aplicado.monto += (subtotal * (pm - pd)) / 100;
+      anotar(r.negociado_no_aplicado, row, subtotal, pm, pd);
     } else if (facturas > 0 && pd > pm) {
       r.sin_respaldo_maestro.facturas += facturas;
       r.sin_respaldo_maestro.monto += (subtotal * (pd - pm)) / 100;
+      anotar(r.sin_respaldo_maestro, row, subtotal, pm, pd);
     }
     if (facturas > 0) {
       const k = llaveOperador(row.vendedor_code, row.vendedor_nombre);
@@ -210,6 +250,9 @@ export function armarDescuentos(rows: Array<Record<string, unknown>>): {
   }
   r.negociado_no_aplicado.monto = centavos(r.negociado_no_aplicado.monto);
   r.sin_respaldo_maestro.monto = centavos(r.sin_respaldo_maestro.monto);
+  for (const d of [r.negociado_no_aplicado.detalle, r.sin_respaldo_maestro.detalle]) {
+    d.sort((a, b) => b.diferencia - a.diferencia);
+  }
   for (const o of porOperador.values()) {
     o.lista = centavos(o.lista); o.producto = centavos(o.producto); o.cliente = centavos(o.cliente);
   }
@@ -632,32 +675,20 @@ export class CommercialTeleventaService {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
 
-    // 7. Los primeros 5 de la cola, con el MISMO orden que /telemarketing/queue.
-    // ⚠️ Antes era una consulta propia sin ORDER BY: se titulaba «Cola priorizada» y devolvía
-    // los 5 primeros en orden físico — medido el 2026-10-21, cinco clientes sin teléfono ni
-    // pedidos, mientras la cola real ordenaba por motivo. Dos implementaciones de «la cola»
-    // = dos respuestas; se reusa la única que prioriza.
+    // `[E.16]` El tablero ya no trae la vista previa de la cola: era trabajo del operador (a quién
+    // llamar) dentro del resumen del canal (cuánto factura, descuenta y cobra), y la cola tiene
+    // su pestaña. Se conserva `billing.clientes_en_cola`, que DECLARA el universo de la cola.
     //
-    // Cola, facturación y actividad van en PARALELO, cada una con su conexión: dentro de una
-    // sola transacción las consultas se encolan en el mismo cliente y el tiempo es la SUMA.
+    // Facturación y actividad van en PARALELO, cada una con su conexión: dentro de una sola
+    // transacción las consultas se encolan en el mismo cliente y el tiempo es la SUMA.
     // Medido en prod el 2026-10-21: facturación en serie ≈ 670 ms; en paralelo, la más lenta
     // (el vencido de toda la cartera) ≈ 390 ms.
-    const [queue, billing, actividad] = await Promise.all([
-      this.getQueue(5),
+    const [billing, actividad] = await Promise.all([
       // ── E.9: el dinero del canal, medido en el ERP (no en esta plataforma) ──
       this.facturacion(tenantId),
       this.actividadLlamadas(tenantId, userId, todayStart, sevenDaysAgo, opts),
     ]);
-    const queuePreview = queue.map((q) => ({
-      id: q.customer_id,
-      code: q.code,
-      name: q.name,
-      phone: q.phone,
-      reason: q.reason,
-      last_order_at: q.last_order_at,
-      days_since_last_order: q.days_since_last_order,
-    }));
-    return { ...actividad, queue_preview: queuePreview, billing };
+    return { ...actividad, billing };
   }
 
   /** E.4 — la actividad de llamadas (`commercial.call_logs`) del tablero. */
