@@ -593,16 +593,20 @@ ella juntó notas). Cómo se llegó: v1 72.5 % → v2 89.1 % del pago completo a
 | tarjeta de crédito `2140800000` | — | 8 pólizas con cargo y abono iguales | regla sin medir |
 | varios bancos en una póliza | — | 76 pólizas | se arman por banco; sin medir |
 
-### Lo que se le pregunta a contabilidad (no se arma sin respuesta)
+### Las cinco preguntas, contestadas con el dato donde se pudo (`[CP.8.69]`, 2026-10-21)
 
-1. **Devolución vs descuento:** ¿aceptan «relación 03 = devolución, lo demás descuento»? Coincide con
-   ustedes en 91.7 %; las 64 que difieren se les mandan para que digan quién está bien.
-2. **Factura con conceptos al 0 % y al 16 %:** ¿siempre se parte en 5010/5020 por la base del CFDI? En 8
-   pólizas va todo a 5020.
-3. **Pago parcial con notas** de proveedores grandes: ¿cómo deciden qué notas entran en cada pago? Es el
-   hueco más grande que queda (59).
-4. **Tarjeta de crédito** (`2140800000`, 8 pólizas): ¿qué asiento es?
-5. **El UUID de cada nota:** el puente los pondrá todos, ustedes hoy uno por renglón.
+Pedido del PM: *«revisa si podemos responder esas preguntas nosotros»*. Cuatro de cinco sí.
+
+| # | pregunta | respuesta | evidencia | queda para contabilidad |
+|---|---|---|---|---|
+| 1 | ¿devolución o descuento? | **regla «relación 03 = devolución»**, y no importa para impuestos | coincide en 704 de 769 (91.7 %). De las 64 que difieren: 24 son producto (tenía razón ella), 29 bonificación (la regla), 11 sin evidencia. Agregar «conceptos de producto» **empeora** (662): 73 descuentos de ella listan producto. Sus devoluciones 2026 suman $0.92 M y las devoluciones de compra de Kepler (X-D-40) $1.16 M: su criterio se parece a la salida física, pero Kepler no liga 1 a 1 (sus X-D-55 suman $59.5 M contra $23.3 M de notas CFDI: registra notas internas sin CFDI). **La reversa de IVA/IEPS es idéntica en las dos familias**: el error posible es de reparto dentro de compras netas, no fiscal | sólo confirmar que el reparto 5050/5060 no se usa para nada fuera de la balanza |
+| 2 | factura mixta 0 %/16 % | **siempre partir** por la base del CFDI | es lo que ella hace en 98 de 102; las cuentas se llaman «compras al 0 %» y «compras c/IVA»; la DIOT separa por tasa | — |
+| 3 | parcial con nota: ¿qué notas entran? | **no se pudo del todo** | Kepler explica el importe de notas en **326 de 638** pólizas con nota (51 %): son las que Mayra aplicó en `kdxf` a las mismas entradas del pago; el REP por factura explica 23 de 82 parciales. «Todas las notas desde el pago anterior»: 0 | ¿siguen lo que se aplicó en Kepler? Si sí, Kepler es la fuente y lo que no coincide es diferencia a revisar |
+| 4 | tarjeta de crédito `2140800000` | **pago de tarjeta: cargo 2140800000 / abono banco**; si se conocen las facturas pagadas con la tarjeta, además cargo compra / abono 2140800000 (de ahí el «par neutro») | en 69 de 90 pólizas el banco dice «TDC AMEX» / «TDC BANORTE»; el concepto es «PAGO TARJETA DE CRÉDITO (…)» o «PAGO FACT … (TARJETA)» | — |
+| 5 | UUID de cada nota | **decisión nuestra, no pregunta**: un renglón por nota con su UUID | ella junta varias en uno; el resultado contable es el mismo | **avisarles**, para que no lo lean como diferencia |
+
+**Efecto en el armador:** se arma lo que tiene respuesta (1, 2, 4, 5); lo de la 3 va a «confirmar en
+pantalla» mostrando lo que Kepler aplicó.
 
 ### `[CP.8.67]` Lo que dice el histórico (2025 + 2026 previo, calificado en 2026)
 
@@ -790,3 +794,6 @@ falta uno nuevo.
   ese RFC (99.7 %); para lo demás el histórico no mejora la regla. `[CP.8.68]` hallazgo para contabilidad:
   54 facturas ($8.2M) provisionadas y vueltas a registrar como compra directa, sin cancelar la provisión.
   El armador decide 2120 por la provisión real del mes.
+- **2026-10-21** — `[CP.8.69]` las cinco preguntas, contestadas con el dato: devolución/descuento por
+  relación 03 (sin efecto fiscal), factura mixta se parte, tarjeta = pago TDC del banco, UUID por nota es
+  decisión nuestra. Queda para contabilidad sólo el parcial con notas (Kepler explica 51 %).
