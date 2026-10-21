@@ -384,6 +384,28 @@ gasto `52*` y la rechazaría — si contabilidad la aprueba, hay que ampliar la 
 
 Sigue sin respuesta **D5** (¿deja de capturarse a mano lo que entre por la Suite?).
 
+### `[CP.8.61]` C0 de R1/R2: qué factura paga cada movimiento — medido con árbitro
+
+R1/R2 necesitan la factura (total, mes, impuestos, UUID). El pago de Kepler no la trae; los REP
+cubren 466 ligas y sólo desde julio. Método medido contra los UUID que la contadora asoció
+(`database/scripts/liga-pago-factura-contpaqi.js`): **RFC + total ±$1**, factura de hasta 180 días
+antes y **30 después** del pago, sin las ya pagadas, y si hay más de un candidato **no se elige**.
+
+| pagos de proveedor 2026 (1,837 con UUID) | exacto | **error** | ambiguo | sin candidato |
+|---|--:|--:|--:|--:|
+| una factura (705) | **82.8 %** | **0.1 %** (1) | 6.5 % | 10.5 % |
+| varias facturas (419), combinación única | 48.4 % | **1.7 %** (7) | 14.8 % | 35.1 % |
+| con nota de crédito (713) | — no se arman solas — |||
+
+Placebo (importe +$137): 0.0 %. ⛔ Lo que costó llegar ahí: la primera versión buscaba sólo
+facturas **anteriores** al pago y erraba 1.7 %: en 8 de 10 la contadora asoció una factura emitida
+**días después** del pago, de importe recurrente (p. ej. $128,222.22 mensuales). Abrir la ventana a
++30 días bajó el error a 0.1 %.
+
+**Decisión de diseño que se propone:** armar sola sólo «una factura, candidato único»
+(**584 pagos, 32 %**); las combinaciones van como **propuesta a confirmar** en pantalla; nota de
+crédito, ambiguo y sin candidato, a revisión.
+
 El documento con el detalle y las aprobaciones (privado, con nombres de proveedores) es el doc
 «Catálogo de asientos de egresos de banco». Script de la medición: no versionado, en el scratchpad
 de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
