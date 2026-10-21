@@ -26,6 +26,9 @@
 - **Ninguna cifra cambia**: misma salida, campo por campo, comprobada con datos a escala y con casos borde.
 - Nuevos scripts para volver a medir: `database/scripts/csu-cortes-bench-local.js`, `csu-cortes-paridad-local.js` y `csu-cortes-paridad-prod.js` (sólo lectura).
 ### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.4, 2026-10-19/20)
+### Changed — Arqueo de caja: RD y RV se capturan por ruta, sin caja (SM.46, 2026-10-21)
+- `/tienda/arqueo`, pestañas RD y RV: se quita el campo «Caja». La entrega de un vendedor se identifica por la **ruta**; para guardar basta sucursal + ruta. La confirmación y el ticket muestran la ruta en lugar de la caja. Retiro, Cierre y Relevo no cambian.
+
 ### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
 - `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
 
