@@ -20,7 +20,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import {
   EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile, RemisionOcr, AttachReceipt,
-  type OrdenEntradas, type DocPresence,
+  type OrdenEntradas, type DocPresence, duplicadoBloquea, duplicadoAvisa, duplicadoMensaje,
 } from '../entradas.service';
 import { receptionSource, roleOptsFor, checklist, missingGroups } from '../receipt-roles';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
@@ -79,6 +79,10 @@ interface Hoja {
   dupDe?: string | null;
   /** `[RE.31]` La entrada de `dupDe` ya NO existe en Kepler: no frena, pero se avisa. */
   dupMuerta?: boolean;
+  /** `[RE.42]` Texto del servidor: dónde vive la otra hoja y por qué se decidió así. */
+  dupMensaje?: string;
+  /** `[RE.42]` Posible duplicado que NO frena (mismo folio, emisor sin confirmar): se muestra y se envía. */
+  dupAviso?: string;
   motivo?: string;
   busqueda?: string;
   buscando?: boolean;
@@ -583,7 +587,8 @@ interface Hoja {
               @case ('duplicada') {
                 <p class="ep-an-msg is-bad">
                   <i class="pi pi-ban" aria-hidden="true"></i>
-                  Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar.
+                  @if (h.dupMensaje) { {{ h.dupMensaje }} }
+                  @else { Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar. }
                 </p>
               }
               @case ('error') {
@@ -620,6 +625,15 @@ interface Hoja {
                     <i class="pi pi-info-circle" aria-hidden="true"></i>
                     <span>Esta hoja ya estaba en la entrada <b class="mono">{{ h.dupDe }}</b>, que <b>Kepler ya borró</b>.
                       Se envía a la nueva; la evidencia vieja queda huérfana.</span>
+                  </p>
+                }
+
+                <!-- [RE.42] Mismo folio que otra entrada, sin poder probar que es el mismo proveedor.
+                     No frena: se dice, se envia, y queda escrito en la hoja para el revisor. -->
+                @if (h.dupAviso) {
+                  <p class="ep-veredicto warn" role="status">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    <span>{{ h.dupAviso }} Se puede enviar: el revisor lo verá marcado.</span>
                   </p>
                 }
 
@@ -1773,7 +1787,10 @@ export class ComprasEntradasPendientesComponent {
 
   private async leerYEnlazar(h: Hoja): Promise<void> {
     try {
-      const o = await firstValueFrom(this.svc.ocr(h.dataUri, h.role));
+      // `[RE.42]` Si se soltó sobre una fila, la entrada ya se sabe: con su proveedor el servidor
+      // decide el duplicado en vez de sólo avisar.
+      const destino = h.entrada ? { sucursal: h.entrada.sucursal, folio: h.entrada.folio } : null;
+      const o = await firstValueFrom(this.svc.ocr(h.dataUri, h.role, destino));
       this.parchar(h.id, {
         sha256: o.sha256, folioOcr: o.folio, total: o.total, subtotal: o.subtotal,
         fecha: o.fecha, rfc: o.rfc, ocr: o,
@@ -1796,13 +1813,14 @@ export class ComprasEntradasPendientesComponent {
        * ⚠️ No se calla: sigue el flujo normal y deja el aviso (`dupDe` + `dupMuerta`), porque la
        * evidencia vieja queda huérfana y alguien tiene que saberlo.
        */
-      if (o.duplicate && o.duplicate.vigente !== false) {
-        this.parchar(h.id, { estado: 'duplicada', dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}` });
+      // `[RE.42]` Bloquear o avisar lo decide el servidor; `duplicadoBloquea/Avisa` sólo lo leen.
+      const d = o.duplicate;
+      if (duplicadoBloquea(d)) {
+        this.parchar(h.id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!) });
         return;
       }
-      if (o.duplicate) {
-        this.parchar(h.id, { dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}`, dupMuerta: true });
-      }
+      if (duplicadoAvisa(d)) this.parchar(h.id, { dupAviso: duplicadoMensaje(d!) });
+      else if (d) this.parchar(h.id, { dupDe: `${d.sucursal}/${d.folio}`, dupMuerta: true });
       // Soltada sobre una fila: la entrada ya la eligió el usuario, no se busca nada.
       if (h.entrada) { this.parchar(h.id, { estado: 'enlazada' }); return; }
       // FOLIO primero (preciso), MONTO como respaldo — la misma prioridad del server.

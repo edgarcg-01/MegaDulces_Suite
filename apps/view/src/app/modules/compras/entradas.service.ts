@@ -380,6 +380,33 @@ export interface DuplicateHit {
   folio: string;
   proveedor?: string | null;
   vigente?: boolean;
+  /**
+   * ⭐ `[RE.42]` Qué tan seguro es, decidido en el SERVIDOR (`documento-duplicado.ts`): `bloquea` =
+   * misma hoja o mismo folio del MISMO proveedor; `avisa` = mismo folio sin poder probar quién lo
+   * emitió — se muestra, no frena. Opcional por API vieja: sin él se trata como `bloquea`.
+   */
+  nivel?: 'bloquea' | 'avisa';
+  motivo?: string;
+  /** Texto listo para pintar (dice dónde vive la otra hoja y por qué). */
+  mensaje?: string;
+  monto?: number | null;
+}
+
+/**
+ * `[RE.42]` La ÚNICA lectura de un duplicado en el front. Antes cada pantalla decidía a su modo y
+ * no coincidían: `compras-entradas` bloqueaba hasta los de entradas que Kepler borró (RE.31), las
+ * otras dos no. Una entrada borrada (`vigente: false`) nunca frena.
+ */
+export function duplicadoBloquea(d?: DuplicateHit | null): boolean {
+  return !!d && d.vigente !== false && (d.nivel ?? 'bloquea') === 'bloquea';
+}
+/** Posible duplicado que NO frena: se muestra para que la persona lo mire antes de enviar. */
+export function duplicadoAvisa(d?: DuplicateHit | null): boolean {
+  return !!d && d.vigente !== false && d.nivel === 'avisa';
+}
+/** El texto del duplicado: el del servidor, o uno armado si la API es vieja. */
+export function duplicadoMensaje(d: DuplicateHit): string {
+  return d.mensaje || `Ya está subido en la entrada ${d.sucursal}/${d.folio}${d.proveedor ? ` (${d.proveedor})` : ''}.`;
 }
 
 /** RE.11.0 — un renglón de producto extraído de la remisión (materia prima del match por línea). */
@@ -649,9 +676,13 @@ export class EntradasService {
     return this.http.get<EntradasSinOcResumen>(`${this.base}/sin-oc`, { params: new HttpParams().set('from', from).set('to', to) });
   }
   /** Corre OCR sobre una hoja (data URI, **sólo PDF**) — preview, no guarda. Devuelve
-   *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup. */
-  ocr(file_base64: string, role?: string): Observable<RemisionOcr> {
-    return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64, role });
+   *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup.
+   *  `[RE.42]` `destino` = la entrada a la que va, si ya se sabe: con su proveedor el dedup decide
+   *  en vez de sólo avisar. */
+  ocr(file_base64: string, role?: string, destino?: { sucursal: string; folio: string } | null): Observable<RemisionOcr> {
+    return this.http.post<RemisionOcr>(`${this.base}/ocr`, {
+      file_base64, role, entrada_sucursal: destino?.sucursal, entrada_folio: destino?.folio,
+    });
   }
   /**
    * [RE.35.7] Captura por lote: con lo leído de UN papel, su CFDI de ContPAQi y las entradas que
