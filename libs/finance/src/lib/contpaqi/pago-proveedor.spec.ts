@@ -2,7 +2,7 @@ import { asientoCuadra, AsientoRechazado } from './poliza-egreso';
 import {
   armarPagoProveedorCompleto, CUENTA, esProvisionada, type EntradaPagoProveedor, type FacturaPagada,
 } from './pago-proveedor';
-import { distanciaEdicion, normalizarNombre, resolverRfcAcreedor, type PadronEmisores } from './rfc-acreedor';
+import { construirPadron, distanciaEdicion, normalizarNombre, resolverRfcAcreedor, rfcPorTexto, type PadronEmisores } from './rfc-acreedor';
 
 /**
  * `[CP.8.72]` Candado de las reglas del asiento de pago a proveedor. Puro: sin base, sin Nest.
@@ -147,6 +147,17 @@ describe('`[CP.8.71]` RFC del acreedor: se valida contra los emisores y se repar
   });
   it('⛔ dos emisores a ≤ 2 ediciones → no se elige', () => expect(resolverRfcAcreedor('AAA010101AAC', null, padron)).toBeNull());
   it('⛔ nada se parece → null (se declara, no se adivina)', () => expect(resolverRfcAcreedor('ZZZ999999ZZZ', 'OTRO', padron)).toBeNull());
+  it('proveedor por el nombre que escribe tesorería en el concepto: igual, o que contenga UN nombre', () => {
+    const p = construirPadron([
+      { rfc: 'GCD010101AAA', nom: 'GRUPO CONFITERO DE DULCES DE OCCIDENTE SA DE CV' },
+      { rfc: 'PMA020202BBB', nom: 'PALETAS MARA' },
+      { rfc: 'BOT030303CCC', nom: 'BOTANAS' }, { rfc: 'BOT040404DDD', nom: 'BOTANAS' },
+    ]);
+    expect(rfcPorTexto('Grupo Confitero de Dulces de Occidente', p)).toBe('GCD010101AAA');
+    expect(rfcPorTexto('SPEI PALETAS MARA REF 1234', p)).toBe('PMA020202BBB');
+    expect(rfcPorTexto('Botanas', p)).toBeNull();          // ⛔ dos emisores con ese nombre: no se elige
+    expect(rfcPorTexto('TRASPASO ENTRE CTAS 6586', p)).toBeNull();
+  });
   it('distancia de edición con corte', () => {
     expect(distanciaEdicion('PCP920523HQA', 'PCP920423KQA')).toBe(2);
     expect(distanciaEdicion('ABCDEFGHIJKL', 'ZZZZZZZZZZZZ')).toBe(3);
