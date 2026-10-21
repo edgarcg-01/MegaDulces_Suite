@@ -96,6 +96,12 @@ const COMPUERTAS = [
   // `analytics.kepler_kdm5_vigente`; esta compuerta impide leer kdm5 crudo. Estatica, sin DB, ~0.3 s.
   // El catalogo (lo que una vista recreada desde pg_get_viewdef no deja en el repo) lo mira `check:kdm5-vigente:db`.
   { nombre: 'kdm5-vigente', script: 'check-kdm5-vigente.js', que: 'nadie suma kepler_ods.kdm5 crudo: las aplicaciones se leen vigentes (sin cancelados)', push: true, ms: 300 },
+  // `[CSU.12]` El índice navegable de los 7 documentos grandes. `package.json` lo anunciaba y el script NO existía:
+  // sin generador, git fusiona el bloque línea por línea y deja dos versiones intercaladas (log 0/452, tracker 0/141
+  // filas válidas en main el 2026-10-21, dos veces el mismo día). ~0.3 s, estático.
+  // ⛔ SIN `push`: gate-push cruza las rutas de la salida con tus archivos y su regex no reconoce `docs/`, así que
+  //    en el push quedaría muda — y un rojo que no se ve es peor que ninguno. Decisión de admisión: del lead.
+  { nombre: 'docs-indices', cmd: 'node scripts/docs-indices.js --check', que: 'el índice navegable de los documentos grandes está al día (si no: npm run docs:indices)' },
   // [IC.24] La OTRA hermana de `templates`, para lo que esa tampoco puede ver: los TIPOS dentro
   // de la plantilla. `check-template-literals` mira que el literal este entero y que el CSS
   // parsee; `tsc -p tsconfig.app.json` NO compila plantillas (para TypeScript son strings); y el
