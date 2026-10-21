@@ -1,11 +1,12 @@
 import { Injectable, BadRequestException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { createHash } from 'crypto';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput,
 } from '@megadulces/contracts';
 import {
-  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, type Movimiento, type PolizaTxtParseada,
+  TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, vigenciaArchivo, type Movimiento, type PolizaTxtParseada,
 } from './poliza-txt';
 
 export { type Movimiento, type PolizaTxtParseada } from './poliza-txt';
@@ -33,6 +34,27 @@ const CTA_IEPS = '1470110000';
 
 export type ImpuestosModo = 'global' | 'por-cuenta';
 export type EstadoRun = 'borrador' | 'generado' | 'entregado' | 'aplicado' | 'cancelado';
+
+/**
+ * `[LC.17]` — A qué estado se puede mover el trámite desde cada uno (por `marcar`; volver a
+ * `generado` sólo lo hace `generar`).
+ *
+ * ⛔ Antes `marcar` aceptaba cualquier salto: `aplicado` desde `generado` (nadie lo entregó),
+ * `entregado` desde `aplicado` (el trámite retrocedía) y `cancelado` desde `aplicado`. Lo
+ * último es el caro: cancelar saca las facturas de la puerta exacta (`v_purchase_book_uuids`
+ * sólo cuenta entregado/aplicado) y el mes las vuelve a ofrecer — un asiento que ContPAQi YA
+ * tiene, entregado otra vez.
+ */
+export const TRANSICIONES_RUN: Readonly<Record<EstadoRun, readonly EstadoRun[]>> = {
+  borrador: ['cancelado'],
+  generado: ['entregado', 'cancelado'],
+  entregado: ['aplicado', 'cancelado'],
+  aplicado: [],
+  cancelado: [],
+};
+
+/** Las facturas que `generar` deja registradas: alimentan la puerta exacta, no deciden. */
+const ORIGEN_GENERADO = 'generado';
 
 /**
  * Las dos corridas que puede tener un mes:
@@ -536,6 +558,10 @@ export class PurchaseBookService {
              ON a.tenant_id = f.tenant_id AND a.rfc = f.emisor_rfc AND a.deleted_at IS NULL
            LEFT JOIN finance.purchase_book_run_items i
              ON i.tenant_id = f.tenant_id AND i.run_id = ? AND i.cfdi_uuid = upper(f.uuid)
+            -- LC.17: lo que dejo registrado generar NO es una decision de una persona. Si
+            -- contara como tal, el default del mes quedaria congelado en lo de la primera
+            -- generacion aunque despues aparezca la poliza en ContPAQi.
+            AND i.origen <> 'generado'
            -- La tercera puerta, EXACTA por UUID. Unívoca por CFDI (la vista hace
            -- DISTINCT ON), así que este join no puede multiplicar filas. Y va SIN join de
            -- mes a propósito: el corte del libro es por captura, no por fecha del CFDI —
@@ -703,7 +729,7 @@ export class PurchaseBookService {
         if (fuera.length) avisos.push(`${fuera.length} factura(s) no asociadas de proveedores fuera del catálogo de compras (gasto o servicio)`);
       }
 
-      return { mes: anioMes, tipo, run: run ?? null, facturas, resumen, bloqueantes, avisos };
+      return { mes: anioMes, tipo, run: this.runParaPantalla(run), facturas, resumen, bloqueantes, avisos };
     });
   }
 
@@ -750,6 +776,38 @@ export class PurchaseBookService {
       estado: 'borrador', archivo_hash: null, archivo_contenido: null,
       updated_at: knex.fn.now(), updated_by: userId,
     });
+    // Lo que registró la generación describía ese archivo, que ya no existe.
+    await knex('finance.purchase_book_run_items').where({ run_id: run['id'], origen: ORIGEN_GENERADO }).del();
+  }
+
+  /**
+   * `[LC.17]` — La corrida como la ve la pantalla: sin el TXT (son ~77 KB que la pantalla no
+   * usa) y con lo que sí necesita saber de él, si se puede entregar y, si no, por qué.
+   */
+  private runParaPantalla(run: Record<string, unknown> | undefined | null): Record<string, unknown> | null {
+    if (!run) return null;
+    const { archivo_contenido: contenido, ...resto } = run;
+    const conArchivo = resto['estado'] === 'generado' || resto['estado'] === 'entregado' || resto['estado'] === 'aplicado';
+    const v = conArchivo ? vigenciaArchivo(contenido as string | null) : { vigente: false, motivo: null };
+    return { ...resto, archivo_vigente: v.vigente, archivo_motivo: v.motivo };
+  }
+
+  /** `[LC.17]` — Agrega un renglón a `notas` sin borrar lo que ya había. */
+  private sumarNota(knex: Knex, nota: string): Knex.Raw {
+    return knex.raw(`concat_ws(chr(10), nullif(notas, ''), ?::text)`, [nota]);
+  }
+
+  /** `[LC.17]` — ¿ContPAQi ya tiene ese folio del Diario en el mes? (la misma guarda de generar) */
+  private async folioOcupado(knex: Knex, anioMes: string, folio: number): Promise<{ patas: number; cargos: number } | null> {
+    const { rows } = await knex.raw(
+      `SELECT coalesce(num_lines, 0) AS patas, round(coalesce(cargos, 0), 2) AS cargos
+         FROM analytics.gl_polizas
+        WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+          AND tipo_pol = ? AND folio = ? AND anio_mes = ?
+        LIMIT 1`,
+      [TIPO_POLIZA_DIARIO, String(folio), anioMes],
+    );
+    return rows.length ? { patas: Number(rows[0].patas), cargos: Number(rows[0].cargos) } : null;
   }
 
   /**
@@ -1010,22 +1068,24 @@ export class PurchaseBookService {
     return this.tk.run(async (knex) => {
       const run = await this.ensureRun(knex, anioMes, tipo);
       if (run.estado === 'aplicado') throw new BadRequestException('el mes ya está aplicado');
+      // `[LC.17]` `entregado` cuenta igual que `aplicado`, como en `setInclusion`: regenerar
+      // pisaba el archivo y la firma que ya salieron de nuestras manos, y lo entregado dejaba
+      // de tener evidencia. Si ContPAQi lo rechazó, se cancela la entrega y se genera otro.
+      if (run.estado === 'entregado') {
+        throw new BadRequestException(
+          `el archivo de ${anioMes} ya se entregó; no se puede regenerar encima. `
+          + 'Si ContPAQi lo rechazó, cancela la entrega y vuelve a generarlo.',
+        );
+      }
 
       // Se vuelve a mirar el folio acá y no sólo en `setCaratula`: entre editar la carátula
       // y generar pudo correr el feed y traerse una póliza nueva en ese folio. Es el último
       // momento en que se puede avisar antes de que el archivo salga.
-      const { rows: ocupado } = await knex.raw(
-        `SELECT coalesce(num_lines, 0) AS patas, round(coalesce(cargos, 0), 2) AS cargos
-           FROM analytics.gl_polizas
-          WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
-            AND tipo_pol = ? AND folio = ? AND anio_mes = ?
-          LIMIT 1`,
-        [TIPO_POLIZA_DIARIO, String(run.folio_poliza ?? FOLIO_COMPLEMENTO), anioMes],
-      );
-      if (ocupado.length) {
+      const ocupado = await this.folioOcupado(knex, anioMes, run.folio_poliza ?? FOLIO_COMPLEMENTO);
+      if (ocupado) {
         throw new BadRequestException(
           `ContPAQi ya tiene el folio ${run.folio_poliza} del Diario en ${anioMes} `
-          + `(${ocupado[0].patas} renglones por ${ocupado[0].cargos}). Cambia el folio de la carátula antes de generar.`,
+          + `(${ocupado.patas} renglones por ${ocupado.cargos}). Cambia el folio de la carátula antes de generar.`,
         );
       }
 
@@ -1059,12 +1119,36 @@ export class PurchaseBookService {
         archivo_hash: hash, archivo_nombre: nombre, archivo_contenido: txt,
         impuestos_modo: modo, incluye_uuid: conUuid, asocia_cfdi: asocia,
         generado_at: knex.fn.now(), generado_by: userId,
+        // Una corrida cancelada que se vuelve a generar es otro archivo: lo de la entrega
+        // anterior no le pertenece.
+        entregado_at: null, entregado_by: null, entregado_a: null,
         updated_at: knex.fn.now(), updated_by: userId,
-        // Un override sin rastro es un override que nadie audita.
+        // Un override sin rastro es un override que nadie audita. Se SUMA a las notas: pisarlas
+        // borraba el motivo de un override anterior.
         ...(sospechosas.length && opts.motivo
-          ? { notas: `${sospechosas.length} factura(s) incluidas pese al cruce por importe. Motivo: ${opts.motivo.trim()}` }
+          ? { notas: this.sumarNota(knex, `${sospechosas.length} factura(s) incluidas pese al cruce por importe. Motivo: ${opts.motivo.trim()}`) }
           : {}),
       });
+
+      /**
+       * `[LC.17]` — Qué facturas lleva ESTE archivo, una fila por UUID.
+       *
+       * ⛔ Antes sólo existían las filas que alguien marcó a mano, así que las incluidas por
+       * default —casi todas— no dejaban rastro, y la puerta exacta "ya se entregó"
+       * (`v_purchase_book_uuids`, que lee estas filas) nunca las veía: un complemento entregado
+       * en folio 2 no lo atrapa la puerta (a), que mira el folio 1, y el mes volvía a ofrecer las
+       * mismas facturas. `origen = 'generado'` las distingue de una decisión (ver `getMes`) y
+       * no pisa la de una persona (`ignore`): una fila manual ya dice lo mismo o más.
+       */
+      await knex('finance.purchase_book_run_items').where({ run_id: run.id, origen: ORIGEN_GENERADO }).del();
+      const registradas = [...new Set(dentro.map((f) => String(f.uuid).toUpperCase()))].map((u) => ({
+        tenant_id: run.tenant_id, run_id: run.id, cfdi_uuid: u,
+        incluida: true, motivo: null, origen: ORIGEN_GENERADO, created_by: userId,
+      }));
+      if (registradas.length) {
+        await knex('finance.purchase_book_run_items').insert(registradas)
+          .onConflict(['tenant_id', 'run_id', 'cfdi_uuid']).ignore();
+      }
       this.logger.log(`Póliza ${tipo} ${anioMes}: ${dentro.length} facturas · ${movs.length} movimientos · ${cargos}`);
       return { anio_mes: anioMes, tipo, nombre, hash, folio: run.folio_poliza ?? FOLIO_LIBRO, facturas: dentro.length, renglones: movs.length + 1, cargos, abonos, txt };
     });
@@ -1085,11 +1169,17 @@ export class PurchaseBookService {
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
       // El estado se mira además del contenido: en `borrador` no hay archivo vigente aunque
       // haya quedado texto de una corrida anterior. Cinturón redundante con `invalidar()`.
-      if (!run || run.estado === 'borrador' || !run.archivo_contenido) {
+      // `cancelado` igual que `borrador`: `invalidar` sólo limpia corridas en `generado`, así
+      // que una cancelada conservaba su archivo y lo seguía sirviendo.
+      if (!run || run.estado === 'borrador' || run.estado === 'cancelado' || !run.archivo_contenido) {
         throw new NotFoundException(
           `${anioMes} no tiene archivo generado todavía. Genéralo primero.`,
         );
       }
+      // `[LC.17]` Servir un archivo que ContPAQi rechaza es peor que no servir nada: se descubre
+      // al importar, con la contadora enfrente. Pasaba con el complemento de 2026-07.
+      const vig = vigenciaArchivo(run.archivo_contenido as string);
+      if (!vig.vigente) throw new BadRequestException(`${anioMes}: ${vig.motivo}.`);
       const parsed = this.parsearTxt(run.archivo_contenido as string);
       return {
         anio_mes: anioMes,
@@ -1269,14 +1359,36 @@ export class PurchaseBookService {
       const run = await knex('finance.purchase_book_runs')
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
       if (!run) throw new NotFoundException(`no hay corrida ${tipo} para ${anioMes}`);
-      if (estado !== 'cancelado' && run.estado === 'borrador') {
-        throw new BadRequestException('genera el archivo antes de mover el trámite');
+      const actual = run.estado as EstadoRun;
+      if (!(TRANSICIONES_RUN[actual] ?? []).includes(estado)) {
+        if (actual === 'borrador') throw new BadRequestException('genera el archivo antes de mover el trámite');
+        if (actual === 'aplicado') {
+          throw new BadRequestException(`el complemento de ${anioMes} ya está aplicado en ContPAQi; el trámite terminó.`);
+        }
+        throw new BadRequestException(`no se puede pasar de ${actual} a ${estado}`);
+      }
+      // No se entrega un archivo que ContPAQi va a rechazar, ni uno que no se guardó.
+      if (estado === 'entregado') {
+        const vig = vigenciaArchivo(run.archivo_contenido as string | null);
+        if (!vig.vigente) throw new BadRequestException(`no se puede marcar entregado: ${vig.motivo}.`);
+      }
+      // Cancelar una entrega devuelve sus facturas a "pendientes" (la puerta exacta deja de
+      // verlas). Si ContPAQi ya tiene la póliza en ese folio, lo que corresponde es aplicado.
+      if (estado === 'cancelado' && actual === 'entregado') {
+        const ocupado = await this.folioOcupado(knex, anioMes, run.folio_poliza ?? FOLIO_COMPLEMENTO);
+        if (ocupado) {
+          throw new BadRequestException(
+            `ContPAQi ya tiene el folio ${run.folio_poliza} del Diario en ${anioMes} `
+            + `(${ocupado.patas} renglones por ${ocupado.cargos}): márcalo aplicado, no cancelado.`,
+          );
+        }
       }
       const userId = this.ctx.get()?.userId ?? null;
       const patch: Record<string, unknown> = { estado, updated_at: knex.fn.now(), updated_by: userId };
       if (estado === 'entregado') { patch['entregado_at'] = knex.fn.now(); patch['entregado_by'] = userId; patch['entregado_a'] = datos.entregado_a ?? null; }
       if (estado === 'aplicado') { patch['aplicado_at'] = knex.fn.now(); patch['aplicado_by'] = userId; }
-      if (datos.notas) patch['notas'] = datos.notas;
+      // Se suma: pisarla borraba el motivo del override que `generar` dejó escrito.
+      if (datos.notas?.trim()) patch['notas'] = this.sumarNota(knex, datos.notas.trim());
       await knex('finance.purchase_book_runs').where({ id: run.id }).update(patch);
       return { ok: true, anio_mes: anioMes, estado };
     });

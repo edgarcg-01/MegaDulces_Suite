@@ -168,9 +168,12 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
             <div class="lc-acciones">
               @if (puedeGestionar()) {
                 <p-button type="button" label="Generar TXT" icon="pi pi-file-export"
-                          [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
+                          [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando() || estadoRun() === 'entregado' || estadoRun() === 'aplicado'"
                           [loading]="generando()" (click)="generar()" />
-                @if (estadoRun() === 'generado' || estadoRun() === 'entregado' || estadoRun() === 'aplicado') {
+                <!-- LC.17: los tres botones del archivo sólo si el archivo guardado SIRVE. El de
+                     jul-2026 tenía el formato viejo y se descargaba igual; el de jun-2026 tenía
+                     la firma sin el contenido y los botones daban 404. -->
+                @if (archivoVigente()) {
                   <p-button type="button" label="Descargar TXT" icon="pi pi-download"
                             styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
                   <!-- A ContPAQi va el TXT Y su respaldo: nadie sube millones a la
@@ -187,13 +190,18 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                             pTooltip="Listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi"
                             (click)="descargarAsociador()" />
                 }
-                @if (estadoRun() === 'generado') {
+                @if (estadoRun() === 'generado' && archivoVigente()) {
                   <p-button type="button" label="Marcar entregado" icon="pi pi-send"
                             styleClass="p-button-text p-button-secondary" (click)="dlgEntrega.set(true)" />
                 }
                 @if (estadoRun() === 'entregado') {
                   <p-button type="button" label="Marcar aplicado" icon="pi pi-check-circle"
                             styleClass="p-button-text p-button-secondary" (click)="marcar('aplicado')" />
+                  <!-- La salida cuando ContPAQi rechazó el archivo: sin ella, el error de
+                       generar decía "cancélala" y no había dónde. Destructiva: rojo y con
+                       confirmación, nunca un clic suelto. -->
+                  <p-button type="button" label="Cancelar entrega" icon="pi pi-times"
+                            styleClass="p-button-text p-button-danger" (click)="dlgCancelar.set(true)" />
                 }
               }
             </div>
@@ -484,6 +492,25 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
       </ng-template>
     </p-dialog>
 
+    <p-dialog header="Cancelar la entrega" [(visible)]="dlgCancelarVisible" [modal]="true" [style]="{ width: '28rem' }">
+      <p class="na-dlg-nota">
+        Úsalo sólo si ContPAQi <strong>rechazó</strong> el archivo o nunca se subió. Las facturas
+        vuelven a quedar pendientes y podrás generar un archivo nuevo.
+      </p>
+      <label class="lc-campo">
+        <span>¿Por qué se cancela?</span>
+        <input pInputText [(ngModel)]="motivoCancelar" placeholder="Ej. ContPAQi rechazó el archivo" />
+      </label>
+      <p class="na-dlg-aviso">
+        Si ContPAQi ya tiene la póliza en el folio {{ folioPoliza() }}, no se cancela: se marca aplicado.
+      </p>
+      <ng-template #footer>
+        <p-button type="button" label="Volver" styleClass="p-button-text" (click)="dlgCancelar.set(false)" />
+        <p-button type="button" label="Cancelar entrega" severity="danger"
+                  [disabled]="!motivoCancelar.trim()" (click)="marcar('cancelado')" />
+      </ng-template>
+    </p-dialog>
+
     <p-dialog header="Carátula de la póliza" [(visible)]="dlgCaratulaVisible" [modal]="true" [style]="{ width: '30rem' }">
       <p class="na-dlg-nota">
         Con qué folio y concepto entra la póliza en ContPAQi. El folio 1 del Diario es
@@ -545,6 +572,10 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   set dlgEntregaVisible(v: boolean) { this.dlgEntrega.set(v); }
   get dlgCaratulaVisible() { return this.dlgCaratula(); }
   set dlgCaratulaVisible(v: boolean) { this.dlgCaratula.set(v); }
+  dlgCancelar = signal(false);
+  get dlgCancelarVisible() { return this.dlgCancelar(); }
+  set dlgCancelarVisible(v: boolean) { this.dlgCancelar.set(v); }
+  motivoCancelar = '';
 
   /**
    * El rail agrupado por año. El año más reciente arranca abierto y los demás se piden:
@@ -601,6 +632,9 @@ export class MovimientosNoAsociadosComponent implements OnInit {
 
   estadoRun = computed(() => (this.detalle()?.run?.['estado'] as string) ?? 'sin_iniciar');
   folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
+  /** LC.17 — el servidor dice si el archivo GUARDADO se puede entregar, y si no, por qué. */
+  archivoVigente = computed(() => this.detalle()?.run?.['archivo_vigente'] === true);
+  archivoMotivo = computed(() => (this.detalle()?.run?.['archivo_motivo'] as string | null) ?? null);
 
   /**
    * El desglose del asiento, al pie de la tabla y bajo su propia columna:
@@ -739,6 +773,11 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     if (estado === 'entregado') {
       return { tono: 'warn', icono: 'pi pi-send', titulo: 'Entregado, falta confirmar',
         detalle: 'Cuando aparezca la póliza en ContPAQi, márcalo aplicado.' };
+    }
+    // LC.17: un "Archivo generado" que ContPAQi rechaza es una afirmación falsa.
+    if (estado === 'generado' && !this.archivoVigente()) {
+      return { tono: 'bad', icono: 'pi pi-exclamation-circle', titulo: 'El archivo guardado ya no sirve',
+        detalle: `${this.archivoMotivo() ?? 'No se puede entregar'}. Vuelve a generarlo.` };
     }
     if (estado === 'generado') {
       return { tono: 'warn', icono: 'pi pi-file-check', titulo: 'Archivo generado',
@@ -994,9 +1033,11 @@ export class MovimientosNoAsociadosComponent implements OnInit {
 
   marcar(estado: 'entregado' | 'aplicado' | 'cancelado') {
     const mes = this.mesSel(); if (!mes) return;
-    this.svc.marcarNoAsociados(mes, estado, { entregado_a: this.entregadoA || undefined }).subscribe({
+    const notas = estado === 'cancelado' ? `Entrega cancelada: ${this.motivoCancelar.trim()}` : undefined;
+    this.svc.marcarNoAsociados(mes, estado, { entregado_a: this.entregadoA || undefined, notas }).subscribe({
       next: () => {
         this.dlgEntrega.set(false); this.entregadoA = '';
+        this.dlgCancelar.set(false); this.motivoCancelar = '';
         this.toast.add({ severity: 'success', summary: 'Trámite actualizado', detail: `Complemento marcado como ${estado}.` });
         this.abrirMes(mes); this.cargarMeses();
       },
