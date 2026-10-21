@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { PurchaseBookService, ImpuestosModo, TipoCorrida } from './purchase-book.service';
+import { PurchaseBookService, ImpuestosModo, TipoCorrida, SugerenciasCuenta } from './purchase-book.service';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí y a ContPAQi
@@ -48,6 +48,21 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Hasta dónde llega el anti-duplicado exacto por UUID (y desde dónde vuelve a ser por importe).' })
   cobertura() {
     return this.svc.coberturaUuid();
+  }
+
+  // [LC.18] Proveedor nuevo: van ANTES de `no-asociados/:mes/...` por la misma razón de arriba.
+  @Get('no-asociados/proveedor/:rfc/sugerencias')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Para un RFC sin cuenta en el libro: las cuentas 212 de ContPAQi candidatas, con su razón.' })
+  sugerirCuenta(@Param('rfc') rfc: string): Promise<SugerenciasCuenta> {
+    return this.svc.sugerirCuenta(rfc);
+  }
+
+  @Post('no-asociados/proveedor/cuenta')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna a un RFC su cuenta de proveedor 212 (y con ella sus 501/502). La cuenta tiene que existir en ContPAQi.' })
+  asignarCuenta(@Body() body: { rfc: string; cuenta: string }): ReturnType<PurchaseBookService['asignarCuenta']> {
+    return this.svc.asignarCuenta(body?.rfc, body?.cuenta);
   }
 
   @Get('no-asociados/:mes')
