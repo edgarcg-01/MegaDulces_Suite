@@ -64,7 +64,11 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   // ⚠️ Se trae la TABLA y la FUNCIÓN: la guarda comprueba las dos
   // (`to_regprocedure('analytics.log_master_data_change()')` y `to_regclass(...)`), y traer sólo
   // una deja el mismo rojo con otro mensaje.
-  'analytics.master_data_history'];
+  'analytics.master_data_history',
+  // `[CGS.15]` La llave de emergencia y `[CGS.22]` el conteo físico de la caja fuerte. No tocan el
+  // núcleo por nombre, así que no entraban solas: el 2026-10-21 sus pruebas salían NO MEDIDO en
+  // `caja-db` («la migración no está aplicada en esta base») aunque en prod ya estaban vivas.
+  'finance.cash_ledger_llaves', 'finance.caos_conteos_fisicos'];
 const MAX_REMEDIOS = 200;
 
 // ── utilidades ──────────────────────────────────────────────────────────────────────────────
