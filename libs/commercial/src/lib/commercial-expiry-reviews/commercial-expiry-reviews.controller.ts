@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, SpeechToTextService } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import {
   CommercialExpiryReviewsService,
   CreateReviewDto,
@@ -18,12 +18,6 @@ import {
   ResolveResult,
   EntryDto,
 } from './commercial-expiry-reviews.service';
-import {
-  ExpiryVoiceService,
-  VoiceIntakeResult,
-  VoiceSlots,
-  VoiceTurn,
-} from './expiry-voice.service';
 
 /**
  * Fase P2.6 — Control de Caducidades. Lectura gateada por COMMERCIAL_EXPIRY_VER,
@@ -43,8 +37,6 @@ import {
 export class CommercialExpiryReviewsController {
   constructor(
     private readonly service: CommercialExpiryReviewsService,
-    private readonly voice: ExpiryVoiceService,
-    private readonly stt: SpeechToTextService,
   ) {}
 
   @Get()
@@ -170,51 +162,6 @@ export class CommercialExpiryReviewsController {
   @ApiOperation({ summary: 'Borrar una alta propia del día (devuelve al lote NA lo fechado)' })
   deleteEntry(@Param('lineId') lineId: string) {
     return this.service.deleteEntry(lineId);
-  }
-
-  /**
-   * P2.7 — asistente de voz. Recibe TEXTO (el audio lo transcribe
-   * `POST /commercial/intelligence/thot/transcribe`) y devuelve los campos
-   * entendidos + la siguiente pregunta. **No escribe el renglón**: prellena la
-   * pantalla y la persona confirma (co-piloto, ADR-020).
-   *
-   * Gate de CAPTURAR y no de VER: llenar un renglón es captura, aunque el
-   * guardado final sea otro click.
-   */
-  /**
-   * Dictado: audio → texto. Endpoint PROPIO a propósito, no el de Thot
-   * (`/commercial/intelligence/thot/transcribe`): ése está gateado con
-   * `COMMERCIAL_ORDERS_VER` y quien captura caducidades **no lo tiene** — su rol
-   * lleva `COMMERCIAL_EXPIRY_CAPTURAR` y nada de ventas. Reusarlo le daba 403 al
-   * primer intento de hablar, o forzaba a repartir un permiso de ventas para
-   * poder dictar. El proveedor (Groq Whisper) es el mismo servicio compartido.
-   */
-  @Post('voice/transcribe')
-  @RequirePermissions(Permission.COMMERCIAL_EXPIRY_CAPTURAR)
-  @ApiOperation({ summary: 'Dictado: audio base64 -> texto (Groq Whisper, es)' })
-  voiceTranscribe(@Body() body: { audio?: string; mime?: string }) {
-    return this.stt.transcribe(body?.audio || '', body?.mime || 'audio/webm');
-  }
-
-  @Post('voice/intake')
-  @RequirePermissions(Permission.COMMERCIAL_EXPIRY_CAPTURAR)
-  @ApiOperation({ summary: 'Asistente de voz: transcripción → campos del renglón + siguiente pregunta' })
-  voiceIntake(
-    @Body() body: { transcript?: string; slots?: VoiceSlots; history?: VoiceTurn[] },
-  ): Promise<VoiceIntakeResult> {
-    return this.voice.intake({
-      transcript: body?.transcript || '',
-      slots: body?.slots,
-      history: Array.isArray(body?.history) ? body.history : [],
-    });
-  }
-
-  /** El operador elige uno de los candidatos que ofreció el asistente. */
-  @Post('voice/pick')
-  @RequirePermissions(Permission.COMMERCIAL_EXPIRY_CAPTURAR)
-  @ApiOperation({ summary: 'Asistente de voz: fijar el producto elegido entre los candidatos' })
-  voicePick(@Body() body: { slots?: VoiceSlots; product_id?: string }): Promise<VoiceIntakeResult> {
-    return this.voice.pickProduct(body?.slots || {}, String(body?.product_id || ''));
   }
 
   @Get(':id')

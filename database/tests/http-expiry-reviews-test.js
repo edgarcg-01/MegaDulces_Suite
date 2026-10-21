@@ -102,47 +102,6 @@ function check(name, cond, detail) {
   const empty = await req('GET', '/commercial/expiry-reviews/resolve?code=', null, token);
   check('resolve sin code -> 400', empty.status === 400, { status: empty.status });
 
-  console.log('\n── 2c. Asistente por voz (P2.7) ──');
-  // El asistente NO guarda el renglón: devuelve campos + la siguiente pregunta.
-  // Sin ANTHROPIC_API_KEY responde degradado en vez de romper la pantalla.
-  const vEmpty = await req('POST', '/commercial/expiry-reviews/voice/intake', { transcript: '' }, token);
-  check('voice/intake sin transcript -> 400', vEmpty.status === 400, { status: vEmpty.status });
-
-  const vName = sample.nombre ? String(sample.nombre).split(' ').slice(0, 3).join(' ') : 'mazapan';
-  const v1 = await req('POST', '/commercial/expiry-reviews/voice/intake', {
-    transcript: `tengo 3 cajas de ${vName} que caducan el 15 de octubre`,
-  }, token);
-  check('voice/intake responde 200', v1.status === 200 || v1.status === 201, { status: v1.status, body: v1.body });
-  check('voice/intake devuelve reply + slots + missing', !!v1.body?.reply && !!v1.body?.slots && Array.isArray(v1.body?.missing), v1.body);
-  if (v1.body?.degraded) {
-    console.log('  SKIP entendimiento (ANTHROPIC_API_KEY no configurada en este entorno)');
-  } else {
-    const sl = v1.body?.slots || {};
-    check('entendio la cantidad (3)', Number(sl.quantity) === 3, sl);
-    check('entendio la unidad (caja)', sl.unit === 'caja', sl);
-    check('entendio la caducidad (YYYY-10-15)', /^\d{4}-10-15$/.test(String(sl.expiry_date || '')), sl);
-    // El producto lo resuelve el CATALOGO: o pego uno, o ofrece candidatos.
-    const resolved = !!sl.product_id || (v1.body?.candidates || []).length > 0;
-    check('el producto lo resolvio el catalogo (match o candidatos)', resolved, { product_id: sl.product_id, cands: (v1.body?.candidates || []).length });
-    check('el asistente NUNCA inventa product_id fuera del catalogo',
-      !sl.product_id || /^[0-9a-f-]{36}$/i.test(sl.product_id), sl.product_id);
-  }
-
-  // Fecha imposible: se descarta en vez de viajar al sub-ledger FEFO.
-  const vBad = await req('POST', '/commercial/expiry-reviews/voice/intake', {
-    transcript: 'caduca el 31 de febrero de 2062', slots: {},
-  }, token);
-  check('fecha imposible/absurda NO se acepta', vBad.status !== 200 || !vBad.body?.slots?.expiry_date, vBad.body?.slots);
-
-  // Dictado con el gate del dominio (no el de ventas): sin audio devuelve vacio,
-  // sin GROQ_API_KEY devuelve error 'no_key' -- en ningun caso 403.
-  const vTr = await req('POST', '/commercial/expiry-reviews/voice/transcribe', { audio: '', mime: 'audio/webm' }, token);
-  check('voice/transcribe accesible con permiso de caducidades (no 403)', vTr.status !== 403, { status: vTr.status });
-  check('voice/transcribe sin audio devuelve texto vacio', vTr.status === 200 || vTr.status === 201, { status: vTr.status, body: vTr.body });
-
-  const vPick = await req('POST', '/commercial/expiry-reviews/voice/pick', { slots: {}, product_id: 'no-es-uuid' }, token);
-  check('voice/pick con product_id invalido -> 400', vPick.status === 400, { status: vPick.status });
-
   console.log('\n── 3. Crear hoja + renglones ──');
   const review = await req('POST', '/commercial/expiry-reviews', { warehouse_id: whId, notes: 'Smoke P2.6', default_location: 'Anaquel 3' }, token);
   const reviewId = review.body?.id;

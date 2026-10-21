@@ -90,6 +90,12 @@ const COMPUERTAS = [
   // que para la tuberia. Una compuerta que pasa sobre un archivo que no inspecciona se lee igual
   // que una que lo aprobo.
   { nombre: 'sql-backticks', script: 'check-sql-backticks.js', que: 'ningun comentario SQL lleva acentos graves (rompen el template literal)', push: true, ms: 900 },
+  // `[CSU.11]` Kepler cancela en la CABECERA (kdm1.c43='C') y deja la aplicacion viva en kdm5 con su monto:
+  // 854 de 70,478 en prod (2026-10-21), $171,986.56 de cobrado falso en Cortes de octubre y 13 facturas
+  // "pagadas" que no lo estaban. Se habia corregido 3 veces, consumidor por consumidor. La regla vive en
+  // `analytics.kepler_kdm5_vigente`; esta compuerta impide leer kdm5 crudo. Estatica, sin DB, ~0.3 s.
+  // El catalogo (lo que una vista recreada desde pg_get_viewdef no deja en el repo) lo mira `check:kdm5-vigente:db`.
+  { nombre: 'kdm5-vigente', script: 'check-kdm5-vigente.js', que: 'nadie suma kepler_ods.kdm5 crudo: las aplicaciones se leen vigentes (sin cancelados)', push: true, ms: 300 },
   // [IC.24] La OTRA hermana de `templates`, para lo que esa tampoco puede ver: los TIPOS dentro
   // de la plantilla. `check-template-literals` mira que el literal este entero y que el CSS
   // parsee; `tsc -p tsconfig.app.json` NO compila plantillas (para TypeScript son strings); y el
