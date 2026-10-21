@@ -133,6 +133,11 @@ kubectl exec -n prod $API -c api -- sh -c \
    20261008094815_hr_reparto_asistencia.js  ← reparte las claves de RH (ver §2.5)
    ```
 
+   ⚠️ `[RH.1.15]` La cadena completa del pre-vuelo termina ahora en
+   `20261021090942_hr_person_schedules_varios_horarios.js` (varios horarios por persona, `hr.person_schedules.shifts`).
+   Va **antes del código que la trae**: el lector de asistencia selecciona `shifts` y sin la columna todo
+   `/hr/attendance/report` responde 500. La carga única también la exige (`verificarDestinoProd`).
+
    Para cada una (camino vigente, cabecera de `apply-one-migration-prod.js`):
 
    ```sh
