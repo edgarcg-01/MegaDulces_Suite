@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
+- `POST /commercial/analytics/sell-out/ask` (el chat «Pregúntale al Sell-Out») y `sales-by-route/promo` (+ `.xlsx` y `.pdf`) declaraban 15 y 20 por minuto con `@Throttle({ default })`, pero los tiers del servidor se llaman `short/medium/long` y el guard ignora cualquier otro nombre **sin avisar**: nunca limitaron. Ahora el tope existe (tier `long`).
+- **Cambio de comportamiento:** desde un mismo origen, la petición 16.ª (chat) o 21.ª (incentivo de ruta) en un minuto responde **429**. Antes, nada. El chat llama a un LLM de pago por uso.
+- Internal: compuerta `check:throttle-names` (en el pre-push y en el CI, con su `:self`): todo `@Throttle`/`@SkipThrottle` del repo usa un tier configurado. Deja **declarada** una deuda con ratchet: `@SkipThrottle()` a secas (equivale a `{ default: true }`) en los dos controladores de ingesta de checadas de `libs/hr`, que tampoco salta nada.
 ### Changed — Revisión de facturas carga más rápido (RE.49 paso 1, 2026-10-21)
 - La lista calculaba la misma información de Kepler hasta siete veces por cada carga. Ahora la calcula una sola vez y el resto sale de ahí: la parte de la lista pasa de ~2 s a ~0.4–0.5 s (medido en producción). Las cifras y filas que muestra no cambian.
 ### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
