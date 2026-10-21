@@ -1008,6 +1008,16 @@ expresión `upper(cfdi_uuid)` — migración, no se hizo.
 contra prod sigue verde (20 ✓). Réplica 27/27, carátula 66/66, txt 49/49. **Falta redesplegar** para que los
 arreglos de LC.18.1 lleguen a prod, y **volver a correr el e2e** (pasos 1, 7, 9, 10 y 12) para verlos ahí.
 
+## LC.18.3 — la suite e2e de Playwright (2026-10-21)
+
+`e2e/libro-compras/movimientos-no-asociados.e2e.ts` + su `playwright.config.ts`: el e2e manual de LC.18.1 hecho repetible, contra **prod** con navegador real. Lo que pinta la pantalla se **cruza contra lo que responde la API** (chips con el mismo criterio de grupos escrito aparte, pie contra `resumen.total`, cuentas de impuesto, folio), no contra cifras a mano. Cada uno de los 7 defectos de LC.18.1 tiene su prueba.
+
+- **Lectura** (default): 8 pruebas. **Escritura** (`E2E_ESCRIBIR=1`, mes `E2E_MES_ESCRITURA`, default 2026-10): generar → entregar → cancelar, verificando #4 (nombre), #5 (UUID en cada abono a proveedor y P/M = 185/272), #6 (entregado ⇒ nada por entrar) y #7. Deja el mes pendiente con una corrida cancelada; nunca marca aplicado.
+- **Sesión:** `MD_TOKEN_FILE` = archivo con el JWT de un usuario con `FISCAL_PURCHASE_BOOK_GESTIONAR`. Sin él, las 11 se saltan como **NO MEDIDO** (verificado).
+- Correr: `MD_TOKEN_FILE=<ruta> npx playwright test -c e2e/libro-compras/playwright.config.ts`.
+
+**Primera corrida, 2026-10-21, contra prod en `abe5feaeb` (SIN LC.18.1/18.2 desplegados):** 3 ✓ · 5 ✗ · 3 saltadas (escritura, a propósito). Las 5 rojas son exactamente lo que el despliegue arregla: **#5** (la casilla del UUID desmarcada), **#7** (tarjeta «Cancelado»), **#2** (motivo repetido), **#3** (la API todavía no manda `cuenta_sugerida`) y **el tiempo del mes: 1,401 ms** desde el navegador. Es la prueba negativa natural de la suite: rojo donde hay defecto. **Falta: desplegar api + view y volver a correrla completa (`E2E_ESCRIBIR=1`)**; tiene que salir verde.
+
 ## Estado
 
 🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14, LC.15 y LC.16 cerrados. El módulo ya hace
