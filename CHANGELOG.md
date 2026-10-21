@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — «Costo por compra» ahora se llama «Revisión de facturas» y está en Recepción (RE.47, 2026-10-21)
+- La pantalla abre en las facturas **por revisar**: el nombre ahora dice ese trabajo. Sigue siendo la misma lista, con las columnas de factura, ajuste y neto de cada compra. Los enlaces viejos (`/compras/costo-por-compra`) siguen funcionando.
+- El aviso de **posible duplicado** aparece en esta pantalla, en la evidencia de cada entrada (antes se había puesto en una pantalla que ya no se usa).
 ### Fixed — Centro de control de entradas: «quién sube» ya no dice «nadie» donde alguien sube (RE.46, 2026-10-21)
 - CEDIS aparecía con «nadie con permiso» aunque una persona subía todas sus facturas: la pantalla sólo miraba el rol principal y no los roles complementarios ni los permisos dados a la persona. Ahora cuenta igual que el sistema que deja subir.
 - Cuando nadie tiene asignada una sucursal pero alguien con alcance de toda la red la está subiendo, la celda dice **«sin asignar · sube [persona]»**: lo que falta es asignarle la sucursal, no un permiso.

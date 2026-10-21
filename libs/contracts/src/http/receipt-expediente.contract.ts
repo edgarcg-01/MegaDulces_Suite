@@ -7,7 +7,7 @@
  * en `fiscal.cfdis` (UUID, folio, RFC, total). Todo dato fiscal (método y forma de pago, uso,
  * regímenes, impuestos) sale del CFDI que sincroniza ContPAQi, nunca del OCR.
  *
- * Producer `GoodsReceiptExpedienteService` y consumer `/compras/costo-por-compra` importan de acá
+ * Producer `GoodsReceiptExpedienteService` y consumer `/compras/revision-facturas` (antes `/compras/costo-por-compra`) importan de acá
  * (ADR-052).
  */
 

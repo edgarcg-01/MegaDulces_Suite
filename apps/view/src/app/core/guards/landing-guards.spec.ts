@@ -89,7 +89,7 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.COMPRAS_REQUISICIONES_AUTORIZAR, url: '/compras/requisiciones', motivo: 'facultad de firma: la ruta y el GET del backend exigen REQUISICIONES_VER' },
   { perm: Permission.COMPRAS_ORDENES_GESTIONAR, url: '/compras/ordenes', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_ENTRADAS_VALIDAR, url: '/compras/entradas', motivo: 'la bandeja exige GESTIONAR; VALIDAR solo no abre nada' },
-  { perm: Permission.COMPRAS_360_VER, url: '/compras/costo-por-compra', motivo: 'la ruta exige ENTRADAS_VER; medido 2026-08-29: todo rol con 360 tiene ENTRADAS_VER' },
+  { perm: Permission.COMPRAS_360_VER, url: '/compras/revision-facturas', motivo: 'la ruta exige ENTRADAS_VER; medido 2026-08-29: todo rol con 360 tiene ENTRADAS_VER' },
   { perm: Permission.COMPRAS_DESCUENTOS_GESTIONAR, url: '/compras/descuentos', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_HALLAZGOS_GESTIONAR, url: '/compras/hallazgos', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_PROVEEDORES_GESTIONAR, url: '/compras/proveedores', motivo: 'manage sin view' },

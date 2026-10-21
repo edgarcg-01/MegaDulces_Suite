@@ -274,8 +274,8 @@ export const COMPRAS_LANDING: LandingCandidate[] = withTreeCandidates('compras',
   { perm: Permission.COMPRAS_ENTRADAS_VER, url: '/compras/entradas/control' },
   { perm: Permission.COMPRAS_RED_VER, url: '/compras/red' },
   { perm: Permission.COMPRAS_HALLAZGOS_VER, url: '/compras/hallazgos' },
-  // `/compras/compras-360` es un redirect (RE.20.1); el destino real es costo-por-compra.
-  { perm: Permission.COMPRAS_360_VER, url: '/compras/costo-por-compra' },
+  // `/compras/compras-360` y `/compras/costo-por-compra` son redirects (RE.20.1, RE.47); el destino real es revision-facturas.
+  { perm: Permission.COMPRAS_360_VER, url: '/compras/revision-facturas' },
   { perm: Permission.COMPRAS_COSTO_NETO_VER, url: '/compras/costo-neto' },
   { perm: Permission.COMPRAS_COSTO_ESTANDAR_VER, url: '/compras/costo-estandar' },
   { perm: Permission.COMPRAS_DESCUENTOS_VER, url: '/compras/descuentos' },
