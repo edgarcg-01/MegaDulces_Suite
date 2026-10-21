@@ -139,8 +139,6 @@ export interface TeleventaDashboard {
   conversion_7d: { total_calls: number; orders_taken: number; conversion_pct: number };
   top_operators: Array<{ user_id: string; username: string | null; calls: number; orders: number; minutes: number }>;
   outcomes_7d: Array<{ outcome: string; count: number }>;
-  /** Los primeros 5 de `GET /queue`, en su mismo orden (no una consulta aparte). */
-  queue_preview: Array<{ id: string; code: string; name: string; phone: string | null; last_order_at: string | null }>;
   /**
    * E.9 — la facturación REAL del canal, del ERP (`U/D/8`, canal TELEMARK).
    * Es independiente de la captura de llamadas: existe aunque nadie registre una llamada aquí.
@@ -165,9 +163,26 @@ export interface TelemarketingDescuentos {
   cliente: number;
   facturado: number;
   /** Contra el maestro de clientes de HOY: salieron con menos % del negociado. */
-  negociado_no_aplicado: { facturas: number; monto: number };
+  negociado_no_aplicado: DiferenciaMaestro;
   /** Contra el maestro de HOY: salieron con más % del que el maestro registra. */
-  sin_respaldo_maestro: { facturas: number; monto: number };
+  sin_respaldo_maestro: DiferenciaMaestro;
+}
+
+/** `[E.16]` `detalle` trae TODAS las facturas (sin tope), de mayor a menor diferencia. */
+export interface DiferenciaMaestro {
+  facturas: number;
+  monto: number;
+  detalle: Array<{
+    folio_digital: string;
+    fecha: string | null;
+    cliente_code: string | null;
+    cliente_nombre: string | null;
+    vendedor_nombre: string | null;
+    pct_maestro: number;
+    pct_documento: number;
+    subtotal: number;
+    diferencia: number;
+  }>;
 }
 
 export interface TelemarketingBilling {

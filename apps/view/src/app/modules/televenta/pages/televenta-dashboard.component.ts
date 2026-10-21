@@ -6,11 +6,12 @@ import { CardModule } from 'primeng/card';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ProgressBarModule } from 'primeng/progressbar';
-import { TeleventaDashboard, TeleventaService } from '../televenta.service';
+import { DiferenciaMaestro, TeleventaDashboard, TeleventaService } from '../televenta.service';
 import { callOutcomeLabel, callOutcomeSeverity } from '../call-outcomes';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 
 const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
@@ -30,7 +31,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
   imports: [
     CommonModule, RouterLink,
     ButtonModule, CardModule, TableModule, TagModule, ProgressBarModule,
-    MetricStripComponent, LoadStateComponent, FreshnessPillComponent,
+    MetricStripComponent, LoadStateComponent, FreshnessPillComponent, SidePeekComponent,
   ],
   template: `
     <!-- [E.13] El encabezado nombra la PÁGINA, no el proyecto: la migaja ya dice Telemarketing. -->
@@ -109,7 +110,8 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                   <div>
                     <dt>Con menos % del negociado</dt>
                     <dd>
-                      <strong class="num">{{ ds.negociado_no_aplicado.facturas | number }}</strong> facturas ·
+                      <button type="button" class="link-cifra" [disabled]="!ds.negociado_no_aplicado.facturas"
+                        (click)="abrirPeek('menos')"><strong class="num">{{ ds.negociado_no_aplicado.facturas | number }}</strong> facturas</button> ·
                       <span class="num">{{ ds.negociado_no_aplicado.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
                       menos de descuento que el negociado
                     </dd>
@@ -117,7 +119,8 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                   <div>
                     <dt>Con más % del que tiene el maestro</dt>
                     <dd>
-                      <strong class="num">{{ ds.sin_respaldo_maestro.facturas | number }}</strong> facturas ·
+                      <button type="button" class="link-cifra" [disabled]="!ds.sin_respaldo_maestro.facturas"
+                        (click)="abrirPeek('mas')"><strong class="num">{{ ds.sin_respaldo_maestro.facturas | number }}</strong> facturas</button> ·
                       <span class="num">{{ ds.sin_respaldo_maestro.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
                       más de descuento que el registrado
                     </dd>
@@ -300,46 +303,64 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
           </div>
         }
 
-        <!-- Los primeros 5 de la cola, en el mismo orden que /telemarketing/queue. -->
-        <p-card class="queue-preview">
-          <div class="card-header-row">
-            <h3>Cola · próximos a llamar</h3>
-            <a pButton routerLink="/telemarketing/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ver cola completa</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
-          </div>
-          @if (d.billing.clientes_en_cola < d.billing.d30.clientes) {
-            <p class="aviso">
-              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-              <span>
-                La cola sale del padrón de clientes de la plataforma, no de quien compra por este
-                canal: de los <strong>{{ d.billing.d30.clientes | number }}</strong> clientes facturados
-                en 30 días, <strong>{{ d.billing.clientes_en_cola | number }}</strong> están en ella.
-              </span>
+        <!-- [E.16] La vista previa de la cola salió del Resumen: era trabajo del operador (a quién
+             llamar) dentro del resumen del dinero del canal, y la cola tiene su pestaña. Queda la
+             puerta y la declaración de su universo, que es lo que este tablero sí puede afirmar. -->
+        <p class="cola-linea">
+          <i class="pi pi-list" aria-hidden="true"></i>
+          <span>
+            La cola de llamadas está en su pestaña.
+            @if (d.billing.clientes_en_cola < d.billing.d30.clientes) {
+              Sale del padrón de la plataforma, no de quien compra por el canal: de los
+              <strong>{{ d.billing.d30.clientes | number }}</strong> clientes facturados en 30 días,
+              <strong>{{ d.billing.clientes_en_cola | number }}</strong> están en ella.
+            }
+          </span>
+          <a pButton routerLink="/telemarketing/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ir a la cola</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
+        </p>
+
+        <!-- [E.16] Las facturas detrás de cada conteo de «negociado contra aplicado»: el encabezado
+             dice N y la lista llega a N (sin tope). Cada folio abre el documento. -->
+        <app-side-peek [(open)]="peekAbierto" [width]="820"
+          [title]="peekTipo() === 'menos' ? 'Facturas con menos % del negociado' : 'Facturas con más % del registrado'"
+          [subtitle]="peekSubtitulo(d)">
+          @if (peekDetalle(d); as lista) {
+            <p class="nota">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Contra el maestro de clientes de hoy. Diferencia = subtotal × la diferencia de %.
             </p>
+            <p-table [value]="lista" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="flex">
+              <ng-template #header>
+                <tr>
+                  <th>Folio</th>
+                  <th>Cliente</th>
+                  <th>Vendedor</th>
+                  <th class="num">Maestro</th>
+                  <th class="num">Factura</th>
+                  <th class="num">Subtotal</th>
+                  <th class="num">Diferencia</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-f>
+                <tr>
+                  <td>
+                    <a [routerLink]="['/comercial/documentos']" [queryParams]="{ doc: f.folio_digital }"><code>{{ f.folio_digital }}</code></a>
+                    <span class="sub">{{ f.fecha | date: 'dd/MM/yy' }}</span>
+                  </td>
+                  <td>{{ f.cliente_nombre || f.cliente_code || '—' }}</td>
+                  <td>{{ f.vendedor_nombre || 'Sin vendedor asignado' }}</td>
+                  <td class="num">{{ f.pct_maestro | number: '1.0-2' }} %</td>
+                  <td class="num">{{ f.pct_documento | number: '1.0-2' }} %</td>
+                  <td class="num">{{ f.subtotal | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                  <td class="num"><strong>{{ f.diferencia | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</strong></td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="7" class="muted">Ninguna factura en este grupo.</td></tr>
+              </ng-template>
+            </p-table>
           }
-          <p-table [value]="d.queue_preview" styleClass="p-datatable-sm">
-            <ng-template #header>
-              <tr>
-                <th>Código</th>
-                <th>Cliente</th>
-                <th>Teléfono</th>
-                <th>Último pedido</th>
-                <th><span class="sr-only">Acciones</span></th>
-              </tr>
-            </ng-template>
-            <ng-template #body let-c>
-              <tr>
-                <td><code>{{ c.code }}</code></td>
-                <td><strong>{{ c.name }}</strong></td>
-                <td>{{ c.phone || 'sin teléfono' }}</td>
-                <td>{{ c.last_order_at ? (c.last_order_at | date: 'dd/MM/yy') : 'nunca' }}</td>
-                <td><a pButton [routerLink]="['/telemarketing/lead', c.id]" size="small" [text]="true"><span class="p-button-icon p-button-icon-left pi pi-phone" aria-hidden="true"></span><span class="p-button-label">Tomar</span></a></td>
-              </tr>
-            </ng-template>
-            <ng-template #emptymessage>
-              <tr><td colspan="5" class="muted">Sin clientes por llamar en la cola.</td></tr>
-            </ng-template>
-          </p-table>
-        </p-card>
+        </app-side-peek>
       }
     </app-load-state>
   `,
@@ -355,7 +376,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
     app-metric-strip { display:block; margin-bottom:var(--sp-6); }
 
     .two-col { display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:var(--sp-4); }
-    .two-col h3, .queue-preview h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-h3); }
+    .two-col h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-h3); }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .num.pos { color: var(--ok-fg); font-weight: var(--fw-bold); }
     .num.debe { color: var(--bad-fg); font-weight: var(--fw-bold); }
@@ -395,7 +416,12 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
     .outcome-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-1); }
     .outcome-count { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
 
-    .queue-preview { display:block; margin-top: var(--sp-4); }
+    .cola-linea { display:flex; align-items:center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-4) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
+    .cola-linea strong { color: var(--text-main); }
+    /* La cifra que denuncia lleva a sus filas (Q.4): un boton que se lee como texto. */
+    .link-cifra { background:none; border:0; padding:0; font:inherit; color: var(--action); cursor:pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .link-cifra:disabled { color: inherit; cursor: default; text-decoration: none; }
+    .link-cifra:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm); }
     .card-header-row { display:flex; justify-content:space-between; align-items:center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .card-header-row h3 { margin: 0; }
   `],
@@ -409,6 +435,9 @@ export class TeleventaDashboardComponent {
   readonly error = signal<string | null>(null);
   /** Hora del navegador en que llegó la respuesta: la píldora dice «cargado», no «dato al». */
   readonly loadedAt = signal<Date | null>(null);
+  /** [E.16] El panel con las facturas detrás de un conteo de negociado contra aplicado. */
+  readonly peekAbierto = signal(false);
+  readonly peekTipo = signal<'menos' | 'mas'>('menos');
 
   constructor() {
     this.reload();
@@ -504,6 +533,24 @@ export class TeleventaDashboardComponent {
       return { label, value: '—', format: 'text', state: 'no_medido', stateNote: motivo, sub: motivo };
     }
     return { label, value: (ventas / llamadas) * 100, format: 'percent' };
+  }
+
+  abrirPeek(tipo: 'menos' | 'mas'): void {
+    this.peekTipo.set(tipo);
+    this.peekAbierto.set(true);
+  }
+  private peekGrupo(d: TeleventaDashboard): DiferenciaMaestro {
+    const ds = d.billing.descuentos;
+    return this.peekTipo() === 'menos' ? ds.negociado_no_aplicado : ds.sin_respaldo_maestro;
+  }
+  peekDetalle(d: TeleventaDashboard): DiferenciaMaestro['detalle'] {
+    return this.peekGrupo(d).detalle;
+  }
+  /** El conteo del panel tiene que ser el de la tarjeta: si no lo es, se dice (Cruce 1). */
+  peekSubtitulo(d: TeleventaDashboard): string {
+    const g = this.peekGrupo(d);
+    const base = `${g.facturas.toLocaleString('es-MX')} facturas · ${MXN.format(g.monto)} de diferencia`;
+    return g.detalle.length === g.facturas ? base : `${base} · se listan ${g.detalle.length}`;
   }
 
   /** «2.37 %» con su base dicha al lado en la plantilla; sin base no hay porcentaje. */

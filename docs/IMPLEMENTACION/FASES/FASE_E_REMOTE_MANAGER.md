@@ -280,6 +280,15 @@ La consulta por factura (`LATERAL` sobre `ix_kdm2_venta_doc`) cuesta **130–345
 |---|---|---|---|
 | 1 | La tabla se titulaba **«Por operador»** y **7 de sus 17 filas no son operadores**: E-COMMERCE (126 facturas), «PV SUCURSAL PADRE HIDALGO» ($592,969), código `2` sin nombre ($439,956), sin vendedor (16 facturas, $220,735), «Otros Ingresos», rutas y una sucursal. Cruce 2 | B | ✅ → «Por vendedor del ERP», y la nota lo dice |
 | 2 | Mi propio texto decía «$ que el cliente **no se ahorró**» / «descuento **extra**»: afirmaba que el maestro tiene razón, contra la nota de al lado. Cruce 2 | C | ✅ → «menos / más de descuento que el negociado / registrado» |
-| 3 | «57 facturas con menos % del negociado» **no se puede recorrer**: no hay lista ni filtro en `/comercial/documentos` que las muestre. Q.4 (redirección desde el dato) y Cruce 1 | C | ⬜ **E.16** |
-| 4 | **Conflación**: la pantalla contesta cinco preguntas (cuánto factura · cuánto descuenta · cuánto le deben · qué hicieron los operadores · a quién llamar). Las tres primeras son del mismo dinero; **la cola es trabajo de otra persona** y ya tiene su pestaña. `ESTANDAR §4.0` | C | ⬜ propuesta: sacar la vista previa de la cola del Resumen |
+| 3 | «57 facturas con menos % del negociado» **no se puede recorrer**: no hay lista ni filtro en `/comercial/documentos` que las muestre. Q.4 (redirección desde el dato) y Cruce 1 | C | ✅ **E.16** |
+| 4 | **Conflación**: la pantalla contesta cinco preguntas (cuánto factura · cuánto descuenta · cuánto le deben · qué hicieron los operadores · a quién llamar). Las tres primeras son del mismo dinero; **la cola es trabajo de otra persona** y ya tiene su pestaña. `ESTANDAR §4.0` | C | ✅ **E.16** |
 | 5 | Sin nivel A: no se midió el ancho de la tabla de vendedores (ahora 6 columnas dentro de media pantalla), la tarjeta de la cuenta ni la tira de 5 cifras | — | ⬜ validación visual tras desplegar |
+
+## E.16 — las facturas detrás del descuento se pueden abrir, y la cola sale del Resumen (2026-10-21)
+
+Cierra los hallazgos 3 y 4 de E.15. Decisión del PM: *"sigamos"* sobre la propuesta de sacar la cola.
+
+- **Cada conteo de «negociado contra aplicado» abre un panel lateral** (`app-side-peek`) con **todas** sus facturas, sin tope —el encabezado dice N y la lista llega a N; si algún día no, el subtítulo lo dice—, ordenadas por diferencia: folio, cliente, vendedor, % del maestro, % de la factura, subtotal y diferencia. **Cada folio abre el documento** en `/comercial/documentos?doc=<folio>` (deep-link que esa pantalla ya tenía; no se tocó).
+- La consulta de descuentos pasa a devolver **una fila por factura** con las mismas columnas que antes devolvía agrupadas: `armarDescuentos()` suma igual y además arma el detalle. Medido en prod: 1,375 filas, **58 + 39** con diferencia, folios distintos, cierre 0.00.
+- **La vista previa de la cola salió del Resumen**: queda una línea con el enlace a la cola y la declaración de su universo (*11 de 317*). El endpoint ya no llama a `getQueue` (una conexión menos: ahora abre hasta 5).
+- Spec `armar-descuentos` 5/5 (caso nuevo: la lista llega a N y va de mayor a menor).

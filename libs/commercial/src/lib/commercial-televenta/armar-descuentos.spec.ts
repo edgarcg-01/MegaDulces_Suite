@@ -52,8 +52,27 @@ describe('armarDescuentos', () => {
       fila({ pct_maestro: '0', pct_documento: '3', facturas: 2, subtotal: '5000', cliente: '150', facturado: '4850' }),
       fila({ pct_maestro: '2', pct_documento: '2' }),
     ]);
-    expect(r.negociado_no_aplicado).toEqual({ facturas: 4, monto: 200 });
-    expect(r.sin_respaldo_maestro).toEqual({ facturas: 2, monto: 150 });
+    expect(r.negociado_no_aplicado).toMatchObject({ facturas: 4, monto: 200 });
+    expect(r.sin_respaldo_maestro).toMatchObject({ facturas: 2, monto: 150 });
+    // filas agrupadas no traen folio: no hay a qué documento apuntar, y no se inventa
+    expect(r.negociado_no_aplicado.detalle).toEqual([]);
+  });
+
+  it('[E.16] por factura, la lista de diferencias llega a N y va de mayor a menor', () => {
+    const porFactura = (folio: string, subtotal: string, pm: string, pd: string): Record<string, unknown> =>
+      fila({ folio_digital: folio, fecha: '2026-10-20', cliente_nombre: 'X', pct_maestro: pm, pct_documento: pd, subtotal });
+    const { resumen: r } = armarDescuentos([
+      porFactura('01UD0801-1', '1000', '2', '0'),
+      porFactura('01UD0801-2', '9000', '3', '0'),
+      porFactura('01UD0801-3', '500', '0', '2'),
+      porFactura('01UD0801-4', '700', '2', '2'),
+    ]);
+    expect(r.negociado_no_aplicado.facturas).toBe(2);
+    expect(r.negociado_no_aplicado.detalle.map((d) => d.folio_digital)).toEqual(['01UD0801-2', '01UD0801-1']);
+    expect(r.negociado_no_aplicado.detalle.map((d) => d.diferencia)).toEqual([270, 20]);
+    expect(r.negociado_no_aplicado.detalle.reduce((a, d) => a + d.diferencia, 0)).toBe(r.negociado_no_aplicado.monto);
+    expect(r.sin_respaldo_maestro.detalle).toHaveLength(r.sin_respaldo_maestro.facturas);
+    expect(r.sin_respaldo_maestro.detalle[0]).toMatchObject({ folio_digital: '01UD0801-3', diferencia: 10 });
   });
 
   it('el reparto por operador suma lo mismo que la cascada', () => {
