@@ -158,6 +158,22 @@ export const conceptoLibro = (anioMes: string): string =>
 /** `[LC.18]` — Cuántos meses hacia atrás se mira si el proveedor ya entró al libro. */
 const MESES_HISTORIAL = 6;
 
+/**
+ * `[LC.18.2]` — La puerta exacta mira los UUID del libro en `mes ± VENTANA_PRUEBA_MESES`. Un CFDI
+ * entra al libro de su mes o, a veces, del siguiente (medido: con ventana 0 se pierden 24 de
+ * 77,712); 12 meses de cada lado no pierde ninguno.
+ */
+const VENTANA_PRUEBA_MESES = 12;
+
+/**
+ * La prioridad entre pruebas de `finance.v_purchase_book_uuid_prueba` (migración
+ * `20260903120000`), repetida acá para poder aplicarla DESPUÉS de filtrar por mes. ⛔ Si una
+ * cambia, la otra también: `test-newdb-libro-compras-replica.js` las cruza y se pone rojo.
+ */
+const ORDEN_PRUEBA_SQL = `CASE u.source
+    WHEN 'contpaqi_asoccfdi' THEN 1 WHEN 'contpaqi_concepto' THEN 2 WHEN 'run_aplicado' THEN 3
+    WHEN 'historico_xlsx' THEN 4 WHEN 'run_entregado' THEN 5 ELSE 9 END`;
+
 /** Palabras que no distinguen a un proveedor de otro al comparar nombres. */
 const RUIDO_NOMBRE = new Set(['S.A.', 'SA', 'DE', 'CV', 'RL', 'SAPI', 'SRL', 'LAS', 'LOS', 'DEL', 'SPR', 'SC', 'SAS', 'MEXICO', 'COMERCIALIZADORA', 'DISTRIBUIDORA', 'GRUPO']);
 
@@ -562,6 +578,9 @@ export class PurchaseBookService {
            -- (source, source_key) y el libro histórico repite algún UUID; sin dedup el LEFT
            -- JOIN multiplicaría filas y el agregado de abajo sobrecontaría el mes.
            SELECT DISTINCT cfdi_uuid FROM finance.v_purchase_book_uuids
+            -- LC.18.2: solo los meses que pueden tocar al tablero (su ventana + 12, la misma
+            -- holgura medida en getMes). El filtro baja a las dos ramas de la vista.
+            WHERE anio_mes >= to_char(date_trunc('month', now()) - make_interval(months => ?), 'YYYY-MM')
          ), base AS (
            SELECT to_char(f.fecha, 'YYYY-MM') AS anio_mes, f.total,
                   (f.aso_contabilidad IS NOT TRUE) AS sin_asociar,
@@ -645,7 +664,8 @@ export class PurchaseBookService {
           ORDER BY a.anio_mes DESC
           LIMIT ?`,
         [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit,
-          TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit + MESES_HISTORIAL, limit, limit,
+          TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit + MESES_HISTORIAL,
+          limit + VENTANA_PRUEBA_MESES, limit, limit,
           TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), limit],
       );
       return rows.map((r: Record<string, unknown>) => ({
@@ -774,6 +794,17 @@ export class PurchaseBookService {
             WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
               AND tipo_pol = ? AND folio = ? AND cuenta LIKE '212%' AND cargo_abono = 'A'
               AND anio_mes >= ? AND anio_mes < ?
+         ), prueba AS (
+           -- LC.18.2: la puerta exacta, sobre una VENTANA de meses alrededor del mes. Unida a la
+           -- vista entera (v_purchase_book_uuid_prueba) se ordenaban los 15,121 UUID del
+           -- historico para cruzar ~600: ~75 % del tiempo de abrir el mes. El filtro de mes
+           -- baja a las dos ramas de v_purchase_book_uuids (que no deduplica), y el DISTINCT ON
+           -- con la misma prioridad se hace aca. Equivalencia medida: 0 diferencias en 77,712
+           -- CFDIs de 58 meses contra la vista; con ventana de 0 meses difieren 24 (control).
+           SELECT DISTINCT ON (u.cfdi_uuid) u.cfdi_uuid, u.source, u.anio_mes, u.referencia
+             FROM finance.v_purchase_book_uuids u
+            WHERE u.anio_mes >= ? AND u.anio_mes <= ?
+            ORDER BY u.cfdi_uuid, ${ORDEN_PRUEBA_SQL}, u.anio_mes
          )
          SELECT DISTINCT ON (upper(f.uuid))
                 (h.cuenta IS NOT NULL) AS en_libro_reciente, a.origen_mapa,
@@ -829,7 +860,7 @@ export class PurchaseBookService {
            -- DISTINCT ON), así que este join no puede multiplicar filas. Y va SIN join de
            -- mes a propósito: el corte del libro es por captura, no por fecha del CFDI —
            -- una factura de marzo capturada en la hoja de abril sólo se ve así.
-           LEFT JOIN finance.v_purchase_book_uuid_prueba pu ON pu.cfdi_uuid = upper(f.uuid)
+           LEFT JOIN prueba pu ON pu.cfdi_uuid = upper(f.uuid)
            LEFT JOIN patas  p ON p.importe = round(f.total, 2)
            LEFT JOIN cargos g ON g.importe = round(
                  f.total
@@ -849,6 +880,7 @@ export class PurchaseBookService {
           ORDER BY upper(f.uuid), a.usado_en_asiento DESC NULLS LAST, a.account_suffix`,
         [TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), anioMes, anioMes,
           TIPO_POLIZA_DIARIO, String(FOLIO_LIBRO), this.mesMenos(anioMes, MESES_HISTORIAL), anioMes,
+          this.mesMenos(anioMes, VENTANA_PRUEBA_MESES), this.mesMenos(anioMes, -VENTANA_PRUEBA_MESES),
           run?.id ?? null, this.inicioDeMes(anioMes), this.inicioDelSiguiente(anioMes), tipo],
       );
 

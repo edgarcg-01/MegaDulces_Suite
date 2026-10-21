@@ -94,6 +94,31 @@ async function main(url) {
     p = repartirFactura(35148.20, 4848.03, 0);
     check(p.subtotal16 === 30300.17 && p.base_exenta === 0, `9347: 502 ${p.subtotal16} / 501 ${p.base_exenta} (libro: 30,300.17 / sin 501)`);
 
+    console.log('\n[0b] LC.18.2 — la puerta exacta con ventana de meses = la vista entera');
+    // getMes ya no une a v_purchase_book_uuid_prueba entera: filtra por mes ± 12 y repite la
+    // prioridad de la vista (ORDEN_PRUEBA_SQL). Si una de las dos cambia y la otra no, esto se
+    // pone rojo. Meses con prueba exacta de los tres tipos: histórico (2023-04, el mes del UUID
+    // corrido), y los de 2026 con libro y con corridas.
+    const tipoDe = (src) => (!src ? null : src === 'historico_xlsx' ? 'uuid_libro_historico'
+      : src.startsWith('contpaqi_') ? 'uuid_concepto_contpaqi' : src.startsWith('run_') ? 'uuid_entregado' : 'otro');
+    let cruzadas = 0; let distintas = 0; let conPrueba = 0;
+    for (const mes of ['2023-04', '2025-06', '2026-06', '2026-07', '2026-10']) {
+      const d = await svc.getMes(mes, 'libro');
+      const { rows: vista } = await tk.run((k) => k.raw(
+        `SELECT p.cfdi_uuid, p.source FROM finance.v_purchase_book_uuid_prueba p WHERE p.cfdi_uuid = ANY (?)`,
+        [d.facturas.map((f) => f.uuid)]));
+      const porUuid = new Map(vista.map((v) => [v.cfdi_uuid, v.source]));
+      for (const f of d.facturas) {
+        cruzadas++;
+        const esperado = tipoDe(porUuid.get(f.uuid));
+        const dado = f.prueba_en_libro && f.prueba_en_libro.startsWith('uuid_') ? f.prueba_en_libro : null;
+        if (esperado) conPrueba++;
+        if (esperado !== dado) distintas++;
+      }
+    }
+    check(distintas === 0 && conPrueba > 0,
+      `⭐ ${cruzadas} facturas de 5 meses, ${conPrueba} con prueba exacta: ${distintas} difieren de la vista`);
+
     for (const mes of MESES) {
       console.log(`\n[${mes}] contra el libro real (Diario folio 1)`);
       const reales = await tk.run((k) => k('analytics.gl_poliza_lines')

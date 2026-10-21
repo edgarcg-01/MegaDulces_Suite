@@ -1002,6 +1002,8 @@ sobre los 15,121 UUID del histórico, ~75 % de la consulta del mes; viene de LC.
 con `= ANY(ARRAY(...))` y **empeoró** (656 ms: la comparación es lineal); el arreglo real es un índice de
 expresión `upper(cfdi_uuid)` — migración, no se hizo.
 
+**LC.18.2 (mismo día) — resuelto sin migración.** `getMes` ya no une a la vista entera: filtra `v_purchase_book_uuids` (la que no deduplica) a `mes ± 12` — el filtro baja a sus dos ramas — y aplica ahí la misma prioridad (`ORDEN_PRUEBA_SQL`). **Equivalencia medida: 0 diferencias en 77,712 CFDIs de 58 meses**; con ventana 0 difieren 24 (facturas capturadas en el libro del mes siguiente: el control negativo). El candado de réplica cruza ahora las dos implementaciones (5,634 facturas, 982 con prueba exacta, 0 distintas). Consulta del mes 505 → 174 ms (EXPLAIN); el mes completo **255–334 ms** medido desde la prueba. El rail aplica la misma ventana a su `libro_uuid`; lo que le pesa (~500 ms) son los 24 meses de CFDIs y de cargos 501/502, no el histórico — queda así, declarado.
+
 **Prueba del trámite:** los casos 4, 5 y 6 quedan en el modo completo (`pruebas-db`), y el de sólo lectura
 contra prod sigue verde (20 ✓). Réplica 27/27, carátula 66/66, txt 49/49. **Falta redesplegar** para que los
 arreglos de LC.18.1 lleguen a prod, y **volver a correr el e2e** (pasos 1, 7, 9, 10 y 12) para verlos ahí.
