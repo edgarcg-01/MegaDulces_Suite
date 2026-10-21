@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Changed — Revisión de facturas carga más rápido (RE.49 paso 1, 2026-10-21)
+- La lista calculaba la misma información de Kepler hasta siete veces por cada carga. Ahora la calcula una sola vez y el resto sale de ahí: la parte de la lista pasa de ~2 s a ~0.4–0.5 s (medido en producción). Las cifras y filas que muestra no cambian.
 ### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
 - Ya no es un elemento suelto del menú: es la primera opción del selector de **Control de entradas**. Quien sube facturas entra directo a Captura; quien sólo consulta entra a Cobertura por sucursal.
 ### Changed — «Costo por compra» ahora se llama «Revisión de facturas» y está en Recepción (RE.47, 2026-10-21)
