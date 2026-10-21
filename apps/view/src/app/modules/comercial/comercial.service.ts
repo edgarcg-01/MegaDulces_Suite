@@ -615,34 +615,6 @@ export interface ResolveResult {
   out_of_scope: boolean;
 }
 
-/** P2.7 — campos que el asistente de voz fue entendiendo. */
-export interface VoiceSlots {
-  product_query?: string | null;
-  presentation?: string | null;
-  product_id?: string | null;
-  product_name?: string | null;
-  sku?: string | null;
-  quantity?: number | null;
-  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
-  expiry_date?: string | null;
-  condition?: 'bueno' | 'regular' | 'malo' | null;
-  location?: string | null;
-  observations?: string | null;
-  action?: string | null;
-}
-
-export interface VoiceTurn { role: 'user' | 'assistant'; content: string; }
-
-export interface VoiceIntakeResult {
-  reply: string;
-  slots: VoiceSlots;
-  candidates: ResolveHit[];
-  /** Esenciales que faltan: 'producto' | 'cantidad' | 'caducidad'. */
-  missing: string[];
-  ready: boolean;
-  degraded?: boolean;
-}
-
 export interface ExpiryReview {
   id: string;
   warehouse_id: string;
@@ -1279,26 +1251,6 @@ export class ComercialService {
    */
   resolveExpiryCode(code: string) {
     return this.http.get<ResolveResult>(`${this.expiryBase}/resolve`, { params: new HttpParams().set('code', code) });
-  }
-  /**
-   * P2.7 — dictado del asistente de caducidades. Endpoint propio del dominio y
-   * no el de Thot: ese exige `COMMERCIAL_ORDERS_VER`, que el colaborador que
-   * captura caducidades no tiene (403 al primer intento de hablar).
-   */
-  transcribeExpiry(audio: string, mime: string) {
-    return this.http.post<{ text: string; error?: string }>(`${this.expiryBase}/voice/transcribe`, { audio, mime });
-  }
-
-  /**
-   * P2.7 — asistente de voz: manda lo transcrito y devuelve los campos
-   * entendidos + la siguiente pregunta. NO guarda el renglón (co-piloto).
-   */
-  voiceIntake(body: { transcript: string; slots?: VoiceSlots; history?: VoiceTurn[] }) {
-    return this.http.post<VoiceIntakeResult>(`${this.expiryBase}/voice/intake`, body);
-  }
-  /** Fija el producto que el operador eligió entre los candidatos del asistente. */
-  voicePick(slots: VoiceSlots, product_id: string) {
-    return this.http.post<VoiceIntakeResult>(`${this.expiryBase}/voice/pick`, { slots, product_id });
   }
   getExpiryReview(id: string) {
     return this.http.get<ExpiryReviewDetail>(`${this.expiryBase}/${id}`);
@@ -2234,6 +2186,64 @@ export class ComercialService {
   /** RD.17 — el universo DERIVADO de rutas, con el veredicto de cada una. */
   commissionUniverse() {
     return this.http.get<CommissionUniverseRow[]>(`${this.base}/commissions/universe`);
+  }
+
+  /**
+   * `[RD.84]` El padrón **editable**. ⛔ No es `commissionUniverse()`: aquél es el universo
+   * DERIVADO del ERP —todas las rutas que existen, comisionen o no— y es de sólo lectura. Esto
+   * devuelve las filas de `commission_route_config`, que son las únicas que se pueden cambiar.
+   * Mezclarlos haría creer que una ruta `camion_sin_config` se edita desde acá, cuando lo que
+   * hay que hacer con ella es **darla de alta**.
+   */
+  commissionPadron() {
+    return this.http.get<PadronRuta[]>(`${this.base}/commissions/routes`);
+  }
+  /**
+   * `[RD.86]` Las versiones del tabulador. ⛔ Hasta el 2026-10-20 **ninguna pantalla lo
+   * consumía**: el endpoint existía desde `[RD.66]` y el número que decide el porcentaje de cada
+   * peso sólo se podía cambiar por curl.
+   */
+  commissionScales() {
+    return this.http.get<EscalasRD>(`${this.base}/commissions/scales`);
+  }
+  /** Qué pasaría con este tabulador, **antes** de guardarlo. No escribe nada. */
+  commissionScaleSimular(tiers: TierRD[]) {
+    return this.http.post<SimulacionEscalaRD>(`${this.base}/commissions/scales/simulate`, { tiers });
+  }
+  commissionScaleEstrenar(body: { valid_from: string; nombre?: string; tiers: TierRD[] }) {
+    return this.http.post<{
+      id: string; valid_from: string; cerro_a: string | null;
+      escalones: number; bonos_heredados: number;
+    }>(`${this.base}/commissions/scales`, body);
+  }
+
+  /**
+   * `[RD.85]` Los bonos de la escala VIGENTE. ⛔ Los criterios del objetivo mensual no se
+   * administran por acá: viven en `/objective`, donde la regla de que los pesos sumen 100 %
+   * ya está escrita — y escribirla dos veces es como las dos se desincronizan.
+   */
+  commissionBonos() {
+    return this.http.get<BonoRD[]>(`${this.base}/commissions/bonuses`);
+  }
+  commissionBonoAlta(dto: BonoAlta) {
+    return this.http.post<BonoRD>(`${this.base}/commissions/bonuses`, dto);
+  }
+  /** Un bono se APAGA (`activo:false`), no se borra: apagado conserva su configuración. */
+  commissionBonoEditar(id: string, dto: BonoEdicion) {
+    return this.http.patch<BonoRD>(`${this.base}/commissions/bonuses/${id}`, dto);
+  }
+
+  commissionPadronAlta(dto: PadronAlta) {
+    return this.http.post<PadronRuta>(`${this.base}/commissions/routes`, dto);
+  }
+  /**
+   * La **baja** es un caso de esto: `{ activo:false, activo_hasta, notes }`, las tres juntas.
+   * ⚠️ Si la vigencia toca una quincena ya pagada el servidor devuelve **409** nombrando
+   * cuáles y por cuánto; se repite con `confirmar: true` cuando esa corrección es la intención.
+   */
+  commissionPadronEditar(id: string, dto: PadronEdicion) {
+    return this.http.patch<{ fila: PadronRuta; aviso: PadronAvisoPagadas | null }>(
+      `${this.base}/commissions/routes/${id}`, dto);
   }
   /**
    * RD.22 — calcula esa quincena y todas las cerradas que le siguen. Es el único camino que
@@ -4601,6 +4611,15 @@ export interface CommissionRunDetail {
   dias_multifuente: number | null;
   rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number | null;
   data_as_of: string | null; gates: CommissionGate[] | null; origen: string | null;
+  /**
+   * `[RD.83]` El sello del trámite. `getRun` devuelve la fila entera, así que estos campos
+   * YA viajaban — lo que faltaba era declararlos para poder pintarlos.
+   *
+   * ⚠️ Medido contra prod el 2026-10-20: las **20** corridas tienen `approved_at` en NULL.
+   * No es un hueco de pintura: entraron como espejo del libro (`origen = 'libro'`) y el paso
+   * de aprobación no se ejerció nunca. La pantalla lo DECLARA en vez de callarlo.
+   */
+  approved_at?: string | null; paid_at?: string | null;
   /** Cuándo se calculó esta corrida. La pantalla lo publica: una cifra sin su hora no se defiende. */
   updated_at: string | null;
   notes: string | null;
@@ -4723,11 +4742,122 @@ export interface CommissionBoardRow {
   updated_at: string | null;
 }
 /** RD.17 — una fila del universo derivado de rutas. */
+/**
+ * `[RD.84]` Una fila del padrón **editable**, con lo que ya produjo al lado.
+ *
+ * ⭐ `quincenas_pagadas` y `pagado_historico` no son decoración: son lo que convierte una baja
+ * en una decisión informada. Dar de baja una ruta que pagó $19,096.84 y una que nunca pagó nada
+ * son dos actos distintos, y sin la cifra al lado se ven iguales.
+ */
+export interface PadronRuta {
+  id: string; route_code: string; scale_id: string; zona: string | null;
+  chofer_nombre: string | null; supervisor_nombre: string | null;
+  nomina_banco: string | number; activo: boolean; notes: string | null;
+  /** `YYYY-MM-DD`. NULL = «desde siempre» / «sin cierre». Ver `[RD.84.0]`. */
+  activo_desde: string | null; activo_hasta: string | null;
+  updated_at: string | null; updated_by: string | null;
+  quincenas_pagadas: number; pagado_historico: string | number;
+}
+export interface PadronAlta {
+  route_code: string; nomina_banco: number; activo_desde: string;
+  zona?: string | null; chofer_nombre?: string | null;
+  supervisor_nombre?: string | null; notes?: string | null;
+}
+export interface PadronEdicion {
+  zona?: string | null; chofer_nombre?: string | null; supervisor_nombre?: string | null;
+  nomina_banco?: number; activo?: boolean;
+  activo_desde?: string | null; activo_hasta?: string | null;
+  notes?: string | null; confirmar?: boolean;
+}
+/** Lo que una vigencia nueva dejaría fuera, en quincenas ya PAGADAS y en pesos. */
+export interface PadronAvisoPagadas { quincenas: number; pagado: string; detalle: string }
+
+/** `[RD.86]` Un escalón. `max_amount: null` = sin techo. `min` inclusivo, `max` exclusivo. */
+export interface TierRD { min_amount: number; max_amount: number | null; pct: number }
+export interface EscalaRD {
+  id: string; code: string; nombre: string;
+  valid_from: string; valid_to: string | null; vigente: boolean;
+  base_field: string; gate_field: string; share_supervisor_pct: string | number;
+  notes: string | null;
+  tiers: { min_amount: string | number; max_amount: string | number | null; pct: string | number }[];
+}
+export interface EscalasRD {
+  escalas: EscalaRD[];
+  /** La primera fecha desde la que se puede estrenar: lo pagado NO se recalcula. */
+  piso_editable: string | null;
+  hoy: string;
+}
+/**
+ * `[RD.86]` Lo que un tabulador propuesto le haría a la última quincena **pagada**.
+ *
+ * ⚠️ `base` no es decoración: dice sobre qué quincena se simuló. Un delta sin su base no se
+ * puede citar — es el mismo defecto que un porcentaje sin denominador.
+ */
+export interface SimulacionEscalaRD {
+  base: { anio: number; period_no: number; date_from: string; date_to: string; rutas: number };
+  total_hoy: number; total_nuevo: number; delta: number;
+  /** Rutas que HOY cobran y con el propuesto quedarían **sin escalón**, o sea en $0. */
+  caen: number;
+  suben: number;
+  filas: {
+    route_code: string; beneficiario_nombre: string | null;
+    venta: number; subtotal: number;
+    pct_hoy: number | null; pct_nuevo: number | null;
+    comision_hoy: number; comision_nueva: number; delta: number;
+    cae_del_acantilado: boolean; sube_al_escalon: boolean;
+    motivo_no_pago: string | null;
+  }[];
+}
+
+/**
+ * `[RD.85]` Un bono de la escala vigente.
+ *
+ * ⚠️ `periodo` no es un detalle: es el filtro que impide que un bono mensual entre a las DOS
+ * quincenas del mes y se pague **dos veces** (`[RD.59]`). Se pinta siempre, nunca se asume.
+ */
+export interface BonoRD {
+  id: string; beneficiario: string; nombre: string; metrica: string; comparador: string;
+  umbral: string | number; monto: string | number;
+  route_code: string | null; gate_venta_min: string | number | null;
+  periodo: string; grupo: string | null; peso_pct: string | number | null;
+  activo: boolean; updated_at: string | null;
+  escala_nombre?: string; escala_desde?: string;
+}
+export interface BonoAlta {
+  beneficiario: 'chofer' | 'supervisor'; nombre: string;
+  metrica: string; comparador: 'gt' | 'gte';
+  umbral: number; monto: number; periodo: 'quincena' | 'mes';
+  route_code?: string | null; gate_venta_min?: number | null;
+}
+export interface BonoEdicion {
+  nombre?: string; metrica?: string; comparador?: 'gt' | 'gte';
+  umbral?: number; monto?: number; periodo?: 'quincena' | 'mes';
+  route_code?: string | null; gate_venta_min?: number | null; activo?: boolean;
+}
+
 export interface CommissionUniverseRow {
   route_code: string; comisiona: boolean; veredicto: string; route_kind: string | null;
   plaza_o_zona: string | null; en_identidad: boolean; en_config: boolean;
   chofer_nombre: string | null; supervisor_nombre: string | null;
   nomina_banco: string | number | null; carga_desde: string | null;
+  /**
+   * `[RD.71]` El estado de la FUENTE de cada ruta — lo que el veredicto no mira.
+   *
+   * `veredicto` sale de la config, así que una ruta con `activo = true` dice `comisiona`
+   * **sin preguntarle nunca a la venta**. Estas cinco columnas son la otra mitad del hecho, y
+   * por eso se publican por separado en vez de mezclarse en el veredicto: a quién se le paga
+   * es decisión de Dirección, no de una vista.
+   *
+   * ⛔ `dias_sin_dato` es **NULL** cuando no hay fuente, nunca 0: un 0 se leería como
+   * «reportó hoy». Y `tiene_dato_futuro` va aparte de la frescura porque una venta con fecha
+   * adelantada **no es un dato fresco, es un dato imposible** — la ruta 22 tiene una fechada
+   * 2026-12-06, y pegados en una sola columna el segundo hecho desaparece dentro del primero.
+   */
+  ultimo_dia_con_dato: string | null;
+  dias_sin_dato: number | null;
+  subtotal_30d: string | number;
+  fuente_estado: 'viva' | 'rezagada' | 'muerta' | 'sin_fuente';
+  tiene_dato_futuro: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────

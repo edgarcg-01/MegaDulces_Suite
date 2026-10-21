@@ -37,7 +37,7 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Costo por proveedor <app-context-help topic="compras-costo-neto" /></h1>
-          <p class="surf-page-sub">Tu <strong>costo neto</strong> con cada proveedor = compras − descuentos efectivos (pronto pago + notas comerciales). El reabasto debería decidirse con este costo, no con el de lista. Compra por compra, en <a routerLink="/compras/compras-360">Costo por compra</a>.</p>
+          <p class="surf-page-sub">Tu <strong>costo neto</strong> con cada proveedor = compras − descuentos efectivos (pronto pago + notas comerciales). El reabasto debería decidirse con este costo, no con el de lista. Compra por compra, en <a routerLink="/compras/revision-facturas">Revisión de facturas</a> (columnas Ajuste y Neto).</p>
         </div>
         <div class="cn-head-actions">
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>

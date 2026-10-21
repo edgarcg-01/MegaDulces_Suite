@@ -45,3 +45,16 @@ export function isSunday(d: Date | string): boolean {
   const date = typeof d === 'string' ? new Date(`${d}T00:00:00`) : d;
   return date.getDay() === 0;
 }
+
+/**
+ * `[MCP.3.4]` Fecha de entrega por omisión al levantar un pedido: HOY (decisión de David,
+ * 2026-10-20), salvo domingo, que no hay reparto y pasa al lunes. `hoy` se recibe para poder
+ * probarla sin depender del reloj.
+ */
+export function fechaEntregaPorOmision(hoy: Date = new Date()): string {
+  if (hoy.getDay() !== 0) return toLocalIso(hoy);
+  const lunes = new Date(hoy);
+  lunes.setHours(0, 0, 0, 0);
+  lunes.setDate(lunes.getDate() + 1);
+  return toLocalIso(lunes);
+}

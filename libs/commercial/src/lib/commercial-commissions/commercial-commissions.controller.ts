@@ -1,9 +1,16 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CommercialCommissionsService } from './commercial-commissions.service';
+import { CommercialCommissionsService, type SimulacionEscala } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
+import {
+  CommissionPadronService, type PadronFila, type AltaRuta, type EditarRuta, type AvisoPagadas,
+} from './commission-padron.service';
+import {
+  CommissionBonosService, type BonoFila, type AltaBono, type EditarBono,
+} from './commission-bonos.service';
+import { CommissionAutoRunService, type RevisionAuto } from './commission-auto-run.service';
 import {
   CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
   type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
@@ -28,6 +35,9 @@ export class CommercialCommissionsController {
     private readonly recalc: CommissionRecalcService,
     private readonly contraste: CommissionContrastService,
     private readonly objetivo: CommissionObjectiveService,
+    private readonly padronSvc: CommissionPadronService,
+    private readonly bonosSvc: CommissionBonosService,
+    private readonly autoRunSvc: CommissionAutoRunService,
   ) {}
 
   /**
@@ -164,6 +174,31 @@ export class CommercialCommissionsController {
     return this.service.createScaleVersion(body);
   }
 
+  /**
+   * `[RD.86]` Qué pasaría con este tabulador, **antes** de guardarlo.
+   *
+   * ⛔ Es `VER` y no `GESTIONAR` a propósito: **no escribe nada**. Quien puede mirar la nómina
+   * puede preguntarse qué pasaría si el escalón se moviera; estrenar la versión es otro acto.
+   */
+  @Post('scales/simulate')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'Simula un tabulador sobre la ultima quincena PAGADA -- no escribe nada',
+    description:
+      'RD.86. Body: `{ tiers[] }`. El tabulador es un ACANTILADO: debajo del primer escalon la '
+      + 'comision es CERO, no "un poco menos" -- hoy el piso esta en $189,999.99 y 9 ruta-periodo '
+      + 'caen del lado malo por $26,932.74. Reaplica los escalones propuestos sobre las lineas ya '
+      + 'medidas y congeladas de la ultima corrida pagada: NO vuelve a correr el motor (costaria '
+      + '~5.7 s, leeria la fuente de hoy y mezclaria dos cambios en un solo numero) y NO recalcula '
+      + 'bonos ni deducciones, para que el delta conteste solo "que hace ESTE escalon". Devuelve '
+      + '`caen` y `suben`: las dos caras del acantilado, con nombre propio.',
+  })
+  simulateScale(
+    @Body() body: { tiers: { min_amount: number; max_amount: number | null; pct: number }[] },
+  ): Promise<SimulacionEscala> {
+    return this.service.simularEscala(body?.tiers);
+  }
+
   @Get('universe')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
   @ApiOperation({
@@ -179,6 +214,89 @@ export class CommercialCommissionsController {
     return this.service.listUniverse();
   }
 
+  /**
+   * `[RD.84]` El padrón EDITABLE. ⛔ No es `/universe`: aquél es el universo derivado del ERP y
+   * es de sólo lectura. Éste devuelve las filas que se pueden cambiar, cada una con lo que ya
+   * produjo (quincenas pagadas y monto), para que una baja no se decida a ciegas.
+   */
+  @Get('routes')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'El padron editable de rutas que comisionan' })
+  padron(): Promise<PadronFila[]> {
+    return this.padronSvc.listar();
+  }
+
+  @Post('routes')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Da de alta una ruta en el padron',
+    description:
+      'RD.84. Body: `{ route_code, nomina_banco, activo_desde, zona?, chofer_nombre?, '
+      + 'supervisor_nombre?, notes?, scale_id? }`. `activo_desde` es OBLIGATORIA: sin ella la '
+      + 'ruta comisionaria tambien las quincenas anteriores a su alta. `scale_id` se resuelve '
+      + 'solo con el tabulador vigente a esa fecha. Un codigo repetido NO crea una segunda fila: '
+      + 'devuelve 409 y manda a reactivar la que ya existe, para que conserve su historia.',
+  })
+  altaRuta(@Body() body: AltaRuta): Promise<PadronFila> {
+    return this.padronSvc.crear(body);
+  }
+
+  @Patch('routes/:id')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Edita una ruta del padron — la baja es un caso de esto',
+    description:
+      'RD.84. Dar de baja es `{ activo: false, activo_hasta, notes }`, y las TRES son '
+      + 'obligatorias juntas: sin fecha la ruta deja de comisionar tambien las quincenas que si '
+      + 'trabajo (ver [RD.84.0], costaba $19,096.84 en las rutas 321/322), y sin motivo nadie '
+      + 'va a poder explicar la fila dentro de seis meses. Si la vigencia toca una quincena YA '
+      + 'PAGADA devuelve 409 nombrando cuales y por cuanto: se repite con `confirmar: true` '
+      + 'cuando esa correccion es justamente la intencion.',
+  })
+  editarRuta(@Param('id') id: string, @Body() body: EditarRuta): Promise<{ fila: PadronFila; aviso: AvisoPagadas | null }> {
+    return this.padronSvc.editar(id, body);
+  }
+
+  /**
+   * `[RD.85]` Los bonos quincenales de la escala VIGENTE, con lo que de verdad pagaron al lado.
+   * ⛔ Los criterios del objetivo mensual no se administran acá: ver `/objective`.
+   */
+  @Get('bonuses')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'Los bonos de la escala vigente' })
+  bonos(): Promise<BonoFila[]> {
+    return this.bonosSvc.listar();
+  }
+
+  @Post('bonuses')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Crea un bono quincenal — el primer INSERT que esta tabla tiene',
+    description:
+      'RD.85. Hasta hoy `commission_bonuses` tenia UPDATE y ningun INSERT: los 17 bonos vivos se '
+      + 'sembraron por migracion, y crear uno exigia un despliegue. El libro pago $140,800 en '
+      + 'bonos en 20 quincenas ($7,040 por quincena). `periodo` es OBLIGATORIO y sin valor por '
+      + 'defecto: sin el, un bono mensual entra a las dos quincenas del mes y se paga DOS VECES '
+      + '(RD.59). La escala se resuelve sola con la vigente.',
+  })
+  altaBono(@Body() body: AltaBono): Promise<BonoFila> {
+    return this.bonosSvc.crear(body);
+  }
+
+  @Patch('bonuses/:id')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Edita o APAGA un bono quincenal',
+    description:
+      'RD.85. Un bono se apaga (`activo:false`), no se borra: apagado conserva su configuracion '
+      + 'y deja explicable la quincena que si lo pago. Un criterio del objetivo mensual se '
+      + 'rechaza con su mensaje — esos viven en /objective, donde la regla de que los pesos '
+      + 'sumen 100% ya esta escrita, y escribirla dos veces es como las dos se desincronizan.',
+  })
+  editarBono(@Param('id') id: string, @Body() body: EditarBono): Promise<BonoFila> {
+    return this.bonosSvc.editar(id, body);
+  }
+
   @Post('recalculate-from')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
   @ApiOperation({
@@ -192,6 +310,25 @@ export class CommercialCommissionsController {
   })
   recalculateFrom(@Body() body: { period_id: string }): Promise<RecalcResultado> {
     return this.recalc.recalcularDesde(body?.period_id);
+  }
+
+  /**
+   * `[RD.87]` Dispara **a mano** la misma revisión que corre a las 07:30 MX.
+   *
+   * ⭐ Existe para poder **ejercerla** sin esperar al día siguiente, que es la única forma de
+   * verificar un automatismo antes de confiarle una quincena.
+   */
+  @Post('auto-run')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Revisa las quincenas cerradas sin corrida y calcula las que tienen fuente completa',
+    description:
+      'RD.87. Deja BORRADOR: no aprueba ni paga (ADR-016). Si alguna ruta vigente no tiene '
+      + 'fuente viva NO calcula y la nombra -- calcular sin dias completos no da "un numero '
+      + 'aproximado", da $0, porque el tabulador es un acantilado.',
+  })
+  autoRun(): Promise<RevisionAuto> {
+    return this.autoRunSvc.revisar('manual');
   }
 
   @Get('periods')

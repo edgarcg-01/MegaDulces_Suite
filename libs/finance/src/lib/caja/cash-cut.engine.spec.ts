@@ -125,6 +125,22 @@ describe('puedeAutorizar — ⛔ la doble llave', () => {
     expect(puedeAutorizar(cerrado, null).motivo).toBe('sin_usuario');
     expect(puedeAutorizar(cerrado, '').motivo).toBe('sin_usuario');
   });
+
+  // ⛔ `[CGS.16]` D3 (Edgar, 2026-10-21): la supervisora captura, pero no firma lo suyo.
+  it('[negativa] quien abrió el corte NO puede autorizar, aunque no lo haya cerrado', () => {
+    const r = puedeAutorizar({ ...cerrado, created_by: 'u-abre' }, 'u-abre');
+    expect(r).toEqual({ ok: false, motivo: 'abrio_el_corte' });
+  });
+
+  it('[negativa] quien capturó o canceló un movimiento del corte NO puede autorizar', () => {
+    const r = puedeAutorizar(cerrado, 'u-supervisora', ['u-capturista', 'u-supervisora']);
+    expect(r).toEqual({ ok: false, motivo: 'capturo_en_el_corte' });
+  });
+
+  it('una persona ajena al corte SÍ autoriza aunque otros hayan capturado', () => {
+    expect(puedeAutorizar({ ...cerrado, created_by: 'u-capturista' }, 'u-gerente', ['u-capturista', 'u-otra']))
+      .toEqual({ ok: true });
+  });
 });
 
 describe('puedeCerrar', () => {

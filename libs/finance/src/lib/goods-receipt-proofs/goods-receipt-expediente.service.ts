@@ -13,6 +13,9 @@ import {
 } from './expediente-verdict';
 import { COMERCIAL_CATS, parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
 import { EntradaParaIdentificar, clasificarIdentificacion } from './identificar-entrada';
+// `[RE.43.1]` El mismo criterio que `matchByOcr`: el folio del proveedor va contra `referencia`.
+import { folioNucleo } from './documento-duplicado';
+import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
 
 /** Filas tal como las devuelven las consultas (tipadas: el boundary no admite `any`). */
 interface EntradaFila {
@@ -148,12 +151,16 @@ export class GoodsReceiptExpedienteService {
    * `[RE.35.5]` El veredicto compacto de cada llave + los conteos de la Bandeja y del Hallazgo.
    * Se llama DENTRO de la transacción del listado (ya con el alcance aplicado a las llaves).
    */
-  async resumenLote(trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[]): Promise<{ filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos }> {
+  async resumenLote(
+    trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[],
+    /** `[RE.49]` Tabla de donde leer las entradas (la temporal del listado). Default: la vista viva. */
+    fuente = 'analytics.erp_goods_receipts',
+  ): Promise<{ filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos }> {
     const t0 = Date.now();
     const clave = tenantId + '|' + keys.map((k) => llave(k.sucursal, k.folio)).sort().join(',');
     const hit = this.cache.get(clave);
     if (hit && t0 - hit.at < GoodsReceiptExpedienteService.CACHE_MS) return { filas: hit.valor.filas, conteos: { ...hit.valor.conteos, ms: Date.now() - t0 } };
-    const lote = await this.calcularLote(trx, tenantId, keys);
+    const lote = await this.calcularLote(trx, tenantId, keys, fuente);
     const filas = new Map<string, ExpedienteResumenFila>();
     const porCubo: Record<ExpedienteCubo, number> = { auto: 0, revisar: 0, sin_cfdi_aun: 0, sin_documento: 0, fuera_de_alcance: 0 };
     const porHallazgo: Record<ExpedienteHallazgo, number> = { cobrar_nc: 0, mal_emitida: 0, incompleta: 0, sin_oc: 0, nc_aplicada: 0, comercial: 0 };
@@ -173,7 +180,14 @@ export class GoodsReceiptExpedienteService {
    * Cada entrada ve SÓLO los CFDI de su ventana (±60 días de su fecha) más los que la nombran por
    * UUID o por asignación confirmada — exactamente lo mismo que vería sola.
    */
-  async calcularLote(trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[]): Promise<Map<string, ExpedienteCalculado>> {
+  async calcularLote(
+    trx: Knex.Transaction, tenantId: string, keys: LlaveEntrada[],
+    /**
+     * `[RE.49]` De dónde salen las entradas. El listado pasa su tabla temporal (ya trae el universo):
+     * pedirlas a la vista otra vez costaba ~1.2 s (media en prod). El panel y `identificar` usan la vista.
+     */
+    fuente = 'analytics.erp_goods_receipts',
+  ): Promise<Map<string, ExpedienteCalculado>> {
     const out = new Map<string, ExpedienteCalculado>();
     if (!keys.length) return out;
     const pares = keys.map((k) => [k.sucursal, k.folio]);
@@ -181,7 +195,7 @@ export class GoodsReceiptExpedienteService {
 
     // 1. Entradas
     const tieneRecepcion = await this.existeColumna(trx, 'analytics', 'erp_goods_receipts', 'fecha_recepcion');
-    const entradas: EntradaFila[] = await trx('analytics.erp_goods_receipts')
+    const entradas: EntradaFila[] = await trx(fuente)
       .where({ tenant_id: tenantId })
       .whereIn(['sucursal', 'folio'], pares)
       .select(
@@ -500,6 +514,48 @@ export class GoodsReceiptExpedienteService {
           // en un 403 al guardar.
           .filter((c) => cuadra(c.diferencia, c.monto) && c.proveedor_ok !== false && this.scope.canWrite(alcance, 'warehouse', c.sucursal))
           .sort((a, b) => a.deposits - b.deposits || Math.abs(a.diferencia) - Math.abs(b.diferencia));
+      }
+
+      /**
+       * `[RE.43.1]` Si NINGUNA cuadra por importe, se busca por el folio del PROVEEDOR, que Kepler
+       * guarda en `referencia` (y a veces sólo su cola). Es el mismo criterio que `matchByOcr`
+       * (`emparejar-papel.ts`): el importe puede no cuadrar justamente porque el OCR lo leyó mal
+       * (`22.50` por `22,500`). Lo hallado así sale con `importe_ok: false` y nunca «listo».
+       * Sólo donde la persona puede CAPTURAR.
+       */
+      const nucleo = folioNucleo(folio);
+      if (!candidatas.length && nucleo && llaveDelFolio('factura', folio) === 'proveedor') {
+        const inicio = await this.inicioRecepcion(trx, tenantId);
+        const porRef = async (where: string, b: string[]): Promise<EntradaParaIdentificar[]> => {
+          const q = trx('analytics.erp_goods_receipts as c')
+            .where('c.tenant_id', tenantId).whereNull('c.dup_of_folio')
+            .whereRaw(where, b)
+            .select('c.sucursal', 'c.folio', 'c.proveedor_nombre', 'c.proveedor_rfc', 'c.oc_folio',
+              trx.raw(`to_char(c.receipt_date, 'YYYY-MM-DD') AS receipt_date`), trx.raw('c.monto::float8 AS monto'),
+              trx.raw(`(SELECT count(*)::int FROM finance.goods_receipt_proofs p WHERE p.tenant_id = c.tenant_id
+                         AND p.sucursal = c.sucursal AND p.folio = c.folio AND p.status <> 'rechazado') AS deposits`))
+            .limit(50);
+          if (inicio) q.where('c.receipt_date', '>=', inicio);
+          if (visibles) { if (visibles.length) q.whereIn('c.sucursal', visibles); else q.whereRaw('false'); }
+          return (await q) as EntradaParaIdentificar[];
+        };
+        let filas = await porRef(`${sqlNucleoReferencia('c.referencia')} = ?`, [nucleo]);
+        if (!filas.length) filas = await porRef(sqlSufijoReferencia('c.referencia'), [nucleo, nucleo]);
+        const emisora = await trx('fiscal.issuer_config')
+          .where({ tenant_id: tenantId, active: true }).orderBy('is_default', 'desc').first('rfc');
+        candidatas = ordenarCandidatas(
+          filas.filter((e) => this.scope.canWrite(alcance, 'warehouse', e.sucursal)),
+          { rfc: rfcObj, proveedor: nombreObj, fecha: fechaObj, total: totalObj }, emisora?.rfc ?? null,
+        ).map((e) => {
+          const monto = Number(e.monto);
+          const diferencia = totalObj != null ? Math.round((totalObj - monto) * 100) / 100 : 0;
+          return {
+            sucursal: e.sucursal, folio: e.folio, receipt_date: e.receipt_date, proveedor_nombre: e.proveedor_nombre,
+            proveedor_rfc: e.proveedor_rfc, oc_folio: e.oc_folio, monto, diferencia,
+            proveedor_ok: e.proveedor_ok, deposits: Number(e.deposits) || 0,
+            importe_ok: totalObj != null && cuadra(diferencia, monto),
+          };
+        });
       }
 
       const c = clasificarIdentificacion({

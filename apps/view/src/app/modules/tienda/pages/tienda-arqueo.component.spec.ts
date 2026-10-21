@@ -3,7 +3,7 @@ import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { MessageService } from 'primeng/api';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ArqueoRow, ArqueoService, AvisoDobleCaja, Turno, TurnosResp } from '../arqueo.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -637,5 +637,111 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(texto).toContain('× 9');
     // NEGATIVA: lo que va en cero no aparece.
     expect(texto).not.toContain('$500');
+  });
+});
+
+/**
+ * `[SM.45]` Las rutas de la pestaña RD/RV se piden CON la sucursal.
+ *
+ * Caso real (2026-10-21): `luis_munoz`, `auxiliar_tienda` sin sucursal fija, eligió
+ * Padre Hidalgo y la pantalla dijo «Tu sucursal no tiene rutas de reparto». En prod
+ * Padre Hidalgo tiene 7 RD y 2 RV: la pantalla pedía las rutas sin sucursal, el
+ * servidor respondía 400 «Elige la sucursal» y el error se pintaba como lista vacía.
+ */
+describe('TiendaArqueoComponent · [SM.45] rutas por sucursal', () => {
+  let fix: ComponentFixture<TiendaArqueoComponent>;
+  let cmp: TiendaArqueoComponent;
+  const pedidas: (string | null | undefined)[] = [];
+  /** Qué responde el servidor por sucursal; `'error'` = la llamada falla. */
+  let respuesta: Record<string, 'error' | { rd: { route_code: string; label: string }[]; rv: { route_code: string; label: string }[] }> = {};
+
+  const svc = {
+    turnos: () => of({ turnos: [], aviso: null }),
+    list: () => of([]),
+    porCajera: () => of({ cajeras: [], totales: { cajeras: 0, cortes: 0, sin_arqueo: 0 } }),
+    rutas: (code?: string | null) => {
+      pedidas.push(code);
+      const r = respuesta[code ?? ''];
+      // Sin sucursal, el servidor real responde 400 «Elige la sucursal».
+      if (!code || r === 'error' || !r) return throwError(() => new Error('400 Elige la sucursal'));
+      return of({ warehouse_code: code, rd: r.rd, rv: r.rv });
+    },
+  };
+  const html = (): string => (fix.nativeElement as HTMLElement).textContent ?? '';
+  const tick = async (): Promise<void> => {
+    await fix.whenStable();
+    await new Promise((r) => setTimeout(r, 0));
+    fix.detectChanges();
+  };
+
+  beforeEach(async () => {
+    pedidas.length = 0;
+    respuesta = {
+      '01': { rd: [{ route_code: '21', label: 'RUTA 21' }, { route_code: '22', label: 'RUTA 22' }], rv: [{ route_code: '1V001', label: '1V001' }] },
+      '03': { rd: [], rv: [] },
+    };
+    await TestBed.configureTestingModule({
+      imports: [TiendaArqueoComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MessageService,
+        { provide: ArqueoService, useValue: svc },
+        {
+          provide: AuthService,
+          useValue: {
+            user: () => ({ username: 'luis_munoz', warehouse_code: null, role_name: 'auxiliar_tienda',
+              permissions: { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true, STORE_ARQUEO_RUTA_CAPTURAR: true } }),
+            token: () => null,
+          },
+        },
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
+        { provide: DataScopeService, useValue: { warehouses: () => of([{ value: '01', label: 'PADRE HIDALGO' }, { value: '03', label: '8 ESQUINAS' }]) } },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(TiendaArqueoComponent);
+    cmp = fix.componentInstance;
+    fix.detectChanges();
+    await tick();
+    cmp.manual.set(true);
+    cmp.elegirTipo('rd');
+    await tick();
+  });
+
+  it('⭐ sin sucursal elegida NO afirma que no haya rutas: pide elegirla', async () => {
+    expect(cmp.rutasEstado()).toBe('sin_sucursal');
+    expect(html()).toContain('Elige la sucursal para ver sus rutas');
+    // NEGATIVA: el mensaje falso del incidente no aparece.
+    expect(html()).not.toContain('no tiene rutas');
+  });
+
+  it('⭐ al elegir la sucursal pide SUS rutas, y al cambiarla las vuelve a pedir', async () => {
+    cmp.aSuc.set('01');
+    await tick();
+    expect(pedidas).toContain('01');
+    expect(cmp.rutasEstado()).toBe('ok');
+    expect(cmp.rutasDelTipo().map((r) => r.route_code)).toEqual(['21', '22']);
+    expect(html()).not.toContain('no tiene rutas');
+
+    cmp.aSuc.set('03');
+    await tick();
+    expect(pedidas[pedidas.length - 1]).toBe('03');
+    // Vacío de verdad: ahora sí se dice, y con el nombre de la sucursal.
+    expect(cmp.rutasDelTipo()).toEqual([]);
+    expect(html()).toContain('no tiene rutas de reparto');
+  });
+
+  it('⭐ un error del servidor se dice como error, no como «no tiene rutas»', async () => {
+    respuesta['01'] = 'error';
+    cmp.aSuc.set('01');
+    await tick();
+    expect(cmp.rutasEstado()).toBe('error');
+    expect(html()).toContain('No se pudieron consultar las rutas');
+    expect(html()).not.toContain('no tiene rutas');
+
+    // Reintentar vuelve a preguntar, y si ya responde, se ven las rutas.
+    respuesta['01'] = { rd: [{ route_code: '21', label: 'RUTA 21' }], rv: [] };
+    cmp.cargarRutas('01', true);
+    await tick();
+    expect(cmp.rutasEstado()).toBe('ok');
+    expect(cmp.rutasDelTipo().map((r) => r.route_code)).toEqual(['21']);
   });
 });

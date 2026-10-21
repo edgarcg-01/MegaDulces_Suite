@@ -166,6 +166,44 @@ async function runCycle(src, db) {
   const nWeight = prods.filter((p) => productKind(p.unit_sale, p.unit_base) === 'weight').length;
   console.log(`  lookup destino: ${skuTo.size} products c/sku (${nWeight} de peso) · ${whTo.size} warehouses`);
 
+  // `[OPS.LIMPIEZA.9]` **POR MES, NO LOS 13 DE GOLPE.** El nocturno (13 meses) cargaba en memoria el
+  // agregado entero (~695 k filas) CUATRO veces —`agg`, `tk`, `acc` y `rows`— y desde la mudanza a
+  // k3s muere cada noche: `JavaScript heap out of memory` con el heap en ~511 MB (pod `feeds-cron`
+  // con `limits.memory: 1Gi` → `heap_size_limit` 524 MB; en Compose no había límite). Al morir no
+  // llega a `hb.end()` y `kepler_sales_fact_full` queda en `running` hasta la noche siguiente.
+  //
+  // ⭐ Partir por fecha es EXACTO, no una aproximación: la carga es sólo UPSERT (sin DELETE) y la
+  // llave —(product, warehouse, channel, sale_date)— incluye la fecha, así que ninguna fila de un
+  // mes depende de otro; `tickets` también agrupa por fecha. Mismo resultado, ~1/13 de la memoria,
+  // y sin subirle RAM a un pod que comparte máquina con `pg-prod`.
+  // ⚠️ Lo que SÍ cambia: cada mes es su propia transacción. Si falla el mes 7, los 6 anteriores ya
+  // quedaron escritos. Es idempotente (UPSERT): la corrida siguiente los repite sin efecto.
+  // El modo de N días (`livefast`) queda como UNA sola ventana, igual que antes.
+  const ventanas = (await src.query(
+    DAYS
+      ? `SELECT (${WIN})::date::text AS desde, (current_date + 1)::text AS hasta`
+      : `SELECT greatest(d, (${WIN})::date)::date::text AS desde,
+                least((d + interval '1 month')::date, current_date + 1)::text AS hasta
+           FROM generate_series(date_trunc('month', (${WIN})::date)::date, current_date, interval '1 month') d
+          ORDER BY d`)).rows;
+  let escritas = 0;
+  for (const v of ventanas) {
+    const r = await cargarVentana(v.desde, v.hasta);
+    if (r.status !== 'ok') return r;
+    escritas += r.rows;
+  }
+  if (!APPLY) return { status: 'ok', rows: 0 };
+  // RS.12c — stats frescas → plan bueno en sell-out. [DB-MEM.9] Ahora CONDICIONAL: el carril
+  // `livefast` (loop ~60 s) llamaba a este importer sin parar y disparaba un ANALYZE completo de
+  // una tabla de 4.5 GB ~20 veces por hora, la mitad de ellas con `n_mod_since_analyze = 0`.
+  // Una sola vez al final, no por mes.
+  await analyzeIfStale((s) => db.query(s), 'analytics.sales_daily');
+  console.log(`\n[APPLY] ${ventanas.length} ventana(s) — ${escritas} filas en analytics.sales_daily.`);
+  return { status: 'ok', rows: escritas };
+
+  /** Una ventana [desde, hasta) de punta a punta: leer, convertir y cargar. */
+  async function cargarVentana(desde, hasta) {
+  if (ventanas.length > 1) console.log(`\n── ventana ${desde} → ${hasta} ──`);
   // Origen: agregado POR unidad de venta real (para poder convertir cada bucket).
   // PH ('01'): Wincaja manda `< 2026-07-01` (venta real ene–jun), Kepler desde jul 1
   // (Kepler recién tomó PH). Excluir el pre-julio de PH aquí cierra el solape de junio
@@ -175,18 +213,18 @@ async function runCycle(src, db) {
             sum(cantidad)::numeric        AS cant,
             round(sum(importe),2)::numeric AS revenue
        FROM mart.ventas_enriched
-      WHERE fecha >= ${WIN}
-        AND fecha <= current_date
+      WHERE fecha >= $1::date
+        AND fecha <  $2::date
         AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
-      GROUP BY almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,'')))`);
+      GROUP BY almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,'')))`, [desde, hasta]);
   // Tickets: aparte, SIN unidad, para no sobrecontar folios con varias unidades.
   const { rows: tk } = await src.query(
     `SELECT almacen, sku, channel, fecha, count(DISTINCT folio)::int AS tickets
        FROM mart.ventas_enriched
-      WHERE fecha >= ${WIN}
-        AND fecha <= current_date
+      WHERE fecha >= $1::date
+        AND fecha <  $2::date
         AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
-      GROUP BY almacen, sku, channel, fecha`);
+      GROUP BY almacen, sku, channel, fecha`, [desde, hasta]);
   const tkMap = new Map(tk.map((r) => [`${mapAlmacen(r.almacen)}|${r.sku}|${r.channel}|${r.fecha.toISOString().slice(0, 10)}`, r.tickets]));
   console.log(`  origen: ${agg.length} filas (almacen×sku×canal×día×unidad) · ${tk.length} grupos de tickets`);
 
@@ -310,12 +348,9 @@ async function runCycle(src, db) {
            (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind,
             EXCLUDED.rung_factor, EXCLUDED.rung_mixed, EXCLUDED.units_unresolved)`, [M]);
   await db.query('COMMIT');
-  // RS.12c — stats frescas → plan bueno en sell-out. [DB-MEM.9] Ahora CONDICIONAL: el carril
-  // `livefast` (loop ~60 s) llamaba a este importer sin parar y disparaba un ANALYZE completo de
-  // una tabla de 4.5 GB ~20 veces por hora, la mitad de ellas con `n_mod_since_analyze = 0`.
-  await analyzeIfStale((s) => db.query(s), 'analytics.sales_daily');
-  console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
+  console.log(`  [APPLY] COMMIT ${desde} → ${hasta}: ${up.rowCount} filas.`);
   return { status: 'ok', rows: up.rowCount };
+  }
 }
 
 (async () => {

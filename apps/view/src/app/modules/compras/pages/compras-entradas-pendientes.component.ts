@@ -20,7 +20,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import {
   EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile, RemisionOcr, AttachReceipt,
-  type OrdenEntradas, type DocPresence,
+  type OrdenEntradas, type DocPresence, duplicadoBloquea, duplicadoAvisa, duplicadoMensaje,
 } from '../entradas.service';
 import { receptionSource, roleOptsFor, checklist, missingGroups } from '../receipt-roles';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
@@ -33,6 +33,9 @@ import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { escalaDeLectura } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -79,6 +82,10 @@ interface Hoja {
   dupDe?: string | null;
   /** `[RE.31]` La entrada de `dupDe` ya NO existe en Kepler: no frena, pero se avisa. */
   dupMuerta?: boolean;
+  /** `[RE.42]` Texto del servidor: dónde vive la otra hoja y por qué se decidió así. */
+  dupMensaje?: string;
+  /** `[RE.42]` Posible duplicado que NO frena (mismo folio, emisor sin confirmar): se muestra y se envía. */
+  dupAviso?: string;
   motivo?: string;
   busqueda?: string;
   buscando?: boolean;
@@ -116,6 +123,7 @@ interface Hoja {
     DatePickerModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
     FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent, SidePeekComponent,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   template: `
@@ -149,6 +157,9 @@ interface Hoja {
           </button>
         </div>
       </header>
+
+      <!-- [RE.48] Captura es la primera pestaña de Control de entradas (selector tipo iOS). -->
+      <app-page-tabs [tabs]="tabs" />
 
       @if (sinAlcance()) {
         <!-- Fail-closed explicado: sin sucursal en la ficha no hay filas, y una tabla vacía se
@@ -583,7 +594,8 @@ interface Hoja {
               @case ('duplicada') {
                 <p class="ep-an-msg is-bad">
                   <i class="pi pi-ban" aria-hidden="true"></i>
-                  Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar.
+                  @if (h.dupMensaje) { {{ h.dupMensaje }} }
+                  @else { Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar. }
                 </p>
               }
               @case ('error') {
@@ -603,6 +615,10 @@ interface Hoja {
                   } @else if (cuadre(h)) {
                     <i class="pi pi-check-circle" aria-hidden="true"></i>
                     <span>La factura <b>cuadra</b> con el total de Kepler.</span>
+                  } @else if (cuadre(h) === false && escalaHoja(h)) {
+                    <!-- [RE.44] La misma cifra con el separador corrido: error de lectura, no descuadre. -->
+                    <i class="pi pi-search" aria-hidden="true"></i>
+                    <span>Se leyó <b>{{ money(h.total ?? h.subtotal) }}</b> y Kepler dice <b>{{ money(h.entrada!.monto) }}</b>: parece la misma cifra con el separador corrido. Confirma el total en el papel; se puede enviar.</span>
                   } @else if (cuadre(h) === false) {
                     <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                     <span>La factura difiere <b>{{ money(dif(h)) }}</b> del total de Kepler. Se puede enviar igual: el revisor decide.</span>
@@ -620,6 +636,15 @@ interface Hoja {
                     <i class="pi pi-info-circle" aria-hidden="true"></i>
                     <span>Esta hoja ya estaba en la entrada <b class="mono">{{ h.dupDe }}</b>, que <b>Kepler ya borró</b>.
                       Se envía a la nueva; la evidencia vieja queda huérfana.</span>
+                  </p>
+                }
+
+                <!-- [RE.42] Mismo folio que otra entrada, sin poder probar que es el mismo proveedor.
+                     No frena: se dice, se envia, y queda escrito en la hoja para el revisor. -->
+                @if (h.dupAviso) {
+                  <p class="ep-veredicto warn" role="status">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    <span>{{ h.dupAviso }} Se puede enviar: el revisor lo verá marcado.</span>
                   </p>
                 }
 
@@ -1085,6 +1110,8 @@ interface Hoja {
   `],
 })
 export class ComprasEntradasPendientesComponent {
+  /** `[RE.48]` La barra de Control de entradas: Captura es su primera pestaña. */
+  readonly tabs = ENTRADAS_CONTROL_TABS;
   /** `[ZN.2]` Sucursales que ESTA persona alcanza, del servidor. */
   private readonly scope = inject(DataScopeService);
   private readonly misSucursales = this.scope.misSucursales();
@@ -1773,7 +1800,10 @@ export class ComprasEntradasPendientesComponent {
 
   private async leerYEnlazar(h: Hoja): Promise<void> {
     try {
-      const o = await firstValueFrom(this.svc.ocr(h.dataUri, h.role));
+      // `[RE.42]` Si se soltó sobre una fila, la entrada ya se sabe: con su proveedor el servidor
+      // decide el duplicado en vez de sólo avisar.
+      const destino = h.entrada ? { sucursal: h.entrada.sucursal, folio: h.entrada.folio } : null;
+      const o = await firstValueFrom(this.svc.ocr(h.dataUri, h.role, destino));
       this.parchar(h.id, {
         sha256: o.sha256, folioOcr: o.folio, total: o.total, subtotal: o.subtotal,
         fecha: o.fecha, rfc: o.rfc, ocr: o,
@@ -1796,24 +1826,31 @@ export class ComprasEntradasPendientesComponent {
        * ⚠️ No se calla: sigue el flujo normal y deja el aviso (`dupDe` + `dupMuerta`), porque la
        * evidencia vieja queda huérfana y alguien tiene que saberlo.
        */
-      if (o.duplicate && o.duplicate.vigente !== false) {
-        this.parchar(h.id, { estado: 'duplicada', dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}` });
+      // `[RE.42]` Bloquear o avisar lo decide el servidor; `duplicadoBloquea/Avisa` sólo lo leen.
+      const d = o.duplicate;
+      if (duplicadoBloquea(d)) {
+        this.parchar(h.id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!) });
         return;
       }
-      if (o.duplicate) {
-        this.parchar(h.id, { dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}`, dupMuerta: true });
-      }
+      if (duplicadoAvisa(d)) this.parchar(h.id, { dupAviso: duplicadoMensaje(d!) });
+      else if (d) this.parchar(h.id, { dupDe: `${d.sucursal}/${d.folio}`, dupMuerta: true });
       // Soltada sobre una fila: la entrada ya la eligió el usuario, no se busca nada.
       if (h.entrada) { this.parchar(h.id, { estado: 'enlazada' }); return; }
       // FOLIO primero (preciso), MONTO como respaldo — la misma prioridad del server.
+      // `[RE.43]` El rol dice si el folio es nuestro o del proveedor (el del proveedor va contra
+      // `referencia`), y el RFC/nombre/fecha desempatan. La búsqueda ya viene acotada a donde la
+      // persona puede capturar.
       const r = await firstValueFrom(this.svc.matchByOcr({
         folio: o.folio || undefined,
         total: o.total ?? o.subtotal ?? undefined,
         fecha: o.fecha || undefined,
+        role: h.role, rfc: o.rfc, proveedor: o.proveedor,
       }));
       const cands = r?.entradas || [];
       if (cands.length === 1) {
-        this.parchar(h.id, { estado: 'enlazada', entrada: cands[0], porMonto: !o.folio, candidatas: [] });
+        const porMonto = cands[0].match_via ? cands[0].match_via === 'monto' : !o.folio;
+        this.parchar(h.id, { estado: 'enlazada', entrada: cands[0], porMonto, candidatas: [] });
+        this.revisarDuplicado(h.id);
       } else if (cands.length > 1) {
         this.parchar(h.id, { estado: 'ambigua', candidatas: cands.slice(0, 5) });
       } else {
@@ -1830,6 +1867,35 @@ export class ComprasEntradasPendientesComponent {
 
   elegir(h: Hoja, e: EntradaRow): void {
     this.parchar(h.id, { entrada: e, estado: 'enlazada', candidatas: [], porMonto: !h.folioOcr });
+    this.revisarDuplicado(h.id);
+  }
+
+  /**
+   * `[RE.42.2]` Con la entrada ya elegida, el duplicado se vuelve a decidir con SU proveedor de
+   * Kepler. La vista previa corre antes de saber el destino y sólo puede avisar: así salía el aviso
+   * de BOTANAS PAU sobre la nota de EL FAROLITO, que con la entrada correcta se descarta solo.
+   * Si la red falla se queda el aviso que había: no se borra a ciegas.
+   */
+  private revisarDuplicado(id: number): void {
+    const h = this.hojas().find((x) => x.id === id);
+    const destino = h?.entrada;
+    if (!h || !destino || !h.sha256) return;
+    this.svc.duplicateCheck({
+      sha256: h.sha256, folio: h.folioOcr ?? null, rfc: h.rfc ?? null, proveedor: h.ocr?.proveedor ?? null,
+      total: h.total ?? null, role: h.role, entrada_sucursal: destino.sucursal, entrada_folio: destino.folio,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: ({ duplicate: d }) => {
+        // Si mientras tanto la cambiaron de entrada, esta respuesta ya no le corresponde.
+        const cur = this.hojas().find((x) => x.id === id);
+        if (!cur?.entrada || cur.entrada.sucursal !== destino.sucursal || cur.entrada.folio !== destino.folio) return;
+        if (duplicadoBloquea(d)) {
+          this.parchar(id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!), dupAviso: undefined });
+        } else {
+          this.parchar(id, { dupAviso: duplicadoAvisa(d) ? duplicadoMensaje(d!) : undefined });
+        }
+      },
+      error: () => undefined,
+    });
   }
   desenlazar(h: Hoja): void {
     this.parchar(h.id, { entrada: null, estado: 'sin_match', candidatas: [], porMonto: false });
@@ -1944,6 +2010,11 @@ export class ComprasEntradasPendientesComponent {
     if (!h.entrada || h.entrada.gemela_monto == null) return false;
     const conSuc = this.cerca(h.total, h.entrada.monto) || this.cerca(h.subtotal, h.entrada.monto);
     return !conSuc && (this.cerca(h.total, h.entrada.gemela_monto) || this.cerca(h.subtotal, h.entrada.gemela_monto));
+  }
+  /** `[RE.44]` ¿El total leído es el de Kepler con el separador corrido (`22.50` ↔ `22,500`)? */
+  escalaHoja(h: Hoja): boolean {
+    if (!h.entrada) return false;
+    return escalaDeLectura(h.total, h.entrada.monto) != null || escalaDeLectura(h.subtotal, h.entrada.monto) != null;
   }
   dif(h: Hoja): number {
     if (!h.entrada) return 0;

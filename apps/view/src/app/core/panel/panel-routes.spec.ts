@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Route, Router, RouterOutlet, Routes, provideRouter } from '@angular/router';
 import { espejarParaPanel, olvidarEspejo, rutasDelPanel } from './panel-routes';
-import { routes } from '../../app.routes';
+import { routes, rutasDeLaApp } from '../../app.routes';
 
 /**
  * `[MT.5]` El espejo del panel.
@@ -292,7 +292,7 @@ describe('[MT.5] el espejo de rutas del panel', () => {
 
     function routerReal(): Router {
       TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ providers: [provideRouter(comoEnProduccion(routes))] });
+      TestBed.configureTestingModule({ providers: [provideRouter(comoEnProduccion(rutasDeLaApp))] });
       const fix = TestBed.createComponent(Vacio);
       fix.detectChanges();
       return TestBed.inject(Router);
@@ -305,13 +305,13 @@ describe('[MT.5] el espejo de rutas del panel', () => {
 
     it('abrir algo AL LADO navega de verdad, y deja el primario intacto', async () => {
       const r = routerReal();
-      const llego = await r.navigateByUrl('/compras/(requisiciones//panel:finanzas/bancos)');
-      expect([llego, r.url]).toEqual([true, '/compras/(requisiciones//panel:finanzas/bancos)']);
+      const llego = await r.navigateByUrl('/compras/requisiciones(panel:finanzas/bancos)');
+      expect([llego, r.url]).toEqual([true, '/compras/requisiciones(panel:finanzas/bancos)']);
     });
 
     it('CERRAR el panel vuelve al primario, sin tirar la pantalla', async () => {
       const r = routerReal();
-      await r.navigateByUrl('/compras/(requisiciones//panel:finanzas/bancos)');
+      await r.navigateByUrl('/compras/requisiciones(panel:finanzas/bancos)');
       const cerro = await r.navigateByUrl('/compras/requisiciones');
       expect([cerro, r.url]).toEqual([true, '/compras/requisiciones']);
     });

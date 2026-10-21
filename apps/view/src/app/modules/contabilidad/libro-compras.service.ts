@@ -37,10 +37,17 @@ export interface FacturaMes {
   fecha: string;
   total: number;
   iva: number;
+  /** LC.18: el IEPS que se ACREDITA (tasa 8 %). El resto queda en el costo, como en el libro manual. */
   ieps: number;
+  ieps_total: number;
+  ieps_no_acreditable: number;
+  /** A la 502: IVA ÷ 0.16 con tope. A la 501: el resto. Es el reparto de la contadora. */
   subtotal16: number;
   base_exenta: number;
   ieps_por_cuota: boolean;
+  /** LC.18: el proveedor entró al libro en los últimos 6 meses. Sin eso no entra por default. */
+  en_libro_reciente: boolean;
+  origen_mapa: 'libro' | 'contpaqi' | null;
   account_suffix: string | null;
   supplier_name: string | null;
   cuenta_proveedor: string | null;
@@ -91,6 +98,9 @@ export interface MesNoAsociado {
   /** Lo accionable: sin asociar, sin postear y con cuenta de compras. Es lo que entra al TXT. */
   entran: number;
   monto_entran: number;
+  /** LC.18: con cuenta, pero el proveedor no entró al libro en 6 meses: hay que revisarlas. */
+  sin_historial: number;
+  monto_sin_historial: number;
   /** Sin asociar y sin postear, pero de proveedor de gasto/servicio: no entran. */
   fuera_catalogo: number;
   monto_fuera: number;
@@ -122,6 +132,22 @@ export interface MesDetalle {
   bloqueantes: string[];
   /** Cosas que merecen una mirada pero se postean sin problema. */
   avisos: string[];
+  /** LC.18: a qué cuentas van IVA e IEPS — las del último libro (`desde`), no unas fijas. */
+  cuentas_impuesto?: CuentasImpuesto;
+}
+
+export interface CuentasImpuesto {
+  iva: { cuenta: string; nombre: string };
+  ieps: { cuenta: string; nombre: string };
+  /** De qué libro se tomaron. `null` = no hay libro previo y se usan las de siempre. */
+  desde: string | null;
+}
+
+/** LC.18: candidatas a cuenta 212 para un RFC que no está en el mapa del libro. */
+export interface SugerenciasCuenta {
+  rfc: string;
+  nombre: string;
+  candidatas: { cuenta: string; nombre: string; parecido: number; razon: string; asignada_a: string | null; fuerte: boolean }[];
 }
 
 export interface CuadreContpaqi {
@@ -259,8 +285,26 @@ export class LibroComprasService {
     );
   }
 
-  generarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean): Observable<GenerarResultado> {
-    return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, { impuestos, uuid });
+  /**
+   * `forzar` = incluir facturas que sólo casan por importe con algo ya posteado. El server lo
+   * exige con motivo, y el motivo queda en las notas de la corrida.
+   */
+  generarNoAsociados(mes: string, impuestos: ImpuestosModo, uuid: boolean, forzar?: { motivo: string }): Observable<GenerarResultado> {
+    return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, {
+      impuestos, uuid, ...(forzar ? { forzar_importe: true, motivo: forzar.motivo } : {}),
+    });
+  }
+
+  /** LC.18: candidatas a cuenta 212 para un RFC nuevo. */
+  sugerirCuenta(rfc: string): Observable<SugerenciasCuenta> {
+    return this.http.get<SugerenciasCuenta>(`${this.noAso}/proveedor/${encodeURIComponent(rfc)}/sugerencias`);
+  }
+
+  /** LC.18: asienta la cuenta del proveedor. La 212 tiene que existir en ContPAQi. */
+  asignarCuenta(rfc: string, cuenta: string) {
+    return this.http.post<{ ok: boolean; cuenta_proveedor: string; compra_exenta_existe: boolean; compra_iva_existe: boolean; accion: string }>(
+      `${this.noAso}/proveedor/cuenta`, { rfc, cuenta },
+    );
   }
 
   marcarNoAsociados(mes: string, estado: 'entregado' | 'aplicado' | 'cancelado', datos: { entregado_a?: string; notas?: string } = {}) {

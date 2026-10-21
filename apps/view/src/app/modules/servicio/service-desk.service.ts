@@ -7,7 +7,7 @@ import type {
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
-  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdMarkTestDto, SdTransferDto, SdTransferResult, SdUpsertFieldDto, SdUpsertZoneDto,
+  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdMarkTestDto, SdTransferDto, SdTransferResult, SdTranscribeDto, SdTranscribeResult, SdUpsertFieldDto, SdUpsertZoneDto,
 } from '@megadulces/contracts';
 import { SD_PAUSE_REASONS } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -81,6 +81,8 @@ export class ServiceDeskService {
   private readonly base = `${environment.apiUrl}/service-desk`;
 
   catalog(): Observable<SdCatalogResponse> { return this.http.get<SdCatalogResponse>(`${this.base}/catalog`); }
+  /** `[MS.DICTADO]` Audio → texto de la descripción. El servidor lo rechaza en un área confidencial. */
+  transcribe(dto: SdTranscribeDto): Observable<SdTranscribeResult> { return this.http.post<SdTranscribeResult>(`${this.base}/transcribe`, dto); }
   /** `[MS.7.6]` Con `queueId`, las personas de ESA cola (lo que se ofrece al asignar un ticket); sin él, las de las colas de quien pregunta. */
   agents(queueId?: string): Observable<SdAgentDto[]> { return this.http.get<SdAgentDto[]>(`${this.base}/agents`, { params: this.params({ queue_id: queueId }) }); }
 

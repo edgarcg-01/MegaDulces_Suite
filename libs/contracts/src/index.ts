@@ -133,6 +133,7 @@ export * from './http/cierre-viaje.contract';
 export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
 export * from './http/receipt-expediente.contract';
+export * from './http/lectura-escala';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.
@@ -187,3 +188,5 @@ export * from './finance/historial-filtro.contract';
 // llevar dato frío. Si agregás algo grande y sólo lo usa una pantalla, dale su
 // subruta.
 export * from './finance/caja-firma.contract';
+export * from './finance/arqueo-caja.contract';
+export * from './finance/caos-conteo-fisico.contract';

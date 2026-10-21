@@ -15,6 +15,21 @@ import { Permission } from '../../core/constants/permissions';
  * cambia. Lo que cambia es que ahora hay un nombre para el conjunto, y el sidebar puede
  * agruparlas como lo que son sin que nadie tenga que mantener una segunda lista.
  */
+/**
+ * ⛔ `[AUD-A5]` **El conjunto se llama «Ruta Directa»; «Ventas por ruta» es UNA de sus siete.**
+ *
+ * Durante tres semanas el ítem del sidebar se llamó como su primera pestaña, y eso salía en la
+ * migaja: estando en `/comercial/comisiones`, el eslabón con `aria-current="page"` decía
+ * **«Ventas por ruta»** — nombraba otra pantalla. La causa es que `currentPageTitle()` del
+ * layout resuelve por `isNavActive()` y devuelve la etiqueta del **ítem**, no la de la pestaña
+ * activa; con un ítem bien nombrado la migaja dice la verdad sin tocar esa lógica.
+ *
+ * ⚠️ Si alguna vez hace falta que la migaja diga la **pestaña** y no el sub-módulo, el lugar es
+ * `currentPageTitle()`, no esta lista. Renombrar la primera pestaña para «arreglar» la migaja
+ * volvería a mezclar el nombre de la parte con el del todo.
+ */
+export const RUTA_DIRECTA_LABEL = 'Ruta Directa';
+
 export const RUTA_DIRECTA_TABS: PageTab[] = [
   {
     label: 'Ventas por ruta',
@@ -39,15 +54,18 @@ export const RUTA_DIRECTA_TABS: PageTab[] = [
     icon: 'pi pi-percentage',
     permission: Permission.COMMERCIAL_COMMISSIONS_VER,
   },
-  {
-    // `[RD.59]` — el bono por objetivo mensual. Tab propio y no una pestaña dentro de
-    // Comisiones: configurar un bono y verificar una corrida de nómina son dos trabajos
-    // distintos. Mismo permiso de lectura; editar exige GESTIONAR, que gatea el servidor.
-    label: 'Objetivo RD',
-    route: '/comercial/comisiones/objetivo',
-    icon: 'pi pi-flag',
-    permission: Permission.COMMERCIAL_COMMISSIONS_VER,
-  },
+  // ⛔ `[AUD-A6]` Acá estaba «Objetivo RD» como pestaña propia, con este argumento:
+  // *«configurar un bono y verificar una corrida de nómina son dos trabajos distintos»*.
+  //
+  // ⭐ Se retiró el 2026-10-20 por pedido de Edgar: **todo lo que es comisión de Ruta Directa
+  // vive en una sola interfaz**. El argumento de arriba describía bien dos TAREAS, pero las
+  // dos son el mismo número mirado por sus dos lados — el bono **entra a la quincena**, no es
+  // un vecino. Hoy es la vista «Bono por objetivo» dentro de Comisiones RD.
+  //
+  // ⚠️ La ruta `/comercial/comisiones/objetivo` **sigue viva** y abre esa vista directamente,
+  // así que los enlaces y favoritos que ya existen no se rompen: se retira la pestaña, no el
+  // camino. Y ⛔ `/finanzas/comisiones-logistica` NO entró a la fusión: otro permiso, otra
+  // población (choferes de embarque) y otro dominio.
   {
     // `[RD.57]` — la misma operacion mirada por el resultado: utilidad bruta, kilometros del
     // GPS y gasto del departamento. Permiso PROPIO y mas estrecho que Comisiones: publica el

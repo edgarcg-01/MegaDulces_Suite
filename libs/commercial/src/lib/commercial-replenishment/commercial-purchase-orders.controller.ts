@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CommercialPurchaseOrdersService, CreatePurchaseOrderDto, CreateReceiptDto } from './commercial-purchase-orders.service';
+import { CommercialPurchaseOrdersService, CreatePurchaseOrderDto, CreateReceiptDto, RespuestaPorProveedor, RespuestaConsolidado } from './commercial-purchase-orders.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
 const PO_ESTADO_LABEL: Record<string, string> = {
@@ -34,6 +34,24 @@ export class CommercialPurchaseOrdersController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.svc.listPurchaseOrders({ estado, supplier_id, warehouse_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
+  /**
+   * `[OC.2]` Va ANTES de `:id` a propósito: Nest resuelve las rutas en orden y `consolidado`
+   * entraría por `@Get(':id')` como si fuera un uuid, devolviendo «id inválido».
+   */
+  @Get('por-proveedor')
+  @RequirePermissions(Permission.COMPRAS_ORDENES_VER)
+  @ApiOperation({ summary: 'Órdenes de COMPRA agrupadas por proveedor, sobre todo el universo (no la página). Por omisión open+partial.' })
+  porProveedor(@Query('estado') estado?: string, @Query('warehouse_id') warehouse_id?: string): Promise<RespuestaPorProveedor> {
+    return this.svc.porProveedor({ estado, warehouse_id });
+  }
+
+  @Get('consolidado')
+  @RequirePermissions(Permission.COMPRAS_ORDENES_VER)
+  @ApiOperation({ summary: 'Todo lo que falta pedirle a UN proveedor, consolidado por SKU (para imprimir el pedido completo). Por omisión toma sus órdenes open+partial.' })
+  consolidado(@Query('supplier_id') supplier_id?: string, @Query('estado') estado?: string): Promise<RespuestaConsolidado> {
+    return this.svc.consolidadoProveedor({ supplier_id, estado });
   }
 
   @Get(':id')

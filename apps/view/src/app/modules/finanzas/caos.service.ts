@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import type { CaosConteoFisicoDto, CaosConteoPieza } from '@megadulces/contracts';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -17,32 +18,72 @@ export interface CaosMovimiento {
   total: number;
   currency: string;
   ref: string | null;
+  /** `[CGA-A.41]` Folio de Caja General que lo registra; `null` = falta registrarlo (sólo depósitos y dispensaciones). */
+  folio_caja_general?: string | null;
 }
 
 export interface CaosKpi {
   movimientos: number;
   depositos: number;
   dispensado: number;
-  /** Depósitos − dispensado. **No es el saldo de la máquina**: ver `otros_total`. */
-  balance: number;
+  /** `[CGA-A.33]` Carga de casetes (`Dotar`, suma) y su retiro (`Vaciar Stocks`, resta). */
+  dotado: number;
+  vaciado: number;
   /**
-   * `[CG.163]` Movimientos del rango que NO son depósito ni dispensación (`Vaciar Stocks`,
-   * `Dotar`, `Fin de Dia`, `Contenido Modificado`, `Cambio`). Van SEPARADOS porque su signo
-   * contra el dispositivo no está decodificado: meterlos al balance sería inventar la cifra con
-   * la que alguien va a cuadrar. Se declaran con su monto (ADR-056), no se esconden en cero.
+   * `[CGA-A.33]` Flujo NETO del rango con el signo decodificado contra el equipo. Es un flujo,
+   * **no el saldo**: el saldo es `/saldo` (la foto de la máquina).
    */
-  otros_n: number;
-  otros_total: number;
+  neto: number;
+  /** `Fin de Dia`: fotos del contenido. No son dinero y no entran al neto. */
+  fotos_n: number;
+  /** Lo que sigue sin decodificar (`Cambio`, `Contenido Modificado`, tipos nuevos), declarado aparte. */
+  indeterminados_n: number;
+  indeterminados_total: number;
   datos_al: string | null;
 }
 
+// ── `[CGA-A.33]` El saldo de la caja fuerte ─────────────────────────────────────────────────
+
+export interface CaosDenomFila { denom: number; billetes: number; importe: number }
+export interface CaosParCuadre {
+  desde_id: number; hasta_id: number; desde_at: string; hasta_at: string; movimientos: number;
+  estado: 'cuadra' | 'descuadre' | 'no_verificable'; diferencia: number;
+  por_denominacion: { denom: number; diferencia: number }[]; motivo?: string;
+}
+export interface CaosSaldo {
+  estado: 'medido' | 'sin_tabla' | 'sin_foto';
+  maquina: {
+    tomada_at: string; confirmada_at: string; tras_movimiento: number; online: boolean | null;
+    con_miscount: boolean; total: number; por_denominacion: CaosDenomFila[];
+    contenedores: { tipo: string; indice: number; denom: number; billetes: number; miscount: boolean }[];
+  } | null;
+  posteriores: { movimientos: number; neto: number; ambiguos: string[]; ultimo_at: string | null } | null;
+  saldo: { total: number; por_denominacion: CaosDenomFila[]; origen: 'maquina' | 'foto_mas_movimientos'; parcial: boolean } | null;
+  cuadre: { pares: number; cuadran: number; descuadres: CaosParCuadre[]; no_verificables: CaosParCuadre[] } | null;
+  conteo_fisico: { medido: false; motivo: string };
+  latido: CaosLatido | null;
+  /** Los tres carriles de CAOS: la pantalla avisa una falla aunque su panel esté plegado. */
+  latidos: { movimientos: CaosLatido | null; conteo: CaosLatido | null; atribucion: CaosLatido | null };
+  /** `[CGA-A.41]` Lo que falta registrar en Caja General, desde el primer movimiento registrado. */
+  pendientes: {
+    medido: boolean; desde: string | null; movimientos: number; monto: number;
+    depositos: { n: number; monto: number }; dispensaciones: { n: number; monto: number }; mas_viejo: string | null;
+  };
+}
+export interface CaosLatido { cuando: string | null; al: string | null; status: string; nota: string | null; error: string | null }
+
 /** `[CG.163]` Los tipos que de verdad existen en la ventana. El combo ya no los adivina. */
 export interface CaosTipo { type_id: number; type_label: string; n: number }
+export interface CaosTipoEfecto { efecto: 'suma' | 'resta' | 'foto' | 'indeterminado'; signo: 1 | -1 | 0; motivo: string }
 
 export interface CaosMovimientosResponse {
   rows: CaosMovimiento[];
   kpi: CaosKpi;
   tipos: CaosTipo[];
+  /** `[CGA-A.33]` Qué hace cada `type_id` con el saldo (el mapa del backend, no una copia). */
+  efectos?: Record<string, CaosTipoEfecto>;
+  /** `[CGA-A.41]` Desde cuándo se registra CAOS en Caja General (derivado). */
+  registro_desde?: string | null;
   desde: string;
   limit: number;
   has_more: boolean;
@@ -67,7 +108,7 @@ export class CaosService {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/finance/caos`;
 
-  movimientos(f: { from?: string; to?: string; tipo?: string; usuario?: string; ref?: string; limit?: number }): Observable<CaosMovimientosResponse> {
+  movimientos(f: { from?: string; to?: string; tipo?: string; usuario?: string; ref?: string; buscar?: string; estado?: 'sin_registrar'; limit?: number }): Observable<CaosMovimientosResponse> {
     let p: Record<string, string> = {};
     for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
     return this.http.get<CaosMovimientosResponse>(`${this.base}/movimientos`, { params: p });
@@ -93,6 +134,21 @@ export class CaosService {
     let p: Record<string, string> = {};
     for (const [k, v] of Object.entries(f)) if (v != null && v !== '') p[k] = String(v);
     return this.http.get<CaosResumen>(`${this.base}/resumen`, { params: p });
+  }
+
+  /** `[CGA-A.33]` El saldo: la foto de la máquina, su cuadre contra los movimientos y el conteo físico. */
+  saldo(): Observable<CaosSaldo> {
+    return this.http.get<CaosSaldo>(`${this.base}/saldo`);
+  }
+
+  /** `[CGS.22]` El último conteo físico de la caja fuerte; `null` = nunca se contó a mano. */
+  conteoFisicoUltimo(): Observable<CaosConteoFisicoDto | null> {
+    return this.http.get<CaosConteoFisicoDto | null>(`${this.base}/conteos-fisicos/ultimo`);
+  }
+
+  /** `[CGS.22]` Guarda el conteo físico (a ciegas): la diferencia contra la máquina llega en la respuesta. */
+  registrarConteoFisico(piezas: CaosConteoPieza[], nota?: string): Observable<CaosConteoFisicoDto> {
+    return this.http.post<CaosConteoFisicoDto>(`${this.base}/conteos-fisicos`, { piezas, nota: nota || undefined });
   }
 
   conciliacion(f: { from?: string; to?: string }): Observable<CaosConciliacion> {

@@ -10,8 +10,8 @@ import { environment } from '../../../environments/environment';
  * libros fiscales que ya están en ContPAQi (balanza, bancos, EFOS). Éste mira la **ida**: qué
  * saldría de póliza desde los egresos de banco, y qué no sale y por qué.
  *
- * ⛔ Los dos endpoints son de SOLO LECTURA y no existe `entregar`: nunca se importó un archivo
- * a ContPAQi, así que la pantalla no ofrece un camino que nadie recorrió.
+ * ⛔ Todo es de SOLO LECTURA salvo `confirmarAlias` y `entregar` (`[CP.8.54]`), que exigen
+ * `_GESTIONAR`. `entregar` no manda nada a ContPAQi: registra que contabilidad ya lo cargó.
  */
 @Injectable({ providedIn: 'root' })
 export class ContpaqiPuenteService {
@@ -43,6 +43,33 @@ export class ContpaqiPuenteService {
    */
   archivo(mes: string): Observable<Blob> {
     return this.http.get(`${this.base}/archivo?mes=${encodeURIComponent(mes)}`, { responseType: 'blob' });
+  }
+
+  /**
+   * `[CP.8.54]` «Ya lo cargué en ContPAQi». Manda el MISMO archivo que se importó; el backend lo
+   * compara byte a byte con el que genera hoy y responde 409 si no es ése. Exige `_GESTIONAR`.
+   */
+  entregar(mes: string, archivoBase64: string): Observable<EntregaResp> {
+    return this.http.post<EntregaResp>(`${this.base}/entregas`, { mes, archivo_base64: archivoBase64 });
+  }
+
+  /** `[CP.8.14]` Las reglas de cuenta con su evidencia y lo que traban en el mes. `_VER`. */
+  reglas(mes: string): Observable<ReglasResp> {
+    return this.http.get<ReglasResp>(`${this.base}/reglas?mes=${encodeURIComponent(mes)}`);
+  }
+
+  /** Las cuentas de gasto `52*` afectables que puede llevar una regla por categoría. */
+  cuentasGasto(): Observable<{ cuentas: CuentaGasto[] }> {
+    return this.http.get<{ cuentas: CuentaGasto[] }>(`${this.base}/cuentas-gasto`);
+  }
+
+  /** ⛔ Firmar es del contador: `_GESTIONAR`, y queda su nombre. */
+  firmarRegla(categoria: string, cuenta: string): Observable<ReglaVista> {
+    return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/firma`, { cuenta });
+  }
+
+  revocarRegla(categoria: string): Observable<ReglaVista> {
+    return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/revocar`, {});
   }
 
   cuadre(): Observable<CuadreResp> {
@@ -89,6 +116,47 @@ export interface LotesResp {
   fuera_de_lote: FueraDeLote;
   /** Ya viene ordenado de mayor a menor: lo primero que se ve es lo que más trabajo representa. */
   motivos: { motivo: string; movimientos: number; dueno: string }[];
+}
+
+/** `[CP.8.53]` Una regla como la ve el contador (espejo de `ReglaVista` del backend). */
+export interface ReglaVista {
+  categoria_code: string;
+  tipo_regla: string;
+  estado: string;
+  tiene_fila: boolean;
+  cuenta_gasto: string | null;
+  cuenta_nombre: string | null;
+  aprobada_por: string | null;
+  aprobada_en: string | null;
+  firmable: boolean;
+  motivo_no_firmable: string | null;
+  /** ⛔ Indicio del derivador. Nunca se preselecciona. */
+  indicio: string | null;
+  evidencia: string | null;
+  salvedad: string | null;
+  pareados: number | null;
+  movimientos_mes: number;
+  importe_mes: number;
+}
+
+export interface ReglasResp {
+  mes: string;
+  reglas: ReglaVista[];
+}
+
+export interface CuentaGasto {
+  codigo: string;
+  nombre: string;
+}
+
+/** `[CP.8.52]` Lo que se registró. `ya_registradas` = marcar dos veces no duplica. */
+export interface EntregaResp {
+  mes: string;
+  polizas: number;
+  nuevas: number;
+  ya_registradas: number;
+  total: number;
+  archivo_sha256: string;
 }
 
 export interface CuadreResp {

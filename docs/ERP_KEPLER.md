@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 101 KB, 1561 líneas, 32 secciones.
+> **Índice navegable** — 102 KB, 1563 líneas, 32 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -25,20 +25,20 @@
 | 888 | 925 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
 | 926 | 955 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
 | 956 | 1009 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1010 | 1056 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1057 | 1088 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1089 | 1149 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1150 | 1261 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1262 | 1292 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1293 | 1340 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1341 | 1368 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1369 | 1425 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1426 | 1476 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1477 | 1502 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1503 | 1567 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1568 | 1587 | 1 | 6. Importers / feeds relevantes |
-| 1588 | 1595 | 1 | 7. Conexiones y credenciales |
-| 1596 | 1605 | 1 | 8. Para profundizar |
+| 1010 | 1058 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1059 | 1090 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1091 | 1151 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1152 | 1263 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1264 | 1294 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1295 | 1342 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1343 | 1370 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1371 | 1427 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1428 | 1478 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1479 | 1504 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1505 | 1569 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1570 | 1589 | 1 | 6. Importers / feeds relevantes |
+| 1590 | 1597 | 1 | 7. Conexiones y credenciales |
+| 1598 | 1607 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -1032,6 +1032,8 @@ el grupo `U-A` son abonos — `U-A-7` Cobro CFDI · `U-A-20` Devolución · `U-A
 
 **El 98 % del dinero salda factura de crédito no fiscal** ⇒ en esta empresa, `U-A-5` es **el cobro de
 la venta a crédito de ruta**.
+
+> ⛔⛔ **`[CSU.11]` Una aplicación de `kdm5` NO dice si su documento sigue vivo.** Kepler cancela en la cabecera (`kdm1.c43 = 'C'`, importe 0) y deja la aplicación en `kdm5` con su monto: medido el 2026-10-21, **854 de 70,478** aplicaciones son de documentos cancelados. **Toda suma de aplicaciones lee `analytics.kepler_kdm5_vigente`** (mismas columnas, sin las canceladas), nunca `kepler_ods.kdm5`; la compuerta `check:kdm5-vigente` lo hace cumplir. Ver GOTCHAS §89 y ADR-098.
 
 ⛔⛔ **NO leer la glosa como si fuera el tipo de documento.** `c24` dice cosas como
 *«VENTA RV CANDY SALGADO 25-09-2026»* o *«DEPOSITO EFECTIVO CAJA GENERAL M.M. 08/10/2026»* porque la

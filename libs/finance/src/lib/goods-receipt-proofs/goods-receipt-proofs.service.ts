@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch, ScopeService } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
@@ -12,6 +13,13 @@ import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
   HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL, COMERCIAL_CATS,
 } from './receipt-match';
+// `[RE.42]` Si un papel ya se subió: emisor + folio, nunca el folio solo. Puro y medido.
+import {
+  folioNucleo, masGrave, mensajeDuplicado, papelesDeFila, veredictoDuplicado, SQL_CANDIDATOS_DUPLICADO,
+  type FilaCandidataDup, type FuenteEmisor, type MotivoDuplicado, type PapelProveedor, type VeredictoDuplicado,
+} from './documento-duplicado';
+// `[RE.43]` De qué entrada es un papel: el folio del proveedor va contra `referencia`. Puro y medido.
+import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -174,6 +182,8 @@ export interface ReceiptFile {
   ocr_total?: number | null;
   ocr_fecha?: string | null;
   ocr_rfc?: string | null;
+  /** `[RE.42]` Posible duplicado que no se pudo probar: no frenó, y se deja escrito para el revisor. */
+  dup_aviso?: { sucursal: string; folio: string; motivo: MotivoDuplicado; mensaje: string };
 }
 
 /** Coincidencia de duplicado (misma hoja por hash, o folio ya subido). */
@@ -191,9 +201,22 @@ export interface ReceiptFile {
  */
 export interface DuplicateHit {
   reason: 'file' | 'folio';
+  /**
+   * ⭐ `[RE.42]` Qué tan seguro es. `bloquea` = misma hoja, o mismo folio del MISMO emisor probado.
+   * `avisa` = mismo folio sin poder probar el emisor: se muestra, NO frena. La decisión vive en el
+   * servidor (`documento-duplicado.ts`) para que las pantallas no la reimplementen cada una.
+   */
+  nivel: 'bloquea' | 'avisa';
+  motivo: MotivoDuplicado;
+  /** Con qué se decidió quién emitió el papel (`null` = no se pudo). */
+  emisor: FuenteEmisor | null;
+  /** Texto listo para la pantalla. */
+  mensaje: string;
   sucursal: string;
   folio: string;
   proveedor?: string | null;
+  /** Total leído del papel que ya estaba. */
+  monto?: number | null;
   /** `false` = la entrada ya no existe en el espejo de Kepler. No bloquea; se avisa. */
   vigente: boolean;
 }
@@ -601,6 +624,42 @@ export class GoodsReceiptProofsService {
       const dinero = q.lente === 'dinero';
 
       /**
+       * ⭐ `[RE.49]` La vista `analytics.erp_goods_receipts` se evalúa UNA vez por petición.
+       *
+       * Es viva sobre el ODS y cuesta ~300 ms por evaluación (mediana de 5 corridas en prod,
+       * 2026-10-21: 342/291/293/296/300 ms). Esta petición la evaluaba hasta 7 veces EN SERIE —
+       * llaves de la bandeja, entradas del expediente, filas, total, totales de dinero, KPIs—, y
+       * en `pg_stat_statements` cada una salía en 330 a 1,300 ms: varios segundos de carga.
+       *
+       * Ahora el universo (tenant + sin copia CEDIS + alcance + carril + rango, lo que las tres
+       * consultas tienen en común) se vuelca a una tabla TEMPORAL de la transacción y todas leen de
+       * ahí. Cada consulta conserva TODOS sus filtros: sólo cambia la fuente, no el SQL de negocio.
+       * `ON COMMIT DROP` la borra al cerrar la transacción; el nombre es único por si la misma
+       * transacción pide la lista dos veces.
+       *
+       * ⛔ El `ANALYZE` es OBLIGATORIO (~65 ms). Sin estadísticas, el planificador estima que los
+       * filtros que cada consulta conserva no dejan casi nada, elige nested loop y recalcula el
+       * agregado de evidencias POR FILA: medido, salía MÁS LENTO que antes (2.7–3.4 s contra
+       * 2.2–2.4 s). Con `ANALYZE`, misma corrida, alternado, 3 veces — la secuencia de 5 consultas
+       * de esta petición: antes 2,101 / 1,997 / 2,048 ms → después 392 / 521 / 495 ms.
+       *
+       * ⛔ No es una copia de la tabla (regla 2): vive lo que dura la petición y se arma de la vista
+       * viva en cada una — la frescura es la misma de antes (ADR de «al momento» intacto).
+       */
+      const universo = `tmp_gr_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+      const uq = trx('analytics.erp_goods_receipts as c').select('c.*')
+        .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL');
+      if (alcance) { if (alcance.length) uq.whereIn('c.sucursal', alcance); else uq.whereRaw('false'); }
+      if (q.carril === 'rezago') uq.where('c.receipt_date', '<', cfg.reception_start);
+      else if (q.carril !== 'todo') uq.where('c.receipt_date', '>=', cfg.reception_start);
+      if (q.from) uq.where('c.receipt_date', '>=', q.from);
+      if (q.to) uq.where('c.receipt_date', '<=', q.to);
+      const { sql: uSql, bindings: uBind } = uq.toSQL();
+      await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${uSql}`, [universo, ...uBind]);
+      await trx.raw('ANALYZE ??', [universo]);
+      const fuente = `${universo} as c`;
+
+      /**
        * Ajustes LIGADOS a la entrada: devoluciones (X-D-40) y notas de crédito (X-D-55).
        *
        * ⚠️ Se liga por **(sucursal, entrada_folio)** y NO sólo por folio: el folio de Kepler
@@ -664,7 +723,7 @@ export class GoodsReceiptProofsService {
       let resumen: { filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos } | null = null;
       let filtroLlaves: string[][] | null = null;
       if (dinero) {
-        const u = trx('analytics.erp_goods_receipts as c')
+        const u = trx(fuente)
           .join(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL')
           .whereRaw(`d.last_status = 'recibido'`);
@@ -677,7 +736,8 @@ export class GoodsReceiptProofsService {
           u.whereNotExists(trx('finance.goods_receipt_discards as x').whereRaw('x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio'));
         }
         const llaves = (await u.select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
-        resumen = await this.expediente.resumenLote(trx, tenantId, llaves);
+        // `[RE.49]` Las llaves salen del universo: el expediente lee sus entradas de la misma temporal.
+        resumen = await this.expediente.resumenLote(trx, tenantId, llaves, universo);
         if (q.bandeja || q.hallazgo) {
           filtroLlaves = [];
           for (const [k, v] of resumen.filas) {
@@ -690,7 +750,7 @@ export class GoodsReceiptProofsService {
 
       /** Todos los filtros, sin select ni orden: lo comparten las filas, el total y los KPIs. */
       const base = () => {
-        const b = trx('analytics.erp_goods_receipts as c')
+        const b = trx(fuente)
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId)
           .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
@@ -926,7 +986,7 @@ export class GoodsReceiptProofsService {
       // KPIs = el universo del alcance + carril + rango de fecha (NO se le aplica `estado`
       // ni `search`: son el denominador contra el que se lee la lista filtrada).
       const kpiBase = () => {
-        const k = trx('analytics.erp_goods_receipts as c')
+        const k = trx(fuente)
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId)
           .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
@@ -1036,31 +1096,52 @@ export class GoodsReceiptProofsService {
    * Los de alcance `red` (mode `all`) se cuentan aparte: aparecen en las 7 sucursales y si
    * se mezclan, ninguna se ve nunca huérfana.
    */
-  private async responsablesPorSucursal(trx: any): Promise<Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]> & { red?: number }> {
+  private async responsablesPorSucursal(trx: Knex.Transaction): Promise<Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]> & { red?: number; redUsuarios?: Map<string, { username: string; nombre: string | null }> }> {
     const tenantId = this.tenantCtx.requireTenantId();
-    // `permissions -> 'KEY' IS NOT NULL` y NO el operador `?` de JSONB: knex no lo escapa (42P18).
+    /**
+     * ⭐ `[RE.46]` Quién PUEDE subir se resuelve igual que el guard (`RolesGuard`), no sólo con el
+     * rol base: la UNIÓN de roles (`identity.user_roles`, perfil base + complementos — `[ID.13]`) y
+     * encima el permiso puesto a mano por persona (`identity.user_permissions`, `allow` gana).
+     *
+     * Medido en prod (2026-10-21): CEDIS salía «nadie con permiso» mientras `estefania_mendez`
+     * —rol base `facturacion`, complemento `auxiliar_compras`, alcance {00, 01}— había subido 175
+     * evidencias en 30 días. El rótulo mandaba a pedir un permiso que ya existía. Con la unión, los
+     * de alcance de red pasan de 15 a 18.
+     *
+     * `permissions -> 'KEY'` y NO el operador `?` de JSONB: knex no lo escapa (42P18).
+     */
     const r = await trx.raw(`
-      WITH puede AS (
+      WITH puede_rol AS (
         SELECT lower(role_name) AS rn
           FROM identity.role_permissions
          WHERE tenant_id = ?
-           AND permissions -> 'COMPRAS_ENTRADAS_GESTIONAR' IS NOT NULL
            AND (permissions -> 'COMPRAS_ENTRADAS_GESTIONAR')::text = 'true'
+      ), roles AS (
+        SELECT u.id, lower(u.role_name) AS rn FROM identity.users u WHERE u.tenant_id = ?
+        UNION
+        SELECT ur.user_id, lower(ur.role_name) FROM identity.user_roles ur WHERE ur.tenant_id = ?
+      ), por_rol AS (
+        SELECT DISTINCT r.id FROM roles r JOIN puede_rol p ON p.rn = r.rn
+      ), ov AS (
+        SELECT user_id, allow FROM identity.user_permissions
+         WHERE tenant_id = ? AND permission_key = 'COMPRAS_ENTRADAS_GESTIONAR'
       )
       SELECT u.username, u.nombre, u.warehouse_code,
              COALESCE(us.mode_write, us.mode, rs.mode_write, rs.mode, 'none') AS modo,
              COALESCE(us.values, rs.values)                                   AS vals
         FROM identity.users u
-        JOIN puede p ON p.rn = lower(u.role_name)
+        LEFT JOIN ov ON ov.user_id = u.id
         LEFT JOIN identity.user_scopes us
                ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = 'warehouse'
         LEFT JOIN identity.role_scopes rs
                ON rs.tenant_id = u.tenant_id AND lower(rs.role_name) = lower(u.role_name) AND rs.dimension = 'warehouse'
        WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+         AND COALESCE(ov.allow, u.id IN (SELECT id FROM por_rol))
        ORDER BY u.username`,
-      [tenantId, tenantId]);
+      [tenantId, tenantId, tenantId, tenantId, tenantId]);
 
     const out = new Map<string, { username: string; nombre: string | null; alcance: 'propio' | 'asignado' }[]>() as any;
+    const redUsuarios = new Map<string, { username: string; nombre: string | null }>();
     let red = 0;
     const push = (suc: string, x: any, alcance: 'propio' | 'asignado') => {
       const k = String(suc).trim();
@@ -1069,11 +1150,48 @@ export class GoodsReceiptProofsService {
       out.get(k).push({ username: x.username, nombre: x.nombre ?? null, alcance });
     };
     for (const x of r.rows || []) {
-      if (x.modo === 'all') { red++; continue; }
+      if (x.modo === 'all') {
+        red++;
+        // Por username y por nombre: `created_by` guarda el que haya traído el token.
+        const u = { username: x.username, nombre: x.nombre ?? null };
+        redUsuarios.set(x.username, u);
+        if (x.nombre) redUsuarios.set(x.nombre, u);
+        continue;
+      }
       if (x.modo === 'own') { if (x.warehouse_code) push(x.warehouse_code, x, 'propio'); continue; }
       if (x.modo === 'listed') { for (const v of x.vals || []) push(v, x, 'asignado'); }
     }
     out.red = red;
+    out.redUsuarios = redUsuarios;
+    return out;
+  }
+
+  /**
+   * `[RE.46]` Quién SUBE de verdad en cada sucursal con alcance de RED (últimos 30 días).
+   *
+   * Una sucursal sin nadie asignado no siempre está huérfana: en Morelia Abastos la sube toda
+   * `janette_garcia` (281 evidencias en 30 días) con el alcance de red de su rol. «Nadie con
+   * permiso» ahí es cierto y no sirve: la acción no es «dar un permiso», es **asignarle la
+   * sucursal** a quien ya la trabaja — que además acota su búsqueda (ADR-098).
+   */
+  private async subenConRed(
+    trx: Knex.Transaction, redUsuarios: Map<string, { username: string; nombre: string | null }>,
+  ): Promise<Map<string, { username: string; nombre: string | null; n: number }[]>> {
+    const out = new Map<string, { username: string; nombre: string | null; n: number }[]>();
+    if (!redUsuarios.size) return out;
+    const r = await trx.raw(
+      `SELECT sucursal, created_by, count(*)::int AS n
+         FROM finance.goods_receipt_proofs
+        WHERE tenant_id = ? AND created_at >= now() - interval '30 days' AND created_by IS NOT NULL
+        GROUP BY 1, 2`, [this.tenantCtx.requireTenantId()]);
+    for (const x of r.rows || []) {
+      const u = redUsuarios.get(String(x.created_by));
+      if (!u) continue;
+      const k = String(x.sucursal).trim();
+      if (!out.has(k)) out.set(k, []);
+      out.get(k)!.push({ ...u, n: Number(x.n) });
+    }
+    for (const l of out.values()) l.sort((a, b) => b.n - a.n);
     return out;
   }
 
@@ -1256,6 +1374,7 @@ export class GoodsReceiptProofsService {
       // El rezago (anterior al arranque) va aparte y NO se mezcla: si entra al mismo `%` de
       // cobertura, el número deja de servir para exigirle a nadie.
       const resp = await this.responsablesPorSucursal(trx);
+      const subenRed = await this.subenConRed(trx, resp.redUsuarios ?? new Map());
 
       // RE.20.3/RE.20.6 — el rezago descuenta descartadas por la misma razón que el carril vivo,
       // y acá pesa MÁS: los 1,176 traspasos `TI*` (que nunca van a tener factura) viven todos
@@ -1276,6 +1395,8 @@ export class GoodsReceiptProofsService {
         rows: (r.rows || []).map((x: any) => ({
           sucursal: x.sucursal,
           responsables: resp.get(String(x.sucursal)) ?? [],
+          // `[RE.46]` Los de alcance de red que de hecho subieron aquí (30 días), mayor primero.
+          suben_red: subenRed.get(String(x.sucursal)) ?? [],
           // RE.20.3 — fuera del denominador de arriba, pero a la vista: un motivo que crece es
           // una señal (el ERP volvió a emitir traspasos, alguien descarta de más), no una fila menos.
           descartadas: descPorSuc.get(String(x.sucursal))?.total ?? 0,
@@ -1352,12 +1473,18 @@ export class GoodsReceiptProofsService {
    * FOLIO (tolerante a ceros: "8625"="0008625") ∪ por MONTO (±$2). Si `search` viene (pick
    * manual), busca por proveedor/folio/OC. Prioriza las que aún NO tienen comprobante.
    */
-  async matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string; limit?: number }) {
+  async matchByOcr(q: {
+    folio?: string; total?: number; fecha?: string; search?: string; limit?: number;
+    /** `[RE.43]` Qué es la hoja: decide si el folio leído es nuestro o del proveedor. */
+    role?: string; rfc?: string; proveedor?: string;
+  }): Promise<{ entradas: Record<string, unknown>[] }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(30, Math.max(1, Number(q.limit) || 15));
     // RE.13.0 — el enlace también se scopea: no se le puede colgar evidencia a la entrada
     // de otra sucursal por escribir su folio en el buscador.
-    const alcance = await this.sucursalesVisibles(null);
+    // ⭐ `[RE.43]` Con el alcance de CAPTURA, no el de lectura: enlazar es escribir. Quien tiene su
+    // sucursal busca sólo en ella; quien es global, en todas (`null` = sin filtro).
+    const alcance = this.scope.intersectWrite(await this.scope.current(), 'warehouse', null);
     const folio = (q.folio || '').trim();
     const total = q.total != null && isFinite(Number(q.total)) ? Number(q.total) : null;
     const search = (q.search || '').trim();
@@ -1384,7 +1511,7 @@ export class GoodsReceiptProofsService {
           .whereRaw('c.dup_of_folio IS NULL') // RE.12 — enlaza a la CANÓNICA (sucursal), no a la copia CEDIS
           .where('c.receipt_date', '>=', cfg.reception_start) // no enlazar a histórico previo al arranque
           .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
-            'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
+            'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', 'c.referencia', trx.raw('c.monto::numeric AS monto'),
             trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
             trx.raw('d.last_status AS deposit_status'), trx.raw(ORIGEN_SELECT),
             ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)));
@@ -1395,8 +1522,9 @@ export class GoodsReceiptProofsService {
         if (alcance) { if (alcance.length) qb.whereIn('c.sucursal', alcance); else qb.whereRaw('false'); }
         return qb;
       };
-      const order = (qb: any) => qb.orderByRaw('COALESCE(d.n,0) ASC').orderBy('c.receipt_date', 'desc').limit(limit);
+      const order = (qb: Knex.QueryBuilder, n = limit): Knex.QueryBuilder => qb.orderByRaw('COALESCE(d.n,0) ASC').orderBy('c.receipt_date', 'desc').limit(n);
       let rows: any[] = [];
+      let via: 'folio' | 'referencia' | 'sufijo' | 'monto' | null = null;
       if (search) {
         const b = sel();
         // Prioridad: últimos 4 dígitos del folio (término de 1–4 dígitos = sufijo exacto).
@@ -1421,17 +1549,44 @@ export class GoodsReceiptProofsService {
         // El folio y el importe se buscan en las DOS capturas de la misma recepción (la de
         // sucursal y la de oficinas): si no, una factura que casa con la copia de oficinas no
         // encuentra nada y el capturista concluye que "la orden no existe".
-        if (cands.length) {
+        //
+        // ⭐ `[RE.43]` El folio de una FACTURA es del proveedor, y Kepler lo guarda en `referencia`
+        // (`30-0666`), no en `c.folio` (nuestra orden). Compararlo contra `c.folio` mandó la nota
+        // 0666 de EL FAROLITO a la entrada 0000666 de otro proveedor; medido sobre 878 papeles,
+        // esa llave cae en la entrada de OTRO proveedor en el 32%. Ver `emparejar-papel.ts`.
+        const llave = llaveDelFolio(q.role, folio);
+        const nucleo = folioNucleo(folio);
+        if (cands.length && llave !== 'proveedor') {
           rows = await order(sel().where((w: any) => {
             w.whereIn('c.folio', cands);
             if (hayPares) w.orWhereIn('gem.cedis_folio', cands);
           }));
+          if (rows.length) via = 'folio';
+        }
+        if (!rows.length && nucleo && llave !== 'nuestro') {
+          // 50 y no `limit`: el número se repite entre proveedores, y el desempate va después.
+          rows = await order(sel().whereRaw(`${sqlNucleoReferencia('c.referencia')} = ?`, [nucleo]), 50);
+          if (rows.length) via = 'referencia';
+        }
+        // Kepler a veces guarda sólo la cola del folio (`IC - 3384616` ↔ `10-4616`).
+        if (!rows.length && nucleo && llave !== 'nuestro') {
+          rows = await order(sel().whereRaw(sqlSufijoReferencia('c.referencia'), [nucleo, nucleo]), 50);
+          if (rows.length) via = 'sufijo';
         }
         if (!rows.length && total != null) {
           rows = await order(sel().where((w: any) => {
             w.whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]);
             if (hayPares) w.orWhereRaw('gem.cedis_monto BETWEEN ? AND ?', [total - 2, total + 2]);
-          }));
+          }), 50);
+          if (rows.length) via = 'monto';
+        }
+        // Nuestro folio es exacto y no se reordena. Lo del proveedor se desempata por proveedor,
+        // fecha e importe; si queda más de una, la pantalla pregunta (nunca elige sola).
+        if (via === 'referencia' || via === 'sufijo' || via === 'monto') {
+          const emisora = await trx('fiscal.issuer_config')
+            .where({ tenant_id: tenantId, active: true }).orderBy('is_default', 'desc').first('rfc');
+          rows = ordenarCandidatas(rows, { rfc: q.rfc, proveedor: q.proveedor, fecha: q.fecha, total }, emisora?.rfc ?? null)
+            .slice(0, limit);
         }
       }
       const entradas = rows.map((r: any) => ({
@@ -1446,6 +1601,8 @@ export class GoodsReceiptProofsService {
           ? (Math.abs(Number(r.monto) - total) <= 2
             || (r.gemela_monto != null && Math.abs(Number(r.gemela_monto) - total) <= 2))
           : false,
+        // `[RE.43]` Por qué salió: `folio` (nuestra hoja) · `referencia`/`sufijo` (folio del proveedor) · `monto`.
+        match_via: via,
       }));
       return { entradas };
     });
@@ -1487,7 +1644,9 @@ export class GoodsReceiptProofsService {
    * Además detecta DUPLICADOS: la misma hoja (hash de contenido) o un folio de remisión/factura
    * ya subido antes. Preview, no guarda. `role` afina el dedup de folio (solo remisión/factura).
    */
-  async runOcr(dataUri: string, role?: string): Promise<RemisionFields & { ocr_status: string; sha256: string; duplicate: DuplicateHit | null }> {
+  async runOcr(
+    dataUri: string, role?: string, destino?: { sucursal?: string | null; folio?: string | null } | null,
+  ): Promise<RemisionFields & { ocr_status: string; sha256: string; duplicate: DuplicateHit | null }> {
     this.tenantCtx.requireTenantId();
     if (!dataUri) throw new BadRequestException('archivo requerido');
     const { mediaType, base64 } = this.parseDataUri(dataUri);
@@ -1511,61 +1670,100 @@ export class GoodsReceiptProofsService {
     this.readings.remember(this.tenantCtx.requireTenantId(), sha256, fields, ocr_status);
     // El dedup por FOLIO aplica al documento del proveedor (remisión/factura); el de HASH, a cualquier hoja.
     const checkFolio = !role || role === 'remision' || role === 'factura';
-    const duplicate = await this.findDuplicate({ sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc });
+    const duplicate = await this.findDuplicate(
+      { sha256, folio: checkFolio ? fields.folio : null, rfc: fields.rfc, nombre: fields.proveedor, total: fields.total },
+      destino,
+    );
     return { ...fields, ocr_status, sha256, duplicate };
   }
 
   /**
-   * ¿Esta hoja ya se subió? Por HASH de contenido (misma imagen/PDF) o por FOLIO de
-   * remisión/factura ya capturado. Devuelve la entrada donde ya vive, o null.
+   * `[RE.42.2]` Vuelve a revisar el duplicado de una hoja YA LEÍDA, ahora con la entrada destino.
+   *
+   * La vista previa corre antes de saber a qué entrada va el papel (se enlaza después, por
+   * coincidencia), así que sin destino sólo puede avisar. Con él decide por el proveedor de Kepler:
+   * medido en el caso que lo motivó, el aviso contra BOTANAS PAU (`CB013`) se va solo al enlazar
+   * EL FAROLITO (`CE011`). No vuelve a leer el PDF: usa lo que ya se leyó.
    */
-  private async findDuplicate(q: { sha256?: string | null; folio?: string | null; rfc?: string | null }): Promise<DuplicateHit | null> {
-    const sha = (q.sha256 || '').trim();
-    const folio = (q.folio || '').trim().toLowerCase();
-    const rfc = (q.rfc || '').trim().toLowerCase();
-    const folioOk = folio.length >= 3 && /[^0]/.test(folio); // evita folios triviales ("1", "000")
-    if (!sha && !folioOk) return null;
+  async checkDuplicate(b: {
+    sha256?: string; folio?: string | null; rfc?: string | null; proveedor?: string | null;
+    total?: number | null; role?: string; entrada_sucursal?: string; entrada_folio?: string;
+  }): Promise<{ duplicate: DuplicateHit | null }> {
+    const fiscal = !b?.role || b.role === 'remision' || b.role === 'factura';
+    const total = b?.total != null && Number.isFinite(Number(b.total)) ? Number(b.total) : null;
+    const duplicate = await this.findDuplicate(
+      { sha256: b?.sha256, folio: fiscal ? b?.folio : null, rfc: b?.rfc, nombre: b?.proveedor, total },
+      { sucursal: b?.entrada_sucursal, folio: b?.entrada_folio },
+    );
+    return { duplicate };
+  }
+
+  /**
+   * ¿Esta hoja ya se subió? Devuelve dónde vive la otra y QUÉ TAN SEGURO es (`nivel`), o null.
+   *
+   * ⭐ `[RE.42]` La identidad de un papel del proveedor es **emisor + folio**, no el folio solo:
+   * la regla, las señales y lo que midió cada una están en `documento-duplicado.ts`. Acá sólo se
+   * juntan los candidatos (mismo hash o mismo núcleo de folio) con lo que se sabe de su emisor.
+   *
+   * `destino` = la entrada a la que va el papel, cuando ya se sabe (al adjuntar siempre; en la
+   * vista previa, si se soltó sobre una fila). Aporta la señal más fuerte: el `proveedor_code` de
+   * Kepler. Sin ella, la vista previa puede quedarse en `avisa` y el `attach` decide con ella.
+   */
+  private async findDuplicate(
+    nuevo: PapelProveedor,
+    destino?: { sucursal?: string | null; folio?: string | null } | null,
+  ): Promise<DuplicateHit | null> {
+    const sha = (nuevo.sha256 || '').trim();
+    const nucleo = folioNucleo(nuevo.folio) ?? '';
+    if (!sha && !nucleo) return null;
     const tid = this.tenantCtx.requireTenantId();
-    /**
-     * ⭐ `[RE.31]` ¿La entrada donde ya vive esa hoja SIGUE existiendo en Kepler?
-     *
-     * ⚠️ `analytics.erp_goods_receipts` lleva el filtro de tenant EXPLÍCITO: es un schema
-     * `analytics.*` y ahí el RLS no manda (mismo criterio que `attach`, unas líneas más abajo).
-     */
-    const VIGENTE = `EXISTS (SELECT 1 FROM analytics.erp_goods_receipts g
-                              WHERE g.tenant_id = ? AND g.sucursal = p.sucursal AND g.folio = p.folio) AS vigente`;
-    /**
-     * ⛔ El ORDEN importa y no es cosmético: si la misma hoja está en una entrada VIVA y en una
-     * borrada, tiene que ganar la viva — si no, un fantasma más reciente dejaría pasar un
-     * duplicado de verdad. Por eso `vigente DESC` va ANTES que `created_at DESC`.
-     */
-    const ORDEN = 'ORDER BY vigente DESC, p.created_at DESC LIMIT 1';
     return this.tk.run(async (trx) => {
-      if (sha) {
-        const hit = await trx.raw(
-          `SELECT p.sucursal, p.folio, p.proveedor_nombre, ${VIGENTE}
-             FROM finance.goods_receipt_proofs p
-            WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e WHERE e->>'sha256' = ?)
-            ${ORDEN}`, [tid, sha]);
-        const r = hit.rows?.[0];
-        if (r) return { reason: 'file' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre, vigente: r.vigente === true };
+      // ⚠️ `analytics.*` lleva el tenant EXPLÍCITO: ahí el RLS no manda (mismo criterio que `attach`).
+      const dSuc = (destino?.sucursal || '').trim();
+      const dFol = (destino?.folio || '').trim();
+      const dest = dSuc && dFol
+        ? await trx('analytics.erp_goods_receipts').where({ tenant_id: tid, sucursal: dSuc, folio: dFol })
+          .first('proveedor_code', 'proveedor_nombre')
+        : null;
+      const papel: PapelProveedor = {
+        ...nuevo,
+        proveedorCode: dest?.proveedor_code ?? nuevo.proveedorCode ?? null,
+        proveedorNombre: dest?.proveedor_nombre ?? nuevo.proveedorNombre ?? null,
+      };
+      // Nuestro RFC: leído en un papel es el RECEPTOR. Sale de `fiscal.issuer_config`, nunca de una constante.
+      const emisora = await trx('fiscal.issuer_config')
+        .where({ tenant_id: tid, active: true }).orderBy('is_default', 'desc').first('rfc');
+      // Candidatos (mismo hash o mismo núcleo de folio) con el proveedor de su entrada. El SQL y
+      // por qué está armado así (11.7 s → 129 ms) viven en `documento-duplicado.ts`.
+      const { rows } = await trx.raw(SQL_CANDIDATOS_DUPLICADO, [sha, sha, nucleo, nucleo, nucleo, nucleo, tid]);
+      const opts = { rfcPropio: emisora?.rfc ?? null, tolerancia: TOLERANCIA_DEFAULT };
+      const hits: { v: VeredictoDuplicado; r: FilaCandidataDup; p: PapelProveedor; nivel: VeredictoDuplicado['nivel'] }[] = [];
+      for (const r of (rows || []) as FilaCandidataDup[]) {
+        for (const p of papelesDeFila(r)) {
+          const v = veredictoDuplicado(papel, p, opts);
+          if (v.nivel !== 'distinto') hits.push({ v, r, p, nivel: v.nivel });
+        }
       }
-      if (folioOk) {
-        const hit = await trx.raw(
-          `SELECT p.sucursal, p.folio, p.proveedor_nombre, ${VIGENTE}
-             FROM finance.goods_receipt_proofs p
-            WHERE (
-                    lower(btrim(COALESCE(p.ocr_folio,''))) = ?
-                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(p.files,'[]'::jsonb)) e
-                             WHERE (e->>'role') IN ('remision','factura')
-                               AND lower(btrim(COALESCE(e->>'ocr_folio',''))) = ?)
-                  )
-              AND ( ? = '' OR lower(btrim(COALESCE(p.proveedor_rfc,''))) IN ('', ?) )
-            ${ORDEN}`, [tid, folio, folio, rfc, rfc]);
-        const r = hit.rows?.[0];
-        if (r) return { reason: 'folio' as const, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre, vigente: r.vigente === true };
-      }
-      return null;
+      /**
+       * ⛔ Gana la entrada VIVA: si la misma hoja está en una viva y en una borrada, el fantasma no
+       * puede tapar al duplicado de verdad (`[RE.31]`). Entre vivas, el más grave.
+       */
+      const peor = masGrave(hits.filter((h) => h.r.vigente === true)) ?? masGrave(hits);
+      if (!peor) return null;
+      const { v, r, p } = peor;
+      return {
+        reason: v.motivo === 'misma_hoja' ? 'file' as const : 'folio' as const,
+        nivel: v.nivel as 'bloquea' | 'avisa',
+        motivo: v.motivo,
+        emisor: v.emisor,
+        sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre,
+        monto: p.total ?? null,
+        vigente: r.vigente === true,
+        mensaje: mensajeDuplicado({
+          motivo: v.motivo, sucursal: r.sucursal, folio: r.folio, proveedor: r.proveedor_nombre,
+          folioPapel: nuevo.folio ?? null, monto: p.total ?? null, montoNuevo: nuevo.total ?? null,
+        }),
+      };
     });
   }
 
@@ -1582,13 +1780,21 @@ export class GoodsReceiptProofsService {
     // zona, captura sólo en la suya". 403 explicando la dimensión y el valor, no un Forbidden mudo.
     await this.scope.assertCanWrite('warehouse', sucursal);
 
-    // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen o folio ya capturado).
+    // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen, o mismo folio
+    // del MISMO emisor — `[RE.42]`). Aquí la entrada destino siempre se conoce, así que el emisor
+    // se decide con el `proveedor_code` de Kepler, la señal más fuerte.
+    const tid = this.tenantCtx.requireTenantId();
     for (const f of files) {
+      // La lectura del modelo (por hash) manda sobre lo que trae el request, igual que en el cuadre.
+      const leida = this.readings.recall<RemisionFields>(tid, f.sha256)?.fields;
+      const fiscal = f.role === 'remision' || f.role === 'factura';
       const dup = await this.findDuplicate({
         sha256: f.sha256,
-        folio: f.role === 'remision' || f.role === 'factura' ? f.ocr_folio : null,
-        rfc: f.ocr_rfc,
-      });
+        folio: fiscal ? (leida?.folio ?? f.ocr_folio) : null,
+        rfc: leida?.rfc ?? f.ocr_rfc,
+        nombre: leida?.proveedor ?? null,
+        total: leida?.total ?? f.ocr_total,
+      }, { sucursal, folio });
       /**
        * ⭐ `[RE.31]` Sólo bloquea un duplicado **vigente**. Si la entrada donde ya vive la hoja
        * fue BORRADA en Kepler, el duplicado es un fantasma: bloquear contra él le impide al
@@ -1604,12 +1810,17 @@ export class GoodsReceiptProofsService {
           + `Se deja pasar hacia ${sucursal}/${folio}; la evidencia vieja queda huérfana.`,
         );
       }
-      if (dup?.vigente) {
-        throw new BadRequestException(
-          dup.reason === 'file'
-            ? `Una de las hojas ya se había subido (entrada ${dup.sucursal}/${dup.folio}). Quítala.`
-            : `El folio ${f.ocr_folio} ya se subió (entrada ${dup.sucursal}/${dup.folio}${dup.proveedor ? ' · ' + dup.proveedor : ''}). Quita esa hoja.`,
-        );
+      if (dup?.vigente && dup.nivel === 'bloquea') {
+        throw new BadRequestException(`${dup.mensaje} Quita esa hoja.`);
+      }
+      /**
+       * `[RE.42]` Lo que no se pudo probar NO frena: el expediente pasa igual por el revisor, que
+       * es la compuerta humana. Pero no se calla — queda escrito EN la hoja, para que quien
+       * revise vea contra qué otra entrada se parece y por qué no se decidió solo.
+       */
+      if (dup?.vigente && dup.nivel === 'avisa') {
+        this.logger.warn(`[RE.42] posible duplicado ${sucursal}/${folio} ↔ ${dup.sucursal}/${dup.folio} (${dup.motivo}); pasa al revisor.`);
+        f.dup_aviso = { sucursal: dup.sucursal, folio: dup.folio, motivo: dup.motivo, mensaje: dup.mensaje };
       }
     }
 

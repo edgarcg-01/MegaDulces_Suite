@@ -7,6 +7,8 @@ import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma, VIDA_MS,
   type ContextoFirma, type FalloVinculo, type MarcaPc, type SocketEnRoom,
   hayQueFrenar, TOPE_INTENTOS, CLAVE_PASE, esPaseDeFirma,
+  // `[CG.196]` Quién se fue decide si la firma sigue viva. Pura, con prueba negativa.
+  avisoAlDesconectar,
 } from './caja-firma-remota.engine';
 import { revisarFirma } from './caja-firma.engine';
 
@@ -108,9 +110,25 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     //
     // ⚠️ No hay nada que "cerrar": socket.io saca al socket de sus rooms solo, y con el se va el
     // emparejamiento. Lo unico que falta es el aviso.
-    const cod: string | null = client.data?.firma?.codigo ?? client.data?.firmaTel ?? null;
-    if (cod && t) {
-      this.server?.to(roomDeFirma(t, cod)).emit('firma:cortada', { codigo: cod });
+    // ⭐⭐ `[CG.196]` **QUIÉN SE FUE DECIDE SI LA FIRMA SIGUE VIVA.** Antes esto colapsaba las dos
+    // puntas en un `??` y emitía `firma:cortada` para cualquiera de las dos. El efecto, que es el
+    // defecto que Edgar reportó —*«si se bloquea el teléfono se pierde»*—:
+    //
+    //   el teléfono se bloquea  ->  su socket cae  ->  `firma:cortada` a TODA la room
+    //     ->  la PC lo oye y llama a `firmaCerrarRemota()`, que borra código, pase y QR
+    //     ->  y de paso le manda `firma:cerrar` al servidor
+    //     ->  el teléfono vuelve y ya no hay nada: `no_existe`
+    //
+    // Y no eran simétricas nunca: **el emparejamiento vive en el socket de la PC**
+    // (`client.data.firma`), así que si se va la PC el vínculo ya no existe —su marca se fue con
+    // ella—, pero si se va el teléfono la marca sigue ahí y el código sigue siendo reclamable.
+    // ⚠️ Un teléfono que se bloquea NO es un teléfono que se fue: es el caso NORMAL.
+    // ⭐ La decisión es pura y vive en el motor (`avisoAlDesconectar`), con su prueba negativa.
+    // Acá sólo queda emitir: si se va la PC el vínculo murió (`firma:cortada`), y si se va el
+    // teléfono el vínculo SIGUE VIVO y sólo se dice (`firma:telefono_salio`).
+    const aviso = avisoAlDesconectar(client.data);
+    if (t && aviso) {
+      this.server?.to(roomDeFirma(t, aviso.codigo)).emit(aviso.evento, { codigo: aviso.codigo });
     }
   }
 

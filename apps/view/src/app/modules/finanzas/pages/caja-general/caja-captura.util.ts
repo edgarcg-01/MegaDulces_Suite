@@ -482,10 +482,13 @@ export type { VeredictoCorte };
 export interface CorteVista {
   id: string;
   folio: string;
-  estado: 'borrador' | 'cerrado' | 'autorizado';
+  estado: 'borrador' | 'cerrado' | 'observado' | 'autorizado';
   closed_by?: string | null;
   closed_by_username?: string | null;
   authorized_by_username?: string | null;
+  /** `[CGS.18]` Lo que encontró quien revisó, si el corte está observado. */
+  observacion?: string | null;
+  observed_by_username?: string | null;
   /** `[CG.42]` `null` = no se midió con qué arrancó la caja. No es `0`. */
   fondo_inicial?: number | null;
   esperado?: number | null;
@@ -522,6 +525,10 @@ export function puedeAutorizarUI(
   if (c.estado === 'autorizado') {
     return { ok: false, texto: `Autorizado por ${c.authorized_by_username ?? 'otra persona'}.` };
   }
+  if (c.estado === 'observado') {
+    const quien = c.observed_by_username ?? 'la supervisión';
+    return { ok: false, texto: `Observado por ${quien}: ${c.observacion ?? 'sin texto'}. Espera la respuesta de la caja.` };
+  }
   if (c.estado !== 'cerrado') return { ok: false, texto: 'Primero hay que cerrar el corte.' };
   if (c.closed_by && c.closed_by === userId) {
     return { ok: false, texto: 'Tú cerraste este corte: tiene que autorizarlo otra persona.' };
@@ -557,6 +564,20 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
     return {
       ok: true,
       texto: 'Se contó, pero la revelación de ese conteo no quedó guardada: se puede cerrar, sin poder decir si cuadra.',
+    };
+  }
+  // ⛔⛔ `[CG.195]` `esperado_imposible` TAMPOCO cae en "no cuadra", por la misma razón que las dos
+  // de arriba: el esperado salió bajo cero y un cajón no debe dinero. La diferencia contra ese
+  // número es positiva siempre, así que la rama de abajo diría «no cuadra, la diferencia queda
+  // registrada» sobre un sobrante que nadie puede ir a buscar.
+  //
+  // ⚠️ Se DEJA cerrar, igual que `sin_base`: el servidor lo permite y esta compuerta sólo puede ser
+  // igual o más estricta. Bloquearlo acá trabaría la jornada sin arreglar la cuenta, que es lo que
+  // de verdad está mal.
+  if (veredicto === 'esperado_imposible') {
+    return {
+      ok: true,
+      texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: la cuenta del esperado dio bajo cero y un cajón no debe dinero.',
     };
   }
   return {
@@ -737,4 +758,49 @@ export function separarPorFlujo(
     (d.flujo === 'devuelto' ? devuelto : recibido).push(r);
   }
   return { recibido, devuelto };
+}
+
+/**
+ * ⭐⭐ `[CGP-V.3b]` **¿Se puede sellar el conteo?** — la decisión, separada de la pantalla.
+ *
+ * Vive acá y no como un `computed` del componente por lo mismo que `puedeCerrarUI` y
+ * `puedeAutorizarUI`: una regla que decide sobre dinero necesita prueba, y un `computed` dentro de
+ * un componente de 8,000 líneas no la tiene.
+ *
+ * ── El defecto que cierra, medido en prod el 2026-10-20 ─────────────────────────────────────
+ *
+ * «Cerrar jornada y rendir cuentas» abre **la jornada atrasada más vieja** (`[CGP-V.3]`), no la de
+ * hoy. La pantalla pide contar el efectivo **antes** de decir a qué día se pega ese conteo, así que
+ * con atraso lo pega al día equivocado y nada avisa:
+ *
+ *     corte del 12-oct  selló $3,653.50   = el conteo del 13 (idéntico pieza por pieza)
+ *     corte del 13-oct  selló $57,571.00  = el conteo del 15
+ *     corte del 14-oct  selló $24,960.00  = sin corroboración en ningún lado
+ *     corte del 15-oct  selló $11,820.00  = sin corroboración en ningún lado
+ *     ────────────────────────────────────────────────────────────────────
+ *     4 de 7 cortes con el conteo de otro día · $19,811.50 de diferencia
+ *
+ * ⭐ El 16 y el 17 cuadran **al centavo** contra los arqueos de Control: el procedimiento funciona
+ * cuando no hay atraso. Falla exactamente en el caso que esta regla cubre.
+ *
+ * ⚠️ La confirmación se pide **sólo con jornada atrasada**. Pedirla todos los días la convierte en
+ * un clic reflejo, y entonces no defiende nada el día que importa.
+ */
+export interface SellarUI {
+  /** Lo que suma la reja más la morralla. */
+  readonly contado: number;
+  /** `[CGP-V.9]` «Conté y no hay efectivo»: un cero declarado es un conteo. */
+  readonly ceroDeclarado: boolean;
+  /** La jornada del corte ya pasó. */
+  readonly atrasado: boolean;
+  /** La persona declaró que el efectivo contado es de ESA jornada. */
+  readonly jornadaConfirmada: boolean;
+}
+
+export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'jornada_sin_confirmar' | null } {
+  // ⛔ El orden importa: sin conteo no hay nada que sellar, y decirle «confirmá la jornada» a
+  // quien todavía no contó manda a arreglar lo que no está mal.
+  if (!(Number(i.contado) > 0 || i.ceroDeclarado)) return { ok: false, motivo: 'sin_conteo' };
+  if (i.atrasado && !i.jornadaConfirmada) return { ok: false, motivo: 'jornada_sin_confirmar' };
+  return { ok: true, motivo: null };
 }

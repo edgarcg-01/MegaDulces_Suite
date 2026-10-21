@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
+import { SUCURSAL_CAJA_GENERAL, type CorteCajaDto } from '@megadulces/contracts';
 import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 import type { PorReclasificar } from './cash-cut.service';
+import type { CandadoCaja } from './caja-candado.query';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaAutollenadoService, type CorridaAutollenado, type EstadoAutollenado } from './caja-autollenado.service';
 
@@ -224,7 +225,9 @@ export class CashLedgerController {
 
   @Post()
   @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
-  @ApiOperation({ summary: 'Registra un movimiento. Folio atómico, par cuenta/concepto validado contra el catálogo vivo y arqueo que cuadra o no se guarda.' })
+  // `[CGS.8]` El resumen dice «salvo que venga sin clasificar» porque ahora es condicional: un
+  // resumen que afirma una validación que ya no siempre corre es peor que no tenerlo.
+  @ApiOperation({ summary: 'Registra un movimiento. Folio atómico, par cuenta/concepto validado contra el catálogo vivo —salvo que venga con `sin_clasificar_motivo`, que lo deja vacío a propósito y declarado— y arqueo que cuadra o no se guarda.' })
   create(@Body() body: CreateMovementInput, @Req() req: AuthedRequest) {
     // `[CG.154]` `createTraducido` y no `create`: las reglas de la tabla (glosa corta, monto en
     // cero, uuid mal formado) salían como **500 Internal server error** con el SQL adentro.
@@ -439,6 +442,28 @@ export class CashLedgerController {
   }
 
   /**
+   * ⭐⭐ `[CGS.2]` **El arqueo desglosado**: cada corte sellado con los SEIS términos de los que
+   * sale su esperado, su conteo pieza por pieza y su veredicto.
+   *
+   * ⛔ Va ANTES de cualquier `cortes/:id` por la misma razón que `fondo-sugerido` y
+   * `jornadas-pendientes`: Nest resuelve por orden de declaración y una ruta con parámetro se
+   * come a la literal que venga después.
+   *
+   * ⚠️ `FINANCE_CAJA_VER`, igual que el resto de las lecturas del módulo, y **no** `AUTORIZAR`:
+   * el conteo ciego protege el esperado de un corte que alguien está contando, y acá sólo salen
+   * cortes con el conteo **ya sellado** — su esperado ya se reveló a quien lo selló.
+   */
+  @Get('cortes/arqueos')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CGS.2 — Arqueos: lo contado contra la fórmula, término por término' })
+  arqueos(
+    @Query('desde') desde?: string, @Query('hasta') hasta?: string,
+    @Query('sucursal') sucursal?: string, @Query('limit') limit?: string,
+  ): ReturnType<CashCutService['arqueos']> {
+    return this.cortes.arqueos({ desde, hasta, sucursal, limit: limit ? Number(limit) : undefined });
+  }
+
+  /**
    * `[CG.39]` Con qué se propone que arranque la caja: el conteo con el que quedó el último
    * corte cerrado de esa sucursal. Es LECTURA — no abre nada.
    */
@@ -496,9 +521,37 @@ export class CashLedgerController {
 
   @Post('cortes/:id/autorizar')
   @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
-  @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio).' })
-  autorizarCorte(@Param('id') id: string, @Req() req: AuthedRequest) {
-    return this.cortes.autorizar(id, this.user(req));
+  @ApiOperation({ summary: 'Autoriza el corte. DOBLE LLAVE: quien lo cerro NO puede autorizarlo (lo frena la DB ademas del servicio). [CGS.16] Tampoco quien lo abrio ni quien capturo o cancelo en el. [CGS.17] Un veredicto sin respuesta no se autoriza (se observa) y con diferencia exige nota de 10+ caracteres.' })
+  autorizarCorte(@Param('id') id: string, @Body() body: { nota?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
+    return this.cortes.autorizar(id, this.user(req), body ?? {});
+  }
+
+  @Get('candado')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[CGS.14] Si la caja esta bloqueada para quien pregunta (una jornada anterior sin corte cerrado), por que, que lo destraba, y si captura con llave de emergencia. Lectura.' })
+  candado(@Req() req: AuthedRequest): Promise<CandadoCaja> {
+    return this.cortes.candado(this.user(req));
+  }
+
+  @Post('llaves')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGS.15] Llave de emergencia: permite a OTRA persona capturar hasta el fin del dia mientras una jornada anterior sigue sin corte. Motivo de 10+. Nadie se la da a si mismo. Solo se agrega.' })
+  darLlave(@Body() body: { para_usuario?: string; motivo?: string }, @Req() req: AuthedRequest): Promise<{ vence_at: string; para: string | null }> {
+    return this.cortes.darLlave(body ?? {}, this.user(req));
+  }
+
+  @Post('cortes/:id/observar')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGS.18] La supervisora devuelve el corte con lo que encontro (motivo de 10+). No cambia ninguna cifra. Misma segregacion que autorizar.' })
+  observarCorte(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
+    return this.cortes.observar(id, body ?? {}, this.user(req));
+  }
+
+  @Post('cortes/:id/responder')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[CGS.18] La caja responde la observacion (10+) y el corte vuelve a por revisar. Quien observo no se responde a si misma.' })
+  responderCorte(@Param('id') id: string, @Body() body: { respuesta?: string }, @Req() req: AuthedRequest): Promise<CorteCajaDto> {
+    return this.cortes.responder(id, body ?? {}, this.user(req));
   }
 
   @Post(':id/cancelar')

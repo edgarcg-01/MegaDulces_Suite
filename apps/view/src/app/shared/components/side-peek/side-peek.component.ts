@@ -31,7 +31,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sp-root" [class.is-open]="open()" [class.is-above-modals]="aboveModals()"
-         [class.is-window]="mode() === 'window'">
+         [class.is-window]="mode() === 'window'" [class.is-izq]="lado() === 'izquierda'">
       <div class="sp-backdrop" (click)="close()" aria-hidden="true"></div>
       <aside
         #panel
@@ -133,6 +133,31 @@ import {
       .sp-root.is-open .sp-panel {
         transform: translateX(0);
       }
+      /* ── Variante IZQUIERDA ───────────────────────────────────────────────────────────
+         Aditiva: lado nace en 'derecha', así que las 31 pantallas que ya montan este
+         cajón no cambian una sola regla.
+
+         Existe porque en Caja General la lista ocupa la pantalla entera y el arqueo entra
+         al lado: con el cajón a la derecha, el panel tapa la columna del IMPORTE —la cifra
+         contra la que se está contando— justo mientras se cuenta. A la izquierda tapa la
+         fecha, que ya se leyó.
+
+         ⚠️ La regla de ABIERTO lleva las dos clases a propósito. .sp-root.is-open
+         .sp-panel y .sp-root.is-izq .sp-panel tienen la MISMA especificidad, así que
+         quién gana dependería del orden en el bundle — exactamente el defecto que la nota
+         de is-above-modals documenta más arriba, y que hizo que el cajón saliera arriba o
+         abajo según el día. Con .is-izq.is-open la regla es determinista. */
+      .sp-root.is-izq .sp-panel {
+        right: auto;
+        left: 0;
+        border-left: none;
+        border-right: 1px solid var(--border-color);
+        box-shadow: 8px 0 30px -12px rgba(0, 0, 0, 0.25);
+        transform: translateX(-100%);
+      }
+      .sp-root.is-izq.is-open .sp-panel {
+        transform: translateX(0);
+      }
       .sp-head {
         display: flex;
         align-items: flex-start;
@@ -227,7 +252,7 @@ import {
       }
       /* En pantalla chica la ventana ocupa casi todo: a 1180px de ancho pedido sobre 390px
          de pantalla, lo que se gana en una no se puede perder en la otra. */
-      @media (max-width: 53.75rem) {
+      @container (max-width: 53.75rem) {
         .sp-root.is-window {
           padding: 0;
         }
@@ -271,6 +296,17 @@ export class SidePeekComponent {
    * cambia el patrón de toda una superficie por una pantalla.
    */
   readonly mode = input<'drawer' | 'window'>('drawer');
+  /**
+   * De qué borde entra el cajón. `derecha` es el default y **no se cambia por gusto**: es
+   * la convención de toda la superficie, y un cajón que entra por donde no se espera se
+   * siente como otra pantalla.
+   *
+   * `izquierda` se justifica cuando el panel taparía la columna que la persona está
+   * leyendo mientras lo usa. El caso que lo trajo: Caja General, donde la lista ocupa la
+   * pantalla y el arqueo entra al lado — con el cajón a la derecha tapa el IMPORTE, que es
+   * la cifra contra la que se cuenta el efectivo. Sin efecto en `window`, que va centrada.
+   */
+  readonly lado = input<'derecha' | 'izquierda'>('derecha');
   /** Ancho del panel en px. `0` = el que corresponde al modo (520 cajón / 1180 ventana).
    *  Subilo sólo si adentro va un documento que se tiene que poder leer (O.1). */
   readonly width = input(0);

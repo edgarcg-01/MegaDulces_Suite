@@ -41,7 +41,7 @@
  * ingreso descansa en un hecho del ERP y no en un teclado. Un corte con cobertura 0.58 y otro con
  * 1.00 no pueden leerse igual.
  */
-import { denomKeyDeValor } from '@megadulces/contracts';
+import { denomKeyDeValor, VEREDICTOS_SIN_RESPUESTA } from '@megadulces/contracts';
 import { diaCorto } from './caja-corte-abierto.engine';
 
 export type TipoMovimiento = 'ingreso' | 'gasto' | 'deposito';
@@ -178,9 +178,41 @@ export function veredictoDe(input: {
   huboConteo: boolean;
   fondoSinMedir: boolean;
   diferencia: number;
+  /**
+   * ⭐⭐ `[CG.195]` El esperado contra el que se comparó. **Requerido a propósito**, aunque sólo se
+   * use para una comparación: los dos llamadores de producción ya lo tenían a mano y hacerlo
+   * opcional dejaría que el tercero lo omitiera sin enterarse. `null` = no hay esperado guardado,
+   * y entonces no hay nada que declarar imposible (ese caso ya lo cubre `sin_medir` en el servicio).
+   */
+  esperado: number | null;
 }): VeredictoCorte {
   if (!input.huboConteo) return 'sin_contar';
   if (input.fondoSinMedir) return 'sin_base';
+  /**
+   * ⛔⛔ `[CG.195]` **UN CAJÓN NO DEBE DINERO.**
+   *
+   * Medido en prod el 2026-10-20 (`system_identifier` 7688376744939610156): de los **7** cortes
+   * cerrados, **4 publicaron un `esperado` negativo** —hasta −$149,915.32— y los 7 publicaron una
+   * diferencia de cinco o seis cifras (de −$208,594.59 a +$94,830.30) sobre conteos reales de
+   * entre $618.50 y $88,272.50. Con el esperado bajo cero, `contado − esperado` es positivo
+   * **siempre** (el conteo es una suma de piezas, nunca negativa), así que la pantalla afirmaba
+   * «sobra efectivo» por cien mil pesos exactamente cuando la cuenta estaba más rota.
+   *
+   * La causa de fondo NO se arregla acá: el libro no tiene **una sola** fila `tipo='deposito'` en
+   * toda su vida, así que nada registra el efectivo que sale del cajón hacia el banco, y el
+   * esperado arrastra la entrada entera como si se hubiera quedado adentro. Eso es una decisión de
+   * negocio (ver `[CG.120]`, que apagó la captura manual —la única puerta por la que se podía
+   * registrar un depósito— el 2026-10-19).
+   *
+   * Lo que sí es de este motor: **no publicar como veredicto un número que no puede ser cierto**
+   * (ADR-056). Se declara, igual que `sin_base` y por el mismo motivo — la diferencia contra un
+   * esperado imposible no mide un sobrante, mide que la cuenta cruzó mal una pierna.
+   *
+   * ⚠️ Va DESPUÉS de `sin_base`: sin fondo medido el esperado no tiene base de la que partir, y
+   * ése es el hecho más específico. Y va ANTES de `cuadra` por claridad, no por necesidad: con el
+   * esperado negativo la rama de `cuadra` es inalcanzable.
+   */
+  if (input.esperado != null && Number(input.esperado) < 0) return 'esperado_imposible';
   if (Math.abs(Number(input.diferencia)) <= CORTE_EPSILON) return 'cuadra';
   return Number(input.diferencia) > 0 ? 'sobra' : 'falta';
 }
@@ -333,7 +365,7 @@ export function calcularCorte(input: {
   const contado = redondea(piezas.reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0) + morralla);
   const diferencia = redondea(contado - esperado);
 
-  const veredicto = veredictoDe({ huboConteo, fondoSinMedir: fondo_sin_medir, diferencia });
+  const veredicto = veredictoDe({ huboConteo, fondoSinMedir: fondo_sin_medir, diferencia, esperado });
 
   return {
     ingresos, gastos, depositos, esperado,
@@ -345,21 +377,28 @@ export function calcularCorte(input: {
 }
 
 export interface CorteEstado {
-  estado: 'borrador' | 'cerrado' | 'autorizado';
+  estado: 'borrador' | 'cerrado' | 'observado' | 'autorizado';
   closed_by?: string | null;
   authorized_by?: string | null;
+  /** Quien ABRIÓ el corte. `[CGS.16]` tampoco lo autoriza. */
+  created_by?: string | null;
 }
 
 export type MotivoNoAutoriza =
   | 'no_esta_cerrado'
   | 'ya_autorizado'
   | 'misma_persona_que_cerro'
+  | 'abrio_el_corte'
+  | 'capturo_en_el_corte'
   | 'sin_usuario';
 
 export const TEXTO_NO_AUTORIZA: Record<MotivoNoAutoriza, string> = {
   no_esta_cerrado: 'El corte todavía no se cierra.',
   ya_autorizado: 'Este corte ya está autorizado.',
   misma_persona_que_cerro: 'Quien cerró el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+  abrio_el_corte: 'Quien abrió el corte no puede autorizarlo: tiene que hacerlo otra persona.',
+  capturo_en_el_corte:
+    'Capturaste o cancelaste movimientos de este corte: lo tiene que autorizar otra persona.',
   sin_usuario: 'No se pudo identificar quién autoriza.',
 };
 
@@ -395,11 +434,130 @@ export function avisoLibroVacio(
  * que el botón se apague con su motivo en vez de que el usuario descubra el candado con un
  * error de Postgres.
  */
-export function puedeAutorizar(c: CorteEstado, userId: string | null | undefined): { ok: boolean; motivo?: MotivoNoAutoriza } {
+export function puedeAutorizar(
+  c: CorteEstado,
+  userId: string | null | undefined,
+  /**
+   * ⛔ `[CGS.16]` Quienes capturaron o cancelaron un movimiento del corte. Decisión D3 de Edgar
+   * (2026-10-21): la supervisora *«captura, pero no firma lo suyo»*. Medido ese día: autorizaba
+   * `tesoreria`, y su titular capturó 29 de los 30 movimientos del 20-oct — la doble llave de
+   * `closed_by` no lo veía. La base lo frena igual (`cut_autoriza_lo_ajeno_chk`); esto existe
+   * para que el motivo llegue con su frase y no como un error de Postgres.
+   */
+  capturistas: readonly string[] = [],
+): { ok: boolean; motivo?: MotivoNoAutoriza } {
   if (!userId) return { ok: false, motivo: 'sin_usuario' };
   if (c.estado === 'autorizado') return { ok: false, motivo: 'ya_autorizado' };
   if (c.estado !== 'cerrado') return { ok: false, motivo: 'no_esta_cerrado' };
-  if (c.closed_by && c.closed_by === userId) return { ok: false, motivo: 'misma_persona_que_cerro' };
+  const ajeno = motivoNoEsAjeno(c, userId, capturistas);
+  return ajeno ? { ok: false, motivo: ajeno } : { ok: true };
+}
+
+/** La segregación de quien REVISA, la misma para autorizar y para observar. */
+function motivoNoEsAjeno(
+  c: CorteEstado, userId: string, capturistas: readonly string[],
+): 'misma_persona_que_cerro' | 'abrio_el_corte' | 'capturo_en_el_corte' | null {
+  if (c.closed_by && c.closed_by === userId) return 'misma_persona_que_cerro';
+  if (c.created_by && c.created_by === userId) return 'abrio_el_corte';
+  if (capturistas.includes(userId)) return 'capturo_en_el_corte';
+  return null;
+}
+
+// ── `[CGS.17]` Lo que exige una autorización ─────────────────────────────────────────────────
+
+export type MotivoExigencia = 'veredicto_sin_respuesta' | 'falta_nota';
+
+export const TEXTO_EXIGENCIA: Record<MotivoExigencia, string> = {
+  veredicto_sin_respuesta:
+    'Este corte no se puede autorizar: su cuenta no tiene respuesta (por ejemplo, un esperado negativo o sin fondo medido). Obsérvalo con el motivo.',
+  falta_nota: 'El corte tiene diferencia: escribe una nota de al menos 10 caracteres que diga por qué se autoriza así.',
+};
+
+/** Largo mínimo de una nota, una observación o una respuesta. El mismo que pide la base. */
+export const MINIMO_TEXTO_REVISION = 10;
+
+/**
+ * ⛔ `[CGS.17]` **Firmar no es dar por bueno cualquier número.**
+ *
+ * Hasta el 2026-10-21 autorizar era una firma sin revisión: no miraba el veredicto ni la diferencia,
+ * y de los 7 cortes de prod, 4 tenían esperado negativo y los 7 diferencias de cinco o seis cifras.
+ *
+ *  1. Un veredicto **sin respuesta** (`VEREDICTOS_SIN_RESPUESTA`) no se autoriza nunca: no hay un
+ *     número que firmar. Se OBSERVA (`puedeObservar`) con el motivo.
+ *  2. Con **diferencia distinta de cero** se autoriza sólo con nota. ⭐ D5, decidida por Edgar el
+ *     2026-10-21: **no hay tolerancia** — cualquier diferencia, por chica que sea, exige que la caja
+ *     la explique y que quien autoriza escriba por qué la acepta. Un centavo de redondeo
+ *     (`CORTE_EPSILON`) no es una diferencia.
+ */
+export function exigenciaParaAutorizar(input: {
+  veredicto: VeredictoCorte;
+  diferencia: number | null;
+  nota?: string | null;
+}): { ok: boolean; motivo?: MotivoExigencia } {
+  if ((VEREDICTOS_SIN_RESPUESTA as readonly string[]).includes(input.veredicto)) {
+    return { ok: false, motivo: 'veredicto_sin_respuesta' };
+  }
+  const hayDiferencia = input.diferencia != null && Math.abs(Number(input.diferencia)) > CORTE_EPSILON;
+  if (hayDiferencia && String(input.nota ?? '').trim().length < MINIMO_TEXTO_REVISION) {
+    return { ok: false, motivo: 'falta_nota' };
+  }
+  return { ok: true };
+}
+
+// ── `[CGS.18]` Observar y responder ──────────────────────────────────────────────────────────
+
+export type MotivoNoObserva =
+  | 'no_esta_cerrado' | 'ya_observado' | 'ya_autorizado'
+  | 'misma_persona_que_cerro' | 'abrio_el_corte' | 'capturo_en_el_corte'
+  | 'sin_motivo' | 'sin_usuario';
+
+export const TEXTO_NO_OBSERVA: Record<MotivoNoObserva, string> = {
+  no_esta_cerrado: 'Sólo se observa un corte cerrado.',
+  ya_observado: 'Este corte ya está observado: espera la respuesta de la caja.',
+  ya_autorizado: 'Este corte ya está autorizado.',
+  misma_persona_que_cerro: 'Quien cerró el corte no puede observarlo: lo revisa otra persona.',
+  abrio_el_corte: 'Quien abrió el corte no puede observarlo: lo revisa otra persona.',
+  capturo_en_el_corte: 'Capturaste o cancelaste movimientos de este corte: lo revisa otra persona.',
+  sin_motivo: 'Escribe qué encontraste (al menos 10 caracteres).',
+  sin_usuario: 'No se pudo identificar quién observa.',
+};
+
+/** Quien observa pasa la misma segregación que quien autoriza: los dos son la revisión. */
+export function puedeObservar(
+  c: CorteEstado,
+  userId: string | null | undefined,
+  capturistas: readonly string[],
+  motivo: string | null | undefined,
+): { ok: boolean; motivo?: MotivoNoObserva } {
+  if (!userId) return { ok: false, motivo: 'sin_usuario' };
+  if (c.estado === 'observado') return { ok: false, motivo: 'ya_observado' };
+  if (c.estado === 'autorizado') return { ok: false, motivo: 'ya_autorizado' };
+  if (c.estado !== 'cerrado') return { ok: false, motivo: 'no_esta_cerrado' };
+  const ajeno = motivoNoEsAjeno(c, userId, capturistas);
+  if (ajeno) return { ok: false, motivo: ajeno };
+  if (String(motivo ?? '').trim().length < MINIMO_TEXTO_REVISION) return { ok: false, motivo: 'sin_motivo' };
+  return { ok: true };
+}
+
+export type MotivoNoResponde = 'no_esta_observado' | 'quien_observo' | 'sin_respuesta' | 'sin_usuario';
+
+export const TEXTO_NO_RESPONDE: Record<MotivoNoResponde, string> = {
+  no_esta_observado: 'Este corte no tiene una observación por responder.',
+  quien_observo: 'Quien observó el corte no se responde a sí misma: responde la caja.',
+  sin_respuesta: 'Escribe la respuesta (al menos 10 caracteres).',
+  sin_usuario: 'No se pudo identificar quién responde.',
+};
+
+/** Responder devuelve el corte a «por revisar». No cambia ninguna cifra. */
+export function puedeResponder(
+  c: { estado: string; observed_by?: string | null },
+  userId: string | null | undefined,
+  respuesta: string | null | undefined,
+): { ok: boolean; motivo?: MotivoNoResponde } {
+  if (!userId) return { ok: false, motivo: 'sin_usuario' };
+  if (c.estado !== 'observado') return { ok: false, motivo: 'no_esta_observado' };
+  if (c.observed_by && c.observed_by === userId) return { ok: false, motivo: 'quien_observo' };
+  if (String(respuesta ?? '').trim().length < MINIMO_TEXTO_REVISION) return { ok: false, motivo: 'sin_respuesta' };
   return { ok: true };
 }
 
