@@ -615,34 +615,6 @@ export interface ResolveResult {
   out_of_scope: boolean;
 }
 
-/** P2.7 — campos que el asistente de voz fue entendiendo. */
-export interface VoiceSlots {
-  product_query?: string | null;
-  presentation?: string | null;
-  product_id?: string | null;
-  product_name?: string | null;
-  sku?: string | null;
-  quantity?: number | null;
-  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
-  expiry_date?: string | null;
-  condition?: 'bueno' | 'regular' | 'malo' | null;
-  location?: string | null;
-  observations?: string | null;
-  action?: string | null;
-}
-
-export interface VoiceTurn { role: 'user' | 'assistant'; content: string; }
-
-export interface VoiceIntakeResult {
-  reply: string;
-  slots: VoiceSlots;
-  candidates: ResolveHit[];
-  /** Esenciales que faltan: 'producto' | 'cantidad' | 'caducidad'. */
-  missing: string[];
-  ready: boolean;
-  degraded?: boolean;
-}
-
 export interface ExpiryReview {
   id: string;
   warehouse_id: string;
@@ -1279,26 +1251,6 @@ export class ComercialService {
    */
   resolveExpiryCode(code: string) {
     return this.http.get<ResolveResult>(`${this.expiryBase}/resolve`, { params: new HttpParams().set('code', code) });
-  }
-  /**
-   * P2.7 — dictado del asistente de caducidades. Endpoint propio del dominio y
-   * no el de Thot: ese exige `COMMERCIAL_ORDERS_VER`, que el colaborador que
-   * captura caducidades no tiene (403 al primer intento de hablar).
-   */
-  transcribeExpiry(audio: string, mime: string) {
-    return this.http.post<{ text: string; error?: string }>(`${this.expiryBase}/voice/transcribe`, { audio, mime });
-  }
-
-  /**
-   * P2.7 — asistente de voz: manda lo transcrito y devuelve los campos
-   * entendidos + la siguiente pregunta. NO guarda el renglón (co-piloto).
-   */
-  voiceIntake(body: { transcript: string; slots?: VoiceSlots; history?: VoiceTurn[] }) {
-    return this.http.post<VoiceIntakeResult>(`${this.expiryBase}/voice/intake`, body);
-  }
-  /** Fija el producto que el operador eligió entre los candidatos del asistente. */
-  voicePick(slots: VoiceSlots, product_id: string) {
-    return this.http.post<VoiceIntakeResult>(`${this.expiryBase}/voice/pick`, { slots, product_id });
   }
   getExpiryReview(id: string) {
     return this.http.get<ExpiryReviewDetail>(`${this.expiryBase}/${id}`);
