@@ -436,8 +436,19 @@ export class CashLedgerService {
   }
 
   /** Devuelve 403 si lo intenta quien cerró: la doble llave está en la DB, no acá. */
-  autorizarCorte(id: string): Observable<CorteCaja> {
-    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/autorizar`, {});
+  /** `[CGS.17]` Con diferencia, el servidor exige `nota` (10+): firmar no es dar por bueno cualquier número. */
+  autorizarCorte(id: string, nota?: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/autorizar`, nota ? { nota } : {});
+  }
+
+  /** `[CGS.18]` La supervisora devuelve el corte con lo que encontró. No mueve ninguna cifra. */
+  observarCorte(id: string, motivo: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/observar`, { motivo });
+  }
+
+  /** `[CGS.18]` La caja responde la observación y el corte vuelve a «por revisar». */
+  responderCorte(id: string, respuesta: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/responder`, { respuesta });
   }
 
   /**

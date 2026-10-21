@@ -231,9 +231,9 @@ real con el payload de la pantalla. Cada uno de estos va en `cash-ledger.http-re
 
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| CGS.24 | **Arqueos pasa a ser la mesa de la supervisora**: abre con «N cortes esperan tu revisión»; cada corte con su lista V1–V11; botones **Autorizar** y **Observar** ahí (no en Captura); lista los días sin corte. Es la Tanda 4 / O7 del documento de dos cabezas | ⬜ | por medir |
+| CGS.24 | **Arqueos pasa a ser la mesa de la supervisora**: abre con «N cortes esperan tu revisión»; cada corte con su lista V1–V11; botones **Autorizar** y **Observar** ahí (no en Captura); lista los días sin corte. Es la Tanda 4 / O7 del documento de dos cabezas | 🔨 | 0 → 0 fallas (cumple las 10 reglas) |
 | CGS.25 | En Arqueos, **los movimientos del día salen del libro de la Suite** para los días que ya viven en la Suite; Control queda como segundo testigo, rotulado | ⬜ | por medir |
-| CGS.26 | La cola `caja-por-autorizar` de «Mi trabajo» lleva a `/finanzas/caja-general/arqueos?corte=<folio>`, no a Captura | ⬜ | por medir |
+| CGS.26 | La cola `caja-por-autorizar` de «Mi trabajo» lleva a `/finanzas/caja-general/arqueos?corte=<folio>`, no a Captura | 🔨 | 0 → 0 fallas (cumple las 10 reglas) |
 | CGS.27 | **Captura con candado**: aviso con el motivo literal, la única acción que lo destraba («Cerrar el corte del 20-oct») y «Pedir llave de emergencia». Las observaciones de la supervisora aparecen al entrar | ⬜ | por medir |
 | CGS.28 | **Caja Fuerte**: «Conteo físico» deja de ser «sin medir» para siempre — captura ciega del conteo de la máquina | ⬜ | por medir |
 
@@ -320,3 +320,4 @@ Operación:                 CGS.29–31 arrancan con la Tanda 2
 | 2026-10-21 | Plan escrito: entender → auditar (código + prod en sólo lectura) → planear. Línea base de la §1 medida con `dev_ro` | sesión de seguridad de Caja General |
 | 2026-10-21 | D1–D4 decididos por Edgar. CGS.10/11/16/23 en código: migración 20261021110252 (bitácora reusando master_data_history, candado de base sobre lo firmado, quien autoriza ajeno al corte) + servicio + suite test-newdb-caja-supervision.js en el job caja-db. **Sin aplicar en prod** | sesión de seguridad de Caja General |
 | 2026-10-21 | CGS.17/18/20 en código: estado `observado` (migración 20261021111319), observar/responder por API, autorizar rechaza veredictos sin respuesta y pide nota con diferencia. ⚠️ D5 (tolerancia) sigue abierta: mientras, **toda** diferencia ≠ 0 exige nota. **Sin aplicar en prod**; hasta que Arqueos tenga los botones (CGS.24), el «Autorizar» de Captura devuelve la frase «escribe una nota» en cortes con diferencia | sesión de seguridad de Caja General |
+| 2026-10-21 | CGS.24 (parcial) y CGS.26 en código: Arqueos abre con «N cortes esperan tu revisión» (sólo para quien tiene AUTORIZAR, del más viejo al más nuevo, excluye los suyos por D3), cada día abre con «La revisión» —Autorizar / Observar con su texto y el motivo de cada botón apagado—, la tabla distingue Sin revisar / Observado / Respondido / Autorizó. La cola de «Mi trabajo» lleva a Arqueos. Falta de CGS.24: la lista V1–V11 (espera CGS.12) y los días sin corte. **Sin validación visual** (no se levanta la app en local): lo más probable de ajustar es el ancho del textarea en el panel y el orden de los dos botones | sesión de seguridad de Caja General |

@@ -717,8 +717,9 @@ export const BANDEJAS: readonly BandejaDef[] = [
      */
     id: 'caja-por-autorizar',
     label: 'Arqueos de caja por autorizar',
-    detalle: 'cortes cerrados que esperan la segunda llave · no podés autorizar los que cerraste vos',
-    ruta: '/finanzas/caja-general',
+    detalle: 'cortes cerrados que esperan la segunda llave · no puedes autorizar los que abriste, cerraste o en los que capturaste',
+    // `[CGS.26]` A Arqueos, que es donde se revisa y desde el 2026-10-21 donde se autoriza u observa.
+    ruta: '/finanzas/caja-general/arqueos',
     icono: 'pi pi-verified',
     alcance: 'bandeja',
     responsabilidad: 'finanzas.caja',

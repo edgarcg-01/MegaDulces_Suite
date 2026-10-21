@@ -1,6 +1,9 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
+import { TextareaModule } from 'primeng/textarea';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -25,6 +28,11 @@ import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../..
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
+import { AuthService } from '../../../../core/services/auth.service';
+import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
+import { textoDeError } from './caja-captura.util';
+import { puertasRevision, MINIMO_TEXTO_REVISION, type PuertasRevision } from './caja-revision.util';
 
 /** Un día visto por Control: sus movimientos y el arqueo que capturó. */
 export interface CorteDia {
@@ -144,8 +152,13 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
  *
  * ## ⛔ Lo que esta pantalla NO hace
  *
- * **No edita nada.** El conteo sellado no se cambia: se RECUENTA en Captura, y el reconteo deja
+ * **No edita cifras.** El conteo sellado no se cambia: se RECUENTA en Captura, y el reconteo deja
  * rastro. Lo de Control se corrige en Control (mismo criterio que ADR-040 con ContPAQi).
+ *
+ * ⭐ `[CGS.24]` **Lo único que escribe es la REVISIÓN**: autorizar (con nota si hay diferencia) u
+ * observar (con lo que se encontró). Ninguna de las dos mueve un número — la base lo garantiza. Antes
+ * el botón vivía en Captura → «Tu jornada» → Historial plegado, y esta pantalla, que es donde se
+ * revisa, contaba «sin la segunda llave» sin dejar hacer nada con eso.
  *
  * **No arbitra entre la Suite y Control** (ADR-059): cuando el segundo testigo discrepa se
  * publica la discrepancia, no un ganador.
@@ -154,7 +167,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   selector: 'app-finanzas-caja-arqueos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ButtonModule, TableModule, TagModule,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule,
     LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent,
     ContextHelpComponent, CajaTabsComponent],
   template: `
@@ -210,6 +223,33 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
           }
         </app-load-state>
       </section>
+
+      <!-- ⭐ [CGS.24] Q.1 para la supervisora: lo PRIMERO es lo que sólo ella puede destrabar.
+           Antes la pantalla contaba «sin la segunda llave» y no dejaba hacer nada con eso. -->
+      @if (esRevisora()) {
+        <section class="cq-revision" aria-labelledby="cq-h-rev">
+          <h2 id="cq-h-rev" class="cq-h2">{{ tituloRevision() }}</h2>
+          @if (porRevisar().length) {
+            <p class="cq-hint">Del más viejo al más nuevo. Cada uno se autoriza, o se observa con lo que encontraste.</p>
+            <ul class="cq-rev-lista">
+              @for (a of porRevisar(); track a.corte_id) {
+                <li>
+                  <button pButton type="button" class="p-button-sm p-button-outlined" (click)="abrirCorte(a)">
+                    <span class="p-button-label">{{ dmy(a.fecha) }} · {{ a.folio }}</span>
+                  </button>
+                  <p-tag [value]="tagVeredicto(a).texto" [severity]="tagVeredicto(a).sev" styleClass="cq-tag" />
+                </li>
+              }
+            </ul>
+          }
+          @if (ajenosPorRevisar()) {
+            <p class="cq-nota">{{ ajenosPorRevisar() }} corte(s) más esperan revisión, pero abriste, cerraste o capturaste en ellos: los revisa otra persona.</p>
+          }
+          @if (observados().length) {
+            <p class="cq-nota">{{ observados().length }} observado(s) esperan la respuesta de la caja.</p>
+          }
+        </section>
+      }
 
       <!-- ⭐ DESIGN Q.1 — answer-first: el veredicto del ultimo arqueo, no la rejilla. -->
       @if (ultimoArqueo(); as u) {
@@ -299,7 +339,11 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                   @if (!f.arqueo) { <span class="cq-dim">—</span> }
                   @else if (f.arqueo.autorizado) {
                     <p-tag [value]="'Autorizó ' + (f.arqueo.autorizo || '—')" severity="success" styleClass="cq-tag" />
-                  } @else { <p-tag value="Sin autorizar" severity="warn" styleClass="cq-tag" /> }
+                  } @else if (f.arqueo.estado === 'observado') {
+                    <p-tag [value]="'Observado' + (f.arqueo.observo ? ' por ' + f.arqueo.observo : '')" severity="danger" styleClass="cq-tag" />
+                  } @else if (f.arqueo.respuesta) {
+                    <p-tag value="Respondido: por revisar otra vez" severity="warn" styleClass="cq-tag" />
+                  } @else { <p-tag value="Sin revisar" severity="warn" styleClass="cq-tag" /> }
                 </td>
               </tr>
             </ng-template>
@@ -316,6 +360,50 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
           <div class="cq-peek">
 
             @if (f.arqueo; as a) {
+              <!-- 0. [CGS.24] LA REVISION, primero: es lo que vino a hacer quien abre esto de mañana.
+                   El resto del cajon es la evidencia para decidir. -->
+              <section class="cq-rev" aria-labelledby="cq-h-rev-dia">
+                <h3 id="cq-h-rev-dia" class="cq-h3">La revisión</h3>
+                @if (a.observacion) {
+                  <p class="cq-nota">
+                    Observado por {{ a.observo || '—' }}{{ a.observed_at ? ' el ' + dmy(a.observed_at) : '' }}: «{{ a.observacion }}».
+                    @if (a.respuesta) { Respondió {{ a.respondio || '—' }}: «{{ a.respuesta }}». }
+                    @else { La caja todavía no responde. }
+                  </p>
+                }
+                @if (a.autorizado) {
+                  <p class="cq-nota">
+                    Autorizó {{ a.autorizo || '—' }}{{ a.authorized_at ? ' el ' + dmy(a.authorized_at) : '' }}.
+                    @if (a.nota_autorizacion) { Nota: «{{ a.nota_autorizacion }}». }
+                  </p>
+                } @else if (a.estado === 'cerrado') {
+                  @if (revisable(a)) {
+                    <label class="cq-rev-label" for="cq-rev-texto">
+                      {{ puertas(a).pideNota ? 'Nota de la autorización (obligatoria: hay diferencia) o lo que encontraste' : 'Lo que encontraste, si lo vas a observar' }}
+                    </label>
+                    <textarea pTextarea id="cq-rev-texto" rows="3" class="cq-rev-texto"
+                              [ngModel]="textoRevision()" (ngModelChange)="textoRevision.set($event)"
+                              [attr.aria-describedby]="'cq-rev-ayuda'"></textarea>
+                    <div class="cq-rev-acciones">
+                      <p-button label="Autorizar" icon="pi pi-check" size="small"
+                                [disabled]="!puertas(a).autorizar.ok || !!revisando()"
+                                [loading]="revisando() === 'autorizar'" (onClick)="autorizar(a)" />
+                      <p-button label="Observar" icon="pi pi-replay" size="small" severity="secondary" [outlined]="true"
+                                [disabled]="!puertas(a).observar.ok || !!revisando()"
+                                [loading]="revisando() === 'observar'" (onClick)="observar(a)" />
+                    </div>
+                    <ul id="cq-rev-ayuda" class="cq-rev-ayuda">
+                      <li>Autorizar: {{ puertas(a).autorizar.texto }}</li>
+                      <li>Observar: {{ puertas(a).observar.texto }}</li>
+                    </ul>
+                  } @else {
+                    <p class="cq-nota">{{ puertas(a).autorizar.texto }}</p>
+                  }
+                }
+                @if (errRevision()) { <p class="cq-nota cq-mal" role="alert">{{ errRevision() }}</p> }
+                @if (okRevision()) { <p class="cq-nota" role="status">{{ okRevision() }}</p> }
+              </section>
+
               <!-- 1. LA CUENTA: de donde sale el «deberia haber». Sin esto el total no se puede
                    investigar; con esto la pregunta pasa a ser que pierna esta mal cruzada. -->
               <section aria-labelledby="cq-h-cuenta">
@@ -461,6 +549,15 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     :host { display: block; }
 
     .cq-actions { display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; }
+
+    .cq-revision { margin-block:var(--sp-4); padding-block:var(--sp-3); border-block:1px solid var(--border-color); }
+    .cq-rev-lista { list-style:none; margin:var(--sp-2) 0 0; padding:0; display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); }
+    .cq-rev-lista li { display:flex; align-items:center; gap:var(--sp-2); }
+    .cq-rev { display:flex; flex-direction:column; gap:var(--sp-2); padding-bottom:var(--sp-3); border-bottom:1px solid var(--border-color); }
+    .cq-rev-label { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
+    .cq-rev-texto { width:100%; max-width:60ch; }
+    .cq-rev-acciones { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+    .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
     .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
     .cq-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
@@ -812,10 +909,86 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     return partes.length ? partes.join(' ') : null;
   });
 
+  // ── `[CGS.24]` La revisión de la supervisora ─────────────────────────────────────────────
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+  private readonly route = inject(ActivatedRoute);
+  readonly textoRevision = signal('');
+  /** Qué acción está en vuelo. Se pone SÍNCRONO en el primer clic: el doble clic no firma dos veces. */
+  readonly revisando = signal<'autorizar' | 'observar' | null>(null);
+  readonly errRevision = signal<string | null>(null);
+  readonly okRevision = signal<string | null>(null);
+  /** El folio que pidió abrir la cola de «Mi trabajo» (`?corte=`), hasta que llegan los arqueos. */
+  private corteAPedir: string | null = null;
+
+  /** ⚠️ Sin permisos cargados todavía no se pinta la sección: «no sé» no es «sí puede». */
+  readonly esRevisora = computed(() => this.perms.cargado() && this.perms.has(Permission.FINANCE_CAJA_AUTORIZAR));
+  private readonly uid = computed<string | null>(() => this.auth.user()?.sub ?? null);
+
+  /** Los que ESTA persona puede revisar, del más viejo al más nuevo. */
+  readonly porRevisar = computed<ArqueoDia[]>(() => {
+    const uid = this.uid() ?? '';
+    return this.arqueos()
+      .filter((a) => a.estado === 'cerrado' && !a.no_revisa.includes(uid))
+      .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+  });
+  /** Cerrados que esperan revisión pero en los que esta persona tuvo mano (D3): los firma otra. */
+  readonly ajenosPorRevisar = computed<number>(() => {
+    const uid = this.uid() ?? '';
+    return this.arqueos().filter((a) => a.estado === 'cerrado' && a.no_revisa.includes(uid)).length;
+  });
+  readonly observados = computed<ArqueoDia[]>(() => this.arqueos().filter((a) => a.estado === 'observado'));
+  readonly tituloRevision = computed<string>(() => {
+    const k = this.porRevisar().length;
+    if (!k) return 'No hay cortes que esperen tu revisión';
+    return k === 1 ? '1 corte espera tu revisión' : `${k} cortes esperan tu revisión`;
+  });
+
+  puertas(a: ArqueoDia): PuertasRevision {
+    return puertasRevision(a, this.uid(), this.esRevisora(), this.textoRevision());
+  }
+
+  /** ¿Esta persona puede revisarlo, con cualquier texto? Si no, sólo se dice por qué. */
+  revisable(a: ArqueoDia): boolean {
+    return puertasRevision(a, this.uid(), this.esRevisora(), 'x'.repeat(MINIMO_TEXTO_REVISION)).observar.ok;
+  }
+
+  abrirCorte(a: ArqueoDia): void {
+    const f = this.filas().find((x) => x.arqueo?.corte_id === a.corte_id) ?? { fecha: a.fecha, arqueo: a, control: null };
+    this.abrir(f);
+  }
+
+  autorizar(a: ArqueoDia): void {
+    if (!this.puertas(a).autorizar.ok || this.revisando()) return;
+    this.revisando.set('autorizar'); this.errRevision.set(null); this.okRevision.set(null);
+    const nota = this.textoRevision().trim();
+    this.cajas.autorizarCorte(a.corte_id, nota || undefined).subscribe({
+      next: () => this.alTerminar(`${a.folio} autorizado.`),
+      error: (e) => { this.revisando.set(null); this.errRevision.set(textoDeError(e)); },
+    });
+  }
+
+  observar(a: ArqueoDia): void {
+    if (!this.puertas(a).observar.ok || this.revisando()) return;
+    this.revisando.set('observar'); this.errRevision.set(null); this.okRevision.set(null);
+    this.cajas.observarCorte(a.corte_id, this.textoRevision().trim()).subscribe({
+      next: () => this.alTerminar(`${a.folio} observado: la caja lo ve con tu motivo.`),
+      error: (e) => { this.revisando.set(null); this.errRevision.set(textoDeError(e)); },
+    });
+  }
+
+  private alTerminar(texto: string): void {
+    this.revisando.set(null);
+    this.textoRevision.set('');
+    this.okRevision.set(texto);
+    this.recargar(true);
+  }
+
   private readonly sockCaja = inject(CajaSocketService);
   private readonly sockCaos = inject(CaosSocketService);
 
   ngOnInit(): void {
+    this.corteAPedir = this.route.snapshot.queryParamMap.get('corte');
     this.recargar();
     this.enVivo();
   }
@@ -866,6 +1039,12 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
           const fresco = (r?.rows ?? []).find((x) => x.fecha === s.fecha);
           if (fresco) this.sel.set({ ...s, arqueo: fresco });
         }
+        // `[CGS.26]` La cola de «Mi trabajo» llega con `?corte=<folio>`: se abre ese día.
+        if (this.corteAPedir) {
+          const pedido = (r?.rows ?? []).find((x) => x.folio === this.corteAPedir);
+          this.corteAPedir = null;
+          if (pedido) this.abrirCorte(pedido);
+        }
       },
       error: () => {
         if (!(silencioso && conDatos)) this.error.set('No se pudieron traer los arqueos.');
@@ -883,6 +1062,10 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
 
   abrir(f: DiaFila | null): void {
     if (!f) return;
+    // Lo tecleado era para OTRO corte: no viaja al siguiente.
+    if (this.sel()?.fecha !== f.fecha) {
+      this.textoRevision.set(''); this.errRevision.set(null); this.okRevision.set(null);
+    }
     this.sel.set(f);
     this.peek.set(true);
     this.cargarExpediente(f.fecha);
