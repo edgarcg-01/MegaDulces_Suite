@@ -50,6 +50,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
            sum(imp) FILTER (WHERE cuenta LIKE '102%' AND ca='A') banco,
            array_agg(DISTINCT u) FILTER (WHERE u IS NOT NULL AND ca='C' AND (cuenta LIKE '2120%' OR cuenta LIKE '5010%' OR cuenta LIKE '5020%')) facturas,
            array_agg(DISTINCT u) FILTER (WHERE u IS NOT NULL AND ca='A' AND (cuenta LIKE '505%' OR cuenta LIKE '506%' OR cuenta LIKE '507%' OR cuenta LIKE '508%')) notas,
+           coalesce(sum(imp) FILTER (WHERE ca='A' AND (cuenta ~ '^50[5-8]0' OR cuenta IN ('1060000000','1470100000'))), 0) notas_imp,
            count(DISTINCT cuenta) FILTER (WHERE cuenta LIKE '102%' AND ca='A') n_bancos
       FROM l GROUP BY 1,2
      HAVING bool_or(ca='C' AND (cuenta LIKE '2120%' OR cuenta LIKE '5010%' OR cuenta LIKE '5020%'))`)).rows
@@ -131,7 +132,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
   const motivos = {};
   const nota = (k) => { motivos[k] = (motivos[k] || 0) + 1; };
   // `--salida <archivo>`: lo que predijo la cadena por póliza, para cruzarla con otro método.
-  const salida = {};
+  const salida = {}; const notasK = {};
   for (const p of ver) {
     const tienenNota = (p.notas || []).length > 0;
     if (tienenNota) r.con_nota += 1;
@@ -145,6 +146,21 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     const aps = (aplicacionesDe.get(`${pg.acreedor}|${pg.t}|${pg.s}|${pg.folio}`) || []).filter((a) => a.dt === 20);
     if (!aps.length) { nota('L2 pago sin aplicar en kdxf'); continue; }
     r.l2 += 1;
+    // ¿Las notas que asentó la contadora son las que Kepler aplicó a las MISMAS entradas que liquida este pago?
+    {
+      const ni = Number(p.notas_imp);
+      let kNotas = 0; let ent = 0; let pag = 0;
+      for (const a of aps) {
+        pag += a.apl;
+        const d = docs.get(`${pg.acreedor}|${a.dt}|${a.ds}|${a.df}`); if (d) ent += d.imp;
+        for (const n of notasDe.get(`${pg.acreedor}|${a.dt}|${a.ds}|${a.df}`) || []) kNotas += n.apl;
+      }
+      const cat = ni < 1 ? (kNotas < 1 ? 'sin nota · Kepler sin nota' : 'sin nota · Kepler CON nota')
+        : Math.abs(kNotas - ni) <= 1 + 0.002 * ni ? 'con nota · = notas Kepler aplicadas a esas entradas'
+        : Math.abs(ent - pag - ni) <= 1 + 0.002 * ni ? 'con nota · = entradas − pagado (Kepler)'
+        : kNotas < 1 ? 'con nota · Kepler sin nota' : 'con nota · Kepler distinto';
+      notasK[cat] = (notasK[cat] || 0) + 1;
+    }
     const rfc = rfcDe.get(pg.acreedor);
     if (!rfc) { r.sin_rfc += 1; nota('L3 acreedor sin RFC en kdxd'); continue; }
     const pred = new Set(); const predNotas = new Set(); let incompleto = false;
@@ -193,6 +209,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
   console.log(`   incompleta (algún eslabón sin resolver): ${r.cadena_inc}`);
   console.log(`   la suma no da lo pagado → a revisión: ${r.no_cuadra || 0} (de ésas, la cadena acertaba en ${r.no_cuadra_eran_ok || 0})`);
   console.log(`   de las correctas con nota de crédito, las notas también coinciden: ${r.notas_ok} de ${ver.filter((p) => (p.notas || []).length).length}`);
+  console.log('notas de la contadora vs Kepler:'); console.table(notasK);
   console.log('\ndónde se corta:');
   for (const [k, v] of Object.entries(motivos).sort((a, b) => b[1] - a[1])) console.log(`  ${String(v).padStart(5)}  ${k}`);
   const iSal = process.argv.indexOf('--salida');
