@@ -45,6 +45,8 @@ export interface TicketDenominacion { denominacion: number; cantidad: number; su
 export interface TicketArqueo {
   sucursal: string;
   caja: string;
+  /** [SM.46] RD/RV: la ruta que entrego. Si viene, reemplaza a la caja en el papel. */
+  ruta?: string | null;
   fecha: string;
   folio?: string | null;
   cajera: string;
@@ -171,7 +173,8 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   // se partia en el papel y descuadraba la columna derecha de ahi para abajo.
   // `Cajera` y `Entrega a` ya lo usaban; este era el unico que faltaba.
   L.push(...etiquetado('Sucursal', a.sucursal));
-  L.push(fila('Caja', a.caja));
+  if (a.ruta) L.push(...etiquetado('Ruta', a.ruta));
+  else L.push(fila('Caja', a.caja));
   L.push(fila('Fecha', a.fecha));
   if (a.folio) L.push(fila('Turno Kepler', '#' + a.folio));
   if (a.turno) L.push(fila('Turno', a.turno));

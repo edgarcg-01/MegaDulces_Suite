@@ -96,6 +96,12 @@ const COMPUERTAS = [
   // `analytics.kepler_kdm5_vigente`; esta compuerta impide leer kdm5 crudo. Estatica, sin DB, ~0.3 s.
   // El catalogo (lo que una vista recreada desde pg_get_viewdef no deja en el repo) lo mira `check:kdm5-vigente:db`.
   { nombre: 'kdm5-vigente', script: 'check-kdm5-vigente.js', que: 'nadie suma kepler_ods.kdm5 crudo: las aplicaciones se leen vigentes (sin cancelados)', push: true, ms: 300 },
+  // `[CSU.12]` El índice navegable de los 7 documentos grandes. `package.json` lo anunciaba y el script NO existía:
+  // sin generador, git fusiona el bloque línea por línea y deja dos versiones intercaladas (log 0/452, tracker 0/141
+  // filas válidas en main el 2026-10-21, dos veces el mismo día). ~0.3 s, estático.
+  // ⛔ SIN `push`: gate-push cruza las rutas de la salida con tus archivos y su regex no reconoce `docs/`, así que
+  //    en el push quedaría muda — y un rojo que no se ve es peor que ninguno. Decisión de admisión: del lead.
+  { nombre: 'docs-indices', cmd: 'node scripts/docs-indices.js --check', que: 'el índice navegable de los documentos grandes está al día (si no: npm run docs:indices)' },
   // [IC.24] La OTRA hermana de `templates`, para lo que esa tampoco puede ver: los TIPOS dentro
   // de la plantilla. `check-template-literals` mira que el literal este entero y que el CSS
   // parsee; `tsc -p tsconfig.app.json` NO compila plantillas (para TypeScript son strings); y el
@@ -141,6 +147,10 @@ const COMPUERTAS = [
   //   · primeng: API que la v22 retiró y que Angular deja pasar como atributo HTML muerto.
   //     `pTemplate="footer"` en un `p-dialog` abre el diálogo SIN BOTONES (GOTCHAS §59).
   { nombre: 'reactividad', script: 'check-signal-reactivity.js', que: 'ningún computed() depende de un campo plano mutable', push: true, ms: 1801 },
+  // `[THR.1]` `@Throttle({ default })` y `@SkipThrottle()` a secas NO limitan ni saltan nada: los tiers se llaman
+  // short/medium/long y el guard ignora cualquier otro nombre sin avisar (GOTCHAS §84). Medido 2026-10-16: 4 endpoints
+  // con un LLM de pago por uso creían tener tope. Deuda declarada con ratchet en el propio script.
+  { nombre: 'throttle', script: 'check-throttle-names.js', que: 'todo @Throttle/@SkipThrottle usa un tier que el servidor configura (si no, no limita nada)', push: true, ms: 698 },
   { nombre: 'primeng', script: 'check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)', push: true, ms: 2084 },
   //   · spec-vivo: un archivo de prueba que no CARGA reporta 0 tests, no fallas — el total de
   //     la suite sigue creciendo y nadie mira la línea de archivos. Medido el 2026-10-06:

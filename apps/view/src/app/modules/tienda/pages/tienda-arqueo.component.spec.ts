@@ -744,4 +744,36 @@ describe('TiendaArqueoComponent · [SM.45] rutas por sucursal', () => {
     expect(cmp.rutasEstado()).toBe('ok');
     expect(cmp.rutasDelTipo().map((r) => r.route_code)).toEqual(['21']);
   });
+
+  /** [SM.46] RD/RV se arquean por RUTA: el campo Caja no se pide ni se exige. */
+  const etiquetasHead = () => Array.from((fix.nativeElement as HTMLElement).querySelectorAll('.arq-head .arq-lbl'))
+    .map((l) => (l.textContent || '').trim().split(/\s+/)[0]);
+
+  it('⭐ [SM.46] en RD y RV no hay campo Caja; en cierre sí', async () => {
+    expect(etiquetasHead()).not.toContain('Caja');
+    cmp.elegirTipo('rv');
+    await tick();
+    expect(etiquetasHead()).not.toContain('Caja');
+    // NEGATIVA: fuera de ruta el campo sigue ahí (no se quitó para todos).
+    cmp.elegirTipo('cierre');
+    await tick();
+    expect(etiquetasHead()).toContain('Caja');
+  });
+
+  it('⭐ [SM.46] RD se sella con sucursal + ruta, sin caja', async () => {
+    cmp.aSuc.set('01');
+    await tick();
+    cmp.vacio.set(true);
+    cmp.aCaja = '';
+    expect(cmp.canSubmit()).toBe(false);          // falta la ruta
+    cmp.aRuta = '21';
+    expect(cmp.canSubmit()).toBe(true);           // sin caja: ya se puede
+    expect(cmp.rutaLabel()).toBe('RUTA 21');
+    // NEGATIVA: en cierre, sin caja, NO se puede (la regla de caja sigue viva).
+    cmp.elegirTipo('cierre');
+    await tick();
+    cmp.vacio.set(true);
+    cmp.aCaja = '';
+    expect(cmp.canSubmit()).toBe(false);
+  });
 });
