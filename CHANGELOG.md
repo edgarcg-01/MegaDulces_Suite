@@ -15,6 +15,10 @@
 - **Comprobaciones, pagables de Caja, materialidad y MAAT**: salen **1,021 gastos/entradas cancelados** que todavía cargaban **$3,177,101.13** por el agregado contable. Un gasto cancelado ya no se ofrece como pagable.
 - **Pronto pago**: deja de contar **$1,450,384.26 de descuento** de 101 pagos cancelados; la tasa observada baja a lo real en 8+ proveedores (ej. CF004 de 7.39 % a 6.20 %).
 - **Internal**: `check:kdm5-vigente:db` también revisa las cabeceras de `kdm1` con dinero que no miran el estatus de cancelación.
+### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
+- `POST /commercial/analytics/sell-out/ask` (el chat «Pregúntale al Sell-Out») y `sales-by-route/promo` (+ `.xlsx` y `.pdf`) declaraban 15 y 20 por minuto con `@Throttle({ default })`, pero los tiers del servidor se llaman `short/medium/long` y el guard ignora cualquier otro nombre **sin avisar**: nunca limitaron. Ahora el tope existe (tier `long`).
+- **Cambio de comportamiento:** desde un mismo origen, la petición 16.ª (chat) o 21.ª (incentivo de ruta) en un minuto responde **429**. Antes, nada. El chat llama a un LLM de pago por uso.
+- Internal: compuerta `check:throttle-names` (en el pre-push y en el CI, con su `:self`): todo `@Throttle`/`@SkipThrottle` del repo usa un tier configurado. Deja **declarada** una deuda con ratchet: `@SkipThrottle()` a secas (equivale a `{ default: true }`) en los dos controladores de ingesta de checadas de `libs/hr`, que tampoco salta nada.
 ### Changed — Revisión de facturas carga más rápido (RE.49 paso 1, 2026-10-21)
 - La lista calculaba la misma información de Kepler hasta siete veces por cada carga. Ahora la calcula una sola vez y el resto sale de ahí: la parte de la lista pasa de ~2 s a ~0.4–0.5 s (medido en producción). Las cifras y filas que muestra no cambian.
 ### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
