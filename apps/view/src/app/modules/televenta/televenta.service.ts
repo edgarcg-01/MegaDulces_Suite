@@ -150,6 +150,26 @@ export interface TeleventaDashboard {
   actividad: { registrada: boolean; nota: string };
 }
 
+export interface TelemarketingDescuentos {
+  /** Facturas CON renglones: el universo de la cascada. */
+  facturas: number;
+  /** La réplica trae la cabecera antes que el detalle: éstas quedan fuera de la cuenta. */
+  facturas_sin_renglones: number;
+  total_sin_renglones: number;
+  renglones: number;
+  /** Sin precio de lista en el ERP: ahí el descuento de producto es un piso. */
+  renglones_sin_lista: number;
+  lista: number;
+  producto: number;
+  subtotal: number;
+  cliente: number;
+  facturado: number;
+  /** Contra el maestro de clientes de HOY: salieron con menos % del negociado. */
+  negociado_no_aplicado: { facturas: number; monto: number };
+  /** Contra el maestro de HOY: salieron con más % del que el maestro registra. */
+  sin_respaldo_maestro: { facturas: number; monto: number };
+}
+
 export interface TelemarketingBilling {
   hoy: { facturas: number; importe: number };
   mes: { facturas: number; importe: number };
@@ -167,7 +187,11 @@ export interface TelemarketingBilling {
   por_operador: Array<{
     vendedor_code: string | null; vendedor_nombre: string | null;
     facturas: number; importe: string; saldo: string; clientes: number;
+    /** `[E.15]` null = el operador no tiene renglones todavía: no se sabe, no es $0. */
+    descuento_producto: number | null; descuento_cliente: number | null; importe_lista: number | null;
   }>;
+  /** `[E.15]` La cascada del descuento en 30 días: lista − producto = subtotal − cliente = facturado. */
+  descuentos: TelemarketingDescuentos;
   ultimas: Array<{
     folio_digital: string; sucursal: string; doc_prefix: string; folio: string; fecha: string;
     cliente_code: string; cliente_nombre: string; vendedor_nombre: string | null;

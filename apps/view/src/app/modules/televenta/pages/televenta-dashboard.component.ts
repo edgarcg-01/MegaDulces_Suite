@@ -58,19 +58,114 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
         </h2>
         <app-metric-strip [items]="billingItems(d)" ariaLabel="Facturación de telemarketing" />
 
+        <!-- [E.15] El descuento como CUENTA: se lee de arriba abajo y cierra al centavo contra
+             lo facturado, porque los dos descuentos se miden como diferencias (regla TK.13). -->
+        @if (d.billing.descuentos; as ds) {
+          <p-card class="descuentos">
+            <div class="card-header-row">
+              <h3>Descuentos · 30 días</h3>
+              <span class="muted">{{ ds.facturas | number }} facturas · {{ ds.renglones | number }} renglones</span>
+            </div>
+            <div class="desc-grid">
+              <table class="cuenta" aria-label="Del precio de lista a lo facturado">
+                <tbody>
+                  <tr>
+                    <th scope="row">Precio de lista</th>
+                    <td class="num">{{ ds.lista | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="num pct"></td>
+                  </tr>
+                  <tr class="resta">
+                    <th scope="row">
+                      − Descuento de producto
+                      <span class="def">precio de lista del renglón contra lo cobrado</span>
+                    </th>
+                    <td class="num">{{ ds.producto | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="num pct">{{ pct(ds.producto, ds.lista) }} de la lista</td>
+                  </tr>
+                  <tr class="parcial">
+                    <th scope="row">= Subtotal</th>
+                    <td class="num">{{ ds.subtotal | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="num pct"></td>
+                  </tr>
+                  <tr class="resta">
+                    <th scope="row">
+                      − Descuento de cliente
+                      <span class="def">el % negociado del cliente, sobre el documento</span>
+                    </th>
+                    <td class="num">{{ ds.cliente | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="num pct">{{ pct(ds.cliente, ds.subtotal) }} del subtotal</td>
+                  </tr>
+                  <tr class="final">
+                    <th scope="row">= Facturado</th>
+                    <td class="num">{{ ds.facturado | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                    <td class="num pct">descontado {{ pct(ds.producto + ds.cliente, ds.lista) }} de la lista</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="negociado">
+                <h4>Descuento de cliente: negociado contra aplicado</h4>
+                <dl>
+                  <div>
+                    <dt>Con menos % del negociado</dt>
+                    <dd>
+                      <strong class="num">{{ ds.negociado_no_aplicado.facturas | number }}</strong> facturas ·
+                      <span class="num">{{ ds.negociado_no_aplicado.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
+                      menos de descuento que el negociado
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Con más % del que tiene el maestro</dt>
+                    <dd>
+                      <strong class="num">{{ ds.sin_respaldo_maestro.facturas | number }}</strong> facturas ·
+                      <span class="num">{{ ds.sin_respaldo_maestro.monto | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</span>
+                      más de descuento que el registrado
+                    </dd>
+                  </div>
+                </dl>
+                <p class="nota">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  Contra el maestro de clientes de hoy. Desde el dato no se puede saber si fue una
+                  excepción autorizada o un error de captura: hay que preguntarle a quien factura.
+                </p>
+              </div>
+            </div>
+            @if (ds.renglones_sin_lista > 0 || ds.facturas_sin_renglones > 0) {
+              <p class="nota">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>
+                  @if (ds.renglones_sin_lista > 0) {
+                    {{ ds.renglones_sin_lista | number }} renglones no tienen precio de lista en el ERP:
+                    el descuento de producto es un piso, no la cifra exacta.
+                  }
+                  @if (ds.facturas_sin_renglones > 0) {
+                    {{ ds.facturas_sin_renglones | number }} facturas
+                    ({{ ds.total_sin_renglones | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}) llegaron sin
+                    renglones todavía y quedan fuera de esta cuenta.
+                  }
+                </span>
+              </p>
+            }
+          </p-card>
+        }
+
         <div class="two-col">
           <p-card>
             <div class="card-header-row">
-              <h3>Por operador · 30 días</h3>
-              <span class="muted">atribución del ERP</span>
+              <!-- [E.15] Decía «Por operador» y 7 de sus 17 filas no son operadores (E-COMMERCE,
+                   sucursales, rutas, «Otros Ingresos», sin vendedor): son el vendedor que el ERP
+                   pone en la factura de telemarketing. El rótulo dice lo que la fila es. -->
+              <h3>Por vendedor del ERP · 30 días</h3>
+              <span class="muted">{{ d.billing.por_operador.length | number }} vendedores</span>
             </div>
             <p-table [value]="d.billing.por_operador" styleClass="p-datatable-sm">
               <ng-template #header>
                 <tr>
-                  <th>Operador</th>
+                  <th>Vendedor</th>
                   <th class="num">Facturas</th>
                   <th class="num">Clientes</th>
                   <th class="num">Facturado</th>
+                  <th class="num">Descuento</th>
                   <th class="num">Por cobrar</th>
                 </tr>
               </ng-template>
@@ -83,17 +178,26 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
                   <td class="num">{{ o.facturas }}</td>
                   <td class="num">{{ o.clientes }}</td>
                   <td class="num">{{ +o.importe | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
+                  <td class="num">
+                    @if (o.importe_lista != null) {
+                      {{ (o.descuento_producto ?? 0) + (o.descuento_cliente ?? 0) | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}
+                      <span class="sub-linea">{{ pct((o.descuento_producto ?? 0) + (o.descuento_cliente ?? 0), o.importe_lista) }} de la lista</span>
+                    } @else {
+                      <span class="muted">sin renglones</span>
+                    }
+                  </td>
                   <td class="num debe">{{ +o.saldo | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="5" class="muted">Sin facturas de telemarketing en los últimos 30 días.</td></tr>
+                <tr><td colspan="6" class="muted">Sin facturas de telemarketing en los últimos 30 días.</td></tr>
               </ng-template>
             </p-table>
             <p class="nota">
               <i class="pi pi-info-circle" aria-hidden="true"></i>
-              El operador lo asigna el ERP (<code>vendedor_code</code>). No se puede cruzar con el
-              usuario que registra las llamadas: no hay campo que los ligue.
+              El vendedor lo pone el ERP en la factura (<code>vendedor_code</code>), y no todos son
+              operadores de telemarketing. No se puede cruzar con el usuario que registra las
+              llamadas: no hay campo que los ligue.
             </p>
           </p-card>
 
@@ -270,6 +374,23 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN',
     }
     .aviso i { margin-top: .1rem; color: var(--warn-fg); }
 
+    /* [E.15] La cuenta del descuento: etiqueta a la izquierda, cifra alineada, base del % al lado. */
+    .descuentos { display:block; margin-bottom: var(--sp-4); }
+    .desc-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--sp-6); align-items: start; }
+    .cuenta { width:100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .cuenta th, .cuenta td { padding: var(--sp-1) 0; text-align:left; font-weight: var(--fw-regular); vertical-align: top; }
+    .cuenta td.num { text-align:right; padding-left: var(--sp-3); white-space: nowrap; }
+    .cuenta td.pct { color: var(--text-muted); font-size: var(--fs-xs); }
+    .cuenta .def { display:block; font-size: var(--fs-xs); color: var(--text-muted); }
+    .cuenta tr.resta td:not(.pct) { color: var(--text-muted); }
+    .cuenta tr.parcial th, .cuenta tr.parcial td, .cuenta tr.final th, .cuenta tr.final td { border-top: 1px solid var(--border-color); }
+    .cuenta tr.final th, .cuenta tr.final td:not(.pct) { font-weight: var(--fw-bold); font-size: var(--fs-body); }
+    .negociado h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+    .negociado dl { margin: 0; display:flex; flex-direction:column; gap: var(--sp-2); }
+    .negociado dt { font-size: var(--fs-xs); color: var(--text-muted); }
+    .negociado dd { margin: 0; font-size: var(--fs-sm); }
+    .sub-linea { display:block; font-size: var(--fs-xs); color: var(--text-muted); }
+
     .outcome-row { margin-bottom: var(--sp-3); }
     .outcome-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--sp-1); }
     .outcome-count { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
@@ -334,6 +455,11 @@ export class TeleventaDashboardComponent {
         label: 'Facturado 30 días', value: b.d30.importe, format: 'currency',
         sub: `${b.d30.facturas.toLocaleString('es-MX')} facturas · ${b.d30.clientes.toLocaleString('es-MX')} clientes`,
       },
+      {
+        // [E.15] Producto + cliente, medidos como diferencias. El desglose está en su tarjeta.
+        label: 'Descontado 30 días', value: b.descuentos.producto + b.descuentos.cliente, format: 'currency',
+        sub: `${this.pct(b.descuentos.producto + b.descuentos.cliente, b.descuentos.lista)} del precio de lista`,
+      },
       { label: 'Este mes', value: b.mes.importe, format: 'currency', sub: `${b.mes.facturas.toLocaleString('es-MX')} facturas` },
       {
         label: 'Ya cobrado', value: cobrado, format: 'currency',
@@ -378,6 +504,12 @@ export class TeleventaDashboardComponent {
       return { label, value: '—', format: 'text', state: 'no_medido', stateNote: motivo, sub: motivo };
     }
     return { label, value: (ventas / llamadas) * 100, format: 'percent' };
+  }
+
+  /** «2.37 %» con su base dicha al lado en la plantilla; sin base no hay porcentaje. */
+  pct(parte: number, base: number | null): string {
+    if (!base) return '—';
+    return `${((parte / base) * 100).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
   }
 
   opConversion(op: { calls: number; orders: number }): number {

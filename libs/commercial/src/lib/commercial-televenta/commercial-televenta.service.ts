@@ -74,7 +74,146 @@ export interface TelemarketingBilling {
   ultima_factura: Date | string | null;
   por_operador: Array<Record<string, unknown>>;
   ultimas: Array<Record<string, unknown>>;
+  descuentos: DescuentosTelemarketing;
   atribucion: 'erp_vendedor_code';
+}
+
+/**
+ * `[E.15]` La cascada del descuento del canal en 30 días, con la regla de la Fase TK (TK.13):
+ *
+ *     lista − producto = subtotal − cliente = facturado
+ *
+ *   · `producto` = Σ (precio de lista del renglón `kdm2.c66` − cobrado `c12`) × cantidad, nunca
+ *     negativo y sólo donde la lista existe (`c66 > 0`).
+ *   · `cliente`  = Σ importe de renglones − total del documento: el % negociado del cliente.
+ *     ⛔ NO `kdm1.c13`, que viaja sin impuesto y subdeclara (ERP_KEPLER §2.6).
+ *
+ * Cierra exacto por construcción sobre las facturas CON renglones. Las que la réplica trajo sin
+ * renglones todavía (la cabecera llega antes que el detalle) quedan fuera y se declaran.
+ */
+export interface DescuentosTelemarketing {
+  facturas: number;
+  facturas_sin_renglones: number;
+  total_sin_renglones: number;
+  renglones: number;
+  /** Renglones donde el ERP no guarda precio de lista: ahí el descuento de producto es un piso. */
+  renglones_sin_lista: number;
+  lista: number;
+  producto: number;
+  subtotal: number;
+  cliente: number;
+  facturado: number;
+  /**
+   * Contra el maestro de clientes de HOY (`kdud.c17`, por sucursal + cliente): facturas que
+   * salieron con MENOS % del negociado, y el monto que el cliente no se ahorró.
+   */
+  negociado_no_aplicado: { facturas: number; monto: number };
+  /** Facturas con MÁS % del que el maestro registra hoy, y el monto de esa diferencia. */
+  sin_respaldo_maestro: { facturas: number; monto: number };
+}
+
+const NUM = (col: string): string => `round(coalesce(nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric, 0), 2)`;
+
+/**
+ * Una fila por (operador, % del maestro, % del documento). Los renglones se leen de `kdm2` por
+ * factura con `ix_kdm2_venta_doc` (LATERAL): medido en prod el 2026-10-21, 150–345 ms. El join
+ * en bloque contra `kdm2` (o contra `analytics.erp_sales_invoice_lines`) tardaba 46 s y más.
+ * La llave del renglón incluye la serie (`c5`): sin ella se pegan renglones de documentos
+ * homónimos de otra serie (VEC.7).
+ */
+const SQL_DESCUENTOS_TELEMARKETING_30D = `
+  WITH f AS MATERIALIZED (
+    SELECT sucursal, doc_prefix, folio, total, cliente_code, vendedor_code, vendedor_nombre,
+           coalesce(descuento_pct, 0) AS pct_documento
+    FROM analytics.erp_sales_invoices
+    WHERE tenant_id = ? AND doc_tipo = 'telemarketing' AND NOT cancelada
+      AND fecha >= current_date - 30),
+  x AS (
+    SELECT f.*, l.renglones, l.sin_lista, l.importe, l.desc_producto,
+           coalesce(nullif(regexp_replace(coalesce(u.c17, ''), '[^0-9.]', '', 'g'), '')::numeric, 0) AS pct_maestro
+    FROM f
+    CROSS JOIN LATERAL (
+      SELECT count(*)::int AS renglones,
+             count(*) FILTER (WHERE ${NUM('d.c66')} <= 0)::int AS sin_lista,
+             sum(${NUM('d.c13')}) AS importe,
+             sum(round(greatest(coalesce(nullif(${NUM('d.c66')}, 0), ${NUM('d.c12')}) - ${NUM('d.c12')}, 0)
+                 * abs(coalesce(d.c9::numeric, 0)), 2)) AS desc_producto
+      FROM kepler_ods.kdm2 d
+      WHERE d.c2 = 'U' AND d.c3 = 'D' AND btrim(d.sucursal) = f.sucursal AND (d.c4)::integer = 8
+        AND (d.c5)::integer = substr(f.doc_prefix, 5, 2)::integer AND btrim(d.c6) = f.folio
+        AND btrim(d.c1) = f.sucursal AND abs(coalesce(d.c9::numeric, 0)) > 0) l
+    LEFT JOIN kepler_ods.kdud u ON btrim(u.sucursal) = f.sucursal AND btrim(u.c2) = f.cliente_code)
+  SELECT vendedor_code, vendedor_nombre, pct_maestro, pct_documento,
+         count(*) FILTER (WHERE renglones > 0)::int                          AS facturas,
+         count(*) FILTER (WHERE renglones = 0)::int                          AS facturas_sin_renglones,
+         coalesce(sum(total) FILTER (WHERE renglones = 0), 0)::numeric       AS total_sin_renglones,
+         coalesce(sum(renglones), 0)::int                                    AS renglones,
+         coalesce(sum(sin_lista), 0)::int                                    AS renglones_sin_lista,
+         coalesce(sum(importe) FILTER (WHERE renglones > 0), 0)::numeric     AS subtotal,
+         coalesce(sum(desc_producto) FILTER (WHERE renglones > 0), 0)::numeric AS producto,
+         coalesce(sum(importe - total) FILTER (WHERE renglones > 0), 0)::numeric AS cliente,
+         coalesce(sum(total) FILTER (WHERE renglones > 0), 0)::numeric       AS facturado
+  FROM x GROUP BY 1, 2, 3, 4`;
+
+const llaveOperador = (code: unknown, nombre: unknown): string => `${code ?? ''}|${nombre ?? ''}`;
+const centavos = (n: number): number => Math.round(n * 100) / 100;
+
+interface DescuentoOperador { lista: number; producto: number; cliente: number }
+
+/** Suma las filas por (operador, %maestro, %documento) en la cascada y en el reparto por operador. */
+export function armarDescuentos(rows: Array<Record<string, unknown>>): {
+  resumen: DescuentosTelemarketing;
+  porOperador: Map<string, DescuentoOperador>;
+} {
+  const r: DescuentosTelemarketing = {
+    facturas: 0, facturas_sin_renglones: 0, total_sin_renglones: 0, renglones: 0, renglones_sin_lista: 0,
+    lista: 0, producto: 0, subtotal: 0, cliente: 0, facturado: 0,
+    negociado_no_aplicado: { facturas: 0, monto: 0 },
+    sin_respaldo_maestro: { facturas: 0, monto: 0 },
+  };
+  const porOperador = new Map<string, DescuentoOperador>();
+  for (const row of rows) {
+    const facturas = Number(row.facturas || 0);
+    const subtotal = Number(row.subtotal || 0);
+    const producto = Number(row.producto || 0);
+    const cliente = Number(row.cliente || 0);
+    const pm = Number(row.pct_maestro || 0);
+    const pd = Number(row.pct_documento || 0);
+    r.facturas += facturas;
+    r.facturas_sin_renglones += Number(row.facturas_sin_renglones || 0);
+    r.total_sin_renglones += Number(row.total_sin_renglones || 0);
+    r.renglones += Number(row.renglones || 0);
+    r.renglones_sin_lista += Number(row.renglones_sin_lista || 0);
+    r.subtotal += subtotal;
+    r.producto += producto;
+    r.cliente += cliente;
+    r.facturado += Number(row.facturado || 0);
+    if (facturas > 0 && pm > pd) {
+      r.negociado_no_aplicado.facturas += facturas;
+      r.negociado_no_aplicado.monto += (subtotal * (pm - pd)) / 100;
+    } else if (facturas > 0 && pd > pm) {
+      r.sin_respaldo_maestro.facturas += facturas;
+      r.sin_respaldo_maestro.monto += (subtotal * (pd - pm)) / 100;
+    }
+    if (facturas > 0) {
+      const k = llaveOperador(row.vendedor_code, row.vendedor_nombre);
+      const o = porOperador.get(k) || { lista: 0, producto: 0, cliente: 0 };
+      o.lista += subtotal + producto;
+      o.producto += producto;
+      o.cliente += cliente;
+      porOperador.set(k, o);
+    }
+  }
+  r.lista = r.subtotal + r.producto;
+  for (const k of ['total_sin_renglones', 'lista', 'producto', 'subtotal', 'cliente', 'facturado'] as const) {
+    r[k] = centavos(r[k]);
+  }
+  r.negociado_no_aplicado.monto = centavos(r.negociado_no_aplicado.monto);
+  r.sin_respaldo_maestro.monto = centavos(r.sin_respaldo_maestro.monto);
+  for (const o of porOperador.values()) {
+    o.lista = centavos(o.lista); o.producto = centavos(o.producto); o.cliente = centavos(o.cliente);
+  }
+  return { resumen: r, porOperador };
 }
 
 export interface ReservationRecord {
@@ -677,7 +816,7 @@ export class CommercialTeleventaService {
     // `d30` filtra por fecha explícita en cada agregado; `vencida` vale para las dos.
     const D30 = `fecha >= current_date - 30`;
     const VENCIDA = `vencimiento < current_date AND estatus_cobro IN ('pendiente','parcial')`;
-    const [totales, porOperador, ultimas] = await Promise.all([
+    const [totales, porOperador, ultimas, descuentosRaw] = await Promise.all([
       q(
         `WITH sel AS MATERIALIZED (
            SELECT fecha, total, saldo, estatus_cobro, vencimiento, cliente_code, sucursal,
@@ -729,9 +868,23 @@ export class CommercialTeleventaService {
          SELECT * FROM sel ORDER BY fecha DESC, folio DESC LIMIT 8`,
         [tenantId],
       ),
+      q(SQL_DESCUENTOS_TELEMARKETING_30D, [tenantId]),
     ]);
 
     const t: Record<string, unknown> = totales?.rows?.[0] || {};
+    const descuentos = armarDescuentos(descuentosRaw?.rows || []);
+    // El descuento por operador se pega a su fila de facturación por la MISMA llave con que
+    // las dos consultas agrupan; un operador sin renglones todavía queda sin descuento (null),
+    // no con $0 — cero sería afirmar que no se le descontó nada.
+    const porOperadorConDescuento = (porOperador?.rows || []).map((o) => {
+      const d = descuentos.porOperador.get(llaveOperador(o.vendedor_code, o.vendedor_nombre));
+      return {
+        ...o,
+        descuento_producto: d ? d.producto : null,
+        descuento_cliente: d ? d.cliente : null,
+        importe_lista: d ? d.lista : null,
+      };
+    });
     return {
       hoy: { facturas: Number(t.facturas_hoy || 0), importe: Number(t.importe_hoy || 0) },
       mes: { facturas: Number(t.facturas_mes || 0), importe: Number(t.importe_mes || 0) },
@@ -756,8 +909,9 @@ export class CommercialTeleventaService {
       clientes_en_cola: Number(t.clientes_en_cola || 0),
       /** Fecha de NEGOCIO del dato más reciente; null si no hay facturas en la ventana. */
       ultima_factura: (t.ultima_factura as Date | string | null) || null,
-      por_operador: porOperador?.rows || [],
+      por_operador: porOperadorConDescuento,
       ultimas: ultimas?.rows || [],
+      descuentos: descuentos.resumen,
       /** La atribución es del ERP: no hay forma de cruzarla con los usuarios de la plataforma. */
       atribucion: 'erp_vendedor_code',
     };
