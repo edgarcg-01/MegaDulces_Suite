@@ -19,7 +19,26 @@ const { Client } = require('pg');
 const L = require('./_lib/csu-cortes-sql');
 
 const MUTAR = process.argv.includes('--mutar');
+const MUTAR_CANCELADO = process.argv.includes('--mutar=cancelado');
 const ANTES = (process.argv.find((a) => a.startsWith('--antes=')) || '').slice(8) || L.ANTES_CSU10;
+/** `[CSU.11]` El cobro cancelado de las fixtures: la versión de antes lo contaba; la de ahora NO debe. */
+const CANCELADO = { sucursal: '05', folio: '0000009' };
+
+/**
+ * Lo que la versión de antes DEBERÍA haber devuelto si hubiera excluido cancelados: sin esa aplicación
+ * y con `cobrado` recalculado. Montos a número en las dos salidas (pg devuelve `sum` como texto).
+ */
+function normalizar(filas, quitarCancelado) {
+  return filas.map((f) => {
+    let cobros = f.cobros ? f.cobros.map((x) => ({ ...x, monto: Number(x.monto) })) : null;
+    if (quitarCancelado && cobros && f.sucursal === CANCELADO.sucursal) {
+      cobros = cobros.filter((x) => x.folio !== CANCELADO.folio);
+      if (!cobros.length) cobros = null;
+    }
+    const cobrado = quitarCancelado ? Math.round((cobros || []).reduce((t, x) => t + x.monto, 0) * 100) / 100 : Number(f.cobrado);
+    return { ...f, cobros, cobrado };
+  });
+}
 
 async function fixtures(c) {
   const kdue = (suc, c1, folio, fecha, monto, ref) => c.query(
@@ -44,6 +63,11 @@ async function fixtures(c) {
     [suc, folio, fecha, monto, concepto]);
   await cobro('05', '0000003', '2026-10-04', 1907.62, 'PAGO CON TARJETA');
   await cobro('02', '0000003', '2026-10-06', 5000, 'DEPOSITO BANCO');
+  // [CSU.11] Cobro CANCELADO en Kepler: cabecera c43='C' y c16=0, pero la aplicación conserva el monto.
+  await kdm5('05', '05', CANCELADO.folio, '0000101', 500);
+  await c.query(
+    `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c16, c24, c32, c43, c45) VALUES ('05','05','U','A',5,1,$1,'2026-10-04','CONTADO',0,'PAGO CANCELADO','PUBLICO','C','7')`,
+    [CANCELADO.folio]);
   await c.query(`INSERT INTO kepler_ods.kdb1 (sucursal, c1, c2, c3, c5) VALUES ('05','7','BANCO PRUEBA','012345678901234567','102-01')`);
 
   const devol = (c4, folio, fecha, monto, cancel) => c.query(
@@ -65,8 +89,16 @@ async function fixtures(c) {
 
 (async () => {
   const sql = L.sqlNueva();
-  if (MUTAR) {
-    const roto = sql.SQL.replace('AND btrim(m.c11) = co.folio', '');
+  if (MUTAR_CANCELADO) {
+    const roto = sql.SQL.replace('JOIN analytics.kepler_kdm5_vigente m', 'JOIN kepler_ods.kdm5 m'); // vuelve a la tabla cruda
+    if (roto === sql.SQL) throw new Error('--mutar=cancelado no encontró el filtro: la mutación no se aplicó');
+    sql.SQL = roto;
+  } else if (MUTAR) {
+    // Rompe el casado aplicación↔corte comparando contra el TURNO en vez del folio. ⚠️ No QUITAR la
+    // condición: sin ella cada corte se une con todas las aplicaciones de su sucursal y, sobre datos a
+    // escala, la consulta corrió 44 min sin terminar (medido 2026-10-21) — un negativo que no termina
+    // no prueba nada.
+    const roto = sql.SQL.replace('AND btrim(m.c11) = co.folio', 'AND btrim(m.c11) = co.turno');
     if (roto === sql.SQL) throw new Error('--mutar no encontró qué romper: la mutación no se aplicó');
     sql.SQL = roto;
   }
@@ -83,11 +115,17 @@ async function fixtures(c) {
     const cobros = a.flatMap((x) => x.cobros || []);
     console.log(`vieja (${ANTES}): ${a.length} filas · nueva: ${b.length} filas`);
     console.log(`cobros ${cobros.length} (con detalle ${cobros.filter((x) => x.forma_pago).length}) · devoluciones ${a.flatMap((x) => x.devoluciones || []).length}`);
+    const viejaContabaCancelado = cobros.some((x) => x.folio === CANCELADO.folio);
     if (!a.length || !cobros.length) { console.log('NO MEDIDO: las fixtures no produjeron filas'); process.exitCode = 1; }
-    else if (L.iguales(a, b)) console.log('PARIDAD OK: salida idéntica campo por campo');
-    else { console.log('PARIDAD ROTA'); console.log(L.diferencias(a, b).join('\n')); process.exitCode = 1; }
+    else if (!viejaContabaCancelado) { console.log('NO MEDIDO: la versión de antes no traía el cobro cancelado; el caso no se ejercitó'); process.exitCode = 1; }
+    else {
+      // Esperado = lo de antes MENOS el cobro cancelado (CSU.11); todo lo demás, idéntico.
+      const esperado = normalizar(a, true), obtenido = normalizar(b, false);
+      if (L.iguales(esperado, obtenido)) console.log('PARIDAD OK: salida idéntica campo por campo, salvo el cobro cancelado (que ya no suma)');
+      else { console.log('PARIDAD ROTA'); console.log(L.diferencias(esperado, obtenido).join('\n')); process.exitCode = 1; }
+    }
   } finally {
     await c.query('ROLLBACK').catch(() => {});
     await c.end();
   }
-})().catch((e) => { console.error('ERROR', e.message); process.exit(1); });
+})().catch((e) => { console.error('ERROR', e.message); console.error('NO MEDIDO: la prueba no llegó a comparar (esto NO es un rojo de paridad)'); process.exit(2); });

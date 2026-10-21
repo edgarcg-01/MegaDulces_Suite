@@ -9,8 +9,9 @@ import { armarRespuesta, type CorteCrudo } from './cortes-sucursales.engine';
  *
  *  · Corte  = `kepler_ods.kdue` cargo (`c29='C'`) del cliente `CONTADO`, grupo 23 tipo 1
  *             ("Corte de Caja POS"). `c7` fecha, `c11` importe, `c16` = `Caja <caja>-<folio>`.
- *  · Cobros = `kepler_ods.kdm5` aplicaciones cuyo cargo es el corte (`c8='D'`, `c9=23`, `c10=1`,
- *             `c11` = folio del corte). Forma de pago y concepto de `analytics.erp_collections`.
+ *  · Cobros = aplicaciones VIGENTES (`analytics.kepler_kdm5_vigente`: kdm5 sin documentos cancelados,
+ *             `[CSU.11]`) cuyo cargo es el corte (`c8='D'`, `c9=23`, `c10=1`, `c11` = folio del corte).
+ *             Forma de pago y concepto de `analytics.erp_collections`.
  *  · Arqueo = `analytics.cash_cuts` por (sucursal, caja, folio). ⚠️ El folio de arqueo se REPITE
  *             entre fechas (Hidalgo caja 1 folio 93 aparece 22-sep, 28-sep y 2-oct): se casa con
  *             la fecha más cercana dentro de ±3 días, nunca con cualquiera.
@@ -73,7 +74,11 @@ ap AS MATERIALIZED (
          'U' || btrim(m.c3) || lpad(btrim(m.c4::text), 2, '0') || lpad(btrim(m.c5::text), 2, '0') AS doc_prefix,
          btrim(m.c6) AS folio, round(m.c13::numeric, 2) AS monto
     FROM co
-    JOIN kepler_ods.kdm5 m
+    -- [CSU.11] Las aplicaciones VIGENTES, no kdm5 crudo: un cobro cancelado en Kepler (cabecera
+    -- c43 = 'C', importe 0) conserva su aplicación con el monto completo y contaba como cobrado.
+    -- Medido en prod (21-oct): 14 de 1,218 aplicaciones a cortes de octubre, $171,986.56. La
+    -- vista tiene las mismas columnas que kdm5 y se aplana: los filtros siguen entrando al índice.
+    JOIN analytics.kepler_kdm5_vigente m
       ON m.c2 = 'U' AND btrim(m.c1) = co.sucursal AND btrim(m.c8) = 'D' AND btrim(m.c9::text) = '23'
      AND btrim(m.c10::text) = '1' AND btrim(m.c11) = co.folio
    WHERE btrim(m.c1) = m.sucursal

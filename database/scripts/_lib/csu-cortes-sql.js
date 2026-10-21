@@ -98,7 +98,8 @@ function urlLocal() {
 
 /** La base local va atrasada: estas migraciones dan a la vista erp_collections su forma de CSU.8. */
 async function vistaCobrosAlDia(c) {
-  for (const mig of ['20261006160000_caja_vistas_anclaje_y_definer.js', '20261009174500_erp_collections_banco_deposito.js']) {
+  for (const mig of ['20261006160000_caja_vistas_anclaje_y_definer.js', '20261009174500_erp_collections_banco_deposito.js',
+    '20261021102646_kepler_kdm5_vigente.js']) { // [CSU.11] la vista de aplicaciones vigentes que lee Cortes
     await c.query('SAVEPOINT vista');
     try {
       await require(path.join(REPO, 'database/migrations-newdb', mig)).up({ raw: (sql, b) => c.query(sql, b) });
@@ -108,6 +109,10 @@ async function vistaCobrosAlDia(c) {
       console.log(`  (vista) ${mig} no aplicó: ${e.message}`);
     }
   }
+  // ⚠️ Las migraciones hacen `SET LOCAL statement_timeout`, que dura hasta el fin de la TRANSACCIÓN de
+  // la prueba: la SQL vieja (un LATERAL por corte, ~80 s sobre datos a escala) moría por timeout y el
+  // rojo de una mutación se leía como «paridad rota». Un rojo por timeout es NO MEDIDO, no un rojo.
+  await c.query(`SET LOCAL statement_timeout = 0`);
   const n = (await c.query(`SELECT count(*)::int n FROM information_schema.columns
      WHERE table_schema = 'analytics' AND table_name = 'erp_collections' AND column_name IN ('medio_cobro', 'cuenta_tesoreria')`)).rows[0].n;
   if (n !== 2) throw new Error('la vista local analytics.erp_collections no tiene medio_cobro/cuenta_tesoreria');

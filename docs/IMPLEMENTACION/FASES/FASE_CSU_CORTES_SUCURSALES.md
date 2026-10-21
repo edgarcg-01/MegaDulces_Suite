@@ -125,6 +125,16 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   negativa) · `csu-cortes-paridad-prod.js` (sólo lectura, candado de identidad del clúster).
   Fuera de alcance, a propósito: el bug del arqueo mal casado (folio de turno repetido el mismo día,
   SM.35) cambia cifras y va en su propio item. 🧪 2026-10-21
+- [x] **[CSU.11]** **Cobros cancelados en Kepler: dejan de sumar, de raíz** (pedido del PM: «omitir todo
+  lo CANCELADO» y «corregirlo de raíz, no parchar»). Kepler cancela en la cabecera (`kdm1.c43='C'`,
+  importe 0) y deja la aplicación viva en `kdm5`: 854 de 70,478 en prod. Vista canónica
+  `analytics.kepler_kdm5_vigente` (mig `20261021102646`, se verifica sola); la leen el CTE `ap` de
+  Cortes y la cartera (mig `20261021102648`: `erp_receivable_documents`, `erp_receivable_doc()`,
+  `v_route_credit_sales`, desde su definición viva). Compuerta `check:kdm5-vigente` en el `pre-push`,
+  con `--db` para el catálogo. **Medido en prod (oct):** cobrado −$171,986.56 (14 cobros),
+  pendiente +$6,816.36, resto idéntico; cartera +$165,615.07 (21 docs); 13 facturas «pagadas» que no
+  lo estaban. Paridad local con cobro cancelado sembrado + `--mutar=cancelado` en rojo. ⚠️ Migraciones
+  a prod ANTES del código, una por una, fuera de horario. GOTCHAS §89 · ADR-098. 🧪 2026-10-21
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.
