@@ -851,3 +851,67 @@ gatea Pólizas y Contabilidad electrónica): quien ya **ve** pólizas ve el libr
    que el emisor canceló después. Amerita su propio sprint.
 3. Un CFDI tipo `T` y los `P` (pagos) siguen viniendo de la descarga masiva vieja
    (194 filas de julio). Se pueden traer del ADD con `--tipos P,T` cuando haga falta.
+
+---
+
+## LC.CPAG — solicitar el complemento de pago al proveedor (2026-10-21)
+
+> **Pedido de Edgar:** *"solicitudes de complemento de pago: una vez se generó el pago, mandar
+> [pedir] el complemento de pago — compras a crédito y/o PPD. Agrégalo en Contabilidad."*
+> Tarjeta: [MegaDulces_PM#75](https://github.com/edgarcg-01/MegaDulces_PM/issues/75) (privada), hija de LC.
+> Va en LC y no en una fase nueva: son **las mismas facturas de compra (CFDI)** que este libro ya lee, y
+> el tablero está sobre el tope de fases en curso.
+
+### El problema
+
+Cuando pagamos una factura **PPD** (pago en parcialidades o diferido) de un proveedor, el proveedor
+debe emitir el **complemento de pago (CFDI tipo P)**. Sin él, el pago no queda soportado ante el SAT:
+el IVA de esa factura no se puede tratar como pagado. Hoy **nadie sabe cuáles faltan**.
+
+Medido en pg-prod (sólo lectura, 2026-10-21):
+
+| | Cantidad | Monto |
+|---|---:|---:|
+| Facturas **PPD recibidas** de proveedores (jul–oct) | **2,475** | **\$166.5 M** |
+| Complementos **recibidos** (tipo P) | **173**, todos del **1 al 17 de julio** | — |
+
+- ⛔ **Desde el 17-jul no entra ningún complemento recibido.** Las facturas I/E sí llegan al día por el
+  ADD de ContPAQi (`source = contpaqi_add`); los P sólo entraron por la descarga masiva vieja (una
+  solicitud buena de cinco: las otras cuatro de `fiscal.download_requests` quedaron en `error`).
+- ⭐ **La causa es una línea:** `import-contpaqi-cfdis.js` ya acepta `--tipos I,E,P,T` (l.38, 112) y su
+  default es `I,E`. La agenda (`ops/vl/crontab.feeds:182` y `:275`) nunca le pasa `P`. Esta misma
+  sección de Pendientes (arriba) ya lo dejaba anotado: *"se pueden traer del ADD con `--tipos P,T`
+  cuando haga falta"*. Ya hace falta.
+- ✅ La liga es exacta: los complementos traen en el XML el **folio fiscal de la factura pagada**
+  (`IdDocumento`) en **175 de 176**. El pago está en Kepler (`XD25`/`XD26`) y `kepler_ods.kdm5` lo liga
+  a la factura `XA2001` (medido en GX-PAGO).
+
+### El plan
+
+| # | Capa | Qué | Esfuerzo |
+|---|---|---|---|
+| CPAG.1 | C0 | Agregar `--tipos I,E,P` al carril `contpaqi-cfdis` (y al `-full` para el histórico desde jul). Verificar que el ADD de ContPAQi guarda los P (si no, la ruta B es la descarga masiva programada y arreglar sus errores) | **S** |
+| CPAG.2 | C0 | Vista `derive-no-copy`: factura PPD recibida → pago (`kdm5` → `XA2001` → UUID por RFC + folio + total) → complemento (`IdDocumento`) → estado | M |
+| CPAG.3 | C2/C3 | Pantalla en Contabilidad «Complementos de pago»: por proveedor, lo pagado sin complemento, días de atraso y monto | M |
+| CPAG.4 | C2/C3 | Solicitar el complemento al proveedor (D1) y registrar quién lo pidió y cuándo | S–M |
+
+**Prioridad (dinero × esfuerzo):** Alto × L = **2**. Partida: **CPAG.1 + CPAG.2 = saber cuáles
+faltan, Alto × M = prioridad 1.**
+
+### Las opciones
+
+**D1 · ¿Cómo se le pide el complemento al proveedor?**
+
+| Opción | A favor | En contra |
+|---|---|---|
+| **(a) Correo automático** | Nadie tiene que acordarse | No hay servidor de correo configurado (`SMTP_*` sólo en `.env.example`); correos que salen solos a proveedores necesitan plantilla aprobada y una dirección por proveedor que hoy no está en un solo lugar |
+| **(b) Texto listo para copiar** ⭐ recomendada para empezar | Sin infraestructura nueva; la contadora decide a quién y cuándo | Sigue siendo a mano |
+| **(c) WhatsApp** | Es por donde ya se habla con muchos proveedores | El BSP de WhatsApp sigue sin decidir (ADR-006) |
+
+En las tres se **registra** la solicitud (quién, cuándo, a qué proveedor, qué facturas), para saber
+qué se pidió y qué sigue sin llegar.
+
+**D2 · ¿Cuándo se considera atrasado?** El SAT da hasta el **día 5 del mes siguiente** al pago.
+Propuesta: *pendiente* desde el pago, *atrasado* desde el día 6 del mes siguiente.
+
+**No incluye:** emitir nuestros complementos a clientes (lo timbra Kepler: `kdfe33pagm1`).
