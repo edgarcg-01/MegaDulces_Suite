@@ -22,6 +22,7 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   desglose,
+  parseCantidad,
   type OpcionUnidad,
   type PasoDesglose,
 } from '../quotes.service';
@@ -539,14 +540,17 @@ const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'seco
                   <td class="num dt-num" role="cell" data-label="Cantidad">
                     @if (editable() && l.parent_line_number === null) {
                       <div class="inline-qty-box">
+                        <!-- [E.20] Se guarda al CONFIRMAR (Enter o salir del campo), no con cada
+                             tecla: antes «48» mandaba un PATCH con 4, el campo se deshabilitaba y
+                             el 8 se perdía (auditoría A3). -->
                         <input
-                          type="number"
+                          type="text"
                           class="input num qty-inline"
-                          [ngModel]="num(l.quantity)"
-                          (ngModelChange)="pedirCambio(l, $event)"
-                          min="1"
-                          step="1"
-                          inputmode="numeric"
+                          [value]="num(l.quantity)"
+                          (change)="pedirCambio(l, $any($event.target))"
+                          (keydown.enter)="$any($event.target).blur()"
+                          (focus)="$any($event.target).select()"
+                          [attr.inputmode]="admiteFraccionLinea(l) ? 'decimal' : 'numeric'"
                           [disabled]="guardando()"
                           [attr.aria-label]="'Cantidad del renglón ' + l.line_number"
                         />
@@ -1095,8 +1099,13 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.recargar();
   }
 
-  recargar(): void {
-    this.cargando.set(true);
+  /**
+   * @param silencioso [E.20] true = refresca los datos SIN el estado de carga global. Después de
+   * editar un renglón, el spinner desmontaba la página entera (y con ella el buscador al que
+   * `volverAlBuscador` quería regresar).
+   */
+  recargar(silencioso = false): void {
+    if (!silencioso) this.cargando.set(true);
     this.svc.getOne(this.id).subscribe({
       next: (q) => {
         this.cot.set(q);
@@ -1233,7 +1242,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             detail: `${qty} ${unidadNom}${qty > 1 ? 's' : ''} de ${itemNom}`,
           });
           this.limpiarAlta();
-          this.recargar();
+          this.recargar(true);
           this.guardando.set(false);
           this.volverAlBuscador();
         },
@@ -1254,7 +1263,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             detail: `${this.termino.trim()} guardado como no casado.`,
           });
           this.limpiarAlta();
-          this.recargar();
+          this.recargar(true);
           this.guardando.set(false);
           this.volverAlBuscador();
         },
@@ -1262,9 +1271,27 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       });
   }
 
-  pedirCambio(l: QuoteLine, valor: number): void {
-    const qty = Math.floor(Number(valor));
-    if (!Number.isFinite(qty) || qty <= 0 || qty === this.numOr0(l.quantity)) return;
+  /** [E.20] Fracción sólo en lo que se pesa y en su unidad base (antes Math.floor: 2.5 kg → 2). */
+  admiteFraccionLinea(l: QuoteLine): boolean {
+    return !!l.product_sold_by_kg && this.rungDeLinea(l) === 'base';
+  }
+
+  pedirCambio(l: QuoteLine, input: HTMLInputElement): void {
+    const actual = this.numOr0(l.quantity);
+    const qty = parseCantidad(input.value, this.admiteFraccionLinea(l));
+    if (qty === null) {
+      // Lo que no se entiende no se guarda: el campo vuelve a la cantidad que sí tiene el renglón.
+      input.value = String(actual);
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Cantidad no válida',
+        detail: this.admiteFraccionLinea(l)
+          ? 'Escribe una cantidad mayor que cero, por ejemplo 2.5.'
+          : 'Escribe una cantidad entera mayor que cero.',
+      });
+      return;
+    }
+    if (qty === actual) return;
     this.guardando.set(true);
     this.svc.updateLine(this.id, l.id, { quantity: qty }).subscribe({
       next: (r) => {
@@ -1277,11 +1304,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
             detail: `${p.name || p.sku}: ahora ${p.unit_price} (${this.fuenteLabel(p.price_source)}).`,
           });
         }
-        this.recargar();
+        this.recargar(true);
       },
       error: (err) => {
         this.falla(err, 'No se pudo cambiar la cantidad');
-        this.recargar();
+        this.recargar(true);
       },
     });
   }
@@ -1297,7 +1324,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           summary: 'Renglón quitado',
           detail: `Se eliminó el renglón ${l.line_number}.`,
         });
-        this.recargar();
+        this.recargar(true);
       },
       error: (err) => this.falla(err, 'No se pudo quitar el renglón'),
     });

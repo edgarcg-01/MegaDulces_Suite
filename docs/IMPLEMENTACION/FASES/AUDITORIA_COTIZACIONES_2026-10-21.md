@@ -235,7 +235,7 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
 | # | Qué | Por qué primero | Esfuerzo |
 |---|---|---|---|
 | 1 | ✅ **`[E.19]` hecho (2026-10-21, ver §7)** · **C1 + C2 + M1 + M5 + M7**: una sola función de entregable que reciba del servidor `{suma de renglones, descuento, base sin IVA, IVA, total}` y no recalcule nada; fecha de la cotización; sin `$0.00`; sin el mensaje crudo | Es el precio que se le promete por escrito al cliente: $8,539.97 de diferencia en 18 cotizaciones | Chico |
-| 2 | **A1 + A2 + A3**: `contactoNombre` como signal, decimales para lo que se vende por kilo, cantidad del detalle al salir del campo | Errores de 10× y un botón que no se habilita, en el uso diario | Chico |
+| 2 | ✅ **`[E.20]` hecho (2026-10-21, ver §8)** · **A1 + A2 + A3**: `contactoNombre` como signal, decimales para lo que se vende por kilo, cantidad del detalle al salir del campo | Errores de 10× y un botón que no se habilita, en el uso diario | Chico |
 | 3 | **C3**: `POST /quotes` con renglones en una transacción | Cotizaciones a medias y folios duplicados | Medio |
 | 4 | **A4 + A5 + A6 + A8**: candados, `rung`, renglón sin catálogo, y las escrituras a una suite que corra en CI | Precondición de la edición; hoy nada protege las escrituras | Medio |
 | 5 | **Edición de cabecera** (§4) **junto con** extraer el editor de renglón compartido y reconstruir con PrimeNG (§3) | Es el pedido; tocar esas pantallas sin rehacerlas sumaría a 47 controles crudos | Grande |
@@ -280,3 +280,29 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
 - ⚠️ **Deuda con nombre**: el servidor (`recalcTotals`) todavía hace su propia cuenta; la spec fija
   que coincidan. Mudarlo a `totalesCotizacion` va en el paso 4 (escrituras), con prueba contra base.
 - ⛔ **Sin validación visual**: el PDF y el Excel no se abrieron.
+
+---
+
+## 8. `[E.20]` Paso 2 hecho: lo que fallaba en el uso diario (2026-10-21)
+
+- **A1 · el botón «Crear»**: `contactoNombre` pasa a `signal`. ⭐ **La compuerta `reactividad` no lo
+  cazaba porque sólo contaba como mutable un campo que el TypeScript reasigna**; éste lo cambiaba
+  `[(ngModel)]` en la plantilla. Ahora la compuerta lee la plantilla (inline o `templateUrl`), con
+  dos casos de autoprueba y **prueba negativa** (sin la detección nueva, el caso falla).
+  ⛔ **Y destapó 6 casos más fuera de cotizaciones**: filtros y buscadores que no filtran en
+  Almacén › Existencia (`fSupplier`) y Logística › Configuración (`routeSearch`), Costos (`search`)
+  y Guías (`search`, `statusFilter`, `driverFilter` — verificado a mano: el comentario del código
+  dice «se recalcula vía signal» y ninguno de los tres es señal). Quedan en la lista base de la
+  compuerta como **deuda E.20 con nombre**; no son de este módulo.
+- **A2 · kilos**: una sola lectura, `parseCantidad()` en `quote-units.ts` (Postel: fracción sólo
+  donde la unidad se pesa; la coma sólo como separador de miles; «2,5» es ambiguo y no se adivina),
+  usada en la franja de cantidad, la bandeja y el renglón del detalle. Al revisarlo aparecieron
+  **dos `Math.floor` más** que cortaban los kilos aunque se teclearan bien: el de la bandeja al
+  re-preciar y el de «aplicar volumen» (un mínimo de 2.5 kg quedaba en 2, abajo del umbral).
+- **A3 · cantidad del detalle**: se guarda al confirmar (Enter o salir del campo), no con cada
+  tecla; lo que no se entiende vuelve a la cantidad guardada con un aviso; y después de agregar,
+  cambiar o quitar un renglón la página se refresca **sin** el estado de carga global que la
+  desmontaba.
+- Pruebas: `parseCantidad` 4 casos nuevos (`quote-units.spec` 19/19), televenta 29/29,
+  `ngc --noEmit` con control, `reactividad --self-test` 6/6, demás compuertas verdes.
+- ⛔ **Sin validación visual** ni prueba en navegador del ciclo teclear → confirmar → guardar.

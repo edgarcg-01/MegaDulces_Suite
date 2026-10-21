@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja } from './quote-units';
+import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad } from './quote-units';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
 
@@ -88,5 +88,33 @@ describe('COT.17 — la unidad del MEDIO (el paquete dentro de la caja)', () => 
   });
   it('una unidad base (factor 1) no se desglosa', () => {
     expect(desglose(12.19, 1, 'PZA', 10)).toEqual([]);
+  });
+});
+
+/**
+ * `[E.20]` La cantidad tecleada. El defecto que esto cierra: «2.5» kg se cotizaba como 25 en el
+ * alta (se borraba el punto) y como 2 en el detalle (Math.floor).
+ */
+describe('parseCantidad', () => {
+  it('«2.5» en lo que se pesa es 2.5, nunca 25 ni 2', () => {
+    expect(parseCantidad('2.5', true)).toBe(2.5);
+    expect(parseCantidad(' 0.750 ', true)).toBe(0.75);
+  });
+
+  it('en unidades enteras una fracción no se convierte en otro número', () => {
+    expect(parseCantidad('2.5', false)).toBeNull();
+    expect(parseCantidad('12', false)).toBe(12);
+  });
+
+  it('la coma es separador de miles; «2,5» es ambiguo y no se adivina', () => {
+    expect(parseCantidad('1,250', false)).toBe(1250);
+    expect(parseCantidad('1,250.5', true)).toBe(1250.5);
+    expect(parseCantidad('2,5', true)).toBeNull();
+  });
+
+  it('vacío, cero, negativo o texto: null (la pantalla conserva la cantidad anterior)', () => {
+    for (const v of ['', '0', '-3', 'abc', '2.', '.5', '1.2.3', null, undefined]) {
+      expect(parseCantidad(v, true)).toBeNull();
+    }
   });
 });
