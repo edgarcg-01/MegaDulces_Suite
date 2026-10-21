@@ -12193,7 +12193,7 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [x] ✅ `[CP.8.69]` C0 — Cuatro de las cinco preguntas para contabilidad contestadas con el dato; queda «parcial con notas». 2026-10-21
 - [x] ✅ `[CP.8.70]` C0 — De punta a punta sin oráculo (banco → póliza): 948 de 1,831 (51.8 %). `punta-a-punta-proveedor-contpaqi.js`. 2026-10-21
 - [x] ✅ `[CP.8.71]` C0 — El RFC del acreedor en Kepler estaba mal capturado (249 casos); reparado → **1,142 de 1,831 (62.4 %), error del puente 2.5 %**. De 125 acreedores sin RFC pagados en 2026: 21 se corrigen ($34.0 M, lista privada para Compras), 103 son de remisión en efectivo ($35.67 M) y **no tienen póliza en ContPAQi** (hallazgo para contabilidad). 2026-10-21
-- [ ] ⬜ `[CP.8.72]` C1 — Armador del pago a proveedor en `libs/finance` con las reglas medidas (2120 regla o provisión · cuenta por historial · nota por relación 03 · redondeo < $1 · par de tarjeta) y la reparación del RFC de Kepler. Primero con lo que hay sin D8 (cadena Kepler + importe).
+- [ ] 🔨 `[CP.8.72]` C1 — Armador del pago a proveedor: **módulo puro en código** (`pago-proveedor.ts` + `rfc-acreedor.ts`, 23 casos, 2 mutados a rojo, **1,143/1,143 idénticas al simulador**). Sin D8 se arman 976 (877 iguales); las combinaciones por importe (37 % de error) van a confirmar. Falta el servicio que lo alimenta (cadena + importe desde la base) y C2/C3. 2026-10-21
 - [ ] ⬜ `[CP.8.73]` C2/C3 — «A confirmar» en pantalla para parcial y notas juntadas (505 pólizas, 279 ya correctas).
 - [ ] ⚠️ `[CP.8.74]` D8 — traer `Pagos_Doc_Rel` y `CfdiRelacionados` del ADD sin importer nuevo. Bloquea la mayor parte de lo armado (940 de 1,142 salen del REP).
 

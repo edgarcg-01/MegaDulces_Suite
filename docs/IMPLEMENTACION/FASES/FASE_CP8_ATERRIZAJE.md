@@ -727,6 +727,28 @@ importe, y la cuenta `1010000000 CAJA` registra sólo **$471,739** de salidas en
 efectivo con remisión **no llegan a la contabilidad**. Si es a propósito o falta registrarlas lo decide
 contabilidad; el puente (bancos) no las toca — son del flujo de Caja General (fase CGA).
 
+### `[CP.8.72]` Lo que se arma hoy, sin D8 — y el armador en `libs/`
+
+Sin nada del ADD (ni REP, ni nota → factura, ni tipo de relación), sólo con Kepler, `fiscal.cfdis` y la
+historia de ContPAQi que ya están en Postgres:
+
+| fuente de las facturas | iguales | distintas | ¿se arma solo? |
+|---|--:|--:|---|
+| cadena Kepler (`kdxf`, RFC reparado) | 770 | 92 | sí |
+| importe, una factura (+ proveedor por nombre) | 107 | 7 (6 %) | sí |
+| importe, combinación | 46 | 27 (**37 %**) | **no**: a confirmar |
+| **total que se arma sin D8** | **877** | **99** | 976 pólizas (53.3 % de 1,831) |
+
+Con D8 serían 1,142 (62.4 %) con 2.5 % de error del puente: el REP aporta las facturas de 940 de ellas y
+la nota → factura de las que llevan nota. **Sin D8 se puede empezar; con D8 se termina.**
+
+**El armador (C1, en código):** `libs/finance/src/lib/contpaqi/pago-proveedor.ts` (el asiento completo: R1/R2,
+notas, redondeo, compuerta «no cuadra → a confirmar», UUID por factura y nota para los renglones `AD`) y
+`rfc-acreedor.ts` (la escalera de `[CP.8.71]`). Puros, como `poliza-egreso.ts`. 23 casos en
+`pago-proveedor.spec.ts`, dos mutados a rojo (provisión, residuo de centavos). ⭐ **Cruzado contra el
+simulador: 1,143 de 1,143 pólizas idénticas renglón por renglón**, todas cuadran. Falta: el servicio que le
+da de comer (cadena + importe desde la base, C1) y el endpoint/pantalla (C2/C3).
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
