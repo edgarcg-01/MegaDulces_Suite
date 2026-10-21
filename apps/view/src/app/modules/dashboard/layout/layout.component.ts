@@ -930,6 +930,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         // `[RE.48]` «Captura de facturas» ya no es item propio: es la primera pestaña de Control de
         // entradas (selector tipo iOS). Quien sube aterriza ahí; quien sólo observa, en Cobertura.
+        // Control va PRIMERO en Recepción (decisión del PM): el proceso empieza en la captura que
+        // vive adentro.
+        // [NAV.1] El control de entradas en UNA entrada: su padre era también la pestaña «Cobertura por sucursal».
+        { label: 'Control de entradas', icon: 'pi pi-sitemap', route: '/compras/entradas/control', tabs: ENTRADAS_CONTROL_TABS },
         // `[RE.24]` La pantalla aparte "Revisión de facturas" salió de uso (2026-09-02): validar y
         // rechazar viven en la lista de órdenes — un solo lugar donde se decide. Eso se mantiene.
         // ⭐ `[RE.47]` Lo que se perdió fue la PUERTA: la lista se llegaba por Control o por un
@@ -938,8 +942,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // 2026-09-01** — el día antes de retirar la puerta. Vuelve con el nombre del trabajo, a la
         // MISMA lista (no es otra pantalla), y desde Recepción, donde vive el flujo.
         { label: 'Revisión de facturas', icon: 'pi pi-check-square', route: '/compras/revision-facturas', permission: Permission.COMPRAS_ENTRADAS_VER },
-        // [NAV.1] El control de entradas en UNA entrada: su padre era también la pestaña «Cobertura por sucursal».
-        { label: 'Control de entradas', icon: 'pi pi-sitemap', route: '/compras/entradas/control', tabs: ENTRADAS_CONTROL_TABS },
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
