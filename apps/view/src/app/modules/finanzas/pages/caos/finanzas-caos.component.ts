@@ -497,7 +497,7 @@ interface FilaUI extends CaosMovimiento { denom?: CaosDenominacion[]; denomTotal
         <div class="cs-conteo-reja">
           @for (d of denominaciones; track d) {
             <label [for]="'cs-den-' + d">{{ mx(d) }}</label>
-            <p-inputNumber [inputId]="'cs-den-' + d" [min]="0" [useGrouping]="false" [showButtons]="false"
+            <p-inputnumber [inputId]="'cs-den-' + d" [min]="0" [useGrouping]="false" [showButtons]="false"
                            [ngModel]="piezasDe(d)" (ngModelChange)="ponerPiezas(d, $event)" />
           }
         </div>
