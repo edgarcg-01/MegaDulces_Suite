@@ -71,6 +71,16 @@ async function saludProcesos() {
   const prioridad = (i) => i.prioridad || Object.entries(i).find(([k]) => /^prioridad$/i.test(k))?.[1] || '';
   const baratasSinTrabajar = items.filter((i) => /^[01] /.test(prioridad(i)) && !['En curso', 'Cerrado'].includes(i.status));
   const altoYGrande = enCurso.filter((i) => /^2 /.test(prioridad(i)) && /^(L|XL)/.test(i.esfuerzo || ''));
+  // Evidencia de avance sin preguntarle a nadie: commits de los últimos 7 días cuyo título lleva el
+  // código de la tarjeta (`[CGA-A.15]` cuenta para [CGA]). Lee origin/main + HEAD local (lo no
+  // empujado también es avance). Trabajo sin código (decisiones, configurar md) da 0 y se dice.
+  try { execFileSync('git', ['fetch', '-q', 'origin', 'main'], { cwd: raiz, stdio: 'ignore', timeout: 60000 }); } catch { /* sin red: se mide con lo local */ }
+  let log = '';
+  try { log = execFileSync('git', ['log', '--since=7.days', '--pretty=%s', 'origin/main', 'HEAD'], { cwd: raiz, encoding: 'utf8', maxBuffer: 32 << 20 }); } catch { log = null; }
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const commitsDe = (cod) => log == null ? null : log.split('\n').filter((s) => new RegExp(`\\[${esc(cod)}[\\].-]`).test(s)).length;
+  const avance = enCurso.map((i) => { const cod = i.content.title.match(/^\[([^\]]+)\]/)?.[1]; return { i, cod, n: cod ? commitsDe(cod) : null }; });
+  const sinAvance = avance.filter((a) => a.n === 0);
   const salud = await saludProcesos();
   const lineas = [
     `**Semana del ${hoy} — reporte automático (medido, no redactado).**`,
@@ -83,6 +93,9 @@ async function saludProcesos() {
     '',
     `**Prioridad 0–1 que nadie trabaja (${baratasSinTrabajar.length}):** ${baratasSinTrabajar.length ? baratasSinTrabajar.map((i) => `#${i.content.number} ${i.content.title.match(/^\[[^\]]+\]/)?.[0]} (${i.status})`).join(' · ') + ' → mucho dinero, poco esfuerzo: abrir antes que lo de prioridad 3–4' : 'ninguna'}`,
     ...(altoYGrande.length ? [`**Alto dinero y esfuerzo L/XL en curso (partir en un pedazo S/M):** ${altoYGrande.map((i) => '#' + i.content.number).join(', ')}`] : []),
+    '',
+    `**Commits de la semana por tarjeta en curso:** ${log == null ? 'NO MEDIDO (git no disponible)' : avance.sort((a, b) => (b.n || 0) - (a.n || 0)).map((a) => `${a.cod} ${a.n}`).join(' · ')}`,
+    `**En curso sin ningún commit esta semana (${sinAvance.length}):** ${sinAvance.length ? sinAvance.map((a) => `#${a.i.content.number} [${a.cod}] (${dueno(a.i)})`).join(' · ') + ' → en la junta: ¿se avanzó sin código (decisión, configuración) o está detenida?' : 'ninguna'}`,
     '',
     '**Carga en curso por persona:**',
     ...Object.entries(carga).sort((a, b) => b[1].length - a[1].length).map(([d, l]) => `- ${d}: ${l.length} (${l.join(', ')})`),
