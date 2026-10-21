@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
+- `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
+
 ### Fixed — Una factura ya no se rechaza por tener el mismo número que la de otro proveedor (RE.42, 2026-10-21)
 - **Entradas** decía *«Este PDF ya está subido en la entrada…»* cuando sólo coincidía el número de folio con una nota de **otro proveedor** (caso real: la `0666` de EL FAROLITO contra la `0666` de DULCELICIAS). Ahora un papel es duplicado sólo si es el mismo archivo, o el mismo folio **del mismo proveedor**.
 - Si no se puede saber quién emitió el papel, la pantalla **avisa** dónde está el otro folio y deja enviar; la hoja queda marcada para el revisor. Vale igual en Entradas pendientes, Captura por lote y el detalle de la entrada.
