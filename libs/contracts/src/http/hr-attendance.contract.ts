@@ -249,6 +249,8 @@ export interface HrHorarioPersonaBody {
   starts_at: string;
   ends_at: string;
   lunch_minutes: number;
+  /** `[RH.1.15]` De 2 a 4 horarios (mañana, tarde…); con él, `starts_at`/`ends_at`/`lunch_minutes` son los del primero. */
+  shifts?: Array<{ starts_at: string; ends_at: string; lunch_minutes: number }>;
   works_saturday?: boolean;
   saturday_starts_at?: string;
   saturday_ends_at?: string;

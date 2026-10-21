@@ -4,7 +4,8 @@ import {
   ACTION, HEAD, INK, M, MUTED, RULE, ZEBRA, dibujarEncabezado, fecha, fechaHoraArchivo, lastY, loadLibs, loadLogo, textoParaArchivo,
 } from '../compras/compras-pdf-comun';
 import {
-  type ColumnaDia, type GrupoDepartamento, celdaDe, departamentoDe, diasPorFecha, difHorario, firmaHoras, horarioDe, horasTexto, pausasDelDia,
+  type ColumnaDia, type GrupoDepartamento, celdaDe, departamentoDe, diasPorFecha, difHorario, firmaHoras, horarioAsignadoLargo, horarioDe,
+  horariosDe, horasTexto, pausasDelDia, saldoTexto,
 } from './reporte-formato';
 
 /**
@@ -26,6 +27,8 @@ export interface ContextoExport {
   columnas: ColumnaDia[];
   hoy: string;
   mideRetardo: boolean;
+  /** `[RH.1.15]` Saldo de horas extra al fin del periodo por código; null/ausente = no se pudo leer (la columna sale vacía). */
+  saldos?: Map<string, number> | null;
 }
 
 /** Texto apto para las fuentes estándar del PDF. */
@@ -46,7 +49,13 @@ export interface FilaExport {
  */
 export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAsistencia[], c: ContextoExport, conSubtotales: boolean): { encabezado: string[]; filas: FilaExport[] } {
   const hayAsig = todas.some((p) => !!p.horarioAsignado);
-  const encabezado = ['Clv', 'Nombre', 'Horario', ...c.columnas.map((x) => `${x.dow} ${x.dia}`), 'Horas', 'H. extra', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(hayAsig ? ['vs. horario'] : [])];
+  // `[RH.1.15]` Horas extra ganadas, usadas y el saldo al fin del periodo (Mega Talento 8dd5521).
+  const encabezado = ['Clv', 'Nombre', 'Horario', ...c.columnas.map((x) => `${x.dow} ${x.dia}`), 'Horas', 'HE ganó', 'HE usó', 'HE saldo', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(hayAsig ? ['vs. horario'] : [])];
+  const saldoDe = (cod: string): number | null => (c.saldos && c.saldos.has(cod) ? (c.saldos.get(cod) as number) : null);
+  const sumaSaldos = (ps: HrPersonaAsistencia[]): number | null => {
+    const v = ps.map((p) => saldoDe(p.codigo)).filter((x): x is number => x !== null);
+    return v.length ? v.reduce((t, x) => t + x, 0) : null;
+  };
   const o = { hoy: c.hoy, mideRetardo: c.mideRetardo };
   const filas: FilaExport[] = [];
   for (const g of grupos) {
@@ -57,12 +66,14 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
         const x = celdaDe(p, dias, col.fecha, o);
         const pz = [x.desMin !== null ? `D ${x.desMin}` : '', x.comMin !== null ? `C ${x.comMin}` : ''].filter(Boolean).join(' ');
         // `[RH.1.10]` Las horas extra del día, como en pantalla (Mega Talento 1a28f6e).
-        return [x.jornada, x.tramos.join(' '), pz, x.extraMin ? `+${horasTexto(x.extraMin)} extra` : ''].filter(Boolean).join('\n');
+        return [x.jornada, x.tramos.join(' '), pz, x.extraMin ? `+${horasTexto(x.extraMin)} extra` : '',
+          x.usadasMin ? `-${horasTexto(x.usadasMin)} usadas` : ''].filter(Boolean).join('\n');
       });
       filas.push({
         tipo: 'persona',
         celdas: [p.codigo, p.nombreCompleto || p.nombre, horarioDe(p).texto, ...dia, horasTexto(p.minutosTrabajados),
           p.horasExtraGanadasMin ? horasTexto(p.horasExtraGanadasMin) : '',
+          p.horasExtraUsadasMin ? horasTexto(p.horasExtraUsadasMin) : '', saldoTexto(saldoDe(p.codigo)),
           c.mideRetardo ? String(p.atrasoBrutoMin || '') : '-', ...(hayAsig ? [firmaHoras(difHorario(p))] : [])],
       });
     }
@@ -72,7 +83,9 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
       const min = completo.reduce((t, p) => t + p.minutosTrabajados, 0);
       const ret = completo.reduce((t, p) => t + p.atrasoBrutoMin, 0);
       const extra = completo.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0);
-      filas.push({ tipo: 'subtotal', celdas: ['', '', '', ...c.columnas.map(() => ''), horasTexto(min), extra ? horasTexto(extra) : '', c.mideRetardo ? String(ret) : '', ...(hayAsig ? [''] : [])] });
+      const usadas = completo.reduce((t, p) => t + (p.horasExtraUsadasMin || 0), 0);
+      filas.push({ tipo: 'subtotal', celdas: ['', '', '', ...c.columnas.map(() => ''), horasTexto(min), extra ? horasTexto(extra) : '',
+        usadas ? horasTexto(usadas) : '', saldoTexto(sumaSaldos(completo)), c.mideRetardo ? String(ret) : '', ...(hayAsig ? [''] : [])] });
     }
   }
   return { encabezado, filas };
@@ -133,7 +146,7 @@ export async function exportarPdfPersona(p: HrPersonaAsistencia, c: ContextoExpo
   doc.text(latin1(nombre), M, y + 4);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
   const h = p.horarioAsignado
-    ? `Horario asignado por RH: ${p.horarioAsignado.entrada} a ${p.horarioAsignado.salida}, comida ${p.horarioAsignado.comidaMin} min${p.horarioAsignado.sabado ? ', trabaja el sábado' : ''}.`
+    ? `${horariosDe(p.horarioAsignado).length > 1 ? 'Horarios asignados por RH (cada día contra el más cercano a su entrada)' : 'Horario asignado por RH'}: ${horarioAsignadoLargo(p.horarioAsignado)}${p.horarioAsignado.sabado ? ', trabaja el sábado' : ''}.`
     : `No tiene horario asignado: se mide contra el que sale de sus checadas (${horarioDe(p).texto}).`;
   doc.text(latin1(h), M, y + 18);
   y += 30;

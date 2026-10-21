@@ -77,8 +77,8 @@ export class RhService {
   }
 
   /** `[RH.1.10]` El banco de horas extra de la plaza (o de una persona), hasta `date_to` (hoy si no viene). */
-  bancoHorasExtra(site_code: string, person_code?: string): Observable<HrBancoHorasExtraDto> {
-    return this.http.get<HrBancoHorasExtraDto>(`${this.base}/overtime`, { params: this.params({ site_code, person_code }) });
+  bancoHorasExtra(site_code: string, person_code?: string, date_to?: string): Observable<HrBancoHorasExtraDto> {
+    return this.http.get<HrBancoHorasExtraDto>(`${this.base}/overtime`, { params: this.params({ site_code, person_code, date_to }) });
   }
 
   crearAjusteHorasExtra(b: HrAjusteHorasExtraBody): Observable<HrAjusteHorasExtraDto> {
