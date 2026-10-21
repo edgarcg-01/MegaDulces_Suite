@@ -171,6 +171,13 @@ export interface CreateMovementInput {
   centro_costo?: string;
   kepler_cuenta: string;
   kepler_concepto: string;
+  /**
+   * `[CGS.8]` Por qué este movimiento entra SIN cuenta ni concepto. Con texto (5+ caracteres), el
+   * par se guarda vacío y el movimiento queda en la cola de «sin clasificar»; sin él, el par se
+   * valida como siempre. ⛔ No es un campo opcional más: es la única forma de que el hueco quede
+   * contable y buscable en vez de desaparecer.
+   */
+  sin_clasificar_motivo?: string;
   glosa: string;
   beneficiario?: string;
   beneficiario_rfc?: string;
@@ -1159,7 +1166,30 @@ export class CashLedgerService {
           + 'efectivo. Un movimiento fechado adelante desaparece del libro hasta que llegue ese mes.');
       }
 
-      const snap = await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
+      /**
+       * ⭐⭐ `[CGS.8]` **El movimiento puede entrar SIN clasificar, si dice por qué.**
+       *
+       * Edgar: *«no hagamos que sea obligatorio agregar concepto, para no frenar el proceso de
+       * caja general»*. El par contable existe en Kepler pero vive en el documento de
+       * **comprobación**, y el que mueve la caja es el **pago**, que no guarda a cuál salda —
+       * medido: emparejarlos por su llave natural cubre 7.5 %.
+       *
+       * ⛔ El hueco se DECLARA, no se finge (ADR-056). Con motivo, el par va vacío y el `CHECK`
+       * `cash_ledger_clasificacion_chk` exige que sea **todo o nada**: nada de cuenta puesta y
+       * concepto vacío, que no sirve ni para contabilizar ni para buscar.
+       *
+       * ⚠️ Y se SALTA `resolveConcept` a propósito: ese resolvedor valida contra el catálogo vivo
+       * y rechazaría la cadena vacía. No es aflojarlo — es que acá no hay par que validar.
+       */
+      const sinClasificar = String(input.sin_clasificar_motivo ?? '').trim();
+      if (sinClasificar && sinClasificar.length < 5) {
+        throw new BadRequestException(
+          'Para dejar el movimiento sin clasificar hay que decir por qué, con al menos 5 caracteres. '
+          + 'Ese motivo es lo que después permite encontrarlo y cerrarlo.');
+      }
+      const snap = sinClasificar
+        ? { cuenta_nombre: null as string | null, concepto_nombre: null as string | null }
+        : await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
 
@@ -1186,10 +1216,13 @@ export class CashLedgerService {
         hora: input.hora ?? null,
         sucursal: input.sucursal,
         centro_costo: input.centro_costo ?? null,
-        kepler_cuenta: input.kepler_cuenta,
-        kepler_concepto: input.kepler_concepto,
+        // `[CGS.8]` Sin clasificar: el par va VACÍO, nunca nulo. La cadena vacía es el marcador y
+        // las columnas siguen `NOT NULL`, así que ninguna fila se cuela por un insert descuidado.
+        kepler_cuenta: sinClasificar ? '' : input.kepler_cuenta,
+        kepler_concepto: sinClasificar ? '' : input.kepler_concepto,
         kepler_cuenta_nombre: snap.cuenta_nombre,
         kepler_concepto_nombre: snap.concepto_nombre,
+        sin_clasificar_motivo: sinClasificar || null,
         glosa,
         beneficiario: input.beneficiario ?? (doc?.beneficiario ?? null),
         beneficiario_rfc: input.beneficiario_rfc ?? null,
