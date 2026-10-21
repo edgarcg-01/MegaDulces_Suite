@@ -139,6 +139,7 @@ export interface TeleventaDashboard {
   conversion_7d: { total_calls: number; orders_taken: number; conversion_pct: number };
   top_operators: Array<{ user_id: string; username: string | null; calls: number; orders: number; minutes: number }>;
   outcomes_7d: Array<{ outcome: string; count: number }>;
+  /** Los primeros 5 de `GET /queue`, en su mismo orden (no una consulta aparte). */
   queue_preview: Array<{ id: string; code: string; name: string; phone: string | null; last_order_at: string | null }>;
   /**
    * E.9 — la facturación REAL del canal, del ERP (`U/D/8`, canal TELEMARK).
@@ -156,6 +157,10 @@ export interface TelemarketingBilling {
     facturas: number; importe: number; clientes: number;
     saldo: number; saldo_vencido: number; facturas_vencidas: number;
   };
+  /** Vencido de TODA la cartera del canal, sin ventana de emisión (la deuda vieja incluida). */
+  cartera_vencida: { saldo: number; facturas: number };
+  /** De los `d30.clientes` facturados, cuántos existen en el padrón de la cola. */
+  clientes_en_cola: number;
   /** Fecha de NEGOCIO del documento más reciente (no el reloj del navegador). */
   ultima_factura: string | null;
   /** El operador viene del ERP (`vendedor_code`): no hay con qué cruzarlo a un usuario. */

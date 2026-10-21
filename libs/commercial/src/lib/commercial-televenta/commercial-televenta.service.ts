@@ -40,6 +40,43 @@ export interface QueueItem {
   total_orders: number;
 }
 
+/** Resultado de `trx.raw` en Postgres: el driver entrega las filas sin tipo. */
+interface RawResult {
+  rows: Array<Record<string, unknown>>;
+}
+
+/** E.4 — la actividad de llamadas del tablero (`commercial.call_logs`). */
+export interface TeleventaActividad {
+  period: { from: string; to: string };
+  today: {
+    calls: number; orders_taken: number; no_answer: number;
+    callbacks: number; not_interested: number; total_minutes: number;
+  };
+  my_stats: { my_calls: number; my_orders: number; my_minutes: number } | null;
+  active_reservations: { total: number; unique_operators: number };
+  conversion_7d: { total_calls: number; orders_taken: number; conversion_pct: number };
+  top_operators: unknown[];
+  outcomes_7d: unknown[];
+  /** `registrada:false` ⇒ nadie ha capturado llamadas: no hay actividad que medir. */
+  actividad: { registrada: boolean; nota: string };
+}
+
+/** E.9 — la facturación del canal en el tablero (`analytics.erp_sales_invoices`). */
+export interface TelemarketingBilling {
+  hoy: { facturas: number; importe: number };
+  mes: { facturas: number; importe: number };
+  d30: {
+    facturas: number; importe: number; clientes: number;
+    saldo: number; saldo_vencido: number; facturas_vencidas: number;
+  };
+  cartera_vencida: { saldo: number; facturas: number };
+  clientes_en_cola: number;
+  ultima_factura: Date | string | null;
+  por_operador: Array<Record<string, unknown>>;
+  ultimas: Array<Record<string, unknown>>;
+  atribucion: 'erp_vendedor_code';
+}
+
 export interface ReservationRecord {
   id: string;
   customer_id: string;
@@ -456,6 +493,42 @@ export class CommercialTeleventaService {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
 
+    // 7. Los primeros 5 de la cola, con el MISMO orden que /telemarketing/queue.
+    // ⚠️ Antes era una consulta propia sin ORDER BY: se titulaba «Cola priorizada» y devolvía
+    // los 5 primeros en orden físico — medido el 2026-10-21, cinco clientes sin teléfono ni
+    // pedidos, mientras la cola real ordenaba por motivo. Dos implementaciones de «la cola»
+    // = dos respuestas; se reusa la única que prioriza.
+    //
+    // Cola, facturación y actividad van en PARALELO, cada una con su conexión: dentro de una
+    // sola transacción las consultas se encolan en el mismo cliente y el tiempo es la SUMA.
+    // Medido en prod el 2026-10-21: facturación en serie ≈ 670 ms; en paralelo, la más lenta
+    // (el vencido de toda la cartera) ≈ 390 ms.
+    const [queue, billing, actividad] = await Promise.all([
+      this.getQueue(5),
+      // ── E.9: el dinero del canal, medido en el ERP (no en esta plataforma) ──
+      this.facturacion(tenantId),
+      this.actividadLlamadas(tenantId, userId, todayStart, sevenDaysAgo, opts),
+    ]);
+    const queuePreview = queue.map((q) => ({
+      id: q.customer_id,
+      code: q.code,
+      name: q.name,
+      phone: q.phone,
+      reason: q.reason,
+      last_order_at: q.last_order_at,
+      days_since_last_order: q.days_since_last_order,
+    }));
+    return { ...actividad, queue_preview: queuePreview, billing };
+  }
+
+  /** E.4 — la actividad de llamadas (`commercial.call_logs`) del tablero. */
+  private async actividadLlamadas(
+    tenantId: string,
+    userId: string,
+    todayStart: string,
+    sevenDaysAgo: string,
+    opts: { from?: string; to?: string },
+  ): Promise<TeleventaActividad> {
     return this.tk.run(async (trx) => {
       // 1. Llamadas hoy (total + por outcome + propio operador)
       const callsToday = await trx('commercial.call_logs')
@@ -533,25 +606,6 @@ export class CommercialTeleventaService {
         .select('outcome', trx.raw('count(*)::int as count'))
         .orderByRaw('count(*) desc');
 
-      // 7. Leads en cola priorizada (top 5 más urgentes — críticos)
-      // Reusa lógica del getQueue pero solo head
-      const queuePreview = await trx('commercial.customers as c')
-        .where('c.tenant_id', tenantId)
-        .where('c.active', true)
-        .whereNull('c.deleted_at')
-        .leftJoin('commercial.lead_reservations as r', function () {
-          this.on('r.tenant_id', '=', 'c.tenant_id')
-            .andOn('r.customer_id', '=', 'c.id')
-            .andOnNull('r.released_at')
-            .andOn('r.expires_at', '>', trx.raw('now()'));
-        })
-        .whereNull('r.id') // no reservados
-        .select(
-          'c.id', 'c.code', 'c.name', 'c.phone',
-          trx.raw(`(select max(o.confirmed_at) from commercial.orders o where o.tenant_id = c.tenant_id and o.customer_id = c.id) as last_order_at`),
-        )
-        .limit(5);
-
       const totalCalls7d = Number(conversion7d?.total_calls || 0);
       const ordersOutcome7d = Number(conversion7d?.orders_outcome || 0);
       const conversionPct = totalCalls7d > 0 ? Number(((ordersOutcome7d / totalCalls7d) * 100).toFixed(1)) : 0;
@@ -582,9 +636,6 @@ export class CommercialTeleventaService {
         },
         top_operators: topOperators,
         outcomes_7d: outcomesBreakdown,
-        queue_preview: queuePreview,
-        // ── E.9: el dinero del canal, medido en el ERP (no en esta plataforma) ──
-        billing: await this.facturacion(trx, tenantId),
         // Lo que este tablero NO puede afirmar, dicho aquí y no en la UI (ADR-056): si la
         // plataforma no tiene una sola llamada registrada, "0 llamadas" no es desempeño,
         // es ausencia de captura — y la pantalla debe decirlo en vez de pintar ceros.
@@ -612,32 +663,52 @@ export class CommercialTeleventaService {
    * esta vista un `ORDER BY … LIMIT` directo dispara un nested loop que re-escanea el CTE de la
    * cartera por fila (medido en prod: 23,856 ms vs 970 ms). Ver `commercial-sales-documents`.
    */
-  private async facturacion(trx: any, tenantId: string): Promise<any> {
+  private async facturacion(tenantId: string): Promise<TelemarketingBilling> {
+    // Cada consulta en su propia transacción (y conexión), para que el Promise.all de abajo
+    // sea paralelo de verdad: sobre un solo `trx` se encolan y el tiempo es la suma.
+    const q = (sql: string, bindings: string[]): Promise<RawResult> =>
+      this.tk.run(tenantId, async (trx) => (await trx.raw(sql, bindings)) as RawResult);
     const W = `WHERE tenant_id = ? AND doc_tipo = 'telemarketing' AND NOT cancelada`;
 
+    // ⚠️ `sel` trae la ventana de 30 días **más** toda factura vencida, de cualquier fecha: el
+    // vencido de sólo 30 días dejaba fuera la deuda más vieja (medido el 2026-10-21: $3.73M en
+    // la ventana contra $6.55M del canal). Una sola pasada sobre la vista: 452 ms contra 263 ms
+    // de la consulta anterior, y dos pasadas separadas costaban 263 + 576.
+    // `d30` filtra por fecha explícita en cada agregado; `vencida` vale para las dos.
+    const D30 = `fecha >= current_date - 30`;
+    const VENCIDA = `vencimiento < current_date AND estatus_cobro IN ('pendiente','parcial')`;
     const [totales, porOperador, ultimas] = await Promise.all([
-      trx.raw(
+      q(
         `WITH sel AS MATERIALIZED (
-           SELECT fecha, total, saldo, estatus_cobro, vencimiento, cliente_code
-           FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
+           SELECT fecha, total, saldo, estatus_cobro, vencimiento, cliente_code, sucursal,
+                  (${VENCIDA}) AS vencida
+           FROM analytics.erp_sales_invoices ${W} AND (${D30} OR (${VENCIDA})))
          SELECT
            count(*) FILTER (WHERE fecha = current_date)::int                        AS facturas_hoy,
            coalesce(sum(total) FILTER (WHERE fecha = current_date), 0)::numeric     AS importe_hoy,
            count(*) FILTER (WHERE fecha >= date_trunc('month', current_date))::int  AS facturas_mes,
            coalesce(sum(total) FILTER (WHERE fecha >= date_trunc('month', current_date)), 0)::numeric AS importe_mes,
-           count(*)::int                                                            AS facturas_30d,
-           coalesce(sum(total), 0)::numeric                                         AS importe_30d,
-           count(DISTINCT cliente_code)::int                                        AS clientes_30d,
-           coalesce(sum(saldo), 0)::numeric                                         AS saldo_30d,
-           coalesce(sum(saldo) FILTER (WHERE vencimiento < current_date
-             AND estatus_cobro IN ('pendiente','parcial')), 0)::numeric             AS saldo_vencido,
-           count(*) FILTER (WHERE vencimiento < current_date
-             AND estatus_cobro IN ('pendiente','parcial'))::int                     AS facturas_vencidas,
-           max(fecha)                                                               AS ultima_factura
+           count(*) FILTER (WHERE ${D30})::int                                      AS facturas_30d,
+           coalesce(sum(total) FILTER (WHERE ${D30}), 0)::numeric                   AS importe_30d,
+           count(DISTINCT cliente_code) FILTER (WHERE ${D30})::int                  AS clientes_30d,
+           coalesce(sum(saldo) FILTER (WHERE ${D30}), 0)::numeric                   AS saldo_30d,
+           coalesce(sum(saldo) FILTER (WHERE ${D30} AND vencida), 0)::numeric       AS saldo_vencido,
+           count(*) FILTER (WHERE ${D30} AND vencida)::int                          AS facturas_vencidas,
+           coalesce(sum(saldo) FILTER (WHERE vencida), 0)::numeric                  AS saldo_vencido_canal,
+           count(*) FILTER (WHERE vencida)::int                                     AS facturas_vencidas_canal,
+           max(fecha) FILTER (WHERE ${D30})                                         AS ultima_factura,
+           -- Cuántos de los clientes facturados existen en el padrón de la cola. La llave
+           -- (erp_customer_code + erp_source_branch) se verificó por nombre: 11 de 11 iguales.
+           (SELECT count(DISTINCT s.cliente_code) FROM sel s
+             WHERE s.${D30} AND EXISTS (
+               SELECT 1 FROM commercial.customers c
+               WHERE c.tenant_id = ? AND c.active AND c.deleted_at IS NULL
+                 AND c.erp_customer_code = s.cliente_code AND c.erp_source_branch = s.sucursal))::int
+                                                                                    AS clientes_en_cola
          FROM sel`,
-        [tenantId],
+        [tenantId, tenantId],
       ),
-      trx.raw(
+      q(
         `WITH sel AS MATERIALIZED (
            SELECT vendedor_code, vendedor_nombre, total, saldo, cliente_code
            FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
@@ -649,7 +720,7 @@ export class CommercialTeleventaService {
          FROM sel GROUP BY 1, 2 ORDER BY 4 DESC`,
         [tenantId],
       ),
-      trx.raw(
+      q(
         `WITH sel AS MATERIALIZED (
            SELECT folio_digital, sucursal, doc_prefix, folio, fecha, cliente_code, cliente_nombre,
                   vendedor_nombre, total, saldo, estatus_cobro,
@@ -660,7 +731,7 @@ export class CommercialTeleventaService {
       ),
     ]);
 
-    const t = totales?.rows?.[0] || {};
+    const t: Record<string, unknown> = totales?.rows?.[0] || {};
     return {
       hoy: { facturas: Number(t.facturas_hoy || 0), importe: Number(t.importe_hoy || 0) },
       mes: { facturas: Number(t.facturas_mes || 0), importe: Number(t.importe_mes || 0) },
@@ -672,8 +743,19 @@ export class CommercialTeleventaService {
         saldo_vencido: Number(t.saldo_vencido || 0),
         facturas_vencidas: Number(t.facturas_vencidas || 0),
       },
+      /** Vencido de TODA la cartera del canal, sin ventana de fecha de emisión. */
+      cartera_vencida: {
+        saldo: Number(t.saldo_vencido_canal || 0),
+        facturas: Number(t.facturas_vencidas_canal || 0),
+      },
+      /**
+       * La cola sale de `commercial.customers`, no de quien factura por el canal: de los
+       * `d30.clientes` facturados, sólo `clientes_en_cola` están en ella. Se publica para que la
+       * pantalla lo DECLARE en vez de presentar la cola como el universo del canal.
+       */
+      clientes_en_cola: Number(t.clientes_en_cola || 0),
       /** Fecha de NEGOCIO del dato más reciente; null si no hay facturas en la ventana. */
-      ultima_factura: t.ultima_factura || null,
+      ultima_factura: (t.ultima_factura as Date | string | null) || null,
       por_operador: porOperador?.rows || [],
       ultimas: ultimas?.rows || [],
       /** La atribución es del ERP: no hay forma de cruzarla con los usuarios de la plataforma. */
