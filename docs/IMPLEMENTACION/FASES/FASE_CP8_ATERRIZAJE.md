@@ -402,6 +402,52 @@ facturas **anteriores** al pago y erraba 1.7 %: en 8 de 10 la contadora asoció 
 **días después** del pago, de importe recurrente (p. ej. $128,222.22 mensuales). Abrir la ventana a
 +30 días bajó el error a 0.1 %.
 
+### `[CP.8.62]` ⛔⛔ Por qué no se llega al 100 %: **ningún sistema guarda qué facturas paga cada pago**
+
+Pregunta del usuario: *«¿no podemos generar un 100 %?»*. Se buscó el dato en todas las fuentes,
+re-medido hoy y no copiado de memorias:
+
+| fuente | ¿dice qué facturas paga el pago? | medido 2026-10-21 |
+|---|---|---|
+| **Kepler, pago** (`kdm1` X-D-26/25/60) | **no** | 5,181 transferencias 2026: `c37`/`c39` (referencias) vacíos al 100 %; **0** renglones en `kdm2` |
+| **Kepler, cartera** (`kduf`) | **no** — es de clientes | 34,698 de 34,942 filas con código de cliente; 27 con forma de proveedor |
+| **Kepler, complementos** (`kdfe4pagm0`, `kdfe33pagm*`) | **no** — los emite Kepler por cobranza (`UA0701`) | lado clientes |
+| **Banco** (`finance.bank_movements.concept`) | **no** | 6 de 4,858 pagos de compra mencionan una factura; el concepto es el nombre corto del proveedor |
+| **REP del proveedor** (`fiscal.cfdi_payment_links`) | **sí, pero casi no existe** | 466 ligas, sólo desde julio |
+| **Programa de Pagos de Tesorería** (`finance.payment_program.invoice_folios`) | **a medias** | 95 % con folios en agosto (339/358), pero texto libre (`f-484-486-487`): sólo **15.6 %** de jul–ago resuelve a sus CFDI; **0** ligados al banco; llegó a la Suite sólo hasta agosto |
+| **ContPAQi** (la póliza de la contadora) | **sí** | es lo que se quiere automatizar: el dato lo pone ella **a mano**, leyendo las facturas que vienen con la solicitud de pago («PAGO FACT 3512») |
+
+⭐ **Conclusión:** la decisión «este pago liquida estas facturas» la toma una persona y **sólo queda
+escrita en papel o en el Excel de Tesorería**. Todo lo que hace el puente es **reconstruirla por
+importe**, y esa reconstrucción tiene techo.
+
+**Dónde cae cada pago** (1,837 pólizas de pago a proveedor 2026 con UUID y un solo banco):
+
+| caso | pólizas | % | por qué no se arma solo |
+|---|--:|--:|---|
+| una factura, candidato único y correcto | **584** | **31.8 %** | — **se arma solo** |
+| una factura, ambiguo | 46 | 2.5 % | el mismo proveedor tiene varias facturas abiertas con el mismo importe (recurrentes) |
+| una factura, sin candidato | 74 | 4.0 % | lo pagado ≠ total de la factura (pago parcial, descuento sin nota, diferencia > $1) |
+| una factura, equivocada | 1 | 0.1 % | pago parcial que coincidió con otra factura exacta |
+| varias facturas, combinación única y correcta | 203 | 11.1 % | se puede **proponer**; no armar solo porque la combinación erra 1.7 % |
+| varias, combinación equivocada | 7 | 0.4 % | dos combinaciones distintas suman lo mismo y sólo una existe abierta en la ventana |
+| varias, más de una combinación | 62 | 3.4 % | ídem, sin forma de elegir |
+| varias, ninguna combinación | 147 | 8.0 % | pago parcial, más de 6 facturas, o factura fuera de la ventana |
+| **con nota de crédito** | **713** | **38.8 %** | pago = facturas − notas, y si la nota es descuento o devolución no lo dice el CFDI (905/915 son G02) |
+
+Los pagos de **remisión** («rem cueritos», «rem piñatas») no aparecen en estas cifras: salen de
+Caja General, no de banco, y no tienen CFDI.
+
+**Lo que lleva al 100 %, de más barato a más caro:**
+1. **Armar solo lo seguro (31.8 %) y proponer el resto** con un clic de la contadora → el 100 % de
+   los pagos pasa por la Suite, pero no el 100 % sin manos.
+2. **Que la decisión quede registrada donde nace**: cuando Tesorería programa el pago, elige las
+   facturas **de la lista de CFDI** (no folios en texto libre). El módulo existe
+   (`finance.payment_allocations`, 13 registros) y Tesorería ya lo hace en Excel en el 95 % de los
+   casos: es mover ese paso, no inventarlo. Con eso la liga es **exacta por construcción**.
+3. **Notas de crédito**: medir en Kepler (`X-D-55` nota, `X-D-40` devolución de compra) si se
+   distingue descuento de devolución; si sí, entran a la combinación.
+
 **Decisión de diseño que se propone:** armar sola sólo «una factura, candidato único»
 (**584 pagos, 32 %**); las combinaciones van como **propuesta a confirmar** en pantalla; nota de
 crédito, ambiguo y sin candidato, a revisión.
