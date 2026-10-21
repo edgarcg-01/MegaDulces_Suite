@@ -135,6 +135,16 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   pendiente +$6,816.36, resto idéntico; cartera +$165,615.07 (21 docs); 13 facturas «pagadas» que no
   lo estaban. Paridad local con cobro cancelado sembrado + `--mutar=cancelado` en rojo. ⚠️ Migraciones
   a prod ANTES del código, una por una, fuera de horario. GOTCHAS §89 · ADR-098. 🧪 2026-10-21
+- [x] **[CSU.12]** **Del lado proveedor, los cancelados tampoco cuentan.** Los $13.3 M de pagos
+  cancelados aplicados a entradas (`kdm5` X-D) NO los sumaba ninguna vista de prod (medido en el
+  catálogo). El daño estaba en la CABECERA: `expense_documents` traía **1,021 documentos cancelados,
+  $3,177,101.13** (263 con importe vía el agregado contable) → Comprobaciones, pagables de Caja,
+  materialidad, MAAT; `mv_supplier_prompt_discount`, **101 pagos cancelados con $1,450,384.26 de
+  descuento** que no existió → tasa de pronto pago inflada (CF004 7.39 % → 6.20 %). Mig
+  `20261021121257` (definición viva + `c43 <> 'C'`; verificada en prod: quita exactamente los 1,021;
+  la matview se recrea con índice, permisos y comentario, **~18–25 s: fuera de horario**).
+  `check:kdm5-vigente:db` revisa además «cabeceras kdm1 con dinero sin c43»: 6 declarados con su
+  porqué, uno nuevo → rojo. 🧪 2026-10-21
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.
