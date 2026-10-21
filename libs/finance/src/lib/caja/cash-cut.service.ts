@@ -6,7 +6,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import {
   denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
   type JornadasPendientes, type CorteCajaDto, type VeredictoCorte,
-  type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo,
+  type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo, type VerificacionCorte,
 } from '@megadulces/contracts';
 import { depositosEnElExceso, excesoDeBilletes, type BilletesPorDenominacion, type DepositoCaos } from './caja-cajon-caos.engine';
 import { fondoSugerido } from './cash-opening.engine';
@@ -14,11 +14,12 @@ import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
 import { leerCandado, type CandadoCaja } from './caja-candado.query';
 import { candadoDeCierre, puedeDarLlave, TEXTO_NO_LLAVE } from './caja-candado.engine';
+import { verificarCorte, fallasDe, type HechosVerificacion } from './caja-verificacion.engine';
 import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-vecinal.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
   buildFolioCorte, TEXTO_NO_AUTORIZA, TEXTO_NO_CIERRA,
-  exigenciaParaAutorizar, TEXTO_EXIGENCIA, puedeObservar, TEXTO_NO_OBSERVA, puedeResponder, TEXTO_NO_RESPONDE,
+  exigenciaParaAutorizar, TEXTO_EXIGENCIA, MINIMO_TEXTO_REVISION, puedeObservar, TEXTO_NO_OBSERVA, puedeResponder, TEXTO_NO_RESPONDE,
   proyectarCiego, puedeRecontar, TEXTO_NO_RECUENTA, avisoLibroVacio,
   filasDenominacion, DenominacionFueraDeCatalogo, veredictoDe,
   decidirConteoDelCierre, esperadoCambio, textoConteoDistinto, textoEsperadoCambio, puedeAbrirCorte,
@@ -174,6 +175,12 @@ export interface PorReclasificar {
  */
 const CAOS = { DEPOSITO: 0, DISPENSAR: 4, VACIAR: 5, CAMBIO: 7, DOTAR: 8, CONTENIDO: 13 } as const;
 const TIPOS_CONOCIDOS = Object.values(CAOS);
+
+/** `[CGS.12]` Lo que suman las piezas de un conteo. `null` = no se guardó desglose. */
+function sumaDePiezas(piezas: Array<{ importe: number }> | undefined | null): number | null {
+  if (!piezas || !piezas.length) return null;
+  return Math.round(piezas.reduce((a, p) => a + Number(p.importe), 0) * 100) / 100;
+}
 
 @Injectable()
 export class CashCutService {
@@ -1115,6 +1122,99 @@ export class CashCutService {
     }));
   }
 
+  /**
+   * ⭐ `[CGS.12]` Los HECHOS que la lista de verificación necesita y que no están en la fila del
+   * corte, para varios cortes en TRES consultas (no tres por corte: es la pantalla de cada mañana).
+   */
+  private async hechosDeVerificacion(
+    trx: Knex.Transaction, tenantId: string, sucursal: string, ids: string[],
+  ): Promise<Map<string, HechosVerificacion>> {
+    const out = new Map<string, HechosVerificacion>();
+    if (!ids.length) return out;
+    for (const id of ids) {
+      out.set(id, {
+        cerrado_dia: null, contado_anterior: undefined, folio_anterior: null,
+        gastos_sin_respaldo: 0, manuales_otra_fecha: 0, sueltos_despues: 0, editados_despues: 0,
+      });
+    }
+    // El corte anterior de la MISMA caja, por fecha: de él sale el fondo con que debió abrir.
+    const cadena = await trx.raw(`
+      SELECT id, cerrado_dia, prev_contado, prev_folio, rn FROM (
+        SELECT id, to_char(closed_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS cerrado_dia,
+               lag(contado) OVER w AS prev_contado, lag(folio) OVER w AS prev_folio,
+               row_number() OVER w AS rn
+          FROM finance.cash_ledger_cuts
+         WHERE tenant_id = ? AND sucursal = ? AND estado <> 'borrador'
+        WINDOW w AS (ORDER BY fecha, folio)) x
+       WHERE id = ANY(?::uuid[])`, [tenantId, sucursal, ids]);
+    for (const r of cadena.rows as Array<{ id: string; cerrado_dia: string | null; prev_contado: string | null; prev_folio: string | null; rn: string }>) {
+      const h = out.get(r.id);
+      if (!h) continue;
+      h.cerrado_dia = r.cerrado_dia;
+      h.contado_anterior = Number(r.rn) === 1 ? undefined : r.prev_contado == null ? null : Number(r.prev_contado);
+      h.folio_anterior = r.prev_folio;
+    }
+    const movs = await trx.raw(`
+      SELECT l.corte_id,
+             count(*) FILTER (WHERE l.tipo = 'gasto' AND l.estado <> 'cancelado' AND l.firma_estado = 'sin_firma'
+                                AND l.declared_doc_ref IS NULL AND l.origen_tipo IS NULL
+                                AND l.sin_documento_motivo IS NULL)::int AS gastos_sin_respaldo,
+             count(*) FILTER (WHERE l.estado <> 'cancelado' AND (l.origen_tipo IS NULL OR l.origen_tipo = 'manual')
+                                AND l.fecha <> (l.created_at AT TIME ZONE 'America/Mexico_City')::date)::int AS manuales_otra_fecha,
+             count(*) FILTER (WHERE c.closed_at IS NOT NULL AND l.updated_at > c.closed_at + interval '1 minute')::int AS editados_despues
+        FROM finance.cash_ledger l
+        JOIN finance.cash_ledger_cuts c ON c.id = l.corte_id AND c.tenant_id = l.tenant_id
+       WHERE l.tenant_id = ? AND l.corte_id = ANY(?::uuid[])
+       GROUP BY l.corte_id`, [tenantId, ids]);
+    for (const r of movs.rows as Array<{ corte_id: string; gastos_sin_respaldo: number; manuales_otra_fecha: number; editados_despues: number }>) {
+      const h = out.get(r.corte_id);
+      if (!h) continue;
+      h.gastos_sin_respaldo = Number(r.gastos_sin_respaldo);
+      h.manuales_otra_fecha = Number(r.manuales_otra_fecha);
+      h.editados_despues = Number(r.editados_despues);
+    }
+    // Lo que se capturó ESE día después de cerrar: quedó suelto, fuera del corte.
+    const sueltos = await trx.raw(`
+      SELECT c.id, count(l.id)::int AS n
+        FROM finance.cash_ledger_cuts c
+        JOIN finance.cash_ledger l
+          ON l.tenant_id = c.tenant_id AND l.corte_id IS NULL AND l.deleted_at IS NULL
+         AND l.estado <> 'cancelado'
+         AND l.created_at >= (c.fecha::timestamp AT TIME ZONE 'America/Mexico_City')
+         AND l.created_at <  ((c.fecha + 1)::timestamp AT TIME ZONE 'America/Mexico_City')
+         AND c.closed_at IS NOT NULL AND l.created_at > c.closed_at
+       WHERE c.tenant_id = ? AND c.id = ANY(?::uuid[])
+       GROUP BY c.id`, [tenantId, ids]);
+    for (const r of sueltos.rows as Array<{ id: string; n: number }>) {
+      const h = out.get(r.id);
+      if (h) h.sueltos_despues = Number(r.n);
+    }
+    return out;
+  }
+
+  /** `[CGS.12]` La lista V1…V11 de UN corte, con sus hechos. La usan `arqueos()` y `autorizar()`. */
+  private verificacionDeFila(
+    c: Record<string, unknown>, h: HechosVerificacion | undefined, sumaPiezas: number | null,
+  ): VerificacionCorte[] {
+    const num = (v: unknown): number | null => (v == null ? null : Number(v));
+    const hh: HechosVerificacion = h ?? {
+      cerrado_dia: null, contado_anterior: undefined, folio_anterior: null,
+      gastos_sin_respaldo: 0, manuales_otra_fecha: 0, sueltos_despues: 0, editados_despues: 0,
+    };
+    const explicacion = [c['nota'], c['respuesta']].filter((x) => x != null && String(x).trim()).map(String).join(' · ') || null;
+    return verificarCorte({
+      ...hh,
+      fecha: diaDeFecha(c['fecha']) ?? '',
+      contado: num(c['contado']),
+      morralla: Number(c['morralla'] ?? 0),
+      suma_piezas: sumaPiezas,
+      fondo_inicial: num(c['fondo_inicial']),
+      veredicto: this.veredictoFirmado(c),
+      diferencia: num(c['diferencia']),
+      explicacion,
+    });
+  }
+
   /** `[CGS.16]` Quiénes capturaron o cancelaron algo del corte: no lo revisan (D3). */
   private async capturistasDelCorte(trx: Knex.Transaction, tenantId: string, id: string): Promise<string[]> {
     const manos: Array<{ created_by: string | null; cancelled_by: string | null }> = await trx('finance.cash_ledger')
@@ -1223,6 +1323,18 @@ export class CashCutService {
         nota,
       });
       if (!exige.ok) throw new BadRequestException(TEXTO_EXIGENCIA[exige.motivo!]);
+
+      // `[CGS.17]` Y cada verificación que NO cumple exige que la autorización diga por qué.
+      const hechos = await this.hechosDeVerificacion(trx, tenantId, String(c.sucursal), [id]);
+      const dens: Array<{ denominacion: string | number; piezas: string | number }> = await trx('finance.cash_ledger_cut_denominations')
+        .where({ tenant_id: tenantId, cut_id: id, momento: 'cierre' }).select('denominacion', 'piezas');
+      const fallas = fallasDe(this.verificacionDeFila(c, hechos.get(id),
+        sumaDePiezas(dens.map((d) => ({ importe: Number(d.denominacion) * Number(d.piezas) })))));
+      if (fallas.length && nota.length < MINIMO_TEXTO_REVISION) {
+        throw new BadRequestException(
+          `El corte no cumple ${fallas.map((f) => `${f.id} (${f.pregunta.toLowerCase()})`).join(', ')}: `
+          + `escribe en la nota por qué se autoriza así (al menos ${MINIMO_TEXTO_REVISION} caracteres), o obsérvalo.`);
+      }
 
       const [aut] = await trx('finance.cash_ledger_cuts').where({ id }).update({
         estado: 'autorizado',
@@ -1390,6 +1502,8 @@ export class CashCutService {
         if (m.created_by) s.add(m.created_by);
         if (m.cancelled_by) s.add(m.cancelled_by);
       }
+      // `[CGS.12]` Los hechos de la lista de verificación, para todos los cortes a la vez.
+      const hechos = await this.hechosDeVerificacion(trx, tenantId, sucursal, cortes.map((c: { id: string }) => c.id));
 
       /**
        * ⚠️ El **segundo testigo**, y va declarado como tal. No decide: cuál de los dos arbitra el
@@ -1474,6 +1588,7 @@ export class CashCutService {
           respuesta: (c['respuesta'] ?? null) as string | null,
           respondio: (c['responded_by_username'] ?? null) as string | null,
           nota_autorizacion: (c['authorization_note'] ?? null) as string | null,
+          verificacion: this.verificacionDeFila(c, hechos.get(String(c['id'])), sumaDePiezas(porCorte.get(String(c['id'])))),
           piezas: porCorte.get(String(c['id'])) ?? [],
           testigo_control: ctl
             ? {

@@ -29,6 +29,15 @@ describe('puertasRevision', () => {
     expect(p.observar.ok).toBe(true);
   });
 
+  it('[negativa] una verificación que no cumple pide nota aunque cuadre (CGS.17)', () => {
+    const c = { ...cerrado, verificacion: [{ id: 'V1', estado: 'no_cumple' }, { id: 'V9', estado: 'no_medido' }] };
+    const p = puertasRevision(c, 'u-maria', true, '');
+    expect(p.pideNota).toBe(true);
+    expect(p.autorizar.ok).toBe(false);
+    expect(p.autorizar.texto).toContain('V1');
+    expect(puertasRevision(c, 'u-maria', true, 'Se cerró tarde por el inventario').autorizar.ok).toBe(true);
+  });
+
   it('[negativa] quien abrió, cerró o capturó no revisa (D3)', () => {
     const p = puertasRevision(cerrado, 'u-mayra', true, nota);
     expect(p.autorizar.ok).toBe(false);

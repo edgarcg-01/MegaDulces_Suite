@@ -81,6 +81,19 @@ export interface ArqueoTestigoControl {
   diferencia: number | null;
 }
 
+/**
+ * ⭐ `[CGS.12]` Una verificación de la revisión de la mañana. `no_medido` se DECLARA: no es un
+ * verde ni un rojo (ADR-056).
+ */
+export interface VerificacionCorte {
+  /** `V1`…`V11`. */
+  id: string;
+  pregunta: string;
+  estado: 'cumple' | 'no_cumple' | 'no_medido';
+  /** En palabras, con la cifra cuando la hay. */
+  detalle: string;
+}
+
 export interface ArqueoDia {
   /** `YYYY-MM-DD`. */
   fecha: string;
@@ -142,6 +155,8 @@ export interface ArqueoDia {
   respondio: string | null;
   /** `[CGS.17]` La nota con la que se autorizó. */
   nota_autorizacion: string | null;
+  /** `[CGS.12]` La lista de la revisión de la mañana, V1…V11. */
+  verificacion: VerificacionCorte[];
 
   /** Lo que se contó, pieza por pieza. Vacío = el conteo no guardó desglose. */
   piezas: ArqueoPieza[];

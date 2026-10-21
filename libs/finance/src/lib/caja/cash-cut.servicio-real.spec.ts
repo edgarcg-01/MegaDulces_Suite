@@ -26,6 +26,9 @@ const URL = process.env.CAJA_TEST_DB_URL;
 const T = '00000000-0000-0000-0000-00000000d01c';
 const CAJERA = { id: '00000000-0000-0000-0000-0000000000c1', username: 'cajera_prueba' };
 const AUTORIZA = { id: '00000000-0000-0000-0000-0000000000c2', username: 'autoriza_prueba' };
+// `[CGS.17]` Estos cortes son de años pasados y se cierran HOY: V1 («se cerró el mismo día») no
+// cumple, y una verificación que falla exige nota para autorizar. La nota no afloja nada: dice por qué.
+const CON_NOTA = { nota: 'Corte de prueba del servicio real, cerrado fuera de su día' };
 // Un año PASADO distinto por corrida: un corte es único por (sucursal, fecha), y desde `[CGP-L.4]`
 // no se abre una fecha que todavía no pasa (la primera versión usaba años 2100+ y quedó inválida).
 // El año lo elige `anioLibre()` en `beforeAll`, entre 1100 y 2019; la ancla de L.4 va 1000 años antes
@@ -144,7 +147,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect((await desglose(c.id)).length).toBe(2);   // el desglose sellado sigue ahí, no se borró
 
     await expect(svc.autorizar(c.id, CAJERA)).rejects.toBeInstanceOf(ForbiddenException);
-    const autorizado = await svc.autorizar(c.id, AUTORIZA);
+    const autorizado = await svc.autorizar(c.id, AUTORIZA, CON_NOTA);
     expect(autorizado.estado).toBe('autorizado');
   });
 
@@ -162,7 +165,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     await expect(svc.autorizar(c.id, SUPERVISORA)).rejects.toThrow(/Capturaste o cancelaste/);
     expect((await corte(c.id)).estado).toBe('cerrado');
 
-    const autorizado = await svc.autorizar(c.id, AUTORIZA);
+    const autorizado = await svc.autorizar(c.id, AUTORIZA, CON_NOTA);
     expect(autorizado.estado).toBe('autorizado');
   });
 
@@ -210,7 +213,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
       await expect(svc.cerrar(c3.id, {}, CAJERA)).rejects.toThrow(/2 cerrados sin revisar/);
       expect((await corte(c3.id)).estado).toBe('borrador');
 
-      await svc.autorizar(c1.id, AUTORIZA);
+      await svc.autorizar(c1.id, AUTORIZA, CON_NOTA);
       expect((await svc.cerrar(c3.id, {}, CAJERA)).estado).toBe('cerrado');
     } finally {
       if (antes === undefined) delete process.env['CAJA_CANDADO_REVISION_DESDE'];
@@ -317,7 +320,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     // +2,000 de la bóveda − 2,000 del gasto = 0. En el cajón sólo quedó el fondo.
     expect(sellado.totales).toMatchObject({ esperado: 500, contado: 500, veredicto: 'cuadra' });
     expect(Number((await svc.cerrar(c.id, {}, CAJERA)).esperado)).toBe(500);
-    await svc.autorizar(c.id, AUTORIZA);
+    await svc.autorizar(c.id, AUTORIZA, CON_NOTA);
   });
 
   it('`[CGP-L.4]` un segundo corte de la misma sucursal y fecha: 400 que nombra el folio que ya existe', async () => {
@@ -436,7 +439,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     const cerrado = await svc.cerrar(c.id, {}, CAJERA);
     expect(cerrado.esperado).toBe(1500);
     expect(cerrado.contado).toBe(1500);
-    const aut = await svc.autorizar(c.id, AUTORIZA);
+    const aut = await svc.autorizar(c.id, AUTORIZA, CON_NOTA);
     expect(aut.estado).toBe('autorizado');
     expect(typeof aut.authorized_at).toBe('string');
     const l = await svc.listar({ sucursal: suc('T7') });
@@ -507,7 +510,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
       const k1 = await svc.cerrar(c1.id, {}, CAJERA);
       expect(k1.esperado).toBe(esp1);
       await expect(svc.autorizar(c1.id, CAJERA)).rejects.toBeInstanceOf(ForbiddenException);   // doble llave
-      expect((await svc.autorizar(c1.id, AUTORIZA)).estado).toBe('autorizado');
+      expect((await svc.autorizar(c1.id, AUTORIZA, CON_NOTA)).estado).toBe('autorizado');
 
       // ── Jornada 2: el fondo se HEREDA del contado anterior; falta, se recuenta con motivo ──
       const d2 = dia('04-02');
@@ -524,7 +527,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
       }, CAJERA);
       expect(re.totales).toMatchObject({ contado: esp2, veredicto: 'cuadra' });
       expect((await svc.cerrar(c2.id, {}, CAJERA)).esperado).toBe(esp2);
-      await svc.autorizar(c2.id, AUTORIZA);
+      await svc.autorizar(c2.id, AUTORIZA, CON_NOTA);
 
       // ── Jornadas 3 y 4: hay movimientos en las dos; se cierran EN ORDEN y cada una ata sólo lo suyo ──
       const d3 = dia('04-03');
@@ -539,7 +542,7 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
       await svc.contar(c3.id, { conteo: conteo(['1000', 1000, 2], ['50', 50, 1]), morralla: 0.5 }, CAJERA);
       const k3 = await svc.cerrar(c3.id, {}, CAJERA);
       expect(k3.esperado).toBe(esp3);                                     // el gasto del día 4 NO entró
-      await svc.autorizar(c3.id, AUTORIZA);
+      await svc.autorizar(c3.id, AUTORIZA, CON_NOTA);
 
       const c4 = await svc.abrir({ fecha: d4, sucursal: S }, CAJERA);
       expect(c4.fondo_inicial).toBe(esp3);
