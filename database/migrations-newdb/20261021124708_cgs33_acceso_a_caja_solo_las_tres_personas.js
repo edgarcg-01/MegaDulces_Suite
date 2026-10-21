@@ -122,7 +122,16 @@ exports.up = async function up(knex) {
   if (deMas.length || faltan.length || carmenAut) {
     throw new Error(`[CGS.33] el acceso efectivo no quedó como se pidió · de más: [${deMas.join(', ')}] · faltan: [${faltan.join(', ')}] · Carmen autoriza: ${carmenAut}`);
   }
-  const admins = ef.filter((r) => r.admin && !ESPERADOS.has(r.username)).map((r) => r.username);
+  // ⛔ El guard del backend da god-mode a quien tenga superadmin en CUALQUIERA de sus roles (perfil
+  // base o complemento), por encima de los overrides en false: por eso se listan aparte, del rol y
+  // no del acceso efectivo. Medido el 2026-10-21: 14 cuentas, incluido un almacenista.
+  const { rows: dios } = await knex.raw(`
+    SELECT DISTINCT u.username FROM identity.users u
+      LEFT JOIN identity.user_roles ur ON ur.user_id = u.id
+     WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+       AND (u.role_name IN ('superadmin', 'admin') OR ur.role_name IN ('superadmin', 'admin'))
+     ORDER BY 1`, [TENANT]);
+  const admins = dios.map((r) => r.username).filter((u) => !ESPERADOS.has(u));
   console.log(`  ✔ [CGS.33] caja: ${[...ESPERADOS].join(', ')}. ⚠️ Además pasan por superadmin: ${admins.join(', ') || 'nadie'} (se revisan aparte).`);
 };
 
