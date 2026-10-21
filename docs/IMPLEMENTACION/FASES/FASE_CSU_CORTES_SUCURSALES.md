@@ -145,6 +145,13 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   la matview se recrea con índice, permisos y comentario, **~18–25 s: fuera de horario**).
   `check:kdm5-vigente:db` revisa además «cabeceras kdm1 con dinero sin c43»: 6 declarados con su
   porqué, uno nuevo → rojo. 🧪 2026-10-21
+- [x] **[CSU.13]** **Buscador de cortes, y los cobros cancelados se VEN (no suman).** Pedido del PM: «no contamos con un apartado de búsqueda, reducir el tiempo para consultar». Después: «este corte cancelado no me aparece au501-00076». Qué se hizo:
+  - **Buscador** «Buscar corte», sobre la lista completa del periodo, con `filtrarPorBusqueda` (la semántica de `applySmartSearch`). Busca por folio con o sin ceros, caja-turno, sucursal, fecha, montos como se ven, estados, cajero, cobros (folio, forma, concepto, cuenta) y devoluciones. Atajos: `/` enfoca, `Esc` limpia. Si no hay resultados en la sucursal elegida, dice cuántos hay en otras.
+  - **Folios escritos a mano:** se comparan **por número**. Letras en cualquier orden, tipo con o sin ceros y cualquier cantidad de ceros, con un terminador para que el 76 no traiga el 761.
+  - **Cancelados:** vista `analytics.kepler_kdm5_cancelado` (mig `20261021135510`), complemento exacto de la vigente, verificado al crearse (vigentes + canceladas = kdm5). El corte publica `cobros_cancelados`; el detalle los marca «Cancelado en Kepler — no suma», con el monto tachado; la lista lleva «N cancelado»; el buscador los encuentra (también con la palabra «cancelado»).
+  - **Medido en prod, sólo lectura:** 11 cortes de octubre, 14 cobros, $171,986.56 que NO suman; el resto de la salida idéntica a `main`; 236 ms contra 228.
+  - **Arreglos vistos en el navegador:** la lupa (PrimeNG 22 pisa el `class` de `p-inputicon`) y NG0955 del esqueleto de carga (`track i` sobre 8 `undefined`). 🧪 2026-10-21
+- [x] **[CSU.14]** **«Por sucursal» se reduce a la elegida.** Pedido del PM: «cuando se seleccione una sucursal las demás se oculten para optimizar la vista y el espacio». Con una sucursal elegida, la tabla deja sólo su fila y el encabezado dice «N ocultas · ver todas»; vuelven con ese enlace o con otro clic sobre la misma fila. Sólo pantalla (dos `computed`). Validado en el navegador: 8 → 1 → 8, consola limpia. 🧪 2026-10-21
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.

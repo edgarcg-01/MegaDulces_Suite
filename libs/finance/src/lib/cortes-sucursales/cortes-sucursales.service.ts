@@ -90,6 +90,28 @@ a AS MATERIALIZED (
          jsonb_agg(jsonb_build_object('doc_prefix', doc_prefix, 'folio', folio, 'monto', monto) ORDER BY folio) AS cobros
     FROM ap GROUP BY 1, 2
 ),
+apc AS MATERIALIZED (
+  -- [CSU.13] Los cobros CANCELADOS aplicados al corte, de la vista hermana de la vigente (mismo casado
+  -- que ap). Se publican para verlos marcados y encontrarlos con el buscador: NO suman. La fecha y el
+  -- concepto salen de su cabecera en kdm1, por la llave primaria del documento dueño.
+  SELECT DISTINCT co.sucursal, co.folio AS corte_folio,
+         'U' || btrim(m.c3) || lpad(btrim(m.c4::text), 2, '0') || lpad(btrim(m.c5::text), 2, '0') AS doc_prefix,
+         btrim(m.c6) AS folio, round(m.c13::numeric, 2) AS monto,
+         to_char(k.c9::date, 'YYYY-MM-DD') AS fecha, nullif(btrim(k.c24), '') AS concepto
+    FROM co
+    JOIN analytics.kepler_kdm5_cancelado m
+      ON m.c2 = 'U' AND btrim(m.c1) = co.sucursal AND btrim(m.c8) = 'D' AND btrim(m.c9::text) = '23'
+     AND btrim(m.c10::text) = '1' AND btrim(m.c11) = co.folio
+    LEFT JOIN kepler_ods.kdm1 k
+      ON k.sucursal = m.c1 AND k.c1 = m.c1 AND k.c2 = m.c2 AND k.c3 = m.c3 AND k.c4 = m.c4 AND k.c5 = m.c5 AND k.c6 = m.c6
+   WHERE btrim(m.c1) = m.sucursal
+),
+ac AS MATERIALIZED (
+  SELECT sucursal, corte_folio,
+         jsonb_agg(jsonb_build_object('doc_prefix', doc_prefix, 'folio', folio, 'monto', monto, 'fecha', fecha, 'concepto', concepto)
+                   ORDER BY folio) AS cobros_cancelados
+    FROM apc GROUP BY 1, 2
+),
 dv AS MATERIALIZED (
   -- [CSU.7] Notas de crédito POS pagadas en caja (UA2101 fiscal, UA2501 no fiscal), con su turno.
   -- [CSU.10] La segunda línea del WHERE repite la primera con la forma de ix_kdm1_abono_doc.
@@ -117,7 +139,7 @@ d AS MATERIALIZED (
    GROUP BY 1, 2
 )
 SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.monto,
-       a.cobros, coalesce(a.cobrado, 0) AS cobrado, d.devoluciones,
+       a.cobros, coalesce(a.cobrado, 0) AS cobrado, ac.cobros_cancelados, d.devoluciones,
        to_char(cc.business_date, 'YYYY-MM-DD') AS arqueo_fecha,
        cc.efectivo_esperado, cc.efectivo_contado,
        cc.tarjeta_esperado, cc.tarjeta_contado,
@@ -129,6 +151,7 @@ SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.mon
        cc.arqueo_billetes, cc.arqueo_monedas, cc.efectivo_retirado
   FROM co
   LEFT JOIN a ON a.sucursal = co.sucursal AND a.corte_folio = co.folio
+  LEFT JOIN ac ON ac.sucursal = co.sucursal AND ac.corte_folio = co.folio
   LEFT JOIN d ON d.sucursal = co.sucursal AND d.folio = co.folio
   LEFT JOIN LATERAL (
     SELECT c.* FROM analytics.cash_cuts c

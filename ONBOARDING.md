@@ -392,6 +392,46 @@ Si tu vista lee dinero de `kdm1`, filtra `btrim(coalesce(x.c43,'')) <> 'C'`. Si 
 
 Una prueba que no llega a comparar sale con un código distinto y lo dice. La mutación rompe la condición sin quitarla, para no volver patológica la consulta.
 
+**Observaciones del PM sobre el buscador de Cortes (2026-10-21, `[CSU.13]`) — puntos 52–55.**
+
+**52. Omitir un monto no es esconder el documento: lo que no suma se VE, marcado, y se encuentra.** *Origen: PM — «este corte cancelado no me aparece».* CSU.11 sacó del corte los cobros cancelados para que no sumaran, y con eso quedaron **invisibles**: quien buscaba el folio no encontraba nada y no sabía por qué. Lo correcto es separar las dos preguntas: no suma (fuera del total) y existe (se muestra con su etiqueta y se encuentra con el buscador). Si para mostrarlo hace falta una fuente nueva, que sea el complemento exacto de la que ya existe, verificado al crearse (vigentes + canceladas = total). Una segunda copia de la regla no sirve.
+
+**53. Un buscador entiende los folios como los escribe la gente, no como los guarda el sistema.** *Origen: PM — «au501-00076» para `UA0501-0000076`.* Las letras van al revés, al tipo le falta el cero y el folio trae otra cantidad de ceros. Con búsqueda por fragmentos, ninguna de esas formas casa. Un folio se compara **por número**: el documento publica sus variantes cortas, la consulta se lleva a esa forma, y un terminador evita que el 76 traiga el 761. Pruébalo con lo que escribió la persona, no con el folio bien escrito.
+
+**54. Una pantalla no está lista hasta verla en un navegador real, con la consola limpia.** *Origen: PM — «¿por qué la búsqueda no me aparece?».* Al abrir `localhost:4200` con el navegador del agente aparecieron dos defectos que ninguna compuerta vio:
+- la **lupa en 0 px**: PrimeNG 22 pisa el `class` de `p-inputicon`, así que el ícono va adentro como `<i>`;
+- **NG0955** por `track i` sobre un esqueleto de `undefined`: va `track $index`.
+
+El criterio de cierre es la pantalla abierta, la acción probada y `list_console_messages` sin advertencias. «Sin validación visual» se declara (punto 17) sólo cuando de verdad no se pudo abrir.
+
+**55. «No lo veo en local» se diagnostica antes de tocar código: qué sirve el servidor, qué tiene el navegador, y si el API está arriba.** Tres causas distintas se vieron igual:
+- el servidor sí entregaba el cambio (el texto estaba en el *chunk*);
+- el navegador tenía la pestaña vieja y no había service worker;
+- `nx serve api` se reinició al tocar el backend, y el login dio «Error de conexión» unos segundos.
+
+Revisa en ese orden: `curl` del *chunk*, DevTools › Application › Service Workers, `curl` a `/api/health`. Y avisa antes de tocar el backend mientras alguien prueba.
+
+**56. En una pantalla resumen → detalle, elegir un elemento deja a la vista sólo ESE elemento: el resto se oculta, no se queda ocupando el espacio.** *Origen: PM, sobre «Por sucursal» en Cortes: «cuando se seleccione una sucursal las demás se oculten para optimizar la vista y el espacio».*
+
+Con una sucursal elegida, las otras 7 filas empujaban la lista de cortes, que es lo que se vino a ver, fuera de la pantalla. La forma:
+- un `computed` con lo visible (todas, o sólo la elegida);
+- el encabezado dice cuántas quedaron ocultas, con «ver todas»;
+- otro clic sobre la misma fila también las regresa.
+
+Que se pueda volver sin buscar el botón es parte del requisito. Lo oculto se declara con su número; no desaparece en silencio.
+
+**57. Si dos PR abiertos tocan el mismo bloque de documentación, el segundo en entrar resuelve con una FUSIÓN ordenada y `npm run docs:indices`, sin renumerar lo que ya entró.** *Lo que costó el 2026-10-21.* #439 (puntos 46–51, CSU.12) y #441 (52–55, CSU.13) insertaban en el mismo lugar de §8.0b y de la fase. Además, cada fusión de `main` en la rama del PR volvió a intercalar el índice: el log quedó en 2/229, dos veces el mismo día.
+
+Lo que funcionó:
+1. **Anticiparlo:** declarar el choque y el orden de fusión en el PR, comprobado con `git merge-tree`.
+2. **Cuando el primero entra:** fusionar `main` en la rama del segundo con un commit cuyo árbol se arma así:
+   - la versión de `main` de cada documento, más SÓLO lo que agrega este PR, en orden numérico;
+   - después, regenerar los índices con el generador de `main`.
+3. **Antes de empujar:**
+   - comprobar que ningún archivo quedó con marcas de conflicto;
+   - comprobar que la compuerta que tocaron los dos conserva los cambios de ambos;
+   - revisar el remoto con `ls-remote`, porque el lead pudo haber fusionado otra vez.
+
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
 ---

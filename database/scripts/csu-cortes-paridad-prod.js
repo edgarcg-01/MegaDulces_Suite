@@ -46,7 +46,7 @@ const ANTES = (process.argv.find((a) => a.startsWith('--antes=')) || '').slice(8
       console.log(`corrida ${i + 1}: vieja ${tv[i]} ms · nueva ${r.ms} ms (cortes ${r.msCortes} + cobros ${r.msCobros})`);
     }
     console.log(`MEDIANA ${from}..${to}: vieja ${L.mediana(tv)} ms · nueva ${L.mediana(tn)} ms · ${a.length} cortes crudos`);
-    if (L.iguales(a, b)) console.log('PARIDAD OK: salida idéntica campo por campo');
+    if (L.iguales(a, L.sinCancelados(b))) console.log('PARIDAD OK: salida idéntica campo por campo');
     else { console.log('PARIDAD ROTA'); console.log(L.diferencias(a, b).join('\n')); process.exitCode = 1; }
     const plan = (await c.query(`EXPLAIN (ANALYZE, BUFFERS) ${sql.SQL}`, L.paramsNueva(from, to))).rows.map((x) => x['QUERY PLAN']).join('\n');
     const out = path.join(process.env.PLANES_DIR || process.cwd(), 'plan-csu-nueva-prod.txt');
