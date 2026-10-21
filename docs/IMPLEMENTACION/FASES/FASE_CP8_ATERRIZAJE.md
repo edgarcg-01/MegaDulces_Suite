@@ -475,7 +475,7 @@ CFDI folio 262734 (26-ago · 52,339.34) → UUID
 | L2 pago → entradas (`kdxf`) | **89.0 %** |
 | L3 entrada → CFDI | el cuello: 45 % de las entradas tienen el acreedor **sin RFC** en `kdxd` (149 acreedores se recuperan por el nombre de su CFDI); el folio de la referencia liga 1,186 entradas que el importe no |
 | **cadena completa** | **911 correctas (49.6 %) · 55 con otras facturas (3.0 %)** |
-| **+ compuerta «Σ facturas − Σ notas = pagado»** (no mira la respuesta) | **700 correctas (38.1 %) · 12 equivocadas (0.7 %)** · 254 a revisión, de las que 211 eran correctas |
+| **+ compuerta «Σ facturas − Σ notas = pagado»** (no mira la respuesta) | se armarían solas **712**: 700 correctas y **12 con otras facturas = 1.7 % de lo armado** (0.7 % del universo) · 254 a revisión, de las que 211 eran correctas · 871 con la cadena cortada |
 
 De los 55 errores sin compuerta, **37 son desacuerdos entre Kepler y la contadora**, no del método:
 21 pagos en que Kepler aplicó **más** facturas de las que ella asoció y 16 en que aplicó **menos**.
