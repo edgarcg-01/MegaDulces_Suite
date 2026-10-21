@@ -12,6 +12,8 @@ import { depositosEnElExceso, excesoDeBilletes, type BilletesPorDenominacion, ty
 import { fondoSugerido } from './cash-opening.engine';
 import { traducirErrorDeCaja } from './caja-errores';
 import { hoyMx, jornadasSinCorte, enJornadaLibro, JORNADA_LIBRO } from './caja-jornadas.query';
+import { leerCandado, type CandadoCaja } from './caja-candado.query';
+import { candadoDeCierre, puedeDarLlave, TEXTO_NO_LLAVE } from './caja-candado.engine';
 import { cobrosVecinalesPendientes, type CobroVecinalPendiente } from './caja-vecinal.query';
 import {
   calcularCorte, puedeAutorizar, puedeCerrar, puedeCancelarse, motivoCancelacionValido,
@@ -1009,6 +1011,22 @@ export class CashCutService {
         });
       }
 
+      // ⛔ `[CGS.3]` (D2) Con dos cortes cerrados que nadie revisó, no se cierra un tercero. Nace
+      // APAGADO: sólo cuenta desde `CAJA_CANDADO_REVISION_DESDE` (YYYY-MM-DD), que fija Edgar. Con
+      // los 7 cortes viejos sin revisar, prenderlo contra todos trabaría el primer cierre.
+      const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(process.env['CAJA_CANDADO_REVISION_DESDE'] ?? ''))
+        ? String(process.env['CAJA_CANDADO_REVISION_DESDE']) : null;
+      if (desde) {
+        const pendientes: Array<{ folio: string; fecha: string }> = await trx('finance.cash_ledger_cuts')
+          .where({ tenant_id: tenantId, sucursal: c.sucursal, estado: 'cerrado' })
+          .whereNot('id', id)
+          .where('fecha', '>=', desde)
+          .orderBy('fecha', 'asc')
+          .select('folio', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`));
+        const freno = candadoDeCierre({ sinRevisar: pendientes, desde });
+        if (!freno.ok) throw new BadRequestException(freno.texto);
+      }
+
       const [cerrado] = await trx('finance.cash_ledger_cuts').where({ id }).update({
         estado: 'cerrado',
         closed_by: u.id, closed_by_username: u.username ?? null, closed_at: trx.fn.now(),
@@ -1038,6 +1056,62 @@ export class CashCutService {
       await this.guardarDenominaciones(trx, tenantId, id, 'cierre', conteo);
 
       return { ...aCorteCajaDto(cerrado), totales: t };
+    }));
+  }
+
+  /**
+   * `[CGS.14]` Cómo está el candado para quien pregunta, y a quién se le podría dar la llave.
+   * Lo lee la Captura (para avisar ANTES de que alguien teclee) y Arqueos (para dar la llave).
+   */
+  async candado(user: Usuario): Promise<CandadoCaja> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const c = await leerCandado(trx, tenantId, u.id);
+      // Quienes capturaron en los últimos 30 días: los candidatos a recibir una llave.
+      const gente: Array<{ id: string; username: string | null }> = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId })
+        .where('created_at', '>', trx.raw(`now() - interval '30 days'`))
+        .whereNot('created_by', u.id)
+        .distinct({ id: 'created_by', username: 'created_by_username' });
+      return { ...c, pueden_recibir_llave: gente.map((g) => ({ id: g.id, username: g.username })) };
+    });
+  }
+
+  /**
+   * ⭐ `[CGS.15]` **La llave de emergencia.** Alguien con `AUTORIZAR` le permite a OTRA persona
+   * capturar hasta que termine el día, con motivo escrito. No borra el candado: lo deja pasar con
+   * constancia. La base impide la llave para uno mismo (`llave_ajena_chk`).
+   */
+  async darLlave(body: { para_usuario?: string; motivo?: string }, user: Usuario): Promise<{ vence_at: string; para: string | null }> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.conFrase(this.tk.run(async (trx) => {
+      const paraId = body?.para_usuario ? String(body.para_usuario) : null;
+      const para = paraId
+        ? await trx('identity.users').where({ tenant_id: tenantId, id: paraId }).whereNull('deleted_at').first('id', 'username')
+        : null;
+      if (paraId && !para) throw new NotFoundException('Esa persona no existe en este tenant.');
+      const estado = paraId ? await leerCandado(trx, tenantId, paraId) : null;
+      const gate = puedeDarLlave({
+        otorgaId: u.id, paraId, motivo: body?.motivo, hayCandado: !!estado?.bloqueado,
+      });
+      if (!gate.ok) {
+        const texto = TEXTO_NO_LLAVE[gate.motivo!];
+        if (gate.motivo === 'para_si_misma') throw new ForbiddenException(texto);
+        throw new BadRequestException(texto);
+      }
+      const [l] = await trx('finance.cash_ledger_llaves').insert({
+        tenant_id: tenantId, sucursal: SUCURSAL_CAJA_GENERAL,
+        para_usuario: paraId, para_username: para?.username ?? null,
+        otorgada_por: u.id, otorgada_por_username: u.username ?? null,
+        motivo: String(body.motivo).trim(),
+        jornada_pendiente: estado?.jornada ?? null,
+        // Vence al terminar el día de hoy en México: una llave no se hereda al día siguiente.
+        vence_at: trx.raw(`(((now() AT TIME ZONE 'America/Mexico_City')::date + 1)::timestamp) AT TIME ZONE 'America/Mexico_City'`),
+        created_by: u.id,
+      }).returning(['vence_at', 'para_username']);
+      return { vence_at: new Date(l.vence_at as string).toISOString(), para: (l.para_username ?? null) as string | null };
     }));
   }
 

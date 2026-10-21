@@ -105,3 +105,27 @@ export function aCorteCajaDto(r: Record<string, unknown>): CorteCajaDto {
     authorization_note: txt(r['authorization_note']),
   };
 }
+
+/**
+ * ⛔ `[CGS.14][CGS.15]` **El candado de la caja, tal como lo publica la API** (`GET
+ * /finance/cash-ledger/candado`). Sin corte cerrado de una jornada anterior, no se captura; la
+ * salida es cerrar ese corte o una llave de emergencia que da OTRA persona con motivo.
+ *
+ * `activo: false` = apagado por el interruptor de emergencia (`CAJA_CANDADO_CAPTURA=off`): se
+ * DECLARA, no se esconde.
+ */
+export interface CandadoCajaDto {
+  bloqueado: boolean;
+  motivo: 'jornada_sin_corte' | 'corte_sin_cerrar' | null;
+  /** La jornada que hay que cerrar primero, `YYYY-MM-DD`. */
+  jornada: string | null;
+  /** La frase para la persona: qué pasa y qué lo destraba. */
+  texto: string | null;
+  /** Se está capturando con llave: quién la dio, por qué y hasta cuándo (instante ISO). */
+  con_llave: { otorgada_por_username: string | null; motivo: string; vence_at: string } | null;
+  activo: boolean;
+  /** Hoy en México, `YYYY-MM-DD`. */
+  hoy: string;
+  /** Quienes capturaron en los últimos 30 días, menos quien pregunta: a quién se le puede dar llave. */
+  pueden_recibir_llave: Array<{ id: string; username: string | null }>;
+}

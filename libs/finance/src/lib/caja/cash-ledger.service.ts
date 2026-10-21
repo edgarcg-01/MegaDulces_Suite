@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql,
@@ -22,6 +22,7 @@ const ETIQUETA_CARRIL: Record<string, string> = {
   mv_caja_refresh: 'Refresco de la cola de caja',
 };
 import { CajaGateway } from './caja.gateway';
+import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
 import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
@@ -1103,6 +1104,20 @@ export class CashLedgerService {
       const conc = conciliacion(input as never);
       if (!conc.ok) throw new BadRequestException(conc.texto);
 
+      /**
+       * ⛔⛔ `[CGS.14]` **SIN CORTE DE AYER, HOY NO SE CAPTURA** (D1 de Edgar, 2026-10-21).
+       *
+       * Medido ese día: el 20-oct quedó con 30 movimientos y sin corte, y el 21 ya se capturaban
+       * gastos encima. Va DESPUÉS de la repetición idempotente (un reintento de algo que ya se
+       * guardó no es una captura nueva) y de la conciliación, que es pura y tiene que disparar sin
+       * tocar la base (`cash-ledger.conciliacion.spec.ts` lo exige), y ANTES de resolver nada. 423 y no 400: no es que el dato
+       * esté mal, es que la caja está cerrada hasta rendir cuentas. La salida va en la frase.
+       */
+      const candado = await leerCandado(trx, tenantId, user.id ?? null);
+      if (candado.bloqueado) {
+        throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+      }
+
       // ⭐ El monto del documento MANDA sobre el del formulario…
       const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
       const doc = anclado ? await this.resolveMovimiento(trx, tenantId, input.origen_ref as string) : null;
@@ -1267,7 +1282,8 @@ export class CashLedgerService {
       return await this.create(input, user);
     } catch (e) {
       // Un `BadRequestException` ya es una frase nuestra: no se vuelve a traducir.
-      if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+      // `[CGS.14]` Tampoco el 423 del candado: ya trae su frase y su salida.
+      if (e instanceof HttpException) throw e;
       return traducirErrorDeCaja(e);
     }
   }
@@ -2610,6 +2626,13 @@ export class CashLedgerService {
     if (!user?.id) throw new BadRequestException('No se pudo identificar al usuario que confirma.');
     const items = (input?.items ?? []).filter((i) => i && i.origen_ref);
     if (!items.length) throw new BadRequestException('No se marcó ninguna entrega.');
+
+    // `[CGS.14]` Con la caja bloqueada el lote entero se rechaza con UNA frase, no con un error
+    // idéntico por renglón. `create()` lo vuelve a revisar por si cambió a mitad del lote.
+    const candado = await this.tk.run((trx) => leerCandado(trx, tenantId, user.id ?? null));
+    if (candado.bloqueado) {
+      throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+    }
 
     const filas: FilaLote[] = [];
     const montos = new Map<string, number>();

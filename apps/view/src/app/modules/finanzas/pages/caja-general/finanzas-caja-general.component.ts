@@ -43,7 +43,7 @@ import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { uuidV4 } from '../../../../core/utils/uuid';
 import { moneyOSinMedir } from '../../../../shared/util';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
+import { CashLedgerService, type CandadoCaja, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
   type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
   type JornadasPendientes, type PendientesResponse } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -852,6 +852,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em;
                       white-space:nowrap; }
     /* El desplegable: un <button> con su aria-expanded, no un div con (click). */
+    .cg-candado { display:flex; gap:var(--sp-3); align-items:flex-start; margin-block:var(--sp-3); padding:var(--sp-3);
+                  border:1px solid var(--bad-fg); border-radius:var(--r-md); color:var(--text-main); }
+    .cg-candado > .pi { color:var(--bad-fg); margin-top:var(--sp-1); }
+    .cg-candado--llave { border-color:var(--border-color); }
+    .cg-candado--llave > .pi { color:var(--text-muted); }
+    .cg-candado-txt { display:flex; flex-direction:column; gap:var(--sp-2); }
+    .cg-candado-acc { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
     .cg-jornada-btn { display:inline-flex; flex:none; align-items:center; gap:var(--sp-2); cursor:pointer;
                       font-family:inherit; color:var(--fg-1); text-align:left;
                       background:var(--card-bg); border:1px solid var(--border-color);
@@ -1249,6 +1256,35 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             permiso «Capturar en Caja General».</small>
         }
       </header>
+
+      <!-- [CGS.14] EL CANDADO, antes que todo: si la caja no puede capturar, lo primero que se lee
+           es por que y que lo destraba. Avisar DESPUES de teclear un movimiento entero seria
+           cobrarle a la persona el trabajo de descubrir la regla. -->
+      @if (candadoCaja(); as k) {
+        @if (k.bloqueado) {
+          <div class="cg-candado" role="alert">
+            <i class="pi pi-lock" aria-hidden="true"></i>
+            <div class="cg-candado-txt">
+              <b>La caja está bloqueada.</b> {{ k.texto }}
+              <div class="cg-candado-acc">
+                <p-button label="Rendir cuentas de esa jornada" icon="pi pi-calendar" size="small"
+                          (onClick)="cerrarJornada()"></p-button>
+              </div>
+            </div>
+          </div>
+        } @else if (k.con_llave) {
+          <div class="cg-candado cg-candado--llave" role="status">
+            <i class="pi pi-key" aria-hidden="true"></i>
+            <div class="cg-candado-txt">
+              Capturas con <b>llave de emergencia</b> de {{ k.con_llave.otorgada_por_username || 'la supervisión' }}
+              hasta que termine el día: «{{ k.con_llave.motivo }}».
+              @if (k.jornada) { La jornada del {{ dmy(k.jornada) }} sigue sin corte cerrado. }
+            </div>
+          </div>
+        } @else if (!k.activo) {
+          <small class="fin-hint-warn">El candado de la caja está apagado por configuración: se puede capturar aunque falte un corte.</small>
+        }
+      }
 
       <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
            abrirla no mueve ni un pixel del arqueo que hay detras. -->
@@ -6120,6 +6156,15 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** `[CGS.14]` El candado para quien está acá. `null` = todavía no se midió: no se afirma libre ni bloqueado. */
+  readonly candadoCaja = signal<CandadoCaja | null>(null);
+  cargarCandado(): void {
+    this.svc.candado().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.candadoCaja.set(c),
+      error: () => this.candadoCaja.set(null),
+    });
+  }
+
   cargarCortes(): void {
     this.cargandoCortes.set(true);
     this.svc.cortes({ from: this.from, to: this.to, limit: 50 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -6282,6 +6327,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   >({ estado: 'midiendo' });
 
   cargarJornadasAtrasadas(): void {
+    // `[CGS.14]` El candado se recalcula cada vez que cambian las jornadas: abrir, cerrar, capturar.
+    this.cargarCandado();
     this.jornadasAtrasadas.set({ estado: 'midiendo' });
     this.svc.jornadasPendientes(this.sucursalActiva).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (datos) => this.jornadasAtrasadas.set({ estado: 'medido', datos }),

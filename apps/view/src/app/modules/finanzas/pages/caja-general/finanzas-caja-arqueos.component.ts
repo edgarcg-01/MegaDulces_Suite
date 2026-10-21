@@ -4,6 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { TextareaModule } from 'primeng/textarea';
+import { SelectModule } from 'primeng/select';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -24,7 +25,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
-import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import { CashLedgerService, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
@@ -167,7 +168,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   selector: 'app-finanzas-caja-arqueos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule, SelectModule,
     LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent,
     ContextHelpComponent, CajaTabsComponent],
   template: `
@@ -247,6 +248,32 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
           }
           @if (observados().length) {
             <p class="cq-nota">{{ observados().length }} observado(s) esperan la respuesta de la caja.</p>
+          }
+
+          <!-- [CGS.15] La llave de emergencia: la caja no captura mientras una jornada anterior siga
+               sin corte. Si hace falta pagar antes de cerrarla, se le da a OTRA persona, con motivo,
+               hasta que termine el dia. -->
+          @if (candado(); as k) {
+            @if (k.jornada) {
+              <div class="cq-llave">
+                <h3 class="cq-h3">La caja está bloqueada por la jornada del {{ dmy(k.jornada) }}</h3>
+                <p class="cq-hint">Lo normal es que se cierre ese corte. Si hace falta capturar antes, da una llave de emergencia: queda escrita con tu nombre y vence al terminar el día.</p>
+                <label class="cq-rev-label" for="cq-llave-para">Para quién</label>
+                <p-select inputId="cq-llave-para" [options]="k.pueden_recibir_llave" optionLabel="username" optionValue="id"
+                          [ngModel]="llavePara()" (ngModelChange)="llavePara.set()" placeholder="Elige a la persona"
+                          appendTo="body" [style]="{ minWidth: '16rem' }" />
+                <label class="cq-rev-label" for="cq-llave-motivo">Por qué hace falta capturar sin cerrar</label>
+                <textarea pTextarea id="cq-llave-motivo" rows="2" class="cq-rev-texto"
+                          [ngModel]="llaveMotivo()" (ngModelChange)="llaveMotivo.set()"></textarea>
+                <div class="cq-rev-acciones">
+                  <p-button label="Dar llave hasta el fin del día" icon="pi pi-key" size="small" severity="secondary" [outlined]="true"
+                            [disabled]="!puedeDarLlave() || dandoLlave()" [loading]="dandoLlave()" (onClick)="darLlave()" />
+                </div>
+                @if (!puedeDarLlave()) { <small class="cq-hint">{{ motivoSinLlave() }}</small> }
+                @if (errLlave()) { <p class="cq-nota cq-mal" role="alert">{{ errLlave() }}</p> }
+                @if (okLlave()) { <p class="cq-nota" role="status">{{ okLlave() }}</p> }
+              </div>
+            }
           }
         </section>
       }
@@ -557,6 +584,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-rev-label { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .cq-rev-texto { width:100%; max-width:60ch; }
     .cq-rev-acciones { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+    .cq-llave { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-4); padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
     .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
@@ -977,6 +1005,45 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     });
   }
 
+  // ── `[CGS.15]` La llave de emergencia ─────────────────────────────────────────────────
+  readonly candado = signal<CandadoCaja | null>(null);
+  readonly llavePara = signal<string | null>(null);
+  readonly llaveMotivo = signal('');
+  readonly dandoLlave = signal(false);
+  readonly errLlave = signal<string | null>(null);
+  readonly okLlave = signal<string | null>(null);
+
+  readonly motivoSinLlave = computed<string>(() => {
+    const para = this.llavePara();
+    const motivo = this.llaveMotivo().trim();
+    if (!para) return 'Elige para quién es la llave.';
+    if (para === this.uid()) return 'Nadie se abre su propio candado: la llave es para otra persona.';
+    if (motivo.length < MINIMO_TEXTO_REVISION) return `Escribe por qué (al menos ${MINIMO_TEXTO_REVISION} caracteres).`;
+    return '';
+  });
+  readonly puedeDarLlave = computed<boolean>(() => this.esRevisora() && this.motivoSinLlave() === '');
+
+  cargarCandado(): void {
+    this.cajas.candado().subscribe({
+      next: (c) => this.candado.set(c),
+      error: () => this.candado.set(null),
+    });
+  }
+
+  darLlave(): void {
+    const para = this.llavePara();
+    if (!para || !this.puedeDarLlave() || this.dandoLlave()) return;
+    this.dandoLlave.set(true); this.errLlave.set(null); this.okLlave.set(null);
+    this.cajas.darLlave(para, this.llaveMotivo().trim()).subscribe({
+      next: (r) => {
+        this.dandoLlave.set(false); this.llaveMotivo.set(''); this.llavePara.set(null);
+        this.okLlave.set(`Llave dada a ${r.para ?? 'la persona'} hasta que termine el día.`);
+        this.cargarCandado();
+      },
+      error: (e) => { this.dandoLlave.set(false); this.errLlave.set(textoDeError(e)); },
+    });
+  }
+
   private alTerminar(texto: string): void {
     this.revisando.set(null);
     this.textoRevision.set('');
@@ -1024,6 +1091,9 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
    */
   recargar(silencioso = false): void {
     this.cargarCajon();
+    // Se pide siempre (pide VER): la sección que la usa ya sólo se pinta para quien autoriza, y
+    // al abrir la pantalla los permisos pueden no haber llegado todavía.
+    this.cargarCandado();
     const conDatos = this.filas().length > 0;
     if (!(silencioso && conDatos)) { this.cargando.set(true); this.error.set(null); }
 
