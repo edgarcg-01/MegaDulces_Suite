@@ -604,6 +604,43 @@ ella juntó notas). Cómo se llegó: v1 72.5 % → v2 89.1 % del pago completo a
 4. **Tarjeta de crédito** (`2140800000`, 8 pólizas): ¿qué asiento es?
 5. **El UUID de cada nota:** el puente los pondrá todos, ustedes hoy uno por renglón.
 
+### `[CP.8.67]` Lo que dice el histórico (2025 + 2026 previo, calificado en 2026)
+
+`database/scripts/patrones-historicos-contpaqi.js`. Cada predicción usa **sólo** lo anterior a la póliza
+que se califica. Pedido del PM: *«busquemos o hagamos un patrón de los históricos»*.
+
+| hueco | regla sin historia | con el histórico | qué se adopta |
+|---|---|---|---|
+| **cuenta del proveedor** | mapa `gl_supplier_accounts`: 98.4 % | **la cuenta ya usada con ese RFC: 5,549/5,563 (99.7 %)**; cubre 56 de 67 sin mapa con 0 errores y corrige 76 de 91 errores del mapa | **histórico primero, mapa de respaldo** (es la vía B de `[CP.8.20]`, `contpaqi.supplier_accounts`) |
+| descuento o devolución | relación 03: 91.6 % | proveedor con ≥ 3 notas y 90 % de pureza: **90.3 %** — peor | la regla |
+| 2120 o compra directa | 20 mil + mes anterior: 98.6 % (68 errores) | ningún proveedor se desvía de forma consistente: 0 correcciones | **la provisión real del mes** (abajo) |
+| factura mixta 0 %/16 % | partir por base: 98 de 102 | sin cambio | la regla |
+| parcial con nota | — | por factura con el REP (H5): 23 de 82 con umbral 30 % elegido **sobre los mismos datos** (sobreajuste posible); «todas las notas desde el pago anterior»: 0 de 143 | **a confirmar en pantalla**; ~59 sin regla |
+| sin banco | — | las 44 abonan a Financiera Bajío `2140420000`: es **factoraje**, otro flujo | fuera de pago a proveedor |
+| tarjeta de crédito | — | par neutro: cargo y abono a `2140800000` por el mismo importe, junto a la compra normal | preguntar cuándo lo agrega |
+
+### ⛔ `[CP.8.68]` Hallazgo para contabilidad: compras provisionadas que se volvieron a registrar al pagarse
+
+Cada mes hay **una** póliza de provisión (diario, abono 2120 por factura). Al buscar por qué 68 facturas
+no siguen la regla de 20 mil apareció otra cosa (`database/scripts/doble-registro-provision-contpaqi.js`):
+
+| pagos desde feb-2025 | facturas |
+|---|--:|
+| pagadas como compra directa (cargo 501/502 contra banco) | 5,394 |
+| … que ya estaban en la provisión de su mes | 61 |
+| … cuya provisión **nunca** se canceló (ningún cargo a esa cuenta 2120 por ese importe) | **54 · $8,204,062.77** |
+
+Concentradas en **abril de 2026 (33)** y **junio de 2025 (9)**: los pagos que siguen al cierre con
+provisión. En las 31 cuentas 2120 de esos proveedores no hay **ningún** cargo en diario en 2026, así que
+no hubo una reversa global; dos cuentas quedan abiertas **exactamente** por el importe de una de esas
+facturas ($83,682.18 y $25,921.80). Si se confirma, la compra quedó registrada dos veces y el 2120 quedó
+abierto. ⚠️ La provisión no trae UUID: el cruce es por cuenta + importe exacto en el mes, fuerte pero no
+estructural. **Lo verifica contabilidad; nada se corrige desde la Suite (ADR-040).**
+
+**Consecuencia para el armador:** la regla R1/R2 se decide por **«¿la factura está en la provisión de su
+mes en ContPAQi?»** (y la regla de 20 mil sólo si esa provisión todavía no existe). Así el puente no repite
+el doble registro: lo que esté provisionado se paga contra 2120, siempre.
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
@@ -749,3 +786,7 @@ falta uno nuevo.
 - **2026-10-21** — `[CP.8.65]` expediente del pago a proveedor (§3.6): 1,435 de 1,907 pólizas se
   reconstruyen igual que la contadora desde las fuentes (75.2 %). `[CP.8.66]` devolución vs descuento
   = `TipoRelacion` 03 del CFDI (91.7 %). Cinco preguntas para contabilidad antes de armar.
+- **2026-10-21** — `[CP.8.67]` patrones del histórico: la cuenta del proveedor sale del uso previo con
+  ese RFC (99.7 %); para lo demás el histórico no mejora la regla. `[CP.8.68]` hallazgo para contabilidad:
+  54 facturas ($8.2M) provisionadas y vueltas a registrar como compra directa, sin cancelar la provisión.
+  El armador decide 2120 por la provisión real del mes.
