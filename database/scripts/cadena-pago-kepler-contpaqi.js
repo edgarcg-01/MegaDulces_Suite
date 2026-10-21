@@ -17,6 +17,9 @@
  * ⛔ El UUID sale SÓLO de Kepler y del CFDI. La respuesta de la contadora se usa para CALIFICAR, nunca
  * para resolver. PLACEBO: la misma cadena con el importe del banco +$137 en L1.
  *
+ * `[CP.8.71]` con el RFC del acreedor reparado (tal cual → sin formato → ≤ 2 ediciones → nombre): cadena completa
+ * e igual 855 (antes 701), con 14 errores; incompletas 370 (antes 572).
+ *
  *   node database/scripts/cadena-pago-kepler-contpaqi.js
  *
  * Sólo lectura.
@@ -30,6 +33,7 @@ const { Client } = require('pg');
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const TOL = 1;
 const dia = (s) => Math.floor(Date.parse(String(s).slice(0, 10)) / 86400000);
+const r2k = (n) => Math.round(n * 100) / 100;
 const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
 
 (async () => {
@@ -90,13 +94,39 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     .replace(/\b(S\.?\s*A\.?|DE|C\.?\s*V\.?|S\.?\s*DE\s*R\.?\s*L\.?|SAPI|SA|CV|RL|S|R|L)\b/g, ' ').replace(/[^A-Z0-9]/g, '');
   const rfcPorNombre = new Map();
   for (const x of cfdis) { const k = norm(x.nom); if (!k) continue; const s = rfcPorNombre.get(k) ?? new Set(); s.add(x.rfc); rfcPorNombre.set(k, s); }
+  // `[CP.8.71]` ⛔ El RFC de `kdxd.c10` está mal capturado con frecuencia: dedazos (PCP920523HQA por
+  // PCP920423KQA), guiones y cortado («CCO-820507-BV»), cero por letra, o el RFC de una persona física en el
+  // acreedor de un proveedor grande. Con ese RFC el paso L3 no encuentra el CFDI. Escalera, y sólo si el
+  // resultado es ÚNICO: (1) el RFC tal cual existe como emisor · (2) sin guiones ni espacios · (3) a ≤ 2
+  // ediciones de UN emisor · (4) el nombre del acreedor = el de UN emisor. Si nada, se queda el de Kepler.
+  const emisores = new Set(cfdis.map((x) => x.rfc));
+  const lev = (a, b) => {
+    if (Math.abs(a.length - b.length) > 2) return 9;
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const cur = [i];
+      for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[b.length];
+  };
+  const listaEmisores = [...emisores];
   const rfcDe = new Map();
-  let porNombre = 0;
+  let porNombre = 0; const via = { tal_cual: 0, sin_formato: 0, parecido: 0, por_nombre: 0, sin_resolver: 0 };
   for (const a of acreedores) {
-    if (a.rfc) { rfcDe.set(a.c2, a.rfc); continue; }
+    const crudo = a.rfc; const limpio = crudo.replace(/[^A-Z0-9&Ñ]/g, '');
+    if (crudo && emisores.has(crudo)) { rfcDe.set(a.c2, crudo); via.tal_cual += 1; continue; }
+    if (limpio && emisores.has(limpio)) { rfcDe.set(a.c2, limpio); via.sin_formato += 1; continue; }
+    if (limpio.length >= 10) {
+      const cerca = listaEmisores.filter((e) => lev(limpio, e) <= 2);
+      if (cerca.length === 1) { rfcDe.set(a.c2, cerca[0]); via.parecido += 1; continue; }
+    }
     const s = rfcPorNombre.get(norm(a.nombre));
-    if (s && s.size === 1) { rfcDe.set(a.c2, [...s][0]); porNombre += 1; }
+    if (s && s.size === 1) { rfcDe.set(a.c2, [...s][0]); porNombre += 1; via.por_nombre += 1; continue; }
+    via.sin_resolver += 1;
+    if (crudo) rfcDe.set(a.c2, crudo);
   }
+  console.log('RFC del acreedor, cómo se resolvió:', via);
 
   const aplicacionesDe = new Map();
   for (const a of casam) {
@@ -162,6 +192,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
         : Math.abs(ent - pag - ni) <= 1 + 0.002 * ni ? 'con nota · = entradas − pagado (Kepler)'
         : kNotas < 1 ? 'con nota · Kepler sin nota' : 'con nota · Kepler distinto';
       notasK[cat] = (notasK[cat] || 0) + 1;
+      salida[`${p.periodo}|${p.folio}`].kNotas = r2k(kNotas);
     }
     const rfc = rfcDe.get(pg.acreedor);
     if (!rfc) { r.sin_rfc += 1; nota('L3 acreedor sin RFC en kdxd'); continue; }
@@ -180,7 +211,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     }
     const verdad = new Set(p.facturas);
     const igual = pred.size === verdad.size && [...pred].every((u) => verdad.has(u));
-    salida[`${p.periodo}|${p.folio}`] = { rfc, facturas: [...pred], notas: [...predNotas], incompleto };
+    Object.assign(salida[`${p.periodo}|${p.folio}`], { rfc, facturas: [...pred], notas: [...predNotas], incompleto });
     if (incompleto) { r.cadena_inc += 1; continue; }
     // ⭐ `[CP.8.63]` Compuerta que NO mira la respuesta: Σ facturas − Σ notas tiene que dar lo que salió
     // del banco (±$1 por documento, por los centavos que van a Otros ingresos). Si no cuadra, a revisión.
