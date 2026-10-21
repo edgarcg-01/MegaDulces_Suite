@@ -185,6 +185,9 @@ existente» puede variar un poco. El informe con nombres (las listas para RH) qu
 | `64ae212` | 08-oct | Nadie a prenómina sin identificar · alta con el siguiente número libre | ✅ [RH.1.6b] el cierre (12-oct) · ⬜ el alta (va con la pantalla de personas) |
 | `ee4ff38` | 08-oct | Banco de horas extra, desayuno/comida distintos, cambio de día de descanso, día con incidencia se mide sin checadas | ✅ [RH.1.10] (12-oct) |
 | `1a28f6e` | 12-oct | Horas extra en la tabla semanal, PDF y Excel | ✅ [RH.1.10] (12-oct) |
+| `8dd5521` | 13-oct | Incidencia «Descanso» (DSC), vacaciones respetan el descanso, «HE usó / HE saldo» en tabla, PDF y Excel, elegir semana | 🧪 [RH.1.15] (21-oct) · la lista de 52 semanas no: la Suite ya elige semana con flechas y atajos |
+| `8396d3c` | 15-oct | Marca de en medio sin pareja = la que deja los descansos más cortos (no la última) · hasta 4 horarios por persona (`horarios_confirmados.horarios`) | 🧪 [RH.1.15] (21-oct) · mig `20261021090942` (`hr.person_schedules.shifts`) · paridad real NO MEDIDA |
+| `31bc956`, `2b6d3b4` | 19-oct | Salud del bot (bandeja de atorados) · docs | ⬜ no es asistencia: va con el bot (`[RH.3.*]`) |
 
 Para revisarlo: `git log --since=<último port> -- api/src/agente-horarios api/src/cierres.ts api/src/checador.ts api/src/incidencias.ts`
 en el repo de Mega Talento.
