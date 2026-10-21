@@ -248,7 +248,7 @@ describe.skipIf(!URL)('[CGP-E.1b] el proceso del corte POR HTTP, contra Postgres
     expect(String(propio.body.message)).not.toMatch(/Faltan permisos/);
 
     actual = AUTORIZA;
-    const autorizado = await http().post(`/finance/cash-ledger/cortes/${id}/autorizar`).send().expect(201);
+    const autorizado = await http().post(`/finance/cash-ledger/cortes/${id}/autorizar`).send({ nota: 'Corte de prueba HTTP, cerrado fuera de su día' }).expect(201);
     expect(autorizado.body.estado).toBe('autorizado');
     expect(autorizado.body.authorized_by_username).toBe(AUTORIZA.username);
   });
@@ -269,7 +269,7 @@ describe.skipIf(!URL)('[CGP-E.1b] el proceso del corte POR HTTP, contra Postgres
     const ok = await http().post(`/finance/cash-ledger/cortes/${c.id}/cerrar`).send({}).expect(201);
     expect(ok.body.contado).toBe(100);
     actual = AUTORIZA;
-    await http().post(`/finance/cash-ledger/cortes/${ok.id ?? c.id}/autorizar`).send().expect(201);
+    await http().post(`/finance/cash-ledger/cortes/${ok.id ?? c.id}/autorizar`).send({ nota: 'Corte de prueba HTTP, cerrado fuera de su día' }).expect(201);
   });
 
   /**

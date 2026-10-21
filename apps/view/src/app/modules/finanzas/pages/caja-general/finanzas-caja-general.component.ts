@@ -43,7 +43,7 @@ import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
 import { uuidV4 } from '../../../../core/utils/uuid';
 import { moneyOSinMedir } from '../../../../shared/util';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
+import { CashLedgerService, type CandadoCaja, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
   type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
   type JornadasPendientes, type PendientesResponse } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -852,6 +852,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em;
                       white-space:nowrap; }
     /* El desplegable: un <button> con su aria-expanded, no un div con (click). */
+    .cg-candado { display:flex; gap:var(--sp-3); align-items:flex-start; margin-block:var(--sp-3); padding:var(--sp-3);
+                  border:1px solid var(--bad-fg); border-radius:var(--r-md); color:var(--text-main); }
+    .cg-candado > .pi { color:var(--bad-fg); margin-top:var(--sp-1); }
+    .cg-candado--llave { border-color:var(--border-color); }
+    .cg-candado--llave > .pi { color:var(--text-muted); }
+    .cg-candado-txt { display:flex; flex-direction:column; gap:var(--sp-2); }
+    .cg-candado-acc { display:flex; gap:var(--sp-2); flex-wrap:wrap; align-items:center; }
+    .cg-resp-obs { margin:0 0 var(--sp-3); color:var(--text-main); }
+    .cg-resp-label { display:block; font-size:var(--fs-sm); font-weight:600; margin-bottom:var(--sp-1); }
+    .cg-resp-texto { width:100%; }
+    .cg-resp-ayuda { display:block; margin-top:var(--sp-2); color:var(--text-muted); font-size:var(--fs-sm); }
     .cg-jornada-btn { display:inline-flex; flex:none; align-items:center; gap:var(--sp-2); cursor:pointer;
                       font-family:inherit; color:var(--fg-1); text-align:left;
                       background:var(--card-bg); border:1px solid var(--border-color);
@@ -1250,6 +1261,55 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
       </header>
 
+      <!-- [CGS.14] EL CANDADO, antes que todo: si la caja no puede capturar, lo primero que se lee
+           es por que y que lo destraba. Avisar DESPUES de teclear un movimiento entero seria
+           cobrarle a la persona el trabajo de descubrir la regla. -->
+      @if (candadoCaja(); as k) {
+        @if (k.bloqueado) {
+          <div class="cg-candado" role="alert">
+            <i class="pi pi-lock" aria-hidden="true"></i>
+            <div class="cg-candado-txt">
+              <b>La caja está bloqueada.</b> {{ k.texto }}
+              <div class="cg-candado-acc">
+                <p-button label="Rendir cuentas de esa jornada" icon="pi pi-calendar" size="small"
+                          (onClick)="cerrarJornada()"></p-button>
+              </div>
+            </div>
+          </div>
+        } @else if (k.con_llave) {
+          <div class="cg-candado cg-candado--llave" role="status">
+            <i class="pi pi-key" aria-hidden="true"></i>
+            <div class="cg-candado-txt">
+              Capturas con <b>llave de emergencia</b> de {{ k.con_llave.otorgada_por_username || 'la supervisión' }}
+              hasta que termine el día: «{{ k.con_llave.motivo }}».
+              @if (k.jornada) { La jornada del {{ dmy(k.jornada) }} sigue sin corte cerrado. }
+            </div>
+          </div>
+        } @else if (!k.activo) {
+          <small class="fin-hint-warn">El candado de la caja está apagado por configuración: se puede capturar aunque falte un corte.</small>
+        }
+      }
+
+      <!-- [CGS.18] Lo que la supervisora DEVOLVIO: la caja lo ve al entrar, no escondido en el
+           historial plegado de Tu jornada. -->
+      @if (observados().length) {
+        <div class="cg-candado" role="status">
+          <i class="pi pi-replay" aria-hidden="true"></i>
+          <div class="cg-candado-txt">
+            <b>{{ observados().length === 1 ? 'La supervisora observó un corte.' : 'La supervisora observó ' + observados().length + ' cortes.' }}</b>
+            @for (c of observados(); track c.id) {
+              <div class="cg-candado-acc">
+                <span>{{ c.folio }} ({{ dmy(c.fecha) }}) · {{ c.observed_by_username || 'supervisión' }}: «{{ c.observacion }}»</span>
+                @if (puedeGestionar()) {
+                  <p-button label="Responder" icon="pi pi-reply" size="small" severity="secondary" [outlined]="true"
+                            (onClick)="abrirRespuesta(c)"></p-button>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+
       <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
            abrirla no mueve ni un pixel del arqueo que hay detras. -->
       <p-dialog [visible]="jornadaAbierta()" (visibleChange)="jornadaAbierta.set($event)"
@@ -1297,7 +1357,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </p>
           }
 
-          @if (seccionJornada() === 'hoy') {
+          <!-- [CG.128] Las DOS secciones cuelgan de aca porque las dos necesitan el mismo
+               bloque de arqueo de mas abajo: el cuadre y el diario salen de la misma lectura.
+               Adentro, cada bloque va a la suya. La cabecera (Cierre de la jornada, los pasos,
+               las jornadas atrasadas) se ve en las dos a proposito: son ~150px y son el contexto
+               del dia, no contenido de una seccion. -->
+          @if (seccionJornada() === 'hoy' || seccionJornada() === 'movimientos') {
           <p class="fin-dim cg-sub-dim">{{ coberturaTexto() }}</p>
 
           <!-- ⭐⭐ [CG.180] DE DONDE SALE EL AUTOLLENADO, Y SI SU FUENTE ESTA VIVA.
@@ -1445,6 +1510,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
           }
 
+          <!-- [CG.128] El cuadre (543px medidos) es de "Hoy": contesta CUANTO HAY EN CADA CAJA.
+               En "Movimientos" estorba, porque alli la pregunta es otra. -->
+          @if (seccionJornada() === 'hoy') {
           <div class="cg-conc-cols" [hidden]="!verDetalleCierre()">
 
             <!-- IZQUIERDA: nuestro libro -->
@@ -1730,6 +1798,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               }
             </div>
           </div>
+          }
 
           <!-- ⭐ [CG.91] EL HISTORIAL DE LO QUE LLEVO HECHO. Pedido dos veces.
                La primera: "un historial de movimientos para que el usuario vea que movimientos ya
@@ -1742,7 +1811,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                Va a lo ANCHO y debajo de las dos columnas a proposito: el cuadro de arriba es el
                resumen, esto es el cuerpo. De paso empareja el bloque, que tenia una tabla de un
                lado y cuatro renglones del otro. -->
-          @if (a.movimientos_del_dia?.length) {
+          <!-- ⭐⭐ [CG.128] EL DIARIO DEL DIA, EN SU PROPIA SECCION.
+               Medido en la pantalla viva: este bloque solo pesaba 1,058px de los 2,023 de "Hoy"
+               -- el 55%. Y no es el cuadre: el cuadre dice CUANTO HAY EN CADA CAJA, esto dice QUE
+               HICISTE. Dos preguntas distintas, y por eso dos secciones. -->
+          @if (seccionJornada() === 'movimientos' && a.movimientos_del_dia?.length) {
             <div class="cg-hist">
               <!-- ⭐ [CG.139] A QUE CAJA FUE EL DINERO. El eje no es el tipo -eso ya lo dicen las
                    dos columnas Cargo/Abono- sino en que caja quedo: de un cobro de ruta la maquina
@@ -3811,6 +3884,27 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
          el boton, y PrimeNG enfoca el primero al abrir (focusOnShow, verificado en node_modules
          por [CG.46]). Asi ENTER lo activa sin escribir una sola linea de teclado -- es el
          navegador haciendo el trabajo. -->
+    <!-- [CGS.18] Responder una observacion: no cambia ninguna cifra; si lo que estaba mal es un
+         movimiento, la correccion es un ajuste en la jornada abierta. -->
+    <p-dialog [visible]="respondiendo() !== null" (visibleChange)="$event ? null : cerrarRespuesta()"
+              [modal]="true" [style]="{ width: '32rem', maxWidth: '96vw' }" [draggable]="false"
+              [header]="'Responder la observación de ' + (respondiendo()?.folio ?? '')">
+      @if (respondiendo(); as c) {
+        <p class="cg-resp-obs">{{ c.observed_by_username || 'La supervisión' }} escribió: «{{ c.observacion }}»</p>
+        <label class="cg-resp-label" for="cg-resp-texto">Tu respuesta (al menos 10 caracteres)</label>
+        <textarea pTextarea id="cg-resp-texto" rows="4" class="cg-resp-texto"
+                  [ngModel]="textoRespuesta()" (ngModelChange)="textoRespuesta.set($event)"></textarea>
+        <small class="cg-resp-ayuda">El corte no cambia: vuelve a la supervisora con tu explicación. Si un movimiento estaba mal, regístralo como ajuste en la jornada de hoy.</small>
+        @if (errRespuesta()) { <p class="fin-hint-warn" role="alert">{{ errRespuesta() }}</p> }
+      }
+      <ng-template #footer>
+        <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="cerrarRespuesta()"></p-button>
+        <p-button label="Enviar respuesta" icon="pi pi-send" size="small"
+                  [disabled]="textoRespuesta().trim().length < 10 || enviandoRespuesta()" [loading]="enviandoRespuesta()"
+                  (onClick)="enviarRespuesta()"></p-button>
+      </ng-template>
+    </p-dialog>
+
     <p-dialog [visible]="folioPagado() !== null" (visibleChange)="$event ? null : cerrarFolio()"
               [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
               header="Anota este folio" [draggable]="false" [resizable]="false" [closable]="false">
@@ -4988,7 +5082,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    *    partes están nombradas y a un clic, con su cifra adentro del botón, así que la persona ve
    *    que existen y cuánto hay en cada una sin tener que entrar.
    */
-  seccionJornada = signal<'hoy' | 'pendientes' | 'historial'>('hoy');
+  seccionJornada = signal<'hoy' | 'movimientos' | 'pendientes' | 'historial'>('hoy');
 
   /**
    * `[CG.123]` Las tres partes, con cuánto hay detrás de cada una.
@@ -5000,8 +5094,27 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const rc = this.recurrentes();
     const pend = this.pagables().length + (rc?.medido?.sin_regla ?? 0);
     const movs = this.rows().length;
+    /**
+     * ⭐⭐ `[CG.128]` **«Movimientos» se separa del cuadre, y esto salió de MEDIR LA PANTALLA VIVA.**
+     *
+     * `[CG.123]` partió el diálogo en tres y dio por bueno el resultado leyendo el fuente. Medido
+     * después en el navegador, con datos reales, la sección «Hoy» **seguía siendo un muro**:
+     *
+     *     2,023 px de alto dentro de un diálogo de 577 -> 3.5 pantallas de scroll
+     *     71 cifras · 4 rejillas · 83 textos atenuados contra 4 enfatizados
+     *
+     * ⛔ Y mis cifras leídas del fuente se habían quedado **cortas casi al doble** (39 contra 71):
+     * la plantilla no sabe cuántas filas trae el día. Es, textual, la diferencia entre el nivel C
+     * y el nivel A de `docs/ESTANDAR_DE_INTERFACES.md`.
+     *
+     * ⭐ El 55 % de ese alto era UN bloque: «Movimientos que registraste en esta jornada», 1,058 px.
+     * Y no es el cuadre: el cuadre dice **cuánto hay en cada caja**, esto es **el diario de lo que
+     * hiciste**. Dos preguntas, dos secciones — la prueba de la frase del §4.0b del estándar.
+     */
+    const delDia = this.arqueo()?.movimientos_del_dia?.length ?? 0;
     return [
       { label: 'Hoy', value: 'hoy' },
+      { label: 'Movimientos', value: 'movimientos', count: this.cargandoArqueo() ? undefined : delDia },
       { label: 'Pendientes', value: 'pendientes', count: pend },
       { label: 'Historial', value: 'historial', count: this.errLibro() ? undefined : movs },
     ];
@@ -6120,6 +6233,45 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
   }
 
+  // ── `[CGS.18]` Responder una observación ────────────────────────────────────────────────
+  /** Los cortes que la supervisora devolvió. Salen de la lista de cortes del periodo cargado. */
+  readonly observados = computed<CorteCaja[]>(() => this.cortes().filter((c) => c.estado === 'observado'));
+  readonly respondiendo = signal<CorteCaja | null>(null);
+  readonly textoRespuesta = signal('');
+  readonly enviandoRespuesta = signal(false);
+  readonly errRespuesta = signal<string | null>(null);
+
+  abrirRespuesta(c: CorteCaja): void {
+    this.respondiendo.set(c); this.textoRespuesta.set(''); this.errRespuesta.set(null);
+  }
+  cerrarRespuesta(): void {
+    if (this.enviandoRespuesta()) return;
+    this.respondiendo.set(null);
+  }
+  enviarRespuesta(): void {
+    const c = this.respondiendo();
+    const texto = this.textoRespuesta().trim();
+    if (!c || texto.length < 10 || this.enviandoRespuesta()) return;
+    this.enviandoRespuesta.set(true); this.errRespuesta.set(null);
+    this.svc.responderCorte(c.id, texto).subscribe({
+      next: () => {
+        this.enviandoRespuesta.set(false); this.respondiendo.set(null);
+        this.avisarOk('Respuesta enviada', `${c.folio} vuelve a la supervisora`);
+        this.cargarCortes();
+      },
+      error: (e) => { this.enviandoRespuesta.set(false); this.errRespuesta.set(this.textoError(e)); },
+    });
+  }
+
+  /** `[CGS.14]` El candado para quien está acá. `null` = todavía no se midió: no se afirma libre ni bloqueado. */
+  readonly candadoCaja = signal<CandadoCaja | null>(null);
+  cargarCandado(): void {
+    this.svc.candado().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.candadoCaja.set(c),
+      error: () => this.candadoCaja.set(null),
+    });
+  }
+
   cargarCortes(): void {
     this.cargandoCortes.set(true);
     this.svc.cortes({ from: this.from, to: this.to, limit: 50 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -6282,6 +6434,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   >({ estado: 'midiendo' });
 
   cargarJornadasAtrasadas(): void {
+    // `[CGS.14]` El candado se recalcula cada vez que cambian las jornadas: abrir, cerrar, capturar.
+    this.cargarCandado();
     this.jornadasAtrasadas.set({ estado: 'midiendo' });
     this.svc.jornadasPendientes(this.sucursalActiva).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (datos) => this.jornadasAtrasadas.set({ estado: 'medido', datos }),

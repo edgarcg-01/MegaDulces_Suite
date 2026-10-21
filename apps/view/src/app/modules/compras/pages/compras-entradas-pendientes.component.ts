@@ -33,6 +33,8 @@ import { DataScopeService } from '../../../core/services/data-scope.service';
 import { money, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { escalaDeLectura } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -121,6 +123,7 @@ interface Hoja {
     DatePickerModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
     FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent, SidePeekComponent,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   template: `
@@ -154,6 +157,9 @@ interface Hoja {
           </button>
         </div>
       </header>
+
+      <!-- [RE.48] Captura es la primera pestaña de Control de entradas (selector tipo iOS). -->
+      <app-page-tabs [tabs]="tabs" />
 
       @if (sinAlcance()) {
         <!-- Fail-closed explicado: sin sucursal en la ficha no hay filas, y una tabla vacía se
@@ -1104,6 +1110,8 @@ interface Hoja {
   `],
 })
 export class ComprasEntradasPendientesComponent {
+  /** `[RE.48]` La barra de Control de entradas: Captura es su primera pestaña. */
+  readonly tabs = ENTRADAS_CONTROL_TABS;
   /** `[ZN.2]` Sucursales que ESTA persona alcanza, del servidor. */
   private readonly scope = inject(DataScopeService);
   private readonly misSucursales = this.scope.misSucursales();

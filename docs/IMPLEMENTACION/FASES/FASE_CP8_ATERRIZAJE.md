@@ -402,6 +402,99 @@ facturas **anteriores** al pago y erraba 1.7 %: en 8 de 10 la contadora asoció 
 **días después** del pago, de importe recurrente (p. ej. $128,222.22 mensuales). Abrir la ventana a
 +30 días bajó el error a 0.1 %.
 
+### `[CP.8.62]` ~~Por qué no se llega al 100 %: ningún sistema guarda qué facturas paga cada pago~~ ⛔ **REFUTADO el mismo día por `[CP.8.63]`: Kepler SÍ lo guarda (`kdxf`)**
+
+> ⛔⛔ **Lo que esta sección concluyó está mal, y se deja escrito para que nadie lo reconstruya.** Se
+> buscó en `kdm1`, `kdm2`, `kduf` y `kdfe*` y no en **`kdxe`/`kdxf`**, que la Fase ECA ya había
+> decodificado el 2026-10-07 y que el propio comentario de `armarPagoProveedor` citaba. *El dato
+> estaba en el repo; la búsqueda lo saltó.* Las filas del banco, REP y Tesorería siguen siendo
+> ciertas; la de Kepler no. Ver `[CP.8.63]` abajo.
+
+Pregunta del usuario: *«¿no podemos generar un 100 %?»*. Se buscó el dato en todas las fuentes,
+re-medido hoy y no copiado de memorias:
+
+| fuente | ¿dice qué facturas paga el pago? | medido 2026-10-21 |
+|---|---|---|
+| **Kepler, pago** (`kdm1` X-D-26/25/60) | **no** | 5,181 transferencias 2026: `c37`/`c39` (referencias) vacíos al 100 %; **0** renglones en `kdm2` |
+| **Kepler, cartera** (`kduf`) | **no** — es de clientes | 34,698 de 34,942 filas con código de cliente; 27 con forma de proveedor |
+| **Kepler, complementos** (`kdfe4pagm0`, `kdfe33pagm*`) | **no** — los emite Kepler por cobranza (`UA0701`) | lado clientes |
+| **Banco** (`finance.bank_movements.concept`) | **no** | 6 de 4,858 pagos de compra mencionan una factura; el concepto es el nombre corto del proveedor |
+| **REP del proveedor** (`fiscal.cfdi_payment_links`) | **sí, pero casi no existe** | 466 ligas, sólo desde julio |
+| **Programa de Pagos de Tesorería** (`finance.payment_program.invoice_folios`) | **a medias** | 95 % con folios en agosto (339/358), pero texto libre (`f-484-486-487`): sólo **15.6 %** de jul–ago resuelve a sus CFDI; **0** ligados al banco; llegó a la Suite sólo hasta agosto |
+| **ContPAQi** (la póliza de la contadora) | **sí** | es lo que se quiere automatizar: el dato lo pone ella **a mano**, leyendo las facturas que vienen con la solicitud de pago («PAGO FACT 3512») |
+
+⭐ **Conclusión:** la decisión «este pago liquida estas facturas» la toma una persona y **sólo queda
+escrita en papel o en el Excel de Tesorería**. Todo lo que hace el puente es **reconstruirla por
+importe**, y esa reconstrucción tiene techo.
+
+**Dónde cae cada pago** (1,837 pólizas de pago a proveedor 2026 con UUID y un solo banco):
+
+| caso | pólizas | % | por qué no se arma solo |
+|---|--:|--:|---|
+| una factura, candidato único y correcto | **584** | **31.8 %** | — **se arma solo** |
+| una factura, ambiguo | 46 | 2.5 % | el mismo proveedor tiene varias facturas abiertas con el mismo importe (recurrentes) |
+| una factura, sin candidato | 74 | 4.0 % | lo pagado ≠ total de la factura (pago parcial, descuento sin nota, diferencia > $1) |
+| una factura, equivocada | 1 | 0.1 % | pago parcial que coincidió con otra factura exacta |
+| varias facturas, combinación única y correcta | 203 | 11.1 % | se puede **proponer**; no armar solo porque la combinación erra 1.7 % |
+| varias, combinación equivocada | 7 | 0.4 % | dos combinaciones distintas suman lo mismo y sólo una existe abierta en la ventana |
+| varias, más de una combinación | 62 | 3.4 % | ídem, sin forma de elegir |
+| varias, ninguna combinación | 147 | 8.0 % | pago parcial, más de 6 facturas, o factura fuera de la ventana |
+| **con nota de crédito** | **713** | **38.8 %** | pago = facturas − notas, y si la nota es descuento o devolución no lo dice el CFDI (905/915 son G02) |
+
+Los pagos de **remisión** («rem cueritos», «rem piñatas») no aparecen en estas cifras: salen de
+Caja General, no de banco, y no tienen CFDI.
+
+**Lo que lleva al 100 %, de más barato a más caro:**
+1. **Armar solo lo seguro (31.8 %) y proponer el resto** con un clic de la contadora → el 100 % de
+   los pagos pasa por la Suite, pero no el 100 % sin manos.
+2. **Que la decisión quede registrada donde nace**: cuando Tesorería programa el pago, elige las
+   facturas **de la lista de CFDI** (no folios en texto libre). El módulo existe
+   (`finance.payment_allocations`, 13 registros) y Tesorería ya lo hace en Excel en el 95 % de los
+   casos: es mover ese paso, no inventarlo. Con eso la liga es **exacta por construcción**.
+3. **Notas de crédito**: medir en Kepler (`X-D-55` nota, `X-D-40` devolución de compra) si se
+   distingue descuento de devolución; si sí, entran a la combinación.
+
+### ⭐⭐ `[CP.8.63]` La cadena estructural: banco → pago Kepler → entradas (`kdxf`) → CFDI
+
+`database/scripts/cadena-pago-kepler-contpaqi.js`. El UUID sale **sólo** de Kepler y del CFDI; la
+asociación de la contadora se usa para calificar, nunca para resolver.
+
+```
+banco (Banorte 3041 · 19-oct · 52,339.34)
+  │ L1  c45 del pago = últimos dígitos de la cuenta · importe ±$1 · fecha Kepler −2…+7 días
+pago Kepler X-D-26 0023458 (20-oct · 52,339.13)
+  │ L2  kdxf: «el cargo (pago) se aplicó al abono (documento) por c10» — estructural
+entrada X-A-20 0009546 (4-sep · 52,339.13 · referencia «0-F-2734»)
+  │ L3  RFC del acreedor + total ±$1; si no, el folio de la referencia (≤ 3 % de diferencia)
+CFDI folio 262734 (26-ago · 52,339.34) → UUID
+```
+
+| eslabón | resultado (1,837 pólizas de pago a proveedor 2026) |
+|---|---|
+| L1 banco → UN pago Kepler | **89.5 %** · placebo (+$137) **0.0 %** |
+| L2 pago → entradas (`kdxf`) | **89.0 %** |
+| L3 entrada → CFDI | el cuello: 45 % de las entradas tienen el acreedor **sin RFC** en `kdxd` (149 acreedores se recuperan por el nombre de su CFDI); el folio de la referencia liga 1,186 entradas que el importe no |
+| **cadena completa** | **911 correctas (49.6 %) · 55 con otras facturas (3.0 %)** |
+| **+ compuerta «Σ facturas − Σ notas = pagado»** (no mira la respuesta) | se armarían solas **712**: 700 correctas y **12 con otras facturas = 1.7 % de lo armado** (0.7 % del universo) · 254 a revisión, de las que 211 eran correctas · 871 con la cadena cortada |
+
+De los 55 errores sin compuerta, **37 son desacuerdos entre Kepler y la contadora**, no del método:
+21 pagos en que Kepler aplicó **más** facturas de las que ella asoció y 16 en que aplicó **menos**.
+
+**Por qué todavía no es 100 %, ahora sí con causa:**
+
+| dónde se corta | magnitud | qué lo destraba |
+|---|---|---|
+| la nota de crédito no encuentra su CFDI de egreso | 211 cadenas correctas frenadas por la compuerta; sólo 83 de 667 notas casan | ligar `kdxe` 55/40 → CFDI `E` igual que las facturas (RFC + importe + referencia); y Kepler ya distingue **nota (X-D-55)** de **devolución (X-D-40)** — lo que contabilidad pidió revisar |
+| entrada sin CFDI que cuadre | ~1,500 entradas | descuento al facturar, varias facturas por entrada, o el proveedor no factura (remisión) |
+| acreedor sin RFC en Kepler | 97 pólizas | dar de alta el RFC en `kdxd` (es un dato de catálogo, una vez por proveedor) |
+| pago del banco sin pago en Kepler | 183 pólizas (10 %) | se capturó tarde, en otra cuenta de tesorería, o no se capturó |
+| Kepler y la contadora no coinciden | 37 pólizas | revisión: una de las dos está mal, y hoy nadie lo ve |
+
+**Lo que cambia del plan:** la propuesta a Tesorería (`[CP.8.62]`, paso 2) **deja de ser necesaria**:
+la decisión «qué facturas paga» ya queda registrada en Kepler cuando Mayra aplica el pago. Lo que
+falta es leerla bien. Siguiente medición: notas de crédito por la misma cadena, y la unión con
+`[CP.8.61]` (dos métodos independientes: si coinciden se arma, si discrepan a revisión).
+
 **Decisión de diseño que se propone:** armar sola sólo «una factura, candidato único»
 (**584 pagos, 32 %**); las combinaciones van como **propuesta a confirmar** en pantalla; nota de
 crédito, ambiguo y sin candidato, a revisión.
@@ -409,6 +502,190 @@ crédito, ambiguo y sin candidato, a revisión.
 El documento con el detalle y las aprobaciones (privado, con nombres de proveedores) es el doc
 «Catálogo de asientos de egresos de banco». Script de la medición: no versionado, en el scratchpad
 de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
+
+### ⭐⭐ `[CP.8.64]` El ADD de ContPAQi ya trae las dos ligas: REP del proveedor y nota → factura
+
+`database/scripts/rep-add-pago-factura-contpaqi.js` (sólo lectura; cruza con la salida de la cadena).
+Buscando cómo ligar la nota de crédito apareció que el **ADD** (la base de metadatos de CFDI de
+ContPAQi, de donde ya sale `fiscal.cfdis`) tiene dos tablas que la Suite **no lee**:
+
+| tabla del ADD | qué es | volumen | por qué no la vimos |
+|---|---|---|---|
+| `Pagos` + `Pagos_Doc_Rel` | el **complemento de pago (REP) que emite el proveedor** al cobrarnos una factura PPD: UUID de cada factura liquidada, `ImpPagado`, `ImpSaldoAnt`, parcialidad | 3,293 pagos desde dic-2025, 266 RFC | el feed del ADD sólo trae tipos `I,E`; los 176 `P` de `fiscal.cfdis` son de descarga masiva, de julio. ⛔ La cifra «466 ligas REP» de `[CP.8.61]` medía **esa** fuente, no ésta |
+| `CfdiRelacionados` | la nota de crédito relaciona **por SAT** la factura que afecta (tipo 01 / 03) | 52,158 renglones; 97 % de las notas 2026 lo traen | `fiscal.cfdis.xml` sólo está en 129 de 2,995 notas — por el XML no se llega |
+
+**Contra la contadora (1,837 pólizas de pago a proveedor 2026):**
+
+| | resultado |
+|---|---|
+| banco → **un** REP (mismo RFC, monto ±$1, fecha de pago ±5 días) | **1,467 (79.9 %)** · placebo +$137 **0** |
+| facturas del REP = facturas de la contadora | **1,424 de 1,467 (97.1 %)** |
+| notas de la contadora relacionadas a una factura de la **misma** póliza | **728 de 739 (98.5 %)** |
+| **póliza completa** (facturas + la única combinación de notas que cuadra con lo pagado) | **1,257 correctas (68.4 %)** · **18 distintas = 1.4 % de lo armado** |
+| no cuadra con lo pagado | 186 — **174 son pagos parciales** (142 con las facturas correctas), 8 notas aplicadas en un pago anterior, 4 otros |
+
+⚠️ **La nota se califica por IMPORTE, no por UUID.** La contadora junta varias notas en un renglón y
+le pone el UUID de **una** (o de ninguna): en la póliza 1|109 las seis notas del método suman
+$23,784.74, exactamente sus renglones 505/507 más la reversa de 1060/1470100, y ella asoció un UUID.
+Calificar por UUID daba 205 «errores» que eran 18. **Consecuencia para el puente:** nuestro asiento
+llevará el UUID de **cada** nota; es más completo que el de hoy, y eso hay que decírselo a contabilidad
+antes de que lo lea como diferencia.
+
+**Los dos métodos son independientes y casi nunca se contradicen** (facturas):
+
+| | pólizas | contra la contadora |
+|---|---|---|
+| REP y cadena Kepler completos y **coinciden** | 670 | 667 iguales · **3 distintas (0.4 %)** |
+| completos y **difieren** | 16 | el REP acierta **16 de 16** |
+| sólo el REP | 589 | 585 · 4 distintas |
+| sólo la cadena Kepler | 280 | 244 · **36 distintas (13 %)** → la cadena sola **no** se arma sin confirmar |
+| ninguno | 282 | — |
+
+**El costo: el REP llega después del pago.** Timbrado respecto de la fecha de pago (3,293 REP):
+mismo día 9 % · 1–3 días 42 % · 4–7 días 20 % · 8–15 días 14 % · 16–31 días 11 % · más de 31 días 5 %.
+El SAT lo exige a más tardar el día 5 del mes siguiente, y el archivo del puente es **mensual**
+(`generarArchivoMes`). Medido sobre los 3,187 REP de pagos hasta septiembre: timbrados **al día 5 del
+mes siguiente 88.5 %**, al día 10 **91.8 %**, después 8.2 %. Armar el mes el día 10 deja fuera ~8 %
+(a confirmar, o al archivo del mes siguiente). Para un armado **diario** la fuente sería la cadena
+Kepler, con confirmación.
+
+**Por qué no es 100 %, con este método:**
+
+| dónde se corta | pólizas | qué lo destraba |
+|---|---|---|
+| pago parcial | 174 | asentar la parte pagada (`ImpPagado` del REP, proporcional, como la póliza 1\|122): medir antes de armar — 32 de 174 traen otras facturas |
+| el proveedor no emite REP (factura PUE, de contado) | 121 pólizas de RFC que no emiten nunca | la cadena Kepler o `[CP.8.61]` por importe, **con confirmación** |
+| REP ambiguo o sin REP en la ventana | 249 (55 ambiguos) | REP tardío o pagos iguales del mismo proveedor — NO MEDIDO por separado |
+| nota aplicada en un pago anterior | 8 | `ImpSaldoAnt` < total de la factura ya lo marca |
+
+⛔ **Lo que este hallazgo NO resuelve todavía:** el ADD es SQL Server de ContPAQi, **no** `kepler_ods`.
+Hoy llega a la Suite por `import-contpaqi-cfdis.js`, que es un importer (regla 1: se están retirando).
+Traer `Pagos_Doc_Rel` y `CfdiRelacionados` a Postgres es **D8** — no se arma nada con esto hasta firmarla.
+
+## 3.6 ⭐⭐ `[CP.8.65]` El expediente: todo lo que hace falta para asentar un pago a proveedor, medido
+
+Pedido del PM el 2026-10-21: *«antes de que armemos algo, tener a la mano toda la información»*. La
+prueba no es una lista de fuentes sino **reconstruir las pólizas reales**:
+`database/scripts/reproduce-asiento-proveedor-contpaqi.js` asienta las 1,907 pólizas de pago a proveedor
+de 2026 desde las fuentes y las compara renglón por renglón con las de la contadora. Para separar la
+**regla** de la **liga**, las facturas son las que ella asoció; la liga se midió aparte (§3.5, `[CP.8.63]`,
+`[CP.8.64]`).
+
+**Resultado: 1,435 de 1,907 pólizas (75.2 %) salen iguales** (renglón ±$0.02, o Σ por cuenta cuando
+ella juntó notas). Cómo se llegó: v1 72.5 % → v2 89.1 % del pago completo al corregir la base del
+16 % y el redondeo → v3 suma notas juntadas y pagos parciales.
+
+### Pieza por pieza
+
+| pieza del asiento | fuente | medido | lo que falta |
+|---|---|---|---|
+| qué facturas paga | REP del proveedor (ADD) · cadena Kepler `kdxf` · importe | REP 97.1 % · coinciden REP y Kepler 670/686 | D8 (traer el ADD) · los proveedores que no emiten REP |
+| **2120 o compra directa** | CFDI: total ≥ $20 mil y mes anterior | coincide con la provisión real de ContPAQi en **2,771 de 2,807 facturas (98.7 %)** | 36 facturas de frontera (40 pólizas) |
+| traspaso IEPS `1470100/1470110` e IVA `1060/1470040` | CFDI `impuestos` | exacto donde aplica R1 | — |
+| **5020 vs 5010** | base al 16 % del CFDI (`subtotal_iva_16`) · el residuo < $1 **no** abre renglón 5010 | exacto salvo 8 pólizas | 8 en que ella puso todo a 5020 con factura mixta |
+| cuenta del proveedor | `finance.gl_supplier_accounts` por RFC | 33 pólizas **sin cuenta** en el mapa · 15–17 con cuenta **distinta** | corregir el mapa: es dato, una vez por proveedor |
+| **nota: descuento o devolución** | ADD `CfdiRelacionados.TipoRelacion` (`[CP.8.66]`) | **03 = devolución: 704 de 768 (91.7 %)**. El uso del CFDI no sirve (casi todas G02); Kepler liga 90 de 768; el historial del proveedor da 87.1 % | 64 notas que ella clasificó distinto: **pregunta para contabilidad** |
+| nota: tasa 0 % / 16 % | CFDI de la nota | 5050/5060 = 0 %, 5070/5080 = con IVA; las mixtas se parten | — |
+| notas que ella junta sin UUID | ADD: notas relacionadas a las facturas del pago | 192 de 236 se reconstruyen | nuestro asiento llevará **el UUID de cada nota**: avisarle que no es diferencia |
+| pago parcial | REP: `ImpPagado` de cada factura, proporcional | 47 de 85 | 29 sin REP (de contado o tardío) |
+| parcial con nota | REP: nota = total − pagado de cada factura (H3) | 24 de 83 | **59 sin regla**: proveedores de mucho volumen (uno tuvo 62 notas en dos meses) |
+| redondeo | diferencia a favor → abono `4200010000`; en contra → cargo `5201000000` | exacto | — |
+| tarjeta de crédito `2140800000` | — | 8 pólizas con cargo y abono iguales | regla sin medir |
+| varios bancos en una póliza | — | 76 pólizas | se arman por banco; sin medir |
+
+### Las cinco preguntas, contestadas con el dato donde se pudo (`[CP.8.69]`, 2026-10-21)
+
+Pedido del PM: *«revisa si podemos responder esas preguntas nosotros»*. Cuatro de cinco sí.
+
+| # | pregunta | respuesta | evidencia | queda para contabilidad |
+|---|---|---|---|---|
+| 1 | ¿devolución o descuento? | **regla «relación 03 = devolución»**, y no importa para impuestos | coincide en 704 de 769 (91.7 %). De las 64 que difieren: 24 son producto (tenía razón ella), 29 bonificación (la regla), 11 sin evidencia. Agregar «conceptos de producto» **empeora** (662): 73 descuentos de ella listan producto. Sus devoluciones 2026 suman $0.92 M y las devoluciones de compra de Kepler (X-D-40) $1.16 M: su criterio se parece a la salida física, pero Kepler no liga 1 a 1 (sus X-D-55 suman $59.5 M contra $23.3 M de notas CFDI: registra notas internas sin CFDI). **La reversa de IVA/IEPS es idéntica en las dos familias**: el error posible es de reparto dentro de compras netas, no fiscal | sólo confirmar que el reparto 5050/5060 no se usa para nada fuera de la balanza |
+| 2 | factura mixta 0 %/16 % | **siempre partir** por la base del CFDI | es lo que ella hace en 98 de 102; las cuentas se llaman «compras al 0 %» y «compras c/IVA»; la DIOT separa por tasa | — |
+| 3 | parcial con nota: ¿qué notas entran? | **no se pudo del todo** | Kepler explica el importe de notas en **326 de 638** pólizas con nota (51 %): son las que Mayra aplicó en `kdxf` a las mismas entradas del pago; el REP por factura explica 23 de 82 parciales. «Todas las notas desde el pago anterior»: 0 | ¿siguen lo que se aplicó en Kepler? Si sí, Kepler es la fuente y lo que no coincide es diferencia a revisar |
+| 4 | tarjeta de crédito `2140800000` | **pago de tarjeta: cargo 2140800000 / abono banco**; si se conocen las facturas pagadas con la tarjeta, además cargo compra / abono 2140800000 (de ahí el «par neutro») | en 69 de 90 pólizas el banco dice «TDC AMEX» / «TDC BANORTE»; el concepto es «PAGO TARJETA DE CRÉDITO (…)» o «PAGO FACT … (TARJETA)» | — |
+| 5 | UUID de cada nota | **decisión nuestra, no pregunta**: un renglón por nota con su UUID | ella junta varias en uno; el resultado contable es el mismo | **avisarles**, para que no lo lean como diferencia |
+
+**Efecto en el armador:** se arma lo que tiene respuesta (1, 2, 4, 5); lo de la 3 va a «confirmar en
+pantalla» mostrando lo que Kepler aplicó.
+
+### `[CP.8.67]` Lo que dice el histórico (2025 + 2026 previo, calificado en 2026)
+
+`database/scripts/patrones-historicos-contpaqi.js`. Cada predicción usa **sólo** lo anterior a la póliza
+que se califica. Pedido del PM: *«busquemos o hagamos un patrón de los históricos»*.
+
+| hueco | regla sin historia | con el histórico | qué se adopta |
+|---|---|---|---|
+| **cuenta del proveedor** | mapa `gl_supplier_accounts`: 98.4 % | **la cuenta ya usada con ese RFC: 5,549/5,563 (99.7 %)**; cubre 56 de 67 sin mapa con 0 errores y corrige 76 de 91 errores del mapa | **histórico primero, mapa de respaldo** (es la vía B de `[CP.8.20]`, `contpaqi.supplier_accounts`) |
+| descuento o devolución | relación 03: 91.6 % | proveedor con ≥ 3 notas y 90 % de pureza: **90.3 %** — peor | la regla |
+| 2120 o compra directa | 20 mil + mes anterior: 98.6 % (68 errores) | ningún proveedor se desvía de forma consistente: 0 correcciones | **la provisión real del mes** (abajo) |
+| factura mixta 0 %/16 % | partir por base: 98 de 102 | sin cambio | la regla |
+| parcial con nota | — | por factura con el REP (H5): 23 de 82 con umbral 30 % elegido **sobre los mismos datos** (sobreajuste posible); «todas las notas desde el pago anterior»: 0 de 143 | **a confirmar en pantalla**; ~59 sin regla |
+| sin banco | — | las 44 abonan a Financiera Bajío `2140420000`: es **factoraje**, otro flujo | fuera de pago a proveedor |
+| tarjeta de crédito | — | par neutro: cargo y abono a `2140800000` por el mismo importe, junto a la compra normal | preguntar cuándo lo agrega |
+
+### ⛔ `[CP.8.68]` Hallazgo para contabilidad: compras provisionadas que se volvieron a registrar al pagarse
+
+Cada mes hay **una** póliza de provisión (diario, abono 2120 por factura). Al buscar por qué 68 facturas
+no siguen la regla de 20 mil apareció otra cosa (`database/scripts/doble-registro-provision-contpaqi.js`):
+
+| pagos desde feb-2025 | facturas |
+|---|--:|
+| pagadas como compra directa (cargo 501/502 contra banco) | 5,394 |
+| … que ya estaban en la provisión de su mes | 61 |
+| … cuya provisión **nunca** se canceló (ningún cargo a esa cuenta 2120 por ese importe) | **54 · $8,204,062.77** |
+
+Concentradas en **abril de 2026 (33)** y **junio de 2025 (9)**: los pagos que siguen al cierre con
+provisión. En las 31 cuentas 2120 de esos proveedores no hay **ningún** cargo en diario en 2026, así que
+no hubo una reversa global; dos cuentas quedan abiertas **exactamente** por el importe de una de esas
+facturas ($83,682.18 y $25,921.80). Si se confirma, la compra quedó registrada dos veces y el 2120 quedó
+abierto. ⚠️ La provisión no trae UUID: el cruce es por cuenta + importe exacto en el mes, fuerte pero no
+estructural. **Lo verifica contabilidad; nada se corrige desde la Suite (ADR-040).**
+
+**Consecuencia para el armador:** la regla R1/R2 se decide por **«¿la factura está en la provisión de su
+mes en ContPAQi?»** (y la regla de 20 mil sólo si esa provisión todavía no existe). Así el puente no repite
+el doble registro: lo que esté provisionado se paga contra 2120, siempre.
+
+### ⭐⭐ `[CP.8.70]` El número real: de punta a punta, sin oráculo
+
+Todo lo anterior separaba liga de asiento y, en el método REP, tomaba el RFC de las facturas de la
+contadora. `database/scripts/punta-a-punta-proveedor-contpaqi.js` parte **sólo** del movimiento de banco
+(cuenta, importe, fecha) y arma la póliza completa con las reglas adoptadas arriba; la de la contadora
+sólo califica.
+
+| 1,831 pólizas de pago a proveedor 2026 con un banco | pólizas | |
+|---|--:|---|
+| **se arman solas** | **948 (51.8 %)** | iguales 868 · distintas 80 = **8.4 % de lo armado** |
+| a confirmar en pantalla (parcial o notas juntadas, por factura con el REP) | 443 | la propuesta ya acierta en 246 |
+| sin REP y con la cadena Kepler incompleta | 298 | proveedores de contado o que no emiten REP; acreedor sin RFC en Kepler |
+| sin proveedor (ni Kepler ni un REP único) | 74 | |
+| no cuadran con lo pagado | 51 | |
+| sin cuenta (ni historia ni mapa) · REP ambiguo | 9 · 8 | |
+
+**Las 80 distintas no son 80 errores nuestros:**
+
+| causa | pólizas | quién está bien |
+|---|--:|---|
+| estaba en la provisión del mes y ella la pagó como compra directa (`[CP.8.68]`) | 11 | **el puente**: no repite el doble registro |
+| par neutro de tarjeta `2140800000` | 5 | igual en saldos; falta agregar el par cuando el banco dice TDC |
+| factura mixta que ella no partió | 4 | **el puente** (lo que ella hace en 98 de 102) |
+| descuento vs devolución | 16 | discutible y **sin efecto fiscal** |
+| otros, casi todos centavos de la base al 16 % (≤ $0.10) | 18 | sin efecto material |
+| **error del puente**: otras facturas (8), frontera 2120 (11), cuenta (3), anticipo 1050 (4) | **26** | **2.7 % de lo armado** |
+
+Dos reglas salieron de esta corrida: (1) **2120 = regla de 20 mil O provisión del mes** — empata con la
+regla sola contra la contadora (743 iguales en pago completo) y además evita el doble registro; la
+provisión sola daba 728; (2) **el camino «REP por factura» no se arma solo**: armado, acertaba 237 de
+443 (53 %).
+
+**Lo que esto le da a D5** (¿qué deja de capturar la contadora?): hoy, la mitad de los pagos a
+proveedor saldría armada con 2.7 % de error nuestro, y otra cuarta parte como propuesta para confirmar.
+El techo lo ponen el REP (D8) y el RFC de los acreedores en Kepler.
+
+### Fuera de este expediente
+
+Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
+cinco con cuenta fija, factoraje y crédito con pasivo e intereses, y nómina/IMSS **no derivables del
+banco** (necesitan el auxiliar de nómina, CP.9).
 
 ---
 
@@ -423,6 +700,8 @@ de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
 | **D5** | **¿Qué deja de capturar la contadora?** | nada (el puente sólo «ayuda») · lo que entra y cuadra | **Lo que entra y cuadra.** Si la contadora sigue capturando igual, el puente **suma** trabajo en vez de quitarlo y aparecen pólizas duplicadas. Es cambio de proceso, no de código | Contabilidad + Dirección |
 | **D7** | **¿Quién puede firmar una regla de cuenta?** (sale de `[CP.8.53]`) | (a) quien tiene `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` hoy: `contabilidad`, `finanzas`, `superadmin` · (b) un permiso propio, sólo contabilidad | Hoy rige **(a)**, y la firma deja nombre. **Recomiendo (b)** si finanzas no debe elegir cuentas contables: es un permiso nuevo, migración y **reparto en prod** (regla 20), no un cambio de pantalla | Edgar + Contabilidad |
 | **D6** | **Comisiones y pagos de crédito: ¿póliza diaria o mensual?** (sale de `[CP.8.46]`) | (a) el puente las arma **mensuales por banco**, como hoy contabilidad · (b) **diarias**, como el banco | **(a) mensual**, para no cambiarle a contabilidad dos cosas a la vez. El cuadre tiene que saber que esa forma se busca por **mes**, no a ±3 días. Y antes, la Suite tiene que **clasificar bien** la comisión de terminal (hoy cae en tres categorías) — eso es de CB | Contabilidad |
+
+| **D8** | **¿Cómo llegan a la Suite el REP del proveedor y la relación nota → factura del ADD?** (sale de `[CP.8.64]`) | (a) sumar `Pagos`/`Pagos_Doc_Rel`/`CfdiRelacionados` al feed del ADD que ya llena `fiscal.cfdis` · (b) leerlas en vivo por `tds_fdw` como **vista** (derivar, no copiar) · (c) no usarlas y quedarse con la cadena Kepler | **(b) si el servidor de ContPAQi lo aguanta; si no, (a)** como extensión del feed que ya existe, declarada como deuda del mismo importer — no uno nuevo. **(c) deja sin armar las 589 pólizas de 2026 (~60 al mes) que sólo resuelve el REP, y la cadena sola trae 13 % de error donde no hay REP.** Cualquiera de las dos primeras rompe la letra de la regla 1 (no es ODS): por eso va a firma | Edgar |
 
 ⭐ **Qué NO depende de las firmas:** F2 y F3a ya se midieron (§3.1). El código de F1b puede
 arrancar hoy. **D1 bloquea sólo la prueba humana.**
@@ -540,3 +819,20 @@ falta uno nuevo.
 - **2026-10-20** — F4 en código (§3.4): `[CP.8.51]` · `[CP.8.53]` · `[CP.8.14]` 🧪 — 6 reglas
   firmables que traban 9,757 movs ene–sep ($16.6M). Destapó `[CP.8.59]`: el archivo habría
   reenviado lo ya entregado; ahora sólo lleva lo pendiente. Escritura NO MEDIDA hasta `pruebas-db`.
+- **2026-10-21** — `[CP.8.64]` C0: el ADD de ContPAQi trae el REP del proveedor (`Pagos_Doc_Rel`)
+  y la relación nota → factura (`CfdiRelacionados`). Póliza completa igual a la contadora en
+  1,257 de 1,837 (68.4 %), 1.4 % de error sobre lo armado; cruzado con la cadena Kepler coinciden
+  670 de 686. Abre **D8** (cómo entran esas tablas sin importer nuevo). Nada se arma hasta firmarla.
+- **2026-10-21** — `[CP.8.65]` expediente del pago a proveedor (§3.6): 1,435 de 1,907 pólizas se
+  reconstruyen igual que la contadora desde las fuentes (75.2 %). `[CP.8.66]` devolución vs descuento
+  = `TipoRelacion` 03 del CFDI (91.7 %). Cinco preguntas para contabilidad antes de armar.
+- **2026-10-21** — `[CP.8.67]` patrones del histórico: la cuenta del proveedor sale del uso previo con
+  ese RFC (99.7 %); para lo demás el histórico no mejora la regla. `[CP.8.68]` hallazgo para contabilidad:
+  54 facturas ($8.2M) provisionadas y vueltas a registrar como compra directa, sin cancelar la provisión.
+  El armador decide 2120 por la provisión real del mes.
+- **2026-10-21** — `[CP.8.69]` las cinco preguntas, contestadas con el dato: devolución/descuento por
+  relación 03 (sin efecto fiscal), factura mixta se parte, tarjeta = pago TDC del banco, UUID por nota es
+  decisión nuestra. Queda para contabilidad sólo el parcial con notas (Kepler explica 51 %).
+- **2026-10-21** — `[CP.8.70]` de punta a punta, sin oráculo: del banco a la póliza completa se arman
+  solas 948 de 1,831 (51.8 %), 2.7 % de error del puente; 443 a confirmar (246 ya correctas). 2120 =
+  regla o provisión; el parcial por REP no se arma solo.

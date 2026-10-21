@@ -22,6 +22,8 @@ export interface CorteARevisar {
   observo?: string | null;
   observacion?: string | null;
   autorizo?: string | null;
+  /** `[CGS.12]` La lista de la revisión: cada verificación que NO cumple exige nota para autorizar. */
+  verificacion?: Array<{ id: string; estado: string }>;
 }
 
 export interface Puerta { ok: boolean; texto: string }
@@ -29,7 +31,7 @@ export interface Puerta { ok: boolean; texto: string }
 export interface PuertasRevision {
   autorizar: Puerta;
   observar: Puerta;
-  /** El corte tiene diferencia: autorizar pide nota. */
+  /** El corte tiene diferencia o alguna verificación que no cumple: autorizar pide nota. */
   pideNota: boolean;
 }
 
@@ -38,8 +40,9 @@ export function puertasRevision(
 ): PuertasRevision {
   const no = (t: string): Puerta => ({ ok: false, texto: t });
   const hayDif = c.diferencia != null && Math.abs(Number(c.diferencia)) > 0.005;
+  const fallan = (c.verificacion ?? []).filter((v) => v.estado === 'no_cumple').map((v) => v.id);
   const largo = texto.trim().length;
-  const base = { pideNota: hayDif };
+  const base = { pideNota: hayDif || fallan.length > 0 };
 
   if (!tienePermiso) {
     const t = 'Revisar un corte necesita el permiso «Autorizar corte de Caja General».';
@@ -75,8 +78,10 @@ export function puertasRevision(
     autorizar = no('Este corte no se puede autorizar: su cuenta no tiene respuesta. Obsérvalo con el motivo.');
   } else if (hayDif && largo < MINIMO_TEXTO_REVISION) {
     autorizar = no(`Tiene diferencia: para autorizarlo escribe por qué (al menos ${MINIMO_TEXTO_REVISION} caracteres).`);
+  } else if (fallan.length && largo < MINIMO_TEXTO_REVISION) {
+    autorizar = no(`No cumple ${fallan.join(', ')}: para autorizarlo escribe por qué (al menos ${MINIMO_TEXTO_REVISION} caracteres), o obsérvalo.`);
   } else {
-    autorizar = { ok: true, texto: hayDif ? 'Se autoriza con tu nota.' : 'Cuadra: se puede autorizar.' };
+    autorizar = { ok: true, texto: base.pideNota ? 'Se autoriza con tu nota.' : 'Cumple todo: se puede autorizar.' };
   }
   return { ...base, autorizar, observar };
 }

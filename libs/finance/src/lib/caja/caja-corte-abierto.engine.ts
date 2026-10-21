@@ -45,7 +45,8 @@ export interface MedicionCortesAbiertos {
 export const UMBRAL_BANDEJA_DIAS = { aviso: 1, critico: 2 } as const;
 
 export interface AvisoCorteAbierto {
-  key: 'caja_corte_abierto';
+  /** `[CGS.3b]` `caja_corte_sin_revisar`: el escalamiento de las 12:00 a la suplente. */
+  key: 'caja_corte_abierto' | 'caja_corte_sin_revisar';
   severity: 'warn' | 'critical';
   title: string;
   message: string;
@@ -139,5 +140,30 @@ export function avisoCortesAbiertos(m: MedicionCortesAbiertos): AvisoCorteAbiert
     severity: critico ? 'critical' : 'warn',
     title,
     message: partes.join(' '),
+  };
+}
+
+// ── `[CGS.3b]` D2: a las 12:00 del día siguiente, el corte sin revisar escala a la suplente ──
+
+/** La hora (México) del día SIGUIENTE a la jornada en que un corte cerrado ya debió revisarse. */
+export const HORA_LIMITE_REVISION = 12;
+
+export interface RevisionTardia { folio: string; fecha: string }
+
+/**
+ * ⭐ D2 de Edgar (2026-10-21): la supervisora revisa de mañana; **a las 12:00 sin revisar, el
+ * aviso pasa también a la suplente** (Dirección). Antes de esa hora la revisión vive en «Mi
+ * trabajo» de la supervisora y no se manda nada: avisar a Dirección por un corte de ayer a las
+ * 9:00 sería ruido. La lista la arma el sensor con `fecha + 1 + 12 h <= ahora`.
+ */
+export function avisoRevisionTardia(tardios: RevisionTardia[]): AvisoCorteAbierto | null {
+  if (!tardios.length) return null;
+  const lista = tardios.map((t) => `${t.folio} (${diaCorto(t.fecha)})`).join(', ');
+  return {
+    key: 'caja_corte_sin_revisar',
+    severity: tardios.length > 1 ? 'critical' : 'warn',
+    title: tardios.length === 1 ? 'Un corte de caja sigue sin revisar' : `${tardios.length} cortes de caja siguen sin revisar`,
+    message: `Pasaron las ${HORA_LIMITE_REVISION}:00 del día siguiente y nadie los autorizó ni observó: ${lista}. `
+      + 'Si la supervisora no está, revisa la suplente.',
   };
 }

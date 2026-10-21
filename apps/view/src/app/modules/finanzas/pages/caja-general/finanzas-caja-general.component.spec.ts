@@ -244,6 +244,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       abrirCorte: vi.fn(() => of({ id: 'c1', folio: 'CC-2026-00001' })),
       // [CGP-V.3] Sin jornadas atrasadas: el caso de todos los días.
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
+      // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
+      candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
       ...over,
     };
 
@@ -1548,6 +1550,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       arqueoDia: vi.fn(() => of(ARQUEO)),
       recurrentesSinRegla: vi.fn(() => of(RECURRENTES)),
       jornadasPendientes: vi.fn(() => of({ sucursal: '00', hoy: todayMx(), inicio_libro: null, jornadas: [], alcance: 'cajon' })),
+      // `[CGS.14]` Por omisión la caja está libre: las pruebas del candado lo sobrescriben.
+      candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
     };
     TestBed.configureTestingModule({
       imports: [FinanzasCajaGeneralComponent],
@@ -3204,7 +3208,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       ],
     };
 
-    const montar = () => montarJornada({ arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
+    /**
+     * `[CG.128]` Abre la jornada EN «Movimientos», que es donde vive el diario desde que se midió
+     * en la pantalla viva que pesaba **1,058px de los 2,023** de «Hoy» — el 55 %.
+     * ⚠️ El patch de datos NO se pierde: estas pruebas necesitan `CON_REPARTO`, y sin él la
+     * tabla queda vacía y la prueba pasaría a medir otra cosa.
+     */
+    const montar = () => montarJornadaEn('movimientos', { arqueoDia: vi.fn(() => of(CON_REPARTO as never)) });
 
     it('⭐ en «Caja general» suma SÓLO la morralla del cobro, no sus billetes', () => {
       montar();
@@ -3238,6 +3248,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     it('⛔ [negativa] el selector NO esconde renglones: el cobro sale en las TRES vistas', () => {
       // Esconderlo en «Caja general» sería tan falso como mostrarlo entero: el cobro ESTÁ en las
       // dos cajas. Si alguien vuelve a filtrar filas, esta cuenta cambia y la prueba se cae.
+      // `[CG.128]` Lo que esta prueba cuida no cambió: que el selector de CAJA cambie el
+      // importe y NO esconda renglones. Lo que cambió es dónde vive el diario.
       const fx = montar();
       for (const v of ['cajon', 'boveda', 'todo'] as const) {
         comp.dondeEntro.set(v);
@@ -4730,6 +4742,52 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       montar({ saldo: sinCorte(), jornadasPendientes: falla(404) });
       comp.cerrarJornada();
       expect(fechaAbierta()).toBe(todayMx());
+    });
+
+    // ⛔ `[CGS.14]` El candado se DICE antes de teclear: qué pasa y qué lo destraba, con el botón a la mano.
+    it('con la caja bloqueada, el aviso abre la pantalla con la frase y lleva a rendir cuentas', () => {
+      const fx = montarJornada({
+        saldo: sinCorte(), jornadasPendientes: pendientes([{ fecha: '2026-10-20', movimientos: 30 }]),
+        candado: vi.fn(() => of({
+          bloqueado: true, motivo: 'jornada_sin_corte', jornada: '2026-10-20', activo: true, hoy: todayMx(),
+          texto: 'No se puede capturar: la jornada del 20/10/2026 tiene 30 movimiento(s) y no tiene corte cerrado.',
+          con_llave: null, pueden_recibir_llave: [],
+        })),
+      });
+      const aviso = fx.nativeElement.querySelector('.cg-candado');
+      expect(aviso).not.toBeNull();
+      expect(aviso.getAttribute('role')).toBe('alert');
+      expect(aviso.textContent).toContain('20/10/2026');
+      expect(aviso.textContent).toContain('Rendir cuentas de esa jornada');
+    });
+
+    // `[CGS.18]` Lo que la supervisora devolvió se ve al entrar, y se responde ahí mismo.
+    it('un corte observado aparece al entrar con su motivo, y Responder lo manda al servidor', () => {
+      const responderCorte = vi.fn(() => of({ id: 'c8', estado: 'cerrado' }));
+      const fx = montarJornada({
+        saldo: sinCorte(), jornadasPendientes: pendientes([]), responderCorte,
+        cortes: vi.fn(() => of({ rows: [{
+          id: 'c8', folio: 'CC-2026-00008', fecha: '2026-10-20', estado: 'observado',
+          observed_by_username: 'maria_gutierrez', observacion: 'Faltan 500 y nadie lo explica',
+        }], limit: 50 })),
+      });
+      const aviso: string = fx.nativeElement.textContent;
+      expect(aviso).toContain('Faltan 500 y nadie lo explica');
+      expect(aviso).toContain('CC-2026-00008');
+
+      comp.abrirRespuesta(comp.observados()[0]);
+      comp.textoRespuesta.set('corto');
+      comp.enviarRespuesta();
+      expect(responderCorte).not.toHaveBeenCalled();   // [negativa] menos de 10 caracteres no se manda
+
+      comp.textoRespuesta.set('Se pagó un flete de 500 sin capturarlo');
+      comp.enviarRespuesta();
+      expect(responderCorte).toHaveBeenCalledWith('c8', 'Se pagó un flete de 500 sin capturarlo');
+    });
+
+    it('[negativa] con la caja libre no hay aviso de candado', () => {
+      const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: pendientes([]) });
+      expect(fx.nativeElement.querySelector('.cg-candado')).toBeNull();
     });
 
     it('con un corte atrasado ABIERTO va a ese corte, y el cierre dice de qué jornada es', () => {
