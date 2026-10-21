@@ -216,3 +216,48 @@ dos veces** (quitarle `DEBITO` al regex, y bajar la regla a prioridad 139).
 ⛔ **Lo que NO cierra:** el motor de clasificación vive **duplicado** — `classifyWith` en
 `finance-bank.service.ts` y una copia en `import-bank-statement.js`. El candado prueba la del
 servicio. Unificarlo es deuda con nombre (ADR-056).
+
+---
+
+## 6. `[CB.53]` 🧪 La conciliación corre al llegar el dato, no por reloj
+
+**EN CÓDIGO 2026-10-21** · commit `abd55a602` · sin migración · **apagado por defecto**.
+
+**El defecto:** `runMatch` sólo corría apretando un botón. Medido el 21-oct, el último pareo era
+de la tarde anterior y **octubre llevaba 62.9 % casado contra el 89.1 % de septiembre** — no
+porque el motor falle, sino porque nadie lo volvió a correr.
+
+⛔ **No es un `@Cron`** (Edgar, 2026-10-19: *«nada de crons»*). Se reusa el carril que ya corre en
+producción: `feeds-ingest` emite `NOTIFY caja_fuente` cuando su UPSERT toca `kepler_ods.kdm1` o
+`kdb1` — las dos tablas de las que deriva `analytics.kepler_bank_movements`.
+
+⭐ **Y acá, a diferencia de Caja, no hay que esperar ningún refresh:** esa es una **VISTA viva**
+(verificado en prod), no una matvista. Caja tuvo que escuchar el aviso *posterior* al refresh
+porque lee `mv_caja_movimientos`; de este lado el dato ya está cuando llega el aviso.
+
+**Lo que cuesta una corrida** (prod, sólo lectura, 21-oct): lado Kepler **2.41 s** en frío ·
+1.01 s caliente (12,429 filas, ventana ±45 d) · lado banco **0.45 s** (3,943 filas). ⚠️ El
+comentario del propio motor decía «~7 s» — esa cifra envejeció. Por eso el aviso **no dispara el
+motor directo**: espera el silencio de la ráfaga (`quiet` 60 s) y compara la **firma** del
+periodo (filas + última fecha + centavos, de los dos lados). Firma igual = no corre, y lo dice.
+
+**Qué periodos re-evalúa:** el mes en curso y, hasta el día 20, también el anterior. No es un
+número elegido: el lag de captura de Kepler tiene **mediana 2–5 días y máximo 19**, así que un
+documento del mes pasado puede llegar hoy y sin esa ventana no vuelve a tener quien lo busque.
+
+**Candados:** 15 casos del motor puro + **3 pruebas negativas** (con el corte en 0 el mes
+anterior deja de mirarse; sin firma todo aviso correría; los 4 motivos de NO correr son distintos
+entre sí, ninguno es un `return` mudo). 29/29 verde en el área, **mutado a rojo una vez**.
+
+⛔ **Lo que FALTA para que esto sirva** (hoy no hace nada):
+
+1. **Desplegar.** El worker corre la imagen vieja; el oyente no existe allá todavía.
+2. **Prender `ENABLE_BANK_RECON_AVISO=true`** en el worker. Apagado por defecto a propósito:
+   `runMatch` **escribe**, y desplegar no debe ser, por sí solo, empezar a conciliar.
+3. **Ejercerlo contra base real.** Un camino que escribe no está probado hasta que corrió
+   (regla dura del proyecto). Los candados prueban la decisión, no la escritura.
+
+⚠️ **Hueco declarado:** la carga del estado de cuenta **no emite ningún aviso**, igual que el
+carril de pólizas `kdc2*` (`[CG.198]`). En la práctica se tapa solo porque cada corrida
+re-evalúa el periodo entero — un estado de cuenta cargado a las 10:00 lo recoge el primer aviso
+de Kepler posterior — pero **no está garantizado por construcción**.
