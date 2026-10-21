@@ -239,6 +239,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                     <span class="p-button-label">{{ dmy(a.fecha) }} · {{ a.folio }}</span>
                   </button>
                   <p-tag [value]="tagVeredicto(a).texto" [severity]="tagVeredicto(a).sev" styleClass="cq-tag" />
+                  @if (fallas(a)) { <span class="cq-dim">{{ fallas(a) }} sin cumplir</span> }
                 </li>
               }
             </ul>
@@ -391,6 +392,17 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
                    El resto del cajon es la evidencia para decidir. -->
               <section class="cq-rev" aria-labelledby="cq-h-rev-dia">
                 <h3 id="cq-h-rev-dia" class="cq-h3">La revisión</h3>
+                <!-- [CGS.12] Lo que se revisa, calculado por el servidor. Cada renglon dice su estado EN
+                     PALABRAS (no solo color) y su detalle con la cifra. -->
+                <ul class="cq-verif" aria-label="Lo que se revisa de este corte">
+                  @for (x of a.verificacion; track x.id) {
+                    <li>
+                      <p-tag [value]="etiquetaVerif(x.estado)" [severity]="sevVerif(x.estado)" styleClass="cq-tag" />
+                      <span class="cq-verif-q">{{ x.pregunta }}</span>
+                      <span class="cq-verif-d">{{ x.detalle }}</span>
+                    </li>
+                  }
+                </ul>
                 @if (a.observacion) {
                   <p class="cq-nota">
                     Observado por {{ a.observo || '—' }}{{ a.observed_at ? ' el ' + dmy(a.observed_at) : '' }}: «{{ a.observacion }}».
@@ -584,6 +596,11 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     .cq-rev-label { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .cq-rev-texto { width:100%; max-width:60ch; }
     .cq-rev-acciones { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+    .cq-verif { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+    .cq-verif li { display:grid; grid-template-columns:7rem minmax(10rem, 16rem) 1fr; gap:var(--sp-2); align-items:baseline; }
+    .cq-verif-q { font-weight:600; color:var(--text-main); }
+    .cq-verif-d { color:var(--text-muted); font-size:var(--fs-sm); }
+    @container (max-width: 40rem) { .cq-verif li { grid-template-columns:1fr; } }
     .cq-llave { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-4); padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
     .cq-rev-ayuda { margin:0; padding-left:var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); }
 
@@ -971,6 +988,11 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     if (!k) return 'No hay cortes que esperen tu revisión';
     return k === 1 ? '1 corte espera tu revisión' : `${k} cortes esperan tu revisión`;
   });
+
+  /** `[CGS.12]` El estado de una verificación, en palabras: el color nunca va solo. */
+  etiquetaVerif(e: string): string { return e === 'cumple' ? 'Cumple' : e === 'no_cumple' ? 'No cumple' : 'Sin medir'; }
+  sevVerif(e: string): 'success' | 'danger' | 'secondary' { return e === 'cumple' ? 'success' : e === 'no_cumple' ? 'danger' : 'secondary'; }
+  fallas(a: ArqueoDia): number { return (a.verificacion ?? []).filter((v) => v.estado === 'no_cumple').length; }
 
   puertas(a: ArqueoDia): PuertasRevision {
     return puertasRevision(a, this.uid(), this.esRevisora(), this.textoRevision());
