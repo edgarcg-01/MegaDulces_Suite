@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Added — Cortes / Sucursales: buscador, y los cobros cancelados se ven marcados sin sumar (CSU.13, 2026-10-21)
+- **Buscar corte**: encuentra un corte de cualquier sucursal del mes por:
+  - folio, caja-turno, monto o fecha;
+  - estado o cajero;
+  - lo que trae el cobro: folio, forma de pago, concepto o banco;
+  - lo que trae la devolución: folio, cliente o motivo.
+
+  Los folios se encuentran como se escriben a mano (`au501-00076` = `UA0501-0000076`). `/` enfoca el buscador y `Esc` lo limpia.
+- **Cobros cancelados en Kepler**: el detalle del corte los muestra como «Cancelado en Kepler — no suma», con el monto tachado; la lista los señala y el buscador los encuentra. El cobrado no cambia.
+- **Fixed**: la lupa del buscador no se dibujaba (`p-inputicon` en PrimeNG 22), y el esqueleto de carga dejaba avisos NG0955 en la consola.
 ### Fixed — Revisión de entradas: los avisos que faltaban (RE.42.1, RE.43.1, RE.44, 2026-10-21)
 - **Revisión** muestra «Posible duplicado de la entrada X» cuando quien subió la factura vio ese aviso y la envió igual, con liga a la otra entrada para compararlas.
 - Cuando el total leído es la misma cifra que Kepler con el separador corrido (se leyó `$22.50` por `$22,500`), la pantalla lo dice como **probable error de lectura** en vez de «cobra de menos $22,477».

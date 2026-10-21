@@ -369,6 +369,25 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 **45. Un documento CANCELADO en Kepler no suma en ningún lado — y la regla vive en UNA fuente, no en cada consulta.** *Origen: PM — «omitir los montos de todos los que tengan estatus CANCELADO en Kepler; corregirlo de raíz y no estar parchando cada vez que salga un error».* Kepler cancela en la cabecera (`kdm1.c43 = 'C'`) y deja vivas las aplicaciones de `kdm5`. Se había corregido tres veces, consumidor por consumidor, y una de esas veces el filtro quedó en la fecha y no en el monto. Antes de escribir un filtro en tu consulta, pregúntate si la regla ya tiene casa. Si no la tiene, créasela (una vista derivada que se verifica sola) y ponle candado (`check:kdm5-vigente`, con `--db` para lo que vive en la base). Si tu PR suma documentos de Kepler, declara cómo excluye los cancelados. GOTCHAS §89 · ADR-098.
 
+**Observaciones del PM sobre el buscador de Cortes (2026-10-21, `[CSU.13]`) — puntos 52–55.**
+
+**52. Omitir un monto no es esconder el documento: lo que no suma se VE, marcado, y se encuentra.** *Origen: PM — «este corte cancelado no me aparece».* CSU.11 sacó del corte los cobros cancelados para que no sumaran, y con eso quedaron **invisibles**: quien buscaba el folio no encontraba nada y no sabía por qué. Lo correcto es separar las dos preguntas: no suma (fuera del total) y existe (se muestra con su etiqueta y se encuentra con el buscador). Si para mostrarlo hace falta una fuente nueva, que sea el complemento exacto de la que ya existe, verificado al crearse (vigentes + canceladas = total). Una segunda copia de la regla no sirve.
+
+**53. Un buscador entiende los folios como los escribe la gente, no como los guarda el sistema.** *Origen: PM — «au501-00076» para `UA0501-0000076`.* Las letras van al revés, al tipo le falta el cero y el folio trae otra cantidad de ceros. Con búsqueda por fragmentos, ninguna de esas formas casa. Un folio se compara **por número**: el documento publica sus variantes cortas, la consulta se lleva a esa forma, y un terminador evita que el 76 traiga el 761. Pruébalo con lo que escribió la persona, no con el folio bien escrito.
+
+**54. Una pantalla no está lista hasta verla en un navegador real, con la consola limpia.** *Origen: PM — «¿por qué la búsqueda no me aparece?».* Al abrir `localhost:4200` con el navegador del agente aparecieron dos defectos que ninguna compuerta vio:
+- la **lupa en 0 px**: PrimeNG 22 pisa el `class` de `p-inputicon`, así que el ícono va adentro como `<i>`;
+- **NG0955** por `track i` sobre un esqueleto de `undefined`: va `track $index`.
+
+El criterio de cierre es la pantalla abierta, la acción probada y `list_console_messages` sin advertencias. «Sin validación visual» se declara (punto 17) sólo cuando de verdad no se pudo abrir.
+
+**55. «No lo veo en local» se diagnostica antes de tocar código: qué sirve el servidor, qué tiene el navegador, y si el API está arriba.** Tres causas distintas se vieron igual:
+- el servidor sí entregaba el cambio (el texto estaba en el *chunk*);
+- el navegador tenía la pestaña vieja y no había service worker;
+- `nx serve api` se reinició al tocar el backend, y el login dio «Error de conexión» unos segundos.
+
+Revisa en ese orden: `curl` del *chunk*, DevTools › Application › Service Workers, `curl` a `/api/health`. Y avisa antes de tocar el backend mientras alguien prueba.
+
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
 ---

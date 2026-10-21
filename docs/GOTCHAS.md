@@ -106,8 +106,8 @@
 | 4606 | 4635 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
 | 4636 | 4693 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
 | 4694 | 4847 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
-| 4858 | 4895 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
-| 4848 | 4896 | 4 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
+| 4848 | 4857 | 2 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
+| 4858 | 4896 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
 
 <!-- INDICE-AUTO:FIN -->
 

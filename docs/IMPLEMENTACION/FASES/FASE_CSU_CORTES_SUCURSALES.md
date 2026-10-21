@@ -135,6 +135,12 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   pendiente +$6,816.36, resto idéntico; cartera +$165,615.07 (21 docs); 13 facturas «pagadas» que no
   lo estaban. Paridad local con cobro cancelado sembrado + `--mutar=cancelado` en rojo. ⚠️ Migraciones
   a prod ANTES del código, una por una, fuera de horario. GOTCHAS §89 · ADR-098. 🧪 2026-10-21
+- [x] **[CSU.13]** **Buscador de cortes, y los cobros cancelados se VEN (no suman).** Pedido del PM: «no contamos con un apartado de búsqueda, reducir el tiempo para consultar». Después: «este corte cancelado no me aparece au501-00076». Qué se hizo:
+  - **Buscador** «Buscar corte», sobre la lista completa del periodo, con `filtrarPorBusqueda` (la semántica de `applySmartSearch`). Busca por folio con o sin ceros, caja-turno, sucursal, fecha, montos como se ven, estados, cajero, cobros (folio, forma, concepto, cuenta) y devoluciones. Atajos: `/` enfoca, `Esc` limpia. Si no hay resultados en la sucursal elegida, dice cuántos hay en otras.
+  - **Folios escritos a mano:** se comparan **por número**. Letras en cualquier orden, tipo con o sin ceros y cualquier cantidad de ceros, con un terminador para que el 76 no traiga el 761.
+  - **Cancelados:** vista `analytics.kepler_kdm5_cancelado` (mig `20261021135510`), complemento exacto de la vigente, verificado al crearse (vigentes + canceladas = kdm5). El corte publica `cobros_cancelados`; el detalle los marca «Cancelado en Kepler — no suma», con el monto tachado; la lista lleva «N cancelado»; el buscador los encuentra (también con la palabra «cancelado»).
+  - **Medido en prod, sólo lectura:** 11 cortes de octubre, 14 cobros, $171,986.56 que NO suman; el resto de la salida idéntica a `main`; 236 ms contra 228.
+  - **Arreglos vistos en el navegador:** la lupa (PrimeNG 22 pisa el `class` de `p-inputicon`) y NG0955 del esqueleto de carga (`track i` sobre 8 `undefined`). 🧪 2026-10-21
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.
