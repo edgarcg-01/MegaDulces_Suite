@@ -67,6 +67,10 @@ async function saludProcesos() {
   const carga = {};
   for (const i of enCurso) (carga[dueno(i)] ||= []).push(i.content.title.match(/^\[([^\]]+)\]/)?.[1] || '?');
 
+  // Regla dinero × esfuerzo: lo de prioridad 0–1 que no está En curso es dinero barato sin cobrar.
+  const prioridad = (i) => i.prioridad || Object.entries(i).find(([k]) => /^prioridad$/i.test(k))?.[1] || '';
+  const baratasSinTrabajar = items.filter((i) => /^[01] /.test(prioridad(i)) && !['En curso', 'Cerrado'].includes(i.status));
+  const altoYGrande = enCurso.filter((i) => /^2 /.test(prioridad(i)) && /^(L|XL)/.test(i.esfuerzo || ''));
   const salud = await saludProcesos();
   const lineas = [
     `**Semana del ${hoy} — reporte automático (medido, no redactado).**`,
@@ -76,6 +80,9 @@ async function saludProcesos() {
     '',
     `**Urgentes abiertas (${urgentes.length}):**`,
     ...(urgentes.length ? urgentes.map((i) => `- #${i.content.number} ${titulo(i)} — ${dueno(i)}${progreso(i.content.number)}`) : ['- ninguna']),
+    '',
+    `**Prioridad 0–1 que nadie trabaja (${baratasSinTrabajar.length}):** ${baratasSinTrabajar.length ? baratasSinTrabajar.map((i) => `#${i.content.number} ${i.content.title.match(/^\[[^\]]+\]/)?.[0]} (${i.status})`).join(' · ') + ' → mucho dinero, poco esfuerzo: abrir antes que lo de prioridad 3–4' : 'ninguna'}`,
+    ...(altoYGrande.length ? [`**Alto dinero y esfuerzo L/XL en curso (partir en un pedazo S/M):** ${altoYGrande.map((i) => '#' + i.content.number).join(', ')}`] : []),
     '',
     '**Carga en curso por persona:**',
     ...Object.entries(carga).sort((a, b) => b[1].length - a[1].length).map(([d, l]) => `- ${d}: ${l.length} (${l.join(', ')})`),
