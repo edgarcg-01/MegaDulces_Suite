@@ -4753,6 +4753,30 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(aviso.textContent).toContain('Rendir cuentas de esa jornada');
     });
 
+    // `[CGS.18]` Lo que la supervisora devolvió se ve al entrar, y se responde ahí mismo.
+    it('un corte observado aparece al entrar con su motivo, y Responder lo manda al servidor', () => {
+      const responderCorte = vi.fn(() => of({ id: 'c8', estado: 'cerrado' }));
+      const fx = montarJornada({
+        saldo: sinCorte(), jornadasPendientes: pendientes([]), responderCorte,
+        cortes: vi.fn(() => of({ rows: [{
+          id: 'c8', folio: 'CC-2026-00008', fecha: '2026-10-20', estado: 'observado',
+          observed_by_username: 'maria_gutierrez', observacion: 'Faltan 500 y nadie lo explica',
+        }], limit: 50 })),
+      });
+      const aviso: string = fx.nativeElement.textContent;
+      expect(aviso).toContain('Faltan 500 y nadie lo explica');
+      expect(aviso).toContain('CC-2026-00008');
+
+      comp.abrirRespuesta(comp.observados()[0]);
+      comp.textoRespuesta.set('corto');
+      comp.enviarRespuesta();
+      expect(responderCorte).not.toHaveBeenCalled();   // [negativa] menos de 10 caracteres no se manda
+
+      comp.textoRespuesta.set('Se pagó un flete de 500 sin capturarlo');
+      comp.enviarRespuesta();
+      expect(responderCorte).toHaveBeenCalledWith('c8', 'Se pagó un flete de 500 sin capturarlo');
+    });
+
     it('[negativa] con la caja libre no hay aviso de candado', () => {
       const fx = montarJornada({ saldo: sinCorte(), jornadasPendientes: pendientes([]) });
       expect(fx.nativeElement.querySelector('.cg-candado')).toBeNull();
