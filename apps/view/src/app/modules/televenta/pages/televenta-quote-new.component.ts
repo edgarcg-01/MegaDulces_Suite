@@ -32,6 +32,7 @@ import {
   exportQuoteXlsx,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
+import { totalesCotizacion } from '@megadulces/contracts';
 
 /**
  * Las plazas Kepler donde se puede cotizar: el catálogo compartido `STORE_BRANCHES` menos el
@@ -1396,15 +1397,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return this.bandeja().reduce((acc, it) => acc + (it.line_total || 0), 0);
   });
 
-  readonly descuentoClienteMonto = computed(() => {
-    const pct = this.descuentoClientePct();
-    if (pct <= 0) return 0;
-    return (this.subtotalBandeja() * pct) / 100;
-  });
+  /** [E.19] La cuenta de la bandeja con la MISMA función que el papel y que el servidor. */
+  readonly totalesBandeja = computed(() =>
+    totalesCotizacion(
+      this.bandeja().map((it) => (it.unit_price === null ? null : it.line_total || 0)),
+      this.descuentoClientePct() || null,
+    ),
+  );
 
-  readonly totalBandeja = computed(() => {
-    return Math.max(0, this.subtotalBandeja() - this.descuentoClienteMonto());
-  });
+  readonly descuentoClienteMonto = computed(() => this.totalesBandeja().descuento);
+
+  readonly totalBandeja = computed(() => this.totalesBandeja().total);
 
   /** Habilitación de guardado */
   readonly puedeCrear = computed(() => {
@@ -2160,7 +2163,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       line_total: it.line_total,
       price_source: this.fuenteLabel(it.price_source),
       free_goods: it.free_goods,
-      discount_pct: this.descuentoClientePct() || null,
+      // [E.19] Sin descuento por renglón: el único que el papel aplica es el del cliente, una vez.
     }));
 
     return {
@@ -2179,11 +2182,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
       quoteDate: new Date(),
       validUntil: this.vigencia,
       items,
-      subtotal: this.subtotalBandeja(),
-      discountPct: this.descuentoClientePct(),
-      discountAmount: this.descuentoClienteMonto(),
-      total: this.totalBandeja(),
-      notes: this.listaCruda.trim() || null,
+      discountPct: this.descuentoClientePct() || null,
+      estado: 'borrador',
+      // ⛔ [E.19] Ya no se imprime `listaCruda`: es el mensaje crudo del cliente que pegó el
+      // operador (evidencia interna), y salía en el papel que se le manda al mismo cliente.
+      notes: null,
     };
   }
 
