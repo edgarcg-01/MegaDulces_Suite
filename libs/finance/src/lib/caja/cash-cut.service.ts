@@ -1299,6 +1299,24 @@ export class CashCutService {
       }
       for (const lista of porCorte.values()) lista.sort((a, b) => b.valor - a.valor || a.tipo.localeCompare(b.tipo));
 
+      // `[CGS.16][CGS.24]` Quién capturó o canceló en cada corte, también en UNA consulta: la
+      // pantalla de la supervisora apaga sus botones con el motivo en vez de esperar el 403.
+      const manos: Array<{ corte_id: string; created_by: string | null; cancelled_by: string | null }> =
+        await trx('finance.cash_ledger')
+          .where({ tenant_id: tenantId })
+          .whereIn('corte_id', cortes.map((c: { id: string }) => c.id))
+          .distinct('corte_id', 'created_by', 'cancelled_by');
+      const noRevisa = new Map<string, Set<string>>();
+      for (const c of cortes as Array<Record<string, unknown>>) {
+        noRevisa.set(String(c['id']), new Set([c['created_by'], c['closed_by']].filter((x): x is string => !!x)));
+      }
+      for (const m of manos) {
+        const s = noRevisa.get(String(m.corte_id));
+        if (!s) continue;
+        if (m.created_by) s.add(m.created_by);
+        if (m.cancelled_by) s.add(m.cancelled_by);
+      }
+
       /**
        * ⚠️ El **segundo testigo**, y va declarado como tal. No decide: cuál de los dos arbitra el
        * conteo es una decisión de negocio sobre cortes firmados que todavía no está tomada
@@ -1374,6 +1392,14 @@ export class CashCutService {
           autorizado: c['authorized_at'] != null,
           nota: (c['nota'] ?? null) as string | null,
           reconteo_motivo: (c['reconteo_motivo'] ?? null) as string | null,
+          corte_id: String(c['id']),
+          no_revisa: Array.from(noRevisa.get(String(c['id'])) ?? []),
+          observacion: (c['observacion'] ?? null) as string | null,
+          observo: (c['observed_by_username'] ?? null) as string | null,
+          observed_at: c['observed_at'] ? new Date(c['observed_at'] as string).toISOString() : null,
+          respuesta: (c['respuesta'] ?? null) as string | null,
+          respondio: (c['responded_by_username'] ?? null) as string | null,
+          nota_autorizacion: (c['authorization_note'] ?? null) as string | null,
           piezas: porCorte.get(String(c['id'])) ?? [],
           testigo_control: ctl
             ? {

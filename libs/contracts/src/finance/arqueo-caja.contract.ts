@@ -124,6 +124,25 @@ export interface ArqueoDia {
   nota: string | null;
   reconteo_motivo: string | null;
 
+  // ── `[CGS.24]` La revisión de la supervisora ────────────────────────────────────────────
+  /** El id del corte: con él se autoriza u observa desde esta misma pantalla. */
+  corte_id: string;
+  /**
+   * `[CGS.16]` Quiénes NO pueden revisar este corte: quien lo abrió, quien lo cerró y quien capturó o
+   * canceló algún movimiento de él. La pantalla apaga los botones con el motivo; el candado de
+   * verdad es el servidor (y la base).
+   */
+  no_revisa: string[];
+  /** `[CGS.18]` La última observación, quién la hizo y cuándo (ISO). */
+  observacion: string | null;
+  observo: string | null;
+  observed_at: string | null;
+  /** `[CGS.18]` La respuesta de la caja a esa observación. */
+  respuesta: string | null;
+  respondio: string | null;
+  /** `[CGS.17]` La nota con la que se autorizó. */
+  nota_autorizacion: string | null;
+
   /** Lo que se contó, pieza por pieza. Vacío = el conteo no guardó desglose. */
   piezas: ArqueoPieza[];
   testigo_control: ArqueoTestigoControl | null;
