@@ -25,7 +25,7 @@ import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
-import { CashLedgerService, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
@@ -533,9 +533,51 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
               <p class="cq-dim">Ese día nadie selló un corte en el libro, así que no hay arqueo que mostrar.</p>
             }
 
-            <!-- 4. LOS MOVIMIENTOS DEL DIA. Lo que antes vivia en la pantalla de al lado. -->
+            <!-- 4. [CGS.25] LOS MOVIMIENTOS DEL LIBRO DE LA SUITE: los que el corte suma. Antes esta
+                 seccion mostraba SOLO los de Control, aun para dias que ya viven en la Suite, y la
+                 supervisora revisaba un libro distinto del que firmaba. -->
+            <section aria-labelledby="cq-h-libro">
+              <h3 id="cq-h-libro" class="cq-h3">Lo que el libro registró esa jornada</h3>
+              @if (cargandoLibro()) {
+                <app-load-state [loading]="true" [skeletonRows]="4" />
+              } @else if (errLibro()) {
+                <p class="cq-nota cq-mal" role="alert">{{ errLibro() }}</p>
+              } @else if (libroDia(); as movs) {
+                @if (!movs.length) {
+                  <p class="cq-dim">El libro de la Suite no tiene movimientos de ese día.</p>
+                } @else {
+                  <table class="cq-reja">
+                    <caption class="cq-reja-cap">{{ movs.length }} movimiento(s) · por la hora en que se movió el efectivo</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Folio</th><th scope="col">Hora</th><th scope="col">Qué</th>
+                        <th scope="col" class="comm-num">Monto</th><th scope="col">Capturó</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (m of movs; track m.id) {
+                        <tr [class.cq-mov-cancel]="m.estado === 'cancelado'">
+                          <td class="cq-mono">{{ m.folio }}</td>
+                          <td>{{ m.hora }}</td>
+                          <td>
+                            {{ m.tipo === 'ingreso' ? 'Entra' : m.tipo === 'gasto' ? 'Sale' : 'Depósito' }}
+                            · {{ m.beneficiario || m.concepto || '—' }}
+                            @if (m.documento) { <span class="cq-dim cq-mono">{{ m.documento }}</span> }
+                            @if (m.estado === 'cancelado') { <p-tag value="Cancelado" severity="danger" styleClass="cq-tag" /> }
+                          </td>
+                          <td class="comm-num">{{ m.tipo === 'ingreso' ? '+' : '−' }}{{ mx(m.monto) }}</td>
+                          <td>{{ m.quien || '—' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+              }
+            </section>
+
+            <!-- 5. EL SEGUNDO TESTIGO: lo que registro Control ese dia. Subordinado a proposito. -->
             <section aria-labelledby="cq-h-movs">
-              <h3 id="cq-h-movs" class="cq-h3">Los movimientos de ese día</h3>
+              <h3 id="cq-h-movs" class="cq-h3">Segundo testigo: los movimientos de Control</h3>
               @if (cargandoExp()) {
                 <app-load-state [loading]="true" [skeletonRows]="6" />
               } @else if (exp(); as e) {
@@ -1167,7 +1209,26 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
    * ⚠️ `exp` se limpia ANTES de pedir: si no, mientras carga el día nuevo el cajón sigue mostrando
    * los movimientos del anterior con el título ya cambiado.
    */
+  // ── `[CGS.25]` El libro de la Suite del día ──────────────────────────────────────────────
+  readonly libroDia = signal<ArqueoMovimientoDia[] | null>(null);
+  readonly cargandoLibro = signal(false);
+  readonly errLibro = signal<string | null>(null);
+
+  private cargarLibroDia(fecha: string): void {
+    this.libroDia.set(null); this.errLibro.set(null); this.cargandoLibro.set(true);
+    this.cajas.arqueoDia({ fecha: fecha.slice(0, 10), sucursal: '00' }).subscribe({
+      next: (r) => {
+        this.cargandoLibro.set(false);
+        // `undefined` = el servidor no lo manda: se DECLARA, no se dibuja como «sin movimientos».
+        if (r?.movimientos_del_dia === undefined) { this.errLibro.set('El servidor no publicó los movimientos del libro de ese día.'); return; }
+        this.libroDia.set(r.movimientos_del_dia);
+      },
+      error: () => { this.cargandoLibro.set(false); this.errLibro.set('No se pudieron leer los movimientos del libro de ese día.'); },
+    });
+  }
+
   private cargarExpediente(fecha: string): void {
+    this.cargarLibroDia(fecha);
     this.exp.set(null);
     this.cargandoExp.set(true);
     this.http.get<Expediente>(`${this.baseControl}/expediente/${fecha.slice(0, 10)}`).subscribe({
