@@ -123,3 +123,16 @@ exports.down = async function down(knex) {
     [TENANT],
   );
 };
+
+/**
+ * ⚠️⚠️ **ESTE ARCHIVO ES EL QUE CORRIÓ EN PROD (batch 976, 2026-10-20 15:40 MX) Y NO SE TOCA.**
+ *
+ * Alcanzó al 98 %: dejó **1,561 movimientos en `comision_bancaria`** y 1,587 en
+ * `iva_acreditable`. Lo que NO alcanzó son los **28 capturados con `code 102` o sin código**
+ * ($8,229.81), porque sus reglas exigen `^612$` y viven en 138/139 — debajo de la `61`
+ * (`type ^I$`) y la `70` (`code ^102$`), que mandan a `cobranza` antes de llegar ahí.
+ *
+ * Eso lo completa la migración hermana `..._bank_rules_comision_tpv_prioridad.js`, que mueve
+ * las reglas a 54/55 sin `match_code`. **Acá no se corrige nada**: una migración ya aplicada
+ * que cambia de contenido deja el ledger describiendo algo que nunca corrió.
+ */

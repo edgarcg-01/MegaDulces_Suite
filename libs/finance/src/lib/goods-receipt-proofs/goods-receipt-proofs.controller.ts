@@ -260,8 +260,11 @@ export class GoodsReceiptProofsController {
   @Post('ocr')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
   @ApiOperation({ summary: 'Corre OCR sobre una hoja (sólo PDF), devuelve los campos + hash + si es duplicada (misma hoja o folio ya subido). Preview, no guarda.' })
-  ocr(@Body() body: { file_base64?: string; role?: string }) {
-    return this.svc.runOcr(body?.file_base64 || '', body?.role);
+  ocr(
+    @Body() body: { file_base64?: string; role?: string; entrada_sucursal?: string; entrada_folio?: string },
+  ): ReturnType<GoodsReceiptProofsService['runOcr']> {
+    // `[RE.42]` La entrada destino es opcional: si ya se sabe, el dedup decide con su proveedor de Kepler.
+    return this.svc.runOcr(body?.file_base64 || '', body?.role, { sucursal: body?.entrada_sucursal, folio: body?.entrada_folio });
   }
 
   @Post('upload')

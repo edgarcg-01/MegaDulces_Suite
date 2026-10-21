@@ -144,13 +144,13 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
    * declara, una pantalla ausente de esa lista le es invisible: el candado pasaba en verde.
    */
   describe('[CG.121] la puerta única de Caja', () => {
-    // `[CGS.2]` Arqueos entra SEGUNDA, pegada a Captura: lo que la motivó es que el arqueo
-    // estaba al fondo de la pantalla de Captura, y mandarla al final movería el scroll de
-    // sitio en vez de quitarlo.
+    // ⭐ `[CGS.2]` Son TRES, no cuatro: Arqueos FUSIONA lo que era el Expediente (Edgar,
+    // 2026-10-20: «Expediente y Arqueos es lo mismo, hay que fusionarlos»). La ruta vieja no
+    // desaparece —redirige— pero ya no es pestaña: dos puertas a la misma revisión son las que
+    // hacían que una se quedara vieja.
     const DE_CAJA = [
       '/finanzas/caja-general',
       '/finanzas/caja-general/arqueos',
-      '/finanzas/caja-general/expediente',
       '/finanzas/caos',
     ] as const;
 
@@ -185,8 +185,6 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       // Con `anyOf`, `permission` sería letra muerta: el filtro devuelve antes de mirarlo.
       expect(t('/finanzas/caja-general')?.permission).toBeUndefined();
 
-      // Ruta: permissionGuard(FINANCE_CAJA_VER).
-      expect(t('/finanzas/caja-general/expediente')?.permission).toBe(Permission.FINANCE_CAJA_VER);
       // `[CGS.2]` Ruta: permissionGuard(FINANCE_CAJA_VER). Es lectura: quien revisa de mañana no
       // tiene por qué poder capturar para poder mirar.
       expect(t('/finanzas/caja-general/arqueos')?.permission).toBe(Permission.FINANCE_CAJA_VER);
@@ -204,7 +202,6 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       const ARCHIVOS: Record<string, string> = {
         '/finanzas/caja-general': 'caja-general/finanzas-caja-general.component.ts',
         '/finanzas/caja-general/arqueos': 'caja-general/finanzas-caja-arqueos.component.ts',
-        '/finanzas/caja-general/expediente': 'caja-general/finanzas-caja-expediente.component.ts',
         '/finanzas/caos': 'caos/finanzas-caos.component.ts',
       };
       for (const ruta of DE_CAJA) {

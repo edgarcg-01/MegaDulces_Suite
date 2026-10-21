@@ -18,7 +18,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
+import { evaluarCambio, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
 /**
@@ -45,7 +45,7 @@ import { uuidV4 } from '../../../../core/utils/uuid';
 import { moneyOSinMedir } from '../../../../shared/util';
 import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja, type TotalesCorte, type MovimientoPendiente, type CajaKepler, type ResumenLote, type Frecuente, type CoberturaResponse, type CaosCapturable, type CaosCandidato, type ArqueoDia, type ArqueoMovimientoDia, type RecurrentesResponse,
   type RecurrenteSinRegla, type CorteRow, type ConteoSellado, type RevelacionVista,
-  type JornadasPendientes } from '../../cash-ledger.service';
+  type JornadasPendientes, type PendientesResponse } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { Permission } from '../../../../core/constants/permissions';
@@ -118,6 +118,13 @@ interface FormularioCajaUI {
  * La llave del BILLETE de ese valor. El catálogo compartido la define como el valor a secas
  * (`'20'`), y la moneda que colisiona lleva sufijo (`'20m'`) — ver SM.39.
  */
+/** [CGA-A.49] El día anterior a una fecha YYYY-MM-DD (aritmética de calendario, sin zona). */
+function diaAntes(dia: string): string {
+  const d = new Date(dia + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function llaveBillete(valor: number): string {
   return valor === 0.5 ? '0.5' : String(valor);
 }
@@ -3037,6 +3044,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          que son de hoy. -->
                     @if (esFutura(p.fecha_valor)) {
                       <small class="fin-hint-warn d-block">fecha posterior a hoy — revisa el documento</small>
+                    } @else if (diasPendiente(p.fecha_valor); as d) {
+                      <!-- [CGA-A.49] La antigüedad, con el umbral de «Mi trabajo»: pasado, se pinta de aviso. -->
+                      <small class="d-block" [class.fin-hint-warn]="d > UMBRAL_ATRASO" [class.fin-dim]="d <= UMBRAL_ATRASO">hace {{ d }} día{{ d === 1 ? '' : 's' }}</small>
                     }
                   </td>
                   <td class="ta-c">
@@ -4539,7 +4549,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Lo que el SERVIDOR dijo que acotó. La píldora publicaba el selector local, o sea su propia
    * intención: si el backend corta distinto (y tiene su propio default), la pantalla mentía.
    */
-  ventanaSrv = signal<{ desde?: string; dias?: number | null; motivo?: 'pedido' | 'relevo' | 'ventana'; relevo?: string | null; saldados?: number } | null>(null);
+  ventanaSrv = signal<{ desde?: string; dias?: number | null; motivo?: 'pedido' | 'relevo' | 'ventana'; relevo?: string | null; saldados?: number; cola?: PendientesResponse['cola'] } | null>(null);
   /** La lista viene topada. Sin decirlo, un movimiento más allá del tope es invisible para siempre. */
   truncada = signal(false);
   /**
@@ -5797,7 +5807,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // [CGA-A.44] Desde el 1 del mes del relevo; antes del corte, sólo lo que el Control no concilió
     // (por día, como el Cuadre: un cobro que el Control anotó otro día sigue apareciendo).
     if (srv?.motivo === 'relevo' && srv.desde && srv.relevo && srv.desde < srv.relevo) {
-      partes.push(`desde el ${dmy(srv.desde)}; antes del ${dmy(srv.relevo)} (primer corte del libro) sólo lo que el Control no concilió`);
+      // [CGA-A.49] Partido en sus dos colas: «del libro» es la MISMA que cuentan la campana y
+      // «Mi trabajo»; sin partirlo, la responsable ve dos números y no sabe cuál es el bueno.
+      const c = srv.cola;
+      partes.push(c
+        ? `${c.del_libro.n} desde el ${dmy(srv.relevo)} (primer corte del libro) + ${c.rezago_control.n} del ${dmy(srv.desde)} al ${dmy(diaAntes(srv.relevo))} que el Control no concilió`
+        : `desde el ${dmy(srv.desde)}; antes del ${dmy(srv.relevo)} (primer corte del libro) sólo lo que el Control no concilió`);
     } else if (srv?.motivo === 'relevo' && srv.desde) partes.push(`desde el ${dmy(srv.desde)} (primer corte del libro)`);
     else if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
     else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
@@ -7422,7 +7437,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.totalPend.set(typeof r.total === 'number' ? r.total : null);
         // Lo que el servidor dice que acotó, y si la lista viene topada. Los tres campos venían
         // en la respuesta desde el primer día y no se leía ninguno.
-        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null, motivo: r.desde_motivo, relevo: r.relevo ?? null, saldados: r.saldados_por_control });
+        this.ventanaSrv.set({ desde: r.desde, dias: r.ventana_dias ?? null, motivo: r.desde_motivo, relevo: r.relevo ?? null, saldados: r.saldados_por_control, cola: r.cola ?? null });
         this.datosAl.set(r.datos_al ?? null);
         this.truncada.set(!!r.has_more);
         // Sólo se pinta si de verdad hay algo afuera: un "quedan 0 anteriores" es ruido.
@@ -7459,6 +7474,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       error: (e) => { this.errPend.set(this.textoError(e)); this.cargandoPend.set(false); },
     });
   }
+
+  /**
+   * `[CGA-A.49]` Cuántos días lleva esperando un pendiente (desde su fecha de documento, contra
+   * el día de MÉXICO). `null` si no tiene fecha o está fechado adelante — eso ya lo dice `esFutura`.
+   */
+  diasPendiente(f: string | null | undefined): number | null {
+    if (!f) return null;
+    const d = Math.round((Date.parse(`${todayMx()}T12:00:00Z`) - Date.parse(`${String(f).slice(0, 10)}T12:00:00Z`)) / 864e5);
+    return Number.isFinite(d) && d >= 0 ? d : null;
+  }
+  /** `[CGA-A.49]` El umbral de «atrasado»: el MISMO de la bandeja de «Mi trabajo» de la responsable. */
+  protected readonly UMBRAL_ATRASO = CAJA_CONFIRMAR_UMBRAL_DIAS;
 
   /** ¿El documento está fechado después de hoy? Casi siempre es un error de captura en Kepler. */
   esFutura(f: string | null | undefined): boolean {

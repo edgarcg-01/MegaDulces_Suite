@@ -187,4 +187,4 @@ export * from './finance/historial-filtro.contract';
 // llevar dato frío. Si agregás algo grande y sólo lo usa una pantalla, dale su
 // subruta.
 export * from './finance/caja-firma.contract';
-export * from './finance/cruce-arqueos.contract';
+export * from './finance/arqueo-caja.contract';

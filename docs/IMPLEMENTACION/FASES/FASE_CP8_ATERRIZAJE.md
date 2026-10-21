@@ -193,6 +193,189 @@ otra cosa:
 - La comisión de terminal es dinero chico ($130K en 8 meses) y mucho volumen (532 renglones). Es el
   caso perfecto para que el puente lo arme, **si** se arma como lo arma contabilidad.
 
+## 3.2 ⛔⛔ `[CP.8.58]` Visto como lo ve la API, el puente estaba vacío — por tercera vez, el rol equivocado
+
+Al ir a escribir la primera entrega apareció algo que tumbaba todo lo de arriba:
+
+- Las **siete** tablas que lee el puente (`finance.bank_movements`, `bank_accounts`,
+  `movement_categories`, `contpaqi.account_rules`, `supplier_accounts`, `supplier_aliases`,
+  `poliza_exports`) tienen **RLS forzado**: `tenant_id = current_tenant_id()`.
+- La API corre como **`app_runtime`** — verificado en los pods `api` **y** `worker`:
+  `DATABASE_URL_NEW_RUNTIME` (el de `KNEX_NEW_DB`) es `app_runtime`; sólo el pool admin es
+  `postgres`. (Corrige una lectura del 2026-10-09 que daba el RLS por inerte mirando sólo el
+  admin.) `app_runtime` **no** trae `app.tenant_id` por default. Los roles
+  personales (`edgar`, `david`, `francisco`, `sistemas`) **sí** lo traen (`pg_db_role_setting`).
+- `ContpaqiArmadoService` y `ContpaqiCuadreService` inyectaban `KNEX_NEW_DB` pelado: un
+  `knex(config)` sin `SET LOCAL`. Sólo los servicios nuevos (`cierre`, `mi-cierre`) usan
+  `TenantKnexService`.
+
+**Consecuencia, reproducida en rojo** (candado nuevo, sesión con el tenant borrado para quedar
+como `app_runtime`): `simularLotes('2026-01')` → **0 lotes**; `proveedoresPendientes` → **0
+nombres**. En prod eso es bandeja vacía, «ningún lote produce asiento» al generar, el alias
+rechazado por la política al guardar, y **un cuadre que juzga cero entregas para siempre** y
+late `ok` — *«sin eventos pendientes»* —, indistinguible de que no hubiera nada.
+
+⭐ Nadie lo vio por la razón de `[CP.8.44]`: **todo se midió como `edgar`**, que ve los datos
+porque trae el tenant puesto. Los logs de la API de los últimos 10 días no muestran ni una
+apertura de la bandeja, así que **no se ejerció en prod** — se deriva del código y del mecanismo,
+que sí se probó.
+
+**Arreglo:** `alcance-tenant.ts`. Cada método público corre en una transacción con
+`set_config('app.tenant_id', MEGA, true)`, y `db` **lanza** fuera de ese alcance en vez de caer al
+pool (un acceso olvidado se ve en el primer candado, no como una pantalla vacía). Sin tocar los
+constructores, que es lo que tiró la API en #414. El `try/catch` sobre `supplier_aliases` va ahora
+en SAVEPOINT (si no, un error envenena la transacción: 25P02), y el latido del cuadre se escribe
+por el pool, fuera de la transacción, para que un fallo no se lleve su propio registro.
+
+| candado | antes | después |
+|---|---|---|
+| `test-newdb-contpaqi-tenant.js` (nuevo) | 3 ✓ / **3 ✗** | **6 ✓ / 0 ✗** |
+| bandeja · proveedor · puente · lote · cuadre | — | 34 · 30 · 43 · 38 · 35 ✓, 0 ✗ |
+
+⚠️ **¿Caso aislado o clase?** Otros **20 servicios** inyectan `KNEX_NEW_DB` sin ningún mecanismo
+de tenant en el archivo (lista en el tracker, `[CP.8.58]`). Son **candidatos, no defectos
+medidos**: varios pueden leer sólo tablas sin RLS. Medirlos es de Plataforma, no de este anexo.
+
+---
+
+## 3.3 F1b — «Marcar como entregado» (`[CP.8.50]` · `[CP.8.52]` · `[CP.8.54]`)
+
+- **C1 `entrega.ts`** (puro): huella SHA-256 de los bytes, comparación byte a byte con el motivo
+  de dónde difiere, y las filas de `poliza_exports` (token, guid, autor y huella en el `asiento`).
+- **C2 `POST /finance/contpaqi/entregas`** `{ mes, archivo_base64 }`, `_GESTIONAR`. Regenera el
+  mes con el **mismo** `armarArchivo` que la descarga; si el archivo subido no es idéntico →
+  **409** con el motivo. `ON CONFLICT DO NOTHING`: marcar dos veces no duplica, **no toca
+  `updated_at`** (el reloj del cuadre) y no degrada una `aplicada`. (El `registrar()` viejo hace
+  `merge` y habría hecho las tres cosas mal; por eso éste no lo usa.)
+- **C3** en `/contabilidad/contpaqi-puente`: «¿Ya lo cargaste en ContPAQi?» → elegir el archivo
+  → resultado (nuevas / ya registradas) o el motivo del 409. Separado de «Generar».
+  `check:pantalla` **2 → 2 fallas, 0 nuevas**; tipa sin errores. **Sin validación visual**: lo más
+  probable de ajustar es el espaciado entre las dos cajas del archivo.
+
+**Lo medido, y lo que no:**
+
+| | |
+|---|---|
+| determinismo: enero generado dos veces | **idéntico**, 88 pólizas, 80,024 bytes (contra prod, sólo lectura) |
+| un byte alterado | rechazado **antes** de escribir, 0 → 0 filas |
+| `aBase64` (pantalla) | 2 pruebas; mutada a rojo una vez |
+| ⛔ **el registro de la entrega** | **NO MEDIDO.** `test-newdb-contpaqi-entrega.js` lo ejerce completo **sólo** contra destino local (job `pruebas-db` del CI) como `app_runtime`, con el payload de la pantalla. No hay base local en esta máquina y contra prod no se escribe desde una prueba. **Hasta que ese job corra en verde, el endpoint no está probado (regla 13).** |
+| typecheck del backend | **NO MEDIDO** en local (regla 3); lo mide `Build & typecheck` del CI |
+
+Deuda con nombre: el autor y la huella viajan en el `asiento` (JSON) y no en columnas, para no
+pedir una migración; `AlcanceTenant` vive en `contpaqi/` y va a `platform-core` si aparece un
+tercer consumidor.
+
+---
+
+## 3.4 F4 — Firmar reglas en pantalla (`[CP.8.51]` · `[CP.8.53]` · `[CP.8.14]`), y lo que destapó
+
+**Lo que hay, medido** (prod, sólo lectura, ene–sep): de 21 reglas, **6 se firman con una cuenta**
+(`por_categoria`); las otras 15 no tienen una cuenta que elegir y la pantalla dice por qué. Las 6
+traban **9,757 movimientos** — más de la mitad del universo por cuenta — pero sólo **$16.6M**:
+gasto chico y frecuente (tarjeta 3,877 · comisión bancaria 4,404 · gasto administrativo 1,241…).
+Es un **techo**: no está medido cuántos arman de verdad una vez firmados.
+
+| categoría | movs ene–sep | importe | indicio del derivador |
+|---|--:|--:|---|
+| compra con tarjeta | 3,877 | $6.77M | 5200600000 gasolina (73.8 %) |
+| servicios | 190 | $2.60M | — |
+| IMSS / SUA | 17 | $2.51M | — (se reparte por sucursal: probablemente no es una cuenta) |
+| gasto administrativo | 1,241 | $2.42M | — (cajón de sastre: probablemente partirlo) |
+| comisión bancaria | 4,404 | $1.45M | 5200650000 comisiones (94.4 %, sobre 18 pareos) |
+| impuestos | 28 | $0.88M | — (mezcla impuestos distintos) |
+
+**C1 `firma-regla.ts`** (pura): sólo `por_categoria` se firma; la cuenta tiene que ser **gasto
+`52*`, afectable, viva y del catálogo** de ContPAQi (173 cuentas). Banco, proveedor, mayor, baja,
+inexistente o sin autor → rechazo con el motivo exacto. Revocar sólo lo firmado.
+
+**C2**: `GET /reglas?mes` y `GET /cuentas-gasto` (`_VER`) · `POST /reglas/:categoria/firma` y
+`/revocar` (`_GESTIONAR`, 409 con motivo). Escriben `estado`, `cuenta_gasto`, `cuenta_nombre`,
+`aprobada_por`, `aprobada_en` — columnas que ya existían, sin migración. Revocar vuelve a
+`sin_regla` y **conserva la última firma** para que se lea qué se revocó; quién revocó **no
+queda** (deuda con nombre).
+
+**C3** en `/contabilidad/contpaqi-puente`, antes de proveedores: abre con la respuesta (*«firmar
+las N destraba X movimientos ($Y) del mes»*), tabla de firmables con evidencia e indicio, selector
+filtrable de las 173 cuentas **sin nada preseleccionado** («usar el indicio» llena el selector sólo
+si la cuenta está en el catálogo, y firmar sigue siendo un clic aparte), y abajo las no firmables
+con su motivo. Si la lectura falla, **se dice** (una sección de firmas que desaparece se lee como
+«no hay nada que firmar»). `check:pantalla` 2 → 2, 0 nuevas; tipa; 4 pruebas nuevas, mutada a rojo.
+**Sin validación visual.**
+
+### ⛔⛔ `[CP.8.59]` Lo que destapó: el archivo habría reenviado lo ya entregado
+
+Firmar cambia lo que arma un mes que quizá **ya se cargó** en ContPAQi. El archivo traía **todos**
+los lotes del mes, así que regenerarlo e importarlo habría **duplicado** en ContPAQi lo ya
+entregado — y «Marcar entregado» lo habría contado como «ya registradas» sin avisar. Defecto mío
+de F1b, cazado antes de que hubiera una sola entrega.
+
+Arreglo: `armarArchivo` deja fuera los lotes con entrega registrada (`armada`/`entregada`/
+`aplicada`; una `rechazada` —el cuadre dijo que nunca apareció— sí puede volver a mandarse). Un lote
+entregado cuyo total cambió **no se reenvía y se declara** (`cambiados`, y en el encabezado
+`X-Cambiados-Tras-Entrega`). Si no queda nada nuevo, el error lo dice. Ejercido sólo en el modo
+local del candado (`test-newdb-contpaqi-firma.js` [C]) — **NO MEDIDO** hasta `pruebas-db`.
+
+| candado | resultado |
+|---|---|
+| `test-newdb-contpaqi-firma.js` (nuevo) | **25 ✓ / 0 ✗ · 1 NO MEDIDO** (la escritura, como siempre) |
+| tenant · entrega · bandeja · puente · proveedor | 6 · 4 · 34 · 43 · 30 ✓, 0 ✗ |
+| spec de la pantalla | 19 ✓ |
+
+---
+
+## 3.5 ⛔⛔ `[CP.8.60]` El catálogo de asientos: el pago a proveedor que arma el puente es el 1.7 % de los reales
+
+Medido sobre las **4,813 pólizas de egreso de ContPAQi de 2026** con abono a banco: 4,216 (87.6 %)
+se ligan a su movimiento del banco por cuenta, ±3 días e importe exacto; placebo (fecha +45)
+**2.2 %**. Los impuestos de cada pago se compararon contra el XML del CFDI: el traspaso es
+**exactamente** el impuesto de la factura, y en pagos parciales va en proporción.
+
+**Pago a proveedor** (1,853 pólizas, $349.0M = 81 % del dinero de egresos): 166 formas, 4 reglas
+cubren el 64 %:
+
+| | forma real | evidencia |
+|---|---|---|
+| R1 | factura ya provisionada → cargo `2120` + traspaso IEPS `1470100000`/`1470110000` e IVA `1060000000`/`1470040000` + abono banco | 99.6 % de las pagadas contra 2120 son de un mes anterior (1,416/1,421) |
+| R2 | factura del mismo mes → cargo `5010`/`5020` del proveedor + IEPS/IVA acreditable directo | 817 facturas del mismo mes |
+| R3 | nota de crédito en el pago → abono `5050`/`5060`/`5070` + reversa del impuesto | ejemplos con CFDI de egreso |
+| R4 | cada renglón lleva el UUID de su CFDI | 98 % |
+
+⛔ **El puente arma sólo «2120 / banco», sin traspaso ni UUID: 32 de 1,853 (1.7 %).** O sea que
+los 958 pagos que «arman solos» (§39.1) **salen incompletos**. El armador ya lo declaraba
+(`iva_traspaso: 'no_emitido'`), pero nadie había medido que es la norma y no la excepción. Hasta
+que contabilidad apruebe R1–R4 y el armador las implemente, **no se entregan pagos a proveedor**.
+Caso concreto: la póliza de prueba de 52,339.34 del 19-oct corresponde a una factura del 26-ago con
+IEPS 3,876.99 → R1 → le faltaban dos renglones. No se importó.
+
+~~⚠️ Sin explicar: 709 facturas de mes anterior se pagaron por R2.~~ ⭐⭐ **Explicado el mismo día —
+lo propuso el usuario: el monto.** Sólo se provisionan (y se pagan contra `2120`) las facturas de
+**$20 mil o más**. Medido sobre 4,508 facturas pagadas en 2026:
+
+| factura | contra 2120 | compra directa 501/502 |
+|---|--:|--:|
+| ≥ 20 mil, mes anterior (2,382) | **98 %** | 2 % |
+| < 20 mil, mes anterior (1,410) | 0 % | **100 %** |
+| ≥ 20 mil, mismo mes (426) | 2 % | **98 %** |
+| < 20 mil, mismo mes (290) | 0 % | **100 %** |
+
+Y **501 vs 502 = la tasa de IVA del concepto**: de las facturas que sólo usan 501, 98.7 % son
+100 % IVA 0 %; de las que sólo usan 502, 97.8 % son 100 % IVA 16 %; cuando usan las dos, 85 % se
+reparten como las bases 0 %/16 % del CFDI. Con eso la regla del armador queda determinista desde
+el CFDI (monto, mes, tasas), salvo lo que contabilidad corrija. La hipótesis anterior —«depende del
+proveedor»— explicaba ~70 % y era un efecto: hay proveedores que facturan siempre poco.
+
+**Los demás egresos:** cinco tipos con cuenta fija (seguros `5200530000`, caja de ahorro
+`2140290000`, comisión bancaria `5200650000`, renta `5200510002`, traslado de valores
+`5200680000`), dos con pasivo + intereses (factoraje, crédito), y el resto por sucursal (nómina,
+IMSS), por concepto del CFDI (tarjeta) o mal clasificado en la Suite (servicios, impuestos, 676
+sin categoría). ⚠️ **Caja de ahorro carga a pasivo `2140`**: `firma-regla.ts` hoy sólo acepta
+gasto `52*` y la rechazaría — si contabilidad la aprueba, hay que ampliar la regla de firma.
+
+El documento con el detalle y las aprobaciones (privado, con nombres de proveedores) es el doc
+«Catálogo de asientos de egresos de banco». Script de la medición: no versionado, en el scratchpad
+de la sesión (`catalogo-formas.js`); se versiona cuando se implemente R1–R4.
+
 ---
 
 ## 4. Decisiones a firmar
@@ -204,6 +387,7 @@ otra cosa:
 | **D3** | **¿Dónde vive la marca de conciliado?** | Suite · ContPAQi · las dos | **En la Suite, dentro de la Fase CB** (ya 🔨). Escribirla en ContPAQi choca con ADR-040 (*nunca escribimos directo*) y el layout de importación **no se ha medido** que la lleve. **Fuera de este anexo** | Contabilidad + Edgar |
 | **D4** | **¿Cómo se firma una regla?** | por categoría · por categoría × sucursal · por proveedor | **La forma que dicta el dato** (`tipo_regla`): §24.3 midió que 3 categorías **no pueden** tener una sola cuenta. La pantalla no deja aprobar una regla `por_categoria` donde el dato dice otra cosa | Contabilidad |
 | **D5** | **¿Qué deja de capturar la contadora?** | nada (el puente sólo «ayuda») · lo que entra y cuadra | **Lo que entra y cuadra.** Si la contadora sigue capturando igual, el puente **suma** trabajo en vez de quitarlo y aparecen pólizas duplicadas. Es cambio de proceso, no de código | Contabilidad + Dirección |
+| **D7** | **¿Quién puede firmar una regla de cuenta?** (sale de `[CP.8.53]`) | (a) quien tiene `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` hoy: `contabilidad`, `finanzas`, `superadmin` · (b) un permiso propio, sólo contabilidad | Hoy rige **(a)**, y la firma deja nombre. **Recomiendo (b)** si finanzas no debe elegir cuentas contables: es un permiso nuevo, migración y **reparto en prod** (regla 20), no un cambio de pantalla | Edgar + Contabilidad |
 | **D6** | **Comisiones y pagos de crédito: ¿póliza diaria o mensual?** (sale de `[CP.8.46]`) | (a) el puente las arma **mensuales por banco**, como hoy contabilidad · (b) **diarias**, como el banco | **(a) mensual**, para no cambiarle a contabilidad dos cosas a la vez. El cuadre tiene que saber que esa forma se busca por **mes**, no a ±3 días. Y antes, la Suite tiene que **clasificar bien** la comisión de terminal (hoy cae en tres categorías) — eso es de CB | Contabilidad |
 
 ⭐ **Qué NO depende de las firmas:** F2 y F3a ya se midieron (§3.1). El código de F1b puede
@@ -251,23 +435,23 @@ Los códigos siguen la numeración de CP.8 (el último usado es `[CP.8.45]`).
 
 | # | Entregable | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| `CP.8.50` | **`registrarEntrega`**: de los mismos `construirLotes` del archivo (un solo camino, §36.2) salen las filas de `poliza_exports` en `entregada`, con token y `guid`. **Idempotente**: re-entregar el mismo mes no duplica (el token es determinista) | ⬜ | candado puro; mutar la idempotencia a rojo una vez |
-| `CP.8.51` | **Firma de regla**: transición `derivada → aprobada` con quién y cuándo; se niega sin `cuenta_gasto` y se niega si la forma no coincide con `tipo_regla` (D4) | ⬜ | candado puro con los dos rechazos |
+| `CP.8.50` | **`registrarEntrega`**: de los mismos `construirLotes` del archivo (un solo camino, §36.2) salen las filas de `poliza_exports` en `entregada`, con token y `guid`. **Idempotente**: re-entregar el mismo mes no duplica (el token es determinista) | 🧪 2026-10-20 (§3.3) | candado puro; mutar la idempotencia a rojo una vez |
+| `CP.8.51` | **Firma de regla**: transición `derivada → aprobada` con quién y cuándo; se niega sin `cuenta_gasto` y se niega si la forma no coincide con `tipo_regla` (D4) | 🧪 2026-10-20 (§3.4) | candado puro con los dos rechazos |
 
 ### C2 · API (`contpaqi-bridge.controller.ts`, hoy 5 endpoints, ninguno escribe `poliza_exports`)
 
 | # | Entregable | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| `CP.8.52` | `POST /finance/contpaqi/entregas` `{ mes }` — marca entregado lo que se descargó; arranca el reloj de 5 días del cuadre. `GESTIONAR` | ⬜ | **sí** | ⛔ obligatoria, con el payload de la pantalla: 0 → N filas, y N → N al repetir |
-| `CP.8.53` | `GET /finance/contpaqi/reglas` (con su evidencia) + `POST /reglas/:id/aprobar` | ⬜ | **sí** | ⛔ obligatoria; incluir el rechazo de D4 |
+| `CP.8.52` | `POST /finance/contpaqi/entregas` `{ mes, archivo_base64 }` — marca entregado el archivo que se cargó (idéntico al que genera hoy, si no 409); arranca el reloj de 5 días del cuadre. `GESTIONAR` | 🧪 2026-10-20 (§3.3) | **sí** | ⛔ obligatoria, con el payload de la pantalla: 0 → N filas, y N → N al repetir |
+| `CP.8.53` | `GET /finance/contpaqi/reglas` (con su evidencia) + `POST /reglas/:id/aprobar` | 🧪 2026-10-20 (§3.4) | **sí** | ⛔ obligatoria; incluir el rechazo de D4 |
 | `[CP.8.11]` | `GET /finance/contpaqi/divergencias` — lo entregado que no aparece, o aparece con otro importe | ⬜ (existente) | no | contra las entregas reales de F1 |
 
 ### C3 · UI (`/contabilidad/contpaqi-puente`)
 
 | # | Entregable | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| `CP.8.54` | **«Marcar como entregado»**, separado de «Generar», con confirmación que dice qué arranca (*«a los 5 días la Suite empieza a preguntar por qué no aparece»*) | ⬜ | medir antes de tocar |
-| `[CP.8.14]` | **Reglas con su evidencia y botón de aprobar** — la pantalla que el 37.6 % necesita | ⬜ (existente) | ídem |
+| `CP.8.54` | **«Marcar como entregado»**, separado de «Generar», con confirmación que dice qué arranca (*«a los 5 días la Suite empieza a preguntar por qué no aparece»*) | 🧪 2026-10-20 (§3.3) | medir antes de tocar |
+| `[CP.8.14]` | **Reglas con su evidencia y botón de aprobar** — la pantalla que el 37.6 % necesita | 🧪 2026-10-20 (§3.4) | ídem |
 | `[CP.8.11]` | **Bandeja de divergencias** | ⬜ (existente) | ídem |
 
 ⛔ Skill `diseno` antes del primer archivo. El permiso ya está repartido (§1 de este doc); no hace
@@ -315,3 +499,10 @@ falta uno nuevo.
   clasificada, y los pagos de crédito **sí** están en ContPAQi, en una póliza mensual a fin de mes →
   D6 · `[CP.8.47]` ✅ 324 nombres, 14 hacen el 50 % · `[CP.8.48]` ✅ línea base ene–sep 5.9 %
   arma solo, con script versionado. `[CP.8.49]` sigue esperando la prueba A.
+- **2026-10-20** — `[CP.8.58]` 🧪 el puente leía con un pool sin tenant: visto como `app_runtime`,
+  bandeja con 0 lotes y cuadre ciego (reproducido en rojo, arreglado, 6 ✓). F1b en código:
+  `[CP.8.50]` · `[CP.8.52]` · `[CP.8.54]` 🧪 — ⛔ la escritura sigue **NO MEDIDA** hasta que
+  `test-newdb-contpaqi-entrega.js` corra en el job `pruebas-db`. §3.2 y §3.3.
+- **2026-10-20** — F4 en código (§3.4): `[CP.8.51]` · `[CP.8.53]` · `[CP.8.14]` 🧪 — 6 reglas
+  firmables que traban 9,757 movs ene–sep ($16.6M). Destapó `[CP.8.59]`: el archivo habría
+  reenviado lo ya entregado; ahora sólo lleva lo pendiente. Escritura NO MEDIDA hasta `pruebas-db`.

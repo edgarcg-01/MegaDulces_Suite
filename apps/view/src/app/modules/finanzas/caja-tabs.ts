@@ -49,30 +49,30 @@ export const CAJA_TABS: readonly PageTab[] = [
   },
   {
     /**
-     * ⭐ `[CGS.2]` **Arqueos.** Pedido de Edgar (2026-10-20): *«en historial tengo que hacer
-     * scroll hasta abajo para ver los arqueos; hagamos una pestaña extra que diga Arqueos»*.
+     * ⭐⭐ `[CGS.2]` **Arqueos** — y es UNA pestaña donde había dos.
      *
-     * Va SEGUNDA, pegada a Captura, y no al final: lo que la motivó es que el arqueo estaba al
-     * fondo de la pantalla de Captura. Mandarlo al último lugar de la barra sería mover el
-     * scroll de sitio, no quitarlo.
+     * Edgar, 2026-10-20, en dos pedidos del mismo día: *«en historial tengo que hacer scroll
+     * hasta abajo para ver los arqueos; hagamos una pestaña extra que diga Arqueos»* y después
+     * *«Expediente y Arqueos es lo mismo, hay que fusionarlos»*.
+     *
+     * ⛔ **Y tenía razón en que eran lo mismo**: las dos contestaban la revisión de la mañana con
+     * la mitad de la respuesta cada una. El Expediente enseñaba los movimientos del día sin decir
+     * si el arqueo cuadró; el arqueo decía si cuadró sin enseñar con qué. Ahora es una fila por
+     * día y un solo cajón con las tres preguntas en orden.
+     *
+     * Va SEGUNDA, pegada a Captura: lo que motivó la pestaña es que el arqueo estaba al fondo de
+     * la pantalla de Captura, y mandarla al final de la barra sería mover el scroll de sitio.
      *
      * ⚠️ Mismo permiso que su ruta (`FINANCE_CAJA_VER`), copiado de `app.routes.ts`. Una pestaña
      * con un gate distinto al de su ruta falla de las dos maneras y ninguna avisa.
+     *
+     * ⛔ `exact` queda en su default (true) y eso importa: esta ruta CUELGA de la de Captura. Con
+     * `exact: false` en Captura, las dos pestañas se encenderían a la vez estando acá, y la barra
+     * dejaría de decir dónde estás — que es lo único que la barra hace.
      */
     label: 'Arqueos',
     route: '/finanzas/caja-general/arqueos',
     icon: 'pi pi-check-square',
-    permission: Permission.FINANCE_CAJA_VER,
-  },
-  {
-    // `[CG.105]` El corte diario y el expediente del día. Sólo lectura: se captura en Control.
-    // ⛔ `exact` queda en su default (true) y eso importa acá: esta ruta CUELGA de la de
-    // Captura (`/finanzas/caja-general/expediente`). Con `exact: false` en Captura, las dos
-    // pestañas se encenderían a la vez estando en el Expediente, y la barra dejaría de decir
-    // dónde estás — que es lo único que la barra hace.
-    label: 'Expediente',
-    route: '/finanzas/caja-general/expediente',
-    icon: 'pi pi-folder-open',
     permission: Permission.FINANCE_CAJA_VER,
   },
   {

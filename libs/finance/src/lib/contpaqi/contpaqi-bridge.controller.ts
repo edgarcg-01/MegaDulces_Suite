@@ -1,10 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException, Body, ConflictException, Controller, Get, Param, Post, Query, Req, Res, UseGuards,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
-  ContpaqiArmadoService,
-  type PendienteProveedor, type ResumenLote, type ResumenMes,
+  ContpaqiArmadoService, EntregaRechazada, FirmaRechazada,
+  type PendienteProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 
@@ -29,15 +31,14 @@ import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
  * *"1,474 pendientes"* — un número que no le dice a nadie qué hacer. Ahora cada cubo tiene a quién
  * le toca, y 148 de ellos **no son trabajo pendiente de nadie**.
  *
- * ── ⛔ Lo que este controlador NO hace ──────────────────────────────────────────────────────
- * **No entrega.** `POST /entregar` no existe todavía y es deliberado: `contpaqi.poliza_exports`
- * está vacía porque **nunca se ha importado un archivo a ContPAQi** (`[CP.8.24]`). Hasta que
- * alguien confirme que el formato se acepta, un botón de entregar sería ofrecer un camino que
- * nadie recorrió.
+ * ── Entregar ────────────────────────────────────────────────────────────────────────────────
+ * ⭐ `[CP.8.52]` `POST /entregas` existe desde el 2026-10-20 y **no entrega nada**: registra que
+ * contabilidad ya cargó el archivo en ContPAQi, para que el cuadre lo busque del otro lado. Sólo
+ * acepta el mismo archivo que la Suite genera hoy, byte a byte. Antes no existía a propósito:
+ * nunca se había importado un archivo (`[CP.8.24]`), y sigue siendo así hasta la prueba A/B.
  *
- * ⭐ `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` ya está repartido igual: el día que haya algo que
- * entregar, la puerta está separada de la de mirar y no hay que repartir permisos con el botón
- * ya vivo.
+ * ⭐ `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` ya estaba repartido: la puerta de marcar está separada de
+ * la de mirar.
  *
  * ── Permisos propios ────────────────────────────────────────────────────────────────────────
  * No se heredan del Libro de Compras ni de Contabilidad electrónica. El libro es el trámite
@@ -134,6 +135,9 @@ export class ContpaqiBridgeController {
     res.setHeader('X-Movimientos', String(r.movimientos));
     // ⭐ Viaja en la respuesta para que nadie confunda descargar con entregar.
     res.setHeader('X-Entregado', 'false');
+    // `[CP.8.53]` Lo ya entregado del mes no viaja en el archivo; se dice cuánto quedó fuera.
+    res.setHeader('X-Ya-Entregadas', String(r.ya_entregadas));
+    res.setHeader('X-Cambiados-Tras-Entrega', String(r.cambiados.length));
     res.send(buf);
   }
 
@@ -183,6 +187,99 @@ export class ContpaqiBridgeController {
     } catch (e) {
       // El servicio lanza con el motivo exacto (cuenta inexistente, rubro equivocado): se
       // devuelve tal cual, porque es lo que quien confirma necesita leer para corregir.
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
+  /**
+   * `[CP.8.52]` — **«Ya lo cargué en ContPAQi».** Registra las pólizas del archivo en
+   * `contpaqi.poliza_exports` como `entregada` y arranca el reloj del cuadre.
+   *
+   * ⛔ `archivo_base64` es el archivo que se cargó; si no es idéntico al que la Suite genera hoy
+   * para ese mes, **409** con el motivo (el mes cambió desde la descarga, o se subió otro). Marcar
+   * dos veces no duplica ni reinicia el plazo. Exige `_GESTIONAR` y deja el nombre de quien afirma.
+   */
+  @Post('entregas')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Marca entregado el archivo del mes que ya se cargó en ContPAQi.' })
+  async marcarEntregado(
+    @Body() body: { mes?: string; archivo_base64?: string },
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<{
+    mes: string; polizas: number; nuevas: number; ya_registradas: number; total: number;
+    archivo_sha256: string;
+  }> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién marca la entrega');
+    const mes = String(body?.mes ?? '');
+    if (!/^\d{4}-\d{2}$/.test(mes)) throw new BadRequestException('hace falta `mes` como AAAA-MM');
+    if (!body?.archivo_base64) throw new BadRequestException('hace falta `archivo_base64`: el archivo que se cargó');
+    try {
+      return await this.armado.marcarEntregado(mes, body.archivo_base64, quien);
+    } catch (e) {
+      if (e instanceof EntregaRechazada) throw new ConflictException(e.message);
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
+  /**
+   * `[CP.8.53]` Las reglas de cuenta, por cuánto dinero del mes traban. `_VER`: mirar qué falta
+   * firmar no es firmar.
+   */
+  @Get('reglas')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Reglas de cuenta con su evidencia y lo que traban este mes.' })
+  async reglas(@Query('mes') mes?: string): Promise<{ mes: string; reglas: ReglaVista[] }> {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    return { mes: anioMes, reglas: await this.armado.reglas(anioMes) };
+  }
+
+  /** `[CP.8.53]` Las cuentas que puede llevar una regla por categoría (gasto 52*, afectables, vivas). */
+  @Get('cuentas-gasto')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Cuentas de gasto 52* afectables de ContPAQi, para firmar una regla.' })
+  async cuentasGasto(): Promise<{ cuentas: { codigo: string; nombre: string }[] }> {
+    return { cuentas: await this.armado.cuentasGasto() };
+  }
+
+  /**
+   * `[CP.8.53]` — **El contador firma la cuenta de una categoría.** Desde ahí el armador la usa.
+   * ⛔ `_GESTIONAR` y deja el nombre de quien firma. El motivo de un rechazo vuelve tal cual (409):
+   * es lo que quien firma necesita para corregir.
+   */
+  @Post('reglas/:categoria/firma')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Firma la cuenta de gasto de una regla por categoría.' })
+  async firmarRegla(
+    @Param('categoria') categoria: string,
+    @Body() body: { cuenta?: string },
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<ReglaVista> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién firma');
+    if (!body?.cuenta) throw new BadRequestException('hace falta `cuenta`');
+    try {
+      return await this.armado.firmarRegla(categoria, body.cuenta, quien);
+    } catch (e) {
+      if (e instanceof FirmaRechazada) throw new ConflictException(e.message);
+      throw new BadRequestException((e as Error).message);
+    }
+  }
+
+  /** `[CP.8.53]` Revoca una firma: la categoría vuelve a `sin_regla` y deja de armarse. */
+  @Post('reglas/:categoria/revocar')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Revoca la firma de una regla de cuenta.' })
+  async revocarRegla(
+    @Param('categoria') categoria: string,
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<ReglaVista> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién revoca');
+    try {
+      return await this.armado.revocarRegla(categoria, quien);
+    } catch (e) {
+      if (e instanceof FirmaRechazada) throw new ConflictException(e.message);
       throw new BadRequestException((e as Error).message);
     }
   }

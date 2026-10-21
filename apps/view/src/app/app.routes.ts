@@ -657,23 +657,26 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
       },
       {
-        // `[CG.105]` El corte diario y el expediente del día, derivados del Access `Control`
-        // (30,199 arqueos desde 2013). Es la pantalla que se revisa cada mañana para ver si el
-        // corte coincide con lo que hay en la caja. Sólo lectura: se captura en Control.
-        path: 'caja-general/expediente',
-        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-expediente.component').then(m => m.FinanzasCajaExpedienteComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
-      },
-      {
-        // ⭐ `[CGS.2]` **Arqueos**: el corte sellado en la Suite contra el arqueo de cierre de
-        // Control, día por día y pieza por pieza. Pedido de Edgar (2026-10-20) para que el
-        // supervisor no tenga que bajar hasta el fondo del historial de Captura.
+        // ⭐⭐ `[CGS.2]` **Arqueos**: lo que se contó en el cajón contra lo que el libro dice que
+        // debería haber, con su cuenta término por término, su conteo pieza por pieza y los
+        // movimientos del día.
         //
-        // ⚠️ `FINANCE_CAJA_VER` a secas, igual que el Expediente: es lectura, y quien revisa de
-        // mañana no tiene por qué poder capturar para poder mirar.
+        // ⛔ **Fusiona lo que eran DOS pantallas.** Edgar, 2026-10-20: *«Expediente y Arqueos es
+        // lo mismo, hay que fusionarlos»*. Eran dos rutas para una sola revisión —la de la
+        // mañana— y había que acordarse de ir a la otra para entender la primera.
+        //
+        // ⚠️ `FINANCE_CAJA_VER` a secas: es lectura, y quien revisa de mañana no tiene por qué
+        // poder capturar para poder mirar.
         path: 'caja-general/arqueos',
         loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-arqueos.component').then(m => m.FinanzasCajaArqueosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
+      },
+      {
+        // ⚠️ La ruta vieja NO se borra: se redirige. `[CG.105]` la publicó y quien la tenga
+        // guardada caería en un 404 que se lee como «la pantalla desapareció».
+        path: 'caja-general/expediente',
+        redirectTo: 'caja-general/arqueos',
+        pathMatch: 'full',
       },
       {
         // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la

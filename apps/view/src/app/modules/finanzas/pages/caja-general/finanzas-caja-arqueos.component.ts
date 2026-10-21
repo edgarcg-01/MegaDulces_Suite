@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -10,58 +11,144 @@ import { SidePeekComponent } from '../../../../shared/components/side-peek/side-
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
-/**
- * ⭐ Los tipos del cruce salen del CONTRATO, no de una copia local. Mientras cada lado declaraba
- * su propia versión, el día que el backend agregara un estado o volviera nulo un campo el
- * frontend seguía compilando en verde y pintando otra cosa (ADR-052).
- */
-import type {
-  Freshness, CruceArqueoDia, CruceArqueoDenominacion, CruceArqueosResponse,
+import {
+  veredictoConcluyente,
+  type Freshness, type ArqueoDia, type ArqueosResponse, type VeredictoCorte, type ArqueoControlUltimo,
 } from '@megadulces/contracts';
+import { CaosService, type CaosSaldo } from '../../caos.service';
+import { catchError, of } from 'rxjs';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
+import { forkJoin } from 'rxjs';
+import { CashLedgerService, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
+import { CajaSocketService } from '../../caja-socket.service';
+import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 
-/** Los nombres cortos con que esta pantalla usa el contrato. Un alias, no una segunda forma. */
-export type CruceDenom = CruceArqueoDenominacion;
-export type CruceDia = CruceArqueoDia;
-type CruceResp = CruceArqueosResponse;
+/** Un día visto por Control: sus movimientos y el arqueo que capturó. */
+export interface CorteDia {
+  fecha: string;
+  movimientos: number;
+  conteos: number;
+  tickets_que_no_cuadran: number;
+  tiene_corte: boolean;
+  corte_folio: string | null;
+  corte_hora: string | null;
+  corte_observaciones?: string | null;
+  corte_cuadra_ticket: boolean | null;
+  total_efectivo: number | string | null;
+  [k: string]: unknown;
+}
+
+/** Un movimiento del día, con su ticket por denominación. */
+export interface MovimientoExpediente {
+  folio: string;
+  hora: string;
+  capturo: string | null;
+  observaciones: string | null;
+  cancelado: boolean;
+  naturaleza: 'conteo' | 'movimiento';
+  cuadra_ticket: boolean;
+  total_efectivo: number | string;
+  total_cheques: number | string;
+  total_tarjeta: number | string;
+  total_papeles: number | string;
+  dolares_usd: number | string;
+  tipo_cambio: number | string | null;
+  total_dolares: number | string;
+  total_declarado: number | string;
+  [k: string]: unknown;
+}
+
+interface Expediente {
+  fecha: string;
+  rows: MovimientoExpediente[];
+  resumen: {
+    movimientos: number; cancelados: number; conteos: number;
+    efectivo_movido: number; tickets_que_no_cuadran: number;
+  };
+  corte: MovimientoExpediente | null;
+}
 
 /**
- * ⭐⭐ `[CGS.2]` — **Arqueos: el mismo cajón, contado dos veces, lado a lado.**
+ * ⭐ **Una fila por DÍA, con lo que cada fuente sepa de ese día.**
  *
- * Pedido de Edgar (2026-10-20): *«en historial tengo que hacer scroll hasta abajo para ver los
- * arqueos; hagamos una pestaña extra que diga Arqueos, donde muestre más desglosados los
- * cortes, de forma que le daremos más visibilidad al usuario»*.
+ * La fusión se hace acá y no en el servidor a propósito: son dos carriles con vidas distintas
+ * —el arqueo es del libro, los movimientos son del espejo de Control— y unirlos en una consulta
+ * obligaría a que uno esperara al otro para pintar nada.
+ */
+interface DiaFila {
+  fecha: string;
+  /** El arqueo del libro. `null` = ese día nadie selló un corte en la Suite. */
+  arqueo: ArqueoDia | null;
+  /** El día según Control. `null` = Control no registró nada ese día. */
+  control: CorteDia | null;
+}
+
+/** Las piezas del ticket de Control, en el orden en que se cuentan. */
+const DENOMINACIONES: ReadonlyArray<{ k: string; etiqueta: string; valor: number; moneda: boolean }> = [
+  { k: 'b1000', etiqueta: '$1,000', valor: 1000, moneda: false },
+  { k: 'b500', etiqueta: '$500', valor: 500, moneda: false },
+  { k: 'b200', etiqueta: '$200', valor: 200, moneda: false },
+  { k: 'b100', etiqueta: '$100', valor: 100, moneda: false },
+  { k: 'b50', etiqueta: '$50', valor: 50, moneda: false },
+  { k: 'b20', etiqueta: '$20', valor: 20, moneda: false },
+  { k: 'm100', etiqueta: '$100', valor: 100, moneda: true },
+  { k: 'm20', etiqueta: '$20', valor: 20, moneda: true },
+  { k: 'm10', etiqueta: '$10', valor: 10, moneda: true },
+  { k: 'm5', etiqueta: '$5', valor: 5, moneda: true },
+  { k: 'm2', etiqueta: '$2', valor: 2, moneda: true },
+  { k: 'm1', etiqueta: '$1', valor: 1, moneda: true },
+  { k: 'm50c', etiqueta: '50¢', valor: 0.5, moneda: true },
+  { k: 'm20c', etiqueta: '20¢', valor: 0.2, moneda: true },
+  { k: 'm10c', etiqueta: '10¢', valor: 0.1, moneda: true },
+  { k: 'm5c', etiqueta: '5¢', valor: 0.05, moneda: true },
+  { k: 'centavos', etiqueta: '1¢', valor: 0.01, moneda: true },
+];
+
+const n = (v: unknown): number => Number(v ?? 0) || 0;
+
+/** Cómo se dice cada veredicto, y con qué severidad. El texto no se inventa en el template. */
+const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn' | 'danger' | 'info' }> = {
+  cuadra: { texto: 'Cuadra al centavo', sev: 'success' },
+  sobra: { texto: 'Sobra efectivo', sev: 'warn' },
+  falta: { texto: 'Falta efectivo', sev: 'danger' },
+  sin_contar: { texto: 'Nadie contó', sev: 'warn' },
+  sin_base: { texto: 'Sin fondo medido', sev: 'warn' },
+  sin_medir: { texto: 'Sin veredicto guardado', sev: 'warn' },
+  esperado_imposible: { texto: 'No se puede arquear', sev: 'danger' },
+};
+
+/**
+ * ⭐⭐ `[CGS.2]` — **Arqueos de Caja General: lo contado contra lo que el sistema dice.**
  *
- * ── Por qué es una pestaña y no una sección más ─────────────────────────────────────────────
+ * ## ⛔ Las DOS correcciones de Edgar que hicieron esta pantalla, el 2026-10-20
  *
- * El mismo cajón se cuenta en DOS sistemas —el corte de la Suite y el arqueo de cierre que
- * Control captura— y hasta hoy **ninguna pantalla los ponía juntos**: el Expediente lee sólo
- * Control, Captura lee sólo la Suite. Por eso un desfase de **$19,811.50** vivió ocho días sin
- * que nadie lo viera; para encontrarlo hubo que cruzar a mano dos tablas que el producto nunca
- * cruzaba.
+ * **1. Contra qué se arquea.** Mi primera versión cruzaba el corte de la Suite contra el arqueo
+ * del Access `Control`. *«No se compara contra Control; el arqueo se compara contra lo que dice
+ * el sistema, contra la fórmula que arroja lo real»*. Y es de fondo: cruzar dos sistemas es una
+ * **conciliación** —*¿los dos contaron lo mismo?*—; el arqueo pregunta *¿está en el cajón lo que
+ * el libro dice que debería estar?*, y eso tiene un solo contendiente. Control queda de **segundo
+ * testigo**.
  *
- * ── Los tres niveles de esta pantalla (DESIGN Q.5), dichos en una línea ─────────────────────
+ * **2. Expediente y Arqueos son lo mismo.** *«Hay que fusionarlos»*. Eran dos pantallas para una
+ * sola revisión: la de la mañana. Acá hay **una fila por día** y un solo cajón que contesta las
+ * tres preguntas en orden — ¿cuadró?, ¿con qué cuenta?, ¿qué movimientos hubo?
  *
- *   primario   = cuántos días NO cuadran y por cuánto dinero;
- *   secundario = la fila del día, con las dos cifras y su diferencia;
- *   terciario  = la pieza exacta donde está la diferencia, en el cajón lateral.
+ * ## Los tres niveles (DESIGN Q.5), dichos en una línea
  *
- * ⭐ **El total solo no alcanza, y el 19-oct lo prueba:** $500 que parecen un descuadre y son un
- * billete mal clasificado —la Suite anotó un $1,000 donde Control anotó un $500, con las otras
- * ocho denominaciones idénticas—. Por eso la fila abre el desglose (Q.3: señalar la fila, no el
- * agregado).
+ *   primario   = el veredicto del último arqueo y cuántos no se pueden responder;
+ *   secundario = la fila del día, con esperado · contado · diferencia;
+ *   terciario  = la cuenta término por término, el conteo pieza por pieza y los movimientos.
  *
- * ── ⛔ Lo que esta pantalla NO hace ─────────────────────────────────────────────────────────
+ * ## ⛔ Lo que esta pantalla NO hace
  *
- * **No decide quién tiene razón.** Publica las dos cifras y su diferencia; cuál de los dos
- * arbitra el conteo es una decisión de negocio sobre cortes firmados y todavía no está tomada.
- * Afirmarla acá sería inventar un árbitro (ADR-059).
+ * **No edita nada.** El conteo sellado no se cambia: se RECUENTA en Captura, y el reconteo deja
+ * rastro. Lo de Control se corrige en Control (mismo criterio que ADR-040 con ContPAQi).
  *
- * **No corrige nada.** Lo de Control se corrige en Control; lo de la Suite, recontando en
- * Captura. Una pantalla que deja editar el espejo fabrica una segunda verdad.
+ * **No arbitra entre la Suite y Control** (ADR-059): cuando el segundo testigo discrepa se
+ * publica la discrepancia, no un ganador.
  */
 @Component({
   selector: 'app-finanzas-caja-arqueos',
@@ -77,8 +164,8 @@ type CruceResp = CruceArqueosResponse;
         <div class="surf-page-head-text">
           <h1>Arqueos de Caja General</h1>
           <p class="surf-page-sub">
-            El corte que selló la Suite contra el arqueo de cierre que capturó Control, día por día
-            y pieza por pieza. No decide cuál de los dos tiene razón: publica los dos.
+            Lo que se contó en el cajón contra lo que el libro dice que debería haber, día por día.
+            Cada día abre su cuenta término por término, su conteo pieza por pieza y sus movimientos.
           </p>
         </div>
         <div class="cq-actions">
@@ -92,31 +179,70 @@ type CruceResp = CruceArqueosResponse;
         </div>
       </header>
 
-      <app-load-state [loading]="cargando() && !dias().length" [error]="error()"
-                      [isEmpty]="!cargando() && !error() && !dias().length"
-                      [skeletonRows]="6"
-                      emptyTitle="No hay arqueos que cruzar"
-                      emptyHint="El cruce necesita un arqueo de cierre en Control. Si está vacío, el carril de ese dato dejó de llegar."
-                      errorTitle="No se pudo traer el cruce"
-                      (retry)="recargar()" />
+      <!-- [CGA-A.43] La pregunta de quien abre esto a medio dia no es «cuanto se conto ayer» sino
+           «cuanto hay AHORA». Se compone el cierre anterior + lo de hoy, DECLARADO como provisional. -->
+      <section class="cq-ahora" aria-labelledby="cq-h-ahora">
+        <div class="cq-ahora-cab">
+          <h2 id="cq-h-ahora" class="cq-h2">¿Cuánto hay ahora en el cajón y en la caja fuerte?</h2>
+          <app-freshness-pill measures="fetch" [since]="cajonAl()" [staleAfterSec]="180" label="calculado" />
+        </div>
+        <app-load-state [loading]="cajonCargando() && !cajonSaldo()" [error]="cajonError()" [isEmpty]="false"
+                        [skeletonRows]="1" errorTitle="No se pudo calcular el cajón" (retry)="cargarCajon()">
+          <app-metric-strip [items]="cajonKpis()" ariaLabel="El cajón ahora" />
+          @if (cajonNota(); as nota) { <p class="cq-nota">{{ nota }}</p> }
+          <!-- [CGA-A.48] Lo que Control contó y está en la caja fuerte, no en el cajón. -->
+          @if (controlUltimo(); as cu) {
+            @if (cu.diferencia) {
+              <p class="cq-nota">
+                Control contó <b>{{ mx(cu.efectivo) }}</b> el {{ dmy(cu.dia) }}{{ cu.hora ? ' a las ' + cu.hora : '' }}
+                ({{ cu.folio || 'sin folio' }}): {{ firmado(cu.diferencia) }} sobre el cierre del libro {{ cu.libro_folio }}.
+                @if (cu.en_caos.length) {
+                  De eso, <b>{{ mx(cu.en_caos_total) }}</b> coincide billete por billete con
+                  @for (d of cu.en_caos; track d.id; let ultimo = $last) {
+                    el depósito a la caja fuerte #{{ d.id }}{{ d.ref ? ' «' + d.ref + '»' : '' }} ({{ dmy(d.dia) }} {{ d.hora }}){{ ultimo ? '' : ', ' }}
+                  }: ese dinero está en CAOS, no en el cajón de Caja General.
+                  @if (cu.sin_explicar) { Quedan <b>{{ firmado(cu.sin_explicar) }}</b> que ningún depósito a la caja fuerte explica. }
+                } @else {
+                  Ningún depósito a la caja fuerte lo explica.
+                }
+              </p>
+            }
+          }
+        </app-load-state>
+      </section>
 
-      @if (dias().length) {
-        <!-- DESIGN Q.1 — la pantalla abre con la respuesta, no con la rejilla. -->
+      <!-- ⭐ DESIGN Q.1 — answer-first: el veredicto del ultimo arqueo, no la rejilla. -->
+      @if (ultimoArqueo(); as u) {
         <section class="cq-veredicto" aria-labelledby="cq-h-ver">
-          <h2 id="cq-h-ver" class="cq-h2">{{ titular() }}</h2>
-          <app-metric-strip [items]="kpis()" ariaLabel="Resultado del cruce" />
+          <div class="cq-ver-cab">
+            <h2 id="cq-h-ver" class="cq-h2">Último arqueo · {{ dmy(u.fecha) }}</h2>
+            <p-tag [value]="VEREDICTO[u.veredicto].texto" [severity]="VEREDICTO[u.veredicto].sev" styleClass="cq-tag" />
+            <span class="cq-dim">{{ u.folio }}{{ u.cerro ? ' · cerró ' + u.cerro : '' }}</span>
+            @if (!u.autorizado) { <p-tag value="Sin autorizar" severity="warn" styleClass="cq-tag" /> }
+          </div>
+          <app-metric-strip [items]="veredictoKpis()" ariaLabel="El último arqueo" />
           @for (nota of notas(); track nota) { <p class="cq-nota">{{ nota }}</p> }
         </section>
+      }
 
-        <section class="cq-block dt-scope" aria-labelledby="cq-h-dias">
-          <div class="cq-bh">
-            <h2 id="cq-h-dias" class="cq-h2">Día por día</h2>
-            <span class="cq-hint">Da clic en un día para ver en qué pieza está la diferencia</span>
-          </div>
+      <section class="cq-block dt-scope" aria-labelledby="cq-h-dias">
+        <div class="cq-bh">
+          <h2 id="cq-h-dias" class="cq-h2">Día por día</h2>
+          <span class="cq-hint">{{ resumen() }}</span>
+        </div>
 
-          <p-table [value]="dias()" size="small" dataKey="fecha" [rowHover]="true"
+        <app-load-state [loading]="cargando() && !filas().length" [error]="error()"
+                        [isEmpty]="!cargando() && !error() && !filas().length"
+                        [skeletonRows]="6"
+                        emptyTitle="Sin arqueos ni movimientos en el periodo"
+                        emptyHint="Si está vacío, el carril que alimenta la lista dejó de llegar."
+                        errorTitle="No se pudo traer el historial"
+                        (retry)="recargar()" />
+
+        @if (filas().length) {
+          <p-table [value]="filas()" size="small" dataKey="fecha" [rowHover]="true"
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
-                   [paginator]="dias().length > 30" [rows]="30"
+                   [paginator]="filas().length > 30" [rows]="30"
                    [rowsPerPageOptions]="[30, 60, 90]"
                    [showCurrentPageReport]="true"
                    currentPageReportTemplate="{first}–{last} de {totalRecords} días"
@@ -124,113 +250,208 @@ type CruceResp = CruceArqueosResponse;
             <ng-template #header>
               <tr>
                 <th scope="col">Día</th>
-                <th scope="col" class="comm-num">Contó la Suite</th>
-                <th scope="col" class="comm-num">Contó Control</th>
-                <th scope="col" class="comm-num">Difieren</th>
-                <th scope="col">Resultado</th>
+                <th scope="col" class="comm-num">Debería haber</th>
+                <th scope="col" class="comm-num">Se contó</th>
+                <th scope="col" class="comm-num">Diferencia</th>
+                <th scope="col">Veredicto</th>
+                <th scope="col" class="comm-num">Movs.</th>
                 <th scope="col">Segunda llave</th>
-                <th scope="col">Folios</th>
               </tr>
             </ng-template>
-            <ng-template #body let-d>
-              <tr [pSelectableRow]="d">
-                <td role="cell" data-label="Día"><b>{{ dmy(d.fecha) }}</b></td>
-                <td role="cell" data-label="Contó la Suite" class="comm-num cq-strong">
-                  @if (d.suite && d.suite.contado !== null) { {{ mx(d.suite.contado) }} }
-                  @else { <span class="cq-dim">sin corte</span> }
+            <ng-template #body let-f>
+              <tr [pSelectableRow]="f">
+                <td role="cell" data-label="Día">
+                  <b>{{ dmy(f.fecha) }}</b>
+                  @if (f.arqueo) { <span class="cq-dim cq-mono"> {{ f.arqueo.folio }}</span> }
                 </td>
-                <td role="cell" data-label="Contó Control" class="comm-num cq-strong">
-                  @if (d.control.efectivo === null) { <span class="cq-dim">sin arqueo</span> }
-                  @else { {{ mx(d.control.efectivo) }} }
+                <td role="cell" data-label="Debería haber" class="comm-num">
+                  @if (!f.arqueo) { <span class="cq-dim">sin arqueo</span> }
+                  @else if (f.arqueo.esperado === null) { <span class="cq-dim">sin medir</span> }
+                  @else { <span [class.cq-mal]="f.arqueo.esperado < 0">{{ mx(f.arqueo.esperado) }}</span> }
                 </td>
-                <td role="cell" data-label="Difieren" class="comm-num"
-                    [class.cq-mal]="d.cruce.estado === 'difieren'">
-                  @if (d.cruce.diferencia === null) { <span class="cq-dim">—</span> }
-                  @else if (d.cruce.estado === 'cuadran') { <span class="cq-dim">0.00</span> }
-                  @else { {{ firmado(d.cruce.diferencia) }} }
+                <td role="cell" data-label="Se contó" class="comm-num cq-strong">
+                  @if (f.arqueo?.contado !== null && f.arqueo?.contado !== undefined) { {{ mx(f.arqueo.contado) }} }
+                  @else { <span class="cq-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Resultado">
-                  @switch (d.cruce.estado) {
-                    @case ('cuadran') { <p-tag value="Cuadran al centavo" severity="success" styleClass="cq-tag" /> }
-                    @case ('difieren') { <p-tag value="Difieren" severity="danger" styleClass="cq-tag" /> }
-                    @case ('sin_arqueo') { <p-tag value="Control no cerró ese día" severity="warn" styleClass="cq-tag" /> }
-                    @default { <p-tag value="Sin corte en la Suite" severity="warn" styleClass="cq-tag" /> }
+                <td role="cell" data-label="Diferencia" class="comm-num">
+                  <!-- ⛔ Con el esperado negativo la resta sale positiva SIEMPRE: pintarla como
+                       cifra normal afirmaria un sobrante justo donde la cuenta esta mas rota. -->
+                  @if (!f.arqueo || f.arqueo.diferencia === null) { <span class="cq-dim">—</span> }
+                  @else if (f.arqueo.veredicto === 'esperado_imposible') { <span class="cq-dim">no significa nada</span> }
+                  @else if (f.arqueo.diferencia === 0) { <span class="cq-dim">0.00</span> }
+                  @else { <span class="cq-mal">{{ firmado(f.arqueo.diferencia) }}</span> }
+                </td>
+                <td role="cell" data-label="Veredicto">
+                  @if (f.arqueo) {
+                    <p-tag [value]="tagVeredicto(f.arqueo).texto"
+                           [severity]="tagVeredicto(f.arqueo).sev" styleClass="cq-tag" />
+                  } @else {
+                    <p-tag value="Sin corte en el libro" severity="warn" styleClass="cq-tag" />
                   }
-                  @if (d.control.cuadra_ticket === false) {
-                    <p-tag value="El ticket de Control no cuadra consigo mismo" severity="danger" styleClass="cq-tag" />
+                  @if (f.control?.corte_cuadra_ticket === false) {
+                    <p-tag value="El ticket de Control no cuadra solo" severity="danger" styleClass="cq-tag" />
                   }
+                </td>
+                <td role="cell" data-label="Movs." class="comm-num">
+                  @if (f.control) { {{ f.control.movimientos }} } @else { <span class="cq-dim">—</span> }
                 </td>
                 <td role="cell" data-label="Segunda llave">
-                  @if (!d.suite) { <span class="cq-dim">—</span> }
-                  @else if (d.suite.autorizado) { <p-tag value="Autorizado" severity="success" styleClass="cq-tag" /> }
-                  @else { <p-tag value="Sin autorizar" severity="warn" styleClass="cq-tag" /> }
-                </td>
-                <td role="cell" data-label="Folios">
-                  <span class="cq-mono">{{ d.control.folio || '—' }}</span>
-                  <span class="cq-dim"> · Control</span>
-                  @if (d.suite) {
-                    <br /><span class="cq-mono">{{ d.suite.folio }}</span>
-                    <span class="cq-dim"> · Suite{{ d.suite.cerro ? ' · cerró ' + d.suite.cerro : '' }}</span>
-                  }
+                  @if (!f.arqueo) { <span class="cq-dim">—</span> }
+                  @else if (f.arqueo.autorizado) {
+                    <p-tag [value]="'Autorizó ' + (f.arqueo.autorizo || '—')" severity="success" styleClass="cq-tag" />
+                  } @else { <p-tag value="Sin autorizar" severity="warn" styleClass="cq-tag" /> }
                 </td>
               </tr>
             </ng-template>
           </p-table>
-        </section>
-      }
+        }
+      </section>
 
-      <!-- ⭐ DESIGN Q.3 — el terciario: la pieza exacta. El total dice QUE no cuadra; esto dice
-           DONDE, que es lo unico con lo que alguien puede ir a buscar el billete. -->
-      <app-side-peek [(open)]="peek" mode="window" [width]="900"
+      <!-- ⭐ LA FUSION: un solo cajon contesta las tres preguntas de la revision, en orden.
+           Antes eran dos pantallas y habia que acordarse de ir a la otra. -->
+      <app-side-peek [(open)]="peek" mode="window" [width]="1040"
                      [title]="'Arqueo del ' + (sel() ? dmy(sel()!.fecha) : '')"
                      [subtitle]="subtitulo()">
-        @if (sel(); as d) {
+        @if (sel(); as f) {
           <div class="cq-peek">
-            <app-metric-strip [items]="kpisDia(d)" ariaLabel="Las dos cuentas de ese día" />
 
-            @if (d.desglose.length) {
-              <table class="cq-reja">
-                <caption class="cq-reja-cap">Pieza por pieza. Sólo se listan las que algún sistema contó.</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Pieza</th>
-                    <th scope="col" class="comm-num">Control</th>
-                    <th scope="col" class="comm-num">Suite</th>
-                    <th scope="col" class="comm-num">Difieren</th>
-                    <th scope="col" class="comm-num">En dinero</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (p of d.desglose; track p.clave) {
-                    <tr [class.cq-fila-mal]="p.dif_piezas !== null && p.dif_piezas !== 0">
-                      <td>{{ pieza(p.valor) }} <span class="cq-dim">{{ p.tipo }}</span></td>
-                      <td class="comm-num">
-                        @if (p.control === null) { <span class="cq-dim">no contó</span> }
-                        @else { {{ p.control }} }
-                      </td>
-                      <td class="comm-num">
-                        @if (p.suite === null) { <span class="cq-dim">no se cuenta</span> }
-                        @else { {{ p.suite }} }
-                      </td>
-                      <td class="comm-num">
-                        @if (p.dif_piezas === null) { <span class="cq-dim">—</span> }
-                        @else if (p.dif_piezas === 0) { <span class="cq-dim">0</span> }
-                        @else { {{ p.dif_piezas > 0 ? '+' : '−' }}{{ abs(p.dif_piezas) }} }
-                      </td>
-                      <td class="comm-num">
-                        @if (p.dif_importe === null) { <span class="cq-dim">—</span> }
-                        @else if (p.dif_importe === 0) { <span class="cq-dim">—</span> }
-                        @else { {{ firmado(p.dif_importe) }} }
+            @if (f.arqueo; as a) {
+              <!-- 1. LA CUENTA: de donde sale el «deberia haber». Sin esto el total no se puede
+                   investigar; con esto la pregunta pasa a ser que pierna esta mal cruzada. -->
+              <section aria-labelledby="cq-h-cuenta">
+                <h3 id="cq-h-cuenta" class="cq-h3">La cuenta: de dónde sale lo que debería haber</h3>
+                <table class="cq-reja cq-cascada">
+                  <tbody>
+                    @for (t of terminos(a); track t.etiqueta) {
+                      <tr [class.cq-t-cero]="t.monto === 0">
+                        <td>{{ t.etiqueta }} @if (t.detalle) { <span class="cq-dim">{{ t.detalle }}</span> }</td>
+                        <td class="comm-num">
+                          @if (t.monto === null) { <span class="cq-dim">sin medir</span> }
+                          @else { {{ t.signo }}{{ mx(abs(t.monto)) }} }
+                        </td>
+                      </tr>
+                    }
+                    <tr class="cq-t-total">
+                      <td>Debería haber en el cajón</td>
+                      <td class="comm-num" [class.cq-mal]="(a.esperado ?? 0) < 0">
+                        {{ a.esperado === null ? 'sin medir' : mx(a.esperado) }}
                       </td>
                     </tr>
-                  }
-                </tbody>
-              </table>
+                    <tr class="cq-t-total">
+                      <td>Se contó</td>
+                      <td class="comm-num">{{ a.contado === null ? 'sin contar' : mx(a.contado) }}</td>
+                    </tr>
+                    <tr class="cq-t-total">
+                      <td>Diferencia</td>
+                      <td class="comm-num">
+                        @if (a.diferencia === null) { <span class="cq-dim">—</span> }
+                        @else if (a.veredicto === 'esperado_imposible') { <span class="cq-dim">no significa nada</span> }
+                        @else { {{ firmado(a.diferencia) }} }
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                @for (nota of notasArqueo(a); track nota) { <p class="cq-nota">{{ nota }}</p> }
+              </section>
+
+              <!-- 2. LO QUE SE CONTO, pieza por pieza. -->
+              @if (a.piezas.length) {
+                <section aria-labelledby="cq-h-piezas">
+                  <h3 id="cq-h-piezas" class="cq-h3">Lo que se contó, pieza por pieza</h3>
+                  <table class="cq-reja">
+                    <thead>
+                      <tr>
+                        <th scope="col">Pieza</th>
+                        <th scope="col" class="comm-num">Cantidad</th>
+                        <th scope="col" class="comm-num">Importe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (p of a.piezas; track p.clave) {
+                        <tr>
+                          <td>{{ pieza(p.valor) }} <span class="cq-dim">{{ p.tipo }}</span></td>
+                          <td class="comm-num">{{ p.piezas }}</td>
+                          <td class="comm-num">{{ mx(p.importe) }}</td>
+                        </tr>
+                      }
+                      @if (a.morralla) {
+                        <tr>
+                          <td>Morralla <span class="cq-dim">suelto menor a 50¢, no va por pieza</span></td>
+                          <td class="comm-num cq-dim">—</td>
+                          <td class="comm-num">{{ mx(a.morralla) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </section>
+              }
+
+              <!-- 3. EL SEGUNDO TESTIGO. Subordinado a proposito: no es la vara. -->
+              @if (a.testigo_control; as t) {
+                <section class="cq-testigo" aria-labelledby="cq-h-testigo">
+                  <h3 id="cq-h-testigo" class="cq-h3">Segundo testigo: lo que contó Control</h3>
+                  <p class="cq-nota">
+                    Control arqueó el mismo cajón por su cuenta ({{ t.folio || 'sin folio' }}) y le dio
+                    <b>{{ t.efectivo === null ? 'sin medir' : mx(t.efectivo) }}</b>.
+                    @if (t.diferencia !== null && abs(t.diferencia) > 0.005) {
+                      Difiere {{ firmado(t.diferencia) }} del conteo de la Suite: uno de los dos conteos está mal.
+                      Cuál de los dos manda no está decidido, así que acá se publican los dos.
+                    } @else if (t.diferencia !== null) {
+                      Coincide al centavo con el conteo de la Suite.
+                    }
+                  </p>
+                </section>
+              }
             } @else {
-              <p class="cq-dim">Ese arqueo no trae desglose por denominación.</p>
+              <p class="cq-dim">Ese día nadie selló un corte en el libro, así que no hay arqueo que mostrar.</p>
             }
 
-            @for (nota of notasDia(d); track nota) { <p class="cq-nota">{{ nota }}</p> }
+            <!-- 4. LOS MOVIMIENTOS DEL DIA. Lo que antes vivia en la pantalla de al lado. -->
+            <section aria-labelledby="cq-h-movs">
+              <h3 id="cq-h-movs" class="cq-h3">Los movimientos de ese día</h3>
+              @if (cargandoExp()) {
+                <app-load-state [loading]="true" [skeletonRows]="6" />
+              } @else if (exp(); as e) {
+                @if (!e.rows.length) {
+                  <p class="cq-dim">Ese día no tuvo movimientos registrados en Control.</p>
+                } @else {
+                  <div class="cq-exp">
+                    @for (m of e.rows; track m.folio) {
+                      <article class="cq-mov" [class.cq-mov-cancel]="m.cancelado"
+                               [class.cq-mov-conteo]="m.naturaleza === 'conteo'">
+                        <header class="cq-mov-head">
+                          <span class="cq-mono">{{ m.folio }}</span>
+                          <span class="cq-dim">{{ hhmm(m.hora) }}</span>
+                          @if (m.naturaleza === 'conteo') { <p-tag value="Conteo de la caja" severity="info" styleClass="cq-tag" /> }
+                          @if (m.cancelado) { <p-tag value="Cancelado" severity="danger" styleClass="cq-tag" /> }
+                          @if (!m.cuadra_ticket) { <p-tag value="El ticket no cuadra" severity="danger" styleClass="cq-tag" /> }
+                          <span class="cq-mov-sp"></span>
+                          <strong class="comm-num">{{ mx(m.total_declarado) }}</strong>
+                        </header>
+                        @if (m.observaciones) { <p class="cq-mov-obs">{{ m.observaciones }}</p> }
+                        @if (piezasControl(m).length) {
+                          <table class="cq-reja">
+                            <caption class="cq-reja-cap">Ticket · {{ mx(m.total_efectivo) }} en efectivo</caption>
+                            <thead>
+                              <tr><th scope="col">Pieza</th><th scope="col" class="comm-num">Cantidad</th><th scope="col" class="comm-num">Importe</th></tr>
+                            </thead>
+                            <tbody>
+                              @for (p of piezasControl(m); track p.k) {
+                                <tr>
+                                  <td>{{ p.etiqueta }} <span class="cq-dim">{{ p.moneda ? 'moneda' : 'billete' }}</span></td>
+                                  <td class="comm-num">{{ p.piezas }}</td>
+                                  <td class="comm-num">{{ mx(p.importe) }}</td>
+                                </tr>
+                              }
+                            </tbody>
+                          </table>
+                        }
+                      </article>
+                    }
+                  </div>
+                }
+              }
+            </section>
           </div>
         }
       </app-side-peek>
@@ -241,8 +462,13 @@ type CruceResp = CruceArqueosResponse;
 
     .cq-actions { display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; }
 
+    .cq-ahora { margin-block:var(--sp-4) var(--sp-2); }
+    .cq-ahora-cab { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0 0 var(--sp-2); }
+
     .cq-veredicto { margin-block:var(--sp-4); padding-block:var(--sp-3); border-block:1px solid var(--border-color); }
-    .cq-h2 { margin:0 0 var(--sp-2); font-size:var(--fs-h3); font-weight:600; }
+    .cq-ver-cab { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; margin-bottom:var(--sp-2); }
+    .cq-h2 { margin:0; font-size:var(--fs-h3); font-weight:600; }
+    .cq-h3 { margin:0 0 var(--sp-2); font-size:var(--fs-lg); font-weight:600; }
     .cq-nota { margin:var(--sp-2) 0 0; font-size:var(--fs-sm); color:var(--text-muted); max-width:64rem; }
 
     .cq-block { margin-top:var(--sp-5); }
@@ -252,45 +478,79 @@ type CruceResp = CruceArqueosResponse;
     .cq-dim { color:var(--text-faint); }
     .cq-strong { font-weight:var(--fw-bold, 700); }
     .cq-mono { font-family:var(--font-mono); font-size:var(--fs-sm); }
-    /* El descuadre se marca con PESO, no solo con color: en Alto Contraste de Windows el color
-       de texto se reemplaza y un estado que solo vive ahi desaparece. El tag de al lado lo dice
-       con palabras, que es el portador real. */
+    /* El descuadre se marca con PESO, no solo con color: en Alto Contraste de Windows el color de
+       texto se reemplaza y un estado que solo vive ahi desaparece. El tag de al lado lo dice con
+       palabras, que es el portador real. */
     .cq-mal { font-weight:var(--fw-bold, 700); }
 
-    .cq-peek { display:flex; flex-direction:column; gap:var(--sp-4); }
+    .cq-peek { display:flex; flex-direction:column; gap:var(--sp-5); }
     .cq-reja { width:100%; border-collapse:collapse; }
-    .cq-reja-cap { text-align:left; color:var(--text-muted); font-size:var(--fs-sm); padding-bottom:var(--sp-2); }
+    .cq-reja-cap { text-align:left; color:var(--text-muted); font-size:var(--fs-sm); padding-bottom:var(--sp-1); }
     .cq-reja th, .cq-reja td {
       padding:var(--sp-1) var(--sp-2); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); text-align:left;
     }
     .cq-reja th { color:var(--text-muted); font-weight:var(--fw-medium, 500); }
     .cq-reja .comm-num { text-align:right; font-variant-numeric:tabular-nums; }
-    .cq-fila-mal td { font-weight:var(--fw-bold, 700); }
+    /* La cascada: un termino en cero sigue visible pero atenuado -- que un termino valga cero es
+       informacion (no hubo depositos), y esconderlo dejaria la suma sin explicar. */
+    .cq-cascada .cq-t-cero td { color:var(--text-faint); }
+    .cq-cascada .cq-t-total td { font-weight:var(--fw-bold, 700); border-top:2px solid var(--border-color); }
+
+    .cq-testigo { padding:var(--sp-3); border:1px dashed var(--border-color); border-radius:var(--r-md); }
+
+    .cq-exp { display:flex; flex-direction:column; gap:var(--sp-4); }
+    .cq-mov { border:1px solid var(--border-color); border-radius:var(--r-md); padding:var(--sp-3); }
+    .cq-mov-conteo { border-color:var(--action); }
+    .cq-mov-cancel { opacity:.55; }
+    .cq-mov-head { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    .cq-mov-sp { flex:1 1 auto; }
+    .cq-mov-obs { margin:var(--sp-2) 0 0; color:var(--text-muted); font-size:var(--fs-sm); }
   `],
 })
-export class FinanzasCajaArqueosComponent implements OnInit {
+export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
-  private readonly base = `${environment.apiUrl}/finance/caja-control`;
+  private readonly baseControl = `${environment.apiUrl}/finance/caja-control`;
+  private readonly baseLibro = `${environment.apiUrl}/finance/cash-ledger`;
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
 
-  readonly dias = signal<CruceDia[]>([]);
+  readonly arqueos = signal<ArqueoDia[]>([]);
+  readonly dias = signal<CorteDia[]>([]);
+  readonly limites = signal<string[]>([]);
+  /** `[CGA-A.48]` El último conteo de Control y la parte de él que está en la caja fuerte. */
+  readonly controlUltimo = signal<ArqueoControlUltimo | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly frescura = signal<Freshness | null>(null);
 
-  readonly sel = signal<CruceDia | null>(null);
+  readonly sel = signal<DiaFila | null>(null);
   readonly peek = signal(false);
+  readonly exp = signal<Expediente | null>(null);
+  readonly cargandoExp = signal(false);
 
+  protected readonly VEREDICTO = VEREDICTO;
+
+  /**
+   * El rótulo del veredicto de un arqueo, resuelto en TypeScript y no en la plantilla.
+   *
+   * ⛔ Antes la plantilla hacía `VEREDICTO[f.arqueo.veredicto]` directo, y eso tiraba el build:
+   * el cuerpo de un `p-table` entra por `<ng-template #body let-f>`, donde `let-f` llega **sin
+   * tipo** (`any`). Indexar un `Record<VeredictoCorte, …>` con un `any` es `TS7053`, y rompía la
+   * compilación de `view` entera. El campo nunca falló: `ArqueoDia` del contrato sí declara
+   * `veredicto`. Lo que faltaba era un lugar tipado donde resolverlo.
+   */
+  protected tagVeredicto(a: ArqueoDia): { texto: string; sev: 'success' | 'warn' | 'danger' | 'info' } {
+    return VEREDICTO[a.veredicto];
+  }
   protected readonly mx = (v: unknown): string => money(Number(v ?? 0) || 0);
   protected readonly dmy = dmy;
   protected readonly abs = Math.abs;
 
   /** Con signo y con el menos TIPOGRÁFICO: un guion corto se confunde con un separador. */
   protected firmado(v: number): string {
-    const n = Number(v) || 0;
-    return `${n < 0 ? '−' : '+'}${money(Math.abs(n))}`;
+    const x = Number(v) || 0;
+    return `${x < 0 ? '−' : '+'}${money(Math.abs(x))}`;
   }
 
   protected pieza(valor: number): string {
@@ -299,225 +559,346 @@ export class FinanzasCajaArqueosComponent implements OnInit {
     return `${Math.round(valor * 100)}¢`;
   }
 
+  /**
+   * ⭐ **La fusión, en una sola lista.** Un día existe si lo conoce cualquiera de los dos carriles:
+   * el libro (hubo arqueo) o Control (hubo movimientos). Quedarse con la intersección escondería
+   * justo los días que importan — uno con arqueo y sin movimientos, o al revés.
+   */
+  readonly filas = computed<DiaFila[]>(() => {
+    const porDia = new Map<string, DiaFila>();
+    for (const a of this.arqueos()) {
+      porDia.set(a.fecha, { fecha: a.fecha, arqueo: a, control: null });
+    }
+    for (const d of this.dias()) {
+      const f = String(d.fecha).slice(0, 10);
+      const ya = porDia.get(f);
+      if (ya) ya.control = d;
+      else porDia.set(f, { fecha: f, arqueo: null, control: d });
+    }
+    return [...porDia.values()].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
+  });
+
+  readonly ultimoArqueo = computed<ArqueoDia | null>(() => this.arqueos()[0] ?? null);
+
+  /**
+   * ⭐⭐ Los seis términos de la fórmula, en el orden en que se suman.
+   *
+   * ⛔ Las dos piernas de CAOS van con su signo EXPLÍCITO y con su explicación al lado: lo que la
+   * máquina dispensó quedó en el cajón (suma) y lo que se depositó en ella salió del cajón
+   * (resta). Sin eso, un supervisor lee «CAOS $581,830» y no puede saber de qué lado está.
+   */
+  terminos(a: ArqueoDia): Array<{ etiqueta: string; detalle: string | null; monto: number | null; signo: string }> {
+    const sinMedir = a.fondo.origen === 'sin_medir' || a.fondo.monto === null;
+    return [
+      {
+        etiqueta: 'Fondo inicial',
+        detalle: sinMedir ? 'nadie midió con cuánto arrancó la caja' : this.origenFondo(a.fondo.origen),
+        monto: a.fondo.monto, signo: '+',
+      },
+      { etiqueta: 'Ingresos capturados', detalle: null, monto: a.ingresos, signo: '+' },
+      { etiqueta: 'Gastos', detalle: null, monto: a.gastos, signo: '−' },
+      { etiqueta: 'Depósitos', detalle: null, monto: a.depositos, signo: '−' },
+      {
+        etiqueta: 'La caja fuerte dispensó al cajón',
+        detalle: 'salió de la bóveda y quedó aquí', monto: a.caos?.dispensado ?? null, signo: '+',
+      },
+      {
+        etiqueta: 'Se depositó en la caja fuerte',
+        detalle: 'salió del cajón y se fue a la bóveda', monto: a.caos?.depositado ?? null, signo: '−',
+      },
+    ];
+  }
+
+  private origenFondo(o: string | null): string | null {
+    if (o === 'cierre_anterior') return 'el conteo con que cerró el día anterior';
+    if (o === 'contado') return 'se contó al abrir';
+    return o;
+  }
+
+  readonly veredictoKpis = computed<MetricStripItem[]>(() => {
+    const u = this.ultimoArqueo();
+    if (!u) return [];
+    const items: MetricStripItem[] = [
+      {
+        label: 'Debería haber', value: u.esperado === null ? 'sin medir' : money(u.esperado),
+        state: u.esperado === null ? 'no_medido' : 'derivado',
+        method: 'fondo + ingresos − gastos − depósitos ± la caja fuerte; no es un conteo',
+        tone: (u.esperado ?? 0) < 0 ? 'bad' : 'default',
+        sub: (u.esperado ?? 0) < 0 ? 'negativo: un cajón no debe dinero' : undefined,
+      },
+      { label: 'Se contó', value: u.contado === null ? 'sin contar' : money(u.contado), state: 'medido' },
+    ];
+    if (u.veredicto === 'esperado_imposible') {
+      items.push({
+        label: 'Diferencia', value: 'no significa nada', state: 'no_medido', tone: 'bad',
+        stateNote: 'Con el esperado en negativo la resta sale positiva siempre: diría «sobra» justo donde la cuenta está más rota.',
+      });
+    } else if (u.diferencia !== null) {
+      items.push({
+        label: 'Diferencia', value: u.diferencia === 0 ? money(0) : this.firmado(u.diferencia),
+        tone: u.diferencia === 0 ? 'ok' : 'bad',
+      });
+    }
+    const sinResp = this.arqueos().filter((a) => !veredictoConcluyente(a.veredicto)).length;
+    items.push({
+      label: 'Arqueos sin respuesta', value: `${sinResp} de ${this.arqueos().length}`,
+      tone: sinResp ? 'bad' : 'ok',
+      sub: sinResp ? 'la cuenta no permite decir si cuadra' : 'todos tienen veredicto',
+    });
+    const sinAut = this.arqueos().filter((a) => !a.autorizado).length;
+    items.push({
+      label: 'Sin la segunda llave', value: sinAut, tone: sinAut ? 'warn' : 'ok',
+      sub: sinAut ? 'cerrados que nadie autorizó' : 'todos autorizados',
+    });
+    return items;
+  });
+
+  readonly notas = computed<string[]>(() => {
+    const out: string[] = [];
+    const imposibles = this.arqueos().filter((a) => a.veredicto === 'esperado_imposible');
+    if (imposibles.length) {
+      out.push(`${imposibles.length} de ${this.arqueos().length} arqueos tienen un «debería haber» NEGATIVO, `
+        + 'y un cajón no debe dinero. Mientras siga así, su diferencia no mide un sobrante: mide que '
+        + 'la cuenta cruzó mal una pierna. Abrí el día para ver cuál.');
+    }
+    out.push(...this.limites());
+    return out;
+  });
+
+  readonly resumen = computed<string>(() => {
+    const f = this.filas();
+    if (!f.length) return '';
+    const conArqueo = f.filter((x) => x.arqueo).length;
+    const cuadran = f.filter((x) => x.arqueo?.veredicto === 'cuadra').length;
+    return `${f.length} días · ${conArqueo} con arqueo sellado · ${cuadran} cuadran al centavo · elige un día para ver su cuenta`;
+  });
+
+  readonly subtitulo = computed<string | null>(() => {
+    const f = this.sel();
+    if (!f) return null;
+    const p: string[] = [];
+    if (f.arqueo) p.push(VEREDICTO[f.arqueo.veredicto].texto);
+    if (f.control) p.push(`${f.control.movimientos} movimiento(s)`);
+    return p.join(' · ') || null;
+  });
+
+  /** Lo que ESTE arqueo no puede afirmar, con su número. */
+  notasArqueo(a: ArqueoDia): string[] {
+    const out: string[] = [];
+    if (!a.desglose_explica && a.esperado !== null) {
+      out.push('⛔ Los términos de arriba NO suman el «debería haber» que se congeló al cerrar '
+        + `(${this.mx(a.esperado_recompuesto)} contra ${this.mx(a.esperado)}). `
+        + 'Algo cambió después de sellar el corte: el desglose no explica esta cifra.');
+    }
+    if (a.veredicto === 'esperado_imposible') {
+      out.push('El «debería haber» salió negativo. Casi siempre significa que una salida de efectivo '
+        + 'se registró sin su entrada, o que el dinero que se fue a la caja fuerte se contó dos veces. '
+        + 'No hay que ir a buscar efectivo: hay que arreglar la cuenta.');
+    }
+    if (a.fondo.origen === 'sin_medir' || a.fondo.monto === null) {
+      out.push('Nadie midió con cuánto arrancó la caja ese día, así que el «debería haber» parte de un '
+        + 'supuesto. Tampoco es un faltante.');
+    }
+    if (a.caos?.dotado || a.caos?.vaciado) {
+      out.push(`Ese día la caja fuerte también se dotó (${this.mx(a.caos.dotado)}) y se vació `
+        + `(${this.mx(a.caos.vaciado)}). Esas dos NO entran en la fórmula: entran y salen por fuera `
+        + 'del cajón, y meterlas movería el arqueo por dinero que nunca pasó por aquí.');
+    }
+    if (a.reconteo_motivo) out.push(`Se recontó. Motivo: «${a.reconteo_motivo}».`);
+    if (a.nota) out.push(`Nota del corte: «${a.nota}».`);
+    return out;
+  }
+
+  // ── El cajón AHORA ────────────────────────────────────────────────────────────────────────
+  private readonly cajas = inject(CashLedgerService);
+  readonly cajonFondo = signal<FondoSugerido | null>(null);
+  readonly cajonSaldo = signal<SaldoResponse | null>(null);
+  readonly cajonCargando = signal(false);
+  readonly cajonError = signal<string | null>(null);
+  readonly cajonAl = signal<string | null>(null);
+
+  /**
+   * `[CGA-A.48]` La caja fuerte, leída APARTE del cajón. `null` = no se pudo leer (o el puesto no
+   * tiene permiso de CAOS): se declara «sin medir», y el cajón se publica igual.
+   */
+  private readonly caos = inject(CaosService);
+  readonly caosSaldo = signal<CaosSaldo | null>(null);
+
+  cargarCajon(): void {
+    this.cajonCargando.set(true);
+    forkJoin({
+      f: this.cajas.fondoSugerido('00'), s: this.cajas.saldo('00'),
+      c: this.caos.saldo().pipe(catchError(() => of(null))),
+    }).subscribe({
+      next: ({ f, s, c }) => {
+        this.cajonFondo.set(f); this.cajonSaldo.set(s); this.caosSaldo.set(c);
+        this.cajonError.set(null); this.cajonCargando.set(false);
+        this.cajonAl.set(new Date().toISOString());
+      },
+      error: () => { this.cajonError.set('No se pudo leer el saldo del libro de Caja General.'); this.cajonCargando.set(false); },
+    });
+  }
+
+  readonly cajonKpis = computed<MetricStripItem[]>(() => {
+    const f = this.cajonFondo();
+    const s = this.cajonSaldo();
+    const items: MetricStripItem[] = [];
+    const efecto = s && !s.saldo_oculto && s.totales?.esperado != null ? Number(s.totales.esperado) : null;
+
+    if (!s) {
+      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido', stateNote: 'Todavía no se leyó el libro.' });
+    } else if (s.saldo_oculto) {
+      items.push({ label: 'Cajón de Caja General', value: 'oculto', state: 'no_medido',
+        stateNote: 'Arqueo ciego: el esperado sólo lo ve quien autoriza el corte.' });
+    } else if (s.corte_abierto && s.saldo != null) {
+      items.push({ label: 'Cajón de Caja General', value: money(Number(s.saldo)), state: 'derivado',
+        method: `fondo del corte ${s.corte_abierto.folio} + lo capturado; no es un conteo`,
+        sub: `según el corte abierto ${s.corte_abierto.folio}` });
+    } else if (f?.monto != null && efecto != null) {
+      items.push({ label: 'Cajón de Caja General', value: money(Number(f.monto) + efecto), state: 'derivado', tone: 'warn',
+        method: `cierre anterior (${f.procedencia ?? 'su conteo'}) + ${s.totales.movimientos} movimiento(s) de hoy`,
+        sub: 'provisional · nadie ha abierto ni contado el corte de hoy' });
+    } else {
+      items.push({ label: 'Cajón de Caja General', value: 'sin medir', state: 'no_medido',
+        stateNote: 'No hay cierre anterior medido del que partir.' });
+    }
+
+    if (efecto != null && s && !s.corte_abierto) {
+      const disp = Number(s.cajero?.dispensado ?? 0);
+      items.push({ label: 'Lo de hoy', value: `${efecto < 0 ? '−' : '+'}${money(Math.abs(efecto))}`,
+        sub: `${s.totales.movimientos} capturado(s)` + (disp ? ` · la caja fuerte dispensó ${money(disp)}` : '') });
+    }
+
+    // ⭐ [CGA-A.48] La caja fuerte, SEPARADA del cajón (Edgar, 2026-10-20). El efectivo de las rutas
+    // entra a CAOS y de CAOS sale a los proveedores: al cajón de Caja General sólo le queda la
+    // morralla, así que su cifra casi no se mueve aunque el día mueva cientos de miles. Lo que se
+    // mueve es la caja fuerte, y sin esta cifra no se veía en ningún lado.
+    const c = this.caosSaldo();
+    const cj = s?.cajero;
+    const flujo = cj ? `${dmy(cj.dia)}: entró ${money(cj.depositado)} · salió ${money(cj.dispensado)}` : undefined;
+    if (c?.estado === 'medido' && c.saldo) {
+      const exacto = c.saldo.origen === 'maquina' && !c.saldo.parcial;
+      items.push({ label: 'Caja fuerte (CAOS)', value: money(c.saldo.total),
+        state: c.saldo.parcial ? 'parcial' : exacto ? 'medido' : 'derivado',
+        method: exacto ? undefined : 'última lectura de la máquina + los movimientos posteriores',
+        stateNote: c.saldo.parcial ? 'Algún movimiento posterior a la lectura no tiene dirección decodificada.' : undefined,
+        sub: flujo });
+    } else {
+      items.push({ label: 'Caja fuerte (CAOS)', value: 'sin medir', state: 'no_medido',
+        stateNote: c
+          ? 'La máquina todavía no publica cuánto tiene adentro: de la caja fuerte sólo se sabe lo que entró y salió.'
+          : 'No se pudo leer la caja fuerte.',
+        sub: flujo });
+    }
+    return items;
+  });
+
+  readonly cajonNota = computed<string | null>(() => {
+    const f = this.cajonFondo();
+    const s = this.cajonSaldo();
+    const partes: string[] = [];
+    if (s && !s.corte_abierto && !s.saldo_oculto) {
+      partes.push('Para que deje de ser provisional: Captura → «Abrir corte» y contar.');
+      const ant = s.sueltos_fuera?.anteriores;
+      if (ant?.movimientos) partes.push(`No incluye ${ant.movimientos} movimiento(s) sueltos de días anteriores (neto ${money(ant.neto)}).`);
+    }
+    if (f?.monto != null && this.ultimoArqueo()?.contado != null) {
+      const dif = Math.round((Number(this.ultimoArqueo()!.contado) - Number(f.monto)) * 100) / 100;
+      if (Math.abs(dif) > 0.005) {
+        partes.push(`El cierre del que parte (${money(Number(f.monto))}) no coincide con el último conteo sellado `
+          + `(${money(Number(this.ultimoArqueo()!.contado))}): difieren ${money(Math.abs(dif))}.`);
+      }
+    }
+    return partes.length ? partes.join(' ') : null;
+  });
+
+  private readonly sockCaja = inject(CajaSocketService);
+  private readonly sockCaos = inject(CaosSocketService);
+
   ngOnInit(): void {
     this.recargar();
-    /**
-     * ⚠️ El arqueo de Control llega por réplica y **no avisa por socket**: sin este repaso la
-     * pantalla se queda con la foto de cuando se abrió y no hay ninguna señal de que envejeció.
-     * 60 s con la pestaña visible, igual que el Expediente.
-     */
+    this.enVivo();
+  }
+
+  ngOnDestroy(): void {
+    this.sockCaja.disconnect();
+    this.sockCaos.disconnect();
+  }
+
+  /**
+   * Tres disparadores: aviso del LIBRO (alguien capturó), aviso de CAOS (la bóveda se movió aunque
+   * nadie capture), y repaso de 60 s con la pestaña visible — un conteo nuevo de Control llega por
+   * réplica y NO avisa, y un aviso perdido no deja rastro.
+   */
+  private enVivo(): void {
+    try {
+      this.sockCaja.connect();
+      this.sockCaja.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.cargarCajon());
+      this.sockCaos.connect();
+      this.sockCaos.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.cargarCajon());
+    } catch (e) {
+      console.warn('[arqueos] sin avisos en vivo; queda el repaso:', e);
+    }
     encuestarVisible(60000, () => this.recargar(true), { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   /**
-   * @param silencioso El repaso no vuelve a pintar el esqueleto sobre una tabla que ya tiene
-   *   datos, y un fallo suyo no borra lo que se ve: se declara sólo si no había nada.
+   * ⛔ Los dos carriles se piden en PARALELO y cada uno pinta lo suyo. Encadenarlos haría que el
+   * arqueo —que es la respuesta de la mañana— esperara al historial de Control, que es el detalle.
+   *
+   * @param silencioso El repaso de 60 s no repinta el esqueleto sobre una tabla que ya tiene datos,
+   *   y un fallo suyo no borra lo que se ve: se declara sólo si no había nada.
    */
   recargar(silencioso = false): void {
-    const conDatos = this.dias().length > 0;
+    this.cargarCajon();
+    const conDatos = this.filas().length > 0;
     if (!(silencioso && conDatos)) { this.cargando.set(true); this.error.set(null); }
-    this.http.get<CruceResp>(`${this.base}/cruce?limit=60`).subscribe({
+
+    this.http.get<ArqueosResponse>(`${this.baseLibro}/cortes/arqueos?limit=60`).subscribe({
       next: (r) => {
-        this.dias.set(r?.rows ?? []);
-        this.frescura.set(r?.frescura ?? null);
+        this.arqueos.set(r?.rows ?? []);
+        this.limites.set(r?.limites ?? []);
+        this.controlUltimo.set(r?.control_ultimo ?? null);
         this.cargando.set(false);
         this.error.set(null);
-        // El día abierto se refresca con el resto: si no, el cajón sigue mostrando el desglose
-        // viejo bajo una cabecera que ya cambió.
         const s = this.sel();
-        if (s) this.sel.set((r?.rows ?? []).find((x) => x.fecha === s.fecha) ?? s);
+        if (s) {
+          const fresco = (r?.rows ?? []).find((x) => x.fecha === s.fecha);
+          if (fresco) this.sel.set({ ...s, arqueo: fresco });
+        }
       },
       error: () => {
-        if (!(silencioso && conDatos)) this.error.set('No se pudo traer el cruce de arqueos.');
+        if (!(silencioso && conDatos)) this.error.set('No se pudieron traer los arqueos.');
         this.cargando.set(false);
       },
     });
+
+    // El historial de Control: los movimientos del día y su arqueo. Un fallo acá NO borra los
+    // arqueos ni declara error de pantalla — es el detalle, no la respuesta.
+    this.http.get<{ rows: CorteDia[]; frescura?: Freshness }>(`${this.baseControl}/cortes?limit=90`).subscribe({
+      next: (r) => { this.dias.set(r?.rows ?? []); this.frescura.set(r?.frescura ?? null); },
+      error: () => { /* el carril de Control es secundario acá; su ausencia se ve en la columna Movs. */ },
+    });
   }
 
-  abrir(d: CruceDia | null): void {
-    if (!d) return;
-    this.sel.set(d);
+  abrir(f: DiaFila | null): void {
+    if (!f) return;
+    this.sel.set(f);
     this.peek.set(true);
-  }
-
-  private readonly difieren = computed(() => this.dias().filter((d) => d.cruce.estado === 'difieren'));
-  private readonly sinCorte = computed(() => this.dias().filter((d) => d.cruce.estado === 'sin_corte'));
-  private readonly sinArqueo = computed(() => this.dias().filter((d) => d.cruce.estado === 'sin_arqueo'));
-
-  /** La suma CON SIGNO. ⚠️ No es «cuánto falta»: sobrantes y faltantes se cancelan entre sí. */
-  private readonly neto = computed(() => Math.round(
-    this.difieren().reduce((a, d) => a + Number(d.cruce.diferencia ?? 0), 0) * 100) / 100);
-
-  /** Y la suma en valor absoluto, que es el dinero que de verdad hay que explicar. */
-  private readonly bruto = computed(() => Math.round(
-    this.difieren().reduce((a, d) => a + Math.abs(Number(d.cruce.diferencia ?? 0)), 0) * 100) / 100);
-
-  readonly titular = computed<string>(() => {
-    const t = this.dias().length;
-    const m = this.difieren().length;
-    if (!t) return 'Sin arqueos que cruzar';
-    if (!m) return `Los ${t} días cruzados coinciden al centavo`;
-    return `${m} de ${t} días no coinciden, por ${money(this.bruto())}`;
-  });
-
-  readonly kpis = computed<MetricStripItem[]>(() => {
-    const t = this.dias().length;
-    if (!t) return [];
-    const m = this.difieren().length;
-    const sc = this.sinCorte().length;
-    const sa = this.sinArqueo().length;
-    const sinAut = this.dias().filter((d) => d.suite && !d.suite.autorizado).length;
-    return [
-      {
-        label: 'Días que no coinciden', value: `${m} de ${t}`,
-        tone: m ? 'bad' : 'ok',
-        sub: m ? `${money(this.bruto())} que explicar` : 'coinciden al centavo',
-      },
-      {
-        label: 'Diferencia neta', value: this.neto() === 0 ? money(0) : this.firmado(this.neto()),
-        tone: this.neto() === 0 ? 'ok' : 'warn',
-        sub: 'lo contado por la Suite menos lo contado por Control; sobrantes y faltantes se cancelan',
-      },
-      {
-        label: 'Sin la segunda llave', value: sinAut,
-        tone: sinAut ? 'warn' : 'ok',
-        sub: sinAut ? 'cortes cerrados que nadie autorizó' : 'todos autorizados',
-      },
-      /**
-       * ⛔ Los días con UN SOLO conteo van juntos y van declarados como **no medidos**, no como
-       * días que cuadran. Son los dos huecos simétricos: a veces falta el corte de la Suite, a
-       * veces el arqueo de Control. Ninguno es un descuadre y ninguno entra en la suma.
-       */
-      {
-        label: 'Con un solo conteo', value: sa + sc,
-        state: (sa + sc) ? 'no_medido' : undefined,
-        stateNote: (sa + sc)
-          ? 'Nadie contó ese cajón dos veces, así que no hay nada que cruzar. No es cero: es que falta el otro conteo.'
-          : undefined,
-        tone: 'muted',
-        sub: (sa + sc) ? `${sc} sin corte en la Suite · ${sa} sin arqueo de Control` : 'todos los días tienen los dos',
-      },
-    ];
-  });
-
-  /**
-   * ⛔ Lo que este cruce NO cubre, dicho con su número. Callarlo haría leer «coinciden» como si
-   * el cruce fuera completo, y no lo es: las dos rejas no tienen las mismas piezas.
-   */
-  readonly notas = computed<string[]>(() => {
-    const n: string[] = [];
-    const t = this.dias().length;
-    if (!t) return n;
-    n.push('Cuál de los dos conteos manda NO está decidido: la pantalla publica los dos y su diferencia, '
-      + 'no elige un árbitro. Lo de Control se corrige en Control; lo de la Suite, recontando en Captura.');
-    const sc = this.sinCorte().length;
-    if (sc) {
-      n.push(`${sc} día(s) tienen arqueo de Control y ningún corte en la Suite. Eso no es una diferencia `
-        + 'de dinero: es un conteo que falta de este lado, y por eso no entra en la suma.');
-    }
-    const sa = this.sinArqueo();
-    if (sa.length) {
-      const monto = sa.reduce((a, d) => a + Number(d.suite?.contado ?? 0), 0);
-      n.push(`${sa.length} día(s) tienen corte sellado en la Suite (${money(Math.round(monto * 100) / 100)}) `
-        + 'y ningún arqueo de cierre en Control contra el cual compararlo. Tampoco entra en la suma: '
-        + 'no hay un segundo conteo que lo contradiga ni que lo confirme.');
-    }
-    n.push('El arqueo de cierre de Control se identifica por traer la custodia completa (dólares). '
-      + 'Es una heurística verificada del 14-oct en adelante, no una regla del sistema: los días con '
-      + 'varios arqueos con dólares pueden estar eligiendo el que no es.');
-    return n;
-  });
-
-  readonly subtitulo = computed<string | null>(() => {
-    const d = this.sel();
-    if (!d) return null;
-    const p: string[] = [];
-    if (d.control.folio) p.push(`Control ${d.control.folio}`);
-    if (d.suite) p.push(`Suite ${d.suite.folio}`);
-    if (d.cruce.estado === 'difieren' && d.cruce.diferencia !== null) {
-      p.push(`difieren ${this.firmado(d.cruce.diferencia)}`);
-    } else if (d.cruce.estado === 'cuadran') {
-      p.push('coinciden al centavo');
-    }
-    return p.join(' · ');
-  });
-
-  kpisDia(d: CruceDia): MetricStripItem[] {
-    const items: MetricStripItem[] = [
-      {
-        label: 'Contó la Suite', value: d.suite?.contado != null ? money(d.suite.contado) : 'sin corte',
-        state: d.suite?.contado != null ? undefined : 'no_medido',
-        stateNote: d.suite?.contado != null ? undefined : 'Ese día nadie selló un corte en la Suite.',
-        sub: d.suite ? `${d.suite.folio} · ${d.suite.autorizado ? 'autorizado' : 'sin autorizar'}` : undefined,
-      },
-      {
-        label: 'Contó Control', value: d.control.efectivo !== null ? money(d.control.efectivo) : 'sin arqueo',
-        state: d.control.efectivo !== null ? undefined : 'no_medido',
-        stateNote: d.control.efectivo !== null ? undefined : 'Control no capturó un arqueo de cierre ese día.',
-        sub: d.control.folio ? `${d.control.folio}${d.control.hora ? ' · ' + this.hhmm(d.control.hora) : ''}` : undefined,
-      },
-    ];
-    if (d.cruce.diferencia !== null) {
-      items.push({
-        label: 'Difieren', value: d.cruce.diferencia === 0 ? money(0) : this.firmado(d.cruce.diferencia),
-        tone: d.cruce.diferencia === 0 ? 'ok' : 'bad',
-        sub: 'la Suite menos Control',
-      });
-    }
-    /**
-     * ⚠️ El esperado de la Suite va como CONTRASTE, no como juez: es lo que el libro creía que
-     * debía haber, y en estos días quedó negativo por cobranza que nunca entró. Publicarlo al
-     * lado evita que alguien lea la diferencia contra Control como si fuera la del corte.
-     */
-    if (d.suite?.esperado != null) {
-      items.push({
-        label: 'Esperaba el libro', value: money(d.suite.esperado),
-        tone: 'muted', state: 'derivado',
-        method: 'fondo + ingresos − gastos − depósitos ± CAOS; no es un conteo',
-        sub: d.suite.diferencia != null ? `contra lo contado: ${this.firmado(d.suite.diferencia)}` : undefined,
-      });
-    }
-    return items;
+    this.cargarExpediente(f.fecha);
   }
 
   /**
-   * ⭐ **Cuánto de la diferencia explican las piezas comparables, y cuánto no.** Las dos rejas no
-   * son la misma: Control tiene moneda de $100 y centavos de 20/10/5 que la Suite no ofrece, y la
-   * Suite junta todo lo menor a 50¢ en «morralla», que no viaja por denominación. Si la suma del
-   * desglose no llega a la diferencia del día, el resto se DECLARA en vez de dejar creer que el
-   * desglose la explica entera.
+   * ⚠️ `exp` se limpia ANTES de pedir: si no, mientras carga el día nuevo el cajón sigue mostrando
+   * los movimientos del anterior con el título ya cambiado.
    */
-  notasDia(d: CruceDia): string[] {
-    const n: string[] = [];
-    const comparables = d.desglose.filter((p) => p.dif_importe !== null);
-    const sumado = Math.round(comparables.reduce((a, p) => a + Number(p.dif_importe ?? 0), 0) * 100) / 100;
-    const total = d.cruce.diferencia;
-
-    if (total !== null && Math.abs(total) > 0.005) {
-      if (Math.abs(sumado - total) < 0.005) {
-        n.push(`Las piezas de arriba explican la diferencia entera (${this.firmado(sumado)}).`);
-      } else {
-        n.push(`Las piezas comparables explican ${this.firmado(sumado)} de los ${this.firmado(total)} del día. `
-          + `Los ${money(Math.abs(Math.round((total - sumado) * 100) / 100))} restantes NO están en el desglose: `
-          + 'la Suite agrupa lo menor a 50¢ en «morralla» y no la reporta por pieza.');
-      }
-    }
-    if (d.cruce.estado === 'sin_arqueo') {
-      n.push('Control no capturó un arqueo de cierre ese día, así que no hay contra qué cruzar. '
-        + 'Lo de arriba es lo que contó la Suite, solo — nadie lo confirmó ni lo contradijo.');
-    }
-    const soloControl = d.desglose.filter((p) => p.solo_en === 'control' && (p.control ?? 0) !== 0);
-    if (soloControl.length) {
-      const monto = soloControl.reduce((a, p) => a + (p.control ?? 0) * p.valor, 0);
-      n.push(`${soloControl.length} denominación(es) sólo existen en la reja de Control `
-        + `(${money(Math.round(monto * 100) / 100)}): la Suite no tiene dónde capturarlas, así que esa parte `
-        + 'no se puede cruzar — no es que coincida.');
-    }
-    if (d.control.cuadra_ticket === false) {
-      n.push('El ticket de Control no cuadra consigo mismo: la suma de sus piezas no da su propio total. '
-        + 'Antes de buscar la diferencia contra la Suite, hay que corregir ese arqueo en Control.');
-    }
-    return n;
+  private cargarExpediente(fecha: string): void {
+    this.exp.set(null);
+    this.cargandoExp.set(true);
+    this.http.get<Expediente>(`${this.baseControl}/expediente/${fecha.slice(0, 10)}`).subscribe({
+      next: (e) => { this.exp.set(e); this.cargandoExp.set(false); },
+      error: () => { this.cargandoExp.set(false); },
+    });
   }
 
   /** `1899-12-30T14:18:58` o `14:18:58` → `14:18`. Control guarda la hora con fecha centinela. */
@@ -525,5 +906,15 @@ export class FinanzasCajaArqueosComponent implements OnInit {
     const s = String(v ?? '');
     const m = s.match(/(\d{2}):(\d{2})/);
     return m ? `${m[1]}:${m[2]}` : '—';
+  }
+
+  /** Las piezas del ticket de Control que de verdad se contaron: las que vienen en cero no se pintan. */
+  piezasControl(m: Record<string, unknown>): Array<{ k: string; etiqueta: string; moneda: boolean; piezas: number; importe: number }> {
+    const out: Array<{ k: string; etiqueta: string; moneda: boolean; piezas: number; importe: number }> = [];
+    for (const d of DENOMINACIONES) {
+      const p = n(m[d.k]);
+      if (p > 0) out.push({ k: d.k, etiqueta: d.etiqueta, moneda: d.moneda, piezas: p, importe: p * d.valor });
+    }
+    return out;
   }
 }

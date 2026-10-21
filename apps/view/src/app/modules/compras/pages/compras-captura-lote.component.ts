@@ -7,7 +7,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import {
   textoMotivoIdentificacion, type ExpedienteCubo, type IdentificacionCandidata, type IdentificacionEntrada,
 } from '@megadulces/contracts';
-import { EntradasService, ProofFile, RemisionOcr } from '../entradas.service';
+import { EntradasService, ProofFile, RemisionOcr, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje } from '../entradas.service';
 import { esImagen, esPdf, imagenesAPdf } from '../imagenes-a-pdf';
 import { branchName } from '../../../core/constants/store-branches';
 
@@ -156,6 +156,8 @@ export interface CapturaLoteGuardada { guardados: number; pasanSolas: number }
                     @if (o.uuid) { <span class="cl-c" data-v="ok" [title]="o.uuid"><i class="pi pi-check" aria-hidden="true"></i> UUID</span> }
                   </span>
                   @if (o.ocr_status === 'sin_key') { <span class="cl-sub bad">OCR no disponible</span> }
+                  <!-- [RE.42] Mismo folio que otra entrada, proveedor sin confirmar: se dice y NO frena. -->
+                  @if (avisoDup(o); as av) { <span class="cl-sub warn" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ av }}</span> }
                 } @else if (f.fase !== 'duplicado' && f.fase !== 'error') { <span class="cl-sub">—</span> }
               </div>
 
@@ -362,6 +364,8 @@ export class ComprasCapturaLoteComponent {
   }
   kb(b: number): string { return b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`; }
   etiqueta(d: { sucursal: string; folio: string }): string { return `${branchName(d.sucursal)} · ${d.folio}`; }
+  /** `[RE.42]` El aviso de posible duplicado (no frena), o null. */
+  avisoDup(o: RemisionOcr): string | null { return duplicadoAvisa(o.duplicate) ? duplicadoMensaje(o.duplicate!) : null; }
   llave(d: { sucursal: string; folio: string }): string { return `${d.sucursal}/${d.folio}`; }
   v(b: boolean | null | undefined): 'ok' | 'no' | 'sin_dato' { return b === true ? 'ok' : b === false ? 'no' : 'sin_dato'; }
   ico(b: boolean | null | undefined): string { return b === true ? 'pi-check' : b === false ? 'pi-times' : 'pi-question'; }
@@ -449,8 +453,9 @@ export class ComprasCapturaLoteComponent {
     if (!this.fila(id)) return;
     const gemela = ocr.sha256 ? this.filas().find((o) => o.id !== id && o.ocr?.sha256 === ocr.sha256) : undefined;
     if (gemela) { this.patch(id, { ocr, fase: 'duplicado', copiaDe: gemela.nombre }); return; }
-    if (ocr.duplicate && ocr.duplicate.vigente !== false) {
-      this.patch(id, { ocr, fase: 'duplicado', copiaDe: `ya está archivada en ${this.etiqueta(ocr.duplicate)}` });
+    // `[RE.42]` Sólo frena lo que el servidor PROBÓ (misma hoja, o mismo folio del mismo proveedor).
+    if (duplicadoBloquea(ocr.duplicate)) {
+      this.patch(id, { ocr, fase: 'duplicado', copiaDe: `ya está archivada en ${this.etiqueta(ocr.duplicate!)}` });
       return;
     }
     // Qué es el papel: la orden de entrada de Kepler no es la factura del proveedor.

@@ -9,7 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
-  PendienteProveedor, PendientesResp,
+  PendienteProveedor, PendientesResp, ReglaVista,
 } from '../contpaqi-puente.service';
 
 /**
@@ -25,10 +25,10 @@ import {
  * de nadie**: los 148 de `no_aplica` ya se midieron y NO generan póliza. Mezclarlos con el resto
  * haría que la bandeja pida trabajo que no existe.
  *
- * ── ⛔ Qué NO hace esta pantalla ────────────────────────────────────────────────────────────
- * **No entrega.** `contpaqi.poliza_exports` está vacía porque nunca se importó un archivo a
- * ContPAQi (`[CP.8.24]`). Un botón de entregar sería ofrecer un camino que nadie recorrió, así
- * que no existe — y `FISCAL_CONTPAQI_BRIDGE_GESTIONAR` ya está repartido para el día que lo haya.
+ * ── Entregar ────────────────────────────────────────────────────────────────────────────────
+ * **No manda nada a ContPAQi.** `[CP.8.54]` «Marcar como entregado» registra que contabilidad ya
+ * CARGÓ el archivo, y sólo acepta ese mismo archivo (el backend lo compara byte a byte con el que
+ * genera hoy). Va separado de «Generar» porque descargar no es entregar. Exige `_GESTIONAR`.
  *
  * ── ⚠️ Ruta propia, no un tab de `/contabilidad/contpaqi` ───────────────────────────────────
  * Esa página ya existe desde CP.1–CP.4 y es el **otro sentido** (lee los libros que ContPAQi ya
@@ -122,6 +122,27 @@ import {
             </button>
           </div>
           @if (avisoArchivo(); as a) {
+            <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+          }
+
+          <!-- [CP.8.54] Marcar entregado: separado de Generar, y sólo con el archivo que se cargó. -->
+          <div class="cpp-archivo cpp-entrega">
+            <div>
+              <strong>&iquest;Ya lo cargaste en ContPAQi?</strong>
+              <div class="cpp-archivo-n">
+                Elige el mismo archivo que importaste. La Suite lo compara con el que genera hoy para
+                {{ mes() }} y, si es id&eacute;ntico, empieza a buscar esas p&oacute;lizas en ContPAQi;
+                a los {{ plazoDias() }} d&iacute;as avisa de las que no aparezcan.
+              </div>
+            </div>
+            <input #archivoCargado type="file" accept=".txt,text/plain" class="cpp-file"
+                   (change)="marcarEntregado(archivoCargado)" aria-label="Archivo que se cargó en ContPAQi" />
+            <button type="button" class="cpp-btn-ok" [disabled]="entregando()" (click)="archivoCargado.click()">
+              <i class="pi pi-check" aria-hidden="true"></i>
+              {{ entregando() ? 'Comparando…' : 'Marcar como entregado' }}
+            </button>
+          </div>
+          @if (avisoEntrega(); as a) {
             <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
           }
         }
@@ -273,6 +294,123 @@ import {
             </aside>
           </div>
         </section>
+
+        <!-- ── [CP.8.14] LAS REGLAS DE CUENTA: la firma del contador ── -->
+        @if (reglasError(); as e) {
+          <section class="cpp-sec">
+            <div class="cpp-sec-h"><h3>Reglas de cuenta</h3></div>
+            <div class="cpp-aviso mal" role="alert">No se pudieron leer las reglas: {{ e }}</div>
+          </section>
+        } @else if (reglas(); as rs) {
+          <section class="cpp-sec">
+            <div class="cpp-sec-h">
+              <h3>Reglas de cuenta</h3>
+              <span class="cpp-tag">la firma es del contador</span>
+            </div>
+            <!-- Q.1: la respuesta antes que la tabla. -->
+            <p class="cpp-sec-p">
+              @if (porFirmar().n > 0) {
+                Firmar las <strong class="mono">{{ porFirmar().reglas }}</strong> reglas pendientes de esta lista
+                pone en el archivo hasta <strong class="mono">{{ porFirmar().n | number }}</strong> movimientos de
+                {{ mes() }} (<strong class="mono">{{ porFirmar().imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>).
+                Es un techo: un movimiento puede seguir fuera por otro motivo.
+              } @else {
+                Ninguna regla firmable traba movimientos de {{ mes() }}.
+              }
+            </p>
+            <div class="cpp-nota-dura">
+              ⛔ El <strong>indicio</strong> sale de cruzar el banco contra las p&oacute;lizas que ya est&aacute;n en
+              ContPAQi, y casi siempre sobre una muestra chica: es una pista, no una propuesta. Nada viene
+              elegido. Una cuenta equivocada <strong>cuadra igual</strong> y no se ve hasta la balanza.
+            </div>
+            <div class="card-premium card-flat cpp-tablewrap">
+              <p-table [value]="firmables()" size="small" class="surf-table" [rowHover]="true" dataKey="categoria_code">
+                <ng-template #header>
+                  <tr><th>Categor&iacute;a</th><th class="r">Movs del mes</th><th class="r">Importe</th>
+                    <th>Evidencia</th><th>Cuenta de gasto</th><th></th></tr>
+                </ng-template>
+                <ng-template #body let-r>
+                  <tr>
+                    <td>
+                      <div class="cpp-bank">{{ nombreRegla(r) }}</div>
+                      <div class="cpp-code">{{ r.categoria_code }}</div>
+                    </td>
+                    <td class="r mono" [class.muted]="r.movimientos_mes === 0">{{ r.movimientos_mes | number }}</td>
+                    <td class="r mono" [class.muted]="r.movimientos_mes === 0">{{ r.importe_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="cpp-evid">
+                      @if (r.indicio) {
+                        <div><span class="cpp-code">indicio</span> <span class="mono">{{ r.indicio }}</span></div>
+                      } @else {
+                        <div class="muted">sin indicio utilizable</div>
+                      }
+                      @if (r.evidencia) { <div class="cpp-evid-t">{{ r.evidencia }}</div> }
+                    </td>
+                    <td class="cpp-cta">
+                      @if (r.estado === 'aprobada') {
+                        <div><span class="mono">{{ r.cuenta_gasto }}</span> {{ r.cuenta_nombre }}</div>
+                        <div class="cpp-code">firmada por {{ r.aprobada_por }} &middot; {{ r.aprobada_en }}</div>
+                      } @else if (puedeGestionar()) {
+                        <p-select [options]="cuentas()" [ngModel]="cuentaElegida()[r.categoria_code] ?? null"
+                                  (ngModelChange)="elegirCuenta(r.categoria_code, $event)"
+                                  optionLabel="etiqueta" optionValue="codigo" [filter]="true" filterBy="etiqueta"
+                                  placeholder="Elige la cuenta" appendTo="body" [showClear]="true"
+                                  class="cpp-sel-cta" [ariaLabel]="'Cuenta de gasto para ' + r.categoria_code"></p-select>
+                        @if (codigoIndicio(r); as ci) {
+                          <button type="button" class="cpp-link" (click)="elegirCuenta(r.categoria_code, ci)">
+                            usar el indicio ({{ ci }})
+                          </button>
+                        }
+                        @if (r.cuenta_gasto) {
+                          <div class="cpp-code">revocada; la &uacute;ltima firma era {{ r.cuenta_gasto }} ({{ r.aprobada_por }})</div>
+                        }
+                      } @else {
+                        <span class="muted">sin firmar</span>
+                      }
+                    </td>
+                    <td>
+                      @if (puedeGestionar()) {
+                        @if (r.estado === 'aprobada') {
+                          <button type="button" class="cpp-btn-bad" [disabled]="firmando() === r.categoria_code"
+                                  (click)="revocar(r)">{{ firmando() === r.categoria_code ? 'Revocando…' : 'Revocar' }}</button>
+                        } @else {
+                          <button type="button" class="cpp-btn-ok"
+                                  [disabled]="!cuentaElegida()[r.categoria_code] || firmando() === r.categoria_code"
+                                  (click)="firmar(r)">{{ firmando() === r.categoria_code ? 'Firmando…' : 'Firmar' }}</button>
+                        }
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr><td colspan="6" class="cpp-empty">No hay reglas que se firmen con una cuenta.</td></tr>
+                </ng-template>
+              </p-table>
+            </div>
+            @if (avisoRegla(); as a) {
+              <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+            }
+
+            @if (noFirmables().length) {
+              <div class="cpp-eyebrow mt">No se firman aqu&iacute;, y por qu&eacute;</div>
+              <div class="card-premium card-flat cpp-tablewrap">
+                <p-table [value]="noFirmables()" size="small" class="surf-table" dataKey="categoria_code">
+                  <ng-template #header>
+                    <tr><th>Categor&iacute;a</th><th>Forma</th><th class="r">Movs del mes</th><th class="r">Importe</th><th>Por qu&eacute;</th></tr>
+                  </ng-template>
+                  <ng-template #body let-r>
+                    <tr>
+                      <td><div>{{ nombreRegla(r) }}</div><div class="cpp-code">{{ r.categoria_code }}</div></td>
+                      <td class="cpp-code">{{ r.tipo_regla }}</td>
+                      <td class="r mono" [class.muted]="r.movimientos_mes === 0">{{ r.movimientos_mes | number }}</td>
+                      <td class="r mono" [class.muted]="r.movimientos_mes === 0">{{ r.importe_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="cpp-evid-t">{{ r.motivo_no_firmable }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              </div>
+            }
+          </section>
+        }
 
         <!-- ── [CP.8.37] LO QUE FALTA ENLAZAR: el rechazo con su acción al lado ── -->
         @if (porConfirmar(); as p) {
@@ -476,6 +614,20 @@ import {
       border-radius: var(--r-lg); background: var(--c-surface-1); font-size: var(--fs-sm); }
     .cpp-archivo > div:first-child { flex: 1 1 24rem; min-width: 0; }
     .cpp-archivo-n { color: var(--c-text-3); font-size: var(--fs-xs); margin-top: .25rem; max-width: 72ch; }
+    .cpp-entrega { margin-top: .5rem; }
+
+    /* [CP.8.14] reglas de cuenta */
+    .cpp-evid { max-width: 38ch; font-size: var(--fs-xs); }
+    .cpp-evid-t { color: var(--c-text-3); font-size: var(--fs-xs); margin-top: .2rem; max-width: 60ch; }
+    .cpp-cta { min-width: 18rem; }
+    .cpp-sel-cta { width: 100%; }
+    .cpp-link { border: 0; background: transparent; color: var(--action); padding: 2px 0; font: inherit;
+      font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; }
+    .cpp-btn-bad { border: 1px solid var(--bad-border); background: transparent; color: var(--bad-fg);
+      border-radius: var(--radius-sm); padding: 4px 12px; font: inherit; font-size: var(--fs-xs);
+      cursor: pointer; white-space: nowrap; }
+    .cpp-btn-bad:disabled { color: var(--c-text-3); border-color: var(--c-divider); cursor: default; }
+    .cpp-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
     /* [CP.8.37] confirmar el alias */
     .cpp-nota-dura { margin: 0 0 .8rem; padding-left: .8rem; border-left: 2px solid var(--c-warn);
@@ -522,6 +674,30 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly guardando = signal<string | null>(null);
   readonly bajando = signal(false);
   readonly avisoArchivo = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly entregando = signal(false);
+  readonly avisoEntrega = signal<{ texto: string; mal: boolean } | null>(null);
+  /** El plazo del motor, del backend: repetir la constante acá la dejaría divergir. */
+  readonly plazoDias = computed(() => this.cuadre()?.plazo_dias ?? 5);
+
+  // ── [CP.8.14] reglas de cuenta ──
+  readonly reglas = signal<ReglaVista[] | null>(null);
+  readonly reglasError = signal<string | null>(null);
+  readonly cuentas = signal<{ codigo: string; etiqueta: string }[]>([]);
+  /** categoría → cuenta elegida. ⛔ Nada se preselecciona: el indicio sólo llena si se pide. */
+  readonly cuentaElegida = signal<Record<string, string>>({});
+  readonly firmando = signal<string | null>(null);
+  readonly avisoRegla = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly firmables = computed(() => (this.reglas() ?? []).filter((r) => r.firmable));
+  readonly noFirmables = computed(() => (this.reglas() ?? []).filter((r) => !r.firmable));
+  /** Lo que destrabaría firmar lo pendiente de la lista. Techo: otro motivo puede dejarlos fuera. */
+  readonly porFirmar = computed(() => {
+    const p = this.firmables().filter((r) => r.estado !== 'aprobada' && r.movimientos_mes > 0);
+    return {
+      reglas: p.length,
+      n: p.reduce((a, r) => a + r.movimientos_mes, 0),
+      imp: p.reduce((a, r) => a + Number(r.importe_mes), 0),
+    };
+  });
   readonly avisoAlias = signal<{ texto: string; mal: boolean } | null>(null);
   /**
    * Confirmar exige `_GESTIONAR`; mirar el pendiente sólo `_VER`.
@@ -613,6 +789,83 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     // Igual que el cuadre: si falla, la bandeja sigue sirviendo y la sección no se dibuja.
     this.api.pendientes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (p) => this.porConfirmar.set(p), error: () => this.porConfirmar.set(null) });
+
+    // [CP.8.14] ⚠️ Aquí el error SÍ se dibuja: una sección de firmas que desaparece se lee como
+    // «no hay nada que firmar», y es justo lo contrario.
+    this.reglasError.set(null);
+    this.api.reglas(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.reglas.set(r.reglas),
+      error: (e) => { this.reglas.set(null); this.reglasError.set(e?.error?.message ?? 'error de red'); },
+    });
+    if (!this.cuentas().length && this.puedeGestionar()) {
+      this.api.cuentasGasto().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (c) => this.cuentas.set(c.cuentas.map((x) => ({ codigo: x.codigo, etiqueta: `${x.codigo} ${x.nombre}` }))),
+        error: () => this.cuentas.set([]),
+      });
+    }
+  }
+
+  /** El nombre legible es la primera frase de la evidencia medida («Comisión bancaria.»). */
+  nombreRegla(r: ReglaVista): string {
+    return nombreDeRegla(r);
+  }
+
+  /** El código de 10 dígitos del indicio, sólo si existe en el catálogo que se puede firmar. */
+  codigoIndicio(r: ReglaVista): string | null {
+    return codigoDeIndicio(r.indicio, this.cuentas());
+  }
+
+  elegirCuenta(categoria: string, cuenta: string | null): void {
+    this.cuentaElegida.update((m) => {
+      const n = { ...m };
+      if (cuenta) n[categoria] = cuenta; else delete n[categoria];
+      return n;
+    });
+  }
+
+  /** ⭐ Al firmar se recarga la bandeja entera: la firma cambia qué movimientos entran al asiento. */
+  firmar(r: ReglaVista): void {
+    const cuenta = this.cuentaElegida()[r.categoria_code];
+    if (!cuenta || this.firmando()) return;
+    this.firmando.set(r.categoria_code);
+    this.avisoRegla.set(null);
+    this.api.firmarRegla(r.categoria_code, cuenta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (v) => {
+        this.firmando.set(null);
+        this.elegirCuenta(r.categoria_code, null);
+        this.avisoRegla.set({
+          texto: `${this.nombreRegla(r)} quedó firmada a ${v.cuenta_gasto} ${v.cuenta_nombre ?? ''}. `
+            + 'Sus movimientos ya entran al armado; lo ya entregado no se vuelve a mandar.',
+          mal: false,
+        });
+        this.cargar();
+      },
+      error: (e) => {
+        this.firmando.set(null);
+        this.avisoRegla.set({ texto: e?.error?.message ?? 'No se pudo firmar', mal: true });
+      },
+    });
+  }
+
+  revocar(r: ReglaVista): void {
+    if (this.firmando()) return;
+    this.firmando.set(r.categoria_code);
+    this.avisoRegla.set(null);
+    this.api.revocarRegla(r.categoria_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.firmando.set(null);
+        this.avisoRegla.set({
+          texto: `${this.nombreRegla(r)} quedó sin firmar: sus movimientos dejan de armarse. `
+            + 'Lo que ya se entregó a ContPAQi no se toca.',
+          mal: false,
+        });
+        this.cargar();
+      },
+      error: (e) => {
+        this.firmando.set(null);
+        this.avisoRegla.set({ texto: e?.error?.message ?? 'No se pudo revocar', mal: true });
+      },
+    });
   }
 
   /**
@@ -646,6 +899,47 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       error: (e) => {
         this.bajando.set(false);
         this.avisoArchivo.set({ texto: e?.error?.message ?? 'No se pudo generar', mal: true });
+      },
+    });
+  }
+
+  /**
+   * `[CP.8.54]` Marca entregado el archivo que se cargó en ContPAQi.
+   *
+   * ⭐ Se deshabilita en el primer clic, antes de leer el archivo: el doble clic no manda dos
+   * veces (y aunque mandara, el backend no duplica). Los bytes viajan tal cual en base64 — el
+   * archivo es latin1 de ancho fijo y cualquier decodificación a texto podría cambiarlo.
+   */
+  async marcarEntregado(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || this.entregando()) return;
+    this.entregando.set(true);
+    this.avisoEntrega.set(null);
+    let b64: string;
+    try {
+      b64 = aBase64(new Uint8Array(await file.arrayBuffer()));
+    } catch {
+      this.entregando.set(false);
+      this.avisoEntrega.set({ texto: 'No se pudo leer el archivo elegido.', mal: true });
+      return;
+    }
+    const mes = this.mes();
+    this.api.entregar(mes, b64).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.entregando.set(false);
+        const ya = r.ya_registradas ? ` (${r.ya_registradas} ya estaban registradas)` : '';
+        this.avisoEntrega.set({
+          texto: `${r.nuevas} pólizas de ${r.mes} quedaron como entregadas${ya}. `
+            + `La Suite las buscará en ContPAQi; las que no aparezcan en ${this.plazoDias()} días se avisan aquí.`,
+          mal: false,
+        });
+        this.api.cuadre().pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
+      },
+      error: (e) => {
+        this.entregando.set(false);
+        this.avisoEntrega.set({ texto: e?.error?.message ?? 'No se pudo marcar como entregado', mal: true });
       },
     });
   }
@@ -758,6 +1052,33 @@ export function participacion(n: number, total: number): number {
 /** Cuántos movimientos ya están decididos y por lo tanto NO esperan a nadie. */
 export function contarDeNadie(motivos: { motivo: string; movimientos: number }[]): number {
   return motivos.filter((m) => esDeNadie(m.motivo)).reduce((a, m) => a + m.movimientos, 0);
+}
+
+/** `[CP.8.14]` El nombre legible de una regla: la primera frase de su evidencia («Comisión bancaria.»). */
+export function nombreDeRegla(r: { evidencia: string | null; categoria_code: string }): string {
+  const f = (r.evidencia ?? '').split('.')[0].trim();
+  return f && f.length <= 48 ? f : r.categoria_code;
+}
+
+/**
+ * `[CP.8.14]` El código del indicio, SÓLO si está en el catálogo que se puede firmar: ofrecer
+ * «usar el indicio» con una cuenta que el backend va a rechazar es invitar al error.
+ */
+export function codigoDeIndicio(indicio: string | null, cuentas: { codigo: string }[]): string | null {
+  const m = /^(\d{10})/.exec(indicio ?? '');
+  return m && cuentas.some((c) => c.codigo === m[1]) ? m[1] : null;
+}
+
+/**
+ * `[CP.8.54]` Bytes → base64, por tramos: `String.fromCharCode(...bytes)` de un golpe revienta
+ * la pila con un archivo de unos cientos de KB.
+ */
+export function aBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
 }
 
 /** El mes cerrado más reciente. ⚠️ No el actual: el mes en curso siempre se ve incompleto. */

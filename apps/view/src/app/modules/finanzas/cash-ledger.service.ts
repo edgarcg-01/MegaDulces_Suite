@@ -624,6 +624,9 @@ export interface CajaKepler {
   documentos: number;
 }
 
+/** [CGA-A.49] Una de las dos colas de la bandeja: cuántos, cuánto y el día del más viejo. */
+export interface ColaParte { n: number; monto: number; mas_viejo: string | null }
+
 export interface PendientesResponse {
   /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */
   desde?: string;
@@ -636,6 +639,12 @@ export interface PendientesResponse {
   saldados_por_control?: number;
   /** `[CGA-A.44]` false = no se leyeron los cobros de camioneta y se dejaron visibles (lado seguro). */
   control_ruta_disponible?: boolean;
+  /**
+   * [CGA-A.49] El total partido en sus dos colas: la DEL LIBRO (desde el primer corte; la misma que
+   * cuentan la campana y «Mi trabajo») y el rezago de la era Control. del_libro + rezago_control = total.
+   * null = todavía no hay libro.
+   */
+  cola?: { del_libro: ColaParte; rezago_control: ColaParte } | null;
   /**
    * Lo que la ventana DEJA FUERA, declarado. Medido en prod al aplicar CG.21: con el libro nuevo
    * vacío, "pendiente" era todo lo que Kepler registró desde 2025 — 12,160 movimientos. Eso no es

@@ -1,5 +1,6 @@
 import type { Knex } from 'knex';
 import { SUCURSAL_CAJA_GENERAL } from '@megadulces/contracts';
+import { cajaColaDelLibroSql } from '@megadulces/platform-core';
 
 export interface JornadaSinCorte { fecha: string; movimientos: number }
 
@@ -126,19 +127,24 @@ export async function bandejaSinConfirmar(
   const existe = await trx.raw(`SELECT to_regclass('finance.v_caja_movimientos_pendientes') AS t`);
   if (!existe.rows?.[0]?.t) return null;
 
+  /**
+   * ⛔ `[CGA-A.49]` La cola es `cajaColaDelLibroSql` — la MISMA que «Mi trabajo» y la bandeja. Antes
+   * acá faltaba quitar lo ya capturado desde CAOS: medido el 2026-10-20, la campana contaba 60
+   * documentos y 9 de ellos ($80,632.85) ya estaban en el libro por la caja fuerte. Lo propio del
+   * aviso es sólo lo de abajo: que el pendiente ya haya cumplido un día.
+   */
   const r = await trx.raw(`
-    WITH inicio AS (SELECT min(fecha) AS d FROM finance.cash_ledger_cuts WHERE tenant_id = ?)
     SELECT count(*)::int AS movimientos,
            coalesce(sum(p.monto), 0)::float AS monto,
            to_char(min(p.fecha_valor), 'YYYY-MM-DD') AS mas_viejo,
            coalesce((?::date - min(p.fecha_valor)::date), 0)::int AS dias
-      FROM finance.v_caja_movimientos_pendientes p, inicio
+      FROM finance.v_caja_movimientos_pendientes p
      WHERE p.tenant_id = ?
        -- 0011 es la cuenta de CAJA GENERAL en Kepler; la vista ya la usa para la pierna de las
        -- rutas. Sin este filtro entrarían los bancos y la bandeja mediría otra caja.
        AND p.clave_banco = '0011'
-       AND inicio.d IS NOT NULL AND p.fecha_valor >= inicio.d
-       AND p.fecha_valor <= (?::date - 1)`, [tenantId, hoy, tenantId, hoy]);
+       AND ${cajaColaDelLibroSql('p')}
+       AND p.fecha_valor <= (?::date - 1)`, [hoy, tenantId, hoy]);
 
   const f = r.rows[0];
   if (!f || Number(f.movimientos) === 0) return { movimientos: 0, monto: 0, masViejo: hoy, dias: 0 };
