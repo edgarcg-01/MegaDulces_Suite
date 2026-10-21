@@ -1390,14 +1390,20 @@ export const routes: Routes = [
         //      adentro es aditivo; mover escrituras hacia afuera es riesgoso.
         //
         // Ruta propia y no un `?lente=` a secas para que el sidebar no marque dos items a la vez.
-        path: 'costo-por-compra',
+        //
+        // `[RE.47]` Se llamaba «Costo por compra» y ya no era eso: desde RE.35.5 abre en la
+        // bandeja «Por revisar» — la cola donde se valida la factura antes de entregarla a
+        // Finanzas. El nombre sale del estado (Por revisar → Revisión). El costo neto por compra
+        // sigue en sus columnas (Ajuste, Neto); el análisis de costo vive en «Costo por proveedor».
+        path: 'revision-facturas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
         data: { lente: 'dinero' },
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
-      // El nombre viejo sigue vivo como redirect: hay links pegados en chats y en el detalle de
-      // otras pantallas. Misma regla que los redirects de RE.16.
-      { path: 'compras-360', redirectTo: 'costo-por-compra', pathMatch: 'full' },
+      // Los nombres viejos siguen vivos como redirect: hay links pegados en chats y en el detalle
+      // de otras pantallas. Misma regla que los redirects de RE.16.
+      { path: 'costo-por-compra', redirectTo: 'revision-facturas', pathMatch: 'full' },
+      { path: 'compras-360', redirectTo: 'revision-facturas', pathMatch: 'full' },
       {
         // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
         // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
