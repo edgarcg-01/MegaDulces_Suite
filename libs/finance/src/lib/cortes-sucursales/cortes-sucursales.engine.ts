@@ -23,7 +23,7 @@
  *   se acepta como `cuadra` contra lo esperado bruto, no se inventa una diferencia.
  */
 import type {
-  CorteArqueo, CorteCobro, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteMedioCobro, CorteRow,
+  CorteArqueo, CorteCobro, CorteCobroCancelado, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteMedioCobro, CorteRow,
   CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 
@@ -74,6 +74,8 @@ export interface CorteCrudo {
   cobros: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; forma_pago: string | null; concepto: string | null;
     /** `[CSU.8]` Lo que trae `analytics.erp_collections`. Opcionales: una fila sin cobro en la vista llega sin ellos. */
     medio_cobro?: CorteMedioCobro | null; cuenta_tesoreria?: string | null }> | null;
+  /** `[CSU.13]` Cobros aplicados al corte y CANCELADOS en Kepler (`kepler_kdm5_cancelado`). No suman. */
+  cobros_cancelados?: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; concepto: string | null }> | null;
   /** `[CSU.7]` Notas de crédito POS pagadas en la caja del turno. */
   devoluciones?: Array<{ doc_prefix: string; folio: string; fecha: string; monto: string | number; cliente: string | null; motivo: string | null; cajero: string | null }> | null;
   arqueo_fecha: string | null;
@@ -140,6 +142,11 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     // cobro no está en `analytics.erp_collections` — que es distinto de 'sin_declarar'.
     medio_cobro: x.medio_cobro ?? null, cuenta_tesoreria: x.cuenta_tesoreria ?? null,
   }));
+  // [CSU.13] Se publican para VERLOS marcados; no tocan `cobrado` ni el saldo (ya los excluye la consulta).
+  const cobros_cancelados: CorteCobroCancelado[] = (c.cobros_cancelados || []).map((x) => ({
+    doc_prefix: x.doc_prefix, folio: x.folio, fecha: x.fecha ? String(x.fecha).slice(0, 10) : null,
+    monto: r2(n(x.monto)), concepto: x.concepto || null,
+  }));
   const documento = `UD2301-${c.folio}`;
   return {
     clave: `${c.sucursal}-${documento}`,
@@ -156,6 +163,7 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     saldo: r2(monto - cobrado),
     estado_cobro: estadoCobro(monto, cobrado),
     cobros,
+    cobros_cancelados,
     devoluciones,
     devoluciones_total,
     arqueo,

@@ -70,6 +70,11 @@ async function nueva(c, sql, from, to) {
 const canon = (v) => (Array.isArray(v) ? v.map(canon)
   : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
 const iguales = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+/**
+ * `[CSU.13]` La SQL nueva publica además `cobros_cancelados` (no suman). Para comparar contra una versión
+ * que no lo tenía, se quita — después de que cada script haya verificado lo que espera ahí.
+ */
+const sinCancelados = (filas) => filas.map(({ cobros_cancelados, ...r }) => r);
 const mediana = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
 /** Diferencias fila por fila (las primeras `max`). */
@@ -99,7 +104,8 @@ function urlLocal() {
 /** La base local va atrasada: estas migraciones dan a la vista erp_collections su forma de CSU.8. */
 async function vistaCobrosAlDia(c) {
   for (const mig of ['20261006160000_caja_vistas_anclaje_y_definer.js', '20261009174500_erp_collections_banco_deposito.js',
-    '20261021102646_kepler_kdm5_vigente.js']) { // [CSU.11] la vista de aplicaciones vigentes que lee Cortes
+    '20261021102646_kepler_kdm5_vigente.js', // [CSU.11] la vista de aplicaciones vigentes que lee Cortes
+    '20261021135510_kepler_kdm5_cancelado.js']) { // [CSU.13] su hermana: lo cancelado, para mostrarlo
     await c.query('SAVEPOINT vista');
     try {
       await require(path.join(REPO, 'database/migrations-newdb', mig)).up({ raw: (sql, b) => c.query(sql, b) });
@@ -120,5 +126,5 @@ async function vistaCobrosAlDia(c) {
 
 module.exports = {
   REPO, REL, ANTES_CSU10, TENANT, sqlVieja, sqlNueva, paramsVieja, paramsNueva, nueva,
-  canon, iguales, mediana, diferencias, urlLocal, vistaCobrosAlDia,
+  canon, iguales, sinCancelados, mediana, diferencias, urlLocal, vistaCobrosAlDia,
 };

@@ -120,7 +120,15 @@ async function fixtures(c) {
     else if (!viejaContabaCancelado) { console.log('NO MEDIDO: la versión de antes no traía el cobro cancelado; el caso no se ejercitó'); process.exitCode = 1; }
     else {
       // Esperado = lo de antes MENOS el cobro cancelado (CSU.11); todo lo demás, idéntico.
-      const esperado = normalizar(a, true), obtenido = normalizar(b, false);
+      // [CSU.13] El cancelado sembrado tiene que estar en cobros_cancelados (se ve) y NO en cobros (no suma).
+      const conCancelado = b.find((f) => f.sucursal === CANCELADO.sucursal && (f.cobros_cancelados || []).some((x) => x.folio === CANCELADO.folio));
+      const enCobros = b.some((f) => (f.cobros || []).some((x) => x.folio === CANCELADO.folio));
+      if (!MUTAR_CANCELADO && (!conCancelado || enCobros)) {
+        console.log(`PARIDAD ROTA: el cobro cancelado ${conCancelado ? '' : 'NO aparece en cobros_cancelados'}${enCobros ? ' y SÍ suma en cobros' : ''}`);
+        process.exitCode = 1;
+        return;
+      }
+      const esperado = normalizar(a, true), obtenido = normalizar(L.sinCancelados(b), false);
       if (L.iguales(esperado, obtenido)) console.log('PARIDAD OK: salida idéntica campo por campo, salvo el cobro cancelado (que ya no suma)');
       else { console.log('PARIDAD ROTA'); console.log(L.diferencias(esperado, obtenido).join('\n')); process.exitCode = 1; }
     }
