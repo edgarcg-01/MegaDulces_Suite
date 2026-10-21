@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 267 KB, 4783 líneas, 101 secciones.
+> **Índice navegable** — 268 KB, 4790 líneas, 101 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -107,7 +107,7 @@
 | 4636 | 4693 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
 | 4694 | 4847 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
 | 4848 | 4857 | 2 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
-| 4858 | 4896 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
+| 4858 | 4903 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4893,3 +4893,10 @@ Ya se había corregido **tres veces**, cada consumidor con su propio filtro: `in
 - Un documento cuya cabecera **no** está en el ODS se conserva: no se sabe si está cancelado, y quitarlo sería inventar.
 
 ⚠️ **El caso reportado no era el folio que decía la nota.** En el ODS no hay ningún `UA0501-0000076` cancelado: está activo en las 8 sucursales. En la 06, el corte `UD2301-0000033` tiene el `…075` **cancelado** ($10,962.00) junto al `…076` vivo ($1,867.00). Antes de corregir un folio, se busca el patrón.
+
+**La otra mitad: la CABECERA (`[CSU.12]`, medido el mismo día).** Que Kepler ponga `c16 = 0` en la cabecera cancelada **no basta**. Lo que no viene de `c16` sigue vivo:
+- el **descuento `c84`** de un pago cancelado: $1.45 M en el pronto pago;
+- un **importe contable** agregado de otra tabla: $3.18 M en `expense_documents`;
+- las **líneas** de `kdm2`.
+
+Toda vista que lee `kdm1` con dinero filtra `btrim(coalesce(c43,'')) <> 'C'`. `check:kdm5-vigente:db` lista las que no, con las excepciones declaradas (el ticket POS U-D-10, donde `c43` no es señal).

@@ -369,6 +369,29 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 **45. Un documento CANCELADO en Kepler no suma en ningún lado — y la regla vive en UNA fuente, no en cada consulta.** *Origen: PM — «omitir los montos de todos los que tengan estatus CANCELADO en Kepler; corregirlo de raíz y no estar parchando cada vez que salga un error».* Kepler cancela en la cabecera (`kdm1.c43 = 'C'`) y deja vivas las aplicaciones de `kdm5`. Se había corregido tres veces, consumidor por consumidor, y una de esas veces el filtro quedó en la fecha y no en el monto. Antes de escribir un filtro en tu consulta, pregúntate si la regla ya tiene casa. Si no la tiene, créasela (una vista derivada que se verifica sola) y ponle candado (`check:kdm5-vigente`, con `--db` para lo que vive en la base). Si tu PR suma documentos de Kepler, declara cómo excluye los cancelados. GOTCHAS §89 · ADR-098.
 
+**Observaciones del PM sobre los cancelados de Kepler (2026-10-21) y lo que costó `[CSU.11]`/`[CSU.12]` — puntos 46–51.** El PM pidió que lo cancelado en Kepler no cuente en ningún lado, de raíz, y luego «sigue con los proveedores». Cada punto ya costó algo ese mismo día.
+
+**46. Antes de corregir un dominio, mide en el CATÁLOGO de prod qué lo SUMA de verdad — no corrijas un monto que nadie lee.** *Origen: PM — «sigue con los proveedores».* Los $13.3 M de pagos cancelados aplicados a entradas parecían el problema. Medido en `pg_depend`/`pg_get_viewdef`: **ninguna** vista ni función de prod los sumaba. El daño estaba en otro lado: la cabecera, con $3.18 M en gastos y $1.45 M en pronto pago. Arreglar lo que se ve grande sin medir habría dejado intacto lo que sí pegaba.
+
+**47. «Cancelado» en la cabecera no pone en cero todo lo que cuelga del documento.** Kepler deja `c16 = 0`, pero sobreviven tres cosas:
+- el descuento `c84`;
+- el importe que otra tabla agrega (`expense_doc_accounting`);
+- las líneas de `kdm2`.
+
+Si tu vista lee dinero de `kdm1`, filtra `btrim(coalesce(x.c43,'')) <> 'C'`. Si a propósito no lo hace (el ticket POS U-D-10, donde `c43` no es señal), decláralo en `check:kdm5-vigente:db`. Las aplicaciones se leen de `analytics.kepler_kdm5_vigente` (GOTCHAS §89).
+
+**48. Tras fusionar `main`, el índice navegable se REGENERA con `npm run docs:indices`, nunca se desplaza a mano.** Git fusiona el bloque `INDICE-AUTO` línea por línea y deja dos versiones intercaladas. El mismo día, el log quedó con **0 de 452** filas válidas, dos veces. Comprueba con `npm run check:docs-indices` antes de empujar.
+
+**49. La rama de tu PR puede recibir commits de otros —el lead fusiona `main` en ella—: mira el remoto antes de empujar, y NUNCA la fuerces.** `git ls-remote origin refs/heads/<rama>`. Si no es tu último commit, construye encima: fusiona con un commit cuyo árbol sea el tuyo ya validado. `--force-with-lease` lo atajó con «stale info»: es para eso.
+
+**50. Medir en local exige las MISMAS llaves e índices que prod — si no, la cifra miente en cualquier sentido.** La vista canónica busca la cabecera por `kdm1_pkey`. Prod la tiene; las tablas del ODS local no tienen llaves. En local tardó **más de 46 s**, en prod **175 ms**. Antes de medir, compara `pg_indexes` de las tablas que tocas en los dos lados.
+
+**51. Un rojo que no llegó a comparar NO es un rojo: es NO MEDIDO.** Dos negativos de la paridad salieron «rojos» sin probar nada:
+- uno por un `SET LOCAL statement_timeout` que la migración dejó vivo en la transacción de la prueba;
+- otro porque la mutación (quitar el casado por folio) corrió **44 min** sin terminar sobre datos a escala.
+
+Una prueba que no llega a comparar sale con un código distinto y lo dice. La mutación rompe la condición sin quitarla, para no volver patológica la consulta.
+
 **Observaciones del PM sobre el buscador de Cortes (2026-10-21, `[CSU.13]`) — puntos 52–55.**
 
 **52. Omitir un monto no es esconder el documento: lo que no suma se VE, marcado, y se encuentra.** *Origen: PM — «este corte cancelado no me aparece».* CSU.11 sacó del corte los cobros cancelados para que no sumaran, y con eso quedaron **invisibles**: quien buscaba el folio no encontraba nada y no sabía por qué. Lo correcto es separar las dos preguntas: no suma (fuera del total) y existe (se muestra con su etiqueta y se encuentra con el buscador). Si para mostrarlo hace falta una fuente nueva, que sea el complemento exacto de la que ya existe, verificado al crearse (vigentes + canceladas = total). Una segunda copia de la regla no sirve.
