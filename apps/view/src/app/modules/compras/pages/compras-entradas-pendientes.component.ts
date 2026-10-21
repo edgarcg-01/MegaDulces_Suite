@@ -1824,14 +1824,20 @@ export class ComprasEntradasPendientesComponent {
       // Soltada sobre una fila: la entrada ya la eligió el usuario, no se busca nada.
       if (h.entrada) { this.parchar(h.id, { estado: 'enlazada' }); return; }
       // FOLIO primero (preciso), MONTO como respaldo — la misma prioridad del server.
+      // `[RE.43]` El rol dice si el folio es nuestro o del proveedor (el del proveedor va contra
+      // `referencia`), y el RFC/nombre/fecha desempatan. La búsqueda ya viene acotada a donde la
+      // persona puede capturar.
       const r = await firstValueFrom(this.svc.matchByOcr({
         folio: o.folio || undefined,
         total: o.total ?? o.subtotal ?? undefined,
         fecha: o.fecha || undefined,
+        role: h.role, rfc: o.rfc, proveedor: o.proveedor,
       }));
       const cands = r?.entradas || [];
       if (cands.length === 1) {
-        this.parchar(h.id, { estado: 'enlazada', entrada: cands[0], porMonto: !o.folio, candidatas: [] });
+        const porMonto = cands[0].match_via ? cands[0].match_via === 'monto' : !o.folio;
+        this.parchar(h.id, { estado: 'enlazada', entrada: cands[0], porMonto, candidatas: [] });
+        this.revisarDuplicado(h.id);
       } else if (cands.length > 1) {
         this.parchar(h.id, { estado: 'ambigua', candidatas: cands.slice(0, 5) });
       } else {
@@ -1848,6 +1854,35 @@ export class ComprasEntradasPendientesComponent {
 
   elegir(h: Hoja, e: EntradaRow): void {
     this.parchar(h.id, { entrada: e, estado: 'enlazada', candidatas: [], porMonto: !h.folioOcr });
+    this.revisarDuplicado(h.id);
+  }
+
+  /**
+   * `[RE.42.2]` Con la entrada ya elegida, el duplicado se vuelve a decidir con SU proveedor de
+   * Kepler. La vista previa corre antes de saber el destino y sólo puede avisar: así salía el aviso
+   * de BOTANAS PAU sobre la nota de EL FAROLITO, que con la entrada correcta se descarta solo.
+   * Si la red falla se queda el aviso que había: no se borra a ciegas.
+   */
+  private revisarDuplicado(id: number): void {
+    const h = this.hojas().find((x) => x.id === id);
+    const destino = h?.entrada;
+    if (!h || !destino || !h.sha256) return;
+    this.svc.duplicateCheck({
+      sha256: h.sha256, folio: h.folioOcr ?? null, rfc: h.rfc ?? null, proveedor: h.ocr?.proveedor ?? null,
+      total: h.total ?? null, role: h.role, entrada_sucursal: destino.sucursal, entrada_folio: destino.folio,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: ({ duplicate: d }) => {
+        // Si mientras tanto la cambiaron de entrada, esta respuesta ya no le corresponde.
+        const cur = this.hojas().find((x) => x.id === id);
+        if (!cur?.entrada || cur.entrada.sucursal !== destino.sucursal || cur.entrada.folio !== destino.folio) return;
+        if (duplicadoBloquea(d)) {
+          this.parchar(id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!), dupAviso: undefined });
+        } else {
+          this.parchar(id, { dupAviso: duplicadoAvisa(d) ? duplicadoMensaje(d!) : undefined });
+        }
+      },
+      error: () => undefined,
+    });
   }
   desenlazar(h: Hoja): void {
     this.parchar(h.id, { entrada: null, estado: 'sin_match', candidatas: [], porMonto: false });

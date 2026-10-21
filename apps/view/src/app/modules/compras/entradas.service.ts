@@ -30,6 +30,10 @@ export interface EntradaRow {
   deposit_id: string | null;
   deposit_status: ProofStatus | null;
   monto_match: boolean;
+  /** `[RE.43]` Sólo en `/match`: por qué salió — nuestro folio, el del proveedor (`referencia`) o el importe. */
+  match_via?: 'folio' | 'referencia' | 'sufijo' | 'monto' | null;
+  /** `[RE.43]` El folio del proveedor como lo capturó Kepler (`30-0666`: plaza + folio). */
+  referencia?: string | null;
   /**
    * `[RE.25]` — **el cuadre del DOCUMENTO**: importe Y proveedor, no sólo el importe.
    *   `cuadra`        → los dos concuerdan; no necesita ojo humano.
@@ -692,13 +696,31 @@ export class EntradasService {
     return this.http.post<IdentificacionEntrada>(`${this.base}/identificar`, lectura);
   }
   /** FOTO-PRIMERO: enlaza por OCR de la Aplica Orden Entrada (folio/total) o busca manual. */
-  matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string }): Observable<{ entradas: EntradaRow[] }> {
+  /**
+   * `[RE.43]` `role` dice si el folio leído es NUESTRO (orden de entrada) o del PROVEEDOR (factura,
+   * remisión): el del proveedor se busca en `referencia` de Kepler. `rfc`/`proveedor` desempatan.
+   * La búsqueda se acota a donde la persona puede CAPTURAR; si es global, busca en todas.
+   */
+  matchByOcr(q: {
+    folio?: string; total?: number; fecha?: string; search?: string;
+    role?: string; rfc?: string | null; proveedor?: string | null;
+  }): Observable<{ entradas: EntradaRow[] }> {
     let p = new HttpParams();
     if (q.folio) p = p.set('folio', q.folio);
     if (q.total != null) p = p.set('total', String(q.total));
     if (q.fecha) p = p.set('fecha', q.fecha);
     if (q.search) p = p.set('search', q.search);
+    if (q.role) p = p.set('role', q.role);
+    if (q.rfc) p = p.set('rfc', q.rfc);
+    if (q.proveedor) p = p.set('proveedor', q.proveedor);
     return this.http.get<{ entradas: EntradaRow[] }>(`${this.base}/match`, { params: p });
+  }
+  /** `[RE.42.2]` Revisa el duplicado de una hoja ya leída, con la entrada destino ya elegida. */
+  duplicateCheck(b: {
+    sha256?: string; folio?: string | null; rfc?: string | null; proveedor?: string | null; total?: number | null;
+    role?: string; entrada_sucursal: string; entrada_folio: string;
+  }): Observable<{ duplicate: DuplicateHit | null }> {
+    return this.http.post<{ duplicate: DuplicateHit | null }>(`${this.base}/duplicate-check`, b);
   }
   /** Sube la remisión (**sólo PDF**) al bucket privado y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'remision'): Observable<ProofFile> {

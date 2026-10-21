@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, applySmartSearch, ScopeService } from '@megadulces/platform-core';
 import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine } from '@megadulces/platform-core';
 // `[RE.25]` El cuadre del documento. Puro y medido — ver el encabezado de `receipt-match.ts`.
@@ -17,6 +18,8 @@ import {
   folioNucleo, masGrave, mensajeDuplicado, papelesDeFila, veredictoDuplicado, SQL_CANDIDATOS_DUPLICADO,
   type FilaCandidataDup, type FuenteEmisor, type MotivoDuplicado, type PapelProveedor, type VeredictoDuplicado,
 } from './documento-duplicado';
+// `[RE.43]` De qué entrada es un papel: el folio del proveedor va contra `referencia`. Puro y medido.
+import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -1372,12 +1375,18 @@ export class GoodsReceiptProofsService {
    * FOLIO (tolerante a ceros: "8625"="0008625") ∪ por MONTO (±$2). Si `search` viene (pick
    * manual), busca por proveedor/folio/OC. Prioriza las que aún NO tienen comprobante.
    */
-  async matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string; limit?: number }) {
+  async matchByOcr(q: {
+    folio?: string; total?: number; fecha?: string; search?: string; limit?: number;
+    /** `[RE.43]` Qué es la hoja: decide si el folio leído es nuestro o del proveedor. */
+    role?: string; rfc?: string; proveedor?: string;
+  }): Promise<{ entradas: Record<string, unknown>[] }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(30, Math.max(1, Number(q.limit) || 15));
     // RE.13.0 — el enlace también se scopea: no se le puede colgar evidencia a la entrada
     // de otra sucursal por escribir su folio en el buscador.
-    const alcance = await this.sucursalesVisibles(null);
+    // ⭐ `[RE.43]` Con el alcance de CAPTURA, no el de lectura: enlazar es escribir. Quien tiene su
+    // sucursal busca sólo en ella; quien es global, en todas (`null` = sin filtro).
+    const alcance = this.scope.intersectWrite(await this.scope.current(), 'warehouse', null);
     const folio = (q.folio || '').trim();
     const total = q.total != null && isFinite(Number(q.total)) ? Number(q.total) : null;
     const search = (q.search || '').trim();
@@ -1404,7 +1413,7 @@ export class GoodsReceiptProofsService {
           .whereRaw('c.dup_of_folio IS NULL') // RE.12 — enlaza a la CANÓNICA (sucursal), no a la copia CEDIS
           .where('c.receipt_date', '>=', cfg.reception_start) // no enlazar a histórico previo al arranque
           .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
-            'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
+            'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', 'c.referencia', trx.raw('c.monto::numeric AS monto'),
             trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
             trx.raw('d.last_status AS deposit_status'), trx.raw(ORIGEN_SELECT),
             ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)));
@@ -1415,8 +1424,9 @@ export class GoodsReceiptProofsService {
         if (alcance) { if (alcance.length) qb.whereIn('c.sucursal', alcance); else qb.whereRaw('false'); }
         return qb;
       };
-      const order = (qb: any) => qb.orderByRaw('COALESCE(d.n,0) ASC').orderBy('c.receipt_date', 'desc').limit(limit);
+      const order = (qb: Knex.QueryBuilder, n = limit): Knex.QueryBuilder => qb.orderByRaw('COALESCE(d.n,0) ASC').orderBy('c.receipt_date', 'desc').limit(n);
       let rows: any[] = [];
+      let via: 'folio' | 'referencia' | 'sufijo' | 'monto' | null = null;
       if (search) {
         const b = sel();
         // Prioridad: últimos 4 dígitos del folio (término de 1–4 dígitos = sufijo exacto).
@@ -1441,17 +1451,44 @@ export class GoodsReceiptProofsService {
         // El folio y el importe se buscan en las DOS capturas de la misma recepción (la de
         // sucursal y la de oficinas): si no, una factura que casa con la copia de oficinas no
         // encuentra nada y el capturista concluye que "la orden no existe".
-        if (cands.length) {
+        //
+        // ⭐ `[RE.43]` El folio de una FACTURA es del proveedor, y Kepler lo guarda en `referencia`
+        // (`30-0666`), no en `c.folio` (nuestra orden). Compararlo contra `c.folio` mandó la nota
+        // 0666 de EL FAROLITO a la entrada 0000666 de otro proveedor; medido sobre 878 papeles,
+        // esa llave cae en la entrada de OTRO proveedor en el 32%. Ver `emparejar-papel.ts`.
+        const llave = llaveDelFolio(q.role, folio);
+        const nucleo = folioNucleo(folio);
+        if (cands.length && llave !== 'proveedor') {
           rows = await order(sel().where((w: any) => {
             w.whereIn('c.folio', cands);
             if (hayPares) w.orWhereIn('gem.cedis_folio', cands);
           }));
+          if (rows.length) via = 'folio';
+        }
+        if (!rows.length && nucleo && llave !== 'nuestro') {
+          // 50 y no `limit`: el número se repite entre proveedores, y el desempate va después.
+          rows = await order(sel().whereRaw(`${sqlNucleoReferencia('c.referencia')} = ?`, [nucleo]), 50);
+          if (rows.length) via = 'referencia';
+        }
+        // Kepler a veces guarda sólo la cola del folio (`IC - 3384616` ↔ `10-4616`).
+        if (!rows.length && nucleo && llave !== 'nuestro') {
+          rows = await order(sel().whereRaw(sqlSufijoReferencia('c.referencia'), [nucleo, nucleo]), 50);
+          if (rows.length) via = 'sufijo';
         }
         if (!rows.length && total != null) {
           rows = await order(sel().where((w: any) => {
             w.whereRaw('c.monto BETWEEN ? AND ?', [total - 2, total + 2]);
             if (hayPares) w.orWhereRaw('gem.cedis_monto BETWEEN ? AND ?', [total - 2, total + 2]);
-          }));
+          }), 50);
+          if (rows.length) via = 'monto';
+        }
+        // Nuestro folio es exacto y no se reordena. Lo del proveedor se desempata por proveedor,
+        // fecha e importe; si queda más de una, la pantalla pregunta (nunca elige sola).
+        if (via === 'referencia' || via === 'sufijo' || via === 'monto') {
+          const emisora = await trx('fiscal.issuer_config')
+            .where({ tenant_id: tenantId, active: true }).orderBy('is_default', 'desc').first('rfc');
+          rows = ordenarCandidatas(rows, { rfc: q.rfc, proveedor: q.proveedor, fecha: q.fecha, total }, emisora?.rfc ?? null)
+            .slice(0, limit);
         }
       }
       const entradas = rows.map((r: any) => ({
@@ -1466,6 +1503,8 @@ export class GoodsReceiptProofsService {
           ? (Math.abs(Number(r.monto) - total) <= 2
             || (r.gemela_monto != null && Math.abs(Number(r.gemela_monto) - total) <= 2))
           : false,
+        // `[RE.43]` Por qué salió: `folio` (nuestra hoja) · `referencia`/`sufijo` (folio del proveedor) · `monto`.
+        match_via: via,
       }));
       return { entradas };
     });
@@ -1538,6 +1577,27 @@ export class GoodsReceiptProofsService {
       destino,
     );
     return { ...fields, ocr_status, sha256, duplicate };
+  }
+
+  /**
+   * `[RE.42.2]` Vuelve a revisar el duplicado de una hoja YA LEÍDA, ahora con la entrada destino.
+   *
+   * La vista previa corre antes de saber a qué entrada va el papel (se enlaza después, por
+   * coincidencia), así que sin destino sólo puede avisar. Con él decide por el proveedor de Kepler:
+   * medido en el caso que lo motivó, el aviso contra BOTANAS PAU (`CB013`) se va solo al enlazar
+   * EL FAROLITO (`CE011`). No vuelve a leer el PDF: usa lo que ya se leyó.
+   */
+  async checkDuplicate(b: {
+    sha256?: string; folio?: string | null; rfc?: string | null; proveedor?: string | null;
+    total?: number | null; role?: string; entrada_sucursal?: string; entrada_folio?: string;
+  }): Promise<{ duplicate: DuplicateHit | null }> {
+    const fiscal = !b?.role || b.role === 'remision' || b.role === 'factura';
+    const total = b?.total != null && Number.isFinite(Number(b.total)) ? Number(b.total) : null;
+    const duplicate = await this.findDuplicate(
+      { sha256: b?.sha256, folio: fiscal ? b?.folio : null, rfc: b?.rfc, nombre: b?.proveedor, total },
+      { sucursal: b?.entrada_sucursal, folio: b?.entrada_folio },
+    );
+    return { duplicate };
   }
 
   /**

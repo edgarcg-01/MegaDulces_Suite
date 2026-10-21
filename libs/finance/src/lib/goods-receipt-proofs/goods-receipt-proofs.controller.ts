@@ -145,8 +145,25 @@ export class GoodsReceiptProofsController {
   @Get('match')
   @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
   @ApiOperation({ summary: 'FOTO-PRIMERO: dado el OCR de la Aplica Orden Entrada (folio/total) o un texto, devuelve las entradas candidatas para enlazar la evidencia.' })
-  match(@Query('folio') folio?: string, @Query('total') total?: string, @Query('fecha') fecha?: string, @Query('search') search?: string) {
-    return this.svc.matchByOcr({ folio, total: total ? Number(total) : undefined, fecha, search });
+  match(
+    @Query('folio') folio?: string, @Query('total') total?: string, @Query('fecha') fecha?: string, @Query('search') search?: string,
+    // `[RE.43]` Qué es la hoja y quién la emitió: el folio de una factura va contra `referencia`, y el
+    // RFC/nombre desempatan. Opcionales: sin ellos se comporta como antes.
+    @Query('role') role?: string, @Query('rfc') rfc?: string, @Query('proveedor') proveedor?: string,
+  ): ReturnType<GoodsReceiptProofsService['matchByOcr']> {
+    return this.svc.matchByOcr({ folio, total: total ? Number(total) : undefined, fecha, search, role, rfc, proveedor });
+  }
+
+  @Post('duplicate-check')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: '[RE.42.2] Revisa si una hoja ya leída es duplicada, con la entrada destino ya elegida. No relee el PDF ni guarda.' })
+  duplicateCheck(
+    @Body() body: {
+      sha256?: string; folio?: string | null; rfc?: string | null; proveedor?: string | null; total?: number | null;
+      role?: string; entrada_sucursal?: string; entrada_folio?: string;
+    },
+  ): ReturnType<GoodsReceiptProofsService['checkDuplicate']> {
+    return this.svc.checkDuplicate(body || {});
   }
 
   @Get('twins')
