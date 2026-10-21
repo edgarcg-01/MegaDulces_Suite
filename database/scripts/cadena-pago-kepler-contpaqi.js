@@ -143,6 +143,8 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     if (k1.length !== 1) { if (k1.length > 1) { r.l1_amb += 1; nota('L1 ambiguo'); } else nota('L1 sin pago Kepler'); continue; }
     r.l1 += 1;
     const pg = k1[0];
+    // La salida guarda el proveedor desde L1 aunque la cadena se corte después: sirve para buscar su REP.
+    salida[`${p.periodo}|${p.folio}`] = { rfc: rfcDe.get(pg.acreedor) ?? null, facturas: [], notas: [], incompleto: true };
     const aps = (aplicacionesDe.get(`${pg.acreedor}|${pg.t}|${pg.s}|${pg.folio}`) || []).filter((a) => a.dt === 20);
     if (!aps.length) { nota('L2 pago sin aplicar en kdxf'); continue; }
     r.l2 += 1;
@@ -178,7 +180,7 @@ const digitos = (s) => String(s ?? '').replace(/[^0-9]/g, '');
     }
     const verdad = new Set(p.facturas);
     const igual = pred.size === verdad.size && [...pred].every((u) => verdad.has(u));
-    salida[`${p.periodo}|${p.folio}`] = { facturas: [...pred], notas: [...predNotas], incompleto };
+    salida[`${p.periodo}|${p.folio}`] = { rfc, facturas: [...pred], notas: [...predNotas], incompleto };
     if (incompleto) { r.cadena_inc += 1; continue; }
     // ⭐ `[CP.8.63]` Compuerta que NO mira la respuesta: Σ facturas − Σ notas tiene que dar lo que salió
     // del banco (±$1 por documento, por los centavos que van a Otros ingresos). Si no cuadra, a revisión.
