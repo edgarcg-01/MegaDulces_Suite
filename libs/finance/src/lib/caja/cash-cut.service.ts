@@ -1159,7 +1159,10 @@ export class CashCutService {
       if (hayCaos && sucursal === SUCURSAL_CAJA_GENERAL) {
         const filas = await trx('analytics.caos_cash_movements')
           .where('tenant_id', tenantId)
-          .whereIn(trx.raw('accounting_date'), dias)
+          // ⚠️ `as unknown as string`: los tipos de Knex no declaran una sobrecarga de `whereIn`
+          // que acepte un `Raw` como primera columna, y el build cae con TS2769. La forma ya está
+          // establecida en el repo (`payment-calendar.service.ts:951`). En SQL es válido.
+          .whereIn(trx.raw('accounting_date') as unknown as string, dias)
           .groupBy('accounting_date')
           .select(
             trx.raw(`to_char(accounting_date,'YYYY-MM-DD') AS dia`),
