@@ -761,9 +761,12 @@ export class PurchaseBookService {
       // costaba 150 ms de cada apertura. Lo único que hace falta del archivo son dos banderas.
       const run = await knex('finance.purchase_book_runs')
         .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at')
+        // ⚠️ `as unknown as string`: `Array<string>.concat` no acepta un `Knex.Raw` aunque el
+        // `select` de Knex sí lo reciba en runtime. Misma forma y mismo motivo que
+        // `cash-cut.service.ts:1439`. Sin esto el build sale `TS2769` — medido en CI, no supuesto.
         .first(COLUMNAS_RUN.map((c) => `finance.purchase_book_runs.${c}`).concat([
-          knex.raw('(archivo_contenido IS NOT NULL) AS tiene_archivo'),
-          knex.raw('coalesce(archivo_contenido ~ ?, false) AS archivo_legado', [REGEX_LINEA_LEGADA]),
+          knex.raw('(archivo_contenido IS NOT NULL) AS tiene_archivo') as unknown as string,
+          knex.raw('coalesce(archivo_contenido ~ ?, false) AS archivo_legado', [REGEX_LINEA_LEGADA]) as unknown as string,
         ]));
 
       // Un RFC puede tener más de una cuenta en el mapa; DISTINCT ON evita duplicar la
