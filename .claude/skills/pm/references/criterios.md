@@ -7,6 +7,46 @@ Si un criterio y un hecho medido hoy se contradicen, gana el hecho y se corrige 
 
 ## 1. Cómo se prioriza (el orden, y por qué)
 
+### ⭐ La regla de Edgar (2026-10-21): dinero en juego × esfuerzo
+
+**Mucho dinero y poco esfuerzo va primero; mucho esfuerzo y poco dinero va al final.** Cada tarjeta
+activa del tablero lleva tres campos: **Dinero en juego**, **Esfuerzo** y la **Prioridad** que sale
+de los dos. Nadie elige la prioridad a ojo: se elige dinero y esfuerzo, con su razón escrita.
+
+| Dinero en juego | Qué cuenta |
+|---|---|
+| **Alto** | ≥ \$1 M, **o** una cifra con la que se decide dinero (margen, pagos, precios) |
+| **Medio** | \$100 mil – \$1 M |
+| **Bajo** | < \$100 mil, o beneficio indirecto (orden, adopción, comodidad) |
+
+| Esfuerzo | |
+|---|---|
+| **S** | ≤ 1 día |
+| **M** | ≤ 1 semana |
+| **L** | 2–4 semanas |
+| **XL** | > 1 mes |
+
+| | **S** | **M** | **L** | **XL** |
+|---|---|---|---|---|
+| **Alto** | **1** | **1** | 2 | 2 |
+| **Medio** | 2 | 3 | 3 | 4 |
+| **Bajo** | 3 | 4 | 4 | 4 |
+
+**0 · Riesgo de seguridad** va antes que todo, sin importar el monto (credenciales expuestas,
+acceso indebido).
+
+Cómo se llena:
+- **El dinero sale de una medición**, con su consulta o fuente en el comentario de la tarjeta. Si no
+  se pudo medir, se dice ("monto NO MEDIDO, estimado Medio porque…"), no se infla.
+- **El esfuerzo es una estimación** y así se escribe; lo corrige el dueño en la junta.
+- **Una tarjeta L/XL con dinero Alto se parte:** casi siempre tiene un pedazo S/M que se lleva la
+  mayor parte del dinero (p. ej. PO: el arreglo de la vista es S y destapa \$4.7 M/mes). Ese pedazo
+  sube a prioridad 1 como sub-tarea.
+- **La decisión del PM manda** sobre la regla, pero queda escrita: si se abre algo de prioridad 3–4
+  antes que uno de 1–2, la tarjeta dice por qué (p. ej. COT-AUD, abierta por decisión de Edgar).
+
+### Las clases de dinero (cómo reconocer "Alto")
+
 Se ordena por **lo que cuesta no hacerlo, medido en dinero o en operación detenida**, nunca por
 lo interesante o lo fácil.
 
