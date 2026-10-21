@@ -9,6 +9,7 @@
 ---
 
 ## [Unreleased]
+### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.4, 2026-10-19/20)
 ### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
 - `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
 
@@ -20,6 +21,7 @@
 - **Surtir › Sucursal** lista los pedidos que levantan vendedoras y preventa en la app, por Hoy / Mañana / Próximos, y se surten en la misma pantalla con los mismos renglones. Antes vivían en otra pantalla a la que nada llevaba (12 avisos, 0 vistos en prod) y el chip «Sucursal» leía Kepler. Telemarketing sigue con «Tomar siguiente»; ya no hay «Todos».
 - **Abrir un pedido de preventa daba error 500 en prod**: el detalle y el cierre pedían `catalog.products.name` y la columna es `nombre`.
 - **El surtidor ve la lista de pedidos** con sólo Pedido y Cliente / destino (lo autorizado de su sucursal); la API no le manda importes.
+- **Al levantar un pedido, la fecha de entrega es hoy** por omisión (antes, el próximo día hábil); el domingo propone el lunes.
 - **«Pedido agendado»** (app de vendor): el botón para volver al inicio lo tapaba la barra de abajo; ahora se ve y dice «Finalizar visita e ir al inicio».
 
 ### Added — El mostrador busca por nombre, proveedor, SKU o código, y lo que Kepler no tiene llega solo a Compras (MOS.1–MOS.3, 2026-10-16)
