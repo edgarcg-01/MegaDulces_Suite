@@ -33,7 +33,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import type { ReceiptExpediente } from '@megadulces/contracts';
-import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
@@ -71,7 +71,9 @@ interface AttachFile {
   ocrRfc?: string | null;
   ocrDocs?: string[];        // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
   ocrDocsDetail?: DocPresence[]; // RE.pkt.1 — cada doc detectado con página + evidencia (auditable)
-  dup?: DuplicateHit | null; // ya subida antes (misma hoja o folio ya capturado)
+  dup?: DuplicateHit | null; // ya subida antes y PROBADO (misma hoja, o folio del mismo proveedor): frena
+  /** `[RE.42]` Mismo folio que otra entrada sin poder probar el proveedor: se muestra, NO frena. */
+  dupAviso?: string | null;
 }
 
 /** [RE.35.5] La puerta de costo por compra arranca en "Por revisar"; el listado de control, en "Sin papel". */
@@ -569,6 +571,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                     @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                   </div>
                   @if (f.dup) { <div class="cb-file-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupText(f) }}</div> }
+                  @else if (f.dupAviso) { <div class="cb-file-dup is-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ f.dupAviso }}</div> }
                 </div>
                 <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
               </div>
@@ -666,6 +669,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                     </div>
                     @if (f.dup) { <div class="cb-file-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupText(f) }}</div> }
+                  @else if (f.dupAviso) { <div class="cb-file-dup is-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ f.dupAviso }}</div> }
                   </div>
                   <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
                 </div>
@@ -1634,6 +1638,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
     .cb-file-dup { display: flex; align-items: center; gap: .3rem; margin-top: .25rem; font-size: .74rem; color: var(--bad-fg); }
+    .cb-file-dup.is-aviso { color: var(--warn-fg); align-items: flex-start; }
     .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
@@ -2815,16 +2820,22 @@ export class ComprasEntradasComponent {
     if (!f.dataUri) { this.patch(id, { ocrLoading: false, ocrDone: true }); return; }
     this.patch(id, { ocrLoading: true });
     if (f.primary) this.ocrLoading.set(true);
-    this.svc.ocr(f.dataUri, f.role).pipe(takeUntilDestroyed(this.destroyRef))
+    // `[RE.42]` Con la entrada destino ya elegida, el servidor decide el duplicado con su proveedor.
+    const t = this.attachTarget();
+    this.svc.ocr(f.dataUri, f.role, t ? { sucursal: t.sucursal, folio: t.folio } : null).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
+          // Sólo frena lo PROBADO; una entrada que Kepler borró (RE.31) nunca frena. Antes esta
+          // pantalla bloqueaba cualquier `duplicate`, a diferencia de las otras dos.
+          const frena = duplicadoBloquea(r.duplicate);
           this.patch(id, {
             ocrLoading: false, ocrDone: true,
             ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrSubtotal: r.subtotal ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
             ocrDocs: (r.documents_present ?? []).map((d) => d.type), ocrDocsDetail: r.documents_present ?? [],
-            sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
+            sha256: r.sha256 || f.sha256, dup: frena ? r.duplicate : null,
+            dupAviso: duplicadoAvisa(r.duplicate) ? duplicadoMensaje(r.duplicate!) : null,
           });
-          if (r.duplicate) this.attachError.set(this.dupMsg(f.name, r.duplicate));
+          if (frena) this.attachError.set(this.dupMsg(f.name, r.duplicate!));
           // [RE.35.4] Lo soltado en la barra entra como factura; si el OCR dice que es SÓLO la orden de
           // entrada de Kepler (nuestra hoja, con el folio exacto), se reclasifica: no es la factura del
           // proveedor y el expediente no la debe juzgar como tal. La entrada se identifica igual.
@@ -2846,6 +2857,8 @@ export class ComprasEntradasComponent {
       });
   }
   private dupMsg(name: string, d: DuplicateHit): string {
+    // `[RE.42]` El texto del servidor ya dice dónde vive y por qué; el armado local queda para una API vieja.
+    if (d.mensaje) return `"${name}": ${d.mensaje} Quítala.`;
     const where = `entrada ${d.sucursal}/${d.folio}${d.proveedor ? ' · ' + d.proveedor : ''}`;
     return d.reason === 'file' ? `"${name}" ya se había subido (${where}). Quítala.` : `El folio de "${name}" ya se subió (${where}). Quítala.`;
   }
