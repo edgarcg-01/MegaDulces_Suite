@@ -858,7 +858,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-candado--llave { border-color:var(--border-color); }
     .cg-candado--llave > .pi { color:var(--text-muted); }
     .cg-candado-txt { display:flex; flex-direction:column; gap:var(--sp-2); }
-    .cg-candado-acc { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+    .cg-candado-acc { display:flex; gap:var(--sp-2); flex-wrap:wrap; align-items:center; }
+    .cg-resp-obs { margin:0 0 var(--sp-3); color:var(--text-main); }
+    .cg-resp-label { display:block; font-size:var(--fs-sm); font-weight:600; margin-bottom:var(--sp-1); }
+    .cg-resp-texto { width:100%; }
+    .cg-resp-ayuda { display:block; margin-top:var(--sp-2); color:var(--text-muted); font-size:var(--fs-sm); }
     .cg-jornada-btn { display:inline-flex; flex:none; align-items:center; gap:var(--sp-2); cursor:pointer;
                       font-family:inherit; color:var(--fg-1); text-align:left;
                       background:var(--card-bg); border:1px solid var(--border-color);
@@ -1284,6 +1288,26 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         } @else if (!k.activo) {
           <small class="fin-hint-warn">El candado de la caja está apagado por configuración: se puede capturar aunque falte un corte.</small>
         }
+      }
+
+      <!-- [CGS.18] Lo que la supervisora DEVOLVIO: la caja lo ve al entrar, no escondido en el
+           historial plegado de Tu jornada. -->
+      @if (observados().length) {
+        <div class="cg-candado" role="status">
+          <i class="pi pi-replay" aria-hidden="true"></i>
+          <div class="cg-candado-txt">
+            <b>{{ observados().length === 1 ? 'La supervisora observó un corte.' : 'La supervisora observó ' + observados().length + ' cortes.' }}</b>
+            @for (c of observados(); track c.id) {
+              <div class="cg-candado-acc">
+                <span>{{ c.folio }} ({{ dmy(c.fecha) }}) · {{ c.observed_by_username || 'supervisión' }}: «{{ c.observacion }}»</span>
+                @if (puedeGestionar()) {
+                  <p-button label="Responder" icon="pi pi-reply" size="small" severity="secondary" [outlined]="true"
+                            (onClick)="abrirRespuesta(c)"></p-button>
+                }
+              </div>
+            }
+          </div>
+        </div>
       }
 
       <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
@@ -3847,6 +3871,27 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
          el boton, y PrimeNG enfoca el primero al abrir (focusOnShow, verificado en node_modules
          por [CG.46]). Asi ENTER lo activa sin escribir una sola linea de teclado -- es el
          navegador haciendo el trabajo. -->
+    <!-- [CGS.18] Responder una observacion: no cambia ninguna cifra; si lo que estaba mal es un
+         movimiento, la correccion es un ajuste en la jornada abierta. -->
+    <p-dialog [visible]="respondiendo() !== null" (visibleChange)="$event ? null : cerrarRespuesta()"
+              [modal]="true" [style]="{ width: '32rem', maxWidth: '96vw' }" [draggable]="false"
+              [header]="'Responder la observación de ' + (respondiendo()?.folio ?? '')">
+      @if (respondiendo(); as c) {
+        <p class="cg-resp-obs">{{ c.observed_by_username || 'La supervisión' }} escribió: «{{ c.observacion }}»</p>
+        <label class="cg-resp-label" for="cg-resp-texto">Tu respuesta (al menos 10 caracteres)</label>
+        <textarea pTextarea id="cg-resp-texto" rows="4" class="cg-resp-texto"
+                  [ngModel]="textoRespuesta()" (ngModelChange)="textoRespuesta.set($event)"></textarea>
+        <small class="cg-resp-ayuda">El corte no cambia: vuelve a la supervisora con tu explicación. Si un movimiento estaba mal, regístralo como ajuste en la jornada de hoy.</small>
+        @if (errRespuesta()) { <p class="fin-hint-warn" role="alert">{{ errRespuesta() }}</p> }
+      }
+      <ng-template #footer>
+        <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="cerrarRespuesta()"></p-button>
+        <p-button label="Enviar respuesta" icon="pi pi-send" size="small"
+                  [disabled]="textoRespuesta().trim().length < 10 || enviandoRespuesta()" [loading]="enviandoRespuesta()"
+                  (onClick)="enviarRespuesta()"></p-button>
+      </ng-template>
+    </p-dialog>
+
     <p-dialog [visible]="folioPagado() !== null" (visibleChange)="$event ? null : cerrarFolio()"
               [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
               header="Anota este folio" [draggable]="false" [resizable]="false" [closable]="false">
@@ -6153,6 +6198,36 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // `[CG.180]` El autofill también vuelve a `undefined`: con la petición caída no sabemos si
       // la copia está vacía, y dejar el valor viejo publicaría una medición que ya no se hizo.
       error: () => { this.cobertura.set([]); this.autofill.set(undefined); this.coberturaSinMedir.set(true); },
+    });
+  }
+
+  // ── `[CGS.18]` Responder una observación ────────────────────────────────────────────────
+  /** Los cortes que la supervisora devolvió. Salen de la lista de cortes del periodo cargado. */
+  readonly observados = computed<CorteCaja[]>(() => this.cortes().filter((c) => c.estado === 'observado'));
+  readonly respondiendo = signal<CorteCaja | null>(null);
+  readonly textoRespuesta = signal('');
+  readonly enviandoRespuesta = signal(false);
+  readonly errRespuesta = signal<string | null>(null);
+
+  abrirRespuesta(c: CorteCaja): void {
+    this.respondiendo.set(c); this.textoRespuesta.set(''); this.errRespuesta.set(null);
+  }
+  cerrarRespuesta(): void {
+    if (this.enviandoRespuesta()) return;
+    this.respondiendo.set(null);
+  }
+  enviarRespuesta(): void {
+    const c = this.respondiendo();
+    const texto = this.textoRespuesta().trim();
+    if (!c || texto.length < 10 || this.enviandoRespuesta()) return;
+    this.enviandoRespuesta.set(true); this.errRespuesta.set(null);
+    this.svc.responderCorte(c.id, texto).subscribe({
+      next: () => {
+        this.enviandoRespuesta.set(false); this.respondiendo.set(null);
+        this.avisarOk('Respuesta enviada', `${c.folio} vuelve a la supervisora`);
+        this.cargarCortes();
+      },
+      error: (e) => { this.enviandoRespuesta.set(false); this.errRespuesta.set(this.textoError(e)); },
     });
   }
 
