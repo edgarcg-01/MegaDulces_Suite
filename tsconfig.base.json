@@ -46,6 +46,10 @@
       // barrel caía en el chunk compartido que `main` carga al arrancar (+1.5 kB sobre el presupuesto).
       "@megadulces/contracts/http/cierre-viaje": ["libs/contracts/src/http/cierre-viaje.contract.ts"],
       "@megadulces/contracts/http/alta-persona": ["libs/contracts/src/http/alta-persona.contract.ts"],
+      // [TP.20.5] Las dos reglas de pagos que cruzan dominio. Por SUBRUTA y no por el barrel:
+      // `kepler-payable-key` importa `node:crypto`, y el barrel raiz lo cargan las 3 apps Angular.
+      "@megadulces/contracts/finance/kepler-payable-key": ["libs/contracts/src/finance/kepler-payable-key.contract.ts"],
+      "@megadulces/contracts/finance/pronto-pago-ventana": ["libs/contracts/src/finance/pronto-pago-ventana.contract.ts"],
       "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/fiscal": ["libs/fiscal/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],

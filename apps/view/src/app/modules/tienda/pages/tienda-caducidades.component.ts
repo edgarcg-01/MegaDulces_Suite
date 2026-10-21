@@ -26,7 +26,7 @@ import {
 import { ProductSearchComponent, ProductHit } from '../../comercial/components/product-search.component';
 import { ProductScanFieldComponent } from '../../comercial/components/product-scan-field.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad, Plazo } from '../../comercial/expiry-plazo';
+import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad, estadoFefo, mensajeFefo, EstadoFefo, Plazo } from '../../comercial/expiry-plazo';
 // Teclear dígitos pelados (`0327` → 31/03/2027) en vez de pelear con un
 // datepicker: quien captura está de pie frente al anaquel, con el teléfono en
 // una mano. La función es pura y ya estaba probada en la estación de recepción.
@@ -365,10 +365,24 @@ type Condition = 'bueno' | 'regular' | 'malo';
                     }
                   </div>
                   <div class="cad-item-acts">
-                    @if (e.fed_to_fefo) {
-                      <span class="cad-fefo" title="Ya se reflejó en el control de inventario (FEFO)">
-                        <i class="pi pi-check-circle" aria-hidden="true"></i> en inventario
-                      </span>
+                    @switch (fefoDe(e).nivel) {
+                      @case ('total') {
+                        <span class="cad-fefo" title="Se reflejó todo en el control de inventario (FEFO)">
+                          <i class="pi pi-check-circle" aria-hidden="true"></i> en inventario
+                        </span>
+                      }
+                      @case ('parcial') {
+                        <!-- Lo que falta va en el TEXTO, no sólo en el title: en táctil no hay hover. -->
+                        <span class="cad-fefo cad-fefo--parcial" [title]="'No se fechó todo: ' + fefoDe(e).motivo">
+                          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                          en inventario {{ cant(fefoDe(e).reflejado) }} de {{ cant(fefoDe(e).capturado) }}
+                        </span>
+                      }
+                      @default {
+                        <span class="cad-fefo cad-fefo--no" [title]="'No movió inventario: ' + fefoDe(e).motivo">
+                          <i class="pi pi-minus-circle" aria-hidden="true"></i> sin mover inventario
+                        </span>
+                      }
                     }
                     @if (e.folio) {
                       <button pButton [text]="true" size="small" severity="secondary" (click)="verHoja(e)"
@@ -633,6 +647,8 @@ type Condition = 'bueno' | 'regular' | 'malo';
     .cad-item-meta code { font-family: var(--font-mono, monospace); }
     .cad-item-vence { display: grid; gap: .2rem; justify-items: end; font-size: var(--fs-xs, .72rem); }
     .cad-item-acts { display: flex; align-items: center; gap: .1rem; }
+    .cad-fefo--parcial { color: var(--warn-fg); }
+    .cad-fefo--no { color: var(--text-muted); }
     .cad-fefo { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs, .72rem); color: var(--tone-ok, var(--text-muted)); margin-right: .3rem; }
 
     .cad-empty {
@@ -982,6 +998,8 @@ export class TiendaCaducidadesComponent {
   icono(l: Plazo['level']): string { return plazoIcon(l); }
   sev(l: Plazo['level']) { return plazoSeverity(l); }
   cant(v: number | string | null | undefined): string { return formatCantidad(v); }
+  /** Cuánto de lo capturado llegó al inventario (ver `estadoFefo`). */
+  fefoDe(e: ExpiryEntry): EstadoFefo { return estadoFefo(e); }
   uni(v: number | string | null | undefined, u: string | null | undefined): string { return formatUnidad(v, u); }
 
   // ── paso 3: cantidad ──
@@ -1059,11 +1077,14 @@ export class TiendaCaducidadesComponent {
     req$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (e) => {
         this.guardando.set(false);
+        // Un solo «Ya se reflejó» cuando se reflejó TODO. Si sólo se movió una parte (o nada) se dice
+        // cuánto y por qué: el aviso en verde con 4 de 10 cajas fechadas era una afirmación falsa.
+        const fefo = mensajeFefo(estadoFefo(e), e.unit);
         this.toast.add({
-          severity: 'success',
+          severity: fefo.severity,
           summary: editId ? 'Corregido' : 'Registrado',
-          detail: e.fed_to_fefo ? 'Ya se reflejó en el control de inventario.' : 'Guardado. No mueve inventario (falta stock o catálogo).',
-          life: 3500,
+          detail: fefo.detail,
+          life: fefo.severity === 'success' ? 3500 : 9000,
         });
         this.limpiarFormulario();
         this.cargarMias();

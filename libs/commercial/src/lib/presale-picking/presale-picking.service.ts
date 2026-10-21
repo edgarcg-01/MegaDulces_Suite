@@ -49,7 +49,7 @@ const AREA = 'warehouse/presale-picking';
 /** Lo que se lee de `commercial.order_lines` (los numeric de Postgres llegan como string). */
 type FilaRenglon = {
   id: string; product_id: string; quantity: string | number; qty_unit: string | null;
-  qty_factor: string | number | null; line_total?: string | number; sku?: string | null; product_name: string | null;
+  qty_factor: string | number | null; line_total?: string | number; sku?: string | null; barcode?: string | null; product_name: string | null;
 };
 
 /** Una fila de `commercial.presale_picks`. */
@@ -104,15 +104,18 @@ export class PresalePickingService {
     const almacenes = await this.scope.warehouseIds(query, AREA);
     return this.tk.run(async (trx) => {
       const fila = await this.pedidoEnAlcance(trx, orderId, almacenes);
+      // [MCP.3.1] La columna es `nombre`, no `name`: con `p.name` abrir un pedido daba 500 en prod
+      // (`column p.name does not exist`) y nadie pudo surtir una preventa. Los specs no lo veían
+      // porque simulan la base.
       const lineas = await trx('commercial.order_lines as l')
         .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
         .where('l.order_id', orderId)
         .orderBy('l.created_at', 'asc')
-        .select('l.id', 'l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.sku', 'p.name as product_name');
+        .select('l.id', 'l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.sku', 'p.barcode', 'p.nombre as product_name');
       const lines: PresalePickLine[] = (lineas as FilaRenglon[]).map((l) => {
         const m = cantidadMostrada({ quantity: Number(l.quantity), qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor) });
         return {
-          line_id: l.id, product_id: l.product_id, sku: l.sku ?? null, product_name: l.product_name ?? 'Producto',
+          line_id: l.id, product_id: l.product_id, sku: l.sku ?? null, barcode: l.barcode ?? null, product_name: l.product_name ?? 'Producto',
           qty: m.qty, unit: m.unit, factor: m.factor,
           // Cerrado: lo que quedó en el pedido ES lo que hubo (lo demás se quitó).
           picked: fila['finished_at'] ? m.qty : null,
@@ -167,7 +170,7 @@ export class PresalePickingService {
       const lineas = await trx('commercial.order_lines as l')
         .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
         .where('l.order_id', orderId)
-        .select('l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.name as product_name');
+        .select('l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.nombre as product_name');
       let plan: PlanCierre;
       try {
         plan = planearCierre(

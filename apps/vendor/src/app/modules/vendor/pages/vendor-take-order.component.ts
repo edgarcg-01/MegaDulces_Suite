@@ -29,7 +29,7 @@ import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
-import { nextBusinessDayIso, todayIso } from '../../../core/date/biz-days';
+import { fechaEntregaPorOmision, todayIso } from '../../../core/date/biz-days';
 import {
   Presentacion,
   ajustarARejilla,
@@ -946,10 +946,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly pendingTotal = computed(() => this.pendingOrders().reduce((s, o) => s + Number(o.total), 0));
   readonly hasPreventa = computed(() => this.pendingOrders().some((o) => o.is_preventa));
 
-  // Fecha de entrega agendada (preventa). Default: próximo día HÁBIL (sáb→lun),
-  // fuente única compartida con Carga. Antes era `today+1` en UTC → en sábado
-  // caía en domingo (día sin reparto) y Carga —que busca el lunes— nunca lo veía.
-  requestedDate = nextBusinessDayIso();
+  // Fecha de entrega agendada (preventa). [MCP.3.4] Default: HOY en hora local (decisión de
+  // David, 2026-10-20): el pedido le llega al surtidor en "Hoy" y se puede mover a otro día.
+  // Domingo no hay reparto: ese día cae al próximo hábil (lunes), como antes.
+  // Antes era siempre el próximo día hábil; Carga y la bandeja del surtidor aceptan hoy.
+  requestedDate = fechaEntregaPorOmision();
   readonly minDate = todayIso();
   private customerId = '';
 

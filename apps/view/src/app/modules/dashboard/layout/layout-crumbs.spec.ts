@@ -36,3 +36,15 @@ describe('[MS.3.16] construirMigas', () => {
     for (const x of m) if (x.stay === false) expect(x.link).toBeNull();
   });
 });
+
+/**
+ * `[AUD-A5]` El eslabón con `aria-current="page"` tiene que nombrar la pantalla en la que estás.
+ *
+ * Medido en prod el 2026-10-20: en `/comercial/comisiones` la migaja decía
+ * «Comercial / Ventas / **Ventas por ruta**» — el nombre de OTRA pestaña del mismo sub-módulo.
+ * La causa estaba en el ítem del sidebar, que se llamaba como su primera pestaña.
+ *
+ * ⚠️ `construirMigas` NO produce ese eslabón: lo pinta el layout con `currentPageTitle()`. Lo
+ * que este bloque fija es la parte que sí le toca —que el proyecto resuelva— más la **prueba
+ * negativa** de que el sub-módulo no se llame como una de sus partes, que es lo que falló.
+ */

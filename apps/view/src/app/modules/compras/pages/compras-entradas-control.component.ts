@@ -230,6 +230,14 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                             <em> +{{ c.responsables.length - 1 }}</em>
                           }
                         </span>
+                      } @else if (c.suben_red?.length) {
+                        <!-- [RE.46] Nadie la tiene asignada pero alguien de red la trabaja: lo que
+                             falta es ASIGNARLA (y con eso su búsqueda se acota), no dar un permiso. -->
+                        <span class="ec-sin-asignar" [pTooltip]="subenRed(c)" tooltipPosition="top">
+                          <i class="pi pi-info-circle" aria-hidden="true"></i>
+                          sin asignar · sube {{ c.suben_red![0].nombre || c.suben_red![0].username }}
+                          @if (c.suben_red!.length > 1) { <em> +{{ c.suben_red!.length - 1 }}</em> }
+                        </span>
                       } @else {
                         <span class="ec-nadie">
                           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> nadie con permiso
@@ -363,6 +371,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
     .ec-resp { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     .ec-resp em { font-style: normal; color: var(--text-faint); }
     .ec-nadie { color: var(--bad-fg); font-weight: 600; }
+    .ec-sin-asignar { color: var(--warn-fg); }
     .ec-red-resp { font-size: var(--fs-micro); font-weight: 400; color: var(--text-faint); }
 
     .ec-bar { display: flex; align-items: center; gap: var(--sp-2); min-width: 8rem; }
@@ -618,6 +627,12 @@ export class ComprasEntradasControlComponent {
 
   nombres(c: CoverageRow): string {
     return c.responsables.map((r) => `${r.nombre || r.username}${r.alcance === 'asignado' ? ' (asignada)' : ''}`).join(' · ');
+  }
+  /** `[RE.46]` Quiénes suben aquí con alcance de red, con cuántas en 30 días. */
+  subenRed(c: CoverageRow): string {
+    return 'Nadie tiene esta sucursal asignada. Suben con alcance de red: '
+      + (c.suben_red || []).map((r) => `${r.nombre || r.username} (${r.n} en 30 días)`).join(' · ')
+      + '. Asígnasela a quien la trabaja: así su búsqueda queda en esta sucursal.';
   }
   suc(c: string): string { return branchName(c) || c; }
   money = money;

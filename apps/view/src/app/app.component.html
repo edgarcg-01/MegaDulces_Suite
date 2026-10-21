@@ -27,11 +27,14 @@
   </button>
 }
 
-<!-- Versión nueva lista y el usuario lleva rato sin cambiar de ruta. Se OFRECE, no se
-     impone: recargar bajo las manos de alguien que está capturando es peor que esperar. -->
-@if (updateReady()) {
-  <button type="button" class="app-update" (click)="applyUpdate()">
-    <i class="pi pi-refresh" aria-hidden="true"></i>
-    <span>Hay una versión nueva · <b>Actualizar</b></span>
-  </button>
-}
+<!-- ⛔ [SW.2] ACÁ VIVÍA EL BOTÓN «Hay una versión nueva · Actualizar», y se retiró por pedido
+     de Edgar (2026-10-20): aparecía después de cada despliegue y había que atenderlo.
+
+     Lo que NO se hizo: borrarlo y ya. Eso deja a la gente corriendo la versión vieja sin una
+     sola señal, y justo después de un hotfix —que es cuando más importa que todos tengan el
+     código nuevo— nadie se enteraría. La pantalla estaría afirmando ser la versión actual sin
+     serlo (ESTANDAR_DE_INTERFACES §1).
+
+     Lo que se hizo: la versión nueva se aplica sola cuando la pestaña DEJA DE ESTAR A LA VISTA.
+     Ahí nadie está mirando ni tecleando, así que no hay nada que interrumpir, y se vuelve a una
+     app ya fresca. Ver `setupAutoUpdate()` en app.component.ts. -->

@@ -179,6 +179,40 @@ const BRANCH_CODES = (ONLY_BRANCH
 //   `00/kdij`   → 61,478 de 62,991 (97.6 %) anteriores a la fila más vieja del origen → PODA
 //   `08/kdpord` → 0 de 3,205 (0.0 %) → borrado real, **sigue propagándose igual**
 // Lo que queda dentro de la ventana del origen SÍ se borra: una baja real reciente se propaga.
+// `[OPS.LIMPIEZA.10]` Fracción mínima del ODS que la réplica tiene que cubrir en un día para que ese
+// día cuente como «dentro de lo que el origen todavía guarda».
+const COBERTURA_PODA = Math.min(1, Math.max(0.5, Number(process.env.ODS_PODA_COBERTURA) || 0.9));
+
+/**
+ * Corte de una tabla podada: primer día del tramo FINAL (hacia hoy) en que la réplica cubre
+ * ≥ COBERTURA_PODA de las filas del ODS, todos los días. `null` si ni el día más reciente cubre
+ * (réplica rota o vacía): entonces no se decide nada y no se borra.
+ * @param {import('pg').Client} local  réplica de la sucursal
+ * @param {string} table
+ * @param {string} podaCol  columna de fecha declarada en ODS_PODA_POR_EDAD
+ * @param {{_poda_f?: string}[]} pro  filas del ODS de esa tabla×sucursal (traen `_poda_f`)
+ * @returns {Promise<string|null>} 'YYYY-MM-DD'
+ */
+async function corteDeCobertura(local, table, podaCol, pro) {
+  const { rows } = await local.query(
+    `SELECT ${qid(podaCol)}::date::text AS d, count(*)::int AS n FROM md.${qid(table)}
+      WHERE ${qid(podaCol)} IS NOT NULL GROUP BY 1`);
+  const enReplica = new Map(rows.map((r) => [r.d, r.n]));
+  const enOds = new Map();
+  for (const r of pro) {
+    if (!r._poda_f) continue;
+    const d = String(r._poda_f).slice(0, 10);
+    enOds.set(d, (enOds.get(d) || 0) + 1);
+  }
+  const dias = [...enOds.keys()].sort().reverse();   // de hoy hacia atrás
+  let corte = null;
+  for (const d of dias) {
+    if ((enReplica.get(d) || 0) >= COBERTURA_PODA * enOds.get(d)) corte = d;
+    else break;
+  }
+  return corte;
+}
+
 const PODA_POR_EDAD = new Map(
   (process.env.ODS_PODA_POR_EDAD || '00/kdij:c10')
     .split(',').map((s) => s.trim()).filter(Boolean)
@@ -394,10 +428,19 @@ async function reconcile(local, prod, code, table) {
     // Corte = la fila más vieja que el origen todavía tiene. Todo lo anterior no pudo ser
     // «borrado»: el origen ya no llega hasta ahí. Lo que cae DENTRO de la ventana sí se
     // evalúa como siempre, así que una baja real reciente se sigue propagando.
+    //
+    // ⭐ `[OPS.LIMPIEZA.10]` EL CORTE ES DONDE EMPIEZA LA COBERTURA, NO LA FILA MÁS VIEJA. Antes era
+    // `min(c10)` del origen, y bastaba UNA fila rezagada para arrastrarlo meses atrás. Medido el
+    // 2026-10-20 en `00/kdij`: el origen tenía 2 filas de dic-2025 y 16 de abr-2026 sueltas, y
+    // después nada hasta el 22-sep → corte = 2025-12-03 → las 61,026 filas del ODS entre dic y
+    // sep se leían como «borradas» (94 %) y el freno abortaba cada noche. Día por día, réplica y
+    // ODS coinciden EXACTO desde el 22-sep; antes la réplica está vacía (21-sep: 4 contra 247).
+    // Ahora: el primer día del tramo FINAL en que la réplica cubre ≥ COBERTURA_PODA del ODS todos
+    // los días. Lo de antes es historia; lo de adentro (las bajas reales) se sigue propagando.
+    // Un día entero borrado de verdad corta el tramo → más historia conservada: el error, si lo
+    // hay, cae del lado seguro (no borrar).
     if (podaCol && confirmadas.length) {
-      const { rows: [mn] } = await local.query(
-        `SELECT min(${qid(podaCol)})::text AS d FROM md.${qid(table)}`);
-      const corte = mn && mn.d ? String(mn.d).slice(0, 10) : null;
+      const corte = await corteDeCobertura(local, table, podaCol, pro);
       if (corte) {
         const historia = confirmadas.filter((r) => {
           const v = r._poda_f;
@@ -408,7 +451,7 @@ async function reconcile(local, prod, code, table) {
           confirmadas = confirmadas.filter((r) => !claves.has(r._k));
           // Se REPORTA siempre: un skip mudo se lee igual que «no había nada que borrar».
           extra.conservadas_por_poda =
-            `${historia.length} filas anteriores a ${corte} (la más vieja del origen) — el origen `
+            `${historia.length} filas anteriores a ${corte} (donde empieza la cobertura del origen) — el origen `
             + `PODA esta tabla, así que eso es historia del ODS, no basura. NO se borran.`;
         }
       } else {
@@ -536,6 +579,11 @@ const resumen = (out) => ({
   dup_borrados: out.reduce((a, r) => a + (r.dup_borrados || 0), 0),
   dup_sin_original: out.reduce((a, r) => a + (r.dup_sin_original || 0), 0),
   abortados: out.filter((r) => r.delete_abortado || r.dedupe_abortado).length,
+  // `[OPS.LIMPIEZA.5]` CUÁLES, no cuántas. El 2026-10-18 el latido dijo «1 tablas con DELETE
+  // abortado» y el log que la nombraba murió con el pod (desalojo por disco, 23:35). Sin la
+  // tabla en el latido, decidir si es una poda por antigüedad o una lectura rota era imposible.
+  abortadosDonde: out.filter((r) => r.delete_abortado || r.dedupe_abortado)
+    .map((r) => `${r.tabla}@${r.suc} ${r.delete_abortado || r.dedupe_abortado}`),
   errores: out.filter((r) => r.error).length,
 });
 
@@ -604,7 +652,7 @@ async function latir(destUrl, r, ms) {
         r.huecos > ALERTA ? `${r.huecos} huecos en la ventana (se repusieron ${r.repuestas}) — muy por encima del regimen medido (p99=503 sobre 1217 corridas de 14 dias): revisar el carril PRIMARIO, no este` : null,
         sobranMal ? `${r.sobrantes} filas de mas en el ODS (umbral ${ALERTA_SOBRANTES}) — DELETE sin propagar, revisar a mano` : null,
         r.errores > 0 ? `${r.errores} tablas con error` : null,
-        r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano` : null,
+        r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano: ${r.abortadosDonde.slice(0, 3).join(' | ')}${r.abortadosDonde.length > 3 ? ` | +${r.abortadosDonde.length - 3} más` : ''}` : null,
       ].filter(Boolean).join(' · ') : null,
       require('os').hostname()]);
   } catch (e) {

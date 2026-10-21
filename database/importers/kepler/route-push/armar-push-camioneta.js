@@ -65,6 +65,36 @@ REM    1) VENTAS       -> ingest.route_sales_stg       -> merge_route_sales
 REM    2) EXISTENCIA   -> ingest.route_stock_stg       -> merge_route_stock
 REM    3) COBROS       -> ingest.route_collections_stg -> merge_route_collections
 REM  El heartbeat de cada carril lo escribe su propio merge en el runner.
+REM
+REM  ============================================================================
+REM  (!!) SI ESTA CAMIONETA "COBRA PERO NO VENDE", LEE ESTO ANTES DE TOCAR LA IP
+REM  ============================================================================
+REM  El bloque de VENTAS filtra por SERIE y por c4:
+REM        h.c4 = 10   AND   rtrim(btrim(h.c63),'-') = %ROUTE_SERIE%
+REM  El bloque de COBROS **NO filtra por serie**.
+REM
+REM  Consecuencia: si la van empieza a emitir con OTRA serie (o con otro c4), la
+REM  venta devuelve CERO filas nuevas y el cobro sigue llegando normal. El agente
+REM  no puede notarlo -- reentrega la ventana vieja completa, hora tras hora, y su
+REM  latido queda VERDE con miles de filas.
+REM
+REM  Medido en ruta_504: 19 dias asi (2026-10-01 -> 2026-10-20), empujando 3,379
+REM  filas por hora, mientras sus cobros entraban normales ($230,833 en 9 dias).
+REM
+REM  Como se ve desde el runner, en UNA consulta:
+REM        SELECT truck, max_fecha, dias_de_atraso, veredicto
+REM          FROM ingest.v_route_push_salud ORDER BY dias_de_atraso DESC;
+REM    veredicto = 'sube_pero_sin_fechas_nuevas'  -> es ESTE caso
+REM    veredicto = 'no_sube'                      -> ese si es conexion/tarea
+REM
+REM  Procedimiento completo: RUNBOOK_ALTA_CAMIONETA.md, CASO 5.
+REM
+REM  (!!) Y DAYS es el limite del rescate: lo que quede fuera de
+REM  (current_date - DAYS) NO se recupera nunca. El merge barre toda la ventana y
+REM  es idempotente, asi que si la ruta lleva mas dias muda que su ventana, SUBI
+REM  --dias antes de correrlo. Lo desplegado no es uniforme: PH usa 15, Canindo
+REM  40. Para saber el real, mira min_fecha en ingest.route_push_heartbeat, no
+REM  este archivo.
 REM ============================================================================
 setlocal
 set PGCLIENTENCODING=UTF8

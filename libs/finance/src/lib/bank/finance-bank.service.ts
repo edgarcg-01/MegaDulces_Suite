@@ -17,7 +17,7 @@ import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key'
  */
 
 const n = (v: any) => Number(v) || 0;
-const normKey = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+const normKey = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 
 /**
  * CB.46 — Cuántos meses separan la fecha del movimiento del periodo de SU estado de cuenta.
@@ -107,9 +107,9 @@ export interface ClassifyRuleRow {
   priority: number; match_type: string | null; match_code: string | null;
   match_concept: string | null; category_code: string;
 }
-interface CompiledRule { reType: RegExp | null; reCode: RegExp | null; reConcept: RegExp | null; category: string; }
+export interface CompiledRule { reType: RegExp | null; reCode: RegExp | null; reConcept: RegExp | null; category: string; }
 
-function compileRules(rules: ClassifyRuleRow[]): CompiledRule[] {
+export function compileRules(rules: ClassifyRuleRow[]): CompiledRule[] {
   const safe = (p: string | null): RegExp | null => {
     if (!p) return null;
     try { return new RegExp(p, 'i'); } catch { return null; }
@@ -119,7 +119,7 @@ function compileRules(rules: ClassifyRuleRow[]): CompiledRule[] {
     .map((r) => ({ reType: safe(r.match_type), reCode: safe(r.match_code), reConcept: safe(r.match_concept), category: r.category_code }));
 }
 
-function classifyWith(compiled: CompiledRule[], M: any, C: any, concept: any): string {
+export function classifyWith(compiled: CompiledRule[], M: unknown, C: unknown, concept: unknown): string {
   const m = normKey(M), c = normKey(C), t = normKey(concept);
   for (const r of compiled) {
     if (r.reType && !r.reType.test(m)) continue;

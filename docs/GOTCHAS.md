@@ -1,110 +1,113 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 256 KB, 4578 líneas, 98 secciones.
+> **Índice navegable** — 267 KB, 4783 líneas, 101 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 111 | 121 | 1 | GOTCHAS y lecciones — conocimiento tribal del proyecto |
-| 122 | 145 | 1 | 1. Multi-tenant / RLS (la trampa #1 del proyecto) |
-| 146 | 179 | 2 | 2. Transacciones — el request entero va en UNA trx |
-| 180 | 231 | 4 | 3. Migraciones Knex — la trampa que tumba el deploy |
-| 232 | 288 | 4 | 4. Permisos / authz — agregar un permiso son 5 touch-points (y un PROYECTO nuevo, 6) |
-| 289 | 340 | 3 | 5. Knex — gotchas de sintaxis |
-| 341 | 352 | 1 | 6. Dinero |
-| 353 | 376 | 2 | 7. Cron / timezone |
-| 377 | 390 | 1 | 8. Verificar builds y tests (no te mientas a vos mismo) |
-| 391 | 411 | 1 | 9. Git / workflow |
-| 412 | 424 | 1 | 10. Arrancar la API en Windows |
-| 425 | 440 | 1 | 11. Soft-delete — columna `activo` GENERATED |
-| 441 | 466 | 1 | 12. TypeScript — `typescript` sigue en 6.0.3 aunque el latest sea 7.x |
-| 467 | 515 | 3 | 13. Feeds on-prem — "tarea Running" NO significa que el feed corra |
-| 516 | 530 | 1 | 14. Espejo de feeds a la réplica de pruebas (`FEEDS_MIRROR_URL`) |
-| 531 | 548 | 1 | 15. `run-prod-feeds.js` — un step `[ruta, ...flags]` puede matar el modo entero |
-| 549 | 590 | 3 | 16. Trampas chicas de los feeds on-prem (ya vividas) |
-| 591 | 630 | 2 | 17. `DATABASE_URL_NEW` tiene DOS roles — y moverla calla el CDC |
-| 631 | 654 | 1 | 18. Rotar `FEEDS_INGEST_KEY` deja ciegos a los consumidores WAL (y su alerta también) |
-| 655 | 690 | 2 | 19. derive-no-copy tiene un GATE DE COSTO (no todo lo derivable puede ser vista) |
-| 691 | 710 | 1 | 20. `MAX(texto)` para desempatar depende del COLLATION → el mismo importer da distinto por DB |
-| 711 | 745 | 2 | 21. El ODS corre los timestamps +6h por un carril y no por el otro → filas DUPLICADAS |
-| 746 | 798 | 3 | 22. El ODS conserva filas borradas aguas arriba (el poll es ciego a los DELETE) |
-| 799 | 856 | 2 | 23. `loose: true` de swc: el PUT que devolvía 500 (y por qué `.swcrc` no lo arregla) |
-| 857 | 935 | 4 | 24. El Postgres de oficina es COMPARTIDO y el password de un rol es del cluster |
-| 936 | 986 | 2 | 25. `DATABASE_URL` y `DATABASE_URL_NEW` tienen que ser la MISMA base física |
-| 987 | 1023 | 2 | 23. Repointear al ODS: "mismo SQL" NO implica "mismo plan" |
-| 1024 | 1044 | 1 | 24. Reconciliar residuo del ODS por (tabla, SUCURSAL), nunca por el delta global |
-| 1045 | 1076 | 2 | 25. Una columna que se llama `_cajas` puede no estar en cajas — cruzá magnitudes |
-| 1077 | 1099 | 1 | 26. `WITH x AS (...)` que el planner inlinea: 30 s → 15 min |
-| 1100 | 1121 | 1 | 27. Dos versiones del mismo importer escribiendo la misma tabla |
-| 1122 | 1150 | 1 | 28. Una vista normalizada puede ser 1000× más lenta que la tabla cruda (btrim mata el índice) |
-| 1151 | 1203 | 3 | 29. Hay DOS `knex_migrations` y el `search_path` te da la equivocada |
-| 1204 | 1211 | 1 | correr knex (esas quedan como "completed", sólo corren las tuyas) |
-| 1212 | 1262 | 3 | 30. "Proceso vivo" no es "feed vivo": el descubrimiento vacío que se cachea |
-| 1263 | 1307 | 2 | 31. El folio se recicla: unir por folio filtrando fecha en UNA sola punta duplica |
-| 1308 | 1365 | 4 | 32. `buf.clear()` después de un `await`: el CDC que perdía 2-7% de las filas todos los días |
-| 1366 | 1415 | 3 | 32. REGLA: nunca hacer copias de tablas — siempre la tabla principal |
-| 1416 | 1466 | 3 | 33. La bomba de calendario: la replicación lógica no replica DDL |
-| 1467 | 1487 | 1 | 34. Un backtick en un comentario de `styles`/`template` rompe el build sin decir dónde |
-| 1488 | 1535 | 2 | 33. Un rol dedicado "sólo lectura" tumbó producción porque el login SÍ escribe |
-| 1536 | 1581 | 3 | 35. Un carril de ingesta con DOS dueños: el muerto pasa el healthcheck con el pulso del vivo |
-| 1582 | 1626 | 2 | 36. La ingesta del ODS: tres saltos, y por qué el tercero no puede ser replicación lógica |
-| 1627 | 1675 | 3 | 37. Un hueco en un contador NO es una fila perdida (y el centinela que estira el calendario) |
-| 1676 | 1761 | 5 | 38. Un `ALTER TABLE` que ESPERA no es lento: encola a todos detrás de sí (y tumba el login) |
-| 1762 | 1786 | 1 | 39. Correr un importer A MANO mientras existe su tarea programada: te lo matan a los 13 min |
-| 1787 | 1860 | 4 | 40. `1fr` no baja de `min-content`: la pantalla que se sale del teléfono y **no** scrollea |
-| 1861 | 1903 | 2 | 41. PrimeNG v22 **ignora `styleClass`** en `p-select` y `p-inputnumber` (108 usos sospechosos) |
-| 1904 | 1955 | 3 | 42. Un header de seguridad puede matar una feature entera, y sólo se ve en producción |
-| 1956 | 2078 | 5 | 43. §33 otra vez, pero sin calendario — y el `GRANT` que dice que sí y no hace nada |
-| 2079 | 2121 | 3 | 37. Dark mode: los **alias** de token están congelados en su valor CLARO (`--border`, `--surface-card`, `--c-t |
-| 2122 | 2154 | 2 | 44. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde) |
-| 2155 | 2187 | 2 | 45. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario |
-| 2188 | 2210 | 1 | Un `node_modules` enlazado por junction hace que nx pruebe OTRO árbol (2026-09-10) |
-| 2211 | 2255 | 3 | …y BORRAR ese junction con `Remove-Item` vacía el `node_modules` de TODOS (2026-09-11) |
-| 2256 | 2273 | 1 | Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10) |
-| 2274 | 2325 | 3 | Un `ADD COLUMN` sobre una tabla de 50 filas encoló 11 sesiones de producción (2026-09-10) |
-| 2326 | 2363 | 2 | 46. Cambiar `stdio: 'inherit'` por tubos rompe `close`, y el síntoma es un cuelgue de 10 minutos |
-| 2364 | 2410 | 2 | 47. `dotenv.config()` imprime un banner a stdout — y contamina cualquier `$(node -e …)` |
-| 2411 | 2446 | 2 | 48. ⛔ `git commit --amend` en este repo pisa el commit de OTRA sesión |
-| 2447 | 2656 | 13 | 49. Un auto-ajuste que mide UNA vez es un bug diferido: se re-mide cuando cambia el INSUMO, no en "el momento" |
-| 2657 | 2690 | 2 | 50. Un folio de Kepler NO identifica un turno: se reusa el mismo día en la misma caja |
-| 2691 | 2704 | 1 | 51. `COMMENT ON` no acepta bind params |
-| 2705 | 2824 | 6 | 52. ❌ REFUTADO — se midió la base de DESARROLLO y se publicó como incidente de producción |
-| 2825 | 2860 | 2 | 53. En Windows, la CAJA de la letra de unidad decide si Angular compila tus tests |
-| 2861 | 2886 | 1 | 54. Un signo de menor en un comentario CSS también rompe el archivo (hermano del §34) |
-| 2887 | 2997 | 6 | 55. Una tabla que el POS publica y el espejo no escucha: el hueco que NINGÚN latido puede ver |
-| 2998 | 3067 | 4 | 56. ⛔⛔ REFUTÁ TU PROPIA IDEA antes de escribir algo que cambie cómo opera el equipo |
-| 3068 | 3145 | 3 | 57. Dos silencios de Nx: un `exclude` que no excluye y un comentario `//` que se come el JSON |
-| 3146 | 3210 | 2 | 58. Un secreto pasado *adentro* del `RUN` sale impreso en el log de build |
-| 3211 | 3259 | 2 | 59. Un diálogo sin botones: `pTemplate="footer"` dejó de proyectar en PrimeNG 22 |
-| 3260 | 3395 | 7 | 60. La imagen de prod cargaba 618 MB de Angular que la api nunca requiere — y el `--chown` de un `COPY` costab |
-| 3396 | 3430 | 2 | 61. `windowsHide` no es cosmético: 4 de 6 lectores del `.mdb` abrían consola en el escritorio |
-| 3431 | 3487 | 3 | 62. `CI=true` × Nx Cloud: ~45–80 s de peaje POR CORRIDA, aunque no haya nada que compilar |
-| 3488 | 3543 | 3 | 63. Arreglar que un control SE VEA no es arreglar que FUNCIONE — y un `computed()` sobre campo plano queda con |
-| 3544 | 3584 | 2 | 64. Un latido atado al SINK: mudar cómo se embarcan las filas apagó la vigilancia, y el tablero quedó verde |
-| 3585 | 3612 | 1 | 65. `ALTER SYSTEM` no hace nada, en silencio, sobre un parámetro que el compose pasa por `-c` |
-| 3613 | 3686 | 5 | 66. El shadow del ODS es estado POR RÉPLICA, no por destino — y al mudar prod dio por enviado lo que nunca lle |
-| 3687 | 3724 | 2 | 67. Postgres NO acepta parámetros ligados en `SET` — y el doble del test no lo ve |
-| 3725 | 3782 | 3 | 68. `nx build` verde no dice NADA sobre si la app arranca — el grafo de inyección se resuelve al levantar el p |
-| 3783 | 3829 | 2 | 69. Dos `SAVEPOINT` concurrentes sobre la misma transacción: `Promise.all` deja la medición ciega y filtra un  |
-| 3830 | 3873 | 2 | 70. Una interfaz declarada a mano NO puede atrapar un desajuste de wire — y el spec tampoco, porque su fixture |
-| 3874 | 3933 | 3 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
-| 3934 | 3965 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
-| 3966 | 4020 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
-| 4021 | 4062 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
-| 4063 | 4140 | 6 | 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en |
-| 4141 | 4172 | 2 | 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces |
-| 4173 | 4204 | 1 | 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0 |
-| 4205 | 4245 | 2 | 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a qu |
-| 4246 | 4297 | 3 | 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión |
-| 4298 | 4353 | 3 | 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin  |
-| 4354 | 4391 | 2 | 81. ⛔ `updated_at` no dice cuándo cambió el dato: dice cuándo pasó el importer — y eso es el 91.4% del catálog |
-| 4392 | 4459 | 4 | 82. ⛔⛔ `String(fecha).slice(0,10)` sobre una columna `date` da `"Wed May 27"` — y publicó una acusación de $18 |
-| 4460 | 4539 | 4 | 83. ⛔⛔ Un corpus vectorial AUSENTE se ve EXACTAMENTE igual que «este producto no está en el catálogo» — 24 día |
-| 4540 | 4602 | 3 | 84. ⛔⛔ Un shipper VERDE con `rows_affected = 0` puede ser que murió el ORIGEN, no la tubería — y el carril her |
-| 4603 | 4632 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
-| 4633 | 4688 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
+| 114 | 124 | 1 | GOTCHAS y lecciones — conocimiento tribal del proyecto |
+| 125 | 148 | 1 | 1. Multi-tenant / RLS (la trampa #1 del proyecto) |
+| 149 | 182 | 2 | 2. Transacciones — el request entero va en UNA trx |
+| 183 | 234 | 4 | 3. Migraciones Knex — la trampa que tumba el deploy |
+| 235 | 291 | 4 | 4. Permisos / authz — agregar un permiso son 5 touch-points (y un PROYECTO nuevo, 6) |
+| 292 | 343 | 3 | 5. Knex — gotchas de sintaxis |
+| 344 | 355 | 1 | 6. Dinero |
+| 356 | 379 | 2 | 7. Cron / timezone |
+| 380 | 393 | 1 | 8. Verificar builds y tests (no te mientas a vos mismo) |
+| 394 | 414 | 1 | 9. Git / workflow |
+| 415 | 427 | 1 | 10. Arrancar la API en Windows |
+| 428 | 443 | 1 | 11. Soft-delete — columna `activo` GENERATED |
+| 444 | 469 | 1 | 12. TypeScript — `typescript` sigue en 6.0.3 aunque el latest sea 7.x |
+| 470 | 518 | 3 | 13. Feeds on-prem — "tarea Running" NO significa que el feed corra |
+| 519 | 533 | 1 | 14. Espejo de feeds a la réplica de pruebas (`FEEDS_MIRROR_URL`) |
+| 534 | 551 | 1 | 15. `run-prod-feeds.js` — un step `[ruta, ...flags]` puede matar el modo entero |
+| 552 | 593 | 3 | 16. Trampas chicas de los feeds on-prem (ya vividas) |
+| 594 | 633 | 2 | 17. `DATABASE_URL_NEW` tiene DOS roles — y moverla calla el CDC |
+| 634 | 657 | 1 | 18. Rotar `FEEDS_INGEST_KEY` deja ciegos a los consumidores WAL (y su alerta también) |
+| 658 | 693 | 2 | 19. derive-no-copy tiene un GATE DE COSTO (no todo lo derivable puede ser vista) |
+| 694 | 713 | 1 | 20. `MAX(texto)` para desempatar depende del COLLATION → el mismo importer da distinto por DB |
+| 714 | 748 | 2 | 21. El ODS corre los timestamps +6h por un carril y no por el otro → filas DUPLICADAS |
+| 749 | 801 | 3 | 22. El ODS conserva filas borradas aguas arriba (el poll es ciego a los DELETE) |
+| 802 | 859 | 2 | 23. `loose: true` de swc: el PUT que devolvía 500 (y por qué `.swcrc` no lo arregla) |
+| 860 | 938 | 4 | 24. El Postgres de oficina es COMPARTIDO y el password de un rol es del cluster |
+| 939 | 989 | 2 | 25. `DATABASE_URL` y `DATABASE_URL_NEW` tienen que ser la MISMA base física |
+| 990 | 1026 | 2 | 23. Repointear al ODS: "mismo SQL" NO implica "mismo plan" |
+| 1027 | 1047 | 1 | 24. Reconciliar residuo del ODS por (tabla, SUCURSAL), nunca por el delta global |
+| 1048 | 1079 | 2 | 25. Una columna que se llama `_cajas` puede no estar en cajas — cruzá magnitudes |
+| 1080 | 1102 | 1 | 26. `WITH x AS (...)` que el planner inlinea: 30 s → 15 min |
+| 1103 | 1124 | 1 | 27. Dos versiones del mismo importer escribiendo la misma tabla |
+| 1125 | 1153 | 1 | 28. Una vista normalizada puede ser 1000× más lenta que la tabla cruda (btrim mata el índice) |
+| 1154 | 1206 | 3 | 29. Hay DOS `knex_migrations` y el `search_path` te da la equivocada |
+| 1207 | 1214 | 1 | correr knex (esas quedan como "completed", sólo corren las tuyas) |
+| 1215 | 1265 | 3 | 30. "Proceso vivo" no es "feed vivo": el descubrimiento vacío que se cachea |
+| 1266 | 1310 | 2 | 31. El folio se recicla: unir por folio filtrando fecha en UNA sola punta duplica |
+| 1311 | 1368 | 4 | 32. `buf.clear()` después de un `await`: el CDC que perdía 2-7% de las filas todos los días |
+| 1369 | 1418 | 3 | 32. REGLA: nunca hacer copias de tablas — siempre la tabla principal |
+| 1419 | 1469 | 3 | 33. La bomba de calendario: la replicación lógica no replica DDL |
+| 1470 | 1490 | 1 | 34. Un backtick en un comentario de `styles`/`template` rompe el build sin decir dónde |
+| 1491 | 1538 | 2 | 33. Un rol dedicado "sólo lectura" tumbó producción porque el login SÍ escribe |
+| 1539 | 1584 | 3 | 35. Un carril de ingesta con DOS dueños: el muerto pasa el healthcheck con el pulso del vivo |
+| 1585 | 1629 | 2 | 36. La ingesta del ODS: tres saltos, y por qué el tercero no puede ser replicación lógica |
+| 1630 | 1678 | 3 | 37. Un hueco en un contador NO es una fila perdida (y el centinela que estira el calendario) |
+| 1679 | 1764 | 5 | 38. Un `ALTER TABLE` que ESPERA no es lento: encola a todos detrás de sí (y tumba el login) |
+| 1765 | 1789 | 1 | 39. Correr un importer A MANO mientras existe su tarea programada: te lo matan a los 13 min |
+| 1790 | 1863 | 4 | 40. `1fr` no baja de `min-content`: la pantalla que se sale del teléfono y **no** scrollea |
+| 1864 | 1906 | 2 | 41. PrimeNG v22 **ignora `styleClass`** en `p-select` y `p-inputnumber` (108 usos sospechosos) |
+| 1907 | 1958 | 3 | 42. Un header de seguridad puede matar una feature entera, y sólo se ve en producción |
+| 1959 | 2081 | 5 | 43. §33 otra vez, pero sin calendario — y el `GRANT` que dice que sí y no hace nada |
+| 2082 | 2124 | 3 | 37. Dark mode: los **alias** de token están congelados en su valor CLARO (`--border`, `--surface-card`, `--c-t |
+| 2125 | 2157 | 2 | 44. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde) |
+| 2158 | 2190 | 2 | 45. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario |
+| 2191 | 2213 | 1 | Un `node_modules` enlazado por junction hace que nx pruebe OTRO árbol (2026-09-10) |
+| 2214 | 2258 | 3 | …y BORRAR ese junction con `Remove-Item` vacía el `node_modules` de TODOS (2026-09-11) |
+| 2259 | 2276 | 1 | Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10) |
+| 2277 | 2328 | 3 | Un `ADD COLUMN` sobre una tabla de 50 filas encoló 11 sesiones de producción (2026-09-10) |
+| 2329 | 2366 | 2 | 46. Cambiar `stdio: 'inherit'` por tubos rompe `close`, y el síntoma es un cuelgue de 10 minutos |
+| 2367 | 2413 | 2 | 47. `dotenv.config()` imprime un banner a stdout — y contamina cualquier `$(node -e …)` |
+| 2414 | 2449 | 2 | 48. ⛔ `git commit --amend` en este repo pisa el commit de OTRA sesión |
+| 2450 | 2659 | 13 | 49. Un auto-ajuste que mide UNA vez es un bug diferido: se re-mide cuando cambia el INSUMO, no en "el momento" |
+| 2660 | 2693 | 2 | 50. Un folio de Kepler NO identifica un turno: se reusa el mismo día en la misma caja |
+| 2694 | 2707 | 1 | 51. `COMMENT ON` no acepta bind params |
+| 2708 | 2827 | 6 | 52. ❌ REFUTADO — se midió la base de DESARROLLO y se publicó como incidente de producción |
+| 2828 | 2863 | 2 | 53. En Windows, la CAJA de la letra de unidad decide si Angular compila tus tests |
+| 2864 | 2889 | 1 | 54. Un signo de menor en un comentario CSS también rompe el archivo (hermano del §34) |
+| 2890 | 3000 | 6 | 55. Una tabla que el POS publica y el espejo no escucha: el hueco que NINGÚN latido puede ver |
+| 3001 | 3070 | 4 | 56. ⛔⛔ REFUTÁ TU PROPIA IDEA antes de escribir algo que cambie cómo opera el equipo |
+| 3071 | 3148 | 3 | 57. Dos silencios de Nx: un `exclude` que no excluye y un comentario `//` que se come el JSON |
+| 3149 | 3213 | 2 | 58. Un secreto pasado *adentro* del `RUN` sale impreso en el log de build |
+| 3214 | 3262 | 2 | 59. Un diálogo sin botones: `pTemplate="footer"` dejó de proyectar en PrimeNG 22 |
+| 3263 | 3398 | 7 | 60. La imagen de prod cargaba 618 MB de Angular que la api nunca requiere — y el `--chown` de un `COPY` costab |
+| 3399 | 3433 | 2 | 61. `windowsHide` no es cosmético: 4 de 6 lectores del `.mdb` abrían consola en el escritorio |
+| 3434 | 3490 | 3 | 62. `CI=true` × Nx Cloud: ~45–80 s de peaje POR CORRIDA, aunque no haya nada que compilar |
+| 3491 | 3546 | 3 | 63. Arreglar que un control SE VEA no es arreglar que FUNCIONE — y un `computed()` sobre campo plano queda con |
+| 3547 | 3587 | 2 | 64. Un latido atado al SINK: mudar cómo se embarcan las filas apagó la vigilancia, y el tablero quedó verde |
+| 3588 | 3615 | 1 | 65. `ALTER SYSTEM` no hace nada, en silencio, sobre un parámetro que el compose pasa por `-c` |
+| 3616 | 3689 | 5 | 66. El shadow del ODS es estado POR RÉPLICA, no por destino — y al mudar prod dio por enviado lo que nunca lle |
+| 3690 | 3727 | 2 | 67. Postgres NO acepta parámetros ligados en `SET` — y el doble del test no lo ve |
+| 3728 | 3785 | 3 | 68. `nx build` verde no dice NADA sobre si la app arranca — el grafo de inyección se resuelve al levantar el p |
+| 3786 | 3832 | 2 | 69. Dos `SAVEPOINT` concurrentes sobre la misma transacción: `Promise.all` deja la medición ciega y filtra un  |
+| 3833 | 3876 | 2 | 70. Una interfaz declarada a mano NO puede atrapar un desajuste de wire — y el spec tampoco, porque su fixture |
+| 3877 | 3936 | 3 | 71. `knex.raw()` se come los `?` de una REGEX y los convierte en `$1`, `$2` — aunque no le pases bindings |
+| 3937 | 3968 | 2 | 72. El gate de tipado es un comando APARTE: `tsc` y los dos `nx build` pasan en verde con violaciones adentro |
+| 3969 | 4023 | 3 | 73. En LOCAL todos los websockets fallan: el proxy de dev enruta `/socket.io` y la app pide `/reports/socket.i |
+| 4024 | 4065 | 3 | 74. Un `mv` sobre un archivo montado como *bind mount* desengancha el montaje PARA SIEMPRE — el contenedor sig |
+| 4066 | 4143 | 6 | 75. `npm run migrate:new` sobre una base VACÍA no llega al final: se detiene en la migración 88, y otra vez en |
+| 4144 | 4175 | 2 | 76. `diff -rq` SIGUE los symlinks: dos directorios "idénticos" pueden ser uno solo y catorce enlaces |
+| 4176 | 4207 | 1 | 77. `git commit -- <ruta>` DESHACE un `git rm --cached` de esa misma ruta, y sale exit 0 |
+| 4208 | 4248 | 2 | 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a qu |
+| 4249 | 4300 | 3 | 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión |
+| 4301 | 4356 | 3 | 80. ⛔⛔ Un ENSAYO que no usa el rol del que EJECUTA no ensayó nada — y `LEFT JOIN` convierte eso en `NULL` sin  |
+| 4357 | 4394 | 2 | 81. ⛔ `updated_at` no dice cuándo cambió el dato: dice cuándo pasó el importer — y eso es el 91.4% del catálog |
+| 4395 | 4462 | 4 | 82. ⛔⛔ `String(fecha).slice(0,10)` sobre una columna `date` da `"Wed May 27"` — y publicó una acusación de $18 |
+| 4463 | 4542 | 4 | 83. ⛔⛔ Un corpus vectorial AUSENTE se ve EXACTAMENTE igual que «este producto no está en el catálogo» — 24 día |
+| 4543 | 4605 | 3 | 84. ⛔⛔ Un shipper VERDE con `rows_affected = 0` puede ser que murió el ORIGEN, no la tubería — y el carril her |
+| 4606 | 4635 | 3 | 85. ⛔⛔ Un parámetro DECORADO tipado con un nombre que también es un VALOR mata el arranque de la API — y todo  |
+| 4636 | 4693 | 3 | 86. ⛔⛔ `doc_tipo + folio` NO identifica un cobro: el folio de camioneta es consecutivo POR UNIDAD — capturar u |
+| 4694 | 4847 | 7 | 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propi |
+| 4858 | 4895 | 3 | 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta diner |
+| 4848 | 4896 | 4 | 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long` |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4685,3 +4688,208 @@ negativa (`--self-test`) corre el descuento **sin acotar** y exige que esconda M
 `16` (vigente) contra `157` (el defecto). Si los dos dan igual, **lo declara como no medido**, no
 lo da por bueno.
 
+
+---
+
+## 87. ⛔⛔ Un latido escrito por el CONSUMIDOR dice «ok» mientras el dato del productor está atascado — y mi propio detector lo leyó como verde
+
+**Vivido el 2026-10-19. El error es mío: yo elegí dónde va el latido, y escribí el razonamiento al lado.**
+
+### Lo que pasó
+
+La ruta 27 cerró su día, imprimió su ticket —`UA0501-0000017`, `$19,939.00`, dos cortes POS— y
+**la venta no aparecía en la suite**. El reporte llegó como «la 27 no aparece», o sea: como un
+problema de una camioneta.
+
+No era de una camioneta. La cadena tiene **tres saltos** y el que se rompió no era el que todos
+miraban:
+
+```
+camioneta → ingest.route_collections_stg      push del .cmd       ✔ corrió 20:01, 25 filas
+stg → mart.cobros_ruta                        merge()             ⛔ NO corrió sobre ese lote
+mart → analytics.route_collections (prod)     cron cada 10 min    ✔ corría, leía un mart viejo
+```
+
+La prueba de que el merge no corrió es que **`stg` seguía lleno**: el merge termina con
+`DELETE FROM ingest.route_collections_stg WHERE truck = p_truck`. 27 filas ahí significan que
+nadie las consumió. Y los filtros no descartaban nada — **27 de 27 válidas**, cero sin fecha,
+cero sin folio.
+
+### Por qué nada avisó, que es la parte que me toca
+
+`ingest.merge_route_collections()` escribe el latido, y en esa función hay un comentario mío:
+
+> ⚠️ El latido va ACÁ y no en el `.cmd`: si lo escribiera el agente, un push que sube cero filas
+> igual diría "ok". Escrito por el merge, mide **ENTREGA**.
+
+**Eso es falso, y lo escribí como si fuera la justificación.** Un latido escrito por el merge mide
+*«el último merge que corrió, corrió bien»*. No mide entrega: mide **la última vez que el
+consumidor se despertó**. Si el productor deja su lote y el consumidor nunca arranca, el latido
+conserva el verde del intento anterior y no hay fila nueva que contradiga nada.
+
+Medido ese día: `route_collections_heartbeat` decía `ruta_27 · last_ok 20:01 · 25 filas · ok`
+mientras sus 27 filas del 19-oct seguían en `stg`.
+
+⛔ Y arrastró al detector: **`check-camioneta-sin-cobro.js` cruza los dos latidos**
+(`route_push_heartbeat` vs `route_collections_heartbeat`) y clasifica `carril_caido` cuando la
+venta es fresca y el cobro rancio. Con los dos latidos frescos y el dato atascado **entre** ellos,
+la unidad sale sana. El detector no falló por un umbral mal puesto: **falló porque los dos
+testigos que compara están del mismo lado del corte.**
+
+### La regla
+
+⭐ **Un latido mide el proceso que lo escribe, nunca el que lo alimenta.** Si el productor deposita
+en una bandeja y el consumidor la vacía, el único hecho que prueba entrega es **la bandeja vacía**
+— no el sello del consumidor.
+
+Para que un latido mida entrega tiene que incluir, en la misma escritura, **lo que quedó sin
+consumir**. Un `rows_pendientes` al lado del `rows_last` habría puesto esto en rojo sin que nadie
+mirara.
+
+### El corolario que vale para cualquier carril por bandeja
+
+⚠️ **Toda bandeja intermedia necesita su propio detector de residuo, y ese detector NO puede
+depender de que el consumidor corra.** Lo que hay que vigilar no es «¿el consumidor salió bien?»
+sino «¿quedó algo que debería haberse ido?». Son preguntas distintas y sólo la segunda se vuelve
+roja cuando el consumidor no aparece.
+
+Es el hermano de **§84** —un shipper verde con `rows_affected = 0` puede ser que murió el origen—
+girado: acá el origen está vivo, el shipper está verde, y **lo que murió es el escalón del medio**.
+En los dos casos el error es el mismo: *se declara sano un tramo midiendo sus puntas*.
+
+### Lo que lo destrabó, y lo que falta
+
+Corriendo `ingest.merge_route_collections('ruta_27')` a mano: `mart` pasó de 17-oct a 19-oct y el
+cron de las 20:24 lo levantó solo. En prod quedó `ruta_27 · 19-oct · $19,939.00`, al centavo
+contra el ticket.
+
+⛔ **Eso es el parche, no la solución.** Las dos correcciones de fondo, en orden de lo que cuesta
+cada una:
+
+1. **Que no haya merge que pueda no correr.** `mart.cobros_ruta` como **vista sobre `stg`**, con el
+   dedup adentro. Un paso que no existe no se puede saltar.
+2. **Que no haya cron.** El servidor FDW `runner_rutas` **ya existe en prod y tiene CERO tablas
+   foráneas** — la tubería estaba puesta y sin usar. Con una tabla foránea sobre
+   `mart.cobros_ruta`, `analytics.route_collections` pasa a ser vista y el lag de 10 minutos
+   desaparece. Medido: 173 filas, 176 kB, **24 ms** leer la tabla entera, y un solo dependiente
+   (`finance.v_caja_movimientos_pendientes`).
+3. **Mientras tanto**, el latido lleva `rows_pendientes`.
+
+⚠️ El costo de (2), que es real: la bandeja pasa a depender de que el runner responda. Un runner
+caído **da error** en vez de lista vacía — que es lo correcto (error ≠ vacío, ADR-056) pero se ve.
+El `connect_timeout=5` del servidor acota el peor caso a 5 segundos.
+
+### 87.1 · Corolario — recrear una MATVISTA desde `psql` la deja en CERO si su fuente filtra por `current_tenant_id()`, y **no da error**
+
+**Vivido el 2026-10-19, en la misma tarde que §87 y por mi mano.**
+
+Al convertir `analytics.route_collections` de tabla a vista (`[CGA-A.22]`) hubo que soltar y
+recrear toda su cadena de dependientes. El último escalón es una **matvista**:
+
+```
+analytics.route_collections
+  → finance.v_caja_movimientos_pendientes
+      → analytics.mv_caja_autofill_entidad
+```
+
+El script corrió como `kubectl exec ... psql -U postgres`, hizo
+`CREATE MATERIALIZED VIEW ... AS <definición capturada viva>`, **terminó con éxito** y la
+comprobación imprimió:
+
+```
+ autollenado_filas
+-------------------
+                 0
+```
+
+Tenía **285**. Ninguna línea de error, ningún aviso.
+
+⛔ **La causa:** `CREATE MATERIALIZED VIEW` **ejecuta la consulta en ese momento** para poblarse.
+La definición lee `finance.v_caja_movimientos_pendientes`, cuyo `WHERE` incluye
+`tenant_id = current_tenant_id()`, y esa función es:
+
+```sql
+SELECT NULLIF(current_setting('app.tenant_id', true), '')::uuid;
+```
+
+Una sesión de `psql` no tiene `app.tenant_id`, así que devuelve `NULL`, el `WHERE` no casa con
+nada y la matvista nace **poblada de cero filas** — que no es lo mismo que vacía por falta de
+datos, pero se ve exactamente igual.
+
+⚠️ **Y lo que rompe es silencioso y a distancia**: el autollenado de Caja General pasó a contestar
+«sin propuesta» para TODA entidad. Nadie se entera por un log: se entera quien captura, un rato
+después, cuando la pantalla deja de proponer.
+
+### La regla
+
+⭐ **Toda sentencia que POBLA algo —`CREATE MATERIALIZED VIEW`, `REFRESH`, un `INSERT ... SELECT`
+de backfill— corrida fuera de la aplicación necesita fijar el tenant ANTES:**
+
+```sql
+SET app.tenant_id = '00000000-0000-0000-0000-00000000d01c';
+REFRESH MATERIALIZED VIEW analytics.mv_caja_autofill_entidad;
+```
+
+Y **la comprobación no es que el comando haya salido bien: es contar las filas y compararlas con
+lo que había**. Un `CREATE` exitoso no dice nada sobre el contenido.
+
+⛔ Esto ya había pasado **y ya estaba escrito**: `[CG.180]` lo documentó cuando esa misma matvista
+llegó a producción con cero filas por una migración que leía una vista filtrada por tenant sin
+fijarlo —*"misma sesión y mismo instante, sin tenant 0 filas, con tenant 13,302"*—. Lo repetí el
+mismo día en que lo cité. **Tener la trampa escrita no alcanza si la lista de verificación del
+momento no la incluye**, y por eso queda acá, pegada al procedimiento que la dispara.
+
+⚠️ No es sólo de matvistas: aplica a **cualquier objeto que se llena al crearse** y a cualquier
+script de carga. Si el `SELECT` de adentro pasa por una vista con RLS o con filtro por tenant, el
+resultado depende de una variable de sesión que nadie puso.
+
+---
+
+## 88. ⛔⛔ `@Throttle({ default: … })` NO limita nada: los tiers se llaman `short`, `medium` y `long`
+
+**Medido el 2026-10-16.** `ThrottlerModule.forRoot` (`apps/api/src/app.module.ts`) declara tres tiers **con nombre**. El guard (`@nestjs/throttler` 6.5) recorre los tiers configurados y, para cada uno, lee la metadata `THROTTLER:LIMIT`+nombre del handler. Un `@Throttle({ default: { limit: 20, ttl: 60_000 } })` guarda `THROTTLER:LIMITdefault`, que **ningún tier lee**: ni error, ni aviso, ni log. El endpoint queda sólo con los topes globales (10/s, 60/10 s, 200/min por IP).
+
+⭐ **Cómo se encontró:** al revisar mi propio PR (el dictado, un servicio de **pago por uso**) contra el código del guard, no contra lo que decía la descripción («20 por minuto»). Un endpoint con un tope que no existe se ve idéntico a uno con tope: la única prueba es mirar la metadata o disparar 21 peticiones.
+
+⚠️ **Sigue latente en `libs/commercial/src/lib/commercial-analytics/commercial-analytics.controller.ts`:** líneas 929 (15/min), 1444, 1457 y 1468 (20/min) — cuatro endpoints que creen estar limitados y no lo están. **No se tocaron** (arreglarlos *agrega* un tope que hoy no existe → cambia su comportamiento; decide Edgar). Los que sí están bien usan `short`/`long` (p. ej. `commercial-catalog-search`: `@Throttle({ long: … })`).
+
+**Cómo evitarlo:** el nombre de la clave es el de un tier **configurado** (`short`/`medium`/`long`). El candado `libs/service-desk/src/lib/dictado-throttle.spec.ts` comprueba, para ese controlador, que todo `@Throttle` usa un tier existente y que el detector SÍ marca la forma `default` (control); falta generalizarlo a todo el repo (`[THR.1]`).
+
+## 89. ⛔⛔ Un documento CANCELADO en Kepler deja su aplicación VIVA en `kdm5` — quien suma `kdm5.c13` cuenta dinero que no existe
+
+**Medido en prod el 2026-10-21 (`[CSU.11]`).** El PM reportó un cobro cancelado (`UA0501`, sucursal 06) que seguía contando en Cortes/Sucursales.
+
+### Qué hace Kepler al cancelar
+
+| Dónde | Qué queda |
+|---|---|
+| Cabecera `kdm1` | `c43 = 'C'` e importe `c16 = 0` |
+| Abono en `kdue` | importe 0 |
+| **Aplicación en `kdm5`** | **el monto completo** (`c13`) |
+
+Cualquier consulta que sume `kdm5` sin mirar la cabecera cuenta como pagado algo que se canceló.
+
+### Lo que costaba
+
+**854 de 70,478 aplicaciones** son de documentos cancelados (12,804 cabeceras canceladas en `kdm1`):
+
+| Dónde pegaba | Qué cambia |
+|---|---|
+| Cortes/Sucursales, octubre | cobrado inflado **$171,986.56** (14 cobros). Varios cortes aparecían **sobrecobrados**: el cobro cancelado más el que lo reemplazó |
+| Cartera abierta (`erp_receivable_documents`) | saldo subestimado **$165,615.07** en 21 documentos |
+| Facturas (`erp_receivable_doc`) | **13 salían «pagadas» sin estarlo** (6 `D-13`, 7 `D-8`) |
+| Proveedores (pagos `X-D` a entradas) | **$13.3 M** de aplicaciones canceladas — rastreo pendiente por pantalla |
+
+### Por qué se repetía
+
+Ya se había corregido **tres veces**, cada consumidor con su propio filtro: `income_bridge_src`, `erp_collections` y el `LATERAL` de `v_route_credit_sales`. Este último lo aplicaba a la **fecha** del cobro y **no al monto**: el `sum(m.c13)` seguía contando el cancelado. Cada consumidor nuevo tenía que acordarse, y el siguiente no se acordaba.
+
+### La regla
+
+- Las aplicaciones se leen de **`analytics.kepler_kdm5_vigente`**: mismas columnas que `kdm5`, sin las de documentos cancelados. La cabecera se busca por la llave de `kdm1` del documento dueño (`sucursal = c1`), sin índice nuevo.
+- Se migra un consumidor **cambiando sólo el nombre de la tabla**.
+- **`check:kdm5-vigente`** (en el `pre-push`) pone rojo leer `kepler_ods.kdm5` crudo en `apps/`, `libs/` o en una migración nueva.
+- `--db` revisa el **catálogo**, porque una vista recreada desde `pg_get_viewdef` no deja texto en el repo.
+- Un documento cuya cabecera **no** está en el ODS se conserva: no se sabe si está cancelado, y quitarlo sería inventar.
+
+⚠️ **El caso reportado no era el folio que decía la nota.** En el ODS no hay ningún `UA0501-0000076` cancelado: está activo en las 8 sucursales. En la 06, el corte `UD2301-0000033` tiene el `…075` **cancelado** ($10,962.00) junto al `…076` vivo ($1,867.00). Antes de corregir un folio, se busca el patrón.

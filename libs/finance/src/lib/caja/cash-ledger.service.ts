@@ -1,7 +1,7 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
-  TenantKnexService, TenantContextService, evalInput, composeFreshness,
+  TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql,
 } from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
@@ -22,7 +22,9 @@ const ETIQUETA_CARRIL: Record<string, string> = {
   mv_caja_refresh: 'Refresco de la cola de caja',
 };
 import { CajaGateway } from './caja.gateway';
+import { leerCandado } from './caja-candado.query';
 import { buildFolio } from './caja-autofill.engine';
+import { diaAnterior, inicioDelMes, primerCorteDelLibro, saldadosPorControl } from './caja-relevo';
 import {
   esConfirmable, cuentaPorRegla, resumirLote, evaluarDescuadre, evaluarArqueo, desgloseNeto, rankearFrecuentes,
   esFechaFutura, reglaQueAplica, cvDe, propuestaDe, CAIDO_DIAS, TEXTO_NO_CONFIRMABLE, FRECUENTE_MIN_USOS,
@@ -169,6 +171,13 @@ export interface CreateMovementInput {
   centro_costo?: string;
   kepler_cuenta: string;
   kepler_concepto: string;
+  /**
+   * `[CGS.8]` Por qué este movimiento entra SIN cuenta ni concepto. Con texto (5+ caracteres), el
+   * par se guarda vacío y el movimiento queda en la cola de «sin clasificar»; sin él, el par se
+   * valida como siempre. ⛔ No es un campo opcional más: es la única forma de que el hueco quede
+   * contable y buscable en vez de desaparecer.
+   */
+  sin_clasificar_motivo?: string;
   glosa: string;
   beneficiario?: string;
   beneficiario_rfc?: string;
@@ -251,22 +260,19 @@ const ORIGEN_ANCLADO = ['cobro', 'pago_proveedor'];
 const CLASE_DESCUADRE: Record<string, ClaseDescuadre> = { ingreso: 'caja_entrega', gasto: 'caja_egreso' };
 
 /**
- * `[CGA-A.17]` Umbrales para DERIVAR el concepto de una cuenta a partir de lo que las personas
- * ya capturaron. Cada uno sale de una medición, no de un gusto — el detalle está en el bloque de
- * `resolverCuentas()`:
+ * ⭐⭐ `[CGA-A.17u]` **LOS UMBRALES YA NO VIVEN ACÁ.** Estaban en estas tres constantes y, a la
+ * vez, escritos de nuevo en SQL dentro de la matvista `mv_caja_autofill_entidad` — dos sesiones
+ * el mismo día, el mismo código de ticket, dos respuestas a la misma pregunta.
  *
- *   · `MIN_ENTIDADES` es el que convierte «el concepto es de la cuenta» en una MEDICIÓN: `511`
- *     tiene 19 entidades distintas y `115` 16; `601-001` tiene **1**, y por eso NO se propone
- *     aunque dé 13/13. Una sola entidad no dice nada sobre la cuenta.
- *   · Las cuentas de CAJA (`102*`) quedan fuera por código, no por umbral: ahí el concepto
- *     identifica CUÁL caja chica, y el control contra el catálogo de Kepler lo demostró.
+ * La regla entera (soporte ≥ 5 · dominancia ≥ 80 % · ≥ 3 entidades distintas · sin cuentas de
+ * CAJA/BANCO · sólo capturas de personas · sin empate) vive en **un solo lugar**:
+ * `analytics.v_caja_concepto_por_cuenta`, creada por la migración `20261019154654`, que es
+ * donde está cada guarda con su medición al lado.
  *
- * ⚠️ Son parámetros con estado, no constantes de la física: si la tasa de corrección sube, se
- * ajustan ACÁ y se re-mide — no se agrega un segundo umbral en otra rama.
+ * ⛔ Dejar acá un umbral muerto sería peor que no tenerlo: el próximo que quiera aflojar la regla
+ * lo cambiaría aquí, vería que no pasa nada, y terminaría cambiándola en el otro lado también.
  */
-const CONCEPTO_MIN_SOPORTE = 5;
-const CONCEPTO_MIN_RATIO = 0.8;
-const CONCEPTO_MIN_ENTIDADES = 3;
+
 
 /** La cuenta de servicio del autollenado (`20261016105305`). Sus filas NO cuentan como historia. */
 const SVC_AUTOLLENADO_ID = '00000000-0000-0000-0000-0000000ca11e';
@@ -1105,6 +1111,20 @@ export class CashLedgerService {
       const conc = conciliacion(input as never);
       if (!conc.ok) throw new BadRequestException(conc.texto);
 
+      /**
+       * ⛔⛔ `[CGS.14]` **SIN CORTE DE AYER, HOY NO SE CAPTURA** (D1 de Edgar, 2026-10-21).
+       *
+       * Medido ese día: el 20-oct quedó con 30 movimientos y sin corte, y el 21 ya se capturaban
+       * gastos encima. Va DESPUÉS de la repetición idempotente (un reintento de algo que ya se
+       * guardó no es una captura nueva) y de la conciliación, que es pura y tiene que disparar sin
+       * tocar la base (`cash-ledger.conciliacion.spec.ts` lo exige), y ANTES de resolver nada. 423 y no 400: no es que el dato
+       * esté mal, es que la caja está cerrada hasta rendir cuentas. La salida va en la frase.
+       */
+      const candado = await leerCandado(trx, tenantId, user.id ?? null);
+      if (candado.bloqueado) {
+        throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+      }
+
       // ⭐ El monto del documento MANDA sobre el del formulario…
       const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
       const doc = anclado ? await this.resolveMovimiento(trx, tenantId, input.origen_ref as string) : null;
@@ -1146,7 +1166,30 @@ export class CashLedgerService {
           + 'efectivo. Un movimiento fechado adelante desaparece del libro hasta que llegue ese mes.');
       }
 
-      const snap = await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
+      /**
+       * ⭐⭐ `[CGS.8]` **El movimiento puede entrar SIN clasificar, si dice por qué.**
+       *
+       * Edgar: *«no hagamos que sea obligatorio agregar concepto, para no frenar el proceso de
+       * caja general»*. El par contable existe en Kepler pero vive en el documento de
+       * **comprobación**, y el que mueve la caja es el **pago**, que no guarda a cuál salda —
+       * medido: emparejarlos por su llave natural cubre 7.5 %.
+       *
+       * ⛔ El hueco se DECLARA, no se finge (ADR-056). Con motivo, el par va vacío y el `CHECK`
+       * `cash_ledger_clasificacion_chk` exige que sea **todo o nada**: nada de cuenta puesta y
+       * concepto vacío, que no sirve ni para contabilizar ni para buscar.
+       *
+       * ⚠️ Y se SALTA `resolveConcept` a propósito: ese resolvedor valida contra el catálogo vivo
+       * y rechazaría la cadena vacía. No es aflojarlo — es que acá no hay par que validar.
+       */
+      const sinClasificar = String(input.sin_clasificar_motivo ?? '').trim();
+      if (sinClasificar && sinClasificar.length < 5) {
+        throw new BadRequestException(
+          'Para dejar el movimiento sin clasificar hay que decir por qué, con al menos 5 caracteres. '
+          + 'Ese motivo es lo que después permite encontrarlo y cerrarlo.');
+      }
+      const snap = sinClasificar
+        ? { cuenta_nombre: null as string | null, concepto_nombre: null as string | null }
+        : await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
 
@@ -1173,10 +1216,13 @@ export class CashLedgerService {
         hora: input.hora ?? null,
         sucursal: input.sucursal,
         centro_costo: input.centro_costo ?? null,
-        kepler_cuenta: input.kepler_cuenta,
-        kepler_concepto: input.kepler_concepto,
+        // `[CGS.8]` Sin clasificar: el par va VACÍO, nunca nulo. La cadena vacía es el marcador y
+        // las columnas siguen `NOT NULL`, así que ninguna fila se cuela por un insert descuidado.
+        kepler_cuenta: sinClasificar ? '' : input.kepler_cuenta,
+        kepler_concepto: sinClasificar ? '' : input.kepler_concepto,
         kepler_cuenta_nombre: snap.cuenta_nombre,
         kepler_concepto_nombre: snap.concepto_nombre,
+        sin_clasificar_motivo: sinClasificar || null,
         glosa,
         beneficiario: input.beneficiario ?? (doc?.beneficiario ?? null),
         beneficiario_rfc: input.beneficiario_rfc ?? null,
@@ -1269,7 +1315,8 @@ export class CashLedgerService {
       return await this.create(input, user);
     } catch (e) {
       // Un `BadRequestException` ya es una frase nuestra: no se vuelve a traducir.
-      if (e instanceof BadRequestException || e instanceof NotFoundException) throw e;
+      // `[CGS.14]` Tampoco el 423 del candado: ya trae su frase y su salida.
+      if (e instanceof HttpException) throw e;
       return traducirErrorDeCaja(e);
     }
   }
@@ -1345,7 +1392,25 @@ export class CashLedgerService {
       // más viejo de 2025-01-01**, porque `finance.cash_ledger` está vacío y entonces "pendiente"
       // es todo lo que Kepler registró desde que hay ODS. Es cierto y es inútil como cola de
       // trabajo. Se puede pedir explícitamente un `from` anterior; el default no lo hace.
-      const desde = q.from
+      //
+      // ⭐ `[CGA-A.43]` Sin `from`, la cola arranca en el PRIMER CORTE DEL LIBRO, no en una ventana
+      // de días: lo anterior es de la era Control (el Access), que ya lo saldó — medido, de 541
+      // documentos del 1 al 11-oct, Control saldó todos salvo 15 — y desde el corte la cola es
+      // exacta. Sólo si todavía no hay ningún corte se usa la ventana de siempre.
+      const relevo = q.from ? null : await primerCorteDelLibro(trx, tenantId);
+      /**
+       * ⭐ `[CGA-A.44]` Pero el mes del relevo todavía tiene pendientes de la era Control (Edgar,
+       * 2026-10-20: «este mes aún existían movimientos en Control que no se conciliaban»). La cola
+       * arranca el PRIMERO DE ESE MES, y de los días anteriores al corte quita lo que el Control ya
+       * saldó — con el mismo casamiento del Cuadre de `/finanzas/caja` (`saldadosPorControl`), así que
+       * las dos pantallas no pueden decir cosas distintas. Medido: del 1 al 10-oct quedan ~46 de 541.
+       */
+      const inicio = relevo ? inicioDelMes(relevo) : null;
+      const controlSaldo = relevo && inicio && inicio < relevo
+        ? await saldadosPorControl(trx, tenantId, inicio, diaAnterior(relevo))
+        : { llaves: new Set<string>(), ruta_disponible: true };
+      const saldados = [...controlSaldo.llaves];
+      const desde = q.from || inicio
         || new Date(Date.now() - CAJA_VENTANA_DIAS * 86400000).toISOString().slice(0, 10);
 
       /**
@@ -1372,6 +1437,8 @@ export class CashLedgerService {
         if (q.doc_tipo && conTipo) x = x.where('doc_tipo', q.doc_tipo);
         if (q.caja) x = x.where('clave_banco', q.caja);
         if (q.sucursal) x = x.where('sucursal', q.sucursal);
+        // `[CGA-A.44]` Lo que el Control ya saldó en los días anteriores al corte no es trabajo del libro.
+        if (saldados.length) x = x.whereNotIn('origen_ref', saldados);
         /**
          * ⛔⛔ `[CG.85]` **LO YA CAPTURADO DESDE LA OTRA FUENTE SEGUÍA EN LA COLA.**
          *
@@ -1446,19 +1513,11 @@ export class CashLedgerService {
          * solas y 5 ($80,541.00) quedaron ambiguas** y las tiene que decir una persona.
          * **Cuando ese resto llegue a cero, este `OR` se borra** — y con él la última
          * comparación por texto del módulo. Lo cuenta `npm run check:cobro-escondido`.
+         *
+         * ⭐ `[CGA-A.49]` La regla vive en `platform-core` (`cajaNoCapturadaDesdeCaosSql`): la usan
+         * también el aviso horario y «Mi trabajo», que contaban sin ella.
          */
-        return x.whereNotExists((sub: any) => sub
-          .select(trx.raw('1'))
-          .from('finance.cash_ledger as yac')
-          .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
-             AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-             AND yac.origen_tipo = 'caos'
-             AND (
-               yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
-               OR (yac.declared_doc_ref IS NULL
-                   AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                                      || ' ' || v_caja_movimientos_pendientes.folio || '%')
-             )`));
+        return x.whereRaw(cajaNoCapturadaDesdeCaosSql('v_caja_movimientos_pendientes'));
       };
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
@@ -1556,6 +1615,30 @@ export class CashLedgerService {
       const totalRow: any = await qb.clone().clearOrder().count({ n: '*' }).first();
       const total = Number(totalRow?.n ?? 0);
 
+      /**
+       * ⭐ `[CGA-A.49]` **El total, partido en sus dos colas — con el más viejo de cada una.**
+       *
+       * La campana y «Mi trabajo» miden la cola DEL LIBRO (`cajaColaDelLibroSql`: desde el primer
+       * corte). Esta bandeja además trae el rezago de la era Control (`[CGA-A.44]`). Sin partirlo,
+       * la responsable ve «54» en «Mi trabajo» y «106» acá y no sabe cuál es el bueno: los dos lo
+       * son, y la suma tiene que verse. Mismos filtros y mismo `search` que `total` (se clona `qb`),
+       * así que `del_libro + rezago_control = total` por construcción.
+       */
+      type Parte = { n: number; monto: number; mas_viejo: string | null };
+      let cola: { del_libro: Parte; rezago_control: Parte } | null = null;
+      if (relevo) {
+        const partes: Array<{ del_libro: boolean; n: unknown; monto: unknown; mas_viejo: string | null }> = await qb.clone().clearOrder()
+          .select(trx.raw('(fecha_valor >= ?::date) AS del_libro', [relevo]),
+            trx.raw(`to_char(min(fecha_valor), 'YYYY-MM-DD') AS mas_viejo`))
+          .count({ n: '*' }).sum({ monto: 'monto' })
+          .groupByRaw('1');
+        const parte = (libro: boolean): Parte => {
+          const p = partes.find((x) => Boolean(x.del_libro) === libro);
+          return { n: Number(p?.n ?? 0), monto: Number(Number(p?.monto ?? 0).toFixed(2)), mas_viejo: p?.mas_viejo ?? null };
+        };
+        cola = { del_libro: parte(true), rezago_control: parte(false) };
+      }
+
       const rows = await qb
         // ⛔ CG.23.1 — El orden salía INVERSO para lo que la bandeja es: una cola de trabajo.
         //
@@ -1613,7 +1696,18 @@ export class CashLedgerService {
         // subtítulo tiene que decir; `rows.length` es cuánto cupo en la página.
         total,
         desde,
-        ventana_dias: q.from ? null : CAJA_VENTANA_DIAS,
+        ventana_dias: q.from || relevo ? null : CAJA_VENTANA_DIAS,
+        // `[CGA-A.43]` De dónde sale `desde`: lo pidió la pantalla, es el primer corte del libro, o
+        // es la ventana de siempre (no hay libro todavía). La pantalla lo dice con estas palabras.
+        desde_motivo: (q.from ? 'pedido' : relevo ? 'relevo' : 'ventana') as 'pedido' | 'relevo' | 'ventana',
+        // `[CGA-A.44]` El primer corte del libro, y cuántos documentos de la era Control se quitaron
+        // por estar ya saldados en el Control. `control_ruta_disponible:false` = no se pudieron leer
+        // los cobros de camioneta, y ésos se dejaron VISIBLES (lado seguro).
+        relevo,
+        saldados_por_control: saldados.length,
+        control_ruta_disponible: controlSaldo.ruta_disponible,
+        // `[CGA-A.49]` `null` = no hay libro todavía (no hay en qué partir).
+        cola,
         // El rezago histórico, DECLARADO. No es trabajo del día: es una decisión de hasta dónde
         // se migra lo que el Access ya registró. Que se vea evita que alguien crea que no existe.
         fuera_de_ventana: { movimientos: Number(atras?.n ?? 0), monto: Number(atras?.monto ?? 0) },
@@ -2017,20 +2111,26 @@ export class CashLedgerService {
     const tenantId = this.tenantCtx.requireTenantId();
     const dias = Math.min(Math.max(Number(q.dias) || 180, 1), 730);
     return this.tk.run(async (trx) => {
+      // `[CGA-A.43]` Sin `dias`, el volumen se cuenta desde el primer corte del libro: el mismo
+      // borde que la cola, o el número entre paréntesis contradiría a la lista de abajo.
+      // `[CGA-A.44]` …desde el primero de ese mes, igual que la cola.
+      const relevoCorte = q.dias ? null : await primerCorteDelLibro(trx, tenantId);
+      const relevo = relevoCorte ? inicioDelMes(relevoCorte) : null;
       const cat = await trx('analytics.v_kepler_cajas')
         .where('tenant_id', tenantId)
         .orderBy('clave')
         .select('clave', 'nombre', 'cuenta_contable');
       const vol = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).andWhere('tipo_cuenta', 'caja')
-        .andWhereRaw(`fecha_valor >= (now()::date - ${dias})`)
+        .andWhere((w: Knex.QueryBuilder) => (relevo ? w.where('fecha_valor', '>=', relevo) : w.whereRaw(`fecha_valor >= (now()::date - ${dias})`)))
         .groupBy('clave_banco')
         .select('clave_banco')
         .count({ documentos: '*' });
       const m = new Map(vol.map((v: any) => [String(v.clave_banco), Number(v.documentos)]));
       return {
         rows: cat.map((c: any) => ({ ...c, documentos: m.get(String(c.clave)) ?? 0 })),
-        ventana_dias: dias,
+        ventana_dias: relevo ? null : dias,
+        desde: relevo,
       };
     });
   }
@@ -2372,47 +2472,39 @@ export class CashLedgerService {
     trx: Knex.Transaction, tenantId: string, cuentas: string[],
   ): Promise<Map<string, { concepto: string; soporte: number; entidades: number; ratio: number }>> {
     const m = new Map<string, { concepto: string; soporte: number; entidades: number; ratio: number }>();
-    // Guarda 1: fuera las cuentas de CAJA y BANCO. Ahí el concepto es de la entidad (cuál caja),
-    // no de la cuenta. Es la misma exclusión que la matvista aplica para derivar la cuenta.
-    const elegibles = (cuentas ?? []).filter((c) => c && !/^(102|122)/.test(String(c)));
-    if (!elegibles.length) return m;
+    const lista = (cuentas ?? []).filter(Boolean).map(String);
+    if (!lista.length) return m;
 
-    const filas = await trx('finance.cash_ledger')
+    /**
+     * ⭐⭐ `[CGA-A.17u]` **LA REGLA YA NO VIVE ACÁ: SE LEE.** Acá había un GROUP BY con sus
+     * umbrales, y la MISMA regla estaba escrita otra vez en SQL dentro de
+     * `analytics.mv_caja_autofill_entidad` (el peldaño `hist_cta`, de la migración
+     * `20261019135141`). Dos sesiones, el mismo día, el mismo código de ticket, dos respuestas.
+     *
+     * Contrastadas contra prod: coincidían en las 3 cuentas que mueven el dinero
+     * (`115→071`, `201→201`, `511→059`) y **nunca proponían distinto** — o sea que no había
+     * un error activo, pero sí uno latente: la de SQL proponía 7 cuentas más, entre ellas
+     * `102→011`, que el control contra el catálogo de Kepler ya había refutado (en una cuenta
+     * de CAJA el concepto dice CUÁL caja chica).
+     *
+     * Ahora las dos leen `analytics.v_caja_concepto_por_cuenta`. Las guardas y su porqué medido
+     * viven en la migración `20261019154654`, que es el único lugar donde se pueden cambiar.
+     *
+     * ⚠️ La vista filtra por `tenant_id` en su propia columna, pero el filtro va igual acá: no
+     * tiene RLS propio y heredar el del llamador sería suponer.
+     */
+    const filas = await trx('analytics.v_caja_concepto_por_cuenta')
       .where('tenant_id', tenantId)
-      .whereIn('kepler_cuenta', elegibles)
-      .whereNull('deleted_at')
-      .whereNot('estado', 'cancelado')
-      .whereNotNull('kepler_concepto')
-      // ⚠️ Sólo capturas de PERSONAS: derivar de lo que el motor escribió sería el espejo de
-      // ADR-059 — pedirle al motor que confirme su propia decisión.
-      .whereNot('created_by', SVC_AUTOLLENADO_ID)
-      .groupBy('kepler_cuenta', 'kepler_concepto')
-      .select('kepler_cuenta', 'kepler_concepto')
-      .count({ n: '*' })
-      .countDistinct({ entidades: 'beneficiario' });
+      .whereIn('cuenta', lista)
+      .select('cuenta', 'concepto', 'n', 'total', 'entidades', 'dominancia');
 
-    const porCuenta = new Map<string, Array<{ concepto: string; n: number; entidades: number }>>();
     for (const f of filas as Array<Record<string, unknown>>) {
-      const k = String(f.kepler_cuenta);
-      if (!porCuenta.has(k)) porCuenta.set(k, []);
-      porCuenta.get(k)!.push({
-        concepto: String(f.kepler_concepto), n: Number(f.n), entidades: Number(f.entidades),
+      m.set(String(f.cuenta), {
+        concepto: String(f.concepto),
+        soporte: Number(f.n),
+        entidades: Number(f.entidades),
+        ratio: Number(f.dominancia),
       });
-    }
-
-    for (const [cuenta, arr] of porCuenta) {
-      // Desempate ESTABLE: por n desc y, a igual n, por el código. Sin esto, dos corridas con el
-      // mismo dato podrían proponer cosas distintas según cómo viniera ordenado el SELECT.
-      const ord = [...arr].sort((a, b) => b.n - a.n || a.concepto.localeCompare(b.concepto));
-      const total = ord.reduce((s, x) => s + x.n, 0);
-      const top = ord[0];
-      if (!top) continue;
-      if (total < CONCEPTO_MIN_SOPORTE) continue;               // guarda 3a: poca historia
-      if (ord.length > 1 && ord[1].n === top.n) continue;       // empate: elegir sería inventar
-      const ratio = top.n / total;
-      if (ratio < CONCEPTO_MIN_RATIO) continue;                 // guarda 3b: no domina
-      if (top.entidades < CONCEPTO_MIN_ENTIDADES) continue;     // guarda 2: no prueba ser de la CUENTA
-      m.set(cuenta, { concepto: top.concepto, soporte: top.n, entidades: top.entidades, ratio });
     }
     return m;
   }
@@ -2568,6 +2660,13 @@ export class CashLedgerService {
     const items = (input?.items ?? []).filter((i) => i && i.origen_ref);
     if (!items.length) throw new BadRequestException('No se marcó ninguna entrega.');
 
+    // `[CGS.14]` Con la caja bloqueada el lote entero se rechaza con UNA frase, no con un error
+    // idéntico por renglón. `create()` lo vuelve a revisar por si cambió a mitad del lote.
+    const candado = await this.tk.run((trx) => leerCandado(trx, tenantId, user.id ?? null));
+    if (candado.bloqueado) {
+      throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+    }
+
     const filas: FilaLote[] = [];
     const montos = new Map<string, number>();
 
@@ -2628,6 +2727,33 @@ export class CashLedgerService {
           origen_tipo: pend.origen_tipo,
           origen_ref: pend.origen_ref,
           client_uuid: it.client_uuid,
+          /**
+           * ⭐ `[CG.196]` **CADA FILA DECLARA DE DÓNDE SALIÓ SU CUENTA.** ADR-056: *un campo
+           * lleno sin saber de dónde salió es indistinguible de uno inventado.*
+           *
+           * Faltaba, y lo encontró la verificación de la primera corrida real del autollenado
+           * (2026-10-19): las **43 filas** que escribió cuadraban al centavo contra su documento
+           * de Kepler, pero **ninguna decía por qué camino se había resuelto su par contable**.
+           * El motor ya lo sabía —`resolverCuentas()` devuelve `cuenta_fuente` desde `[CS.3.1b]`—
+           * y se tiraba al guardar.
+           *
+           * ⚠️ Importa más en el camino automático que en el manual: cuando una persona captura,
+           * ella es la procedencia; cuando escribe la máquina, esto es lo ÚNICO que permite
+           * contestar después *«¿por qué este movimiento quedó en 201/201?»* — y medir la tasa de
+           * corrección por fuente, que es la regla 4 de ADR-070 §8.5.
+           */
+          autofill: {
+            motor: 'autollenado',
+            // 'documento' · 'documento_nombre' · 'libro_dominante' · 'regla' · 'ruta'
+            cuenta_fuente: conCuenta.cuenta_fuente ?? null,
+            kepler_cuenta: conCuenta.kepler_cuenta ?? null,
+            kepler_concepto: conCuenta.kepler_concepto ?? null,
+            // Sólo viajan cuando la fuente fue `libro_dominante` ([CGA-A.17]): es el soporte que
+            // justificó el concepto, para que la decisión se pueda revisar sin re-derivarla.
+            concepto_soporte: conCuenta.concepto_soporte ?? null,
+            concepto_entidades: conCuenta.concepto_entidades ?? null,
+            decidido_en: new Date().toISOString(),
+          },
         }, user);
 
         montos.set(it.origen_ref, Number(mov.monto));
@@ -2864,22 +2990,10 @@ export class CashLedgerService {
       // ⭐ `[CGA-A.10]` Misma regla que en `movimientosPendientes()`: por LLAVE donde la hay,
       // y el `LIKE` sólo para lo histórico sin `declared_doc_ref`. **Las dos tienen que decir
       // lo mismo**: si una se cambia y la otra no, la cobertura mide contra otra cola.
-      const yaCapturado = (sub: Knex.QueryBuilder) => sub
-        .select(trx.raw('1'))
-        .from('finance.cash_ledger as yac')
-        .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
-           AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
-           AND yac.origen_tipo = 'caos'
-           AND (
-             yac.declared_doc_ref = v_caja_movimientos_pendientes.origen_ref
-             OR (yac.declared_doc_ref IS NULL
-                 AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
-                                    || ' ' || v_caja_movimientos_pendientes.folio || '%')
-           )`);
-
+      // `[CGA-A.49]` Ahora es literalmente la misma regla: un fragmento compartido, no una copia.
       let qb = trx('finance.v_caja_movimientos_pendientes')
         .where('tenant_id', tenantId)
-        .whereNotExists(yaCapturado);
+        .whereRaw(cajaNoCapturadaDesdeCaosSql('v_caja_movimientos_pendientes'));
       if (ventana.from) qb = qb.where('fecha_valor', '>=', ventana.from);
       if (ventana.to) qb = qb.where('fecha_valor', '<=', ventana.to);
       if (q.tipo) qb = qb.where('tipo', q.tipo);
@@ -2978,7 +3092,73 @@ export class CashLedgerService {
         return qb;
       };
 
+      /**
+       * ⭐⭐ `[CG.126]` **EL LIBRO NO DECÍA A QUÉ CAJA ENTRÓ EL DINERO.**
+       *
+       * Edgar, 2026-10-19: *«debemos diferenciar lo que entra a caja general vs lo que entra a
+       * CAOS»*. El cuadre del día ya lo separa desde `[CG.139]` —un cobro de ruta es UN
+       * movimiento con dos destinos: los billetes a la máquina y la morralla al cajón—, pero el
+       * libro publicaba sólo `monto`, o sea el total, y leerlo como «entró a caja general»
+       * **sobredeclara el efectivo del cajón por todo lo que se fue a la bóveda**.
+       *
+       * ⛔ Sale de `analytics.v_caja_reparto_movimiento`, que es el MISMO resolvedor que usa el
+       * cuadre (`cash-cut.service.ts`, `movimientosDelDia`). No se recalcula acá: dos derivaciones
+       * del mismo reparto es la forma de que el libro y el cuadre discrepen un día sin que nadie
+       * sepa cuál manda.
+       *
+       * ⭐ **Las DOS mitades se leen de la vista, ninguna se resta acá.** El primer intento
+       * derivaba `en_cajon` como `monto - en_boveda` —que es lo que hace el cuadre— hasta que la
+       * verificación contra prod mostró que **la vista ya publica `en_cajon`**. Restarlo igual
+       * sería la tercera versión del mismo número.
+       *
+       * ⚠️ Va en ESTA consulta y **no en `base()`**: `base()` lo reusa el KPI con su propio
+       * `.select()` de agregados, y Postgres rechaza una columna no agregada ahí. Un `select` en
+       * el lugar equivocado habría roto el encabezado del libro, no esta lista.
+       *
+       * ⚠️ `'*'` explícito porque la consulta no tenía `select` ninguno: sin él, agregar la
+       * columna derivada dejaría la fila **sólo** con esa columna y la pantalla entera en blanco.
+       *
+       * 🧪 **Verificado contra prod en sólo lectura el 2026-10-19** (no se compila local): la
+       * vista existe con `cash_ledger_id · en_boveda · en_cajon`, el subselect corre, y de las
+       * **236 filas del libro hay 0 sin reparto y 64 que tocan la bóveda**. El caso que lo
+       * justifica, textual de prod: `CI-2026-00112` vale $19,313.00 y se parte en **$19,250.00
+       * a la máquina y $63.00 al cajón** — publicar el total como «entró a caja general»
+       * sobredeclaraba ese renglón en un 99.7 %.
+       */
+      /**
+       * ⛔⛔ `[CG.127]` **EL LISTADO BAJABA LAS FIRMAS, Y SON EL 98.8 % DEL PESO.**
+       *
+       * Era `select('*')`, así que cada fila traía `firma_png` —un PNG en base64— y **la tabla
+       * no pinta ninguna**. Medido contra prod el 2026-10-20, periodo 01→19 oct:
+       *
+       *     248 filas · 39 con firma · firmas 1,386 kB · texto 17 kB · 5,723 bytes/fila
+       *
+       * O sea que traer el periodo entero costaba ~1.4 MB de los cuales 1.386 MB no se usan.
+       * Eso es lo que hacía caro subir el tope, y por lo tanto lo que mantenía la lista topada
+       * en 100 con 148 filas invisibles.
+       *
+       * ⭐ **Nadie la leía de acá.** Recorridos los consumidores antes de sacarla: el único es
+       * esta pantalla, y su botón de reimprimir pide el detalle aparte (`svc.detalle(id)`), que
+       * sí la trae. `firma_estado` y `firma_nombre` se quedan — el desplegable los muestra.
+       *
+       * ⚠️ La lista es EXPLÍCITA a propósito: con `select('*')` una columna nueva y pesada vuelve
+       * a entrar sola el día que alguien la agregue, sin que nadie lo decida.
+       */
       const rows = await base()
+        .select(
+          'id', 'folio', 'tipo', 'fecha', 'hora', 'sucursal', 'centro_costo',
+          'kepler_cuenta', 'kepler_concepto', 'kepler_cuenta_nombre', 'kepler_concepto_nombre',
+          'glosa', 'beneficiario', 'beneficiario_rfc', 'monto', 'morralla', 'venta_credito',
+          'origen_tipo', 'origen_ref', 'origen_uuid', 'declared_doc_ref', 'sin_documento_motivo',
+          'autofill', 'estado', 'corte_id',
+          'firma_estado', 'firma_nombre', 'firma_at',
+          'cancel_reason', 'cancelled_by_username', 'cancelled_at',
+          'created_by', 'created_by_username', 'created_at', 'updated_at',
+          trx.raw(`COALESCE((SELECT r.en_boveda FROM analytics.v_caja_reparto_movimiento r
+                              WHERE r.cash_ledger_id = finance.cash_ledger.id), 0) AS en_boveda`),
+          trx.raw(`COALESCE((SELECT r.en_cajon FROM analytics.v_caja_reparto_movimiento r
+                              WHERE r.cash_ledger_id = finance.cash_ledger.id), monto) AS en_cajon`),
+        )
         .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(limit).offset(offset);
 

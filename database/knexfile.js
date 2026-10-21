@@ -58,11 +58,31 @@ const migrations = {
   schemaName: 'public',
 };
 
+/**
+ * SSL en `development` sólo para una base REMOTA. Un Postgres local (el contenedor del CI, el Docker
+ * de la laptop) no habla SSL, y pedírselo siempre tumbaba el job "Pruebas contra Postgres real" del
+ * CI en `migrate:latest` con "The server does not support SSL connections" — también en `main`.
+ * `sslmode=disable` en la URL lo apaga a mano. `production` no cambia: ahí SSL sigue siempre.
+ */
+function sslParaDesarrollo(url) {
+    try {
+        // `require('url').URL` y no `URL`: arriba hay un `const URL` (la cadena de conexión) que tapa
+        // el constructor global; con `new URL` esto siempre caía al catch y dejaba el SSL puesto.
+        const u = new (require('url').URL)(url);
+        if (u.searchParams.get('sslmode') === 'disable') return false;
+        const host = u.hostname.replace(/^\[|\]$/g, '');
+        if (['localhost', '127.0.0.1', '::1'].includes(host)) return false;
+    } catch {
+        // URL que no se puede leer: se queda como estaba (con SSL).
+    }
+    return { rejectUnauthorized: false };
+}
+
 const config = {
     development: {
         client: 'pg',
         connection: process.env.DATABASE_URL
-            ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+            ? { connectionString: process.env.DATABASE_URL, ssl: sslParaDesarrollo(process.env.DATABASE_URL) }
             : {
                 host: process.env.DB_HOST || 'localhost',
                 port: Number(process.env.DB_PORT) || 5432,
@@ -92,3 +112,4 @@ const config = {
 
 module.exports = config;
 module.exports.connectionConfig = config;
+module.exports.sslParaDesarrollo = sslParaDesarrollo;

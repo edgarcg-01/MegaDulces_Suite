@@ -5,6 +5,9 @@ import { join } from 'node:path';
 // búsqueda devuelve `null` y el candado parece decir "el nodo no existe".
 import { AUTHZ_TREE } from '@megadulces/contracts/authz/authz-tree';
 import {
+  aBase64,
+  codigoDeIndicio,
+  nombreDeRegla,
   contarDeNadie,
   esDeNadie,
   etiquetaMotivo,
@@ -152,6 +155,21 @@ describe('[CP.8.33] bandeja del puente — la clasificación', () => {
   });
 });
 
+describe('[CP.8.54] marcar entregado — los bytes viajan intactos', () => {
+  it('⭐ base64 de un archivo de más de un tramo (0x8000) reproduce los bytes exactos', () => {
+    // Bytes de 0 a 255, incluido lo que en latin1 es un acento: el archivo es de ancho fijo y
+    // un solo byte cambiado corre todas las columnas del renglón.
+    const bytes = new Uint8Array(0x8000 * 2 + 17).map((_, i) => i % 256);
+    const vuelta = Uint8Array.from(atob(aBase64(bytes)), (c) => c.charCodeAt(0));
+    expect(vuelta.length).toBe(bytes.length);
+    expect(vuelta.every((b, i) => b === bytes[i])).toBe(true);
+  });
+
+  it('el archivo vacío no revienta', () => {
+    expect(aBase64(new Uint8Array(0))).toBe('');
+  });
+});
+
 interface Nodo { id: string; route?: string; view?: string[]; projects?: Nodo[]; modules?: Nodo[]; }
 
 function buscarNodo(nodos: Nodo[], id: string): Nodo | null {
@@ -162,3 +180,26 @@ function buscarNodo(nodos: Nodo[], id: string): Nodo | null {
   }
   return null;
 }
+
+describe('[CP.8.14] reglas de cuenta — lo que la pantalla deriva', () => {
+  const catalogo = [{ codigo: '5200650000' }, { codigo: '5200600000' }];
+
+  it('el indicio se ofrece sólo si su cuenta está en el catálogo firmable', () => {
+    expect(codigoDeIndicio('5200650000 COMISIONES Y SITUACIONES (94.4%)', catalogo)).toBe('5200650000');
+  });
+
+  it('⛔ un indicio a una cuenta fuera del catálogo NO se ofrece (el backend la rechazaría)', () => {
+    expect(codigoDeIndicio('2120000112 EFFEM (80%)', catalogo)).toBeNull();
+  });
+
+  it('sin indicio, o sin código al inicio, no se ofrece nada', () => {
+    expect(codigoDeIndicio(null, catalogo)).toBeNull();
+    expect(codigoDeIndicio('sin evidencia utilizable', catalogo)).toBeNull();
+  });
+
+  it('el nombre sale de la primera frase de la evidencia, y si no sirve, del código', () => {
+    expect(nombreDeRegla({ evidencia: 'Comisión bancaria. 2,788 movs', categoria_code: 'comision_bancaria' }))
+      .toBe('Comisión bancaria');
+    expect(nombreDeRegla({ evidencia: null, categoria_code: 'renta' })).toBe('renta');
+  });
+});

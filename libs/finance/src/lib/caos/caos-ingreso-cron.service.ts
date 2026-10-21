@@ -5,6 +5,7 @@ import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulce
 import { diaMxDeInstante } from '@megadulces/contracts';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { atribuirDeposito } from './caos-deposito-grano';
+import { causaDelError } from './causa-del-error';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 
@@ -21,6 +22,12 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
  * `finance.caos_ingreso_atribucion` tenía **cero filas**, porque no tenía quién lo llamara: ni
  * botón, ni cron, ni enganche al arqueo. Mismo patrón que la Fase IC — *no faltaba módulo,
  * faltaba que se usara*.
+ *
+ * ⛔⛔ `[CGA-A.37]` **Ese diagnóstico era la MITAD.** Con el cron puesto, la tabla siguió en cero:
+ * el candado `ux_caos_atrib_cobro_vivo` exigía UNA fila por cobro y el motor parte un cobro entre
+ * dos depósitos a propósito (512 cobros, 779 filas rechazadas, transacción revertida en cada
+ * corrida). Se reemplazó por Σ por cobro ≤ su monto (migración `20261020110022`). Cero filas por un
+ * defecto se lee igual que cero filas por falta de uso.
  *
  * ⚠️ Yo había puesto un botón, apoyado en el precedente `[VEC.5]` (*lo que escribe a demanda lo
  * dispara quien va a mirar el resultado*). Edgar lo revirtió, y el motivo es bueno: un botón que
@@ -92,7 +99,7 @@ export class CaosIngresoCronService {
       cubiertos = r.cubiertos ?? 0;
       pendientes = r.sin_respaldo ?? 0;
     } catch (e) {
-      motivo = e instanceof Error ? e.message.slice(0, 300) : 'fallo sin mensaje';
+      motivo = causaDelError(e);
       this.logger.error(`[CG.58.5] la atribución de CAOS falló: ${motivo}`);
     }
 
@@ -106,7 +113,7 @@ export class CaosIngresoCronService {
     try {
       granos = await this.clasificarGranos();
     } catch (e) {
-      const m = e instanceof Error ? e.message.slice(0, 300) : 'fallo sin mensaje';
+      const m = causaDelError(e);
       this.logger.error(`[CG.58.6] no se pudo clasificar el grano: ${m}`);
       motivo = motivo ? `${motivo} · grano: ${m}` : `grano: ${m}`;
     }

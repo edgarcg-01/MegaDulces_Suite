@@ -177,6 +177,112 @@ docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U post
 
 ---
 
+## CASO 5 — la camioneta **SUBE pero sin fechas nuevas** (el caso mudo)
+
+> ⛔⛔ **EMPEZÁ POR ACÁ ANTES QUE POR EL CASO 4.** Si la venta de una ruta no aparece, el reflejo es
+> suponer que el agente no corre o que el runner está mal, e irse a cambiar la IP. **En este caso
+> todo eso está bien** y el cambio no arregla nada: el agente corre puntual, entrega miles de filas
+> y el latido está **VERDE**. Lo que no avanza es **la fecha del dato**.
+>
+> **Costó 19 días en `ruta_504` (2026-10-01 → 2026-10-20).** Nadie lo vio porque todos los sensores
+> que se miraron responden *«¿llegaron filas?»*, y la respuesta era **sí**.
+
+### La UNA consulta que lo contesta
+
+Contra el runner (`DATABASE_URL_KEPLER_CONSOLIDADO`, `kepler_consolidado`):
+
+```sql
+SELECT truck, host(client_ip) AS ip, rows_last, max_fecha,
+       dias_de_atraso, horas_sin_push, horas_sin_avanzar, veredicto
+  FROM ingest.v_route_push_salud
+ ORDER BY dias_de_atraso DESC;
+```
+
+`veredicto` ya viene resuelto. **No hay que interpretarlo:**
+
+| veredicto | qué significa | a qué CASO ir |
+|---|---|---|
+| `al_dia` | sube y trae fechas nuevas | nada que hacer |
+| `no_sube` | hace >24 h que no entrega nada | **CASO 4** (conexión / tarea / IP) |
+| **`sube_pero_sin_fechas_nuevas`** | **entrega filas y su fecha máxima está congelada** | **este CASO 5** |
+| `sin_medir` | nunca escribió `max_fecha` | el agente es anterior a `runner-heartbeat-fecha.sql` |
+
+⭐ **`max_fecha_avanzo_en` es la columna que manda**, y el `merge_route_sales` la mantiene a
+propósito: *«`max_fecha` SOLO AVANZA… un push que reentrega lo mismo deja esta columna quieta y ahí
+se ve el atraso»*. Si está en `NULL`, esa ruta **nunca** avanzó desde que existe la columna.
+
+### Qué NO es, y por qué descartarlo rápido
+
+Medido en `ruta_504` el 2026-10-20 — las cuatro hipótesis obvias, las cuatro falsas:
+
+| hipótesis | cómo se descarta | resultado |
+|---|---|---|
+| «el agente no corre» | `last_ok` del latido | corrió hace **0.6 h** |
+| «no hay red / runner mal» | `rows_last` | entregó **3,379 filas** |
+| «la laptop está apagada» | el carril de **cobros** de la misma máquina | 12 cobros, **$230,833** |
+| «la camioneta no salió» | los cobros, otra vez | cobró **9 días distintos** |
+
+⛔ **La ventana NO es el problema** y es el error que cometí al diagnosticar: el `.cmd` del repo dice
+`--dias 15`, pero **lo desplegado no es eso**. Medido por `min_fecha` del latido: **PH usa 15 días,
+Canindo 40**. Leé `min_fecha`, no el archivo del repo.
+
+### ⭐ La causa a perseguir: la SERIE sólo gatea la VENTA
+
+Ésta es la asimetría que explica *«cobra y no vende»*, y está en el propio `.cmd`:
+
+```sql
+-- VENTAS  (filtra por serie Y por c4)
+... where d.c2='U' and d.c3='D' and h.c4=10
+      and rtrim(btrim(h.c63),'-')='%ROUTE_SERIE%' and h.c9 >= current_date-%DAYS%
+
+-- COBROS  (NO filtra por serie)
+... where a.c2='U' and a.c3='A' and a.c4='5' and h.c9 >= current_date-%DAYS%
+```
+
+⭐ **Si la van empieza a emitir con otra serie —o con otro `c4`— la venta devuelve cero filas nuevas
+y el cobro sigue llegando normal.** El agente no tiene cómo notarlo: entrega lo que encuentra, y lo
+que encuentra es la ventana vieja completa, una y otra vez.
+
+**Correr EN LA LAPTOP de la van, contra su Postgres local:**
+
+```sql
+SELECT rtrim(btrim(h.c63),'-') AS serie, h.c4, count(*) AS docs, max(h.c9)::date AS ultimo
+  FROM md.kdm1 h
+ WHERE h.c9 >= current_date - 45
+ GROUP BY 1,2 ORDER BY 3 DESC;
+```
+
+- Si aparece una **serie nueva** después de la fecha en que se congeló → regenerar el `.cmd` con esa
+  serie. Es un cambio de una línea.
+- Si la serie es la misma pero `c4` ya no es `10` → el filtro `h.c4=10` es el que corta.
+- Si **no hay documentos nuevos de ningún tipo** → entonces sí, la van dejó de facturar y es una
+  pregunta de operación, no de sistemas.
+
+### Al arreglarlo
+
+1. Regenerar, no editar a mano:
+   `node armar-push-camioneta.js --truck ruta_NN --serie <la real> --dias <la de su plaza>`
+2. `schtasks /Run /TN "RutaNN"` y comprobar que el `Length` del archivo quede **≠ 0**.
+3. **No hace falta recalcular nada hacia atrás**: el merge es idempotente y **barre toda la
+   ventana**. Precedente medido en `ruta_26` el 2026-10-01: latido a los **38 segundos con 2,534
+   filas** y **12 días recuperados de un tirón**.
+4. ⚠️ **Pero la ventana es el límite real del rescate.** Lo que quedó fuera de `current_date - DAYS`
+   **no vuelve**. Si la ruta lleva más días mudos que su ventana, subí `--dias` ANTES de correrlo.
+
+### Lo que esto dejó pendiente
+
+⛔ **`ingest.v_route_push_salud` existe, emite el veredicto correcto y NO TIENE NINGÚN CONSUMIDOR.**
+Estuvo 19 días diciendo `sube_pero_sin_fechas_nuevas` sobre `ruta_504` sin que nada lo leyera. El
+mecanismo estaba completo; faltaba quien lo mirara. Mientras no se cablee a `db-health` o a una
+compuerta, **este runbook depende de que alguien se acuerde de correr la consulta de arriba**, que
+es exactamente la forma de fallar que ya costó estos 19 días.
+
+⚠️ Y su espejo ya existe para el otro lado: `npm run check:camioneta-sin-cobro` detecta *«vende y no
+cobra»*. Su `clasificar()` manda este caso a `'dormida' // no mandó venta: otro problema` — o sea
+que **el hueco está escrito en el código** y nadie lo cerró.
+
+---
+
 ## CASO 4 — repuntar una camioneta YA dada de alta: `.249` → `.222`
 
 > Para las 11 vans que se dieron de alta antes del 2026-09-11 y quedaron con el runner viejo en su

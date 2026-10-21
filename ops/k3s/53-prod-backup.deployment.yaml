@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# `[OPS.LIMPIEZA.8]` El respaldo de prod, de Compose (`prod-backup`) a k3s.
+#
+# MISMA imagen (`ops/prod/Dockerfile.backup`: postgres:18 + cron + pgBackRest 2.59.1), MISMA
+# agenda (`ops/prod/crontab.backup`: 22:00 `backup-prod.sh` = pg_dump · 23:30
+# `pgbackrest-run.sh auto` = completo si el último tiene ≥3 días, si no incremental) y MISMOS
+# directorios. Sólo cambia quién lo mantiene vivo.
+#
+# ── Por qué Deployment con cron adentro y no CronJob ────────────────────────
+# Es el cambio de menor riesgo: el comportamiento es idéntico al del contenedor de hoy y la
+# vuelta atrás es `kubectl delete` + `docker start prod-backup`. Pasar a dos CronJobs es
+# deseable (k3s vería cada corrida y su resultado), pero cambia CÓMO corre el respaldo y eso
+# merece su propio paso, con la noche de verificación que cualquier cambio de respaldo exige.
+#
+# ── Lo que NO toca ──────────────────────────────────────────────────────────
+# El archivado de WAL. Lo hace el propio pod `pg-prod` (`archive_command=pgbackrest … archive-push`,
+# `52-pg-prod`) contra el MISMO repositorio por hostPath. Este pod sólo DISPARA los respaldos
+# programados; si está caído, el WAL se sigue archivando.
+#
+# ── Cómo llega a la base ────────────────────────────────────────────────────
+# Por SOCKET Unix (`~/pgsock`, que `pg-prod` publica por hostPath): `ODS_HB_URL` en
+# `ingest.env` es `postgresql://…@/railway?host=/var/run/postgresql`, y pgBackRest sólo sabe
+# conectarse por socket local. Un nodo, así que el socket es el mismo archivo.
+#
+# ⚠️ Aplicar SÓLO con `prod-backup` detenido y FUERA de 21:55–01:00: dos `cron` dispararían
+#    dos respaldos y pgBackRest abortaría uno por candado. Receta completa:
+#    `docs/IMPLEMENTACION/OPS_LIMPIEZA_PROCESOS.md` › OPS.LIMPIEZA.8.
+# ⚠️ La imagen hay que subirla antes al registro (`localhost:5000/trade-prod-backup:base-7fee9ed6c22a`):
+#    hoy sólo existe en el almacén de Docker como `trade-prod-backup:latest`.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup
+  namespace: prod
+  labels: { app: backup, singleton: "true", migracion: preparado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # nunca dos cron disparando el mismo respaldo
+  selector:
+    matchLabels: { app: backup }
+  template:
+    metadata:
+      labels: { app: backup }
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: backup
+          image: localhost:5000/trade-prod-backup:base-7fee9ed6c22a
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: TZ, value: America/Mexico_City }
+          volumeMounts:
+            - { name: ingestenv, mountPath: /secrets/ingest.env, readOnly: true }
+            - { name: dumps,     mountPath: /backups }
+            - { name: datos,     mountPath: /var/lib/postgresql, readOnly: true }
+            - { name: socket,    mountPath: /var/run/postgresql }
+            - { name: repo,      mountPath: /var/lib/pgbackrest }
+            - { name: repolog,   mountPath: /var/log/pgbackrest }
+          resources:
+            requests: { memory: "256Mi", cpu: "100m" }
+      volumes:
+        - name: ingestenv
+          hostPath: { path: /home/superoot/secrets/ingest.env, type: File }
+        - name: dumps
+          hostPath: { path: /home/superoot/backups, type: Directory }
+        - name: datos
+          hostPath: { path: /var/lib/docker/volumes/prod_pg-prod-data/_data, type: Directory }
+        - name: socket
+          hostPath: { path: /home/superoot/pgsock, type: Directory }
+        - name: repo
+          hostPath: { path: /home/superoot/pgbackrest, type: Directory }
+        - name: repolog
+          hostPath: { path: /home/superoot/pgbackrest-log, type: Directory }

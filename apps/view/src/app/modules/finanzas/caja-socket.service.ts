@@ -70,8 +70,20 @@ export class CajaSocketService {
   readonly firmaTomada$ = new Subject<{ codigo: string; por: string | null }>();
   /** `[CG.68]` Llegó la firma. */
   readonly firmaRecibida$ = new Subject<FirmaRecibida>();
-  /** `[CG.68]` Se cayó una de las dos puntas: no hay firma en camino. */
+  /**
+   * `[CG.68]` Se cayó **la PC**: no hay firma en camino y el emparejamiento ya no existe.
+   *
+   * ⚠️ `[CG.196]` Antes esto también llegaba cuando se caía el TELÉFONO, y la PC lo trataba igual
+   * —desarmaba el emparejamiento—, así que bloquear el teléfono perdía la firma. Ese caso ahora
+   * viaja por `firmaTelefonoSalio$`.
+   */
   readonly firmaCortada$ = new Subject<{ codigo: string }>();
+  /**
+   * ⭐ `[CG.196]` El teléfono se desconectó (se bloqueó la pantalla, se fue el wifi) **y el
+   * emparejamiento sigue vivo**: la marca vive en el socket de la PC. El mismo teléfono puede
+   * volver y reclamar el mismo código, así que esto NO desarma nada — sólo se dice.
+   */
+  readonly firmaTelefonoSalio$ = new Subject<{ codigo: string }>();
 
   /** Cuántas pantallas montadas lo usan: la última en irse cierra el socket. */
   private users = 0;
@@ -130,6 +142,8 @@ export class CajaSocketService {
     this.socket.on('firma:tomada', (e: { codigo: string; por: string | null }) => this.firmaTomada$.next(e));
     this.socket.on('firma:recibida', (e: FirmaRecibida) => this.firmaRecibida$.next(e));
     this.socket.on('firma:cortada', (e: { codigo: string }) => this.firmaCortada$.next(e));
+    // `[CG.196]` El teléfono se fue pero la firma sigue abierta: evento propio, reacción propia.
+    this.socket.on('firma:telefono_salio', (e: { codigo: string }) => this.firmaTelefonoSalio$.next(e));
   }
 
   // ══ `[CG.68]` LA FIRMA DESDE EL TELÉFONO DEL MOSTRADOR ══════════════════════════════════

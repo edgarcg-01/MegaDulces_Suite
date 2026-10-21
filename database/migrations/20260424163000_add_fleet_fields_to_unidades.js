@@ -3,6 +3,19 @@
  * @param {Knex} knex
  */
 exports.up = async function(knex) {
+  // [CI.LEGACY] Estas tablas de logística se crearon a mano en la base legacy; ninguna migración
+  // las crea. Sobre una base vacía (el CI) no existen: se declara y no se hace nada. En la base
+  // legacy existen y esta migración ya estaba aplicada, así que ahí no cambia nada.
+  for (const t of ['logistica_unidades']) {
+    if (!(await knex.schema.hasTable(t))) {
+      console.log(`[20260424163000_add_fleet_fields_to_unidades] NO MEDIDO: falta la tabla ${t} (creada a mano en la base legacy); se omite.`);
+      return;
+    }
+  }
+  return upOriginal(knex);
+};
+
+async function upOriginal(knex) {
   // Agregar columnas individualmente para evitar errores si ya existen
   const columns = [
     { name: 'marca', sql: 'ALTER TABLE logistica_unidades ADD COLUMN IF NOT EXISTS marca VARCHAR(255)' },

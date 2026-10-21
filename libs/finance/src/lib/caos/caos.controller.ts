@@ -1,11 +1,13 @@
-import { Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CaosService, type CaosQuery } from './caos.service';
+import { CaosService, type CaosQuery, type CaosSaldo } from './caos.service';
 import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
+import { CaosConteoFisicoService } from './caos-conteo-fisico.service';
+import type { CaosConteoFisicoDto } from '@megadulces/contracts';
 
-interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string } }
+interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string } }
 
 /**
  * CS.2 — Reporte de movimientos de CAOS (caja fuerte de efectivo). Sólo lectura.
@@ -21,7 +23,22 @@ export class CaosController {
     private readonly svc: CaosService,
     private readonly recon: CaosIngresoReconService,
     private readonly rutaCaja: CaosRutaCajaService,
+    private readonly conteos: CaosConteoFisicoService,
   ) {}
+
+  @Get('conteos-fisicos/ultimo')
+  @RequirePermissions(Permission.FINANCE_CAOS_VER)
+  @ApiOperation({ summary: '[CGS.22] El ultimo conteo fisico de la caja fuerte (persona, a ciegas) contra lo que la maquina decia en ese momento. null = nunca se conto.' })
+  conteoFisicoUltimo(): Promise<CaosConteoFisicoDto | null> {
+    return this.conteos.ultimo();
+  }
+
+  @Post('conteos-fisicos')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[CGS.22] Registra el conteo fisico de la caja fuerte por denominacion. Ciego: la referencia y la diferencia se revelan al guardar. Solo se agrega. Lo cuenta quien supervisa (AUTORIZAR), no la caja.' })
+  registrarConteoFisico(@Body() body: { piezas?: unknown; nota?: string }, @Req() req: AuthedRequest): Promise<CaosConteoFisicoDto> {
+    return this.conteos.registrar(body ?? {}, req?.user ?? {});
+  }
 
   /**
    * [CG.58.7] La liga que pide /comercial/ventas-por-ruta: de la ruta a su entrada en Caja
@@ -60,6 +77,19 @@ export class CaosController {
   @ApiOperation({ summary: 'CS.6/CS.7 — resumen de CAOS por ruta (del ref) y por operador.' })
   resumen(@Query() q: CaosQuery) {
     return this.svc.resumen(q);
+  }
+
+  @Get('saldo')
+  @RequirePermissions(Permission.FINANCE_CAOS_VER)
+  @ApiOperation({
+    summary:
+      '[CGA-A.33] Saldo de la caja fuerte con sus tres testigos SEPARADOS: la ultima lectura del '
+      + 'reporte Contenidos (casete por casete), el cuadre de cada lectura contra la anterior mas los '
+      + 'movimientos (por denominacion), y el conteo fisico -- que hoy NO existe y se declara '
+      + 'medido:false. estado sin_tabla/sin_foto si todavia no hay ninguna lectura.',
+  })
+  saldo(): Promise<CaosSaldo> {
+    return this.svc.saldo();
   }
 
   @Get('conciliacion')

@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { Router, Routes, UrlMatcher } from '@angular/router';
+import { Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
@@ -9,8 +9,36 @@ import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
 import { AnalisisStateService } from './modules/tienda/analisis/analisis-state.service';
 import { rutasDelPanel } from './core/panel/panel-routes';
+import { SplitShellComponent } from './core/panel/split-shell.component';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
+
+/**
+ * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
+ *
+ * ⛔ Acá estaba el defecto de fondo, y está una capa más abajo de donde parecía.
+ * Esto era `path: ''`, y a una ruta de outlet NOMBRADO con hijos y sin
+ * componente Angular le pone `ɵEmptyOutletComponent` por su cuenta
+ * (`standardizeConfig`). O sea que el camino vacío matcheaba SIEMPRE, el outlet
+ * `panel` emitía `(activate)` en **todas** las pantallas de la Suite, y el
+ * layout —que escucha justamente ese evento para saber si hay panel— abría 960
+ * px de columna que nadie pidió. La X entonces "no hacía nada": sacaba el panel
+ * de la URL (eso funcionaba) pero el outlet se volvía a activar solo.
+ *
+ * Medido en producción sobre `176dee6e`: `/comercial/command-center`, una URL
+ * sin nada de panel, abría el panel con el 404 de la app adentro.
+ *
+ * `consumed: []` no consume segmentos: deja que los hijos —el espejo— matcheen
+ * el camino completo. Lo único que agrega es la condición que faltaba.
+ */
+const soloSiPidenPanel: UrlMatcher = (segmentos) => (segmentos.length > 0 ? { consumed: [] } : null);
+
+// ⛔ `r.path !== '**'`: el 404 de la app vive DENTRO del layout (para salir por
+// el sidebar), así que cumple las otras dos condiciones y se colaba como área.
+// Espejarlo mete un comodín en el panel; recibir el aux route le pone un panel
+// al propio 404. Un comodín no es un área: no tiene camino propio que prefijar.
+const esArea = (r: Route) =>
+  r.component === LayoutComponent && !!r.children?.length && !!r.path && r.path !== '**';
 
 export const routes: Routes = [
   {
@@ -36,6 +64,13 @@ export const routes: Routes = [
   // `[SN.3]` "Mi trabajo": la landing por espacios de responsabilidad (ADR-061). Conserva la URL
   // `/projects` a propósito: renombrarla es cosmético y toca 7 archivos + la PWA. Lazy como el
   // resto: quien tiene una sola puerta ni la ve (auto-entrada), así que no va en el chunk inicial.
+  // `[MT.5]` ⚠️ Mi trabajo NO entra al layout, y no hace falta que entre: el panel ahora
+  // cuelga de la RAÍZ (ver `rutasDeLaApp` al final), así que la pantalla partida sobrevive
+  // al venir acá sin que esta ruta cambie en nada. Meterla dentro de `LayoutComponent` sería
+  // la otra forma y es peor: le pondría encima una segunda barra superior con los controles
+  // que ya tiene, y al costado el sidebar de un área — en la pantalla que existe para
+  // ELEGIR área (y el layout cae a 'trademk' cuando la URL no resuelve a proyecto, así que
+  // saldría con una de las opciones ya abierta al lado).
   {
     path: 'projects',
     canActivate: [authGuard],
@@ -268,11 +303,18 @@ export const routes: Routes = [
       },
       {
         // [RD.59] El bono por objetivo mensual: configurable, y dos de sus tres criterios
-        // se miden en vez de marcarse. Pagina HERMANA, no pestana: configurar un bono y
-        // verificar una corrida de nomina son dos trabajos distintos. Mismo permiso, asi
-        // que no necesita re-login.
+        // se miden en vez de marcarse.
+        //
+        // ⭐ [AUD-A6] Dejo de ser una pagina HERMANA: hoy carga la MISMA pantalla de comisiones,
+        // que la muestra en su vista «Bono por objetivo». Pedido de Edgar: todo lo que es
+        // comision de Ruta Directa en una sola interfaz. El bono no es otro trabajo -- es el
+        // mismo numero mirado por el otro lado: lo que entra a la quincena.
+        //
+        // ⚠️ La ruta SE CONSERVA a proposito en vez de borrarse: los enlaces y favoritos que
+        // ya existen siguen funcionando, y ademas llegan a la vista correcta, no al inicio.
+        // Mismo permiso, asi que no necesita re-login.
         path: 'comisiones/objetivo',
-        loadComponent: () => import('./modules/comercial/pages/comercial-comisiones-objetivo.component').then(m => m.ComercialComisionesObjetivoComponent),
+        loadComponent: () => import('./modules/comercial/pages/comercial-comisiones.component').then(m => m.ComercialComisionesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
       },
       {
@@ -615,12 +657,26 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
       },
       {
-        // `[CG.105]` El corte diario y el expediente del día, derivados del Access `Control`
-        // (30,199 arqueos desde 2013). Es la pantalla que se revisa cada mañana para ver si el
-        // corte coincide con lo que hay en la caja. Sólo lectura: se captura en Control.
-        path: 'caja-general/expediente',
-        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-expediente.component').then(m => m.FinanzasCajaExpedienteComponent),
+        // ⭐⭐ `[CGS.2]` **Arqueos**: lo que se contó en el cajón contra lo que el libro dice que
+        // debería haber, con su cuenta término por término, su conteo pieza por pieza y los
+        // movimientos del día.
+        //
+        // ⛔ **Fusiona lo que eran DOS pantallas.** Edgar, 2026-10-20: *«Expediente y Arqueos es
+        // lo mismo, hay que fusionarlos»*. Eran dos rutas para una sola revisión —la de la
+        // mañana— y había que acordarse de ir a la otra para entender la primera.
+        //
+        // ⚠️ `FINANCE_CAJA_VER` a secas: es lectura, y quien revisa de mañana no tiene por qué
+        // poder capturar para poder mirar.
+        path: 'caja-general/arqueos',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-arqueos.component').then(m => m.FinanzasCajaArqueosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
+      },
+      {
+        // ⚠️ La ruta vieja NO se borra: se redirige. `[CG.105]` la publicó y quien la tenga
+        // guardada caería en un 404 que se lee como «la pantalla desapareció».
+        path: 'caja-general/expediente',
+        redirectTo: 'caja-general/arqueos',
+        pathMatch: 'full',
       },
       {
         // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la
@@ -1334,14 +1390,20 @@ export const routes: Routes = [
         //      adentro es aditivo; mover escrituras hacia afuera es riesgoso.
         //
         // Ruta propia y no un `?lente=` a secas para que el sidebar no marque dos items a la vez.
-        path: 'costo-por-compra',
+        //
+        // `[RE.47]` Se llamaba «Costo por compra» y ya no era eso: desde RE.35.5 abre en la
+        // bandeja «Por revisar» — la cola donde se valida la factura antes de entregarla a
+        // Finanzas. El nombre sale del estado (Por revisar → Revisión). El costo neto por compra
+        // sigue en sus columnas (Ajuste, Neto); el análisis de costo vive en «Costo por proveedor».
+        path: 'revision-facturas',
         loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
         data: { lente: 'dinero' },
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
-      // El nombre viejo sigue vivo como redirect: hay links pegados en chats y en el detalle de
-      // otras pantallas. Misma regla que los redirects de RE.16.
-      { path: 'compras-360', redirectTo: 'costo-por-compra', pathMatch: 'full' },
+      // Los nombres viejos siguen vivos como redirect: hay links pegados en chats y en el detalle
+      // de otras pantallas. Misma regla que los redirects de RE.16.
+      { path: 'costo-por-compra', redirectTo: 'revision-facturas', pathMatch: 'full' },
+      { path: 'compras-360', redirectTo: 'revision-facturas', pathMatch: 'full' },
       {
         // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
         // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
@@ -1627,9 +1689,10 @@ export const routes: Routes = [
       },
       {
         // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
+        // [MCP.3.2] El surtidor también entra, a una vista de sólo folio y cliente (sin dinero).
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
-        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+        canActivate: [anyPermissionGuard(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
       },
       {
         // [GP.3d] Entrega del surtido a Facturación: qué corregir en Kepler y si ya se pasó a
@@ -2503,56 +2566,50 @@ export const routes: Routes = [
 ];
 
 /**
- * `[MT.5]` — El PANEL de la pantalla partida.
+ * `[MT.5]` — El PANEL de la pantalla partida, **en la RAÍZ**.
  *
- * Cada una de las 12 rutas de área gana un hijo al outlet `panel`. El árbol que
- * cuelga de ahí es el espejo aplanado de TODAS las áreas (ver `panel-routes`):
- * eso es lo que permite tener cartera a la izquierda y el documento a la
- * derecha, que es el caso que la pantalla partida existe para resolver.
+ * ⛔ Antes este bloque le colgaba un aux route `panel` a cada una de las 12
+ * áreas. Funcionaba mientras no te movieras de área, y se caía en cuanto te
+ * movías: el outlet vivía DENTRO del área, así que al ir a «Mi trabajo»
+ * (`/projects`, que ni siquiera usa el layout) no había dónde dibujar el panel
+ * y la partición se perdía entera. Reportado por Edgar el 2026-10-16.
  *
- * ── Por qué se agrega acá y no escrito en las 12 ─────────────────────────────
- * Escribirlo a mano son 12 copias que hay que acordarse de poner cuando nazca
- * el área 13. Este bloque lo deriva de la misma condición que define un área
- * (`component === LayoutComponent` con hijos), así que el área nueva lo hereda
- * sin que nadie se acuerde.
+ * ── Por qué la raíz lo arregla sin tocar un solo enlace ──────────────────────
+ * `createUrlTree` **conserva los outlets que los comandos no nombran, en el
+ * grupo donde están**. Con el panel colgando del área, saltar a otra área arma
+ * un grupo nuevo y el panel no viaja. Con el panel colgando de la raíz es
+ * hermano del outlet primario, así que cualquier navegación que no lo nombre
+ * lo deja intacto. Medido sobre el router real:
+ *
+ *   panel en el ÁREA  → createUrlTree(['/projects']) = '/projects'            (se pierde)
+ *   panel en la RAÍZ  → createUrlTree(['/projects']) = '/projects(panel:…)'  (sobrevive)
+ *
+ * O sea que el sidebar, las migas y el botón de Mi trabajo no cambian: siguen
+ * siendo `routerLink` normales.
+ *
+ * ⚠️ La FORMA de la URL del split cambia con esto:
+ *   antes  /comercial/(command-center//panel:comercial/command-center)
+ *   ahora  /comercial/command-center(panel:comercial/command-center)
+ * Un split viejo guardado en favoritos ya no matchea. Se asume: una URL de
+ * pantalla partida se arma haciendo clic, no se guarda.
  *
  * ── Por qué no cuesta nada mientras nadie parta la pantalla ──────────────────
- * Es UN objeto de ruta por área con `loadChildren`: el espejo no se arma hasta
- * que el router tiene que resolver un segmento del outlet `panel`, o sea hasta
- * que alguien abre algo al lado. Y no toca el matching del outlet primario: una
+ * Es UN objeto de ruta con `loadChildren`: el espejo no se arma hasta que el
+ * router tiene que resolver un segmento del outlet `panel`, o sea hasta que
+ * alguien abre algo al lado. Y no toca el matching del outlet primario: una
  * ruta con `outlet` sólo se considera para ESE outlet.
+ *
+ * ⚠️ El shell NO dibuja chrome — ni barra, ni sidebar, ni padding. Envuelve
+ * también a `login`, `captura/:token` y `firmar`, y ahí el panel mide 0: una
+ * pantalla sin sesión se ve exactamente igual que antes.
  */
-/**
- * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
- *
- * ⛔ Acá estaba el defecto de fondo, y está una capa más abajo de donde parecía.
- * Esto era `path: ''`, y a una ruta de outlet NOMBRADO con hijos y sin
- * componente Angular le pone `ɵEmptyOutletComponent` por su cuenta
- * (`standardizeConfig`). O sea que el camino vacío matcheaba SIEMPRE, el outlet
- * `panel` emitía `(activate)` en **todas** las pantallas de la Suite, y el
- * layout —que escucha justamente ese evento para saber si hay panel— abría 960
- * px de columna que nadie pidió. La X entonces "no hacía nada": sacaba el panel
- * de la URL (eso funcionaba) pero el outlet se volvía a activar solo.
- *
- * Medido en producción sobre `176dee6e`: `/comercial/command-center`, una URL
- * sin nada de panel, abría el panel con el 404 de la app adentro.
- *
- * `consumed: []` no consume segmentos: deja que los hijos —el espejo— matcheen
- * el camino completo. Lo único que agrega es la condición que faltaba.
- */
-const soloSiPidenPanel: UrlMatcher = (segmentos) => (segmentos.length > 0 ? { consumed: [] } : null);
-
-// ⛔ `r.path !== '**'`: el 404 de la app vive DENTRO del layout (para salir por
-// el sidebar), así que cumple las otras dos condiciones y se colaba como área.
-// Espejarlo mete un comodín en el panel; recibir el aux route le pone un panel
-// al propio 404. Un comodín no es un área: no tiene camino propio que prefijar.
-const esArea = (r: (typeof routes)[number]) =>
-  r.component === LayoutComponent && !!r.children?.length && !!r.path && r.path !== '**';
-for (const area of routes) {
-  if (!esArea(area) || !area.path) continue;
-  area.children!.push({
-    matcher: soloSiPidenPanel,
-    outlet: 'panel',
-    loadChildren: () => rutasDelPanel(routes, esArea),
-  });
-}
+export const rutasDeLaApp: Routes = [
+  {
+    path: '',
+    component: SplitShellComponent,
+    children: [
+      ...routes,
+      { matcher: soloSiPidenPanel, outlet: 'panel', loadChildren: () => rutasDelPanel(routes, esArea) },
+    ],
+  },
+];

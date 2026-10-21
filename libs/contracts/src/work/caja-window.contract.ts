@@ -61,6 +61,21 @@ export const CAJA_VENTANA_DIAS = 45;
 export const CAJA_JORNADA_DIAS = 3;
 
 /**
+ * `[CGA-A.49]` — **Cuántos días puede esperar un pendiente de la cola de caja antes de contar como
+ * ATRASADO.**
+ *
+ * Es el umbral de la bandeja «caja-por-confirmar» de «Mi trabajo» (`[CG.21]`: la captura iba 4.7
+ * días detrás del dinero y el umbral se puso POR DEBAJO a propósito), y el mismo con el que la
+ * bandeja de `/finanzas/caja-general` marca la antigüedad de cada fila. Antes era un `3` escrito a
+ * mano en `me-work.ts`: la responsable vería «atrasada» en un lado con una regla que la pantalla no
+ * conocía.
+ *
+ * ⚠️ No es el umbral de la campana (`UMBRAL_BANDEJA_DIAS`, 1 y 2 días): la campana avisa ANTES de
+ * que algo se atrase, ésta dice cuándo ya se atrasó.
+ */
+export const CAJA_CONFIRMAR_UMBRAL_DIAS = 3;
+
+/**
  * `[CG.141]` — **Cuántas horas puede tener la copia del autollenado antes de ser vieja.**
  *
  * Vive acá, y no como un número suelto en cada lado, porque lo usan DOS consumidores que tienen

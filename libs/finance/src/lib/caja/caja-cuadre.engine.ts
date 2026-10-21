@@ -60,6 +60,18 @@ export interface ParCasado<T extends MovCuadre> {
   candidatos: number;
   /** `candidatos > 1`: pudo haber casado con otro. La pantalla tiene que poder decirlo. */
   ambiguo: boolean;
+  /**
+   * `[CGA-A.39]` El par salió de la **LLAVE** del libro, no de un parecido de importe.
+   *
+   * ⭐ No es lo mismo y la pantalla no puede mostrarlos igual: un casamiento por importe es una
+   * conjetura con tolerancia; uno por llave es el mismo documento. Lo pone
+   * `caja-kepler-libro.engine.ts` al armar los pares por identidad.
+   *
+   * ⚠️ **Opcional a propósito**: los pares que vienen del casamiento por importe lo dejan sin
+   * poner, y su prueba exige justamente eso (`expect(r.pares[0].identidad).toBeUndefined()`).
+   * `undefined` aquí significa «casó por importe», no «no se midió».
+   */
+  identidad?: boolean;
 }
 
 export interface ResultadoCuadre<T extends MovCuadre> {
@@ -80,6 +92,15 @@ export interface ResultadoCuadre<T extends MovCuadre> {
   /** La tolerancia con la que se produjo este resultado, para que viaje con él. */
   tolerancia: number;
 }
+
+/**
+ * `[CGA-A.44]` La tolerancia con que el Cuadre casa un movimiento de caja con su documento: ±$5.
+ * Vive acá porque ya la usan DOS consumidores —el Cuadre (`caja-general.service`) y la cola de
+ * captura (`caja-relevo.saldadosPorControl`)— y tienen que casar exactamente igual: si una se
+ * moviera sola, la cola listaría como pendiente lo que el Cuadre da por casado. El porqué de los
+ * $5 (antes $1) está medido en la cabecera de `caja-general.service.ts`.
+ */
+export const CUADRE_TOLERANCIA_PESOS = 5;
 
 export function redondea2(v: number): number {
   return Math.round((Number(v) + Number.EPSILON) * 100) / 100;

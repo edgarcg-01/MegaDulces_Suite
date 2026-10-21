@@ -1,3 +1,71 @@
+# Tienda › Arqueo de caja — RD y RV se capturan por ruta, sin caja (SM.46)
+
+## Problema
+
+En RD y RV la pantalla pedía «Caja» además de «Ruta que entrega». En una entrega de ruta la caja no describe
+nada: lo que se cuenta es el efectivo que trae un vendedor. Y el botón de guardar se quedaba apagado si la caja
+estaba vacía, aunque el servidor no la usa.
+
+## Solución
+
+- En RD y RV ya no aparece el campo Caja. Se elige la sucursal y la ruta.
+- Para guardar basta sucursal + ruta.
+- La confirmación y el ticket dicen la ruta (por ejemplo «Ruta RUTA 21») en vez de la caja.
+- Retiro, Cierre de día y Relevo siguen pidiendo la caja como antes.
+
+## Cómo se implementó
+
+- `tienda-arqueo.component.ts`: el campo Caja va dentro de `@if (!esRuta())`; `canSubmit()` en RD/RV exige
+  `sucursalActiva()` + `aRuta`; `rutaLabel()` da el nombre de la ruta para el diálogo y el ticket; `idxCajero` se
+  recorre una posición cuando no hay Caja (la cadena de teclado no salta a un campo que no existe).
+- `ticket-arqueo.ts`: campo opcional `ruta`; si viene, el papel imprime «Ruta» en lugar de «Caja».
+- Dos pruebas nuevas: sin Caja en RD y RV pero sí en Cierre, y RD se puede sellar sin caja mientras que Cierre
+  no. Comprobadas en rojo forzando el campo y la regla anterior.
+
+## Por qué así
+
+- El endpoint de ruta (`POST /store/arqueo/ruta`) no recibe caja: pedirla era un dato que nadie guarda.
+- Se esconde sólo en RD/RV para no cambiar las otras pestañas, que sí son de una caja.
+
+---
+
+# Tienda › Arqueo de caja — las rutas RD/RV se buscan en la sucursal elegida (SM.45)
+
+## Problema
+
+En las pestañas RD y RV, la pantalla decía «Tu sucursal no tiene rutas de reparto dadas de alta» aunque la
+sucursal sí las tuviera. Lo vio `luis_munoz` (auxiliar de tienda, sin sucursal fija) al elegir Padre Hidalgo, que
+en producción tiene 7 rutas de reparto y 2 vecinales. Quien recibe el efectivo de un vendedor de ruta no podía
+registrarlo.
+
+## Solución
+
+- Las rutas se buscan en la sucursal que se está usando: la del turno de Kepler o la elegida en el selector.
+- Al cambiar de sucursal se vuelven a buscar.
+- Si todavía no hay sucursal elegida, la pantalla lo pide en vez de afirmar que no hay rutas.
+- Si la consulta falla, lo dice («No se pudieron consultar las rutas») con un botón para reintentar.
+- Sólo cuando el servidor responde que no hay rutas se muestra ese aviso, con el nombre de la sucursal.
+- Al guardar la entrega de ruta también se manda la sucursal correcta.
+
+## Cómo se implementó
+
+- `arqueo.service.ts`: `rutas(warehouseCode)` manda `warehouse_code`; el servidor ya lo aceptaba.
+- `tienda-arqueo.component.ts`: un `effect` sobre `sucursalActiva()` llama a `cargarRutas()`, que lleva cuatro
+  estados (`sin_sucursal`, `cargando`, `ok`, `error`) y descarta respuestas que lleguen tarde. `submitRuta` usa
+  `sucursalActiva()` en vez de `aSuc()`.
+- Tres pruebas nuevas con un usuario sin sucursal fija y dos sucursales: pide elegir sin afirmar nada, pide las rutas
+  de la sucursal y las vuelve a pedir al cambiarla, y el error se dice como error y se puede reintentar. Comprobadas
+  en rojo con la versión anterior.
+
+## Por qué así
+
+El servidor sólo puede deducir la sucursal cuando el usuario tiene exactamente una; con varias responde un error a
+propósito, para no recibir dinero en la sucursal equivocada. El defecto era de la pantalla: no le decía la sucursal
+y convertía ese error en «no hay rutas», que es afirmar algo que nunca se midió. Separar el error del vacío evita que
+se vuelva a confundir uno con otro.
+
+---
+
 # Tienda › Arqueo de caja — «¿Te pidieron algo?» busca por nombre, proveedor, SKU o código y muestra todas las presentaciones (MOS.1–MOS.3)
 
 ## Problema

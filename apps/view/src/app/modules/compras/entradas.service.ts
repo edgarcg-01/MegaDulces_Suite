@@ -30,6 +30,10 @@ export interface EntradaRow {
   deposit_id: string | null;
   deposit_status: ProofStatus | null;
   monto_match: boolean;
+  /** `[RE.43]` Sólo en `/match`: por qué salió — nuestro folio, el del proveedor (`referencia`) o el importe. */
+  match_via?: 'folio' | 'referencia' | 'sufijo' | 'monto' | null;
+  /** `[RE.43]` El folio del proveedor como lo capturó Kepler (`30-0666`: plaza + folio). */
+  referencia?: string | null;
   /**
    * `[RE.25]` — **el cuadre del DOCUMENTO**: importe Y proveedor, no sólo el importe.
    *   `cuadra`        → los dos concuerdan; no necesita ojo humano.
@@ -261,6 +265,12 @@ export interface CoverageRow {
    * y son dos conversaciones distintas. Sin esto el tablero acusa al inocente.
    */
   responsables: CoverageResponsable[];
+  /**
+   * `[RE.46]` Quienes SUBEN aquí con alcance de red (últimos 30 días), mayor primero. Con
+   * `responsables` vacío distingue «nadie la trabaja» (falta un permiso) de «la trabaja alguien de
+   * red sin tenerla asignada» (falta asignarla). Opcional: una API vieja no lo manda.
+   */
+  suben_red?: { username: string; nombre: string | null; n: number }[];
   entradas: number;
   con_evidencia: number;
   validadas: number;
@@ -380,6 +390,33 @@ export interface DuplicateHit {
   folio: string;
   proveedor?: string | null;
   vigente?: boolean;
+  /**
+   * ⭐ `[RE.42]` Qué tan seguro es, decidido en el SERVIDOR (`documento-duplicado.ts`): `bloquea` =
+   * misma hoja o mismo folio del MISMO proveedor; `avisa` = mismo folio sin poder probar quién lo
+   * emitió — se muestra, no frena. Opcional por API vieja: sin él se trata como `bloquea`.
+   */
+  nivel?: 'bloquea' | 'avisa';
+  motivo?: string;
+  /** Texto listo para pintar (dice dónde vive la otra hoja y por qué). */
+  mensaje?: string;
+  monto?: number | null;
+}
+
+/**
+ * `[RE.42]` La ÚNICA lectura de un duplicado en el front. Antes cada pantalla decidía a su modo y
+ * no coincidían: `compras-entradas` bloqueaba hasta los de entradas que Kepler borró (RE.31), las
+ * otras dos no. Una entrada borrada (`vigente: false`) nunca frena.
+ */
+export function duplicadoBloquea(d?: DuplicateHit | null): boolean {
+  return !!d && d.vigente !== false && (d.nivel ?? 'bloquea') === 'bloquea';
+}
+/** Posible duplicado que NO frena: se muestra para que la persona lo mire antes de enviar. */
+export function duplicadoAvisa(d?: DuplicateHit | null): boolean {
+  return !!d && d.vigente !== false && d.nivel === 'avisa';
+}
+/** El texto del duplicado: el del servidor, o uno armado si la API es vieja. */
+export function duplicadoMensaje(d: DuplicateHit): string {
+  return d.mensaje || `Ya está subido en la entrada ${d.sucursal}/${d.folio}${d.proveedor ? ` (${d.proveedor})` : ''}.`;
 }
 
 /** RE.11.0 — un renglón de producto extraído de la remisión (materia prima del match por línea). */
@@ -454,6 +491,8 @@ export interface DocPresence {
 export interface ProofFile {
   role: string; url: string; public_id?: string; kind?: string; name?: string;
   sha256?: string; ocr_folio?: string | null; ocr_total?: number | null; ocr_fecha?: string | null; ocr_rfc?: string | null;
+  /** `[RE.42]` Posible duplicado que no se pudo probar: no frenó la subida y queda para que el revisor lo vea. */
+  dup_aviso?: { sucursal: string; folio: string; motivo: string; mensaje: string } | null;
 }
 
 /** Línea de detalle de una orden de entrada (kdm2) para auditar renglón por renglón. */
@@ -649,9 +688,13 @@ export class EntradasService {
     return this.http.get<EntradasSinOcResumen>(`${this.base}/sin-oc`, { params: new HttpParams().set('from', from).set('to', to) });
   }
   /** Corre OCR sobre una hoja (data URI, **sólo PDF**) — preview, no guarda. Devuelve
-   *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup. */
-  ocr(file_base64: string, role?: string): Observable<RemisionOcr> {
-    return this.http.post<RemisionOcr>(`${this.base}/ocr`, { file_base64, role });
+   *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup.
+   *  `[RE.42]` `destino` = la entrada a la que va, si ya se sabe: con su proveedor el dedup decide
+   *  en vez de sólo avisar. */
+  ocr(file_base64: string, role?: string, destino?: { sucursal: string; folio: string } | null): Observable<RemisionOcr> {
+    return this.http.post<RemisionOcr>(`${this.base}/ocr`, {
+      file_base64, role, entrada_sucursal: destino?.sucursal, entrada_folio: destino?.folio,
+    });
   }
   /**
    * [RE.35.7] Captura por lote: con lo leído de UN papel, su CFDI de ContPAQi y las entradas que
@@ -661,13 +704,31 @@ export class EntradasService {
     return this.http.post<IdentificacionEntrada>(`${this.base}/identificar`, lectura);
   }
   /** FOTO-PRIMERO: enlaza por OCR de la Aplica Orden Entrada (folio/total) o busca manual. */
-  matchByOcr(q: { folio?: string; total?: number; fecha?: string; search?: string }): Observable<{ entradas: EntradaRow[] }> {
+  /**
+   * `[RE.43]` `role` dice si el folio leído es NUESTRO (orden de entrada) o del PROVEEDOR (factura,
+   * remisión): el del proveedor se busca en `referencia` de Kepler. `rfc`/`proveedor` desempatan.
+   * La búsqueda se acota a donde la persona puede CAPTURAR; si es global, busca en todas.
+   */
+  matchByOcr(q: {
+    folio?: string; total?: number; fecha?: string; search?: string;
+    role?: string; rfc?: string | null; proveedor?: string | null;
+  }): Observable<{ entradas: EntradaRow[] }> {
     let p = new HttpParams();
     if (q.folio) p = p.set('folio', q.folio);
     if (q.total != null) p = p.set('total', String(q.total));
     if (q.fecha) p = p.set('fecha', q.fecha);
     if (q.search) p = p.set('search', q.search);
+    if (q.role) p = p.set('role', q.role);
+    if (q.rfc) p = p.set('rfc', q.rfc);
+    if (q.proveedor) p = p.set('proveedor', q.proveedor);
     return this.http.get<{ entradas: EntradaRow[] }>(`${this.base}/match`, { params: p });
+  }
+  /** `[RE.42.2]` Revisa el duplicado de una hoja ya leída, con la entrada destino ya elegida. */
+  duplicateCheck(b: {
+    sha256?: string; folio?: string | null; rfc?: string | null; proveedor?: string | null; total?: number | null;
+    role?: string; entrada_sucursal: string; entrada_folio: string;
+  }): Observable<{ duplicate: DuplicateHit | null }> {
+    return this.http.post<{ duplicate: DuplicateHit | null }>(`${this.base}/duplicate-check`, b);
   }
   /** Sube la remisión (**sólo PDF**) al bucket privado y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'remision'): Observable<ProofFile> {

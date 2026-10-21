@@ -93,6 +93,8 @@ export function clasificarIdentificacion(p: {
   if (!gemelas && (dUna == null || dUna < -CERCA_ANTES || dUna > CERCA_DESPUES)) motivos.push('fecha_lejana');
   if (!p.cfdi) motivos.push('sin_cfdi');
   else if (!p.liga?.exacta) motivos.push('liga_sugerida');
+  // `[RE.43.1]` Hallada por el folio del proveedor y no por el importe: se propone, nunca pre-marcada.
+  if (una.importe_ok === false) motivos.push('importe_no_cuadra');
   if (una.proveedor_ok !== true) motivos.push('proveedor_sin_confirmar');
   if (una.deposits > 0) motivos.push('ya_tiene_papel');
   if (p.sello === false) motivos.push('sin_sello');

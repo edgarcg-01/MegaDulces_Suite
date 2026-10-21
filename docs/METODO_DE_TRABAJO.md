@@ -64,6 +64,25 @@ DUEÑO:     <nombre>
 - Una fase 🔨 **tiene dueño y fecha de cierre comprometida**. La que pierde cualquiera de las dos cae a ⏸️ sola.
 - 🧪 **no libera el cupo**: el cupo lo libera llegar a ✅ (prod) o a ⏸️/❌ declarados. Esto es a propósito — 330 items 🧪 son exactamente lo que pasa cuando «probado» cuenta como terminado.
 
+### 3.1 Qué entra primero — dinero en juego × esfuerzo (Edgar, 2026-10-21)
+
+**Mucho dinero y poco esfuerzo va primero; mucho esfuerzo y poco dinero, al final.** Cada fase o
+tarjeta activa del [tablero PM](https://github.com/users/edgarcg-01/projects/2) lleva **Dinero en
+juego** (Alto ≥ \$1 M o una cifra que decide dinero · Medio \$100 mil–\$1 M · Bajo), **Esfuerzo**
+(S ≤ 1 día · M ≤ 1 semana · L 2–4 semanas · XL > 1 mes) y la **Prioridad** que sale de la tabla:
+
+| | S | M | L | XL |
+|---|---|---|---|---|
+| **Alto** | 1 | 1 | 2 | 2 |
+| **Medio** | 2 | 3 | 3 | 4 |
+| **Bajo** | 3 | 4 | 4 | 4 |
+
+- **0 · Riesgo de seguridad** va antes que todo.
+- El dinero sale de una **medición** (con su fuente en la tarjeta); el esfuerzo es una **estimación** que corrige el dueño.
+- Una tarjeta Alto + L/XL se **parte**: su pedazo S/M que se lleva el dinero sube a prioridad 1.
+- Si se decide abrir algo de prioridad 3–4 antes que uno de 1–2, **se escribe por qué** en la tarjeta.
+- Detalle y casos en la skill `pm` (`.claude/skills/pm/references/criterios.md` §1).
+
 ---
 
 ## 4. El ciclo de vida de una fase
