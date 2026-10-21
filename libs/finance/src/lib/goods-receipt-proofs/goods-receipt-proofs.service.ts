@@ -624,6 +624,42 @@ export class GoodsReceiptProofsService {
       const dinero = q.lente === 'dinero';
 
       /**
+       * ⭐ `[RE.49]` La vista `analytics.erp_goods_receipts` se evalúa UNA vez por petición.
+       *
+       * Es viva sobre el ODS y cuesta ~300 ms por evaluación (mediana de 5 corridas en prod,
+       * 2026-10-21: 342/291/293/296/300 ms). Esta petición la evaluaba hasta 7 veces EN SERIE —
+       * llaves de la bandeja, entradas del expediente, filas, total, totales de dinero, KPIs—, y
+       * en `pg_stat_statements` cada una salía en 330 a 1,300 ms: varios segundos de carga.
+       *
+       * Ahora el universo (tenant + sin copia CEDIS + alcance + carril + rango, lo que las tres
+       * consultas tienen en común) se vuelca a una tabla TEMPORAL de la transacción y todas leen de
+       * ahí. Cada consulta conserva TODOS sus filtros: sólo cambia la fuente, no el SQL de negocio.
+       * `ON COMMIT DROP` la borra al cerrar la transacción; el nombre es único por si la misma
+       * transacción pide la lista dos veces.
+       *
+       * ⛔ El `ANALYZE` es OBLIGATORIO (~65 ms). Sin estadísticas, el planificador estima que los
+       * filtros que cada consulta conserva no dejan casi nada, elige nested loop y recalcula el
+       * agregado de evidencias POR FILA: medido, salía MÁS LENTO que antes (2.7–3.4 s contra
+       * 2.2–2.4 s). Con `ANALYZE`, misma corrida, alternado, 3 veces — la secuencia de 5 consultas
+       * de esta petición: antes 2,101 / 1,997 / 2,048 ms → después 392 / 521 / 495 ms.
+       *
+       * ⛔ No es una copia de la tabla (regla 2): vive lo que dura la petición y se arma de la vista
+       * viva en cada una — la frescura es la misma de antes (ADR de «al momento» intacto).
+       */
+      const universo = `tmp_gr_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+      const uq = trx('analytics.erp_goods_receipts as c').select('c.*')
+        .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL');
+      if (alcance) { if (alcance.length) uq.whereIn('c.sucursal', alcance); else uq.whereRaw('false'); }
+      if (q.carril === 'rezago') uq.where('c.receipt_date', '<', cfg.reception_start);
+      else if (q.carril !== 'todo') uq.where('c.receipt_date', '>=', cfg.reception_start);
+      if (q.from) uq.where('c.receipt_date', '>=', q.from);
+      if (q.to) uq.where('c.receipt_date', '<=', q.to);
+      const { sql: uSql, bindings: uBind } = uq.toSQL();
+      await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${uSql}`, [universo, ...uBind]);
+      await trx.raw('ANALYZE ??', [universo]);
+      const fuente = `${universo} as c`;
+
+      /**
        * Ajustes LIGADOS a la entrada: devoluciones (X-D-40) y notas de crédito (X-D-55).
        *
        * ⚠️ Se liga por **(sucursal, entrada_folio)** y NO sólo por folio: el folio de Kepler
@@ -687,7 +723,7 @@ export class GoodsReceiptProofsService {
       let resumen: { filas: Map<string, ExpedienteResumenFila>; conteos: ExpedienteConteos } | null = null;
       let filtroLlaves: string[][] | null = null;
       if (dinero) {
-        const u = trx('analytics.erp_goods_receipts as c')
+        const u = trx(fuente)
           .join(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL')
           .whereRaw(`d.last_status = 'recibido'`);
@@ -700,7 +736,8 @@ export class GoodsReceiptProofsService {
           u.whereNotExists(trx('finance.goods_receipt_discards as x').whereRaw('x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio'));
         }
         const llaves = (await u.select('c.sucursal', 'c.folio')) as { sucursal: string; folio: string }[];
-        resumen = await this.expediente.resumenLote(trx, tenantId, llaves);
+        // `[RE.49]` Las llaves salen del universo: el expediente lee sus entradas de la misma temporal.
+        resumen = await this.expediente.resumenLote(trx, tenantId, llaves, universo);
         if (q.bandeja || q.hallazgo) {
           filtroLlaves = [];
           for (const [k, v] of resumen.filas) {
@@ -713,7 +750,7 @@ export class GoodsReceiptProofsService {
 
       /** Todos los filtros, sin select ni orden: lo comparten las filas, el total y los KPIs. */
       const base = () => {
-        const b = trx('analytics.erp_goods_receipts as c')
+        const b = trx(fuente)
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId)
           .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); evidencia una sola vez en la canónica
@@ -949,7 +986,7 @@ export class GoodsReceiptProofsService {
       // KPIs = el universo del alcance + carril + rango de fecha (NO se le aplica `estado`
       // ni `search`: son el denominador contra el que se lee la lista filtrada).
       const kpiBase = () => {
-        const k = trx('analytics.erp_goods_receipts as c')
+        const k = trx(fuente)
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId)
           .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
