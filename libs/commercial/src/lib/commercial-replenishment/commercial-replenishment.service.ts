@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, TenantCacheService } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
@@ -18,7 +18,7 @@ const todayMx = (): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date());
 import { Knex } from 'knex';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
@@ -512,7 +512,22 @@ export class CommercialReplenishmentService {
      * poder apagar sin tocar a quien arma la requisición.
      */
     @Optional() @Inject(KEPLER_REQUISITION_SINK_PORT) private readonly keplerSink?: KeplerRequisitionSinkPort,
+    /**
+     * `[RA-UX.11b]` El caché por tenant (Redis) para la consulta pesada del workbook. **`@Optional()`
+     * a propósito**: sin él la pantalla funciona igual, sólo que sin caché — y un proveedor que falta
+     * no tumba el arranque de la API (lo que pasó en #414 con una firma inyectada).
+     */
+    @Optional() private readonly cache?: TenantCacheService,
   ) {}
+
+  /**
+   * `[RA-UX.11b]` Cuánto vive el cálculo pesado del workbook en caché. Medido el 2026-10-22 con el
+   * servicio real: la consulta principal tarda **2.2–2.9 s** y no baja retocándola (5 variantes, mismo
+   * resultado y mismo tiempo dentro del ruido): recalcula los 5,626 productos en CADA filtro y en CADA
+   * página. 60 s es menos que el ciclo del importer que lo alimenta (15 min), así que el caché no
+   * cambia qué tan viejo es el dato en ningún caso que la píldora de frescura no diga ya.
+   */
+  static readonly WB_CACHE_MS = 60_000;
 
   // RA-PRO.27 — la migración 20260728170000 (settings + columnas de override) puede ir por
   // detrás del deploy del código (o quedar bloqueada por otra migración del batch). Este check
@@ -2235,34 +2250,37 @@ export class CommercialReplenishmentService {
                round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado`;
       const innerWin = inner.replace('\n          FROM prod p\n', `${win}\n          FROM prod p\n`);
       if (innerWin === inner) throw new Error('[RA-PERF.4] no se pudo inyectar el bloque de totales en la consulta del workbook');
-      const rows = (await trx.raw(`${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
-      // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
-      // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
-      // no las necesita y pagaría el costo sobre el catálogo entero, así que se salta.
-      if (!q.export && rows.length) {
-        const sig = await this.skuSignals(trx, tenantId, rows as Array<{ product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }>);
-        for (const r of rows as Array<{ product_id: string; signals?: WorkbookSkuSignals | null }>) r.signals = sig.get(r.product_id) ?? null;
-      }
-      // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
-      // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
-      // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
-      // mentira distinta de la que estamos quitando.
-      //
-      // `[RA-PERF.4]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
-      // que acá sólo se leen. El `SELECT SUM(...) FROM (inner)` queda SÓLO como respaldo del único
-      // caso en que no hay dónde leerlos: página vacía con universo no vacío (offset más allá del
-      // final). Si la página está vacía porque el filtro no casa con nada, el respaldo devuelve los
-      // ceros correctos y `total` sale 0, que es lo mismo que publicaba antes.
-      const w0 = rows[0] as Record<string, unknown> | undefined;
-      const tot = w0
-        ? {
-            c: w0._c, total_pedido: w0._total_pedido, total_venta: w0._total_venta,
-            total_exis: w0._total_exis, total_venta_costo: w0._total_venta_costo,
-            exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
-            exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
-            exis_sin_valuar_arbitrado: w0._exis_sin_valuar_arbitrado,
-          }
-        : (await trx.raw(`SELECT count(*)::int c,
+      const sqlFilas = `${innerWin} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`;
+      // `[RA-UX.11b]` Lo PESADO —filas, totales y sucursales— va al caché; lo que cambia al armar
+      // (las señales: «ya requisado», margen, venta perdida) y la frescura se calculan SIEMPRE.
+      // La llave es la SQL exacta + sus parámetros: incluye filtros, cobertura, configuración y el
+      // ALCANCE de sucursales de quien pregunta (`whFilter`), así que nadie recibe el universo de
+      // otro. Se guarda como TEXTO JSON: un acierto y un fallo devuelven la misma forma, y nadie
+      // puede mutar una copia compartida (abajo se le pegan las señales a cada renglón).
+      // Sin caché: la exportación (otra forma, se pide poco) y las páginas grandes (la casilla de
+      // «todo», hasta 1,000 renglones por llamada).
+      const pesado = async (): Promise<string> => {
+        const filas = (await trx.raw(sqlFilas, binds)).rows as Array<Record<string, unknown>>;
+        // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
+        // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
+        // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
+        // mentira distinta de la que estamos quitando.
+        //
+        // `[RA-PERF.4]` Los totales ya vienen pegados a las filas (ventanas `OVER ()` de arriba), asi
+        // que acá sólo se leen. El `SELECT SUM(...) FROM (inner)` queda SÓLO como respaldo del único
+        // caso en que no hay dónde leerlos: página vacía con universo no vacío (offset más allá del
+        // final). Si la página está vacía porque el filtro no casa con nada, el respaldo devuelve los
+        // ceros correctos y `total` sale 0, que es lo mismo que publicaba antes.
+        const w0 = filas[0];
+        const totales = w0
+          ? {
+              c: w0._c, total_pedido: w0._total_pedido, total_venta: w0._total_venta,
+              total_exis: w0._total_exis, total_venta_costo: w0._total_venta_costo,
+              exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
+              exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
+              exis_sin_valuar_arbitrado: w0._exis_sin_valuar_arbitrado,
+            }
+          : (await trx.raw(`SELECT count(*)::int c,
           round(SUM(pedido_valor)::numeric,2) total_pedido,
           round(SUM(valor_venta)::numeric,2)  total_venta,
           round(SUM(valor_exis)::numeric,2)   total_exis,
@@ -2271,13 +2289,13 @@ export class CommercialReplenishmentService {
           COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
           round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
         FROM (${inner}) z`, binds)).rows[0];
-      // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
-      // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
-      for (const r of rows as Array<Record<string, unknown>>) for (const k of TOT_COLS) delete r[k];
-      // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
-      const territories = general
-        ? [{ code: 'GENERAL', name: 'General (red)' }]
-        : (await trx.raw(`
+        // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
+        // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
+        for (const r of filas) for (const k of TOT_COLS) delete r[k];
+        // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
+        const sucursales = general
+          ? [{ code: 'GENERAL', name: 'General (red)' }]
+          : (await trx.raw(`
             SELECT w.code, max(w.name) AS name
               FROM catalog.products pr
               JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
@@ -2291,7 +2309,23 @@ export class CommercialReplenishmentService {
             // compartido con el frontend vía @megadulces/contracts. El ORDER BY de arriba sólo
             // decide qué entra cuando hay tope; la secuencia de columnas la fija el negocio.
             .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
-
+        return JSON.stringify({ rows: filas, tot: totales, territories: sucursales });
+      };
+      const cacheable = !q.export && pageSize <= 200 && !!this.cache;
+      const res = JSON.parse(cacheable
+        ? await this.cache!.getOrSet('pedido:wb:v1:' + createHash('sha1').update(sqlFilas).update(JSON.stringify(binds)).digest('hex'),
+            CommercialReplenishmentService.WB_CACHE_MS, pesado)
+        : await pesado()) as { rows: Array<Record<string, unknown>>; tot: Record<string, unknown> | undefined; territories: Array<{ code: string; name: string }> };
+      const rows = res.rows;
+      const tot = res.tot;
+      const territories = res.territories;
+      // [RA-PRO.67] Margen y venta perdida, SOLO sobre la página que se muestra (≤1000 SKUs; medido
+      // 2026-10-02 con los 76 de GONAC: 225 ms el margen, 13 ms la venta perdida). El export a XLSX
+      // no las necesita y pagaría el costo sobre el catálogo entero, así que se salta.
+      if (!q.export && rows.length) {
+        const sig = await this.skuSignals(trx, tenantId, rows as Array<{ product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }>);
+        for (const r of rows as Array<{ product_id: string; signals?: WorkbookSkuSignals | null }>) r.signals = sig.get(r.product_id) ?? null;
+      }
       /**
        * `[RA-PERF.8]` **La edad del DATO, no la de la consulta.**
        *
