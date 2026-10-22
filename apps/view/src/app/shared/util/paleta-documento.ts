@@ -10,7 +10,8 @@
  * se pone roja en vez de dejar el papel desfasado de la pantalla.
  *
  * Reglas de uso (DESIGN.md §5 «color disciplinado»):
- *  - Fondo blanco, neutros para la estructura; la marca es ACENTO (filetes, bordes, el total).
+ *  - Fondo blanco y neutros: el documento es SOBRIO. La marca es el logo y, a lo sumo, un filete;
+ *    la jerarquía la dan el tamaño y el peso, no el color (la cotización: «tiene mucho color»).
  *  - `marca` (#F05A28) NUNCA como texto chico: da 3.39:1. Para texto de marca, `marcaTexto`.
  *  - Los estados (ok/aviso/error/info/neutro) significan lo mismo en todos los documentos y nunca
  *    van solos: siempre con su texto («VENCIDA», «SIN ASIGNAR»).
@@ -28,9 +29,9 @@ export const PALETA_DOCUMENTO = {
   encabezado: '#F4F4F5',
   /** --card-bg */
   blanco: '#FFFFFF',
-  /** --action: SÓLO trazos (filetes, bordes del total). Como texto chico no cumple AA. */
+  /** --action: SÓLO un trazo (el filete del encabezado). Como texto chico no cumple AA. */
   marca: '#F05A28',
-  /** --action-press: la marca cuando es TEXTO (títulos de sección, el total). */
+  /** --action-press: si alguna vez la marca tiene que ser TEXTO, éste (5.68:1), nunca --action. */
   marcaTexto: '#B83C15',
   estado: {
     ok: { fg: '#166534', bg: '#DCFCE7', borde: '#BBF7D0' },
