@@ -118,31 +118,24 @@ export function tramoDeCantidad(tramos: VolumeTier[], qty: number): VolumeTier |
 }
 
 /**
- * `[E.23]` La unidad MAYOR que cabe entera en la cantidad: Kepler cobra a su precio, prorrateado
- * a la unidad del renglón. 144 PZA de `02195` (CJA de 144) salen a 2,197.95 / 144 = $15.26, no a
- * la lista de la pieza ($22.20). Eso es lo que Kepler guarda como precio original (`kdm2.c66`).
- *
- * Arbitrado contra lo cobrado (2026-10-21), donde esta regla y «la lista de su propia unidad»
- * difieren: pedidos de telemarketing 30 d → 7,284 contra 280; mostrador `U-D-10` 3 d → 5,087
- * contra 218. `factor` = cuántas unidades mayores es UNA unidad del renglón; `n` = cuántas
- * unidades mayores enteras caben (para buscar su tramo de volumen).
+ * `[E.28]` El precio de una presentación como lo guarda Kepler: POR UNIDAD BASE a centavos
+ * (`kdm2.c12`) e importe = cantidad base × ese precio (`c13 = c9 × c12`, 16,525 de 16,525).
+ * Primero se redondea la PRESENTACIÓN (con su promo ya aplicada) y después la base: 1 CJA de 78401
+ * a $402.74 con 3 % = $390.6578 → $390.66 → 12 × $32.56 (dividir sin redondear da $32.55, que
+ * Kepler no cobra; medido en 3 renglones del replay).
+ * `unit_price` es el de la presentación que resulta (base redondeada × factor). Sin factor válido
+ * se redondea la presentación tal cual.
  */
-export function unidadMayorQueCabe(
-  led: { rungs: Record<Rung, LadderRung> },
-  rung: Rung,
-  quantity: number,
-): { step: LadderRung & { price: number }; factor: number; n: number } | null {
-  const fLinea = rung === 'base' ? 1 : Number(led.rungs[rung]?.size);
-  if (!(fLinea > 0)) return null;
-  const enBase = quantity * fLinea;
-  for (const r of ['box', 'pack'] as Rung[]) {
-    const g = led.rungs[r];
-    const size = Number(g?.size);
-    if (g && g.price !== null && size > fLinea && enBase + 1e-9 >= size) {
-      return { step: g as LadderRung & { price: number }, factor: fLinea / size, n: Math.floor(enBase / size + 1e-9) };
-    }
+export function aCentavosPorBase(precio: number, enBase: number, cantidad: number): { unit_price: number; line_total: number } {
+  // Redondeo DECIMAL: 961.02 / 12 = 80.085 es 80.08499… en binario; Kepler cobra 80.09 (70079,
+  // 97335, 78230 en el replay). toPrecision(15) devuelve el decimal antes de redondear.
+  const r = (n: number, d: number) => Math.round(Number((n * 10 ** d).toPrecision(15))) / 10 ** d;
+  if (!(enBase > 0)) {
+    const u = r(precio, 2);
+    return { unit_price: u, line_total: r(u * cantidad, 2) };
   }
-  return null;
+  const porBase = r(r(precio, 2) / enBase, 2);
+  return { unit_price: r(porBase * enBase, 4), line_total: r(porBase * enBase * cantidad, 2) };
 }
 
 /** `[VTK.1]` Fila de `analytics.v_label_presentations` con la unidad mayor (CJA/BTO/CUB) de un SKU. */
@@ -650,19 +643,12 @@ export class QuotePricingService {
       after: step.price,
     });
 
-    // `[E.23]` Si la cantidad completa una unidad mayor, Kepler la cobra a ESE precio prorrateado,
-    // y eso es su precio original del renglón (`kdm2.c66`): de ahí parte el descuento.
-    const mayor = unidadMayorQueCabe(led, rung, quantity);
-    const listPrice = mayor ? this.round(mayor.step.price * mayor.factor, 4) : step.price;
-    if (mayor && listPrice !== step.price) {
-      applied.push({
-        step: 'unidad_mayor',
-        source: 'kdii (precio de la unidad mayor, prorrateado como kdm2.c66)',
-        detail: `${quantity} ${step.label ?? 'u'} completan ${mayor.n} ${mayor.step.label ?? 'unidad mayor'}: se cobran a $${mayor.step.price} / ${this.round(1 / mayor.factor, 4)}`,
-        before: step.price,
-        after: listPrice,
-      });
-    }
+    // `[E.28]` La lista es la de la PRESENTACIÓN del renglón. Kepler no convierte 36 PAQ en 3 CJA:
+    // cobra la presentación que se captura (kdm2.c55). Medido en pedidos de telemarketing (30 d):
+    // capturados en base aunque la cantidad complete cajas, 333 renglones y en 275 c66 = la lista
+    // propia; capturados en CJA (9,156), c66 = la CJA prorrateada. E.23 lo había leído al revés
+    // porque el replay pasaba la unidad base (c11) en vez de la presentación.
+    const listPrice = step.price;
     let price = listPrice;
 
     // ── Mecanismo 2a: el precio por VOLUMEN del propio ERP (kdpv_prod_util) ──────────────────
@@ -670,12 +656,8 @@ export class QuotePricingService {
     // `[E.22]` Con escalera disjunta rige el tramo que CONTIENE la cantidad; abajo del primero se
     // informa el primero, y en un hueco entre tramos no se aplica ninguno (no se adivina).
     //
-    // `[E.24]` Y rige por PRECEDENCIA, no por el más barato. Arbitrado contra lo cobrado (pedidos
-    // de telemarketing 30 d, 12,723 renglones sin deriva de precio): donde las dos reglas difieren,
-    // Kepler cobró la precedencia 304 veces y «el mínimo» 4.
-    //   · si la cantidad completa una unidad MAYOR: el tramo de ESA unidad (por las que caben,
-    //     prorrateado) o, sin tramo, su precio prorrateado. El tramo de la unidad propia no cuenta.
-    //   · si no: el tramo de la unidad propia, AUNQUE sea más caro que la lista (Kepler lo cobra).
+    // `[E.24]` El tramo de la presentación se cobra AUNQUE sea más caro que la lista: Kepler lo
+    // cobra así (40509 × 50 PAQ: lista $11.99, cobrado el tramo $12.76).
     const tramo = step.tiers ? tramoDeCantidad(step.tiers, quantity) : null;
     const volume = !step.tiers
       ? step.volume
@@ -684,30 +666,7 @@ export class QuotePricingService {
         : quantity < step.tiers[0].desde
           ? { min_qty: step.tiers[0].desde, price: step.tiers[0].price }
           : null;
-    if (mayor) {
-      const tm = mayor.step.tiers ? tramoDeCantidad(mayor.step.tiers, mayor.n) : null;
-      const vm = mayor.step.tiers
-        ? (tm ? { min_qty: tm.desde, price: tm.price } : null)
-        : (mayor.step.volume && mayor.n >= mayor.step.volume.min_qty ? mayor.step.volume : null);
-      if (vm) {
-        const prorrateado = this.round(vm.price * mayor.factor, 4);
-        applied.push({
-          step: 'volumen_unidad_mayor',
-          source: 'kdpv_prod_util (tramo de la unidad mayor, prorrateado)',
-          detail: `${mayor.n} ${mayor.step.label ?? 'unidad mayor'} a $${vm.price} desde ${vm.min_qty}, prorrateado`,
-          before: price,
-          after: prorrateado,
-        });
-        price = prorrateado;
-        priceSource = 'volume_qty';
-      }
-      if (volume && quantity >= volume.min_qty) {
-        notApplied.push({
-          mechanism: 'volumen',
-          reason: `La cantidad completa ${mayor.n} ${mayor.step.label ?? 'unidad mayor'}: Kepler la cobra como unidad mayor y no aplica el tramo de ${step.label ?? 'la unidad'} ($${volume.price}).`,
-        });
-      }
-    } else if (volume) {
+    if (volume) {
       if (quantity >= volume.min_qty) {
         applied.push({
           step: 'volumen',
@@ -741,13 +700,9 @@ export class QuotePricingService {
     // de esas ranuras son PAQ 51, CJA 13, KG 1; la única de `CUB` cuelga de `base`), y la
     // cláusula por rótulo de abajo ya las alcanzaría si aparecieran. Un campo nuevo sin un caso
     // que lo exija es un primitivo inventado (ADR-056).
-    //
-    // `[E.23]` Si la cantidad se cobró como unidad MAYOR, la promo es la de ESA unidad y su umbral se
-    // cuenta en unidades mayores; si esa unidad no tiene promo, no hay promo. Arbitrado contra lo
-    // cobrado (replay de telemarketing, 324 renglones con unidad mayor y promo): 313 la cumplen.
-    const rRung: Rung = mayor ? mayor.step.rung : rung;
-    const rStep = mayor ? mayor.step : step;
-    const rQty = mayor ? mayor.n : quantity;
+    const rRung: Rung = rung;
+    const rStep = step;
+    const rQty = quantity;
     const unitName = rRung === 'box' ? (rStep.label || 'CJA') : (rRung === 'pack' ? 'PAQ' : (rStep.label || 'PZA'));
     // `[E.27]` Con precarga se filtra en memoria con la MISMA condición que el SQL de abajo.
     const rules: { rows: ReglaDescuento[] } = pre
@@ -834,9 +789,12 @@ export class QuotePricingService {
 
     const tasas = await this.tasasDe(knex, branch, sku);
 
-    // `[E.23]` A centavos, como `kdm2.c12`: Kepler cobra cantidad × precio de dos decimales.
-    const unitPrice = this.round(price, 2);
-    const lineTotal = this.round(unitPrice * quantity, 2);
+    // `[E.28]` Kepler guarda el precio POR UNIDAD BASE a centavos (`kdm2.c12`, 2 decimales en 16,525
+    // de 16,525 renglones) y el importe es cantidad base × ese precio (`c13 = c9 × c12`, idem).
+    // 1 CJA de 63004 (lista $753.09, 24 PAQ) se cobra 24 × $31.38 = $753.12. Así sale acá también.
+    const { unit_price: unitPrice, line_total: lineTotal } = aCentavosPorBase(
+      price, rung === 'base' ? 1 : Number(step.size), quantity,
+    );
 
     return {
       sku,
