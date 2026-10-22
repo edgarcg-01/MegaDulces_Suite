@@ -1,6 +1,7 @@
+import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router, UrlTree } from '@angular/router';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import type {
   PickerTakeNextResponse, PickerWave, PickerWaveLine, PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow,
 } from '@megadulces/contracts';
@@ -8,6 +9,7 @@ import { AlmacenSurtirComponent } from './almacen-surtir.component';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { ClientesNuevosService } from '../clientes-nuevos.service';
 
 /** [MCP.3.1] Un pedido de Sucursal (app de vendor) en la lista del surtidor. */
 const PV = (p: Partial<PresalePickInboxRow> = {}): PresalePickInboxRow => ({
@@ -95,7 +97,9 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     almacenesSurtido: ReturnType<typeof vi.fn>;
   };
   let user: { warehouse_code?: string; sub?: string } | null;
-  let pv: Record<'inbox' | 'detail' | 'start' | 'finish', ReturnType<typeof vi.fn>>;
+  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart', ReturnType<typeof vi.fn>>;
+  /** [MCP.3.8] El aviso de clientes nuevos sin clave de Kepler. */
+  let cn: { resumen: ReturnType<typeof vi.fn> };
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const texto = (): string => el().textContent?.replace(/\s+/g, ' ') ?? '';
@@ -113,7 +117,11 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     fix.detectChanges();
   };
 
-  async function montar(query: Record<string, string> = {}): Promise<void> {
+  /**
+   * `origen`: la pantalla SIEMPRE abre en Sucursal ([MCP.3.6]). Las pruebas del surtido de olas
+   * (Telemarketing) lo eligen como lo haría el surtidor; `'abre'` deja la pestaña con la que abre.
+   */
+  async function montar(query: Record<string, string> = {}, origen: 'TELEMARK' | 'abre' = 'TELEMARK'): Promise<void> {
     await TestBed.configureTestingModule({
       imports: [AlmacenSurtirComponent],
       providers: [
@@ -122,11 +130,17 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         { provide: PickingService, useValue: api },
         { provide: PresalePickingService, useValue: pv },
         { provide: AuthService, useValue: { user: () => user } },
+        { provide: ClientesNuevosService, useValue: cn },
+        { provide: AlertsSocketService, useValue: { connect: () => undefined, alert$: new Subject<{ type: string }>() } },
       ],
     }).compileComponents();
     fix = TestBed.createComponent(AlmacenSurtirComponent);
     c = fix.componentInstance;
     fix.detectChanges();
+    if (origen === 'TELEMARK' && !query['pedido']) {
+      c.elegirOrigen('TELEMARK');
+      fix.detectChanges();
+    }
   }
 
   beforeEach(() => {
@@ -136,8 +150,12 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       /* sin almacenamiento */
     }
     user = { warehouse_code: '01', sub: 'yo' };
+    cn = { resumen: vi.fn(() => of({ scope: 'propios', customers: 0, order_ids: [] })) };
     pv = {
       inbox: vi.fn(() => of(BANDEJA())),
+      // [MCP.3.6] Sin rutas hoy, salvo que la prueba diga otra cosa.
+      routes: vi.fn(() => of({ today: '2026-10-19', data: [], scope: 'propios' })),
+      routeStart: vi.fn(() => of({})),
       detail: vi.fn(() => of(DETALLE())),
       start: vi.fn(() => of(DETALLE().order)),
       finish: vi.fn(() => of({
@@ -226,11 +244,12 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(api.tomarSiguiente).toHaveBeenCalledWith({ warehouse_id: 'w-ph', origen: 'TELEMARK' });
   });
 
-  it('el origen elegido se recuerda en el dispositivo', async () => {
-    await montar();
-    clic('Sucursal');
+  it('[MCP.3.6] siempre abre en Sucursal, aunque la última vez se haya elegido Telemarketing', async () => {
+    await montar({}, 'abre');
+    clic('Telemarketing');
+    expect(c.origen()).toBe('TELEMARK');
     TestBed.resetTestingModule();
-    await montar();
+    await montar({}, 'abre');
     expect(c.origen()).toBe('SUCURSAL');
   });
 
@@ -240,7 +259,6 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     await montar();
     const chips = Array.from(el().querySelectorAll('.sr-chip')).map((b) => b.textContent?.trim());
     expect(chips).toEqual(['Sucursal', 'Telemarketing']);
-    expect(c.origen()).toBe('TELEMARK');
   });
 
   it('[MCP.3.2] en Telemarketing hay "Ver la lista de pedidos" y lleva al tablero (vista del surtidor)', async () => {
@@ -250,11 +268,14 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(String(nav.mock.calls[0][0])).toBe('/almacen/pedidos');
   });
 
-  it('lo guardado del viejo "Todos" (vacío) cae en Telemarketing', async () => {
+  it('[MCP.3.6] lo guardado de antes (Telemarketing o el viejo "Todos") ya no decide: abre en Sucursal', async () => {
+    localStorage.setItem('gp.surtir.origen.v1', 'TELEMARK');
+    await montar({}, 'abre');
+    expect(c.origen()).toBe('SUCURSAL');
     localStorage.setItem('gp.surtir.origen.v1', '');
-    await montar();
-    expect(c.origen()).toBe('TELEMARK');
-    expect(boton('Tomar siguiente')).toBeTruthy();
+    TestBed.resetTestingModule();
+    await montar({}, 'abre');
+    expect(c.origen()).toBe('SUCURSAL');
   });
 
   it('prueba negativa: "Tomar siguiente" sólo pide Telemarketing, nunca todo mezclado', async () => {
@@ -273,6 +294,27 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).toContain('Atrasado 2 días');
     expect(texto()).toContain('Paulina Placencia');
     expect(texto()).not.toContain('ESCUELA AMARILLA'); // es de mañana
+  });
+
+  it('[MCP.3.8] avisa de los clientes nuevos sin clave de Kepler y marca SÓLO sus pedidos', async () => {
+    cn.resumen.mockReturnValue(of({ scope: 'propios', customers: 2, order_ids: ['o-vero'] }));
+    await montar();
+    clic('Sucursal');
+    expect(texto()).toContain('2 clientes nuevos sin clave de Kepler');
+    expect(texto()).toContain('1 pedido suyo espera');
+    const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
+    expect(tarjetas.find((t) => t.includes('VERO VASCO'))).toContain('Cliente nuevo · sin clave de Kepler');
+    // Prueba negativa: un pedido de cliente con clave no se marca.
+    expect(tarjetas.find((t) => t.includes('ABARROTES ROSY'))).not.toContain('sin clave de Kepler');
+  });
+
+  it('[MCP.3.8] sin clientes por ligar no hay aviso; si no se pudo revisar, lo dice (error ≠ vacío)', async () => {
+    await montar();
+    expect(texto()).not.toContain('sin clave de Kepler');
+    TestBed.resetTestingModule();
+    cn.resumen.mockReturnValue(throwError(() => new Error('red')));
+    await montar();
+    expect(texto()).toContain('No se pudo revisar si hay clientes nuevos sin clave de Kepler');
   });
 
   it('separa Hoy / Mañana / Próximos y cuenta sólo lo pendiente de MI almacén', async () => {
@@ -347,7 +389,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     clic('Completo');
     TestBed.resetTestingModule();
     pv.inbox = vi.fn(() => of(BANDEJA([DETALLE().order]))); // sigue "surtiendo" a mi nombre
-    await montar();
+    await montar({}, 'abre'); // vuelve a abrir en Sucursal, donde quedó el pedido a medias
     clic('Continuar');
     const b = c.ola()!.lines.find((l) => l.id === 'pl1')!;
     expect(b.status).toBe('surtido');
@@ -365,8 +407,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('si otro lo tomó primero, lo dice y refresca la lista (no se queda atorado)', async () => {
     pv.start = vi.fn(() => throwError(() => ({ status: 409, error: { message: 'Ya lo está surtiendo Félix Herrera desde 13:05.' } })));
-    await montar();
-    clic('Sucursal');
+    await montar({}, 'abre'); // abre en Sucursal: la bandeja se pide una vez al abrir
     clic('Surtir este');
     expect(c.fase()).toBe('listo');
     expect(c.tomando()).toBe(false);
@@ -702,5 +743,40 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     // fallar un cambio que no mueve a dónde va el botón.
     expect(nav).toHaveBeenCalledTimes(1);
     expect(router.serializeUrl(nav.mock.calls[0][0] as UrlTree)).toBe('/almacen');
+  });
+
+  // ── [MCP.3.6] Rutas de hoy arriba de los sueltos ─────────────────────────────────────────
+
+  it('⭐ [MCP.3.6] si las rutas no cargan, lo dice con Reintentar y los pedidos sueltos SIGUEN', async () => {
+    pv.routes = vi.fn(() => throwError(() => ({ status: 500 })));
+    await montar();
+    clic('Sucursal');
+    expect(texto()).toContain('No se pudieron cargar las rutas');
+    // Los sueltos de siempre, intactos y tomables.
+    expect(texto()).toContain('ABARROTES ROSY');
+    expect(boton('Surtir este')).toBeTruthy();
+    expect(Array.from(el().querySelectorAll('app-almacen-rutas-hoy button')).some((b) => (b.textContent ?? '').includes('Reintentar'))).toBe(true);
+  });
+
+  it('[MCP.3.6] con una ruta lista, va arriba y los de abajo se rotulan «Pedidos sueltos»', async () => {
+    pv.routes = vi.fn(() => of({ today: '2026-10-19', scope: 'propios', data: [{
+      route_day_id: 'rd-1', kind: 'ruta', seller_name: 'Paulina Placencia', work_date: '2026-10-19', state: 'lista',
+      started_at: '2026-10-19T14:00:00.000Z', finished_at: '2026-10-19T20:10:00.000Z', orders: 4, products: 18,
+      pick_started: null, pick_finished: null,
+    }] }));
+    await montar();
+    clic('Sucursal');
+    const t = texto();
+    expect(t).toContain('Ruta de Paulina Placencia');
+    expect(t).toContain('Pedidos sueltos');
+    expect(t.indexOf('Ruta de Paulina Placencia')).toBeLessThan(t.indexOf('ABARROTES ROSY'));
+  });
+
+  it('[MCP.3.6] sin rutas hoy no se pinta nada de rutas (ni «Pedidos sueltos»)', async () => {
+    await montar();
+    clic('Sucursal');
+    expect(texto()).not.toContain('Rutas de hoy');
+    expect(texto()).not.toContain('Pedidos sueltos');
+    expect(texto()).toContain('ABARROTES ROSY');
   });
 });

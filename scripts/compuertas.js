@@ -152,6 +152,10 @@ const COMPUERTAS = [
   // con un LLM de pago por uso creían tener tope. Deuda declarada con ratchet en el propio script.
   { nombre: 'throttle', script: 'check-throttle-names.js', que: 'todo @Throttle/@SkipThrottle usa un tier que el servidor configura (si no, no limita nada)', push: true, ms: 698 },
   { nombre: 'primeng', script: 'check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)', push: true, ms: 2084 },
+  //   · track: `@for (i of skel; track i)` sobre `Array.from({ length: 8 })` repite la llave
+  //     (ocho `undefined`) y Angular escupe NG0955 cada vez que aparece el esqueleto. Salió al
+  //     abrir Cortes en un navegador real ([CSU.13]); estaba copiado en 27 @for de 15 archivos más. [CSU.15]
+  { nombre: 'track', script: 'check-track-llave.js', que: 'ningún @for usa como llave el elemento de un arreglo de relleno (NG0955)', push: true, ms: 1159 },
   //   · spec-vivo: un archivo de prueba que no CARGA reporta 0 tests, no fallas — el total de
   //     la suite sigue creciendo y nadie mira la línea de archivos. Medido el 2026-10-06:
   //     13 archivos de libs/ así, 166 pruebas sin correr una sola vez, entre ellas el candado

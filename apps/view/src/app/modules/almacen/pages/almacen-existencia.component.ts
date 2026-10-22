@@ -133,7 +133,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
       <div class="ex-filters">
         <p-iconfield class="ex-search">
-          <p-inputicon styleClass="pi pi-search" />
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)"
                  placeholder="SKU o nombre…" aria-label="Buscar producto" />
         </p-iconfield>

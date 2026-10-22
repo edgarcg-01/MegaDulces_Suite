@@ -209,8 +209,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <p-select [options]="almacenOpts()" [(ngModel)]="fAlmacen" (onChange)="reload()"
                         optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                         [filter]="true" filterBy="label" styleClass="rq-sel" appendTo="body" ariaLabel="Filtrar por sucursal"></p-select>
-              <p-iconfield styleClass="rq-search">
-                <p-inputicon styleClass="pi pi-search" />
+              <p-iconfield class="rq-search">
+                <p-inputicon class="pi pi-search" />
                 <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
                        placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
               </p-iconfield>
@@ -293,8 +293,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <p-select [options]="almacenOpts()" [(ngModel)]="fAlmacen" (onChange)="reload()"
                         optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                         [filter]="true" filterBy="label" styleClass="rq-sel" appendTo="body" ariaLabel="Filtrar por sucursal"></p-select>
-              <p-iconfield styleClass="rq-search">
-                <p-inputicon styleClass="pi pi-search" />
+              <p-iconfield class="rq-search">
+                <p-inputicon class="pi pi-search" />
                 <input pInputText type="text" [(ngModel)]="fBuscar" (keyup.enter)="reload()"
                        placeholder="Folio, proveedor o lote…" aria-label="Buscar requisición" />
               </p-iconfield>

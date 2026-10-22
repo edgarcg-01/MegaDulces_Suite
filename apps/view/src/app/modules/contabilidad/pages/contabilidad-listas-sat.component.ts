@@ -72,8 +72,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
       <div class="ls-filters">
         <p-selectbutton styleClass="sb-liquid" [options]="listaOpts" [ngModel]="lista()" (ngModelChange)="lista.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por lista" />
         <p-selectbutton styleClass="sb-liquid" [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="estado.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por estado de triage" />
-        <p-iconfield iconPosition="left" styleClass="ls-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield iconPosition="left" class="ls-search">
+          <p-inputicon class="pi pi-search" />
           <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
         </p-iconfield>
         <label class="ls-fld"><span>Severidad</span>

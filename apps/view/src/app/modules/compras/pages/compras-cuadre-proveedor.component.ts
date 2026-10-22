@@ -51,8 +51,8 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
       </div>
 
       <div class="cq-filters">
-        <p-iconfield styleClass="cq-search">
-          <p-inputicon styleClass="pi pi-search" />
+        <p-iconfield class="cq-search">
+          <p-inputicon class="pi pi-search" />
           <input pInputText type="text" placeholder="Proveedor…" [ngModel]="search()" (ngModelChange)="onSearch($event)" class="p-inputtext-sm" aria-label="Buscar proveedor" />
         </p-iconfield>
         @if (entryMode() === 'kepler') {
@@ -82,7 +82,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           <app-metric-strip [items]="payKpis(p)" ariaLabel="Totales de deuda a proveedores" />
         }
         @if (loading()) {
-          <div class="cq-skel">@for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }</div>
+          <div class="cq-skel">@for (i of skelRows; track $index) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }</div>
         } @else if (payables(); as p) {
           <p-table [value]="p.rows" styleClass="p-datatable-sm surf-table surf-table--sticky cq-table"
                    [rowHover]="true" [scrollable]="true" scrollHeight="flex" [paginator]="p.rows.length > 100" [rows]="100">
@@ -119,7 +119,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           <app-metric-strip [items]="kpiItems(d)" ariaLabel="Totales del cuadre por proveedor" />
         }
         @if (loading()) {
-          <div class="cq-skel">@for (i of skelRows; track i) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }</div>
+          <div class="cq-skel">@for (i of skelRows; track $index) { <p-skeleton height="2rem" styleClass="cq-skel-row" /> }</div>
         } @else if (data(); as d) {
           <p-table [value]="d.rows" [loading]="false" styleClass="p-datatable-sm surf-table surf-table--sticky cq-table"
                    [rowHover]="true" [scrollable]="true" scrollHeight="flex">

@@ -87,7 +87,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
 
       @if (err(); as e) { <div class="ub-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="ub-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
-      @if (loading() && !data()) { <div class="ub-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="ub-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="ub-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="ub-skel-row"></div> }</div> }
       @else if (data(); as d) {
         @if (!d.warehouse) {
           <div class="ub-note ub-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene un almacén asignado, así que no hay ubicaciones que mostrarte. Pide que te lo asignen en <b>Administración › Personas</b>.</span></div>
