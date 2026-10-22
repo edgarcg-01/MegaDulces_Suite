@@ -6,6 +6,7 @@ import {
   QuoteDeliverableData,
   modeloEntregable,
   condiciones,
+  fechaVigencia,
 } from './quote-deliverable-export';
 
 describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () => {
@@ -161,5 +162,46 @@ describe('modeloEntregable — la cuenta que se le promete al cliente', () => {
     expect(m.conDescuento).toBe(false);
     expect(m.filas[0]).toMatchObject({ unitario: 90, importe: 900 });
     expect(m.totales.total).toBe(1000);
+  });
+});
+
+/**
+ * [E.29] La hoja de la cotización (VEN-001): lo que el papel promete y cómo lo escribe. Fechas en
+ * un solo formato, la sucursal por nombre, las condiciones de pago del ERP y nada cortado en silencio.
+ */
+describe('hoja de la cotización — condiciones y fechas', () => {
+  const base: QuoteDeliverableData = {
+    customerCode: 'C1086', customerName: 'Cliente', branchCode: '01', branchName: 'Padre Hidalgo',
+    validUntil: '2026-11-06', quoteDate: new Date(2026, 9, 22), discountPct: null,
+    items: [{ sku: 'A', name: 'Uno', unit_label: 'PAQ', quantity: 1, unit_price: 10, line_total: 10 }],
+  };
+
+  it('la vigencia sale dd/mm/aaaa y en hora LOCAL (con new Date(iso) sería el día anterior en México)', () => {
+    const v = fechaVigencia('2026-11-06');
+    expect(v.texto).toBe('06/11/2026');
+    expect(v.fecha?.getDate()).toBe(6);
+    expect(fechaVigencia('')).toEqual({ texto: 'término indicado', fecha: null });
+    expect(fechaVigencia('15 días')).toEqual({ texto: '15 días', fecha: null });
+  });
+
+  it('la sucursal va por NOMBRE: el código no aparece en las condiciones', () => {
+    const c = condiciones(base, modeloEntregable(base));
+    expect(c).toContain('Válida hasta el 06/11/2026 en Padre Hidalgo.');
+    expect(c.join(' ')).not.toMatch(/sucursal 01|\(01\)/i);
+  });
+
+  it('el plazo de pago del ERP se imprime; sin dato NO se inventa ninguno', () => {
+    const linea = (d: QuoteDeliverableData) => condiciones(d, modeloEntregable(d)).find((t) => t.startsWith('Plazo de pago'));
+    expect(linea({ ...base, paymentDays: 30 })).toBe('Plazo de pago: 30 días de crédito.');
+    expect(linea({ ...base, paymentDays: 0 })).toBe('Plazo de pago: de contado (sin días de crédito).');
+    expect(linea({ ...base, paymentDays: null })).toBeUndefined();
+    expect(linea(base)).toBeUndefined();
+  });
+
+  it('la nota al cliente va completa (antes se cortaba a 90 caracteres sin avisar)', () => {
+    const nota = 'Entrega el jueves en la bodega de la calle Hidalgo; avisar a recepción antes de llegar con el pedido completo.';
+    const d = { ...base, notes: nota };
+    expect(nota.length).toBeGreaterThan(90);
+    expect(condiciones(d, modeloEntregable(d))).toContain('Nota: ' + nota);
   });
 });
