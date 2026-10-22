@@ -343,9 +343,27 @@ export class ContpaqiArmadoService {
    * reproducible el resultado. La alternativa —rechazar los ambiguos— se descartó porque el
    * armador ya rechaza por falta de regla; sumar un segundo motivo para el 1.5% no cambia nada
    * hoy y sí esconde el que importa.
+   *
+   * ⭐ `[CP.8.75]` El mes va por RANGO (`>= día 1 AND < día 1 + 1 mes`), no por
+   * `to_char(...) = ?`: el `to_char` en el WHERE anulaba el índice `(tenant, cuenta, fecha)` y la
+   * consulta recorría la tabla entera una vez por categoría. Y el IVA hermano se calcula UNA vez
+   * por (cuenta, día, importe) con `DISTINCT ON ... ORDER BY id` —el mismo «el de menor id»— en vez
+   * de un `LATERAL` por renglón. Medido en el servidor (`EXPLAIN ANALYZE`, `TIMING OFF`) contra
+   * prod: **974 → 58 ms** (mediana de 6, alternadas), y filas idénticas en 12 meses.
    */
   private async leerEgresos(anioMes: string): Promise<any[]> {
+    const dia1 = `${anioMes}-01`;
     return this.db
+      .with('iva', (q) => q
+        .select(this.db.raw(`DISTINCT ON (h.bank_account_id, h.movement_date, round(h.amount_out, 2))
+            h.bank_account_id, h.movement_date, round(h.amount_out, 2) AS r, h.amount_out`))
+        .from('finance.bank_movements as h')
+        .join('finance.movement_categories as hc', 'hc.id', 'h.category_id')
+        .where('h.tenant_id', MEGA)
+        .whereNull('h.deleted_at')
+        .where('hc.code', 'iva_acreditable')
+        .whereRaw(`h.movement_date >= ?::date AND h.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
+        .orderByRaw('h.bank_account_id, h.movement_date, round(h.amount_out, 2), h.id'))
       .select(
         'm.id', 'm.concept', 'm.amount_out',
         this.db.raw(`to_char(m.movement_date, 'YYYY-MM-DD') as fecha`),
@@ -360,23 +378,15 @@ export class ContpaqiArmadoService {
       .join('finance.movement_categories as c', 'c.id', 'm.category_id')
       .leftJoin('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
       .joinRaw(`
-        LEFT JOIN LATERAL (
-          SELECT h.amount_out
-            FROM finance.bank_movements h
-            JOIN finance.movement_categories hc ON hc.id = h.category_id
-           WHERE h.tenant_id = m.tenant_id AND h.deleted_at IS NULL
-             AND hc.code = 'iva_acreditable'
-             AND h.bank_account_id = m.bank_account_id
-             AND h.movement_date   = m.movement_date
-             AND round(m.amount_out * 0.16, 2) = round(h.amount_out, 2)
-           ORDER BY h.id LIMIT 1
-        ) iva ON true`)
+        LEFT JOIN iva ON iva.bank_account_id = m.bank_account_id
+                     AND iva.movement_date   = m.movement_date
+                     AND iva.r = round(m.amount_out * 0.16, 2)`)
       .where('m.tenant_id', MEGA)
       .whereNull('m.deleted_at')
       .where('m.amount_out', '>', 0)
       // El IVA no se arma solo: es el renglón 2 del asiento de su hermano.
       .whereNot('c.code', 'iva_acreditable')
-      .whereRaw(`to_char(m.movement_date, 'YYYY-MM') = ?`, [anioMes])
+      .whereRaw(`m.movement_date >= ?::date AND m.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
       .orderBy('m.movement_date')
       .orderBy('m.id');
   }
