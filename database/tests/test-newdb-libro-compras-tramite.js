@@ -83,7 +83,7 @@ const fin = () => {
 };
 
 /** El servicio REAL, con un `TenantKnex` mínimo: una transacción con el tenant puesto. */
-function servicio(pool) {
+function servicio(pool, satPort) {
   const { PurchaseBookService } = require(path.join(SRC, 'purchase-book.service.ts'));
   const tk = {
     run: async (cb) => pool.transaction(async (trx) => {
@@ -92,7 +92,8 @@ function servicio(pool) {
     }),
   };
   const ctx = { get: () => ({ userId: null, tenantId: MEGA }), requireTenantId: () => MEGA };
-  const svc = new PurchaseBookService(tk, ctx);
+  // [LC.19.1] El 4.º argumento es el port del SAT (@Optional): sin él, el libro no puede verificar.
+  const svc = new PurchaseBookService(tk, ctx, undefined, satPort);
   svc.logger = silencio;
   return svc;
 }
@@ -204,6 +205,14 @@ async function soloLectura(url) {
     check(oct.facturas.filter((f) => f.incluida).every((f) => r2c(f.base_exenta + f.subtotal16 + f.ieps + f.iva) === r2c(f.total)),
       'cada factura incluida cuadra: 501 + 502 + IEPS + IVA = total');
     check(ms < 1000, `el mes abre en ${ms} ms (< 1 s, medido desde la prueba con red incluida)`);
+    // [LC.19.1] Lo que no consta vigente ante el SAT es BLOQUEANTE, y el conteo viaja a la pantalla.
+    const octSin = oct.facturas.filter((f) => f.incluida && f.estatus_sat !== 'vigente' && f.estatus_sat !== 'cancelado');
+    const bloqSat = oct.bloqueantes.some((b) => /sin verificar ante el SAT/.test(b));
+    check(octSin.length === oct.resumen.sin_verificar_sat && bloqSat === (octSin.length > 0),
+      `LC.19.1: ${octSin.length} de ${oct.resumen.incluidas} marcadas sin verificar ante el SAT → bloqueante ${bloqSat ? 'presente' : 'ausente'}, resumen.sin_verificar_sat = ${oct.resumen.sin_verificar_sat}`);
+    const sinPort = await servicio(pool).verificarSat('2026-10', 'complemento');
+    check(sinPort.disponible === false && sinPort.consultados === 0 && sinPort.restantes === 0,
+      `sin el port del SAT no consulta nada y lo DECLARA (disponible=false; ${sinPort.por_verificar} por verificar), no las da por vigentes`);
 
     noMedido('generar · registrar las facturas · entregar · cancelar · aplicar · asignar cuenta: contra prod no se escribe desde una prueba — corre completo en `pruebas-db`');
   } finally {
@@ -302,6 +311,45 @@ async function completo(urlAdmin, urlRuntime) {
     await svc.setInclusion(MES, [UUIDS[0]], true, undefined, 'complemento');
     const borr = await corrida();
     check(borr.estado === 'borrador' && borr.incluye_uuid === true, `la corrida en borrador nace con incluye_uuid = true (dio ${borr.incluye_uuid})`);
+
+    console.log('\n[1c] LC.19.1 — lo que no consta vigente ante el SAT no se postea');
+    d = await svc.getMes(MES, 'complemento');
+    check(d.resumen.sin_verificar_sat === 2 && d.bloqueantes.some((b) => /sin verificar ante el SAT/.test(b)),
+      `recién llegadas (estatus «desconocido»): ${d.resumen.sin_verificar_sat} sin verificar y es BLOQUEANTE, no aviso`);
+    const eSat = await rechazo(() => svc.generar(MES, { impuestos: 'global', uuid: true, ...T }));
+    check(eSat && /sin verificar ante el SAT/.test(msg(eSat)), '⛔ prueba negativa: generar con facturas sin verificar se rechaza en el servidor');
+    check(!(await corrida()).archivo_contenido, 'y no dejó archivo');
+    // La cadena REAL: libro → EstatusService de libs/fiscal (su SQL, como app_runtime, con RLS)
+    // → el WS del SAT, que es lo único falso. A la del proveedor sin historial «no la encuentra».
+    const pedidos = [];
+    const soapFalso = {
+      consulta: async ({ id }) => {
+        pedidos.push(id);
+        return { estado: id === UUIDS[2] ? 'No Encontrado' : 'Vigente', esCancelable: '', estatusCancelacion: '', codigoEstatus: '' };
+      },
+    };
+    const { EstatusService } = require(path.join(ROOT, 'libs', 'fiscal', 'src', 'lib', 'estatus', 'estatus.service.ts'));
+    const tkFiscal = {
+      // EstatusService llama run(tenantId, cb); el libro, run(cb).
+      run: async (a, b) => runtime.transaction(async (trx) => {
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
+        return (typeof a === 'function' ? a : b)(trx);
+      }),
+    };
+    const estatusReal = new EstatusService(tkFiscal, { requireTenantId: () => MEGA }, soapFalso, undefined);
+    estatusReal.logger = silencio;
+    estatusReal.sleep = async () => {};
+    const svcSat = servicio(runtime, estatusReal);
+    const v1 = await svcSat.verificarSat(MES, 'complemento');
+    check([...pedidos].sort().join() === [UUIDS[0], UUIDS[1], UUIDS[2]].sort().join(),
+      `pide al SAT las marcadas y las que se podrían marcar; NO la que no tiene cuenta (pidió ${pedidos.length})`);
+    check(v1.vigentes === 2 && v1.no_encontrados === 1 && v1.restantes === 0, `una vuelta: 2 vigentes, 1 no encontrada, 0 restantes`);
+    const v2 = await svcSat.verificarSat(MES, 'complemento');
+    check(v2.consultados === 0 && v2.por_verificar === 0, '⭐ no cicla: la «no encontrada» consultada hace menos de 15 min no se vuelve a pedir');
+    d = await svc.getMes(MES, 'complemento');
+    check(d.resumen.sin_verificar_sat === 0 && !d.bloqueantes.some((b) => /SAT/.test(b)), 'con las marcadas vigentes, el bloqueo se levanta');
+    const fNoEnc = d.facturas.find((f) => f.uuid === UUIDS[2]);
+    check(fNoEnc && fNoEnc.estatus_sat === 'desconocido' && !!fNoEnc.estatus_verificado_at, 'la no encontrada sigue «desconocido» (no se da por vigente), con la hora de la consulta');
 
     console.log('\n[2] generar, con el payload de la pantalla { impuestos, uuid }');
     const g = await svc.generar(MES, { impuestos: 'global', uuid: true, ...T });

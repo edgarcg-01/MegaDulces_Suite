@@ -1016,7 +1016,71 @@ arreglos de LC.18.1 lleguen a prod, y **volver a correr el e2e** (pasos 1, 7, 9,
 - **Sesión:** `MD_TOKEN_FILE` = archivo con el JWT de un usuario con `FISCAL_PURCHASE_BOOK_GESTIONAR`. Sin él, las 11 se saltan como **NO MEDIDO** (verificado).
 - Correr: `MD_TOKEN_FILE=<ruta> npx playwright test -c e2e/libro-compras/playwright.config.ts`.
 
-**Primera corrida, 2026-10-21, contra prod en `abe5feaeb` (SIN LC.18.1/18.2 desplegados):** 3 ✓ · 5 ✗ · 3 saltadas (escritura, a propósito). Las 5 rojas son exactamente lo que el despliegue arregla: **#5** (la casilla del UUID desmarcada), **#7** (tarjeta «Cancelado»), **#2** (motivo repetido), **#3** (la API todavía no manda `cuenta_sugerida`) y **el tiempo del mes: 1,401 ms** desde el navegador. Es la prueba negativa natural de la suite: rojo donde hay defecto. **Falta: desplegar api + view y volver a correrla completa (`E2E_ESCRIBIR=1`)**; tiene que salir verde.
+**Primera corrida, 2026-10-21, contra prod en `abe5feaeb` (SIN LC.18.1/18.2 desplegados):** 3 ✓ · 5 ✗ · 3 saltadas (escritura, a propósito). Las 5 rojas son exactamente lo que el despliegue arregla: **#5** (la casilla del UUID desmarcada), **#7** (tarjeta «Cancelado»), **#2** (motivo repetido), **#3** (la API todavía no manda `cuenta_sugerida`) y **el tiempo del mes: 1,401 ms** desde el navegador. Es la prueba negativa natural de la suite: rojo donde hay defecto.
+
+**Segunda corrida, 2026-10-21, contra prod en `309370573` (con LC.18.1/18.2):** **11 ✓ / 0 ✗ en 44 s, con escritura** (`E2E_ESCRIBIR=1`, oct-2026: generar → entregar → cancelar; el mes quedó pendiente otra vez).
+
+## LC.19 — verdad absoluta del libro, y después automatizarlo (2026-10-21)
+
+Pedido de Edgar: *«debemos automatizar este proceso y tener la menor cantidad de interacción humana»*
+y, antes, *«¿ya tenemos una verdad absoluta?»*. La respuesta medida fue **no**: el asiento sí está
+arbitrado (réplica 1,650/1,650 contra los libros manuales), pero ocho cosas no, y la peor es la primera.
+**Orden decidido: la verdad antes que la automatización** — automatizar sin LC.19.1 haría entrar
+solas también las facturas canceladas.
+
+| Item | Qué | Estado |
+|---|---|---|
+| **LC.19.1** | Estatus SAT real: el feed no borra lo verificado, sólo `vigente` se postea, «Verificar en el SAT» | 🧪 |
+| LC.19.2 | Frescura visible (CFDIs / pólizas) y «Nada pendiente» sólo con el feed al día | ⬜ |
+| LC.19.3 | Banner honesto: «N propuestas por regla de historial», no «$X sin contabilizar» | ⬜ |
+| LC.19.4 | Testigo de completitud de los CFDI (descarga masiva SAT vs ADD) | ⬜ |
+| LC.19.5 | Sección LC en `VERDAD_ABSOLUTA.md` con su paridad registrada (R7) | ⬜ |
+| LC.19.6+ | Automatizar: ascender las «Importe ya posteado» que casan 212+referencia+total en el folio 1, aplicado automático, PUE y $0 fuera, catálogo de cuentas en el feed de ContPAQi, generación el día 1 | ⬜ |
+
+### LC.19.1 — el estatus SAT no medía nada
+
+**Medido el 2026-10-21 en prod (sólo lectura):** de los CFDI recibidos, **100 % `desconocido` en
+ago, sep y oct-2026** (920 de 920 en octubre); sólo julio tiene 191 vigentes y 3 canceladas. El
+libro bloqueaba sólo `cancelado`, así que **una factura cancelada entraba al TXT**. No era que nadie
+verificara: el cron FISCAL.6 (01:30) sí le pregunta al SAT, y el WS responde bien (`Vigente` en
+~100 ms, probado con 3 CFDI de octubre y uno de julio). **El feed del ADD lo borraba:** su UPSERT
+hacía `estatus_sat = EXCLUDED.estatus_sat`, y el ADD trae `CancelStatus` vacío → `desconocido`.
+Caso medido: consultado a las 07:30 → vigente; re-sincronizado por el feed a las 11:47 → desconocido.
+Lo mismo les pasaba a las facturas que nosotros cancelamos. Y la cola tampoco alcanzaba: 300 por
+noche, mezclando emitidos, contra **8,498 recibidos de los últimos 6 meses sin verificar**.
+
+**Lo que cambia:**
+- **Feed** (`import-contpaqi-cfdis.js` + `estatus-sat-merge.js`): `desconocido` que llega no pisa lo
+  sabido, y `cancelado` es absorbente. ⚠️ El feed vive en la imagen de ingesta: se despliega con
+  `ops/vl/deploy.sh feeds-cron`, **no** con `soltar.sh`.
+- **Cron FISCAL.6**: primero los `desconocido`, de ésos los recibidos; 300 → 2,500 por noche (~10 min).
+- **Libro**: sólo `vigente` se postea. «Sin verificar ante el SAT» pasa de aviso a **bloqueante**, en
+  la pantalla y en el servidor (`generar` lo rechaza aunque se llame directo). **Sin override**: no
+  hay nada que un humano pueda juzgar; lo que el SAT no encuentre se desmarca y se genera el resto.
+- **«Verificar en el SAT»** (`POST no-asociados/:mes/verificar-sat`): verifica en el momento las
+  marcadas y las que se podrían marcar, en lotes de 100 (~25 s, lejos del corte de 100 s de
+  Cloudflare); la pantalla repite hasta terminar. Lo consultado hace < 15 min no se vuelve a pedir,
+  así un «no encontrado» no cicla. Port `CFDI_ESTATUS_PORT` declarado en finance (que no puede
+  importar fiscal), ligado en `apps/api/src/composition/cfdi-estatus.binding.module.ts`.
+
+**Verificación:**
+- `test-newdb-cfdi-estatus-merge.js`: los 9 casos evaluados por Postgres ✓, prueba negativa (la
+  expresión vieja reprueba 3) ✓, cableado del feed ✓. **NO MEDIDO aquí:** el `EXPLAIN` del UPSERT — el
+  usuario de prod no puede escribir en `fiscal.cfdis` (ni planear un INSERT); se mide en `pruebas-db`.
+- Trámite contra prod (sólo lectura): **22 ✓**. Octubre: **275 de 275 marcadas sin verificar → bloqueante**;
+  sin el port, `verificarSat` no consulta nada y lo declara (`disponible=false`, 345 por verificar).
+- Trámite en `pruebas-db` (modo completo, **no corrido en esta máquina**): sin verificar no se genera
+  (prueba negativa en el servidor), la cadena real libro → `EstatusService` (SQL real como
+  `app_runtime`) → SOAP falso, qué se pide al SAT, el «no encontrado» que no cicla.
+- Inyección (regla 30): `design:paramtypes` / `self:paramtypes` leídos con `reflect-metadata` — índice 3
+  = `CFDI_ESTATUS_PORT`, opcional; el binding es global con `useExisting: EstatusService`. **Arranque
+  completo de la API no verificado** (sólo en CI/prod).
+- `check:pantalla contabilidad`: 0 fallas nuevas, la plantilla tipa.
+- ⚠️ Lint: el binding importa `@megadulces/fiscal` desde `apps/api` y `enforce-module-boundaries` no
+  lista `scope:fiscal` para `scope:api` (su comentario dice «la app api compone todos los dominios»).
+  Mismo caso que `invoice-issuer.binding.module.ts` y los 13 imports de `app.module.ts`. No se tocó la
+  config de lint sin autorización.
+- e2e: se agregó «verificar en el SAT» antes de generar (negativa en UI y API, luego verifica de verdad).
 
 ## Estado
 

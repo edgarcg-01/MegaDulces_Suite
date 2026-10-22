@@ -73,11 +73,21 @@ export interface FacturaMes {
   prueba_certeza: 'exacta' | 'por_importe' | null;
   prueba_detalle: string | null;
   /**
-   * `vigente | cancelado | desconocido`. Casi todo es `desconocido` (167,053 de 167,135):
-   * el ADD trae el estatus vacío y nadie valida contra el SAT. "No cancelado" acá significa
-   * "no nos consta", no "vigente" — por eso el aviso del mes lo declara con su monto.
+   * `vigente | cancelado | desconocido`. LC.19.1: sólo `vigente` se postea — `desconocido`
+   * es «no consta», no «no está cancelada». Lo resuelve «Verificar en el SAT».
    */
   estatus_sat: string;
+  /** LC.19.1: cuándo se le preguntó al SAT por última vez (null = nunca). */
+  estatus_verificado_at: string | null;
+}
+
+/** LC.19.1: una vuelta de «Verificar en el SAT». `restantes` = las que faltan por intentar. */
+export interface VerificacionSatMes {
+  consultados: number; vigentes: number; cancelados: number;
+  no_encontrados: number; fallidos: number;
+  /** false = el servidor no tiene con qué consultar al SAT; no se consultó nada. */
+  disponible: boolean;
+  por_verificar: number; restantes: number;
 }
 
 /** Un renglón del tablero de movimientos no asociados. */
@@ -129,6 +139,8 @@ export interface MesDetalle {
     total: number; subtotal_exento: number; subtotal_gravado: number;
     iva: number; ieps: number; total_todas: number;
     no_asociadas: number; ya_posteadas: number; monto_ya_posteadas: number;
+    /** LC.19.1: marcadas que no constan vigentes ante el SAT (bloquean el TXT). */
+    sin_verificar_sat?: number;
   };
   /** Renglones que ContPAQi rechazaría: apagan el botón de generar. */
   bloqueantes: string[];
@@ -295,6 +307,11 @@ export class LibroComprasService {
     return this.http.post<GenerarResultado>(`${this.noAso}/${mes}/generar`, {
       impuestos, uuid, ...(forzar ? { forzar_importe: true, motivo: forzar.motivo } : {}),
     });
+  }
+
+  /** LC.19.1: verifica ante el SAT un lote de las facturas del mes (~25 s). Repetir mientras `restantes > 0`. */
+  verificarSat(mes: string): Observable<VerificacionSatMes> {
+    return this.http.post<VerificacionSatMes>(`${this.noAso}/${mes}/verificar-sat`, {});
   }
 
   /** LC.18: candidatas a cuenta 212 para un RFC nuevo. */

@@ -9,6 +9,21 @@ import {
   TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, vigenciaArchivo, vigenciaPorBanderas, REGEX_LINEA_LEGADA,
   type Movimiento, type PolizaTxtParseada,
 } from './poliza-txt';
+import { CFDI_ESTATUS_PORT, type CfdiEstatusPort, type VerificacionCfdis } from './cfdi-estatus.port';
+
+/** `[LC.19.1]` Por llamada a «Verificar en el SAT»: ~0.25 s por CFDI → ~25 s, lejos del corte de 100 s de Cloudflare. */
+const LOTE_VERIFICACION_SAT = 100;
+/** Lo verificado hace menos que esto no se vuelve a pedir en la misma vuelta (si no, un «no encontrado» se pediría para siempre). */
+const REINTENTO_SAT_MIN = 15;
+
+/** `[LC.19.1]` Una vuelta de verificación del mes. `restantes` = las que faltan por intentar. */
+export interface VerificacionSatMes extends VerificacionCfdis {
+  por_verificar: number;
+  restantes: number;
+}
+
+/** `[LC.19.1]` Sólo `vigente` se postea: `desconocido` es «no consta», no «no está cancelada». */
+const estaVigente = (f: { estatus_sat: string }) => f.estatus_sat === 'vigente';
 
 /** Las columnas de la corrida que ve la pantalla: todas menos el TXT (`archivo_contenido`). */
 const COLUMNAS_RUN = [
@@ -365,12 +380,18 @@ export interface FacturaMes {
   /** Para que un humano pueda juzgar un falso positivo: qué se encontró, exactamente. */
   prueba_detalle: string | null;
   /**
-   * `vigente | cancelado | desconocido` según el ADD. **Casi todo es `desconocido`**
-   * (167,053 de 167,135): el ADD trae `CancelStatus` vacío y nadie valida contra el SAT.
-   * Por eso NO se filtra por `= vigente` — eso vaciaría el módulo. Se bloquea lo que se
-   * sabe malo (`cancelado`) y la ignorancia se declara en un aviso, no se esconde.
+   * `vigente | cancelado | desconocido`. Lo escribe el cron FISCAL.6 (WS del SAT) y el feed del
+   * ADD, que lo trae vacío casi siempre.
+   *
+   * `[LC.19.1]` ⛔ Antes se bloqueaba sólo `cancelado` y `desconocido` iba como aviso: medido el
+   * 2026-10-21, **el 100 % de los recibidos de ago/sep/oct estaba en `desconocido`**, porque el
+   * feed del ADD reescribía con vacío lo que el cron ya había verificado (07:30 → vigente, 11:47
+   * → desconocido otra vez). O sea que «no cancelado» no medía nada y un CFDI cancelado entraba
+   * al TXT. Ahora sólo `vigente` se postea; lo demás se verifica con `verificarSat`.
    */
   estatus_sat: string;
+  /** Cuándo se le preguntó al SAT por última vez (null = nunca). */
+  estatus_verificado_at: string | null;
 }
 
 @Injectable()
@@ -383,7 +404,34 @@ export class PurchaseBookService {
     // Best-effort: la bandeja unificada vive en Maat. Sin binding el módulo sigue
     // funcionando, sólo que el cuadre no consolida hallazgos.
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
+    // [LC.19.1] Verificación ante el SAT (libs/fiscal, ligado en apps/api/composition). Sin binding
+    // no se verifica nada y lo no vigente sigue sin poder postearse: se declara, no se asume.
+    @Optional() @Inject(CFDI_ESTATUS_PORT) private readonly estatusSat?: CfdiEstatusPort,
   ) {}
+
+  /**
+   * `[LC.19.1]` Verifica ante el SAT, en el momento, las facturas del mes que podrían entrar al
+   * TXT: las marcadas, y las que tienen cuenta y no están ya en el libro (se pueden marcar). Un
+   * lote por llamada; la pantalla repite mientras `restantes > 0`. Lo que se verificó hace menos
+   * de REINTENTO_SAT_MIN no se vuelve a pedir, así un «no encontrado» no cicla.
+   */
+  async verificarSat(anioMes: string, tipo: TipoCorrida = 'complemento'): Promise<VerificacionSatMes> {
+    this.mesValido(anioMes);
+    const { facturas } = await this.getMes(anioMes, tipo);
+    const reciente = Date.now() - REINTENTO_SAT_MIN * 60_000;
+    const porVerificar = facturas.filter((f) => !estaVigente(f) && f.estatus_sat !== 'cancelado'
+      && (f.incluida || (f.cuenta_existe && f.prueba_certeza !== 'exacta'))
+      && !(f.estatus_verificado_at && Date.parse(f.estatus_verificado_at) > reciente));
+    const lote = porVerificar.slice(0, LOTE_VERIFICACION_SAT);
+    const base = { por_verificar: porVerificar.length, restantes: porVerificar.length - lote.length };
+    if (!this.estatusSat) {
+      return { consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, fallidos: 0, disponible: false, ...base, restantes: 0 };
+    }
+    const r = await this.estatusSat.verificarUuids(this.ctx.requireTenantId(), lote.map((f) => f.uuid));
+    this.logger.log(`verificar SAT ${anioMes}: ${r.consultados} consultadas · ${r.vigentes} vigentes · ${r.cancelados} canceladas · `
+      + `${r.no_encontrados} no encontradas · ${r.fallidos} fallidas · ${base.restantes} por intentar`);
+    return { ...r, ...base };
+  }
 
   private mesValido(anioMes: string) {
     if (!/^\d{4}-\d{2}$/.test(anioMes || '')) throw new BadRequestException('mes inválido, se espera YYYY-MM');
@@ -834,6 +882,7 @@ export class PurchaseBookService {
                 coalesce(a.compra_exenta_existe, false) AS compra_exenta_existe,
                 coalesce(a.compra_iva_existe, false)    AS compra_iva_existe,
                 f.aso_contabilidad, coalesce(f.estatus_sat, 'desconocido') AS estatus_sat,
+                f.estatus_checked_at,
                 -- Defensa contra el doble registro mientras el TXT no lleve UUID. Hay DOS
                 -- formas de que una compra ya esté contabilizada, y hay que mirar las dos:
                 --
@@ -972,6 +1021,7 @@ export class PurchaseBookService {
               : null),
           prueba_en_libro: prueba, prueba_certeza: certeza, prueba_detalle: detalle,
           estatus_sat: estatusSat,
+          estatus_verificado_at: r['estatus_checked_at'] ? new Date(r['estatus_checked_at'] as string).toISOString() : null,
           aso_contabilidad: r['aso_contabilidad'] === null || r['aso_contabilidad'] === undefined
             ? null
             : r['aso_contabilidad'] === true,
@@ -996,6 +1046,8 @@ export class PurchaseBookService {
         iva: r2(dentro.reduce((a, f) => a + f.iva, 0)),
         ieps: r2(dentro.reduce((a, f) => a + f.ieps, 0)),
         total_todas: r2(facturas.reduce((a, f) => a + f.total, 0)),
+        // [LC.19.1] Las marcadas que no constan vigentes: es lo que «Verificar en el SAT» resuelve.
+        sin_verificar_sat: dentro.filter((f) => !estaVigente(f) && f.estatus_sat !== 'cancelado').length,
         // Los tres números del sub-módulo: cuántas no están asociadas, cuántas de esas ya
         // se postearon (y por eso NO van), y cuántas faltan de verdad.
         no_asociadas: facturas.filter((f) => f.aso_contabilidad !== true).length,
@@ -1040,17 +1092,17 @@ export class PurchaseBookService {
         avisos.push(`${cuota.length} factura(s) con IEPS por cuota`);
       }
 
-      // Declarar la ignorancia en vez de esconderla. El ADD trae `CancelStatus` vacío en
-      // casi todo (167,053 de 167,135 CFDIs), así que "no cancelado" acá significa "no nos
-      // consta", no "vigente". Lo que se pierde si una resultó cancelada es el
-      // acreditamiento de IVA+IEPS, no la compra — por eso el monto que se declara es ése.
-      const sinVerificar = dentro.filter((f) => f.estatus_sat === 'desconocido');
+      // [LC.19.1] Era un AVISO y pasa a BLOQUEANTE. "No cancelado" no significa "vigente": el
+      // 100 % de ago/sep/oct estaba sin verificar, así que el aviso salía siempre y no frenaba
+      // nada. Lo que se pierde si una resulta cancelada es el acreditamiento de IVA+IEPS, y por
+      // eso es el monto que se declara. La salida no es un override: es «Verificar en el SAT»,
+      // y lo que el SAT no encuentre se desmarca — no hay nada que un humano pueda juzgar ahí.
+      const sinVerificar = dentro.filter((f) => !estaVigente(f) && f.estatus_sat !== 'cancelado');
       if (sinVerificar.length) {
-        const pct = Math.round((sinVerificar.length / Math.max(dentro.length, 1)) * 100);
         const enRiesgo = r2(sinVerificar.reduce((a, f) => a + f.iva + f.ieps, 0));
-        avisos.push(
-          `${sinVerificar.length} de ${dentro.length} facturas (${pct}%) sin estatus verificado contra el SAT: `
-          + `no se valida cancelación. Acreditan ${enRiesgo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de IVA e IEPS.`,
+        bloqueantes.push(
+          `${sinVerificar.length} de ${dentro.length} facturas sin verificar ante el SAT (acreditan `
+          + `${enRiesgo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} de IVA e IEPS): verifícalas antes de generar`,
         );
       }
 
@@ -1652,7 +1704,8 @@ export class PurchaseBookService {
       || (f.subtotal16 > 0.004 && (!f.cuenta_compra_iva || !f.compra_iva_existe))
       || (f.base_exenta > 0.004 && (!f.cuenta_compra_exenta || !f.compra_exenta_existe))
       || f.base_exenta < -0.004
-      || f.estatus_sat === 'cancelado');
+      // [LC.19.1] Sólo lo que consta vigente ante el SAT (antes: todo lo que no fuera `cancelado`).
+      || !estaVigente(f));
     if (rechazables.length) {
       throw new BadRequestException(
         `${rechazables.length} factura(s) no se pueden postear: ${bloqueantes.join(' · ')}. Resuélvelo o exclúyelas.`,
