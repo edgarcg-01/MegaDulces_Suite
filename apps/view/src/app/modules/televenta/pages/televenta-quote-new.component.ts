@@ -973,8 +973,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
   styles: [
     `
       /* COT.16: pantalla apaisada. Zona de trabajo + riel fijo a la derecha; cada línea vertical
-         cuenta (maqueta aprobada 2026-10-01). Bajo 1100px el riel baja debajo de la bandeja. */
-      .section { padding: 0.6rem 1rem 1rem; max-width: 1600px; margin: 0 auto; }
+         cuenta (maqueta aprobada 2026-10-01). Con poco ancho el riel baja debajo de la bandeja.
+         [E.29] El ancho se mide contra ESTA pantalla (contenedor cot), no contra la ventana: en
+         pantalla partida la ventana dice escritorio y la cotizacion tiene la mitad. Los cortes
+         son los mismos que con la ventana completa (68.75rem y 40rem de ventana = 62.75rem y
+         38rem de contenedor). El contenedor va aqui y no en :host para que el p-toast, que va
+         fuera de .section, siga fijo a la ventana. */
+      .section { padding: 0.6rem 1rem 1rem; max-width: 1600px; margin: 0 auto; container: cot / inline-size; }
       .page-head { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.5rem; }
       .page-head h1 { font-size: 1.05rem; font-weight: 700; margin: 0; }
       .crumb-sep { color: var(--text-faint); }
@@ -984,7 +989,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 0.75rem; align-items: start; }
       .work { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
       .rail { position: sticky; top: 0.6rem; display: flex; flex-direction: column; gap: 0.6rem; }
-      @media (max-width: 68.75rem) {
+      @container cot (max-width: 62.75rem) {
         .layout { grid-template-columns: 1fr; }
         .rail { position: static; }
       }
@@ -1052,12 +1057,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .chosen-meta { font-size: var(--fs-xs); color: var(--text-muted); }
 
       .contact-fields { display: grid; grid-template-columns: 2fr 1.2fr 1.2fr; gap: 0.6rem; }
-      @media (max-width: 40rem) { .contact-fields { grid-template-columns: 1fr; } }
+      @container cot (max-width: 38rem) { .contact-fields { grid-template-columns: 1fr; } }
       .field-item { display: flex; flex-direction: column; gap: 0.2rem; font-size: var(--fs-xs); }
       .field-item > span, .field-item > label { color: var(--text-muted); font-weight: 500; }
       .field-item span b { color: var(--bad-fg); }
 
-      .vendedor-inner { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 300px; }
+      .vendedor-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; flex: 1 1 300px; min-width: 0; }
       .vendedor-label {
         font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted);
         display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
@@ -1069,8 +1074,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .origen-opt { display: flex; flex-direction: column; }
       .origen-hint { font-size: var(--fs-xs); color: var(--text-muted); }
 
-      .detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
-      @media (max-width: 40rem) { .detail-row { grid-template-columns: 1fr; } }
+      /* Una columna: el riel mide 340px y a dos columnas «El cliente mandó su lista» salía cortado. */
+      .detail-row { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
 
       /* Captura manual de artículos */
       .search-step { position: relative; margin-bottom: 0.5rem; }
@@ -1143,7 +1148,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         min-height: 36px; font-size: var(--fs-sm); font-weight: 700; border-radius: 6px;
         padding: 0.4rem 1.1rem; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
       }
-      @media (max-width: 40rem) {
+      @container cot (max-width: 38rem) {
         .previa-top { width: 100%; margin-left: 0; }
         .btn-agregar-inline { width: 100%; justify-content: center; }
       }
@@ -1213,7 +1218,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .bold-num { font-weight: 700; color: var(--primary-color, var(--action)); }
 
       /* Bandeja de UNA línea por renglón: nombre y SKU juntos; el EAN va en el title */
-      .item-cell { white-space: nowrap; max-width: 0; width: 100%; overflow: hidden; text-overflow: ellipsis; }
+      /* min-width: sin piso, el nombre es la PRIMERA columna que cede y queda en «…» antes de que
+         la tabla haga scroll. Con piso, lo que no cabe se recorre con el scroll de p-table. */
+      .item-cell { white-space: nowrap; max-width: 0; min-width: 12rem; width: 100%; overflow: hidden; text-overflow: ellipsis; }
       .item-name { font-size: var(--fs-sm); }
       .item-sku { font-family: var(--font-mono, monospace); font-weight: 600; font-size: 0.7rem; color: var(--text-muted); margin-left: 0.4rem; }
       .tag-no-casado { margin-right: 0.4rem; }
