@@ -1001,3 +1001,30 @@ falta uno nuevo.
     entre 5010/5020 19, anticipo 1050 13, impuesto 13, tasa 4, otro 2.
   - **NO MEDIDO:** los lotes de gasto (sin reglas con cuenta) y los pagos que no se arman solos (a confirmar,
     no cuadran: ~90 al mes).
+- **2026-10-22** — `[CP.8.82]` **Por qué difieren, y las dos correcciones.** Del 89.0 % al **91.1 %**: 817 de
+  897 iguales.
+  - **Notas: el puente nunca emitía devolución.** La fuente pasaba `tipoRelacion: null` siempre; el 91.7 %
+    documentado era de un script que leía el ADD directo. Ahora:
+    1. `TipoRelacion` del XML del CFDI (`fiscal.cfdis.xml`, que llena `[LC.20]`; hoy solo julio);
+    2. si no hay XML, lo que ella usó con ese proveedor en meses **anteriores** (84.4 % contra 81.7 % de
+       «siempre descuento», sobre 1,657 notas);
+    3. si tampoco hay historia, descuento.
+
+    Medido: gana 8, pierde 2. El tipo de documento de Kepler (40/55) se probó y no sirve: liga 69 de 1,657.
+  - **Factura mixta (0 % y 16 %): la base al 16 % sale de `IVA / 0.16`.** Donde las dos bases difieren, ella
+    usa el IVA en 55 de 66 mixtas y la base del CFDI en 326 de 328 no mixtas. Gana 15, pierde 2.
+  - **Diferencias que son de captura, no del puente (para contabilidad):**
+    - **Doble registro:** 39 facturas por **$6,455,514.30**, provisionadas en el diario (abono 2120) y pagadas
+      como compra directa (5010/5020). El gasto queda dos veces y la provisión abierta. Hay 1 sola reversa en
+      2026. 33 de las 39 son pagos del 1 al 10 de abril de facturas de marzo.
+    - **2120 sin provisión:** 4 pagos cargados a 2120 de facturas que nunca se provisionaron.
+
+    A nivel factura, la regla 2120 del puente acierta 4,702 de 4,765 (98.7 %).
+  - **Lo que queda (80):**
+    - nota 19: proveedores que alternan; mejora cuando `[LC.20]` llene el XML;
+    - frontera 22: doble registro y 2120 sin provisión;
+    - anticipo 13: ella aplica parte a 1050;
+    - impuesto 13: 8 son otra liga de facturas o notas;
+    - redondeo 6, tasa 4, otro 3.
+  - **Costo de servidor de la fuente:** CFDI 255 → 331 ms, más 42 ms del historial de notas. Lo absorben la caché
+    de 10 minutos y el precalentado; dentro del pod NO MEDIDO.

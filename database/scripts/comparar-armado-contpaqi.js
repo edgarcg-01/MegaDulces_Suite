@@ -270,7 +270,11 @@ function patron(difs) {
       const tags = patron(difs);
       const p = tags[0];
       patrones[p] = (patrones[p] ?? 0) + 1;
-      detalle.push({ ...fila, resultado: 'difiere', patron: tags.join('+'), real: real.k, uuid_igual: uuidIgual, diferencias: difs });
+      detalle.push({ ...fila, resultado: 'difiere', patron: tags.join('+'), real: real.k, uuid_igual: uuidIgual, diferencias: difs,
+        // Para investigar la causa: qué comprobantes usó cada lado y los renglones completos.
+        uuids: [...nuestros], uuids_real: [...real.uuids],
+        renglones: a.movimientos.map((x) => ({ cuenta: x.cuenta, abono: x.abono, importe: x.importe })),
+        renglones_real: real.renglones });
     }
     for (const k of ['armadas', 'igual', 'difiere', 'agrupada', 'sin_par', 'ambigua', 'placebo']) total[k] += m[k];
     // Lo que el puente NO armó del mes (el techo), por motivo, para no leer la tasa sin su universo.
