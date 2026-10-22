@@ -124,6 +124,8 @@ export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
 export * from './http/replenishment-monthly.contract';
 export * from './http/replenishment-signals.contract';
+// [RA-NEG.1] Costo y negociación de un producto en el desglose de /compras/pedido.
+export * from './http/pedido-negociacion.contract';
 export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
 export * from './http/hr-attendance.contract';
