@@ -36,6 +36,7 @@ import {
   desglose,
   parseCantidad,
   vendedorDelCliente,
+  etiquetaFuentePrecio,
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteBranches,
@@ -45,11 +46,6 @@ import {
 function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
   return it.base_unit === 'KG' && it.rung === 'base';
 }
-import {
-  exportQuotePdf,
-  exportQuoteXlsx,
-  type QuoteDeliverableData,
-} from '../quote-deliverable-export';
 import { totalesCotizacion } from '@megadulces/contracts';
 
 /**
@@ -914,45 +910,33 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 {{ guardando() ? 'Guardando cotización...' : (bandeja().length > 0 ? 'Crear cotización (' + bandeja().length + ' artículos)' : 'Crear cotización en borrador') }}
               </span>
             </button>
+            <!-- [E.29] Excel y PDF CREAN la cotización y descargan el papel desde el detalle, con
+                 folio y con el total que guardó el servidor. Antes generaban el archivo sin
+                 guardar nada: un papel «Folio: SIN ASIGNAR» en manos del cliente, sin registro
+                 detrás, aunque el botón decía «Crear y descargar». -->
             <div class="rail-export">
-              <button
-                pButton
+              <p-button
+                class="btn-export"
+                label="Excel"
+                icon="pi pi-file-excel"
                 severity="success"
                 [outlined]="true"
-                type="button"
-                class="btn-export btn-export-xlsx"
-                [disabled]="bandeja().length === 0 || exportando() || guardando()"
-                (click)="descargarXlsx()"
-                title="Crear y descargar entregable en archivo Excel (.xlsx)"
-              >
-                <span
-                  class="p-button-icon p-button-icon-left pi"
-                  [class.pi-file-excel]="exportandoTipo() !== 'xlsx'"
-                  [class.pi-spin]="exportandoTipo() === 'xlsx'"
-                  [class.pi-spinner]="exportandoTipo() === 'xlsx'"
-                  aria-hidden="true"
-                ></span>
-                <span class="p-button-label">{{ exportandoTipo() === 'xlsx' ? 'Generando...' : 'Excel' }}</span>
-              </button>
-              <button
-                pButton
+                [fluid]="true"
+                [disabled]="!puedeCrear() || guardando()"
+                (onClick)="crear('xlsx')"
+                ariaLabel="Crear la cotización y descargar el Excel"
+              />
+              <p-button
+                class="btn-export"
+                label="PDF"
+                icon="pi pi-file-pdf"
                 severity="danger"
                 [outlined]="true"
-                type="button"
-                class="btn-export btn-export-pdf"
-                [disabled]="bandeja().length === 0 || exportando() || guardando()"
-                (click)="descargarPdf()"
-                title="Crear y descargar entregable formal en archivo PDF"
-              >
-                <span
-                  class="p-button-icon p-button-icon-left pi"
-                  [class.pi-file-pdf]="exportandoTipo() !== 'pdf'"
-                  [class.pi-spin]="exportandoTipo() === 'pdf'"
-                  [class.pi-spinner]="exportandoTipo() === 'pdf'"
-                  aria-hidden="true"
-                ></span>
-                <span class="p-button-label">{{ exportandoTipo() === 'pdf' ? 'Generando...' : 'PDF' }}</span>
-              </button>
+                [fluid]="true"
+                [disabled]="!puedeCrear() || guardando()"
+                (onClick)="crear('pdf')"
+                ariaLabel="Crear la cotización y descargar el PDF"
+              />
             </div>
             <a routerLink="/telemarketing/cotizaciones" class="rail-cancel" [class.is-disabled]="guardando()">Cancelar</a>
           </div>
@@ -1338,8 +1322,6 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return SUCURSALES_8.filter((s) => w === null || w.includes(s.code));
   });
   guardando = signal(false);
-  exportando = signal(false);
-  exportandoTipo = signal<'xlsx' | 'pdf' | null>(null);
 
   // Vendedor que da seguimiento a la cotización
   vendedores = signal<Array<{ code: string; name: string }>>([]);
@@ -2016,7 +1998,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   // ── Guardado Final ──────────────────────────────────────────────────────────
-  crear(): void {
+  crear(descargar?: 'pdf' | 'xlsx'): void {
     if (this.guardando()) return;
 
     if (!this.sucursal()) {
@@ -2105,7 +2087,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           });
           // [E.21] Al detalle de lo GUARDADO, con los precios que puso el servidor (antes iba a la
           // lista y nadie veía si diferían de los de la bandeja).
-          this.router.navigate(['/telemarketing/cotizaciones', quote.id]);
+          this.router.navigate(['/telemarketing/cotizaciones', quote.id], descargar ? { queryParams: { descargar } } : {});
         },
         error: (err) => {
           this.guardando.set(false);
@@ -2138,147 +2120,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   fuenteLabel(s: string): string {
-    const m: Record<string, string> = {
-      list: 'Lista',
-      customer_terms: 'Cliente',
-      volume_qty: 'Volumen',
-      volume_amount: 'Volumen $',
-      promo_qty: 'Promo',
-      promo_amount: 'Promo $',
-      free_goods: 'Regalo',
-    };
-    return m[s] ?? s;
-  }
-
-  // ── Generación de Entregables (XLSX / PDF) ───────────────────────────────────
-  obtenerDatosEntregable(): QuoteDeliverableData {
-    const esMayoreo = this.modo() === 'mayoreo';
-    const cli = this.cliente();
-    const customerCode = esMayoreo ? (cli?.customer_code || null) : null;
-    const customerName = esMayoreo
-      ? (cli?.name || 'CLIENTE')
-      : (this.contactoNombre().trim() || 'PROSPECTO');
-
-    const customerPhone = esMayoreo
-      ? (cli?.phone || null)
-      : (this.contactoTel.trim() || null);
-
-    const customerEmail = esMayoreo
-      ? null
-      : (this.contactoMail.trim() || null);
-
-    const sucursalCod = this.sucursal();
-    const sucursalObj = this.sucursales8.find((s) => s.code === sucursalCod);
-    const branchName = sucursalObj?.name || `Sucursal ${sucursalCod}`;
-
-    const items = this.bandeja().map((it) => ({
-      sku: it.sku || '—',
-      name: it.sku ? it.name : `NO MANEJADO: ${it.requested_text || it.name}`,
-      barcode: it.barcode,
-      content: it.content,
-      unit_label: it.unit_label || '—',
-      rung: it.rung,
-      factor: it.factor,
-      base_unit: it.base_unit,
-      pack_size: it.pack_size,
-      quantity: it.quantity,
-      unit_price: it.unit_price,
-      line_total: it.line_total,
-      iva_rate: it.iva_rate ?? null,
-      ieps_rate: it.ieps_rate ?? null,
-      price_source: this.fuenteLabel(it.price_source),
-      free_goods: it.free_goods,
-      // [E.19] Sin descuento por renglón: el único que el papel aplica es el del cliente, una vez.
-    }));
-
-    return {
-      // Todavía no hay folio: esta cotización no se ha guardado, así que no existe fila que la
-      // respalde. El documento lo IMPRIME ("SIN ASIGNAR") en vez de callarlo — un papel sin
-      // folio y sin aviso no se puede volver a encontrar cuando el cliente lo cita por teléfono.
-      quoteCode: null,
-      customerCode,
-      customerName,
-      customerPhone,
-      customerEmail,
-      branchCode: sucursalCod,
-      branchName,
-      salespersonCode: this.vendedorSeleccionado() || null,
-      salespersonName: this.vendedorSeleccionadoObj()?.name || null,
-      quoteDate: new Date(),
-      validUntil: this.vigencia ? isoLocalDate(this.vigencia) : '',
-      items,
-      discountPct: this.descuentoClientePct() || null,
-      estado: 'borrador',
-      // ⛔ [E.19] Ya no se imprime `listaCruda`: es el mensaje crudo del cliente que pegó el
-      // operador (evidencia interna), y salía en el papel que se le manda al mismo cliente.
-      notes: null,
-    };
-  }
-
-  async descargarXlsx(): Promise<void> {
-    if (this.exportando()) return;
-    if (this.bandeja().length === 0) {
-      this.toast.add({
-        severity: 'warn',
-        summary: 'Bandeja vacía',
-        detail: 'Agrega al menos un artículo a la bandeja para exportar el entregable en Excel.',
-      });
-      return;
-    }
-
-    this.exportando.set(true);
-    this.exportandoTipo.set('xlsx');
-    try {
-      const data = this.obtenerDatosEntregable();
-      await exportQuoteXlsx(data);
-      this.toast.add({
-        severity: 'success',
-        summary: 'Excel generado',
-        detail: 'El archivo .xlsx de la cotización se descargó correctamente.',
-      });
-    } catch (err: any) {
-      this.toast.add({
-        severity: 'error',
-        summary: 'Error al exportar Excel',
-        detail: err?.message || 'Ocurrió un error al generar la hoja de cálculo.',
-      });
-    } finally {
-      this.exportando.set(false);
-      this.exportandoTipo.set(null);
-    }
-  }
-
-  async descargarPdf(): Promise<void> {
-    if (this.exportando()) return;
-    if (this.bandeja().length === 0) {
-      this.toast.add({
-        severity: 'warn',
-        summary: 'Bandeja vacía',
-        detail: 'Agrega al menos un artículo a la bandeja para exportar el entregable en PDF.',
-      });
-      return;
-    }
-
-    this.exportando.set(true);
-    this.exportandoTipo.set('pdf');
-    try {
-      const data = this.obtenerDatosEntregable();
-      await exportQuotePdf(data);
-      this.toast.add({
-        severity: 'success',
-        summary: 'PDF generado',
-        detail: 'El archivo PDF formal de la cotización se descargó correctamente.',
-      });
-    } catch (err: any) {
-      this.toast.add({
-        severity: 'error',
-        summary: 'Error al exportar PDF',
-        detail: err?.message || 'Ocurrió un error al generar el archivo PDF.',
-      });
-    } finally {
-      this.exportando.set(false);
-      this.exportandoTipo.set(null);
-    }
+    return etiquetaFuentePrecio(s);
   }
 }
 

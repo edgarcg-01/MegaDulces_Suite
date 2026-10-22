@@ -173,3 +173,24 @@ export function vendedorDelCliente<V extends { code: string }>(codigo: string | 
   const limpio = raw.replace(/^0+/, '');
   return padron.find((v) => v.code === raw || v.code.replace(/^0+/, '') === limpio) ?? null;
 }
+
+/**
+ * [E.29] Como se lee cada price_source del motor, en UN solo lugar. Antes el alta y el detalle
+ * tenian cada uno su diccionario: la misma cotizacion salia en el Excel como "Promo" o como
+ * "Promo por cantidad" segun la pantalla desde donde se descargara.
+ */
+export const FUENTE_PRECIO: Record<string, string> = {
+  list: 'Lista',
+  customer_terms: 'Condiciones del cliente',
+  volume_qty: 'Volumen',
+  volume_amount: 'Volumen por monto',
+  promo_qty: 'Promo por cantidad',
+  promo_amount: 'Promo por monto',
+  free_goods: 'Regalo del ERP',
+  manual: 'Manual',
+  unknown: 'Sin precio',
+};
+
+export function etiquetaFuentePrecio(s: string | null | undefined): string {
+  return s ? FUENTE_PRECIO[s] ?? s : '';
+}

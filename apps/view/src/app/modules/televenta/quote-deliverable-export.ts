@@ -87,6 +87,12 @@ export interface QuoteDeliverableData {
    */
   discountPct: number | null;
   /**
+   * `[E.29]` Plazo de pago del cliente en esa sucursal (`kdud.c16`), congelado en la cotización
+   * (`terms_payment_days`). La cotización (VEN-001) promete condiciones de pago: se imprimen las
+   * del ERP. null/ausente = sin dato, y entonces no se imprime ninguna (no se inventa «contado»).
+   */
+  paymentDays?: number | null;
+  /**
    * El total que GUARDÓ el servidor. Si viene y la cuenta no lo reproduce al centavo, el papel
    * NO se genera: un entregable con un total distinto al de la base no se le manda a nadie.
    */
@@ -182,21 +188,50 @@ function fechaCorta(d: Date): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 
+/** `[E.29]` Fecha y hora de GENERACIÓN del archivo (distinta de la emisión de la cotización). */
+export function fechaHora(d: Date): string {
+  return `${fechaCorta(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * `[E.29]` La vigencia llega como `AAAA-MM-DD` y se imprimía así, al lado de una emisión en
+ * `dd/mm/aaaa`: dos formatos de fecha en el mismo papel. Se lee en hora LOCAL (con `new Date(iso)`
+ * sería medianoche UTC = el día anterior en México). Lo que no parsea se devuelve tal cual.
+ */
+export function fechaVigencia(validUntil: string | null | undefined): { texto: string; fecha: Date | null } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(validUntil ?? '');
+  if (!m) return { texto: validUntil || 'término indicado', fecha: null };
+  const fecha = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return { texto: fechaCorta(fecha), fecha };
+}
+
+/**
+ * `[E.29]` Identificador de la PLANTILLA (no del documento): con él se sabe con qué reglas de
+ * formato salió un papel que alguien trae impreso. Se sube al cambiar la estructura del papel.
+ */
+export const PLANTILLA_COTIZACION = 'VEN-001 v2';
+
 /** Las condiciones que se imprimen al pie, en orden. */
 export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] {
   const out = [
     'Precios expresados en Moneda Nacional (MXN) con impuestos incluidos.',
     'ESTO ES UNA COTIZACIÓN, NO UNA VENTA. Efectos informativos para el cliente que solicitó la información.',
     'Precios y promociones sujetos a existencias físicas al confirmar su pedido formal.',
-    `Válida hasta el ${data.validUntil || 'término indicado'} en sucursal ${data.branchCode} (${data.branchName}).`,
+    // La sucursal por NOMBRE: el código («01») no le dice nada al cliente.
+    `Válida hasta el ${fechaVigencia(data.validUntil).texto} en ${data.branchName}.`,
   ];
+  if (data.paymentDays !== null && data.paymentDays !== undefined && Number.isFinite(Number(data.paymentDays))) {
+    const d = Number(data.paymentDays);
+    out.push(d > 0 ? `Plazo de pago: ${d} días de crédito.` : 'Plazo de pago: de contado (sin días de crédito).');
+  }
   if (m.totales.sin_precio > 0) {
     out.push(`${m.totales.sin_precio} artículo(s) sin precio: se cotizan aparte y no están en el total.`);
   }
   if (m.totales.impuesto_asumido > 0) {
     out.push(`Impuesto estimado en ${m.totales.impuesto_asumido} artículo(s): IVA 16 % asumido, sin la tasa del producto.`);
   }
-  if (data.notes) out.push(`Nota: ${data.notes.slice(0, 90)}`);
+  // Completa: antes se cortaba a 90 caracteres sin avisar. El PDF la parte en renglones.
+  if (data.notes) out.push(`Nota: ${data.notes}`);
   return out;
 }
 
@@ -445,8 +480,8 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
     doc.setTextColor(...cInk);
   }
   doc.text(`Emisión: ${fechaStr}`, metaBoxX + 8, currentY + 33);
-  doc.text(`Vigencia hasta: ${data.validUntil || '15 días'}`, metaBoxX + 8, currentY + 44);
-  doc.text(`Sucursal: ${data.branchCode} — ${data.branchName.slice(0, 18)}`, metaBoxX + 8, currentY + 55);
+  doc.text(`Vigencia hasta: ${fechaVigencia(data.validUntil).texto}`, metaBoxX + 8, currentY + 44);
+  doc.text(doc.splitTextToSize(`Sucursal: ${data.branchName}`, metaBoxW - 16)[0], metaBoxX + 8, currentY + 55);
 
   // 5. Banner de Aviso / Marca de agua visible
   currentY += 67;
@@ -524,7 +559,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setFontSize(7);
   doc.setTextColor(...cMuted);
   const dtoText = (data.discountPct || 0) > 0 ? `Descuento cliente: ${data.discountPct}% aplicado` : 'Precios netos de lista de mayoreo';
-  doc.text(`Atención: Sucursal ${data.branchCode} — ${data.branchName}`, card2X + 8, currentY + 34);
+  doc.text(`Atención: ${data.branchName}`, card2X + 8, currentY + 34);
   doc.text(dtoText, card2X + 8, currentY + 45);
 
   // 7. Tabla de Artículos con Descuentos y Unidades Menores
@@ -593,41 +628,32 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
       lineColor: [226, 232, 240],
       lineWidth: 0.5,
     },
+    // Sin renglones cebra (DESIGN.md §tablas): el divisor de 1px separa las filas.
     columnStyles,
-    alternateRowStyles: {
-      fillColor: [248, 250, 252],
-    },
     didDrawPage: (_data: any) => {
-      // Marca de agua diagonal en cada página subsiguiente
+      // Marca de agua diagonal en cada página de la tabla. El pie va al final, cuando ya se sabe
+      // cuántas páginas son (antes decía «Pág. 2» sin decir de cuántas).
       drawPdfWatermark(doc, pageWidth, pageHeight);
-
-      // Pie de página en cada hoja
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(...cMuted);
-      doc.text(
-        `${EMPRESA_NOMBRE} · ESTO ES UNA COTIZACIÓN, NO UNA VENTA · EFECTOS INFORMATIVOS`,
-        M,
-        pageHeight - 20,
-      );
-      const pageStr = `Pág. ${doc.getNumberOfPages()}`;
-      doc.text(pageStr, pageWidth - M - doc.getTextWidth(pageStr), pageHeight - 20);
     },
   });
 
   const finalY = (doc as any).lastAutoTable?.finalY ?? currentY + 120;
 
-  // 8. Resumen financiero & Notas
+  // 8. Resumen financiero & Notas. `[E.29]` Cada condición se parte en renglones al ancho de su
+  // recuadro: antes iba en UNA línea y las largas (la nota del cliente, la leyenda) se salían
+  // por encima del recuadro de totales.
+  const notesW = contentWidth - 190;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  const lineasCond = condiciones(data, m).flatMap((t) => doc.splitTextToSize(`• ${t}`, notesW - 16) as string[]);
+  const boxH = Math.max(86, 12 + lineasCond.length * 9 + 11);
   let summaryY = finalY + 10;
-  if (summaryY + 100 > pageHeight - 35) {
+  if (summaryY + boxH > pageHeight - 40) {
     doc.addPage();
+    drawPdfWatermark(doc, pageWidth, pageHeight); // la página del resumen también es cotización
     summaryY = M;
   }
 
-  // Recuadro de términos y condiciones (crece si hay renglones sin precio o nota)
-  const lineasCond = condiciones(data, m);
-  const boxH = Math.max(86, 12 + lineasCond.length * 11 + 9);
-  const notesW = contentWidth - 190;
   doc.setFillColor(...cCardBg);
   doc.setDrawColor(...cRule);
   doc.setLineWidth(1);
@@ -641,7 +667,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(...cMuted);
-  lineasCond.forEach((t, i) => doc.text(`• ${t}`, M + 8, summaryY + 23 + i * 11));
+  lineasCond.forEach((t, i) => doc.text(t, M + 8, summaryY + 23 + i * 9));
 
   // Recuadro de Totales — `[E.19]` importe → descuento del cliente → total, la misma cuenta que
   // el servidor. Antes decía «Subtotal Lista» sobre una base que ya traía el descuento y no el IVA.
@@ -692,6 +718,21 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   const mxnStr = `IVA ${moneyFormat(m.totales.iva)} · IEPS ${moneyFormat(m.totales.ieps)} · MXN`;
   doc.text(mxnStr, totBoxX + totBoxW - 10 - doc.getTextWidth(mxnStr), summaryY + 78);
 
+  // 9. `[E.29]` Pie en TODAS las páginas, con el total ya conocido: folio, cuándo se generó el
+  // archivo (no es la emisión: un papel reimpreso dice cuándo salió) y con qué plantilla.
+  const total = doc.getNumberOfPages();
+  const generado = `Generado ${fechaHora(new Date())} · Plantilla ${PLANTILLA_COTIZACION}`;
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(...cMuted);
+    doc.text(`${EMPRESA_NOMBRE} · Folio ${data.quoteCode || 'SIN ASIGNAR'} · ESTO ES UNA COTIZACIÓN, NO UNA VENTA`, M, pageHeight - 24);
+    doc.text(generado, M, pageHeight - 15);
+    const pageStr = `Página ${p} de ${total}`;
+    doc.text(pageStr, pageWidth - M - doc.getTextWidth(pageStr), pageHeight - 15);
+  }
+
   // Descarga del PDF
   const filename = generateQuoteFilename(data, 'pdf');
   doc.save(filename);
@@ -707,47 +748,39 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   wb.creator = 'Mega Dulces de los Altos';
   wb.created = new Date();
 
+  const headRowIdx = 9;
+  // `[E.29]` Encabezado de la tabla congelado: con 40 renglones, al bajar se perdía qué columna era cuál.
   const ws = wb.addWorksheet('Cotización', {
-    views: [{ showGridLines: true }],
+    views: [{ state: 'frozen', ySplit: headRowIdx, showGridLines: true }],
   });
 
-  // Configuración de encabezados y pies de impresión (marca de agua en impresión)
+  // Configuración de encabezados y pies de impresión (marca de agua en impresión). `[E.29]` El pie
+  // dice cuándo se generó el archivo y con qué plantilla, igual que el PDF.
   ws.headerFooter = {
     oddHeader: '&C&B&9ESTO ES UNA COTIZACION, NO UNA VENTA, EFECTOS INFORMATIVOS PARA EL CLIENTE QUE SOLICITO LA INFORMACION',
-    oddFooter: '&L&8Mega Dulces de los Altos S.A. de C.V.&C&8Documento informativo sujeto a existencias&R&8Página &P de &N',
+    oddFooter: `&L&8Mega Dulces de los Altos S.A. de C.V.&C&8Generado ${fechaHora(new Date())} · Plantilla ${PLANTILLA_COTIZACION}&R&8Página &P de &N`,
   };
 
   const hasDiscount = m.conDescuento;
 
-  // Configuración de columnas
-  if (hasDiscount) {
-    ws.columns = [
-      { key: 'num', width: 6 },
-      { key: 'sku', width: 14 },
-      { key: 'barcode', width: 16 },
-      { key: 'name', width: 40 },
-      { key: 'unit', width: 14 },
-      { key: 'qty', width: 11 },
-      { key: 'dto', width: 13 },
-      { key: 'price', width: 26 },
-      { key: 'total', width: 18 },
-      { key: 'notes', width: 28 },
-    ];
-  } else {
-    ws.columns = [
-      { key: 'num', width: 6 },
-      { key: 'sku', width: 14 },
-      { key: 'barcode', width: 16 },
-      { key: 'name', width: 44 },
-      { key: 'unit', width: 16 },
-      { key: 'qty', width: 12 },
-      { key: 'price', width: 26 },
-      { key: 'total', width: 18 },
-      { key: 'notes', width: 28 },
-    ];
-  }
-
-  const lastColLetter = hasDiscount ? 'J' : 'I';
+  // `[E.29]` El precio unitario es un NÚMERO (se puede sumar y filtrar); el desglose «(12 PAQ
+  // 80.82)», que antes iba pegado al precio como texto, tiene su propia columna.
+  const columnas = [
+    { key: 'num', width: 6 },
+    { key: 'sku', width: 12 },
+    { key: 'barcode', width: 16 },
+    { key: 'name', width: hasDiscount ? 38 : 42 },
+    { key: 'unit', width: 13 },
+    { key: 'qty', width: 10 },
+    ...(hasDiscount ? [{ key: 'dto', width: 11 }] : []),
+    { key: 'price', width: 15 },
+    { key: 'desglose', width: 26 },
+    { key: 'total', width: 16 },
+    { key: 'notes', width: 26 },
+  ];
+  ws.columns = columnas;
+  const colLetra = (key: string): string => String.fromCharCode(65 + columnas.findIndex((c) => c.key === key));
+  const lastColLetter = colLetra('notes');
 
   // 1. Título Corporativo
   ws.mergeCells(`A1:${lastColLetter}1`);
@@ -785,8 +818,8 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell('B5').value = data.customerCode ? `[${data.customerCode}] ${data.customerName}` : data.customerName;
   ws.getCell('B5').font = { size: 9 };
 
-  const rightMetaCol = hasDiscount ? 'H' : 'G';
-  const rightValCol = hasDiscount ? 'I' : 'H';
+  const rightMetaCol = colLetra('price');
+  const rightValCol = colLetra('desglose');
 
   // Folio arriba de la fecha, y declarado cuando falta (mismo criterio que el PDF).
   ws.getCell('A4').value = 'Folio:';
@@ -809,12 +842,15 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   ws.getCell(`${rightMetaCol}6`).value = 'Vigencia Hasta:';
   ws.getCell(`${rightMetaCol}6`).font = { bold: true, size: 9 };
-  ws.getCell(`${rightValCol}6`).value = data.validUntil || '15 días';
+  // [E.29] Fecha de verdad (se ordena y se filtra), no el texto AAAA-MM-DD.
+  const vig = fechaVigencia(data.validUntil);
+  ws.getCell(`${rightValCol}6`).value = vig.fecha ?? vig.texto;
+  if (vig.fecha) ws.getCell(`${rightValCol}6`).numFmt = 'dd/mm/yyyy';
   ws.getCell(`${rightValCol}6`).font = { size: 9 };
 
   ws.getCell('A7').value = 'Sucursal:';
   ws.getCell('A7').font = { bold: true, size: 9 };
-  ws.getCell('B7').value = `Sucursal ${data.branchCode} — ${data.branchName}`;
+  ws.getCell('B7').value = data.branchName;
   ws.getCell('B7').font = { size: 9 };
 
   ws.getCell(`${rightMetaCol}7`).value = 'Asesor Venta:';
@@ -823,40 +859,27 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`${rightValCol}7`).font = { size: 9 };
 
   // 4. Encabezados de tabla
-  const headRowIdx = 9;
+  const titulos: Record<string, string> = {
+    num: '#',
+    sku: 'SKU',
+    barcode: 'Código Barras',
+    name: 'Descripción del Artículo',
+    unit: 'Presentación',
+    qty: 'Cantidad',
+    dto: 'Descuento',
+    price: hasDiscount ? 'P. Unitario Neto' : 'P. Unitario',
+    desglose: 'Precio por unidad menor',
+    total: hasDiscount ? 'Importe Neto' : 'Importe',
+    notes: 'Observaciones / Promociones',
+  };
   const headRow = ws.getRow(headRowIdx);
-  if (hasDiscount) {
-    headRow.values = [
-      '#',
-      'SKU',
-      'Código Barras',
-      'Descripción del Artículo',
-      'Presentación',
-      'Cantidad',
-      'Descuento',
-      'P. Unitario Neto',
-      'Importe Neto',
-      'Observaciones / Promociones',
-    ];
-  } else {
-    headRow.values = [
-      '#',
-      'SKU',
-      'Código Barras',
-      'Descripción del Artículo',
-      'Presentación',
-      'Cantidad',
-      'P. Unitario',
-      'Importe Total',
-      'Observaciones / Promociones',
-    ];
-  }
+  headRow.values = columnas.map((c) => titulos[c.key]);
 
   headRow.height = 22;
   headRow.eachCell((cell: any) => {
     cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
       bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
@@ -865,95 +888,73 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     };
   });
 
-  // 5. Filas de productos
-  let rowIdx = 10;
-  m.filas.forEach((f, idx) => {
+  // 5. Filas de productos. `[E.29]` Cada celda con su TIPO: cantidad, %, precio e importe son
+  // números (antes el precio y el % eran texto, «$969.84 (12 PAQ 80.82)» y «3%»: no se podían
+  // sumar ni filtrar). Lo que no tiene precio deja la celda vacía y lo dice en «Precio por unidad
+  // menor»: un texto en una columna de importes rompe la suma del cliente. Sin renglones cebra.
+  let rowIdx = headRowIdx + 1;
+  for (const f of m.filas) {
     const it = f.item;
+    const conPrecio = f.tipo === 'precio' && f.unitario !== null;
+    const factor = getFactor(it);
+    const desgloseTxt = f.tipo === 'regalo' ? 'Regalo'
+      : !conPrecio ? 'Sin precio'
+      : isUnidadMayor(it) && factor && factor > 1
+        ? etiquetaDesglose(factor, it.base_unit, (f.unitario as number) / factor, it.pack_size)
+        : '';
+    const valores: Record<string, unknown> = {
+      num: f.n,
+      sku: it.sku,
+      barcode: it.barcode || '',
+      name: it.name + (it.content ? ` (${it.content})` : ''),
+      unit: it.unit_label,
+      qty: it.quantity,
+      dto: f.tipo === 'precio' && m.totales.descuento_pct !== null ? m.totales.descuento_pct / 100 : null,
+      price: conPrecio ? f.unitario : null,
+      desglose: desgloseTxt,
+      // El regalo es un cero REAL; lo sin precio queda vacío (no es cero, ADR-056).
+      total: f.tipo === 'regalo' ? 0 : f.importe,
+      notes: it.free_goods ? `Regalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : (it.price_source || ''),
+    };
     const row = ws.getRow(rowIdx);
-    const obs = it.free_goods ? `Regalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : (it.price_source || '');
-    // El importe va como NÚMERO cuando hay precio (el cliente lo suma) y como texto cuando no.
-    const importeCelda = f.importe !== null ? f.importe : etiquetaImporte(f);
+    row.values = columnas.map((c) => valores[c.key] ?? null);
 
+    const celda = (key: string): any => row.getCell(columnas.findIndex((c) => c.key === key) + 1);
+    celda('num').alignment = { horizontal: 'center' };
+    celda('sku').alignment = { horizontal: 'center' };
+    celda('sku').font = { bold: true };
+    celda('barcode').alignment = { horizontal: 'center' };
+    celda('unit').alignment = { horizontal: 'center' };
+    celda('qty').alignment = { horizontal: 'right' };
+    // Con decimales sólo si los hay: «#,##0» mostraba 2.5 kg como 3.
+    celda('qty').numFmt = '#,##0.###';
     if (hasDiscount) {
-      row.values = [
-        f.n,
-        it.sku,
-        it.barcode || '',
-        it.name + (it.content ? ` (${it.content})` : ''),
-        it.unit_label,
-        it.quantity,
-        f.tipo === 'precio' ? `${m.totales.descuento_pct}%` : '—',
-        etiquetaUnitario(f),
-        importeCelda,
-        obs,
-      ];
-
-      row.getCell(1).alignment = { horizontal: 'center' };
-      row.getCell(2).alignment = { horizontal: 'center' };
-      row.getCell(2).font = { bold: true };
-      row.getCell(3).alignment = { horizontal: 'center' };
-      row.getCell(4).alignment = { horizontal: 'left' };
-      row.getCell(5).alignment = { horizontal: 'center' };
-      row.getCell(6).alignment = { horizontal: 'right' };
-      row.getCell(6).numFmt = '#,##0';
-      row.getCell(7).alignment = { horizontal: 'center' };
-      row.getCell(7).font = { bold: true, color: { argb: 'FF16A34A' } };
-      row.getCell(8).alignment = { horizontal: 'right' };
-      row.getCell(8).font = { bold: true };
-      row.getCell(9).alignment = { horizontal: 'right' };
-      row.getCell(9).numFmt = '$#,##0.00';
-      row.getCell(9).font = { bold: true, color: { argb: 'FF0F766E' } };
-    } else {
-      row.values = [
-        f.n,
-        it.sku,
-        it.barcode || '',
-        it.name + (it.content ? ` (${it.content})` : ''),
-        it.unit_label,
-        it.quantity,
-        etiquetaUnitario(f),
-        importeCelda,
-        obs,
-      ];
-
-      row.getCell(1).alignment = { horizontal: 'center' };
-      row.getCell(2).alignment = { horizontal: 'center' };
-      row.getCell(2).font = { bold: true };
-      row.getCell(3).alignment = { horizontal: 'center' };
-      row.getCell(4).alignment = { horizontal: 'left' };
-      row.getCell(5).alignment = { horizontal: 'center' };
-      row.getCell(6).alignment = { horizontal: 'right' };
-      row.getCell(6).numFmt = '#,##0';
-      row.getCell(7).alignment = { horizontal: 'right' };
-      row.getCell(7).font = { bold: true };
-      row.getCell(8).alignment = { horizontal: 'right' };
-      row.getCell(8).numFmt = '$#,##0.00';
-      row.getCell(8).font = { bold: true, color: { argb: 'FF0F766E' } };
+      celda('dto').alignment = { horizontal: 'center' };
+      celda('dto').numFmt = '0.##%';
     }
+    celda('price').alignment = { horizontal: 'right' };
+    celda('price').numFmt = '$#,##0.00';
+    celda('price').font = { bold: true };
+    celda('desglose').font = { size: 8, color: { argb: 'FF64748B' } };
+    celda('total').alignment = { horizontal: 'right' };
+    celda('total').numFmt = '$#,##0.00';
+    celda('total').font = { bold: true };
 
-    // Zebra striping
-    if (idx % 2 === 1) {
-      row.eachCell((cell: any) => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
-      });
-    }
-
-    row.eachCell((cell: any) => {
+    row.eachCell({ includeEmpty: true }, (cell: any) => {
       cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
         bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-        right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
       };
     });
 
     rowIdx++;
-  });
+  }
+  // `[E.29]` Filtros en el encabezado: el cliente busca por presentación, por SKU o por marca.
+  ws.autoFilter = { from: { row: headRowIdx, column: 1 }, to: { row: rowIdx - 1, column: columnas.length } };
 
   // 6. Totales
   rowIdx++;
-  const labelCol = hasDiscount ? 'H' : 'G';
-  const valCol = hasDiscount ? 'I' : 'H';
+  const labelCol = colLetra('desglose');
+  const valCol = colLetra('total');
 
   // `[E.19]` importe → descuento del cliente → total: la misma cuenta que el servidor.
   ws.getCell(`${labelCol}${rowIdx}`).value = 'Importe de los artículos:';

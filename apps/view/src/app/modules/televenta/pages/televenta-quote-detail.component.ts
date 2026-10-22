@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -23,6 +23,7 @@ import {
   paqueteDeCaja,
   desglose,
   parseCantidad,
+  etiquetaFuentePrecio,
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteCheck,
@@ -67,19 +68,6 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
   { rung: 'pack', label: 'Paquete' },
   { rung: 'box', label: 'Caja' },
 ];
-
-/** Como se lee cada `price_source` del motor. El precio tiene que ser explicable. */
-const FUENTE_LABEL: Record<string, string> = {
-  list: 'Lista',
-  customer_terms: 'Condiciones del cliente',
-  volume_qty: 'Volumen',
-  volume_amount: 'Volumen por monto',
-  promo_qty: 'Promo por cantidad',
-  promo_amount: 'Promo por monto',
-  free_goods: 'Regalo del ERP',
-  manual: 'Manual',
-  unknown: 'Sin precio',
-};
 
 const FUENTE_TONO: Record<string, 'success' | 'info' | 'warn' | 'danger' | 'secondary'> = {
   list: 'secondary',
@@ -1090,6 +1078,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  /** [E.29] El alta pide el papel al crear (?descargar=pdf|xlsx): se descarga UNA vez, ya con folio. */
+  private descargarAlCargar: 'pdf' | 'xlsx' | null = null;
 
   readonly peldanos = PELDANOS;
 
@@ -1167,6 +1158,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
 
   ngOnInit(): void {
     this.id = this.route.snapshot.paramMap.get('id') || '';
+    const pedido = this.route.snapshot.queryParamMap.get('descargar');
+    this.descargarAlCargar = pedido === 'pdf' || pedido === 'xlsx' ? pedido : null;
     this.previa$
       .pipe(
         debounceTime(300),
@@ -1254,6 +1247,13 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.error.set(null);
         this.revisar();
         this.cargando.set(false);
+        const pedido = this.descargarAlCargar;
+        if (pedido) {
+          this.descargarAlCargar = null;
+          // Fuera de la URL: recargar la página no vuelve a descargar.
+          this.router.navigate([], { relativeTo: this.route, queryParams: { descargar: null }, queryParamsHandling: 'merge', replaceUrl: true });
+          void (pedido === 'pdf' ? this.descargarPdf() : this.descargarXlsx());
+        }
       },
       error: (err) => {
         this.cargando.set(false);
@@ -1591,7 +1591,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     return n === null ? '—' : n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
   }
 
-  fuenteLabel(s: string): string { return FUENTE_LABEL[s] ?? s; }
+  fuenteLabel(s: string): string { return etiquetaFuentePrecio(s); }
   fuenteTono(s: string): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
     return FUENTE_TONO[s] ?? 'secondary';
   }
@@ -1687,6 +1687,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       validUntil: q.valid_until,
       items,
       discountPct: this.num(q.terms_discount_pct),
+      paymentDays: this.num(q.terms_payment_days),
       totalGuardado: this.num(q.total),
       estado,
       // Notas PARA EL CLIENTE. ⛔ No `customer_request`: es el mensaje crudo que pegó el operador.
