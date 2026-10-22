@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   MiCierreService, esMes, RESULTADOS,
-  type RespuestaMiCierre, type RegistrarResultadoDto,
+  type RespuestaMiCierre, type RegistrarResultadoDto, type PolizasMiCierre,
 } from './mi-cierre.service';
 
 /**
@@ -40,6 +40,21 @@ export class MiCierreController {
   @ApiQuery({ name: 'mes', required: false, description: 'YYYY-MM. Por omisión, el mes en curso.' })
   async bandeja(@Query('mes') mes?: string): Promise<RespuestaMiCierre> {
     return this.svc.bandeja(esMes(mes) ? mes : undefined);
+  }
+
+  /** `[LC.21]` El desglose de un renglón de la bandeja: las pólizas de una familia en un mes. */
+  @Get('polizas')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiOperation({ summary: 'Pólizas de una familia de la bandeja en un mes, con sus renglones y cargos' })
+  @ApiQuery({ name: 'mes', required: true, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'familia', required: true })
+  @ApiQuery({ name: 'page', required: false })
+  async polizas(
+    @Query('mes') mes: string,
+    @Query('familia') familia: string,
+    @Query('page') page?: string,
+  ): Promise<PolizasMiCierre> {
+    return this.svc.polizas({ mes, familia, page: page ? Number(page) : 1 });
   }
 
   /**

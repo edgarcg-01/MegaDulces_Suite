@@ -4,8 +4,8 @@ import { join } from 'node:path';
 // (`[ID.28]`). Importarlo de ahí compila y deja `AUTHZ_TREE` en `undefined`, con lo que la
 // búsqueda devuelve `null` y el candado parece decir "el nodo no existe".
 import { AUTHZ_TREE } from '@megadulces/contracts/authz/authz-tree';
-import { faltantesDe, peorDeCerrados, soloCerrados, textoEstado } from './contabilidad-cierre.component';
-import type { MesCierre, EstadoCierre, FamiliaCierre } from '../cierre-contable.service';
+import { difiereDelSemaforo, faltantesDe, peorDeCerrados, soloCerrados, textoEstado } from './contabilidad-cierre.component';
+import type { MesCierre, EstadoCierre, FamiliaCierre, RenglonesCierre } from '../cierre-contable.service';
 
 /**
  * `[CPA.0]` — Candado del **semáforo de cierre** del lado de la pantalla.
@@ -166,5 +166,36 @@ describe('[CPA.0] las dos ausencias se leen distinto', () => {
 
   it('⛔ `sin_meta` y `sin_medir` NO dicen lo mismo: se arreglan por caminos distintos', () => {
     expect(textoEstado('sin_meta')).not.toBe(textoEstado('sin_medir'));
+  });
+});
+
+describe('[LC.21] el desglose y el semáforo no se eligen en silencio', () => {
+  const r = (importe: number, renglones: number, semaforo: RenglonesCierre['semaforo'], provisional = false): RenglonesCierre => ({
+    mes: '2026-09', familia: 'compras', etiqueta: 'Compras del mes', filtro: 'abonos 2120*', provisional,
+    page: 1, page_size: 100, renglones, importe, semaforo, filas: [],
+  });
+
+  it('si coinciden al centavo, no dice nada', () => {
+    expect(difiereDelSemaforo(r(26876350.42, 204, { importe: 26876350.42, renglones: 204 }))).toBeNull();
+  });
+
+  it('⛔ si ContPAQi cambió después del recálculo, dice las DOS cifras', () => {
+    const d = difiereDelSemaforo(r(26900000, 205, { importe: 26876350.42, renglones: 204 }));
+    expect(d).toMatch(/204 renglones/);
+    expect(d).toMatch(/205/);
+    expect(d).toMatch(/15 min/);
+  });
+
+  it('⛔ también cuando sólo cambió el número de renglones (mismo importe)', () => {
+    expect(difiereDelSemaforo(r(100, 3, { importe: 100, renglones: 2 }))).not.toBeNull();
+  });
+
+  it('lo fechado adelante compara sólo el importe (el semáforo no cuenta esos renglones)', () => {
+    expect(difiereDelSemaforo(r(500, 7, { importe: 500, renglones: null }, true))).toBeNull();
+    expect(difiereDelSemaforo(r(600, 7, { importe: 500, renglones: null }, true))).not.toMatch(/renglones/);
+  });
+
+  it('sin celda en el semáforo no hay con qué comparar: null, no un aviso falso', () => {
+    expect(difiereDelSemaforo(r(0, 0, null))).toBeNull();
   });
 });

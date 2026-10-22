@@ -1,7 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { ContpaqiCierreService, type RespuestaCierre } from './contpaqi-cierre.service';
+import { ContpaqiCierreService, type RenglonesCierre, type RespuestaCierre } from './contpaqi-cierre.service';
 
 /**
  * `[CPA.0]` — **El semáforo de cierre contable.**
@@ -49,6 +49,23 @@ export class ContpaqiCierreController {
       desde: esMes(desde) ? desde : undefined,
       hasta: esMes(hasta) ? hasta : undefined,
     });
+  }
+
+  /** `[LC.21]` El desglose de una celda del semáforo: los renglones de una familia en un mes. */
+  @Get('cierre/renglones')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiOperation({ summary: 'Renglones de póliza de una familia del semáforo en un mes (lo asentado, o lo fechado adelante con provisional=true)' })
+  @ApiQuery({ name: 'mes', required: true, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'familia', required: true, description: 'compras | ventas | bancos | gastos | nomina' })
+  @ApiQuery({ name: 'provisional', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  getRenglones(
+    @Query('mes') mes: string,
+    @Query('familia') familia: string,
+    @Query('provisional') provisional?: string,
+    @Query('page') page?: string,
+  ): Promise<RenglonesCierre> {
+    return this.cierre.renglones({ mes, familia, provisional: provisional === 'true', page: page ? Number(page) : 1 });
   }
 }
 

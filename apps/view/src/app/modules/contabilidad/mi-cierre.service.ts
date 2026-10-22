@@ -34,6 +34,27 @@ export class MiCierreService {
     return this.http.post<{ actualizadas: number; estado: string; verificada: boolean | null }>(
       `${this.base}/${encodeURIComponent(eventoTipo)}/${encodeURIComponent(periodo)}/resultado`, body);
   }
+
+  /** `[LC.21]` Las pólizas detrás de un renglón de la bandeja. */
+  polizas(mes: string, familia: string, page = 1): Observable<PolizasMiCierre> {
+    return this.http.get<PolizasMiCierre>(
+      `${this.base}/polizas?mes=${encodeURIComponent(mes)}&familia=${encodeURIComponent(familia)}&page=${page}`);
+  }
+}
+
+/** `[LC.21]` Las pólizas de una familia en un mes; cada una abre su detalle en /contabilidad/polizas/detail. */
+export interface PolizasMiCierre {
+  mes: string;
+  familia: string;
+  page: number;
+  page_size: number;
+  polizas: number;
+  renglones: number;
+  cargos: number;
+  filas: {
+    ejercicio: number; periodo: number; tipo_pol: string; folio: string; sucursal: string | null;
+    fecha: string | null; concepto: string | null; renglones: number; cargos: number;
+  }[];
 }
 
 /** Tres resultados, no dos: «se cargó sin afectar» es un desenlace real del importador. */

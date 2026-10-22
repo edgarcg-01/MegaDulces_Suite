@@ -1349,11 +1349,40 @@ cuadran con sus renglones, ⛔ negativa: una cuenta con balanza y sin renglones 
 (1050000070, jul: $265,341), los 3 bancos más grandes y un mes por flujo al centavo, los CFDI de 12
 proveedores = su renglón, y entradas malas rechazadas antes del SQL.
 
+### Oleada 2 · Cierre contable y Mi cierre (2026-10-22)
+
+Las dos pantallas contaban renglones que nunca se podían ver.
+
+- **Cierre contable:** «Asentado $X · N renglones» de cada familia y mes abre **esos renglones de
+  póliza** (`GET contabilidad/contpaqi/cierre/renglones`, nuevo); «+ $X fechado adelante — no cuenta»
+  abre **lo provisional** (pólizas con fecha posterior a hoy). Con 0 renglones no hay botón: no hay
+  nada que abrir. El panel trae además la cifra del **semáforo** (la matvista, recalculada @15 min) y,
+  si ContPAQi cambió después del recálculo, **dice las dos cifras** en vez de elegir una en silencio
+  (`difiereDelSemaforo`, pura, con su spec).
+- **Mi cierre:** el conteo de «Renglones» de cada familia abre **las pólizas que lo forman**
+  (`GET contabilidad/mi-cierre/polizas`, nuevo, clasificadas por concepto igual que la bandeja), y cada
+  póliza abre **sus renglones** con el detalle que ya existía (`GET contabilidad/polizas/detail`).
+- ⚠️ **Las dos clasificaciones son copia de su vista** (`v_contpaqi_cierre_mensual`,
+  `v_contpaqi_captura_mensual`), porque una vista que agrega no puede listar. Lo que impide que se
+  separen son las pruebas, y las dos se rompieron a propósito: quitarle `cargo_abono = 'A'` a compras
+  pone 5 celdas en rojo; cambiar `'NOM %'` por `'NOMX %'` pone 8 en rojo (nómina cae a «otros»).
+
+**Pruebas (prod, sólo lectura):**
+- `test-newdb-cierre-desglose.js` **8 ✓**: 25 de 25 celdas (5 meses × 5 familias) = la vista al
+  centavo; lo fechado adelante = `provisional` (bancos, nómina, ventas de oct); 10 de 10 celdas cerradas
+  = la matvista; la paginación recorre 155 renglones; entradas malas rechazadas.
+- `test-newdb-mi-cierre-desglose.js` **5 ✓**: 40 de 40 celdas (4 meses × 10 familias) = la vista en
+  pólizas, renglones y cargos; las familias de oct suman el mes (648 pólizas / 5,512 renglones); la
+  paginación recorre 119 pólizas; **12 de 12 pólizas abren su detalle** con los renglones que dice la
+  lista.
+- `cierre-contable.spec.ts` 21/21 · `check:pantalla contabilidad` 0 nuevas.
+
+⚠️ **Sin validación visual:** no se levantó la pantalla. Lo más probable de ajustar es el ancho del
+botón «Asentado» dentro de la celda alineada a la derecha.
+
 ### Oleadas siguientes (⬜)
-- **2 (resto) — los movimientos contables:**
-  ContPAQi (bancos «Movs», balanza cargos/abonos → renglones), puente (pasos 1/3/4 abren un superconjunto;
-  el peek del lote cuenta y no lista), cierre / mi-cierre (los «N renglones» por familia nunca se
-  listan; el enlace va al puente sin mes ni familia). Varios piden **endpoint** de renglones.
+- **2 (resto) — el puente:** pasos 1/3/4 abren un superconjunto; el peek del lote cuenta y no lista.
+  El enlace de «Mi cierre» al puente sigue sin mes ni familia.
 - **3 — los fiscales:** DIOT, impuestos (IVA trasladado/acreditable → los CFDI), CFDI, conciliación,
   listas SAT, materialidad, diagnóstico, e-contab, descarga, facturar.
 

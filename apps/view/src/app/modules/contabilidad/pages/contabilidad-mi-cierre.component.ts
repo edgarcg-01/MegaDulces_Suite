@@ -3,10 +3,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import {
-  MiCierreService, type MiCierreResp, type FilaBandeja, type EstadoBandeja,
+  MiCierreService, type MiCierreResp, type FilaBandeja, type EstadoBandeja, type PolizasMiCierre,
 } from '../mi-cierre.service';
 import { CierreContableService, type CierreResp } from '../cierre-contable.service';
+import { PolizasService, type PolizaDetail } from '../polizas.service';
 
 /**
  * `[CPA.10]` — **La bandeja «Mi cierre»**, la portada nueva de `/contabilidad`.
@@ -39,7 +41,7 @@ import { CierreContableService, type CierreResp } from '../cierre-contable.servi
 @Component({
   selector: 'app-contabilidad-mi-cierre',
   standalone: true,
-  imports: [CommonModule, RouterLink, FreshnessPillComponent],
+  imports: [CommonModule, RouterLink, FreshnessPillComponent, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in mc-page">
@@ -171,7 +173,15 @@ import { CierreContableService, type CierreResp } from '../cierre-contable.servi
                         <span class="mc-fam">{{ f.etiqueta }}</span>
                         @if (f.motivo) { <span class="mc-motivo">{{ f.motivo }}</span> }
                       </td>
-                      <td class="num mono">{{ f.renglones | number }}</td>
+                      <td class="num mono">
+                        <!-- LC.21: el conteo abre las pólizas que lo forman. -->
+                        @if (f.renglones > 0) {
+                          <button type="button" class="mc-drill mono" (click)="abrirPolizas(f)"
+                                  [attr.aria-label]="'Ver las pólizas de ' + f.etiqueta + ' (' + f.renglones + ' renglones)'">
+                            {{ f.renglones | number }}
+                          </button>
+                        } @else { {{ f.renglones | number }} }
+                      </td>
                       <td class="num mono">
                         @if (f.cargos > 0) { {{ f.cargos | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                         @else { <span class="mc-na">&mdash;</span> }
@@ -210,6 +220,72 @@ import { CierreContableService, type CierreResp } from '../cierre-contable.servi
             </table>
           </div>
         </section>
+
+        <!-- LC.21: las pólizas de un renglón de la bandeja, y los renglones de cada póliza. -->
+        <app-side-peek [open]="!!panel()" (openChange)="cerrarPanel($event)" [width]="760"
+                       [title]="tituloPanel()" [subtitle]="subtituloPanel()">
+          @if (cargandoPanel() && !polizasPanel() && !detalle()) { <p class="mc-note muted">Cargando…</p> }
+          @if (errorPanel(); as e) { <p class="mc-note mc-bad" role="alert">No se pudo cargar el detalle: {{ e }}</p> }
+          @if (detalle(); as d) {
+            <button type="button" class="mc-link" (click)="detalle.set(null)">‹ Volver a las pólizas</button>
+            @if (d.header; as h) {
+              <p class="mc-note">
+                <strong>{{ tipoPoliza(h.tipo_pol) }} {{ h.folio }}</strong> · {{ h.fecha ? (h.fecha | slice:0:10) : '—' }} · {{ h.concepto || 'sin concepto' }}
+                <br>{{ d.lines.length }} renglones · cargos <span class="mono">{{ h.cargos | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                · abonos <span class="mono">{{ h.abonos | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                @if (!h.cuadra) { · <span class="mc-bad">descuadra por <span class="mono">{{ h.neto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></span> }
+              </p>
+            } @else {
+              <p class="mc-note mc-bad">La póliza ya no está en la copia de ContPAQi (se borró o se renumeró después del último corte).</p>
+            }
+            <div class="mc-scroll">
+              <table class="mc-tbl mc-tbl-peek">
+                <thead><tr><th scope="col">#</th><th scope="col">Cuenta</th><th scope="col" class="num">Cargo</th><th scope="col" class="num">Abono</th><th scope="col">Referencia</th></tr></thead>
+                <tbody>
+                  @for (l of d.lines; track l.num_movto) {
+                    <tr>
+                      <td class="mono">{{ l.num_movto }}</td>
+                      <td><span class="mono">{{ l.cuenta }}</span>@if (l.cuenta_nombre) { <span class="mc-motivo">{{ l.cuenta_nombre }}</span> }</td>
+                      <td class="num mono">{{ l.cargo_abono === 'C' ? (l.importe | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+                      <td class="num mono">{{ l.cargo_abono === 'A' ? (l.importe | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+                      <td class="mc-motivo">{{ l.referencia || '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else if (polizasPanel(); as p) {
+            <p class="mc-note">
+              <strong class="mono">{{ p.polizas | number }}</strong> pólizas ·
+              <strong class="mono">{{ p.renglones | number }}</strong> renglones ·
+              cargos <strong class="mono">{{ p.cargos | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>.
+              Se clasifican por el concepto de la póliza; abrí una para ver sus renglones.
+            </p>
+            <div class="mc-scroll">
+              <table class="mc-tbl mc-tbl-peek">
+                <thead><tr><th scope="col">Póliza</th><th scope="col">Fecha</th><th scope="col">Concepto</th><th scope="col" class="num">Renglones</th><th scope="col" class="num">Cargos</th></tr></thead>
+                <tbody>
+                  @for (x of p.filas; track x.ejercicio + '-' + x.periodo + '-' + x.tipo_pol + '-' + x.folio + '-' + x.sucursal) {
+                    <tr>
+                      <td><button type="button" class="mc-link mono" (click)="abrirPoliza(x)"
+                                  [attr.aria-label]="'Ver los renglones de la póliza ' + tipoPoliza(x.tipo_pol) + ' ' + x.folio">{{ tipoPoliza(x.tipo_pol) }} {{ x.folio }}</button></td>
+                      <td class="mono">{{ x.fecha || '—' }}</td>
+                      <td class="mc-motivo">{{ x.concepto || '—' }}</td>
+                      <td class="num mono">{{ x.renglones | number }}</td>
+                      <td class="num mono">{{ x.cargos | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            @if (p.filas.length < p.polizas) {
+              <p class="mc-note muted">
+                Mostrando {{ p.filas.length | number }} de {{ p.polizas | number }}
+                <button type="button" class="mc-link" [disabled]="cargandoPanel()" (click)="masPolizas()">Cargar más</button>
+              </p>
+            }
+          }
+        </app-side-peek>
 
         <!-- Las 16 pesta&ntilde;as, demotadas a detalle -->
         <section class="mc-card mc-chips">
@@ -328,6 +404,15 @@ import { CierreContableService, type CierreResp } from '../cierre-contable.servi
     .mc-btn.warn { border-color: var(--warn-border); color: var(--warn-soft-fg); }
     .mc-btn.bad { border-color: var(--bad-border); color: var(--bad-soft-fg); }
 
+    .mc-drill, .mc-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+      text-decoration: underline dotted; text-underline-offset: 3px; }
+    .mc-drill:hover, .mc-link:hover { text-decoration: underline; }
+    .mc-drill:focus-visible, .mc-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .mc-note { margin: 0 0 .6rem; font-size: var(--fs-sm); line-height: 1.45; }
+    .mc-bad { color: var(--bad-fg); }
+    .mc-tbl-peek { min-width: 0; }
+    .mc-tbl-peek td { height: auto; padding: .35rem .6rem; }
+
     .mc-chips { padding: .8rem .9rem; }
     .mc-chip-row { display: flex; flex-wrap: wrap; gap: .4rem; }
     .mc-chip { display: inline-flex; align-items: center; height: 28px; padding: 0 .65rem;
@@ -344,6 +429,7 @@ import { CierreContableService, type CierreResp } from '../cierre-contable.servi
 export class ContabilidadMiCierreComponent implements OnInit {
   private readonly svc = inject(MiCierreService);
   private readonly semaforo = inject(CierreContableService);
+  private readonly polizasApi = inject(PolizasService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly loading = signal(true);
@@ -416,8 +502,64 @@ export class ContabilidadMiCierreComponent implements OnInit {
 
   cambiarMes(ev: Event): void {
     this.mes.set((ev.target as HTMLSelectElement).value);
+    this.cerrarPanel(false);
     this.cargar();
   }
+
+  // ── LC.21: el desglose de un renglón de la bandeja ──
+  readonly panel = signal<{ familia: string; etiqueta: string; mes: string } | null>(null);
+  readonly polizasPanel = signal<PolizasMiCierre | null>(null);
+  readonly detalle = signal<PolizaDetail | null>(null);
+  readonly cargandoPanel = signal(false);
+  readonly errorPanel = signal<string | null>(null);
+  readonly tituloPanel = computed(() => { const p = this.panel(); return p ? `${p.etiqueta} · ${p.mes}` : ''; });
+  readonly subtituloPanel = computed(() => (this.detalle() ? 'Renglones de la póliza' : 'Pólizas de ContPAQi de esta familia'));
+  private paginaPolizas = 1;
+
+  abrirPolizas(f: FilaBandeja): void {
+    this.panel.set({ familia: f.familia, etiqueta: f.etiqueta, mes: this.mes() });
+    this.polizasPanel.set(null);
+    this.detalle.set(null);
+    this.paginaPolizas = 1;
+    this.traerPolizas();
+  }
+
+  masPolizas(): void { this.paginaPolizas += 1; this.traerPolizas(); }
+
+  cerrarPanel(abierto: boolean): void {
+    if (!abierto) { this.panel.set(null); this.polizasPanel.set(null); this.detalle.set(null); this.errorPanel.set(null); }
+  }
+
+  private traerPolizas(): void {
+    const p = this.panel();
+    if (!p) return;
+    this.cargandoPanel.set(true);
+    this.errorPanel.set(null);
+    this.svc.polizas(p.mes, p.familia, this.paginaPolizas).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        // Una respuesta que llega tras cambiar de renglón no se mezcla con el nuevo.
+        const actual = this.panel();
+        if (!actual || actual.mes !== r.mes || actual.familia !== r.familia) return;
+        const prev = this.polizasPanel();
+        this.polizasPanel.set(r.page > 1 && prev ? { ...r, filas: [...prev.filas, ...r.filas] } : r);
+        this.cargandoPanel.set(false);
+      },
+      error: (e) => { this.errorPanel.set(e?.error?.message || e?.message || 'Error desconocido'); this.cargandoPanel.set(false); },
+    });
+  }
+
+  abrirPoliza(x: PolizasMiCierre['filas'][number]): void {
+    this.cargandoPanel.set(true);
+    this.errorPanel.set(null);
+    this.polizasApi.detail({
+      source: 'contpaqi', ejercicio: x.ejercicio, periodo: x.periodo, tipo_pol: x.tipo_pol, folio: x.folio, sucursal: x.sucursal ?? '',
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { if (this.panel()) this.detalle.set(d); this.cargandoPanel.set(false); },
+      error: (e) => { this.errorPanel.set(e?.error?.message || e?.message || 'Error desconocido'); this.cargandoPanel.set(false); },
+    });
+  }
+
+  tipoPoliza(t: string): string { return ({ '1': 'Ingreso', '2': 'Egreso', '3': 'Diario' } as Record<string, string>)[t] ?? `Tipo ${t}`; }
 
   cargar(): void {
     this.loading.set(true);
