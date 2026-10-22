@@ -33,6 +33,32 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', 'apps/view/src/app/modules');
+const RAIZ = path.resolve(__dirname, '..');
+const DEUDA_FILE = path.join(__dirname, 'check-pantalla.deuda.json');
+
+/** Ruta relativa al repo, SIEMPRE con barra normal. */
+const rel = (f) => path.relative(RAIZ, f).replace(/\\/g, '/');
+
+/**
+ * `[AUD.3]` — **DEUDA DECLARADA**, sellada el 2026-10-19: 247 pantallas, 629 fallas.
+ *
+ * No se silencian: se CUENTAN y se imprimen en cada corrida. Lo que frena es una falla
+ * **NUEVA** — porque hacer fallar el push de quien tocó una pantalla ajena es exactamente
+ * cómo se apagan las compuertas, y acá la deuda está repartida entre ~10 sesiones y meses.
+ *
+ * ⚠️ **Se guarda `ruta → [ids de regla]`, no sólo la ruta — y ahí diverge del precedente**
+ * (`check-keyboard-nav.deuda.json` y `check-busqueda.deuda.json` guardan una lista plana).
+ * El motivo es propio de esta compuerta: allá una pantalla falla o no falla, acá puede fallar
+ * **por diez reglas distintas**. Con una lista plana, una pantalla que ya debe `§2` podría
+ * sumarle `Q.1` mañana y pasar invisible — la compuerta la daría por conocida. Guardando los
+ * ids, lo nuevo es nuevo aunque el archivo ya estuviera en la lista.
+ *
+ * Se re-sella con `--sellar-deuda`. ⛔ Sellar NO es arreglar: sube el piso y hay que decir por
+ * qué en el commit. Lo legítimo es que la lista BAJE.
+ */
+function leerDeuda() {
+  try { return JSON.parse(fs.readFileSync(DEUDA_FILE, 'utf8')); } catch { return {}; }
+}
 
 /**
  * Las reglas. Cada una dice de dónde sale, qué busca y **por qué importa** — un hallazgo sin
@@ -186,17 +212,45 @@ if (process.argv.includes('--self-test')) {
   process.exit(ok ? 0 : 1);
 }
 
-const arg = process.argv[2];
-const todas = process.argv.includes('--todas');
-const objetivo = pantallas().filter((p) => (todas ? esPagina(p) : arg && p.includes(arg)));
+const arg = process.argv.slice(2).find((a) => !a.startsWith('--')) || null;
+/**
+ * ⛔ **SIN ARGUMENTO ES EL BARRIDO, y ese cambio es lo que la vuelve compuerta.**
+ *
+ * Antes, sin nombre de pantalla, salía con `exit 1` y el texto «no encontré ninguna pantalla».
+ * `gate-push.js` invoca TODA compuerta sin argumentos: habría leído ese 1 como rojo, no habría
+ * extraído ninguna ruta de ese texto, y el rojo habría caído en la rama «deuda preexistente, no
+ * la trajiste vos» → el push pasaba en verde. Es, textual, el defecto que `gate-push` documenta
+ * en `rutasQueNombra()` y que ya costó una vez.
+ */
+const todas = !arg || process.argv.includes('--todas');
+const objetivo = pantallas().filter((p) => (todas ? esPagina(p) : p.includes(arg)));
 
 if (!objetivo.length) {
-  console.error(`  no encontré ninguna pantalla con "${arg || ''}". Usá --todas para el barrido.`);
+  console.error(`  no encontré ninguna pantalla con "${arg || ''}".`);
   process.exit(1);
+}
+
+const DEUDA = leerDeuda();
+/** ¿Esta falla ya estaba declarada para ESTA pantalla? */
+const esDeuda = (f, id) => (DEUDA[rel(f)] || []).includes(id);
+
+// ── Sellar: regenera el archivo de deuda con el estado de hoy ─────────────────────────────
+if (process.argv.includes('--sellar-deuda')) {
+  const mapa = {};
+  for (const f of pantallas().filter(esPagina).sort()) {
+    const { fallas } = auditar(f);
+    if (fallas.length) mapa[rel(f)] = fallas.map((r) => r.id);
+  }
+  fs.writeFileSync(DEUDA_FILE, JSON.stringify(mapa, null, 2) + '\n', 'utf8');
+  const n = Object.values(mapa).reduce((a, v) => a + v.length, 0);
+  console.log(`\n  Sellado: ${Object.keys(mapa).length} pantalla(s) · ${n} falla(s) → ${rel(DEUDA_FILE)}`);
+  console.log('  ⛔ Sellar NO es arreglar. Decí en el commit por qué sube el piso.\n');
+  process.exit(0);
 }
 
 let conFallas = 0;
 let totalFallas = 0;
+let nuevas = 0;
 for (const f of objetivo.sort()) {
   const { fallas, avisos } = auditar(f);
   const nom = path.basename(f).replace('.component.ts', '');
@@ -219,11 +273,56 @@ for (const f of objetivo.sort()) {
   }
   if (!fallas.length && !avisos.length) { if (!todas) console.log(`  ✔ ${nom}: cumple las ${REGLAS.length} reglas`); continue; }
   if (fallas.length) { conFallas++; totalFallas += fallas.length; }
-  if (todas && !fallas.length) continue;
-  console.log(`\n  ${fallas.length ? '✖' : '⚠'} ${nom}`);
-  for (const r of fallas) console.log(`      ✖ ${r.id.padEnd(5)} ${r.nombre.padEnd(30)} ${r.por}`);
+
+  const frescas = fallas.filter((r) => !esDeuda(f, r.id));
+  nuevas += frescas.length;
+
+  // En el barrido sólo se imprime lo que frena; a mano se imprime todo, que es cuando se
+  // está trabajando la pantalla y se quiere ver el cuadro entero.
+  if (todas && !frescas.length) continue;
+
+  /**
+   * ⛔ **La RUTA va en el renglón, y sólo cuando hay falla NUEVA.** `gate-push.js` extrae
+   * rutas de esta salida con un regex para atribuirle el hallazgo a quien empuja. Imprimir
+   * sólo el nombre del componente (lo que hacía antes) dejaba 0 rutas extraídas, y entonces
+   * el rojo se le atribuía a «otro» y no frenaba a nadie. Y si la ruta apareciera también
+   * cuando la falla es vieja, frenaría a quien pasó cerca de una pantalla que no rompió.
+   */
+  const cabecera = frescas.length ? `✖ ${nom}  ·  ${rel(f)}` : `⚠ ${nom}`;
+  console.log(`\n  ${cabecera}`);
+  for (const r of fallas) {
+    const marca = esDeuda(f, r.id) ? '·' : '✖';
+    const nota = esDeuda(f, r.id) ? '  (deuda declarada)' : '';
+    console.log(`      ${marca} ${r.id.padEnd(5)} ${r.nombre.padEnd(30)} ${r.por}${nota}`);
+  }
   if (!todas) for (const r of avisos) console.log(`      ⚠ ${r.id.padEnd(5)} ${r.nombre.padEnd(30)} ${r.por}`);
 }
 
-console.log(`\n  ${objetivo.length} pantalla(s) · ${conFallas} con falla(s) · ${totalFallas} falla(s) en total`);
-process.exit(0); // informativo hasta que el barrido baje; el gate duro se enciende por pantalla
+// ── Lo que la deuda ya no necesita: avisa, no rompe ───────────────────────────────────────
+if (todas) {
+  const podables = [];
+  for (const [ruta, ids] of Object.entries(DEUDA)) {
+    const abs = path.join(RAIZ, ruta);
+    if (!fs.existsSync(abs)) { podables.push(`${ruta} (ya no existe)`); continue; }
+    const vivas = new Set(auditar(abs).fallas.map((r) => r.id));
+    const curadas = ids.filter((id) => !vivas.has(id));
+    if (curadas.length) podables.push(`${ruta} → ${curadas.join(', ')}`);
+  }
+  if (podables.length) {
+    console.log(`\n  ✅ ${podables.length} pantalla(s) de la deuda mejoraron:`);
+    for (const p of podables.slice(0, 10)) console.log(`     · ${p}`);
+    if (podables.length > 10) console.log(`     · …y ${podables.length - 10} más`);
+    console.log('     Re-sellá con: npm run check:pantalla -- --sellar-deuda\n');
+  }
+}
+
+const enDeuda = totalFallas - nuevas;
+console.log(`\n  ${objetivo.length} pantalla(s) · ${conFallas} con falla(s) · ${totalFallas} falla(s) · ${enDeuda} en deuda declarada · ${nuevas} NUEVA(S)`);
+
+if (nuevas) {
+  console.error(`\n❌ ${nuevas} falla(s) NUEVA(S) de contrato de producto (DESIGN.md).`);
+  console.error('   No es deuda ajena: estas reglas no fallaban en esas pantallas al 2026-10-19.');
+  console.error('   Si la pantalla de verdad no puede cumplirla, decí por qué y sellá la deuda.\n');
+  process.exit(1);
+}
+process.exit(0);

@@ -208,14 +208,15 @@ const corte = (over = {}) => ({
       ok(Number(atado.efecto) === 0,
         `y sigue sin mover el saldo (efecto ${atado.efecto}) — pertenece al corte, pero no cuenta`);
 
-      // ⛔ LA PRUEBA NEGATIVA: esto es exactamente lo que hacía el código viejo. Si algún día
-      // vuelve, esta aserción lo grita — el movimiento cancelado empieza a mover $777.
-      await trx('finance.cash_ledger').where({ id: gx.id }).update({ estado: 'en_corte' });
-      const resucitado = await efectoDe(gx.id);
-      ok(Number(resucitado.efecto) === -777,
-        `[negativa] si se le pisa el estado a 'en_corte', el cancelado RESUCITA y mueve `
-        + `${resucitado.efecto} — es el daño que el fix impide`);
-      await trx('finance.cash_ledger').where({ id: gx.id }).update({ estado: 'cancelado' });
+      // ⛔ LA PRUEBA NEGATIVA: esto es exactamente lo que hacía el código viejo —pisarle el estado
+      // a 'en_corte' y que el cancelado RESUCITE moviendo $777—. ⭐ `[CGS.11]` Desde el 2026-10-21
+      // el corte `abierto` ya está AUTORIZADO (sección 6), y la base no deja cambiar el estado de un
+      // movimiento de un corte firmado: el daño ya no se puede ni provocar.
+      const c8 = await violation(trx, () => trx('finance.cash_ledger').where({ id: gx.id }).update({ estado: 'en_corte' }));
+      ok(c8 === '23514',
+        `[negativa] pisarle el estado a 'en_corte' a un movimiento de un corte firmado → 23514 (CGS.11), got ${c8}`);
+      const sigue = await efectoDe(gx.id);
+      ok(Number(sigue.efecto) === 0, `y el cancelado sigue sin mover el saldo (efecto ${sigue.efecto})`);
 
       throw new Error('__ROLLBACK__');
     }).catch((e) => { if (e.message !== '__ROLLBACK__') throw e; });

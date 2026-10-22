@@ -383,9 +383,14 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
         const setList = nonKey.map((n) => `${odsQid(n)}=EXCLUDED.${odsQid(n)}`).join(', ');
         const tTuple = nonKey.map((n) => `t.${odsQid(n)}`).join(', ');
         const eTuple = nonKey.map((n) => `EXCLUDED.${odsQid(n)}`).join(', ');
+        // `meta.forceRewrite` (`[OPS.LIMPIEZA.3]`, opt-in, default sin cambio): reescribe aunque el
+        // VALOR sea igual. Lo usa el publicador de la tienda para las filas que valen lo mismo pero
+        // se escriben distinto (p. ej. `numeric` 9.78 vs 9.7800): el guard de abajo las daba por iguales
+        // y su huella por texto, por distintas — no convergían nunca. Sólo para un puñado de llaves.
+        const guard = meta.forceRewrite ? '' : `WHERE (${tTuple}) IS DISTINCT FROM (${eTuple})`;
         sql = `INSERT INTO ${rel} AS t (${colList}) SELECT ${colList} FROM stg_raw
                ON CONFLICT (${onConf}) DO UPDATE SET ${setList}
-               WHERE (${tTuple}) IS DISTINCT FROM (${eTuple})`;
+               ${guard}`;
       }
       changed = (await client.query(sql)).rowCount;
     }

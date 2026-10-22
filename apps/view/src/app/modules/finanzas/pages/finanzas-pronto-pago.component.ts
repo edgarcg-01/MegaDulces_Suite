@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { PagosTabsComponent } from '../pagos-tabs.component';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -8,9 +9,18 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { DialogModule } from 'primeng/dialog';
+import { DatePickerModule } from 'primeng/datepicker';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../../environments/environment';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } from '../pronto-pago.service';
 
 /**
@@ -41,12 +51,16 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
 @Component({
   selector: 'app-finanzas-pronto-pago',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, SkeletonModule,
-            ToastModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, SkeletonModule,
+            ToastModule, DialogModule, DatePickerModule, InputNumberModule,
+            MetricStripComponent, ContextHelpComponent, SegmentedComponent, EntityInspectorComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
+    <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
+    <app-pagos-tabs />
     <div class="surf-page in pp-page">
+      <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
 
       <header class="surf-page-head">
@@ -120,7 +134,10 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
           </p-button>
         </div>
 
-        <p-table [value]="d.rows" styleClass="p-datatable-sm pp-tbl" [rowHover]="true"
+        <!-- [TP.18.3.1] dt-scope + dt-stack: 8 columnas no caben en angosto y sin esto la tabla
+             no dice que hace. El <p-table> pasa de styleClass (que v22 IGNORA) a size+class. -->
+        <div class="dt-scope">
+        <p-table [value]="d.rows" size="small" class="pp-tbl dt-stack" [rowHover]="true"
                  [scrollable]="true" scrollHeight="52vh"
                  [paginator]="d.rows.length > 50" [rows]="50">
           <ng-template #header>
@@ -132,28 +149,33 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
               <th scope="col" class="pp-r">Se gana</th>
               <th scope="col">Limite estimado</th>
               <th scope="col">Estado</th>
+              @if (puedeProgramar()) { <th scope="col" class="pp-r">Acción</th> }
             </tr>
           </ng-template>
           <ng-template #body let-r>
             <tr>
-              <td>
+              <td role="cell" data-label="Proveedor">
                 <div class="pp-strong">{{ r.proveedor_nombre || r.proveedor_code }}</div>
                 <div class="pp-sub pp-mono">{{ r.proveedor_code }} · suc. {{ r.sucursal }}</div>
               </td>
-              <td>
-                <div class="pp-mono">{{ r.folio }}</div>
+              <td role="cell" data-label="Factura">
+                <!-- [TP.20.5] La factura abre su ficha: la misma que se ve desde el Calendario y
+                     desde Pagos a proveedor. La pantalla no cambia de orden ni pierde columnas:
+                     lo que se unifica es el REGISTRO, no la lista (§23). -->
+                <button type="button" class="pp-mono pp-reflink" (click)="inspect.set(r.entity_ref)"
+                        [title]="'Ver la ficha completa de la factura ' + r.folio">{{ r.folio }}</button>
                 <div class="pp-sub">{{ r.fecha ? (r.fecha | date:'dd/MM/yy') : 'sin fecha' }}</div>
               </td>
-              <td class="pp-r pp-strong pp-mono">{{ money(r.pendiente) }}</td>
-              <td class="pp-r pp-mono">
+              <td role="cell" data-label="Pendiente" class="pp-r pp-strong pp-mono">{{ money(r.pendiente) }}</td>
+              <td role="cell" data-label="Tasa obs." class="pp-r pp-mono">
                 @if (r.tasa_observada != null) { {{ (r.tasa_observada * 100) | number:'1.1-1' }}% }
                 @else { <span class="pp-muted" title="Sin observaciones suficientes">—</span> }
               </td>
-              <td class="pp-r pp-mono">
+              <td role="cell" data-label="Se gana" class="pp-r pp-mono">
                 @if (r.beneficio != null) { <strong>{{ money(r.beneficio) }}</strong> }
                 @else { <span class="pp-muted">—</span> }
               </td>
-              <td>
+              <td role="cell" data-label="Limite estimado">
                 @if (r.fecha_limite) {
                   <div>{{ r.fecha_limite | date:'dd/MM/yy' }}</div>
                   <div class="pp-sub">{{ diasTexto(r) }}</div>
@@ -161,7 +183,7 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
                   <span class="pp-muted">no medible</span>
                 }
               </td>
-              <td>
+              <td role="cell" data-label="Estado">
                 <!-- Texto + icono: el color NO es el unico portador (DESIGN regla 14). -->
                 <span class="pp-estado" [class]="'pp-e-' + r.estado">
                   <i class="pi" [ngClass]="iconoDe(r.estado)" aria-hidden="true"></i>
@@ -171,16 +193,37 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
                      este proveedor da descuento es justo lo que decide si pagarle hoy. -->
                 <div class="pp-porque" [class.pp-porque-nd]="r.motivo !== 'historial'">{{ r.porque }}</div>
               </td>
+              <!-- [TP.18.3] La accion que faltaba: hasta hoy esta pantalla veia vencer el
+                   descuento y no tenia donde hacer nada. El pago nace como PROPUESTA; el
+                   compromiso lo crea Gerencia al autorizar el dia (ADR-094). -->
+              @if (puedeProgramar()) {
+                <td role="cell" data-label="Acción" class="pp-r">
+                  @if (r.programable > 0) {
+                    <p-button size="small" [outlined]="true" (onClick)="abrirProgramar(r)"
+                              [attr.aria-label]="'Programar pago de la factura ' + r.folio">
+                      <span class="p-button-icon p-button-icon-left pi pi-calendar-plus" aria-hidden="true"></span>
+                      <span class="p-button-label">Programar</span>
+                    </p-button>
+                  } @else {
+                    <!-- Ya tiene fecha en el Calendario: se DICE, no se deja un hueco. -->
+                    <span class="pp-muted pp-ya">
+                      <i class="pi pi-check" aria-hidden="true"></i>
+                      {{ r.pagado > 0 ? 'pagada' : 'ya programada' }}
+                    </span>
+                  }
+                </td>
+              }
             </tr>
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="7" class="pp-empty">
+            <tr><td [attr.colspan]="puedeProgramar() ? 8 : 7" class="pp-empty">
               <i class="pi pi-inbox" aria-hidden="true"></i>
               Ninguna factura con este filtro.
               @if (estado() || search()) { <button type="button" class="pp-link" (click)="limpiar()">Quitar filtros</button> }
             </td></tr>
           </ng-template>
         </p-table>
+        </div>
 
         @if (d.truncado) {
           <p class="pp-trunc" role="status">
@@ -201,6 +244,50 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
           </p-button>
         </div>
       }
+
+      <!-- [TP.18.3] Programar: manda la factura al Calendario de Pagos, al dia que todavia
+           conserva el descuento. NO es un pago: nace como propuesta del dia. -->
+      <p-dialog [(visible)]="programarAbierto" [modal]="true" [style]="{ width: '30rem' }"
+                header="Programar pago" [draggable]="false">
+        @if (programando(); as r) {
+          <div class="pp-dlg">
+            <p class="pp-dlg-prov"><strong>{{ r.proveedor_nombre || r.proveedor_code }}</strong></p>
+            <p class="pp-dlg-sub pp-mono">{{ r.folio }} · suc. {{ r.sucursal }}</p>
+
+            @if (r.fecha_limite) {
+              <p class="pp-dlg-nota">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                Para conservar el descuento habria que pagarla a mas tardar el
+                <strong>{{ r.fecha_limite | date:'dd/MM/yy' }}</strong>. La fecha es
+                <strong>estimada</strong>, no pactada.
+              </p>
+            }
+
+            <label class="pp-dlg-lbl" for="pp-fecha">Dia de pago</label>
+            <p-datepicker inputId="pp-fecha" [(ngModel)]="fechaPago" dateFormat="dd/mm/yy"
+                          [showIcon]="true" appendTo="body" styleClass="pp-dlg-campo" />
+
+            <label class="pp-dlg-lbl" for="pp-monto">Monto</label>
+            <p-inputnumber inputId="pp-monto" [(ngModel)]="montoPago" mode="currency" currency="MXN"
+                           locale="es-MX" [min]="0" [max]="r.programable" inputStyleClass="pp-dlg-campo" />
+            <p class="pp-dlg-sub">Disponible para programar: <strong>{{ money(r.programable) }}</strong></p>
+
+            <p class="pp-dlg-nota pp-dlg-firma">
+              <i class="pi pi-shield" aria-hidden="true"></i>
+              Queda como <strong>propuesta</strong> del dia. El compromiso nace cuando Gerencia o
+              Direccion autoriza el dia en el Calendario de pagos.
+            </p>
+          </div>
+        }
+        <ng-template #footer>
+          <p-button type="button" [text]="true" (onClick)="programarAbierto = false">
+            <span class="p-button-label">Cancelar</span>
+          </p-button>
+          <p-button type="button" [loading]="guardando()" (onClick)="confirmarProgramar()">
+            <span class="p-button-label">Programar</span>
+          </p-button>
+        </ng-template>
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -217,6 +304,11 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
     .pp-search input { min-width: 14rem; }
     .pp-r { text-align: right; }
     .pp-mono { font-variant-numeric: tabular-nums; }
+    /* [TP.20.5] El folio abre la ficha. Sin color en reposo: en una lista que se recorre por
+       urgencia, un enlace de color por fila compite con la senal que SI decide (el estado). */
+    .pp-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
+    .pp-reflink:hover { color: var(--action); text-decoration: underline; }
+    .pp-reflink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .pp-strong { font-weight: 600; color: var(--text-main); }
     .pp-sub { font-size: var(--fs-xs); color: var(--text-muted); }
     .pp-muted { color: var(--text-muted); }
@@ -239,6 +331,18 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
     .pp-error { display: flex; flex-direction: column; align-items: center; gap: .5rem;
       padding: 1.5rem; color: var(--bad-fg); }
     .pp-skel { display: flex; flex-direction: column; gap: .4rem; }
+    /* [TP.18.3] Programar: la columna de accion y su dialogo. */
+    .pp-ya { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); }
+    .pp-dlg { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .pp-dlg-prov { margin: 0; font-size: var(--fs-body); }
+    .pp-dlg-sub { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .pp-dlg-lbl { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--sp-2); }
+    .pp-dlg-campo { width: 100%; }
+    /* El borde lleva la profundidad: en oscuro la sombra casi desaparece (DESIGN, dark first-class). */
+    .pp-dlg-nota { display: flex; gap: .4rem; margin: 0; padding: var(--sp-2);
+      border: 1px solid var(--border-color); border-radius: var(--r-md);
+      font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; text-wrap: pretty; }
+    .pp-dlg-firma { background: var(--overlay-hover); }
     /* Objetivos tactiles >= 44px donde el puntero es grueso (DESIGN regla 11). */
     @media (pointer: coarse) {
       .pp-link, .pp-search input { min-height: 44px; }
@@ -246,6 +350,9 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
   `],
 })
 export class FinanzasProntoPagoComponent {
+  /** `[TP.20.5]` El ref abierto en la ficha de la factura (el panel lo publica en `?ref=`). */
+  readonly inspect = signal<string | null>(null);
+
   private readonly svc = inject(ProntoPagoService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -297,6 +404,65 @@ export class FinanzasProntoPagoComponent {
   }
 
   limpiar(): void { this.estado.set(''); this.search.set(''); this.load(); }
+
+  // ── `[TP.18.3]` Programar: la acción que esta pantalla no tenía (O2) ──────────────────────
+  private readonly http = inject(HttpClient);
+  private readonly perms = inject(PermissionsService);
+  private readonly calendarBase = `${environment.apiUrl}/finance/payment-calendar`;
+
+  /**
+   * ⚠️ El permiso es el de **preparar** el pago, no el de verlo: quien sólo consulta el pronto
+   * pago no programa. Autorizar el día es otro permiso todavía (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`)
+   * y vive en el Calendario — acá sólo se propone (ADR-094 §2).
+   */
+  readonly puedeProgramar = computed(() => this.perms.has(Permission.FINANCE_PAYMENTS_GESTIONAR));
+
+  readonly programando = signal<ProntoPagoRow | null>(null);
+  readonly guardando = signal(false);
+  programarAbierto = false;
+  fechaPago: Date | null = null;
+  montoPago = 0;
+
+  abrirProgramar(r: ProntoPagoRow): void {
+    this.programando.set(r);
+    this.montoPago = Number(r.programable) || 0;
+    // La fecha que se propone es la que CONSERVA el descuento; si ya pasó (o no hay ventana
+    // medible), mañana — nunca hoy: un pago se prepara antes de ejecutarse.
+    const manana = new Date(); manana.setDate(manana.getDate() + 1);
+    const limite = r.fecha_limite ? new Date(`${String(r.fecha_limite).slice(0, 10)}T12:00:00`) : null;
+    this.fechaPago = limite && limite > manana ? limite : manana;
+    this.programarAbierto = true;
+  }
+
+  async confirmarProgramar(): Promise<void> {
+    const r = this.programando();
+    if (!r || !this.fechaPago) return;
+    const monto = Number(this.montoPago);
+    if (!(monto > 0)) { this.toast.add({ severity: 'warn', summary: 'Monto', detail: 'El monto debe ser mayor a cero.' }); return; }
+    if (monto > Number(r.programable) + 0.005) {
+      this.toast.add({ severity: 'warn', summary: 'Monto', detail: `No se puede programar más de ${this.money(r.programable)}.` });
+      return;
+    }
+    this.guardando.set(true);
+    try {
+      const d = this.fechaPago;
+      const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      await firstValueFrom(this.http.post(`${this.calendarBase}/allocations`, {
+        date: fecha,
+        items: [{ obligation_source: r.obligation_source, obligation_id: r.obligation_id, applied_amount: monto }],
+      }));
+      this.programarAbierto = false;
+      this.toast.add({ severity: 'success', summary: 'Programado', detail: `${r.folio} quedó propuesto para el ${fecha}. Falta que Gerencia autorice el día.`, life: 7000 });
+      this.load();   // relee: la factura pasa a "ya programada"
+    } catch (e: unknown) {
+      // El servidor es quien hace cumplir el saldo y las reglas de agrupación: su mensaje dice
+      // POR QUÉ no se pudo, y es más útil que un "error" genérico.
+      const detail = (e as { error?: { message?: string } })?.error?.message ?? 'No se pudo programar el pago.';
+      this.toast.add({ severity: 'error', summary: 'No se programó', detail, life: 9000 });
+    } finally {
+      this.guardando.set(false);
+    }
+  }
 
   kpiItems(d: ProntoPagoResponse): MetricStripItem[] {
     return [

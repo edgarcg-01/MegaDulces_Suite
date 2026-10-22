@@ -284,3 +284,47 @@ export function decidirEntregar(
   if (pc.tenantId !== tenantId) return no('otro_tenant');
   return ok(pc.pc);
 }
+
+/**
+ * ⭐⭐ `[CG.196]` **Qué se avisa cuando un socket se cae — y a quién mata.**
+ *
+ * Vive acá, y no en el gateway, por lo mismo que el resto de este archivo: es una DECISIÓN pura,
+ * y una decisión sin prueba es una intención. El gateway no se prueba; esto sí.
+ *
+ * ── El defecto que corrige, reportado por Edgar el 2026-10-20 ────────────────────────────────
+ *
+ * *«Si se bloquea el teléfono se pierde»*. El gateway hacía
+ * `client.data?.firma?.codigo ?? client.data?.firmaTel` y emitía `firma:cortada` para las dos
+ * puntas por igual. Con eso, una pantalla que se apaga destruía el emparejamiento: la PC oía
+ * «cortada», desarmaba el panel y le mandaba `firma:cerrar` al servidor.
+ *
+ * ⛔ **Las dos puntas NUNCA fueron simétricas.** El emparejamiento vive en el socket de la PC
+ * (`MarcaPc`), así que:
+ *
+ *   · se va la **PC**      -> la marca se fue con ella: el vínculo ya no existe  -> `firma:cortada`
+ *   · se va el **teléfono** -> la marca sigue ahí: el código sigue reclamable    -> `telefono_salio`
+ *
+ * ⚠️ Y un teléfono que se bloquea no es un teléfono que se fue: es el caso **normal**.
+ */
+export type EventoDesconexion = 'firma:cortada' | 'firma:telefono_salio';
+
+export interface AvisoDesconexion {
+  readonly evento: EventoDesconexion;
+  readonly codigo: string;
+}
+
+/**
+ * `null` = este socket no tenía firma abierta y no hay nada que avisar.
+ *
+ * ⚠️ La PC gana si por algún motivo un socket tuviera las dos marcas: perder el vínculo es el
+ * hecho más grave de los dos, y callarlo dejaría al teléfono esperando a alguien que no está.
+ */
+export function avisoAlDesconectar(
+  data: { readonly firma?: { readonly codigo: string } | null; readonly firmaTel?: string | null } | null | undefined,
+): AvisoDesconexion | null {
+  const codPc = data?.firma?.codigo ?? null;
+  if (codPc) return { evento: 'firma:cortada', codigo: codPc };
+  const codTel = data?.firmaTel ?? null;
+  if (codTel) return { evento: 'firma:telefono_salio', codigo: codTel };
+  return null;
+}

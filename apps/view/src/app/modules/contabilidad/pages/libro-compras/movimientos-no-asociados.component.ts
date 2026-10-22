@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, OnInit } from '@angular/core';
+import type { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -10,12 +11,17 @@ import { SelectButtonModule } from 'primeng/selectbutton';
 import { CheckboxModule } from 'primeng/checkbox';
 import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
+import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid } from '../../libro-compras.service';
+import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid, SugerenciasCuenta } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
+import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
+import { SelectModule } from 'primeng/select';
+import { MOTIVOS_EXCLUSION, PreparacionMes } from '../../libro-compras.service';
+import type { Freshness } from '@megadulces/contracts';
 import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
 /**
@@ -24,10 +30,30 @@ import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.style
  * "Entran al TXT" es el de las marcadas, no el del grupo — ver `chips`.)
  *
  * Coinciden por construcción con el `entran` del rail y con `resumen.incluidas`: los tres
- * salen de `con cuenta AND NOT ya en póliza AND NOT cancelada`. Si alguna vez divergen, es
- * que el backend cambió una de las dos definiciones y no la otra.
+ * salen de `con cuenta AND NOT ya en póliza AND NOT cancelada AND con historial`. Si alguna
+ * vez divergen, es que el backend cambió una de las dos definiciones y no la otra.
+ *
+ * `sin_historial` (LC.18): con cuenta y sin postear, pero el proveedor no entró al libro en
+ * los últimos 6 meses. Medido: ~115 facturas al mes así nunca entraron al libro manual, y
+ * nada en el CFDI las distingue — por eso no entran solas y se juzgan acá.
  */
-type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
+type Grupo = 'entran' | 'sin_historial' | 'sin_cuenta' | 'revisar' | 'ya_libro';
+
+/** LC.18 — lo que agrega esta fase. Vive aca y no en libro-compras.styles para no tocar la hoja
+ *  compartida con la pantalla del libro completo. (Sin acentos graves: es un template literal.) */
+const LC18_STYLES = `
+.na-ctas-imp { font-size: var(--fs-xs); }
+.na-dlg-prov { display: inline; margin-right: .35rem; color: var(--text-main); }
+.na-sug { list-style: none; margin: 0 0 .9rem; padding: 0; display: grid; gap: .45rem; }
+.na-sug li { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-sm); }
+.na-sug label { cursor: pointer; }
+.na-sug .mono { font-family: var(--font-mono); }
+.na-link-sutil { margin-left: .35rem; font-size: var(--fs-xs); color: var(--text-muted); }
+.na-fresc { display: inline-flex; gap: .6rem; align-items: center; }
+.na-prep { display: flex; align-items: center; gap: .45rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
+.na-motivo { margin-top: .2rem; }
+.na-sat { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: -.25rem 0 .75rem; font-size: var(--fs-sm); }
+`;
 
 /**
  * Fase LC (ADR-052) — Movimientos no asociados.
@@ -49,12 +75,13 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
-    SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule,
+    SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule, RadioButtonModule,
+    FreshnessPillComponent, SelectModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Los dos por separado, no concatenados con `${}`: ver la nota en `libro-compras.styles.ts`.
-  styles: [LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES],
+  styles: [LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES, LC18_STYLES],
   template: `
     <p-toast />
 
@@ -168,9 +195,16 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
             <div class="lc-acciones">
               @if (puedeGestionar()) {
                 <p-button type="button" label="Generar TXT" icon="pi pi-file-export"
-                          [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
+                          [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando() || estadoRun() === 'entregado' || estadoRun() === 'aplicado'"
                           [loading]="generando()" (click)="generar()" />
-                @if (estadoRun() === 'generado' || estadoRun() === 'entregado' || estadoRun() === 'aplicado') {
+                <!-- LC.17: los tres botones del archivo sólo si el archivo guardado SIRVE. El de
+                     jul-2026 tenía el formato viejo y se descargaba igual; el de jun-2026 tenía
+                     la firma sin el contenido y los botones daban 404. -->
+                @if (archivoVigente()) {
+                  <!-- LC.19.6: lo que se sube a ContPAQi son los tres archivos; un clic los baja
+                       todos. Los tres botones sueltos se quedan para cuando sólo hace falta uno. -->
+                  <p-button type="button" label="Descargar todo" icon="pi pi-download"
+                            [loading]="bajandoTodo()" (click)="descargarTodo()" />
                   <p-button type="button" label="Descargar TXT" icon="pi pi-download"
                             styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
                   <!-- A ContPAQi va el TXT Y su respaldo: nadie sube millones a la
@@ -187,17 +221,28 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                             pTooltip="Listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi"
                             (click)="descargarAsociador()" />
                 }
-                @if (estadoRun() === 'generado') {
-                  <p-button type="button" label="Marcar entregado" icon="pi pi-send"
-                            styleClass="p-button-text p-button-secondary" (click)="dlgEntrega.set(true)" />
-                }
-                @if (estadoRun() === 'entregado') {
+                <!-- LC.19.6: «Marcar entregado» ya no es un paso. Aplicado se marca solo cuando la
+                     poliza de ContPAQi casa renglon por renglon con el archivo; el boton queda
+                     para cuando casa a medias (alguien la edito al importar), y el servidor lo
+                     rechaza si ContPAQi todavia no tiene el folio. -->
+                @if ((estadoRun() === 'generado' && archivoVigente()) || estadoRun() === 'entregado') {
                   <p-button type="button" label="Marcar aplicado" icon="pi pi-check-circle"
                             styleClass="p-button-text p-button-secondary" (click)="marcar('aplicado')" />
+                }
+                @if (estadoRun() === 'entregado') {
+                  <!-- La salida cuando ContPAQi rechazó el archivo: sin ella, el error de
+                       generar decía "cancélala" y no había dónde. Destructiva: rojo y con
+                       confirmación, nunca un clic suelto. -->
+                  <p-button type="button" label="Cancelar entrega" icon="pi pi-times"
+                            styleClass="p-button-text p-button-danger" (click)="dlgCancelar.set(true)" />
                 }
               }
             </div>
           </div>
+          <!-- LC.19.6: lo que el mes esta haciendo solo, en una linea. Sin cron: arranca al abrirlo. -->
+          @if (preparando(); as p) {
+            <p class="na-prep muted"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> {{ p }}</p>
+          }
 
           <!-- La tira de 5 mosaicos vivía acá y se fue al PIE de la tabla (LC.16.3). Cuatro
                de los cinco eran los totales de cuatro columnas de la tabla, y el quinto
@@ -213,6 +258,19 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
               @for (a of d.bloqueantes; track a) { <li><i class="pi pi-times-circle"></i>{{ a }}</li> }
             </ul>
+            <!-- LC.19.1: la salida del bloqueo del SAT esta junto al bloqueo, no en otro lado.
+                 No hay override: lo que el SAT no encuentre se desmarca. -->
+            @if (puedeGestionar() && (d.resumen.sin_verificar_sat ?? 0) > 0 && !preparando()) {
+              <div class="na-sat">
+                <p-button type="button" label="Verificar en el SAT" icon="pi pi-shield"
+                          styleClass="p-button-outlined p-button-secondary"
+                          [loading]="verificandoSat()" [disabled]="verificandoSat()" (click)="verificarSat()" />
+                <span class="muted">
+                  @if (progresoSat(); as p) { {{ p }} }
+                  @else { Consulta cada factura en el servicio público del SAT (~4 por segundo). Lo que no aparezca vigente no entra al TXT. }
+                </span>
+              </div>
+            }
           }
 
           <!-- Cobertura + lo que queda fuera + avisos del mes eran cuatro bloques apilados
@@ -286,6 +344,21 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
               }
               · {{ d.resumen.incluidas }} facturas
             </span>
+            <!-- LC.18: las cuentas de impuesto ya no son fijas. Salen del ultimo libro, y en
+                 sep-2026 cambiaron: decir de donde salieron es lo que deja revisarlas. -->
+            <!-- LC.19.2: la edad de las dos fuentes, medida por el latido de su carril (dato, no
+                 hora de carga). Sin medicion se declara sin medir, no se esconde. -->
+            <span class="na-fresc">
+              @for (fi of fuentesFrescura(); track fi.label) {
+                <app-freshness-pill measures="data" [freshness]="fi.f" [label]="fi.label" />
+              }
+            </span>
+            @if (d.cuentas_impuesto; as ci) {
+              <span class="muted na-ctas-imp">
+                IVA a {{ ci.iva.cuenta }} · IEPS a {{ ci.ieps.cuenta }}
+                @if (ci.desde) { (como el libro de {{ nombreMes(ci.desde) }}) } @else { (las de siempre: no hay libro previo) }
+              </span>
+            }
           </div>
 
           <!-- El trabajo de la contadora no es toda la tabla: en ago-2026 son 725 renglones
@@ -330,7 +403,7 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                   <th class="c-num">Fecha</th>
                   <th class="c-num">Exento</th>
                   <th class="c-num">Gravado 16%</th>
-                  <th class="c-num">IEPS</th>
+                  <th class="c-num">IEPS 8%</th>
                   <th class="c-num">IVA</th>
                   <th class="c-num">Total</th>
                   <!-- Estaban en una sola columna rotulada "Estado" cuyo valor mas comun
@@ -362,11 +435,24 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                   <td>
                     <span class="lc-prov">{{ f.emisor_nombre }}</span>
                     <small class="muted mono">{{ f.emisor_rfc }}</small>
-                    @if (f.ieps_por_cuota) {
-                      <p-tag value="IEPS por cuota" severity="warn" [rounded]="true" />
+                    @if (f.ieps_no_acreditable > 0.004) {
+                      <!-- LC.18: el IEPS que no es al 8 % se queda en el costo, como en el libro
+                           manual. Se marca porque es una decision contable, no un dato. -->
+                      <p-tag [value]="'IEPS al costo ' + (f.ieps_no_acreditable | currency:'MXN':'symbol-narrow':'1.2-2')"
+                             severity="secondary" [rounded]="true" />
                     }
                     @if (!f.incluida && f.motivo_exclusion) {
                       <small class="muted">Excluida: {{ f.motivo_exclusion }}</small>
+                    } @else if (!f.incluida && puedeGestionar() && f.cuenta_existe && f.en_libro_reciente && !f.prueba_certeza) {
+                      <!-- LC.19.6: la regla de que entra no se puede derivar de los datos (74 % de las
+                           extras son de proveedores con unas facturas dentro y otras fuera). Lo que se
+                           puede es juntar el POR QUE de la contadora en una lista cerrada para medirlo
+                           despues. Opcional: excluir sigue siendo un solo clic. -->
+                      <div class="na-motivo">
+                        <p-select [options]="motivosExclusion" optionLabel="label" optionValue="value" [ngModel]="null" (ngModelChange)="elegirMotivo(f, $event)"
+                                  placeholder="¿Por qué no va?" size="small"
+                                  [ariaLabel]="'Por qué no va la factura de ' + f.emisor_nombre" appendTo="body" />
+                      </div>
                     }
                   </td>
                   <td class="c-num mono">{{ f.folio }}</td>
@@ -416,9 +502,31 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                     } @else if (f.prueba_certeza === 'por_importe') {
                       <p-tag value="Importe ya posteado" severity="warn" [pTooltip]="f.prueba_detalle ?? ''" />
                     } @else if (!f.account_suffix) {
-                      <p-tag value="RFC sin cuenta" severity="danger" />
+                      <!-- LC.18: cada mes llegan proveedores nuevos. Sin esta salida la factura
+                           quedaba fuera para siempre: el mapa no se podia tocar desde ningun lado. -->
+                      <!-- LC.18 (e2e): en oct-2026 eran 262 sin cuenta, casi todas de GASTO, y todas
+                           ofrecian Asignar igual. Ahora la accion se destaca solo donde ContPAQi
+                           tiene una 212 libre con el mismo nombre; en las demas queda discreta.
+                           Y ya no es rojo: excluida, no impide generar. -->
+                      @if (puedeGestionar() && f.cuenta_sugerida) {
+                        <button type="button" class="na-link" (click)="abrirAsignar(f)">
+                          <i class="pi pi-link" aria-hidden="true"></i> Asignar {{ f.cuenta_sugerida.cuenta }}
+                        </button>
+                      } @else {
+                        <span class="na-cero">Sin cuenta</span>
+                        @if (puedeGestionar()) {
+                          <button type="button" class="na-link na-link-sutil" (click)="abrirAsignar(f)">asignar</button>
+                        }
+                      }
                     } @else if (!f.cuenta_existe) {
                       <p-tag value="Cuenta inexistente" severity="danger" />
+                    } @else if (!f.en_libro_reciente) {
+                      <!-- El porque va en el renglon (motivo de exclusion), no en un tooltip. -->
+                      <p-tag value="Sin libro reciente" severity="secondary" />
+                    } @else if (f.incluida && f.estatus_sat !== 'vigente') {
+                      <!-- LC.19.1: tenue, no ambar. El bloqueo ya grita arriba con su monto; si los
+                           275 renglones de octubre fueran ambar, nada en la tabla se leeria. -->
+                      <span class="na-cero">SAT sin verificar</span>
                     } @else {
                       <span class="na-cero">—</span>
                     }
@@ -484,6 +592,85 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
       </ng-template>
     </p-dialog>
 
+    <!-- LC.18: la cuenta 212 de un proveedor nuevo. El servidor rechaza una cuenta que no
+         exista en ContPAQi o que ya sea de otro RFC: aca solo se elige. -->
+    <p-dialog header="Asignar cuenta de proveedor" [(visible)]="dlgAsignarVisible" [modal]="true" [style]="{ width: '34rem' }">
+      @if (asignarPara(); as a) {
+        <p class="na-dlg-nota">
+          <strong class="na-dlg-prov">{{ a.emisor_nombre }}</strong>
+          <span class="mono">{{ a.emisor_rfc }}</span> no está en el mapa de cuentas del libro.
+          Elige su cuenta 212 de ContPAQi; la 501 y la 502 salen del mismo número.
+        </p>
+        @if (cargandoSug()) {
+          <p class="muted">Buscando cuentas parecidas…</p>
+        } @else if (sugerencias(); as s) {
+          @if (s.candidatas.length) {
+            <ul class="na-sug" aria-label="Cuentas candidatas">
+              @for (c of s.candidatas; track c.cuenta) {
+                <li>
+                  <p-radiobutton name="na-sug" [value]="c.cuenta" [(ngModel)]="cuentaElegida"
+                                 [disabled]="!!c.asignada_a" [inputId]="'na-sug-' + c.cuenta" />
+                  <label [for]="'na-sug-' + c.cuenta">
+                    <span class="mono">{{ c.cuenta }}</span> {{ c.nombre }}
+                    <small class="muted">· {{ c.razon }}@if (c.asignada_a) { · ya es del RFC {{ c.asignada_a }}}</small>
+                  </label>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="muted">No hay ninguna cuenta 212 con un nombre parecido. Si es un proveedor de compras, dale de alta su cuenta en ContPAQi y escríbela abajo.</p>
+          }
+        }
+        <label class="lc-campo">
+          <span>Cuenta 212</span>
+          <input pInputText [(ngModel)]="cuentaElegida" placeholder="2120000000" inputmode="numeric" maxlength="10" />
+        </label>
+        <p class="na-dlg-aviso">Si es de gasto o servicio, no le asignes cuenta: no va al libro de compras.</p>
+      }
+      <ng-template #footer>
+        <p-button type="button" label="Cancelar" styleClass="p-button-text" (click)="dlgAsignar.set(false)" />
+        <p-button type="button" label="Asignar" [loading]="asignando()"
+                  [disabled]="!cuentaValida() || asignando()" (click)="asignar()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- LC.18: incluir algo cuyo importe ya esta posteado exige decir por que. El servidor lo
+         pedia desde LC.14 y la pantalla no tenia donde escribirlo. -->
+    <p-dialog header="Incluir facturas con importe ya posteado" [(visible)]="dlgForzarVisible" [modal]="true" [style]="{ width: '30rem' }">
+      <p class="na-dlg-nota">
+        {{ sospechosasIncluidas() }} factura(s) marcadas tienen un importe igual a algo que ya está en una
+        póliza del mes. Si de verdad son otras facturas, explica por qué: el motivo queda guardado en la corrida.
+      </p>
+      <label class="lc-campo">
+        <span>Motivo</span>
+        <input pInputText [(ngModel)]="motivoForzar" placeholder="Ej. son dos facturas distintas del mismo monto" />
+      </label>
+      <ng-template #footer>
+        <p-button type="button" label="Volver" styleClass="p-button-text" (click)="dlgForzar.set(false)" />
+        <p-button type="button" label="Generar de todos modos" [disabled]="!motivoForzar.trim() || generando()"
+                  (click)="generar(true)" />
+      </ng-template>
+    </p-dialog>
+
+    <p-dialog header="Cancelar la entrega" [(visible)]="dlgCancelarVisible" [modal]="true" [style]="{ width: '28rem' }">
+      <p class="na-dlg-nota">
+        Úsalo sólo si ContPAQi <strong>rechazó</strong> el archivo o nunca se subió. Las facturas
+        vuelven a quedar pendientes y podrás generar un archivo nuevo.
+      </p>
+      <label class="lc-campo">
+        <span>¿Por qué se cancela?</span>
+        <input pInputText [(ngModel)]="motivoCancelar" placeholder="Ej. ContPAQi rechazó el archivo" />
+      </label>
+      <p class="na-dlg-aviso">
+        Si ContPAQi ya tiene la póliza en el folio {{ folioPoliza() }}, no se cancela: se marca aplicado.
+      </p>
+      <ng-template #footer>
+        <p-button type="button" label="Volver" styleClass="p-button-text" (click)="dlgCancelar.set(false)" />
+        <p-button type="button" label="Cancelar entrega" severity="danger"
+                  [disabled]="!motivoCancelar.trim()" (click)="marcar('cancelado')" />
+      </ng-template>
+    </p-dialog>
+
     <p-dialog header="Carátula de la póliza" [(visible)]="dlgCaratulaVisible" [modal]="true" [style]="{ width: '30rem' }">
       <p class="na-dlg-nota">
         Con qué folio y concepto entra la póliza en ContPAQi. El folio 1 del Diario es
@@ -530,6 +717,16 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   cargandoMeses = signal(false);
   cargandoMes = signal(false);
   generando = signal(false);
+  /** LC.19.1: la verificación ante el SAT corre por lotes; esto dice en cuál va. */
+  verificandoSat = signal(false);
+  progresoSat = signal<string | null>(null);
+  /** LC.19.6: lo que el mes está haciendo solo (null = nada en curso). */
+  preparando = signal<string | null>(null);
+  bajandoTodo = signal(false);
+  readonly motivosExclusion = MOTIVOS_EXCLUSION.map((m) => ({ label: m, value: m }));
+  /** Meses ya preparados en esta visita: reabrir el mes tras prepararlo no lo vuelve a disparar. */
+  private preparados = new Set<string>();
+  private rePreparar: ReturnType<typeof setTimeout> | null = null;
   dlgEntrega = signal(false);
   dlgCaratula = signal(false);
   guardandoCaratula = signal(false);
@@ -545,6 +742,31 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   set dlgEntregaVisible(v: boolean) { this.dlgEntrega.set(v); }
   get dlgCaratulaVisible() { return this.dlgCaratula(); }
   set dlgCaratulaVisible(v: boolean) { this.dlgCaratula.set(v); }
+  dlgCancelar = signal(false);
+  get dlgCancelarVisible() { return this.dlgCancelar(); }
+  set dlgCancelarVisible(v: boolean) { this.dlgCancelar.set(v); }
+  motivoCancelar = '';
+
+  // LC.18 — proveedor nuevo
+  dlgAsignar = signal(false);
+  get dlgAsignarVisible() { return this.dlgAsignar(); }
+  set dlgAsignarVisible(v: boolean) { this.dlgAsignar.set(v); }
+  asignarPara = signal<FacturaMes | null>(null);
+  sugerencias = signal<SugerenciasCuenta | null>(null);
+  cargandoSug = signal(false);
+  asignando = signal(false);
+  cuentaElegida = '';
+
+  // LC.18 — incluir lo que casa por importe, con motivo
+  dlgForzar = signal(false);
+  get dlgForzarVisible() { return this.dlgForzar(); }
+  set dlgForzarVisible(v: boolean) { this.dlgForzar.set(v); }
+  motivoForzar = '';
+  sospechosasIncluidas = computed(() =>
+    (this.detalle()?.facturas ?? []).filter((f) => f.incluida && f.prueba_certeza === 'por_importe').length);
+
+  /** B5: la carga del mes en curso. Se cancela al pedir otro mes, o la respuesta vieja pisa la nueva. */
+  private cargaMes: Subscription | null = null;
 
   /**
    * El rail agrupado por año. El año más reciente arranca abierto y los demás se piden:
@@ -600,7 +822,16 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   });
 
   estadoRun = computed(() => (this.detalle()?.run?.['estado'] as string) ?? 'sin_iniciar');
-  folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
+  // LC.18 (e2e): sin corrida, el folio que el servidor va a usar — el del rail (1 si ContPAQi no
+  // tiene el libro del mes). Caer a un 2 fijo decía «Póliza 2» y el archivo salía en folio 1.
+  folioPoliza = computed(() => {
+    const d = this.detalle();
+    const delRail = this.meses().find((m) => m.anio_mes === d?.mes)?.folio_poliza;
+    return Number(d?.run?.['folio_poliza'] ?? delRail ?? 2);
+  });
+  /** LC.17 — el servidor dice si el archivo GUARDADO se puede entregar, y si no, por qué. */
+  archivoVigente = computed(() => this.detalle()?.run?.['archivo_vigente'] === true);
+  archivoMotivo = computed(() => (this.detalle()?.run?.['archivo_motivo'] as string | null) ?? null);
 
   /**
    * El desglose del asiento, al pie de la tabla y bajo su propia columna:
@@ -646,6 +877,7 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     if (f.prueba_certeza === 'exacta') return 'ya_libro';
     if (f.estatus_sat === 'cancelado' || f.prueba_certeza === 'por_importe') return 'revisar';
     if (!f.account_suffix || !f.cuenta_existe) return 'sin_cuenta';
+    if (!f.en_libro_reciente) return 'sin_historial';
     return 'entran';
   }
 
@@ -678,13 +910,17 @@ export class MovimientosNoAsociadosComponent implements OnInit {
    *  que bajar a 479. Las tres siguen visibles en la lista, destildadas. */
   chips = computed(() => {
     const d = this.detalle();
-    const n: Record<Grupo, number> = { entran: 0, sin_cuenta: 0, revisar: 0, ya_libro: 0 };
+    const n: Record<Grupo, number> = { entran: 0, sin_historial: 0, sin_cuenta: 0, revisar: 0, ya_libro: 0 };
     for (const f of d?.facturas ?? []) {
       const g = this.grupo(f);
-      if (g !== 'entran' || f.incluida) n[g]++;
+      if (g !== 'entran') n[g]++;
+      // LC.18: TODAS las marcadas, de cualquier grupo. Una «sin libro reciente» que se marca a
+      // mano entra al archivo, y este número tiene que ser el del archivo (= resumen.incluidas).
+      if (f.incluida) n.entran++;
     }
     return [
       { key: 'entran' as const, label: 'Entran al TXT', n: n.entran },
+      { key: 'sin_historial' as const, label: 'Sin libro reciente', n: n.sin_historial },
       { key: 'sin_cuenta' as const, label: 'Sin cuenta', n: n.sin_cuenta },
       { key: 'revisar' as const, label: 'Revisar', n: n.revisar },
       { key: 'ya_libro' as const, label: 'Ya en el libro', n: n.ya_libro },
@@ -707,28 +943,59 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const d = this.detalle();
     if (!d) return [];
     const r = d.resumen;
-    const fuera = r.cfdis_del_mes - r.incluidas - r.ya_posteadas;
     const out: { texto: string; monto: number; tono: string }[] = [];
     if (r.ya_posteadas) {
       out.push({ texto: `${r.ya_posteadas} ya están en la póliza del mes`, monto: r.monto_ya_posteadas, tono: 'warn' });
     }
-    if (fuera > 0) {
-      out.push({ texto: `${fuera} de proveedor de gasto o servicio`, monto: 0, tono: 'muted' });
+    // LC.18: se cuentan por grupo y no por resta. Antes «lo que no entra» = todo lo demás, y
+    // con el grupo «sin libro reciente» la resta llamaba «gasto o servicio» a facturas de
+    // proveedores de compras.
+    const suma = (fs: FacturaMes[]) => fs.reduce((a, f) => a + f.total, 0);
+    const sinHist = d.facturas.filter((f) => this.grupo(f) === 'sin_historial' && !f.incluida);
+    if (sinHist.length) {
+      out.push({ texto: `${sinHist.length} de proveedores sin libro reciente, por revisar`, monto: suma(sinHist), tono: 'warn' });
+    }
+    const sinCta = d.facturas.filter((f) => this.grupo(f) === 'sin_cuenta');
+    if (sinCta.length) {
+      out.push({ texto: `${sinCta.length} sin cuenta de proveedor (gasto o servicio, o proveedor nuevo)`, monto: suma(sinCta), tono: 'muted' });
     }
     return out;
   });
 
   /** El veredicto del mes en una línea, antes de la tabla (DESIGN §15 answer-first). */
+  /**
+   * LC.19.2 — Una píldora por fuente (CFDIs, pólizas), cada una con SU veredicto del servidor.
+   * Si el servidor no pudo medir nada (`inputs` vacío) va una sola, que dice «sin medir».
+   */
+  fuentesFrescura = computed((): { label: string; f: Freshness }[] => {
+    const fr = this.detalle()?.frescura;
+    if (!fr) return [];
+    if (!fr.inputs.length) return [{ label: 'fuentes', f: fr }];
+    return fr.inputs.map((i) => ({
+      label: i.key === 'cfdis' ? 'CFDIs' : i.key === 'polizas' ? 'pólizas' : i.label,
+      f: { data_as_of: i.at, status: i.status, stale: i.stale, age_human: i.age_human, inputs: [i] },
+    }));
+  });
+
   veredicto = computed(() => {
     const d = this.detalle();
     if (!d) return { tono: 'neutral', icono: 'pi pi-circle', titulo: '', detalle: '' };
     const estado = this.estadoRun();
     const r = d.resumen;
     if (estado === 'aplicado') {
-      return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Complemento aplicado',
+      return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Póliza aplicada',
         detalle: 'Lo que faltaba de este mes ya está en ContPAQi.' };
     }
     if (!r.cfdis_del_mes) {
+      // LC.19.2: un cero con el feed de CFDIs parado no es «al día», es «sin datos». Con el feed
+      // muerto, este verde era indistinguible de un mes limpio.
+      const fc = d.frescura?.inputs.find((i) => i.key === 'cfdis');
+      if (!fc || fc.status !== 'fresh') {
+        return { tono: 'warn', icono: 'pi pi-exclamation-triangle', titulo: 'Sin facturas por asociar, pero sin datos al día',
+          detalle: fc?.at
+            ? `Los CFDIs del ADD no se actualizan desde hace ${fc.age_human}: el cero puede ser falta de datos.`
+            : 'No se pudo medir cuándo se actualizaron los CFDIs del ADD: el cero no se puede afirmar.' };
+      }
       return { tono: 'ok', icono: 'pi pi-check-circle', titulo: 'Nada pendiente',
         detalle: 'Todas las facturas del mes están ligadas a una póliza.' };
     }
@@ -740,6 +1007,12 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       return { tono: 'warn', icono: 'pi pi-send', titulo: 'Entregado, falta confirmar',
         detalle: 'Cuando aparezca la póliza en ContPAQi, márcalo aplicado.' };
     }
+    // LC.17: un "Archivo generado" que ContPAQi rechaza es una afirmación falsa.
+    if (estado === 'generado' && !this.archivoVigente()) {
+      return { tono: 'bad', icono: 'pi pi-exclamation-circle', titulo: 'El archivo guardado ya no sirve',
+        // El motivo del servidor ya termina en «hay que generarlo de nuevo»: no se repite.
+        detalle: this.mayuscula(this.archivoMotivo() ?? 'no se puede entregar: hay que generarlo de nuevo') + '.' };
+    }
     if (estado === 'generado') {
       return { tono: 'warn', icono: 'pi pi-file-check', titulo: 'Archivo generado',
         detalle: 'Descárgalo y pásalo a quien lo sube a ContPAQi.' };
@@ -748,9 +1021,21 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       return { tono: 'warn', icono: 'pi pi-info-circle', titulo: 'Nada que entregar',
         detalle: `Las ${r.cfdis_del_mes} sin asociar son de proveedores fuera del catálogo de compras o ya están posteadas.` };
     }
+    // LC.19.3: decía «Faltan N por asociar — $X sin contabilizar», como si las N fueran un hecho.
+    // No lo son: entran por una REGLA (proveedor con cuenta que salió en el libro de los últimos
+    // 6 meses), y medido sobre jul/ago/sep entre 46 y 65 al mes nunca entraron al libro manual.
+    // Se dice qué es (una propuesta), por qué entra, y cuánto quedó fuera esperando revisión.
+    const sh = this.sinHistorial();
     return { tono: 'bad', icono: 'pi pi-exclamation-triangle',
-      titulo: `Faltan ${r.incluidas} movimientos por asociar`,
-      detalle: `${this.money(r.total)} sin contabilizar en este mes.` };
+      titulo: `${r.incluidas} facturas sin asociar propuestas para el TXT · ${this.money(r.total)}`,
+      detalle: 'Entran porque el proveedor tiene cuenta y salió en el libro de los últimos 6 meses: revísalas antes de generar.'
+        + (sh.n ? ` Otras ${sh.n} (${this.money(sh.monto)}) esperan revisión en «Sin libro reciente».` : '') };
+  });
+
+  /** LC.19.3: las que la regla del historial dejó fuera — el banner las nombra con su monto. */
+  sinHistorial = computed(() => {
+    const fs = (this.detalle()?.facturas ?? []).filter((f) => this.grupo(f) === 'sin_historial');
+    return { n: fs.length, monto: fs.reduce((a, f) => a + f.total, 0) };
   });
 
   ngOnInit() {
@@ -776,14 +1061,15 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   }
 
   etiquetaEstado(m: MesNoAsociado) {
-    if (m.estado === 'sin_iniciar') return m.faltan ? 'Pendiente' : 'Al día';
-    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado', cancelado: 'Cancelado' }[m.estado] ?? m.estado;
+    // LC.18 (e2e): una entrega cancelada deja el mes PENDIENTE otra vez. Decir «Cancelado» en
+    // rojo se leia como un error del mes, cuando lo que hay que hacer es volver a generar.
+    if (m.estado === 'sin_iniciar' || m.estado === 'cancelado') return m.faltan ? 'Pendiente' : 'Al día';
+    return { borrador: 'Borrador', generado: 'Generado', entregado: 'Entregado', aplicado: 'Aplicado' }[m.estado] ?? m.estado;
   }
 
   severidadEstado(m: MesNoAsociado): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
     if (m.estado === 'aplicado') return 'success';
     if (m.estado === 'entregado' || m.estado === 'generado') return 'warn';
-    if (m.estado === 'cancelado') return 'danger';
     if (!m.faltan) return 'success';
     // Un mes sin póliza de compras no es un pendiente más: es el mes entero sin contabilizar.
     return m.existe_libro ? 'warn' : 'danger';
@@ -806,14 +1092,79 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     this.busqueda.set('');
     // El mes queda en la URL para poder compartir la vista (DESIGN §10).
     this.router.navigate([], { relativeTo: this.route, queryParams: { mes }, replaceUrl: true });
-    this.svc.getNoAsociados(mes).subscribe({
+    // B5 (LC.18): si el mes es OTRO, se limpia la tabla — si la carga falla, no puede quedar
+    // a la vista la del mes anterior bajo el título del nuevo. Y se cancela la carga en curso:
+    // con clics rápidos la respuesta vieja llegaba después y la inclusión se escribía en otro mes.
+    if (this.detalle()?.mes !== mes) this.detalle.set(null);
+    this.cargaMes?.unsubscribe();
+    this.cargaMes = this.svc.getNoAsociados(mes).subscribe({
       next: (d) => {
+        if (this.mesSel() !== mes) return;
         this.detalle.set(d);
         this.impuestosModo = (d.run?.['impuestos_modo'] as ImpuestosModo) ?? 'global';
-        this.incluirUuid = d.run?.['incluye_uuid'] !== false;
+        // LC.18 (e2e): la opción de un archivo YA generado se respeta; la de un borrador no —
+        // su valor era el default de la columna (false) y desmarcaba el UUID sin que nadie lo
+        // pidiera. Así salió el TXT de oct-2026 sin UUID.
+        // Una cancelada tampoco cuenta: oct-2026 quedó cancelada con incluye_uuid = false.
+        const conArchivo = ['generado', 'entregado', 'aplicado'].includes(String(d.run?.['estado'] ?? ''));
+        this.incluirUuid = conArchivo ? d.run?.['incluye_uuid'] !== false : true;
         this.cargandoMes.set(false);
+        // LC.19.6: sin cron — abrir el mes ES el evento que lo prepara.
+        this.prepararMes(mes);
       },
       error: (e) => { this.cargandoMes.set(false); this.error('No se pudo abrir el mes', e); },
+    });
+  }
+
+  // ── LC.18: proveedor nuevo ─────────────────────────────────────────────────────────
+  abrirAsignar(f: FacturaMes) {
+    this.asignarPara.set(f);
+    this.sugerencias.set(null);
+    this.cuentaElegida = '';
+    this.cargandoSug.set(true);
+    this.dlgAsignar.set(true);
+    this.svc.sugerirCuenta(f.emisor_rfc).subscribe({
+      next: (s) => {
+        this.sugerencias.set(s);
+        // La sugerencia fuerte (ContPAQi le asoció un CFDI de este RFC) se deja elegida; el
+        // resto no: con el nombre solo, la decisión es de quien lleva el libro.
+        const fuerte = s.candidatas.find((c) => c.fuerte && !c.asignada_a);
+        if (fuerte) this.cuentaElegida = fuerte.cuenta;
+        // La del renglón (mismo nombre, ≥ 80 %) también se deja elegida: es la que el botón dijo.
+        else if (f.cuenta_sugerida && s.candidatas.some((c) => c.cuenta === f.cuenta_sugerida!.cuenta && !c.asignada_a)) {
+          this.cuentaElegida = f.cuenta_sugerida.cuenta;
+        }
+        this.cargandoSug.set(false);
+      },
+      error: (e) => { this.cargandoSug.set(false); this.error('No se pudieron buscar cuentas', e); },
+    });
+  }
+
+  private mayuscula(s: string) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  }
+
+  cuentaValida() {
+    return /^212\d{7}$/.test(this.cuentaElegida.trim());
+  }
+
+  asignar() {
+    const f = this.asignarPara(); const mes = this.mesSel();
+    if (!f || !mes || !this.cuentaValida() || this.asignando()) return;
+    this.asignando.set(true);
+    this.svc.asignarCuenta(f.emisor_rfc, this.cuentaElegida.trim()).subscribe({
+      next: (r) => {
+        this.asignando.set(false); this.dlgAsignar.set(false);
+        const faltan = [!r.compra_exenta_existe ? '501' : null, !r.compra_iva_existe ? '502' : null].filter(Boolean);
+        this.toast.add({
+          severity: faltan.length ? 'warn' : 'success', summary: 'Cuenta asignada',
+          detail: `${f.emisor_nombre} → ${r.cuenta_proveedor}.`
+            + (faltan.length ? ` Falta dar de alta la ${faltan.join(' y la ')} en ContPAQi.` : ''),
+          life: faltan.length ? 9000 : 4000,
+        });
+        this.abrirMes(mes); this.cargarMeses();
+      },
+      error: (e) => { this.asignando.set(false); this.error('No se pudo asignar la cuenta', e); },
     });
   }
 
@@ -831,8 +1182,84 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     const antes = f.incluida;
     this.aplicarInclusionLocal(f.uuid, incluida);
     this.svc.setInclusionNoAsociados(mes, [f.uuid], incluida).subscribe({
+      // LC.19.6: un cambio invalida el archivo generado; el mes se vuelve a preparar solo cuando
+      // dejas de mover casillas (no uno por clic).
+      next: () => this.programarPreparacion(mes),
       error: (e) => { this.aplicarInclusionLocal(f.uuid, antes); this.error('No se pudo cambiar la factura', e); },
     });
+  }
+
+  /** LC.19.6 — el porqué de una exclusión, de la lista cerrada. Queda en la decisión guardada. */
+  elegirMotivo(f: FacturaMes, motivo: string | null) {
+    const mes = this.mesSel(); if (!mes || !motivo) return;
+    this.svc.setInclusionNoAsociados(mes, [f.uuid], false, motivo).subscribe({
+      next: () => {
+        const d = this.detalle(); if (!d) return;
+        this.detalle.set({ ...d, facturas: d.facturas.map((x) => (x.uuid === f.uuid ? { ...x, motivo_exclusion: motivo } : x)) });
+      },
+      error: (e) => this.error('No se pudo guardar el motivo', e),
+    });
+  }
+
+  private programarPreparacion(mes: string) {
+    if (this.rePreparar) clearTimeout(this.rePreparar);
+    this.rePreparar = setTimeout(() => {
+      this.rePreparar = null;
+      this.preparados.delete(mes);
+      if (this.mesSel() === mes) this.prepararMes(mes);
+    }, 4000);
+  }
+
+  /**
+   * LC.19.6 — Lo que el mes hace solo (POST /preparar), disparado al abrirlo: «aplicado» si ContPAQi
+   * ya casa con el archivo, cuentas de proveedores con nombre idéntico, la verificación ante el SAT
+   * por lotes y, en el mes que toca, el archivo. Sólo con GESTIONAR. Repite mientras el SAT tenga
+   * pendientes; al final reabre el mes una vez y dice qué hizo.
+   */
+  private prepararMes(mes: string) {
+    if (!this.puedeGestionar() || this.preparados.has(mes)) return;
+    this.preparados.add(mes);
+    this.preparando.set('Preparando el mes…');
+    const hecho = { aplicado: null as string | null, cuentas: [] as string[], consultadas: 0, vigentes: 0, otras: 0, generado: null as string | null };
+    const vuelta = (n: number) => this.svc.prepararMes(mes).subscribe({
+      next: (p: PreparacionMes) => {
+        if (p.aplicado.hecho) hecho.aplicado = p.aplicado.motivo;
+        hecho.cuentas.push(...p.cuentas_asignadas.map((c) => `${c.nombre} → ${c.cuenta}`));
+        if (p.sat) {
+          hecho.consultadas += p.sat.consultados; hecho.vigentes += p.sat.vigentes;
+          hecho.otras += p.sat.cancelados + p.sat.no_encontrados + p.sat.fallidos;
+        }
+        if (p.generado.hecho) hecho.generado = `${p.generado.facturas} facturas, póliza ${p.generado.folio}`;
+        if (p.restantes > 0 && (p.sat?.consultados ?? 0) > 0 && n < 30 && this.mesSel() === mes) {
+          this.preparando.set(`Verificando en el SAT… ${hecho.consultadas} consultadas, faltan ${p.restantes}`);
+          vuelta(n + 1);
+          return;
+        }
+        this.preparando.set(null);
+        const partes = [
+          hecho.aplicado ? `aplicado: ${hecho.aplicado}` : '',
+          hecho.cuentas.length ? `cuenta asignada: ${hecho.cuentas.join(', ')}` : '',
+          hecho.consultadas ? `SAT: ${hecho.vigentes} vigentes${hecho.otras ? `, ${hecho.otras} sin confirmar` : ''}` : '',
+          hecho.generado ? `archivo listo: ${hecho.generado}` : '',
+        ].filter(Boolean);
+        if (!partes.length) return;
+        this.toast.add({ severity: hecho.otras ? 'warn' : 'info', summary: 'El mes se preparó solo', detail: partes.join(' · '), life: 9000 });
+        if (this.mesSel() === mes) this.abrirMes(mes);
+        this.cargarMeses();
+      },
+      error: (e) => { this.preparando.set(null); this.error('No se pudo preparar el mes solo', e); },
+    });
+    vuelta(0);
+  }
+
+  /** LC.19.6 — los tres archivos que van a ContPAQi, de un clic (con el código de cada uno). */
+  descargarTodo() {
+    if (this.bajandoTodo()) return;
+    this.bajandoTodo.set(true);
+    this.descargar();
+    this.exportarRespaldo();
+    this.descargarAsociador();
+    setTimeout(() => this.bajandoTodo.set(false), 1500);
   }
 
   private aplicarInclusionLocal(uuid: string, incluida: boolean) {
@@ -885,18 +1312,62 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     });
   }
 
-  generar() {
-    const mes = this.mesSel(); if (!mes) return;
+  generar(forzar = false) {
+    const mes = this.mesSel(); if (!mes || this.generando()) return;
+    // LC.18: si hay marcadas que casan por importe con algo ya posteado, el servidor exige un
+    // motivo. Se pide ANTES, no después de un error.
+    if (!forzar && this.sospechosasIncluidas() > 0) {
+      this.motivoForzar = '';
+      this.dlgForzar.set(true);
+      return;
+    }
     this.generando.set(true);
-    this.svc.generarNoAsociados(mes, this.impuestosModo, this.incluirUuid).subscribe({
+    const motivo = forzar ? this.motivoForzar.trim() : '';
+    this.svc.generarNoAsociados(mes, this.impuestosModo, this.incluirUuid, motivo ? { motivo } : undefined).subscribe({
       next: (r) => {
-        this.generando.set(false);
-        this.toast.add({ severity: 'success', summary: 'Complemento generado',
+        this.generando.set(false); this.dlgForzar.set(false);
+        this.toast.add({ severity: 'success', summary: r.folio === 1 ? 'Libro de compras generado' : 'Complemento generado',
           detail: `${r.facturas} facturas · ${r.renglones} renglones · ${this.money(r.cargos)} · póliza ${r.folio}` });
         this.abrirMes(mes); this.cargarMeses();
       },
       error: (e) => { this.generando.set(false); this.error('No se pudo generar', e); },
     });
+  }
+
+  /**
+   * LC.19.1 — Verifica ante el SAT las facturas del mes, un lote (~100, ~25 s) por llamada, y
+   * repite mientras el servidor diga que quedan. Si cambias de mes se detiene: el resultado de
+   * otro mes no se mezcla con éste. Al final reabre el mes, que es quien decide qué bloquea.
+   */
+  verificarSat() {
+    const mes = this.mesSel(); if (!mes || this.verificandoSat()) return;
+    this.verificandoSat.set(true);
+    const acum = { consultados: 0, vigentes: 0, cancelados: 0, no_encontrados: 0, fallidos: 0 };
+    let total = 0;
+    const terminar = (resumen?: string, sev: 'success' | 'warn' = 'success') => {
+      this.verificandoSat.set(false); this.progresoSat.set(null);
+      if (resumen) this.toast.add({ severity: sev, summary: 'Verificación ante el SAT', detail: resumen, life: 8000 });
+      if (this.mesSel() === mes) this.abrirMes(mes);
+    };
+    const vuelta = () => this.svc.verificarSat(mes).subscribe({
+      next: (r) => {
+        if (!r.disponible) {
+          terminar('El servidor no tiene con qué consultar al SAT: no se verificó nada y nada se dio por vigente.', 'warn');
+          return;
+        }
+        total = total || r.por_verificar;
+        acum.consultados += r.consultados; acum.vigentes += r.vigentes; acum.cancelados += r.cancelados;
+        acum.no_encontrados += r.no_encontrados; acum.fallidos += r.fallidos;
+        this.progresoSat.set(`Verificando… ${acum.consultados} de ${total} consultadas`);
+        if (r.restantes > 0 && r.consultados > 0 && this.mesSel() === mes) { vuelta(); return; }
+        const otros = acum.cancelados + acum.no_encontrados + acum.fallidos;
+        terminar(`${acum.vigentes} vigentes · ${acum.cancelados} canceladas · ${acum.no_encontrados} que el SAT no encontró · `
+          + `${acum.fallidos} sin respuesta${otros ? '. Las que no salieron vigentes siguen sin poder entrar al TXT.' : '.'}`,
+          otros ? 'warn' : 'success');
+      },
+      error: (e) => { this.verificandoSat.set(false); this.progresoSat.set(null); this.error('No se pudo verificar ante el SAT', e); },
+    });
+    vuelta();
   }
 
   /**
@@ -985,7 +1456,9 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       next: (blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url; a.download = `complemento-compras-${mes}.txt`;
+        // LC.19.6: el nombre es el que guardó la corrida (poliza-compras-* para el libro del mes,
+        // complemento-* para lo demás). Antes se fijaba aquí y pisaba al del servidor.
+        a.href = url; a.download = String(this.detalle()?.run?.['archivo_nombre'] ?? `complemento-compras-${mes}.txt`);
         a.click(); URL.revokeObjectURL(url);
       },
       error: (e) => this.error('No se pudo descargar', e),
@@ -994,10 +1467,12 @@ export class MovimientosNoAsociadosComponent implements OnInit {
 
   marcar(estado: 'entregado' | 'aplicado' | 'cancelado') {
     const mes = this.mesSel(); if (!mes) return;
-    this.svc.marcarNoAsociados(mes, estado, { entregado_a: this.entregadoA || undefined }).subscribe({
+    const notas = estado === 'cancelado' ? `Entrega cancelada: ${this.motivoCancelar.trim()}` : undefined;
+    this.svc.marcarNoAsociados(mes, estado, { entregado_a: this.entregadoA || undefined, notas }).subscribe({
       next: () => {
         this.dlgEntrega.set(false); this.entregadoA = '';
-        this.toast.add({ severity: 'success', summary: 'Trámite actualizado', detail: `Complemento marcado como ${estado}.` });
+        this.dlgCancelar.set(false); this.motivoCancelar = '';
+        this.toast.add({ severity: 'success', summary: 'Trámite actualizado', detail: `Póliza marcada como ${estado}.` });
         this.abrirMes(mes); this.cargarMeses();
       },
       error: (e) => this.error('No se pudo actualizar el trámite', e),

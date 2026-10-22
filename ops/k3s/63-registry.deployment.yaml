@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# `[OPS.LIMPIEZA.8]` El registro de imágenes de `md`, de Compose (`prod-registry`) a k3s.
+#
+# ⛔ NO ES UN RESTO: es de donde k3s baja TODAS las imágenes propias
+#    (`localhost:5000/trade-prod-{api,portal,vendor,caddy,pg}`, `trade-ingest`), declarado en
+#    `/etc/rancher/k3s/registries.yaml` (`[K3S.21]`). Si no responde mientras el kubelet reprograma
+#    pods —lo que pasó en el desalojo del 18-oct— los pods nuevos quedan en `ImagePullBackOff`.
+#
+# ── Por qué `hostNetwork` y no `hostPort` ───────────────────────────────────
+# El contenedor de Compose publica `127.0.0.1:5000` (sólo loopback, sin TLS ni credenciales: no
+# se expone a la LAN). Un `hostPort` con `hostIP: 127.0.0.1` en k3s NO es confiable: el plugin
+# `portmap` de la CNI hace DNAT y el tráfico a loopback no pasa por ahí sin `route_localnet=1`.
+# Con `hostNetwork` + `REGISTRY_HTTP_ADDR=127.0.0.1:5000` el proceso escucha EXACTAMENTE donde
+# escuchaba el de Compose: `registries.yaml` y los manifiestos no cambian.
+#
+# ── Por qué hostPath al MISMO directorio ────────────────────────────────────
+# Es el volumen de Docker del contenedor viejo. No se copia una sola imagen: el corte dura lo que
+# tarda en arrancar el pod, y la vuelta atrás es `kubectl delete` + `docker start prod-registry`.
+# Mismo criterio que `52-pg-prod` (un nodo, sin PVC).
+#
+# ⚠️ Huevo y gallina: este pod NO puede bajar su propia imagen de `localhost:5000`. Usa
+#    `registry:2` de Docker Hub con `IfNotPresent`. Si `md` no tiene internet en el corte, la
+#    receta la precarga en containerd desde la copia que ya tiene Docker
+#    (`docker save registry:2 | k3s ctr images import -`).
+#
+# ⚠️ Aplicar SÓLO con `prod-registry` detenido: dos procesos sobre el mismo puerto y el mismo
+#    directorio. Receta completa: `docs/IMPLEMENTACION/OPS_LIMPIEZA_PROCESOS.md` › OPS.LIMPIEZA.8.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: prod
+  labels: { app: registry, singleton: "true", migracion: preparado }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate   # nunca dos sobre el mismo directorio y el mismo puerto
+  selector:
+    matchLabels: { app: registry }
+  template:
+    metadata:
+      labels: { app: registry }
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: registry
+          image: registry:2
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: TZ,                              value: America/Mexico_City }
+            - { name: REGISTRY_HTTP_ADDR,              value: "127.0.0.1:5000" }
+            - { name: REGISTRY_STORAGE_DELETE_ENABLED, value: "true" }   # igual que en Compose
+          volumeMounts:
+            - { name: datos, mountPath: /var/lib/registry }
+          readinessProbe:
+            httpGet: { host: 127.0.0.1, path: /v2/, port: 5000 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { host: 127.0.0.1, path: /v2/, port: 5000 }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+      volumes:
+        - name: datos
+          hostPath: { path: /var/lib/docker/volumes/prod_registry-data/_data, type: Directory }

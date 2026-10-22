@@ -236,6 +236,8 @@ export interface VerificadorPrecioOk {
   productos_candidatos: CandidatoVerificador[];
   plaza_pedida_sin_dato: boolean;
   origen_precio: 'kepler' | 'override_manual';
+  /** `[MOS.1]` El proveedor de la ficha. `null` = sin proveedor o no se pudo leer. */
+  proveedor?: string | null;
 }
 
 /** `GET /kp/precio` cuando NO está (200 con `ok:false`: es una respuesta, no un error). */
@@ -254,11 +256,22 @@ export interface VerificadorSnapshotItem {
   /** La unidad de cada barcode, en el mismo índice que `b`. Ausente en respaldos anteriores. */
   bu?: (string | null)[];
   n: string;
-  u: Array<{ u: string; p: number; s: number }>;
+  /**
+   * Las presentaciones, base primero. `f` = cuántas unidades BASE trae (`kdii.c81`/`c84`; la base
+   * es 1). Es relativo a la base, no al peldaño anterior: `costo_peldaño = costo_base × factor`
+   * cuadra en 98.5 % de la Unidad Tres (`ERP_KEPLER.md` §2.1.1). Ausente en formatos < 3.
+   */
+  u: Array<{ u: string; p: number; s: number; f?: number }>;
   /** Mayoreo compacto. Ausente = "este respaldo no sabe de mayoreo". */
   m?: MayoreoTierCompacto[];
   /** Gramaje. */
   g?: string;
+  /**
+   * `[MOS.1]` El proveedor, como ÍNDICE en `VerificadorSnapshot.pr`. Índice y no texto: el mismo
+   * nombre se repite en cientos de productos y el snapshot es una descarga por kiosco. Ausente =
+   * sin proveedor en la ficha (o formato < 3).
+   */
+  pv?: number;
 }
 
 /**
@@ -273,10 +286,12 @@ export interface VerificadorSnapshotItem {
  *  · 1 (o sin `v`) = anterior a esta marca: sin garantías sobre `bu`, `m` ni `g`.
  *  · 2 = lleva la unidad de cada código (`bu`), el mayoreo compacto con su equivalencia (`m`/`eq`)
  *        y el gramaje (`g`).
+ *  · 3 = `[MOS.1]` además el factor de cada presentación (`u[].f`) y el proveedor (`pv` + `pr`),
+ *        para que el buscador del mostrador encuentre por proveedor y cuente la caja en paquetes.
  *
  * Se sube al CAMBIAR la forma del snapshot, no en cada release.
  */
-export const VERIFICADOR_SNAPSHOT_FORMATO = 2;
+export const VERIFICADOR_SNAPSHOT_FORMATO = 3;
 
 /** `GET /kp/precios-todos`. */
 export interface VerificadorSnapshot {
@@ -286,6 +301,8 @@ export interface VerificadorSnapshot {
   sucursal: string | null;
   generado: string;
   productos: VerificadorSnapshotItem[];
+  /** `[MOS.1]` Los nombres de proveedor que referencian los `pv` de los productos. */
+  pr?: string[];
 }
 
 /** `GET /sucursales`: la plaza y la frescura del ODS de esa plaza. */

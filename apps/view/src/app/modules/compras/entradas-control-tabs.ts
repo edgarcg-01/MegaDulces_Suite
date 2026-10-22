@@ -17,8 +17,22 @@ import { Permission } from '../../core/constants/permissions';
  *
  * `PageTabs` esconde la barra si queda una sola visible, así que un usuario sin `_VALIDAR` ve
  * el control sin la pestaña de Parámetros y sin rastro de que existe.
+ *
+ * `[RE.48]` **Captura de facturas** entra como la PRIMERA pestaña (decisión del PM, 2026-10-21):
+ * era un item suelto del sidebar y se elige con el mismo selector tipo iOS que el resto del
+ * control. Va primero porque el proceso empieza ahí, y porque el sidebar aterriza en la primera
+ * pestaña VISIBLE: quien sube (`_GESTIONAR`) cae en su trabajo, quien sólo observa (`_VER`) no la
+ * ve y cae en Cobertura. `exact` (default de `PageTabs`) importa: `/compras/entradas` es prefijo
+ * de todas las rutas del control y sin él la pestaña quedaría encendida en todas.
  */
 export const ENTRADAS_CONTROL_TABS: PageTab[] = [
+  {
+    label: 'Captura de facturas',
+    route: '/compras/entradas',
+    icon: 'pi pi-file-pdf',
+    // Todo lo que se hace ahí exige GESTIONAR (subir, leer, enlazar, enviar).
+    permission: Permission.COMPRAS_ENTRADAS_GESTIONAR,
+  },
   {
     // Dice qué MIDE, no cómo agrupa.
     label: 'Cobertura por sucursal',

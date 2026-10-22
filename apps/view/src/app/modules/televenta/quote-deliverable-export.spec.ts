@@ -4,6 +4,8 @@ import {
   LEYENDA_MARCA_AGUA,
   EMPRESA_NOMBRE,
   QuoteDeliverableData,
+  modeloEntregable,
+  condiciones,
 } from './quote-deliverable-export';
 
 describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () => {
@@ -16,8 +18,7 @@ describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () 
     salespersonName: 'Juan Pérez',
     quoteDate: new Date(2026, 8, 26, 17, 30), // Sep 26, 2026, 17:30
     validUntil: '2026-10-03',
-    subtotal: 969.84,
-    total: 969.84,
+    discountPct: null,
     items: [
       {
         sku: '70068',
@@ -59,5 +60,106 @@ describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () 
     };
     const filename = generateQuoteFilename(prospect, 'pdf');
     expect(filename).toMatch(/^\(PROSPECTO\)\(CLIENTE_NUEVO_MOSTRADOR\)\(\d{4},\d{2},\d{2},\d{2},\d{2}\)\.pdf$/);
+  });
+});
+
+/**
+ * `[E.19]` La cuenta del papel. Antes de esto el entregable del DETALLE:
+ *   · restaba el descuento del cliente a un subtotal que ya lo traía y no traía IVA (C1);
+ *   · aplicaba otra vez, como «descuento del renglón», el de volumen/promo que YA está en el
+ *     precio unitario (C2) — medido en prod: 123 renglones, $8,539.97 por debajo.
+ * Estas pruebas fijan lo que el papel tiene que decir, y no cómo se dibuja.
+ */
+describe('modeloEntregable — la cuenta que se le promete al cliente', () => {
+  const base: QuoteDeliverableData = {
+    customerCode: 'C1086', customerName: 'Cliente', branchCode: '01', branchName: 'La Piedad',
+    validUntil: '2026-11-04', quoteDate: new Date(2026, 9, 20), discountPct: 3,
+    items: [
+      // lista $100, cotizado a $90 por VOLUMEN: el $90 ya es el precio
+      { sku: 'A', name: 'Con volumen', unit_label: 'CJA', quantity: 10, unit_price: 90, line_total: 900, price_source: 'Volumen' },
+      { sku: 'B', name: 'De lista', unit_label: 'CJA', quantity: 1, unit_price: 100, line_total: 100, price_source: 'Lista' },
+    ],
+  };
+
+  it('el descuento del renglón es SÓLO el del cliente: el volumen no se aplica dos veces (C2)', () => {
+    const m = modeloEntregable(base);
+    // $90 con 3 % del cliente = $87.30; el defecto imprimía $90 × (1 − 10 %) = $81
+    expect(m.filas[0].unitario).toBeCloseTo(87.3, 2);
+    expect(m.filas[0].importe).toBe(873);
+  });
+
+  it('importe − descuento = total, y la columna de netos suma ese total al centavo (C1)', () => {
+    const m = modeloEntregable(base);
+    expect(m.totales.importe).toBe(1000);
+    expect(m.totales.descuento).toBe(30);
+    expect(m.totales.total).toBe(970);
+    const suma = m.filas.reduce((a, f) => a + (f.importe ?? 0), 0);
+    expect(Math.round(suma * 100)).toBe(97000);
+    // el IVA es la parte del total, no se suma encima: 970 / 1.16 = 836.21 → IVA 133.79
+    expect(m.totales.iva).toBe(133.79);
+  });
+
+  /**
+   * `[E.25]` El pedido REAL de Kepler 01-0003309 (cliente con 2 %): 5 renglones IEPS 8 % y 3 de IVA
+   * 16 %. Kepler guardó total 5,016.07 · IVA 180.03 · IEPS 274.88.
+   */
+  const pedido3309 = (conTasas: boolean): QuoteDeliverableData => ({
+    ...base,
+    discountPct: 2,
+    items: [706.2, 789.5, 893.76, 697.5, 699.6, 641.8, 523.28, 166.8].map((imp, i) => ({
+      sku: String(i), name: 'X', unit_label: 'PAQ', quantity: 1, unit_price: imp, line_total: imp,
+      ...(conTasas ? (i < 5 ? { iva_rate: 0, ieps_rate: 0.08 } : { iva_rate: 0.16, ieps_rate: 0 }) : {}),
+    })),
+  });
+
+  it('[E.25] con la tasa de cada producto el papel desglosa IVA e IEPS como Kepler, sin avisos', () => {
+    const d = pedido3309(true);
+    const m = modeloEntregable(d);
+    expect(m.totales.total).toBe(5016.07);
+    expect(m.totales.iva).toBe(180.03);
+    expect(m.totales.ieps).toBe(274.88);
+    expect(m.totales.subtotal).toBe(4561.16);
+    expect(condiciones(d, m).some((c) => c.startsWith('Impuesto estimado'))).toBe(false);
+  });
+
+  it('[E.25] sin tasas (cotización vieja) el impuesto se ASUME y el papel lo dice', () => {
+    const d = pedido3309(false);
+    const m = modeloEntregable(d);
+    expect(m.totales.impuesto_asumido).toBe(8);
+    expect(condiciones(d, m)).toContain('Impuesto estimado en 8 artículo(s): IVA 16 % asumido, sin la tasa del producto.');
+  });
+
+  it('no genera el papel si su total no es el que guardó el servidor', () => {
+    expect(() => modeloEntregable({ ...base, totalGuardado: 970 })).not.toThrow();
+    expect(() => modeloEntregable({ ...base, totalGuardado: 950 })).toThrow(/no coincide con el total guardado/);
+  });
+
+  it('sin precio y regalo se declaran: nunca $0.00, y no entran al total', () => {
+    const m = modeloEntregable({
+      ...base,
+      items: [
+        ...base.items,
+        { sku: 'X', name: 'No manejado', unit_label: 'PZA', quantity: 3, unit_price: null, line_total: 0 },
+        { sku: 'G', name: 'Regalo ERP', unit_label: 'PZA', quantity: 1, unit_price: 0, line_total: 0, regalo: true },
+      ],
+    });
+    expect(m.filas[2]).toMatchObject({ tipo: 'sin_precio', importe: null, unitario: null });
+    expect(m.filas[3]).toMatchObject({ tipo: 'regalo', importe: null });
+    expect(m.totales.total).toBe(970);
+    expect(m.totales.sin_precio).toBe(1);
+  });
+
+  it('la emisión es la fecha de la cotización y el título avisa si ya venció o se canceló (M1)', () => {
+    expect(modeloEntregable(base).emision.getDate()).toBe(20);
+    expect(modeloEntregable({ ...base, estado: 'vencida' })).toMatchObject({ titulo: 'COTIZACIÓN VENCIDA', alerta: true });
+    expect(modeloEntregable({ ...base, estado: 'cancelada' })).toMatchObject({ titulo: 'COTIZACIÓN CANCELADA', alerta: true });
+    expect(modeloEntregable(base)).toMatchObject({ titulo: 'COTIZACIÓN FORMAL', alerta: false });
+  });
+
+  it('sin descuento del cliente, el papel imprime el precio cotizado tal cual', () => {
+    const m = modeloEntregable({ ...base, discountPct: null });
+    expect(m.conDescuento).toBe(false);
+    expect(m.filas[0]).toMatchObject({ unitario: 90, importe: 900 });
+    expect(m.totales.total).toBe(1000);
   });
 });

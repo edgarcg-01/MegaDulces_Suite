@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, ageHuman } from '@megadulces/platform-core';
 
 /**
  * `[CG.105]` — **El expediente diario de Caja General y el historial de cortes.**
@@ -41,7 +41,22 @@ export class CajaControlService {
       let qb = trx('analytics.v_caja_control_cortes');
       if (q.desde) qb = qb.where('fecha', '>=', q.desde);
       if (q.hasta) qb = qb.where('fecha', '<=', q.hasta);
-      const rows = await qb.orderBy('fecha', 'desc').limit(limit);
+      const rows: Array<Record<string, unknown>> = await qb.orderBy('fecha', 'desc').limit(limit);
+
+      /**
+       * ⭐ `[CGA-A.47]` **Las observaciones del conteo del corte.** La vista agrupa por la fecha en
+       * que se CAPTURÓ, y Control a veces recaptura un cierre al día siguiente: el 2026-10-20 la
+       * pantalla decía «la caja se contó el 20/10» sobre A23678, cuya nota dice «CORTE 19/10/2026»
+       * — nadie contó ese día. La nota es lo único que lo dice, así que viaja con el renglón y la
+       * pantalla la muestra. Una lectura por folio, sin tocar la vista.
+       */
+      const folios = rows.map((r) => r['corte_folio']).filter((f): f is string => typeof f === 'string' && !!f);
+      if (folios.length) {
+        const obs: { folio: string; observaciones: string | null }[] = await trx('analytics.v_caja_control_movimientos')
+          .whereIn('folio', folios).select('folio', 'observaciones');
+        const porFolio = new Map(obs.map((o) => [o.folio, (o.observaciones ?? '').trim() || null]));
+        for (const r of rows) r['corte_observaciones'] = porFolio.get(String(r['corte_folio'])) ?? null;
+      }
       return {
         rows, limit, fuente: 'analytics.v_caja_control_cortes',
         frescura: await this.frescura(trx),
@@ -103,10 +118,12 @@ export class CajaControlService {
     // no puede disparar la alarma. Una alarma que grita en falso enseña a ignorar el tablero.
     const status: 'fresh' | 'stale' | 'unknown' =
       horas === null ? 'unknown' : (horas <= 30 ? 'fresh' : 'stale');
-    const edad = horas === null ? null
-      : horas < 1 ? 'hace menos de una hora'
-        : horas < 48 ? `hace ${Math.round(horas)} h`
-          : `hace ${Math.round(horas / 24)} días`;
+    /**
+     * ⛔ `[CGA-A.47]` Acá se escribía la edad a mano CON «hace» adelante («hace 3 h»), y la píldora
+     * compartida antepone su propio «hace»: la pantalla decía **«Arqueos de Control hace hace 3 h»**
+     * (medido en vivo, 2026-10-20). El contrato es el de `ageHuman` de platform-core («3 h»).
+     */
+    const edad = at ? ageHuman(Date.now() - new Date(at).getTime()) : null;
     const input = {
       key: 'caja_general_ods', label: 'Arqueos de Control',
       at, age_human: edad, status, stale: status !== 'fresh',

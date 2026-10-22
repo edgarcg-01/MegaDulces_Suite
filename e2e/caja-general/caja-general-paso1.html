@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="es-MX" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Caja General · Paso 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════════════════════
+   Tokens COPIADOS de libs/design-tokens/tokens.css. Operations: sin fuente
+   display, sin ilustraciones, densidad compacta, profundidad por borde de 1px.
+   ══════════════════════════════════════════════════════════════════════════════ */
+:root{
+  --font-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --font-mono:'Geist Mono',ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;
+  --fs-display:2.5rem; --fs-h2:1.25rem; --fs-h3:1rem;
+  --fs-sm:.8125rem; --fs-xs:.75rem; --fs-micro:.6875rem; --fs-nano:.625rem;
+  --sp-1:.25rem; --sp-2:.5rem; --sp-3:.75rem; --sp-4:1rem; --sp-5:1.25rem; --sp-6:1.5rem;
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-pill:999px;
+  --action:#F05A28; --action-ink:#FFFFFF; --action-ring:rgba(240,90,40,.30);
+  --layout-bg:#F4F4F5; --card-bg:#FFFFFF; --surface-2:#FAFAFA;
+  --border-color:#E4E4E7; --table-border:#EDEDEF;
+  --text-main:#18181B; --text-muted:#52525B; --text-faint:#71717A;
+  --ok-fg:#15803D; --ok-soft-bg:rgba(34,197,94,.12);
+  --warn-fg:#B45309; --warn-soft-bg:rgba(251,191,36,.16);
+  --err-fg:#B91C1C; --err-soft-bg:rgba(239,68,68,.12); --err-border:rgba(239,68,68,.40);
+  --info-fg:#1D4ED8; --info-soft-bg:rgba(96,165,250,.16);
+  --ink-rgb:24,24,27;
+  --overlay-hover:rgba(var(--ink-rgb),.04); --overlay-selected:rgba(var(--ink-rgb),.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --layout-bg:#09090B; --card-bg:#18181B; --surface-2:#111113;
+    --border-color:#27272A; --table-border:#1F1F22;
+    --text-main:#FAFAFA; --text-muted:#A1A1AA; --text-faint:#71717A;
+    --ok-fg:#22C55E; --ok-soft-bg:rgba(34,197,94,.15);
+    --warn-fg:#FBBF24; --warn-soft-bg:rgba(251,191,36,.15);
+    --err-fg:#F87171; --err-soft-bg:rgba(239,68,68,.15); --err-border:rgba(239,68,68,.35);
+    --info-fg:#60A5FA; --info-soft-bg:rgba(96,165,250,.15);
+    --ink-rgb:250,250,250;
+    --overlay-hover:rgba(var(--ink-rgb),.05); --overlay-selected:rgba(var(--ink-rgb),.10);
+  }
+}
+:root[data-theme="dark"]{
+  --layout-bg:#09090B; --card-bg:#18181B; --surface-2:#111113;
+  --border-color:#27272A; --table-border:#1F1F22;
+  --text-main:#FAFAFA; --text-muted:#A1A1AA; --text-faint:#71717A;
+  --ok-fg:#22C55E; --ok-soft-bg:rgba(34,197,94,.15);
+  --warn-fg:#FBBF24; --warn-soft-bg:rgba(251,191,36,.15);
+  --err-fg:#F87171; --err-soft-bg:rgba(239,68,68,.15); --err-border:rgba(239,68,68,.35);
+  --info-fg:#60A5FA; --info-soft-bg:rgba(96,165,250,.15);
+  --ink-rgb:250,250,250;
+  --overlay-hover:rgba(var(--ink-rgb),.05); --overlay-selected:rgba(var(--ink-rgb),.10);
+}
+
+*{box-sizing:border-box}
+/* `[hidden]` NO oculta nada si el CSS declara `display`. Sin esto, cada fila flex
+   que se apaga sigue ocupando su alto — y acá el alto es el presupuesto entero. */
+[hidden]{display:none !important}
+
+/* ⭐⭐ EL SHELL SIN SCROLL — la lección de [CG.113].
+   `height:100vh` ERA el scroll: la app vive dentro de un contenedor que ya es
+   `100dvh` menos la barra, así que pedir 100vh pide una barra POR CONSTRUCCIÓN.
+   El patrón correcto es una cadena de `min-height:0` desde el body hasta el
+   cuerpo de la lista — sin un solo `min-height:0` la cadena se rompe y el hijo
+   empuja al padre. Lo único que desplaza es el CUERPO de la lista, nunca la página. */
+html,body{height:100%;margin:0;padding:0}
+body{
+  height:100dvh; overflow:hidden;
+  display:grid; grid-template-rows:auto 1fr;
+  background:var(--layout-bg); color:var(--text-main);
+  font-family:var(--font-body); font-size:var(--fs-sm); line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+code{font-family:var(--font-mono);font-size:.92em}
+/* Anillo de foco visible SIEMPRE: esta pantalla se maneja con teclado. */
+:focus-visible{outline:2px solid var(--action);outline-offset:2px;border-radius:4px}
+
+/* ── andamio de la demo (fuera del presupuesto de la app) ───────────────── */
+.demo{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;
+  padding:var(--sp-1) var(--sp-4);background:var(--surface-2);
+  border-bottom:1px solid var(--border-color);font-size:var(--fs-micro);color:var(--text-muted)}
+.demo strong{color:var(--text-main)}
+.demo .sp{flex:1}
+.demo button{padding:2px var(--sp-2);border:1px solid var(--border-color);border-radius:var(--r-pill);
+  background:var(--card-bg);color:var(--text-muted);font:inherit;cursor:pointer}
+.demo button[aria-pressed="true"]{border-color:var(--action);color:var(--text-main)}
+#vp{font-family:var(--font-mono)}
+
+/* ── la app: columna que no desborda ───────────────────────────────────── */
+.app{min-height:0;overflow:hidden;display:flex;flex-direction:column;
+  padding:0 var(--sp-4) var(--sp-3)}
+
+/* 1 · la barra de la pantalla, UN renglón */
+.bar{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;
+  padding:var(--sp-2) 0;flex:none}
+.bar h1{margin:0;font-size:var(--fs-h3);font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.bar .sp{flex:1}
+.bar .ctx{font-size:var(--fs-xs);color:var(--text-muted);flex:0 1 auto;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;gap:var(--sp-2);padding:var(--sp-1) var(--sp-3);
+  border-radius:var(--r-sm);border:1px solid var(--border-color);background:var(--card-bg);
+  color:var(--text-main);font:inherit;font-size:var(--fs-xs);font-weight:500;cursor:pointer;
+  white-space:nowrap;transition:opacity .15s ease}
+.btn:hover{opacity:.85}
+.btn-primary{background:var(--action);border-color:var(--action);color:var(--action-ink)}
+.btn svg{width:13px;height:13px;flex:none}
+
+/* 2 · H9 en UN renglón. Es lo más importante del módulo y costaba 170px. */
+.h9{display:flex;align-items:center;gap:var(--sp-3);flex:none;
+  padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);
+  border:1px solid var(--err-border);border-left:3px solid var(--err-fg);
+  border-radius:var(--r-sm);background:var(--card-bg);font-size:var(--fs-xs)}
+.h9 > svg{width:15px;height:15px;color:var(--err-fg);flex:none}
+.h9 b{color:var(--err-fg);font-weight:700}
+.h9 .txt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text-muted)}
+.spark{display:flex;align-items:flex-end;gap:1px;height:15px;flex:none}
+.spark i{width:4px;background:var(--text-faint);border-radius:1px 1px 0 0;display:block}
+.spark i.off{background:var(--err-fg)}
+.h9 details{position:relative;flex:none}
+.h9 summary{list-style:none;cursor:pointer;color:var(--text-muted);text-decoration:underline;
+  text-underline-offset:2px}
+.h9 summary::-webkit-details-marker{display:none}
+.h9 details > div{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(520px,74vw);
+  padding:var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-md);
+  background:var(--card-bg);color:var(--text-muted);white-space:normal;line-height:1.5;
+  box-shadow:0 8px 28px -12px rgba(0,0,0,.5)}
+.h9 details strong{color:var(--text-main)}
+
+/* 3 · la tira de métricas: SIN caja (app-metric-strip, no metric-card) y en
+   un renglón. Las cajas de KPI costaban 120px y no aportaban jerarquía. */
+.strip{display:flex;flex-wrap:wrap;gap:var(--sp-5);align-items:baseline;flex:none;
+  padding:var(--sp-2) 0 var(--sp-3);border-bottom:1px solid var(--border-color)}
+.m{display:flex;align-items:baseline;gap:var(--sp-2);min-width:0}
+.m-k{font-size:var(--fs-micro);text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.m-v{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-h2);
+  font-weight:600;line-height:1}
+.m-v.lead{font-size:1.75rem;letter-spacing:-.02em}
+.m-s{font-size:var(--fs-nano);color:var(--text-faint);font-family:var(--font-mono)}
+.m-v.warn{color:var(--warn-fg)} .m-v.ok{color:var(--ok-fg)} .m-v.err{color:var(--err-fg)}
+.strip .sp{flex:1}
+
+/* 4 · los accesos: UN renglón, agrupado por separador en vez de tres rótulos */
+.bks{display:flex;flex-wrap:wrap;gap:var(--sp-1);align-items:center;flex:none;
+  padding:var(--sp-3) 0 var(--sp-2)}
+.bk{display:inline-flex;align-items:center;gap:var(--sp-2);padding:var(--sp-1) var(--sp-3);
+  border:1px solid var(--border-color);border-radius:var(--r-sm);background:transparent;
+  color:var(--text-muted);font:inherit;font-size:var(--fs-xs);cursor:pointer;white-space:nowrap}
+.bk:hover{background:var(--overlay-hover)}
+.bk[aria-checked="true"]{background:var(--overlay-selected);border-color:var(--action);color:var(--text-main)}
+.bk .ico{width:13px;height:13px;flex:none;color:var(--text-faint)}
+.bk[aria-checked="true"] .ico{color:var(--action)}
+.bk .n{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-weight:600;color:var(--text-main)}
+.bk-nota,.bk-bloq{border-style:dashed}
+.bk-nota .n,.bk-bloq .n{color:var(--text-muted);font-weight:400}
+.sep{width:1px;align-self:stretch;background:var(--border-color);margin:2px var(--sp-2)}
+.bks .sp{flex:1}
+.kbd-hint{font-size:var(--fs-nano);color:var(--text-faint);white-space:nowrap}
+kbd{font-family:var(--font-mono);font-size:var(--fs-nano);padding:0 3px;
+  border:1px solid var(--border-color);border-radius:3px;color:var(--text-muted)}
+
+/* 5 · el contexto del grupo + su acción: UN renglón */
+.ctxbar{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;flex:none;
+  padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);
+  border:1px solid var(--border-color);border-left:3px solid var(--action);
+  border-radius:var(--r-sm);background:var(--surface-2)}
+.ctxbar.es-nota{border-left-color:var(--text-faint)}
+.ctxbar.es-bloq{border-left-color:var(--warn-fg)}
+.ctxbar p{margin:0;font-size:var(--fs-xs);color:var(--text-muted);flex:1 1 auto;min-width:0}
+.ctxbar strong{color:var(--text-main);font-weight:600}
+.ctxbar details{flex:none;position:relative}
+.ctxbar summary{list-style:none;cursor:pointer;font-size:var(--fs-xs);color:var(--text-muted);
+  text-decoration:underline;text-underline-offset:2px}
+.ctxbar summary::-webkit-details-marker{display:none}
+.ctxbar details > div{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:min(560px,78vw);
+  padding:var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-md);
+  background:var(--card-bg);color:var(--text-muted);font-size:var(--fs-xs);line-height:1.5;
+  box-shadow:0 8px 28px -12px rgba(0,0,0,.5)}
+
+/* 6 · los dos apartados. El split es el que recibe TODO el alto restante. */
+.split{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);
+  gap:var(--sp-3);align-items:stretch}
+.split.is-split{grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
+.ap{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;
+  border:1px solid var(--border-color);border-radius:var(--r-md);background:var(--card-bg)}
+.ap-h{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;flex:none;
+  padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border-color)}
+.ap-n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  border-radius:var(--r-pill);background:var(--action);color:var(--action-ink);
+  font-size:var(--fs-nano);font-weight:700;flex:none}
+.ap-t{margin:0;font-size:var(--fs-xs);font-weight:600}
+.ap-hint{font-size:var(--fs-nano);color:var(--text-muted)}
+.ap-h .sp{flex:1}
+/* ⭐ EL ÚNICO QUE DESPLAZA. La página nunca. */
+.ap-b{flex:1 1 auto;min-height:0;overflow:auto}
+.ap-f{flex:none;display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;
+  padding:var(--sp-1) var(--sp-3);border-top:1px solid var(--border-color);
+  font-size:var(--fs-nano);color:var(--text-muted)}
+.ap-f .sp{flex:1}
+.ap-f strong{color:var(--text-main)}
+
+.field{display:inline-flex;align-items:center;gap:var(--sp-2);padding:2px var(--sp-2);
+  border:1px solid var(--border-color);border-radius:var(--r-sm);background:var(--surface-2);
+  font-size:var(--fs-nano);color:var(--text-muted)}
+.field input{border:0;background:transparent;color:var(--text-main);font:inherit;
+  font-size:var(--fs-xs);outline:none;min-width:min(190px,34vw)}
+.field svg{width:12px;height:12px;color:var(--text-faint);flex:none}
+
+/* ── tabla densa ───────────────────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-xs)}
+thead th{position:sticky;top:0;z-index:1;background:var(--card-bg);
+  border-bottom:1px solid var(--border-color);padding:var(--sp-1) var(--sp-3);text-align:left;
+  font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.05em;font-weight:600;
+  color:var(--text-muted);white-space:nowrap}
+thead th.num{text-align:right}
+tbody td,tbody th{padding:var(--sp-1) var(--sp-3);border-bottom:1px solid var(--table-border);
+  text-align:left;font-weight:400;vertical-align:middle}
+tbody tr{cursor:pointer}
+tbody tr:hover>td,tbody tr:hover>th{background:var(--overlay-hover)}
+tbody tr[aria-selected="true"]>td,tbody tr[aria-selected="true"]>th{background:var(--overlay-selected)}
+tbody tr[aria-selected="true"]>td:first-child{box-shadow:inset 3px 0 0 0 var(--action)}
+.c-fecha{font-variant-numeric:tabular-nums;font-family:var(--font-mono)}
+.c-age{color:var(--text-muted);font-family:var(--font-mono);font-size:var(--fs-nano)}
+.c-nom{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:34ch}
+.c-doc{display:block;font-family:var(--font-mono);font-size:var(--fs-nano);color:var(--text-muted)}
+.sign{width:12px;height:12px}
+.sign-in{color:var(--ok-fg)} .sign-out{color:var(--warn-fg)}
+.chev{width:12px;height:12px;color:var(--text-faint);transition:transform .15s ease}
+tbody tr[aria-selected="true"] .chev{color:var(--action);transform:rotate(90deg)}
+.tag{display:inline-flex;align-items:center;padding:0 var(--sp-2);border-radius:var(--r-pill);
+  font-size:var(--fs-nano);font-weight:600;white-space:nowrap}
+.tag-ok{background:var(--ok-soft-bg);color:var(--ok-fg)}
+.tag-warn{background:var(--warn-soft-bg);color:var(--warn-fg)}
+.tag-err{background:var(--err-soft-bg);color:var(--err-fg)}
+.tag-info{background:var(--info-soft-bg);color:var(--info-fg)}
+.tag-mute{border:1px solid var(--border-color);color:var(--text-muted)}
+
+.vacio{padding:var(--sp-6) var(--sp-4);text-align:center;color:var(--text-muted);font-size:var(--fs-xs)}
+.vacio svg{width:22px;height:22px;color:var(--text-faint);margin-bottom:var(--sp-2)}
+.vacio p{margin:var(--sp-1) auto;max-width:62ch}
+
+/* ── ② el arqueo ───────────────────────────────────────────────────────── */
+.ficha{flex:none;padding:var(--sp-3);border-bottom:1px solid var(--border-color)}
+.ficha-top{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.ficha-sign{display:inline-flex;align-items:center;gap:var(--sp-1);padding:0 var(--sp-2);
+  border-radius:var(--r-pill);background:var(--warn-soft-bg);color:var(--warn-fg);
+  font-size:var(--fs-nano);font-weight:600}
+.ficha-sign.es-in{background:var(--ok-soft-bg);color:var(--ok-fg)}
+.ficha-ref{font-family:var(--font-mono);font-size:var(--fs-nano);color:var(--text-muted)}
+.ficha-top .sp{flex:1}
+.ficha-nom{margin:var(--sp-2) 0 0;font-size:var(--fs-xs);font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ficha-monto{font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:1.6rem;
+  font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.proc{margin:var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-sm);
+  background:var(--surface-2);overflow:hidden}
+.proc-h{display:flex;gap:var(--sp-2);align-items:center;padding:var(--sp-1) var(--sp-3);
+  border-bottom:1px solid var(--border-color);font-size:var(--fs-nano)}
+.proc-h strong{font-weight:600}
+.proc-h .sp{flex:1}
+.proc table{font-size:var(--fs-nano)}
+.proc tbody tr{cursor:default}
+.proc tbody tr:hover>td,.proc tbody tr:hover>th{background:transparent}
+.proc tfoot td{padding:var(--sp-1) var(--sp-3);font-weight:600;border-top:1px solid var(--border-color)}
+.reja{padding:var(--sp-3);display:grid;grid-template-columns:1fr 1px 1fr;gap:var(--sp-3)}
+.reja-sep{background:var(--border-color)}
+.reja table{font-size:var(--fs-nano)}
+.reja thead th{padding:1px var(--sp-2)}
+.reja tbody td,.reja tbody th{padding:1px var(--sp-2)}
+.reja tbody tr{cursor:default}
+.reja tbody tr:hover>td,.reja tbody tr:hover>th{background:transparent}
+.pieza{width:52px;padding:1px var(--sp-1);text-align:right;border:1px solid var(--border-color);
+  border-radius:5px;background:var(--card-bg);color:var(--text-main);font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;font-size:var(--fs-nano)}
+/* `flex:none` porque ahora es hijo directo de `.ap` (columna flex): sin eso el total se
+   encoge cuando la reja crece, que es justo cuando hace falta leerlo. */
+.total{flex:none;display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;margin:0 var(--sp-3) var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);border:1px solid var(--border-color);border-radius:var(--r-sm);
+  background:var(--surface-2)}
+.total .sp{flex:1}
+
+/* ⛔ Bajo 64rem el split APILADO dejaría el arqueo fuera de una página que no
+   scrollea, y sin forma de llegar. Ahí se le devuelve el alto a la página: ver
+   todo bajando es peor que verlo junto, e infinitamente mejor que no poder verlo. */
+@media (max-width:64rem){
+  body{height:auto;overflow:visible;display:block}
+  .app{overflow:visible}
+  .split.is-split{grid-template-columns:1fr}
+  .ap{max-height:none}
+  .ap-b{overflow:visible}
+}
+@media (forced-colors: active){
+  .bk[aria-checked="true"]{border:2px solid Highlight}
+  tbody tr[aria-selected="true"]>td{border-top:2px solid Highlight;border-bottom:2px solid Highlight}
+  .spark i.off{outline:1px solid CanvasText}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<div class="demo">
+  <strong>Vista previa v3</strong>
+  <span>sin scroll de página · todo con teclado · medido contra prod 16-oct ~11:10</span>
+  <span class="sp"></span>
+  <span id="vp">—</span>
+  <button id="t-dark" aria-pressed="true" type="button">Oscuro</button>
+  <button id="t-light" aria-pressed="false" type="button">Claro</button>
+</div>
+
+<div class="app">
+
+  <div class="bar">
+    <h1>Caja General</h1>
+    <span class="ctx">3 jornadas sin cerrar — 14, 15 y 16 de octubre · el libro arranca el 10-oct</span>
+    <span class="sp"></span>
+    <label class="field">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+      <span class="sr-only">Buscar en por confirmar</span>
+      <input type="search" id="buscar" placeholder="Buscar…  /" />
+    </label>
+    <button class="btn" type="button">Tu jornada</button>
+    <button class="btn btn-primary" type="button">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+      Registrar
+    </button>
+  </div>
+
+  <!-- H9 en un renglón: sigue siendo lo primero que se lee, cuesta 32px en vez de 170 -->
+  <section class="h9" aria-labelledby="h9-t">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 1.8 15 14H1z"/><path d="M8 6.2v3.4"/><circle cx="8" cy="11.8" r=".7" fill="currentColor"/></svg>
+    <b id="h9-t">Kepler dejó de registrar depósitos el 12-oct.</b>
+    <span class="txt">De ~90–115 por semana a 2, con los egresos normales. Esta bandeja se va a vaciar sola.</span>
+    <span class="spark" role="img" aria-label="Depósitos por semana: 89, 105, 110, 71, 87, 116, 111, 85, 71 y luego 2.">
+      <i style="height:62%"></i><i style="height:73%"></i><i style="height:77%"></i><i style="height:49%"></i>
+      <i style="height:60%"></i><i style="height:81%"></i><i style="height:78%"></i><i style="height:59%"></i>
+      <i style="height:49%"></i><i class="off" style="height:4%"></i>
+    </span>
+    <details>
+      <summary>por qué</summary>
+      <div>
+        El feed del ODS está <strong>sano</strong> y el rezago de captura tiene mediana de 3 días,
+        así que <strong>no es retraso: el registro se apagó</strong> — la misma fecha en que el
+        Access dejó de escribirse. <strong>Una bandeja vacía se va a leer como «ya no hay trabajo»,
+        y el dinero sigue entrando.</strong> Es la trampa de GOTCHAS §84 un piso más arriba.
+        <strong>Se pregunta en operación, no se programa</strong> (hueco H9).
+      </div>
+    </details>
+  </section>
+
+  <!-- Tira de métricas SIN caja: app-metric-strip, no metric-card -->
+  <div class="strip">
+    <div class="m">
+      <span class="m-k">El trabajo</span>
+      <span class="m-v lead">123</span>
+      <span class="m-s">$479,545.42 · desde el 10-oct</span>
+    </div>
+    <div class="m">
+      <span class="m-k">Un solo día</span>
+      <span class="m-v warn">92</span>
+      <span class="m-s">10-oct · 71 % del rezago</span>
+    </div>
+    <div class="m">
+      <span class="m-k">En el libro</span>
+      <span class="m-v ok">137</span>
+      <span class="m-s">78 reg · 59 en corte</span>
+    </div>
+    <div class="m">
+      <span class="m-k">Esperado del corte</span>
+      <span class="m-v err">−$149,915</span>
+      <span class="m-s">vuelve a positivo = el frente sirvió</span>
+    </div>
+    <span class="sp"></span>
+    <span class="m-s">Kepler · hace 2 min</span>
+  </div>
+
+  <!-- Accesos: UN renglón. radiogroup con roving tabindex — una sola parada de Tab. -->
+  <div class="bks">
+    <div role="radiogroup" aria-label="Grupo de movimientos" id="bks" style="display:contents">
+      <button class="bk" role="radio" aria-checked="true"  tabindex="0"  data-b="ingreso" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 3v9M4.5 8.5 8 12l3.5-3.5"/><path d="M2.5 14h11"/></svg>
+        Depósitos <span class="n">6</span>
+      </button>
+      <button class="bk" role="radio" aria-checked="false" tabindex="-1" data-b="egreso" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 13V4M4.5 7.5 8 4l3.5 3.5"/><path d="M2.5 14h11"/></svg>
+        Egresos <span class="n">117</span>
+      </button>
+      <button class="bk" role="radio" aria-checked="false" tabindex="-1" data-b="caos" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><circle cx="8" cy="8" r="2.2"/></svg>
+        Bóveda <span class="n">13</span>
+      </button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="bk bk-bloq" role="radio" aria-checked="false" tabindex="-1" data-b="rutadet" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 11h12M4 11V7l2-3h4l2 3v4"/><circle cx="5" cy="13" r="1.2"/><circle cx="11" cy="13" r="1.2"/></svg>
+        Ruta detalle <span class="n">H1</span>
+      </button>
+      <button class="bk bk-bloq" role="radio" aria-checked="false" tabindex="-1" data-b="proveedores" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 1.8 14 5v6L8 14.2 2 11V5z"/><path d="M2 5l6 3.2L14 5M8 8.2v6"/></svg>
+        Proveedores <span class="n">H3</span>
+      </button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="bk bk-nota" role="radio" aria-checked="false" tabindex="-1" data-b="malfecha" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 6.5h12M5.5 2v2M10.5 2v2"/></svg>
+        Mal fechados <span class="n">7</span>
+      </button>
+      <button class="bk bk-nota" role="radio" aria-checked="false" tabindex="-1" data-b="fuera" type="button">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5 8h6"/></svg>
+        Antes del 10-oct <span class="n">13,206</span>
+      </button>
+    </div>
+    <span class="sp"></span>
+    <span class="kbd-hint">
+      <kbd>←</kbd><kbd>→</kbd> grupo · <kbd>↑</kbd><kbd>↓</kbd> fila · <kbd>Enter</kbd> arquear ·
+      <kbd>Esc</kbd> volver · <kbd>/</kbd> buscar
+    </span>
+  </div>
+
+  <div class="ctxbar" id="ctx">
+    <p id="ctx-txt"></p>
+    <details id="ctx-mas"><summary>detalle</summary><div id="ctx-mas-txt"></div></details>
+    <button class="btn btn-primary" type="button" id="ctx-btn">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+      <span id="ctx-btn-t"></span>
+    </button>
+  </div>
+
+  <div class="split" id="split">
+
+    <section class="ap" aria-labelledby="ap1-t">
+      <div class="ap-h">
+        <span class="ap-n" aria-hidden="true">1</span>
+        <h2 class="ap-t" id="ap1-t">Qué vas a arquear</h2>
+        <span class="ap-hint" id="ap1-hint">el movimiento del ERP que estás por cuadrar</span>
+        <span class="sp"></span>
+        <button class="btn" type="button" id="marcar">Marcar las 6</button>
+        <button class="btn" type="button">Confirmar</button>
+      </div>
+
+      <div class="ap-b" id="ap1-b">
+        <table id="tabla">
+          <caption class="sr-only">Movimientos por confirmar del grupo elegido</caption>
+          <thead>
+            <tr>
+              <th scope="col">Fecha</th>
+              <th scope="col"><span class="sr-only">Signo</span></th>
+              <th scope="col">Contraparte</th>
+              <th scope="col">Estado</th>
+              <th scope="col" class="num">Importe (ERP)</th>
+              <th scope="col"><span class="sr-only">Abrir</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="vacio" id="vacio" hidden>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 11h.01"/></svg>
+          <p id="vacio-txt"></p>
+        </div>
+      </div>
+
+      <div class="ap-f" id="ap1-f">
+        <span><strong class="mono" id="f-n">6</strong> en este grupo · <strong class="mono" id="f-ok">6</strong> <span id="f-ok-t">de un clic</span></span>
+        <span class="sp"></span>
+        <span id="f-resto">el resto necesita su cuenta declarada</span>
+      </div>
+    </section>
+
+    <section class="ap" id="ap2" hidden aria-labelledby="ap2-t">
+      <div class="ap-h">
+        <span class="ap-n" aria-hidden="true">2</span>
+        <h2 class="ap-t" id="ap2-t">El arqueo</h2>
+        <span class="ap-hint">contá el efectivo, pieza por pieza</span>
+        <span class="sp"></span>
+        <button class="btn" type="button" id="cerrar2">Cancelar <kbd>Esc</kbd></button>
+      </div>
+
+      <div class="ap-b">
+        <div class="ficha">
+          <div class="ficha-top">
+            <span class="ficha-sign es-in" id="fi-sign"><span id="fi-sign-t">Entra a la caja</span></span>
+            <span class="ficha-ref" id="fi-ref">U-A-5 0000094</span>
+            <span class="sp"></span>
+            <span class="ficha-ref" id="fi-fecha">10/10/26</span>
+          </div>
+          <p class="ficha-nom" id="fi-nom">01 Padre Hidalgo — depósito de efectivo</p>
+          <div class="ficha-monto" id="fi-monto">$19,138.00</div>
+        </div>
+
+        <div class="proc" id="proc">
+          <div class="proc-h">
+            <strong>De dónde viene este depósito</strong>
+            <span class="sp"></span>
+            <span class="tag tag-info">procedencia, no movimientos</span>
+          </div>
+          <table>
+            <caption class="sr-only">Cierres que componen este depósito</caption>
+            <thead><tr><th scope="col">Cierre</th><th scope="col">Veredicto</th><th scope="col" class="num">Contado</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">2V005 Morelia Abastos · caja 8 · 09-oct</th><td><span class="tag tag-ok">cuadra</span></td><td class="num">$5,224.23</td></tr>
+              <tr><th scope="row">2V005 Morelia Abastos · caja 8 · 10-oct</th><td><span class="tag tag-ok">cuadra</span></td><td class="num">$6,244.48</td></tr>
+              <tr><th scope="row">Venta de mostrador · caja 3 · 10-oct</th><td><span class="tag tag-warn">faltante</span></td><td class="num">$7,669.29</td></tr>
+            </tbody>
+            <tfoot><tr><td colspan="2">Suma de la procedencia</td><td class="num mono">$19,138.00</td></tr></tfoot>
+          </table>
+        </div>
+
+        <div class="reja">
+          <div>
+            <table>
+              <thead><tr><th scope="col">Billetes</th><th scope="col">Piezas</th><th scope="col" class="num">Importe</th></tr></thead>
+              <tbody>
+                <tr><th scope="row" class="mono">$500</th><td><input class="pieza cg-pieza" type="number" value="34" aria-label="Piezas del billete de 500" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$17,000.00</td></tr>
+                <tr><th scope="row" class="mono">$200</th><td><input class="pieza cg-pieza" type="number" value="9" aria-label="Piezas del billete de 200" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$1,800.00</td></tr>
+                <tr><th scope="row" class="mono">$100</th><td><input class="pieza cg-pieza" type="number" value="3" aria-label="Piezas del billete de 100" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$300.00</td></tr>
+                <tr><th scope="row" class="mono">$50</th><td><input class="pieza cg-pieza" type="number" value="0" aria-label="Piezas del billete de 50" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$0.00</td></tr>
+                <tr><th scope="row" class="mono">$20</th><td><input class="pieza cg-pieza" type="number" value="1" aria-label="Piezas del billete de 20" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$20.00</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="reja-sep" aria-hidden="true"></div>
+          <div>
+            <table>
+              <thead><tr><th scope="col">Monedas</th><th scope="col">Piezas</th><th scope="col" class="num">Importe</th></tr></thead>
+              <tbody>
+                <tr><th scope="row" class="mono">$20</th><td><input class="pieza cg-pieza" type="number" value="0" aria-label="Piezas de la moneda de 20" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$0.00</td></tr>
+                <tr><th scope="row" class="mono">$10</th><td><input class="pieza cg-pieza" type="number" value="1" aria-label="Piezas de la moneda de 10" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$10.00</td></tr>
+                <tr><th scope="row" class="mono">$5</th><td><input class="pieza cg-pieza" type="number" value="1" aria-label="Piezas de la moneda de 5" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$5.00</td></tr>
+                <tr><th scope="row" class="mono">$2</th><td><input class="pieza cg-pieza" type="number" value="1" aria-label="Piezas de la moneda de 2" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$2.00</td></tr>
+                <tr><th scope="row" class="mono">$1</th><td><input class="pieza cg-pieza" type="number" value="1" aria-label="Piezas de la moneda de 1" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$1.00</td></tr>
+                <tr><th scope="row" class="mono">50¢</th><td><input class="pieza cg-pieza" type="number" value="0" aria-label="Piezas de la moneda de 50 centavos" aria-keyshortcuts="ArrowUp ArrowDown Enter"></td><td class="num">$0.00</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ⛔⛔ EL TOTAL VA FUERA DE `.ap-b`, Y NO ES COSMÉTICO. Medido 2026-10-19 con
+           Playwright: dentro del scroller terminaba en 638px con el pliegue en 625 (laptop
+           768p) y en 787px con el pliegue en 730 (1080p al 125%). O sea que en las pantallas
+           de laptop —casi toda la flota— había que DESPLAZAR para ver el número contra el
+           que la persona cuadra el efectivo que tiene en la mano. Entraba sólo a 1920x937.
+           Los botones ya estaban anclados; el total, que es lo que se mira antes de apretar
+           Guardar, no. Ahora la reja de denominaciones es lo único que se desplaza. -->
+      <div class="total">
+        <div>
+          <div class="m-k">Contado</div>
+          <div class="ficha-monto">$19,138.00</div>
+        </div>
+        <span class="sp"></span>
+        <div style="text-align:right;color:var(--ok-fg);font-weight:600">Cuadra con el documento
+          <div class="m-s" style="color:var(--text-muted)">documento $19,138.00</div>
+        </div>
+      </div>
+      <p class="sr-only" aria-live="polite" aria-atomic="true">$19,138.00 contado. Cuadra con el documento.</p>
+
+      <div class="ap-f">
+        <span>Recibí conforme · sin firma — se puede guardar igual</span>
+        <span class="sp"></span>
+        <button class="btn" type="button">Firmar en el teléfono</button>
+        <button class="btn btn-primary" type="button">Guardar</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var B = {
+    ingreso: {
+      n: 6, ok: 6, cap: 'Capturar depósito',
+      hint: 'U-A-5 · el 95 % del ingreso de Caja General',
+      txt: '<strong>Depósitos <code>U-A-5</code>.</strong> La cobranza de ruta y la venta de sucursal, <strong>ya agregadas por día y plaza</strong>. No se deriva: se confirma el documento que Kepler registró.',
+      mas: 'Es el <strong>95 %</strong> de todo el ingreso. Acá es donde entra el dinero de ruta y de vecinal: <code>VEC.10</code> midió que la vecinal se timbra en la caja de su sucursal y llega agregada como depósito. Por eso <strong>no se construye ningún puente nuevo</strong> — meter los 572 cierres encima duplicaría ~$9 M.',
+      rows: [
+        ['10/10/26','6 d','in','01 Padre Hidalgo — depósito de efectivo','U-A-5 0000094','$19,138.00','ok'],
+        ['12/10/26','4 d','in','01 Padre Hidalgo — depósito de efectivo','U-A-5 0000095','$28,204.50','ok'],
+        ['13/10/26','3 d','in','01 Padre Hidalgo — depósito de efectivo','U-A-5 0000124','$30,130.00','ok'],
+        ['10/10/26','6 d','in','02 La Piedad — depósito de efectivo','U-A-5 0000088','$15,520.39','ok'],
+        ['10/10/26','6 d','in','08 Morelia Abastos — depósito de efectivo','U-A-5 0000091','$9,781.50','sin'],
+        ['10/10/26','6 d','in','03 Zamora — depósito de efectivo','U-A-5 0000090','$6,782.00','ok']
+      ]
+    },
+    egreso: {
+      n: 117, ok: 104, cap: 'Capturar egreso',
+      hint: 'X-D-26 · 88 de ellos son del 10-oct',
+      txt: '<strong>Egresos <code>X-D-26</code>.</strong> 117 desde el 10-oct, y <strong>88 son de ese solo día</strong> — el último que vivió en el Access.',
+      mas: 'No es un patrón de rezago: es el <strong>último lote del sistema viejo</strong> que se quedó sin pasar. Del 12-oct en adelante el rezago diario es de 1 a 15 movimientos.',
+      rows: [
+        ['10/10/26','6 d','out','DELICIATE','X-D-26 0000264','$18,430.00','ok'],
+        ['10/10/26','6 d','out','GASTOS GENERALES OFICINAS','X-D-26 0000261','$460.00','ok'],
+        ['10/10/26','6 d','out','CUERITOS PREMIUM ZACAPU','X-D-26 0000259','$10,575.00','ok'],
+        ['10/10/26','6 d','out','BARQUILLOS LUVIANO','X-D-26 0000257','$23,118.40','ok'],
+        ['10/10/26','6 d','out','CHURROS LOS BIGOTES','X-D-26 0000255','$8,940.00','sin'],
+        ['15/10/26','1 d','out','MERENGUE LA MORENITA','X-D-26 0000338','$7,900.00','ok'],
+        ['15/10/26','1 d','out','GASTOS GENERALES CAJA CHICA MORELIA ABASTOS','X-D-26 0000346','$350.00','sin'],
+        ['15/10/26','1 d','out','NOMINA','X-D-26 0000341','$84,320.00','ok'],
+        ['16/10/26','hoy','out','OBLEA SAHUAYO','X-D-26 0000352','$1,250.00','ok']
+      ]
+    },
+    caos: {
+      n: 13, ok: 13, cap: 'Traer de la bóveda',
+      hint: 'la máquina publica flujos, nunca el saldo',
+      txt: '<strong>Bóveda CAOS.</strong> 11 gastos + 2 ingresos desde el 10-oct. El arqueo se precarga con lo que la máquina contó; lo que falte se cuenta a mano.',
+      mas: 'CAOS publica <strong>flujos, nunca el saldo</strong> (VERDAD_ABSOLUTA §28). Con un documento ya elegido el camino correcto es <strong>enlazar</strong>, no reemplazar: tomar el movimiento de CAOS borraría el ancla al ERP.',
+      rows: [
+        ['15/10/26','1 d','out','Dispensación · caja fuerte','CAOS #4412','$120,000.00','ok'],
+        ['14/10/26','2 d','in','Depósito · caja fuerte','CAOS #4398','$212,710.00','ok'],
+        ['13/10/26','3 d','out','Dispensación · caja fuerte','CAOS #4371','$95,000.00','ok'],
+        ['10/10/26','6 d','out','Dispensación · caja fuerte','CAOS #4302','$135,000.00','ok']
+      ]
+    },
+    rutadet: {
+      n: 29, ok: 0, cap: 'Medir por qué paró', bloq: true,
+      hint: 'D-23-1 · bloqueado por el hueco H1',
+      txt: '<strong>Ruta de detalle — bloqueado por H1.</strong> La tabla <strong>se detiene el 12-oct</strong>, la misma semana del corte.',
+      mas: 'Hay que distinguir tres causas antes de construir: el feed paró, las rutas dejaron de cobrar, o el cobro entra por otro carril. <strong>Cero filas por un defecto es indistinguible de cero filas por desuso</strong> — eso ya costó una vez en este proyecto (el arqueo de caja, 14-oct).',
+      vacio: 'No se listan filas <strong>a propósito</strong>. Mientras no se sepa por qué <code>route_collections</code> se detuvo el 12-oct, mostrar 29 grupos invitaría a capturarlos como si la fuente estuviera sana.'
+    },
+    proveedores: {
+      n: 0, ok: 0, cap: 'Configurar proveedores', bloq: true,
+      hint: 'Frente C · configuración, no cola',
+      txt: '<strong>Proveedores — no es una cola, es configuración.</strong> Los 9,619 gastos históricos <strong>no se capturan</strong>.',
+      mas: 'Acá se marca qué proveedores se pagan en efectivo, se traen sus órdenes de entrada y con eso se arma el <strong>historial de lo que se les debe</strong>. <strong>H3 sin medir:</strong> qué proveedores cobran en efectivo hoy (<code>kdud.c31</code>), cómo se identifican las órdenes (<code>XA2001</code>), y si hay tabla que extender en vez de crear una segunda.',
+      vacio: 'Esta pantalla no lista movimientos: el egreso deja de ser una fila que alguien recuerda y pasa a ser <strong>un saldo con origen</strong>.'
+    },
+    malfecha: {
+      n: 7, ok: 0, cap: 'Abrir en Kepler', nota: true,
+      hint: 'se corrigen en el origen, no acá',
+      txt: '<strong>Mal fechados — se corrigen en Kepler.</strong> 6 gastos ($12,432.59) y 1 ingreso ($38,363.81) con fecha de diciembre.',
+      mas: '<strong>Se muestran en vez de esconderse</strong>: una ausencia silenciosa se lee como que no existen. Y como la bandeja ordena por fecha desc, salen siempre primero — por eso llevan su marca.',
+      okT: 'capturables acá', resto: 'los 7 se arreglan en el origen',
+      rows: [
+        ['14/12/26','futuro','in','02 La Piedad — depósito de efectivo','U-A-5 0000129','$38,363.81','err'],
+        ['10/12/26','futuro','out','BOTANAS MICHOACAN','X-D-26 0000401','$3,982.59','err'],
+        ['10/12/26','futuro','out','OBLEA SAHUAYO','X-D-26 0000399','$1,500.00','err'],
+        ['01/12/26','futuro','out','PAPAS JARYS','X-D-26 0000388','$4,450.00','err']
+      ]
+    },
+    fuera: {
+      n: 13206, ok: 0, cap: 'Ver en Control', nota: true,
+      hint: 'fuera de alcance por decisión de dirección',
+      txt: '<strong>Antes del 10-oct — fuera de alcance.</strong> 13,206 movimientos, $162,080,748.92. Es <strong>historia de Control, no cola de trabajo</strong>.',
+      mas: 'El pendiente de Kepler y el libro viejo son <strong>el mismo dinero visto dos veces</strong>: mes a mes coinciden dentro de centésimas. Publicarlo como cola convertiría una decisión de alcance en trabajo que nadie pidió — y leído como avance da 0.69 % en vez de 46 %.',
+      vacio: 'No se listan: son 13,206 movimientos que ya viven conciliados en el Access «Control».'
+    }
+  };
+
+  var TAGS = { ok:['tag-mute','de un clic'], sin:['tag-warn','sin declarar'], err:['tag-err','fecha futura'] };
+  var $  = function (s) { return document.querySelector(s); };
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var I_IN  = '<svg class="sign sign-in" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" role="img" aria-label="Entra a la caja"><path d="M8 3v10M4 9l4 4 4-4"/></svg>';
+  var I_OUT = '<svg class="sign sign-out" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" role="img" aria-label="Sale de la caja"><path d="M8 13V3M4 7l4-4 4 4"/></svg>';
+  var CHEV  = '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>';
+
+  function pintar(clave) {
+    var b = B[clave];
+    if (!b) { return; }
+    $('#ctx-txt').innerHTML     = b.txt;
+    $('#ctx-mas-txt').innerHTML = b.mas;
+    $('#ctx').className         = 'ctxbar' + (b.nota ? ' es-nota' : b.bloq ? ' es-bloq' : '');
+    $('#ctx-mas').open          = false;
+    $('#ctx-btn-t').textContent = b.cap;
+    $('#ap1-hint').textContent  = b.hint;
+
+    var hay = !!(b.rows && b.rows.length);
+    $('#tabla').hidden = !hay;
+    $('#vacio').hidden = hay;
+    $('#ap1-f').hidden = !hay;
+    $('#marcar').hidden = !hay;
+    if (!hay) { $('#vacio-txt').innerHTML = b.vacio || ''; $('#rows').innerHTML = ''; return; }
+
+    $('#f-n').textContent     = b.n.toLocaleString('es-MX');
+    $('#f-ok').textContent    = b.ok.toLocaleString('es-MX');
+    $('#f-ok-t').textContent  = b.okT   || 'de un clic';
+    $('#f-resto').textContent = b.resto || 'el resto necesita su cuenta declarada';
+    $('#marcar').textContent  = 'Marcar las ' + b.n.toLocaleString('es-MX');
+
+    $('#rows').innerHTML = b.rows.map(function (r, i) {
+      var t = TAGS[r[6]] || TAGS.ok;
+      // Roving tabindex: UNA sola parada de Tab en toda la tabla; adentro se anda con flechas.
+      return '<tr tabindex="' + (i === 0 ? '0' : '-1') + '" aria-selected="false">'
+        + '<td><span class="c-fecha">' + r[0] + '</span> <span class="c-age">' + r[1] + '</span></td>'
+        + '<td>' + (r[2] === 'in' ? I_IN : I_OUT) + '</td>'
+        + '<th scope="row"><span class="c-nom">' + r[3] + '</span><span class="c-doc">' + r[4] + '</span></th>'
+        + '<td><span class="tag ' + t[0] + '">' + t[1] + '</span></td>'
+        + '<td class="num">' + r[5] + '</td><td>' + CHEV + '</td></tr>';
+    }).join('');
+    cablearFilas();
+  }
+
+  function abrirFila(tr) {
+    $$('#rows tr').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+    tr.setAttribute('aria-selected', 'true');
+    var esIn = !!tr.querySelector('.sign-in');
+    var doc  = tr.querySelector('.c-doc').textContent;
+    $('#fi-nom').textContent    = tr.querySelector('.c-nom').textContent;
+    $('#fi-ref').textContent    = doc;
+    $('#fi-monto').textContent  = tr.querySelector('.num').textContent;
+    $('#fi-fecha').textContent  = tr.querySelector('.c-fecha').textContent;
+    $('#fi-sign').className     = 'ficha-sign' + (esIn ? ' es-in' : '');
+    $('#fi-sign-t').textContent = esIn ? 'Entra a la caja' : 'Sale de la caja';
+    $('#proc').hidden = !(esIn && doc.indexOf('U-A-5') === 0);
+    $('#ap2').hidden  = false;
+    $('#split').classList.add('is-split');
+  }
+
+  function cerrar2(volverFoco) {
+    $('#ap2').hidden = true;
+    $('#split').classList.remove('is-split');
+    var sel = $('#rows tr[aria-selected="true"]');
+    $$('#rows tr').forEach(function (o) { o.setAttribute('aria-selected', 'false'); });
+    if (volverFoco && sel) { sel.focus(); }
+  }
+
+  /** ↑↓ Home End dentro de la lista, con roving tabindex. Una sola parada de Tab. */
+  function cablearFilas() {
+    var trs = $$('#rows tr');
+    trs.forEach(function (tr, i) {
+      tr.addEventListener('click', function () { mover(i); abrirFila(tr); });
+      tr.addEventListener('keydown', function (e) {
+        var k = e.key;
+        if (k === 'ArrowDown') { e.preventDefault(); mover(Math.min(i + 1, trs.length - 1)); }
+        else if (k === 'ArrowUp') { e.preventDefault(); mover(Math.max(i - 1, 0)); }
+        else if (k === 'Home') { e.preventDefault(); mover(0); }
+        else if (k === 'End') { e.preventDefault(); mover(trs.length - 1); }
+        else if (k === 'Enter' || k === ' ') { e.preventDefault(); abrirFila(tr); $('.cg-pieza').focus(); $('.cg-pieza').select(); }
+      });
+    });
+    function mover(j) {
+      trs.forEach(function (o) { o.tabIndex = -1; });
+      trs[j].tabIndex = 0; trs[j].focus();
+    }
+  }
+
+  /** ←→ ↑↓ Home End en el grupo de accesos. Patrón radiogroup con roving tabindex. */
+  (function cablearBuckets() {
+    var bks = $$('#bks .bk');
+    function elegir(j, foco) {
+      bks.forEach(function (o, k) {
+        o.setAttribute('aria-checked', String(k === j));
+        o.tabIndex = (k === j) ? 0 : -1;
+      });
+      if (foco) { bks[j].focus(); }
+      cerrar2(false);
+      pintar(bks[j].dataset.b);
+    }
+    bks.forEach(function (btn, i) {
+      btn.addEventListener('click', function () { elegir(i, false); });
+      btn.addEventListener('keydown', function (e) {
+        var k = e.key, n = bks.length;
+        if (k === 'ArrowRight' || k === 'ArrowDown') { e.preventDefault(); elegir((i + 1) % n, true); }
+        else if (k === 'ArrowLeft' || k === 'ArrowUp') { e.preventDefault(); elegir((i - 1 + n) % n, true); }
+        else if (k === 'Home') { e.preventDefault(); elegir(0, true); }
+        else if (k === 'End') { e.preventDefault(); elegir(n - 1, true); }
+      });
+    });
+  })();
+
+  /** ↑↓ entre renglones de la reja (regla D.5), con preventDefault ANTES de mover:
+      sin eso el input type=number decrementa el fajo que acabás de teclear. */
+  (function cablearReja() {
+    $$('.cg-pieza').forEach(function (inp) {
+      inp.addEventListener('keydown', function (e) {
+        var k = e.key;
+        if (k !== 'ArrowDown' && k !== 'ArrowUp' && k !== 'Enter') { return; }
+        var todos = $$('.cg-pieza'), i = todos.indexOf(e.target);
+        e.preventDefault();
+        var sig = todos[i + (k === 'ArrowUp' ? -1 : 1)];
+        if (sig) { sig.focus(); sig.select(); }
+      });
+    });
+  })();
+
+  $('#cerrar2').addEventListener('click', function () { cerrar2(true); });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('#ap2').hidden) { e.preventDefault(); cerrar2(true); }
+    else if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault(); $('#buscar').focus();
+    }
+  });
+
+  function tema(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    $('#t-dark').setAttribute('aria-pressed',  String(t === 'dark'));
+    $('#t-light').setAttribute('aria-pressed', String(t === 'light'));
+  }
+  $('#t-dark').addEventListener('click',  function () { tema('dark'); });
+  $('#t-light').addEventListener('click', function () { tema('light'); });
+
+  // Mide si de verdad entra: si el documento es más alto que la ventana, hay scroll.
+  function medir() {
+    var h = document.documentElement.scrollHeight, v = window.innerHeight;
+    var ok = h <= v + 1;
+    $('#vp').textContent = window.innerWidth + '×' + v + ' · ' + (ok ? 'sin scroll ✓' : 'DESBORDA ' + (h - v) + 'px');
+    $('#vp').style.color = ok ? 'var(--ok-fg)' : 'var(--err-fg)';
+  }
+  window.addEventListener('resize', medir);
+
+  pintar('ingreso');
+  medir();
+})();
+</script>
+</body>
+</html>

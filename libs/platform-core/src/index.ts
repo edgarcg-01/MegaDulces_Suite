@@ -91,6 +91,9 @@ export * from './lib/scope/scope-params';
 // `[PVI.17]` El filtro del ejercicio de prueba, en un solo lugar: lo consumen `libs/finance` y
 // `libs/trade`, que no se pueden importar entre sí. Copiarlo publicaba el doble.
 export * from './lib/budget/ejercicio-prueba.sql';
+// `[CGA-A.49]` La cola de captura de Caja General, por la misma razón: bandeja y sensor
+// (`libs/finance`) y «Mi trabajo» (`libs/trade`) contaban tres universos distintos.
+export * from './lib/caja/caja-cola.sql';
 
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';

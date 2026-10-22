@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
 // objeto que consume `app-freshness-pill`. De los 26 tipos de este archivo, 24 están escritos a
@@ -56,6 +56,51 @@ export interface MovimientoCaja {
   created_at: string;
   /** Procedencia de lo que autorrellenó el motor. Ausente = lo tecleó una persona. */
   autofill: Record<string, unknown> | null;
+
+  /**
+   * `[CG.125]` **Esto YA VIAJABA y la interfaz no lo declaraba.**
+   *
+   * La consulta del libro (`cash-ledger.service.ts`, el `base()` del listado) **no tiene
+   * `.select()`**: es un `SELECT *` sobre `finance.cash_ledger`. O sea que estas columnas
+   * llegaban al navegador en cada fila desde siempre, y la pantalla no podía pintarlas sólo
+   * porque el tipo no las nombraba. No hace falta tocar el servidor para mostrarlas.
+   *
+   * ⚠️ **Opcionales a propósito.** Son aditivas: ningún consumidor de hoy cambia. Y opcionales,
+   * no obligatorias, porque un servidor viejo —o una respuesta de otro endpoint que arme este
+   * tipo a mano— no las trae, y declararlas requeridas convertiría un campo ausente en un
+   * `undefined` que el tipo jura que existe.
+   *
+   * ⛔ **Hallazgo de paso, sin arreglar acá:** ese `SELECT *` también baja `firma_png`, que es un
+   * PNG en base64, **por cada fila del libro**. Con 233 movimientos en el periodo de la captura
+   * de Edgar eso es carga que nadie pinta. Acotar el `SELECT` es trabajo de servidor y va aparte.
+   */
+  /** Parte del monto que NO entró en efectivo (cliente de crédito). Efectivo = `monto` − esto. */
+  venta_credito?: number | null;
+  /**
+   * `[CG.126]` **A qué caja entró este dinero.** Un movimiento puede repartirse entre las dos:
+   * un cobro de ruta deja los billetes en la máquina (bóveda/CAOS) y la morralla en el cajón.
+   *
+   * ⛔ Los calcula el SERVIDOR desde `analytics.v_caja_reparto_movimiento`, el mismo resolvedor
+   * que usa el cuadre del día. No se derivan en la pantalla: dos derivaciones del mismo reparto
+   * terminan discrepando sin que nadie sepa cuál manda.
+   *
+   * ⚠️ Opcionales: un servidor anterior a `[CG.126]` no los manda, y ahí **no se dibuja un cero**
+   * —diría que a esa caja no llegó nada— sino que se declara que no se pudo repartir.
+   */
+  en_boveda?: number | null;
+  en_cajon?: number | null;
+  /** Por qué este movimiento no trae documento. El servidor lo exige desde `[CG.124]`. */
+  sin_documento_motivo?: string | null;
+  /** El documento que se DECLARÓ cuando el origen es CAOS y la llave no lo identifica. */
+  declared_doc_ref?: string | null;
+  /** A qué corte quedó amarrado. `null` = todavía no se cerró ninguno que lo incluya. */
+  corte_id?: string | null;
+  beneficiario_rfc?: string | null;
+  /** ⛔ `hora` NO se declara acá: ya existe arriba como requerida. Duplicarla da TS2300/TS2717. */
+  cancel_reason?: string | null;
+  cancelled_by_username?: string | null;
+  firma_estado?: string | null;
+  firma_nombre?: string | null;
 }
 
 export interface LibroResponse {
@@ -196,7 +241,19 @@ export class CashLedgerService {
    * conserva el camino manual en vez de obligar a elegir.
    */
   movimientosPendientes(
-    f: { tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string; search?: string; limit?: number } = {},
+    f: {
+      tipo?: string; caja?: string; sucursal?: string; from?: string; to?: string;
+      search?: string; limit?: number;
+      /**
+       * `[CGA11Y-O3b]` El grupo elegido en la tira de accesos (`U-A-5`, `X-D-26`…).
+       *
+       * ⚠️ El nombre va en `snake_case` porque **es el nombre del query param**: el bucle de abajo
+       * serializa las llaves tal cual. Escribirlo `docTipo` acá mandaría `?docTipo=` y el servidor
+       * —que lee `doc_tipo`— lo ignoraría **en silencio**: la lista saldría sin filtrar y nadie
+       * vería un error. Es la convención que `CLAUDE.md` fija para query params.
+       */
+      doc_tipo?: string;
+    } = {},
   ): Observable<PendientesResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
@@ -233,10 +290,10 @@ export class CashLedgerService {
    * Viene del catálogo y no de los movimientos: una caja dormida tiene que poder verse en el
    * selector, o sería indistinguible de una que no existe.
    */
-  cajas(dias?: number): Observable<{ rows: CajaKepler[]; ventana_dias: number }> {
+  cajas(dias?: number): Observable<{ rows: CajaKepler[]; ventana_dias: number | null; desde?: string | null }> {
     let p = new HttpParams();
     if (dias) p = p.set('dias', String(dias));
-    return this.leer<{ rows: CajaKepler[]; ventana_dias: number }>(`${this.base}/cajas`, { params: p });
+    return this.leer<{ rows: CajaKepler[]; ventana_dias: number | null; desde?: string | null }>(`${this.base}/cajas`, { params: p });
   }
 
   /**
@@ -274,6 +331,15 @@ export class CashLedgerService {
   /** `saldo: null` + `sin_corte_abierto` NO es cero: la caja no tiene punto de partida. */
   saldo(sucursal: string): Observable<SaldoResponse> {
     return this.leer<SaldoResponse>(`${this.base}/saldo/${encodeURIComponent(sucursal)}`);
+  }
+
+  /**
+   * `[CGA-A.43]` Con qué arrancaría la caja si se abriera el corte ahora: el `contado` del cierre
+   * anterior, o `sin_medir`. Es la MISMA regla que aplica el servidor al abrir con el fondo vacío.
+   */
+  fondoSugerido(sucursal: string): Observable<FondoSugerido> {
+    const p = new HttpParams().set('sucursal', sucursal);
+    return this.leer<FondoSugerido>(`${this.base}/cortes/fondo-sugerido`, { params: p });
   }
 
   /**
@@ -370,8 +436,34 @@ export class CashLedgerService {
   }
 
   /** Devuelve 403 si lo intenta quien cerró: la doble llave está en la DB, no acá. */
-  autorizarCorte(id: string): Observable<CorteCaja> {
-    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/autorizar`, {});
+  /** `[CGS.17]` Con diferencia, el servidor exige `nota` (10+): firmar no es dar por bueno cualquier número. */
+  autorizarCorte(id: string, nota?: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/autorizar`, nota ? { nota } : {});
+  }
+
+  /** `[CGS.18]` La supervisora devuelve el corte con lo que encontró. No mueve ninguna cifra. */
+  observarCorte(id: string, motivo: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/observar`, { motivo });
+  }
+
+  /** `[CGS.35]` Lo que hay en caja, rubro por rubro: lo último contado, lo movido y lo que debería haber. */
+  posicion(): Observable<PosicionCajaDto> {
+    return this.http.get<PosicionCajaDto>(`${this.base}/posicion`);
+  }
+
+  /** `[CGS.14]` ¿La caja está bloqueada para mí? Por qué, qué la destraba, y si hay llave. */
+  candado(): Observable<CandadoCaja> {
+    return this.http.get<CandadoCaja>(`${this.base}/candado`);
+  }
+
+  /** `[CGS.15]` Llave de emergencia para OTRA persona, hasta el fin del día, con motivo. */
+  darLlave(para_usuario: string, motivo: string): Observable<{ vence_at: string; para: string | null }> {
+    return this.http.post<{ vence_at: string; para: string | null }>(`${this.base}/llaves`, { para_usuario, motivo });
+  }
+
+  /** `[CGS.18]` La caja responde la observación y el corte vuelve a «por revisar». */
+  responderCorte(id: string, respuesta: string): Observable<CorteCaja> {
+    return this.http.post<CorteCaja>(`${this.base}/cortes/${id}/responder`, { respuesta });
   }
 
   /**
@@ -409,6 +501,7 @@ export class CashLedgerService {
  * `fondo_inicial: number` cuando el servidor manda `null` si no se midió.
  */
 export type CorteCaja = CorteCajaDto;
+export type CandadoCaja = CandadoCajaDto;
 
 export interface TotalesCorte {
   ingresos: number; gastos: number; depositos: number;
@@ -500,6 +593,17 @@ export interface MovimientoPendiente {
   concepto: string | null;
   metodo: string | null;
   monto: number;
+  /**
+   * ⭐ `[CGA-A.15]` La unidad de reparto de la que viene este cobro (`ruta_27`, `ruta_503`…).
+   *
+   * `null` = **no es de camioneta**: es un cobro de mostrador, donde `CONTADO` es el cliente de
+   * verdad. Medido el 2026-10-19: de 136 cobros `CONTADO` en la cola, **36 eran de mostrador**,
+   * así que etiquetarlos todos con una ruta sería inventar.
+   *
+   * Sale de `analytics.route_collections.truck` por la procedencia del renglón, **no** de
+   * adivinar por el formato de la sucursal — la lección de `GOTCHAS` §86.
+   */
+  ruta?: string | null;
   /** CS.3.13 — el cliente del cobro es de crédito (`kdud` días/límite > 0): auto-rellena «venta a crédito». */
   cliente_credito?: boolean;
   credito_limite?: number | null;
@@ -547,10 +651,27 @@ export interface CajaKepler {
   documentos: number;
 }
 
+/** [CGA-A.49] Una de las dos colas de la bandeja: cuántos, cuánto y el día del más viejo. */
+export interface ColaParte { n: number; monto: number; mas_viejo: string | null }
+
 export interface PendientesResponse {
   /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */
   desde?: string;
   ventana_dias?: number | null;
+  /** `[CGA-A.43]` De dónde sale `desde`: la pantalla lo pidió, es el primer corte del libro, o la ventana de siempre. */
+  desde_motivo?: 'pedido' | 'relevo' | 'ventana';
+  /** `[CGA-A.44]` El primer corte del libro (cuando `desde_motivo='relevo'`). */
+  relevo?: string | null;
+  /** `[CGA-A.44]` Documentos de la era Control que se quitaron por estar ya saldados en el Control. */
+  saldados_por_control?: number;
+  /** `[CGA-A.44]` false = no se leyeron los cobros de camioneta y se dejaron visibles (lado seguro). */
+  control_ruta_disponible?: boolean;
+  /**
+   * [CGA-A.49] El total partido en sus dos colas: la DEL LIBRO (desde el primer corte; la misma que
+   * cuentan la campana y «Mi trabajo») y el rezago de la era Control. del_libro + rezago_control = total.
+   * null = todavía no hay libro.
+   */
+  cola?: { del_libro: ColaParte; rezago_control: ColaParte } | null;
   /**
    * Lo que la ventana DEJA FUERA, declarado. Medido en prod al aplicar CG.21: con el libro nuevo
    * vacío, "pendiente" era todo lo que Kepler registró desde 2025 — 12,160 movimientos. Eso no es
@@ -565,6 +686,23 @@ export interface PendientesResponse {
    * en Kepler.
    */
   mal_fechados?: { movimientos: number; monto: number };
+  /**
+   * `[CGA11Y-O3a]` Cuántos hay POR GRUPO, para la tira de accesos rápidos. Ordenado por volumen.
+   *
+   * ⛔ **El eje es `doc_tipo`, no `origen_tipo`.** En esta vista `origen_tipo` sale del signo
+   * (`signo > 0 ? 'cobro' : 'pago_proveedor'`), así que es un sinónimo de `tipo` y no distingue
+   * nada — medido el 2026-10-16: 1,428 gasto↔`pago_proveedor` y 479 ingreso↔`cobro`, sin una sola
+   * excepción. `doc_tipo` sí separa: `U-A-5` es el depósito de efectivo (95% del ingreso),
+   * `X-D-26` el pago/egreso (92% de la salida), `D-23-1` el cobro de ruta de detalle.
+   *
+   * ⚠️ **NO se calcula con `rows`.** Contar la página en vez del trabajo es el defecto que
+   * `[CG.30]` midió: la bandeja publicaba «31 de 100» teniendo 1,887 en esa caja y 12,793 en
+   * total. Viene del servidor o no viene.
+   *
+   * ⚠️ `undefined` = el servidor desplegado todavía no lo manda. **No es un arreglo vacío**: sin
+   * grupos no se dibuja la tira, en vez de dibujarla con ceros (ADR-056).
+   */
+  grupos?: Array<{ doc_tipo: string; tipo: string; movimientos: number; monto: number }>;
   rows: MovimientoPendiente[];
   /**
    * CG — Lo que el BUSCADOR encuentra FUERA del efectivo inferido: documentos POR PAGAR —
@@ -676,6 +814,15 @@ export interface RevelacionCorte {
 
 /** `[CGP-L.4]` Lo que devuelve `GET cortes/jornadas-pendientes`: el contrato que comparte con el servidor. */
 export type { JornadasPendientes };
+
+/** `[CGA-A.43]` `GET cortes/fondo-sugerido`. `monto: null` = no hay cierre anterior medido. */
+export interface FondoSugerido {
+  monto: number | null;
+  origen: string;
+  denominaciones?: Record<string, number> | null;
+  procedencia?: string | null;
+  limites?: unknown[];
+}
 
 export interface SaldoResponse {
   sucursal: string;

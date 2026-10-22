@@ -298,9 +298,15 @@ export class ArqueoService {
   /**
    * SM.36 - Las rutas dadas de alta en MI sucursal, partidas en RD y RV.
    * Devolver listas vacias es respuesta valida: hay tiendas sin rutas.
+   *
+   * [SM.45] Con la sucursal EXPLICITA. Sin ella el servidor solo puede deducirla
+   * cuando el usuario tiene exactamente una; con varias (o ninguna fija) responde
+   * 400 «Elige la sucursal», y la pantalla lo pintaba como «no tiene rutas».
    */
-  rutas(): Observable<RutasResp> {
-    return this.http.get<RutasResp>(`${this.base}/rutas`);
+  rutas(warehouseCode?: string | null): Observable<RutasResp> {
+    const code = (warehouseCode ?? '').trim();
+    const qs = code ? `?warehouse_code=${encodeURIComponent(code)}` : '';
+    return this.http.get<RutasResp>(`${this.base}/rutas${qs}`);
   }
 
   /**

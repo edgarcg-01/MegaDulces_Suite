@@ -80,6 +80,7 @@
 const { execFileSync, execFile } = require('child_process');
 const path = require('path');
 const { DEL_PUSH } = require('./compuertas');
+const { sinCodigo } = require('./check-commit-codigo');
 
 const RAIZ = path.resolve(__dirname, '..');
 
@@ -303,6 +304,40 @@ async function main() {
     //
     // La autoridad vive en `[CI.SELLO]`, del lado del servidor, que no se evade.
     break;
+  }
+
+  // ─── CAPA 3 — `[CAMBIOS.1]` cada commit lleva el código de su tarjeta ───────────
+  // Regla de Edgar (2026-10-21): todo cambio se comunica. `CAMBIOS.md` del tablero se arma de
+  // los títulos de commit; uno sin `[CÓDIGO]` no aparece bajo ninguna tarjeta. Se revisan SÓLO
+  // los commits de ESTE push (no la historia).
+  // ⛔ AVISA, no bloquea: el que FRENA es `.githooks/commit-msg`, antes de que el commit exista.
+  //    Acá el commit ya existe y corregirlo exigiría reescribirlo (`--amend`/`rebase`), que en el
+  //    checkout compartido está PROHIBIDO (CLAUDE.md: ya pisó trabajo ajeno). Lo que se coló sin
+  //    hook queda a la vista en CAMBIOS.md como «sin tarjeta», con su autor.
+  {
+    const sinCodigoDelPush = [];
+    for (const e of empujes) {
+      if (!e.shaLocal || SHA_CERO.test(e.shaLocal)) continue;
+      let base = e.shaRemoto && !SHA_CERO.test(e.shaRemoto) ? e.shaRemoto : null;
+      if (!base) { try { base = git('merge-base', 'origin/main', e.shaLocal); } catch { base = null; } }
+      if (!base) continue; // sin base comparable no se puede acotar: no se inventa un rango
+      let titulos = [];
+      try { titulos = git('log', '--no-merges', '--pretty=%h %s', `${base}..${e.shaLocal}`).split('\n').filter(Boolean); } catch { continue; }
+      const malos = sinCodigo(titulos.map((t) => t.replace(/^\S+ /, '')));
+      for (const t of titulos) if (malos.includes(t.replace(/^\S+ /, ''))) sinCodigoDelPush.push(t);
+    }
+    if (sinCodigoDelPush.length) {
+      console.error(`
+⚠️  [CAMBIOS.1] ${sinCodigoDelPush.length} commit(s) sin el código de su tarjeta en el título:
+${sinCodigoDelPush.map((t) => '   · ' + t).join('\n')}
+
+   Regla del equipo: todo cambio se comunica, y la bitácora (CAMBIOS.md del tablero PM) se arma
+   de los títulos de commit. Estos van a aparecer ahí como «sin tarjeta», con tu nombre.
+   ⛔ NO los reescribas (--amend/rebase están prohibidos en el checkout compartido). Para los
+   siguientes, el hook commit-msg ya lo frena: corré \`npm run hooks:install\` si no te frenó.
+   Formato: tipo([CÓDIGO]): qué cambia  ·  feat([CGA-A.16]): …  fix([OPS]): …  docs([ADR-095]): …
+`);
+    }
   }
 
   // ─── CAPA 2 — los gates, acotados a tus archivos ───────────────────────────

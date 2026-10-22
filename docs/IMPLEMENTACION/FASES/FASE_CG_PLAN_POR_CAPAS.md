@@ -9,6 +9,15 @@
 >
 > Usa el prefijo **`CGP-*`** a propósito: la numeración `CG.*` ya tiene números repetidos (`CG.98`,
 > `CG.130` y `CG.160` significan dos cosas cada uno) y este plan no puede sumar más confusión.
+>
+> ⭐⭐ **2026-10-16 — varios `NO MEDIDO` de este plan ya están medidos, y uno de sus supuestos cayó.**
+> Leé [`FASE_CG_ALCANCE_2026-10-16.md`](FASE_CG_ALCANCE_2026-10-16.md) **antes de trabajar sobre
+> este plan**: se midió prod (`system_identifier` `7688376744939610156`) y quedó establecido que el
+> ingreso de Caja General es **95.4 % depósitos `U-A-5`** (3,648 pendientes, $75.8 M), que el Access
+> «Control» dejó de escribirse el **10-oct** —el shipper reporta verde con `rows_affected = 0`,
+> GOTCHAS §84— y que **`CGP-VEC.1` no va a `/finanzas/caja-general`**: metería los 572 cierres
+> vecinales encima de los depósitos que ya los traen, **~$9 M contados dos veces**. En eso,
+> `[VEC.10]` del tracker (13-oct) tenía razón y este plan quedó del lado equivocado.
 
 ---
 
@@ -44,8 +53,10 @@
   retira. Hasta el **sábado 10-oct** el libro era Control; **desde el 12-oct** es la Suite (`CG.126`).
 - **Son dos cajas, no una:**
   - **El cajón:** el efectivo de oficina. Se cuenta a mano.
-  - **La bóveda CAOS:** una máquina que recibe los depósitos y dispensa billetes. Publica los flujos,
-    **nunca el saldo** (VERDAD_ABSOLUTA §28).
+  - **La bóveda CAOS:** una máquina que recibe los depósitos y dispensa billetes. ⚠️ *Corregido
+    2026-10-20 (`[CGA-A.33]`):* acá decía que publica los flujos y **nunca el saldo**. Es falso: publica
+    su contenido por casete (reporte «Contenidos»), y el 20-oct dio $360,020.00, igual al replay de
+    sus flujos. Ver `FASE_CGA_PLAN_IMPLEMENTACION §11.2.1`.
 
 ### 1.2 Actores
 

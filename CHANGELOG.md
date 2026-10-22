@@ -9,6 +9,117 @@
 ---
 
 ## [Unreleased]
+### Added — Ruta del vendedor, surtido global y tablero del supervisor (MCP.3.5–3.9, 2026-10-22)
+- **Vendedor:** «Iniciar ruta» / «Finalizar ruta» (con confirmación y clientes visitados), tarjeta «Llegaste» que registra la visita al abrir al cliente, «El cliente no pidió nada» con motivo, alta de cliente con aviso de parecidos, precio normal y de mayoreo (3+) visibles, y la cantidad ya no se traba al sumar.
+- **Surtidor:** al cerrar la ruta le llega UN pedido global (Recolectar → Repartir por pedido); lo levantado después llega como «Fuera de la ruta», también global. Surtir abre en Sucursal y es responsivo. Bandeja «Clientes nuevos (Kepler)».
+- **Supervisor:** Cartera de ventas → «Mis vendedores»: inicio/fin de ruta, visitados, venta cobrada en Kepler, meta catorcenal y avance; cada supervisor sólo ve su tipo de ruta (RV / RD).
+- Migraciones: `20261021114018`, `20261021164903`, `20261022085457` (aplicar antes del código).
+
+### Internal — Protocolo previo al PR: puntos 56–57 (CSU.14, 2026-10-21)
+- `ONBOARDING.md` §8.0b: en una pantalla resumen → detalle, elegir deja sólo lo elegido (con «N ocultas · ver todas»); dos PR que tocan el mismo bloque de docs se resuelven con fusión ordenada y `npm run docs:indices`, sin renumerar lo que entró primero.
+### Added — Cortes / Sucursales: buscador, y los cobros cancelados se ven marcados sin sumar (CSU.13, 2026-10-21)
+- **Buscar corte**: encuentra un corte de cualquier sucursal del mes por:
+  - folio, caja-turno, monto o fecha;
+  - estado o cajero;
+  - lo que trae el cobro: folio, forma de pago, concepto o banco;
+  - lo que trae la devolución: folio, cliente o motivo.
+
+  Los folios se encuentran como se escriben a mano (`au501-00076` = `UA0501-0000076`). `/` enfoca el buscador y `Esc` lo limpia.
+- **Por sucursal**: al elegir una sucursal, la tabla se reduce a esa fila para dar espacio a sus cortes; las demás vuelven con «ver todas».
+- **Cobros cancelados en Kepler**: el detalle del corte los muestra como «Cancelado en Kepler — no suma», con el monto tachado; la lista los señala y el buscador los encuentra. El cobrado no cambia.
+- **Fixed**: la lupa del buscador no se dibujaba (`p-inputicon` en PrimeNG 22), y el esqueleto de carga dejaba avisos NG0955 en la consola.
+### Added — Caducidades: «Capturas por día», qué sucursal subió hojas cada día (P2.8.1, 2026-10-16)
+- Vista nueva `/tienda/caducidades/dias` (permiso `COMMERCIAL_EXPIRY_VER`, enlazada desde el expediente) y `GET /commercial/expiry-reviews/expediente/dias?sucursal=&dias=7|30|90` (o `from`/`to`; tope de un año). Muestra por día cuántas hojas se subieron, de qué sucursales y quién las subió, con filtro por sucursal (el selector compartido) y por «Todos / Completos / Con huecos».
+- **Qué cuenta como hueco.** Las sucursales cierran un solo día al año (dato del negocio), así que un día sin hojas de una sucursal es una falta de captura, no un descanso. Se compara contra las sucursales del **alcance** de quien mira, no contra una lista fija. El día en curso no cuenta hasta que termina. Si el alcance todavía no contestó, **no se afirma «completo»** ni «con huecos»: se muestra sólo lo que se ve. El día del cierre anual no está en el código (el sistema no lo conoce): aparecerá como hueco en todas.
+- **El CEDIS `00` captura «al menos cada mes», así que NO cuenta como hueco diario.** Sale del cálculo de huecos y tiene su panel «Captura mensual»: días desde su última captura contra un límite de 31 días («al corriente» / «atrasada»; «sin registro» si nunca ha subido una hoja). Para eso el endpoint devuelve también `hoy` y `ultimas` (la última captura de cada sucursal del alcance, sin importar la ventana). La cadencia es una constante de la pantalla (`CAPTURA_MENSUAL`), no un dato del almacén. «Mínimo cada mes» se tomó como 31 días corridos, no como mes calendario.
+- Sale de las hojas que ya existen (`expiry_review_lines`), agrupadas por `review_date`: **sin tabla ni importer nuevos**. El día es el de la columna «Fecha» del expediente y cada día enlaza al expediente ya filtrado (`?fecha=AAAA-MM-DD&sucursal=NN`).
+### Changed — Caducidades: el expediente filtra sucursales con la misma llave que el alcance (P2.6.9, 2026-10-16)
+- La lista de hojas, la portada por sucursal y el historial pasan a `branchKeyFilterSql` + `ScopeService.warehouseIds()` (la llave canónica de 2 dígitos) en lugar de `w.code ~ '^[0-9]{2}$'` escrito a mano en tres sitios. La **escritura** conserva la regla sobre `code`: el folio `CAD-<code>-…` y su CHECK exigen 2 dígitos.
+- Comentarios «7 sucursales» corregidos: hoy son `00` CEDIS y `01`–`08`; el código nunca las contó.
+- ⚠️ **Cambio de alcance posible, NO MEDIDO contra prod:** un almacén vivo con `code` no numérico y `wincaja_source_branch` de 2 dígitos ahora entra a las lecturas (antes no). Con `MD-30` fundida en `08` y `MD-32` dada de baja no debería haber ninguno, pero no hubo acceso de lectura a prod para confirmarlo.
+### Fixed — fechas imposibles (P2.8.1, 2026-10-16)
+- `to=2026-13-45` en el endpoint nuevo pasaba el formato y reventaba al castear `::date` en Postgres (**500**): ahora contesta 400 con su frase. Lo cazó la primera corrida contra una base real.
+- El expediente ignora un `?fecha=2026-13-45` en vez de correrlo en silencio a otra fecha (`new Date(2026, 12, 45)` es febrero de 2027).
+### Internal — pruebas (P2.8.1)
+- 34 pruebas nuevas: 17 de la pantalla, 7 del expediente (lo que lee de la URL) y 10 del **servicio real contra Postgres** (conexión como `app_runtime`; se salta sin `CADUCIDADES_TEST_DB_URL` y **no corre en el CI**: deuda VP.5). Las reglas con efecto observable tienen prueba negativa ejecutada: se rompió cada una a propósito y la prueba se puso roja.
+- ⬜ **Declarado y no resuelto:** (1) se sabe que el CEDIS captura cada mes, pero no si por esta pantalla o por Almacén, ni si `commercial.stock` tiene filas del `00` (sin ellas sus hojas no alimentan FEFO); (2) todo se probó con datos sembrados en una base local, no con datos de prod; (3) el apilado de la tabla en teléfono (`dt-stack`) y el panel «Captura mensual» pasan sus pruebas y compuertas pero no se vieron en pantalla.
+### Internal — Protocolo previo al PR: puntos 46–51 (CSU.12, 2026-10-21)
+- `ONBOARDING.md` §8.0b: medir en el catálogo qué suma de verdad antes de corregir; la cabecera cancelada no pone en cero descuento, agregado contable ni líneas; regenerar el índice tras fusionar `main`; no forzar una rama que otro tocó; medir en local con las mismas llaves que prod; un rojo que no compara es NO MEDIDO.
+### Fixed — Gastos y pronto pago dejan de contar documentos cancelados en Kepler (CSU.12, 2026-10-21)
+- **Comprobaciones, pagables de Caja, materialidad y MAAT**: salen **1,021 gastos/entradas cancelados** que todavía cargaban **$3,177,101.13** por el agregado contable. Un gasto cancelado ya no se ofrece como pagable.
+- **Pronto pago**: deja de contar **$1,450,384.26 de descuento** de 101 pagos cancelados; la tasa observada baja a lo real en 8+ proveedores (ej. CF004 de 7.39 % a 6.20 %).
+- **Internal**: `check:kdm5-vigente:db` también revisa las cabeceras de `kdm1` con dinero que no miran el estatus de cancelación.
+### Fixed — Cuatro endpoints de analítica creían tener tope y no lo tenían (THR.1, 2026-10-16)
+- `POST /commercial/analytics/sell-out/ask` (el chat «Pregúntale al Sell-Out») y `sales-by-route/promo` (+ `.xlsx` y `.pdf`) declaraban 15 y 20 por minuto con `@Throttle({ default })`, pero los tiers del servidor se llaman `short/medium/long` y el guard ignora cualquier otro nombre **sin avisar**: nunca limitaron. Ahora el tope existe (tier `long`).
+- **Cambio de comportamiento:** desde un mismo origen, la petición 16.ª (chat) o 21.ª (incentivo de ruta) en un minuto responde **429**. Antes, nada. El chat llama a un LLM de pago por uso.
+- Internal: compuerta `check:throttle-names` (en el pre-push y en el CI, con su `:self`): todo `@Throttle`/`@SkipThrottle` del repo usa un tier configurado. Deja **declarada** una deuda con ratchet: `@SkipThrottle()` a secas (equivale a `{ default: true }`) en los dos controladores de ingesta de checadas de `libs/hr`, que tampoco salta nada.
+### Changed — Revisión de facturas carga más rápido (RE.49 paso 1, 2026-10-21)
+- La lista calculaba la misma información de Kepler hasta siete veces por cada carga. Ahora la calcula una sola vez y el resto sale de ahí: la parte de la lista pasa de ~2 s a ~0.4–0.5 s (medido en producción). Las cifras y filas que muestra no cambian.
+### Changed — «Captura de facturas» se elige dentro de Control de entradas (RE.48, 2026-10-21)
+- Ya no es un elemento suelto del menú: es la primera opción del selector de **Control de entradas**. Quien sube facturas entra directo a Captura; quien sólo consulta entra a Cobertura por sucursal.
+### Changed — «Costo por compra» ahora se llama «Revisión de facturas» y está en Recepción (RE.47, 2026-10-21)
+- La pantalla abre en las facturas **por revisar**: el nombre ahora dice ese trabajo. Sigue siendo la misma lista, con las columnas de factura, ajuste y neto de cada compra. Los enlaces viejos (`/compras/costo-por-compra`) siguen funcionando.
+- El aviso de **posible duplicado** aparece en esta pantalla, en la evidencia de cada entrada (antes se había puesto en una pantalla que ya no se usa).
+### Fixed — Centro de control de entradas: «quién sube» ya no dice «nadie» donde alguien sube (RE.46, 2026-10-21)
+- CEDIS aparecía con «nadie con permiso» aunque una persona subía todas sus facturas: la pantalla sólo miraba el rol principal y no los roles complementarios ni los permisos dados a la persona. Ahora cuenta igual que el sistema que deja subir.
+- Cuando nadie tiene asignada una sucursal pero alguien con alcance de toda la red la está subiendo, la celda dice **«sin asignar · sube [persona]»**: lo que falta es asignarle la sucursal, no un permiso.
+### Fixed — Revisión de entradas: los avisos que faltaban (RE.42.1, RE.43.1, RE.44, 2026-10-21)
+- **Revisión** muestra «Posible duplicado de la entrada X» cuando quien subió la factura vio ese aviso y la envió igual, con liga a la otra entrada para compararlas.
+- Cuando el total leído es la misma cifra que Kepler con el separador corrido (se leyó `$22.50` por `$22,500`), la pantalla lo dice como **probable error de lectura** en vez de «cobra de menos $22,477».
+- **Captura por lote**: si ninguna entrada cuadra por importe, propone la del folio del proveedor, marcada para confirmar el total (nunca preseleccionada).
+### Fixed — La factura se enlaza a la entrada de SU proveedor y de TU sucursal (RE.43, 2026-10-21)
+- Al subir una factura, la pantalla buscaba su número de folio entre los números de **nuestras** órdenes de entrada, y la enlazaba sola a la de otro proveedor (caso real: la nota `0666` de EL FAROLITO terminó en la entrada `0000666` de otro proveedor y otra sucursal). Ahora el folio de la factura se busca en el folio del proveedor que Kepler guarda en la entrada.
+- La búsqueda se limita a las sucursales donde la persona **puede capturar**; quien tiene alcance global sigue buscando en todas, y si hay varias posibles se le pregunta.
+- El aviso de «posible duplicado» se vuelve a revisar cuando ya se sabe a qué entrada va la factura, y desaparece si es de otro proveedor.
+### Fixed — Un cobro cancelado en Kepler ya no cuenta como cobrado en Cortes ni en la cartera (CSU.11, 2026-10-21)
+- **Cortes / Sucursales**: el cobrado de octubre baja **$171,986.56** (14 cobros cancelados que seguían sumando). Varios cortes dejan de verse «sobrecobrados».
+- **Cartera** (`/finanzas/cartera`, CXC, flujo de caja) y **saldo de facturas** (`/comercial/documentos`, Televenta, Guía de Cobranza): reaparecen **$165,615.07** de saldo que un cobro cancelado escondía; **13 facturas** dejan de salir «pagadas».
+- **Internal**: la regla vive en una sola vista, `analytics.kepler_kdm5_vigente` (`kdm5` sin documentos cancelados). La compuerta `check:kdm5-vigente` del `pre-push` impide volver a leer `kdm5` crudo (GOTCHAS §89, ADR-098).
+### Fixed — Cortes / Sucursales vuelve a cargar: de 89 s a 192 ms con el mes completo, medido en banco local (CSU.10, 2026-10-21)
+- **Finanzas › Cortes / Sucursales** tardaba tanto que la petición fallaba y la pantalla no mostraba nada. La forma de pago de los cobros se buscaba en una vista de toda la historia **una vez por cada corte**; ahora se busca una sola vez. Medido en un banco local a escala de prod (504 cortes): **88,615 ms → 192 ms**. Falta medirlo en prod.
+- **Ninguna cifra cambia**: misma salida, campo por campo, comprobada con datos a escala y con casos borde.
+- Nuevos scripts para volver a medir: `database/scripts/csu-cortes-bench-local.js`, `csu-cortes-paridad-local.js` y `csu-cortes-paridad-prod.js` (sólo lectura).
+### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.4, 2026-10-19/20)
+### Changed — Arqueo de caja: RD y RV se capturan por ruta, sin caja (SM.46, 2026-10-21)
+- `/tienda/arqueo`, pestañas RD y RV: se quita el campo «Caja». La entrega de un vendedor se identifica por la **ruta**; para guardar basta sucursal + ruta. La confirmación y el ticket muestran la ruta en lugar de la caja. Retiro, Cierre y Relevo no cambian.
+
+### Fixed — Arqueo de caja: las rutas RD/RV se buscan en la sucursal elegida (SM.45, 2026-10-21)
+- `/tienda/arqueo`, pestañas RD y RV: decían «Tu sucursal no tiene rutas» a usuarios con varias sucursales (o sin sucursal fija) aunque la sucursal sí las tuviera. Ahora se piden con la sucursal elegida o la del turno, se vuelven a pedir al cambiarla, y si la consulta falla se dice «No se pudieron consultar» con botón de reintentar. Guardar la entrega de ruta también manda la sucursal correcta.
+
+### Fixed — Una factura ya no se rechaza por tener el mismo número que la de otro proveedor (RE.42, 2026-10-21)
+- **Entradas** decía *«Este PDF ya está subido en la entrada…»* cuando sólo coincidía el número de folio con una nota de **otro proveedor** (caso real: la `0666` de EL FAROLITO contra la `0666` de DULCELICIAS). Ahora un papel es duplicado sólo si es el mismo archivo, o el mismo folio **del mismo proveedor**.
+- Si no se puede saber quién emitió el papel, la pantalla **avisa** dónde está el otro folio y deja enviar; la hoja queda marcada para el revisor. Vale igual en Entradas pendientes, Captura por lote y el detalle de la entrada.
+- El detalle de la entrada ya no bloquea una hoja que estaba en una entrada que Kepler borró (las otras dos pantallas ya lo permitían).
+### Fixed — Los pedidos de las vendedoras ya le llegan al surtidor (MCP.3.1–MCP.3.3, 2026-10-19)
+- **Surtir › Sucursal** lista los pedidos que levantan vendedoras y preventa en la app, por Hoy / Mañana / Próximos, y se surten en la misma pantalla con los mismos renglones. Antes vivían en otra pantalla a la que nada llevaba (12 avisos, 0 vistos en prod) y el chip «Sucursal» leía Kepler. Telemarketing sigue con «Tomar siguiente»; ya no hay «Todos».
+- **Abrir un pedido de preventa daba error 500 en prod**: el detalle y el cierre pedían `catalog.products.name` y la columna es `nombre`.
+- **El surtidor ve la lista de pedidos** con sólo Pedido y Cliente / destino (lo autorizado de su sucursal); la API no le manda importes.
+- **Al levantar un pedido, la fecha de entrega es hoy** por omisión (antes, el próximo día hábil); el domingo propone el lunes.
+- **«Pedido agendado»** (app de vendor): el botón para volver al inicio lo tapaba la barra de abajo; ahora se ve y dice «Finalizar visita e ir al inicio».
+
+### Added — El mostrador busca por nombre, proveedor, SKU o código, y lo que Kepler no tiene llega solo a Compras (MOS.1–MOS.3, 2026-10-16)
+- **«¿Te pidieron algo?»** (arqueo de caja y Faltantes) busca por nombre, proveedor, SKU o código de barras y dice por qué salió cada resultado. Cada uno trae todas sus presentaciones con precio —la caja en paquetes cuando divide exacto— y el mayoreo por unidad, en la presentación en que Kepler lo tiene.
+- **Catálogo › No registrados**: los códigos que se escanearon y Kepler no tiene en esa sucursal, con sucursal, proveedor y búsqueda. Salen solos en cuanto se dan de alta en Kepler. Sin tabla nueva ni migración.
+### Removed — Caducidades: se retira el asistente de voz, que nadie usaba (P2.9 paso 1b, 2026-10-19)
+- A pedido del PM («si no se ocupa, bórralo»). El micrófono salió de la pantalla el 2026-09-10 y el backend quedó **dormido y sin consumidor**; se verificó con `git grep` sobre `main` que ningún componente ni llamador usaba los 3 métodos del cliente. Se borran: `expiry-voice.service.ts`, `expiry-voice-match.ts` y su spec (15 pruebas), los endpoints `POST /commercial/expiry-reviews/voice/{transcribe,intake,pick}`, sus providers del módulo (`ExpiryVoiceService`, `AnthropicService`, `SpeechToTextService`, que seguiría existiendo en `platform-core` para Thot), los 3 métodos y 3 tipos del cliente y los checks 2c del smoke.
+- **Cambio de comportamiento:** esos 3 endpoints dejan de existir (404). No hay consumidores conocidos; una integración externa que los llamara dejaría de funcionar.
+- Era la cuarta copia de la lista de unidades (`caja · pieza · bulto · kg`): el paso 1 del plan P2.9 la reduce a una.
+### Fixed — Un código de otra sucursal ya no muestra el precio de la otra plaza (MOS.2, 2026-10-16)
+- Si un código existía en otra sucursal pero no en ésta, el mostrador mostraba el precio de la otra plaza como si fuera de aquí. Ahora avisa que falta el alta y lo anota en No registrados.
+### Fixed — La API no arrancaba en producción tras #414 (VAC.FIX, 2026-10-15; documentado 2026-10-16)
+- `/kp/precio` y `/kp/precios-todos` tipaban un parámetro decorado con `VerificadorPrecioQuery`, que es a la vez el esquema Zod y su tipo: `emitDecoratorMetadata` emitía **el objeto Zod** y `@nestjs/swagger` moría al arrancar (**CrashLoopBackOff en prod**, con los checks requeridos del CI en verde: ningún job levanta la API, deuda `VP.5`). Arreglado con alias de sólo tipo y una prueba que lee `design:paramtypes` (`kp.controller.spec.ts`). Producción responde `200` y sirve un commit que lo incluye.
+- **Protocolo previo al PR** (`ONBOARDING.md` §8.0b, puntos **30 y 31**; `GOTCHAS.md` §84): al tocar decoradores o firmas inyectadas, probar la **metadata** y, si no se puede demostrar el arranque, declararlo; y una compuerta roja por causa ajena **no es «ajena»: para tu cambio es NO MEDIDA**.
+### Added — Dictar la descripción de una solicitud (MS.DICTADO, 2026-10-14)
+- En «Nueva solicitud» aparece el botón **Dictar** bajo «Cuéntanos qué pasa»: se habla, se transcribe y el texto se **agrega** a lo escrito para revisarlo antes de enviar. El audio no se guarda.
+- **No aparece en áreas confidenciales (RH):** el audio saldría a un proveedor externo. Lo exige el servidor (403; sin área tampoco transcribe), no sólo la pantalla.
+- Requiere `GROQ_API_KEY` en el servidor; sin ella el botón avisa que el dictado no está configurado y escribir sigue sirviendo. Sin migración ni permisos nuevos.
+- Internal: `shared/voz/grabador-voz.ts` (grabación probable sin micrófono). Quedan 3 copias más de esa lógica en el front (`thot-ai-input`, `media-capture`, `vendor-assistant`) como deuda declarada.
+
+### Added — Consentimiento del aviso de privacidad (PRV.2, 2026-10-12)
+- Una cola de la Mesa de Servicio puede exigir que quien levanta una solicitud acepte el aviso de privacidad vigente: casilla que bloquea el envío, regla repetida en el servidor y evidencia (quién, qué versión, cuándo) que no se puede reescribir. Quien atiende no consiente por otra persona. **Ninguna cola lo exige todavía** (la de RH es MSH.4; el texto lo publica legal): TI y Mantenimiento no cambian. *(Antes estaba archivado por error bajo la sección del 2026-10-02.)*
+
+### Internal — Protocolo previo al PR: puntos 32 y 33 (2026-10-16)
+- `ONBOARDING.md` §8.0b y la plantilla del PR: **(32)** un script que edita archivos calcula el contenido nuevo ANTES de abrir el archivo para escribir, y se revisa `git diff --stat` después; **(33)** si una función manda contenido de personas a un proveedor externo, la regla de quién queda fuera vive en el servidor, se prueba apagándola, y el PR dice qué sale, a quién y qué se excluye.
 ### Fixed — Caja General: el total contado ahora se anuncia, y la fila abierta se ve en Alto Contraste (CG.183–CG.186, 2026-10-16)
 - Auditoría **front-end** de `/finanzas/caja-general` (no de diseño: la pantalla ya usa el sistema — 78 `comm-num`, 40 `p-table`, 16 `app-load-state`, `OnPush` + 103 signals, cero `any` — y el auditor de contrato le marca **una sola** advertencia contra una línea base de 247 pantallas con falla). Lo corregido son defectos de **comportamiento**.
 - **La cifra que la pantalla existe para producir no se decía.** Había **una sola** región viva en 2,462 líneas de template. El bloque «CONTADO» cambia con cada tecla de la reja de denominaciones: quien usa lector de pantalla tecleaba once renglones y nunca se enteraba del total ni del veredicto. Y la cola de «por confirmar» **la mueve el socket**: entraban movimientos nuevos mientras la persona contaba efectivo del otro lado de la pantalla, en silencio. Ahora el total viaja con su veredicto («$460.00 contado, cuadra con el documento») y la cuenta de la cola se anuncia sola.
@@ -18,6 +129,11 @@
 - **Candado:** 4 pruebas nuevas (392 en verde en el módulo, antes 388), las 4 con **prueba negativa ejecutada** — se rompió cada arreglo a propósito y se verificó que su prueba se pone roja.
 - ⬜ **Declarado y no arreglado:** el token de texto tenue no pasa AA en **ningún** fondo de la app y lo usan 112 archivos (repuntarlo es decisión de producto, no de esta pantalla); y el componente —el más grande de la suite, 428 KB— no usa `@defer`, así que los 5 diálogos, el canvas de firma y el QR viajan en el chunk inicial. ⚠️ El tiempo de carga **no se midió**: son 11 peticiones al abrir, pero medirlas exigiría levantar la app, y eso no se hace en local.
 
+### Fixed — Caducidades: «Ya se reflejó» sólo cuando se reflejó todo (P2.6.12, 2026-10-16)
+- Al guardar una caducidad se movía `min(capturado, existencia sin fecha del producto en esa sucursal)` al lote fechado: **10 cajas capturadas con 4 sin fecha dejaban 4 en el inventario**, y la pantalla decía en verde «Ya se reflejó en el control de inventario». Ahora compara lo capturado contra lo fechado: **verde sólo si llegó todo**, ámbar con «Se reflejaron 4 cajas de 10 cajas… quedan 6 sin fechar» y el motivo, y azul si no se movió nada (sin catálogo o sin existencia sin fecha).
+- Se corrige en los **cuatro** sitios que lo afirmaban: el aviso y la etiqueta de cada renglón de la captura, la **hoja que se imprime y se archiva** («Sí» / «Parcial» / «No»), y el «FEFO ✓» del detalle de Almacén (ahora «FEFO parcial 4 de 10»).
+- Sólo presentación: sin cambios en el servidor ni migraciones. 13 pruebas nuevas (10 de la regla pura y el aviso, 3 del texto de la hoja), con prueba negativa de cada regla.
+- ⬜ **Declarado y no resuelto:** `quantity` está en la unidad elegida (caja/pieza…) y se mueve tal cual contra existencia que puede estar en otra; no medido (ver `UNIDADES_DE_MEDIDA.md`). Tampoco se vio en pantalla.
 ### Changed — Calendario de Pagos: la semana completa y «Ordenar y pagar» (TP.16, 2026-10-16)
 - La fecha de arriba ahora es el **rango de la semana**. Se ven los 7 días (lunes a domingo), cada uno con presupuesto, comprometido, disponible y sus documentos, como la maqueta en Excel de Tesorería.
 - Cada día tiene **«Ordenar y pagar»**: orden de pago, método, **cuenta de origen** (de cuál cuenta de Mega Dulces sale) y **cuenta destino** (catálogo del proveedor o CLABE capturada), más los pasos que faltan para que Caja General disperse.
@@ -72,7 +188,7 @@
 - La app pedía 8,000 productos y hay 9,429 con precio; los menos vendidos no llegaban al celular y no aparecían al buscarlos. Ahora pide el catálogo completo (hasta 10,000).
 - El precio que se cobra no cambia: el renglón lo sigue calculando el servidor al agregarlo. Sin migraciones ni permisos → sin re-login.
 - **Y al abrir el cliente ya no se espera el catálogo (VTK.11):** se muestra el que el celular ya tiene (de la sesión o guardado, misma sucursal y de menos de un día) y el nuevo se baja detrás, con la edad a la vista. Al pasar de un cliente a otro de la ruta en menos de 2 minutos ni siquiera se vuelve a bajar.
-### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, PR #414, 2026-10-14)
+### Changed — Verificador de precios: entra al estándar de la Suite, el mayoreo manda y deja de mentir ante un fallo (VAC, PR #414, fusionado 2026-10-15)
 - **Mayoreo como protagonista**, enmarcado, con **el ahorro por unidad** como cifra principal («Ahorras $5.59 por unidad (6.5% menos)») y el total del mínimo de apoyo; cada umbral es su propio bloque y el de paquete dice a cuántas piezas equivale («Equivale a 144 piezas»).
 - **Ancho fluido** (la tarjeta usa todo el ancho, dos columnas precio | mayoreo en pantalla ancha) y **centavos más chicos** en todo precio. **La unidad se lee a 1–2 m.**
 - **Modo kiosco** sin botón de cámara y sin los datos internos del producto. ⚠️ En kiosco el aviso de «este precio acaba de cambiar» ya no se muestra (el respaldo sí sigue declarado por el banner).
@@ -914,8 +1030,6 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **Verificación punta a punta de la Mesa multi-área (MS.7.19):** prueba automática del ciclo completo con TI y Mantenimiento reales (levantar, asignar, poner en espera, resolver, cerrar, trasladar y volver) y del acceso cruzado entre áreas, más la guía de despliegue con el orden exacto de las migraciones. **Nada aplicado a prod.**
 
 **Solicitudes de prueba (MS.7.12):** la coordinación puede marcar una solicitud como «de prueba» (también si ya está cerrada o cancelada): deja de contar en reportes, tablero, carga de trabajo, «Mi trabajo» y avisos, y queda registrado en el historial. Sigue apareciendo en la bandeja con la etiqueta «Prueba» para poder quitarle la marca. **Nada aplicado a prod** (migración `20261007340000`).
-
-**Consentimiento del aviso de privacidad (PRV.2, interno):** una cola de la Mesa de Servicio puede exigir que quien levanta una solicitud lea y acepte el aviso de privacidad vigente; el formulario muestra el aviso con una casilla que bloquea el envío, el servidor lo vuelve a exigir y queda registrado quién aceptó, qué versión y cuándo, sin posibilidad de reescribirlo. Quien atiende no puede consentir por otra persona. **Ninguna cola lo exige todavía** (la de RH es MSH.4, y el texto del aviso lo publica legal): TI y Mantenimiento no cambian.
 
 **Pantalla de la cola confidencial de RH (MSH.3, interno):** al reportar a un área confidencial, la Mesa avisa antes de escribir que la solicitud será confidencial y no hace preguntas de prioridad donde no se usa; las listas y fichas no muestran prioridad ni plazos en esas áreas; el administrador ve de una solicitud confidencial sólo el folio, el área, el estado y las fechas; Configuración permite marcar una cola como confidencial, sin prioridad o sin plazos y fijar el mínimo de casos de su reporte; y un reporte con pocos casos no muestra cifras. **Ninguna cola es confidencial todavía** (la siembra es MSH.4): TI y Mantenimiento no cambian.
 

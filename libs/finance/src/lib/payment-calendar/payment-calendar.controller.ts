@@ -28,7 +28,7 @@ export class PaymentCalendarController {
 
   @Get('obligations')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
-  @ApiOperation({ summary: 'Obligaciones disponibles (UNION de los 3 orígenes). No se acota por día — los pendientes no se pierden al cambiar de mes/año.' })
+  @ApiOperation({ summary: 'Obligaciones disponibles (UNION de los 4 orígenes: gasto, compromiso, factura capturada y deuda viva de Kepler). Devuelve { rows, total, limit, offset }: el total dice cuántas hay aunque el techo recorte. No se acota por día.' })
   listObligations(
     @Query('source') source?: ObligationSource,
     @Query('classification') classification?: string,
@@ -37,10 +37,15 @@ export class PaymentCalendarController {
     @Query('dueTo') dueTo?: string,
     @Query('onlyCritical') onlyCritical?: string,
     @Query('all') all?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('prontoPago') prontoPago?: 'por_vencer' | 'capturable',
   ) {
     return this.svc.listObligations({
       source, classification, search, dueFrom, dueTo,
       onlyCritical: onlyCritical === 'true', onlyAvailable: all !== 'true',
+      limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined,
+      prontoPago,
     });
   }
 
@@ -123,6 +128,34 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Completa método de pago / banco / caja — lo que Caja General necesita para ejecutar.' })
   prepare(@Param('id') id: string, @Body() dto: PrepareAllocationDto, @Req() req: AuthedRequest) {
     return this.svc.prepare(id, dto, req.user?.username || 'sistema');
+  }
+
+  /**
+   * `[TP.19.3]` Liga el pago con su documento en Kepler (O3): de qué día del calendario salió esta
+   * transferencia. Aparte de `ejecutar` porque el dinero sale antes de que el ERP capture el
+   * documento — exigirlo al ejecutar obligaría a inventar un folio.
+   */
+  /**
+   * `[TP.19.4]` Propone el documento de Kepler de un pago ejecutado (monto ±$0.01, día del lote
+   * ±3 y proveedor). `unico: true` = un solo candidato, que es cuando ligarlo no deja lugar a
+   * duda; con dos, los devuelve y **no elige**.
+   */
+  @Get('allocations/:id/kepler/sugerencias')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'TP.19.4 — candidatos de Kepler para ligar un pago ejecutado. No liga: propone.' })
+  sugerirKepler(@Param('id') id: string): ReturnType<PaymentCalendarService['sugerirKeplerPayment']> {
+    return this.svc.sugerirKeplerPayment(id);
+  }
+
+  @Post('allocations/:id/kepler')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'TP.19.3 — liga el pago ejecutado con su documento de Kepler (sucursal, doc_prefix, folio). Verifica que exista en el espejo del ERP.' })
+  linkKepler(
+    @Param('id') id: string,
+    @Body() dto: { sucursal: string; doc_prefix: string; folio: string },
+    @Req() req: AuthedRequest,
+  ): ReturnType<PaymentCalendarService['linkKeplerPayment']> {
+    return this.svc.linkKeplerPayment(id, dto, req.user?.username || 'sistema');
   }
 
   @Post('allocations/:id/ejecutar')

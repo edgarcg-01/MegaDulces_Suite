@@ -454,6 +454,22 @@ export class ScopeService {
     return limpio.filter((v) => d.values.includes(v));
   }
 
+  /**
+   * `[RE.43]` El gemelo de ESCRITURA de `intersect`: lo pedido recortado a donde puede CAPTURAR
+   * (`mode_write`). Para una búsqueda cuyo resultado se va a escribir —enlazar un papel a una
+   * entrada—: buscar con el alcance de lectura le propone a quien ve más de lo que captura
+   * entradas que el guardado rechaza con 403 (medido: 4 roles ven más de lo que capturan).
+   * `null` = sin filtro (`all`), igual que `intersect`.
+   */
+  intersectWrite(scope: ResolvedScope, dim: ScopeDimension, pedido?: string[] | null): string[] | null {
+    const d = scope.dims[dim];
+    const limpio = (pedido ?? []).map(String).filter(Boolean);
+    if (d.modeWrite === 'all') return limpio.length ? limpio : null;
+    if (d.modeWrite === 'none') return [];
+    if (!limpio.length) return d.valuesWrite;
+    return limpio.filter((v) => d.valuesWrite.includes(v));
+  }
+
   // ───────────────────────── params del request ─────────────────────────
 
   /**

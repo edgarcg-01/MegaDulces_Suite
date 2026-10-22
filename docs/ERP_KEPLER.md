@@ -1,3 +1,48 @@
+<!-- INDICE-AUTO:INICIO -->
+
+> **Índice navegable** — 108 KB, 1661 líneas, 33 secciones.
+> ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
+> Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
+> Lo genera `npm run docs:indices` — no lo edites a mano.
+
+| Desde | Hasta | KB | Sección |
+|---:|---:|---:|---|
+| 46 | 65 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
+| 66 | 101 | 2 | 1. Qué es Kepler y por qué duele |
+| 102 | 125 | 5 | 2. Tablas clave decodificadas |
+| 126 | 243 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
+| 244 | 259 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
+| 260 | 313 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
+| 314 | 362 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
+| 363 | 382 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
+| 383 | 419 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
+| 420 | 536 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 537 | 583 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 584 | 622 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 623 | 781 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 782 | 896 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 897 | 951 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 952 | 989 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 990 | 1019 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1020 | 1073 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1074 | 1122 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1123 | 1154 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1155 | 1215 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1216 | 1250 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1251 | 1362 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1363 | 1393 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1394 | 1441 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1442 | 1469 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1470 | 1526 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1527 | 1577 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1578 | 1603 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1604 | 1668 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1669 | 1688 | 1 | 6. Importers / feeds relevantes |
+| 1689 | 1696 | 1 | 7. Conexiones y credenciales |
+| 1697 | 1706 | 1 | 8. Para profundizar |
+
+<!-- INDICE-AUTO:FIN -->
+
 # ERP Kepler — decode y flujo hacia la plataforma
 
 > Guía para devs que van a tocar feeds, importers, finanzas, compras o analytics.
@@ -33,11 +78,24 @@ Cada rama tiene su propio `kdii`, `kdil`, etc. Referencias exhaustivas en:
 - [`docs/IMPLEMENTACION/KEPLER_CATALOGO_TABLAS.md`](IMPLEMENTACION/KEPLER_CATALOGO_TABLAS.md) — barrido curado por dominio.
 - [`docs/IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md`](IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md) — inventario de tablas.
 
-**Cuántas tablas hay, medido** (auditoría 2026-09-11, §2.4): **322–358 por rama**, **371 en la unión** de
-las 8. No es un número: *depende de la rama*. Sólo **315** existen en las ocho; las otras **56** son
-drift real — 21 son tablas de período (`kdc2YYMM`, que nacen cada mes) y 35 son **módulos instalados
-en unas ramas y no en otras** (nómina `kdrh*` sólo en `00/01/06/07`, variantes de `kdfe33*`…). Una
-consulta escrita contra una rama **puede no compilar en otra**.
+**Cuántas tablas hay, re-medido 2026-10-16** (censo automatizado de las **9 ramas** vía
+`scripts/kepler/kepler-structure.mjs` contra las réplicas read-only; la auditoría manual de
+2026-09-11 daba 322–358/371/315 sobre 8 ramas): **328–367 por rama**, **377 en la unión**,
+**324 comunes a las 9**, **53 con drift**. La rama más completa (`kepler_md_00`) tiene **367 tablas
+y 6,348 columnas**. Sigue siendo cierto: *depende de la rama*, y una consulta contra una rama
+**puede no compilar en otra**. El drift son tablas de período (`kdc2YYMM`) y módulos instalados en
+unas ramas y no en otras (nómina `kdrh*`, variantes `kdfe33*`).
+
+> ⭐ **Estructura ≠ significado.** El esqueleto completo (tablas, columnas, tipos, PKs) **no está
+> ofuscado**: se lee de `information_schema` y está en
+> [`IMPLEMENTACION/KEPLER_ESTRUCTURA.json`](IMPLEMENTACION/KEPLER_ESTRUCTURA.json) (100% de las
+> 6,348 columnas). El **significado** de las columnas `cN` sí requiere ingeniería inversa, y es
+> parcial por naturaleza:
+> [`IMPLEMENTACION/KEPLER_ESTRUCTURA_ANOTADA.json`](IMPLEMENTACION/KEPLER_ESTRUCTURA_ANOTADA.json)
+> cruza el esqueleto con el diccionario de formas (§2.8) → **87 columnas con significado desde las
+> formas (1.37%)**. Las tablas transaccionales (`kdm1`, `kdm2`, `kdik`, `kdmm`) salen 0 por esa vía:
+> su decode vino de inferencia sobre datos (§2 de este doc), no de un catálogo editable. ⛔ Y no hay
+> atajo por el binario: §3 probó que los nombres `cN` **no están** en los `.dll` del cliente.
 
 ---
 
@@ -382,6 +440,61 @@ en `[PV.1]`/`[PV.2]`.
 (ADR-059) sobre `83652`: lo cobrado fue `77.25` a qty 1-2, `71.15` a qty 5 y 10, `70.51` a qty 30.
 **Nadie pagó nunca los niveles profundos de ese SKU**, ni siquiera superando su `c4`.
 
+#### ⭐ `[E.22]` Corrección (2026-10-21): en las escaleras DISJUNTAS el nivel SÍ es un escalón de volumen
+
+La refutación de abajo se hizo sobre `83652`, cuya escalera está **encimada** (varios niveles con
+el mismo rango de cantidad). Pero **el 93 % de las escaleras de `kdpv_prod_util` son disjuntas**:
+cada tramo empieza después de que termina el anterior (95,377 de 102,448 con ≥ 2 tramos). El caso
+que lo destapó: `89008` PAQ = `1: 3-5 $55.00 · 2: 6-9 $53.16 · 3: 10+ $51.76`, sin nivel 0, y
+Kepler cobró en 120 días **exactamente el tramo que contiene la cantidad** en el 100 % de los
+renglones de venta (lista $55.93 de 1 a 2).
+
+**Arbitrado a escala con dinero** (ADR-059; 60 d, ventas `U-D` 5/6/8/10/12, 1.6 M renglones):
+
+| escalera | cuando «el tramo de su cantidad» y «el primer tramo» difieren, Kepler cobró… |
+|---|---|
+| **disjunta** | el tramo de su cantidad **4,275** veces · el primer tramo **26** (99.4 %) |
+| encimada | 1,880 contra 2,294: ninguna regla gana → niveles por transacción, como dice abajo |
+
+**Regla vigente (motor de cotizaciones y pedidos, `quote-pricing.service.ts`):** escalera
+disjunta → el tramo cuyo `[c4, c5]` contiene la cantidad (abajo del primero: lista; en un hueco
+entre tramos: ninguno). Escalera encimada → nivel 0 (lo de abajo, sin cambio).
+
+⚠️ **Lo que sigue sin derivarse, declarado:** aun en las disjuntas, Kepler cobra su tramo en el
+54.6 % de los renglones; el **28.6 % sale a precio de lista** (no se aplicó el volumen) y el 15.9 %
+**por debajo** del tramo. Quién decide eso (cajero, cliente, canal) no está medido. En
+telemarketing (doc 8) el tramo se cumple en el 62.9 %.
+
+#### ⭐⭐ `[E.23]` El precio ORIGINAL del renglón (`kdm2.c66`) es la UNIDAD MAYOR que cabe, prorrateada (2026-10-21)
+
+Kepler cobra la cantidad al precio de la unidad más grande de `kdii` (`c11`/`c80`/`c83`, factores
+`c81`/`c84`, precios `c90`/`c91`/`c92`) que cabe entera en ella, prorrateado a la unidad del renglón.
+144 PZA de `02195` (CJA de 144 a $2,197.95) → `c66` = **15.2635416667**, cobrado $15.26; la pieza
+sola lista $22.20. Arbitrado contra lo cobrado donde las dos reglas difieren: **pedidos de
+telemarketing 30 d, 7,284 contra 280; mostrador `U-D-10` 3 d, 5,087 contra 218**. No depende de la
+ranura (u2 prorratea 3,197 de 3,654; u3 4,087 de 6,047, el resto es deriva de precio).
+
+**Desde `c66` el cobrado (`c12`, a centavos) se decide por PRECEDENCIA** (`[E.24]`, 2026-10-22 —
+corrige «el más barato de tres» de E.23, que acertaba 10,871 contra 11,171 de 12,723):
+
+1. **Si la cantidad completa una unidad mayor:** el tramo de `kdpv_prod_util` de **esa** unidad por
+   las que caben enteras, prorrateado; sin tramo, `c66`. **El tramo de la unidad propia no cuenta**
+   (03004 × 28 PAQ: tramo del PAQ $36.02, cobrado $39.83 = la CJA prorrateada).
+2. **Si no:** el tramo de la propia unidad que contiene la cantidad, **aunque sea más caro que la
+   lista** (40509 × 50 PAQ: lista $11.99, cobrado el tramo $12.76); sin tramo, la lista.
+3. **La promo `descuxq` es la de la unidad que se cobró** (la mayor si aplicó, con su umbral en
+   unidades mayores); si esa unidad no tiene promo, no hay promo. 313 de 324 renglones con unidad
+   mayor y promo (70001 × 20 PAQ: el PAQ tiene 5 %, la CJA nada → cobrado sin promo).
+
+Donde precedencia y mínimo difieren, Kepler cobró la precedencia **304** veces y el mínimo **4**.
+
+⚠️ Esto **explica buena parte** del «28.6 % a lista / 15.9 % abajo del tramo» del bloque de arriba:
+medidos contra la lista de la propia unidad, los renglones prorrateados caían ahí. **Excepción por
+transacción, declarada:** el ~3.7 % que no se prorratea se concentra en una capturista (3 pedidos
+de un solo cliente con renglones prorrateados y sin prorratear dentro del MISMO pedido): es
+decisión de captura, no regla. Instrumento: `scripts/kepler/replay-cotizacion/`
+(AUDITORIA_COTIZACIONES §11–§12).
+
 #### ⛔ Qué determina el nivel: NO se pudo derivar, y las cuatro hipótesis están REFUTADAS
 
 Medido sobre 90 días de ventas reales (`U-D`), 58,362 renglones cuyo `kdm2.c66` casa con algún
@@ -418,6 +531,53 @@ derivable y la decisión se revisa.
 ⚠️ **Lo que NO se probó:** si el nivel lo fija el **vendedor**, la **ruta** o el **canal**. Se
 descartaron cliente, grupo, cantidad y renglón; esos tres quedan abiertos y son la primera piedra
 si alguien retoma el decode.
+
+---
+
+### 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16)
+
+Las formas del cliente atan cada campo de pantalla a su columna: `OnChange="Cambio(N,campo)"` →
+`tabla.cN`, contra el alias que fija `kdb.open("a," & tabla_base)`. El mecanismo y su verificación
+(3 decodes conocidos reproducidos) están en [`KEPLER_CLIENTE.md`](KEPLER_CLIENTE.md) §5. El extractor
+es `scripts/kepler/kpl-decode.mjs`; el volcado completo (120 bindings, **87 columnas, 7 tablas**:
+kdii, kdud, kdudent, kduv, kdcp, kdm_rutas, kdxd),
+en [`IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json`](IMPLEMENTACION/KEPLER_DICCIONARIO_FORMAS.json).
+
+El extractor reconoce **dos convenciones** del mismo `fun Cambio(numero_campo,...)`: la de alias
+(`"datos,a,1,"` con `kdb.open("a," & tabla_base)`) y la directa (`tabla_base & ",1,"`, p.ej.
+`cxpcatpropag` → `kdxd`). Cada columna guarda su `aliases` map, que revela el clúster de tablas
+relacionadas de la forma (p.ej. proveedores: `kdxd`+`kdxv`/`kdxk`/`kdxj`/`kdxe`).
+
+> ⛔ **La etiqueta es el RÓTULO DE PANTALLA, no la semántica verificada del dato.** No sustituye la
+> prueba de unidad de §5 regla 0. `kdii.c7` sale como "1" (etiqueta inútil que el parser conserva
+> como vino). Úsalo como pista de *qué mira esa casilla*, y verificá contra el dato antes de
+> publicar un número.
+
+**Columnas nuevas de más valor** (no estaban en este doc; rótulo tal cual la pantalla):
+
+| Columna | Rótulo | Para qué |
+|---|---|---|
+| `kdii.c23` · `c24` | Precio lista proveedor · Descuento proveedor | escalera de costos (ADR-051) |
+| `kdii.c95`–`c98` | Unidad Dos · Unidad Tres | [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md) |
+| `kdii.c101` | Días de Caducidad | FEFO |
+| `kdii.c25` · `c26` | Producto substituto · equivalente | FLT |
+| `kdii.c99` | Obsoleto? | catálogo |
+| `kduv.c4` · `c5` · `c6` | Comisión s/ventas · s/utilidad · s/cobros | comisiones de vendedor |
+| `kdud.c28` · `c29` | Comisiones S/Venta · S/Cobro | cartera (⚠️ ver abajo) |
+| `kdudent.*` | Dirección · Ciudad · Teléfono · Contacto · Correo · Ruta Asignada | sucursales de entrega del cliente |
+| `kdxd.c17` · `c18` · `c19` | Descuento 1 · 2 · 3 (del **proveedor**) | escalera de costos (ADR-051), CXP/ECA |
+
+**⚠️ Tres choques con el decode curado — se declaran, NO se sobrescriben** (el rótulo contradice lo
+medido; resolver con prueba de unidad antes de tocar §2):
+
+| Columna | Este doc (medido) | Rótulo de la forma | Qué hacer |
+|---|---|---|---|
+| `kdii.c8` | "clave familia" | **"Proveedor"** | reconciliar: ¿familia o proveedor? |
+| `kdii.c84` | "piezas por caja (regla 5)" | **"Unidad Tres"** | ¿es el factor del 3er peldaño de la escalera? probar unidad |
+| `kdud.c29` | "`0.0000` en el 100%, muerto" | **"Comisiones: S/Cobro"** | el campo existe con esa intención pero está vacío en los datos: ambas son ciertas |
+
+Reproducir: `node scripts/kepler/kpl-decode.mjs "Z:/Kepler/K95_Dev/temp" salida.json` y
+`node scripts/kepler/kpl-compare.mjs salida.json` (compara contra todos los `.md` del repo).
 
 ---
 
@@ -497,6 +657,14 @@ Otras columnas del renglón, verificadas de paso: **`c17` = tasa de IVA** (0 o �
 de IEPS** (0 o −8); `c24` repite la cantidad y `c26` es el costo del renglón. En la cabecera,
 **`c14` = IVA** y **`c15` = IEPS** del documento, y el precio del renglón **YA TRAE los impuestos**
 (Σ`kdm2.c13` = `kdm1.c16` en 6,745 de 6,756 tickets = 99.84%).
+
+⭐ `[E.25]` (2026-10-22, pedidos de telemarketing): **la tasa de la ficha `kdii.c18`/`c19` = la del
+renglón `kdm2.c17`/`c18` en 2,011 de 2,011**, y todas son ≤ 0 (incluidas en el precio; sólo 3 SKUs
+traen las dos). Con ella, `c14` y `c15` se reproducen **al centavo en 79 de 79 pedidos**: neto del
+renglón = importe × (1 − `c19` %), sin redondear; IEPS sobre la base e IVA sobre (base + IEPS);
+se redondea la **suma**. ⚠️ Con cantidades fraccionarias (KG) `c16` suma los renglones **sin
+redondear** cada uno (1.03 KG × $66.15 → `c13` = 68.13, pero entra 68.1345): la cabecera puede quedar
+1 centavo arriba de Σ`c13` — explica parte del 0.16 % de arriba.
 
 **Compras** (género `X`, naturaleza `A`) — la cadena que hay que entender para finanzas/compras:
 ```
@@ -929,6 +1097,8 @@ el grupo `U-A` son abonos — `U-A-7` Cobro CFDI · `U-A-20` Devolución · `U-A
 **El 98 % del dinero salda factura de crédito no fiscal** ⇒ en esta empresa, `U-A-5` es **el cobro de
 la venta a crédito de ruta**.
 
+> ⛔⛔ **`[CSU.11]` Una aplicación de `kdm5` NO dice si su documento sigue vivo.** Kepler cancela en la cabecera (`kdm1.c43 = 'C'`, importe 0) y deja la aplicación en `kdm5` con su monto: medido el 2026-10-21, **854 de 70,478** aplicaciones son de documentos cancelados. **Toda suma de aplicaciones lee `analytics.kepler_kdm5_vigente`** (mismas columnas, sin las canceladas), nunca `kepler_ods.kdm5`; la compuerta `check:kdm5-vigente` lo hace cumplir. Ver GOTCHAS §89 y ADR-098.
+
 ⛔⛔ **NO leer la glosa como si fuera el tipo de documento.** `c24` dice cosas como
 *«VENTA RV CANDY SALGADO 25-09-2026»* o *«DEPOSITO EFECTIVO CAJA GENERAL M.M. 08/10/2026»* porque la
 persona describe **qué está cobrando** o **dónde lo depositó**, no qué documento capturó. Leerlo al
@@ -1040,6 +1210,41 @@ de tocarle el filtro. Dos vistas sobre `kdm1` pueden necesitar decisiones opuest
 ⚠️ **Dos cabos con nombre:** el código `RD027` vende **$209,325.35 en 30 días** y **no existe en
 `kduv`** (0 filas) — se declara sin resolver, nunca se cae al nombre genérico de otra plaza. Y hay
 **645 tickets / $310,060 sin vendedor** (`c12` vacío), concentrados en `01-005`.
+
+---
+
+### 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21)
+
+**Kepler sí guarda qué facturas liquida cada pago.** La cadena, medida contra las pólizas de ContPAQi
+de 2026 (`[CP.8.63]`, `database/scripts/cadena-pago-kepler-contpaqi.js`):
+
+```text
+banco (finance.bank_movements)
+  │ L1  pago kdm1 X-D-25/26/60, c10 LIKE 'C%': c45 = últimos dígitos de la cuenta (3041 = Banorte 3041),
+  │     importe ±$1 (Kepler suele traer centavos de menos), fecha Kepler −2…+7 días   → 89.5 %, placebo 0
+pago ──L2── kdxf: cargo (c4,c5,c6) aplicado al abono (c7,c8,c9) por c10              → 89.0 %
+entrada kdxe c3='A', c4=20 (Aplica Orden Entrada): c11 importe, c16 referencia = folio a mano («0-F-2734»)
+  │ L3  CFDI: RFC del acreedor + total ±$1; si no, últimos dígitos del folio de c16 (≤ 3 % de diferencia)
+CFDI → UUID
+```
+
+- Las notas también casan en `kdxf` contra la entrada: cargo **55** = nota de crédito, **40** = devolución
+  de compra. Kepler aplica las notas por entrada y registra notas internas sin CFDI: en 2026 sus X-D-55
+  suman $59.5 M contra $23.3 M de notas CFDI — **no ligan 1 a 1** con los CFDI de egreso.
+- `c45 = '0011'` en el pago = **Caja General (efectivo)**. 103 proveedores de remisión se pagan así
+  (2,725 pagos, $35.67 M en 2026) y no facturan.
+
+⛔⛔ **`kdxd.c10` (RFC del acreedor) está mal capturado a menudo** y rompe L3: dedazos (PCP920**5**23**H**QA
+por PCP920**4**23**K**QA), guiones y cortado («CCO-820507-BV»), cero por letra, el RFC de **otra razón social**
+o el de una persona física en el acreedor de un proveedor grande. Validarlo **siempre** contra los
+emisores de CFDI antes de usarlo, y repararlo sólo si la respuesta es única: tal cual → sin guiones →
+a ≤ 2 ediciones de un emisor → por el nombre (`c3`). De 795 acreedores con pagos: 242 tal cual, 1 por
+formato, 23 por parecido, 160 por nombre, **369 sin resolver**. Con la reparación la cadena completa pasa
+de 701 a 855 pólizas (`[CP.8.71]`).
+
+Lo que Kepler **no** trae y sí trae ContPAQi: el complemento de pago del proveedor (REP) y la relación
+nota → factura están en el ADD de ContPAQi (`Pagos_Doc_Rel`, `CfdiRelacionados`), no en Kepler —
+`FASE_CP8_ATERRIZAJE.md` §3.5 `[CP.8.64]`.
 
 ---
 

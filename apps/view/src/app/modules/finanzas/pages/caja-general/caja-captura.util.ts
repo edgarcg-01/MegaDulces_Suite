@@ -43,7 +43,17 @@ import { seleccionarDenominaciones, type Denominacion, type VeredictoCorte } fro
  * ⚠️ El CHECK de `finance.cash_ledger_denominations` sigue admitiendo las 14; acá se ofrecen
  * 5. Volver a ofrecer el de $1,000 es agregar su llave a esta lista — sin migración.
  */
-const CAJA_BILLETES_KEYS = ['500', '200', '100', '50', '20'] as const;
+/**
+ * ⭐ 2026-10-16 — ENTRA EL DE $1,000. Pedido de Edgar. Es exactamente lo que el párrafo de
+ * arriba decía que costaba: agregar su llave, sin migración, porque el CHECK de
+ * `finance.cash_ledger_denominations` siempre admitió las 14.
+ *
+ * ⚠️ Y acá hay un hecho que conviene no perder: mientras NO estuvo ofrecido, un billete de
+ * $1,000 que entraba a la caja sólo podía declararse partiéndolo en otras denominaciones o
+ * cayendo en morralla — o sea, un desglose que no reconstruye lo que había en la mano. El
+ * arqueo cuadraba en el total y mentía en la composición.
+ */
+const CAJA_BILLETES_KEYS = ['1000', '500', '200', '100', '50', '20'] as const;
 
 /**
  * `[CG.38]` Las monedas que la caja cuenta, de la mayor a la menor.
@@ -83,11 +93,84 @@ export const BILLETES_CAJA: readonly Denominacion[] = seleccionarBilletes(CAJA_B
 /** Las seis monedas de la caja. Lo de menos de 50¢ sigue cayendo en el campo suelto. */
 export const MONEDAS_CAJA: readonly Denominacion[] = seleccionarMonedas(CAJA_MONEDAS_KEYS);
 
+/**
+ * ⭐⭐ `[CGA11Y-O3b]` LA TAXONOMÍA DE LA TIRA DE ACCESOS — declarada, no inferida.
+ *
+ * ⛔ **Por qué es una tabla y no un `startsWith()` en la plantilla.** El grupo de un movimiento no
+ * existe como dato: en `finance.v_caja_movimientos_pendientes`, `origen_tipo` se calcula como
+ * `signo > 0 ? 'cobro' : 'pago_proveedor'`, o sea que es un **sinónimo del signo** y no distingue
+ * nada. Medido en prod el 2026-10-16: 1,428 gasto↔`pago_proveedor` y 479 ingreso↔`cobro`, sin una
+ * sola excepción. Lo que sí separa es `doc_tipo`, que es el documento de Kepler.
+ *
+ * **El universo completo, medido sobre 365 días (prod, `clave_banco='0011'`):**
+ *
+ * | doc_tipo | tipo    | movs  | importe | grupo          |
+ * |----------|---------|------:|--------:|----------------|
+ * | `X-D-26` | gasto   | 9,589 | $77.0 M | Egresos        |
+ * | `U-A-5`  | ingreso | 3,692 | $76.6 M | Depósitos      |
+ * | `X-D-60` | gasto   |    47 | $ 4.4 M | Otros egresos  |
+ * | `X-A-45` | ingreso |    45 | $ 3.9 M | Otros ingresos |
+ * | `U-A-25` | ingreso |     3 | $ 3.7 K | Otros ingresos |
+ * | `X-D-25` | gasto   |     1 | $ 9.8 K | Otros egresos  |
+ *
+ * Dos doctypes se llevan el **97%** de los movimientos; los otros cuatro son cola larga y se
+ * agrupan para no poner cuatro accesos con un dígito cada uno.
+ *
+ * ⚠️ **Lo que NO está acá, a propósito:** «Vecinal». El cierre de ruta vecinal se timbra en la
+ * caja de su sucursal y llega a Caja General **como un `U-A-5` ya agregado por día y plaza**
+ * (`VEC.10`). Ponerlo como acceso propio pondría 572 cierres ENCIMA de 3,648 depósitos: ~$9 M
+ * contados dos veces. Va como procedencia del depósito, no como grupo.
+ *
+ * ⚠️ Un `doc_tipo` que no esté acá **NO se reparte a ojo**: cae en «Sin clasificar», que es un
+ * acceso de primera clase. Un grupo inventado es peor que un grupo que falta (ADR-056).
+ */
+export interface GrupoCola { clave: string; label: string; docTipos: readonly string[]; }
+
+export const GRUPOS_COLA: readonly GrupoCola[] = [
+  { clave: 'deposito', label: 'Depósitos',      docTipos: ['U-A-5'] },
+  { clave: 'egreso',   label: 'Egresos',        docTipos: ['X-D-26'] },
+  { clave: 'otros_in', label: 'Otros ingresos', docTipos: ['X-A-45', 'U-A-25'] },
+  { clave: 'otros_eg', label: 'Otros egresos',  docTipos: ['X-D-60', 'X-D-25'] },
+];
+
+/** La clave de «no lo sé». No es un grupo más: es la declaración de que el mapa no alcanzó. */
+export const GRUPO_SIN_CLASIFICAR = 'sin_clasificar';
+
+/** A qué grupo pertenece un `doc_tipo`. Lo que el mapa no cubre se DECLARA, no se adivina. */
+export function grupoDe(docTipo: string | null | undefined): string {
+  const d = String(docTipo ?? '').trim();
+  if (!d) return GRUPO_SIN_CLASIFICAR;
+  return GRUPOS_COLA.find((g) => g.docTipos.includes(d))?.clave ?? GRUPO_SIN_CLASIFICAR;
+}
+
 /** Largo mínimo de la glosa. Espejo del CHECK de `finance.cash_ledger`. */
 export const GLOSA_MIN = 5;
 
 /** Tolerancia del cuadre: un centavo, por el redondeo de numeric. */
 export const ARQUEO_EPSILON = 0.005;
+
+/**
+ * `[CG.120]` ¿Se ofrece capturar un movimiento **a mano**, sin documento del ERP?
+ *
+ * **No, desde el 2026-10-19** (decisión de Edgar). Un movimiento tecleado nace sin
+ * `origen_ref`, o sea sin nada contra qué cuadrarlo: no lo alcanza el candado de duplicados del
+ * servidor —que es por `origen_tipo + origen_ref`—, no entra en el descuento de la cola, y en la
+ * conciliación aparece como una fila que no corresponde a ningún documento. Es la única puerta
+ * de esta pantalla por la que puede entrar dinero sin procedencia.
+ *
+ * ⛔ **Esto apaga el BOTÓN, no `abrirCaptura()`.** Esa función es la puerta compartida de cuatro
+ * caminos —la cola del ERP (`capturarDesde`), la bóveda (`capturarDesdeCaos`), un recurrente sin
+ * regla (`declararDesdeRecurrente`) y este botón—, así que guardarla por dentro apagaría el
+ * arqueo entero. Los tres primeros SIEMPRE traen documento; el único sin procedencia es éste.
+ *
+ * ⚠️ Lo que NO hace: no toca el servidor. `POST /cash-ledger` sigue aceptando un movimiento sin
+ * origen —`sin_documento_motivo` existe justamente para eso (`[CG.160]`)— y hay otras pantallas
+ * y el lote que lo usan. Esto es una puerta de ESTA pantalla que se cierra, no una regla de
+ * negocio nueva; si la regla tiene que valer para todos, va en el backend y es otro cambio.
+ *
+ * Volver a abrirla es poner `true` acá.
+ */
+export const CAPTURA_MANUAL_HABILITADA = false;
 
 /**
  * Un renglón contado.
@@ -399,10 +482,13 @@ export type { VeredictoCorte };
 export interface CorteVista {
   id: string;
   folio: string;
-  estado: 'borrador' | 'cerrado' | 'autorizado';
+  estado: 'borrador' | 'cerrado' | 'observado' | 'autorizado';
   closed_by?: string | null;
   closed_by_username?: string | null;
   authorized_by_username?: string | null;
+  /** `[CGS.18]` Lo que encontró quien revisó, si el corte está observado. */
+  observacion?: string | null;
+  observed_by_username?: string | null;
   /** `[CG.42]` `null` = no se midió con qué arrancó la caja. No es `0`. */
   fondo_inicial?: number | null;
   esperado?: number | null;
@@ -439,6 +525,10 @@ export function puedeAutorizarUI(
   if (c.estado === 'autorizado') {
     return { ok: false, texto: `Autorizado por ${c.authorized_by_username ?? 'otra persona'}.` };
   }
+  if (c.estado === 'observado') {
+    const quien = c.observed_by_username ?? 'la supervisión';
+    return { ok: false, texto: `Observado por ${quien}: ${c.observacion ?? 'sin texto'}. Espera la respuesta de la caja.` };
+  }
   if (c.estado !== 'cerrado') return { ok: false, texto: 'Primero hay que cerrar el corte.' };
   if (c.closed_by && c.closed_by === userId) {
     return { ok: false, texto: 'Tú cerraste este corte: tiene que autorizarlo otra persona.' };
@@ -474,6 +564,20 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
     return {
       ok: true,
       texto: 'Se contó, pero la revelación de ese conteo no quedó guardada: se puede cerrar, sin poder decir si cuadra.',
+    };
+  }
+  // ⛔⛔ `[CG.195]` `esperado_imposible` TAMPOCO cae en "no cuadra", por la misma razón que las dos
+  // de arriba: el esperado salió bajo cero y un cajón no debe dinero. La diferencia contra ese
+  // número es positiva siempre, así que la rama de abajo diría «no cuadra, la diferencia queda
+  // registrada» sobre un sobrante que nadie puede ir a buscar.
+  //
+  // ⚠️ Se DEJA cerrar, igual que `sin_base`: el servidor lo permite y esta compuerta sólo puede ser
+  // igual o más estricta. Bloquearlo acá trabaría la jornada sin arreglar la cuenta, que es lo que
+  // de verdad está mal.
+  if (veredicto === 'esperado_imposible') {
+    return {
+      ok: true,
+      texto: 'Se puede cerrar, pero no se va a poder decir si cuadra: la cuenta del esperado dio bajo cero y un cajón no debe dinero.',
     };
   }
   return {
@@ -654,4 +758,49 @@ export function separarPorFlujo(
     (d.flujo === 'devuelto' ? devuelto : recibido).push(r);
   }
   return { recibido, devuelto };
+}
+
+/**
+ * ⭐⭐ `[CGP-V.3b]` **¿Se puede sellar el conteo?** — la decisión, separada de la pantalla.
+ *
+ * Vive acá y no como un `computed` del componente por lo mismo que `puedeCerrarUI` y
+ * `puedeAutorizarUI`: una regla que decide sobre dinero necesita prueba, y un `computed` dentro de
+ * un componente de 8,000 líneas no la tiene.
+ *
+ * ── El defecto que cierra, medido en prod el 2026-10-20 ─────────────────────────────────────
+ *
+ * «Cerrar jornada y rendir cuentas» abre **la jornada atrasada más vieja** (`[CGP-V.3]`), no la de
+ * hoy. La pantalla pide contar el efectivo **antes** de decir a qué día se pega ese conteo, así que
+ * con atraso lo pega al día equivocado y nada avisa:
+ *
+ *     corte del 12-oct  selló $3,653.50   = el conteo del 13 (idéntico pieza por pieza)
+ *     corte del 13-oct  selló $57,571.00  = el conteo del 15
+ *     corte del 14-oct  selló $24,960.00  = sin corroboración en ningún lado
+ *     corte del 15-oct  selló $11,820.00  = sin corroboración en ningún lado
+ *     ────────────────────────────────────────────────────────────────────
+ *     4 de 7 cortes con el conteo de otro día · $19,811.50 de diferencia
+ *
+ * ⭐ El 16 y el 17 cuadran **al centavo** contra los arqueos de Control: el procedimiento funciona
+ * cuando no hay atraso. Falla exactamente en el caso que esta regla cubre.
+ *
+ * ⚠️ La confirmación se pide **sólo con jornada atrasada**. Pedirla todos los días la convierte en
+ * un clic reflejo, y entonces no defiende nada el día que importa.
+ */
+export interface SellarUI {
+  /** Lo que suma la reja más la morralla. */
+  readonly contado: number;
+  /** `[CGP-V.9]` «Conté y no hay efectivo»: un cero declarado es un conteo. */
+  readonly ceroDeclarado: boolean;
+  /** La jornada del corte ya pasó. */
+  readonly atrasado: boolean;
+  /** La persona declaró que el efectivo contado es de ESA jornada. */
+  readonly jornadaConfirmada: boolean;
+}
+
+export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'jornada_sin_confirmar' | null } {
+  // ⛔ El orden importa: sin conteo no hay nada que sellar, y decirle «confirmá la jornada» a
+  // quien todavía no contó manda a arreglar lo que no está mal.
+  if (!(Number(i.contado) > 0 || i.ceroDeclarado)) return { ok: false, motivo: 'sin_conteo' };
+  if (i.atrasado && !i.jornadaConfirmada) return { ok: false, motivo: 'jornada_sin_confirmar' };
+  return { ok: true, motivo: null };
 }

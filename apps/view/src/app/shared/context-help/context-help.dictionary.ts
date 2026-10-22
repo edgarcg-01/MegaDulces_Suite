@@ -490,8 +490,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   'compras-360': {
-    title: 'Costo por compra — guía',
-    intro: 'El "Excel" de recepción, vivo: una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es lectura sobre el ERP, no lo edita. Es la MISMA pantalla que el Listado de Control de entradas, con el otro lente: acá la pregunta es "¿cuánto pagamos?" y allá "¿tengo el papel?". El selector de arriba cambia entre las dos sin perder los filtros.',
+    title: 'Revisión de facturas — guía',
+    intro: 'Aquí se revisa la factura de cada compra antes de entregarla a Finanzas: abre en «Por revisar», las que ya se subieron y nadie ha validado. Una fila por compra —la orden de entrada de Kepler— con su OC, la factura, el ajuste ligado y el neto que realmente se pagó. Es la MISMA lista que el Listado de Control de entradas: allá abre en «Sin papel» (¿falta subir?), acá en «Por revisar» (¿está bien lo que se subió?). Antes se llamaba «Costo por compra».',
     groups: [
       {
         heading: 'Qué es cada columna',
@@ -516,7 +516,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   'compras-costo-neto': {
     title: 'Costo por proveedor — guía',
-    intro: 'Tu costo neto con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada. Compra por compra está en Costo por compra.',
+    intro: 'Tu costo neto con cada proveedor: lo comprado menos los descuentos que de verdad conseguiste. Sirve para decidir el reabasto con el costo verdadero, no con el de lista. Es lectura sobre datos de Kepler, no edita nada. Compra por compra (factura, ajuste y neto de cada orden de entrada) está en Recepción › Revisión de facturas.',
     groups: [
       {
         heading: 'Los números',
@@ -602,66 +602,70 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [RA-UX.7] Reescrito el 2026-10-21 tras la auditoria de interaccion de /compras/pedido. La
+  // version anterior decia que el transito «se resta del pedido para no pedir de mas» -falso desde
+  // el 2026-10-09 (politica 'ignorar'), y es justo lo que hace pedir dos veces- y describia los
+  // botones Desglosar / Englobar, retirados en RA-PRO.47. Cada definicion sale del rotulo o del
+  // codigo vigente de compras-pedido-real; lo que la pantalla no dice, aca tampoco se afirma.
   'pedido-compras': {
-    title: 'Pedido / Reabastecimiento — guía',
-    intro: 'Una fila por producto con lo que conviene pedir. El pedido sugerido = venta × cobertura − existencia − tránsito (en cajas). Clic en una fila abre el desglose por sucursal: qué comprar, qué traspasar desde su CEDIS y su sobrestock, con cantidad editable.',
+    title: 'Pedido — guía',
+    intro: 'Una fila por producto con su total de red. Abre una fila para ver y capturar por sucursal. Lo que escribas se agrega a la requisición en armado (la barra de abajo); «Generar requisición» la crea toda junta y, antes de crear nada, te muestra cuántos documentos van a salir. Todo está en cajas.',
     groups: [
       {
-        heading: 'Cómo se calcula el pedido',
+        heading: 'Cómo sale el sugerido',
         entries: [
-          { term: 'Pedido (cajas)', def: 'Lo que falta para cubrir la venta durante la cobertura: máx(0, venta diaria × días de cobertura − existencia − en tránsito). Si da 0 o menos, no hace falta pedir.' },
-          { term: 'Cobertura (días)', def: 'Cuántos días de venta quieres tener en piso. Es el control de arriba; súbelo/bájalo y todo el pedido se recalcula.' },
-          { term: 'En tránsito', def: 'Cajas ya pedidas al proveedor que aún no llegan (OC sin entrada). Se restan del pedido para no pedir de más.' },
-          { term: '$ Pedido', def: 'Valor del pedido sugerido: cajas a pedir × costo por caja.' },
+          { term: 'Sugerido', def: 'Venta diaria × estacionalidad × días de cobertura − existencia, ajustado por el cumplimiento del proveedor (sube hasta +30 %) y topado a 45 días de cobertura. Se propone en cajas cerradas, o en piezas si no llega a media caja. Es el valor inicial: lo que escribas le gana.' },
+          { term: 'Cobertura', def: 'Cuántos días de venta quieres cubrir. Al cambiarla se recalcula el sugerido; lo que ya escribiste a mano se respeta.' },
+          { term: 'En camino', def: 'Órdenes de compra abiertas en Kepler. NO se restan del sugerido: en Kepler la orden se captura al recibir, así que una OC puede llevar meses abierta sin mercancía en viaje. Lo que pidas se SUMA a esto: revísalo antes de pedir (clic en la cifra para ver folios y fechas).' },
+          { term: 'Ya requisado', def: 'Cajas de este producto que ya están en requisiciones pendientes o aprobadas. Tampoco se restan del sugerido. Si dice «N veces», ya se pidió lo mismo más de una vez.' },
+          { term: 'Rutas', def: 'La venta de las rutas cuenta en su sucursal madre.' },
         ],
       },
       {
         heading: 'Columnas de la tabla',
         entries: [
-          { term: 'Vta', def: 'Venta de los últimos 30 días, en cajas. Por sucursal (desglosado) o de toda la red (englobado).' },
-          { term: 'Exist.', def: 'Existencia actual disponible, en cajas.' },
-          { term: 'Unidad x caja', def: 'Piezas por caja (y, si es multipack, paquetes × piezas). Es el factor con que se convierte piezas ↔ cajas.' },
-          { term: 'Costo/Cja', def: 'Costo real por caja (costo por pieza × piezas por caja).' },
-          { term: 'Σ Ped. cajas / Σ Piezas', def: 'Total a pedir del producto sumando todas sus columnas, en cajas y en piezas.' },
-          { term: 'Valor venta', def: 'Venta de 30 días en dinero ($) — el peso comercial del producto.' },
-          { term: 'Valor exist.', def: 'Dinero inmovilizado en existencia: existencia × costo.' },
+          { term: 'Unidad', def: 'Las unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor y el paquete del medio, si existe.' },
+          { term: 'Costo/Cja', def: 'Costo por caja del producto.' },
+          { term: 'Tend.', def: 'Si la demanda acelera (▲), está estable (═) o desacelera (▼): ritmo de los últimos 30 días contra los 30 anteriores, más el año contra año. Es informativa: no cambia el sugerido.' },
+          { term: 'Est.', def: 'Estacionalidad: cuánto se vende en los próximos 30 días contra los últimos 30, según la historia. El sugerido ya la lleva. «—» = mes plano.' },
+          { term: 'Surt.', def: 'Qué tanto surte el proveedor lo que se le pide (orden de compra contra entrada en Kepler, ponderado por dinero). El sugerido ya viene ajustado por esto, hasta +30 %. «—» = no se pudo medir y el sugerido no se tocó.' },
+          { term: 'Exist. red', def: 'Existencia sumada de las sucursales, en cajas. Un triángulo avisa que alguna sucursal no se pudo convertir a cajas y no está sumada.' },
+          { term: 'XYZ', def: 'Estabilidad de la demanda: X estable · Y variable · Z errático (el peor caso entre sucursales).' },
+          { term: 'Reorden / Máx', def: 'Punto de reorden y máximo de la red, en cajas.' },
+          { term: 'Σ Ped. / Σ Base', def: 'Lo que vas a pedir del producto: la suma viva del desglose, en cajas y en la unidad base (pz, paq, kg…). Se mueve al editar.' },
+          { term: '$ Pedido', def: 'Lo que cuesta ese pedido, con el costo de caja de cada sucursal.' },
+          { term: 'Valor venta / Valor exist.', def: 'Venta de 30 días y existencia, en pesos.' },
         ],
       },
       {
-        heading: 'Reorden y clasificación',
+        heading: 'Al abrir una fila',
         entries: [
-          { term: 'Reorden', def: 'Punto de reorden de la red (cajas): nivel al que conviene volver a pedir. Suma de los puntos de reorden de las sucursales.' },
-          { term: 'Máx', def: 'Máximo de la red (cajas): techo objetivo de inventario.' },
-          { term: 'ABC', def: 'Importancia por venta ($): A = los pocos que hacen la mayor parte de la venta, C = la cola larga (Pareto).' },
-          { term: 'XYZ', def: 'Estabilidad de la demanda: X estable · Y variable · Z errático. Al englobar se muestra el peor caso entre sucursales. "—" = aún sin clasificar.' },
-          { term: 'Tend.', def: 'Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente vs el previo + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Es informativo; no cambia el sugerido.' },
+          { term: 'V30d / Máx', def: 'Venta de 30 días de esa sucursal contra su máximo, en cajas. Clic para ver la venta de 12 meses contra el año anterior.' },
+          { term: 'Pedido ✎', def: 'Lo que se le pide para esa sucursal; arranca en el sugerido. Teclado: ↑ ↓ o Enter cambian de renglón (como en Excel) · ← → restan o suman uno · escribe para reemplazar. En celular, botones − y +.' },
+          { term: 'Unidad (de captura)', def: 'En qué unidad escribes ese renglón. Sólo cambia cómo se teclea: el pedido, los días y el valor siempre se calculan en cajas.' },
+          { term: 'Días inv.', def: 'Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ venta diaria. Se mueve mientras escribes. «—» = sin venta, no hay cobertura que calcular.' },
+          { term: 'Entrega', def: 'Sucursal = el proveedor entrega ahí. Consolidado = entrega en un CEDIS y de ahí baja por traspaso; al armar se crean los dos documentos.' },
+          { term: 'Traspasos', def: 'La otra pestaña: lo que conviene bajar desde el CEDIS a cada sucursal, con cantidad editable.' },
         ],
       },
       {
-        heading: 'Acciones por sucursal (al desplegar una fila)',
+        heading: 'Armar y exportar',
         entries: [
-          { term: 'Comprar', def: 'Compra real al proveedor: lo que falta y NO alcanza a cubrirse con traspaso desde el CEDIS.' },
-          { term: 'Traspaso', def: 'Mover producto desde el CEDIS/otra sucursal con sobrante hacia la que tiene déficit, en vez de comprar. Primero traspaso, luego compra.' },
-          { term: 'Sobrestock', def: 'Existencia por encima del máximo (capital inmovilizado). Candidata a traspasar a otra sucursal o a dejar de pedir.' },
-          { term: 'Señal', def: 'La métrica que dispara la acción: cobertura en días (compra) · déficit en cajas (traspaso) · días en mano (sobrestock).' },
-          { term: 'Cant. (✎)', def: 'Cantidad a pedir, editable. Arranca en el sugerido; puedes ajustarla antes de armar la requisición o exportar.' },
-          { term: 'Pedir en: caja / paquete / pieza', def: 'Unidad de captura de la cantidad. No cambia el producto, solo cómo cuentas lo que pides (1 caja = N piezas).' },
+          { term: 'Agregar a la requisición', def: 'El botón del producto abierto, o su casilla en la fila: lo suma a la requisición en armado, con lo que capturaste. Escribir una cantidad también lo agrega. La casilla de arriba agrega todos los productos de la consulta que tienen pedido, de todas las páginas.' },
+          { term: 'Requisición en armado', def: 'La barra de abajo: cuántos productos, de cuántos proveedores y cuánto. «Ver» abre el detalle por proveedor, con su subtotal y si va por debajo de su pedido típico; ahí se quita un producto o se vacía (vaciar no borra lo que escribiste).' },
+          { term: 'Generar requisición (N)', def: 'Crea la requisición en armado: una requisición por proveedor y punto de entrega, más sus traspasos. Primero muestra el plan; al confirmar entra todo o no entra nada. Quedan esperando aprobación en Compras › Requisiciones. Lo generado sale de la requisición en armado. Si ya generaste lo mismo en la última hora, avisa y pide confirmarlo.' },
+          { term: 'PDF requisición', def: 'La requisición en armado en PDF, como borrador sin folio. No guarda nada.' },
+          { term: 'XLSX (N) / XLSX sugerido', def: 'Con productos en la requisición exporta esos, con las cantidades que escribiste. Con la requisición vacía exporta el sugerido del sistema para todo el filtro, sin tus cantidades.' },
+          { term: 'Solo con pedido', def: 'Oculta lo que no tiene sugerido.' },
         ],
       },
       {
-        heading: 'Vista y filtros',
+        heading: 'Las otras vistas',
         entries: [
-          { term: 'Desglosar por sucursal', def: 'Una columna Vta/Exist/Pedido por cada sucursal — para ver dónde está la venta y el faltante.' },
-          { term: 'Englobar columnas', def: 'Una sola columna con la red completa — para decidir la compra total sin el detalle por sucursal.' },
-          { term: 'Solo con pedido', def: 'Oculta lo que no necesita pedido (sugerido = 0); deja solo lo accionable.' },
-          { term: 'Stock muerto', def: 'Vista aparte: productos con existencia y sin rotación — capital inmovilizado a liquidar.' },
-        ],
-      },
-      {
-        heading: 'Exportar / armar',
-        entries: [
-          { term: 'XLSX', def: 'Descarga la vista actual (con sus filtros y desglosar/englobar) en un archivo: hoja "Todos" (plano) + una hoja por proveedor.' },
-          { term: 'Requisición', def: 'Convierte las cantidades en una solicitud formal (folio RQ-AAAA-NNNNN) para aprobar → ordenar → recibir. Compra y traspaso se separan automáticamente.' },
+          { term: 'Ciclo', def: 'A qué proveedor le toca pedir hoy en cada sucursal, por la cadencia de sus entregas reales. «Armar» abre el Pedido con ese proveedor y esa sucursal.' },
+          { term: 'Sobrante', def: 'Dónde está parado el inventario y qué de lo que se compró no volvió a salir.' },
+          { term: 'Stock muerto', def: 'Productos con existencia y sin rotación: capital inmovilizado.' },
+          { term: 'Flujo', def: 'De la requisición a la orden de compra en Kepler y a la entrada.' },
         ],
       },
     ],
@@ -1777,6 +1781,92 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // ⭐⭐ `[CGS.2]` La pestaña «Arqueos». Todo lo de acá está medido sobre los 7 cortes del 12 al
+  // 19-oct-2026 contra prod, no redactado de memoria.
+  //
+  // ⛔ La primera versión de este tópico explicaba la comparación EQUIVOCADA: decía que el arqueo
+  // es la Suite contra Control. Edgar lo corrigió el 2026-10-20 — *«el arqueo se compara contra lo
+  // que dice el sistema, contra la fórmula»* — y el tópico se reescribió entero. Una ayuda que
+  // explica otra comparación es peor que no tenerla: enseña a leer mal la pantalla.
+  'caja-arqueos': {
+    title: 'Arqueos — lo contado contra lo que el libro dice',
+    intro: 'Arquear es contar el cajón y compararlo contra lo que el sistema dice que debería haber. Ese «debería haber» no se teclea: sale de una fórmula con seis términos, y la pantalla los muestra uno por uno para que una diferencia se pueda investigar en vez de sólo mirarse.',
+    groups: [
+      {
+        heading: 'Las dos cifras que se comparan',
+        entries: [
+          { term: 'Se contó', def: 'El efectivo que alguien contó físicamente en el cajón al cerrar el día, pieza por pieza. Queda sellado: después de sellar ya no se puede cambiar, sólo recontar, y el reconteo pide motivo y deja rastro.' },
+          { term: 'Debería haber', def: 'Lo que el libro calcula que tendría que estar en el cajón. Es un CÁLCULO, no un conteo: si alguien no capturó un movimiento, esta cifra está mal aunque el cajón esté bien.' },
+          { term: 'Diferencia', def: 'Lo contado menos lo que debería haber. Positivo sobra, negativo falta. Sólo significa algo cuando el «debería haber» es un número posible.' },
+          { term: 'Conteo ciego', def: 'Quien cuenta NO ve el «debería haber» hasta sellar su conteo. Es a propósito: si se ve el número antes, se cuenta hacia el número y el arqueo deja de medir nada.' },
+        ],
+      },
+      {
+        heading: 'Los seis términos de la fórmula',
+        entries: [
+          { term: 'Fondo inicial', def: 'Con cuánto arrancó la caja. Casi siempre es el conteo con el que cerró el día anterior. Puede quedar SIN MEDIR, y entonces se dice: afirmar que arrancó en cero cuando nadie lo contó haría aparecer un faltante del tamaño exacto del fondo, todos los días.' },
+          { term: 'Ingresos capturados', def: 'Todo lo que entró y alguien registró en el libro ese día: cobros de ruta, préstamos, venta de piso. En bruto, sin descontar nada.' },
+          { term: 'Gastos', def: 'Todo lo que salió y se registró: pagos, nómina, compras en efectivo.' },
+          { term: 'Depósitos', def: 'El efectivo que salió del cajón hacia el banco. Hoy esta columna vale cero en todos los cortes porque la captura manual de depósitos está apagada — y eso es parte de por qué varios «debería haber» salen negativos.' },
+          { term: 'La caja fuerte dispensó al cajón', def: 'Billetes que la máquina (CAOS) sacó de la bóveda y dejaron de estar ahí para quedar en el cajón. SUMA, porque ese dinero está donde se cuenta.' },
+          { term: 'Se depositó en la caja fuerte', def: 'Efectivo que salió del cajón y se lo tragó la máquina. RESTA, porque ya no está donde se cuenta. Un cobro de ruta entra partido: los billetes se los queda la máquina y sólo la morralla llega al cajón, porque el aparato no acepta monedas.' },
+        ],
+      },
+      {
+        heading: 'Los veredictos',
+        entries: [
+          { term: 'Cuadra al centavo', def: 'Lo contado coincide con lo que debería haber, con tolerancia de un centavo.' },
+          { term: 'Sobra / Falta efectivo', def: 'Hay más o menos de lo que debería. Son los dos únicos resultados que de verdad responden «¿cuadra?».' },
+          { term: 'No se puede arquear', def: 'El «debería haber» salió NEGATIVO, y un cajón no debe dinero. Con esa cifra bajo cero, lo contado menos lo esperado sale positivo SIEMPRE, así que la pantalla diría «sobra» justo donde la cuenta está más rota. No es un sobrante: es una pierna mal cruzada. Medido el 20-oct-2026: pasa en 4 de los 7 cortes.' },
+          { term: 'Sin fondo medido', def: 'Se contó, pero nadie midió con cuánto arrancó la caja. La pregunta no tiene respuesta porque el cálculo parte de un supuesto. Tampoco es un faltante: mandar a alguien a buscar ese dinero es perder el día.' },
+          { term: 'Nadie contó', def: 'No hubo conteo. NO es «cuadra»: un día sin conteo que devolviera cero contra cero se vería igual que uno que cuadró perfecto.' },
+        ],
+      },
+      {
+        heading: 'Lo demás que trae cada día',
+        entries: [
+          { term: 'Segunda llave', def: 'Quien cierra el corte no puede autorizarlo: son dos personas y dos permisos distintos, y el candado vive en la base, no en el botón. Medido el 20-oct-2026: 7 cortes cerrados y cero autorizados.' },
+          { term: 'Segundo testigo (Control)', def: 'La aplicación Control arquea el mismo cajón por su cuenta. Cuando discrepa del conteo de la Suite eso es una PISTA, no un veredicto: cuál de los dos manda no está decidido, así que la pantalla publica los dos. El 19-oct-2026 difirieron $500 y resultó ser un billete mal clasificado: la Suite anotó un $1,000 donde Control anotó un $500.' },
+          { term: 'Los movimientos de ese día', def: 'Cada movimiento que Control registró, con su ticket por denominación. Antes vivía en una pantalla aparte; está aquí porque es lo que explica los términos de arriba.' },
+          { term: 'Morralla', def: 'El suelto menor a 50¢. Se cuenta como un importe, no por pieza, así que no aparece en el desglose de denominaciones.' },
+          { term: 'Dotar y vaciar', def: 'La caja fuerte también recibe efectivo de afuera (dotar) y se lo llevan (vaciar). Esas dos NO entran en la fórmula: entran y salen por fuera del cajón, y meterlas movería el arqueo por dinero que nunca pasó por aquí.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si el día dice «No se puede arquear»',
+        kind: 'fix',
+        intro: 'No hay efectivo que buscar: hay una cuenta que arreglar. El orden importa.',
+        steps: [
+          'Abrir el día y mirar los seis términos: casi siempre hay uno desproporcionado contra los otros.',
+          'Si los gastos son enormes contra los ingresos, revisar si una salida se registró sin su entrada.',
+          'Si «se depositó en la caja fuerte» es enorme, puede que el mismo dinero esté contado dos veces: una como ingreso y otra como depósito a la bóveda.',
+          'Los depósitos al banco en cero son sospechosos por sí solos: si el efectivo salió al banco y nadie lo registró, el cálculo lo sigue dando por dentro del cajón.',
+        ],
+      },
+      {
+        heading: 'Si sobra o falta de verdad',
+        kind: 'fix',
+        steps: [
+          'Mirar el conteo pieza por pieza: una sola denominación que cargue toda la diferencia suele ser una pieza mal clasificada, no dinero que falte.',
+          'Comparar con el segundo testigo: si Control contó lo mismo que la Suite, el problema está en la cuenta, no en el conteo.',
+          'Revisar los movimientos del día: una diferencia redonda casi siempre tiene un movimiento del mismo monto.',
+          'El conteo sellado no se edita. Si está mal, se recuenta en Captura y quedan los dos conteos registrados.',
+        ],
+      },
+      {
+        heading: 'Si nadie autorizó',
+        kind: 'fix',
+        steps: [
+          'La autorización es la única revisión que tiene el efectivo, y la hace una persona distinta de la que cerró.',
+          'Se autoriza desde Captura, sobre el corte de ese día.',
+          'Quien revisa los arqueos se configura por rol en /admin/roles, con el permiso de autorizar caja.',
+        ],
+      },
+    ],
+  },
+
   // `[AUD.1]` Las comisiones de Ruta Directa. Este topico nace de una auditoria que midio que
   // la pantalla publicaba SIETE explicaciones dentro de atributos `title` -- o sea, sólo
   // alcanzables con el mouse encima. En tactil no hay hover: para quien abre esto en una
@@ -1917,6 +2007,22 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        // `[AUD]` La pestaña «Cobro vs venta» publica cuatro veredictos derivados y el estado de
+        // la fuente. Entró sin About, que es la misma falla que `check:pantalla` ya marca en la
+        // pantalla hermana (regla P): jerga derivada sin dónde consultarla.
+        heading: 'Cobro vs venta — cuando el padrón y la venta no coinciden',
+        entries: [
+          { term: 'De dónde sale', def: 'Del padrón derivado: TODAS las rutas que existen, comisionen o no, con su venta de los últimos 30 días. NO sale de la quincena, así que no cambia al elegir otro periodo ni necesita que haya corrida. Es otra pregunta que la pestaña «No comisionan», que sí habla sólo del periodo elegido.' },
+          { term: 'Comisiona', def: 'Si la ruta está dada de alta y encendida en la configuración de nómina de Ruta Directa. Es una decisión escrita, no algo que se deduzca de si vendió.' },
+          { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
+          { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
+          { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
+          { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
+        ],
+      },
+      {
         heading: 'La calidad del costo',
         entries: [
           { term: 'Sin costo', def: 'No hay costo en la fuente para esos días: el markup no se puede medir y el bono del supervisor no paga.' },
@@ -2046,11 +2152,23 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     intro: 'CAOS es el dispositivo que recibe y entrega el efectivo de OFICINAS. Esta pantalla es un espejo de lo que la máquina registró: no corrige nada, no escribe nada y no decide nada. Cuando un número no se pudo calcular, lo dice en vez de poner cero.',
     groups: [
       {
-        heading: 'La tira de arriba',
+        heading: '¿Cuánto hay en la caja fuerte? — tres testigos, separados',
         entries: [
-          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Es el único número que cuenta los siete tipos.' },
-          { term: 'Depósitos − dispensado', def: 'La resta de los dos tipos que mueven efectivo hacia y desde las rutas. NO es el saldo de la caja fuerte: deja fuera Dotar, Vaciar Stocks y los ajustes, que también mueven dinero. Por eso se llama por la resta que hace y no "balance".' },
-          { term: 'Otros movimientos', def: 'Lo que la máquina registró y no es depósito ni dispensación: dotarla, vaciar sus cajetines, los cierres de día y los ajustes de contenido. Aparece con su monto y aparte porque su dirección (entra o sale) no está decodificada contra el dispositivo; sumarla al neto con un signo supuesto daría una cifra con la que alguien intentaría cuadrar.' },
+          { term: 'En la caja fuerte', def: 'Lo que la máquina dice tener: la última lectura de su reporte «Contenidos», casete por casete. Si después de esa lectura entraron movimientos, se le suman o restan y la línea de abajo lo dice.' },
+          { term: 'Cuadre con los movimientos', def: 'Cada lectura nueva de «Contenidos» se compara contra la anterior más lo que se movió entre las dos, billete por billete. «12 de 12» quiere decir que la máquina nunca cambió sin un movimiento que lo explique. Un descuadre aparece con su monto y sus denominaciones.' },
+          { term: 'Sin registrar en Caja General', def: 'Depósitos y dispensaciones de la caja fuerte que el libro de Caja General todavía no tiene, contados desde el día en que se registró el primero (el 9 de octubre de 2026). Antes de esa fecha no se registraban: contarlos sería acusar de un faltante que no existe.' },
+          { term: 'Conteo físico', def: 'Una persona contando los billetes. Hoy no existe en ningún dato, y por eso dice «sin medir»: que la máquina y sus movimientos coincidan no prueba que el billete esté adentro — en septiembre la propia máquina corrigió su registro por −$25,420. Se cierra contando a ciegas lo que salga en el próximo «Vaciar Stocks».' },
+        ],
+      },
+      {
+        heading: 'La tira del rango',
+        entries: [
+          { term: 'Movimientos', def: 'Todo lo que la máquina registró en el rango, de cualquier tipo. Los «Fin de Dia» se cuentan aparte: son lecturas del contenido que hace la propia máquina al cerrar el día, no dinero.' },
+          { term: 'Dotar − vaciar', def: 'Mantenimiento de casetes en el rango: Dotar los carga (suma) y Vaciar Stocks saca su contenido (resta). Aparece sólo cuando hubo.' },
+          { term: 'Neto del rango', def: 'Lo que entró menos lo que salió en las fechas elegidas, con el signo de cada tipo medido contra la máquina (Depósito y Dotar suman; Dispensar y Vaciar Stocks restan). Es un flujo, NO el saldo: el rango casi nunca empieza con la máquina vacía. Si hubo Cambio o Contenido Modificado —cuya dirección no está probada— lo dice aparte con su monto.' },
+          { term: 'Fecha y hora', def: 'Cuándo pasó el movimiento en la máquina, en hora de México. Hasta el 2026-10-20 la columna mostraba sólo el día y lo calculaba en hora UTC: lo de después de las 18:00 aparecía con el día siguiente.' },
+          { term: 'Caja General (columna)', def: 'El folio con el que ese depósito o dispensación quedó registrado en Caja General. «Sin registrar» quiere decir que el libro todavía no tiene ese movimiento: o falta capturarlo, o falta enlazarlo al gasto que pagó.' },
+          { term: 'El color del tipo', def: 'Verde entra, rojo sale, gris es una lectura del contenido (no mueve dinero) y ámbar es un tipo cuya dirección no está decodificada. Pasando el cursor por la celda se ve por qué.' },
           { term: 'La píldora de frescura', def: 'La edad del DATO, no la de la pantalla: mide la última vez que el carril trajo movimientos de la máquina. Si se pone ámbar, lo que ves puede estar viejo aunque la página se acabe de cargar.' },
         ],
       },
@@ -2087,6 +2205,69 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Suma del desglose', def: 'Lo que suman los billetes contados. Se muestra junto al total declarado porque no siempre coinciden: hay movimientos donde el dispositivo reporta un total y un desglose que no cuadran entre sí.' },
           { term: 'Cuando el desglose no suma el total', def: 'La pantalla lo avisa y no corrige ninguno de los dos: ambos vienen del dispositivo y no hay forma de saber cuál miente. Es un dato para reclamarle a la máquina, no para ajustar a mano.' },
+        ],
+      },
+    ],
+  },
+  // `[MCP.3.7]` Visitas del día (supervisor de ventas). Antes esto era un párrafo fijo de tres
+  // renglones en el cuerpo de la pantalla; se mudó acá para que la tabla quede arriba. Anclado a
+  // `visit-protocol.engine.ts` (radio de 80 m = VISIT_RADIUS_M; búsqueda de GPS acotada a ~2 km).
+  'visitas-del-dia': {
+    title: 'Visitas del día — qué es una falta',
+    intro: 'Por cada cliente de la ruta del día se dice qué pasó: si el vendedor lo abrió en la app, con qué resultado, y si no lo abrió, si pasó cerca. Nada se captura aparte: sale de las visitas, los pedidos y el GPS que la app ya manda.',
+    groups: [
+      {
+        heading: 'Faltas',
+        entries: [
+          { term: 'Falta', def: 'Un cliente de la ruta que el vendedor no abrió, cuando sí se puede saber que no lo atendió. Hay dos: se fue sin abrir y no pasó. Se calcula cuando el vendedor finaliza su ruta, o al día siguiente.' },
+          { term: 'Se fue sin abrir', def: 'Según su GPS estuvo a menos de 80 m del cliente y no lo abrió en la app.' },
+          { term: 'No pasó', def: 'Tuvo GPS durante la jornada y nunca entró a 80 m del cliente.' },
+        ],
+      },
+      {
+        heading: 'Lo que no se puede saber (nunca cuenta como falta)',
+        entries: [
+          { term: 'Sin ubicación', def: 'El cliente no tiene coordenadas capturadas: no hay contra qué medir si el vendedor pasó. Los que además no se visitaron se agrupan al final de cada vendedor en una sola línea.' },
+          { term: 'Sin GPS del vendedor', def: 'El celular no mandó ubicación ese día. Sin GPS no se puede decir si pasó o no.' },
+          { term: 'Sin GPS suficiente', def: 'El celular mandó menos de dos puntos, o todos al mismo minuto: no alcanza para saber por dónde anduvo.' },
+          { term: 'Pendiente', def: 'La ruta sigue abierta: el cliente todavía puede visitarse. Su falta, si la hay, se calcula al finalizar.' },
+        ],
+      },
+      {
+        heading: 'Otras marcas',
+        entries: [
+          { term: 'Lejos', def: 'Abrió al cliente a más de 80 m de donde está registrado. La visita cuenta, pero conviene revisar si la ubicación del cliente está bien o si la abrió desde otro lado.' },
+          { term: 'Agenda vigente', def: 'Para un día pasado, la ruta sale de la agenda semanal de HOY (no se guarda la historia de la agenda). Si el vendedor escogió su ruta ese día, manda la que escogió.' },
+          { term: 'Rutas vecinales', def: 'Un puesto de Ruta Vecinal sólo ve rutas declaradas como vecinales, y a los vendedores que ese día tienen alguna.' },
+        ],
+      },
+    ],
+  },
+  // `[MCP.3.9]` Tablero del supervisor de ventas (Cartera de ventas › Mis vendedores).
+  'tablero-supervisor': {
+    title: 'Mis vendedores — de dónde sale cada cifra',
+    intro: 'Una fila por vendedor de tu equipo y de tu tipo de ruta. Nada se captura aparte, salvo la meta.',
+    groups: [
+      {
+        heading: 'Venta',
+        entries: [
+          { term: 'Venta cobrada', def: 'Sólo lo que Kepler registra como cobrado (con impuestos). Un pedido levantado que todavía no se cobra no suma.' },
+          { term: 'Catorcena', def: 'Dos semanas de nómina seguidas, de sábado a viernes. La venta de la catorcena va del sábado de inicio al día consultado.' },
+          { term: 'Sin medir', def: 'No se pudo leer la venta de ese vendedor; el motivo se muestra al pasar el cursor o en su detalle. No es cero: es que no se sabe.' },
+        ],
+      },
+      {
+        heading: 'Meta y avance',
+        entries: [
+          { term: 'Meta', def: 'Pesos que el vendedor debe cobrar en la catorcena. La captura el supervisor; si nadie la ha capturado se dice «Sin meta».' },
+          { term: 'Avance', def: 'Venta cobrada de la catorcena entre la meta. Sólo existe si hay las dos cosas.' },
+        ],
+      },
+      {
+        heading: 'Ruta y clientes',
+        entries: [
+          { term: 'Inicio y fin', def: 'La hora en que el vendedor inició y finalizó su ruta en la app.' },
+          { term: 'Visitados', def: 'Clientes de su ruta del día que abrió en la app, con o sin pedido.' },
         ],
       },
     ],

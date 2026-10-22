@@ -33,7 +33,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import type { ReceiptExpediente } from '@megadulces/contracts';
-import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, ReceiptDeposit, DuplicateHit, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
@@ -71,7 +71,9 @@ interface AttachFile {
   ocrRfc?: string | null;
   ocrDocs?: string[];        // RE (#4) — tipos de documento detectados en la hoja (packet-aware)
   ocrDocsDetail?: DocPresence[]; // RE.pkt.1 — cada doc detectado con página + evidencia (auditable)
-  dup?: DuplicateHit | null; // ya subida antes (misma hoja o folio ya capturado)
+  dup?: DuplicateHit | null; // ya subida antes y PROBADO (misma hoja, o folio del mismo proveedor): frena
+  /** `[RE.42]` Mismo folio que otra entrada sin poder probar el proveedor: se muestra, NO frena. */
+  dupAviso?: string | null;
 }
 
 /** [RE.35.5] La puerta de costo por compra arranca en "Por revisar"; el listado de control, en "Sin papel". */
@@ -569,6 +571,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                     @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                   </div>
                   @if (f.dup) { <div class="cb-file-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupText(f) }}</div> }
+                  @else if (f.dupAviso) { <div class="cb-file-dup is-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ f.dupAviso }}</div> }
                 </div>
                 <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
               </div>
@@ -666,6 +669,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       @else if (f.failed) { <button type="button" class="cb-file-retry" (click)="retryUpload(f)" title="Reintentar subida"><i class="pi pi-refresh"></i></button> }
                     </div>
                     @if (f.dup) { <div class="cb-file-dup"><i class="pi pi-ban" aria-hidden="true"></i> {{ dupText(f) }}</div> }
+                  @else if (f.dupAviso) { <div class="cb-file-dup is-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ f.dupAviso }}</div> }
                   </div>
                   <button type="button" class="cb-file-x" (click)="removeFile(f)" [attr.aria-label]="'Quitar ' + f.name"><i class="pi pi-times" aria-hidden="true"></i></button>
                 </div>
@@ -1170,6 +1174,17 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 }
                 <span class="cb-view-meta">{{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
               </div>
+              <!-- [RE.42.1] El posible duplicado que NO frenó la subida: quien subió lo vio y envió
+                   igual; decidir si es la misma factura le toca a quien valida, aquí. -->
+              @for (a of avisosDupDe(dep); track a.clave) {
+                <p class="cb-view-dupaviso" role="status">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  <span><b>Posible duplicado de la entrada
+                    <button type="button" class="cb-reflink mono" (click)="inspect.set(refEnt(a.sucursal, a.folio))"
+                            [attr.aria-label]="'Abrir la entrada ' + a.clave + ' para compararla'">{{ a.clave }}</button></b>
+                    · {{ a.mensaje }}</span>
+                </p>
+              }
               <div class="cb-view-files">
                 @for (f of dep.files; track f.url) {
                   <button type="button" class="cb-view-filebtn" [class.on]="hojaIdx() === indiceHoja(f)"
@@ -1634,6 +1649,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
     .cb-file-dup { display: flex; align-items: center; gap: .3rem; margin-top: .25rem; font-size: .74rem; color: var(--bad-fg); }
+    .cb-file-dup.is-aviso { color: var(--warn-fg); align-items: flex-start; }
     .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
@@ -1674,6 +1690,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-view-none { padding: .3rem 0; }
     .cb-view-dep { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .8rem .9rem; display: flex; flex-direction: column; gap: .6rem; }
     .cb-view-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .cb-view-dupaviso { display: flex; gap: .4rem; align-items: flex-start; margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--warn-fg); }
+    .cb-view-dupaviso .pi { margin-top: .15rem; }
     .cb-view-meta { font-size: .74rem; color: var(--text-muted); margin-left: auto; }
     .cb-view-files { display: flex; flex-wrap: wrap; gap: .6rem; }
     .cb-view-filebtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); background: var(--card-bg); font-size: .85rem; cursor: pointer; transition: border-color .15s, color .15s; }
@@ -2051,6 +2069,22 @@ export class ComprasEntradasComponent {
 
   refProv(code: string | null): string { return entityRef('prov', code); }
   refEnt(sucursal: string, folio: string): string { return entityRef('ent', sucursal, 'XA2001', folio); }
+  /**
+   * `[RE.42.1]` Los posibles duplicados que el servidor dejó escritos en las hojas de ESTA evidencia
+   * (`files[].dup_aviso`), uno por entrada. Va en esta pantalla y no en la de Revisión: ésa quedó
+   * sin ruta (`/compras/entradas/revision` redirige aquí), y ahí el aviso no lo veía nadie.
+   */
+  avisosDupDe(dep: ReceiptDeposit): { clave: string; sucursal: string; folio: string; mensaje: string }[] {
+    if (dep.status === 'rechazado') return [];
+    const vistos = new Map<string, { clave: string; sucursal: string; folio: string; mensaje: string }>();
+    for (const f of dep.files || []) {
+      const a = f.dup_aviso;
+      if (!a?.sucursal || !a.folio) continue;
+      const clave = `${a.sucursal}/${a.folio}`;
+      if (!vistos.has(clave)) vistos.set(clave, { clave, sucursal: a.sucursal, folio: a.folio, mensaje: a.mensaje || '' });
+    }
+    return [...vistos.values()];
+  }
   refLin(sucursal: string, folio: string, linea: string): string { return entityRef('lin', sucursal, folio, linea); }
   refSku(sku: string): string { return entityRef('sku', sku); }
   refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
@@ -2108,7 +2142,8 @@ export class ComprasEntradasComponent {
     // el dinero sólo agrega Ajuste, Neto y el total al pie. La ruta sólo decide el título.
     const deRuta = this.route.snapshot.data?.['lente'];
     this.lente.set('dinero');
-    this.titulo = deRuta === 'dinero' ? 'Costo por compra' : 'Control de entradas · Listado';
+    // `[RE.47]` La puerta que abre en «Por revisar» se llama por ese trabajo (antes «Costo por compra»).
+    this.titulo = deRuta === 'dinero' ? 'Revisión de facturas' : 'Control de entradas · Listado';
     const est = qp.get('estado');
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
     // [RE.35.5] La Bandeja manda. Un ?estado= de un link viejo se traduce; ?bandeja= gana.
@@ -2229,7 +2264,7 @@ export class ComprasEntradasComponent {
    */
   /** [RE.35.4] Selección múltiple: vacía = todas las sucursales que la persona puede ver. */
   readonly sucursalesSel = signal<string[]>([]);
-  titulo = 'Costo por compra';
+  titulo = 'Revisión de facturas';
   /**
    * `[RE.25]` — el cuadre del documento. `sin_evidencia` NO se ofrece acá: para eso ya está
    * `Estado = Pendientes`, y dos controles que contestan lo mismo con nombres distintos es la
@@ -2815,16 +2850,22 @@ export class ComprasEntradasComponent {
     if (!f.dataUri) { this.patch(id, { ocrLoading: false, ocrDone: true }); return; }
     this.patch(id, { ocrLoading: true });
     if (f.primary) this.ocrLoading.set(true);
-    this.svc.ocr(f.dataUri, f.role).pipe(takeUntilDestroyed(this.destroyRef))
+    // `[RE.42]` Con la entrada destino ya elegida, el servidor decide el duplicado con su proveedor.
+    const t = this.attachTarget();
+    this.svc.ocr(f.dataUri, f.role, t ? { sucursal: t.sucursal, folio: t.folio } : null).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
+          // Sólo frena lo PROBADO; una entrada que Kepler borró (RE.31) nunca frena. Antes esta
+          // pantalla bloqueaba cualquier `duplicate`, a diferencia de las otras dos.
+          const frena = duplicadoBloquea(r.duplicate);
           this.patch(id, {
             ocrLoading: false, ocrDone: true,
             ocrFolio: r.folio ?? null, ocrTotal: r.total ?? null, ocrSubtotal: r.subtotal ?? null, ocrFecha: r.fecha ?? null, ocrRfc: r.rfc ?? null,
             ocrDocs: (r.documents_present ?? []).map((d) => d.type), ocrDocsDetail: r.documents_present ?? [],
-            sha256: r.sha256 || f.sha256, dup: r.duplicate ?? null,
+            sha256: r.sha256 || f.sha256, dup: frena ? r.duplicate : null,
+            dupAviso: duplicadoAvisa(r.duplicate) ? duplicadoMensaje(r.duplicate!) : null,
           });
-          if (r.duplicate) this.attachError.set(this.dupMsg(f.name, r.duplicate));
+          if (frena) this.attachError.set(this.dupMsg(f.name, r.duplicate!));
           // [RE.35.4] Lo soltado en la barra entra como factura; si el OCR dice que es SÓLO la orden de
           // entrada de Kepler (nuestra hoja, con el folio exacto), se reclasifica: no es la factura del
           // proveedor y el expediente no la debe juzgar como tal. La entrada se identifica igual.
@@ -2846,6 +2887,8 @@ export class ComprasEntradasComponent {
       });
   }
   private dupMsg(name: string, d: DuplicateHit): string {
+    // `[RE.42]` El texto del servidor ya dice dónde vive y por qué; el armado local queda para una API vieja.
+    if (d.mensaje) return `"${name}": ${d.mensaje} Quítala.`;
     const where = `entrada ${d.sucursal}/${d.folio}${d.proveedor ? ' · ' + d.proveedor : ''}`;
     return d.reason === 'file' ? `"${name}" ya se había subido (${where}). Quítala.` : `El folio de "${name}" ya se subió (${where}). Quítala.`;
   }
@@ -2859,7 +2902,13 @@ export class ComprasEntradasComponent {
   private afterOcrMatch() {
     if (!this.photoFirst() || this.attachTarget()) return;
     this.matching.set(true);
-    this.svc.matchByOcr({ folio: this.ocrForm.folio || undefined, total: this.ocrForm.total ?? undefined, fecha: this.ocrForm.fecha || undefined })
+    // `[RE.43]` El rol de la hoja ★ decide la llave: la orden de entrada trae NUESTRO folio; una
+    // factura, el del proveedor (que el servidor busca en `referencia`).
+    const role = this.attachFiles().find((f) => f.primary)?.role;
+    this.svc.matchByOcr({
+      folio: this.ocrForm.folio || undefined, total: this.ocrForm.total ?? undefined, fecha: this.ocrForm.fecha || undefined,
+      role, rfc: this.ocrForm.rfc, proveedor: this.ocrForm.proveedor,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {

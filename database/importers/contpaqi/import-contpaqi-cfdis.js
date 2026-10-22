@@ -44,6 +44,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env
 const sql = require('mssql');
 const { Client } = require('pg');
 const hb = require('../lib/cron-heartbeat');
+const { mergeEstatusSatSql } = require('./estatus-sat-merge');
 
 // Latido POR CARRIL (2026-09-07). Los dos carriles del ecosystem —`inc` @5min y `full` diario—
 // escribían el MISMO `job_key`, y `analytics.cron_runs` tiene PRIMARY KEY (tenant_id, job_key) SIN
@@ -368,7 +369,13 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
     'receptor_uso_cfdi', 'subtotal', 'descuento', 'total', 'moneda', 'tipo_cambio', 'metodo_pago', 'forma_pago',
     'lugar_expedicion', 'no_certificado', 'total_trasladados', 'total_retenidos', 'impuestos', 'rol', 'source',
     'estatus_sat', 'cancel_reason', 'stored_ref', 'aso_contabilidad'];
-  const upd = COLS.filter((c) => !['tenant_id', 'uuid'].includes(c)).map((c) => `${c}=EXCLUDED.${c}`).join(',');
+  // [LC.19.1] `estatus_sat` NO se pisa a ciegas: el ADD lo trae vacío casi siempre y borraba lo
+  // que el cron FISCAL.6 ya había verificado ante el SAT. Regla en estatus-sat-merge.js.
+  const upd = COLS.filter((c) => !['tenant_id', 'uuid'].includes(c))
+    .map((c) => (c === 'estatus_sat'
+      ? `estatus_sat=${mergeEstatusSatSql('t.estatus_sat', 'EXCLUDED.estatus_sat')}`
+      : `${c}=EXCLUDED.${c}`))
+    .join(',');
 
   // El ADD puede traer el mismo UUID más de una vez (tiene su tabla MetadataDuplicados);
   // dos filas con la misma llave en un solo INSERT truenan con "cannot affect row a second
@@ -384,7 +391,7 @@ async function procesarRango(mss, pg, FROM, HASTA, tipoList, desdeTs = null) {
     for (let i = 0; i < unicos.length; i += BATCH) {
       const chunk = unicos.slice(i, i + BATCH);
       const ph = chunk.map((_, j) => `(${COLS.map((_, k) => `$${j * COLS.length + k + 1}`).join(',')})`).join(',');
-      await pg.query(`INSERT INTO fiscal.cfdis (${COLS.join(',')}) VALUES ${ph}
+      await pg.query(`INSERT INTO fiscal.cfdis AS t (${COLS.join(',')}) VALUES ${ph}
          ON CONFLICT (tenant_id, uuid) DO UPDATE SET ${upd}, updated_at=now()`, chunk.flat());
       n += chunk.length;
     }

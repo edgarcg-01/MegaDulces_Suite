@@ -283,7 +283,9 @@ async function intentar(tabla, fila) {
     `);
     const v = vista.rows[0];
     ok(v.clientes > 0, `la vista trae ${v.clientes} clientes de mayoreo en ${v.filas} filas (cliente × sucursal)`);
-    ok(v.fuera_de_patron === 0, 'todos cumplen el patrón C + 4 dígitos (0 colados)');
+    // [E.26] Ya NO se filtra C####: el 27.6 % de los pedidos de telemarketing son de clientes CR####,
+    // numéricos o CONTADO, y la cotización no los encontraba. Si esto vuelve a 0, regresó el filtro.
+    ok(v.fuera_de_patron > 0, `la vista trae ${v.fuera_de_patron} filas con clave que no es C#### (el padrón entero del ERP)`);
 
     // El punto de la fase: el MISMO cliente con condiciones distintas según la sucursal.
     const varia = await knex.raw(`

@@ -113,7 +113,7 @@ async function login(username) {
     // Un cliente de mayoreo real de esa sucursal: las condiciones se congelan al crear.
     const cli = await knex.raw(
       `SELECT customer_code FROM analytics.v_erp_wholesale_customers
-        WHERE sucursal = ? ORDER BY customer_code LIMIT 1`, [BRANCH],
+        WHERE sucursal = ? AND customer_code ~ '^C[0-9]{4}$' ORDER BY customer_code LIMIT 1`, [BRANCH],
     );
     if (!cli.rows.length) {
       declarar('todo el resto', `no hay clientes de mayoreo en la sucursal ${BRANCH}`);
@@ -332,6 +332,70 @@ async function login(username) {
         `SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = ? AND id = ?`, [QID, LID],
       );
       check('el renglón ya no está', Number(huerfano.rows[0].n) === 0);
+    }
+
+    // ── 8. [E.21] El alta con renglones es atómica ───────────────────────────────────────────
+    // Antes la pantalla creaba la cabecera y agregaba los renglones de a uno: si fallaba el
+    // k-ésimo quedaba un folio a medias y el reintento creaba otro (auditoría C3). Se prueba con
+    // el MISMO payload que manda la pantalla (`lines` con sku/quantity/rung y un no manejado).
+    console.log('\n8 — ⭐ el alta con renglones: entra todo o no entra nada');
+    if (F) {
+      const marca = `SMOKE-E21-${SUF}`;
+      const ok = await req('POST', '/commercial/quotes', op.token, {
+        erp_customer_code: CODIGO, source_branch: BRANCH, origin: 'telemarketing', notes: marca,
+        lines: [
+          { sku: F.sku, quantity: 2, rung: 'base' },
+          { requested_text: 'ARTICULO QUE NO MANEJAMOS', quantity: 3 },
+        ],
+      });
+      check('POST /quotes con lines → 2xx', ok.status === 200 || ok.status === 201,
+        `status ${ok.status} ${JSON.stringify(ok.body).slice(0, 160)}`);
+      if (ok.body?.id) {
+        cotizaciones.push(ok.body.id);
+        const filas = await knex.raw(
+          `SELECT count(*)::int AS n, coalesce(sum(line_total), 0)::numeric AS tot
+             FROM commercial.quote_lines WHERE quote_id = ?`, [ok.body.id],
+        );
+        check('los renglones quedaron guardados con la cabecera, y la respuesta lo dice',
+          Number(filas.rows[0].n) >= 2 && Number(ok.body.lines) === Number(filas.rows[0].n),
+          `filas=${filas.rows[0].n} respuesta=${ok.body.lines}`);
+        const cab = await knex.raw(`SELECT total, terms_discount_pct FROM commercial.quotes WHERE id = ?`, [ok.body.id]);
+        const pct = cab.rows[0].terms_discount_pct === null ? 0 : Number(cab.rows[0].terms_discount_pct);
+        const esperado = Math.round((Number(filas.rows[0].tot) * (1 - pct / 100) + Number.EPSILON) * 100) / 100;
+        check('el total de la cabecera ya cuenta los renglones', Math.abs(Number(cab.rows[0].total) - esperado) < 0.005,
+          `total=${cab.rows[0].total} esperado=${esperado}`);
+      }
+
+      // Prueba NEGATIVA: el 2º renglón es inválido (cantidad 0). Tiene que ser 400, nombrar el
+      // renglón, y NO dejar nada: ni cotización ni folio consumido.
+      const marcaX = `${marca}-X`;
+      const anio = new Date().getFullYear();
+      const seqAntes = await knex.raw(
+        `SELECT current_value FROM commercial.quote_sequences WHERE tenant_id = ? AND year = ?`, [T, anio],
+      );
+      const malo = await req('POST', '/commercial/quotes', op.token, {
+        erp_customer_code: CODIGO, source_branch: BRANCH, origin: 'telemarketing', notes: marcaX,
+        lines: [{ sku: F.sku, quantity: 1, rung: 'base' }, { sku: F.sku, quantity: 0 }],
+      });
+      check('un renglón inválido → 400', malo.status === 400, `status ${malo.status}`);
+      check('el error dice CUÁL renglón falló', /Renglón 2/.test(String(malo.body?.message || '')),
+        `message=${malo.body?.message}`);
+      const quedaron = await knex.raw(`SELECT id FROM commercial.quotes WHERE notes = ?`, [marcaX]);
+      for (const r of quedaron.rows) cotizaciones.push(r.id); // si la prueba falla, igual se limpia
+      check('⭐ no quedó ninguna cotización a medias', quedaron.rows.length === 0,
+        `quedaron ${quedaron.rows.length}`);
+      const seqDesp = await knex.raw(
+        `SELECT current_value FROM commercial.quote_sequences WHERE tenant_id = ? AND year = ?`, [T, anio],
+      );
+      // ⚠️ Si otra persona crea una cotización durante la prueba el consecutivo avanza por ella:
+      // en un entorno compartido esto se declara, no se pinta rojo.
+      if (Number(seqDesp.rows[0]?.current_value) === Number(seqAntes.rows[0]?.current_value)) {
+        check('y el folio no se consumió (el consecutivo se revirtió con la cabecera)', true);
+      } else {
+        declarar('el folio no se consumió', `el consecutivo pasó de ${seqAntes.rows[0]?.current_value} a ${seqDesp.rows[0]?.current_value}: otra alta concurrente o el folio sí se consumió`);
+      }
+    } else {
+      declarar('el alta atómica', `no hay SKU con precio en la sucursal ${BRANCH}`);
     }
   } catch (e) {
     console.error('\n💥', e.message);

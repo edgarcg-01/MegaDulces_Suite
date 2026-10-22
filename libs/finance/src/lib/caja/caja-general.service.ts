@@ -1,9 +1,15 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
 import { SUCURSAL_CAJA_GENERAL, diaDeFecha, diaMxDeInstante, type Freshness } from '@megadulces/contracts';
-import { casarPorImporte, canonBank, escapaLike, type MovCuadre } from './caja-cuadre.engine';
+import { casarPorImporte, canonBank, escapaLike, CUADRE_TOLERANCIA_PESOS, type MovCuadre, type ResultadoCuadre } from './caja-cuadre.engine';
 import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
+import {
+  casarLibroConKepler, cobroDeRutaComoKepler, indexaLibro, juntaCuadres, llaveKeplerDelLibro, marcaEnLibro, resumeEnLibro,
+  type CobroDeRuta, type ParLibro, type RenglonLibro,
+} from './caja-kepler-libro.engine';
+import { primerCorteDelLibro } from './caja-relevo';
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -34,7 +40,27 @@ import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
  * centavos, y el `EPS` del cuadre por día). Las tres se derivan de ésta ahora: mover una sola
  * dejaba la pantalla diciendo "±$1" mientras el matcher usaba otra cosa.
  */
-const MATCH_EPS = 5;
+// `[CGA-A.44]` El valor vive en el motor: la cola de captura casa con el mismo.
+/**
+ * `[CGA-A.39]` Un documento de Kepler de Caja General, como lo devuelve `docsKeplerPorLlave`.
+ *
+ * ⚠️ `importe` y `signo` se declaran `string | number` a propósito: node-pg entrega `numeric`
+ * como TEXTO. Tiparlos de número invitaría a sumarlos sin convertirlos, que es como se fabrica
+ * un total equivocado que se lee igual que uno correcto.
+ */
+type DocKeplerCG = {
+  sucursal: string;
+  clave_banco: string;
+  folio: string;
+  fecha: unknown;
+  concepto: string | null;
+  beneficiario: string | null;
+  doc_tipo: string;
+  importe: string | number;
+  signo: number | string;
+};
+
+const MATCH_EPS = CUADRE_TOLERANCIA_PESOS;
 const CUADRE_EPS = 1000;
 const TENDERS = ['efectivo', 'morralla', 'cheques', 'tarjeta', 'caja_chica', 'sobregiro'];
 
@@ -75,6 +101,107 @@ export class CajaGeneralService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
+
+  private readonly logger = new Logger(CajaGeneralService.name);
+
+  /**
+   * `[CGA-A.35]` Los **cobros de camioneta** que la tesorería de Kepler no trae: viven en
+   * `analytics.route_collections` (almacén compuesto `01-003`, `06-002`…), en la forma de un
+   * renglón de `kepler_bank_movements` para que el Cuadre los trate igual. Agrupados por
+   * (almacén, folio, fecha), como la cola `finance.v_caja_movimientos_pendientes`.
+   *
+   * Medido el 2026-10-20: desde el 12-oct son 58 cobros, $1,048,334.34, que la pantalla no
+   * mostraba ni como casados ni como faltantes. Y 0 de 134 cobros de octubre están también en
+   * `kepler_bank_movements` con la misma fecha e importe: sumarlos no cuenta nada dos veces.
+   *
+   * ⚠️ La tabla se lee EN VIVO por FDW (`[CGA-A.22]`). Si esa lectura falla, el Cuadre no se cae:
+   * la lectura va en un SAVEPOINT y vuelve `disponible: false`, que la pantalla declara. Un
+   * cuadre sin camionetas presentado como completo sería peor que uno que dice que le faltan.
+   */
+  private async cobrosDeRuta(trx: Knex.Transaction, tenantId: string, from: string, to: string) {
+    await trx.raw('SAVEPOINT cga_a35_ruta');
+    try {
+      const rows = await trx('analytics.route_collections')
+        .where('tenant_id', tenantId).andWhere('cuenta', '0011')
+        .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+        .groupBy('almacen', 'cobro_folio', 'fecha')
+        .select('almacen', 'cobro_folio', 'fecha',
+          trx.raw('SUM(importe)::numeric AS importe'),
+          trx.raw(`string_agg(DISTINCT truck, ' · ') AS truck`),
+          trx.raw(`string_agg(DISTINCT COALESCE(referencia, folio_corte), ' · ') AS concepto`));
+      await trx.raw('RELEASE SAVEPOINT cga_a35_ruta');
+      return { rows: (rows as CobroDeRuta[]).map(cobroDeRutaComoKepler), disponible: true };
+    } catch (e) {
+      await trx.raw('ROLLBACK TO SAVEPOINT cga_a35_ruta').catch(() => undefined);
+      this.logger.warn(`[CGA-A.35] cobros de camioneta no disponibles: ${(e as Error).message}`);
+      return { rows: [] as ReturnType<typeof cobroDeRutaComoKepler>[], disponible: false };
+    }
+  }
+
+  /**
+   * `[CGA-A.39]` Desde qué día la caja vive en el libro nuevo: la fecha del PRIMER corte. Antes
+   * de ese día el Cuadre usa el Control; desde ese día, el libro. `null` = no hay libro todavía y
+   * todo sigue siendo Control. Sale de los datos por la misma razón que `facets.relevo`.
+   */
+  private libroDesde(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
+    // `[CGA-A.43]` Una sola definición del borde, compartida con la bandeja (`caja-relevo.ts`).
+    return primerCorteDelLibro(trx, tenantId);
+  }
+
+  /**
+   * `[CGA-A.39]` Los movimientos del libro de un rango, por la FECHA DEL DOCUMENTO (decisión de
+   * Edgar, 2026-10-20: es la que usa Kepler; medido, 214 de 222 vinculados caen el mismo día que
+   * su documento). Sin cancelados ni borrados. `deposito` sale del lado del gasto: es efectivo
+   * que se va de la caja (hoy hay 0, pero un tipo que no se acomoda en ningún lado desaparece).
+   */
+  private async movimientosDelLibro(trx: Knex.Transaction, tenantId: string, from: string, to: string) {
+    const rows: Array<{ folio: string; tipo: string; fecha: unknown; monto: string | number; glosa: string | null; beneficiario: string | null;
+      kepler_cuenta: string | null; origen_tipo: string | null; origen_ref: string | null; declared_doc_ref: string | null }> =
+      await trx('finance.cash_ledger')
+        .where('tenant_id', tenantId).whereNull('deleted_at').whereNot('estado', 'cancelado')
+        .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+        .select('folio', 'tipo', 'fecha', 'monto', 'glosa', 'beneficiario', 'kepler_cuenta', 'origen_tipo', 'origen_ref', 'declared_doc_ref');
+    return rows.map((r) => ({ ...r, dir: (r.tipo === 'ingreso' ? 'in' : 'out') as 'in' | 'out', ref: llaveKeplerDelLibro(r) }));
+  }
+
+  /**
+   * `[CGA-A.39]` Documentos de Kepler por LLAVE (`sucursal|doc|folio|clave`), de la tesorería y de
+   * las camionetas. Sirve para casar un movimiento del libro con su documento cuando éste cae en
+   * OTRO día que el que se está viendo. La de camionetas va en SAVEPOINT por la misma razón que
+   * `cobrosDeRuta`: si el FDW falla, ese par sale «solo libro» en vez de tumbar el Cuadre.
+   */
+  /**
+   * ⚠️ El tipo de retorno va DECLARADO, no inferido. Sin él TypeScript unía tres caminos
+   * (`[]`, `tes`, y el spread con `cobroDeRutaComoKepler`) y terminaba en `unknown[]`: el
+   * `.map((r) => ...)` de la línea ~854 fallaba con **TS18046: 'r' is of type 'unknown'** y
+   * tiraba el build de `main` entero (10 errores, `Running target build ... failed`).
+   *
+   * ⛔ El `return []` es el que empuja la inferencia: un `never[]` unido a un objeto no estrecha,
+   * ensancha. Declarar el contrato de salida cuesta una línea y lo cierra.
+   */
+  private async docsKeplerPorLlave(trx: Knex.Transaction, tenantId: string, keys: string[]): Promise<DocKeplerCG[]> {
+    if (!keys.length) return [];
+    const tes: DocKeplerCG[] =
+      await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).andWhere('account_label', 'CG')
+        .whereRaw(`sucursal || '|' || doc_tipo || '|' || folio || '|' || clave_banco = ANY(?)`, [keys])
+        .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+    await trx.raw('SAVEPOINT cga_a37_llaves');
+    try {
+      const rc: CobroDeRuta[] = await trx('analytics.route_collections')
+        .where('tenant_id', tenantId)
+        .whereRaw(`almacen || '|U-A-5|' || cobro_folio || '|' || cuenta = ANY(?)`, [keys])
+        .groupBy('almacen', 'cobro_folio', 'fecha')
+        .select('almacen', 'cobro_folio', 'fecha', trx.raw('SUM(importe)::numeric AS importe'),
+          trx.raw(`string_agg(DISTINCT truck, ' · ') AS truck`), trx.raw(`string_agg(DISTINCT COALESCE(referencia, folio_corte), ' · ') AS concepto`));
+      await trx.raw('RELEASE SAVEPOINT cga_a37_llaves');
+      return [...tes, ...rc.map(cobroDeRutaComoKepler)];
+    } catch (e) {
+      await trx.raw('ROLLBACK TO SAVEPOINT cga_a37_llaves').catch(() => undefined);
+      this.logger.warn(`[CGA-A.39] cobros de camioneta por llave no disponibles: ${(e as Error).message}`);
+      return tes;
+    }
+  }
 
   /**
    * [CG.8] La frescura del ESPEJO. Esta pantalla publica $154M de movimientos copiados del
@@ -380,17 +507,25 @@ export class CajaGeneralService {
   }
 
   /**
-   * CG.10 — Conciliación OPERATIVO ↔ MANUAL: la caja viva (.mdb/Doctos,
-   * analytics.caja_general_movimientos) contra la copia MANUAL del workbook (hoja
-   * CAJA GENERAL → finance.bank_movements kind='cash'). Por día: ingreso/gasto de
-   * cada lado + Δ. Verifica que lo capturado a mano en el Excel empate con lo que la
-   * caja realmente movió; el Δ = error/omisión de captura (o mes sin llenar el workbook).
-   * NO es "caja vs banco" (la caja no deposita) — es el mismo dato por dos caminos.
+   * CG.10 / `[CGA-A.40]` — El Cuadre POR DÍA: la caja contra Kepler.
+   *
+   * La caja es el Control (el Access) hasta el día anterior al primer corte del libro, y desde ese
+   * día el libro nuevo, por la fecha del documento (`[CGA-A.39]`). Del otro lado, la Caja General
+   * de Kepler: tesorería (`account_label='CG'`) más los cobros de camioneta.
+   *
+   * ⛔ `[CGA-A.40]` **Aquí había una tercera fuente, el Workbook** (la hoja CAJA GENERAL del Sheet,
+   * `finance.bank_movements kind='cash'`): la copia a mano del Control, que servía para cazar
+   * errores de captura. Se quitó por decisión de Edgar (2026-10-20): se detuvo el 10-oct junto con
+   * el Control (medido: su último día es el 10-oct) y del 12 en adelante no existe. Ojo, NO es el
+   * «Workbook» de la pestaña Conciliación: aquél es el estado de cuenta del BANCO y sigue vivo.
+   *
+   * El nombre del endpoint (`conciliacion-workbook`) se conserva para no romper la pantalla
+   * desplegada mientras convive con esta versión; ya no lee el Workbook.
    */
   async conciliacionWorkbook(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const [from, to] = this.range(q);
-    const n = (x: any) => Number(x) || 0;
+    const n = (x: unknown) => Number(x) || 0;
     const r2 = (v: number) => Math.round(v * 100) / 100;
     const key = ymd;
     return this.tk.run(async (trx) => {
@@ -399,18 +534,8 @@ export class CajaGeneralService {
         .where('tenant_id', tenantId).whereBetween('fecha', [from, to])
         .select('fecha', trx.raw('SUM(ingreso)::numeric AS ingreso'), trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
         .groupBy('fecha');
-      // Lado workbook (manual, kind='cash') por día — oculto de Bancos, aquí es la referencia.
-      const wb = await trx('finance.bank_movements as bm')
-        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
-        .where('bm.tenant_id', tenantId).whereRaw(`coalesce(ba.kind,'bank')='cash'`).whereNull('bm.deleted_at')
-        .whereBetween('bm.movement_date', [from, to])
-        .select(trx.raw('bm.movement_date AS fecha'), trx.raw('SUM(bm.amount_in)::numeric AS ingreso'),
-          trx.raw('SUM(bm.amount_out)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
-        .groupBy('bm.movement_date');
-      // CG.11 — 3ª fuente: Kepler tesorería, la CAJA GENERAL del ERP (account_label='CG').
-      // Es MÁS GRUESA que la caja operativa (agrupa/registra lo capturado en el ERP), así
-      // que su Δ vs .mdb es informativo (gap de granularidad), no error de captura como el
-      // workbook. signo>0=ingreso, signo<0=gasto; importe es magnitud positiva.
+      // CG.11 — Kepler tesorería, la CAJA GENERAL del ERP (account_label='CG').
+      // signo>0=ingreso, signo<0=gasto; importe es magnitud positiva.
       const kp = await trx('analytics.kepler_bank_movements')
         // CONCENTRADOR: la CAJA GENERAL del ERP (clave 0011) se registra por sucursal (00-06);
         // kepler_bank_movements ya trae anti-réplica (cada doc una vez, por su dueño) → sin filtro
@@ -422,47 +547,76 @@ export class CajaGeneralService {
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo<0),0)::numeric AS gasto`),
           trx.raw('COUNT(*)::int AS n'))
         .groupBy('fecha_valor');
+      // `[CGA-A.35]` Los cobros de camioneta también son Caja General de Kepler (ingresos).
+      const ruta = await this.cobrosDeRuta(trx, tenantId, from, to);
 
-      const blank = (k: string) => ({ fecha: k, mdb_ingreso: 0, mdb_gasto: 0, mdb_n: 0, wb_ingreso: 0, wb_gasto: 0, wb_n: 0, kp_ingreso: 0, kp_gasto: 0, kp_n: 0 });
-      const byDay = new Map<string, any>();
-      for (const r of mdb as any[]) { const d = blank(key(r.fecha)); d.mdb_ingreso = n(r.ingreso); d.mdb_gasto = n(r.gasto); d.mdb_n = n(r.n); byDay.set(d.fecha, d); }
-      for (const r of wb as any[]) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.wb_ingreso = n(r.ingreso); d.wb_gasto = n(r.gasto); d.wb_n = n(r.n); byDay.set(k, d); }
-      for (const r of kp as any[]) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.kp_ingreso = n(r.ingreso); d.kp_gasto = n(r.gasto); d.kp_n = n(r.n); byDay.set(k, d); }
+      /**
+       * ⭐ `[CGA-A.39]` Desde el primer corte del libro, la columna de la caja es el LIBRO (por la
+       * fecha del documento), no el Control: el Control se detuvo el 10-oct, y sin esto el Cuadre
+       * posterior no tenía contra qué cuadrar. Cada día es de una sola fuente (`caja_fuente`).
+       */
+      const desde = await this.libroDesde(trx, tenantId);
+      const lib: Array<{ fecha: unknown; ingreso: string | number; gasto: string | number; n: number }> = desde && to >= desde
+        ? await trx('finance.cash_ledger')
+          .where('tenant_id', tenantId).whereNull('deleted_at').whereNot('estado', 'cancelado')
+          .andWhere('fecha', '>=', from > desde ? from : desde).andWhere('fecha', '<=', to)
+          .groupBy('fecha')
+          .select('fecha',
+            trx.raw(`COALESCE(SUM(monto) FILTER (WHERE tipo = 'ingreso'), 0)::numeric AS ingreso`),
+            // `deposito` del lado del gasto: es efectivo que sale de la caja (hoy hay 0).
+            trx.raw(`COALESCE(SUM(monto) FILTER (WHERE tipo <> 'ingreso'), 0)::numeric AS gasto`),
+            trx.raw('COUNT(*)::int AS n'))
+        : [];
+      const blank = (k: string) => ({ fecha: k, caja_fuente: 'control' as 'control' | 'libro', mdb_ingreso: 0, mdb_gasto: 0, mdb_n: 0, kp_ingreso: 0, kp_gasto: 0, kp_n: 0 });
+      const byDay = new Map<string, ReturnType<typeof blank>>();
+      for (const r of mdb) { if (desde && key(r.fecha) >= desde) continue; const d = blank(key(r.fecha)); d.mdb_ingreso = n(r.ingreso); d.mdb_gasto = n(r.gasto); d.mdb_n = n(r.n); byDay.set(d.fecha, d); }
+      for (const r of lib) { const d = blank(key(r.fecha)); d.caja_fuente = 'libro'; d.mdb_ingreso = n(r.ingreso); d.mdb_gasto = n(r.gasto); d.mdb_n = n(r.n); byDay.set(d.fecha, d); }
+      for (const r of kp) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.kp_ingreso = n(r.ingreso); d.kp_gasto = n(r.gasto); d.kp_n = n(r.n); byDay.set(k, d); }
+      for (const r of ruta.rows) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.kp_ingreso += n(r.importe); d.kp_n += 1; byDay.set(k, d); }
 
-      const EPS = MATCH_EPS; // el día cuadra dentro de la MISMA tolerancia con que casan los movimientos
+      /**
+       * `[CGA-A.40]` La tolerancia del día contra Kepler es la que la pantalla ya usaba para esa
+       * columna (`roundTol`): 10 centavos por movimiento, porque el Control capturaba redondeado
+       * a 50 centavos y Kepler no. Con piso de ±$5 (`MATCH_EPS`), la misma con que casan los
+       * movimientos. Ahora vive acá, en un solo lugar, y la pantalla la pinta en vez de recalcularla.
+       */
+      const tolDia = (d: { mdb_n: number; kp_n: number }) => Math.max(MATCH_EPS, 0.10 * Math.max(d.mdb_n, d.kp_n));
       const por_dia = Array.from(byDay.values()).map((d) => {
-        const di = r2(d.mdb_ingreso - d.wb_ingreso), dg = r2(d.mdb_gasto - d.wb_gasto);
-        const wb_vacio = d.wb_n === 0;
+        // Un día sin caja pero posterior al relevo es del libro: Kepler movió y el libro no tiene
+        // nada — eso se ve, no se esconde.
+        const fuente = d.caja_fuente === 'libro' || (desde && d.fecha >= desde) ? 'libro' as const : 'control' as const;
+        const dki = r2(d.mdb_ingreso - d.kp_ingreso), dkg = r2(d.mdb_gasto - d.kp_gasto);
+        const tol = r2(tolDia(d));
         return {
-          fecha: d.fecha, mdb_ingreso: r2(d.mdb_ingreso), mdb_gasto: r2(d.mdb_gasto), mdb_n: d.mdb_n,
-          wb_ingreso: r2(d.wb_ingreso), wb_gasto: r2(d.wb_gasto), wb_n: d.wb_n,
+          fecha: d.fecha, caja_fuente: fuente, mdb_ingreso: r2(d.mdb_ingreso), mdb_gasto: r2(d.mdb_gasto), mdb_n: d.mdb_n,
           kp_ingreso: r2(d.kp_ingreso), kp_gasto: r2(d.kp_gasto), kp_n: d.kp_n,
-          delta_ingreso: di, delta_gasto: dg,
-          delta_kep_ingreso: r2(d.mdb_ingreso - d.kp_ingreso), delta_kep_gasto: r2(d.mdb_gasto - d.kp_gasto),
-          wb_vacio,
-          cuadra: !wb_vacio && Math.abs(di) <= EPS && Math.abs(dg) <= EPS,
+          delta_kep_ingreso: dki, delta_kep_gasto: dkg, tol,
+          // Sin Kepler ese día no hay contra qué medir: se DECLARA (`sin_kepler`), no se pinta rojo.
+          sin_kepler: d.kp_n === 0,
+          cuadra: d.kp_n > 0 && Math.abs(dki) <= tol && Math.abs(dkg) <= tol,
         };
       }).sort((a, b) => b.fecha.localeCompare(a.fecha));
 
-      const sum = (k: string) => r2(por_dia.reduce((s, d) => s + Number((d as any)[k] || 0), 0));
-      const tot = { mdb_ingreso: sum('mdb_ingreso'), mdb_gasto: sum('mdb_gasto'), wb_ingreso: sum('wb_ingreso'), wb_gasto: sum('wb_gasto'), kp_ingreso: sum('kp_ingreso'), kp_gasto: sum('kp_gasto') };
+      const sum = (k: 'mdb_ingreso' | 'mdb_gasto' | 'kp_ingreso' | 'kp_gasto') => r2(por_dia.reduce((s, d) => s + d[k], 0));
+      const tot = { mdb_ingreso: sum('mdb_ingreso'), mdb_gasto: sum('mdb_gasto'), kp_ingreso: sum('kp_ingreso'), kp_gasto: sum('kp_gasto') };
       return {
         period: { from, to },
         totals: {
           ...tot,
-          delta_ingreso: r2(tot.mdb_ingreso - tot.wb_ingreso), delta_gasto: r2(tot.mdb_gasto - tot.wb_gasto),
           delta_kep_ingreso: r2(tot.mdb_ingreso - tot.kp_ingreso), delta_kep_gasto: r2(tot.mdb_gasto - tot.kp_gasto),
-          dias: por_dia.length, dias_wb: por_dia.filter((d) => !d.wb_vacio).length,
-          dias_descuadre: por_dia.filter((d) => !d.wb_vacio && !d.cuadra).length,
-          wb_disponible: (wb as any[]).length > 0,
-          kep_disponible: (kp as any[]).length > 0,
+          dias: por_dia.length,
+          dias_con_kepler: por_dia.filter((d) => !d.sin_kepler).length,
+          dias_descuadre: por_dia.filter((d) => !d.sin_kepler && !d.cuadra).length,
+          libro_desde: desde,
+          dias_libro: por_dia.filter((d) => d.caja_fuente === 'libro').length,
+          kep_disponible: kp.length > 0 || ruta.rows.length > 0,
+          // `[CGA-A.35]` false = la lectura de camionetas falló: la columna Kepler está incompleta.
+          ruta_disponible: ruta.disponible,
         },
         por_dia,
-        // Dos tolerancias distintas y nombradas: el DÍA se compara al peso (una captura
-        // manual o cuadra o no), pero el TOTAL DEL MES acumula el redondeo de ~30 días y con
-        // ±$5 marcaría descuadre aunque cada día cuadre. `CUADRE_EPS` es la de totales, la
-        // misma que usa el Cuadre de Bancos.
-        eps: EPS, eps_total: CUADRE_EPS,
+        // El TOTAL DEL MES acumula el redondeo de ~30 días: con la tolerancia del día marcaría
+        // descuadre aunque cada día cuadre. `CUADRE_EPS` es la de totales, la del Cuadre de Bancos.
+        eps: MATCH_EPS, eps_total: CUADRE_EPS,
       };
     });
   }
@@ -514,11 +668,17 @@ export class CajaGeneralService {
         .orderBy([{ column: 'fecha_valor', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(500)
         .select('sucursal', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+      // `[CGA-A.35]` Más los cobros de camioneta, y el mismo orden y tope sobre la unión.
+      const ruta = await this.cobrosDeRuta(trx, tenantId, from, to);
+      const todos = [...(rows as Array<{ fecha: unknown; folio: string; sucursal: string; concepto: string | null; beneficiario: string | null; doc_tipo: string; importe: number | string; signo: number | string }>), ...ruta.rows]
+        .sort((a, b) => ymd(b.fecha).localeCompare(ymd(a.fecha)) || String(b.folio).localeCompare(String(a.folio)))
+        .slice(0, 500);
       return {
+        ruta_disponible: ruta.disponible,
         // id compuesto por sucursal+folio: con el concentrador el folio se repite entre sucursales.
         // `sucursal` es la sucursal Kepler con nombre (antes viajaba el beneficiario en ese campo);
         // el beneficiario se conserva como concepto cuando el pago no trae concepto (X-D-26 casi nunca).
-        movimientos: (rows as any[]).map((r) => ({
+        movimientos: todos.map((r) => ({
           id: `${r.sucursal}-${r.folio}`, fecha: r.fecha, concepto: r.concepto || r.beneficiario || null, sucursal: this.keplerSucursal(r.sucursal), codigo: r.doc_tipo,
           ingreso: n(r.signo) > 0 ? n(r.importe) : 0, gasto: n(r.signo) < 0 ? n(r.importe) : 0,
         })),
@@ -542,7 +702,8 @@ export class CajaGeneralService {
     // Etiqueta uniforme de un movimiento (para render idéntico en el frontend). `source` + `key`
     // (PK completa codificada) habilitan el click → detalle completo del movimiento (movementDetail).
     // Cumple `MovCuadre` (key/importe/fecha), que es lo que el motor necesita para ordenar.
-    type Lbl = MovCuadre & { id: string; source: 'control' | 'workbook' | 'kepler'; concepto: string | null; extra: string | null };
+    // `[CGA-A.39]` `libro` = un movimiento del libro nuevo (desde el relevo); `ref` = su llave de Kepler.
+    type Lbl = MovCuadre & { id: string; source: 'control' | 'workbook' | 'kepler' | 'libro'; concepto: string | null; extra: string | null; ref?: string | null };
 
     /**
      * ⭐ El casamiento vive ahora en `caja-cuadre.engine.ts`, con pruebas. Acá había un greedy
@@ -559,27 +720,32 @@ export class CajaGeneralService {
      * **965 (25.8%, $1,519,632.85) tienen más de un candidato a ±$5 el mismo día y dirección.**
      * Ése es exactamente el conjunto donde el orden —hasta hoy indefinido— decidía la respuesta.
      */
-    const adapta = (res: ReturnType<typeof casarPorImporte<Lbl>>) => ({
+    const adapta = (res: ResultadoCuadre<Lbl> & { pares: ParLibro<Lbl>[] }) => ({
       caja_total: res.caja_total, other_total: res.otro_total, delta: res.delta,
       matched_count: res.casados_n, matched_amount: res.casados_monto,
-      pairs: res.pares.map((p) => ({ caja: p.caja, other: p.otro, ambiguo: p.ambiguo, candidatos: p.candidatos, delta: p.delta })),
+      // `[CGA-A.39]` `identidad` = el par salió de la LLAVE del libro, no de un parecido de importe.
+      pairs: res.pares.map((p) => ({ caja: p.caja, other: p.otro, ambiguo: p.ambiguo, candidatos: p.candidatos, delta: p.delta, identidad: p.identidad === true })),
       caja_only: res.caja_solos, other_only: res.otro_solos,
       caja_only_amount: res.caja_solos_monto, other_only_amount: res.otro_solos_monto,
       // Lo que el casamiento NO sabe, dicho: cuántos pudieron haber casado con otra cosa y
       // cuántos existen sólo gracias a la tolerancia.
       ambiguos_n: res.ambiguos_n, inexactos_n: res.inexactos_n, tolerancia: res.tolerancia,
     });
-    const matchDir = (caja: { amt: number; lbl: Lbl }[], other: { amt: number; lbl: Lbl }[]) =>
-      adapta(casarPorImporte(caja.map((x) => x.lbl), other.map((x) => x.lbl), MATCH_EPS));
 
     return this.tk.run(async (trx) => {
-      const mdb = await trx('analytics.caja_general_movimientos')
+      const mdbTodo = await trx('analytics.caja_general_movimientos')
         .where('tenant_id', tenantId).whereBetween('fecha', [from, to])
         .select('tipo_dto', 'mov_id', 'fecha', 'concepto', 'cuenta_nombre', 'nombre_cliente', 'ingreso', 'gasto');
-      const man = await trx('finance.bank_movements as bm').join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
-        .where('bm.tenant_id', tenantId).whereRaw(`coalesce(ba.kind,'bank')='cash'`).whereNull('bm.deleted_at')
-        .whereBetween('bm.movement_date', [from, to])
-        .select('bm.id', 'bm.movement_date as fecha', 'bm.concept as concepto', 'bm.sucursal', 'bm.raw_code', 'bm.amount_in', 'bm.amount_out');
+      /**
+       * ⭐ `[CGA-A.39]` **El lado de la caja cambia de fuente en el relevo.** Hasta el día anterior
+       * al primer corte del libro, la caja es el Control (el Access); desde ese día, el libro nuevo
+       * (`finance.cash_ledger`), por la fecha del documento. Cada día es de UNA sola fuente: si el
+       * Control volviera a recibir movimientos de después del relevo no se sumarían al libro — se
+       * verían en «General», no aquí, para no contar dos veces el mismo efectivo.
+       */
+      const desde = await this.libroDesde(trx, tenantId);
+      const mdb = mdbTodo.filter((r: { fecha: unknown }) => !desde || ymd(r.fecha) < desde);
+      const libro = desde && to >= desde ? await this.movimientosDelLibro(trx, tenantId, from > desde ? from : desde, to) : [];
       const kep = await trx('analytics.kepler_bank_movements')
         // CONCENTRADOR: la CAJA GENERAL del ERP (clave 0011) se registra por sucursal (00-06);
         // kepler_bank_movements ya trae anti-réplica (cada doc una vez, por su dueño) → sin filtro
@@ -587,6 +753,10 @@ export class CajaGeneralService {
         .where('tenant_id', tenantId).andWhere('account_label', 'CG')
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
+      // `[CGA-A.35]` Los cobros de camioneta son Caja General de Kepler aunque no vivan en la
+      // tesorería: sin ellos, el día publicaba como «solo Control» lo que la ruta sí registró.
+      const ruta = await this.cobrosDeRuta(trx, tenantId, from, to);
+      kep.push(...ruta.rows);
 
       /**
        * ⛔ Acá decía `const key = (f: any) => String(f).slice(0, 10)`, y eso **no devuelve una
@@ -661,12 +831,8 @@ export class CajaGeneralService {
         }
       }
 
-      // Sucursal con nombre en la referencia de cada lado (el drill imprimía el número crudo: "42 · 510").
-      const suc = await this.finanzasSucursalNamer(trx, tenantId, this.inst(q));
       const mdbSide = (dir: 'ingreso' | 'gasto') => (mdb as any[]).filter((r) => n(r[dir]) > 0).map((r) => ({
         amt: n(r[dir]), lbl: { id: String(r.mov_id), source: 'control' as const, key: `${r.tipo_dto}|${r.mov_id}`, fecha: key(r.fecha), importe: r2(n(r[dir])), concepto: r.concepto || null, extra: r.cuenta_nombre || r.nombre_cliente || null } }));
-      const manSide = (col: 'amount_in' | 'amount_out') => (man as any[]).filter((r) => n(r[col]) > 0).map((r) => ({
-        amt: n(r[col]), lbl: { id: String(r.id), source: 'workbook' as const, key: String(r.id), fecha: key(r.fecha), importe: r2(n(r[col])), concepto: r.concepto || null, extra: [suc(r.sucursal), r.raw_code].filter(Boolean).join(' · ') || null } }));
       const kepSide = (sign: 1 | -1) => (kep as any[]).filter((r) => (n(r.signo) > 0 ? 1 : -1) === sign).map((r) => ({
         amt: n(r.importe), lbl: { id: String(r.folio), source: 'kepler' as const, key: `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`, fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [this.keplerSucursal(r.sucursal), r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
 
@@ -701,14 +867,57 @@ export class CajaGeneralService {
       }
       for (const [id, n2] of kepIdentCount) if (n2 > 1) kepIdent.delete(id);
 
-      const mdbIn = mdbSide('ingreso'), mdbGas = mdbSide('gasto');
-      const vs_manual = { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) };
-      const vs_kepler = { ingresos: matchDir(mdbIn, kepSide(1)), gastos: matchDir(mdbGas, kepSide(-1)) };
+      // `[CGA-A.39]` El lado del LIBRO, con la misma forma que el del Control y su llave de Kepler.
+      const libSide = (dir: 'in' | 'out') => libro.filter((r) => r.dir === dir).map((r) => ({
+        amt: n(r.monto), lbl: { id: r.folio, source: 'libro' as const, key: `libro|${r.folio}`, fecha: key(r.fecha), importe: r2(n(r.monto)),
+          concepto: r.glosa || null, extra: [r.folio, r.beneficiario].filter(Boolean).join(' · ') || null, ref: r.ref } as Lbl }));
+      const ctlIn = mdbSide('ingreso'), ctlGas = mdbSide('gasto');
+      const libIn = libSide('in'), libGas = libSide('out');
+      const mdbIn = [...ctlIn, ...libIn], mdbGas = [...ctlGas, ...libGas];
+      // `[CGA-A.40]` Ya no se casa contra el Workbook de caja (la copia a mano del Control): se quitó.
+
+      // Documentos de Kepler que el libro nombra y que caen en OTRO día: se casan igual, por llave.
+      const enDia = new Set(kep.map((r: { sucursal: string; doc_tipo: string; folio: string; clave_banco: string }) => `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`));
+      const refsFuera = [...new Set(libro.map((r) => r.ref).filter((k): k is string => !!k && !enDia.has(k)))];
+      const fuera = new Map((await this.docsKeplerPorLlave(trx, tenantId, refsFuera)).map((r) => {
+        const k = `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`;
+        return [k, { id: String(r.folio), source: 'kepler' as const, key: k, fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null,
+          extra: [this.keplerSucursal(r.sucursal), r.doc_tipo, r.beneficiario, `doc del ${key(r.fecha)}`].filter(Boolean).join(' · ') || null } as Lbl] as const;
+      }));
+      const cuadraDir = (ctl: { lbl: Lbl }[], lib: { lbl: Lbl }[], sign: 1 | -1) => {
+        const k = kepSide(sign).map((x) => x.lbl);
+        const kCtl = desde ? k.filter((x) => x.fecha < desde) : k;
+        const kLib = desde ? k.filter((x) => x.fecha >= desde) : [];
+        return adapta(juntaCuadres(
+          casarPorImporte(ctl.map((x) => x.lbl), kCtl, MATCH_EPS),
+          casarLibroConKepler(lib.map((x) => x.lbl), kLib, MATCH_EPS, fuera),
+        ));
+      };
+      const vsKep0 = { ingresos: cuadraDir(ctlIn, libIn, 1), gastos: cuadraDir(ctlGas, libGas, -1) };
+
+      /**
+       * ⭐ `[CGA-A.35]` **«Solo Kepler» no quiere decir «falta capturar».** El Control dejó de
+       * capturarse el 10-oct y el libro nuevo (`finance.cash_ledger`) tomó la caja desde el 12:
+       * medido, de 202 documentos «solo Kepler» del 12 al 20-oct, **165 ya estaban en el libro**.
+       * Cada huérfano de Kepler lleva ahora `en_libro` — el folio que lo capturó, buscado por LLAVE
+       * (`origen_ref`, o `declared_doc_ref` si vino de CAOS: la regla `[CGA-A.10]` de la bandeja) —
+       * y los totales separan lo ya capturado de lo que de verdad falta.
+       */
+      const solosKey = [...vsKep0.ingresos.other_only, ...vsKep0.gastos.other_only].map((o) => o.key);
+      const libroRows: RenglonLibro[] = solosKey.length
+        ? await trx('finance.cash_ledger')
+          .where('tenant_id', tenantId).whereNull('deleted_at').whereNot('estado', 'cancelado')
+          .where((w: Knex.QueryBuilder) => w.whereIn('origen_ref', solosKey).orWhereIn('declared_doc_ref', solosKey))
+          .select('folio', 'estado', 'origen_tipo', 'origen_ref', 'declared_doc_ref')
+        : [];
+      const idxLibro = indexaLibro(libroRows);
+      const conLibro = (side: typeof vsKep0.ingresos) => ({ ...side, other_only: marcaEnLibro(side.other_only, idxLibro) });
+      const vs_kepler = { ingresos: conLibro(vsKep0.ingresos), gastos: conLibro(vsKep0.gastos) };
+      const keplerLibro = resumeEnLibro([...vs_kepler.ingresos.other_only, ...vs_kepler.gastos.other_only]);
 
       // Índice `key del Control` → par casado, por lado y dirección (ver el comentario en `rows`).
-      const indexa = (pares: { caja: Lbl; other: Lbl; ambiguo: boolean; delta: number }[]) =>
+      const indexa = (pares: { caja: Lbl; other: Lbl; ambiguo: boolean; delta: number; identidad?: boolean }[]) =>
         new Map(pares.map((p) => [p.caja.key, p]));
-      const idxManIn = indexa(vs_manual.ingresos.pairs), idxManOut = indexa(vs_manual.gastos.pairs);
       const idxKepIn = indexa(vs_kepler.ingresos.pairs), idxKepOut = indexa(vs_kepler.gastos.pairs);
 
       /**
@@ -726,7 +935,6 @@ export class CajaGeneralService {
         // POR tipo_dto. Dos movimientos del día con el mismo mov_id compartían el mismo par.
         // Índice en vez de `pairs.find()`: era O(n²) sobre miles de filas (~28M comparaciones en
         // un mes), y esta pantalla tiene presupuesto de 1 s.
-        const man = (dir === 'in' ? idxManIn : idxManOut).get(m.lbl.key) ?? null;
         const kep2 = (dir === 'in' ? idxKepIn : idxKepOut).get(m.lbl.key) ?? null;
         // [CG.20] La cuarta vía. `rt` = lo que el texto declara; `vt` = lo que la camioneta
         // registró. Que `rt` exista y `vt` no es un hallazgo, no un hueco de render: significa
@@ -750,12 +958,16 @@ export class CajaGeneralService {
          */
         const kepLbl = kepId ?? (kep2 ? kep2.other : null);
         const porIdentidad = !!kepId;
+        // `[CGA-A.39]` Un movimiento del LIBRO casado por su documento: certeza, como la identidad,
+        // pero OTRO método — no es una venta de ruta declarada, y no debe contarse como tal.
+        const porLlave = !kepId && !!kep2?.identidad;
         const usaRuta = !kepLbl && !!vt;
         const kImporte = kepLbl ? kepLbl.importe : (usaRuta ? (vt as { venta: number }).venta : null);
         return {
           id: m.lbl.id, key: m.lbl.key, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
           concepto: m.lbl.concepto, extra: m.lbl.extra,
-          manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null, manual_key: man ? man.other.key : null,
+          // `[CGA-A.39]` De qué fuente es ESTE renglón de la caja: el Control o el libro nuevo.
+          source: m.lbl.source,
           kepler: !!kepLbl || usaRuta,
           kepler_importe: kImporte,
           // La referencia dice de QUÉ documento salió. Con el cobro, el que ya se imprimía
@@ -772,13 +984,13 @@ export class CajaGeneralService {
            *   `importe`    el casamiento de siempre, ±$5, que puede ser ambiguo;
            *   `ruta`       no hay cobro en tesorería: es la venta del Kepler de la camioneta.
            */
-          kepler_origen: porIdentidad ? ('identidad' as const) : (kepLbl ? ('importe' as const) : (usaRuta ? ('ruta' as const) : null)),
+          //   `llave`      `[CGA-A.39]` el documento que el propio movimiento del libro trae — certeza.
+          kepler_origen: porIdentidad ? ('identidad' as const) : porLlave ? ('llave' as const) : (kepLbl ? ('importe' as const) : (usaRuta ? ('ruta' as const) : null)),
           // ⭐ Cuánto vale ESTE casamiento. `ambiguo` = había más de un candidato a la misma
           // distancia de importe, o sea que pudo haber casado con otro movimiento; `delta` ≠ 0 =
           // existe sólo porque la tolerancia de ±$5 lo permitió. Sin esto, un par forzado y un par
           // que salió de 40 iguales se pintaban idénticos, y la pantalla insinuaba una certeza
           // que el método no tiene (M3: ligar por importe+fecha es un atributo débil).
-          manual_ambiguo: !!man?.ambiguo, manual_delta: man ? man.delta : null,
           // Un par por identidad NO puede ser ambiguo: la llave es única o no se usa.
           kepler_ambiguo: porIdentidad ? false : !!kep2?.ambiguo,
           kepler_delta: kImporte == null ? null : r2(m.lbl.importe - kImporte),
@@ -790,22 +1002,22 @@ export class CajaGeneralService {
         // quedaban en orden indefinido — el mismo defecto que este commit vino a matar.
       }).sort((a, b) => a.fecha.localeCompare(b.fecha) || b.importe - a.importe || a.key.localeCompare(b.key));
 
-      const sumaLados = (v: typeof vs_manual, k: 'ambiguos_n' | 'inexactos_n') => v.ingresos[k] + v.gastos[k];
+      const sumaLados = (v: typeof vs_kepler, k: 'ambiguos_n' | 'inexactos_n') => v.ingresos[k] + v.gastos[k];
       const totals = {
         control_n: rows.length,
         control_monto: r2(rows.reduce((s, r) => s + r.importe, 0)),
-        en_manual: rows.filter((r) => r.manual).length,
         en_kepler: rows.filter((r) => r.kepler).length,
-        manual_only_n: vs_manual.ingresos.other_only.length + vs_manual.gastos.other_only.length,
-        manual_only_monto: r2(vs_manual.ingresos.other_only_amount + vs_manual.gastos.other_only_amount),
         kepler_only_n: vs_kepler.ingresos.other_only.length + vs_kepler.gastos.other_only.length,
         kepler_only_monto: r2(vs_kepler.ingresos.other_only_amount + vs_kepler.gastos.other_only_amount),
+        // `[CGA-A.35]` De esos «solo Kepler»: cuántos ya capturó el libro nuevo y cuántos faltan.
+        kepler_only_en_libro_n: keplerLibro.en_libro_n, kepler_only_en_libro_monto: keplerLibro.en_libro_monto,
+        kepler_only_pendiente_n: keplerLibro.pendiente_n, kepler_only_pendiente_monto: keplerLibro.pendiente_monto,
+        // false = la lectura de camionetas falló y el lado Kepler está incompleto (no «no hubo»).
+        ruta_cobros_disponible: ruta.disponible,
         // Cuánto de lo que se ve casado es una decisión del algoritmo y no un hecho.
-        manual_ambiguos_n: sumaLados(vs_manual, 'ambiguos_n'), manual_inexactos_n: sumaLados(vs_manual, 'inexactos_n'),
         kepler_ambiguos_n: sumaLados(vs_kepler, 'ambiguos_n'), kepler_inexactos_n: sumaLados(vs_kepler, 'inexactos_n'),
         // ⚠️ Un lado vacío NO es "todo descuadrado": es una fuente que no tiene datos en el
         // periodo. Se declara, igual que en `conciliacion()` (ADR-056).
-        manual_disponible: (man as any[]).length > 0,
         kepler_disponible: (kep as any[]).length > 0,
         tolerancia: MATCH_EPS,
         // [CG.20] La cuarta vía se mide aparte porque su universo es otro: sólo aplica a los
@@ -816,12 +1028,17 @@ export class CajaGeneralService {
         ruta_sin_venta: rows.filter((r) => !!r.kepler_motivo).length,
         // Cuántos de los pares con Kepler salieron de una IDENTIDAD y no de un parecido de importe.
         kepler_por_identidad: rows.filter((r) => r.kepler_origen === 'identidad').length,
+        // `[CGA-A.39]` De qué fuente es la caja en este rango, y cuántos del libro casaron por su documento.
+        caja_fuente: (libro.length && mdb.length ? 'mixto' : libro.length || (desde && from >= desde) ? 'libro' : 'control') as 'control' | 'libro' | 'mixto',
+        libro_desde: desde,
+        libro_n: libro.length,
+        kepler_por_llave: rows.filter((r) => r.kepler_origen === 'llave').length,
         // Un número que el texto llama ruta y el registro operativo no conoce. Se cuenta, porque
         // si esto sube es que alguien está tecleando una ruta que no existe.
         ruta_no_reconocidas: [...rutasInvalidas],
       };
 
-      return { period: { from, to }, vs_manual, vs_kepler, rows, totals };
+      return { period: { from, to }, vs_kepler, rows, totals };
     });
   }
 
@@ -868,10 +1085,47 @@ export class CajaGeneralService {
           { label: 'Archivo', value: r.source_file }, { label: 'Conciliación', value: r.recon_status },
         ] };
       }
+      // `[CGA-A.39]` Un movimiento del LIBRO nuevo (la caja desde el relevo). key = `libro|<folio>`.
+      if (source === 'libro') {
+        const folio = String(key).replace(/^libro\|/, '');
+        const r: { folio: string; tipo: string; estado: string; fecha: unknown; created_at: unknown; monto: unknown; glosa: string | null; beneficiario: string | null;
+          kepler_cuenta: string | null; kepler_concepto: string | null; origen_tipo: string | null; origen_ref: string | null; declared_doc_ref: string | null;
+          created_by_username: string | null; corte: string | null } | undefined = await trx('finance.cash_ledger as l')
+          .leftJoin('finance.cash_ledger_cuts as c', 'c.id', 'l.corte_id')
+          .where('l.tenant_id', tenantId).andWhere('l.folio', folio)
+          .first('l.folio', 'l.tipo', 'l.estado', 'l.fecha', 'l.created_at', 'l.monto', 'l.glosa', 'l.beneficiario', 'l.kepler_cuenta', 'l.kepler_concepto',
+            'l.origen_tipo', 'l.origen_ref', 'l.declared_doc_ref', 'l.created_by_username', 'c.folio as corte');
+        if (!r) throw new BadRequestException('movimiento no encontrado');
+        return { source, title: `Libro · ${r.folio}`, fields: [
+          { label: 'Folio', value: r.folio }, { label: 'Tipo', value: r.tipo }, { label: 'Estado', value: r.estado },
+          { label: 'Fecha del documento', value: ymd(r.fecha) }, { label: 'Capturado', value: r.created_at ? String(r.created_at) : null },
+          { label: 'Capturó', value: r.created_by_username }, { label: 'Importe', value: money(r.monto) },
+          { label: 'Glosa', value: r.glosa }, { label: 'Beneficiario', value: r.beneficiario },
+          { label: 'Cuenta Kepler', value: r.kepler_cuenta }, { label: 'Concepto Kepler', value: r.kepler_concepto },
+          { label: 'Origen', value: r.origen_tipo }, { label: 'Vínculo', value: r.origen_ref }, { label: 'Documento declarado', value: r.declared_doc_ref },
+          { label: 'Corte', value: r.corte },
+        ] };
+      }
       if (source === 'kepler') {
         const [sucursal, doc_tipo, folio, clave_banco] = String(key).split('|');
         const r: any = await trx('analytics.kepler_bank_movements').where({ tenant_id: tenantId, sucursal, doc_tipo, folio, clave_banco }).first();
-        if (!r) throw new BadRequestException('movimiento no encontrado');
+        if (!r) {
+          // `[CGA-A.35]` Un cobro de camioneta (almacén compuesto `01-003`) no vive en la tesorería
+          // sino en `route_collections`; el Cuadre ya lo ofrece, así que el clic tiene que abrirlo.
+          const rc = await trx('analytics.route_collections')
+            .where({ tenant_id: tenantId, almacen: sucursal, cobro_folio: folio, cuenta: clave_banco })
+            .orderBy('fecha').select('truck', 'fecha', 'folio_corte', 'referencia', 'importe', 'doc_tipo');
+          if (!rc.length) throw new BadRequestException('movimiento no encontrado');
+          const total = rc.reduce((s: number, x: { importe: unknown }) => s + (Number(x.importe) || 0), 0);
+          return { source, title: `Kepler · cobro de camioneta ${doc_tipo} ${folio}`, fields: [
+            { label: 'Fecha', value: ymd(rc[0].fecha) }, { label: 'Documento', value: `${doc_tipo} ${folio}` },
+            { label: 'Almacén', value: sucursal }, { label: 'Unidad', value: rc[0].truck }, { label: 'Clave banco', value: clave_banco },
+            { label: 'Importe', value: money(total) }, { label: 'Renglones del corte', value: rc.length },
+            { label: 'Cortes', value: [...new Set(rc.map((x: { folio_corte: string | null }) => x.folio_corte).filter(Boolean))].join(' · ') || null },
+            { label: 'Referencia', value: [...new Set(rc.map((x: { referencia: string | null }) => x.referencia).filter(Boolean))].join(' · ') || null },
+            { label: 'Fuente', value: 'analytics.route_collections (Kepler de la camioneta)' },
+          ] };
+        }
         return { source, title: `Kepler · ${r.doc_tipo} ${r.folio}`, fields: [
           { label: 'Fecha valor', value: ymd(r.fecha_valor) }, { label: 'Fecha captura', value: ymd(r.fecha_captura) },
           { label: 'Documento', value: `${r.doc_tipo} ${r.folio}` }, { label: 'Sucursal', value: this.keplerSucursal(r.sucursal) },
@@ -918,7 +1172,7 @@ export class CajaGeneralService {
           ],
         };
       }
-      throw new BadRequestException('source inválido (control|workbook|kepler|ruta)');
+      throw new BadRequestException('source inválido (control|workbook|kepler|ruta|libro)');
     });
   }
 
@@ -1346,7 +1600,30 @@ export class CajaGeneralService {
       const bancos = (await trx('analytics.caja_depositos').where('tenant_id', tenantId).whereNotNull('banco_name').distinct('banco_name').orderBy('banco_name')).map((r: any) => r.banco_name);
       const empresas = (await trx('analytics.caja_sucursales_catalog').where('tenant_id', tenantId).whereNotNull('empresa').distinct('empresa').orderBy('empresa')).map((r: any) => r.empresa);
       const cajas = (await trx('analytics.caja_arqueos').where('tenant_id', tenantId).distinct('source_caja').orderBy('source_caja')).map((r: any) => r.source_caja);
-      return { meses, bancos, empresas, cajas };
+
+      /**
+       * `[CGA-A.38]` **El relevo Control → libro nuevo, derivado y no escrito a mano.** El Access
+       * Control dejó de capturar movimientos el 10-oct 12:39 y la caja se opera desde el 12-oct en
+       * `finance.cash_ledger` (su primer corte abre con el fondo del arqueo `A23641`). La pantalla
+       * lo dice para que nadie busque aquí lo de después.
+       *
+       * Sale de los datos a propósito: si Control volviera a recibir movimientos, `control_ultimo`
+       * pasaría al libro y el aviso se apagaría solo. Una fecha fija en el código seguiría
+       * afirmando el relevo aunque dejara de ser cierto.
+       */
+      const ult: { fecha: unknown; hora: string | null } | undefined = await trx('analytics.caja_general_movimientos')
+        .where('tenant_id', tenantId).whereNotNull('fecha')
+        .orderByRaw('fecha DESC, hora DESC NULLS LAST').first('fecha', 'hora');
+      const primerCorte: { fecha: unknown; folio: string } | undefined = await trx('finance.cash_ledger_cuts')
+        .where('tenant_id', tenantId).orderBy([{ column: 'fecha', order: 'asc' }, { column: 'folio', order: 'asc' }])
+        .first('fecha', 'folio');
+      const relevo = {
+        control_ultimo_fecha: ult ? ymd(ult.fecha) : null,
+        control_ultimo_hora: ult?.hora ?? null,
+        libro_desde: primerCorte ? ymd(primerCorte.fecha) : null,
+        libro_primer_corte: primerCorte?.folio ?? null,
+      };
+      return { meses, bancos, empresas, cajas, relevo };
     });
   }
 }

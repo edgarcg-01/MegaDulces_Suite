@@ -3,15 +3,22 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import type { KeplerWavesAutoResponse, PickerWave, PickerWaveLine } from '@megadulces/contracts';
+import type {
+  KeplerWavesAutoResponse, PickerWave, PickerWaveLine, PresalePickBucket, PresalePickDetail,
+  PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport,
+} from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
+import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
+import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 
 /**
  * Preferencias guardadas en el dispositivo (almacén y origen elegidos): el surtidor no tiene por
@@ -19,9 +26,26 @@ import { AuthService } from '../../../core/services/auth.service';
  * clave de API y bloqueaba el PR (falso positivo en #316).
  */
 const PREF_ALMACEN = 'gp.surtir.almacen.v1';
-const PREF_ORIGEN = 'gp.surtir.origen.v1';
 
-type Origen = '' | 'TELEMARK' | 'SUCURSAL';
+/**
+ * `[MCP.3.1]` Dos orígenes y no se mezclan (decisión de David, 2026-10-19):
+ *  · **Telemarketing**: llega de Kepler (`U-D-40`) y se toma con "Tomar siguiente".
+ *  · **Sucursal**: lo que levantan vendedoras y preventa en la app. NO pasa por Kepler antes de
+ *    surtirse (se cobra después), así que "Tomar siguiente" no lo ve. Aquí se lista por día
+ *    (Hoy / Mañana / Próximos) y el surtidor ELIGE cuál; se surte con estos mismos renglones.
+ *
+ * Antes había "Todos" y un "Sucursal" que leía Kepler: el surtidor de la 02 elegía "Sucursal" y
+ * veía "No hay pedidos por surtir" mientras los pedidos de la vendedora esperaban en otra pantalla
+ * (`/almacen/surtir-preventa`) a la que nada lo llevaba. Medido en prod el 2026-10-19: 12 avisos
+ * de pedido, cero vistos, cero surtidos de preventa empezados.
+ */
+type Origen = 'TELEMARK' | 'SUCURSAL';
+
+/** Lo marcado en un pedido de Sucursal vive en el celular hasta "Terminé de surtir". */
+const PREF_MARCAS = 'gp.surtir.preventa.v1.';
+
+/** Cada cuánto se vuelve a pedir la lista de Sucursal mientras se está viendo. */
+const SUCURSAL_CADA_MS = 30_000;
 
 /** "1 pedido" / "3 pedidos": nada de "pedido(s)" en una pantalla que se lee de reojo. */
 function plural(n: number, uno: string, varios: string): string {
@@ -54,7 +78,7 @@ function plural(n: number, uno: string, varios: string): string {
 @Component({
   selector: 'app-almacen-surtir',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -105,6 +129,8 @@ function plural(n: number, uno: string, varios: string): string {
 
       <!-- ─────────── ELEGIR ALMACÉN / LISTO PARA TOMAR ─────────── -->
       @if (fase() === 'listo') {
+        <!-- [MCP.3.8] Clientes nuevos sin clave de Kepler: se nota aquí y lleva a la bandeja para ligarlos. -->
+        <app-clientes-nuevos-aviso (sinClave)="sinClave.set($event)"></app-clientes-nuevos-aviso>
         <section class="sr-card">
           <label class="sr-l" for="sr-alm">Almacén donde surtes</label>
           <select id="sr-alm" class="sr-select" [ngModel]="almacenId()" (ngModelChange)="elegirAlmacen($event)">
@@ -122,17 +148,90 @@ function plural(n: number, uno: string, varios: string): string {
             }
           </div>
 
-          <button type="button" class="sr-btn sr-btn-go" [disabled]="!almacenId() || tomando()" (click)="tomar()">
-            @if (tomando()) {
-              <i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Buscando trabajo…</span>
-            } @else {
-              <i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span>
-            }
-          </button>
-          <p class="sr-tip">
-            @if (!almacenId()) { Elige primero tu almacén. } @else { Te toca el pedido que más urge. No se elige cuál. }
-          </p>
+          @if (origen() === 'TELEMARK') {
+            <button type="button" class="sr-btn sr-btn-go" [disabled]="!almacenId() || tomando()" (click)="tomar()">
+              @if (tomando()) {
+                <i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Buscando trabajo…</span>
+              } @else {
+                <i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span>
+              }
+            </button>
+            <p class="sr-tip">
+              @if (!almacenId()) { Elige primero tu almacén. } @else { Te toca el pedido que más urge. No se elige cuál. }
+            </p>
+            <!-- [MCP.3.2] La lista de pedidos autorizados (folio y cliente): Surtir no tiene pestañas. -->
+            <button pButton type="button" [text]="true" severity="secondary" class="sr-tap sr-ver-lista" (click)="verLista()">
+              <span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span> Ver la lista de pedidos
+            </button>
+          } @else {
+            <p class="sr-tip">
+              @if (!almacenId()) { Elige primero tu almacén. }
+              @else { Lo que levantaron las vendedoras y preventa. Tú eliges cuál surtir. }
+            </p>
+          }
         </section>
+
+        <!-- [MCP.3.1] Pedidos de Sucursal: por día de entrega, el surtidor elige cuál. -->
+        @if (origen() === 'SUCURSAL' && almacenId()) {
+          <!-- [MCP.3.6] Las rutas de hoy van arriba; los pedidos sueltos de siempre, debajo. -->
+          <app-almacen-rutas-hoy (hayRutas)="rutasHoy.set($event)"></app-almacen-rutas-hoy>
+          @if (rutasHoy() > 0) { <h3 class="sr-h3">Pedidos sueltos</h3> }
+          @if (sucursalError()) {
+            <div class="sr-banda sr-banda-bad" role="alert">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <span class="sr-banda-txt">{{ sucursalError() }}</span>
+              <button pButton type="button" severity="secondary" class="sr-tap" (click)="cargarSucursal()">Reintentar</button>
+            </div>
+          }
+          @if (sucursal()?.scope === 'ninguno') {
+            <div class="sr-banda sr-banda-warn" role="status">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>Tu usuario no tiene una sucursal asignada. Pide que te la asignen en Administración › Personas.</span>
+            </div>
+          }
+          @if (sucursal()) {
+            <div class="sr-chips" role="radiogroup" aria-label="Día de entrega">
+              @for (d of dias; track d.v) {
+                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="dia() === d.v"
+                        [class.sr-chip-on]="dia() === d.v" (click)="dia.set(d.v)">{{ d.l }} · {{ porDia()[d.v] }}</button>
+              }
+            </div>
+            @if (!pedidosDelDia().length) {
+              <p class="sr-tip sr-sec-vacia">No hay pedidos de sucursal {{ diaTexto() }}.</p>
+            }
+            @for (p of pedidosDelDia(); track p.order_id) {
+              <article class="sr-ped" [class.sr-ped-tarde]="p.days_late > 0">
+                <div class="sr-ped-top">
+                  <span class="sr-ola-code">{{ p.code }}</span>
+                  @if (p.days_late > 0) { <span class="sr-tag-tarde">{{ p.days_late === 1 ? 'Atrasado 1 día' : 'Atrasado ' + p.days_late + ' días' }}</span> }
+                  @else if (dia() === 'proximos') { <span class="sr-tip">Entrega {{ fechaCorta(p.requested_delivery_date) }}</span> }
+                </div>
+                <strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
+                @if (sinClave().has(p.order_id)) { <span class="sr-tag-nuevo">Cliente nuevo · sin clave de Kepler</span> }
+                <div class="sr-datos">
+                  <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span>
+                  <span class="sr-dato">{{ plural(p.lines, 'producto', 'productos') }}</span>
+                  <span class="sr-dato">{{ dinero(p.total) }}</span>
+                </div>
+                @if (p.state === 'surtiendo' && !esMio(p)) {
+                  <p class="sr-tip">Lo está surtiendo {{ p.started?.name }}.</p>
+                } @else {
+                  <button type="button" class="sr-btn sr-btn-go sr-btn-ped" [disabled]="tomando()" (click)="surtirPedido(p.order_id)">
+                    @if (tomandoId() === p.order_id) {
+                      <i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Abriendo…</span>
+                    } @else if (p.state === 'surtiendo') {
+                      <i class="pi pi-play" aria-hidden="true"></i><span>Continuar</span>
+                    } @else {
+                      <i class="pi pi-play" aria-hidden="true"></i><span>Surtir este</span>
+                    }
+                  </button>
+                }
+              </article>
+            }
+          } @else if (cargandoSucursal()) {
+            <div class="sr-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando pedidos…</div>
+          }
+        }
 
         @if (sinTrabajo(); as s) {
           <section class="sr-card sr-vacio">
@@ -170,9 +269,14 @@ function plural(n: number, uno: string, varios: string): string {
 
         <section class="sr-ola">
           <span class="sr-ola-code">{{ o.code }}</span>
-          <span class="sr-ola-ped">{{ plural(o.pedidos.length, 'pedido', 'pedidos') }}: {{ o.pedidos.join(', ') }}</span>
-          <span class="sr-ola-ped"><i class="pi pi-cloud" aria-hidden="true"></i> Cada toque se guarda al momento.</span>
-          <span class="sr-ola-ped"><i class="pi pi-clock" aria-hidden="true"></i> {{ existenciaAlTexto(o.existencia_al) }}</span>
+          @if (pedidoSucursal(); as p) {
+            <span class="sr-ola-ped">{{ p.customer_name || 'Cliente sin nombre' }} · {{ p.seller_name || 'Sin vendedor' }}</span>
+            <span class="sr-ola-ped"><i class="pi pi-mobile" aria-hidden="true"></i> Lo que marques se guarda en este celular. Al terminar, lo que no hubo se quita del pedido y se le avisa a la vendedora.</span>
+          } @else {
+            <span class="sr-ola-ped">{{ plural(o.pedidos.length, 'pedido', 'pedidos') }}: {{ o.pedidos.join(', ') }}</span>
+            <span class="sr-ola-ped"><i class="pi pi-cloud" aria-hidden="true"></i> Cada toque se guarda al momento.</span>
+            <span class="sr-ola-ped"><i class="pi pi-clock" aria-hidden="true"></i> {{ existenciaAlTexto(o.existencia_al) }}</span>
+          }
         </section>
 
         <section class="sr-buscar">
@@ -215,7 +319,9 @@ function plural(n: number, uno: string, varios: string): string {
                 <span class="sr-cant-u">{{ unidadConteo(l) }}</span>
                 @if (cantidadBase(l); as b) { <span class="sr-cant-b">{{ b }}</span> }
               </div>
-              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay, y dónde. -->
+              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay, y dónde. En un
+                   pedido de Sucursal no se trae (MCP.3 no la lee): se omite en vez de decir "sin dato". -->
+              @if (!pedidoSucursal()) {
               <div class="sr-datos">
                 <span class="sr-dato" [ngClass]="'sr-exist-' + existenciaEstado(l)">
                   <i class="pi" [class.pi-box]="existenciaEstado(l) !== 'cero' && existenciaEstado(l) !== 'poca'"
@@ -227,6 +333,7 @@ function plural(n: number, uno: string, varios: string): string {
                   {{ l.bin_code ? 'Ubicación ' + l.bin_code : 'Sin ubicación dada de alta' }}
                 </span>
               </div>
+              }
               @if (l.unidad_mixta) {
                 <p class="sr-tip"><i class="pi pi-info-circle" aria-hidden="true"></i> Los pedidos lo piden en unidades distintas: cuenta en {{ unidadConteo(l) }}.</p>
               }
@@ -317,9 +424,29 @@ function plural(n: number, uno: string, varios: string): string {
               @for (c of resumen().cambios; track c) { <li>{{ c }}</li> }
             </ul>
           }
-          <button type="button" class="sr-btn sr-btn-go" [disabled]="tomando()" (click)="tomar()">
-            <i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span>
-          </button>
+          @if (reporte(); as r) {
+            <!-- [MCP.3.1] Pedido de Sucursal: lo que se quitó del pedido y el total nuevo. -->
+            @if (r.removed.length || r.adjusted.length) {
+              <p class="sr-aviso">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                Se ajustó el pedido y ya se le avisó a la vendedora:
+              </p>
+              <ul class="sr-lista-min">
+                @for (x of r.removed; track x.product_name) { <li>Se quitó <strong>{{ x.product_name }}</strong> ({{ fmtNum(x.ordered) }} {{ x.unit }})</li> }
+                @for (x of r.adjusted; track x.product_name) { <li><strong>{{ x.product_name }}</strong>: hubo {{ fmtNum(x.picked) }} de {{ fmtNum(x.ordered) }} {{ x.unit }}</li> }
+              </ul>
+              <p class="sr-tip">Total: {{ dinero(r.total_before) }} → <strong>{{ dinero(r.total_after) }}</strong></p>
+            }
+          }
+          @if (origen() === 'SUCURSAL') {
+            <button type="button" class="sr-btn sr-btn-go" (click)="volverALista()">
+              <i class="pi pi-list" aria-hidden="true"></i><span>Ver pedidos</span>
+            </button>
+          } @else {
+            <button type="button" class="sr-btn sr-btn-go" [disabled]="tomando()" (click)="tomar()">
+              <i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span>
+            </button>
+          }
         </section>
       }
     </div>
@@ -459,6 +586,19 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-falt { font-weight: 800; color: var(--warn-fg); }
     .sr-btn-fin { min-height: 3.25rem; margin-top: 0; }
 
+    /* [MCP.3.1] Pedidos de Sucursal. */
+    .sr-sec-vacia { margin: .5rem 0 1rem; }
+    .sr-ped { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--r-lg);
+      padding: .75rem .85rem; margin: .6rem 0; display: flex; flex-direction: column; gap: .35rem; }
+    .sr-ped-tarde { border-left: 4px solid var(--warn-fg); }
+    .sr-ped-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+    .sr-ped-cli { font-size: var(--fs-lg); line-height: 1.2; }
+    .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-fg); }
+    .sr-tag-nuevo { font-size: var(--fs-xs); font-weight: 700; color: var(--info-fg); }
+    .sr-btn-ped { min-height: 3.25rem; font-size: var(--fs-lg); flex-direction: row; gap: .5rem; margin-top: .2rem; }
+    .sr-btn-ped i { font-size: var(--fs-lg); }
+    .sr-ver-lista { align-self: flex-start; }
+
     @media (prefers-reduced-motion: reduce) {
       .sr-barra > span, .sr-btn { transition: none; }
       .sr-btn:not(:disabled):active { transform: none; }
@@ -469,14 +609,21 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly ruta = inject(ActivatedRoute);
+  private readonly preventa = inject(PresalePickingService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly plural = plural;
   readonly origenes: ReadonlyArray<{ v: Origen; l: string }> = [
-    { v: '', l: 'Todos' },
-    { v: 'TELEMARK', l: 'Telemarketing' },
+    // [MCP.3.2] Sucursal primero (decisión de David, 2026-10-19): es lo que surte la sucursal.
     { v: 'SUCURSAL', l: 'Sucursal' },
+    { v: 'TELEMARK', l: 'Telemarketing' },
+  ];
+  readonly dias: ReadonlyArray<{ v: PresalePickBucket; l: string }> = [
+    { v: 'hoy', l: 'Hoy' },
+    { v: 'manana', l: 'Mañana' },
+    { v: 'proximos', l: 'Próximos' },
   ];
 
   readonly fase = signal<'cargando' | 'listo' | 'surtiendo' | 'cerrada'>('cargando');
@@ -484,7 +631,42 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly enLinea = signal(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
   readonly almacenes = signal<Array<{ id: string; code: string; name: string }>>([]);
   readonly almacenId = signal<string>('');
-  readonly origen = signal<Origen>('');
+  readonly origen = signal<Origen>('SUCURSAL');
+
+  // ── [MCP.3.1] Sucursal ──
+  readonly sucursal = signal<PresalePickInboxResponse | null>(null);
+  readonly cargandoSucursal = signal(false);
+  readonly sucursalError = signal<string | null>(null);
+  readonly dia = signal<PresalePickBucket>('hoy');
+  /** El pedido de Sucursal que se está tomando (spinner en SU botón). */
+  readonly tomandoId = signal<string | null>(null);
+  /** El pedido de Sucursal que se está surtiendo; null = se surte una ola de Telemarketing. */
+  readonly pedidoSucursal = signal<PresalePickInboxRow | null>(null);
+  /** Lo que el cierre de un pedido de Sucursal quitó o ajustó. */
+  readonly reporte = signal<PresalePickReport | null>(null);
+  /** [MCP.3.6] Cuántas rutas hay hoy (las pinta su propia pieza): rotula «Pedidos sueltos». */
+  readonly rutasHoy = signal(0);
+  /** [MCP.3.8] Pedidos de clientes nuevos sin clave de Kepler (los avisa su propia pieza). */
+  readonly sinClave = signal<Set<string>>(new Set());
+
+  /** Pendientes de surtir del almacén elegido (el alcance ya lo recortó el servidor). */
+  private readonly pendientesSucursal = computed(() =>
+    (this.sucursal()?.data ?? []).filter(
+      (p) => (p.state === 'nuevo' || p.state === 'surtiendo') && (!this.almacenId() || p.warehouse_id === this.almacenId()),
+    ),
+  );
+  readonly porDia = computed(() => {
+    const c: Record<PresalePickBucket, number> = { hoy: 0, manana: 0, proximos: 0 };
+    for (const p of this.pendientesSucursal()) c[p.bucket]++;
+    return c;
+  });
+  /** Lo que ya empezó esta persona va primero: es lo que tiene que terminar. */
+  readonly pedidosDelDia = computed(() =>
+    this.pendientesSucursal()
+      .filter((p) => p.bucket === this.dia())
+      .sort((a, b) => Number(this.esMio(b)) - Number(this.esMio(a))),
+  );
+  readonly diaTexto = computed(() => ({ hoy: 'para hoy', manana: 'para mañana', proximos: 'para los próximos días' })[this.dia()]);
   readonly ola = signal<PickerWave | null>(null);
   readonly sinTrabajo = signal<{ motivo: string; armado: KeplerWavesAutoResponse | null } | null>(null);
   /** Surtidos armados a mano que no se pudieron abrir (se liberaron): hay que avisar al supervisor. */
@@ -539,14 +721,213 @@ export class AlmacenSurtirComponent implements OnInit {
         window.removeEventListener('offline', off);
       });
     }
+    // [MCP.3.1] La lista de Sucursal se refresca sola SÓLO mientras se ve (no surtiendo).
+    const reloj = setInterval(() => {
+      if (this.fase() === 'listo' && this.origen() === 'SUCURSAL' && this.enLinea() && !this.cargandoSucursal()) {
+        this.cargarSucursal(true);
+      }
+    }, SUCURSAL_CADA_MS);
+    this.destroyRef.onDestroy(() => clearInterval(reloj));
     this.iniciar();
+  }
+
+  // ── [MCP.3.1] Sucursal ────────────────────────────────────────────────────────────────
+
+  /** Pide los pedidos de Sucursal por surtir (los recorta el servidor por el alcance). */
+  cargarSucursal(silencioso = false): void {
+    if (!silencioso) this.cargandoSucursal.set(true);
+    this.preventa.inbox().subscribe({
+      next: (b) => {
+        this.cargandoSucursal.set(false);
+        this.sucursal.set(b);
+        this.sucursalError.set(null);
+      },
+      error: (e) => {
+        this.cargandoSucursal.set(false);
+        this.sucursalError.set(this.mensaje(e, 'No se pudieron leer los pedidos de sucursal.'));
+      },
+    });
+  }
+
+  esMio(p: PresalePickInboxRow): boolean {
+    const yo = this.auth.user()?.sub;
+    return !!yo && p.started?.user_id === yo;
+  }
+
+  /**
+   * Abre un pedido de Sucursal para surtirlo con los mismos renglones de siempre. «Empezar» deja
+   * registrado quién y a qué hora (y le avisa a la vendedora); es idempotente para la misma persona,
+   * así que "Continuar" usa el mismo camino.
+   */
+  surtirPedido(orderId: string): void {
+    if (this.tomando()) return;
+    this.tomando.set(true);
+    this.tomandoId.set(orderId);
+    this.sinTrabajo.set(null);
+    this.preventa.start(orderId).subscribe({
+      next: () => {
+        this.preventa.detail(orderId).subscribe({
+          next: (d) => this.abrirPedido(d),
+          error: (e) => this.falloAlAbrir(e),
+        });
+      },
+      error: (e) => {
+        this.falloAlAbrir(e);
+        this.cargarSucursal(true);
+      },
+    });
+  }
+
+  private falloAlAbrir(e: unknown): void {
+    this.tomando.set(false);
+    this.tomandoId.set(null);
+    this.avisar('error', this.mensaje(e, 'No se pudo abrir el pedido.'));
+    if (this.fase() === 'cargando') this.fase.set('listo');
+  }
+
+  /** El pedido como "ola" de un solo pedido: la pantalla de surtir no cambia. */
+  private abrirPedido(d: PresalePickDetail): void {
+    const guardadas = this.marcasGuardadas(d.order.order_id);
+    const ola: PickerWave = {
+      id: d.order.order_id,
+      code: d.order.code,
+      warehouse_id: d.order.warehouse_id,
+      status: 'en_surtido',
+      notes: null,
+      started_at: d.order.started?.at ?? null,
+      pedidos: [d.order.code],
+      existencia_al: null,
+      lines: d.lines.map((l): PickerWaveLine => {
+        const marcada = guardadas[l.line_id];
+        return {
+          id: l.line_id,
+          product_id: l.product_id,
+          product_name: l.product_name,
+          sku: l.sku,
+          barcode: l.barcode ?? null,
+          // La cantidad del pedido tal como la ve la vendedora (3 CJA); se cuenta en esa unidad.
+          qty_requested: l.qty,
+          qty_unit: l.unit,
+          unidad_mixta: false,
+          qty_presentacion: null,
+          unidad_presentacion: null,
+          qty_picked: marcada ?? null,
+          status: marcada == null ? 'pendiente' : this.estadoDe(marcada, l.qty),
+          bin_code: null,
+          note: null,
+          existencia: null,
+          existencia_unidad: null,
+        };
+      }),
+    };
+    this.tomando.set(false);
+    this.tomandoId.set(null);
+    this.error.set(null);
+    this.reporte.set(null);
+    this.pedidoSucursal.set(d.order);
+    this.ola.set(ola);
+    this.busqueda.set('');
+    this.editando.set(null);
+    this.ocultarHechos.set(false);
+    this.fase.set('surtiendo');
+    this.anuncio.set(`Pedido ${d.order.code}: ${plural(ola.lines.length, 'renglón', 'renglones')}.`);
+  }
+
+  private estadoDe(levantado: number, pedido: number): PickerWaveLine['status'] {
+    if (levantado <= 0) return 'agotado';
+    return levantado >= pedido ? 'surtido' : 'faltante';
+  }
+
+  /** Lo marcado en un pedido de Sucursal: en el celular hasta cerrar (si se cierra la app, no se pierde). */
+  private marcasGuardadas(orderId: string): Record<string, number> {
+    try {
+      const v = JSON.parse(this.leer(PREF_MARCAS + orderId) || '{}');
+      return v && typeof v === 'object' ? (v as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private marcarSucursal(l: PickerWaveLine, qty: number): void {
+    const o = this.ola();
+    if (!o) return;
+    const status = this.estadoDe(qty, l.qty_requested);
+    this.editando.set(null);
+    this.ola.set({ ...o, lines: o.lines.map((x) => (x.id === l.id ? { ...x, qty_picked: qty, status } : x)) });
+    const marcas = this.marcasGuardadas(o.id);
+    marcas[l.id] = qty;
+    this.guardar(PREF_MARCAS + o.id, JSON.stringify(marcas));
+    const nombre = l.product_name || l.sku || 'Renglón';
+    this.anuncio.set(status === 'surtido' ? `${nombre}: completo.` : status === 'agotado' ? `${nombre}: no había.` : `${nombre}: con faltante.`);
+    if (this.busqueda()) {
+      this.limpiarBusqueda();
+    } else {
+      const siguiente = this.pendientes()[0];
+      if (siguiente) setTimeout(() => (document.getElementById('sr-ok-' + siguiente.id) as HTMLButtonElement | null)?.focus());
+    }
+  }
+
+  /** Cierra el pedido de Sucursal: lo que no hubo se quita y se recalcula (MCP.8), y se avisa a la vendedora. */
+  private cerrarSucursal(o: PickerWave): void {
+    this.cerrando.set(true);
+    this.preventa.finish(o.id, { lines: o.lines.map((l) => ({ line_id: l.id, picked: Number(l.qty_picked ?? 0) })) }).subscribe({
+      next: (r) => {
+        this.cerrando.set(false);
+        this.guardar(PREF_MARCAS + o.id, '');
+        this.resumen.set({
+          completos: o.lines.filter((l) => l.status === 'surtido').length,
+          faltantes: this.conFaltante(),
+          cambios: [],
+        });
+        this.reporte.set(r.report);
+        this.ola.set(null);
+        this.pedidoSucursal.set(null);
+        this.fase.set('cerrada');
+        this.anuncio.set('Pedido surtido.');
+      },
+      error: (e) => {
+        this.cerrando.set(false);
+        this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
+      },
+    });
+  }
+
+  /** `[MCP.3.2]` La lista de pedidos de Kepler por surtir (folio y cliente). */
+  verLista(): void {
+    irConservandoPanel(this.router, '/almacen/pedidos');
+  }
+
+  volverALista(): void {
+    this.reporte.set(null);
+    this.fase.set('listo');
+    this.cargarSucursal();
+  }
+
+  fechaCorta(dia: string): string {
+    const [y, m, d] = dia.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+
+  dinero(n: number): string {
+    return Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
+
+  fmtNum(n: number): string {
+    return this.fmt(Number(n));
   }
 
   /** Almacenes + la ola que la persona ya traía (si cerró la app a medias, la retoma). */
   iniciar(): void {
     this.error.set(null);
     this.fase.set('cargando');
-    this.origen.set(this.leer(PREF_ORIGEN) as Origen);
+    // Lo guardado puede ser '' (el viejo "Todos"): cae en Telemarketing, que era lo que le daba.
+    // El aviso de la campana trae ?pedido=<id>: es de Sucursal y se abre directo.
+    // [MCP.3.6] Siempre abre en SUCURSAL (David, 2026-10-21): ahí llegan las rutas de los vendedores.
+    // Antes abría en Telemarketing salvo que el celular recordara Sucursal, y con eso el surtidor no
+    // veía la ruta que el vendedor acababa de cerrar. Telemarketing se elige a mano cada vez.
+    // El aviso de la campana trae ?pedido=<id>: es de Sucursal y se abre directo.
+    const pedido = this.ruta.snapshot.queryParamMap.get('pedido');
+    this.origen.set('SUCURSAL');
     // Sólo sucursales Kepler (código de 2 dígitos, ya filtradas por el servidor según el alcance):
     // los pedidos U-D-40 salen de ahí. Con el permiso de SURTIR, no el de almacenes.
     this.api.almacenesSurtido().subscribe({
@@ -566,13 +947,18 @@ export class AlmacenSurtirComponent implements OnInit {
               // cerrarla sin surtir nada. tomarSiguiente la arranca y devuelve sus renglones.
               this.almacenId.set(olas[0].warehouse_id);
               this.tomar();
+            } else if (pedido) {
+              this.surtirPedido(pedido);
+              this.cargarSucursal(true);
             } else {
               this.fase.set('listo');
+              if (this.origen() === 'SUCURSAL') this.cargarSucursal();
             }
           },
           error: () => {
             this.error.set('No se pudo revisar si ya traías un surtido.');
             this.fase.set('listo');
+            if (this.origen() === 'SUCURSAL') this.cargarSucursal();
           },
         });
       },
@@ -590,6 +976,12 @@ export class AlmacenSurtirComponent implements OnInit {
       return;
     }
     this.error.set(null);
+    // [MCP.3.1] En Sucursal reintentar es volver a pedir la lista: "Tomar siguiente" sin origen
+    // armaría trabajo desde Kepler, que es justo lo que no se mezcla.
+    if (this.origen() === 'SUCURSAL' && this.fase() === 'listo') {
+      this.cargarSucursal();
+      return;
+    }
     this.tomar();
   }
 
@@ -601,8 +993,8 @@ export class AlmacenSurtirComponent implements OnInit {
 
   elegirOrigen(v: Origen): void {
     this.origen.set(v);
-    this.guardar(PREF_ORIGEN, v);
     this.sinTrabajo.set(null);
+    if (v === 'SUCURSAL') this.cargarSucursal();
   }
 
   tomar(): void {
@@ -613,7 +1005,9 @@ export class AlmacenSurtirComponent implements OnInit {
     }
     this.tomando.set(true);
     this.sinTrabajo.set(null);
-    this.api.tomarSiguiente({ warehouse_id: almacen, origen: this.origen() || undefined }).subscribe({
+    // [MCP.3.1] Siempre Telemarketing: "Tomar siguiente" arma desde Kepler y Sucursal no se mezcla.
+    // Si ya trae una ola (de cualquier origen) el servidor le devuelve ésa primero.
+    this.api.tomarSiguiente({ warehouse_id: almacen, origen: 'TELEMARK' }).subscribe({
       next: (r) => {
         this.tomando.set(false);
         this.error.set(null);
@@ -700,6 +1094,11 @@ export class AlmacenSurtirComponent implements OnInit {
   cerrar(): void {
     const o = this.ola();
     if (!o || this.pendientesTotal() > 0) return;
+    if (this.pedidoSucursal()) {
+      this.cerrarSucursal(o);
+      return;
+    }
+    this.reporte.set(null);
     this.cerrando.set(true);
     this.api.finish(o.id).subscribe({
       next: (r) => {
@@ -725,7 +1124,7 @@ export class AlmacenSurtirComponent implements OnInit {
    * guard lo rebotaría. `/almacen` lo manda a la primera pantalla que sí puede abrir.
    */
   salir(): void {
-    this.router.navigateByUrl('/almacen');
+    irConservandoPanel(this.router, '/almacen');
   }
 
   // ── Cantidades ──────────────────────────────────────────────────────────────────────────
@@ -832,6 +1231,10 @@ export class AlmacenSurtirComponent implements OnInit {
   private marcar(l: PickerWaveLine, qty: number, status?: string): void {
     const o = this.ola();
     if (!o) return;
+    if (this.pedidoSucursal()) {
+      this.marcarSucursal(l, qty);
+      return;
+    }
     this.guardando.update((s) => new Set([...s, l.id]));
     this.api.pick(o.id, l.id, { qty_picked: qty, status }).subscribe({
       next: (upd) => {

@@ -1,4 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { ComercialSupervisorBoardComponent } from './comercial-supervisor-board.component';
 
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -26,7 +28,8 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
     TagModule,
     ToastModule,
     TooltipModule,
-    SkeletonModule
+    SkeletonModule,
+    ComercialSupervisorBoardComponent,
 ],
   providers: [MessageService],
   template: `
@@ -35,14 +38,21 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cartera de ventas</h1>
-          <p class="surf-page-sub">Asigna rutas de venta a cada vendedor y ordena la secuencia de visita de sus clientes.</p>
         </div>
         <div class="ca-tabs">
-          <button type="button" class="ca-tab" [class.on]="view() === 'vendedores'" (click)="view.set('vendedores')"><i class="pi pi-users"></i> Vendedores</button>
-          <button type="button" class="ca-tab" [class.on]="view() === 'sucursales'" (click)="showSucursales()"><i class="pi pi-building"></i> Sucursal por ruta</button>
+          <button type="button" class="ca-tab" [class.on]="view() === 'tablero'" [attr.aria-pressed]="view() === 'tablero'" (click)="view.set('tablero')"><i class="pi pi-chart-bar" aria-hidden="true"></i> Mis vendedores</button>
+          <button type="button" class="ca-tab" [class.on]="view() === 'vendedores'" [attr.aria-pressed]="view() === 'vendedores'" (click)="showVendedores()"><i class="pi pi-users" aria-hidden="true"></i> Asignar rutas</button>
+          <button type="button" class="ca-tab" [class.on]="view() === 'sucursales'" [attr.aria-pressed]="view() === 'sucursales'" (click)="showSucursales()"><i class="pi pi-building" aria-hidden="true"></i> Sucursal por ruta</button>
         </div>
-        <button pButton [text]="true" severity="secondary" size="small" (click)="view() === 'sucursales' ? loadRoutesWh() : load()" [loading]="loading() || loadingWh()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+        @if (view() !== 'tablero') {
+        <button pButton [text]="true" severity="secondary" size="small" (click)="view() === 'sucursales' ? loadRoutesWh() : load()" [loading]="loading() || loadingWh()" pTooltip="Refrescar" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+        }
       </header>
+
+      @if (view() === 'tablero') {
+        <!-- [MCP.3.9] Mis vendedores: el tablero del supervisor (lo que antes era Visitas del dia vive dentro del detalle). -->
+        <app-comercial-supervisor-board />
+      }
 
       @if (view() === 'sucursales') {
         <article class="ca-panel" style="margin-bottom:1rem">
@@ -209,6 +219,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer, RouteWareho
   styles: [`
     :host { display:block; }
     .ca-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; align-items:start; }
+    .ca-grid[hidden] { display:none; }
     @media (max-width: 56.25rem) { .ca-grid { grid-template-columns: 1fr; } }
     .ca-panel { background:var(--c-surface-1); border:1px solid var(--c-divider); border-radius:12px; overflow:hidden; }
     .ca-panel-head { display:flex; align-items:center; gap:.5rem; padding:.75rem 1rem; font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); }
@@ -261,7 +272,10 @@ export class ComercialCarteraComponent implements OnInit {
   assignVendor: Record<string, string | null> = {};
 
   // ── Pestaña "Sucursal por ruta" ──
-  readonly view = signal<'vendedores' | 'sucursales'>('vendedores');
+  /** [MCP.3.9] Abre en «Mis vendedores» (el tablero): es lo que el supervisor revisa a diario. */
+  readonly view = signal<'tablero' | 'vendedores' | 'sucursales'>('tablero');
+  private vendedoresLoaded = false;
+  private readonly ruta = inject(ActivatedRoute);
   readonly routesWh = signal<RouteWarehouseRow[]>([]);
   readonly warehouses = signal<WarehouseOption[]>([]);
   readonly loadingWh = signal(false);
@@ -274,10 +288,20 @@ export class ComercialCarteraComponent implements OnInit {
   whNameEdit: Record<string, string> = {};
 
   ngOnInit(): void {
-    this.load();
+    // «visitas» es el enlace viejo de Visitas del día: hoy su información vive en el tablero.
+    const v = this.ruta.snapshot.queryParamMap.get('vista');
+    if (v === 'vendedores') this.showVendedores();
+    else if (v === 'sucursales') this.showSucursales();
+  }
+
+  /** Las rutas y vendedores de asignación se piden al abrir su pestaña, no al entrar. */
+  showVendedores(): void {
+    this.view.set('vendedores');
+    if (!this.vendedoresLoaded) this.load();
   }
 
   load(): void {
+    this.vendedoresLoaded = true;
     this.loading.set(true);
     this.api.listVendors().subscribe({ next: (v) => this.vendors.set(v), error: () => this.vendors.set([]) });
     this.api.listSalesRoutes().subscribe({

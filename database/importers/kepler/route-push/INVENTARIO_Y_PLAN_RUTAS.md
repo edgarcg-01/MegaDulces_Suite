@@ -72,14 +72,41 @@ quién sigue entrando por el reenvío de `.249`:
 | `ruta_21` | PH | `192.168.10.239` | ✅ `.222` (17-sep… *ver nota*) | `md_01-001` | `UD1001` | `Ruta21` | 2026-07-21 |
 | `ruta_22` | PH | `192.168.10.7` | ✅ `.222` | `md_01-002` | `UD1001` | `Ruta22` | 2026-07-13 |
 | `ruta_23` | PH | `192.168.10.249` ⚠️ | ✅ `.222` | `md_01-003` | `UD1001` | `Ruta23` | 2026-07-13 |
-| `ruta_26` | PH | *(por documentar)* | ⛔ `.249` | `md_01-004` | `UD1001` | `Ruta26` | 2026-07-21 |
+| `ruta_26` | PH | `192.168.10.253` ⭐ | ⛔ `.249` | `md_01-004` | `UD1001` | `Ruta26` | 2026-07-21 |
 | `ruta_27` | PH | `192.168.10.16` ⚠️ | ✅ `.222` | `md_01-005` | `UD1001` | `Ruta27` | 2026-07-16 |
 | `ruta_28` | PH | `192.168.10.152` | ⛔ `.249` | `md_01-006` | `UD1001` | `Ruta28` | 2026-07-16 |
-| `ruta_501` | Canindo | *(por documentar)* | ⛔ `.249` | — | — | `Ruta501` | 2026-09-09 |
-| `ruta_502` | Canindo | `192.168.50.10` | ✅ `.222` | — | — | `Ruta502` | 2026-09-09 |
-| `ruta_503` | Canindo | `192.168.50.29` | ✅ `.222` | — | — | `Ruta503` | 2026-09-09 |
-| `ruta_504` | Canindo | `192.168.50.27` | ✅ `.222` | — | — | `Ruta504` | 2026-09-09 |
-| `ruta_505` | Canindo | *(por documentar)* | ⛔ `.249` | — | — | `Ruta505` | 2026-09-09 |
+| `ruta_501` | Canindo | `192.168.50.11` ⭐ | ⛔ `.249` | — | — | `Ruta501` | 2026-09-09 |
+| `ruta_502` | Canindo | `192.168.50.28` ⭐ | ✅ `.222` | — | — | `Ruta502` | 2026-09-09 |
+| `ruta_503` | Canindo | `192.168.50.25` ⭐ | ✅ `.222` | — | — | `Ruta503` | 2026-09-09 |
+| `ruta_504` | Canindo | `192.168.50.21` ⭐ | ✅ `.222` | — | — | `Ruta504` | 2026-09-09 |
+| `ruta_505` | Canindo | `192.168.50.29` ⭐ | ⛔ `.249` | — | — | `Ruta505` | 2026-09-09 |
+
+> ⭐ **IPs marcadas: CORREGIDAS el 2026-10-20** contra un censo en vivo de las 11 camionetas
+> (Edgar), con la antigüedad del último cobro al lado. **Las cinco de Canindo estaban mal en este
+> documento**, y una de ellas costó 19 días:
+>
+> | TRUCK | decía la tabla de arriba | decía la [tabla de Canindo](#canindo) | **real** |
+> |---|---|---|---|
+> | `ruta_501` | *(por documentar)* | *(por documentar)* | `192.168.50.11` |
+> | `ruta_502` | `192.168.50.10` | `192.168.50.28` | `192.168.50.28` |
+> | `ruta_503` | `192.168.50.29` | `192.168.50.27` | **`192.168.50.25`** — las dos mal |
+> | `ruta_504` | `192.168.50.27` | `192.168.50.32` | **`192.168.50.21`** — las dos mal |
+> | `ruta_505` | *(por documentar)* | *(por documentar)* | `192.168.50.29` |
+>
+> ⛔⛔ **La IP correcta del `ruta_504` ya estaba escrita en el repo desde el 2026-10-08**, en el
+> hallazgo 1 de `[RD.53]` (`FASE_RD_COMISIONES_REFUNDACION.md`): *«el latido de la 504 está verde
+> con 5,348 filas diarias desde `192.168.50.21` mientras reescribe la misma ventana vieja»*. O sea
+> que el dato bueno y el dato malo convivieron **12 días** en dos documentos del mismo repo, y
+> quien vino a destrabar la 504 leyó el malo. **Este documento es el de control: gana éste, y por
+> eso la corrección vive acá y no en una nota suelta.**
+>
+> ⚠️ Y hay una colisión que explica cómo se propagó el error: **`192.168.50.29` es del `ruta_505`**,
+> pero este documento se la atribuía al `ruta_503`, y `192.168.50.27` —que no es de nadie— aparecía
+> como `504` acá y como `503` abajo. *Tres rutas barajadas entre dos tablas del mismo archivo.*
+>
+> ⭐ **Cómo se midió, para que se pueda repetir:** no por ping (el firewall de las laptops sólo
+> acepta Postgres en `localhost`, y desde la red de oficinas la traza a `192.168.50.x` muere en
+> `172.16.6.2`), sino **desde la plaza**, con la antigüedad del último cobro como prueba de vida.
 
 ⛔⛔ **`.249` YA NO EXISTE — y se llevó a las cuatro que todavía la apuntaban (medido 2026-10-01).**
 
@@ -177,11 +204,23 @@ Canindo (sucursal `06`) migró su POS a Kepler y tiene **5 rutas de reparto en c
 
 | TRUCK | Vendedor | Base local | Serie | Host laptop | Tarea | Estado |
 |---|---|---|---|---|---|---|
-| `ruta_501` | Victor Zalapa | `md_06-001` | UD1001 | *(por documentar)* | `Ruta501` | ✅ v2 reactiva (alta 2026-09-08 18:58) |
+| `ruta_501` | Victor Zalapa | `md_06-001` | UD1001 | `192.168.50.11` ⭐ | `Ruta501` | ✅ v2 reactiva (alta 2026-09-08 18:58) |
 | `ruta_502` | Daniel Padilla | `md_06-002` | UD1001 | `192.168.50.28` | `Ruta502` | ✅ v2 reactiva (alta 2026-09-09) |
-| `ruta_503` | Jose Zavala | `md_06-003` | UD1001 | `192.168.50.27` | `Ruta503` | ✅ v2 reactiva (alta 2026-09-08) |
-| `ruta_504` | Jose Luis Muñoz | `md_06-004` | UD1001 | `192.168.50.32` | `Ruta504` | ✅ v2 reactiva (alta 2026-09-08) |
-| `ruta_505` | Francisco | `md_06-005` | UD1001 | *(por documentar)* | `Ruta505` | ✅ v2 reactiva (alta 2026-09-09) |
+| `ruta_503` | Jose Zavala | `md_06-003` | UD1001 | `192.168.50.25` ⭐ | `Ruta503` | ✅ v2 reactiva (alta 2026-09-08) |
+| `ruta_504` | Jose Luis Muñoz | `md_06-004` | UD1001 | `192.168.50.21` ⭐ | `Ruta504` | ✅ v2 reactiva (alta 2026-09-08) |
+| `ruta_505` | Francisco | `md_06-005` | UD1001 | `192.168.50.29` ⭐ | `Ruta505` | ✅ v2 reactiva (alta 2026-09-09) |
+
+> ⭐ **Corregidas el 2026-10-20** — ver el cuadro de la tabla de arriba, que es donde vive el
+> detalle de qué decía cada una. `192.168.50.27` y `192.168.50.32` **no son de ninguna camioneta**:
+> eran inventadas o viejas, y mandaron a buscar la 504 a dos máquinas equivocadas.
+>
+> ⛔ **Lección del propio archivo, cobrada:** la línea 130 ya advertía *«una IP equivocada en una
+> tabla de control es peor que un dato faltante»*. Las dos que decían *(por documentar)* no hicieron
+> daño; las dos que **afirmaban** una IP falsa costaron el viaje. **Si no se midió, va vacío.**
+>
+> ⚠️ **Este archivo tiene DOS tablas con las mismas rutas** y por eso pudieron discrepar 12 días sin
+> que nadie lo notara. Mientras siga así, cualquier corrección hay que hacerla **en las dos** — o
+> fusionarlas, que es la deuda que esto deja con nombre.
 
 ✅ **FLOTA COMPLETA 2026-09-09: las 11 camionetas con Kepler local (6 de PH + 5 de Canindo) están onboarded**, con tarea reactiva y latido. Verificado en el runner (`mart.ventas` + `ingest.route_push_heartbeat`):
 

@@ -14,8 +14,15 @@ import type {
   PresalePickInboxResponse,
   PresalePickInboxRow,
   PresaleSellerStatusResponse,
+  RouteBatchDetail,
+  RouteBatchFinishRequest,
+  RouteBatchFinishResponse,
+  RouteBatchInboxResponse,
+  RouteBatchRow,
+  SellerRouteDay,
 } from '@megadulces/contracts';
 import { PresalePickingService } from './presale-picking.service';
+import { PresaleRouteService } from './presale-route.service';
 
 /**
  * `[MCP.3]` Bandeja del surtidor de la sucursal: los pedidos de preventa de SU almacén, por día,
@@ -27,13 +34,51 @@ import { PresalePickingService } from './presale-picking.service';
 @UseGuards(RequireAuthGuard, RolesGuard)
 @Controller('warehouse/presale-picking')
 export class PresalePickingController {
-  constructor(private readonly service: PresalePickingService) {}
+  constructor(
+    private readonly service: PresalePickingService,
+    private readonly rutas: PresaleRouteService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
   @ApiOperation({ summary: 'Pedidos de preventa por surtir de mi sucursal, por día' })
   inbox(@Query() query: Record<string, unknown>): Promise<PresalePickInboxResponse> {
     return this.service.inbox(query);
+  }
+
+  // ── [MCP.3.6] La ruta del vendedor como UN pedido global ──
+  // ⚠️ Van ANTES de `@Get(':id')`: declaradas después, Nest toma `routes` por un id de pedido.
+
+  @Get('routes')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({ summary: 'Rutas de hoy (y de ayer sin surtir) con pedidos de mi sucursal' })
+  routes(@Query() query: Record<string, unknown>): Promise<RouteBatchInboxResponse> {
+    return this.rutas.routes(query);
+  }
+
+  @Get('routes/:id')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({ summary: 'El pedido global de una ruta: cada producto con su total y a quién le toca' })
+  routeDetail(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<RouteBatchDetail> {
+    return this.rutas.routeDetail(id, query);
+  }
+
+  @Post('routes/:id/start')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Empezar a surtir la ruta: registra quién y a qué hora' })
+  routeStart(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<RouteBatchRow> {
+    return this.rutas.routeStart(id, query);
+  }
+
+  @Post('routes/:id/finish')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Terminar la ruta: reparte lo encontrado en una bolsa por cliente y quita lo que no hubo' })
+  routeFinish(
+    @Param('id') id: string,
+    @Body() body: RouteBatchFinishRequest,
+    @Query() query: Record<string, unknown>,
+  ): Promise<RouteBatchFinishResponse> {
+    return this.rutas.routeFinish(id, body, query);
   }
 
   @Get(':id')
@@ -92,5 +137,38 @@ export class PresaleSellerStatusController {
   @ApiOperation({ summary: 'Marcar como vistos mis reportes de surtido' })
   seen(): Promise<{ updated: number }> {
     return this.service.sellerSeen();
+  }
+}
+
+/**
+ * `[MCP.3.6]` La ruta del día del VENDEDOR en sesión: iniciarla, ver cuántos pedidos lleva y
+ * finalizarla. Al finalizar, al surtidor le llega UN pedido global con todo lo de la ruta.
+ */
+@ApiTags('vendor-route-day')
+@ApiBearerAuth()
+@UseGuards(RequireAuthGuard, RolesGuard)
+@Controller('vendor/route-day')
+export class SellerRouteDayController {
+  constructor(private readonly rutas: PresaleRouteService) {}
+
+  @Get()
+  @RequireAnyPermission(Permission.VENDOR_APP_ACCESS, Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Mi ruta de hoy: sin iniciar, en ruta o finalizada, con sus pedidos' })
+  myDay(): Promise<SellerRouteDay> {
+    return this.rutas.myDay();
+  }
+
+  @Post('start')
+  @RequireAnyPermission(Permission.VENDOR_APP_ACCESS, Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Iniciar mi ruta de hoy (idempotente)' })
+  start(): Promise<SellerRouteDay> {
+    return this.rutas.startDay();
+  }
+
+  @Post('finish')
+  @RequireAnyPermission(Permission.VENDOR_APP_ACCESS, Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'Finalizar mi ruta: sus pedidos le llegan al surtidor como uno solo' })
+  finish(): Promise<SellerRouteDay> {
+    return this.rutas.finishDay();
   }
 }

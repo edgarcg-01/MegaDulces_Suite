@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
@@ -42,16 +42,22 @@ import { PermissionsService } from '../../../core/services/permissions.service';
   imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, FreshnessPillComponent, TableModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ob">
-      <app-page-tabs [tabs]="tabsRD" />
+    <div class="ob" [class.ob-embebido]="embebido()">
+      <!-- [AUD-A6] Embebido dentro de /comercial/comisiones, el cromo sobra: la tira de
+           pestanas del sub-modulo y el H1 ya los pinta la pantalla anfitriona, y repetirlos
+           da DOS titulos y DOS tiras en la misma vista. Suelto (su ruta propia sigue viva)
+           se pinta como siempre. -->
+      @if (!embebido()) { <app-page-tabs [tabs]="tabsRD" /> }
       <header class="ob-head">
-        <div>
-          <h1>Bono por objetivo mensual</h1>
-          <p class="ob-sub">
-            Tres criterios por ruta con su peso. Dos se miden solos; el tercero se marca, y la
-            marca deja fecha, responsable y motivo.
-          </p>
-        </div>
+        @if (!embebido()) {
+          <div>
+            <h1>Bono por objetivo mensual</h1>
+            <p class="ob-sub">
+              Tres criterios por ruta con su peso. Dos se miden solos; el tercero se marca, y la
+              marca deja fecha, responsable y motivo.
+            </p>
+          </div>
+        }
         <div class="ob-mes">
           <label for="ob-anio">Mes</label>
           <select id="ob-anio" [value]="anio()" (change)="setAnio($any($event.target).value)">
@@ -399,6 +405,13 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 })
 export class ComercialComisionesObjetivoComponent {
   /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
+  /**
+   * `[AUD-A6]` Cuando esta pantalla vive DENTRO de `/comercial/comisiones`, el anfitrion ya
+   * pinta la tira de pestanas y el titulo. Sin esto se veian dos de cada uno.
+   * ⛔ Nace en `false`: su ruta propia sigue funcionando igual que antes.
+   */
+  readonly embebido = input(false);
+
   readonly tabsRD = RUTA_DIRECTA_TABS;
   private readonly svc = inject(ComercialService);
   private readonly perms = inject(PermissionsService);

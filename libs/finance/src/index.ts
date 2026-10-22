@@ -38,6 +38,7 @@ export * from './lib/polizas/polizas.service';
 export * from './lib/polizas/poliza-type-audit.service';
 export * from './lib/purchase-book/finance-purchase-book.module';
 export * from './lib/purchase-book/purchase-book.service';
+export * from './lib/purchase-book/cfdi-estatus.port';
 export * from './lib/payment-program/finance-payment-program.module';
 export * from './lib/payment-program/payment-program.service';
 export * from './lib/caja/finance-caja-general.module';
@@ -62,6 +63,7 @@ export * from './lib/caja/cash-cut.engine';
 export * from './lib/caos/caos-ingreso-recon.service';
 export * from './lib/caos/caos-ingreso-cron.service';
 export * from './lib/caos/caos-deposito-grano';
+export * from './lib/caos/caos-saldo';
 export * from './lib/cancelled-docs/finance-cancelled-docs.module';
 export * from './lib/cancelled-docs/cancelled-docs.service';
 // [CSU.1] Cortes/Sucursales. El motor NO se reexporta: sus nombres cortos (r2, estadoCobro) chocarían en el barril.

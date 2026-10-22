@@ -1,4 +1,5 @@
 import type { ReceiptExpediente } from '@megadulces/contracts';
+import { escalaDeLectura } from '@megadulces/contracts';
 import { EntradaDetail, EntradaLinea, ReceiptDeposit, type MotivoDescarte } from './entradas.service';
 import { money } from '../../shared/util';
 
@@ -154,6 +155,17 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQ
     return { ...base, tone: 'warn', icon: 'pi-clone',
       titulo: 'Cuadra con la captura de oficinas, no con la de la sucursal',
       lectura: `La remisión dice ${money(ocr)} y coincide con lo que oficinas capturó en su folio ${gemela.folio} (${money(gemela.monto)}). La de la sucursal dice ${money(kepler)}: la diferencia de ${money(dif)} es entre nuestras dos capturas, no con el proveedor.` };
+  }
+  // `[RE.44]` La misma cifra con el separador corrido (`22.50` leído por `22,500`). Es un error de
+  // LECTURA, no un descuadre con el proveedor: pintarlo como «cobra de menos $22,477» lleva a
+  // devolver una factura que estaba bien. No se da por cuadrado: se dice qué es y se verifica a ojo.
+  const escala = escalaDeLectura(ocr, kepler);
+  if (escala != null) {
+    return { ...base, tone: 'warn', icon: 'pi-search',
+      titulo: 'Probable error de lectura del total',
+      lectura: `El OCR leyó ${money(ocr)} y Kepler registró ${money(kepler)}: es la misma cifra con el separador corrido`
+        + ` (×${escala >= 1 ? escala.toLocaleString('es-MX') : `1/${Math.round(1 / escala).toLocaleString('es-MX')}`}).`
+        + ' Confirma el total en el papel de la derecha: no es una diferencia con el proveedor.' };
   }
   const sentido = (delta as number) > 0 ? 'El documento cobra de MÁS' : 'El documento cobra de MENOS';
   // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.

@@ -4,7 +4,8 @@ import { KNEX_NEW_DB, latirCron } from '@megadulces/platform-core';
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import {
-  avisoCortesAbiertos, debeAvisar, huellaDeSituacion, UMBRAL_CORTE_ABIERTO_H,
+  avisoCortesAbiertos, avisoRevisionTardia, debeAvisar, huellaDeSituacion, UMBRAL_CORTE_ABIERTO_H, HORA_LIMITE_REVISION,
+  type RevisionTardia,
   type CorteAbiertoFila, type MedicionCortesAbiertos,
 } from './caja-corte-abierto.engine';
 import { jornadasSinCorte, bandejaSinConfirmar, hoyMx } from './caja-jornadas.query';
@@ -16,6 +17,10 @@ export interface MedicionSensorCorte extends MedicionCortesAbiertos {
   universo: number;
   /** Si este pase mandó aviso (o lo calló por ser la misma situación de hace menos de 6 h). */
   avisado: boolean;
+  /** `[CGS.3b]` Cortes cerrados que pasaron las 12:00 del día siguiente sin revisar. */
+  sinRevisar: RevisionTardia[];
+  /** A quién se le escaló: la supervisora (tesorería) y la suplente (Dirección). */
+  escaladoA: string[];
 }
 
 /**
@@ -34,6 +39,8 @@ export class CajaCorteAbiertoScannerService {
   private running = false;
   /** Lo último que se avisó: el canal no agrupa, y repetir lo mismo cada hora es ruido. */
   private ultimoAviso: { huella: string; at: number } | null = null;
+  /** `[CGS.3b]` Lo mismo para el escalamiento de la revisión: otra situación, otra huella. */
+  private ultimoEscalamiento: { huella: string; at: number } | null = null;
 
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
@@ -52,7 +59,8 @@ export class CajaCorteAbiertoScannerService {
     this.running = true;
     const t0 = Date.now();
     const fallas: string[] = [];
-    let m: MedicionSensorCorte = { abiertos: [], jornadasSinCorte: [], inicioLibro: null, bandeja: null, universo: 0, avisado: false };
+    let m: MedicionSensorCorte = { abiertos: [], jornadasSinCorte: [], inicioLibro: null, bandeja: null, universo: 0, avisado: false, sinRevisar: [], escaladoA: [] };
+    let destinatarios: string[] = [];
     try {
       await this.knex.transaction(async (trx) => {
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
@@ -82,7 +90,30 @@ export class CajaCorteAbiertoScannerService {
           bandeja,
           universo: Number(universo.rows[0]?.n ?? 0),
           avisado: false,
+          sinRevisar: [],
+          escaladoA: [],
         };
+
+        // `[CGS.3b]` D2: cerrados que pasaron las 12:00 del día siguiente sin que nadie los autorizara
+        // ni observara. Si `CAJA_CANDADO_REVISION_DESDE` está fijada, cuenta desde ahí (el mismo
+        // arranque que el candado 2: el atraso viejo se trabaja aparte, no se re-avisa cada 6 h).
+        const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(process.env['CAJA_CANDADO_REVISION_DESDE'] ?? ''))
+          ? String(process.env['CAJA_CANDADO_REVISION_DESDE']) : null;
+        const tardios = await trx.raw(`
+          SELECT folio, to_char(fecha, 'YYYY-MM-DD') AS fecha
+            FROM finance.cash_ledger_cuts
+           WHERE tenant_id = ? AND estado = 'cerrado'
+             AND (fecha + 1)::timestamp + make_interval(hours => ?) <= (now() AT TIME ZONE 'America/Mexico_City')
+             AND (?::date IS NULL OR fecha >= ?::date)
+           ORDER BY fecha`, [tenantId, HORA_LIMITE_REVISION, desde, desde]);
+        m.sinRevisar = tardios.rows.map((r: RevisionTardia) => ({ folio: r.folio, fecha: r.fecha }));
+        if (m.sinRevisar.length) {
+          const gente = await trx.raw(`
+            SELECT username FROM identity.users
+             WHERE tenant_id = ? AND activo AND deleted_at IS NULL AND role_name IN ('tesoreria', 'direccion')
+             ORDER BY username`, [tenantId]);
+          destinatarios = gente.rows.map((g: { username: string }) => g.username);
+        }
       });
     } catch (e) {
       fallas.push(e instanceof Error ? e.message : String(e));
@@ -116,6 +147,25 @@ export class CajaCorteAbiertoScannerService {
       }
     } else {
       this.ultimoAviso = null;   // cuando se resuelve, el próximo problema se avisa de inmediato
+    }
+
+    // `[CGS.3b]` El escalamiento va POR PERSONA (`para_usuario`), no al área: «todos los de Finanzas»
+    // incluiría a la caja, que es justo quien no revisa. ⚠️ Sin destinatarios se declara en el latido.
+    const escala = fallas.length ? null : avisoRevisionTardia(m.sinRevisar);
+    if (escala) {
+      const huella = `${escala.severity}|${m.sinRevisar.map((t) => t.folio).join(',')}`;
+      const notify = this.notifier?.notify?.bind(this.notifier);
+      if (notify && destinatarios.length && debeAvisar(this.ultimoEscalamiento, huella, ahoraMs)) {
+        for (const u of destinatarios) {
+          await notify(tenantId, { ...escala, route: '/finanzas/caja-general/arqueos', para_usuario: u });
+        }
+        m.escaladoA = destinatarios;
+        this.ultimoEscalamiento = { huella, at: ahoraMs };
+      } else if (!destinatarios.length) {
+        this.logger.warn(`[CGS.3b] ${m.sinRevisar.length} corte(s) sin revisar y NADIE en tesorería ni Dirección a quién escalarlos`);
+      }
+    } else {
+      this.ultimoEscalamiento = null;
     }
     return m;
   }

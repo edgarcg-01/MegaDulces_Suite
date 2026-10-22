@@ -1,0 +1,210 @@
+# ═══ GLITCHTIP — errores de la API agrupados, con mensaje y línea ═══  [ERR.2] (D1 de Edgar, 2026-10-21)
+#
+# ── Qué resuelve ────────────────────────────────────────────────────────────────────────────
+# `analytics.ui_usage` cuenta CUÁNTOS errores hay por ruta (ERR.1), pero no dice cuál ni dónde.
+# Medido el 2026-10-21: ~200 errores/día en 37 rutas. GlitchTip los AGRUPA por tipo (mismo
+# mensaje + misma pila = un grupo) y guarda el mensaje y la línea; el script de ERR.4 convierte cada
+# grupo en UN issue de GitHub. Es el mismo SDK de Sentry que `apps/api/src/instrument.ts` ya trae.
+#
+# ── Decisiones ──────────────────────────────────────────────────────────────────────────────
+# 1. ⛔ SÓLO RED INTERNA. Ni Cloudflare ni Caddy publican esto. La API le habla por el DNS del
+#    clúster (`glitchtip-web.obs.svc.cluster.local:8000`); los errores de la PANTALLA entrarán por la
+#    API (ERR.3), que es donde se limpian los datos personales antes de mandarlos. La UI se ve en la
+#    LAN por NodePort 30086, con el login de GlitchTip y el registro abierto APAGADO.
+# 2. Postgres por hostPath y SIN `limits.memory` (trampa de la caché de página: ver
+#    50-pg-rag.deployment.yaml). Web y worker SÍ llevan límite: son Python y no deben poder comerse
+#    el nodo (md al 77 % de memoria el 2026-10-21).
+# 3. Disco: md estaba al 83 % (82 GB libres) dos días después de caerse por disco lleno. Los eventos
+#    se borran a los 30 días (`GLITCHTIP_MAX_EVENT_LIFE_DAYS`) y los archivos subidos a los 30.
+# 4. Imagen fijada: glitchtip/glitchtip:6.2.6 (2026-08-08). Nunca `latest`.
+#
+# ── Secretos (NO viven en este repo) ────────────────────────────────────────────────────────
+#   mkdir -p /home/superoot/glitchtip/pg && chmod 700 /home/superoot/glitchtip/pg   (dueño uid 1000)
+#   k3s kubectl -n obs create secret generic glitchtip-env \
+#     --from-literal=SECRET_KEY="$(openssl rand -hex 32)" \
+#     --from-literal=POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+#   PW=$(k3s kubectl -n obs get secret glitchtip-env -o jsonpath={.data.POSTGRES_PASSWORD} | base64 -d)
+#   (armar DATABASE_URL en el Secret con esa clave: esquema postgres, usuario glitchtip, host
+#    gt-postgres.obs.svc.cluster.local:5432, base glitchtip — con kubectl patch --type merge
+#    sobre stringData.DATABASE_URL. No se escribe aquí: gitleaks lo bloquea, y con razón.)
+#
+# ── Arranque ────────────────────────────────────────────────────────────────────────────────
+#   k3s kubectl apply -f ops/k3s/61-glitchtip.yaml
+#   k3s kubectl -n obs wait --for=condition=complete job/glitchtip-migrate --timeout=600s
+#   admin: k3s kubectl -n obs exec deploy/glitchtip-web -- ./manage.py createsuperuser
+#
+# ── Reversa ─────────────────────────────────────────────────────────────────────────────────
+#   k3s kubectl delete -f ops/k3s/61-glitchtip.yaml   (los datos quedan en /home/superoot/glitchtip)
+#   y quitar SENTRY_DSN de la API: sin DSN el SDK es inerte.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: gt-postgres, namespace: obs, labels: { app: gt-postgres } }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: gt-postgres } }
+  template:
+    metadata: { labels: { app: gt-postgres } }
+    spec:
+      # La carpeta del hostPath la crea `superoot` (uid 1000) sin sudo; Postgres corre con ese mismo
+      # uid para poder escribirla. La imagen oficial acepta un uid arbitrario si el directorio es suyo.
+      securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
+      containers:
+        - name: postgres
+          image: postgres:16.4-alpine
+          env:
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - { name: POSTGRES_USER, value: glitchtip }
+            - { name: POSTGRES_DB, value: glitchtip }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: POSTGRES_PASSWORD } }
+          ports: [{ containerPort: 5432 }]
+          resources:
+            # ⛔ SIN limits.memory, a propósito (trampa de la caché de página).
+            requests: { memory: "192Mi", cpu: "20m" }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "glitchtip"] }
+            periodSeconds: 10
+          volumeMounts: [{ name: datos, mountPath: /var/lib/postgresql/data }]
+      volumes:
+        - name: datos
+          hostPath: { path: /home/superoot/glitchtip/pg, type: Directory }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: gt-postgres, namespace: obs }
+spec:
+  selector: { app: gt-postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: gt-valkey, namespace: obs, labels: { app: gt-valkey } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: gt-valkey } }
+  template:
+    metadata: { labels: { app: gt-valkey } }
+    spec:
+      containers:
+        - name: valkey
+          image: redis:7.2.5-alpine
+          args: ["--save", "", "--appendonly", "no", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+          ports: [{ containerPort: 6379 }]
+          resources:
+            requests: { memory: "32Mi", cpu: "5m" }
+            limits: { memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: gt-valkey, namespace: obs }
+spec:
+  selector: { app: gt-valkey }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: glitchtip-config, namespace: obs }
+data:
+  PORT: "8000"
+  REDIS_URL: redis://gt-valkey.obs.svc.cluster.local:6379/0
+  GLITCHTIP_DOMAIN: http://192.168.0.222:30086
+  DEFAULT_FROM_EMAIL: glitchtip@megadulces.local
+  EMAIL_URL: consolemail://
+  ENABLE_USER_REGISTRATION: "False"
+  ENABLE_ORGANIZATION_CREATION: "False"
+  GLITCHTIP_MAX_EVENT_LIFE_DAYS: "30"
+  GLITCHTIP_MAX_FILE_LIFE_DAYS: "30"
+  CELERY_WORKER_AUTOSCALE: "1,2"
+  CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
+---
+# DATABASE_URL vive ENTERA en el Secret (la regla db-connection-string-with-password de gitleaks no
+# admite ni una URL con la clave como variable en el repo, y tiene razón).
+apiVersion: batch/v1
+kind: Job
+metadata: { name: glitchtip-migrate, namespace: obs }
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: glitchtip/glitchtip:6.2.6
+          command: ["./bin/run-migrate.sh"]
+          envFrom: [{ configMapRef: { name: glitchtip-config } }]
+          env:
+            - name: SECRET_KEY
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: SECRET_KEY } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: POSTGRES_PASSWORD } }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: DATABASE_URL } }
+          resources:
+            requests: { memory: "192Mi", cpu: "50m" }
+            limits: { memory: "512Mi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: glitchtip-web, namespace: obs, labels: { app: glitchtip-web } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: glitchtip-web } }
+  template:
+    metadata: { labels: { app: glitchtip-web } }
+    spec:
+      containers:
+        - name: web
+          image: glitchtip/glitchtip:6.2.6
+          envFrom: [{ configMapRef: { name: glitchtip-config } }]
+          env:
+            - name: SECRET_KEY
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: SECRET_KEY } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: POSTGRES_PASSWORD } }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: DATABASE_URL } }
+          ports: [{ containerPort: 8000 }]
+          resources:
+            requests: { memory: "256Mi", cpu: "50m" }
+            limits: { memory: "768Mi" }
+          readinessProbe:
+            httpGet: { path: /_health/, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata: { name: glitchtip-web, namespace: obs }
+spec:
+  type: NodePort
+  selector: { app: glitchtip-web }
+  # 30086: siguiente libre del rango que ya usa el clúster (dozzle = 30085). Sólo LAN.
+  ports: [{ name: http, port: 8000, targetPort: 8000, nodePort: 30086 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: glitchtip-worker, namespace: obs, labels: { app: glitchtip-worker } }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: glitchtip-worker } }
+  template:
+    metadata: { labels: { app: glitchtip-worker } }
+    spec:
+      containers:
+        - name: worker
+          image: glitchtip/glitchtip:6.2.6
+          command: ["./bin/run-celery-with-beat.sh"]
+          envFrom: [{ configMapRef: { name: glitchtip-config } }]
+          env:
+            - name: SECRET_KEY
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: SECRET_KEY } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: POSTGRES_PASSWORD } }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: glitchtip-env, key: DATABASE_URL } }
+          resources:
+            requests: { memory: "256Mi", cpu: "20m" }
+            limits: { memory: "768Mi" }

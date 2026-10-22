@@ -5,6 +5,55 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## La fecha de entrega es hoy por omisión (MCP.3.4, 2026-10-20)
+
+### El problema
+
+Al levantar un pedido, la fecha de entrega aparecía en el próximo día hábil (mañana). Los pedidos que se
+surten el mismo día había que cambiarlos a mano, y si no se cambiaban le llegaban al surtidor en «Mañana».
+
+### La solución
+
+La fecha propuesta es **hoy**. El vendedor la puede mover a otro día como siempre. El domingo, que no hay
+reparto, propone el lunes.
+
+### Cómo se implementó
+
+- `fechaEntregaPorOmision()` en `apps/vendor/src/app/core/date/biz-days.ts`, en hora local, recibe «hoy» para
+  poder probarla sin el reloj. `vendor-take-order` la usa como valor inicial.
+- Al corregir un pedido ya hecho se conserva su fecha (no se reagenda solo).
+
+### Por qué así
+
+- **La regla de fechas vive en un solo lugar** (`biz-days.ts`), como ya estaba decidido: antes estuvo
+  triplicada y divergente.
+- **El domingo se respeta**: es la razón por la que antes se usaba el próximo día hábil.
+
+---
+
+## Volver al inicio desde «Pedido agendado» (MCP.3.3, 2026-10-19)
+
+### El problema
+
+Después de agendar un pedido, la pantalla de éxito sólo mostraba «Capturar exhibición». El botón que regresa al
+inicio («Finalizar visita») existía, pero la barra de abajo de la app lo tapaba: el vendedor no tenía cómo volver.
+
+### La solución
+
+El botón se ve y dice lo que hace: **«Finalizar visita e ir al inicio»**, con ícono de casa. Cierra la visita y
+regresa a Mi ruta.
+
+### Cómo se implementó
+
+- Los botones (fijos) suben por encima de la barra: `bottom` de 5rem + 0.75rem y `z-index` 11 (la barra es 10).
+- Si cerrar la visita falla, igual lleva al inicio.
+
+### Por qué así
+
+- **No se agregó un segundo botón** que vaya al inicio sin cerrar la visita: dejaría visitas abiertas en la ruta.
+
+---
+
 ## Abrir el cliente sin esperar el catálogo (VTK.11, 2026-10-15)
 
 ### El problema

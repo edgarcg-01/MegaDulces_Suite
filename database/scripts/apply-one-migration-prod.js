@@ -60,8 +60,21 @@
  * ⚠️ `PROD_DB_URL="$DATABASE_URL_NEW"` se evalúa **dentro** del pod: el secreto nunca sale de ahí
  *    ni aparece en el historial de esta máquina. El pod no trae `NODE_ENV=production`, así que sin
  *    esa asignación la cadena de `DATABASE_URL_NEW` no se elige y el script aborta pidiendo URL.
- * ⚠️ Hay **DOS** pods de `api` en el deployment. Da igual cuál, pero hay que copiar los archivos
- *    al MISMO en el que se va a ejecutar — `{.items[0]}` no garantiza devolver siempre el mismo.
+ * ⚠️ Hay **DOS** pods vivos de `api`. Da igual cuál, pero hay que copiar los archivos al MISMO en
+ *    el que se va a ejecutar — `{.items[0]}` no garantiza devolver siempre el mismo.
+ * ⛔ **Y `{.items[0]}` puede devolver un pod MUERTO.** El 2026-10-20 el listado traía además
+ *    `api-67dfcf95cd-kfw75` en fase **`Succeeded`** desde el día anterior, y gana el índice 0 por
+ *    orden alfabético: el `kubectl cp` no se queja y el `exec` muere con
+ *    *«cannot exec into a container in a completed pod»*. Pedí siempre un pod **vivo**:
+ *
+ *      API=$(kubectl get pods -n prod -l app=api --field-selector=status.phase=Running \
+ *              -o jsonpath='{.items[0].metadata.name}')
+ *
+ * ⛔⛔ **Y antes de ejecutar, comprobá que el archivo del destino es el tuyo** (`sha256sum` acá y
+ *    allá). El 2026-10-20 se aplicó una migración copiada a `/tmp` **antes** de una corrección:
+ *    corrió la versión vieja, quedó en el ledger con ese nombre y el repo pasó a describir algo
+ *    que nunca corrió. Este script valida la identidad del **clúster**, no la del **archivo** —
+ *    y un archivo viejo no falla: aplica otra cosa y se marca verde.
  *
  * ── PRE-VUELO, y por qué no alcanza `knex_migrations_lock` ──────────────────────────────────
  * Antes de aplicar, preguntar por los candados REALES desde dentro del pod de Postgres, donde se

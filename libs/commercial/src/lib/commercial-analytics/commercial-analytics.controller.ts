@@ -926,7 +926,7 @@ export class CommercialAnalyticsController {
   // ─────────── BI.5 — "Preguntale al Sell-Out" (chat tool-use, cero numeros del LLM) ───────────
   @Post('sell-out/ask')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
-  @Throttle({ default: { limit: 15, ttl: 60_000 } })
+  @Throttle({ long: { limit: 15, ttl: 60_000 } })
   @ApiOperation({ summary: 'BI.5 — Pregunta en lenguaje natural sobre el sell-out. El LLM elige tools deterministas; los numeros salen de la DB. Body: { message, history?, think? }.' })
   sellOutAsk(@Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
     return this.selloutChat.ask({ message: body?.message || '', history: body?.history, think: !!body?.think });
@@ -1441,7 +1441,7 @@ export class CommercialAnalyticsController {
 
   @Post('sales-by-route/promo')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle({ long: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary:
       'RR-PROMO — Evalúa una mecánica de incentivo de ruta (RD) desde un ENUNCIADO en lenguaje natural. ' +
@@ -1454,7 +1454,7 @@ export class CommercialAnalyticsController {
 
   @Post('sales-by-route/promo.xlsx')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle({ long: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'RR-PROMO — XLSX del incentivo (resumen por ruta + clientes que participaron). Body igual que /promo.' })
   async routePromoXlsx(@Res() res: Response, @Body() body: PromoQuery) {
     const r = await this.routePromoSvc.evaluate(body || {});
@@ -1465,7 +1465,7 @@ export class CommercialAnalyticsController {
 
   @Post('sales-by-route/promo.pdf')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle({ long: { limit: 20, ttl: 60_000 } })
   @ApiOperation({ summary: 'RR-PROMO — PDF del incentivo (resumen por ruta + clientes que participaron). Body igual que /promo.' })
   async routePromoPdf(@Res() res: Response, @Body() body: PromoQuery) {
     const r = await this.routePromoSvc.evaluate(body || {});

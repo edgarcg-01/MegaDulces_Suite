@@ -38,6 +38,16 @@ export const CATALOGO_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
   /**
+   * `[MOS.2]` No registrados: lo que se escaneó en el mostrador y Kepler no tiene en esa sucursal.
+   * Mismo permiso que su endpoint (`GET /commercial/floor-stockouts/no-registrados`).
+   */
+  {
+    label: 'No registrados',
+    route: '/compras/catalogo/no-registrados',
+    icon: 'pi pi-question-circle',
+    permission: Permission.COMMERCIAL_PRODUCTS_VER,
+  },
+  /**
    * `[CAT-PRECIO.1]`/`[CAT-PRECIO.5]` Mantenimiento: todo lo que le falta o está mal a la ficha de
    * Kepler — lo que no coincide entre sucursales y lo que está sin clasificar (línea, tipo, grupo).
    * Pedido de Compras (2026-10-16): Precios es el catálogo de precios; lo que hay que CORREGIR vive aquí.

@@ -265,7 +265,7 @@ async function login(username) {
     console.log('\n6 — ⭐ el descuento del cliente es capa DOCUMENTO, no capa precio');
     const cli = await knex.raw(
       `SELECT customer_code, discount_1_pct FROM analytics.v_erp_wholesale_customers
-        WHERE sucursal = ? AND discount_1_pct > 0 ORDER BY customer_code LIMIT 1`, [BRANCH],
+        WHERE sucursal = ? AND discount_1_pct > 0 AND customer_code ~ '^C[0-9]{4}$' ORDER BY customer_code LIMIT 1`, [BRANCH],
     );
     if (!cli.rows.length) {
       declarar('la capa documento', `ningún cliente de la sucursal ${BRANCH} tiene descuento configurado`);

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { PurchaseBookService, ImpuestosModo, TipoCorrida } from './purchase-book.service';
+import { PurchaseBookService, ImpuestosModo, TipoCorrida, SugerenciasCuenta, VerificacionSatMes, PreparacionMes } from './purchase-book.service';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. El trámite mensual se lleva aquí y a ContPAQi
@@ -50,6 +50,21 @@ export class PurchaseBookController {
     return this.svc.coberturaUuid();
   }
 
+  // [LC.18] Proveedor nuevo: van ANTES de `no-asociados/:mes/...` por la misma razón de arriba.
+  @Get('no-asociados/proveedor/:rfc/sugerencias')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Para un RFC sin cuenta en el libro: las cuentas 212 de ContPAQi candidatas, con su razón.' })
+  sugerirCuenta(@Param('rfc') rfc: string): Promise<SugerenciasCuenta> {
+    return this.svc.sugerirCuenta(rfc);
+  }
+
+  @Post('no-asociados/proveedor/cuenta')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna a un RFC su cuenta de proveedor 212 (y con ella sus 501/502). La cuenta tiene que existir en ContPAQi.' })
+  asignarCuenta(@Body() body: { rfc: string; cuenta: string }): ReturnType<PurchaseBookService['asignarCuenta']> {
+    return this.svc.asignarCuenta(body?.rfc, body?.cuenta);
+  }
+
   @Get('no-asociados/:mes')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'Los movimientos no asociados del mes, con los que ya están posteados marcados aparte.' })
@@ -75,6 +90,23 @@ export class PurchaseBookController {
     @Body() body: { folio_poliza?: number; concepto?: string },
   ) {
     return this.svc.setCaratula(mes, body ?? {}, 'complemento');
+  }
+
+  // [LC.19.1] Lo que no consta vigente ante el SAT no se postea. Esto lo verifica AHORA, por
+  // lotes (cada llamada ~25 s); la pantalla repite hasta que `restantes` llega a 0.
+  @Post('no-asociados/:mes/verificar-sat')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Verifica ante el SAT (vigente/cancelado) las facturas del mes que podrían entrar al TXT, un lote por llamada.' })
+  verificarSat(@Param('mes') mes: string): Promise<VerificacionSatMes> {
+    return this.svc.verificarSat(mes, 'complemento');
+  }
+
+  // [LC.19.6] Sin cron: lo dispara la pantalla al abrir el mes. Una vuelta por llamada.
+  @Post('no-asociados/:mes/preparar')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Lo que el mes hace solo: aplicado si ContPAQi ya casa, cuentas con nombre idéntico, un lote del SAT y, en el mes que toca, el archivo.' })
+  preparar(@Param('mes') mes: string): Promise<PreparacionMes> {
+    return this.svc.preparar(mes);
   }
 
   @Post('no-asociados/:mes/generar')

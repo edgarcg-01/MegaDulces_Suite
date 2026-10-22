@@ -21,7 +21,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Observable, forkJoin, from, of, switchMap, catchError, map } from 'rxjs';
+import { Observable, ReplaySubject, forkJoin, from, of, switchMap, catchError, map } from 'rxjs';
 import type { OfflinePedidoLine } from '../../../core/services/offline-database.service';
 import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type CatalogoAlAbrir } from '../vendor.service';
 import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
@@ -29,7 +29,7 @@ import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
-import { nextBusinessDayIso, todayIso } from '../../../core/date/biz-days';
+import { fechaEntregaPorOmision, todayIso } from '../../../core/date/biz-days';
 import {
   Presentacion,
   ajustarARejilla,
@@ -76,7 +76,11 @@ const foldText = (s: string | null | undefined): string =>
     InputTextModule,
     ConfirmDialogModule,
   ],
-  providers: [ConfirmationService, MessageService],
+  // [MCP.3.5] SIN MessageService propio: esta pantalla no tiene <p-toast>, así que una
+  // instancia local se tragaba TODOS sus avisos (el error de agregar incluido) y el vendedor
+  // veía la cantidad volver a 0 sin explicación. Cuelga del shell /vendor, que sí pinta el
+  // toast: inyectando el suyo, los avisos llegan.
+  providers: [ConfirmationService],
   template: `
     <p-confirmdialog></p-confirmdialog>
     
@@ -284,7 +288,7 @@ const foldText = (s: string | null | undefined): string =>
               <div class="pb">
                 <div class="pn">{{ p.product_name }}</div>
                 <div class="pm">
-                  <span class="pr">{{ fmtMoney(unitPriceDisplay(p)) }}@if (selectedUnit(p); as su) {<span class="pr-u">/{{ su.unit }}</span>}</span>
+                  <span class="pr" [class.off]="mayoreoAplicado(p.product_id)">{{ fmtMoney(unitPriceDisplay(p)) }}<span class="pr-u">&nbsp;c/u</span></span>
                   <!-- Selector de medida (de menor a mayor): solo si el SKU ofrece más de una. -->
                   @if (hasUnitChoice(p)) {
                     <span class="unit-sel" role="group" aria-label="Unidad">
@@ -300,9 +304,6 @@ const foldText = (s: string | null | undefined): string =>
                   }
                   @if (p.stock_available != null) {
                     <span class="stk" [ngClass]="stockClass(p)">{{ stockLabel(p) }}</span>
-                  }
-                  @if (p.rotation_tier === 'alta') {
-                    <span class="rot"><i class="pi pi-bolt"></i> Alta rotación</span>
                   }
                 </div>
                 <!-- [VTK.9] Al buscar: cuánto trae la caja, sin abrir la ficha ni hacer la cuenta. -->
@@ -324,17 +325,27 @@ const foldText = (s: string | null | undefined): string =>
                     <span>1 {{ ce.caja }} = <b>{{ ce.piezas }}</b>&nbsp;{{ ce.base }}@if (ce.enPedido) {<span class="sep"> · en el pedido <b>{{ ce.enPedido }}</b>&nbsp;{{ ce.base }}</span>}</span>
                   </div>
                 }
-                <!-- Incitar mayoreo: el quiebre por cantidad, en la unidad activa. -->
-                @if (mayoreoHint(p); as mh) {
-                  <div class="may-hint" [class.reached]="mh.reached">
-                    <i class="pi pi-tag"></i>
-                    @if (mh.reached) {
-                      <span>Mayoreo aplicado · {{ fmtMoney(mh.unit) }} c/{{ mh.unitLabel }} <b>−{{ mh.pct }}%</b></span>
-                    } @else if (mh.need > 0 && cartQty(p.product_id) > 0) {
-                      <span>Faltan <b>{{ mh.need }}</b> {{ mh.unitLabel }} para mayoreo · {{ fmtMoney(mh.unit) }} <b>−{{ mh.pct }}%</b></span>
-                    } @else {
-                      <span>Mayoreo desde <b>{{ mh.from }}</b> {{ mh.unitLabel }} · {{ fmtMoney(mh.unit) }} <b>−{{ mh.pct }}%</b></span>
+                <!-- [MCP.3.6] Los DOS precios siempre a la vista (pedido de David, 2026-10-21):
+                     el normal arriba y el de mayoreo aquí, en su propio renglón para no empujar
+                     los botones de unidad. Se resalta cuando el SERVIDOR ya lo cobra en el
+                     renglón; el celular no lo calcula. Sin mayoreo real, no se pinta. -->
+                @if (mayoreoDe(p); as my) {
+                  <div class="may" [class.on]="mayoreoAplicado(p.product_id)">
+                    @if (mayoreoAplicado(p.product_id)) {
+                      <i class="pi pi-check-circle" aria-hidden="true"></i>
                     }
+                    <span>Mayoreo ({{ my.from }}+): <b>{{ fmtMoney(my.unit) }}</b>&nbsp;c/u</span>
+                    @if (mayoreoAplicado(p.product_id)) {
+                      <span class="may-st">· aplicado</span>
+                    }
+                  </div>
+                }
+                <!-- Si crear el renglón falló, se dice aquí mismo, pegado a la fila: un toast se
+                     va solo y la cantidad ya volvió a 0, así que sin esto no quedaba rastro. -->
+                @if (rowError()[p.product_id]; as re) {
+                  <div class="row-err" role="alert">
+                    <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                    <span>{{ re }}</span>
                   </div>
                 }
               </div>
@@ -582,15 +593,17 @@ const foldText = (s: string | null | undefined): string =>
       .prod .pm { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
       .prod .pm .pr { font-family: var(--font-mono); font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
       .prod .pm .stk { font-weight: 600; }
+      /* [MCP.3.6] Precio normal + mayoreo. El aplicado se dice con icono y texto, no sólo color. */
+      .prod .pm .pr.off { color: var(--text-muted); }
+      .prod .may { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .prod .may b { font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
+      .prod .may.on { color: var(--ok-fg); font-weight: 700; }
+      .prod .may.on b { color: var(--ok-fg); }
+      .prod .may i { font-size: var(--fs-xs); }
       .prod .pm .stk.ok { color: var(--ok-fg); } .prod .pm .stk.warn { color: var(--warn-fg); } .prod .pm .stk.bad { color: var(--bad-fg); }
-      .prod .pm .rot { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--action); font-weight: 700; }
-      .prod .pm .rot i { font-size: 0.62rem; }
-      /* Incitar mayoreo: quiebre por cantidad bajo la fila de producto. */
-      .prod .may-hint { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; font-weight: 600; color: var(--brand-900); background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.1rem 0.5rem; }
-      .prod .may-hint i { font-size: 0.66rem; color: var(--action); }
-      .prod .may-hint b { color: var(--action); font-weight: 800; }
-      .prod .may-hint.reached { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 10%, transparent); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
-      .prod .may-hint.reached i, .prod .may-hint.reached b { color: var(--ok-fg); }
+      /* [MCP.3.5] El renglón que no se pudo crear: el motivo queda pegado a la fila. */
+      .prod .row-err { display: flex; align-items: flex-start; gap: 0.3rem; margin-top: 0.25rem; font-size: 0.76rem; line-height: 1.35; font-weight: 600; color: var(--bad-fg); }
+      .prod .row-err i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       /* [VTK.9] Contenido de la caja en los resultados de búsqueda. */
       .prod .box-c { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; font-size: 0.76rem; color: var(--text-muted); }
       .prod .box-c i { font-size: 0.7rem; }
@@ -602,8 +615,12 @@ const foldText = (s: string | null | undefined): string =>
       .prod .box-sel .sep { color: var(--text-muted); }
       /* Selector de medida (PZA/PAQ/CJA) por línea. */
       .prod .pr .pr-u { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-left: 0.1rem; }
-      .prod .unit-sel { display: inline-flex; gap: 0.25rem; }
-      .prod .unit-sel .us-chip { font-size: 0.72rem; font-weight: 700; line-height: 1; padding: 0.22rem 0.5rem; border-radius: var(--r-pill, 999px); border: 1px solid var(--border-color); background: var(--surface-ground); color: var(--text-muted); cursor: pointer; }
+      /* [MCP.3.5] Botones de unidad a la medida del pulgar: 44px de alto aunque el puntero sea
+         fino (la app es de celular, pero también se abre en la laptop de oficina), texto del
+         cuerpo y aire entre ellos para no pegarle al vecino. Antes eran 0.72rem con 0.25rem
+         de separación: se elegía la unidad equivocada. */
+      .prod .unit-sel { display: inline-flex; gap: var(--sp-2, 0.5rem); }
+      .prod .unit-sel .us-chip { min-height: max(var(--tap-min, 44px), 2.75rem); min-width: 3.25rem; font-size: var(--fs-body, 0.875rem); font-weight: 800; line-height: 1; padding: 0 0.85rem; border-radius: var(--r-pill, 999px); border: 1.5px solid var(--border-color); background: var(--surface-ground); color: var(--text-muted); cursor: pointer; }
       .prod .unit-sel .us-chip.on { border-color: var(--action); background: var(--ember-soft); color: var(--brand-900); }
       /* Unidad junto a la cantidad en el carrito. */
       .stepper .q .q-u { display: block; font-size: 0.6rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; }
@@ -946,14 +963,22 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly pendingTotal = computed(() => this.pendingOrders().reduce((s, o) => s + Number(o.total), 0));
   readonly hasPreventa = computed(() => this.pendingOrders().some((o) => o.is_preventa));
 
-  // Fecha de entrega agendada (preventa). Default: próximo día HÁBIL (sáb→lun),
-  // fuente única compartida con Carga. Antes era `today+1` en UTC → en sábado
-  // caía en domingo (día sin reparto) y Carga —que busca el lunes— nunca lo veía.
-  requestedDate = nextBusinessDayIso();
+  // Fecha de entrega agendada (preventa). [MCP.3.4] Default: HOY en hora local (decisión de
+  // David, 2026-10-20): el pedido le llega al surtidor en "Hoy" y se puede mover a otro día.
+  // Domingo no hay reparto: ese día cae al próximo hábil (lunes), como antes.
+  // Antes era siempre el próximo día hábil; Carga y la bandeja del surtidor aceptan hoy.
+  requestedDate = fechaEntregaPorOmision();
   readonly minDate = todayIso();
   private customerId = '';
 
   readonly adding = signal<Record<string, boolean>>({});
+  /**
+   * [MCP.3.5] product_id → motivo (en palabras del vendedor) por el que NO se creó su renglón.
+   * Se pinta pegado a la fila y se borra en el siguiente intento que sí entra.
+   */
+  readonly rowError = signal<Record<string, string>>({});
+  /** [MCP.3.5] Secuencia de lecturas del pedido: sólo la más nueva escribe `cartLines`. */
+  private cartReadSeq = 0;
   /** Signal (no campo plano): un `computed` que lo lea reacciona al tipear. */
   readonly searchTerm = signal('');
 
@@ -965,6 +990,16 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   private readonly pendingQty = signal<Map<string, number>>(new Map());
   private qtyFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * [MCP.3.6] Cantidades YA mandadas al servidor y que el carrito todavía no refleja.
+   * `done` = el servidor ya contestó que sí; la entrada se borra cuando una lectura del pedido
+   * que salió DESPUÉS de esa respuesta la trae. Antes, el volcado borraba lo optimista al
+   * mandar el PUT y la fila volvía a la cantidad vieja mientras el PUT viajaba: el número
+   * «saltaba para atrás» y los toques de ese rato subían desde ahí y se perdían.
+   */
+  private readonly sentQty = signal<Map<string, { qty: number; done: boolean }>>(new Map());
+  /** [MCP.3.6] Volcado en vuelo: el siguiente espera a que vuelva (nunca dos PUT al mismo renglón a la vez). */
+  private flushEnVuelo: Observable<void> | null = null;
 
   stockClass(p: PriceRow): 'ok' | 'warn' | 'bad' {
     const s = Number(p.stock_available ?? 0);
@@ -974,15 +1009,16 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
   stockLabel(p: PriceRow): string {
     const s = Number(p.stock_available ?? 0);
-    if (s <= 0) return 'Sin stock';
+    // [MCP.3.5] «Existencias», no «stock»: es la palabra que usa el vendedor en ruta.
+    if (s <= 0) return 'Sin existencias';
     // Existencia en la MISMA unidad que se está pidiendo (paquetes/cajas enteros
     // disponibles). Para la unidad base se muestra el crudo.
     const f = this.unitFactor(p);
     if (f > 1) {
       const u = this.selectedUnit(p)?.unit ?? '';
-      return `Stock ${Math.floor(s / f)} ${u}`;
+      return `Existencias: ${Math.floor(s / f)} ${u}`;
     }
-    return `Stock ${s}`;
+    return `Existencias: ${s}`;
   }
 
   /** Productos del price list con precio real (lo pedible). */
@@ -1172,7 +1208,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    * servidor, que es quien resuelve tiers de volumen y promociones. No se recalcula
    * acá a propósito (sería inventar el número); se declara que todavía no es firme.
    */
-  readonly totalPendiente = computed(() => this.pendingQty().size > 0 || this.settling());
+  readonly totalPendiente = computed(() => this.pendingQty().size > 0 || this.sentQty().size > 0 || this.settling());
 
   /** Margen aprox. del pedido: (subtotal − costo) / subtotal. Null si no hay costo. */
   readonly cartMarginPct = computed(() => {
@@ -1206,6 +1242,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   cartQty(productId: string): number {
     const pend = this.pendingQty().get(productId);
     if (pend != null) return pend;
+    // [MCP.3.6] Lo mandado y aún no releído: es lo que el vendedor tocó, no lo de antes.
+    const enviada = this.sentQty().get(productId);
+    if (enviada != null) return enviada.qty;
     return this.qtyByProduct().get(productId) ?? 0;
   }
 
@@ -1252,10 +1291,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   /** Carga online: backend + cachea el contexto para poder abrir offline luego. */
   private loadOnline(customerId: string): void {
-    // Ronda 1: warehouse default + customer (en paralelo). El customer alimenta
-    // el catálogo de la ronda 2 sin re-pedirlo (antes se fetcheaba 2 veces).
+    // [VTK.13] Todo lo que no depende de otra respuesta sale A LA VEZ. Antes borrador,
+    // pendientes y habituales esperaban a la ronda de fuentes+cliente sin necesitarla, y las
+    // listas de precio abrían otro salto después del cliente: 3–4 viajes en serie por apertura.
+    // Ahora el único encadenado es catálogo ← (fuentes + cliente), y en el 2º cliente de la ruta
+    // fuentes y listas ya están en memoria (VendorService.deSesion).
     this.loadError.set(false);
-    forkJoin({
+    // El customer alimenta el catálogo sin re-pedirlo (antes se fetcheaba 2 veces).
+    const cabecera$ = forkJoin({
       // warehouse NO es crítico: si falla, seguimos con almacén vacío (sin badges
       // de stock) en vez de tumbar toda la pantalla. El customer SÍ es crítico.
       // Fuentes de stock del vendedor: sucursal de surtido (inicial) + camioneta.
@@ -1263,38 +1306,37 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         .myStockSources()
         .pipe(catchError(() => of({ sucursal: null, camioneta: null }))),
       customer: this.api.getCustomer(customerId),
+      // Sólo calienta la memoria: catalogInstant las lee de ahí sin otro viaje.
+      listas: this.api.precalentarListas().pipe(catchError(() => of(null))),
+    }).pipe(
+      switchMap(({ sources, customer }) => {
+        const warehouseId = sources.sucursal?.id || '';
+        // catalog con fallback: un 403/red ya no deja la pantalla en blanco;
+        // se renderiza el cliente y se avisa/reintenta.
+        // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
+        return this.api.catalogInstant(customer, warehouseId || undefined).pipe(
+          catchError(() =>
+            of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
+          ),
+          map((catalog) => ({ sources, customer, warehouseId, catalog })),
+        );
+      }),
+    );
+    forkJoin({
+      cabecera: cabecera$,
+      // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
+      // el borrador suelto del cliente, como siempre.
+      existingDraft: this.editingOrderId()
+        ? this.api.orderById(this.editingOrderId()!).pipe(catchError(() => of(null)))
+        : this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
+      pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
+      frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
     })
-      .pipe(
-        switchMap(({ sources, customer }) => {
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ cabecera: { sources, customer, warehouseId, catalog }, existingDraft, pending, frequent }) => {
           this.stockSources.set(sources);
           this.stockView.set('sucursal');
-          const warehouseId = sources.sucursal?.id || '';
-          return forkJoin({
-            customer: of(customer),
-            warehouseId: of(warehouseId),
-            // catalog/draft con fallback: un 403/red en ellos ya no deja la
-            // pantalla en blanco; se renderiza el cliente y se avisa/reintenta.
-            // [VTK.11] Con la copia que ya tiene el celular si sirve; la nueva se baja detrás.
-            catalog: this.api
-              .catalogInstant(customer, warehouseId || undefined)
-              .pipe(
-                catchError(() =>
-                  of<CatalogoAlAbrir>({ priceListId: '', prices: [], origen: 'servidor', at: Date.now() }),
-                ),
-              ),
-            // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
-            // el borrador suelto del cliente, como siempre.
-            existingDraft: this.editingOrderId()
-              ? this.api.orderById(this.editingOrderId()!).pipe(catchError(() => of(null)))
-              : this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
-            pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
-            frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
-          });
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: ({ customer, catalog, warehouseId, existingDraft, pending, frequent }) => {
           this.customer.set(customer);
           this.prices.set(catalog.prices);
           this.priceListId = catalog.priceListId;
@@ -1541,7 +1583,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       q > Number(p.stock_available) &&
       this.stockWarehouseId() === this.orderWarehouseId()
     ) {
-      this.toast.add({ severity: 'warn', summary: 'Stock actual bajo', detail: `Hoy hay ${p.stock_available}. Es preventa: se surte al repartir.`, life: 4000 });
+      this.toast.add({ severity: 'warn', summary: 'Pocas existencias hoy', detail: `Hoy hay ${p.stock_available}. Es preventa: se surte al repartir.`, life: 4000 });
     }
     if (this.offlineMode()) {
       this.haptic.selection();
@@ -1575,19 +1617,45 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       )
       .subscribe({
         next: () => {
-          this.adding.update((m) => ({ ...m, [p.product_id]: false }));
+          this.rowError.update((m) => { const n = { ...m }; delete n[p.product_id]; return n; });
           // reload primero; con el renglón ya en el carrito, el flush manda lo que el vendedor
           // haya tocado mientras se creaba (si quedó igual, no manda nada).
-          this.reloadCart(() => this.scheduleQtyFlush());
+          // [MCP.3.5] `adding` se apaga DESPUÉS de recargar, no antes: entre "el servidor lo
+          // creó" y "cartLines ya lo trae" el producto no tiene renglón, y un flush que cayera
+          // en ese hueco tiraba la cantidad pendiente por no encontrarle línea.
+          this.reloadCart(() => {
+            this.adding.update((m) => ({ ...m, [p.product_id]: false }));
+            this.scheduleQtyFlush();
+          });
         },
         error: (err) => {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           // Se deshace lo optimista: el renglón no existe.
           this.pendingQty.update((m) => { const n = new Map(m); n.delete(p.product_id); return n; });
           this.haptic.notification('error');
-          this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message });
+          const motivo = this.motivoDeError(err);
+          // [MCP.3.5] Además del toast (que se va solo), el motivo queda pegado a la fila.
+          this.rowError.update((m) => ({ ...m, [p.product_id]: `No se agregó: ${motivo}` }));
+          this.toast.add({ severity: 'error', summary: 'No se agregó el producto', detail: motivo, life: 6000 });
         },
       });
+  }
+
+  /**
+   * [MCP.3.5] El motivo de un error del servidor, legible para el vendedor. Nest manda
+   * `message` como texto o como lista (validación); cualquier otra forma —un HttpErrorResponse
+   * sin cuerpo, una caída de red— se dice en palabras, nunca "[object Object]" ni vacío.
+   */
+  private motivoDeError(err: unknown): string {
+    const e = err as { error?: { message?: unknown }; status?: number } | null;
+    const m = e?.error?.message;
+    if (typeof m === 'string' && m.trim()) return m.trim();
+    if (Array.isArray(m)) {
+      const partes = m.filter((x): x is string => typeof x === 'string' && !!x.trim());
+      if (partes.length) return partes.join('. ');
+    }
+    if (e?.status === 0) return 'Sin conexión con el servidor. Intenta de nuevo.';
+    return 'El servidor no lo aceptó. Intenta de nuevo o avisa a oficina.';
   }
 
   inc(line: OrderLine): void {
@@ -1616,16 +1684,54 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   private scheduleQtyFlush(): void {
     if (this.qtyFlushTimer) clearTimeout(this.qtyFlushTimer);
+    // [MCP.3.6] 400 ms desde el ÚLTIMO toque: una ráfaga de "+" sale como un solo PUT.
     this.qtyFlushTimer = setTimeout(() => {
+      this.qtyFlushTimer = null;
       this.flushQty().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         // Offline: applyLocalBatch ya actualizó cartLines → no recargar.
         next: () => { if (!this.offlineMode()) this.reloadCart(); },
         error: (err) => {
-          this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || err?.message });
+          // El motivo ya quedó pegado a la fila (rowError); el toast es el aviso general.
+          this.toast.add({ severity: 'error', summary: 'No se guardó un cambio de cantidad', detail: this.motivoDeError(err), life: 6000 });
           if (!this.offlineMode()) this.reloadCart(); // reconciliar con el server tras el fallo
         },
       });
-    }, 500);
+    }, 400);
+  }
+
+  /**
+   * [MCP.3.6] Un PUT/DELETE de cantidad, con su rastro: al volver bien marca la cantidad como
+   * confirmada (se suelta cuando el carrito releído la trae); al volver mal la suelta — la fila
+   * regresa al valor del servidor — y deja el motivo pegado a la fila. No relanza el error:
+   * así un renglón que falla no cancela a los demás del mismo volcado.
+   */
+  private rastrear(productId: string, qty: number, op$: Observable<unknown>): Observable<{ ok: boolean; err?: unknown }> {
+    const soltarSiEs = (m: Map<string, { qty: number; done: boolean }>, done: boolean | null) => {
+      const e = m.get(productId);
+      if (!e || e.qty !== qty) return m; // ya hay un envío más nuevo de ese producto
+      const n = new Map(m);
+      if (done == null) n.delete(productId);
+      else n.set(productId, { qty, done });
+      return n;
+    };
+    return op$.pipe(
+      map(() => {
+        this.sentQty.update((m) => soltarSiEs(m, true));
+        this.rowError.update((m) => {
+          if (!(productId in m)) return m;
+          const n = { ...m };
+          delete n[productId];
+          return n;
+        });
+        return { ok: true };
+      }),
+      catchError((err: unknown) => {
+        this.sentQty.update((m) => soltarSiEs(m, null));
+        this.rowError.update((m) => ({ ...m, [productId]: `No se cambió la cantidad: ${this.motivoDeError(err)}` }));
+        this.haptic.notification('error');
+        return of({ ok: false, err });
+      }),
+    );
   }
 
   /**
@@ -1636,8 +1742,21 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   private flushQty(): Observable<void> {
     if (this.qtyFlushTimer) { clearTimeout(this.qtyFlushTimer); this.qtyFlushTimer = null; }
+    // [MCP.3.6] Uno a la vez: si hay un volcado en vuelo, se espera a que vuelva (bien o mal) y
+    // entonces se manda lo que se juntó mientras tanto. Dos PUT al mismo renglón en paralelo
+    // pueden llegar al servidor en cualquier orden y dejar guardada la cantidad vieja.
+    if (this.flushEnVuelo) {
+      return this.flushEnVuelo.pipe(
+        catchError(() => of(void 0)),
+        switchMap(() => this.flushQty()),
+      );
+    }
     const orderId = this.cartOrderId();
     const pend = this.pendingQty();
+    // [MCP.3.5] Sin pedido todavía pero con un renglón creándose: el pedido está naciendo en
+    // esa misma llamada. Lo pendiente NO se borra — es la cantidad que el vendedor está viendo
+    // — y lo manda el flush que agenda createLine al terminar. Borrarlo dejaba la fila en 0.
+    if (!orderId && Object.values(this.adding()).some(Boolean)) return of(void 0);
     if (!orderId || pend.size === 0) { this.pendingQty.set(new Map()); return of(void 0); }
     if (this.offlineMode()) {
       const entries = Array.from(pend);
@@ -1645,7 +1764,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       return from(this.applyLocalBatch(entries)).pipe(map(() => void 0));
     }
     const lines = this.cartLines();
-    const ops: Observable<unknown>[] = [];
+    const ops: Observable<{ ok: boolean; err?: unknown }>[] = [];
+    const enviar = (productId: string, qty: number, op$: Observable<unknown>) => {
+      // Lo mandado se sigue mostrando hasta que el carrito releído lo traiga (ver `sentQty`).
+      this.sentQty.update((m) => new Map(m).set(productId, { qty, done: false }));
+      ops.push(this.rastrear(productId, qty, op$));
+    };
     // [VTK.5] Un producto cuyo renglón todavía se está creando no tiene línea a la cual mandarle
     // el cambio: su cantidad pendiente se CONSERVA (no se tira) y se manda en el flush que corre
     // cuando la creación termina.
@@ -1654,9 +1778,13 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     for (const [productId, qty] of pend) {
       const line = lines.find((l) => l.product_id === productId);
       if (!line && enCreacion[productId]) { conservar.set(productId, qty); continue; }
-      if (!line || Number(line.quantity) === qty) continue;
+      // [MCP.3.6] Contra lo que el servidor YA tiene: si hubo un envío confirmado que el carrito
+      // aún no relee, ése es el valor vigente (comparar contra el renglón viejo dejaba sin
+      // mandar un regreso al número anterior).
+      const vigente = this.sentQty().get(productId)?.qty ?? Number(line?.quantity);
+      if (!line || vigente === qty) continue;
       if (qty <= 0) {
-        ops.push(this.api.removeLine(orderId, line.id));
+        enviar(productId, 0, this.api.removeLine(orderId, line.id));
         continue;
       }
       // [VU.4] Mismo contrato que createLine: con sello se manda el CONTEO en la unidad
@@ -1665,14 +1793,30 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       // así que la procedencia no sobrevivía a la primera interacción.
       const sello = this.selloDeId(productId);
       const enviada = sello ? conteoExacto(qty, sello.qty_factor) : null;
-      ops.push(
+      enviar(
+        productId,
+        qty,
         enviada != null && sello
           ? this.api.updateLine(orderId, line.id, enviada, sello)
           : this.api.updateLine(orderId, line.id, qty),
       );
     }
     this.pendingQty.set(conservar);
-    return ops.length ? forkJoin(ops).pipe(map(() => void 0)) : of(void 0);
+    if (!ops.length) return of(void 0);
+    // Se suscribe YA (no cuando alguien se suscriba): el volcado en vuelo es un hecho, y el
+    // siguiente lo espera por `flushEnVuelo`. Termina con error si algún renglón falló, para que
+    // `submit()` no agende sobre una cantidad que el servidor no aceptó.
+    const vuelo$ = new ReplaySubject<void>(1);
+    this.flushEnVuelo = vuelo$;
+    forkJoin(ops)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        this.flushEnVuelo = null;
+        const falla = res.find((r) => !r.ok);
+        if (falla) vuelo$.error(falla.err);
+        else { vuelo$.next(); vuelo$.complete(); }
+      });
+    return vuelo$.asObservable();
   }
 
   /** Offline: fija la cantidad de un producto en el draft local (0 = quitar). */
@@ -1707,6 +1851,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const orderId = this.cartOrderId();
     if (!orderId) return;
     this.pendingQty.update((m) => { const n = new Map(m); n.delete(line.product_id); return n; });
+    this.sentQty.update((m) => { const n = new Map(m); n.delete(line.product_id); return n; });
     if (this.offlineMode()) { void this.setLocalQty(line.product_id, 0); return; }
     this.api.removeLine(orderId, line.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => this.reloadCart(),
@@ -1811,7 +1956,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       return;
     }
     // Sin ajustes en vuelo, el total ya es el del servidor → se pregunta directo.
-    if (this.pendingQty().size === 0) {
+    // [MCP.3.6] Un volcado en vuelo o una cantidad mandada y aún no releída también cuentan.
+    if (this.pendingQty().size === 0 && this.sentQty().size === 0 && !this.flushEnVuelo) {
       this.askAndPlace(orderId);
       return;
     }
@@ -2075,35 +2221,24 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     };
   }
   /**
-   * Incitar mayoreo: el PRIMER quiebre por cantidad de un producto del catálogo, para
-   * empujar al vendedor a venderlo. Devuelve null si el SKU no tiene mayoreo real.
-   *   - `from`  cantidad a la que arranca el mayoreo (en la unidad de venta base)
-   *   - `unit`  precio unitario en mayoreo · `pct` % de descuento vs base
-   *   - `need`  cuántas unidades más faltan desde lo que ya hay en el carrito (0 si ya llegó)
-   *   - `reached` true si la cantidad actual ya alcanza el mayoreo
-   * La escalera viaja en `p.tiers` (catálogo, también offline). Elige el quiebre de
-   * MENOR min_qty (el más alcanzable) para que el nudge sea accionable.
+   * [MCP.3.6] Precio de mayoreo de la tarjeta, como REFERENCIA, en la unidad activa:
+   * `from` = desde cuántas unidades aplica · `unit` = precio por unidad en mayoreo.
+   * Null si el SKU no tiene un mayoreo real (sin quiebre, o no más barato que el normal):
+   * la tarjeta muestra entonces sólo el precio normal, nunca un «$0.00».
+   *
+   * Sale de la MISMA fuente con la que cobra el servidor: con escalera de la sucursal, el
+   * volumen de ESE peldaño en Kepler (`rungs[].volume_*`, el que usa el motor de
+   * cotizaciones al guardar el renglón); sin escalera, los quiebres `tiers`
+   * (analytics.product_volume_tiers, los mismos que lee `resolvePriceForQty`).
+   * El celular NO calcula el subtotal con él: el subtotal lo pone el servidor.
    */
-  mayoreoHint(
-    p: PriceRow,
-  ): { from: number; unit: number; pct: number; need: number; reached: boolean; unitLabel: string } | null {
-    // [VTK.3] Con escalera de la sucursal, el mayoreo es el de ESA unidad en Kepler (3 paquetes
-    // de 42029 a $123.19 c/u), no un quiebre por piezas de otra fuente: es el que el pedido cobra.
+  mayoreoDe(p: PriceRow): { from: number; unit: number } | null {
     const rung = this.rungOf(p);
     if (rung) {
       if (rung.volume_min_qty == null || rung.volume_price == null) return null;
-      if (!(rung.volume_price > 0) || rung.volume_price >= rung.price * 0.999) return null;
-      const f = this.unitFactor(p);
-      const enUnidad = Math.floor((this.cartQty(p.product_id) || 0) / f);
-      const from = Math.max(1, rung.volume_min_qty);
-      return {
-        from,
-        unit: rung.volume_price,
-        pct: Math.round(((rung.price - rung.volume_price) / rung.price) * 100),
-        need: Math.max(0, from - enUnidad),
-        reached: enUnidad >= from,
-        unitLabel: this.selectedUnit(p)?.unit ?? '',
-      };
+      const vp = Number(rung.volume_price);
+      if (!(vp > 0) || !(Number(rung.price) > 0) || vp >= Number(rung.price) * 0.999) return null;
+      return { from: Math.max(1, Number(rung.volume_min_qty) || 1), unit: vp };
     }
     const tiers = p.tiers;
     const base = Number(p.price);
@@ -2112,20 +2247,22 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const fromBase = Math.max(2, Number(first.min_qty) || 0);
     const unitBase = Number(first.price);
     if (!Number.isFinite(unitBase) || unitBase <= 0 || unitBase >= base * 0.999) return null;
-    // Todo se muestra en la unidad seleccionada (factor): el quiebre y el precio.
+    // El quiebre viaja en unidad base: se dice en la unidad que la fila está usando.
     const f = this.unitFactor(p);
-    const qtyBase = this.cartQty(p.product_id) || 0;
-    const from = Math.max(1, Math.ceil(fromBase / f));
-    const needBase = Math.max(0, fromBase - qtyBase);
-    return {
-      from,
-      unit: unitBase * f, // precio por presentación seleccionada
-      pct: Math.round(((base - unitBase) / base) * 100),
-      need: Math.ceil(needBase / f),
-      reached: qtyBase >= fromBase,
-      unitLabel: this.selectedUnit(p)?.unit ?? '',
-    };
+    return { from: Math.max(1, Math.ceil(fromBase / f)), unit: unitBase * f };
   }
+
+  /**
+   * [MCP.3.6] ¿El servidor ya cobra mayoreo en el renglón de este producto? Sólo se dice que
+   * sí cuando el renglón guardado lo trae (mismo criterio que el carrito: `mayoreoInfo`) y no
+   * hay un cambio de cantidad sin confirmar: mientras tanto el precio que aplica no se sabe,
+   * y no se adivina en el celular.
+   */
+  mayoreoAplicado(productId: string): boolean {
+    if (this.pendingQty().has(productId) || this.sentQty().has(productId)) return false;
+    return this.cartLines().some((l) => l.product_id === productId && this.mayoreoInfo(l) != null);
+  }
+
   // ───── Medidas de venta (PZA/PAQ/CJA) ─────
   // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
   // Default = la unidad más chica (units[0]); [VTK.4]. Antes era PAQ si el SKU lo tenía.
@@ -2307,10 +2444,31 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private reloadCart(after?: () => void): void {
     const orderId = this.cartOrderId();
     if (!orderId) { after?.(); return; }
+    // [MCP.3.5] Varias lecturas pueden ir en vuelo (crear renglón + flush + otra creación) y
+    // la red no garantiza el orden de vuelta: una respuesta vieja que llegaba después de la
+    // nueva pisaba el carrito con renglones de antes. Sólo la lectura más reciente escribe;
+    // `after` se sigue llamando siempre (ver arriba).
+    const seq = ++this.cartReadSeq;
+    // [MCP.3.6] Lo que el servidor ya confirmó ANTES de que saliera esta lectura: esta lectura
+    // lo trae, así que al aplicarla se puede soltar. Lo que sigue en vuelo NO se suelta.
+    const confirmadas = new Map<string, number>();
+    for (const [id, e] of this.sentQty()) if (e.done) confirmadas.set(id, e.qty);
+    const soltarConfirmadas = () => {
+      if (!confirmadas.size) return;
+      this.sentQty.update((m) => {
+        const n = new Map(m);
+        for (const [id, q] of confirmadas) {
+          const e = n.get(id);
+          if (e && e.done && e.qty === q) n.delete(id);
+        }
+        return n;
+      });
+    };
     if (this.offlineMode()) {
       void this.offlineApi
         .getById(orderId)
         .then((draft) => {
+          if (seq !== this.cartReadSeq) return;
           const lines = draft ? this.offlineApi.toOrderLines(draft) : [];
           this.cartLines.set(lines);
           if (!lines.length) this.cartOpen.set(false);
@@ -2321,12 +2479,22 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     }
     this.api.orderById(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (full) => {
-        const lines = full.lines || [];
-        this.cartLines.set(lines);
-        if (!lines.length) this.cartOpen.set(false); // se vació → cerrar el sheet
+        if (seq === this.cartReadSeq) {
+          const lines = full.lines || [];
+          this.cartLines.set(lines);
+          soltarConfirmadas();
+          if (!lines.length) this.cartOpen.set(false); // se vació → cerrar el sheet
+        }
         after?.();
       },
-      error: () => after?.(),
+      error: () => {
+        // [MCP.3.5] Antes fallaba en silencio y el carrito se quedaba con lo de antes sin
+        // decirlo. Sólo avisa la lectura vigente: una vieja que falla ya fue reemplazada.
+        if (seq === this.cartReadSeq) {
+          this.toast.add({ severity: 'warn', summary: 'No se pudo actualizar el pedido', detail: 'Revisa la conexión. Lo que ves puede no ser lo último.', life: 5000 });
+        }
+        after?.();
+      },
     });
   }
 

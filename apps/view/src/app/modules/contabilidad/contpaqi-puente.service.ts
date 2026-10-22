@@ -10,8 +10,8 @@ import { environment } from '../../../environments/environment';
  * libros fiscales que ya están en ContPAQi (balanza, bancos, EFOS). Éste mira la **ida**: qué
  * saldría de póliza desde los egresos de banco, y qué no sale y por qué.
  *
- * ⛔ Los dos endpoints son de SOLO LECTURA y no existe `entregar`: nunca se importó un archivo
- * a ContPAQi, así que la pantalla no ofrece un camino que nadie recorrió.
+ * ⛔ Todo es de SOLO LECTURA salvo `confirmarAlias` y `entregar` (`[CP.8.54]`), que exigen
+ * `_GESTIONAR`. `entregar` no manda nada a ContPAQi: registra que contabilidad ya lo cargó.
  */
 @Injectable({ providedIn: 'root' })
 export class ContpaqiPuenteService {
@@ -45,6 +45,48 @@ export class ContpaqiPuenteService {
     return this.http.get(`${this.base}/archivo?mes=${encodeURIComponent(mes)}`, { responseType: 'blob' });
   }
 
+  /**
+   * `[CP.8.54]` «Ya lo cargué en ContPAQi». Manda el MISMO archivo que se importó; el backend lo
+   * compara byte a byte con el que genera hoy y responde 409 si no es ése. Exige `_GESTIONAR`.
+   */
+  entregar(mes: string, archivoBase64: string): Observable<EntregaResp> {
+    return this.http.post<EntregaResp>(`${this.base}/entregas`, { mes, archivo_base64: archivoBase64 });
+  }
+
+  /** `[CP.8.14]` Las reglas de cuenta con su evidencia y lo que traban en el mes. `_VER`. */
+  reglas(mes: string): Observable<ReglasResp> {
+    return this.http.get<ReglasResp>(`${this.base}/reglas?mes=${encodeURIComponent(mes)}`);
+  }
+
+  /** Las cuentas de gasto `52*` afectables que puede llevar una regla por categoría. */
+  cuentasGasto(): Observable<{ cuentas: CuentaGasto[] }> {
+    return this.http.get<{ cuentas: CuentaGasto[] }>(`${this.base}/cuentas-gasto`);
+  }
+
+  /** ⛔ Firmar es del contador: `_GESTIONAR`, y queda su nombre. */
+  firmarRegla(categoria: string, cuenta: string): Observable<ReglaVista> {
+    return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/firma`, { cuenta });
+  }
+
+  revocarRegla(categoria: string): Observable<ReglaVista> {
+    return this.http.post<ReglaVista>(`${this.base}/reglas/${encodeURIComponent(categoria)}/revocar`, {});
+  }
+
+  /** `[CP.8.73]` Los pagos a proveedor del mes que esperan confirmar qué facturas pagan. */
+  pagosPorConfirmar(mes: string): Observable<{ mes: string; pagos: PagoPorConfirmar[] }> {
+    return this.http.get<{ mes: string; pagos: PagoPorConfirmar[] }>(`${this.base}/pagos-por-confirmar?mes=${encodeURIComponent(mes)}`);
+  }
+
+  /** `[CP.8.73]` 409 con el motivo si no cuadra o las facturas no son del proveedor. */
+  confirmarPago(movimiento: string, facturas: string[], notas: string[]): Observable<{ movimiento_id: string; renglones: number; total: number; redondeo: number }> {
+    return this.http.post<{ movimiento_id: string; renglones: number; total: number; redondeo: number }>(
+      `${this.base}/pagos/${encodeURIComponent(movimiento)}/confirmar`, { facturas, notas });
+  }
+
+  desconfirmarPago(movimiento: string): Observable<{ movimiento_id: string; apagadas: number }> {
+    return this.http.post<{ movimiento_id: string; apagadas: number }>(`${this.base}/pagos/${encodeURIComponent(movimiento)}/desconfirmar`, {});
+  }
+
   cuadre(): Observable<CuadreResp> {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }
@@ -63,6 +105,46 @@ export interface LoteRow {
   iva_traspaso: 'no_emitido' | null;
   /** Conteo POR motivo. Cuatro rechazos distintos tienen cuatro dueños distintos. */
   motivos: Record<string, number>;
+  /** `[CP.8.72]` `pago_proveedor` = un pago a proveedor armado completo (una póliza por pago). Ausente = lote del día. */
+  tipo?: 'lote' | 'pago_proveedor';
+  /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
+  fuente?: 'cadena_kepler' | 'importe_una' | 'confirmada' | null;
+  /** UUID (facturas y notas) que lleva el pago. */
+  cfdis?: number;
+  /** Identidad de la fila: un pago y el lote de su día comparten banco y fecha. */
+  clave?: string;
+}
+
+/** `[CP.8.73]` Un CFDI candidato para confirmar un pago. */
+export interface CfdiPropuesto {
+  uuid: string;
+  folio: string | null;
+  fecha: string;
+  total: number;
+  /** Fecha de una póliza de pago anterior que ya lo trae: se advierte, no se oculta. */
+  pagada_antes?: string | null;
+}
+
+/** `[CP.8.73]` Un pago a proveedor que no se armó solo, con su propuesta. */
+export interface PagoPorConfirmar {
+  movimiento_id: string;
+  fecha: string;
+  cuenta_banco: string;
+  banco_label: string | null;
+  importe: number;
+  concepto: string;
+  motivo: string;
+  propuesta: {
+    rfc: string;
+    proveedor_por_nombre: boolean;
+    pagado: number;
+    facturas: CfdiPropuesto[];
+    notas: CfdiPropuesto[];
+    /** ⛔ Nunca se preselecciona: la pantalla ofrece «usar la sugerencia». */
+    sugerencia: string[];
+    origen: 'kepler' | 'importe' | null;
+  } | null;
+  confirmacion: { facturas: string[]; notas: string[]; confirmado_por: string; vigente: boolean } | null;
 }
 
 /**
@@ -89,6 +171,47 @@ export interface LotesResp {
   fuera_de_lote: FueraDeLote;
   /** Ya viene ordenado de mayor a menor: lo primero que se ve es lo que más trabajo representa. */
   motivos: { motivo: string; movimientos: number; dueno: string }[];
+}
+
+/** `[CP.8.53]` Una regla como la ve el contador (espejo de `ReglaVista` del backend). */
+export interface ReglaVista {
+  categoria_code: string;
+  tipo_regla: string;
+  estado: string;
+  tiene_fila: boolean;
+  cuenta_gasto: string | null;
+  cuenta_nombre: string | null;
+  aprobada_por: string | null;
+  aprobada_en: string | null;
+  firmable: boolean;
+  motivo_no_firmable: string | null;
+  /** ⛔ Indicio del derivador. Nunca se preselecciona. */
+  indicio: string | null;
+  evidencia: string | null;
+  salvedad: string | null;
+  pareados: number | null;
+  movimientos_mes: number;
+  importe_mes: number;
+}
+
+export interface ReglasResp {
+  mes: string;
+  reglas: ReglaVista[];
+}
+
+export interface CuentaGasto {
+  codigo: string;
+  nombre: string;
+}
+
+/** `[CP.8.52]` Lo que se registró. `ya_registradas` = marcar dos veces no duplica. */
+export interface EntregaResp {
+  mes: string;
+  polizas: number;
+  nuevas: number;
+  ya_registradas: number;
+  total: number;
+  archivo_sha256: string;
 }
 
 export interface CuadreResp {

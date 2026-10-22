@@ -1,9 +1,15 @@
+import { Router } from '@angular/router';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
+import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { DialogModule } from 'primeng/dialog';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
+import { ComercialComisionesObjetivoComponent } from './comercial-comisiones-objetivo.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -12,7 +18,8 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
-  CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload,
+  CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
+  PadronRuta, PadronAvisoPagadas, BonoRD, EscalasRD, TierRD, SimulacionEscalaRD,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -60,9 +67,194 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule],
+  providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
+      <p-toast />
+      <p-confirmdialog />
+
+      <!-- [RD.84] Alta y edicion del padron. Un solo dialogo para los dos actos: dar de baja es
+           editar con fecha y motivo, no un boton aparte — tenerlo aparte invitaba a la baja sin
+           motivo, que es la que se traga la historia entera ([RD.84.0], $19,096.84).
+
+           Poka-yoke (§10): el envio esta deshabilitado mientras falte algo, en vez de dejar
+           cometer el error y reportarlo. Von Restorff: la baja NO comparte color con guardar. -->
+      <p-dialog [(visible)]="padronAbierto" [modal]="true" [draggable]="false"
+                [style]="{ width: '34rem' }"
+                [header]="padronEditando() ? ('Ruta ' + padronEditando()!.route_code) : 'Dar de alta una ruta'">
+        <form class="cm-form" (ngSubmit)="guardarPadron()">
+          @if (!padronEditando()) {
+            <label class="cm-campo">
+              <span>Código de ruta</span>
+              <input type="text" name="route_code" inputmode="numeric"
+                     [(ngModel)]="fRuta" required />
+            </label>
+          }
+
+          <p class="cm-form-sep">Quién</p>
+          <label class="cm-campo"><span>Chofer</span>
+            <input type="text" name="chofer" [(ngModel)]="fChofer" /></label>
+          <label class="cm-campo"><span>Supervisor</span>
+            <input type="text" name="supervisor" [(ngModel)]="fSupervisor" /></label>
+          <label class="cm-campo"><span>Plaza o zona</span>
+            <input type="text" name="zona" [(ngModel)]="fZona" /></label>
+
+          <p class="cm-form-sep">Cuánto se le deduce</p>
+          <label class="cm-campo">
+            <span>Nómina de banco <span class="cm-muted">(se resta de la comisión)</span></span>
+            <input type="number" name="nomina" min="0" step="0.01" [(ngModel)]="fNomina" required />
+          </label>
+
+          <p class="cm-form-sep">Desde cuándo y hasta cuándo</p>
+          <label class="cm-campo">
+            <span>Empieza a comisionar</span>
+            <input type="date" name="desde" [(ngModel)]="fDesde" />
+            <small class="cm-muted">
+              Vacío = desde siempre. Con fecha, las quincenas anteriores no le pagan.
+            </small>
+          </label>
+          @if (padronEditando()) {
+            <label class="cm-campo">
+              <span>Deja de comisionar</span>
+              <input type="date" name="hasta" [(ngModel)]="fHasta" />
+              <small class="cm-muted">
+                Es el último día en que cobra. Una baja a mitad de quincena paga la quincena
+                entera: el tabulador es escalonado y no se prorratea.
+              </small>
+            </label>
+            <label class="cm-campo cm-campo--check">
+              <input type="checkbox" name="activo" [(ngModel)]="fActivo" />
+              <span>Sigue activa</span>
+            </label>
+          }
+
+          <label class="cm-campo">
+            <span>Motivo {{ esBaja() ? '' : '(opcional)' }}</span>
+            <textarea name="notes" rows="2" [(ngModel)]="fNotas"></textarea>
+            @if (esBaja()) {
+              <small class="cm-muted">
+                Obligatorio en una baja: es lo único que va a explicar esta fila dentro de seis
+                meses, cuando alguien pregunte por qué esta ruta dejó de cobrar.
+              </small>
+            }
+          </label>
+
+          @if (padronAviso(); as a) {
+            <div class="cm-gate bad">
+              <strong><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                Toca {{ a.quincenas }} quincena(s) ya pagada(s)</strong>
+              <p class="cm-micro">
+                {{ a.detalle }} — <strong>{{ a.pagado }}</strong>. Lo pagado no se recalcula solo,
+                pero si alguien corre «calcular desde», esas quincenas saldrían distintas.
+              </p>
+              <label class="cm-campo cm-campo--check">
+                <input type="checkbox" name="confirmar" [(ngModel)]="fConfirmar" />
+                <span>Sí, es justamente lo que estoy corrigiendo</span>
+              </label>
+            </div>
+          }
+
+          @if (padronErr(); as e) {
+            <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+          }
+
+          <div class="cm-form-pie">
+            <button type="button" class="cm-btn-sec" (click)="padronAbierto.set(false)">Cancelar</button>
+            <button type="submit" [disabled]="!formOk() || padronGuardando()"
+                    [class]="esBaja() ? 'cm-btn cm-btn--baja' : 'cm-btn'">
+              {{ padronGuardando() ? 'Guardando…' : (esBaja() ? 'Dar de baja' : 'Guardar') }}
+            </button>
+          </div>
+        </form>
+      </p-dialog>
+
+      <!-- [RD.85] Alta y edicion de un bono. Mismo criterio que el padron: apagar es editar,
+           no un boton aparte, porque un bono apagado conserva su configuracion. -->
+      <p-dialog [(visible)]="bonoAbierto" [modal]="true" [draggable]="false"
+                [style]="{ width: '34rem' }"
+                [header]="bonoEditando() ? ('Bono · ' + bonoEditando()!.nombre) : 'Nuevo bono'">
+        <form class="cm-form" (ngSubmit)="guardarBono()">
+          <label class="cm-campo"><span>Nombre</span>
+            <input type="text" name="bnombre" [(ngModel)]="bNombre" required />
+            <small class="cm-muted">Es con lo que se lee el bono en el recibo del chofer.</small>
+          </label>
+
+          <p class="cm-form-sep">Quién y cuándo</p>
+          <label class="cm-campo"><span>Para</span>
+            <select name="bbenef" [(ngModel)]="bBenef">
+              <option value="chofer">Chofer</option>
+              <option value="supervisor">Supervisor</option>
+            </select>
+          </label>
+          <label class="cm-campo"><span>Periodo</span>
+            <select name="bperiodo" [(ngModel)]="bPeriodo">
+              <option value="quincena">Quincenal — entra a esta nómina</option>
+              <option value="mes">Mensual — entra una sola vez al mes</option>
+            </select>
+            <small class="cm-muted">
+              No tiene valor por omisión a propósito: un bono mensual sin marcar entraría a las
+              dos quincenas del mes y se pagaría <strong>dos veces</strong>.
+            </small>
+          </label>
+          <label class="cm-campo"><span>Ruta <span class="cm-muted">(vacío = todas)</span></span>
+            <input type="text" name="bruta" [(ngModel)]="bRuta" /></label>
+
+          <p class="cm-form-sep">Cuándo se cumple</p>
+          <label class="cm-campo"><span>Métrica</span>
+            <select name="bmetrica" [(ngModel)]="bMetrica">
+              <option value="venta">Venta de la quincena</option>
+              <option value="markup_pct">Margen sobre costo (%)</option>
+              <option value="visitas">Visitas</option>
+              <option value="volumen">Volumen</option>
+              <option value="manual">Manual — la marca una persona</option>
+            </select>
+          </label>
+          <label class="cm-campo"><span>Comparador</span>
+            <select name="bcomp" [(ngModel)]="bComp">
+              <option value="gte">Alcanza o pasa el umbral</option>
+              <option value="gt">Pasa el umbral (estricto)</option>
+            </select>
+          </label>
+          <label class="cm-campo">
+            <span>Umbral <span class="cm-muted">en {{ unidadMetrica() }}</span></span>
+            <input type="number" name="bumbral" step="0.0001" [(ngModel)]="bUmbral" required />
+          </label>
+          <label class="cm-campo">
+            <span>Venta mínima para que aplique <span class="cm-muted">(opcional)</span></span>
+            <input type="number" name="bgate" step="0.01" [(ngModel)]="bGate" />
+            <small class="cm-muted">
+              Es una compuerta aparte del umbral: aunque la métrica se cumpla, sin esta venta
+              el bono no paga.
+            </small>
+          </label>
+
+          <p class="cm-form-sep">Cuánto paga</p>
+          <label class="cm-campo"><span>Monto</span>
+            <input type="number" name="bmonto" min="0" step="0.01" [(ngModel)]="bMonto" required /></label>
+
+          @if (bonoEditando()) {
+            <label class="cm-campo cm-campo--check">
+              <input type="checkbox" name="bactivo" [(ngModel)]="bActivo" />
+              <span>Activo</span>
+            </label>
+            <p class="cm-muted cm-micro">
+              Apagarlo no lo borra: conserva su configuración y deja explicable la quincena que
+              sí lo pagó.
+            </p>
+          }
+
+          @if (bonoErr(); as e) {
+            <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+          }
+          <div class="cm-form-pie">
+            <button type="button" class="cm-btn-sec" (click)="bonoAbierto.set(false)">Cancelar</button>
+            <button type="submit" class="cm-btn" [disabled]="!bonoOk() || bonoGuardando()">
+              {{ bonoGuardando() ? 'Guardando…' : 'Guardar' }}
+            </button>
+          </div>
+        </form>
+      </p-dialog>
       <app-page-tabs [tabs]="tabsRD" />
       <header class="cm-head">
         <div>
@@ -86,6 +278,23 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                               [staleAfterSec]="172800" />
         }
       </header>
+
+      <!-- [AUD-A6] Todo lo que es comision de Ruta Directa vive aca. El Objetivo mensual tenia
+           pantalla propia y era la misma nomina mirada por otro lado: el bono que entra a la
+           quincena. ⛔ Pero NO es una pestana mas de las de abajo: aquellas son vistas de UNA
+           quincena y el objetivo es MENSUAL. Colgarlo ahi haria que cambiara de significado al
+           elegir otra quincena. Por eso el conmutador va a este nivel, sobre el eje del tiempo.
+           ⚠️ La de Logistica (/finanzas/comisiones-logistica) NO entra: otro permiso, otra
+           poblacion (choferes de embarque) y otro dominio. Fundirla filtraria nomina de RD. -->
+      <!-- ⚠️ app-segmented emite string (sirve a toda la suite) y el signal es de una union de
+           dos. Se estrecha en un metodo: vista.set($event) tipa mal, y vitest NO tipa las
+           plantillas — el error solo sale en Build & typecheck o en check-template-types. -->
+      <app-segmented [options]="vistas" [value]="vista()" (valueChange)="verVista($event)"
+                     ariaLabel="Qué comisión" />
+
+      @if (vista() === 'objetivo') {
+        <app-comercial-comisiones-objetivo [embebido]="true" />
+      } @else {
 
       @if (destacada(); as d) {
         <section class="cm-answer" [class.abierta]="d.status === 'en_curso'">
@@ -165,45 +374,45 @@ import { PermissionsService } from '../../../core/services/permissions.service';
         }
       }
 
-      <div class="cm-split">
-        <aside class="cm-rail">
-          <app-load-state
-            [loading]="cargando()" [isEmpty]="!board().length" [skeletonRows]="6"
-            emptyIcon="pi-calendar" emptyTitle="Sin quincenas"
-            [emptyHint]="'El calendario de ' + anio() + ' no tiene periodos cargados.'">
-            @for (g of porMes(); track g.mes) {
-              <p class="cm-mes">{{ g.mes }}</p>
-              @for (p of g.filas; track p.period_id) {
-                <button type="button" class="cm-per" [class.sel]="sel()?.period_id === p.period_id"
-                        [class.hoy]="esHoy(p)" (click)="elegir(p)">
-                  <span class="cm-per-top">
-                    <span class="cm-per-no">Q{{ p.period_no }}</span>
-                    <span class="cm-per-fechas">{{ rango(p) }}</span>
-                    @if (esHoy(p)) { <span class="cm-hoy">hoy</span> }
-                  </span>
-                  <span class="cm-per-bot">
-                    <p-tag [severity]="sev(p)" [value]="etiquetaEstado(p)" />
-                    <!-- ⛔ Decia money(total_neto) a secas y el rail entero mostraba un guion:
-                         las 20 quincenas del espejo traen el neto en NULL (falta la deduccion
-                         del supervisor) y el monto quedaba invisible. Cae al BRUTO, que si se
-                         conoce, y lo dice en el titulo en vez de hacerlos pasar por lo mismo.
-                         (sin acentos graves: esto vive dentro de un template literal de JS) -->
-                    <span class="cm-per-monto" [class.cm-tras-nomina]="esTrasNomina(p)" [title]="tipMonto(p)">
-                      {{ p.run_id ? money(p.total_neto ?? p.total_a_pagar) : '—' }}
-                    </span>
-                  </span>
-                </button>
-              }
+      <!-- [AUD-A3] LA TIRA DEL ANO, que reemplaza al riel de 240-300 px de ancho.
+           Medido en prod el 2026-10-20: el riel mostraba 599 px de 1,757 -- el 34% -- y la
+           pantalla NUNCA decia cuantas quincenas habia, asi que nadie sabia que le faltaban 23.
+           Y los 240 px que se llevaba eran justo los que le faltaban a la tabla densa para
+           caber a 1366: "Nomina" quedaba cortada contra el borde.
+           La tira muestra las 27 de un golpe en 53 px de alto. El monto va como ALTURA DE
+           BARRA y no como texto: el numero exacto vive en el detalle, y lo que una tira tiene
+           que dar es el patron del ano. Con texto medimos 77 px y seguia scrolleando. -->
+      <div class="cm-tira" role="radiogroup" aria-label="Quincena">
+        <app-load-state
+          [loading]="cargando()" [isEmpty]="!board().length" [skeletonRows]="1"
+          emptyIcon="pi-calendar" emptyTitle="Sin quincenas"
+          [emptyHint]="'El calendario de ' + anio() + ' no tiene periodos cargados.'">
+          <div class="cm-tira-celdas">
+            @for (p of board(); track p.period_id) {
+              <button type="button" role="radio" class="cm-q"
+                      [class.sel]="sel()?.period_id === p.period_id"
+                      [class.hoy]="esHoy(p)" [class.fut]="esFutura(p)"
+                      [attr.aria-checked]="sel()?.period_id === p.period_id"
+                      [attr.tabindex]="sel()?.period_id === p.period_id ? 0 : -1"
+                      [title]="tituloQuincena(p)" (click)="elegir(p)">
+                <span class="cm-q-n">Q{{ p.period_no }}</span>
+                <!-- La barra es decoracion del dato, no el dato: el lector de pantalla recibe
+                     el monto por el title de arriba, que es texto de verdad. -->
+                <span class="cm-q-bar" aria-hidden="true"
+                      [style.height.px]="alturaBarra().get(p.period_id) ?? 1"></span>
+              </button>
             }
-            @if (futuras().length) {
-              <p class="cm-futuras">
-                Q{{ futuras()[0].period_no }}–Q{{ futuras()[futuras().length - 1].period_no }} ·
-                {{ futuras().length }} quincena(s) que aún no empiezan
-              </p>
-            }
-          </app-load-state>
-        </aside>
+          </div>
+          <p class="cm-tira-pie">
+            {{ board().length }} quincenas ·
+            <b>{{ pagadas() }} pagadas</b> ·
+            {{ futuras().length }} por venir
+            @if (sinCalcular().length) { · <b class="cm-neg">{{ sinCalcular().length }} cerradas sin calcular</b> }
+          </p>
+        </app-load-state>
+      </div>
 
+      <div class="cm-split">
         <section class="cm-detail">
           @if (!sel()) {
             <p class="cm-empty">Elige una quincena.</p>
@@ -322,6 +531,50 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               · corrida {{ cuando(r.updated_at) }}
               @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
             </p>
+
+            <!-- [RD.83] El ciclo deja de ser un dibujo. Los cuatro pasos estaban pintados como
+                 una lista explicativa y sólo el primero tenía botón: la pantalla CONTABA el
+                 trámite en vez de hacerlo. Medido contra prod el 2026-10-20: de 20 corridas,
+                 **0 tienen approved_at** — el paso de aprobar no se ha ejercido NUNCA, porque no
+                 había dónde apretarlo.
+
+                 ⛔ El acto se ofrece sólo cuando la máquina de estados del servidor lo permite
+                 (setStatus ya lo valida), y 'Aprobar' desaparece si hay compuertas que
+                 bloquean: una compuerta que se puede saltar es decorativa. -->
+            @if (!esProyeccion()) {
+              <section class="cm-actos" aria-label="Qué sigue con esta corrida">
+                <div class="cm-actos-txt">
+                  <p class="cm-eyebrow">{{ tituloActo(r) }}</p>
+                  <p class="cm-actos-dice">{{ explicaActo(r) }}</p>
+                  @if (selloAprobacion(r); as s) { <p class="cm-micro cm-muted">{{ s }}</p> }
+                </div>
+                @if (puedeGestionar()) {
+                  <div class="cm-actos-btns">
+                    @if (proximoActo(r) === 'approve') {
+                      <button type="button" class="cm-btn" [disabled]="actuando()"
+                              (click)="confirmarActo(r, 'approve')">
+                        {{ actuando() ? 'Aprobando…' : 'Aprobar' }}
+                      </button>
+                    }
+                    @if (proximoActo(r) === 'pay') {
+                      <button type="button" class="cm-btn" [disabled]="actuando()"
+                              (click)="confirmarActo(r, 'pay')">
+                        {{ actuando() ? 'Marcando…' : 'Marcar pagada' }}
+                      </button>
+                    }
+                    @if (sePuedeAnular(r)) {
+                      <button type="button" class="cm-btn cm-btn--ghost" [disabled]="actuando()"
+                              (click)="confirmarActo(r, 'void')">Anular</button>
+                    }
+                  </div>
+                } @else if (proximoActo(r)) {
+                  <p class="cm-micro cm-muted">
+                    No tenés permiso para {{ proximoActo(r) === 'approve' ? 'aprobar' : 'pagar' }} —
+                    lo hace quien tiene <b>gestionar comisiones</b>.
+                  </p>
+                }
+              </section>
+            }
 
             @if (faltoDelPeriodo().length) {
               <section class="cm-falto">
@@ -471,12 +724,392 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   </tbody>
                 </table>
               </div>
+              <!-- [AUD-A] El span NO es decorativo. La clase cm-warn es display:flex en fila con
+                   flex-wrap:nowrap, asi que CADA nodo de texto y CADA strong o em suelto se
+                   vuelve un item flex propio. Sin el span, esta nota se pintaba como CINCO
+                   columnas con la frase entrelazada entre ellas, ilegible. Medido en prod el
+                   2026-10-20: los hijos quedaban en x=577 (persona) y x=909 (contribucion)
+                   sobre un ancho de 926 px. Las otras cuatro notas de esta pantalla si traian
+                   su span; esta era la unica sin el, y por eso era la unica rota. -->
               <p class="cm-warn">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
-                ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
-                arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+                <span>
+                  La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
+                  ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
+                  arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+                </span>
               </p>
+            } @else if (tab() === 'padron') {
+              <!-- [RD.80] El padron NO mira la corrida: mira quien esta dado de alta para cobrar
+                   y si su fuente sigue viva. La pestana "No comisionan" no podia contestar esto
+                   porque sale de las lineas del espejo del libro. -->
+              @if (padronEnRiesgo(); as n) {
+                <p class="cm-falto-grito">
+                  <strong class="cm-neg">{{ n }}</strong>
+                  ruta(s) <strong>cobran comision y su fuente no da senal</strong>.
+                  El tabulador es escalonado: sin dias no se paga &laquo;un poco menos&raquo;,
+                  se paga <strong class="cm-neg">$0</strong>.
+                </p>
+              }
+              @if (padronVendeSinCobrar(); as m) {
+                <p class="cm-muted cm-micro">
+                  Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
+                  <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
+                  Directa — pero con el monto al lado la exclusion se puede revisar.
+                </p>
+              }
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <!-- [AUD] "Vendio" decia una cosa y la celda pintaba otra: el valor es
+                         subtotal_30d, y subtotal y venta difieren 6.4% ($399,857 en 30 dias).
+                         El diccionario de esta misma pantalla ya ensena la diferencia, y el
+                         subtotal es ademas la BASE con que se calcula la comision. -->
+                    <th>Ruta</th><th>Chofer</th><th>Plaza o zona</th>
+                    <th>Comisiona</th><th>Ultimo dia con dato</th>
+                    <th class="comm-num">Subtotal (30 d)</th><th>Que pasa</th>
+                  </tr></thead>
+                  <tbody>
+                    @for (r of padronHallazgos(); track r.route_code) {
+                      <tr [class.cm-fila-grito]="r.problema === 'cobra_sin_fuente'">
+                        <td class="comm-num">{{ r.route_code }}</td>
+                        <td class="cm-name">{{ r.chofer_nombre || '—' }}</td>
+                        <td class="cm-muted">{{ r.plaza_o_zona || '—' }}</td>
+                        <td>
+                          <p-tag [severity]="r.comisiona ? 'success' : 'secondary'"
+                                 [value]="r.comisiona ? 'si' : 'no'" />
+                        </td>
+                        <td [class.cm-corta]="r.fuente_estado !== 'viva'">
+                          {{ etiquetaFuente(r) }}
+                          @if (r.ultimo_dia_con_dato) {
+                            <span class="cm-muted cm-micro"> · {{ dia(r.ultimo_dia_con_dato) }}</span>
+                          }
+                        </td>
+                        <td class="comm-num cm-mono">{{ money(r.subtotal_30d) }}</td>
+                        <td class="cm-nota">
+                          <p-tag [severity]="sevProblema(r.problema)"
+                                 [value]="etiquetaProblema(r.problema)" />
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <!-- [RD.84] El padron EDITABLE. Va DEBAJO de los hallazgos a proposito: primero
+                   que pasa, despues con que se arregla. Y es otra tabla, no la misma: la de
+                   arriba es el universo DERIVADO del ERP (todas las rutas que existen) y no se
+                   puede editar; esta son las filas de commission_route_config, que si. -->
+              <section class="cm-padron">
+                <div class="cm-padron-tit">
+                  <div>
+                    <p class="cm-eyebrow">El padrón</p>
+                    <p class="cm-muted cm-micro">
+                      Quién cobra comisión de Ruta Directa, desde cuándo y hasta cuándo.
+                      Hasta hoy esto se cambiaba con una migración: mover las rutas 321 y 322 a
+                      Vecinal —una decisión de Comercial— costó un despliegue.
+                    </p>
+                  </div>
+                  @if (puedeGestionar()) {
+                    <button type="button" class="cm-btn" (click)="abrirAlta()">
+                      <i class="pi pi-plus" aria-hidden="true"></i> Dar de alta una ruta
+                    </button>
+                  }
+                </div>
+                <div class="cm-table-wrap">
+                  <table class="surf-table surf-table--plain surf-table--sticky">
+                    <thead><tr>
+                      <th>Ruta</th><th>Chofer</th><th>Supervisor</th>
+                      <th class="comm-num">Nómina de banco</th>
+                      <th>Vigencia</th><th class="comm-num">Ya pagado</th><th></th>
+                    </tr></thead>
+                    <tbody>
+                      @for (p of padronFilas(); track p.id) {
+                        <tr [class.cm-fila-baja]="!p.activo">
+                          <td class="comm-num">{{ p.route_code }}</td>
+                          <td class="cm-name">{{ p.chofer_nombre || '—' }}</td>
+                          <td class="cm-muted">{{ p.supervisor_nombre || '—' }}</td>
+                          <td class="comm-num cm-mono">{{ money(p.nomina_banco) }}</td>
+                          <td>{{ vigencia(p) }}</td>
+                          <td class="comm-num cm-mono">
+                            @if (p.quincenas_pagadas) {
+                              {{ money(p.pagado_historico) }}
+                              <span class="cm-muted cm-micro"> · {{ p.quincenas_pagadas }} q</span>
+                            } @else { <span class="cm-muted">—</span> }
+                          </td>
+                          <td>
+                            @if (puedeGestionar()) {
+                              <button type="button" class="cm-btn-sec cm-btn-min"
+                                      (click)="abrirEdicion(p)">Editar</button>
+                            }
+                          </td>
+                        </tr>
+                      } @empty {
+                        <tr><td colspan="7" class="cm-empty">
+                          El padrón está vacío: ninguna ruta cobra comisión de Ruta Directa.
+                        </td></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                @if (padronErr(); as e) {
+                  <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+                }
+              </section>
+
+              <p class="cm-warn">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>
+                  <strong>La lista de arriba no decide nada: lo declara.</strong> Que una ruta siga
+                  cobrando con la fuente muerta, o que una que vende quede fuera, son
+                  <strong>decisiones de Direccion</strong> — la 321 y la 322 operan hoy en el ERP
+                  con codigo nuevo, y si la comision sigue al chofer o al tipo de ruta no lo puede
+                  resolver una pantalla. Lo que la pantalla si puede hacer es que la contradiccion
+                  deje de ser invisible — y, desde <strong>[RD.84]</strong>, que la decision
+                  <strong>se registre aqui</strong>: la tabla de abajo es el padron, y se edita.
+                  <br />
+                  <strong>De donde sale:</strong> del <em>padron derivado</em> —todas las rutas que
+                  existen, comisionen o no— y de su venta de los ultimos <strong>30 dias</strong>.
+                  <strong>No sale de la quincena</strong>, asi que no depende de que haya corrida
+                  ni cambia al elegir otro periodo. La pestana <em>No comisionan</em> es otra cosa:
+                  sale de las <strong>lineas de la corrida</strong> y habla solo de ese periodo.
+                </span>
+              </p>
+            } @else if (tab() === 'bonos') {
+              <!-- [RD.85] Los bonos se capturaban por migracion: la tabla tenia UPDATE y ningun
+                   INSERT. El libro pago $140,800 en bonos en 20 quincenas -- $7,040 por
+                   quincena, mas que la comision de varias rutas juntas. -->
+              <div class="cm-padron-tit">
+                <div>
+                  <p class="cm-eyebrow">Bonos de la quincena</p>
+                  <p class="cm-muted cm-micro">
+                    Lo que se suma a la comisión cuando una ruta pasa su umbral.
+                    Cuelgan del <strong>tabulador vigente</strong>
+                    @if (bonos()[0]?.escala_desde) { (desde {{ dia(bonos()[0].escala_desde!) }}) }
+                    y una versión nueva los hereda.
+                  </p>
+                </div>
+                @if (puedeGestionar()) {
+                  <button type="button" class="cm-btn" (click)="abrirBonoAlta()">
+                    <i class="pi pi-plus" aria-hidden="true"></i> Nuevo bono
+                  </button>
+                }
+              </div>
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <th>Bono</th><th>Para</th><th>Ruta</th><th>Periodo</th>
+                    <th>Se cumple cuando</th><th class="comm-num">Paga</th>
+                    <th>Estado</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    @for (b of bonos(); track b.id) {
+                      <tr [class.cm-fila-baja]="!b.activo">
+                        <td class="cm-name">{{ b.nombre }}</td>
+                        <td class="cm-muted">{{ b.beneficiario }}</td>
+                        <td class="comm-num">{{ b.route_code || 'todas' }}</td>
+                        <td>
+                          <!-- ⚠️ El periodo se pinta SIEMPRE: es lo que impide que un bono
+                               mensual entre a las dos quincenas y se pague dos veces. -->
+                          <p-tag [severity]="b.periodo === 'mes' ? 'info' : 'secondary'"
+                                 [value]="b.periodo === 'mes' ? 'mensual' : 'quincenal'" />
+                        </td>
+                        <td class="cm-nota">{{ reglaBono(b) }}</td>
+                        <td class="comm-num cm-mono">{{ money(b.monto) }}</td>
+                        <td>
+                          <p-tag [severity]="b.activo ? 'success' : 'secondary'"
+                                 [value]="b.activo ? 'activo' : 'apagado'" />
+                        </td>
+                        <td>
+                          @if (puedeGestionar() && !b.grupo) {
+                            <button type="button" class="cm-btn-sec cm-btn-min"
+                                    (click)="abrirBonoEdicion(b)">Editar</button>
+                          } @else if (b.grupo) {
+                            <span class="cm-muted cm-micro">en «Bono por objetivo»</span>
+                          }
+                        </td>
+                      </tr>
+                    } @empty {
+                      <tr><td colspan="8" class="cm-empty">
+                        El tabulador vigente no tiene ningún bono configurado.
+                        <strong>Eso no es «nadie cobró bono»: es que no hay ninguno que cobrar.</strong>
+                      </td></tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              @if (bonoErr(); as e) {
+                <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+              }
+            } @else if (tab() === 'tabulador') {
+              <!-- [RD.86] El tabulador. ⛔ Hasta hoy NINGUNA pantalla consumia /scales: el
+                   endpoint existia desde [RD.66] y el numero que decide el porcentaje de cada
+                   peso solo se podia cambiar por curl.
+
+                   La regla de esta pestana: NO se puede estrenar sin simular antes. El
+                   tabulador es un acantilado y mover un escalon no cambia un porcentaje --
+                   apaga depositos enteros. -->
+              <div class="cm-padron-tit">
+                <div>
+                  <p class="cm-eyebrow">El tabulador</p>
+                  <p class="cm-muted cm-micro">
+                    Lo que decide el porcentaje de cada peso. La compuerta la abre la
+                    <strong>venta</strong>; el porcentaje se aplica sobre el
+                    <strong>subtotal</strong>.
+                    @if (escalas()?.piso_editable; as piso) {
+                      Una versión nueva no puede empezar antes del
+                      <strong>{{ dia(piso) }}</strong>: lo pagado no se recalcula.
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <p class="cm-warn bad">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>
+                  <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
+                  hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
+                  menos». Mover el piso no baja un pago — <strong>lo apaga</strong>.
+                </span>
+              </p>
+
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain">
+                  <thead><tr>
+                    <th class="comm-num">Desde (venta)</th>
+                    <th class="comm-num">Hasta</th>
+                    <th class="comm-num">Paga sobre el subtotal</th>
+                    <th></th>
+                  </tr></thead>
+                  <tbody>
+                    @for (t of borrador(); track $index) {
+                      <tr>
+                        <td class="comm-num">
+                          <input type="number" step="0.01" class="cm-tier-in"
+                                 [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="setTier($index, 'min_amount', $event)" />
+                        </td>
+                        <td class="comm-num">
+                          <input type="number" step="0.01" class="cm-tier-in"
+                                 [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="setTier($index, 'max_amount', $event)"
+                                 [placeholder]="$index === borrador().length - 1 ? 'sin techo' : ''" />
+                        </td>
+                        <td class="comm-num">
+                          <input type="number" step="0.0001" class="cm-tier-in"
+                                 [ngModel]="t.pct" [ngModelOptions]="{ standalone: true }"
+                                 (ngModelChange)="setTier($index, 'pct', $event)" />
+                        </td>
+                        <td>
+                          @if (puedeGestionar()) {
+                            <button type="button" class="cm-btn-sec cm-btn-min"
+                                    (click)="quitarTier($index)">Quitar</button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              @if (huecoTabulador(); as h) {
+                <p class="cm-err">
+                  <i class="pi pi-times-circle" aria-hidden="true"></i> {{ h }}
+                </p>
+              }
+
+              @if (puedeGestionar()) {
+                <div class="cm-tabul-pie">
+                  <button type="button" class="cm-btn-sec" (click)="agregarTier()">
+                    <i class="pi pi-plus" aria-hidden="true"></i> Escalón
+                  </button>
+                  <button type="button" class="cm-btn-sec" (click)="restaurarTabulador()">
+                    Descartar cambios
+                  </button>
+                  <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
+                          (click)="simularTabulador()">
+                    {{ simulando() ? 'Simulando…' : 'Ver qué pasaría' }}
+                  </button>
+                </div>
+              }
+
+              @if (simulacion(); as s) {
+                <section class="cm-sim">
+                  <p class="cm-eyebrow">
+                    Sobre Q{{ s.base.period_no }}/{{ s.base.anio }} — la última quincena pagada
+                    ({{ dia(s.base.date_from) }} a {{ dia(s.base.date_to) }}, {{ s.base.rutas }} rutas)
+                  </p>
+                  <p class="cm-sim-grito" [class.cm-neg]="s.delta < 0">
+                    {{ s.delta >= 0 ? 'Pagaría' : 'Dejaría de pagar' }}
+                    <strong>{{ money(s.delta < 0 ? -s.delta : s.delta) }}</strong>
+                    @if (s.caen) {
+                      · <strong class="cm-neg">{{ s.caen }}</strong>
+                      ruta(s) se quedan <strong class="cm-neg">sin escalón</strong>
+                    }
+                    @if (s.suben) { · {{ s.suben }} ruta(s) alcanzan uno }
+                  </p>
+                  <p class="cm-muted cm-micro">
+                    {{ money(s.total_hoy) }} hoy &rarr; {{ money(s.total_nuevo) }} con el
+                    tabulador propuesto. <strong>Sólo se mueve el tabulador</strong>: bonos y
+                    deducciones quedan como están, para que el número conteste qué hace
+                    <em>este</em> escalón y no otra cosa.
+                  </p>
+                  <div class="cm-table-wrap">
+                    <table class="surf-table surf-table--plain surf-table--sticky">
+                      <thead><tr>
+                        <th>Ruta</th><th>Chofer</th>
+                        <th class="comm-num">Vendió</th>
+                        <th class="comm-num">% hoy</th><th class="comm-num">% nuevo</th>
+                        <th class="comm-num">Cobra hoy</th><th class="comm-num">Cobraría</th>
+                        <th class="comm-num">Δ</th>
+                      </tr></thead>
+                      <tbody>
+                        @for (f of simulacion()!.filas; track f.route_code) {
+                          <tr [class.cm-fila-grito]="f.cae_del_acantilado">
+                            <td class="comm-num">{{ f.route_code }}</td>
+                            <td class="cm-name">{{ f.beneficiario_nombre || '—' }}</td>
+                            <td class="comm-num cm-mono">{{ money(f.venta) }}</td>
+                            <td class="comm-num">{{ f.pct_hoy != null ? pct(f.pct_hoy) + '%' : '—' }}</td>
+                            <td class="comm-num" [class.cm-neg]="f.cae_del_acantilado">
+                              {{ f.pct_nuevo != null ? pct(f.pct_nuevo) + '%' : 'sin escalón' }}
+                            </td>
+                            <td class="comm-num cm-mono">{{ money(f.comision_hoy) }}</td>
+                            <td class="comm-num cm-mono">{{ money(f.comision_nueva) }}</td>
+                            <td class="comm-num cm-mono is-strong" [class.cm-neg]="f.delta < 0">
+                              {{ f.delta === 0 ? '—' : money(f.delta) }}
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+
+                  @if (puedeGestionar()) {
+                    <div class="cm-tabul-pie">
+                      <label class="cm-campo">
+                        <span>Rige desde</span>
+                        <input type="date" [ngModel]="desdeTabulador()"
+                               [ngModelOptions]="{ standalone: true }"
+                               (ngModelChange)="desdeTabulador.set($event)"
+                               [min]="minTabulador()" />
+                      </label>
+                      <button type="button" class="cm-btn cm-btn--baja"
+                              [disabled]="!desdeTabulador() || estrenando()"
+                              (click)="confirmarEstreno()">
+                        {{ estrenando() ? 'Estrenando…' : 'Estrenar esta versión' }}
+                      </button>
+                    </div>
+                  }
+                </section>
+              } @else if (puedeGestionar()) {
+                <p class="cm-muted cm-micro">
+                  <strong>No se puede estrenar sin simular antes.</strong> El botón de estrenar
+                  aparece cuando ya viste a quién le cambia el depósito y en cuánto.
+                </p>
+              }
+
+              @if (tabErr(); as e) {
+                <p class="cm-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ e }}</p>
+              }
             } @else if (tab() === 'fuera') {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
@@ -575,6 +1208,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
           }
         </section>
       </div>
+
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -583,19 +1218,19 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-page { padding:1rem 1.1rem 2rem; }
     .cm-head { display:flex; align-items:flex-start; gap:1rem; margin-bottom:1rem; }
     .cm-head h1 { margin:0; font-size:var(--fs-h2); font-weight:var(--fw-bold); color:var(--c-text-1); }
-    .cm-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-3); }
+    .cm-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-sub strong { color:var(--c-text-2); font-weight:var(--fw-medium); }
     .cm-year { margin-left:auto; display:inline-flex; gap:.4rem; align-items:center; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-year select { padding:.3rem .45rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
 
-    .cm-answer { display:flex; flex-wrap:wrap; align-items:center; gap:1rem 1.75rem; margin-bottom:1rem;
-      padding:.9rem 1.1rem; border:1px solid var(--border-color); border-left:3px solid var(--action);
+    .cm-answer { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem 1.4rem; margin-bottom:.6rem;
+      padding:.5rem .8rem; border:1px solid var(--border-color); border-left:3px solid var(--action);
       border-radius:var(--r-md,8px); background:var(--card-bg); }
     .cm-answer.abierta { border-left-color:var(--c-text-3); }
     .cm-answer-que { flex:1 1 16rem; min-width:0; }
-    .cm-eyebrow { margin:0; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase; color:var(--c-text-3); }
+    .cm-eyebrow { margin:0; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase; color:var(--c-text-2); }
     .cm-answer-q { margin:.2rem 0 0; font-size:var(--fs-h3); font-weight:var(--fw-bold); color:var(--c-text-1); }
-    .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-answer-monto { margin:.1rem 0 0; font-family:var(--font-mono,'Geist Mono',monospace);
       font-size:1.5rem; font-weight:var(--fw-bold); font-variant-numeric:tabular-nums; color:var(--c-text-1); }
 
@@ -616,8 +1251,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-btn-sec { background:transparent; color:var(--c-text-1); border:1px solid var(--border-color); }
 
     /* RD.56 - "Lo que falto". Va ARRIBA de la tabla porque es la respuesta, no un anexo. */
-    .cm-falto { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem 1.5rem; margin:.9rem 0;
-      padding:.8rem 1rem; border:1px solid var(--border-color); border-left:3px solid var(--c-warn);
+    .cm-falto { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem 1.2rem; margin:.6rem 0;
+      padding:.5rem .8rem; border:1px solid var(--border-color); border-left:3px solid var(--c-warn);
       border-radius:var(--r-md,8px); background:var(--card-bg); }
     .cm-falto-tit { flex:1 1 22rem; min-width:0; }
     /* El token --fs-base NO existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
@@ -625,16 +1260,44 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-falto-monto { text-align:right; }
     .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
 
-    .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
-    @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
+    /* [AUD-A3] El split deja de ser riel + detalle. El detalle se queda con TODO el ancho,
+       que es lo que hace que la tabla densa quepa a 1366 sin cortar "Nomina". */
+    .cm-split { display:grid; grid-template-columns:1fr; gap:1rem; align-items:start; }
+
+    /* La tira del ano: las 27 quincenas en 53 px de alto, sin scroll horizontal.
+       El flex 1 1 0 con min-width 0 es lo que las hace repartirse el ancho en vez de
+       desbordar: con un min-width fijo de 46 px medimos que 27 celdas NO entran en 1366.
+       (sin acentos graves aca dentro: esto vive en un template literal de JS) */
+    .cm-tira { margin:.6rem 0 .9rem; }
+    .cm-tira-celdas { display:flex; gap:2px; }
+    .cm-q { flex:1 1 0; min-width:0; height:34px; border:0; border-bottom:2px solid var(--border-color);
+      background:transparent; padding:.1rem 0 .15rem; cursor:pointer; display:flex; flex-direction:column;
+      align-items:center; justify-content:flex-end; gap:2px; font:inherit; color:var(--c-text-2); }
+    .cm-q:hover { background:var(--overlay-hover, rgba(0,0,0,.04)); }
+    .cm-q:focus-visible { outline:2px solid var(--focus-ring, var(--action)); outline-offset:-2px; border-radius:4px; }
+    .cm-q-n { font-size:var(--fs-micro); font-weight:var(--fw-medium); line-height:1; }
+    .cm-q-bar { display:block; width:60%; background:var(--c-text-3); border-radius:1px; }
+    .cm-q.sel { border-bottom-color:var(--action); color:var(--c-text-1); }
+    .cm-q.sel .cm-q-n { font-weight:var(--fw-bold); }
+    .cm-q.sel .cm-q-bar { background:var(--action); }
+    .cm-q.hoy { border-bottom-style:dashed; border-bottom-color:var(--action); }
+    .cm-q.fut { opacity:.45; }
+    .cm-q.fut .cm-q-bar { background:transparent; border-top:1px dashed var(--c-text-3); }
+    .cm-tira-pie { margin:.3rem 0 0; font-size:var(--fs-micro); color:var(--c-text-2); }
+    .cm-tira-pie b { color:var(--c-text-1); }
+    /* En pantalla angosta las 27 no caben legibles: se deja scrollar en vez de aplastarlas. */
+    @container (max-width:48rem) {
+      .cm-tira-celdas { overflow-x:auto; }
+      .cm-q { flex:0 0 34px; }
+    }
 
     .cm-rail { display:flex; flex-direction:column; max-height:78vh; overflow-y:auto; }
     .cm-mes { margin:.9rem 0 .35rem; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase;
-      color:var(--c-text-3); font-weight:var(--fw-medium); }
+      color:var(--c-text-2); font-weight:var(--fw-medium); }
     .cm-mes:first-child { margin-top:0; }
     .cm-colapso { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); margin-bottom:.4rem; }
-    .cm-colapso summary { padding:.5rem .7rem; font-size:var(--fs-sm); color:var(--c-text-3); cursor:pointer; }
-    .cm-colapso p { margin:0; padding:0 .7rem .55rem; font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-colapso summary { padding:.5rem .7rem; font-size:var(--fs-sm); color:var(--c-text-2); cursor:pointer; }
+    .cm-colapso p { margin:0; padding:0 .7rem .55rem; font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-per { display:flex; flex-direction:column; gap:.3rem; text-align:left; margin-bottom:.3rem;
       padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px);
       background:var(--card-bg); font:inherit; cursor:pointer; }
@@ -643,7 +1306,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-per-top { display:flex; align-items:baseline; gap:.45rem; }
     .cm-per-bot { display:flex; align-items:center; justify-content:space-between; gap:.4rem; }
     .cm-per-no { font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); font-family:var(--font-mono,'Geist Mono',monospace); }
-    .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-2); }
     .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
     /* Marca la cifra que es BRUTO y no neto: el subrayado punteado la distingue sin color. */
     .cm-per-monto.cm-tras-nomina { text-decoration:underline dotted; text-underline-offset:3px; }
@@ -652,7 +1315,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-hoy { margin-left:auto; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
       color:var(--action); font-weight:var(--fw-bold); }
     .cm-futuras { margin:.7rem 0 0; padding:.5rem .6rem; border:1px dashed var(--border-color);
-      border-radius:var(--r-md,8px); font-size:var(--fs-micro); color:var(--c-text-3); text-align:center; }
+      border-radius:var(--r-md,8px); font-size:var(--fs-micro); color:var(--c-text-2); text-align:center; }
 
     .cm-detail { min-width:0; }
     .cm-card { border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); padding:1rem 1.1rem; }
@@ -664,17 +1327,17 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-ciclo { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:0;
       padding:0; list-style:none; background:var(--border-color); border:1px solid var(--border-color);
       border-radius:var(--r-md,8px); overflow:hidden; }
-    @media (max-width:46rem) { .cm-ciclo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-    .cm-ciclo li { display:flex; flex-direction:column; gap:.3rem; padding:.7rem .8rem;
-      background:var(--card-bg); font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-3); }
+    @container (max-width:46rem) { .cm-ciclo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    .cm-ciclo li { display:flex; flex-direction:column; gap:.15rem; padding:.45rem .6rem;
+      background:var(--card-bg); font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-2); }
     .cm-ciclo li.act { background:color-mix(in srgb, var(--action) 7%, var(--card-bg)); color:var(--action); }
-    .cm-ciclo li span:last-child { font-size:var(--fs-micro); font-weight:400; color:var(--c-text-3); }
+    .cm-ciclo li span:last-child { font-size:var(--fs-micro); font-weight:400; color:var(--c-text-2); }
     .cm-paso { display:inline-flex; align-items:center; justify-content:center; width:1.15rem; height:1.15rem;
       border:1px solid currentColor; border-radius:50%; font-family:var(--font-mono,'Geist Mono',monospace);
       font-size:var(--fs-micro); }
 
     .cm-table-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); margin-top:.6rem; }
-    .cm-table-wrap tbody tr.muted td { color:var(--c-text-3); }
+    .cm-table-wrap tbody tr.muted td { color:var(--c-text-2); }
     .cm-neg { color:var(--bad-fg); }
     /* Ambar y no rojo a proposito: 8 de cada 22 marcadas son legitimas (el camion no salio). */
     .cm-corta { color:var(--warn-fg); font-weight:var(--fw-medium); }
@@ -693,7 +1356,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-mono { font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-micro { font-size:var(--fs-micro); }
 
-    .cm-gate { display:block; margin:0 0 .6rem; padding:.55rem .7rem; border-radius:var(--r-md,8px); font-size:var(--fs-sm); }
+    .cm-gate { display:block; margin:0 0 .4rem; padding:.4rem .6rem; border-radius:var(--r-md,8px); font-size:var(--fs-sm); }
     .cm-gate strong { display:flex; gap:.4rem; align-items:center; }
     .cm-gate ul { margin:.35rem 0 0; padding-left:1.4rem; color:var(--c-text-2); }
     .cm-gate.bad { border:1px solid color-mix(in srgb, var(--bad-fg) 45%, transparent);
@@ -703,10 +1366,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 
     /* [RD.65] El aviso de proyeccion: franja de atencion, no de error. Usa el token de aviso
        y nunca un hex -- la cifra de abajo es correcta, solo que no es definitiva. */
-    .cm-proy { margin:0 0 8px; padding:8px 12px; display:flex; align-items:center; gap:8px;
+    .cm-proy { margin:0 0 6px; padding:5px 10px; display:flex; align-items:center; gap:8px;
       border-left:3px solid var(--c-warn); border-radius:var(--r-md,8px);
       background:var(--card-bg); color:var(--c-text-2); font-size:var(--fs-sm); }
-    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-3);
+    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-2);
       font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-warn.bad { border-color:color-mix(in srgb, var(--bad-fg) 45%, transparent);
       background:color-mix(in srgb, var(--bad-fg) 9%, transparent); }
@@ -714,13 +1377,50 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
       background:color-mix(in srgb, var(--warn-fg) 8%, transparent); font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-err { display:flex; gap:.4rem; align-items:center; color:var(--bad-fg); font-size:var(--fs-sm); margin:.4rem 0; }
-    .cm-empty { color:var(--c-text-3); font-size:var(--fs-sm); }
-    .cm-muted { color:var(--c-text-3); }
+    .cm-empty { color:var(--c-text-2); font-size:var(--fs-sm); }
+    .cm-muted { color:var(--c-text-2); }
+    /* [RD.83] la barra de actos: el trámite se ejecuta donde se lee el número, no en otra pantalla */
+    .cm-actos { display:flex; gap:var(--sp-3,.75rem); align-items:center; justify-content:space-between;
+      flex-wrap:wrap; margin:.7rem 0 0; padding:.6rem .75rem; border:1px solid var(--border-color);
+      border-radius:var(--r-md,8px); background:var(--overlay-hover); }
+    .cm-actos-txt { min-width:0; }
+    .cm-actos-dice { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .cm-actos-btns { display:flex; gap:var(--sp-2,.5rem); flex-shrink:0; }
+    .cm-btn--ghost { background:transparent; color:var(--c-text-2); border:1px solid var(--border-color); }
+    /* [RD.84] el padron editable y su dialogo */
+    .cm-padron { margin:1.1rem 0 0; }
+    .cm-padron-tit { display:flex; gap:var(--sp-3,.75rem); align-items:flex-start;
+      justify-content:space-between; flex-wrap:wrap; margin:0 0 .5rem; }
+    /* Von Restorff: una baja NO se pinta como una fila normal, y NO depende solo del color --
+       lleva tambien el texto "de baja" en su columna de vigencia (forced-colors). */
+    .cm-fila-baja > td { color:var(--c-text-2); }
+    .cm-btn-min { padding:.15rem .5rem; font-size:var(--fs-xs); border-radius:var(--r-sm,6px); }
+    .cm-btn--baja { background:var(--bad-fg); border-color:var(--bad-fg); }
+    .cm-form { display:flex; flex-direction:column; gap:.55rem; }
+    /* Miller: >6 campos seguidos se parten con un titulo. El formulario tiene nueve. */
+    .cm-form-sep { margin:.5rem 0 0; font-size:var(--fs-xs); font-weight:600;
+      text-transform:uppercase; letter-spacing:.04em; color:var(--c-text-2); }
+    .cm-campo { display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-sm); }
+    .cm-campo > span { color:var(--c-text-1); }
+    .cm-campo input, .cm-campo textarea, .cm-campo select { padding:.35rem .5rem; border:1px solid var(--border-color);
+      border-radius:var(--r-sm,6px); background:var(--c-surface-0); color:var(--c-text-1);
+      font:inherit; font-size:var(--fs-sm); }
+    .cm-campo--check { flex-direction:row; align-items:center; gap:.4rem; }
+    .cm-campo--check input { width:auto; }
+    .cm-tier-in { width:7.5rem; padding:.2rem .4rem; text-align:right; font:inherit;
+      font-size:var(--fs-sm); border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      background:var(--c-surface-0); color:var(--c-text-1); }
+    .cm-tabul-pie { display:flex; gap:var(--sp-2,.5rem); align-items:flex-end; flex-wrap:wrap; margin:.7rem 0 0; }
+    .cm-sim { margin:1.1rem 0 0; padding-top:.8rem; border-top:1px solid var(--border-color); }
+    .cm-sim-grito { margin:.2rem 0 .1rem; font-size:var(--fs-body); color:var(--c-text-1); }
+    .cm-form-pie { display:flex; gap:var(--sp-2,.5rem); justify-content:flex-end; margin-top:.8rem; }
   `],
 })
 export class ComercialComisionesComponent {
   private readonly api = inject(ComercialService);
   private readonly perms = inject(PermissionsService);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
 
   /**
    * ⭐ El ÚNICO control de esta pantalla, y aparece sólo cuando hay un hueco que llenar.
@@ -757,6 +1457,31 @@ export class ComercialComisionesComponent {
    * para dar flechas, Home/End y roving tabindex.
    */
   filaSel: CommissionLine | null = null;
+  /**
+   * `[AUD-A6]` El eje del tiempo de la pantalla: la **quincena** o el **mes**.
+   *
+   * ⛔ No es una pestaña más de `tab()`. Aquellas son vistas de UNA quincena —cambiarlas no
+   * cambia el periodo—, y el objetivo es **mensual**: colgarlo ahí haría que su contenido
+   * cambiara al elegir otra quincena, que es afirmar algo falso.
+   */
+  /**
+   * ⭐ Arranca en la vista por la que entraste: `/comercial/comisiones/objetivo` abre el bono,
+   * y la ruta corta abre la nómina. Los favoritos y enlaces viejos siguen llevando a donde
+   * llevaban, y no al inicio de otra cosa.
+   */
+  readonly vista = signal<'quincena' | 'objetivo'>(
+    inject(Router).url.includes('/objetivo') ? 'objetivo' : 'quincena');
+  readonly vistas: SegOption[] = [
+    { label: 'Nómina quincenal', value: 'quincena' },
+    { label: 'Bono por objetivo (mensual)', value: 'objetivo' },
+  ];
+
+  /** Estrecha el `string` del control segmentado a la unión del signal. Cualquier otro valor
+   *  se ignora en vez de ensuciar el estado: el control sólo ofrece esos dos. */
+  verVista(v: string): void {
+    if (v === 'quincena' || v === 'objetivo') this.vista.set(v);
+  }
+
   readonly tab = signal<string>('chofer');
   /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
   readonly tabsRD = RUTA_DIRECTA_TABS;
@@ -817,6 +1542,48 @@ export class ComercialComisionesComponent {
   /** Lo que todavia no empieza no es "sin corrida": es futuro, y ocupa una linea. */
   readonly futuras = computed(() => this.board().filter((p) => p.date_from > this.hoy));
 
+  // ── [AUD-A3] La tira del año ──────────────────────────────────────────────────────────────
+
+  esFutura(p: CommissionBoardRow): boolean { return p.date_from > this.hoy; }
+
+  readonly pagadas = computed(() => this.board().filter((p) => p.status === 'pagado').length);
+
+  /**
+   * La altura de cada barra, en píxeles, proporcional al monto de su quincena.
+   *
+   * ⭐ Es un `computed` que devuelve un **Map**, no un método. Un método en la plantilla se
+   * ejecuta en CADA ciclo de detección y por cada una de las 27 celdas; acá el cálculo corre
+   * una vez por cambio del tablero.
+   *
+   * ⛔ El piso de 3 px no es cosmético: una quincena pagada con monto bajo tiene que **verse
+   * distinta de una sin corrida**, que vale 1 px. Sin el piso, la más chica del año se
+   * confundiría con una vacía — que es dibujar un cero sobre algo que sí se midió (ADR-056).
+   *
+   * ⚠️ Y el monto cae a `total_a_pagar` cuando el neto es NULL, igual que lo hacía el riel:
+   * las 20 quincenas del espejo no traen neto porque falta la deducción del supervisor.
+   */
+  readonly alturaBarra = computed(() => {
+    const MIN = 3; const MAX = 16;
+    const monto = (p: CommissionBoardRow) => Number(p.total_neto ?? p.total_a_pagar ?? 0) || 0;
+    const vivos = this.board().filter((p) => p.run_id);
+    const tope = Math.max(...vivos.map(monto), 0);
+    const out = new Map<string, number>();
+    for (const p of this.board()) {
+      out.set(p.period_id, !p.run_id || tope <= 0 ? 1 : MIN + Math.round((monto(p) / tope) * (MAX - MIN)));
+    }
+    return out;
+  });
+
+  /** Lo que la barra NO puede decir: va al `title`, que es lo que lee un lector de pantalla. */
+  tituloQuincena(p: CommissionBoardRow): string {
+    const cuando = `Q${p.period_no} · ${this.rango(p)}`;
+    if (this.esFutura(p)) return `${cuando} · todavía no empieza`;
+    if (this.esHoy(p)) return `${cuando} · en curso, cierra el ${this.dia(p.date_to)}`;
+    if (!p.run_id) return `${cuando} · cerrada y SIN calcular`;
+    const m = p.total_neto ?? p.total_a_pagar;
+    return `${cuando} · ${this.etiquetaEstado(p)} · ${m != null ? this.money(m) : 'sin monto'}`;
+  }
+
   esHoy(p: CommissionBoardRow): boolean {
     return p.date_from <= this.hoy && this.hoy <= p.date_to;
   }
@@ -861,6 +1628,15 @@ export class ComercialComisionesComponent {
     this.cargarContraste();
     this.falto.set(null);
     this.cargarFalto();
+    this.padron.set([]);
+    this.cargarUniverso();
+    // `[RD.84]` El padrón EDITABLE va junto al universo — la pestaña muestra los dos. Pedirlo
+    // sólo al abrir el diálogo dejaría la tabla vacía hasta el primer clic.
+    this.cargarPadron();
+    // [RD.85] Los bonos cuelgan de la escala, no de la quincena: se piden una vez.
+    this.cargarBonos();
+    // [RD.86] El tabulador tampoco depende de la quincena: cuelga de su propia vigencia.
+    this.cargarEscalas();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
@@ -967,8 +1743,138 @@ export class ComercialComisionesComponent {
       ...(this.faltoDelPeriodo().length
         ? [{ label: `Lo que faltó · ${this.faltoDelPeriodo().length}`, value: 'falto' }] : []),
       ...(c.length ? [{ label: `Libro vs motor · ${c.length}`, value: 'contraste' }] : []),
+      // `[RD.80]` No depende de la corrida: si hay hallazgos, se muestran aunque la quincena
+      // elegida no tenga número. Son dos preguntas distintas y la segunda no espera.
+      //
+      // ⛔ **Se llamaba «Padrón» y era un nombre falso.** Medido: de sus 13 filas, **8 NO están
+      // en el padrón** (`en_config = false`: las vecinales). Un título que nombra el registro
+      // mientras la mayoría de su contenido es justamente lo que quedó FUERA del registro
+      // desorienta — es el caso `[CG.123]`. Lo que la pestaña compara de verdad son las dos
+      // caras del mismo hecho: quién cobra y quién vende. El nombre nuevo además rima con
+      // «Libro vs motor», que es la otra comparación de esta misma pantalla.
+      ...(this.padronHallazgos().length
+        ? [{ label: `Cobro vs venta · ${this.padronHallazgos().length}`, value: 'padron' }] : []),
+      // `[RD.85]` La pestaña aparece SIEMPRE, también con cero bonos — y sobre todo con cero:
+      // un tabulador sin bonos es el síntoma de `[RD.85.0]`, y esconder la pestaña lo volvería
+      // invisible justo cuando hay que verlo. La cuenta es de los ACTIVOS, que son los que pagan.
+      { label: `Bonos · ${this.bonos().filter((b) => b.activo).length}`, value: 'bonos' },
+      // [RD.86] Siempre visible: es el numero que decide el porcentaje de cada peso.
+      { label: 'Tabulador', value: 'tabulador' },
     ];
   }
+
+  /**
+   * `[RD.80]` El problema en palabras de quien paga, no en las de la vista.
+   *
+   * ⛔ Sin esto la pantalla publicaría `cobra_sin_fuente`, que es vocabulario de la base. El
+   * usuario de esta pantalla autoriza una nómina: tiene que leer qué está mal, no cómo se llama
+   * la columna.
+   */
+  etiquetaProblema(p: string | null): string {
+    switch (p) {
+      case 'cobra_sin_fuente':  return 'Cobra y su fuente no da señal';
+      case 'fuente_rezagada':   return 'Le faltan días';
+      case 'vende_sin_cobrar':  return 'Vende y no comisiona';
+      case 'dato_imposible':    return 'Trae venta con fecha futura';
+      default:                  return '—';
+    }
+  }
+
+  sevProblema(p: string | null): 'danger' | 'warn' | 'info' | 'secondary' {
+    if (p === 'cobra_sin_fuente') return 'danger';
+    if (p === 'fuente_rezagada' || p === 'dato_imposible') return 'warn';
+    if (p === 'vende_sin_cobrar') return 'info';
+    return 'secondary';
+  }
+
+  /**
+   * ⛔ `sin_fuente` NO se pinta como «hace mucho»: son dos cosas distintas. Una ruta sin ninguna
+   * fila nunca reportó, y `dias_sin_dato` viene NULL justamente para no dibujar un cero que se
+   * leería como «reportó hoy» (ADR-056).
+   */
+  etiquetaFuente(r: CommissionUniverseRow): string {
+    if (r.fuente_estado === 'sin_fuente') return 'sin fuente';
+    if (r.dias_sin_dato == null) return 'sin medir';
+    if (r.dias_sin_dato === 0) return 'hoy';
+    return r.dias_sin_dato === 1 ? 'hace 1 día' : `hace ${r.dias_sin_dato} días`;
+  }
+
+  // ── `[RD.71/RD.80]` El padrón — quién cobra y si su fuente sigue viva ─────────────────────
+  //
+  // ⛔ **`GET /commissions/universe` existía desde `[RD.17]` y NO tenía un solo consumidor en el
+  // frontend.** El universo se derivaba, se publicaba y la pantalla nunca lo mostraba — por eso
+  // la 321 pudo pasar **139 días** cobrando sin vender y nadie lo vio. La pestaña «No comisionan»
+  // no servía: sale de las LÍNEAS DE LA CORRIDA, o sea del espejo del libro, y el libro no tiene
+  // filas para las rutas nuevas (2V001, 2V003) ni para una ruta que dejó de aparecer.
+  //
+  // Esta pestaña no mira la corrida: mira el padrón entero, exista o no la quincena.
+
+  readonly padron = signal<CommissionUniverseRow[]>([]);
+
+  /**
+   * ⛔ `[RD.84]` **Se llamaba `cargarPadron()` y carga el UNIVERSO**, que es otra cosa: todas las
+   * rutas que existen según el ERP, comisionen o no. El padrón editable —las filas de
+   * `commission_route_config`— lo carga `cargarPadron()` de verdad, que ahora existe. Dos
+   * métodos con el mismo nombre en una clase de 2,000 líneas **no dan error: gana el último**,
+   * y la pestaña habría quedado leyendo la lista equivocada en silencio.
+   */
+  private cargarUniverso() {
+    // Mismo criterio que el contraste: no bloquea el tablero y si falla la pestaña no aparece.
+    this.api.commissionUniverse().subscribe({
+      next: (u) => this.padron.set(u ?? []),
+      error: () => this.padron.set([]),
+    });
+  }
+
+  /**
+   * ⭐ Las filas que contradicen al padrón, y nada más. Dos hechos distintos, y por eso van con
+   * `problema` explícito en vez de mezclarse en una lista de «rutas raras»:
+   *
+   *  · `cobra_sin_fuente` — comisiona y su fuente no da señal. Es dinero que se va a calcular
+   *    sobre nada: el tabulador es un acantilado, así que «sin días» no paga «un poco menos»,
+   *    paga CERO.
+   *  · `vende_sin_cobrar` — no comisiona y sí vende. Puede ser correcto (las vecinales no son
+   *    Ruta Directa), pero con el monto al lado la exclusión se puede revisar; sin él es una
+   *    lista de códigos raros que nadie mira.
+   *  · `dato_imposible` — trae venta con fecha futura.
+   */
+  readonly padronHallazgos = computed(() => this.padron()
+    .map((r) => ({
+      ...r,
+      problema: r.comisiona && (r.fuente_estado === 'muerta' || r.fuente_estado === 'sin_fuente')
+        ? 'cobra_sin_fuente'
+        : r.tiene_dato_futuro ? 'dato_imposible'
+          : !r.comisiona && Number(r.subtotal_30d) > 0 ? 'vende_sin_cobrar'
+            : r.comisiona && r.fuente_estado === 'rezagada' ? 'fuente_rezagada' : null,
+    }))
+    .filter((r) => r.problema !== null)
+    // Lo que cobra sin fuente primero: es lo único de esta lista que mueve un depósito.
+    .sort((a, b) => {
+      const peso = (p: string | null) =>
+        p === 'cobra_sin_fuente' ? 0 : p === 'fuente_rezagada' ? 1 : p === 'dato_imposible' ? 2 : 3;
+      const d = peso(a.problema) - peso(b.problema);
+      return d !== 0 ? d : Number(b.subtotal_30d) - Number(a.subtotal_30d);
+    }));
+
+  /** Lo que se va a calcular sobre nada, en pesos de los últimos 30 días. */
+  readonly padronEnRiesgo = computed(() => this.padronHallazgos()
+    .filter((r) => r.problema === 'cobra_sin_fuente').length);
+
+  /**
+   * ⛔ **Suma sobre el HECHO, no sobre la etiqueta** — y la diferencia no es de estilo.
+   *
+   * `padronHallazgos()` asigna **una sola** etiqueta por fila con una cadena de ternarios, así
+   * que una ruta que venda sin cobrar **y además** traiga una venta con fecha futura se queda
+   * con `dato_imposible` y **desaparecía de este total sin avisar**. Es el Cruce 1: una cifra
+   * publicada que no se puede recorrer hasta su lista.
+   *
+   * ⚠️ Era **latente, no vivo**: hoy la única con dato futuro es la 22, que sí comisiona. Se
+   * arregla ahora porque el día que deje de ser latente, el síntoma es un total más chico —
+   * y un total más chico no se nota.
+   */
+  readonly padronVendeSinCobrar = computed(() => this.padron()
+    .filter((r) => !r.comisiona && Number(r.subtotal_30d) > 0)
+    .reduce((s, r) => s + Number(r.subtotal_30d), 0));
 
   // ── `[RD.52]` El contraste ────────────────────────────────────────────────────────────────
 
@@ -1239,6 +2145,568 @@ export class ComercialComisionesComponent {
       error: (e) => {
         this.recalculando.set(false);
         this.err.set(e?.error?.message ?? 'No se pudo calcular.');
+      },
+    });
+  }
+
+  // ── [RD.83] Los actos ──────────────────────────────────────────────────────────────────
+  //
+  // ⭐ **Por qué esto no contradice el "sin botones" de la cabecera.** Lo que se quitó en
+  // `[RD.22]` fue *calcular* desde el hilo de la petición: costaba 5,762 ms y hacía lenta la
+  // lectura. Aprobar, pagar y anular son `UPDATE` de una fila — ni leen venta ni materializan
+  // nada. El argumento de rendimiento no los alcanza, y sin ellos el ciclo de cuatro pasos que
+  // la pantalla dibuja no se puede recorrer en ningún lado.
+  //
+  // ⛔ **La máquina de estados NO se reimplementa acá.** El servidor ya la tiene en `setStatus`
+  // y es la que manda; esto sólo decide qué ofrecer. Si las dos discrepan, gana el 409 del
+  // servidor y se muestra su mensaje tal cual — una copia de la regla en el front se
+  // desincroniza y termina ofreciendo un botón que siempre falla.
+
+  /** El acto que toca, o `null` si no hay nada que hacer con esta corrida. */
+  proximoActo(r: CommissionRunDetail): 'approve' | 'pay' | null {
+    // ⛔ Una corrida con compuertas que bloquean NO se aprueba. La compuerta ya se pinta arriba
+    // con su motivo; ofrecer el botón igual la volvería decorativa.
+    if (r.status === 'borrador' && !this.bloqueantes(r).length) return 'approve';
+    if (r.status === 'aprobado') return 'pay';
+    return null;
+  }
+
+  /** Anular existe mientras el dinero no se haya ido. Lo pagado no se revive ni se deshace. */
+  sePuedeAnular(r: CommissionRunDetail): boolean {
+    return r.status === 'borrador' || r.status === 'bloqueada' || r.status === 'aprobado';
+  }
+
+  tituloActo(r: CommissionRunDetail): string {
+    switch (this.proximoActo(r)) {
+      case 'approve': return 'Falta aprobarla';
+      case 'pay': return 'Falta marcarla pagada';
+      default:
+        if (r.status === 'pagado') return 'Pagada y congelada';
+        if (r.status === 'bloqueada') return 'Bloqueada';
+        if (r.status === 'anulado') return 'Anulada';
+        return 'Sin acto pendiente';
+    }
+  }
+
+  explicaActo(r: CommissionRunDetail): string {
+    switch (this.proximoActo(r)) {
+      case 'approve':
+        return 'El motor ya produjo el número y las compuertas pasan. Aprobar es un acto humano: '
+          + 'el motor nunca aprueba solo.';
+      case 'pay':
+        return 'Aprobada. Al marcarla pagada queda congelada — lo pagado no se recalcula.';
+      default:
+        if (r.status === 'pagado') return 'No se recalcula. Para corregirla hay que anularla y volver a calcular.';
+        if (r.status === 'bloqueada')
+          return 'No se aprueba con compuertas abiertas: se anula, se resuelve el motivo y se vuelve a calcular.';
+        if (r.status === 'anulado') return 'Quedó fuera del libro. Volver a calcular la quincena produce una nueva.';
+        return 'Esta quincena todavía corre: no se aprueba ni se paga media quincena.';
+    }
+  }
+
+  /**
+   * ⚠️ Se DECLARA quién y cuándo, no se dibuja un hueco. Medido el 2026-10-20: las 20 corridas
+   * de prod tienen `approved_at` en NULL — entraron como espejo del libro, sin pasar por el
+   * trámite. Una corrida pagada sin sello de aprobación no es un error de pintura: es historia
+   * que no tuvo ese paso, y decirlo es distinto de callarlo.
+   */
+  selloAprobacion(r: CommissionRunDetail): string | null {
+    if (r.status !== 'aprobado' && r.status !== 'pagado') return null;
+    const partes: string[] = [];
+    if (r.approved_at) partes.push(`aprobada ${this.cuando(r.approved_at)}`);
+    if (r.paid_at) partes.push(`pagada ${this.cuando(r.paid_at)}`);
+    if (!partes.length) return 'sin sello de aprobación — entró como espejo del libro';
+    return partes.join(' · ');
+  }
+
+  readonly actuando = signal(false);
+
+  confirmarActo(r: CommissionRunDetail, accion: 'approve' | 'pay' | 'void'): void {
+    const q = r.period ? `Q${r.period.period_no}` : 'esta quincena';
+    const monto = this.money(r.total_neto ?? r.total_a_pagar);
+    const textos: Record<typeof accion, { header: string; message: string; accept: string }> = {
+      approve: {
+        header: `Aprobar ${q}`,
+        message: `Se aprueba ${q} por ${monto} (${this.pagan()} chofer(es) que cobran). `
+          + 'Aprobar no paga: habilita el paso de pago. Queda registrado con tu nombre y la hora.',
+        accept: 'Aprobar',
+      },
+      pay: {
+        header: `Marcar ${q} como pagada`,
+        message: `Se marca ${q} por ${monto} como PAGADA y queda congelada: no se recalcula, `
+          + 'ni cuando cambie el tabulador ni cuando llegue dato nuevo. Esto no mueve dinero — '
+          + 'registra que ya se pagó.',
+        accept: 'Marcar pagada',
+      },
+      void: {
+        header: `Anular ${q}`,
+        message: `Se anula la corrida de ${q} por ${monto}. Sale del libro y la quincena vuelve a `
+          + 'quedar sin número, para volver a calcularla con el motivo resuelto.',
+        accept: 'Anular',
+      },
+    };
+    const t = textos[accion];
+    this.confirm.confirm({
+      header: t.header, message: t.message,
+      acceptLabel: t.accept, rejectLabel: 'Cancelar',
+      accept: () => this.actuar(r.id, accion),
+    });
+  }
+
+  private actuar(runId: string, accion: 'approve' | 'pay' | 'void'): void {
+    if (this.actuando()) return;
+    this.actuando.set(true);
+    this.err.set(null);
+    this.api.commissionSetStatus(runId, accion).subscribe({
+      next: (detalle) => {
+        this.actuando.set(false);
+        this.run.set(detalle);
+        this.toast.add({
+          severity: 'success',
+          summary: accion === 'approve' ? 'Aprobada' : accion === 'pay' ? 'Marcada pagada' : 'Anulada',
+          detail: `Queda en estado "${detalle.status}".`,
+        });
+        // El tablero trae el estado y el monto de cada quincena: si no se recarga, la tira de
+        // arriba sigue diciendo lo de antes del acto.
+        this.cargar();
+      },
+      error: (e) => {
+        this.actuando.set(false);
+        // ⭐ El 409 del servidor trae la razón exacta (qué transición no se permite, y qué
+        // compuertas bloquean). Se muestra tal cual: un "no se pudo" propio la borraría.
+        const msg = e?.error?.message ?? 'No se pudo completar el trámite.';
+        this.err.set(msg);
+        this.toast.add({ severity: 'error', summary: 'No se completó', detail: msg, life: 8000 });
+      },
+    });
+  }
+
+  // ── [RD.84] El padrón se administra acá ────────────────────────────────────────────────
+  //
+  // ⛔ **Lo que esto cierra.** Medido el 2026-10-20: el módulo sólo podía `INSERT` en cinco
+  // tablas y `commission_route_config` no era una de ellas. Cada cambio de padrón —una ruta que
+  // entra, un chofer que cambia, una nómina que sube— exigía escribir una migración, empujarla
+  // y aplicarla a prod a mano. Mover las rutas 321 y 322 a Vecinal costó exactamente eso.
+  //
+  // ⚠️ Las reglas duras las hace cumplir el SERVIDOR (`CommissionPadronService`), no esta
+  // pantalla. Acá se previene —el botón no se habilita hasta que el formulario está completo,
+  // que es poka-yoke— pero la verdad vive del otro lado: una validación que sólo existe en el
+  // front es una sugerencia.
+
+  readonly padronFilas = signal<PadronRuta[]>([]);
+  readonly padronAbierto = signal(false);
+  readonly padronEditando = signal<PadronRuta | null>(null);
+  readonly padronGuardando = signal(false);
+  readonly padronErr = signal<string | null>(null);
+  readonly padronAviso = signal<PadronAvisoPagadas | null>(null);
+
+  readonly fRuta = signal('');
+  readonly fChofer = signal<string | null>(null);
+  readonly fSupervisor = signal<string | null>(null);
+  readonly fZona = signal<string | null>(null);
+  readonly fNomina = signal<number | null>(null);
+  readonly fDesde = signal<string | null>(null);
+  readonly fHasta = signal<string | null>(null);
+  readonly fActivo = signal(true);
+  readonly fNotas = signal<string | null>(null);
+  readonly fConfirmar = signal(false);
+
+  /** Esta edición ES una baja: cambia el color del botón y vuelve obligatorio el motivo. */
+  readonly esBaja = computed(() => !!this.padronEditando() && !this.fActivo());
+
+  /**
+   * ⭐ Poka-yoke, no validación tardía: el envío está deshabilitado **mientras falte algo**, en
+   * vez de dejar cometer el error y reportarlo. Las tres condiciones de la baja —apagada, con
+   * fecha y con motivo— se exigen **juntas**, que es como el servidor las exige.
+   */
+  readonly formOk = computed(() => {
+    const nom = this.fNomina();
+    if (nom == null || Number(nom) < 0) return false;
+    if (!this.padronEditando()) {
+      // Alta: código y fecha de inicio. Sin `activo_desde` la ruta cobraría la quincena 1.
+      return !!this.fRuta().trim() && !!this.fDesde();
+    }
+    if (this.esBaja() && (!this.fHasta() || !String(this.fNotas() ?? '').trim())) return false;
+    // Si el servidor ya avisó que toca quincenas pagadas, hay que confirmarlo a propósito.
+    return !this.padronAviso() || this.fConfirmar();
+  });
+
+  cargarPadron(): void {
+    this.api.commissionPadron().subscribe({
+      next: (f) => this.padronFilas.set(f ?? []),
+      // ⛔ Error NO es vacío: un padrón vacío significa «nadie cobra», que es una afirmación
+      // muy distinta de «no se pudo leer». Se DECLARA (ADR-056).
+      error: (e) => this.padronErr.set(
+        e?.error?.message ?? 'No se pudo leer el padrón. No es que esté vacío: no se pudo leer.'),
+    });
+  }
+
+  /** `YYYY-MM-DD` → `DD/MM`, cortando la cadena. Ver la nota de fechas de la cabecera. */
+  vigencia(p: PadronRuta): string {
+    const d = p.activo_desde ? this.dia(p.activo_desde) : null;
+    const h = p.activo_hasta ? this.dia(p.activo_hasta) : null;
+    if (p.activo) return d ? `desde ${d}` : 'siempre';
+    if (h) return `hasta ${h}`;
+    // ⚠️ Baja SIN fecha: no comisiona en NINGÚN periodo, ni en los que sí trabajó. Se dice.
+    return 'de baja, sin fecha';
+  }
+
+  abrirAlta(): void {
+    this.padronEditando.set(null);
+    this.padronAviso.set(null); this.padronErr.set(null); this.fConfirmar.set(false);
+    this.fRuta.set(''); this.fChofer.set(null); this.fSupervisor.set(null);
+    this.fZona.set(null); this.fNomina.set(null); this.fDesde.set(null);
+    this.fHasta.set(null); this.fActivo.set(true); this.fNotas.set(null);
+    this.padronAbierto.set(true);
+  }
+
+  abrirEdicion(p: PadronRuta): void {
+    this.padronEditando.set(p);
+    this.padronAviso.set(null); this.padronErr.set(null); this.fConfirmar.set(false);
+    this.fRuta.set(p.route_code);
+    this.fChofer.set(p.chofer_nombre); this.fSupervisor.set(p.supervisor_nombre);
+    this.fZona.set(p.zona); this.fNomina.set(Number(p.nomina_banco));
+    this.fDesde.set(p.activo_desde); this.fHasta.set(p.activo_hasta);
+    this.fActivo.set(p.activo); this.fNotas.set(p.notes);
+    this.padronAbierto.set(true);
+  }
+
+  guardarPadron(): void {
+    // ⚠️ Idempotencia visual (§10): se bloquea en el PRIMER clic, antes de esperar respuesta.
+    // Sin esto el doble clic del pánico manda dos altas y el UNIQUE devuelve un 409 confuso.
+    if (this.padronGuardando() || !this.formOk()) return;
+    this.padronGuardando.set(true);
+    this.padronErr.set(null);
+
+    const listo = (resumen: string) => {
+      this.padronGuardando.set(false);
+      this.padronAbierto.set(false);
+      this.toast.add({ severity: 'success', summary: 'Padrón actualizado', detail: resumen });
+      this.cargarPadron();
+      // El universo derivado lee la config: si no se recarga, los hallazgos de arriba siguen
+      // describiendo el padrón anterior.
+      this.cargarUniverso();
+    };
+    const falla = (e: any) => {
+      this.padronGuardando.set(false);
+      const msg = e?.error?.message ?? 'No se pudo guardar.';
+      this.padronErr.set(msg);
+      // ⭐ El 409 de quincenas pagadas no es un error: es una pregunta. Se convierte en el
+      // bloque de confirmación en vez de un mensaje rojo que no ofrece salida.
+      const m = /cambia (\d+) quincena\(s\) YA PAGADA\(S\) por \$([\d.,]+) \(([^)]+)\)/.exec(msg);
+      if (m) this.padronAviso.set({ quincenas: Number(m[1]), pagado: `$${m[2]}`, detalle: m[3] });
+    };
+
+    const edit = this.padronEditando();
+    if (!edit) {
+      this.api.commissionPadronAlta({
+        route_code: this.fRuta().trim(),
+        nomina_banco: Number(this.fNomina()),
+        activo_desde: String(this.fDesde()),
+        zona: this.fZona(), chofer_nombre: this.fChofer(),
+        supervisor_nombre: this.fSupervisor(), notes: this.fNotas(),
+      }).subscribe({ next: (f) => listo(`Ruta ${f.route_code} dada de alta.`), error: falla });
+      return;
+    }
+    this.api.commissionPadronEditar(edit.id, {
+      zona: this.fZona(), chofer_nombre: this.fChofer(),
+      supervisor_nombre: this.fSupervisor(), nomina_banco: Number(this.fNomina()),
+      activo: this.fActivo(), activo_desde: this.fDesde(), activo_hasta: this.fHasta(),
+      notes: this.fNotas(), confirmar: this.fConfirmar(),
+    }).subscribe({
+      next: (r) => listo(this.fActivo()
+        ? `Ruta ${r.fila.route_code} actualizada.`
+        : `Ruta ${r.fila.route_code} de baja desde el ${this.dia(String(this.fHasta()))}.`),
+      error: falla,
+    });
+  }
+
+  // ── [RD.85] Los bonos ──────────────────────────────────────────────────────────────────
+  //
+  // ⛔ Medido el 2026-10-20: `commission_bonuses` tenía un `UPDATE` y **ningún `INSERT`**. Los
+  // 17 bonos vivos se sembraron por migración. Y el libro pagó **$140,800 en bonos en 20
+  // quincenas** — $7,040 por quincena, más que la comisión de varias rutas juntas.
+
+  readonly bonos = signal<BonoRD[]>([]);
+  readonly bonoAbierto = signal(false);
+  readonly bonoEditando = signal<BonoRD | null>(null);
+  readonly bonoGuardando = signal(false);
+  readonly bonoErr = signal<string | null>(null);
+
+  readonly bNombre = signal('');
+  readonly bBenef = signal<'chofer' | 'supervisor'>('chofer');
+  readonly bPeriodo = signal<'quincena' | 'mes'>('quincena');
+  readonly bRuta = signal<string | null>(null);
+  readonly bMetrica = signal('venta');
+  readonly bComp = signal<'gt' | 'gte'>('gte');
+  readonly bUmbral = signal<number | null>(null);
+  readonly bGate = signal<number | null>(null);
+  readonly bMonto = signal<number | null>(null);
+  readonly bActivo = signal(true);
+
+  /**
+   * ⭐ La unidad del umbral cambia con la métrica, y sin decirlo **25 significa veinticinco por
+   * ciento en una y veinticinco pesos en otra**. La pantalla lo rotula en vez de esperar que
+   * quien captura lo sepa.
+   */
+  readonly unidadMetrica = computed(() => {
+    switch (this.bMetrica()) {
+      case 'markup_pct': return 'por ciento de margen';
+      case 'venta': return 'pesos de venta';
+      case 'visitas': return 'visitas';
+      case 'volumen': return 'unidades';
+      default: return 'la marca de una persona — el umbral no decide nada';
+    }
+  });
+
+  readonly bonoOk = computed(() =>
+    !!this.bNombre().trim() && this.bUmbral() != null
+    && this.bMonto() != null && Number(this.bMonto()) >= 0);
+
+  /** La regla del bono en una frase, en la unidad de su métrica. */
+  reglaBono(b: BonoRD): string {
+    // ⚠️ Los `numeric` de Postgres llegan como STRING por JSON. `pct()` toma number, así que
+    // se convierte acá: sin el `Number()` el valor sale sin formato o no tipa.
+    const u = b.metrica === 'markup_pct' ? `${this.pct(Number(b.umbral))}% de margen`
+      : b.metrica === 'venta' ? `${this.money(b.umbral)} de venta`
+        : b.metrica === 'manual' ? 'lo marca una persona'
+          : `${Number(b.umbral)} ${b.metrica}`;
+    if (b.metrica === 'manual') return u;
+    const cmp = b.comparador === 'gt' ? 'pasa' : 'alcanza';
+    const gate = b.gate_venta_min
+      ? ` · y vendió ${this.money(b.gate_venta_min)} o más` : '';
+    return `${cmp} ${u}${gate}`;
+  }
+
+  cargarBonos(): void {
+    this.api.commissionBonos().subscribe({
+      next: (b) => this.bonos.set(b ?? []),
+      // Error ≠ vacío: «no hay bonos» es una afirmación sobre el tabulador, no sobre la red.
+      error: (e) => this.bonoErr.set(
+        e?.error?.message ?? 'No se pudieron leer los bonos. No es que no haya: no se pudieron leer.'),
+    });
+  }
+
+  abrirBonoAlta(): void {
+    this.bonoEditando.set(null); this.bonoErr.set(null);
+    this.bNombre.set(''); this.bBenef.set('chofer'); this.bPeriodo.set('quincena');
+    this.bRuta.set(null); this.bMetrica.set('venta'); this.bComp.set('gte');
+    this.bUmbral.set(null); this.bGate.set(null); this.bMonto.set(null); this.bActivo.set(true);
+    this.bonoAbierto.set(true);
+  }
+
+  abrirBonoEdicion(b: BonoRD): void {
+    this.bonoEditando.set(b); this.bonoErr.set(null);
+    this.bNombre.set(b.nombre);
+    this.bBenef.set(b.beneficiario === 'supervisor' ? 'supervisor' : 'chofer');
+    this.bPeriodo.set(b.periodo === 'mes' ? 'mes' : 'quincena');
+    this.bRuta.set(b.route_code); this.bMetrica.set(b.metrica);
+    this.bComp.set(b.comparador === 'gt' ? 'gt' : 'gte');
+    this.bUmbral.set(Number(b.umbral));
+    this.bGate.set(b.gate_venta_min == null ? null : Number(b.gate_venta_min));
+    this.bMonto.set(Number(b.monto)); this.bActivo.set(b.activo);
+    this.bonoAbierto.set(true);
+  }
+
+  guardarBono(): void {
+    // Idempotencia visual: se bloquea en el primer clic, antes de esperar respuesta.
+    if (this.bonoGuardando() || !this.bonoOk()) return;
+    this.bonoGuardando.set(true);
+    this.bonoErr.set(null);
+    const listo = (nombre: string) => {
+      this.bonoGuardando.set(false);
+      this.bonoAbierto.set(false);
+      this.toast.add({ severity: 'success', summary: 'Bono guardado', detail: nombre });
+      this.cargarBonos();
+    };
+    const falla = (e: any) => {
+      this.bonoGuardando.set(false);
+      this.bonoErr.set(e?.error?.message ?? 'No se pudo guardar el bono.');
+    };
+    const comun = {
+      nombre: this.bNombre().trim(), metrica: this.bMetrica(), comparador: this.bComp(),
+      umbral: Number(this.bUmbral()), monto: Number(this.bMonto()),
+      periodo: this.bPeriodo(),
+      route_code: this.bRuta()?.trim() || null,
+      gate_venta_min: this.bGate() == null ? null : Number(this.bGate()),
+    };
+    const edit = this.bonoEditando();
+    if (!edit) {
+      this.api.commissionBonoAlta({ ...comun, beneficiario: this.bBenef() })
+        .subscribe({ next: (b) => listo(`${b.nombre} creado.`), error: falla });
+      return;
+    }
+    this.api.commissionBonoEditar(edit.id, { ...comun, activo: this.bActivo() })
+      .subscribe({ next: (b) => listo(`${b.nombre} actualizado.`), error: falla });
+  }
+
+  // ── [RD.86] El tabulador, con simulación obligatoria ───────────────────────────────────
+  //
+  // ⛔ Medido el 2026-10-20: `GET/POST /commissions/scales` existen desde `[RD.66]` y **ninguna
+  // pantalla los consumía**. El número que decide el porcentaje de cada peso sólo se podía
+  // cambiar por curl.
+  //
+  // ⭐⭐ **La regla de esta pestaña: no se puede estrenar sin simular antes.** No es fricción
+  // decorativa — el tabulador es un acantilado (debajo del primer escalón `pickTier()` devuelve
+  // `null` y la comisión es $0), así que mover el piso no baja un pago: **lo apaga**. Hoy hay
+  // 9 ruta-periodo del contraste del lado malo, por $26,932.74.
+
+  readonly escalas = signal<EscalasRD | null>(null);
+  readonly borrador = signal<TierRD[]>([]);
+  readonly simulacion = signal<SimulacionEscalaRD | null>(null);
+  readonly simulando = signal(false);
+  readonly estrenando = signal(false);
+  readonly tabErr = signal<string | null>(null);
+  readonly desdeTabulador = signal<string | null>(null);
+
+  /** La escala nueva no puede empezar antes de lo ya pagado. El servidor lo exige igual. */
+  readonly minTabulador = computed(() => {
+    const piso = this.escalas()?.piso_editable;
+    if (!piso) return undefined;
+    const d = new Date(`${piso.slice(0, 10)}T12:00:00`);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  });
+
+  /**
+   * ⛔ Los escalones tienen que **tocarse exactamente**: una venta que cayera en un hueco no
+   * cobraría nada. El servidor lo rechaza, pero decirlo recién al guardar es reportar el error
+   * en vez de prevenirlo (poka-yoke, §10). Se valida mientras se escribe.
+   */
+  readonly huecoTabulador = computed<string | null>(() => {
+    const t = this.borrador();
+    if (!t.length) return 'Un tabulador sin escalones paga $0 a todos.';
+    for (let i = 0; i < t.length; i++) {
+      const min = Number(t[i].min_amount);
+      const max = t[i].max_amount === null ? null : Number(t[i].max_amount);
+      if (!Number.isFinite(min)) return `El escalón ${i + 1} no tiene desde.`;
+      if (!Number.isFinite(Number(t[i].pct))) return `El escalón ${i + 1} no tiene porcentaje.`;
+      const ultimo = i === t.length - 1;
+      if (ultimo && max !== null) {
+        return 'El último escalón no lleva techo: una venta arriba de él no cobraría nada.';
+      }
+      if (!ultimo) {
+        if (max === null) return `El escalón ${i + 1} necesita un hasta.`;
+        if (max <= min) return `El escalón ${i + 1} termina antes de empezar.`;
+        if (Number(t[i + 1].min_amount) !== max) {
+          return `Hueco entre el escalón ${i + 1} y el ${i + 2}: uno termina en ${max} y el `
+            + `siguiente empieza en ${t[i + 1].min_amount}. Una venta en medio no cobraría nada.`;
+        }
+      }
+    }
+    return null;
+  });
+
+  cargarEscalas(): void {
+    this.api.commissionScales().subscribe({
+      next: (e) => { this.escalas.set(e); this.restaurarTabulador(); },
+      error: (err) => this.tabErr.set(
+        err?.error?.message ?? 'No se pudo leer el tabulador. No es que no haya: no se pudo leer.'),
+    });
+  }
+
+  /** Vuelve al tabulador vigente. Descartar también borra la simulación: era de otro borrador. */
+  restaurarTabulador(): void {
+    const vigente = this.escalas()?.escalas.find((e) => e.vigente)
+      ?? this.escalas()?.escalas[0];
+    this.borrador.set((vigente?.tiers ?? []).map((t) => ({
+      min_amount: Number(t.min_amount),
+      max_amount: t.max_amount === null ? null : Number(t.max_amount),
+      pct: Number(t.pct),
+    })));
+    this.simulacion.set(null);
+    this.tabErr.set(null);
+  }
+
+  setTier(i: number, campo: keyof TierRD, valor: unknown): void {
+    const t = [...this.borrador()];
+    const n = valor === '' || valor === null ? null : Number(valor);
+    t[i] = { ...t[i], [campo]: campo === 'max_amount' ? n : (n ?? 0) };
+    this.borrador.set(t);
+    // ⚠️ Tocar el borrador INVALIDA la simulación: dejarla en pantalla haría estrenar una
+    // versión mirando los números de otra. Es el mismo defecto que un delta sin su base.
+    this.simulacion.set(null);
+  }
+
+  agregarTier(): void {
+    const t = [...this.borrador()];
+    const ultimo = t[t.length - 1];
+    if (ultimo) {
+      // El que era último pierde su «sin techo», que pasa al nuevo: si no, quedan dos abiertos.
+      const corte = Number(ultimo.min_amount) + 1;
+      t[t.length - 1] = { ...ultimo, max_amount: corte };
+      t.push({ min_amount: corte, max_amount: null, pct: Number(ultimo.pct) });
+    } else {
+      t.push({ min_amount: 0, max_amount: null, pct: 0 });
+    }
+    this.borrador.set(t);
+    this.simulacion.set(null);
+  }
+
+  quitarTier(i: number): void {
+    const t = this.borrador().filter((_, j) => j !== i);
+    // El nuevo último se queda sin techo, o el tabulador tendría un tope por donde se escapa.
+    if (t.length) t[t.length - 1] = { ...t[t.length - 1], max_amount: null };
+    this.borrador.set(t);
+    this.simulacion.set(null);
+  }
+
+  simularTabulador(): void {
+    if (this.simulando() || this.huecoTabulador()) return;
+    this.simulando.set(true);
+    this.tabErr.set(null);
+    this.api.commissionScaleSimular(this.borrador()).subscribe({
+      next: (s) => { this.simulando.set(false); this.simulacion.set(s); },
+      error: (e) => {
+        this.simulando.set(false);
+        this.tabErr.set(e?.error?.message ?? 'No se pudo simular.');
+      },
+    });
+  }
+
+  confirmarEstreno(): void {
+    const s = this.simulacion();
+    const desde = this.desdeTabulador();
+    if (!s || !desde || this.estrenando()) return;
+    // ⭐ El mensaje dice el daño en pesos y en personas, no «¿estás seguro?». Von Restorff: la
+    // confirmación de un acto que mueve nómina tiene que nombrar lo que mueve.
+    const caen = s.caen
+      ? ` ${s.caen} ruta(s) se quedan SIN ESCALÓN, o sea cobran $0.` : '';
+    this.confirm.confirm({
+      header: 'Estrenar el tabulador',
+      message: `Rige desde el ${this.dia(desde)} y la versión actual se cierra ese día. `
+        + `Sobre Q${s.base.period_no} habría significado ${this.money(s.delta)}.${caen} `
+        + 'Lo ya pagado no se recalcula. Los bonos se heredan a la versión nueva.',
+      acceptLabel: 'Estrenar', rejectLabel: 'Cancelar',
+      accept: () => this.estrenar(desde),
+    });
+  }
+
+  private estrenar(desde: string): void {
+    this.estrenando.set(true);
+    this.tabErr.set(null);
+    this.api.commissionScaleEstrenar({ valid_from: desde, tiers: this.borrador() }).subscribe({
+      next: (r) => {
+        this.estrenando.set(false);
+        this.simulacion.set(null);
+        // ⚠️ `bonos_heredados` se DICE, y un 0 no se dibuja como éxito: significa que la escala
+        // nueva no paga ningún bono. Es `[RD.85.0]`, y quien la estrena tiene que verlo ahora,
+        // no cuando llegue la quincena.
+        this.toast.add({
+          severity: r.bonos_heredados ? 'success' : 'warn',
+          summary: 'Tabulador estrenado',
+          detail: `${r.escalones} escalón(es) desde el ${this.dia(r.valid_from)} · `
+            + (r.bonos_heredados
+              ? `${r.bonos_heredados} bono(s) heredado(s).`
+              : 'SIN BONOS: esta versión no paga ninguno. Revisá la pestaña Bonos.'),
+          life: r.bonos_heredados ? 5000 : 12000,
+        });
+        this.cargarEscalas();
+        this.cargarBonos();
+      },
+      error: (e) => {
+        this.estrenando.set(false);
+        this.tabErr.set(e?.error?.message ?? 'No se pudo estrenar el tabulador.');
       },
     });
   }

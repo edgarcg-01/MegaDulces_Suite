@@ -38,6 +38,7 @@ export * from './http/price-change-compras.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
+export * from './money/quote-totals';
 // [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
 // neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
 export * from './work/caja-cambio.contract';
@@ -95,6 +96,12 @@ export * from './http/warehouse-picking-kepler.contract';
 // [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
+// [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
+export * from './http/new-customers-kepler.contract';
+export * from './http/presale-route.contract';
+export * from './http/supervisor-board.contract';
+// [MCP.3.7] Protocolo de visitas: el monitoreo de visitas del día para el supervisor de ventas.
+export * from './http/visit-monitor.contract';
 // [MCP.5] Guías de carga de preventa: el repartidor pesca sus pedidos y la cajera imprime la guía.
 export * from './http/presale-load-guide.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
@@ -133,6 +140,7 @@ export * from './http/cierre-viaje.contract';
 export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
 export * from './http/receipt-expediente.contract';
+export * from './http/lectura-escala';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.
@@ -187,3 +195,7 @@ export * from './finance/historial-filtro.contract';
 // llevar dato frío. Si agregás algo grande y sólo lo usa una pantalla, dale su
 // subruta.
 export * from './finance/caja-firma.contract';
+export * from './finance/arqueo-caja.contract';
+export * from './finance/caos-conteo-fisico.contract';
+export * from './finance/posicion-caja.contract';
+export * from './finance/verdad-diferencia.contract';

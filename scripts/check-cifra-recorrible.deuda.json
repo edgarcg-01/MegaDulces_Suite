@@ -1,0 +1,107 @@
+{
+  "apps/view/src/app/modules/almacen/pages/almacen-cuadre.component.ts": [
+    "overview"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-existencia.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-pedidos.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-preventa.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesion.component.ts": [
+    "listCaptures"
+  ],
+  "apps/view/src/app/modules/almacen/pages/almacen-ubicaciones-mapa.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-documentos.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-expedientes.component.ts": [
+    "expedientes"
+  ],
+  "apps/view/src/app/modules/comercial/pages/comercial-rentabilidad.component.ts": [
+    "overview"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-costos-historial.component.ts": [
+    "historial"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-pendientes.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas-revision.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-entradas.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/compras/pages/compras-reclamos.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-cfdi.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-descarga.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-diagnostico.component.ts": [
+    "list",
+    "retryInvoices"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-facturar.component.ts": [
+    "list",
+    "retryInvoices"
+  ],
+  "apps/view/src/app/modules/contabilidad/pages/contabilidad-polizas.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/dashboard/captures/captures.component.ts": [
+    "updateVisitaVentaAdicional"
+  ],
+  "apps/view/src/app/modules/dashboard/layout/notifications-bell.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/desarrolladores/pages/dev-proyectos.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/finanzas/components/pagos-captura-lote.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-capturar-gasto.component.ts": [
+    "mine"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-cobranza.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-hallazgos.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-mis-gastos.component.ts": [
+    "mine"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-pagos-comprobantes.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-pagos-control.component.ts": [
+    "overview"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-pronto-pago.component.ts": [
+    "overview"
+  ],
+  "apps/view/src/app/modules/finanzas/pages/finanzas-tareas.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/logistica/pages/logistica-fleet.component.ts": [
+    "createMaintenance",
+    "vehicleCheckIn"
+  ],
+  "apps/view/src/app/modules/reparto/pages/rider-liquidation.component.ts": [
+    "list"
+  ],
+  "apps/view/src/app/modules/televenta/pages/televenta-quotes.component.ts": [
+    "list"
+  ]
+}

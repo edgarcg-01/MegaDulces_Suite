@@ -14,6 +14,7 @@
  */
 
 import type jsPDFType from 'jspdf';
+import { totalesCotizacion, type QuoteTotals } from '@megadulces/contracts';
 import { desglose } from './quote-units';
 
 export type JsPDFCtor = typeof jsPDFType;
@@ -39,11 +40,22 @@ export interface QuoteDeliverableItem {
    */
   pack_size?: number | null;
   quantity: number;
+  /** Precio cotizado de la unidad (YA trae volumen/promo). null = sin precio. */
   unit_price: number | null;
   line_total: number;
   price_source?: string;
   free_goods?: { sku: string; quantity: number } | null;
-  discount_pct?: number | null;
+  /** Renglón de regalo del ERP (precio cero REAL): se imprime «Regalo», no $0.00. */
+  regalo?: boolean;
+  /**
+   * `[E.25]` IVA e IEPS del producto (fracción, `kdii.c18`/`c19`). Ausentes o null = cotización
+   * anterior a E.25: la cuenta ASUME IVA 16 % y las condiciones lo dicen.
+   */
+  iva_rate?: number | null;
+  ieps_rate?: number | null;
+  // ⛔ `[E.19]` Ya no hay `discount_pct` por renglón. El único descuento que el papel aplica es
+  // el del CLIENTE (`QuoteDeliverableData.discountPct`, capa de documento). El de volumen/promo
+  // ya está dentro de `unit_price`: pasarlo acá lo aplicaba DOS veces (auditoría C2).
 }
 
 export interface QuoteDeliverableData {
@@ -63,14 +75,129 @@ export interface QuoteDeliverableData {
   branchName: string;
   salespersonCode?: string | null;
   salespersonName?: string | null;
+  /** Fecha de la COTIZACIÓN (no la de hoy): es la que se imprime como emisión. */
   quoteDate?: string | Date;
   validUntil: string;
   items: QuoteDeliverableItem[];
-  subtotal: number;
-  discountPct?: number;
-  discountAmount?: number;
-  total: number;
+  /**
+   * `[E.19]` El % negociado del cliente, congelado en la cotización. Es TODO lo que el papel
+   * necesita: importe, descuento, total, IVA y netos salen de `totalesCotizacion` (libs/contracts),
+   * la misma cuenta que el servidor. Ya no se reciben `subtotal`/`total` sueltos: cada pantalla
+   * los armaba distinto y el papel no cerraba (auditoría C1).
+   */
+  discountPct: number | null;
+  /**
+   * El total que GUARDÓ el servidor. Si viene y la cuenta no lo reproduce al centavo, el papel
+   * NO se genera: un entregable con un total distinto al de la base no se le manda a nadie.
+   */
+  totalGuardado?: number | null;
+  /** Lo que la cabecera tiene que avisar. Ausente = vigente. */
+  estado?: 'borrador' | 'vigente' | 'vencida' | 'cancelada';
+  /** Notas PARA EL CLIENTE. ⛔ No el mensaje crudo que pegó el operador (`customer_request`). */
   notes?: string | null;
+}
+
+/** Una fila del papel, ya resuelta. Los dos formatos (PDF y Excel) pintan esto y nada más. */
+export interface FilaEntregable {
+  n: number;
+  item: QuoteDeliverableItem;
+  tipo: 'precio' | 'sin_precio' | 'regalo';
+  /** Precio unitario que se imprime: el neto (con el % del cliente) si hay descuento. */
+  unitario: number | null;
+  /** Importe que se imprime: el neto repartido (Σ = total) si hay descuento. */
+  importe: number | null;
+}
+
+export interface ModeloEntregable {
+  conDescuento: boolean;
+  filas: FilaEntregable[];
+  totales: QuoteTotals;
+  emision: Date;
+  titulo: string;
+  /** true = el título va en rojo (vencida, cancelada). */
+  alerta: boolean;
+}
+
+/**
+ * `[E.19]` Arma el papel. Pura: no dibuja nada, y es lo que prueba `quote-deliverable-export.spec`.
+ *
+ * Lanza si `totalGuardado` viene y no coincide con la cuenta: preferible no entregar a entregar
+ * un precio distinto al de la base.
+ */
+export function modeloEntregable(data: QuoteDeliverableData): ModeloEntregable {
+  const tipoDe = (it: QuoteDeliverableItem): FilaEntregable['tipo'] =>
+    it.regalo ? 'regalo' : it.unit_price === null ? 'sin_precio' : 'precio';
+  const importes = data.items.map((it) => {
+    const t = tipoDe(it);
+    return t === 'sin_precio' ? null : t === 'regalo' ? 0 : Number(it.line_total) || 0;
+  });
+  const totales = totalesCotizacion(
+    importes,
+    data.discountPct,
+    data.items.map((it) => ({ iva: it.iva_rate ?? null, ieps: it.ieps_rate ?? null })),
+  );
+  if (data.totalGuardado !== undefined && data.totalGuardado !== null
+      && Math.abs(totales.total - Number(data.totalGuardado)) > 0.005) {
+    throw new Error(
+      `La cuenta del papel (${moneyFormat(totales.total)}) no coincide con el total guardado `
+      + `(${moneyFormat(Number(data.totalGuardado))}). No se genera el entregable: recargá la cotización.`,
+    );
+  }
+  const conDescuento = totales.descuento_pct !== null;
+  const filas: FilaEntregable[] = data.items.map((it, i) => {
+    const tipo = tipoDe(it);
+    if (tipo !== 'precio') return { n: i + 1, item: it, tipo, unitario: null, importe: null };
+    const importe = conDescuento ? (totales.netos[i] as number) : Number(it.line_total) || 0;
+    const unitario = conDescuento
+      ? (it.quantity > 0 ? importe / it.quantity : null)
+      : it.unit_price;
+    return { n: i + 1, item: it, tipo, unitario, importe };
+  });
+  const fecha = data.quoteDate ? new Date(data.quoteDate) : new Date();
+  const emision = isNaN(fecha.getTime()) ? new Date() : fecha;
+  const titulo = data.estado === 'cancelada' ? 'COTIZACIÓN CANCELADA'
+    : data.estado === 'vencida' ? 'COTIZACIÓN VENCIDA'
+    : 'COTIZACIÓN FORMAL';
+  return { conDescuento, filas, totales, emision, titulo, alerta: data.estado === 'cancelada' || data.estado === 'vencida' };
+}
+
+/** Lo que va en la columna de precio unitario: el precio y, si es unidad mayor, su desglose. */
+function etiquetaUnitario(f: FilaEntregable): string {
+  if (f.tipo === 'regalo') return 'Regalo';
+  if (f.tipo === 'sin_precio' || f.unitario === null) return 'Sin precio';
+  const factor = getFactor(f.item);
+  return isUnidadMayor(f.item) && factor && factor > 1
+    ? `${moneyFormat(f.unitario)} ${etiquetaDesglose(factor, f.item.base_unit, f.unitario / factor, f.item.pack_size)}`
+    : moneyFormat(f.unitario);
+}
+
+/** Lo que va en la columna de importe: nunca $0.00 por algo que no tiene precio (ADR-056). */
+function etiquetaImporte(f: FilaEntregable): string {
+  if (f.tipo === 'regalo') return 'Regalo';
+  if (f.tipo === 'sin_precio' || f.importe === null) return 'Sin precio';
+  return moneyFormat(f.importe);
+}
+
+function fechaCorta(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/** Las condiciones que se imprimen al pie, en orden. */
+export function condiciones(data: QuoteDeliverableData, m: ModeloEntregable): string[] {
+  const out = [
+    'Precios expresados en Moneda Nacional (MXN) con impuestos incluidos.',
+    'ESTO ES UNA COTIZACIÓN, NO UNA VENTA. Efectos informativos para el cliente que solicitó la información.',
+    'Precios y promociones sujetos a existencias físicas al confirmar su pedido formal.',
+    `Válida hasta el ${data.validUntil || 'término indicado'} en sucursal ${data.branchCode} (${data.branchName}).`,
+  ];
+  if (m.totales.sin_precio > 0) {
+    out.push(`${m.totales.sin_precio} artículo(s) sin precio: se cotizan aparte y no están en el total.`);
+  }
+  if (m.totales.impuesto_asumido > 0) {
+    out.push(`Impuesto estimado en ${m.totales.impuesto_asumido} artículo(s): IVA 16 % asumido, sin la tasa del producto.`);
+  }
+  if (data.notes) out.push(`Nota: ${data.notes.slice(0, 90)}`);
+  return out;
 }
 
 export const EMPRESA_NOMBRE = 'MEGA DULCES DE LOS ALTOS S.A. DE C.V.';
@@ -231,6 +358,8 @@ function drawPdfWatermark(doc: jsPDFType, pageWidth: number, pageHeight: number)
  * Exporta el entregable en PDF formal de alta presentación ejecutiva.
  */
 export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> {
+  // Primero la cuenta: si no cuadra con lo guardado, se corta ANTES de cargar nada.
+  const m = modeloEntregable(data);
   const [{ jsPDF, autoTable }, logo] = await Promise.all([loadPdfLibs(), loadLogo()]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
 
@@ -288,13 +417,14 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setLineWidth(1);
   doc.roundedRect(metaBoxX, currentY - 2, metaBoxW, metaBoxH, 4, 4, 'FD');
 
-  const now = new Date();
-  const fechaStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+  // La emisión es la de la COTIZACIÓN: reimprimirla otro día no la vuelve de hoy (auditoría M1).
+  const fechaStr = fechaCorta(m.emision);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
-  doc.setTextColor(...cAccent);
-  doc.text('COTIZACIÓN FORMAL', metaBoxX + 8, currentY + 10);
+  if (m.alerta) doc.setTextColor(185, 28, 28); // Rose-700: vencida o cancelada se avisa
+  else doc.setTextColor(...cAccent);
+  doc.text(m.titulo, metaBoxX + 8, currentY + 10);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -400,11 +530,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   // 7. Tabla de Artículos con Descuentos y Unidades Menores
   currentY += infoCardH + 10;
 
-  const hasDiscount = Boolean(
-    (data.discountPct && data.discountPct > 0) ||
-    (data.discountAmount && data.discountAmount > 0) ||
-    data.items.some((it) => it.discount_pct && it.discount_pct > 0)
-  );
+  const hasDiscount = m.conDescuento;
 
   const head = hasDiscount
     ? [['#', 'SKU', 'Descripción del artículo', 'Presentación', 'Cant.', 'Descuento', 'P. Unitario Neto', 'Importe Neto']]
@@ -431,73 +557,18 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
         6: { halign: 'right' as const, fontStyle: 'bold' as const, textColor: [15, 118, 110] as [number, number, number], cellWidth: 68 },
       };
 
-  const tableBody = data.items.map((it, idx) => {
+  // `[E.19]` Las filas salen del modelo: el descuento de la columna es el del CLIENTE (el único
+  // que el papel aplica), y el neto es su parte repartida — la columna suma el total de abajo.
+  const tableBody = m.filas.map((f) => {
+    const it = f.item;
     let descripcion = it.name;
     if (it.content) descripcion += ` (${it.content})`;
     if (it.barcode) descripcion += `\nEAN: ${it.barcode}`;
-    if (it.free_goods) descripcion += `\n🎁 Regalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}`;
-
-    const dtoPct = (it.discount_pct !== undefined && it.discount_pct !== null && it.discount_pct > 0)
-      ? it.discount_pct
-      : (data.discountPct || 0);
-
-    const factor = getFactor(it);
-    const isMayor = isUnidadMayor(it);
-
-    if (hasDiscount) {
-      // Precio unitario neto descontado
-      const unitNeto = it.unit_price !== null
-        ? (dtoPct > 0 ? it.unit_price * (1 - dtoPct / 100) : it.unit_price)
-        : null;
-
-      // Desglose de unidad menor posterior al precio unitario dentro del mismo cuadro
-      let pUnitarioLabel = '—';
-      if (unitNeto !== null) {
-        if (isMayor && factor && factor > 1) {
-          const menorNeto = unitNeto / factor;
-          pUnitarioLabel = `${moneyFormat(unitNeto)} ${etiquetaDesglose(factor, it.base_unit, menorNeto, it.pack_size)}`;
-        } else {
-          pUnitarioLabel = moneyFormat(unitNeto);
-        }
-      }
-
-      const importeNeto = unitNeto !== null
-        ? unitNeto * it.quantity
-        : (dtoPct > 0 ? it.line_total * (1 - dtoPct / 100) : it.line_total);
-
-      const dtoString = dtoPct > 0 ? `${dtoPct}%` : '—';
-
-      return [
-        idx + 1,
-        it.sku,
-        descripcion,
-        it.unit_label,
-        it.quantity.toLocaleString('es-MX'),
-        dtoString,
-        pUnitarioLabel,
-        moneyFormat(importeNeto),
-      ];
-    } else {
-      let pUnitarioLabel = '—';
-      if (it.unit_price !== null) {
-        if (isMayor && factor && factor > 1) {
-          const menor = it.unit_price / factor;
-          pUnitarioLabel = `${moneyFormat(it.unit_price)} ${etiquetaDesglose(factor, it.base_unit, menor, it.pack_size)}`;
-        } else {
-          pUnitarioLabel = moneyFormat(it.unit_price);
-        }
-      }
-
-      return [
-        idx + 1,
-        it.sku,
-        descripcion,
-        it.unit_label,
-        it.quantity.toLocaleString('es-MX'),
-        pUnitarioLabel,
-        moneyFormat(it.line_total),
-      ];
-    }
+    if (it.free_goods) descripcion += `\nRegalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}`;
+    const base = [f.n, it.sku, descripcion, it.unit_label, it.quantity.toLocaleString('es-MX')];
+    return hasDiscount
+      ? [...base, f.tipo === 'precio' ? `${m.totales.descuento_pct}%` : '—', etiquetaUnitario(f), etiquetaImporte(f)]
+      : [...base, etiquetaUnitario(f), etiquetaImporte(f)];
   });
 
   autoTable(doc, {
@@ -548,17 +619,19 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   // 8. Resumen financiero & Notas
   let summaryY = finalY + 10;
-  if (summaryY + 85 > pageHeight - 35) {
+  if (summaryY + 100 > pageHeight - 35) {
     doc.addPage();
     summaryY = M;
   }
 
-  // Recuadro de términos y condiciones
+  // Recuadro de términos y condiciones (crece si hay renglones sin precio o nota)
+  const lineasCond = condiciones(data, m);
+  const boxH = Math.max(86, 12 + lineasCond.length * 11 + 9);
   const notesW = contentWidth - 190;
   doc.setFillColor(...cCardBg);
   doc.setDrawColor(...cRule);
   doc.setLineWidth(1);
-  doc.roundedRect(M, summaryY, notesW, 76, 4, 4, 'FD');
+  doc.roundedRect(M, summaryY, notesW, boxH, 4, 4, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
@@ -568,37 +641,30 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.8);
   doc.setTextColor(...cMuted);
-  doc.text('• Precios expresados en Moneda Nacional (MXN) con impuestos incluidos.', M + 8, summaryY + 23);
-  doc.text('• ESTO ES UNA COTIZACIÓN, NO UNA VENTA. Efectos informativos para el cliente que solicitó la información.', M + 8, summaryY + 34);
-  doc.text('• Precios y promociones sujetos a existencias físicas al confirmar su pedido formal.', M + 8, summaryY + 45);
-  doc.text(`• Válida hasta el ${data.validUntil || 'término indicado'} en sucursal ${data.branchCode} (${data.branchName}).`, M + 8, summaryY + 56);
-  if (data.notes) {
-    doc.text(`• Nota: ${data.notes.slice(0, 75)}`, M + 8, summaryY + 67);
-  }
+  lineasCond.forEach((t, i) => doc.text(`• ${t}`, M + 8, summaryY + 23 + i * 11));
 
-  // Recuadro de Totales
+  // Recuadro de Totales — `[E.19]` importe → descuento del cliente → total, la misma cuenta que
+  // el servidor. Antes decía «Subtotal Lista» sobre una base que ya traía el descuento y no el IVA.
   const totBoxW = 180;
   const totBoxX = pageWidth - M - totBoxW;
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(...cRule);
-  doc.roundedRect(totBoxX, summaryY, totBoxW, 76, 4, 4, 'FD');
+  doc.roundedRect(totBoxX, summaryY, totBoxW, 86, 4, 4, 'FD');
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...cMuted);
-  doc.text('Subtotal Lista:', totBoxX + 10, summaryY + 16);
+  doc.text('Importe de los artículos:', totBoxX + 10, summaryY + 16);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...cInk);
-  const subStr = moneyFormat(data.subtotal);
+  const subStr = moneyFormat(m.totales.importe);
   doc.text(subStr, totBoxX + totBoxW - 10 - doc.getTextWidth(subStr), summaryY + 16);
 
-  if ((data.discountAmount || 0) > 0 || hasDiscount) {
+  if (hasDiscount) {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(21, 128, 61); // Green 700
-    const pctLabel = data.discountPct ? ` (${data.discountPct}%)` : '';
-    doc.text(`Descuento Cliente${pctLabel}:`, totBoxX + 10, summaryY + 32);
-    const dtoMonto = data.discountAmount || ((data.subtotal || 0) * (data.discountPct || 0) / 100);
-    const dtoStr = `- ${moneyFormat(dtoMonto)}`;
+    doc.text(`Descuento cliente (${m.totales.descuento_pct}%):`, totBoxX + 10, summaryY + 32);
+    const dtoStr = `- ${moneyFormat(m.totales.descuento)}`;
     doc.text(dtoStr, totBoxX + totBoxW - 10 - doc.getTextWidth(dtoStr), summaryY + 32);
   }
 
@@ -613,14 +679,18 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
 
   doc.setFontSize(10.5);
   doc.setTextColor(...cAccent);
-  const totStr = moneyFormat(data.total);
+  const totStr = moneyFormat(m.totales.total);
   doc.text(totStr, totBoxX + totBoxW - 10 - doc.getTextWidth(totStr), summaryY + 58);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(...cMuted);
-  const mxnStr = 'Pesos Mexicanos (MXN)';
-  doc.text(mxnStr, totBoxX + totBoxW - 10 - doc.getTextWidth(mxnStr), summaryY + 68);
+  // `[E.25]` El desglose como el documento de Kepler: subtotal sin impuestos, IVA e IEPS, con la
+  // tasa de cada producto (antes: «incluye IVA» calculado al 16 % sobre todo, falso en el 86 %).
+  const subStrSin = `Subtotal sin impuestos ${moneyFormat(m.totales.subtotal)}`;
+  doc.text(subStrSin, totBoxX + totBoxW - 10 - doc.getTextWidth(subStrSin), summaryY + 68);
+  const mxnStr = `IVA ${moneyFormat(m.totales.iva)} · IEPS ${moneyFormat(m.totales.ieps)} · MXN`;
+  doc.text(mxnStr, totBoxX + totBoxW - 10 - doc.getTextWidth(mxnStr), summaryY + 78);
 
   // Descarga del PDF
   const filename = generateQuoteFilename(data, 'pdf');
@@ -631,6 +701,7 @@ export async function exportQuotePdf(data: QuoteDeliverableData): Promise<void> 
  * Exporta el entregable en hoja de cálculo Excel (.xlsx) ejecutiva y formal.
  */
 export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void> {
+  const m = modeloEntregable(data);
   const ExcelJS = await loadExcelLib();
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Mega Dulces de los Altos';
@@ -646,11 +717,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
     oddFooter: '&L&8Mega Dulces de los Altos S.A. de C.V.&C&8Documento informativo sujeto a existencias&R&8Página &P de &N',
   };
 
-  const hasDiscount = Boolean(
-    (data.discountPct && data.discountPct > 0) ||
-    (data.discountAmount && data.discountAmount > 0) ||
-    data.items.some((it) => it.discount_pct && it.discount_pct > 0)
-  );
+  const hasDiscount = m.conDescuento;
 
   // Configuración de columnas
   if (hasDiscount) {
@@ -693,9 +760,9 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   ws.mergeCells(`A2:${lastColLetter}2`);
   const subCell = ws.getCell('A2');
-  subCell.value = 'COTIZACIÓN COMERCIAL DE MAYOREO';
+  subCell.value = m.alerta ? `COTIZACIÓN COMERCIAL DE MAYOREO · ${m.titulo}` : 'COTIZACIÓN COMERCIAL DE MAYOREO';
   subCell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-  subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF05A28' } };
+  subCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: m.alerta ? 'FFB91C1C' : 'FFF05A28' } };
   subCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   ws.getRow(2).height = 19;
 
@@ -731,7 +798,7 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   ws.getCell(`${rightMetaCol}5`).value = 'Fecha Emisión:';
   ws.getCell(`${rightMetaCol}5`).font = { bold: true, size: 9 };
-  ws.getCell(`${rightValCol}5`).value = new Date();
+  ws.getCell(`${rightValCol}5`).value = m.emision;
   ws.getCell(`${rightValCol}5`).numFmt = 'dd/mm/yyyy';
   ws.getCell(`${rightValCol}5`).font = { size: 9 };
 
@@ -800,48 +867,24 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
 
   // 5. Filas de productos
   let rowIdx = 10;
-  data.items.forEach((it, idx) => {
+  m.filas.forEach((f, idx) => {
+    const it = f.item;
     const row = ws.getRow(rowIdx);
     const obs = it.free_goods ? `Regalo ERP: ${it.free_goods.quantity} de ${it.free_goods.sku}` : (it.price_source || '');
-
-    const dtoPct = (it.discount_pct !== undefined && it.discount_pct !== null && it.discount_pct > 0)
-      ? it.discount_pct
-      : (data.discountPct || 0);
-
-    const factor = getFactor(it);
-    const isMayor = isUnidadMayor(it);
+    // El importe va como NÚMERO cuando hay precio (el cliente lo suma) y como texto cuando no.
+    const importeCelda = f.importe !== null ? f.importe : etiquetaImporte(f);
 
     if (hasDiscount) {
-      const unitNeto = it.unit_price !== null
-        ? (dtoPct > 0 ? it.unit_price * (1 - dtoPct / 100) : it.unit_price)
-        : null;
-
-      let pUnitarioLabel = '—';
-      if (unitNeto !== null) {
-        if (isMayor && factor && factor > 1) {
-          const menorNeto = unitNeto / factor;
-          pUnitarioLabel = `$${formatDec(unitNeto)} ${etiquetaDesglose(factor, it.base_unit, menorNeto, it.pack_size)}`;
-        } else {
-          pUnitarioLabel = `$${formatDec(unitNeto)}`;
-        }
-      }
-
-      const importeNeto = unitNeto !== null
-        ? unitNeto * it.quantity
-        : (dtoPct > 0 ? it.line_total * (1 - dtoPct / 100) : it.line_total);
-
-      const dtoString = dtoPct > 0 ? `${dtoPct}%` : '—';
-
       row.values = [
-        idx + 1,
+        f.n,
         it.sku,
         it.barcode || '',
         it.name + (it.content ? ` (${it.content})` : ''),
         it.unit_label,
         it.quantity,
-        dtoString,
-        pUnitarioLabel,
-        importeNeto,
+        f.tipo === 'precio' ? `${m.totales.descuento_pct}%` : '—',
+        etiquetaUnitario(f),
+        importeCelda,
         obs,
       ];
 
@@ -861,25 +904,15 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
       row.getCell(9).numFmt = '$#,##0.00';
       row.getCell(9).font = { bold: true, color: { argb: 'FF0F766E' } };
     } else {
-      let pUnitarioLabel = '—';
-      if (it.unit_price !== null) {
-        if (isMayor && factor && factor > 1) {
-          const menor = it.unit_price / factor;
-          pUnitarioLabel = `$${formatDec(it.unit_price)} ${etiquetaDesglose(factor, it.base_unit, menor, it.pack_size)}`;
-        } else {
-          pUnitarioLabel = `$${formatDec(it.unit_price)}`;
-        }
-      }
-
       row.values = [
-        idx + 1,
+        f.n,
         it.sku,
         it.barcode || '',
         it.name + (it.content ? ` (${it.content})` : ''),
         it.unit_label,
         it.quantity,
-        pUnitarioLabel,
-        it.line_total,
+        etiquetaUnitario(f),
+        importeCelda,
         obs,
       ];
 
@@ -922,23 +955,21 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   const labelCol = hasDiscount ? 'H' : 'G';
   const valCol = hasDiscount ? 'I' : 'H';
 
-  // Subtotal
-  ws.getCell(`${labelCol}${rowIdx}`).value = 'Subtotal Lista:';
+  // `[E.19]` importe → descuento del cliente → total: la misma cuenta que el servidor.
+  ws.getCell(`${labelCol}${rowIdx}`).value = 'Importe de los artículos:';
   ws.getCell(`${labelCol}${rowIdx}`).font = { bold: true, size: 9 };
   ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
-  ws.getCell(`${valCol}${rowIdx}`).value = data.subtotal;
+  ws.getCell(`${valCol}${rowIdx}`).value = m.totales.importe;
   ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
   ws.getCell(`${valCol}${rowIdx}`).font = { bold: true, size: 9 };
   rowIdx++;
 
   // Descuento si aplica
-  if ((data.discountAmount || 0) > 0 || hasDiscount) {
-    const dtoMonto = data.discountAmount || ((data.subtotal || 0) * (data.discountPct || 0) / 100);
-    const pctLabel = data.discountPct ? ` (${data.discountPct}%)` : '';
-    ws.getCell(`${labelCol}${rowIdx}`).value = `Descuento Cliente${pctLabel}:`;
+  if (hasDiscount) {
+    ws.getCell(`${labelCol}${rowIdx}`).value = `Descuento cliente (${m.totales.descuento_pct}%):`;
     ws.getCell(`${labelCol}${rowIdx}`).font = { bold: true, size: 9, color: { argb: 'FF15803D' } };
     ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
-    ws.getCell(`${valCol}${rowIdx}`).value = -dtoMonto;
+    ws.getCell(`${valCol}${rowIdx}`).value = -m.totales.descuento;
     ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
     ws.getCell(`${valCol}${rowIdx}`).font = { bold: true, size: 9, color: { argb: 'FF15803D' } };
     rowIdx++;
@@ -952,12 +983,27 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`${labelCol}${rowIdx}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
   ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
-  ws.getCell(`${valCol}${rowIdx}`).value = data.total;
+  ws.getCell(`${valCol}${rowIdx}`).value = m.totales.total;
   ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
   ws.getCell(`${valCol}${rowIdx}`).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
   ws.getCell(`${valCol}${rowIdx}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF05A28' } };
   ws.getCell(`${valCol}${rowIdx}`).alignment = { horizontal: 'right', vertical: 'middle' };
-  rowIdx += 2;
+  rowIdx++;
+  // `[E.25]` Subtotal sin impuestos, IVA e IEPS con la tasa de cada producto (como Kepler).
+  for (const [rotulo, valor] of [
+    ['Subtotal sin impuestos:', m.totales.subtotal],
+    ['IVA:', m.totales.iva],
+    ['IEPS:', m.totales.ieps],
+  ] as const) {
+    ws.getCell(`${labelCol}${rowIdx}`).value = rotulo;
+    ws.getCell(`${labelCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    ws.getCell(`${labelCol}${rowIdx}`).alignment = { horizontal: 'right' };
+    ws.getCell(`${valCol}${rowIdx}`).value = valor;
+    ws.getCell(`${valCol}${rowIdx}`).numFmt = '$#,##0.00';
+    ws.getCell(`${valCol}${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    rowIdx++;
+  }
+  rowIdx++;
 
   // 7. Leyenda y condiciones finales
   ws.getCell(`A${rowIdx}`).value = 'Aviso:';
@@ -966,14 +1012,14 @@ export async function exportQuoteXlsx(data: QuoteDeliverableData): Promise<void>
   ws.getCell(`B${rowIdx}`).font = { bold: true, size: 8, color: { argb: 'FF991B1B' } };
   rowIdx++;
 
+  // Las mismas condiciones que el PDF (incluye «N artículos sin precio» y la nota al cliente).
   ws.getCell(`A${rowIdx}`).value = 'Notas:';
   ws.getCell(`A${rowIdx}`).font = { bold: true, size: 8 };
-  ws.getCell(`B${rowIdx}`).value = 'Precios en Moneda Nacional (MXN) con impuestos incluidos. Precios y promociones sujetos a existencias físicas y a confirmación al levantar el pedido.';
-  ws.getCell(`B${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
-  rowIdx++;
-
-  ws.getCell(`B${rowIdx}`).value = `Cotización válida hasta ${data.validUntil || 'la fecha indicada'}. Atención personalizada con su asesor de ventas.`;
-  ws.getCell(`B${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+  for (const t of condiciones(data, m)) {
+    ws.getCell(`B${rowIdx}`).value = t;
+    ws.getCell(`B${rowIdx}`).font = { size: 8, color: { argb: 'FF64748B' } };
+    rowIdx++;
+  }
 
   // Buffer y descarga
   const buf = await wb.xlsx.writeBuffer();
