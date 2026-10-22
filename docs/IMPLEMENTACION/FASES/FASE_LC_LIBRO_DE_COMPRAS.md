@@ -1290,8 +1290,35 @@ tarjeta es un botón y no admite otro adentro: abre el mes y los chips muestran 
 «ContPAQi: N renglones · casan M» del libro (el cuadre trae sólo una muestra de 10; listar los
 renglones de ContPAQi pide un endpoint).
 
+### Oleada 2 · Auditor de pólizas (2026-10-22)
+
+**Dos defectos de prod encontrados al desglosar:**
+- ⛔ **El auditor de TIPO de póliza (PV.4) tronaba SIEMPRE.** Su SQL traía `coalesce(…, '?')` y knex
+  toma cualquier `?` como parámetro, también dentro de comillas («Expected 2 bindings, saw 3»). La
+  pantalla se tragaba el error (`error: () => {}`), `tipos()` quedaba vacío y **pintaba «Sin
+  incongruencias vivas» en verde — con 3 vivas** (N-A-15-1: 7 docs por $1.23 M; U-A-40-1; U-D-9-1).
+  El puente a hallazgos de Maat usa el mismo código y tampoco corría. Arreglo: el literal escapado
+  (`'\\?'`), y la pantalla ahora dice «No se pudo medir» si falla. Barrido: era el único `'?'`
+  literal en un SQL con parámetros (el de db-health corre sin parámetros).
+- ⛔ **«ContPAQi / Kepler» decía `19,689 / 0`** con ContPAQi elegido: los dos conteos salían del
+  resumen filtrado por la fuente. Kepler tiene **118,173**. Ahora se cuentan sin el filtro.
+
+**Desglose:** «Pólizas» → la lista sin filtros (= el mismo universo); «No cuadran» y «Monto
+descuadre» → la lista con `only_descuadre`; cada número de «ContPAQi / Kepler» → esa fuente; la lista
+**carga 100 más** (antes: «Mostrando 100 de M, refina con filtros»); «N por corregir», «Incongruentes
+en uso», «Capturado este año» y «Dormidas» → la tabla de tipos filtrada a esas filas; **Docs / Importe
+de cada tipo → sus documentos de Kepler** (`GET contabilidad/polizas/tipos/documentos`, nuevo): los
+mismos que cuenta «Docs», listados como documentos DISTINTOS y diciendo cuántos renglones extra son la
+réplica de otra sucursal (U-A-40-1: 4 renglones, 3 documentos). «Sin cuentas: no juzgables» queda como
+número: el auditor sólo devuelve cuántos son.
+
+**Prueba:** `test-newdb-polizas-desglose.js` (prod, sólo lectura) **9 ✓**: el catálogo mide, negativa
+del mecanismo del `?`, renglones = Docs e importe = Importe en los 3 vivos, doctype mal formado
+rechazado, conteos por fuente estables, y cada tarjeta = el total de la lista de su filtro (contpaqi
+19,689 / 1 · kepler 118,173 / 1,744).
+
 ### Oleadas siguientes (⬜)
-- **2 — los movimientos contables:** pólizas (KPIs → filtros que ya existen: «No cuadran», tipo),
+- **2 (resto) — los movimientos contables:**
   ContPAQi (bancos «Movs», balanza cargos/abonos → renglones), puente (pasos 1/3/4 abren un superconjunto;
   el peek del lote cuenta y no lista), cierre / mi-cierre (los «N renglones» por familia nunca se
   listan; el enlace va al puente sin mes ni familia). Varios piden **endpoint** de renglones.

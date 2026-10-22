@@ -10,7 +10,8 @@ import { TagModule } from 'primeng/tag';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { MessageService } from 'primeng/api';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { PolizasService, PolizaRow, PolizaDetail, TiposSummary, DoctypeVerdict } from '../polizas.service';
+import { PolizasService, PolizaRow, PolizaDetail, TiposSummary, DoctypeVerdict, DocumentosDoctype } from '../polizas.service';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 
@@ -22,7 +23,7 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-contabilidad-polizas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectButtonModule, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectButtonModule, ContextHelpComponent, SidePeekComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -40,11 +41,16 @@ import { Permission } from '../../../core/constants/permissions';
       </header>
 
       <!-- KPIs -->
+      <!-- LC.21: cada KPI abre la lista de las polizas que cuenta (filtro de la tabla de abajo). -->
       <div class="pz-kpis">
-        <div class="pz-kpi"><span class="pz-kpi-n">{{ sum().total | number }}</span><span class="pz-kpi-l">Pólizas</span></div>
-        <div class="pz-kpi" [class.is-bad]="sum().descuadradas > 0"><span class="pz-kpi-n">{{ sum().descuadradas | number }}</span><span class="pz-kpi-l">No cuadran</span></div>
-        <div class="pz-kpi"><span class="pz-kpi-n">{{ money(sum().monto_descuadre) }}</span><span class="pz-kpi-l">Monto descuadre</span></div>
-        <div class="pz-kpi"><span class="pz-kpi-n">{{ sum().contpaqi | number }}<span class="pz-kpi-sub"> / {{ sum().kepler | number }}</span></span><span class="pz-kpi-l">ContPAQi / Kepler</span></div>
+        <button type="button" class="pz-kpi pz-kpi-btn" (click)="verTodas()" [attr.aria-label]="'Ver las ' + sum().total + ' pólizas de ' + source()">
+          <span class="pz-kpi-n">{{ sum().total | number }}</span><span class="pz-kpi-l">Pólizas</span></button>
+        <button type="button" class="pz-kpi pz-kpi-btn" [class.is-bad]="sum().descuadradas > 0" (click)="verDescuadre()" [attr.aria-label]="'Ver las ' + sum().descuadradas + ' pólizas que no cuadran'">
+          <span class="pz-kpi-n">{{ sum().descuadradas | number }}</span><span class="pz-kpi-l">No cuadran</span></button>
+        <button type="button" class="pz-kpi pz-kpi-btn" (click)="verDescuadre()" aria-label="Ver las pólizas que forman el monto del descuadre">
+          <span class="pz-kpi-n">{{ money(sum().monto_descuadre) }}</span><span class="pz-kpi-l">Monto descuadre</span></button>
+        <div class="pz-kpi"><span class="pz-kpi-n">
+          <button type="button" class="pz-kpi-link" (click)="setSource('contpaqi'); verTodas()" aria-label="Ver las pólizas de ContPAQi">{{ sum().contpaqi | number }}</button><span class="pz-kpi-sub"> / <button type="button" class="pz-kpi-link pz-kpi-sub" (click)="setSource('kepler'); verTodas()" aria-label="Ver las pólizas de Kepler">{{ sum().kepler | number }}</button></span></span><span class="pz-kpi-l">ContPAQi / Kepler</span></div>
       </div>
 
       <!-- PV.4 — Tipo de poliza. Va ARRIBA de los filtros a proposito: lo primero
@@ -56,11 +62,16 @@ import { Permission } from '../../../core/constants/permissions';
             <span>Tipo de póliza</span>
             <small>D&nbsp;Diario · E&nbsp;Egresos · I&nbsp;Ingresos</small>
           </button>
-          @if (tiposCiego()) {
+          @if (tiposError()) {
+            <!-- LC.21: si la medicion falla NO se pinta verde. Antes el error se tragaba, tipos()
+                 quedaba vacio y salia «Sin incongruencias vivas» con 3 vivas en prod. -->
+            <p-tag severity="warn" value="No se pudo medir"></p-tag>
+          } @else if (tiposCiego()) {
             <p-tag severity="warn" value="Control a ciegas"></p-tag>
           } @else if (tiposVivos() > 0) {
-            <p-tag severity="danger" [value]="tiposVivos() + ' por corregir'"></p-tag>
-          } @else {
+            <button type="button" class="pz-tag-btn" (click)="verTipos('vivos')" [attr.aria-label]="'Ver los ' + tiposVivos() + ' tipos por corregir'">
+              <p-tag severity="danger" [value]="tiposVivos() + ' por corregir'"></p-tag></button>
+          } @else if (tipos()) {
             <p-tag severity="success" value="Sin incongruencias vivas"></p-tag>
           }
           @if (canManage()) {
@@ -69,6 +80,9 @@ import { Permission } from '../../../core/constants/permissions';
         </header>
 
         @if (tiposOpen()) {
+          @if (tiposError()) {
+            <div class="pz-t-nm"><i class="pi pi-eye-slash" aria-hidden="true"></i><span><strong>No se pudo medir el tipo de póliza.</strong> El servidor no respondió el auditor; esto no quiere decir que no haya incongruencias.</span></div>
+          }
           <!-- Lo que NO se pudo medir, primero y con motivo. Una lista vacía y una
                pantalla ciega se leen igual, y significan lo contrario. -->
           @if (tipos()?.catalogo?.state === 'not_measured') {
@@ -79,15 +93,20 @@ import { Permission } from '../../../core/constants/permissions';
           }
 
           @if (tipos()?.catalogo?.state === 'measured') {
+            <!-- LC.21: las tres primeras filtran la tabla de abajo a esas filas. -->
             <div class="pz-t-kpis">
-              <div class="pz-t-kpi" [class.is-bad]="tiposVivos() > 0"><span class="pz-kpi-n">{{ tiposVivos() }}</span><span class="pz-kpi-l">Incongruentes en uso</span></div>
-              <div class="pz-t-kpi"><span class="pz-kpi-n">{{ money(tipos()!.catalogo.importe_en_riesgo) }}</span><span class="pz-kpi-l">Capturado este año</span></div>
-              <div class="pz-t-kpi"><span class="pz-kpi-n">{{ tipos()!.catalogo.incongruentes - tiposVivos() }}</span><span class="pz-kpi-l">Dormidas (sin uso)</span></div>
+              <button type="button" class="pz-t-kpi pz-kpi-btn" [class.is-bad]="tiposVivos() > 0" (click)="verTipos('vivos')"><span class="pz-kpi-n">{{ tiposVivos() }}</span><span class="pz-kpi-l">Incongruentes en uso</span></button>
+              <button type="button" class="pz-t-kpi pz-kpi-btn" (click)="verTipos('vivos')"><span class="pz-kpi-n">{{ money(tipos()!.catalogo.importe_en_riesgo) }}</span><span class="pz-kpi-l">Capturado este año</span></button>
+              <button type="button" class="pz-t-kpi pz-kpi-btn" (click)="verTipos('dormidas')"><span class="pz-kpi-n">{{ tipos()!.catalogo.incongruentes - tiposVivos() }}</span><span class="pz-kpi-l">Dormidas (sin uso)</span></button>
               <div class="pz-t-kpi"><span class="pz-kpi-n">{{ tipos()!.catalogo.no_juzgables.doctypes }}</span><span class="pz-kpi-l">Sin cuentas: no juzgables</span></div>
             </div>
           }
 
-          @if (incong().length) {
+          @if (filtroTipos() !== 'todas') {
+            <p class="pz-t-nota">Mostrando {{ filtroTipos() === 'vivos' ? 'los que están en uso' : 'los dormidos' }} ({{ incongVista().length }}).
+              <button type="button" class="pz-kpi-link" (click)="filtroTipos.set('todas')">Ver todos</button></p>
+          }
+          @if (incongVista().length) {
             <table class="pz-t-tabla">
               <thead>
                 <tr>
@@ -100,14 +119,15 @@ import { Permission } from '../../../core/constants/permissions';
                 </tr>
               </thead>
               <tbody>
-                @for (t of incong(); track t.doc) {
+                @for (t of incongVista(); track t.doc) {
                   <tr [class.pz-t-dormido]="t.docs === 0">
                     <td><code class="comm-code">{{ t.doc }}</code> <span class="pz-l-name">{{ t.descripcion }}</span></td>
                     <td><p-tag [severity]="t.docs > 0 ? 'danger' : 'secondary'" [value]="t.tipo_declarado"></p-tag></td>
                     <td><strong>{{ t.tipo_esperado }}</strong></td>
                     <td class="pz-t-ctas">{{ t.cargo || '—' }} <i class="pi pi-arrow-right" aria-hidden="true"></i> {{ t.abono || '—' }}</td>
-                    <td class="pz-num">{{ t.docs ? (t.docs | number) : '—' }}</td>
-                    <td class="pz-num">{{ t.docs ? money(t.importe) : '—' }}</td>
+                    <!-- LC.21: Docs e Importe abren los documentos de Kepler de ese tipo en el año. -->
+                    <td class="pz-num">@if (t.docs) { <button type="button" class="pz-kpi-link" (click)="verDocumentos(t)" [attr.aria-label]="'Ver los ' + t.docs + ' documentos ' + t.doc">{{ t.docs | number }}</button> } @else { — }</td>
+                    <td class="pz-num">@if (t.docs) { <button type="button" class="pz-kpi-link" (click)="verDocumentos(t)" [attr.aria-label]="'Ver los documentos ' + t.doc">{{ money(t.importe) }}</button> } @else { — }</td>
                   </tr>
                 }
               </tbody>
@@ -162,7 +182,11 @@ import { Permission } from '../../../core/constants/permissions';
               </td></tr>
             </ng-template>
           </p-table>
-          @if (total() > rows().length) { <p class="pz-more">Mostrando {{ rows().length }} de {{ total() | number }}. Refina con filtros.</p> }
+          @if (total() > rows().length) {
+            <!-- LC.21: el resto tambien se puede ver, no solo «refina con filtros». -->
+            <p class="pz-more">Mostrando {{ rows().length }} de {{ total() | number }}.
+              <button type="button" class="pz-kpi-link" [disabled]="loading()" (click)="cargarMas()">Cargar {{ masPorCargar() }} más</button></p>
+          }
         </div>
 
         <!-- Detalle -->
@@ -203,6 +227,33 @@ import { Permission } from '../../../core/constants/permissions';
           }
         </div>
       </div>
+
+      <!-- LC.21: los documentos de Kepler detras de una fila del catalogo de tipos. -->
+      <app-side-peek [open]="!!docsDe()" (openChange)="cerrarDocumentos($event)" [width]="640"
+                     title="Documentos del tipo" [subtitle]="subtituloDocs()">
+        @if (cargandoDocs() && !docs()) { <p class="pz-t-nota">Cargando…</p> }
+        @if (errorDocs()) { <p class="pz-t-nota">No se pudieron cargar los documentos.</p> }
+        @if (docs(); as d) {
+          <p class="pz-t-nota">
+            <strong>{{ d.documentos | number }}</strong> documentos en {{ d.anio }} por {{ money(d.importe_documentos) }}.
+            @if (d.renglones !== d.documentos) {
+              La columna «Docs» dice {{ d.renglones | number }}: {{ d.renglones - d.documentos | number }} son el mismo documento repetido por la réplica de otra sucursal.
+            }
+          </p>
+          <table class="pz-lines">
+            <thead><tr><th>Sucursal</th><th>Folio</th><th>Fecha</th><th class="pz-num">Importe</th></tr></thead>
+            <tbody>
+              @for (f of d.filas; track f.c1 + f.folio) {
+                <tr><td>{{ f.c1 }}</td><td><code class="comm-code">{{ f.folio }}</code></td><td>{{ f.fecha || '—' }}</td><td class="pz-num">{{ money(f.importe) }}</td></tr>
+              }
+            </tbody>
+          </table>
+          @if (d.filas.length < d.documentos) {
+            <p class="pz-more">Mostrando {{ d.filas.length }} de {{ d.documentos | number }} (de mayor a menor importe).
+              <button type="button" class="pz-kpi-link" [disabled]="cargandoDocs()" (click)="cargarMasDocs()">Cargar más</button></p>
+          }
+        }
+      </app-side-peek>
     </div>
   `,
   styles: [`
@@ -217,6 +268,13 @@ import { Permission } from '../../../core/constants/permissions';
     .pz-kpi.is-bad .pz-kpi-n { color: var(--danger-fg, #dc2626); }
     .pz-kpi-sub { font-size: .9rem; color: var(--text-muted); font-weight: 500; }
     .pz-kpi-l { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    /* LC.21: la tarjeta que se abre se ve igual, pero es un boton (foco, teclado, cursor). */
+    .pz-kpi-btn { font: inherit; text-align: left; cursor: pointer; }
+    .pz-kpi-btn:hover .pz-kpi-n { text-decoration: underline; text-underline-offset: 3px; }
+    .pz-kpi-btn:focus-visible, .pz-kpi-link:focus-visible, .pz-tag-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .pz-kpi-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+    .pz-kpi-link:hover { text-decoration: underline; }
+    .pz-tag-btn { background: none; border: 0; padding: 0; cursor: pointer; }
     .pz-tipos { padding: .6rem .85rem .85rem; margin-bottom: 1rem; }
     .pz-t-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
     .pz-t-toggle { background: none; border: 0; padding: .15rem 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: .45rem; color: var(--text-main); font: inherit; font-weight: 700; }
@@ -305,6 +363,62 @@ export class ContabilidadPolizasComponent {
 
   readonly canManage = computed(() => (this.auth.user()?.permissions || {})[Permission.FISCAL_CONTAB_GESTIONAR] === true);
 
+  /* ---- LC.21: desglose ---- */
+  /** El auditor de tipos no respondió: se declara, no se pinta verde. */
+  readonly tiposError = signal(false);
+  readonly filtroTipos = signal<'todas' | 'vivos' | 'dormidas'>('todas');
+  readonly incongVista = computed(() => {
+    const f = this.filtroTipos();
+    return f === 'vivos' ? this.incong().filter((t) => t.docs > 0)
+      : f === 'dormidas' ? this.incong().filter((t) => t.docs === 0) : this.incong();
+  });
+  private page = 1;
+  readonly masPorCargar = computed(() => Math.min(100, this.total() - this.rows().length));
+  readonly docsDe = signal<DoctypeVerdict | null>(null);
+  readonly subtituloDocs = computed(() => { const t = this.docsDe(); return t ? `${t.doc} · ${t.descripcion}` : null; });
+  readonly docs = signal<DocumentosDoctype | null>(null);
+  readonly cargandoDocs = signal(false);
+  readonly errorDocs = signal(false);
+
+  /** La tarjeta «Pólizas»: la lista sin filtros de mes, búsqueda ni descuadre (= el mismo universo). */
+  verTodas() { this.mesInput.set(''); this.qInput.set(''); this.onlyDescuadre.set(false); this.reload(); }
+  /** «No cuadran» y «Monto descuadre»: las que tienen |neto| ≥ 0.01, sin otros filtros. */
+  verDescuadre() { this.mesInput.set(''); this.qInput.set(''); this.onlyDescuadre.set(true); this.reload(); }
+  verTipos(f: 'vivos' | 'dormidas') { this.tiposOpen.set(true); this.filtroTipos.set(f); }
+
+  cargarMas() {
+    this.loading.set(true);
+    this.svc.list({
+      source: this.source(), anio_mes: this.mesInput().trim() || undefined,
+      q: this.qInput().trim() || undefined, only_descuadre: this.onlyDescuadre(), page: this.page + 1, page_size: 100,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.page = r.page; this.rows.set([...this.rows(), ...r.rows]); this.total.set(r.total); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar más pólizas.' }); },
+    });
+  }
+
+  verDocumentos(t: DoctypeVerdict) {
+    this.docsDe.set(t); this.docs.set(null); this.errorDocs.set(false);
+    this.pedirDocumentos(t, 1);
+  }
+  cargarMasDocs() {
+    const t = this.docsDe(); const d = this.docs(); if (!t || !d) return;
+    this.pedirDocumentos(t, d.page + 1);
+  }
+  cerrarDocumentos(abierto: boolean) { if (!abierto) { this.docsDe.set(null); this.docs.set(null); } }
+  private pedirDocumentos(t: DoctypeVerdict, page: number) {
+    this.cargandoDocs.set(true);
+    this.svc.tiposDocumentos(t.doc, page).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        if (this.docsDe()?.doc !== t.doc) return;
+        const previo = page > 1 ? this.docs()?.filas ?? [] : [];
+        this.docs.set({ ...d, filas: [...previo, ...d.filas] });
+        this.cargandoDocs.set(false);
+      },
+      error: () => { this.cargandoDocs.set(false); this.errorDocs.set(true); },
+    });
+  }
+
   constructor() { this.reloadSummary(); this.reload(); this.reloadTipos(); }
 
   setSource(s: 'contpaqi' | 'kepler') { this.source.set(s); this.reloadSummary(); this.reload(); }
@@ -315,11 +429,14 @@ export class ContabilidadPolizasComponent {
 
   reloadSummary() {
     this.svc.summary(this.source()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => this.sum.set(s), error: () => {},
+      next: (s) => this.sum.set(s),
+      // LC.21: sin el resumen, las tarjetas se quedarían en 0 como si no hubiera pólizas: se avisa.
+      error: () => this.toast.add({ severity: 'warn', summary: 'Sin resumen', detail: 'No se pudieron cargar los totales de pólizas; los ceros de arriba no son datos.' }),
     });
   }
 
   reload() {
+    this.page = 1; // LC.21: la lista vuelve a la primera página al cambiar el filtro
     this.loading.set(true);
     this.svc.list({
       source: this.source(), anio_mes: this.mesInput().trim() || undefined,
@@ -348,12 +465,14 @@ export class ContabilidadPolizasComponent {
         // Abierto solo cuando hay algo que hacer o algo que no se pudo medir: si
         // todo esta bien, el bloque no se queda ocupando la primera pantalla.
         this.tiposOpen.set(t.catalogo.incongruentes_vivos > 0 || this.tiposCiego());
+        this.tiposError.set(false);
       },
-      error: () => {},
+      // LC.21: el error se DECLARA (tag «No se pudo medir»), no se traga en silencio.
+      error: () => { this.tiposError.set(true); this.tiposOpen.set(true); },
     });
     this.svc.tiposCatalogo().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (b) => this.incong.set(b.data?.incongruentes || []),
-      error: () => {},
+      error: () => this.tiposError.set(true), // LC.21: declarado, no una tabla vacía
     });
   }
 
