@@ -12,6 +12,8 @@ import type { SolicitudKepler } from './expense-proofs.service';
 import type { ValeAsignado } from '@megadulces/contracts';
 // `[GX.71]` Quién ve el historial de TODOS: una regla, la misma que usa la pantalla.
 import { leerFiltroHistorial, puedeVerHistorialDeTodos } from '@megadulces/contracts';
+// `[GX.86]` Quién no tiene horario para dar de alta: la misma regla que usa la pantalla.
+import { exentoDeHorarioAlta } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
 import { filtroExpedienteDesdeQuery } from './expediente-filtro';
 
@@ -342,7 +344,8 @@ export class ExpenseProofsController {
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
   @ApiOperation({ summary: 'Alta de la solicitud de reembolso (con los archivos ya subidos).' })
   create(@Body() body: CreateExpenseProofDto, @Req() req: AuthedRequest) {
-    return this.svc.create(body, req?.user?.full_name || req?.user?.username);
+    const exento = exentoDeHorarioAlta(req?.user?.permissions, isPlatformAdminRole(req?.user?.role_name));
+    return this.svc.create(body, req?.user?.full_name || req?.user?.username, exento);
   }
 
   // MOMENTO 3 — el capturista sube la evidencia DESPUÉS de aprobar (gasto comprobable).
