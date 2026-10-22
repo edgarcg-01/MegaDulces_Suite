@@ -427,3 +427,61 @@ centavo en 63/63**; el modelo de hoy (IVA 16 % fijo) acierta el IVA en 22. → s
 - ⚠️ **Lo usan también los PEDIDOS del vendedor** (`commercial-orders` llama a `priceLine`): su
   precio cambia igual, en la misma dirección que Kepler.
 - ⛔ **Sin ejercer contra la API** (lo usan `addLine`/`updateLine` y los pedidos, que escriben).
+
+## 12. `[E.24]` Las verdades que faltaban: promociones, precedencia, padrón y costo (2026-10-22)
+
+Todo medido con el replay de §11 sobre el **mismo universo congelado** (143 pedidos, 2,011
+renglones, $2,239,552: `replay.js <universo.json>` re-cotiza los mismos renglones) y, para las
+reglas, sobre los pedidos de telemarketing de 30 días.
+
+**1. La promo `descuxq` es la de la unidad que se COBRÓ.** «La misma promo, mismo SKU y sucursal,
+unos pedidos sí y otros no» (§11) no era por cliente ni por magnitud: en la 08 se aplicaba a 1–12
+PAQ y no a 14–60. Cuando la cantidad completa una unidad mayor, Kepler usa la promo de ESA unidad
+(umbral en unidades mayores), y si no tiene, no hay promo: **313 de 324** renglones. La vigencia
+(`c7`/`c8`) se descartó antes: las 280 promos estaban vigentes el día del pedido.
+
+**2. El precio va por PRECEDENCIA, no por el más barato** (corrige E.23). Con unidad mayor rige su
+tramo prorrateado o su precio, y el tramo de la unidad propia **no cuenta**; sin unidad mayor rige
+el tramo propio **aunque sea más caro que la lista**. Donde las reglas difieren: precedencia 304,
+mínimo 4. Detalle en `ERP_KEPLER.md` §2.7.
+
+| mismo universo | E.23 | + promo de la unidad mayor | + precedencia |
+|---|---:|---:|---:|
+| renglones al centavo | 90.0 % | 94.4 % | **96.2 %** |
+| importe al centavo | $1,978,313 | $2,140,859 | **$2,180,372 (97.4 %)** |
+| cotizado de menos («Kepler cobró lista») | −$5,197 | −$524 | **−$68** |
+| pedidos completos exactos | 63 | 69 | **79** |
+
+Y en esos 79 pedidos: importe 79/79 e **impuesto por producto (`kdii` c18/c19) 79/79**; el 16 % fijo
+de hoy, 25/79. Controles del replay: 5 renglones reales; los 3 nuevos se ponen **rojos con el motor
+de E.23** (prueba negativa) y verdes con éste.
+
+**3. El padrón de clientes — la tabla anterior estaba mal partida.** «68 de 143 sin fila» mezclaba
+dos cosas. Bien medido sobre 30 días (1,590 pedidos):
+
+| cliente | pedidos | importe | `kdud.c17` = % del pedido |
+|---|---:|---:|---:|
+| `C####` (la vista lo ve) | 1,151 | $14.8 M | 1,043 (90.6 %) |
+| **existe en `kdud`, la vista lo FILTRA** (`CR####`, numéricos, `CONTADO`) | **439** | **$1.3 M** | 432 (98.4 %) |
+
+El dato está bien en `kdud`; lo que falla es la premisa de `v_erp_wholesale_customers` («el padrón
+de telemarketing son los `C####`»): **el 27.6 % de los pedidos de telemarketing son de clientes que
+la cotización no puede encontrar**. Es exactamente el resolvedor `DC.0` que `FASE_DC` §9 propone
+(sin el filtro). ⛔ Decisión pendiente: la vista sólo la usa cotizaciones, pero cambiarla es
+migración en prod.
+
+**4. Costo.** La cotización no usa costo en ningún lado (ni lo muestra ni calcula margen): no hay
+número falso. El pedido de Kepler **no congela costo** (`kdm2.c62` vacío en el 84.5 % de 3,988
+renglones de 7 días); la verdad es `kdii.c77` (costo estándar, Fase CE). Contra él, **80 renglones
+(2 %) se vendieron bajo costo** en esa semana: si se quiere un aviso, ésa es la fuente.
+
+**5. Lo que queda, con nombre:** 30 renglones sin prorrateo (una capturista, 3 pedidos de un
+cliente: decisión de captura) · **26 SKUs de promoción a $0.01** («10 EXH EFFEM = GRATIS 1 EXH…»):
+Kepler los publica en `kdii.c90` y la vista de etiquetas los excluye a propósito, así que la
+cotización dice «sin precio» donde Kepler dice $0.01 · 1 renglón de `17066` en la 08 (la vista no
+tiene esa sucursal) · ~20 sueltos de 1 centavo o tramos que el ERP movió · ⚠️ la captura del 89008
+× 36 PAQ sigue contradiciendo el tramo de la CJA (con la regla sale $50.85; la pantalla mostró
+$51.76) — **pendiente el folio**.
+
+⚠️ Igual que E.23: cambia también el precio de los pedidos del vendedor (`commercial-orders`), y
+nada de esto está ejercido contra la API ni desplegado.

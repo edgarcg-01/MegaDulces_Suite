@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 107 KB, 1641 líneas, 33 secciones.
+> **Índice navegable** — 107 KB, 1653 líneas, 33 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -16,30 +16,30 @@
 | 314 | 362 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
 | 363 | 382 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
 | 383 | 419 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
-| 420 | 524 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
-| 525 | 571 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 572 | 610 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 611 | 761 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 762 | 876 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 877 | 931 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 932 | 969 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 970 | 999 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1000 | 1053 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1054 | 1102 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1103 | 1134 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1135 | 1195 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1196 | 1230 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1231 | 1342 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1343 | 1373 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1374 | 1421 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1422 | 1449 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1450 | 1506 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1507 | 1557 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1558 | 1583 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1584 | 1648 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1649 | 1668 | 1 | 6. Importers / feeds relevantes |
-| 1669 | 1676 | 1 | 7. Conexiones y credenciales |
-| 1677 | 1686 | 1 | 8. Para profundizar |
+| 420 | 536 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 537 | 583 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 584 | 622 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 623 | 773 | 9 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 774 | 888 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 889 | 943 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 944 | 981 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 982 | 1011 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1012 | 1065 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1066 | 1114 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1115 | 1146 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1147 | 1207 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1208 | 1242 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1243 | 1354 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1355 | 1385 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1386 | 1433 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1434 | 1461 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1462 | 1518 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1519 | 1569 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1570 | 1595 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1596 | 1660 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1661 | 1680 | 1 | 6. Importers / feeds relevantes |
+| 1681 | 1688 | 1 | 7. Conexiones y credenciales |
+| 1689 | 1698 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -474,14 +474,26 @@ sola lista $22.20. Arbitrado contra lo cobrado donde las dos reglas difieren: **
 telemarketing 30 d, 7,284 contra 280; mostrador `U-D-10` 3 d, 5,087 contra 218**. No depende de la
 ranura (u2 prorratea 3,197 de 3,654; u3 4,087 de 6,047, el resto es deriva de precio).
 
-Desde `c66` el cobrado (`c12`, a centavos) baja al **más barato de tres**: `c66`, el tramo de
-`kdpv_prod_util` de la propia unidad y el tramo de la unidad mayor por las que caben enteras,
-prorrateado. **11,486 de 13,116 renglones** (87.6 %) sin deriva de precio; sólo con `c66`, 6,323.
+**Desde `c66` el cobrado (`c12`, a centavos) se decide por PRECEDENCIA** (`[E.24]`, 2026-10-22 —
+corrige «el más barato de tres» de E.23, que acertaba 10,871 contra 11,171 de 12,723):
+
+1. **Si la cantidad completa una unidad mayor:** el tramo de `kdpv_prod_util` de **esa** unidad por
+   las que caben enteras, prorrateado; sin tramo, `c66`. **El tramo de la unidad propia no cuenta**
+   (03004 × 28 PAQ: tramo del PAQ $36.02, cobrado $39.83 = la CJA prorrateada).
+2. **Si no:** el tramo de la propia unidad que contiene la cantidad, **aunque sea más caro que la
+   lista** (40509 × 50 PAQ: lista $11.99, cobrado el tramo $12.76); sin tramo, la lista.
+3. **La promo `descuxq` es la de la unidad que se cobró** (la mayor si aplicó, con su umbral en
+   unidades mayores); si esa unidad no tiene promo, no hay promo. 313 de 324 renglones con unidad
+   mayor y promo (70001 × 20 PAQ: el PAQ tiene 5 %, la CJA nada → cobrado sin promo).
+
+Donde precedencia y mínimo difieren, Kepler cobró la precedencia **304** veces y el mínimo **4**.
 
 ⚠️ Esto **explica buena parte** del «28.6 % a lista / 15.9 % abajo del tramo» del bloque de arriba:
-medidos contra la lista de la propia unidad, los renglones prorrateados caían ahí. Sigue sin
-derivarse cuándo Kepler aplica una promo `descuxq` (mismo SKU y sucursal, unos pedidos sí y otros
-no). Instrumento: `scripts/kepler/replay-cotizacion/` (AUDITORIA_COTIZACIONES §11).
+medidos contra la lista de la propia unidad, los renglones prorrateados caían ahí. **Excepción por
+transacción, declarada:** el ~3.7 % que no se prorratea se concentra en una capturista (3 pedidos
+de un solo cliente con renglones prorrateados y sin prorratear dentro del MISMO pedido): es
+decisión de captura, no regla. Instrumento: `scripts/kepler/replay-cotizacion/`
+(AUDITORIA_COTIZACIONES §11–§12).
 
 #### ⛔ Qué determina el nivel: NO se pudo derivar, y las cuatro hipótesis están REFUTADAS
 

@@ -598,6 +598,13 @@ export class QuotePricingService {
     // No es un descuento porcentual: es OTRO precio del mismo peldaño a partir de N unidades.
     // `[E.22]` Con escalera disjunta rige el tramo que CONTIENE la cantidad; abajo del primero se
     // informa el primero, y en un hueco entre tramos no se aplica ninguno (no se adivina).
+    //
+    // `[E.24]` Y rige por PRECEDENCIA, no por el más barato. Arbitrado contra lo cobrado (pedidos
+    // de telemarketing 30 d, 12,723 renglones sin deriva de precio): donde las dos reglas difieren,
+    // Kepler cobró la precedencia 304 veces y «el mínimo» 4.
+    //   · si la cantidad completa una unidad MAYOR: el tramo de ESA unidad (por las que caben,
+    //     prorrateado) o, sin tramo, su precio prorrateado. El tramo de la unidad propia no cuenta.
+    //   · si no: el tramo de la unidad propia, AUNQUE sea más caro que la lista (Kepler lo cobra).
     const tramo = step.tiers ? tramoDeCantidad(step.tiers, quantity) : null;
     const volume = !step.tiers
       ? step.volume
@@ -606,44 +613,13 @@ export class QuotePricingService {
         : quantity < step.tiers[0].desde
           ? { min_qty: step.tiers[0].desde, price: step.tiers[0].price }
           : null;
-    if (volume) {
-      if (quantity >= volume.min_qty) {
-        if (volume.price < price) {
-          applied.push({
-            step: 'volumen',
-            source: step.tiers ? 'kdpv_prod_util (tramo que contiene la cantidad)' : 'kdpv_prod_util (via v_label_prices.wholesale_*)',
-            detail: tramo
-              ? `Precio por volumen de ${tramo.desde} a ${tramo.hasta >= 999999 ? 'más' : tramo.hasta} ${step.label ?? 'u'}`
-              : `Precio por volumen desde ${volume.min_qty} ${step.label ?? 'u'}`,
-            before: price,
-            after: volume.price,
-          });
-          price = volume.price;
-          priceSource = 'volume_qty';
-        } else if (volume.price > step.price) {
-          // El ERP publica un "mayoreo" más caro que la lista. Pasa, y no se corrige en silencio.
-          warnings.push(
-            `El precio por volumen del ERP (${volume.price}) es MAYOR que el de lista (${step.price}): se conserva el de lista.`,
-          );
-        }
-      } else {
-        notApplied.push({
-          mechanism: 'volumen',
-          reason: `Precio por volumen de $${volume.price} disponible a partir de ${volume.min_qty} ${step.label ?? 'unidades'}.`,
-        });
-      }
-    }
-
-    // `[E.23]` El tramo de volumen de la unidad MAYOR, por las que caben enteras, prorrateado. Kepler
-    // cobra el más barato de los tres (unidad mayor, tramo propio, tramo mayor): con esa regla, el
-    // replay de 30 d de telemarketing acierta 11,486 de 13,116 renglones; sólo con la lista, 6,323.
     if (mayor) {
       const tm = mayor.step.tiers ? tramoDeCantidad(mayor.step.tiers, mayor.n) : null;
       const vm = mayor.step.tiers
         ? (tm ? { min_qty: tm.desde, price: tm.price } : null)
         : (mayor.step.volume && mayor.n >= mayor.step.volume.min_qty ? mayor.step.volume : null);
-      const prorrateado = vm ? this.round(vm.price * mayor.factor, 4) : null;
-      if (vm && prorrateado !== null && prorrateado < price) {
+      if (vm) {
+        const prorrateado = this.round(vm.price * mayor.factor, 4);
         applied.push({
           step: 'volumen_unidad_mayor',
           source: 'kdpv_prod_util (tramo de la unidad mayor, prorrateado)',
@@ -654,6 +630,37 @@ export class QuotePricingService {
         price = prorrateado;
         priceSource = 'volume_qty';
       }
+      if (volume && quantity >= volume.min_qty) {
+        notApplied.push({
+          mechanism: 'volumen',
+          reason: `La cantidad completa ${mayor.n} ${mayor.step.label ?? 'unidad mayor'}: Kepler la cobra como unidad mayor y no aplica el tramo de ${step.label ?? 'la unidad'} ($${volume.price}).`,
+        });
+      }
+    } else if (volume) {
+      if (quantity >= volume.min_qty) {
+        applied.push({
+          step: 'volumen',
+          source: step.tiers ? 'kdpv_prod_util (tramo que contiene la cantidad)' : 'kdpv_prod_util (via v_label_prices.wholesale_*)',
+          detail: tramo
+            ? `Precio por volumen de ${tramo.desde} a ${tramo.hasta >= 999999 ? 'más' : tramo.hasta} ${step.label ?? 'u'}`
+            : `Precio por volumen desde ${volume.min_qty} ${step.label ?? 'u'}`,
+          before: price,
+          after: volume.price,
+        });
+        if (volume.price > step.price) {
+          // Kepler lo cobra así; la cotización no lo "corrige", pero tampoco lo calla.
+          warnings.push(
+            `El precio por volumen del ERP ($${volume.price}) es MAYOR que el de lista ($${step.price}), y es el que Kepler cobra.`,
+          );
+        }
+        price = volume.price;
+        priceSource = 'volume_qty';
+      } else {
+        notApplied.push({
+          mechanism: 'volumen',
+          reason: `Precio por volumen de $${volume.price} disponible a partir de ${volume.min_qty} ${step.label ?? 'unidades'}.`,
+        });
+      }
     }
 
     // ── Mecanismos 2b–5: las reglas de descuento de producto ────────────────────────────────
@@ -663,14 +670,21 @@ export class QuotePricingService {
     // de esas ranuras son PAQ 51, CJA 13, KG 1; la única de `CUB` cuelga de `base`), y la
     // cláusula por rótulo de abajo ya las alcanzaría si aparecieran. Un campo nuevo sin un caso
     // que lo exija es un primitivo inventado (ADR-056).
-    const unitName = rung === 'box' ? (step.label || 'CJA') : (rung === 'pack' ? 'PAQ' : (step.label || 'PZA'));
+    //
+    // `[E.23]` Si la cantidad se cobró como unidad MAYOR, la promo es la de ESA unidad y su umbral se
+    // cuenta en unidades mayores; si esa unidad no tiene promo, no hay promo. Arbitrado contra lo
+    // cobrado (replay de telemarketing, 324 renglones con unidad mayor y promo): 313 la cumplen.
+    const rRung: Rung = mayor ? mayor.step.rung : rung;
+    const rStep = mayor ? mayor.step : step;
+    const rQty = mayor ? mayor.n : quantity;
+    const unitName = rRung === 'box' ? (rStep.label || 'CJA') : (rRung === 'pack' ? 'PAQ' : (rStep.label || 'PZA'));
     const rules = await knex.raw(
       `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
               umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
          FROM analytics.v_erp_discount_rules
         WHERE tienda = :branch AND sku = :sku
           AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
-      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rung], unitName },
+      { branch, sku, aplica_a: RUNG_TO_APLICA_A[rRung], unitName },
     );
 
     let freeGoods: PricedLine['free_goods'] = null;
@@ -686,10 +700,10 @@ export class QuotePricingService {
         });
         continue;
       }
-      if (umbral === null || quantity < umbral) {
+      if (umbral === null || rQty < umbral) {
         notApplied.push({
           mechanism: rule.mecanismo,
-          reason: umbral === null ? 'La regla no declara umbral.' : `Requiere ${umbral} y se están cotizando ${quantity}.`,
+          reason: umbral === null ? 'La regla no declara umbral.' : `Requiere ${umbral} ${rStep.label ?? ''} y se están cotizando ${rQty}.`,
         });
         continue;
       }
@@ -708,7 +722,7 @@ export class QuotePricingService {
         applied.push({
           step: 'promo_cantidad',
           source: 'kdpv_descuxq (via v_erp_discount_rules)',
-          detail: `${pct}% desde ${umbral} ${step.label ?? 'u'} · vigente hasta ${String(rule.valid_to).slice(0, 10)}`,
+          detail: `${pct}% desde ${umbral} ${rStep.label ?? 'u'} · vigente hasta ${String(rule.valid_to).slice(0, 10)}`,
           before: price,
           after,
         });
@@ -730,7 +744,7 @@ export class QuotePricingService {
         applied.push({
           step: 'gratis_cantidad',
           source: 'kdpv_gratisxq (via v_erp_discount_rules)',
-          detail: `Desde ${umbral} ${step.label ?? 'u'} se regalan ${freeGoods.quantity} de ${freeGoods.sku}`,
+          detail: `Desde ${umbral} ${rStep.label ?? 'u'} se regalan ${freeGoods.quantity} de ${freeGoods.sku}`,
           before: price,
           after: price,
         });
