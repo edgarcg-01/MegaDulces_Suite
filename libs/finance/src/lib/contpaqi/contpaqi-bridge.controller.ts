@@ -9,6 +9,9 @@ import {
   type PendienteProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
+import {
+  CategorizacionRechazada, ContpaqiCategoriaService, type CategoriaEgreso, type ResultadoCategorizar, type VistaPreviaBeneficiario,
+} from './contpaqi-categoria.service';
 
 /**
  * Fase CP `[CP.8.32]` — **La bandeja del puente: qué saldría de póliza, y qué no sale y por qué.**
@@ -53,6 +56,7 @@ export class ContpaqiBridgeController {
   constructor(
     private readonly armado: ContpaqiArmadoService,
     private readonly cuadre: ContpaqiCuadreService,
+    private readonly categoria: ContpaqiCategoriaService,
   ) {}
 
   /**
@@ -386,6 +390,58 @@ export class ContpaqiBridgeController {
   async estadoCuadre() {
     return this.cuadre.estado();
   }
+
+  // ── `[CP.8.80]` Categorizar un egreso aquí mismo, y recordarlo por beneficiario ───────────────────────
+
+  /** Las categorías que puede llevar un egreso. Sólo lectura. */
+  @Get('categorias-egreso')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Categorías de egreso de banco (para categorizar desde el puente).' })
+  async categoriasEgreso(): Promise<CategoriaEgreso[]> {
+    return this.categoria.categorias();
+  }
+
+  /**
+   * Qué egresos sin categoría tomaría la regla «empieza con `texto`», antes de guardarla. Sólo lectura: lo
+   * puede ver quien ve el puente; guardar pide `_CATEGORIZAR`.
+   */
+  @Get('movimientos/:movimiento/beneficiario')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Vista previa de la regla por beneficiario: qué egresos sin categoría tomaría.' })
+  async vistaPreviaBeneficiario(@Param('movimiento') movimiento: string, @Query('texto') texto?: string): Promise<VistaPreviaBeneficiario> {
+    try {
+      return await this.categoria.vistaPrevia(movimiento, String(texto ?? ''));
+    } catch (e) {
+      if (e instanceof CategorizacionRechazada) throw new BadRequestException(e.message);
+      throw e;
+    }
+  }
+
+  /**
+   * ⛔ `_CATEGORIZAR`, permiso propio (decisión del PM, 2026-10-22). Pone la categoría a un egreso que no tiene;
+   * con `beneficiario` deja además la regla y la aplica a los que hoy no tienen. 409 con el motivo si no procede
+   * (ya tiene categoría, el texto no es suyo, otra regla manda ese texto a otra categoría).
+   */
+  @Post('movimientos/:movimiento/categoria')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR)
+  @ApiOperation({ summary: 'Categoriza un egreso de banco sin categoría y, opcional, lo recuerda por beneficiario.' })
+  async categorizar(
+    @Param('movimiento') movimiento: string,
+    @Body() body: { categoria?: string; beneficiario?: string },
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<ResultadoCategorizar> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién categoriza');
+    const cat = String(body?.categoria ?? '').trim();
+    if (!cat) throw new BadRequestException('hace falta `categoria`');
+    if (body?.beneficiario !== undefined && typeof body.beneficiario !== 'string') throw new BadRequestException('`beneficiario` tiene que ser texto');
+    try {
+      return await this.categoria.categorizar(movimiento, { categoria: cat, beneficiario: body?.beneficiario }, quien);
+    } catch (e) {
+      if (e instanceof CategorizacionRechazada) throw new ConflictException(e.message);
+      throw e;
+    }
+  }
 }
 
 /**
@@ -411,7 +467,7 @@ const DUENO: Record<string, string> = {
   pago_importe_invalido: 'sistemas — un CFDI del pago trae importe no positivo',
   pago_error: 'sistemas — error al armar el pago',
   // `[CP.8.79]` Antes estos desaparecían del puente sin aviso.
-  sin_categoria: 'finanzas — categorizar el movimiento en Conciliación bancaria',
+  sin_categoria: 'contabilidad — categorizarlo aquí; con «todos los de este beneficiario» queda la regla',
 };
 
 /** El mes cerrado más reciente. ⚠️ No el actual: el mes en curso siempre se ve incompleto. */

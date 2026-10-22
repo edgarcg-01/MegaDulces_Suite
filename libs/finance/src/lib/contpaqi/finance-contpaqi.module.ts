@@ -4,6 +4,7 @@ import { ContpaqiTxtSinkAdapter } from './txt-sink.adapter';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 import { ContpaqiArmadoService } from './contpaqi-armado.service';
 import { ContpaqiBridgeController } from './contpaqi-bridge.controller';
+import { ContpaqiCategoriaService } from './contpaqi-categoria.service';
 import { ContpaqiCierreService } from './contpaqi-cierre.service';
 import { ContpaqiCierreController } from './contpaqi-cierre.controller';
 import { MiCierreService } from './mi-cierre.service';
@@ -40,6 +41,8 @@ import { MiCierreController } from './mi-cierre.controller';
   controllers: [ContpaqiBridgeController, ContpaqiCierreController, MiCierreController],
   providers: [
     ContpaqiArmadoService,
+    // `[CP.8.80]` Categorizar un egreso desde el puente (permiso propio `_CATEGORIZAR`).
+    ContpaqiCategoriaService,
     ContpaqiCuadreService,
     ContpaqiCierreService,
     MiCierreService,
