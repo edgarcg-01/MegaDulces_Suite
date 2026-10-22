@@ -331,3 +331,33 @@ Hoy no existe `PATCH /commercial/quotes/:id`. Lo que hace falta, en orden de cap
   renglón de catálogo + no manejado; prueba negativa: renglón inválido → 400 que lo nombra, ninguna
   cotización a medias, folio sin consumir) pero **necesita la API arriba** y **no se ha corrido**.
 - Pruebas que sí corrieron: `commercial-quotes` 57/57, televenta 29/29, `ngc --noEmit` con control.
+
+---
+
+## 10. `[E.22]` La estructura básica: qué precio cobraría Kepler (2026-10-21)
+
+Reporte con captura: **SKU 89008**, Kepler cobra 36 PAQ a **$51.76**; la COT-2026-00026 cotizó 38 PAQ
+a **$55.00** (y su PDF, con el defecto C2 todavía en prod, imprimió $54.09).
+
+- **Causa, medida:** la escalera de volumen de `kdpv_prod_util` para ese PAQ tiene tres tramos sin
+  encimarse (3-5 $55.00 · 6-9 $53.16 · 10+ $51.76) y el motor sólo conocía **el primero**
+  (`v_label_prices.wholesale_*`). Lista y escalera son idénticas en la 01 y la 08: la sucursal no
+  explica nada.
+- **Arbitrado con dinero** (lo cobrado por Kepler, no lo configurado): 89008 coincide en el 100 % de
+  sus renglones de venta; a escala, en escaleras disjuntas Kepler cobra el tramo de la cantidad
+  4,275 veces contra 26 el primer tramo. Detalle y corrección del decode en `ERP_KEPLER.md` §2.7.
+- **Arreglo:** el motor elige el tramo que CONTIENE la cantidad (`tramoDeCantidad`) cuando la
+  escalera es disjunta; encimada → nivel 0 sin cambio. El primer tramo de `kdpv` coincide con
+  `v_label_prices` en 8,165 de 8,182 SKUs disjuntos de la 01 (3 difieren por centavos): no mueve lo
+  que estaba bien. ⚠️ **Lo usan también los PEDIDOS** (`commercial-orders`): su precio por volumen
+  cambia igual.
+- **Impacto en cotizaciones reales:** 89008 (+$123.12 de más), 40814 (+$38.00), 40078 (+$27.30, a 10
+  PAQ no aplicaba ningún volumen) y 65124 (5 PAQ cotizados **por debajo** de su tramo). Las demás
+  diferencias de la medición son promos sobre el mismo tramo o precios que el ERP movió desde la
+  fecha de la cotización.
+- ⛔ **No derivable, declarado:** aun en escaleras disjuntas, Kepler cobra lista en el 28.6 % y menos
+  que el tramo en el 15.9 % de los renglones. La cotización da el precio que el ERP **configura**;
+  si en el pedido se cobra lista o algo menor, es decisión de quien captura y no está medido quién.
+- Prueba: `volume-tiers.spec.ts` con la escalera real del 89008 (3/3) y **prueba negativa** (la
+  regla vieja del primer tramo la pone roja); `commercial-quotes` + `commercial-orders` 60/60.
+- ⛔ **Sin ejercer contra la API** (lo usan `addLine` y los pedidos, caminos que escriben).
