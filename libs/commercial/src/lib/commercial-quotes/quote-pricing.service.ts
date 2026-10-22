@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnav
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { AREA_COTIZACIONES } from './quote-scope';
 import type { Knex } from 'knex';
+import { totalesCotizacion } from '@megadulces/contracts';
 
 /**
  * `[COT.1]` — El motor de precio de una cotización.
@@ -44,9 +45,10 @@ import type { Knex } from 'knex';
  *   · Los mecanismos por MONTO (`descuento_monto`, `gratis_monto`) **no se aplican**: su umbral
  *     no tiene testigo (cero reglas vigentes con qué cuadrarlo contra una venta). Se REPORTAN
  *     como `no_aplicado` con su motivo, para que la pantalla pueda decirlo.
- *   · El IVA: el precio del ERP **ya trae impuestos** (Σ`kdm2.c13` = `kdm1.c16`, 99.84%), así que
- *     `unit_price` los incluye y el desglose se hace hacia atrás. La tasa es la del renglón, y
- *     `tax_basis` dice si fue asumida — el IEPS por producto todavía no tiene resolvedor.
+ *   · El impuesto: el precio del ERP **ya trae impuestos** (Σ`kdm2.c13` = `kdm1.c16`, 99.84%), así
+ *     que `unit_price` los incluye y el desglose se hace hacia atrás con la tasa de CADA producto
+ *     (`kdii.c18` IVA · `c19` IEPS, `[E.25]`). Sin ficha en `kdii` se ASUME IVA 16 % y `tax_basis`
+ *     lo dice.
  */
 
 /** Peldaño de la escalera de unidades. `base` siempre existe; `pack`/`box` sólo si el ERP los declara. */
@@ -195,8 +197,12 @@ export interface PricedLine {
   unit_price: number | null;
   price_source: PriceSource;
   line_total: number | null;
+  /** iva + ieps del producto (o 0.16 asumido sin ficha en `kdii`: lo dice `tax_basis`). */
   tax_rate: number;
   tax_basis: string;
+  /** `[E.25]` IVA e IEPS del producto (`kdii.c18`/`c19`, como fracción). null = sin ficha / sin precio. */
+  iva_rate: number | null;
+  ieps_rate: number | null;
   availability: string;
   /** El desglose completo: cada paso, con qué fuente y qué le hizo al precio. */
   applied: PriceStep[];
@@ -754,6 +760,8 @@ export class QuotePricingService {
       }
     }
 
+    const tasas = await this.tasasDe(knex, branch, sku);
+
     // `[E.23]` A centavos, como `kdm2.c12`: Kepler cobra cantidad × precio de dos decimales.
     const unitPrice = this.round(price, 2);
     const lineTotal = this.round(unitPrice * quantity, 2);
@@ -774,10 +782,10 @@ export class QuotePricingService {
       unit_price: unitPrice,
       price_source: priceSource,
       line_total: lineTotal,
-      tax_rate: DEFAULT_TAX_RATE,
-      // El precio del ERP ya trae impuestos; la tasa del renglón todavía no tiene resolvedor por
-      // producto (el IEPS vive en el renglón de VENTA, `kdm2.c18`, no en el catálogo).
-      tax_basis: 'iva_16_asumido_precio_con_impuestos',
+      tax_rate: tasas ? tasas.iva + tasas.ieps : DEFAULT_TAX_RATE,
+      tax_basis: tasas ? 'kdii_c18_c19_precio_con_impuestos' : 'iva_16_asumido_sin_ficha_kdii',
+      iva_rate: tasas?.iva ?? null,
+      ieps_rate: tasas?.ieps ?? null,
       availability: productId ? 'available' : 'unmatched',
       applied,
       not_applied: notApplied,
@@ -810,6 +818,8 @@ export class QuotePricingService {
       line_total: null,
       tax_rate: DEFAULT_TAX_RATE,
       tax_basis: 'no_aplica_sin_precio',
+      iva_rate: null,
+      ieps_rate: null,
       availability: a.availability,
       applied: a.applied,
       not_applied: a.notApplied,
@@ -963,7 +973,7 @@ export class QuotePricingService {
     const qty = Number(input.quantity);
     const unit = priced?.unit_price ?? null;
     const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
-    const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
+    const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
 
     await trx.raw(
       // `[COT.1b]` El sello de unidad (`qty_unit`/`qty_factor`/`qty_factor_source`) entra al
@@ -971,11 +981,11 @@ export class QuotePricingService {
       // el 10 eran 10 piezas o 10 cajas. Mismas tres columnas que `commercial.order_lines`.
       `INSERT INTO commercial.quote_lines
          (tenant_id, quote_id, line_number, product_id, requested_text, requested_quantity, quantity,
-          unit_price, list_price, tax_rate, line_subtotal, line_total, price_source, parent_line_number,
+          unit_price, list_price, tax_rate, iva_rate, ieps_rate, line_subtotal, line_total, price_source, parent_line_number,
           availability, notes, qty_unit, qty_factor, qty_factor_source, created_by, updated_by)
        VALUES
          (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :requested_quantity, :quantity,
-          :unit_price, :list_price, :tax_rate, :line_subtotal, :line_total, :price_source, :parent,
+          :unit_price, :list_price, :tax_rate, :iva_rate, :ieps_rate, :line_subtotal, :line_total, :price_source, :parent,
           :availability, :notes, :qty_unit, :qty_factor, :qty_factor_source, :user_id, :user_id)`,
       {
         quote_id: quoteId,
@@ -988,7 +998,9 @@ export class QuotePricingService {
         quantity: qty,
         unit_price: unit,
         list_price: priced?.list_price ?? null,
-        tax_rate: DEFAULT_TAX_RATE,
+        tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
+        iva_rate: priced?.iva_rate ?? null,
+        ieps_rate: priced?.ieps_rate ?? null,
         line_subtotal: subtotal,
         line_total: lineTotal,
         price_source: priced?.price_source ?? 'unknown',
@@ -1105,13 +1117,16 @@ export class QuotePricingService {
 
       const unit = priced?.unit_price ?? null;
       const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
-      const subtotal = unit === null ? 0 : this.round(lineTotal / (1 + DEFAULT_TAX_RATE), 2);
+      const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
 
       await trx.raw(
         `UPDATE commercial.quote_lines
             SET quantity = :quantity,
                 unit_price = :unit_price,
                 list_price = :list_price,
+                tax_rate = :tax_rate,
+                iva_rate = :iva_rate,
+                ieps_rate = :ieps_rate,
                 line_subtotal = :line_subtotal,
                 line_total = :line_total,
                 price_source = :price_source,
@@ -1129,6 +1144,9 @@ export class QuotePricingService {
           quantity: qty,
           unit_price: unit,
           list_price: priced?.list_price ?? null,
+          tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
+          iva_rate: priced?.iva_rate ?? null,
+          ieps_rate: priced?.ieps_rate ?? null,
           line_subtotal: subtotal,
           line_total: lineTotal,
           price_source: priced?.price_source ?? 'unknown',
@@ -1246,13 +1264,15 @@ export class QuotePricingService {
    * que hoy se borra del Excel y nadie vuelve a ver.
    */
   async recalcTotals(trx: Knex, quoteId: string): Promise<{ subtotal: number; tax_total: number; total: number }> {
-    const agg = await trx.raw(
-      `SELECT coalesce(sum(line_total), 0) AS bruto
+    // `[E.25]` La MISMA cuenta que la pantalla y el papel (`totalesCotizacion`, libs/contracts),
+    // con la tasa de cada renglón. Antes era una copia propia con IVA 16 % fijo (deuda de E.19).
+    const renglones = await trx.raw(
+      `SELECT line_total, iva_rate, ieps_rate
          FROM commercial.quote_lines
-        WHERE quote_id = :id`,
+        WHERE quote_id = :id
+        ORDER BY line_number`,
       { id: quoteId },
     );
-    const bruto = Number(agg.rows[0].bruto);
 
     const q = await trx.raw(
       `SELECT terms_discount_pct FROM commercial.quotes WHERE id = :id`,
@@ -1267,9 +1287,16 @@ export class QuotePricingService {
       throw new BadRequestException('El descuento congelado de la cotización no es un número.');
     }
 
-    const total = pct ? this.round(bruto * (1 - pct / 100), 2) : this.round(bruto, 2);
-    const subtotal = this.round(total / (1 + DEFAULT_TAX_RATE), 2);
-    const tax = this.round(total - subtotal, 2);
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+    const rows = renglones.rows as Array<{ line_total: unknown; iva_rate: unknown; ieps_rate: unknown }>;
+    const t = totalesCotizacion(
+      rows.map((r) => Number(r.line_total) || 0),
+      pct,
+      rows.map((r) => ({ iva: num(r.iva_rate), ieps: num(r.ieps_rate) })),
+    );
+    const total = t.total;
+    const subtotal = t.subtotal;
+    const tax = this.round(t.iva + t.ieps, 2);
 
     await trx.raw(
       `UPDATE commercial.quotes
@@ -1278,6 +1305,35 @@ export class QuotePricingService {
       { id: quoteId, subtotal, tax, total },
     );
     return { subtotal, tax_total: tax, total };
+  }
+
+  /**
+   * `[E.25]` IVA e IEPS del producto en esa sucursal, como fracción: `kdii.c18` / `c19` (negativas =
+   * incluidas en el precio, que es el 100 % de las fichas medidas el 2026-10-22). La de la ficha = la
+   * del renglón del pedido en 2,011 de 2,011 renglones de telemarketing. null = sin ficha.
+   */
+  private async tasasDe(knex: Knex, branch: string, sku: string): Promise<{ iva: number; ieps: number } | null> {
+    const r = await knex.raw(
+      `SELECT nullif(regexp_replace(coalesce(c18::text, ''), '[^0-9.-]', '', 'g'), '')::numeric AS iva,
+              nullif(regexp_replace(coalesce(c19::text, ''), '[^0-9.-]', '', 'g'), '')::numeric AS ieps
+         FROM kepler_ods.kdii
+        WHERE sucursal = :branch AND btrim(c1) = :sku
+        LIMIT 1`,
+      { branch, sku },
+    );
+    if (!r.rows.length) return null;
+    const frac = (v: unknown): number => Math.abs(Number(v) || 0) / 100;
+    return { iva: frac(r.rows[0].iva), ieps: frac(r.rows[0].ieps) };
+  }
+
+  /**
+   * `[E.25]` Entre qué se divide el importe con impuestos para dar la base del renglón: cascada
+   * fiscal, IEPS sobre la base e IVA sobre (base + IEPS) — la misma de los tickets (TK.13). Sin tasa
+   * registrada, IVA 16 % ASUMIDO (lo declara `tax_basis`).
+   */
+  private divisorImpuesto(p: PricedLine | null): number {
+    if (!p || (p.iva_rate === null && p.ieps_rate === null)) return 1 + DEFAULT_TAX_RATE;
+    return (1 + (p.ieps_rate ?? 0)) * (1 + (p.iva_rate ?? 0));
   }
 
   private round(n: number, decimals: number): number {

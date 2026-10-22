@@ -5,6 +5,7 @@ import {
   EMPRESA_NOMBRE,
   QuoteDeliverableData,
   modeloEntregable,
+  condiciones,
 } from './quote-deliverable-export';
 
 describe('QuoteDeliverableExport — Estándares Comerciales y Entregables', () => {
@@ -96,6 +97,36 @@ describe('modeloEntregable — la cuenta que se le promete al cliente', () => {
     expect(Math.round(suma * 100)).toBe(97000);
     // el IVA es la parte del total, no se suma encima: 970 / 1.16 = 836.21 → IVA 133.79
     expect(m.totales.iva).toBe(133.79);
+  });
+
+  /**
+   * `[E.25]` El pedido REAL de Kepler 01-0003309 (cliente con 2 %): 5 renglones IEPS 8 % y 3 de IVA
+   * 16 %. Kepler guardó total 5,016.07 · IVA 180.03 · IEPS 274.88.
+   */
+  const pedido3309 = (conTasas: boolean): QuoteDeliverableData => ({
+    ...base,
+    discountPct: 2,
+    items: [706.2, 789.5, 893.76, 697.5, 699.6, 641.8, 523.28, 166.8].map((imp, i) => ({
+      sku: String(i), name: 'X', unit_label: 'PAQ', quantity: 1, unit_price: imp, line_total: imp,
+      ...(conTasas ? (i < 5 ? { iva_rate: 0, ieps_rate: 0.08 } : { iva_rate: 0.16, ieps_rate: 0 }) : {}),
+    })),
+  });
+
+  it('[E.25] con la tasa de cada producto el papel desglosa IVA e IEPS como Kepler, sin avisos', () => {
+    const d = pedido3309(true);
+    const m = modeloEntregable(d);
+    expect(m.totales.total).toBe(5016.07);
+    expect(m.totales.iva).toBe(180.03);
+    expect(m.totales.ieps).toBe(274.88);
+    expect(m.totales.subtotal).toBe(4561.16);
+    expect(condiciones(d, m).some((c) => c.startsWith('Impuesto estimado'))).toBe(false);
+  });
+
+  it('[E.25] sin tasas (cotización vieja) el impuesto se ASUME y el papel lo dice', () => {
+    const d = pedido3309(false);
+    const m = modeloEntregable(d);
+    expect(m.totales.impuesto_asumido).toBe(8);
+    expect(condiciones(d, m)).toContain('Impuesto estimado en 8 artículo(s): IVA 16 % asumido, sin la tasa del producto.');
   });
 
   it('no genera el papel si su total no es el que guardó el servidor', () => {

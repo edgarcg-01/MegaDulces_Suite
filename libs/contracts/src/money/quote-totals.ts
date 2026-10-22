@@ -13,18 +13,29 @@
  *     importe     Σ importes de renglón (precios cotizados, IVA incluido)
  *   − descuento   el % negociado del CLIENTE: capa de DOCUMENTO, nunca toca el precio unitario
  *   = total       round(importe × (1 − %))
- *     base        round(total / 1.16)      · IVA = total − base   (el precio ya trae el IVA)
+ *     IVA, IEPS   por renglón, con la tasa de SU producto (`[E.25]`): el neto del renglón
+ *                 (importe × (1 − %), sin redondear) se descompone en cascada —IEPS sobre la base,
+ *                 IVA sobre (base + IEPS), la misma regla de los tickets (TK.13)— y se redondea
+ *                 la SUMA. Así cuadra con `kdm1.c14`/`c15` de Kepler: 79 de 79 pedidos del replay.
+ *     subtotal    total − IVA − IEPS
+ *
+ * Un renglón sin tasa registrada (cotización anterior a E.25) se calcula con IVA 16 % ASUMIDO y se
+ * cuenta en `impuesto_asumido`: la pantalla y el papel lo tienen que decir (ADR-056).
  *
  * ⚠️ El descuento por volumen o promoción NO aparece acá: ya está dentro del precio unitario de
  * cada renglón. Aplicarlo otra vez fue justamente el defecto.
  *
- * ⚠️ DEUDA con nombre: el servidor todavía calcula esto en su propio `recalcTotals` (no importa
- * esta función). `quote-totals.spec.ts` fija que las dos den lo mismo; mudar el servidor a esta
- * función es parte del paso de escrituras de la auditoría, donde se prueba contra base real.
+ * Desde `[E.25]` el servidor (`recalcTotals`) llama a ESTA función: ya no hay una segunda cuenta.
  */
 
-/** Tasa de IVA con la que el servidor descompone el total (`DEFAULT_TAX_RATE`). */
+/** IVA que se ASUME para un renglón sin tasa registrada (anterior a E.25). Se declara, no se esconde. */
 export const QUOTE_TAX_RATE = 0.16;
+
+/** `[E.25]` Tasas del producto de un renglón, como fracción (0.16, 0.08). null = no se registró. */
+export interface QuoteLineTaxRates {
+  iva: number | null;
+  ieps: number | null;
+}
 
 export interface QuoteTotals {
   /** Σ importes de los renglones CON precio. */
@@ -34,8 +45,12 @@ export interface QuoteTotals {
   /** importe − total. Exacto por construcción. */
   descuento: number;
   total: number;
-  base_sin_iva: number;
+  /** total − IVA − IEPS: lo que Kepler llama Subtotal (sin impuestos, ya con el % del cliente). */
+  subtotal: number;
   iva: number;
+  ieps: number;
+  /** Renglones con importe cuyo impuesto se ASUMIÓ (IVA 16 %) por no tener tasa registrada. */
+  impuesto_asumido: number;
   /**
    * Importe neto de cada renglón, en el mismo orden que entró, con el descuento del cliente
    * repartido de modo que **Σ netos = total al centavo**. null = renglón sin precio.
@@ -53,16 +68,37 @@ export function redondear2(n: number): number {
 /**
  * @param importes  `line_total` de cada renglón; `null` = el renglón no tiene precio.
  * @param pct       el `terms_discount_pct` congelado de la cotización; null/0 = sin descuento.
+ * @param tasas     `[E.25]` IVA/IEPS de cada renglón, en el mismo orden. Ausente o null = asumido.
  */
-export function totalesCotizacion(importes: Array<number | null>, pct: number | null): QuoteTotals {
+export function totalesCotizacion(
+  importes: Array<number | null>,
+  pct: number | null,
+  tasas?: Array<QuoteLineTaxRates | null | undefined>,
+): QuoteTotals {
   const p = pct !== null && Number.isFinite(pct) && pct > 0 ? pct : null;
   // Se suma en centavos enteros: sumar flotantes de dos decimales arrastra error.
   const centavos = importes.map((x) => (x === null || !Number.isFinite(x) ? null : Math.round(x * 100)));
   const importeCent = centavos.reduce<number>((a, c) => a + (c ?? 0), 0);
   const importe = importeCent / 100;
   const total = p ? redondear2(importe * (1 - p / 100)) : redondear2(importe);
-  const base = redondear2(total / (1 + QUOTE_TAX_RATE));
-  const iva = redondear2(total - base);
+
+  let ivaX = 0;
+  let iepsX = 0;
+  let impuestoAsumido = 0;
+  importes.forEach((x, i) => {
+    if (x === null || !Number.isFinite(x) || x === 0) return;
+    const t = tasas?.[i];
+    const sinTasa = !t || (t.iva === null && t.ieps === null);
+    if (sinTasa) impuestoAsumido++;
+    const tIva = sinTasa ? QUOTE_TAX_RATE : (t.iva ?? 0);
+    const tIeps = sinTasa ? 0 : (t.ieps ?? 0);
+    const neto = x * (p ? 1 - p / 100 : 1);
+    const base = neto / ((1 + tIeps) * (1 + tIva));
+    iepsX += base * tIeps;
+    ivaX += base * (1 + tIeps) * tIva;
+  });
+  const iva = redondear2(ivaX);
+  const ieps = redondear2(iepsX);
 
   // Reparto del descuento por mayor residuo: cada renglón recibe su parte proporcional en
   // centavos y los centavos que sobran van a los de mayor fracción. Así la columna de netos
@@ -87,8 +123,10 @@ export function totalesCotizacion(importes: Array<number | null>, pct: number | 
     descuento_pct: p,
     descuento: redondear2(importe - total),
     total,
-    base_sin_iva: base,
+    subtotal: redondear2(total - iva - ieps),
     iva,
+    ieps,
+    impuesto_asumido: impuestoAsumido,
     netos: netosCent.map((c) => (c === null ? null : c / 100)),
     sin_precio: centavos.filter((c) => c === null).length,
   };

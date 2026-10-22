@@ -149,6 +149,9 @@ export interface PricedLine {
   line_total: number | null;
   tax_rate: number;
   tax_basis: string;
+  /** `[E.25]` IVA e IEPS del producto (fracción, `kdii.c18`/`c19`). null = sin ficha o sin precio. */
+  iva_rate: number | null;
+  ieps_rate: number | null;
   availability: string;
   applied: PriceStep[];
   not_applied: { mechanism: string; reason: string }[];
@@ -198,6 +201,9 @@ export interface QuoteLine {
   qty_unit: string | null;
   qty_factor: number | string | null;
   qty_factor_source: string | null;
+  /** `[E.25]` IVA e IEPS del producto al cotizar. null = renglón anterior a E.25 (impuesto ASUMIDO). */
+  iva_rate?: number | string | null;
+  ieps_rate?: number | string | null;
 }
 
 export interface QuoteDetail {

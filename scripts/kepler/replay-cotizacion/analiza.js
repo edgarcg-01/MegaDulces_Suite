@@ -2,7 +2,19 @@
 // (importe, IVA, IEPS). Arranca con un control del clasificador: si no acierta, no reporta nada.
 // Uso: node scripts/kepler/replay-cotizacion/analiza.js <salida.json>
 const fs = require('fs');
+const path = require('path');
 const { renglones, dias } = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+
+// [E.25] La cuenta REAL de la cotización (libs/contracts quote-totals.ts), empaquetada: el pedido se
+// cuadra con la misma función que usan el servidor, la pantalla y el papel, no con una copia.
+const RAIZ = path.resolve(__dirname, '..', '..', '..');
+const cache = path.join(RAIZ, 'node_modules', '.cache', 'replay-cotizacion');
+fs.mkdirSync(cache, { recursive: true });
+require(path.join(RAIZ, 'node_modules', 'esbuild')).buildSync({
+  entryPoints: [path.join(RAIZ, 'libs/contracts/src/money/quote-totals.ts')],
+  bundle: true, platform: 'node', format: 'cjs', outfile: path.join(cache, 'quote-totals.cjs'), logLevel: 'warning',
+});
+const { totalesCotizacion } = require(path.join(cache, 'quote-totals.cjs'));
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 const norm = (v) => {
   const l = String(v || '').trim().toUpperCase();
@@ -72,15 +84,21 @@ for (const l of renglones) {
   porDoc.set(k, d);
 }
 const tasa = (v) => Math.abs(Number(v || 0)) / 100;
-let dTot = 0, dIncons = 0, dExactos = 0, dTotalOk = 0, ivaA = 0, iepsA = 0, ivaB = 0, iepsB = 0, ambasB = 0, pctOk = 0, pctNull = 0, pctDocs = 0;
+let dTot = 0, dIncons = 0, dExactos = 0, dTotalOk = 0, ivaA = 0, iepsA = 0, ivaB = 0, iepsB = 0, ambasB = 0, pctDocs = 0;
+let ivaC = 0, iepsC = 0, ambasC = 0, asumidosC = 0;
+const pad = { igual: 0, distinto: 0, fuera: 0, noMedido: 0 };
 const ejB = [];
+const ejC = [];
 for (const [, d] of porDoc) {
   dTot++;
   const h = d.h;
   const pct = Number(h.pct) / 100;
   if (Number(h.pct) !== 0) pctDocs++;
-  if (h.pct_padron === null) pctNull++;
-  else if (Math.abs(Number(h.pct_padron) - Number(h.pct)) < 0.001) pctOk++;
+  // El padrón: «la vista no lo tiene» es distinto de «lo tiene sin %» (= sin descuento).
+  if (h.padron_codigo === undefined) pad.noMedido++; // universo anterior a E.25: no traía la columna
+  else if (!h.padron_codigo) pad.fuera++;
+  else if (Math.abs(Number(h.pct_padron || 0) - Number(h.pct)) < 0.001) pad.igual++;
+  else pad.distinto++;
   // La cabecera de un pedido vivo sigue a lo surtido: sólo se compara contra una que cuadra con sus renglones.
   const kSuma = d.ls.reduce((a, l) => a + Number(l.imp), 0);
   if (Math.abs(r2(kSuma * (1 - pct)) - Number(h.importe)) > 0.05) { dIncons++; continue; }
@@ -107,6 +125,15 @@ for (const [, d] of porDoc) {
   if (okE) iepsB++;
   if (okI && okE) ambasB++;
   else if (ejB.length < 5) ejB.push(`${h.suc} ${h.folio}: Kepler IVA ${h.iva} IEPS ${h.ieps} · modelo B IVA ${r2(iva)} IEPS ${r2(ieps)}`);
+  // C · la cotización tal cual: tasas que devolvió el MOTOR + totalesCotizacion, al centavo
+  const t = totalesCotizacion(d.ls.map((l) => l.motor.line_total), Number(h.pct) || null,
+    d.ls.map((l) => ({ iva: l.motor.iva_rate ?? null, ieps: l.motor.ieps_rate ?? null })));
+  asumidosC += t.impuesto_asumido;
+  const cI = Math.abs(t.iva - Number(h.iva)) <= 0.005, cE = Math.abs(t.ieps - Number(h.ieps)) <= 0.005;
+  if (cI) ivaC++;
+  if (cE) iepsC++;
+  if (cI && cE && Math.abs(t.total - Number(h.importe)) <= 0.005) ambasC++;
+  else if (ejC.length < 5) ejC.push(`${h.suc} ${h.folio}: Kepler total ${h.importe} IVA ${h.iva} IEPS ${h.ieps} · cotización ${t.total} / ${t.iva} / ${t.ieps}`);
 }
 console.log('\n## Pedido: importe e impuestos (cabecera consistente y TODOS sus renglones exactos)');
 console.log(`Pedidos: ${dTot} · cabecera que no cuadra con sus propios renglones (pedido vivo, se excluye): ${dIncons} · con cabecera consistente y TODOS los renglones exactos: ${dExactos}`);
@@ -114,8 +141,12 @@ console.log(`- importe (Σ renglones × (1 − %cliente del pedido)) = c16: **${
 console.log(`- A · modelo actual (IVA 16 % fijo): IVA cuadra en ${ivaA} de ${dExactos}; IEPS (=0) en ${iepsA} de ${dExactos}`);
 console.log(`- B · tasa por producto (kdii c18/c19): IVA cuadra en ${ivaB}, IEPS en ${iepsB}, **ambos en ${ambasB} de ${dExactos}**`);
 for (const e of ejB) console.log('  - ' + e);
+console.log(`- C · LA COTIZACIÓN (tasas del motor + totalesCotizacion, al centavo): total, IVA e IEPS en **${ambasC} de ${dExactos}** (IVA ${ivaC}, IEPS ${iepsC}; renglones con impuesto asumido: ${asumidosC})`);
+for (const e of ejC) console.log('  - ' + e);
 console.log(`\n## % del cliente: padrón (v_erp_wholesale_customers) contra el % del pedido (kdm1.c19)`);
-console.log(`- ${pctOk} de ${dTot} iguales · ${pctNull} sin fila en el padrón · ${dTot - pctOk - pctNull} distintos · pedidos con % ≠ 0: ${pctDocs}`);
+console.log(pad.noMedido === dTot
+  ? `- NO MEDIDO: este universo es anterior a E.25 y no trae si la vista tiene al cliente (corré replay.js de nuevo)`
+  : `- en el padrón y mismo % (sin % = 0): ${pad.igual} · en el padrón con % distinto: ${pad.distinto} · **la vista NO lo tiene: ${pad.fuera}** · de ${dTot} pedidos (con % ≠ 0: ${pctDocs})`);
 
 // ── Tasa del maestro contra la tasa del renglón ──
 let tOk = 0, tSin = 0;
