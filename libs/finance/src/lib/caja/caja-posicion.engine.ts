@@ -20,6 +20,9 @@ import type { PosicionCajaDto, PosicionRubro, RubroCaja } from '@megadulces/cont
  *    dispensaciones; si hubo vaciado o dotación, queda `parcial`.
  *  · **Dólares, cheques y papeles**: el último arqueo de Control. La Suite no registra movimientos
  *    de esos rubros: vale lo contado, con su fecha (`medido`), y se dice que no se lleva registro.
+ *
+ * ⭐ `[CGS.44]` Desde el 2026-10-22 Control está jubilado: «el último arqueo» es el último arqueo
+ * COMPLETO de `analytics.v_caja_arqueos`, venga de Control (histórico) o de la Suite (`origen`).
  */
 export interface HechosPosicion {
   ahora: string;
@@ -28,11 +31,13 @@ export interface HechosPosicion {
   libro: { ingresos: number; gastos: number; depositos: number; movimientos: number } | null;
   /** Las piernas de CAOS posteriores a la jornada del último corte (para el cajón). */
   caosCajon: { depositado: number; dispensado: number } | null;
+  /** El último arqueo completo. `origen` ausente = Control (la forma anterior a `[CGS.44]`). */
   control: {
     folio: string; at: string; caja_fuerte: number | null; efectivo: number | null;
     usd: number | null; tipo_cambio: number | null; cheques: number | null; papeles: number | null;
+    origen?: 'control' | 'suite'; quien?: string | null;
   } | null;
-  /** Movimientos de CAOS posteriores al arqueo de Control (para la caja fuerte). */
+  /** Movimientos de CAOS posteriores a ese arqueo (para la caja fuerte). */
   caosDesdeControl: { depositado: number; dispensado: number; otros: string[] } | null;
 }
 
@@ -69,26 +74,27 @@ export function posicionDeCaja(h: HechosPosicion): PosicionCajaDto {
     });
   }
 
-  // ── Los rubros del arqueo de Control ─────────────────────────────────────────────────
+  // ── Los rubros del último arqueo completo (Control hasta su jubilación, después la Suite) ─
   const ctl = h.control;
-  const fuenteCtl = ctl ? `arqueo ${ctl.folio} de Control` : '';
+  const deSuite = ctl?.origen === 'suite';
+  const fuenteCtl = !ctl ? '' : deSuite ? `arqueo de la Suite${ctl.quien ? ` (${ctl.quien})` : ''}` : `arqueo ${ctl.folio} de Control`;
   if (!ctl) {
     for (const [rubro, etiqueta] of [['caja_fuerte', 'Caja fuerte (CAOS)'], ['dolares', 'Dólares'], ['cheques', 'Cheques'], ['papeles', 'Papeles']] as const) {
       rubros.push({ rubro, etiqueta, ultimo: null, desde: null,
-        ahora: { monto: null, estado: 'no_medido', nota: 'No hay un arqueo de Control con este rubro.' } });
+        ahora: { monto: null, estado: 'no_medido', nota: 'No hay un arqueo completo con este rubro.' } });
     }
   } else {
     // Caja fuerte
     if (ctl.caja_fuerte == null) {
       rubros.push({ rubro: 'caja_fuerte', etiqueta: 'Caja fuerte (CAOS)', ultimo: null, desde: null,
-        ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo de Control no trae la caja fuerte.' } });
+        ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo no trae la caja fuerte.' } });
     } else {
       const d = h.caosDesdeControl ?? { depositado: 0, dispensado: 0, otros: [] };
       const monto = r2(ctl.caja_fuerte + d.depositado - d.dispensado);
       const parcial = d.otros.length > 0;
       rubros.push({
         rubro: 'caja_fuerte', etiqueta: 'Caja fuerte (CAOS)',
-        ultimo: { monto: ctl.caja_fuerte, fuente: `${fuenteCtl} (Control lo anota como «tarjeta»)`, at: ctl.at },
+        ultimo: { monto: ctl.caja_fuerte, fuente: deSuite ? fuenteCtl : `${fuenteCtl} (Control lo anota como «tarjeta»)`, at: ctl.at },
         desde: { entra: d.depositado, sale: d.dispensado, detalle: 'depositado en la máquina − lo que dispensó' },
         ahora: {
           monto, estado: parcial ? 'parcial' : 'derivado',
@@ -101,7 +107,7 @@ export function posicionDeCaja(h: HechosPosicion): PosicionCajaDto {
     // Dólares
     if (ctl.usd == null) {
       rubros.push({ rubro: 'dolares', etiqueta: 'Dólares', ultimo: null, desde: null,
-        ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo de Control no trae dólares.' } });
+        ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo no trae dólares.' } });
     } else {
       const mxn = ctl.tipo_cambio != null ? r2(ctl.usd * ctl.tipo_cambio) : null;
       rubros.push({
@@ -118,7 +124,7 @@ export function posicionDeCaja(h: HechosPosicion): PosicionCajaDto {
     }
     for (const [rubro, etiqueta, v] of [['cheques', 'Cheques', ctl.cheques], ['papeles', 'Papeles', ctl.papeles]] as const) {
       rubros.push(v == null
-        ? { rubro, etiqueta, ultimo: null, desde: null, ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo de Control no lo trae.' } }
+        ? { rubro, etiqueta, ultimo: null, desde: null, ahora: { monto: null, estado: 'no_medido', nota: 'El último arqueo no lo trae.' } }
         : { rubro, etiqueta, ultimo: { monto: v, fuente: fuenteCtl, at: ctl.at }, desde: null,
           ahora: { monto: v, estado: 'medido', nota: 'Lo contado en ese arqueo. La Suite no registra sus movimientos.' } });
     }

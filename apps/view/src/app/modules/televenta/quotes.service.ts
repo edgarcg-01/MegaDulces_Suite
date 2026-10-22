@@ -206,6 +206,36 @@ export interface QuoteLine {
   ieps_rate?: number | string | null;
 }
 
+/** `[E.27]` Un renglón comparado contra el ERP de HOY (`GET /commercial/quotes/:id/check`). */
+export interface QuoteCheckLine {
+  line_id: string;
+  line_number: number;
+  sku: string | null;
+  quantity: number;
+  saved_unit_price: number | null;
+  saved_list_price: number | null;
+  /** El motor de hoy. null = no casó con el catálogo. */
+  now: PricedLine | null;
+  price_changed: boolean;
+  tax_recorded: boolean;
+  /** Existencia de la sucursal: en la unidad BASE de Kepler y en la del renglón. null = sin dato. */
+  stock: { base_qty: number; base_unit: string | null; in_line_unit: number | null; line_unit: string | null } | null;
+}
+
+export interface QuoteCheck {
+  quote_id: string;
+  branch: string;
+  checked_at: string;
+  stock_as_of: string | null;
+  historical: boolean;
+  repriceable: boolean;
+  lines: QuoteCheckLine[];
+  price_changed: number;
+  tax_missing: number;
+  total_saved: number;
+  total_now: number;
+}
+
 export interface QuoteDetail {
   id: string;
   code: string;
@@ -272,6 +302,16 @@ export class QuotesService {
 
   getOne(id: string): Observable<QuoteDetail> {
     return this.http.get<QuoteDetail>(`${this.base}/${id}`);
+  }
+
+  /** `[E.27]` La cotización contra Kepler HOY: precio, pasos del descuento y existencia. No escribe. */
+  check(id: string): Observable<QuoteCheck> {
+    return this.http.get<QuoteCheck>(`${this.base}/${id}/check`);
+  }
+
+  /** `[E.27]` Re-cotiza un borrador vigente a precios de hoy (y guarda su IVA/IEPS). */
+  reprice(id: string): Observable<{ quote_id: string; lines: number; changed: number }> {
+    return this.http.post<{ quote_id: string; lines: number; changed: number }>(`${this.base}/${id}/reprice`, {});
   }
 
   /**

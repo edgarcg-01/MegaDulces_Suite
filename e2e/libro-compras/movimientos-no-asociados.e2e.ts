@@ -36,7 +36,7 @@ test.skip(!token, 'NO MEDIDO: sin MD_TOKEN_FILE no hay sesión (la suite corre c
 
 // ── Tipos mínimos de lo que responde la API ─────────────────────────────────────────────
 interface Factura {
-  uuid: string; emisor_nombre: string; total: number; base_exenta: number; subtotal16: number;
+  uuid: string; emisor_nombre: string; folio: string | null; total: number; base_exenta: number; subtotal16: number;
   iva: number; ieps: number; incluida: boolean; account_suffix: string | null; cuenta_existe: boolean;
   en_libro_reciente: boolean; prueba_certeza: 'exacta' | 'por_importe' | null; estatus_sat: string;
   motivo_exclusion: string | null; cuenta_sugerida?: { cuenta: string } | null;
@@ -216,6 +216,27 @@ test.describe('lectura — lo que pinta la pantalla = lo que dice la API', () =>
     await page.waitForTimeout(2500);
     const d = await getMes(MES);
     expect((await chips(page))['Todas'], 'la tabla es la del último mes pedido').toBe(d.facturas.length);
+  });
+
+  test(`${MES}: el folio abre la factura, la de ESA fila (LC.20)`, async ({ page }) => {
+    const d = await getMes(MES);
+    const f = d.facturas.find((x) => x.incluida);
+    test.skip(!f, 'no hay facturas marcadas en el mes');
+    await abrir(page, MES);
+    await page.locator('.na-folio').first().click();
+    const panel = page.getByRole('dialog').filter({ hasText: 'Factura' });
+    await expect(panel, 'se abre el panel de la factura').toBeVisible({ timeout: 10_000 });
+    // O se ve la factura, o se DICE que su XML todavía no se copia — nunca un panel en blanco.
+    const nota = panel.getByText('todavía no se copia del ADD');
+    const uuidCelda = panel.locator('dd.mono', { hasText: /^[0-9A-F]{8}-/ });
+    await expect(nota.or(uuidCelda)).toBeVisible({ timeout: 15_000 });
+    if (await uuidCelda.isVisible()) {
+      const fila = (await page.locator('.na-folio').first().innerText()).trim();
+      const r = d.facturas.find((x) => (x.folio ?? '—') === fila) ?? f;
+      expect((await uuidCelda.innerText()).trim(), 'el UUID del XML es el de la fila que se abrió').toBe(r.uuid.toUpperCase());
+    } else {
+      test.info().annotations.push({ type: 'NO MEDIDO', description: 'el XML de esa factura todavía no está copiado del ADD' });
+    }
   });
 
   test('tiempos de la API, desde el navegador', async ({ page }) => {

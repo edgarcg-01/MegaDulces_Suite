@@ -8,11 +8,13 @@ import { TagModule } from 'primeng/tag';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
-  PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto,
+  PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
 } from '../contpaqi-puente.service';
 
 /**
@@ -46,15 +48,14 @@ import {
   selector: 'app-contabilidad-contpaqi-puente',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, SelectModule, TagModule, MetricStripComponent,
-    LoadStateComponent, FreshnessPillComponent],
+    LoadStateComponent, FreshnessPillComponent, SidePeekComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in cpp-page">
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>P&oacute;lizas de egresos para ContPAQi</h1>
-          <p class="surf-page-sub">Lo que sale de los bancos en el mes, listo para cargar en ContPAQi. Nada se manda solo.</p>
+          <h1>P&oacute;lizas de egresos para ContPAQi <app-context-help topic="contpaqi-puente" /></h1>
         </div>
         <div class="surf-page-head-actions">
           @if (cargadoEn(); as t) { <app-freshness-pill measures="fetch" [since]="t" [staleAfterSec]="600" /> }
@@ -75,11 +76,10 @@ import {
               {{ d.resumen.con_asiento === 1 ? 'póliza lista' : 'pólizas listas' }}
               <span class="cpp-v-imp mono">{{ importeListo() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
             </h2>
-            <p class="cpp-lede">{{ queFalta() }}</p>
           </section>
 
           <!-- Los pasos: cada uno dice lo que le queda. El estado no depende sólo del color. -->
-          <nav class="cpp-pasos" aria-label="Pasos del mes">
+          <nav class="cpp-pasos" [attr.aria-label]="'Pasos del mes. ' + queFalta()">
             <ol>
               @for (p of pasos(); track p.id; let i = $index) {
                 <li>
@@ -103,67 +103,62 @@ import {
 
               <!-- ── 1 · REGLAS DE CUENTA ── -->
               @case ('reglas') {
-                <h3>1 &middot; Firma a qu&eacute; cuenta va cada tipo de gasto</h3>
-                <p class="cpp-instr">
-                  Elige la cuenta de gasto y firma. Desde ese momento, los movimientos de ese tipo salen en el archivo.
-                  @if (porFirmar().n > 0) {
-                    Lo pendiente suma <strong class="mono">{{ porFirmar().n | number }}</strong> movimientos
-                    (<strong class="mono">{{ porFirmar().imp | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>).
-                  }
-                </p>
+                <h3>Firma la cuenta de cada tipo de gasto</h3>
                 @if (reglasError(); as e) {
                   <div class="cpp-aviso mal" role="alert">No se pudieron leer las reglas: {{ e }}</div>
                 } @else if (reglas() === null) {
                   <app-load-state [loading]="true" [skeletonRows]="5" />
                 } @else {
-                  <p class="cpp-ojo"><i class="pi pi-info-circle" aria-hidden="true"></i>
-                    La pista sale de p&oacute;lizas que ya est&aacute;n en ContPAQi. Rev&iacute;sala antes de firmar: una cuenta equivocada cuadra igual.</p>
                   <div class="card-premium card-flat cpp-tablewrap">
                     <p-table [value]="reglasVisibles()" size="small" class="surf-table" [rowHover]="true" dataKey="categoria_code">
                       <ng-template #header>
                         <tr><th>Tipo de gasto</th><th class="ta-r">Movs</th><th class="ta-r">Importe</th>
-                          <th>Cuenta de gasto</th><th></th></tr>
+                          <th>Cuenta de gasto</th></tr>
                       </ng-template>
                       <ng-template #body let-r>
                         <tr>
                           <td><span class="cpp-bank">{{ nombreRegla(r) }}</span></td>
-                          <td class="ta-r mono" [class.muted]="r.movimientos_mes === 0">{{ r.movimientos_mes | number }}</td>
+                          <td class="ta-r">
+                            @if (r.movimientos_mes > 0) {
+                              <button type="button" class="cpp-cifra mono" (click)="verMovimientos({ categoria: r.categoria_code }, nombreRegla(r))"
+                                      [attr.aria-label]="'Ver los ' + r.movimientos_mes + ' movimientos de ' + nombreRegla(r)">{{ r.movimientos_mes | number }}</button>
+                            } @else { <span class="mono muted">0</span> }
+                          </td>
                           <td class="ta-r mono" [class.muted]="r.movimientos_mes === 0">{{ r.importe_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                           <td class="cpp-cta">
                             @if (r.estado === 'aprobada') {
-                              <div><span class="mono">{{ r.cuenta_gasto }}</span> {{ r.cuenta_nombre }}</div>
-                              <div class="cpp-sub">firmada por {{ r.aprobada_por }} &middot; {{ r.aprobada_en }}</div>
+                              <div class="cpp-firma">
+                                <span><span class="mono">{{ r.cuenta_gasto }}</span> {{ r.cuenta_nombre }}
+                                  <span class="cpp-sub">firmada por {{ r.aprobada_por }} &middot; {{ r.aprobada_en }}</span></span>
+                                @if (puedeGestionar()) {
+                                  <button type="button" class="cpp-btn-bad cpp-lejos" [disabled]="firmando() === r.categoria_code"
+                                          (click)="revocar(r)">{{ firmando() === r.categoria_code ? 'Quitando…' : 'Quitar firma' }}</button>
+                                }
+                              </div>
                             } @else if (puedeGestionar()) {
-                              <p-select [options]="cuentas()" [ngModel]="cuentaElegida()[r.categoria_code] ?? null"
-                                        (ngModelChange)="elegirCuenta(r.categoria_code, $event)"
-                                        optionLabel="etiqueta" optionValue="codigo" [filter]="true" filterBy="etiqueta"
-                                        placeholder="Elige la cuenta" appendTo="body" [showClear]="true"
-                                        class="cpp-sel-cta" [ariaLabel]="'Cuenta de gasto para ' + nombreRegla(r)"></p-select>
-                              @if (codigoIndicio(r); as ci) {
-                                <button type="button" class="cpp-link" (click)="elegirCuenta(r.categoria_code, ci)">
-                                  usar la pista ({{ ci }})
+                              <div class="cpp-firma">
+                                <p-select [options]="cuentas()" [ngModel]="cuentaElegida()[r.categoria_code] ?? null"
+                                          (ngModelChange)="elegirCuenta(r.categoria_code, $event)"
+                                          optionLabel="etiqueta" optionValue="codigo" [filter]="true" filterBy="etiqueta"
+                                          placeholder="Elige la cuenta" appendTo="body" [showClear]="true"
+                                          class="cpp-sel-cta" [ariaLabel]="'Cuenta de gasto para ' + nombreRegla(r)"></p-select>
+                                <button type="button" class="cpp-btn-ok"
+                                        [disabled]="!cuentaElegida()[r.categoria_code] || firmando() === r.categoria_code"
+                                        (click)="firmar(r)">{{ firmando() === r.categoria_code ? 'Firmando…' : 'Firmar' }}</button>
+                              </div>
+                              @if (pistaDe(r); as p) {
+                                <button type="button" class="cpp-pista" (click)="elegirCuenta(r.categoria_code, p.codigo)">
+                                  <i class="pi pi-lightbulb" aria-hidden="true"></i> Pista: {{ p.etiqueta }}
                                 </button>
                               }
                             } @else {
                               <span class="muted">sin firmar</span>
                             }
                           </td>
-                          <td class="ta-r">
-                            @if (puedeGestionar()) {
-                              @if (r.estado === 'aprobada') {
-                                <button type="button" class="cpp-btn-bad" [disabled]="firmando() === r.categoria_code"
-                                        (click)="revocar(r)">{{ firmando() === r.categoria_code ? 'Quitando…' : 'Quitar firma' }}</button>
-                              } @else {
-                                <button type="button" class="cpp-btn-ok"
-                                        [disabled]="!cuentaElegida()[r.categoria_code] || firmando() === r.categoria_code"
-                                        (click)="firmar(r)">{{ firmando() === r.categoria_code ? 'Firmando…' : 'Firmar' }}</button>
-                              }
-                            }
-                          </td>
                         </tr>
                       </ng-template>
                       <ng-template #emptymessage>
-                        <tr><td colspan="5" class="cpp-empty">Ning&uacute;n tipo de gasto de este mes espera firma.</td></tr>
+                        <tr><td colspan="4" class="cpp-empty">Ning&uacute;n tipo de gasto de este mes espera firma.</td></tr>
                       </ng-template>
                     </p-table>
                   </div>
@@ -188,20 +183,14 @@ import {
                   }
                 }
               }
-
               <!-- ── 2 · PROVEEDORES ── -->
               @case ('proveedores') {
-                <h3>2 &middot; Confirma a qu&eacute; cuenta va cada nombre del banco</h3>
-                <p class="cpp-instr">
-                  El banco escribe el nombre del proveedor a su manera. Elige su cuenta en ContPAQi una vez y queda para siempre.
-                </p>
+                <h3>Confirma la cuenta de cada nombre del banco</h3>
                 @if (proveedoresError(); as e) {
                   <div class="cpp-aviso mal" role="alert">No se pudieron leer los proveedores: {{ e }}</div>
                 } @else if (porConfirmar(); as p) {
                   <app-load-state [isEmpty]="!p.filas.length" emptyIcon="pi-check-circle"
                                   emptyTitle="Todos los nombres de este mes ya tienen cuenta">
-                    <p class="cpp-ojo"><i class="pi pi-info-circle" aria-hidden="true"></i>
-                      Los candidatos se ordenan por palabras en com&uacute;n: son una pista. Queda tu nombre en lo que confirmes.</p>
                     <div class="card-premium card-flat cpp-tablewrap">
                       <p-table [value]="p.filas" size="small" class="surf-table" [rowHover]="true"
                                [scrollable]="true" scrollHeight="480px">
@@ -212,7 +201,10 @@ import {
                         <ng-template #body let-f>
                           <tr>
                             <td><span class="cpp-bank">{{ f.concepto_banco }}</span></td>
-                            <td class="ta-r mono">{{ f.movimientos | number }}</td>
+                            <td class="ta-r">
+                              <button type="button" class="cpp-cifra mono" (click)="verMovimientos({ nombre: f.alias_normalizado }, f.concepto_banco)"
+                                      [attr.aria-label]="'Ver los ' + f.movimientos + ' movimientos de ' + f.concepto_banco">{{ f.movimientos | number }}</button>
+                            </td>
                             <td class="ta-r mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                             <td>
                               @if (!f.sugerencias.length) {
@@ -252,11 +244,7 @@ import {
 
               <!-- ── 3 · PAGOS A PROVEEDOR ── -->
               @case ('pagos') {
-                <h3>3 &middot; Elige qu&eacute; facturas paga cada pago</h3>
-                <p class="cpp-instr">
-                  La mayor&iacute;a de los pagos se arman solos. Estos no: marca las facturas (y notas de cr&eacute;dito) que paga cada uno.
-                  Se confirma cuando las facturas menos las notas dan lo pagado.
-                </p>
+                <h3>Elige las facturas que paga cada pago</h3>
                 @if (pagosError(); as pe) {
                   <div class="cpp-aviso mal" role="alert">No se pudieron leer los pagos: {{ pe }}</div>
                 } @else if (pagos(); as pc) {
@@ -373,12 +361,7 @@ import {
 
               <!-- ── 4 · REVISAR Y ENTREGAR ── -->
               @case ('archivo') {
-                <h3>4 &middot; Descarga el archivo y m&aacute;rcalo como cargado</h3>
-                <p class="cpp-instr">
-                  El archivo trae las <strong class="mono">{{ d.resumen.con_asiento | number }}</strong> p&oacute;lizas listas.
-                  Desc&aacute;rgalo, imp&oacute;rtalo en ContPAQi y despu&eacute;s m&aacute;rcalo aqu&iacute; con el mismo archivo:
-                  la Suite revisa que las p&oacute;lizas aparezcan en ContPAQi.
-                </p>
+                <h3>Descarga el archivo y m&aacute;rcalo como cargado</h3>
 
                 <app-metric-strip [items]="kpis()" ariaLabel="Resumen del mes" />
 
@@ -412,13 +395,9 @@ import {
                   </p>
                 }
 
-                <h4 class="cpp-h4">Lo que no entra al archivo, y a qui&eacute;n le toca</h4>
+                <h4 class="cpp-h4">Lo que no entra, y a qui&eacute;n le toca</h4>
                 @if (d.fuera_de_lote.movimientos > 0) {
-                  <p class="cpp-sub-p">
-                    Aparte quedan <span class="mono">{{ d.fuera_de_lote.movimientos | number }}</span> movimientos
-                    ({{ d.fuera_de_lote.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}) de
-                    {{ cuentasFuera() }}: no son cuentas de banco.
-                  </p>
+                  <p class="cpp-sub-p">Aparte: <span class="mono">{{ d.fuera_de_lote.movimientos | number }}</span> de {{ cuentasFuera() }} (no son banco).</p>
                 }
                 <div class="card-premium card-flat cpp-tablewrap">
                   <p-table [value]="motivosConTrabajo()" size="small" class="surf-table">
@@ -439,7 +418,6 @@ import {
                 </div>
 
                 <h4 class="cpp-h4">Las p&oacute;lizas del mes</h4>
-                <p class="cpp-sub-p">Una por banco y d&iacute;a, y una por cada pago a proveedor.</p>
                 <div class="cpp-chips">
                   <button type="button" class="cpp-chip" [class.on]="filtro() === null"
                           [attr.aria-pressed]="filtro() === null" (click)="toggleMotivo(null)">
@@ -535,6 +513,34 @@ import {
           </section>
         }
       </app-load-state>
+
+      <!-- [CP.8.77] La cifra se recorre: «437 movs» abre los 437. -->
+      <app-side-peek [open]="movsAbierto()" (openChange)="movsAbierto.set($event)" [width]="640"
+                     [title]="movsTitulo()" [subtitle]="movsSubtitulo()">
+        <app-load-state [loading]="movs() === null && !movsError()" [error]="movsError()" [skeletonRows]="8"
+                        errorTitle="No se pudieron leer los movimientos" (retry)="recargarMovimientos()"
+                        [isEmpty]="(movs()?.filas?.length ?? 0) === 0" emptyTitle="Sin movimientos">
+          @if (movs(); as m) {
+            <p-table [value]="m.filas" size="small" class="surf-table" dataKey="id">
+              <ng-template #header>
+                <tr><th>Fecha</th><th>Banco</th><th>Concepto</th><th class="ta-r">Importe</th></tr>
+              </ng-template>
+              <ng-template #body let-x>
+                <tr>
+                  <td class="mono muted">{{ x.fecha }}</td>
+                  <td>{{ x.banco }}</td>
+                  <td>{{ x.concepto }}</td>
+                  <td class="ta-r mono">{{ x.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                    @if (x.iva !== null) { <span class="cpp-sub">+ IVA {{ x.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> }</td>
+                </tr>
+              </ng-template>
+              <ng-template #footer>
+                <tr><td colspan="3">Total</td><td class="ta-r mono">{{ m.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+              </ng-template>
+            </p-table>
+          }
+        </app-load-state>
+      </app-side-peek>
     </div>
   `,
   styles: [`
@@ -549,7 +555,6 @@ import {
     .cpp-verdict h2 { font-size: clamp(1.5rem, 3.6vw, 2rem); font-weight: 600; margin: 0;
       letter-spacing: -.02em; line-height: 1.15; text-wrap: balance; }
     .cpp-v-imp { color: var(--c-text-2); font-weight: 500; margin-left: .35rem; font-size: .7em; }
-    .cpp-lede { margin: .5rem 0 0; color: var(--c-text-2); font-size: var(--fs-body); max-width: 70ch; }
 
     .cpp-pasos ol { list-style: none; margin: 0; padding: 0; display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); }
@@ -572,7 +577,6 @@ import {
 
     .cpp-cuerpo { padding-top: 1.25rem; }
     .cpp-cuerpo h3 { font-size: var(--fs-h3); font-weight: 600; margin: 0; letter-spacing: -.01em; }
-    .cpp-instr { color: var(--c-text-2); font-size: var(--fs-sm); margin: .35rem 0 .9rem; max-width: 78ch; }
     .cpp-ojo { display: flex; gap: .5rem; align-items: baseline; margin: 0 0 .8rem;
       color: var(--c-text-3); font-size: var(--fs-xs); max-width: 78ch; }
     .cpp-h4 { font-size: var(--fs-body); font-weight: 600; margin: 1.5rem 0 .25rem; }
@@ -610,8 +614,19 @@ import {
     .cpp-entrega { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1rem 0 .75rem; }
     .cpp-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-    .cpp-cta { min-width: 18rem; }
-    .cpp-sel-cta { width: 100%; }
+    /* [CP.8.77] La cuenta y su botón van juntos (Fitts: Firmar ya no queda al otro lado de la fila). */
+    .cpp-cta { min-width: 24rem; }
+    .cpp-firma { display: flex; align-items: center; gap: .5rem; }
+    .cpp-sel-cta { width: 20rem; max-width: 100%; }
+    /* La pista es una sugerencia, no una alerta: tono apagado, con el nombre de la cuenta. */
+    .cpp-pista { display: inline-flex; align-items: center; gap: .35rem; margin-top: .3rem; padding: 0; border: 0;
+      background: transparent; color: var(--c-text-3); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
+    .cpp-pista:hover { color: var(--c-text-2); text-decoration: underline; }
+    .cpp-pista:focus-visible, .cpp-cifra:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    /* La cifra se recorre: se lee como número y se comporta como enlace. */
+    .cpp-cifra { border: 0; background: transparent; padding: 0; font: inherit; color: var(--c-text-1, var(--text-main));
+      cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+    .cpp-cifra:hover { color: var(--action); text-decoration-style: solid; }
     .cpp-link { border: 0; background: transparent; color: var(--action); padding: 2px 0; font: inherit;
       font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; }
     .cpp-link.mt { margin-top: .5rem; }
@@ -944,9 +959,42 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     return nombreDeRegla(r);
   }
 
-  /** El código de 10 dígitos del indicio, sólo si existe en el catálogo que se puede firmar. */
-  codigoIndicio(r: ReglaVista): string | null {
-    return codigoDeIndicio(r.indicio, this.cuentas());
+  /**
+   * `[CP.8.77]` La pista con el NOMBRE de la cuenta, no sólo su código: «5200600000» no le dice nada a quien firma.
+   * Sólo si la cuenta está en el catálogo firmable (si no, el backend la rechazaría).
+   */
+  pistaDe(r: ReglaVista): { codigo: string; etiqueta: string } | null {
+    const c = codigoDeIndicio(r.indicio, this.cuentas());
+    return c ? this.cuentas().find((x) => x.codigo === c) ?? null : null;
+  }
+
+  // ── `[CP.8.77]` Los movimientos detrás de una cifra ──────────────────────────────────────
+  readonly movsAbierto = signal(false);
+  readonly movs = signal<MovimientosResp | null>(null);
+  readonly movsError = signal<string | null>(null);
+  readonly movsTitulo = signal('');
+  private movsFiltro: { categoria?: string; nombre?: string } = {};
+  readonly movsSubtitulo = computed(() => {
+    const m = this.movs();
+    if (!m) return this.mes();
+    const n = m.filas.length;
+    return `${n.toLocaleString('es-MX')} ${n === 1 ? 'movimiento' : 'movimientos'} · ${this.mes()}`;
+  });
+
+  verMovimientos(filtro: { categoria?: string; nombre?: string }, titulo: string): void {
+    this.movsFiltro = filtro;
+    this.movsTitulo.set(titulo);
+    this.movsAbierto.set(true);
+    this.recargarMovimientos();
+  }
+
+  recargarMovimientos(): void {
+    this.movs.set(null);
+    this.movsError.set(null);
+    this.api.movimientos(this.mes(), this.movsFiltro).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.movs.set(r),
+      error: (e) => this.movsError.set(e?.error?.message ?? 'error de red'),
+    });
   }
 
   elegirCuenta(categoria: string, cuenta: string | null): void {

@@ -944,3 +944,33 @@ describe('[RA-UX.10] la interacción general: lo que decide, a la vista', () => 
     expect(() => c.volverFoco()).not.toThrow();
   });
 });
+
+describe('[SUC.2] la sucursal se nombra, no se numera', () => {
+  it('el resolvedor da el NOMBRE: 01 es Padre Hidalgo, 00 es CEDIS, y un código desconocido se deja ver', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.sucNom('01')).toBe('Padre Hidalgo');
+    expect(c.sucNom('00')).toBe('CEDIS');
+    expect(c.sucNom('ZZ-9')).toBe('ZZ-9');   // NEGATIVA: no inventa un nombre
+  });
+
+  it('⛔ el plan de generar dice DÓNDE se entrega por nombre, no «entrega en 01, 08»', () => {
+    const ws = FILTROS.warehouses as unknown as Array<Record<string, string>>;
+    ws.push({ id: 'w-01', code: '01', name: 'PADRE HIDALGO' }, { id: 'w-08', code: '08', name: 'MORELIA ABASTOS' });
+    try {
+      const c = montar(VACIO).componentInstance;
+      const linea = { product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 3, unit_cost: 1 };
+      c.plan.set([
+        { warehouse_id: 'w-08', supplier_id: 's-1', source_type: 'supplier', lines: [linea] },
+        { warehouse_id: 'w-01', supplier_id: 's-1', source_type: 'supplier', lines: [linea] },
+      ] as never);
+      expect(c.planResumen().entregas).toEqual(['Morelia Abastos', 'Padre Hidalgo']);
+    } finally { ws.length = 0; }
+  });
+
+  it('⛔ la plantilla no pinta códigos de sucursal sueltos (el patrón viejo era la clase pr-mono con el código)', () => {
+    const fuente = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+    const plantilla = fuente.slice(fuente.indexOf('template: `'), fuente.indexOf('styles: [`'));
+    expect(plantilla).not.toMatch(/\{\{\s*(b|e|z|u)\.(code|hubCode|warehouse_code|from_code)\s*\}\}/);
+    expect(plantilla).not.toMatch(/todo a \{\{\s*z\.hubCode/);
+  });
+});

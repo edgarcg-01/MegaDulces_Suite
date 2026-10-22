@@ -523,3 +523,42 @@ la vista **sí** traiga claves que no son `C####`: si vuelve a 0, regresó el fi
 
 ⛔ **Nada de esto está aplicado en prod**: dos migraciones (`20261022085703`, `20261022091046`) que
 van una por una, antes del código, y después de que haya push. Sin ejercer contra la API.
+
+## 14. `[E.27]` La cotización contra Kepler HOY: aviso, re-cotizar, existencia y descuento desglosado (2026-10-22)
+
+**Por qué.** Una cotización guarda el precio del día en que se hizo. Medido sobre las 22 de prod
+(217 renglones): **49 renglones de 13 cotizaciones ya no tienen el precio de hoy** (Kepler lo movió)
+y las 22 están sin IVA/IEPS registrado. Nadie lo veía.
+
+**Qué hace.**
+
+- `GET /commercial/quotes/:id/check` (sólo lee): re-cotiza cada renglón con el motor de hoy y trae
+  la existencia de la sucursal (`v_erp_stock_on_hand`, unidad BASE de Kepler, convertida a la del
+  renglón; su edad de `v_feed_freshness`/`kdil`). Dice cuántos renglones cambiaron de precio, cuántos
+  no tienen impuesto, el total de hoy, y si la cotización es **histórica** (vencida, enviada,
+  cancelada…) o **re-cotizable** (borrador vigente).
+- `POST /commercial/quotes/:id/reprice`: re-cotiza TODOS los renglones de un borrador vigente en una
+  transacción (el mismo cuerpo que `updateLine`, extraído a `retarificarRenglonTrx`) y guarda su
+  IVA/IEPS. Enviada, vencida o cancelada → 400: es lo que se le prometió al cliente.
+- Detalle: el aviso con el total de hoy y el botón (con confirmación); columna **Existencia hoy**
+  con «faltan N» cuando no alcanza y la píldora de edad del dato; bajo la etiqueta de cada renglón,
+  los pasos del precio (lista → unidad mayor → volumen → promoción); en el riel, **el descuento
+  desglosado** (`quote-discount-breakdown.ts`): lista − unidad mayor − volumen − promoción − sin
+  desglose ± redondeo = importe, **exacto por construcción**. Un tramo más caro que la lista sale
+  como recargo, no se esconde.
+- ⚠️ Los pasos de un renglón sólo se muestran si el motor de hoy **reproduce su precio guardado**: si
+  Kepler lo movió, no lo explican, y el renglón va a «sin desglose» (lista − precio guardados).
+
+**Costo, medido en prod.** El cuello era `v_label_presentations`: 222 ms por SKU. `check` y
+`reprice` precargan escalera y reglas **en lote** (`precargarPrecios`, 839 ms para 55 SKUs) y
+`priceLine` las usa: **217 de 217 renglones idénticos con y sin precarga**. Una cotización de 55
+renglones ≈ 1 s dentro del clúster (119 consultas, casi todas de ~1 ms); una típica, ~0.3–0.5 s.
+La pantalla pinta lo guardado de inmediato y el aviso/existencia llegan después.
+
+**Ejercido contra prod (sólo lectura, el `checkQuote` real):** COT-2026-00026 → 1 cambió (89008 $55.00
+→ $50.85), existencia **35 PAQ para 38 pedidos**; COT-2026-00021 → 1 cambió, 55 sin impuesto,
+**70233 × 3 CJA con existencia 0**; COT-2026-00004 → histórica, 4 cambiaron.
+
+⛔ `reprice` ESCRIBE y **no está ejercido**: `http-quote-lines-test.js` bloque 9 lo prueba (precio
+viejo simulado → check lo ve → reprice lo corrige → check ya no avisa; NEGATIVO: vencida → 400),
+**sin correr** (necesita la API arriba). Depende de la migración de E.25 (`iva_rate`/`ieps_rate`).

@@ -12,6 +12,8 @@ import { CajaAutollenadoService } from './caja-autollenado.service';
 import { CajaRealtimeModule } from './caja-realtime.module';
 import { CajaControlService } from './caja-control.service';
 import { CajaControlController } from './caja-control.controller';
+import { CajaArqueoService } from './caja-arqueo.service';
+import { CajaArqueoController } from './caja-arqueo.controller';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -27,7 +29,7 @@ import { CajaControlController } from './caja-control.controller';
 @Module({
   // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
   imports: [CajaRealtimeModule],
-  controllers: [CajaGeneralController, CashLedgerController, CajaControlController],
+  controllers: [CajaGeneralController, CashLedgerController, CajaControlController, CajaArqueoController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y
   // no en el controller porque corre por `@Cron`, sin request — con su propia advertencia de RLS.
   // [CG.141] El carril que refresca `mv_caja_autofill_entidad`. Va acá, y NO en el array
@@ -41,9 +43,9 @@ import { CajaControlController } from './caja-control.controller';
   // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService],
+    CajaAutollenadoService, CajaArqueoService],
   exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService],
+    CajaAutollenadoService, CajaArqueoService],
 })
 export class FinanceCajaGeneralModule {}

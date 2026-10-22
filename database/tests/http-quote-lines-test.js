@@ -394,6 +394,54 @@ async function login(username) {
       } else {
         declarar('el folio no se consumió', `el consecutivo pasó de ${seqAntes.rows[0]?.current_value} a ${seqDesp.rows[0]?.current_value}: otra alta concurrente o el folio sí se consumió`);
       }
+
+      // ── 9. [E.27] La cotización contra Kepler HOY, y re-cotizar a precios de hoy ─────────────
+      // Se simula una cotización VIEJA sobre la del bloque 8: un precio que ya no es el de hoy y
+      // un renglón sin IVA/IEPS registrado (como las anteriores a E.25). Mismo endpoint que llama
+      // la pantalla al abrir el detalle, y el mismo POST que manda su botón.
+      console.log('\n9 — ⭐ check avisa lo que cambió en Kepler y reprice lo pone al día');
+      const QV = ok.body?.id;
+      if (QV) {
+        const linea = await knex.raw(
+          `SELECT id, unit_price FROM commercial.quote_lines
+            WHERE quote_id = ? AND unit_price IS NOT NULL AND parent_line_number IS NULL
+            ORDER BY line_number LIMIT 1`, [QV],
+        );
+        const LV = linea.rows[0];
+        await knex.raw(
+          `UPDATE commercial.quote_lines SET unit_price = unit_price + 1, line_total = (unit_price + 1) * quantity,
+                  iva_rate = NULL, ieps_rate = NULL WHERE id = ?`, [LV.id],
+        );
+        const chk = await req('GET', `/commercial/quotes/${QV}/check`, op.token);
+        check('GET /check → 200', chk.status === 200, `status ${chk.status} ${JSON.stringify(chk.body).slice(0, 160)}`);
+        check('detecta el precio que ya no es el de hoy', Number(chk.body?.price_changed) >= 1, `price_changed=${chk.body?.price_changed}`);
+        check('detecta el renglón sin impuesto registrado', Number(chk.body?.tax_missing) >= 1, `tax_missing=${chk.body?.tax_missing}`);
+        check('un borrador vigente es re-cotizable', chk.body?.repriceable === true && chk.body?.historical === false);
+        const lChk = (chk.body?.lines || []).find((x) => x.line_id === LV.id);
+        check('trae la existencia de la sucursal en la unidad del renglón (o la declara ausente)',
+          lChk !== undefined && (lChk.stock === null || Number.isFinite(Number(lChk.stock.in_line_unit))));
+
+        const rp = await req('POST', `/commercial/quotes/${QV}/reprice`, op.token, {});
+        check('POST /reprice → 2xx', rp.status === 200 || rp.status === 201, `status ${rp.status} ${JSON.stringify(rp.body).slice(0, 160)}`);
+        check('dice cuántos renglones cambiaron', Number(rp.body?.changed) >= 1, `changed=${rp.body?.changed}`);
+        const desp = await knex.raw(`SELECT unit_price, iva_rate, ieps_rate FROM commercial.quote_lines WHERE id = ?`, [LV.id]);
+        check('⭐ el renglón volvió al precio de HOY (el que dijo check)',
+          lChk?.now && Math.abs(Number(desp.rows[0].unit_price) - Number(lChk.now.unit_price)) < 0.005,
+          `guardado=${desp.rows[0].unit_price} hoy=${lChk?.now?.unit_price}`);
+        check('y guardó su IVA/IEPS', desp.rows[0].iva_rate !== null || desp.rows[0].ieps_rate !== null);
+        const chk2 = await req('GET', `/commercial/quotes/${QV}/check`, op.token);
+        check('después de re-cotizar, check ya no avisa nada', Number(chk2.body?.price_changed) === 0 && Number(chk2.body?.tax_missing) === 0,
+          `price_changed=${chk2.body?.price_changed} tax_missing=${chk2.body?.tax_missing}`);
+
+        // NEGATIVA: una cotización vencida es un documento de su fecha. Re-cotizarla → 400.
+        await knex.raw(`UPDATE commercial.quotes SET valid_until = CURRENT_DATE - 1 WHERE id = ?`, [QV]);
+        const venc = await req('POST', `/commercial/quotes/${QV}/reprice`, op.token, {});
+        check('NEGATIVO: una vencida no se re-cotiza → 400', venc.status === 400, `status ${venc.status}`);
+        const chk3 = await req('GET', `/commercial/quotes/${QV}/check`, op.token);
+        check('y check la marca histórica, no re-cotizable', chk3.body?.historical === true && chk3.body?.repriceable === false);
+      } else {
+        declarar('check y reprice', 'el alta del bloque 8 no dejó cotización');
+      }
     } else {
       declarar('el alta atómica', `no hay SKU con precio en la sucursal ${BRANCH}`);
     }

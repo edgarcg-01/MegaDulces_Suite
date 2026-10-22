@@ -5,7 +5,7 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
-  ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type PagoPorConfirmar,
+  ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type MovimientoVista, type PagoPorConfirmar,
   type PendienteProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
@@ -294,6 +294,24 @@ export class ContpaqiBridgeController {
   async pagosPorConfirmar(@Query('mes') mes?: string): Promise<{ mes: string; pagos: PagoPorConfirmar[] }> {
     const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
     return { mes: anioMes, pagos: await this.armado.pagosPorConfirmar(anioMes) };
+  }
+
+  /**
+   * `[CP.8.77]` — **Los movimientos detrás de una cifra**: los de un tipo de gasto (`categoria`) o los de un
+   * nombre del banco (`nombre`, el `alias_normalizado` de proveedores pendientes). Sólo lectura, `_VER`.
+   * ⛔ Sin uno de los dos filtros se rechaza: el mes entero ya está en los lotes, y esto es para recorrer UNA cifra.
+   */
+  @Get('movimientos')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Movimientos de banco del mes de un tipo de gasto o de un nombre del banco.' })
+  async movimientos(
+    @Query('mes') mes?: string, @Query('categoria') categoria?: string, @Query('nombre') nombre?: string,
+  ): Promise<{ mes: string; filas: MovimientoVista[]; total: number }> {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    const cat = String(categoria ?? '').trim(); const nom = String(nombre ?? '').trim();
+    if (!cat && !nom) throw new BadRequestException('falta categoria o nombre');
+    const filas = await this.armado.movimientosDe(anioMes, { categoria: cat || undefined, nombre: nom || undefined });
+    return { mes: anioMes, filas, total: Math.round(filas.reduce((a, f) => a + f.importe, 0) * 100) / 100 };
   }
 
   /**

@@ -2272,4 +2272,33 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[CP.8.77]` La pantalla del puente quedó con sólo el foco de cada paso (pedido del PM: «reducir el texto
+  // para no saturar»). Lo que explicaba cada paso vive aquí, anclado a lo que hace el backend
+  // (`libs/finance/src/lib/contpaqi/`).
+  'contpaqi-puente': {
+    title: 'Pólizas de egresos para ContPAQi — cómo se usa',
+    intro: 'Arma las pólizas de lo que sale de los bancos en el mes, para cargarlas en ContPAQi. Nada se manda solo: tú descargas el archivo y lo importas. Se trabaja en cuatro pasos; cada uno dice lo que le falta y la pantalla abre en el primero que tiene trabajo.',
+    groups: [
+      {
+        heading: 'Los cuatro pasos',
+        entries: [
+          { term: '1 · Reglas de cuenta', def: 'A qué cuenta de gasto va cada tipo de gasto (comisiones, servicios, tarjeta…). Al firmar, los movimientos de ese tipo salen en el archivo. Queda tu nombre y se puede quitar la firma.' },
+          { term: '2 · Proveedores', def: 'El banco escribe el nombre del proveedor a su manera. Eliges su cuenta en ContPAQi una vez y queda para los meses siguientes.' },
+          { term: '3 · Pagos a proveedor', def: 'La mayoría de los pagos se arman solos con lo que aplicó Kepler. Los que no, esperan que marques qué facturas (y notas de crédito) paga cada uno. Se confirma sólo cuando las facturas menos las notas dan lo pagado, con menos de $1 de diferencia.' },
+          { term: '4 · Revisar y entregar', def: 'Descarga el archivo, impórtalo en ContPAQi y después márcalo aquí con ese mismo archivo. La Suite revisa que las pólizas aparezcan en ContPAQi y avisa de las que no aparezcan en el plazo.' },
+        ],
+      },
+      {
+        heading: 'Lo que conviene saber',
+        entries: [
+          { term: 'Pista', def: 'Una cuenta que sale de pólizas que ya están en ContPAQi. Es una sugerencia, no viene elegida: revísala antes de firmar, porque una cuenta equivocada cuadra igual y no se nota hasta la balanza.' },
+          { term: 'Candidatos de proveedor', def: 'Se ordenan por palabras en común con el nombre del banco. Son una pista: confirma el que sea.' },
+          { term: 'Movs', def: 'Cuántos movimientos de banco del mes hay detrás de la fila. Haz clic en la cifra para verlos uno por uno.' },
+          { term: 'Descargar no es entregar', def: 'Bajar el archivo no marca nada. Sólo «Ya lo cargué», con el mismo archivo que importaste, registra la entrega.' },
+          { term: 'Una póliza por banco y día', def: 'Así arma contabilidad los egresos. Los pagos a proveedor llevan una póliza cada uno, con el UUID de cada factura y nota.' },
+          { term: 'Fuera de banco', def: 'Movimientos de cuentas que no son bancos (Caja General, factoraje). No entran a estas pólizas y se cuentan aparte.' },
+        ],
+      },
+    ],
+  },
 };

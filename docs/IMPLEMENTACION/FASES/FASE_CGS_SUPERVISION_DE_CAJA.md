@@ -251,6 +251,66 @@ real con el payload de la pantalla. Cada uno de estos va en `cash-ledger.http-re
 
 ---
 
+## 4b. Jubilar el Control de arqueos — de por vida
+
+> Pedido de Edgar, 2026-10-22: *«migremos todos los arqueos de Control y lo jubilemos de por
+> vida»*. CG.126 (13-oct) ya jubiló a Control como **libro**; lo que sigue vivo es su aplicación
+> de **arqueos** (`Movimientos Cajas`, `BMovimientosCajas.mdb`, caja 20), que la caja usa todos los
+> días y de la que la Suite todavía depende.
+
+### Medido hoy (prod, sólo lectura, 2026-10-22)
+
+- **30,268 registros, del 2013-09-13 a hoy**, en `caja_general_ods.arqueo_movimientos` (réplica viva:
+  última sincronización hoy 10:39). En 2026: 2,752, de los que **329 son arqueos completos** (traen
+  los cinco rubros; se distinguen por `dolares <> 0`, CG.126). Capturan los códigos `10` (354 desde
+  septiembre), `00` (33), `36` (28), `82` (15).
+- **La Suite lo lee en siete lugares:** la posición (CGS.35), el árbitro de la diferencia (CGS.36),
+  el segundo testigo y el último conteo en Arqueos (CGS.2, CGA-A.48), el fondo sugerido al abrir
+  (CG.125), el Cuadre contra Control (`caja-control.service.ts`), la salud de la base (`db-health`)
+  y el feed que lo replica (`run-prod-feeds.js`).
+- **Lo que Control hace y la Suite no:**
+  1. **Contar los cinco rubros**: efectivo por pieza (la Suite sí), caja fuerte, cheques, vales y
+     papeles, y dólares (USD × tipo de cambio). La tabla existe desde CG.100
+     (`finance.cash_ledger_cut_custody`) pero **nadie la captura: 4 filas, sembradas a mano**.
+  2. **Registrar paquetes de efectivo con nota.** Del 12 al 21-oct, **39 de 59 paquetes no tienen
+     movimiento en el libro**: GNF de Morelia, tarjetas del dueño ($209,133), caja de ahorro,
+     devolución doble de Morelia, «guillermo lopez gutierrez» $170,000. Ese dinero hoy existe sólo
+     en Control, y es exactamente lo que hace que las diferencias no cierren (revisión del 22-oct).
+  3. **Un segundo conteo del día** (el «CORTE 19/10/2026» del 20-oct a las 09:56 es eso: alguien
+     que vuelve a contar a la mañana siguiente).
+
+### Decisiones (Edgar, 2026-10-22)
+
+| # | Pregunta | Decisión |
+|---|---|---|
+| D10 | ¿Qué pasa con el histórico de Control? | **Se congela donde está** (`caja_general_ods`) y se lee por vista. Nada se copia |
+| D11 | Sin Control, ¿quién hace el segundo conteo? | **María recuenta cada mañana, a ciegas, en la Suite**, antes de mover dinero. El recuento es el testigo del árbitro (CGS.36) |
+| D12 | ¿Cuándo se apaga Control? | **Ya** — sin semana en paralelo. CGS.47 no se hace |
+
+### ⛔ Lo que NO se hace
+
+- **No se copia el histórico a otra tabla** (regla 2). Los 30,268 arqueos **ya están en nuestra
+  base**; se congelan donde están, con fecha de jubilación declarada, y se leen por vista. «Migrar»
+  es que la serie siga sin hueco: Control hasta el día del corte, la Suite desde ahí.
+- **No se suman las dos fuentes** después del corte (CG.126: se compone en la frontera medida).
+- **No se pierde el segundo conteo**: si Control se va sin reemplazo, el árbitro (CGS.36) se queda
+  sin testigo y cada diferencia vuelve a ser «sin confirmar».
+
+### Las capas
+
+| # | Capa | Item | Estado |
+|---|---|---|---|
+| CGS.40 | C0 | **Vista única de arqueos** `analytics.v_caja_arqueos`: Control (hasta la fecha de jubilación, congelado) ∪ Suite (desde). Misma forma: cinco rubros + piezas + quién + cuándo. Sin copiar | 🔨 en la migración `20261022112834`, sin aplicar en prod. Probada en sólo lectura: la mitad de Control trae 909 arqueos completos (2022-09-12 → 2026-10-21) |
+| CGS.41 | C0 | **El arqueo de la Suite cuenta los cinco rubros**: al cerrar y en cualquier momento del día (arqueo intermedio / recuento). Tabla nueva para el arqueo que no es cierre, con `tenant_id` + auditoría; los rubros reusan `cash_ledger_cut_custody` | 🔨 `finance.cash_arqueos`, misma migración, sin aplicar. Sólo se agrega; NULL = no se contó |
+| CGS.42 | C1 | Motor del arqueo completo: total por rubro, **dólares con tipo de cambio y fuente obligatoria**, vales con detalle por papel, comparación a ciegas | 🧪 `caja-arqueo.engine.ts`, 11 pruebas (6 negativas). Detectó su propio defecto: redondeaba el tipo de cambio a centavos (−$12.06 en A23706) |
+| CGS.43 | C1 | **Todo paquete pasa al libro, con sentido**: entra / sale / se mueve entre rubros. Tipos para lo que no viene de Kepler: aportación o retiro del dueño, préstamo y caja de ahorro, devolución | ⬜ Regla de operación desde hoy: todo paquete se captura en el libro con su sentido. Los tipos propios (dueño, caja de ahorro, devolución) están por hacer |
+| CGS.44 | C1 | **El árbitro cambia de testigo**: el recuento de otra persona en la Suite + la máquina. Control sólo para fechas anteriores al corte | 🧪 el árbitro toma el recuento del corte como testigo (y el del corte anterior para el fondo); Control sólo antes del 22-oct. La posición lee el último arqueo completo de la vista única. 3 pruebas nuevas |
+| CGS.45 | C2 | API del arqueo (escribe: prueba contra base real con el payload de la pantalla) | 🧪 `GET/POST /finance/cash-ledger/arqueos-caja`, controlador propio. `design:paramtypes` probado con mutación en rojo. Prueba contra base real en `cash-cut.servicio-real.spec.ts` (403 a quien cerró, 400 sin fuente del tipo de cambio, sin UPDATE): corre en `caja-db` del CI |
+| CGS.46 | C3 | Pantalla del arqueo con los cinco rubros; Arqueos, posición y Cuadre leen la vista única | 🧪 Arqueos: «Contar la caja» (recontar el corte / arqueo a media jornada), diálogo de cinco rubros, últimos arqueos, y la píldora mide el último arqueo. `check:pantalla` 0 → 0. SIN validación visual |
+| CGS.47 | Op. | **Semana en paralelo**: la caja cuenta en Control y en la Suite; cada día la diferencia entre los dos tiene que ser $0.00, o se explica | ❌ no se hace (D12: «ya») |
+| CGS.48 | Op. | **El día del corte**: el archivo de Control queda de sólo lectura en `.245`, se quita el acceso de la caja, el feed hace una última sincronización (conteo de filas igual en origen y réplica) y se apaga; `db-health` lo declara **jubilado**, no atrasado | 🔨 código: los dos carriles salen de `CRON_JOBS`. Falta la operación en `.249` y `.245` |
+| CGS.49 | Op. | **De por vida**: ninguna lectura viva de `v_caja_control_*` fuera de la vista histórica (compuerta que lo verifica), el feed fuera del cron, y la nota en el runbook | ⬜ |
+
 ## 5. El orden, y por qué ése
 
 ```
@@ -334,3 +394,4 @@ Operación:                 CGS.29–31 arrancan con la Tanda 2
 | 2026-10-21 | Edgar: **los superadmins conservan el acceso a caja** (14 cuentas; CGS.34 se cierra sin cambio) y **D5 sin tolerancia** confirmada (toda diferencia exige explicación y nota). Sin cambio de código: ya era el comportamiento | sesión de seguridad de Caja General |
 | 2026-10-21 | CGS.35 y CGS.36 en código. **CGS.36, medido en prod (dev_ro):** de 8 cortes, **3 publican una diferencia que no es la verdadera** — CC-4 +$80,019.86 → **+$136,602.36** (conteo tecleado el 16-oct, $11,820, contra el arqueo físico de Control del 15, $57,571; y el fondo arrastraba $10,831.50), CC-5 +$94,830.30 → **+$49,079.30** (heredó ese conteo como fondo), CC-7 −$209,094.59 → **−$188,884.59** (CI-2026-00063 pasó de ingreso a gasto después de sellar) —; **2 se confirman al centavo** (CC-6 +$81,845.77, CC-8 +$1,201.63) y **3 no tienen testigo** (CC-1 y CC-2: Control no arqueó; CC-3: la máquina no explica $5,000 de la caja fuerte). Control del instrumento: el balance de caja completa entre arqueos consecutivos reproduce las mismas cifras por otro camino, y la caja fuerte de Control coincide con la máquina al peso en 5 de 6 tramos. ⚠️ Lo que NO hace: decir **qué** causó una diferencia confirmada (las pistas no traen signo y no se suman). ⚠️ Pendiente con nombre: la base de `caja-db` no trae `caja_general_ods.arqueo_movimientos` (no está en el snapshot), así que el camino CON Control sólo se ejerció leyendo prod | sesión de seguridad de Caja General |
 | 2026-10-21 | **CGS.37 (datos, prod):** «todo ingreso debe estar vinculado a CAOS» medido: 48 de 112 ingresos desde el 12-oct ($871,810.86) sin vínculo ni origen CAOS; el 20-oct, con 12 de 12 vinculados, el corte casi cuadra (+$1,201.63). Se vincularon por `kubectl exec` en md (Edgar pegó el bloque) los **7 ingresos nacidos de un depósito de CAOS que no tenían su vínculo** — CI-2026-00009/20/22 ↔ #1582/1585/1588, CI-2026-00034/37 ↔ #1600/1603, CI-2026-00001 ↔ #1557, CI-2026-00049 ↔ #1619 —, `senales.origen = CGS.37`, monto = el menor entre depósito e ingreso. Verificado leyendo prod: 0 nacidos de CAOS sin vínculo. No mueve cifras (el reparto ya los contaba en la bóveda): impide reusar esos depósitos. ⚠️ CI-49: el depósito trae **$75 más** que el ingreso. ⚠️ Pendiente: 14 depósitos sin ingreso desde el 15-oct (agrupan cobros de varios días: «rd canindo», «rd morelia»…) — necesitan el vínculo uno-a-varios, que no existe; y que el servidor vincule solo al capturar desde un depósito | sesión de seguridad de Caja General |
+| 2026-10-22 | **Control se jubila (CGS.40–49).** Edgar: «migremos todos los arqueos de Control y lo jubilemos de por vida» y, al preguntarle cuándo, «ya». Decisiones D10–D12. En código: migración `20261022112834` (tabla `finance.cash_arqueos` + vista `analytics.v_caja_arqueos`, sin aplicar), motor, API, pantalla, árbitro y posición leyendo la vista única, sondas de los carriles retiradas. Antes de apagar: Control seguía en uso (último registro A23707, 22-oct 10:18). ⚠️ Sin validación visual. ⚠️ La migración se aplica antes que el código que escribe, y requiere el archivo en `origin/main` | sesión de seguridad de Caja General |
