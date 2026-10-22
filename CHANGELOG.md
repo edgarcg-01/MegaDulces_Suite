@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Arqueo: total de billetes, total de monedas y «Conteo de efectivo» sin caja (SM.47, 2026-10-22)
+- `/tienda/arqueo`: la tabla de conteo muestra **Total billetes** al terminar los billetes y **Total monedas** al terminar las monedas, en todas las pestañas; también el detalle de un arqueo guardado. El ticket suma las monedas en vez de restarlas del total.
+- Pestaña nueva **«Conteo de efectivo»** para encargada, Finanzas (y jefe de zona cuando se defina su rol): sucursal, quién cuenta y **motivo obligatorio**, sin caja. Se guarda como constancia, sin diferencia. Permiso `STORE_ARQUEO_SIN_CAJA_CAPTURAR`, endpoint `POST /store/arqueo/sin-caja`, 2 migraciones (aplicar antes del código).
+
 ### Fixed — Buscadores sin lupa y avisos NG0955 en 36 pantallas, con compuertas (CSU.15, 2026-10-21)
 - **36 íconos de buscador** (lupas y ✕ de limpiar) que no se dibujaban: `styleClass` no existe en `p-inputicon` de PrimeNG 22. Ahora usan `class=`, y 28 buscadores recuperan el ancho mínimo que su pantalla pedía (`p-iconfield`).
 - **27 esqueletos de carga** que repetían la llave (`track i` sobre 8 `undefined`) y llenaban la consola de NG0955: ahora `track $index`.

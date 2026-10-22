@@ -18,7 +18,7 @@ import { environment } from '../../../environments/environment';
  * SM.36 - `rd` y `rv` son la entrega del VENDEDOR DE RUTA en la tienda, no la
  * caja de mostrador: no cuelgan de un turno de Kepler y no tienen esperado.
  */
-export type ArqueoTipo = 'cierre' | 'relevo' | 'retiro' | 'rd' | 'rv';
+export type ArqueoTipo = 'cierre' | 'relevo' | 'retiro' | 'rd' | 'rv' | 'sin_caja';
 
 /** Una ruta dada de alta en la sucursal del usuario. */
 export interface RutaArqueo {
@@ -29,6 +29,13 @@ export interface RutaArqueo {
 }
 
 export interface RutasResp { warehouse_code: string; rd: RutaArqueo[]; rv: RutaArqueo[] }
+
+/** [SM.47] Lo que devuelve el conteo de efectivo sin caja. Sin diferencia, y lo dice. */
+export interface ArqueoSinCajaResult {
+  tipo: ArqueoTipo; total_contado: number;
+  secuencia?: number;
+  medible: false; motivo_no_medible: string;
+}
 
 /** Lo que devuelve el arqueo de ruta. Sin diferencia, y lo dice.  */
 export interface ArqueoRutaResult {
@@ -144,6 +151,8 @@ export interface ArqueoDto {
   medios?: Record<string, number>;
   nota?: string;
   incidencia_tipo?: string; // SM.9: motivo cualitativo del descuadre (opcional)
+  /** [SM.47] Solo sin_caja: por que se conto ese dinero. Obligatorio ahi. */
+  motivo?: string;
 }
 
 export interface ArqueoResult {
@@ -183,6 +192,8 @@ export interface ArqueoRow {
   ambiguous?: boolean;
   cajero_code: string | null; cajero_entrante: string | null; cajero_nombre: string | null; total_contado: number;
   captured_by: string | null; captured_at: string; nota: string | null; incidencia_tipo: string | null;
+  /** [SM.47] Solo sin_caja: por que se conto. Opcional: un backend sin SM.47 no lo manda. */
+  motivo?: string | null;
   /**
    * `[SM.43]` Lo que la persona declaró en los otros medios (tarjeta, transferencia…), tal
    * como se guardó. Opcional: un backend sin SM.43 no lo manda y la reimpresión sale sin él.
@@ -321,6 +332,14 @@ export class ArqueoService {
    */
   submitRuta(dto: Omit<ArqueoDto, 'caja'> & { caja?: string }): Observable<ArqueoRutaResult> {
     return this.http.post<ArqueoRutaResult>(`${this.base}/ruta`, dto);
+  }
+
+  /**
+   * [SM.47] Conteo de efectivo SIN caja: su propia puerta y su propio permiso. No manda
+   * `caja` (el servidor pone el literal) ni cajero (queda a nombre de quien inicio sesion).
+   */
+  submitSinCaja(dto: Omit<ArqueoDto, 'caja' | 'tipo' | 'cajero_code'>): Observable<ArqueoSinCajaResult> {
+    return this.http.post<ArqueoSinCajaResult>(`${this.base}/sin-caja`, dto);
   }
 
   submit(dto: ArqueoDto): Observable<ArqueoResult> {

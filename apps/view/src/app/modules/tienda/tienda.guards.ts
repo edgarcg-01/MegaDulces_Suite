@@ -21,7 +21,9 @@ export const storeEntryRedirect = (): string => {
   const legacy = inject(AuthService).user()?.permissions;
   const god = perms.isAdmin();
   if (god || legacy?.[Permission.STORE_LIVE_VER] === true) return 'live';
-  if (legacy?.[Permission.STORE_ARQUEO_VER] === true || legacy?.[Permission.STORE_ARQUEO_CAPTURAR] === true) return 'arqueo';
+  if (legacy?.[Permission.STORE_ARQUEO_VER] === true || legacy?.[Permission.STORE_ARQUEO_CAPTURAR] === true
+    // [SM.47] Finanzas solo cuenta efectivo sin caja: su entrada a Tienda es el arqueo.
+    || legacy?.[Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR] === true) return 'arqueo';
   // Etiquetas primero para no cambiarle el destino a nadie que ya lo tenía.
   if (legacy?.[Permission.STORE_LABELS_VER] === true) return 'etiquetas';
   // Colaborador de caducidades (2026-09-08): su único permiso de tienda es
