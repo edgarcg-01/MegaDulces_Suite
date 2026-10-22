@@ -1,48 +1,49 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 333 KB, 5012 líneas, 36 secciones.
+> **Índice navegable** — 341 KB, 5109 líneas, 37 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 49 | 64 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 65 | 81 | 1 | 0. Qué es este documento, y qué NO es |
-| 82 | 190 | 6 | 1. Las siete reglas |
-| 191 | 224 | 8 | 2. El estado, en una tabla |
-| 225 | 387 | 10 | 3. Existencia |
-| 388 | 612 | 12 | 4. Ventas y unidades |
-| 613 | 644 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 645 | 721 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 722 | 792 | 5 | 6. Las trampas que ya cobraron |
-| 793 | 850 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 851 | 895 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 896 | 1097 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1098 | 1203 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1204 | 1404 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1405 | 1710 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1711 | 1730 | 2 | 10. Cómo se verifica |
-| 1731 | 1753 | 1 | 11. Lo que este documento no cubre |
-| 1754 | 1829 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1830 | 1989 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 1990 | 2373 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2374 | 2614 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2615 | 2807 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2808 | 2850 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2851 | 2949 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2950 | 3423 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3424 | 3531 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3532 | 3686 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3687 | 3838 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3839 | 4044 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4045 | 4134 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4135 | 4324 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4325 | 4393 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4394 | 4688 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4689 | 4906 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4907 | 5016 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5017 | 5060 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 50 | 65 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 66 | 82 | 1 | 0. Qué es este documento, y qué NO es |
+| 83 | 191 | 6 | 1. Las siete reglas |
+| 192 | 226 | 8 | 2. El estado, en una tabla |
+| 227 | 389 | 10 | 3. Existencia |
+| 390 | 614 | 12 | 4. Ventas y unidades |
+| 615 | 646 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 647 | 723 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 724 | 794 | 5 | 6. Las trampas que ya cobraron |
+| 795 | 852 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 853 | 897 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 898 | 1099 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1100 | 1205 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1206 | 1406 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1407 | 1723 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1724 | 1743 | 2 | 10. Cómo se verifica |
+| 1744 | 1766 | 1 | 11. Lo que este documento no cubre |
+| 1767 | 1842 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1843 | 2002 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2003 | 2386 | 23 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2387 | 2627 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2628 | 2820 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2821 | 2863 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2864 | 2962 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2963 | 3436 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3437 | 3544 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3545 | 3699 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3700 | 3851 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3852 | 4057 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4058 | 4147 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4148 | 4337 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4338 | 4406 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4407 | 4701 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4702 | 4919 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4920 | 5029 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5030 | 5075 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5076 | 5158 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -219,6 +220,7 @@ y aun así publicaba el UxC desde otra columna.
 | **Caja general · DÓLARES y PAPELES** | el mismo arqueo que cuenta efectivo, cheques y tarjeta | ⭐ placebo DENTRO de la tabla: en 321 arqueos de 2026 el efectivo toma **307** valores, la tarjeta **193**, los cheques **114** — y los dólares **8** (el actual repetido **201 veces** desde abril) y el crédito **1** (**383 veces** desde oct-2025) | ⚠️ **arrastrados, no contados**: $230,338.96 + $20,782.00 — §28.4 |
 | **Caja general · ¿todo lo dispensado tiene dueño?** | el pareo **hora por hora** contra Control y el libro — el agregado diario NO sirve | sábado **3/3** · lunes **6/7** (falta **$13,800** de las 12:29) · martes parcial. ⛔ Sumando por día medí «$165,410 sin nombre» y era **falso** | ⚠️ **sí, con huecos nombrados** — §28.5 |
 | **Ingreso · lo que NO llega a los libros** | ⭐ **cuenta nombrada contra plaza nombrada** — NO el agregado anual, que compara universos distintos | la contabilidad tiene **10 cuentas con el nombre de una ruta** y **seis nunca movieron un peso** desde 2018; las diez juntas registran **$281,816** contra **$66,055,835** de venta de ruta y vecinal (2026 ene–sep) = **0.43 %**. Control positivo con el mismo método: La Piedad Abastos cuadra al **0.03 %** | ✅ **sí: la venta de ruta no pasa por los libros** — §22.10. ⛔ El **destino** de ese efectivo NO se midió |
+| **Precio de una cotización · renglón** (E.22–E.28) | lo que Kepler COBRÓ en sus pedidos de telemarketing (`kdm2.c12`/`c13`), re-cotizado con el motor real por `scripts/kepler/replay-cotizacion/` con la presentación CAPTURADA (`c55`/`c51`) | **1,310 de 1,345 renglones al centavo (97.4 %)**, importe idéntico; pedidos completos (total, IVA, IEPS) **82 de 83** | ✅ **sí, con 35 renglones declarados** (promos que Kepler no dio, artículos a $0.01) — §34 |
 
 ---
 
@@ -1707,6 +1709,17 @@ medianos de 2.66% y 2.48%. Detalle en §16.4.
 ⭐ **La lección operativa:** un error mediano de **0.0000** no es una victoria del árbitro, es una
 alarma. Cuando el testigo acierta perfecto, lo primero que hay que medir es si comparte insumo con
 el lado que está ganando.
+
+
+### 9.19 ⛔⛔ «Kepler prorratea solo a la unidad mayor» (y «cobra el tramo y la promo de la unidad mayor»)
+
+Se midió con números contundentes —7,284 renglones contra 280; 304 contra 4— y era **falso**. El
+replay le pasaba al motor la unidad ASENTADA del renglón (`kdm2.c11`/`c9`) y no la CAPTURADA
+(`c55`/`c51`): los renglones capturados en caja se leían como «36 PAQ cobrados a la caja». Medido de
+frente: de los renglones capturados en la unidad base cuya cantidad completa una caja (30 d), **1** sale
+prorrateado. Detalle, regla vigente y cómo se descubrió: §34. ⭐ **La lección:** una regla que acierta
+miles contra cientos puede ser la respuesta correcta a una pregunta mal planteada; la entrada del
+instrumento tiene que ser lo que hace la persona (capturar una presentación), no lo que asienta el ERP.
 
 ## 10. Cómo se verifica
 
@@ -5057,3 +5070,88 @@ mano contra prod. Registrarla en la compuerta queda pendiente con nombre: **LC.1
 > revisa, no una verdad.** El asiento de lo que entra sí se puede defender, renglón por renglón.
 
 ---
+
+---
+
+## 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22)
+
+> **Por qué existe esta sección.** El usuario pidió *«una verdad absoluta: que la cotización salga tal
+> cual entraría el pedido en Kepler»*, con un caso reportado: 89008 × 36 PAQ, Kepler $51.76 y la
+> cotización $55.00. Esta sección dice qué arbitra el precio, el descuento y el impuesto de una
+> cotización, cuánto aguanta, y qué se refutó en el camino — dos veces, porque la primera regla que
+> «confirmó» el instrumento era falsa.
+>
+> **Medido contra prod** (`pg-prod`) el **2026-10-21/22**, sólo lectura. Detalle en
+> [`AUDITORIA_COTIZACIONES_2026-10-21.md`](IMPLEMENTACION/FASES/AUDITORIA_COTIZACIONES_2026-10-21.md) §10–§15
+> y el decode en [`ERP_KEPLER.md`](ERP_KEPLER.md) §2.7.
+
+### 34.1 La regla, medida
+
+**El renglón de Kepler guarda dos cosas distintas:** cómo se **capturó** —`kdm2.c55` = la presentación
+(PAQ, CJA, BTO…), `c51` = la cantidad en ella— y cómo se **asienta** —`c11`/`c9` = la unidad base y su
+cantidad (`c9 = c51 × factor` en 15,646 de 15,996)—. Un renglón agregado después de capturar (en
+surtido o checado) trae `c55` pero `c51` vacío: su cantidad es `c9` ÷ el factor.
+
+1. **El precio sale de la presentación capturada.** Su lista (`kdii.c90/c91/c92`), su tramo de
+   `kdpv_prod_util` —que es **por unidad**: el menú de Kepler se llama *«Margen de Utilidad por Rango
+   de Cantidad Vendida **de la Unidad**»*— y su promo `descuxq`. **Kepler no convierte solo:** 36 PAQ
+   capturados como PAQ van al tramo del PAQ (10+ → $51.76) aunque completen 3 cajas.
+2. **El tramo que CONTIENE la cantidad** cuando la escalera es disjunta (93 % de las de Kepler; en las
+   encimadas rige el nivel 0) — y se cobra **aunque esté arriba de la lista** (`40509` × 50 PAQ: lista
+   $11.99, cobrado $12.76).
+3. **Se guarda por unidad base a centavos:** `c12` con 2 decimales y `c13 = c9 × c12` en 16,525 de 16,525
+   renglones. Primero se redondea la presentación (con su promo) y luego la base, **en decimal**:
+   1 CJA de 24 PAQ a $753.09 se cobra 24 × $31.38 = **$753.12**; con promo 3 %, $390.6578 → $390.66 →
+   12 × $32.56; el tramo $961.02 / 12 = 80.085 → **$80.09** (en binario daba $80.08).
+4. **El descuento del CLIENTE es de documento:** `c16 = round(Σ c13 × (1 − c19 %))`, nunca toca el
+   precio del renglón (TK.13). El % sale de `kdud.c17` por (cliente, sucursal).
+5. **El impuesto es el de cada producto:** `kdii.c18` (IVA) y `c19` (IEPS), negativos = incluidos en el
+   precio (el 100 % de las fichas). La ficha = el renglón del pedido en 2,011 de 2,011. IEPS sobre la
+   base e IVA sobre (base + IEPS), y se redondea la SUMA.
+
+### 34.2 El estado, número por número
+
+| número | árbitro | veredicto | hueco declarado |
+|---|---|---|---|
+| **Precio del renglón** | lo cobrado (`kdm2.c12`), re-cotizado con el motor real y la presentación capturada | **1,310 de 1,345 al centavo (97.4 %)**; antes de E.28, con la regla falsa y la caja redondeada, los pedidos cuadraban 13 de 80 | 35 renglones: promos `descuxq` que Kepler no dio (1 PAQ en la 05 y otros 2) · 2 de 3 CJA donde cobró la lista y no el tramo · 14 SKUs de promoción a $0.01 que la vista de etiquetas excluye. **Cotizan de menos; no se derivó qué decide la excepción** |
+| **Importe del renglón** | `c13 = c9 × c12` | idéntico en los 1,310 | en 11 renglones el surtido cambió la cantidad: la cotización es lo PEDIDO |
+| **Total del pedido** (`c16`) | Σ renglones × (1 − %cliente) | **83 de 83** con cabecera consistente | 7 pedidos vivos con la cabecera desfasada de sus renglones (siguen al surtido): se excluyen, no se cuentan como acierto |
+| **IVA / IEPS** (`c14`/`c15`) | la tasa de cada producto (`kdii`), con la función de la cotización (`totalesCotizacion`) | **83/83 y 83/83**; con el IVA 16 % fijo de antes, 25/83 | 1 pedido a 1 centavo en el total (KG: Kepler suma la cabecera sin redondear el renglón) · las cotizaciones anteriores a E.25 no guardaron su tasa: se declaran «impuesto estimado» |
+| **% del cliente** | `kdud.c17` contra el `c19` del pedido | 90.6 % de los pedidos `C####` y 98.4 % del resto | el padrón de la cotización filtraba `C####` y dejaba fuera al 27.6 % de los pedidos (E.26, migración sin aplicar) |
+| **Costo** | `kdii.c77` (costo estándar, §16) | la cotización no lo usa | el pedido no lo congela (`c62` vacío en el 84.5 %); 2 % de los renglones de una semana se vendió bajo `c77` |
+| **Existencia** | `v_erp_stock_on_hand` (§3), en la unidad base de Kepler | se muestra en la unidad del renglón con la edad del dato (`kdil`) | — |
+
+### 34.3 La consecuencia de negocio
+
+**Capturar en caja es más barato para el cliente, y nadie lo sugiere.** 89008: 36 PAQ capturados como
+PAQ = $51.76 el paquete (tramo 10+ del PAQ); como 3 CJA = $610.18 la caja (tramo 3+ de la CJA) =
+$50.85 el paquete. La cotización cobra lo que el operador captura —igual que Kepler—, así que el
+precio depende de **cómo se capture**, no sólo de cuánto se pida. Un aviso «capturado como 3 CJA sale
+a $X» está identificado y **no construido**.
+
+### 34.4 Cómo se vuelve a medir
+
+`node scripts/kepler/replay-cotizacion/replay.js 1 salida.json` y `analiza.js salida.json`: re-cotiza
+con el motor real (empaquetado, corre su SQL) los pedidos de telemarketing de un día, en una sesión
+psql de sólo lectura, y arranca con 5 renglones reales que tiene que reproducir al centavo —entre ellos
+la captura del usuario (89008 × 36 PAQ = $1,863.36)—. `REPLAY_MOTOR_REF=<commit>` corre el motor de otro
+commit sobre el mismo universo (antes/después). Pruebas puras: `volume-tiers.spec.ts`
+(`aCentavosPorBase`, con los casos reales y sus negativos) y `quote-totals.spec.ts` (el pedido real
+01-0003309: IVA 180.03 / IEPS 274.88, y su negativo sin tasas).
+
+⚠️ **R7 — paridad registrada: deuda.** El replay es un instrumento que se corre a mano; no está en la
+compuerta `test-newdb-truth-parity.js` ni en CI (necesita el carril ssh a prod). Pendiente con nombre.
+
+**Hipótesis refutadas — no las reconstruyas** (detalle en §9.19):
+- *«La unidad mayor que cabe se prorratea sola»* (E.23) — era la presentación capturada en caja.
+- *«Rige el tramo y la promo de la unidad mayor; el tramo propio no cuenta»* (E.24) — idem.
+- *«El precio es el más barato entre lista, tramo propio y tramo mayor»* (E.23) — el tramo se cobra
+  aunque sea más caro que la lista.
+- *«El padrón de telemarketing son los `C####`»* (E.12.1, confirmado con lo FACTURADO) — medido sobre
+  lo PEDIDO, faltaba el 27.6 %.
+- *«El IVA es 16 % sobre todo»* — el 86 % de lo cotizado es IEPS 8 % e IVA 0.
+
+> ⛔ **La cotización sale como el pedido de Kepler en el 97.4 % de los renglones y 82 de 83 pedidos, y
+> lo que falta tiene nombre.** Lo que NO se puede afirmar todavía: que se cotice lo mismo en producción —
+> nada de E.23–E.28 está desplegado— y que `reprice` (escribe) funcione contra la API: su prueba existe
+> y no se ha corrido.
