@@ -238,6 +238,9 @@ import {
                     <td>
                       <span class="cpp-bank">{{ banco(l) }}</span>
                       <span class="cpp-code">{{ l.cuenta_banco }}</span>
+                      @if (l.tipo === 'pago_proveedor') {
+                        <span class="cpp-code">pago a proveedor &middot; {{ l.cfdis | number }} CFDI</span>
+                      }
                     </td>
                     <td class="muted mono">{{ l.fecha }}</td>
                     <td class="ta-r mono">{{ l.movimientos | number }}</td>
@@ -252,6 +255,23 @@ import {
 
             <aside class="card-premium card-flat cpp-peek">
               @if (sel(); as l) {
+                @if (l.tipo === 'pago_proveedor') {
+                <div class="cpp-eyebrow">Pago a proveedor</div>
+                <h4>{{ banco(l) }}</h4>
+                <div class="cpp-code">{{ l.cuenta_banco }} &middot; {{ l.fecha }}</div>
+                <div class="cpp-kvs">
+                  <div class="cpp-kv"><span>Total</span>
+                    <span class="mono">{{ l.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></div>
+                  <div class="cpp-kv"><span>Renglones</span><span class="mono">{{ l.renglones | number }}</span></div>
+                  <div class="cpp-kv"><span>Facturas y notas (UUID)</span><span class="mono">{{ l.cfdis | number }}</span></div>
+                  <div class="cpp-kv"><span>Las facturas salen de</span><span>{{ fuente(l) }}</span></div>
+                </div>
+                <div class="cpp-note">
+                  Una p&oacute;liza por pago, como la hace contabilidad: por factura, cargo a 2120 con el traspaso
+                  de IVA/IEPS si estaba provisionada, o compra directa 501/502; las notas con su reversa; el UUID de
+                  cada CFDI. Si las facturas menos las notas no dan lo pagado, no se arma.
+                </div>
+                } @else {
                 <div class="cpp-eyebrow">Lote seleccionado</div>
                 <h4>{{ banco(l) }}</h4>
                 <div class="cpp-code">{{ l.cuenta_banco }} &middot; {{ l.fecha }}</div>
@@ -286,10 +306,11 @@ import {
                   Una p&oacute;liza por lote: N cargos y <strong>un</strong> abono al banco. Un rengl&oacute;n malo
                   no tumba el lote &mdash; se cae solo y el resto sigue.
                 </div>
+                }
               } @else {
                 <div class="cpp-eyebrow">Lote</div>
                 <h4>Eleg&iacute; un lote</h4>
-                <div class="cpp-note">La lista de la izquierda muestra un rengl&oacute;n por (banco &times; d&iacute;a).</div>
+                <div class="cpp-note">La lista de la izquierda muestra un rengl&oacute;n por (banco &times; d&iacute;a), y uno por cada pago a proveedor armado completo.</div>
               }
             </aside>
           </div>
@@ -748,7 +769,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     return [...rows]
       .sort((a, b) => b.movimientos - a.movimientos || a.fecha.localeCompare(b.fecha))
       // `dataKey` de PrimeNG necesita UN campo, y la llave del lote son dos (banco y día).
-      .map((l) => ({ ...l, k: `${l.cuenta_banco}|${l.fecha}` }));
+      // `[CP.8.72]` La clave viene del servidor: un pago a proveedor y el lote de su día comparten banco y fecha.
+      .map((l) => ({ ...l, k: l.clave ?? `${l.cuenta_banco}|${l.fecha}` }));
   });
 
   readonly deNadie = computed(() => contarDeNadie(this.data()?.motivos ?? []));
@@ -1002,6 +1024,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
    * contabilidad es peor que una cuenta sin rótulo.
    */
   banco(l: LoteRow): string { return l.banco_label || l.cuenta_banco; }
+  fuente(l: LoteRow): string { return etiquetaFuente(l.fuente); }
 }
 
 /** Una fila de la tabla: el lote más la llave que `dataKey` necesita. */
@@ -1021,7 +1044,20 @@ const ETIQUETA_MOTIVO: Record<string, string> = {
   importe_invalido: 'Importe no positivo',
   descuadre: 'Subtotal + IVA ≠ total',
   regla_sin_cuenta: 'Regla firmada sin cuenta',
+  // `[CP.8.72]` Pagos a proveedor que no se arman solos: se cuentan en su lote, nunca entran incompletos.
+  pago_a_confirmar: 'Pago a proveedor: confirmar qué facturas paga',
+  pago_sin_resolver: 'Pago a proveedor sin identificar',
+  pago_no_cuadra: 'Pago a proveedor: facturas − notas ≠ pagado',
+  pago_proveedor_sin_cuenta: 'Pago a proveedor sin cuenta',
+  pago_sin_facturas: 'Pago a proveedor sin facturas',
+  pago_importe_invalido: 'Pago a proveedor con un CFDI en cero',
+  pago_error: 'Pago a proveedor: error al armar',
 };
+
+/** `[CP.8.72]` De dónde salieron las facturas de un pago armado. */
+export function etiquetaFuente(f: string | null | undefined): string {
+  return f === 'cadena_kepler' ? 'lo que aplicó Kepler' : f === 'importe_una' ? 'una factura por importe' : '—';
+}
 
 /**
  * ⛔ **El único motivo que NO es trabajo de nadie**, y la razón de que esta pantalla exista.

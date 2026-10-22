@@ -90,6 +90,14 @@ export interface LoteRow {
   iva_traspaso: 'no_emitido' | null;
   /** Conteo POR motivo. Cuatro rechazos distintos tienen cuatro dueños distintos. */
   motivos: Record<string, number>;
+  /** `[CP.8.72]` `pago_proveedor` = un pago a proveedor armado completo (una póliza por pago). Ausente = lote del día. */
+  tipo?: 'lote' | 'pago_proveedor';
+  /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
+  fuente?: 'cadena_kepler' | 'importe_una' | null;
+  /** UUID (facturas y notas) que lleva el pago. */
+  cfdis?: number;
+  /** Identidad de la fila: un pago y el lote de su día comparten banco y fecha. */
+  clave?: string;
 }
 
 /**
