@@ -7,6 +7,7 @@ import {
 // `libs/` o no existe). `PresentacionPrecio` extiende al `QtyUnitLabel` de VU.0 al PRECIO.
 import type { Knex } from 'knex';
 import { elegirAnterior } from '@megadulces/contracts';
+import { esCodigoSimbolico } from './codigo-simbolico';
 import type {
   CostoPresentacion, FichaCompras, HistorialCosto, PresentacionPrecio, PriceChangeRow,
 } from '@megadulces/contracts';
@@ -39,8 +40,10 @@ export interface LabelModel {
    *   `sin_precio`          el ERP tiene el producto en ESA tienda, con precio base en 0
    *   `no_existe_en_plaza`  el ERP lo tiene en otra tienda, no en ésta
    *   `no_existe_en_erp`    ninguna tienda del ERP lo tiene: hay que darlo de alta en Kepler
+   *   `codigo_simbolico`    `[ETQ-PROMO.1]` no es mercancía: es una promoción, bonificación o ajuste de Kepler
+   *                         («10 CJS … = GRATIS 1 CJ MAS») a $0.01. NO lleva etiqueta y NO hay que ponerle precio
    */
-  erp_estado?: 'cotizado' | 'sin_precio' | 'no_existe_en_plaza' | 'no_existe_en_erp' | null;
+  erp_estado?: 'cotizado' | 'sin_precio' | 'no_existe_en_plaza' | 'no_existe_en_erp' | 'codigo_simbolico' | null;
   wholesale_piece_min_qty: number | null;
   wholesale_piece_price: number | null;
   pack_size: number | null;
@@ -529,6 +532,66 @@ export class CommercialLabelsService {
   }
 
   /**
+   * `[ETQ-ESTADO.1]` + `[ETQ-PROMO.1]` POR QUÉ un código no tiene precio usable en `suc`.
+   *
+   * Tres consultas y no una, a propósito: la primera lleva la plaza y por eso usa `ix_kdii_suc_sku`; las
+   * otras dos sólo corren para los que no tienen precio, que son pocos. Ninguna filtra por precio la
+   * EXISTENCIA: la pregunta es si la FILA existe, no si cotiza.
+   *
+   *  · no existe en la plaza → `no_existe_en_plaza` (está en otra) o `no_existe_en_erp` (en ninguna);
+   *  · existe → `codigo_simbolico` si es una promoción/ajuste de Kepler (nombre «= GRATIS» o $0.01 en
+   *    TODAS las plazas, ver `codigo-simbolico.ts`); si no, `sin_precio` (hay que ponérselo en Kepler).
+   *
+   * ⚠️ La señal del $0.01 se mide en TODAS las plazas, no en la consultada: un producto real puede tener un
+   * precio de paso en una tienda. Medido en prod: 0.4 ms con 5 códigos, por `ix_kdii_suc_sku`.
+   */
+  async estadosSinPrecio(
+    trx: Knex.Transaction, suc: string, sinPrecio: string[],
+  ): Promise<Map<string, NonNullable<LabelModel['erp_estado']>>> {
+    const estado = new Map<string, NonNullable<LabelModel['erp_estado']>>();
+    if (!sinPrecio.length) return estado;
+    const enPlaza = await trx.raw(
+      `SELECT btrim(c1::text) AS sku FROM kepler_ods.kdii
+        WHERE btrim(sucursal::text) = ? AND btrim(c1::text) = ANY(?)`,
+      [suc, sinPrecio],
+    );
+    const hayEnPlaza = new Set<string>(((enPlaza?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
+    if (hayEnPlaza.size) {
+      // El nombre y si el precio es el simbólico en TODAS las plazas (pieza y paquete/caja).
+      const simb = await trx.raw(
+        `SELECT btrim(c1::text) AS sku, min(btrim(c2::text)) AS nombre,
+                bool_and(c90 = 0.01 AND coalesce(c91, 0) <= 0.01) AS centavo_en_todas
+           FROM kepler_ods.kdii
+          WHERE btrim(c1::text) = ANY(?)
+          GROUP BY btrim(c1::text)`,
+        [Array.from(hayEnPlaza)],
+      );
+      const datos = new Map<string, { nombre: string | null; centavo: boolean | null }>();
+      for (const r of (simb?.rows ?? []) as Array<{ sku: unknown; nombre: unknown; centavo_en_todas: unknown }>) {
+        datos.set(String(r.sku), {
+          nombre: r.nombre == null ? null : String(r.nombre),
+          centavo: typeof r.centavo_en_todas === 'boolean' ? r.centavo_en_todas : null,
+        });
+      }
+      for (const s of hayEnPlaza) {
+        const d = datos.get(s);
+        estado.set(s, d && esCodigoSimbolico(d.nombre, d.centavo) ? 'codigo_simbolico' : 'sin_precio');
+      }
+    }
+    const faltan = sinPrecio.filter((s) => !hayEnPlaza.has(s));
+    if (faltan.length) {
+      const enOtra = await trx.raw(
+        `SELECT DISTINCT btrim(c1::text) AS sku FROM kepler_ods.kdii
+          WHERE btrim(c1::text) = ANY(?)`,
+        [faltan],
+      );
+      const hayEnOtra = new Set<string>(((enOtra?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
+      for (const s of faltan) estado.set(s, hayEnOtra.has(s) ? 'no_existe_en_plaza' : 'no_existe_en_erp');
+    }
+    return estado;
+  }
+
+  /**
    * `[ETQ-CAMBIOS.6]` Las plazas que la bitácora PUEDE servir, para quien no tiene tienda propia.
    *
    * ⛔ Existe porque la pantalla se lee de `warehouse_code` del usuario y **13 de las 33 personas
@@ -831,34 +894,14 @@ export class CommercialLabelsService {
        * son pocos, y es la que separa "no existe en esta tienda" de "no existe en ninguna".
        * Ninguna filtra por precio: la pregunta es si la FILA existe, no si cotiza.
        */
-      const estadoErp = new Map<string, NonNullable<LabelModel['erp_estado']>>();
-      if (suc) {
-        const sinPrecio: string[] = Array.from(new Set<string>(
+      const estadoErp = suc
+        ? await this.estadosSinPrecio(trx, suc, Array.from(new Set<string>(
           (rows as FilaPrecioErp[])
             .filter((r) => !tienePrecio(r))
             .map((r) => String(r.sku ?? '').trim())
             .filter(Boolean),
-        ));
-        if (sinPrecio.length) {
-          const enPlaza = await trx.raw(
-            `SELECT btrim(c1::text) AS sku FROM kepler_ods.kdii
-              WHERE btrim(sucursal::text) = ? AND btrim(c1::text) = ANY(?)`,
-            [suc, sinPrecio],
-          );
-          const hayEnPlaza = new Set<string>(((enPlaza?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
-          for (const s of hayEnPlaza) estadoErp.set(s, 'sin_precio');
-          const faltan = sinPrecio.filter((s) => !hayEnPlaza.has(s));
-          if (faltan.length) {
-            const enOtra = await trx.raw(
-              `SELECT DISTINCT btrim(c1::text) AS sku FROM kepler_ods.kdii
-                WHERE btrim(c1::text) = ANY(?)`,
-              [faltan],
-            );
-            const hayEnOtra = new Set<string>(((enOtra?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
-            for (const s of faltan) estadoErp.set(s, hayEnOtra.has(s) ? 'no_existe_en_plaza' : 'no_existe_en_erp');
-          }
-        }
-      }
+        )))
+        : new Map<string, NonNullable<LabelModel['erp_estado']>>();
 
       // Índice por sku y por barcode del producto, para remapear al código pedido.
       const bySku = new Map<string, any>();
