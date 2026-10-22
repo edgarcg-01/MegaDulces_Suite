@@ -757,6 +757,22 @@ septiembre **91 pagos completos ($12.76 M)** de 184 (55 a confirmar, 30 no cuadr
 ⚠️ Deudas con nombre: la carga del mes tarda 4.4 s (1.5 s con la caché de 10 min) medido desde la laptop, en el
 clúster **NO MEDIDO**; el job `pruebas-db` no ejerce la fuente (sus siembras son `por_categoria`).
 
+### `[CP.8.73]` Confirmar qué facturas paga un pago (2026-10-21)
+
+Los pagos que no se arman solos se confirman en la pantalla («Pagos a proveedor por confirmar»). **Medido
+antes de construirla**, sobre 761 pagos «a confirmar» con la respuesta de la contadora: sus facturas están
+**todas** entre las candidatas en **697 (91.6 %)**; la sugerencia acierta exacta en **297 (39 %)** (Kepler 65 %,
+importe 54 %) y hay **19 candidatas por pago en la mediana** (p90 98). Por eso: lo sugerido primero, la
+sugerencia **no se preselecciona** (botón «usar la sugerencia»), la cuenta *facturas − notas = pagado* a la
+vista, y «Confirmar» sólo se habilita si cuadra; el servidor lo vuelve a exigir (409 con motivo).
+
+Se guarda en `contpaqi.pago_confirmaciones` (migración `20261021181119`, **sin aplicar en prod**: el armado
+degrada con aviso mientras no exista), con autor y el importe al confirmar; el armado usa la vigente y no la
+aplica si el movimiento cambió de importe. ⛔ Una verificación encontró que la sugerencia de Kepler podía
+quedar **fuera** de las candidatas (factura vieja o ya pagada): corregido, lo sugerido siempre se lista y lo
+ya pagado se advierte. Prueba `test-newdb-contpaqi-confirmacion.js`: el modo que escribe corre en `pruebas-db`
+(**NO MEDIDO** aquí); prod sólo lectura, septiembre 93 por confirmar.
+
 ### Fuera de este expediente
 
 Los egresos que **no** son pago a proveedor (19 % del dinero) siguen al nivel del catálogo (§3.5):
