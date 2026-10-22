@@ -85,6 +85,36 @@ export class CfdiContabilidadService {
     });
   }
 
+  /**
+   * [LC.21] El desglose de un renglón de `overview`: los CFDI de ESE proveedor en el periodo, con el
+   * MISMO filtro que los cuenta (recibidos, I/E, no cancelados, del mes) — así `num_cfdis` y `total`
+   * del renglón son exactamente el conteo y la suma de esta lista.
+   */
+  async cfdisDeProveedor(period?: string, rfc?: string) {
+    const p = this.normPeriod(period);
+    const r = String(rfc ?? '').trim().toUpperCase();
+    if (!/^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$/.test(r)) throw new BadRequestException('RFC inválido');
+    return this.tk.run(async (trx) => {
+      const rows = await trx('fiscal.cfdis')
+        .where({ rol: 'recibidas' }).whereIn('tipo_comprobante', ['I', 'E']).whereNot('estatus_sat', 'cancelado')
+        .whereRaw(`to_char(fecha, 'YYYY-MM') = ?`, [p]).whereRaw('upper(emisor_rfc) = ?', [r])
+        .orderBy('fecha', 'desc')
+        .select('uuid', 'serie', 'folio', 'fecha', 'tipo_comprobante', 'subtotal', 'total_trasladados', 'total',
+          'metodo_pago', 'estatus_sat', trx.raw('(xml IS NOT NULL) AS tiene_xml'));
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      return {
+        period: p, rfc: r, num_cfdis: rows.length, total: r2(rows.reduce((a: number, x: { total: unknown }) => a + Number(x.total || 0), 0)),
+        cfdis: rows.map((x: Record<string, unknown>) => ({
+          uuid: String(x['uuid']), serie: (x['serie'] as string) ?? null, folio: (x['folio'] as string) ?? null,
+          fecha: x['fecha'] ? new Date(x['fecha'] as string).toISOString().slice(0, 10) : null,
+          tipo: String(x['tipo_comprobante']), base: Number(x['subtotal'] || 0), iva: Number(x['total_trasladados'] || 0),
+          total: Number(x['total'] || 0), metodo_pago: (x['metodo_pago'] as string) ?? null,
+          estatus_sat: String(x['estatus_sat'] ?? 'desconocido'), tiene_xml: x['tiene_xml'] === true,
+        })),
+      };
+    });
+  }
+
   private normPeriod(period?: string): string {
     const m = String(period || '').match(/^(\d{4})-(\d{2})$/);
     if (!m) throw new BadRequestException(`period inválido (esperado YYYY-MM): ${period}`);
