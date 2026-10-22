@@ -9,6 +9,9 @@ import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { InputTextModule } from 'primeng/inputtext';
 import { environment } from '../../../../../environments/environment';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
@@ -27,14 +30,14 @@ import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
 import { forkJoin } from 'rxjs';
 import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type FondoSugerido, type SaldoResponse } from '../../cash-ledger.service';
-import type { PosicionCajaDto, EstadoPosicion } from '@megadulces/contracts';
+import type { PosicionCajaDto, EstadoPosicion, ArqueoCajaDto, ArqueoGuardadoDto, NuevoArqueoCajaInput, TipoArqueoCaja } from '@megadulces/contracts';
 import { CajaSocketService } from '../../caja-socket.service';
 import { CaosSocketService } from '../../caos-socket.service';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { textoDeError } from './caja-captura.util';
+import { textoDeError, BILLETES_CAJA, MONEDAS_CAJA } from './caja-captura.util';
 import { puertasRevision, MINIMO_TEXTO_REVISION, type PuertasRevision } from './caja-revision.util';
 
 /** Un día visto por Control: sus movimientos y el arqueo que capturó. */
@@ -172,6 +175,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule, SelectModule,
+    DialogModule, InputNumberModule, InputTextModule,
     LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent,
     ContextHelpComponent, CajaTabsComponent],
   template: `
@@ -187,7 +191,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
         </div>
         <div class="cq-actions">
           <app-context-help topic="caja-arqueos" />
-          <app-freshness-pill measures="data" [freshness]="frescura()" label="Arqueos de Control" />
+          <!-- [CGS.48] Control se jubilo el 22-oct: la edad es la del ultimo arqueo completo, venga
+               de la Suite o del historico de Control. 30 h, como el umbral que tenia Control. -->
+          <app-freshness-pill measures="data" [since]="arqRecientes()[0]?.at ?? null" [staleAfterSec]="108000" label="Último arqueo" />
           <button pButton type="button" class="p-button-sm p-button-outlined"
                   [loading]="cargando()" (click)="recargar()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
@@ -248,6 +254,47 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
             <p class="cq-nota cq-mal" role="alert">{{ posicionError() }}</p>
           }
           @if (cajonNota(); as nota) { <p class="cq-nota">{{ nota }}</p> }
+          <!-- [CGS.46] El arqueo completo. Control se jubilo el 22-oct (Edgar): aqui se cuentan los
+               cinco rubros. El recuento de la manana lo hace otra persona, a ciegas. -->
+          <div class="cq-arq">
+            <div class="cq-arq-cab">
+              <span class="cq-rev-label">Contar la caja</span>
+              @if (corteARecontar(); as c) {
+                <p-button size="small" icon="pi pi-replay" [label]="'Recontar el corte del ' + dmy(c.fecha)"
+                          (onClick)="abrirArqueo('recuento', c)" />
+              }
+              <p-button size="small" icon="pi pi-calculator" severity="secondary" [outlined]="true"
+                        label="Arqueo a media jornada" (onClick)="abrirArqueo('intermedio', null)" />
+            </div>
+            @if (arqRecientes().length) {
+              <div class="cq-scroll">
+                <table class="cq-reja">
+                  <caption class="cq-reja-cap">Últimos arqueos completos. Control dejó de usarse el 22-oct: lo anterior es su histórico.</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Cuándo</th><th scope="col">Quién</th>
+                      <th scope="col" class="comm-num">Efectivo</th><th scope="col" class="comm-num">Caja fuerte</th>
+                      <th scope="col" class="comm-num">Cheques</th><th scope="col" class="comm-num">Vales y papeles</th>
+                      <th scope="col" class="comm-num">Dólares</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (x of arqRecientes(); track x.origen + x.folio) {
+                      <tr>
+                        <td>{{ cuando(x.at) }} <span class="cq-dim">{{ x.origen === 'control' ? 'Control ' + x.folio : (x.tipo === 'recuento' ? 'recuento' : 'media jornada') }}</span></td>
+                        <td>{{ x.quien || '—' }}</td>
+                        <td class="comm-num">{{ mx(x.efectivo) }}</td>
+                        <td class="comm-num">@if (x.caja_fuerte === null) { <span class="cq-dim">no se contó</span> } @else { {{ mx(x.caja_fuerte) }} }</td>
+                        <td class="comm-num">@if (x.cheques === null) { <span class="cq-dim">no se contó</span> } @else { {{ mx(x.cheques) }} }</td>
+                        <td class="comm-num">@if (x.papeles === null) { <span class="cq-dim">no se contó</span> } @else { {{ mx(x.papeles) }} }</td>
+                        <td class="comm-num">@if (x.usd === null) { <span class="cq-dim">no se contó</span> } @else { USD {{ usd(x.usd) }}@if (x.tipo_cambio !== null) { <span class="cq-pos-sub">a {{ x.tipo_cambio }}</span> } }</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
           <!-- [CGA-A.48] Lo que Control contó y está en la caja fuerte, no en el cajón. -->
           @if (controlUltimo(); as cu) {
             @if (cu.diferencia) {
@@ -721,8 +768,110 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
         }
       </app-side-peek>
     </div>
+    <!-- [CGS.46] El arqueo completo. Ciego en el recuento: lo que sello el corte se ve al guardar. -->
+    <p-dialog [visible]="!!arqDlg()" (visibleChange)="$event ? null : cerrarArqueo()" [modal]="true"
+              [style]="{ width: '42rem', maxWidth: '96vw' }" [draggable]="false" [header]="tituloArqueo()">
+      @if (!arqGuardado()) {
+        <p class="cq-hint">
+          {{ arqDlg()?.tipo === 'recuento'
+            ? 'Cuenta el cajón a ciegas y antes de mover dinero: lo que selló el corte se ve al guardar.'
+            : 'Cuenta todo lo que hay en la caja en este momento.' }}
+          Lo que dejes vacío queda como «no se contó»; escribe 0 si lo contaste y no hay.
+        </p>
+        <fieldset class="cq-arq-grupo">
+          <legend>Billetes</legend>
+          <div class="cq-arq-reja">
+            @for (d of BILLETES; track d.key) {
+              <label [for]="'cq-arq-' + d.key">{{ d.label }}</label>
+              <p-inputnumber [inputId]="'cq-arq-' + d.key" [min]="0" [useGrouping]="false"
+                             [ngModel]="arqPiezas()[d.key] ?? null" (ngModelChange)="ponerPieza(d.key, $event)" />
+            }
+          </div>
+        </fieldset>
+        <fieldset class="cq-arq-grupo">
+          <legend>Monedas</legend>
+          <div class="cq-arq-reja">
+            @for (d of MONEDAS; track d.key) {
+              <label [for]="'cq-arq-' + d.key">{{ d.label }}</label>
+              <p-inputnumber [inputId]="'cq-arq-' + d.key" [min]="0" [useGrouping]="false"
+                             [ngModel]="arqPiezas()[d.key] ?? null" (ngModelChange)="ponerPieza(d.key, $event)" />
+            }
+            <label for="cq-arq-morralla">Morralla (menos de 50¢)</label>
+            <p-inputnumber inputId="cq-arq-morralla" mode="currency" currency="MXN" locale="es-MX" [min]="0"
+                           [ngModel]="arqMorralla()" (ngModelChange)="arqMorralla.set($event)" />
+          </div>
+        </fieldset>
+        <p class="cq-arq-total">Efectivo: <b>{{ mx(arqEfectivo()) }}</b></p>
+        <fieldset class="cq-arq-grupo">
+          <legend>Lo demás que hay en la caja</legend>
+          <div class="cq-arq-reja">
+            <label for="cq-arq-cf">Caja fuerte</label>
+            <p-inputnumber inputId="cq-arq-cf" mode="currency" currency="MXN" locale="es-MX" [min]="0"
+                           [ngModel]="arqCF()" (ngModelChange)="arqCF.set($event)" />
+            <label for="cq-arq-cff">De dónde sale esa cifra</label>
+            <p-select inputId="cq-arq-cff" [options]="FUENTES_CF" optionLabel="label" optionValue="value"
+                      [ngModel]="arqCFFuente()" (ngModelChange)="arqCFFuente.set($event)" />
+            <label for="cq-arq-ch">Cheques</label>
+            <p-inputnumber inputId="cq-arq-ch" mode="currency" currency="MXN" locale="es-MX" [min]="0"
+                           [ngModel]="arqCheques()" (ngModelChange)="arqCheques.set($event)" />
+            <label for="cq-arq-pa">Vales y papeles</label>
+            <p-inputnumber inputId="cq-arq-pa" mode="currency" currency="MXN" locale="es-MX" [min]="0"
+                           [ngModel]="arqPapeles()" (ngModelChange)="arqPapeles.set($event)" />
+          </div>
+        </fieldset>
+        <fieldset class="cq-arq-grupo">
+          <legend>Dólares</legend>
+          <div class="cq-arq-reja">
+            <label for="cq-arq-usd">Dólares (USD)</label>
+            <p-inputnumber inputId="cq-arq-usd" mode="decimal" [minFractionDigits]="0" [maxFractionDigits]="2" [min]="0"
+                           [ngModel]="arqUsd()" (ngModelChange)="arqUsd.set($event)" />
+            <label for="cq-arq-tc">Tipo de cambio</label>
+            <p-inputnumber inputId="cq-arq-tc" mode="decimal" [minFractionDigits]="2" [maxFractionDigits]="4" [min]="0"
+                           [ngModel]="arqTC()" (ngModelChange)="arqTC.set($event)" />
+            <label for="cq-arq-tcf">De dónde salió el tipo de cambio</label>
+            <input pInputText id="cq-arq-tcf" placeholder="banco, DOF, Kepler…"
+                   [ngModel]="arqTCFuente()" (ngModelChange)="arqTCFuente.set($event)" />
+          </div>
+        </fieldset>
+        <label class="cq-rev-label" for="cq-arq-nota">Nota (opcional)</label>
+        <textarea pTextarea id="cq-arq-nota" rows="2" class="cq-rev-texto"
+                  [ngModel]="arqNota()" (ngModelChange)="arqNota.set($event)"></textarea>
+        @if (arqFalta(); as falta) { <p class="cq-nota" role="status">{{ falta }}</p> }
+      } @else {
+        @if (arqGuardado(); as g) {
+          <p>Contaste <b>{{ mx(g.arqueo.efectivo) }}</b> en efectivo.
+            @if (g.arqueo.total_mxn !== null) { Con lo demás, la caja suma <b>{{ mx(g.arqueo.total_mxn) }}</b>. }
+            @else { Algún rubro quedó sin contar: no se suma un total. }
+          </p>
+          @if (g.contra_corte; as k) {
+            <p>El corte {{ k.folio }} selló <b>{{ k.contado === null ? 'sin conteo' : mx(k.contado) }}</b>.</p>
+            @if (k.diferencia !== null) {
+              <p [class.cq-mal]="k.diferencia !== 0"><b>{{ k.diferencia === 0 ? 'Coincide al peso.' : 'Difiere ' + firmado(k.diferencia) + ' del conteo del corte.' }}</b></p>
+            }
+          }
+        }
+      }
+      @if (arqErr()) { <p class="cq-nota cq-mal" role="alert">{{ arqErr() }}</p> }
+      <ng-template #footer>
+        @if (!arqGuardado()) {
+          <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="cerrarArqueo()" />
+          <p-button label="Guardar arqueo" icon="pi pi-lock" size="small" [disabled]="arqGuardando() || !!arqFalta()"
+                    [loading]="arqGuardando()" (onClick)="guardarArqueo()" />
+        } @else {
+          <p-button label="Listo" size="small" (onClick)="cerrarArqueo()" />
+        }
+      </ng-template>
+    </p-dialog>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
+    .cq-arq { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-3); }
+    .cq-arq-cab { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    .cq-scroll { overflow-x:auto; min-width:0; }
+    .cq-arq-grupo { border:1px solid var(--border-color); border-radius:var(--radius-md, 6px); padding:var(--sp-2) var(--sp-3); margin:0 0 var(--sp-2); }
+    .cq-arq-grupo legend { font-size:var(--fs-sm); font-weight:600; padding:0 var(--sp-1); }
+    .cq-arq-reja { display:grid; grid-template-columns:minmax(8rem, 14rem) 1fr; gap:var(--sp-2) var(--sp-3); align-items:center; }
+    .cq-arq-total { font-size:var(--fs-lg); margin:0 0 var(--sp-2); font-variant-numeric:tabular-nums; }
+    @container (max-width: 30rem) { .cq-arq-reja { grid-template-columns:1fr; } }
     :host { display: block; }
 
     .cq-actions { display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; }
@@ -1058,7 +1207,109 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly posicion = signal<PosicionCajaDto | null>(null);
   readonly posicionError = signal<string | null>(null);
 
+  // ── `[CGS.46]` El arqueo completo (lo que contaba Control, jubilado el 2026-10-22) ──────────
+  readonly BILLETES = BILLETES_CAJA;
+  readonly MONEDAS = MONEDAS_CAJA;
+  readonly FUENTES_CF = [
+    { label: 'La pantalla de la máquina', value: 'pantalla de la máquina' },
+    { label: 'Un conteo físico', value: 'conteo físico' },
+  ];
+  readonly arqDlg = signal<{ tipo: TipoArqueoCaja; corte: ArqueoDia | null } | null>(null);
+  readonly arqPiezas = signal<Record<string, number | null>>({});
+  readonly arqMorralla = signal<number | null>(null);
+  readonly arqCF = signal<number | null>(null);
+  readonly arqCFFuente = signal<string>('pantalla de la máquina');
+  readonly arqCheques = signal<number | null>(null);
+  readonly arqPapeles = signal<number | null>(null);
+  readonly arqUsd = signal<number | null>(null);
+  readonly arqTC = signal<number | null>(null);
+  readonly arqTCFuente = signal('');
+  readonly arqNota = signal('');
+  readonly arqGuardando = signal(false);
+  readonly arqErr = signal<string | null>(null);
+  readonly arqGuardado = signal<ArqueoGuardadoDto | null>(null);
+  readonly arqRecientes = signal<ArqueoCajaDto[]>([]);
+
+  /** El corte que esta persona puede recontar: el último cerrado que no contó, ni cerró, ni capturó. */
+  readonly corteARecontar = computed<ArqueoDia | null>(() => {
+    const uid = this.uid() ?? '';
+    return this.arqueos().find((a) => a.estado !== 'borrador' && !a.no_revisa.includes(uid)) ?? null;
+  });
+
+  readonly arqEfectivo = computed(() => {
+    const p = this.arqPiezas();
+    let suma = 0;
+    for (const d of [...BILLETES_CAJA, ...MONEDAS_CAJA]) suma += (p[d.key] ?? 0) * d.valor;
+    return Math.round((suma + (this.arqMorralla() ?? 0)) * 100) / 100;
+  });
+
+  /** Poka-yoke: lo que falta para poder guardar, en palabras. `null` = se puede guardar. */
+  readonly arqFalta = computed<string | null>(() => {
+    const hayPiezas = Object.values(this.arqPiezas()).some((v) => v !== null && v !== undefined) || this.arqMorralla() !== null;
+    if (!hayPiezas) return 'Anota cuántas piezas contaste. Si el cajón está vacío, escribe 0 en alguna.';
+    if (this.arqCF() !== null && !this.arqCFFuente()) return 'Di de dónde sale la cifra de la caja fuerte.';
+    if ((this.arqUsd() ?? 0) > 0 && (!(this.arqTC() ?? 0) || !this.arqTCFuente().trim())) {
+      return 'Con dólares hace falta el tipo de cambio y de dónde salió.';
+    }
+    return null;
+  });
+
+  readonly tituloArqueo = computed(() => {
+    const d = this.arqDlg();
+    if (!d) return '';
+    return d.tipo === 'recuento' && d.corte ? `Recontar el corte ${d.corte.folio} (${dmy(d.corte.fecha)})` : 'Arqueo a media jornada';
+  });
+
+  ponerPieza(key: string, v: number | null): void {
+    this.arqPiezas.update((p) => ({ ...p, [key]: v }));
+  }
+
+  abrirArqueo(tipo: TipoArqueoCaja, corte: ArqueoDia | null): void {
+    this.arqPiezas.set({}); this.arqMorralla.set(null); this.arqCF.set(null); this.arqCFFuente.set('pantalla de la máquina');
+    this.arqCheques.set(null); this.arqPapeles.set(null); this.arqUsd.set(null); this.arqTC.set(null); this.arqTCFuente.set('');
+    this.arqNota.set(''); this.arqErr.set(null); this.arqGuardado.set(null);
+    this.arqDlg.set({ tipo, corte });
+  }
+
+  cerrarArqueo(): void {
+    this.arqDlg.set(null);
+  }
+
+  guardarArqueo(): void {
+    const d = this.arqDlg();
+    if (!d || this.arqGuardando() || this.arqFalta()) return;
+    // Síncrono en el primer clic: el doble clic no guarda dos arqueos.
+    this.arqGuardando.set(true);
+    this.arqErr.set(null);
+    const p = this.arqPiezas();
+    const piezas = [...BILLETES_CAJA, ...MONEDAS_CAJA]
+      .filter((x) => p[x.key] !== null && p[x.key] !== undefined)
+      .map((x) => ({ denom_key: x.key, piezas: Number(p[x.key]) }));
+    const body: NuevoArqueoCajaInput = {
+      tipo: d.tipo, corte_id: d.corte?.corte_id ?? null,
+      // Sólo morralla: un renglón en 0 dice que sí se contaron las piezas y no había.
+      piezas: piezas.length ? piezas : [{ denom_key: BILLETES_CAJA[0].key, piezas: 0 }],
+      morralla: this.arqMorralla(),
+      caja_fuerte: this.arqCF(), caja_fuerte_fuente: this.arqCF() === null ? null : this.arqCFFuente(),
+      cheques: this.arqCheques(), papeles: this.arqPapeles(),
+      usd: this.arqUsd(), tipo_cambio: this.arqTC(), tipo_cambio_fuente: this.arqTCFuente().trim() || null,
+      nota: this.arqNota().trim() || null,
+    };
+    this.cajas.registrarArqueoCaja(body).subscribe({
+      next: (g) => { this.arqGuardando.set(false); this.arqGuardado.set(g); this.cargarArqueosCaja(); this.cargarPosicion(); },
+      error: (e) => { this.arqGuardando.set(false); this.arqErr.set(textoDeError(e) || 'No se pudo guardar el arqueo.'); },
+    });
+  }
+
+  cargarArqueosCaja(): void {
+    this.cajas.arqueosCaja(8).subscribe({
+      next: (r) => this.arqRecientes.set(r.rows),
+      error: () => this.arqRecientes.set([]),
+    });
+  }
+
   cargarPosicion(): void {
+    this.cargarArqueosCaja();
     this.cajas.posicion().subscribe({
       next: (p) => { this.posicion.set(p); this.posicionError.set(null); },
       error: () => this.posicionError.set('No se pudo calcular lo que hay en caja.'),
